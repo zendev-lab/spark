@@ -27,6 +27,16 @@ const registrationRequest = {
 
 const durableEnrollmentTtlMs = 100 * 365 * 24 * 60 * 60 * 1000;
 
+function parseJson(value: string): ReturnType<typeof JSON.parse> {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error("Expected runtime registration test data to contain valid JSON", {
+      cause: error,
+    });
+  }
+}
+
 describe("runtime registration", () => {
   it("stores workspace registration token hashes only", () => {
     const db = openMemoryDatabase();
@@ -152,7 +162,7 @@ describe("runtime registration", () => {
     expect(token.usedAt).toBeTruthy();
     expect(token.createdRuntimeId).toBe(registered.runtimeId);
     expect(runtimeTokens).toHaveLength(2);
-    expect(runtimeTokens.map((row) => JSON.parse(row.scopesJson))).toEqual([
+    expect(runtimeTokens.map((row) => parseJson(row.scopesJson))).toEqual([
       ["runtime:connect"],
       ["runtime:refresh"],
     ]);
@@ -169,7 +179,7 @@ describe("runtime registration", () => {
     db.close();
   });
 
-  it("creates a server workspace and owner binding when registration includes a workspace", () => {
+  it("creates a server workspace and active lease when registration includes a workspace", () => {
     const db = openMemoryDatabase();
     migrate(db);
     const enrollment = createRuntimeEnrollmentToken(db, {
@@ -414,8 +424,8 @@ describe("runtime registration", () => {
 
     expect(originalAccess?.revokedAt).toBe("2026-05-25T00:30:00.000Z");
     expect(originalRefresh?.revokedAt).toBe("2026-05-25T00:30:00.000Z");
-    expect(JSON.parse(newAccess?.scopesJson ?? "[]")).toEqual(["runtime:connect"]);
-    expect(JSON.parse(newRefresh?.scopesJson ?? "[]")).toEqual(["runtime:refresh"]);
+    expect(parseJson(newAccess?.scopesJson ?? "[]")).toEqual(["runtime:connect"]);
+    expect(parseJson(newRefresh?.scopesJson ?? "[]")).toEqual(["runtime:refresh"]);
     expect(newAccess?.revokedAt).toBeNull();
     expect(newRefresh?.revokedAt).toBeNull();
     expectRuntimeRefreshError(

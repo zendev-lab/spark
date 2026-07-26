@@ -53,7 +53,7 @@ import type { SparkDaemonDriverControl } from "../packages/spark-extension/src/e
 import {
   loadCurrentProjectState,
   loadHiddenRoleRunInboxState,
-  loadSparkMode,
+  loadSparkPhase,
   saveCurrentProjectRef,
 } from "../packages/spark-extension/src/extension/session-state.ts";
 import {
@@ -85,7 +85,6 @@ import { normalizeSparkPlanTaskInputs } from "../packages/spark-extension/src/ex
 import { normalizeSparkClaimTaskInput } from "../packages/spark-extension/src/extension/spark-claim-task-tool-registration.ts";
 import { normalizeSparkFinishTaskInput } from "../packages/spark-extension/src/extension/spark-finish-task-tool-registration.ts";
 import {
-  goalReviewDirectory,
   rebuildWorkspaceReviewIndex,
   subjectReviewRecordPath,
   taskReviewDirectory,
@@ -128,10 +127,7 @@ import {
   normalizeTaskStatus,
 } from "../packages/spark-extension/src/extension/task-plan-tool.ts";
 import { normalizeSparkAskReplayArtifactRef } from "../packages/spark-extension/src/extension/spark-ask-tool-registration.ts";
-import {
-  isReproRequirementSatisfied,
-  readSessionRepro,
-} from "../packages/spark-extension/src/extension/spark-session-repro.ts";
+import { readSessionRepro } from "../packages/spark-extension/src/extension/spark-session-repro.ts";
 import {
   inferSessionGoalObjective,
   loadSessionGoal,
@@ -772,7 +768,9 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     assert.ok(executeCommand, "missing /implement command");
     await executeCommand.handler("Finish the direct execution task", initializedCtx);
     assert.equal(initializedRun.messages.length, 0);
-    assert.equal(activeTestDriver(initializedRun, "implement")?.status, "scheduled");
+    assert.equal(initializedRun.driverControl.drivers.size, 0);
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.match(initializedRun.customMessages.at(-1)?.content ?? "", /Implementation phase/u);
     assert.deepEqual(initializedCtx.sparkActiveLens, {
       phase: "implement",
       drive: "assist",
@@ -780,8 +778,11 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
 
     initializedCtx.ui.select = async () =>
       assert.fail("/implement should not open a canned implement-strategy ask");
+    const implementMessageCount = initializedRun.customMessages.length;
     await executeCommand.handler("keep going until done", initializedCtx);
-    assert.match(activeTestDriver(initializedRun, "implement")?.reason ?? "", /implement/u);
+    assert.equal(initializedRun.driverControl.drivers.size, 0);
+    assert.equal(initializedRun.customMessages.length, implementMessageCount + 1);
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
     const askedGoalState = JSON.parse(
       await readFile(currentProjectStatePath(initializedDir, initializedCtx), "utf8"),
     ) as { projectRef?: string; executionMode?: unknown };
@@ -1519,7 +1520,7 @@ test("impl_plan_tasks reports all-rejected readiness without saving", async () =
   }
 });
 
-test("/implement continues by prompting for the next ready task without auto-answering or auto-claiming", async () => {
+test("/implement continues through the agent-end hook without auto-answering or auto-claiming", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-execute-one-task-"));
   try {
     await writeEmptySparkProject(dir);
@@ -1555,7 +1556,8 @@ test("/implement continues by prompting for the next ready task without auto-ans
     const executeCommand = run.commands.get("implement");
     assert.ok(executeCommand, "missing /implement command");
     await executeCommand.handler("work through the ready queue", ctx);
-    assert.equal(activeTestDriver(run, "implement")?.status, "scheduled");
+    assert.equal(run.driverControl.drivers.size, 0);
+    assert.equal(run.customMessages.at(-1)?.customType, "spark-mode-request");
     assert.deepEqual(ctx.sparkActiveLens, {
       phase: "implement",
       drive: "assist",
@@ -1599,7 +1601,16 @@ test("/implement continues by prompting for the next ready task without auto-ans
     );
     assert.equal(await tryConsumeSparkModeContext(run, ctx), undefined);
 
-    assert.equal(run.eventHandlers.has("agent_end"), false);
+    const agentEndHandlers = run.eventHandlers.get("agent_end") ?? [];
+    assert.ok(agentEndHandlers.length > 0, "missing agent-end reconciliation hook");
+    const messageCountBeforeAgentEnd = run.customMessages.length;
+    for (const handler of agentEndHandlers) await handler({}, ctx);
+    const continuation = run.customMessages
+      .slice(messageCountBeforeAgentEnd)
+      .find((message) => message.customType === "spark-agent-end-reconciliation");
+    assert.ok(continuation, "ready implementation work should queue one hook continuation");
+    assert.match(continuation.content, /@second-ready/u);
+    assert.equal(run.driverControl.drivers.size, 0);
     assert.deepEqual(ctx.sparkActiveLens, {
       phase: "implement",
       drive: "assist",
@@ -1953,10 +1964,10 @@ test("Shift+Tab shortcut shows per-turn Spark mode hints without persisting mode
     assert.equal(shortcut.isActive?.(ctx), true);
 
     await executeSparkTool(run.tools, "impl_use_project", ctx, { project: "Tool persistence" });
-    assert.equal((await loadSparkMode(dir, ctx)).mode, "plan");
+    assert.equal((await loadSparkPhase(dir, ctx)).phase, "plan");
 
     await shortcut.handler(ctx);
-    assert.equal((await loadSparkMode(dir, ctx)).mode, "plan");
+    assert.equal((await loadSparkPhase(dir, ctx)).phase, "plan");
     assert.equal(ctx.editorText, "/plan ");
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
@@ -5982,8 +5993,8 @@ test("phase tool returns requirements and persists session phase", async () => {
     });
     assert.deepEqual(switched.details, { phase: "plan", statusOnly: false });
     assert.match(toolText(switched), /Phase set to: plan/);
-    assert.deepEqual(await loadSparkMode(dir, ctx), {
-      mode: "plan",
+    assert.deepEqual(await loadSparkPhase(dir, ctx), {
+      phase: "plan",
       projectRef: (await loadCurrentProjectState(dir, ctx))?.projectRef,
     });
 
@@ -9672,6 +9683,12 @@ test("todo tool tracks session-bound checklist independent of claimed tasks", as
         ["Collect review feedback", "in_progress"],
       ],
     );
+    await executeSparkTool(tools, "todo", ctx, {
+      action: "done",
+      item: "Collect review feedback",
+    });
+    const completed = await executeSparkTool(tools, "todo", ctx, { action: "list" });
+    assert.match(toolText(completed), /Session TODOs: 0 active/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -10269,16 +10286,6 @@ async function tryConsumeSparkRuntimeContext(
   return undefined;
 }
 
-async function consumeSparkRoleRunInbox(
-  run: ReturnType<typeof registerSparkToolsForTest>,
-  ctx: TestSparkContext,
-): Promise<string> {
-  return (
-    (await tryConsumeSparkRuntimeContext(run, ctx, "spark-role-run-inbox")) ??
-    assert.fail("missing hidden Spark role-run inbox")
-  );
-}
-
 async function executeSparkTool(
   tools: Map<string, SparkToolConfig>,
   name: string,
@@ -10295,24 +10302,6 @@ async function useOnlySparkProject(
   ctx: TestSparkContext,
 ): Promise<void> {
   await executeSparkTool(tools, "impl_use_project", ctx, { project: "Tool persistence" });
-}
-
-async function putProjectGoalCompletionEvidence(
-  ctx: TestSparkContext,
-  title: string,
-): Promise<ArtifactRef> {
-  const state = JSON.parse(await readFile(currentProjectStatePath(ctx.cwd, ctx), "utf8")) as {
-    projectRef?: ProjectRef;
-  };
-  assert.ok(state.projectRef, "goal completion evidence requires a current project");
-  const artifact = await defaultArtifactStore(ctx.cwd).put({
-    kind: "trace",
-    title,
-    format: "text",
-    body: `${title}. This fixture provides project-scoped evidence for reviewer evaluation.`,
-    provenance: { producer: "review", projectRef: state.projectRef },
-  });
-  return artifact.ref;
 }
 
 async function planAndClaimTask(
@@ -10410,7 +10399,6 @@ function createTestDriverControl(): TestSparkDaemonDriverControl {
         if (
           driver.ownerSessionId === input.ownerSessionId &&
           driver.kind !== "workflow" &&
-          driver.kind !== "session_todo" &&
           driverId !== input.driverId
         ) {
           drivers.set(driverId, { ...driver, status: "stopped", dueAt: undefined });

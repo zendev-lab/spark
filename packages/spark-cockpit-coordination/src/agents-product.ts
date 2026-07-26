@@ -54,7 +54,7 @@ type ArtifactFallbackRow = {
 };
 
 export function loadAgentsProductProjection(db: DatabaseSync, workspaceId: string) {
-  const ownerBinding =
+  const lease =
     (db
       .prepare(
         `SELECT wob.runtime_workspace_binding_id AS runtimeWorkspaceBindingId,
@@ -166,7 +166,7 @@ export function loadAgentsProductProjection(db: DatabaseSync, workspaceId: strin
   });
 
   return {
-    ownerBinding,
+    lease,
     workspaceControl: loadWorkspaceServerControl(db, workspaceId),
     commands,
     invocations,

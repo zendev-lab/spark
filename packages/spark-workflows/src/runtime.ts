@@ -919,9 +919,6 @@ export function applyWorkflowStageModel(
   return { ...options, model: stageModel };
 }
 
-/** @deprecated Use applyWorkflowStageModel. */
-export const applyWorkflowPhaseModel = applyWorkflowStageModel;
-
 export function normalizeWorkflowArtifactRecordInput(
   input: WorkflowArtifactRecordInput,
 ): WorkflowArtifactRecordInput {
@@ -996,9 +993,6 @@ export function normalizeWorkflowStageStatus(
   if (status === "success" || status === "fail" || status === "skip") return status;
   throw new Error("workflow stage status must be success, fail, or skip");
 }
-
-/** @deprecated Use normalizeWorkflowStageStatus. */
-export const normalizeWorkflowPhaseStatus = normalizeWorkflowStageStatus;
 
 function workflowTelemetryTimestamp(): string {
   return new Date().toISOString();

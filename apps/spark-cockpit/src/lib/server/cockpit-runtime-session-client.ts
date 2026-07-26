@@ -79,7 +79,7 @@ export type CockpitRuntimeSessionSnapshotRequest = Omit<
 
 export interface CockpitRuntimeSessionListResult {
   sessions: SparkSessionRegistryRecord[];
-  /** True when a live owner route can accept control commands. */
+  /** True when a live lease route can accept control commands. */
   controlAvailable: boolean;
 }
 
@@ -729,7 +729,11 @@ function requireOnlineRoute(db: DatabaseSync, route: RuntimeSessionRoute): Runti
 }
 
 function publicJsonObject(value: unknown) {
-  return sparkProtocolJsonObjectSchema.parse(JSON.parse(JSON.stringify(value)));
+  try {
+    return sparkProtocolJsonObjectSchema.parse(JSON.parse(JSON.stringify(value)));
+  } catch (error) {
+    throw new Error("Value is not a valid public JSON object", { cause: error });
+  }
 }
 
 function unavailableFrom(error: unknown): CockpitRuntimeSessionUnavailableError {

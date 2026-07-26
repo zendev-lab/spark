@@ -38,7 +38,7 @@ import { registerWorkspace } from "../../../../spark-daemon/src/store/workspaces
 import {
   attachRuntimeWebSocket,
   authenticateRuntimeToken,
-  createWorkspaceWithOwnerBinding,
+  createWorkspaceWithLease,
   hashSecret,
 } from "@zendev-lab/spark-cockpit-coordination";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
@@ -110,7 +110,7 @@ test("HTTPS Cockpit controls models and channels over WSS without a daemon socke
        VALUES (?, ?, 'remote-model', ?, 'Remote model workspace', 'available', '{}', '{}', ?, ?)`,
       )
       .run(bindingId, runtimeId, root, now, now);
-    const cockpitWorkspace = createWorkspaceWithOwnerBinding(cockpitDb, {
+    const cockpitWorkspace = createWorkspaceWithLease(cockpitDb, {
       slug: "remote-model",
       name: "Remote model workspace",
       runtimeWorkspaceBindingId: bindingId,

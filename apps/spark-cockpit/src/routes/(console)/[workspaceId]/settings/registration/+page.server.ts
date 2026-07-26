@@ -13,7 +13,7 @@ import {
   revokeRuntimeEnrollmentToken,
 } from "@zendev-lab/spark-cockpit-coordination/runtime-registration";
 import { loadWorkspaceRegistrationPage } from "@zendev-lab/spark-cockpit-coordination/cockpit-queries";
-import { unbindWorkspaceOwner } from "@zendev-lab/spark-cockpit-coordination/projection-services";
+import { unbindWorkspaceLease } from "@zendev-lab/spark-cockpit-coordination/projection-services";
 import { workspacePath } from "$lib/workspace-routes";
 import type { Actions, PageServerLoad } from "./$types";
 
@@ -51,7 +51,7 @@ export const actions: Actions = {
       return fail(400, { intent: "workspaceBinding", message: messages.bindingIdRequired });
     }
     try {
-      const result = unbindWorkspaceOwner(db, {
+      const result = unbindWorkspaceLease(db, {
         workspaceId: page.workspace.id,
         expectedRuntimeWorkspaceBindingId: bindingId,
         actorId: userId,
@@ -64,7 +64,7 @@ export const actions: Actions = {
             : messages.workspaceAlreadyUnbound,
       };
     } catch {
-      return fail(409, { intent: "workspaceBinding", message: messages.workspaceOwnerChanged });
+      return fail(409, { intent: "workspaceBinding", message: messages.workspaceLeaseChanged });
     }
   },
 

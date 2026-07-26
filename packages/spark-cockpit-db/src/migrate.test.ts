@@ -176,7 +176,7 @@ describe("migrations", () => {
     db.close();
   });
 
-  it("normalizes legacy duplicate owner bindings before enforcing one active owner", () => {
+  it("normalizes legacy duplicate lease rows before enforcing one active lease", () => {
     const db = openMemoryDatabase();
     const migrations = loadMigrations();
     migrate(

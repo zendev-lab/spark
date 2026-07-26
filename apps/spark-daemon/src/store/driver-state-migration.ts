@@ -1,12 +1,11 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { stableId } from "@zendev-lab/spark-core";
 import {
   sessionGoalStorePathV2,
   sessionLoopStorePathV2,
   sessionReproStorePathV2,
-  sessionStateStorePath,
 } from "@zendev-lab/spark-loop";
 import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
 import { defaultWorkflowRunStore } from "@zendev-lab/spark-workflows";
@@ -17,7 +16,7 @@ const MIGRATION_KEY = "migration.daemon-autonomous-drivers-v1";
 
 export interface DriverStateMigrationReport {
   sessions: number;
-  imported: Record<"goal" | "loop" | "repro" | "implement" | "workflow", number>;
+  imported: Record<"goal" | "loop" | "repro" | "workflow", number>;
   strippedLegacyRuntimeFields: number;
 }
 
@@ -39,7 +38,7 @@ export async function migrateLegacyDriverState(input: {
   const sessions = await input.sessionRegistry.list({ includeArchived: false });
   const report: DriverStateMigrationReport = {
     sessions: sessions.length,
-    imported: { goal: 0, loop: 0, repro: 0, implement: 0, workflow: 0 },
+    imported: { goal: 0, loop: 0, repro: 0, workflow: 0 },
     strippedLegacyRuntimeFields: 0,
   };
   const migratedWorkflowCwds = new Set<string>();
@@ -51,32 +50,15 @@ export async function migrateLegacyDriverState(input: {
     const goalPath = sessionGoalStorePathV2(cwd, ctx);
     const loopPath = sessionLoopStorePathV2(cwd, ctx);
     const reproPath = sessionReproStorePathV2(cwd, ctx);
-    const statePath = sessionStateStorePath(cwd, ctx);
     const goalSnapshot = await readObject(goalPath);
     const loopSnapshot = await readObject(loopPath);
     const reproSnapshot = await readObject(reproPath);
-    const stateSnapshot = await readObject(statePath);
     const goal = objectField(goalSnapshot, "goal");
     const loop = objectField(loopSnapshot, "loop");
     const repro = objectField(reproSnapshot, "repro");
 
-    // Preserve the old precedence while materializing every legacy driver row:
-    // implement < loop < goal < repro. Starting later foreground drivers
-    // atomically stops the earlier row.
-    if (stateSnapshot?.phase === "implement") {
-      if (
-        importDriver(input.driverStore, {
-          driverId: `implement:${session.sessionId}`,
-          kind: "implement",
-          ownerSessionId: session.sessionId,
-          cwd,
-          prompt: renderImplementPrompt(),
-          dueAt: now,
-          reason: "migrated standalone implement phase",
-        })
-      )
-        report.imported.implement += 1;
-    }
+    // Plan and implement phases are lifecycle-hook owned. Only autonomous,
+    // genuinely tick-based legacy state is materialized into daemon drivers.
     if (loop?.status === "active" && stringField(loop, "loopId")) {
       const retry = legacyRetryState(loop, now, 0);
       if (
@@ -262,14 +244,6 @@ function renderReproPrompt(objective: string | undefined): string {
   ]
     .filter((line): line is string => Boolean(line))
     .join("\n");
-}
-
-function renderImplementPrompt(): string {
-  return [
-    "Continue the current Spark implementation frontier by one turn.",
-    "Work through ready tasks until no safe ready work remains.",
-    'Before ending, call driver({ action: "schedule", delayMs: 0, reason }) only if concrete ready work remains; otherwise call driver({ action: "stop", reason }). Omitting both leaves the driver dormant.',
-  ].join("\n");
 }
 
 function renderWorkflowPrompt(): string {

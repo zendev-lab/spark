@@ -7,7 +7,7 @@ import {
   type RuntimeCommandResultPayload,
   type SparkSessionRegistryRecord,
 } from "@zendev-lab/spark-protocol";
-import { createWorkspaceWithOwnerBinding, recordInvocationUpdate } from "./projection-services.ts";
+import { createWorkspaceWithLease, recordInvocationUpdate } from "./projection-services.ts";
 import {
   getRuntimeSessionProjection,
   getRuntimeTurnStatusProjection,
@@ -51,7 +51,7 @@ function setup() {
        diagnostics_json, created_at, updated_at)
      VALUES (?, ?, 'session-control', 'Session workspace', 'available', '{}', '{}', ?, ?)`,
   ).run(bindingId, runtimeId, now, now);
-  const workspace = createWorkspaceWithOwnerBinding(db, {
+  const workspace = createWorkspaceWithLease(db, {
     slug: "session-control",
     name: "Session workspace",
     runtimeWorkspaceBindingId: bindingId,
@@ -86,7 +86,7 @@ function daemonSession(): SparkSessionRegistryRecord {
 }
 
 describe("runtime session projections", () => {
-  it("isolates daemon and active workspace owner routes", () => {
+  it("isolates daemon and active workspace lease routes", () => {
     const h = setup();
     const workspace = workspaceSession(h.workspaceId);
     const daemon = daemonSession();
@@ -768,7 +768,13 @@ function projectSession(
 }
 
 function publicValue(value: unknown) {
-  return sparkProtocolJsonObjectSchema.parse(JSON.parse(JSON.stringify(value)));
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) throw new Error("value is not JSON-serializable");
+    return sparkProtocolJsonObjectSchema.parse(JSON.parse(serialized));
+  } catch (error) {
+    throw new Error("Expected test value to satisfy the public JSON protocol", { cause: error });
+  }
 }
 
 function recordResult(

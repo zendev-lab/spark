@@ -26,7 +26,6 @@ import {
   RuntimeAccessTokenError,
   RuntimeDeviceAuthorizationError,
   RuntimeWorkspaceLeaseConflictError,
-  RuntimeWorkspaceOwnerConflictError,
 } from "./types.ts";
 import type {
   RegisteredRuntime,
@@ -1288,7 +1287,7 @@ function assertWorkspaceLeaseAvailable(
     )
     .get(workspaceId) as { currentBindingId: string; currentRuntimeId: string } | undefined;
   if (active && active.currentBindingId !== attemptedBindingId) {
-    throw new RuntimeWorkspaceOwnerConflictError({
+    throw new RuntimeWorkspaceLeaseConflictError({
       workspaceId,
       currentRuntimeId: active.currentRuntimeId,
       currentBindingId: active.currentBindingId,
@@ -1324,7 +1323,7 @@ function assertWorkspaceLeaseAvailable(
   );
   if (!pathHolder) return;
 
-  throw new RuntimeWorkspaceOwnerConflictError({
+  throw new RuntimeWorkspaceLeaseConflictError({
     workspaceId: pathHolder.workspaceId,
     currentRuntimeId: pathHolder.currentRuntimeId,
     currentBindingId: pathHolder.currentBindingId,
@@ -1391,7 +1390,6 @@ function appendWorkspaceLeaseConflictAudit(
       attemptedRuntimeId: conflict.attemptedRuntimeId,
       attemptedBindingId: conflict.attemptedBindingId,
       outcome: "rejected",
-      aliasReasonCode: "WORKSPACE_OWNER_CONFLICT",
     },
   });
 }

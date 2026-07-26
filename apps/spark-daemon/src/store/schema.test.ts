@@ -67,6 +67,62 @@ describe("migrateSparkDaemonDatabase", () => {
     }
   });
 
+  it("retires hook-owned implement and session TODO driver ticks", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      migrateSparkDaemonDatabase(db);
+      db.prepare(
+        `INSERT INTO invocations (
+           id, status, task_json, source_kind, created_at, updated_at
+         ) VALUES (?, 'running', ?, 'driver.tick', ?, ?)`,
+      ).run(
+        "inv-implement",
+        JSON.stringify({ type: "driver.tick", kind: "implement" }),
+        "2026-07-25T00:00:00.000Z",
+        "2026-07-25T00:00:00.000Z",
+      );
+      const insertDriver = db.prepare(
+        `INSERT INTO driver_wakeups (
+           driver_id, kind, lane, owner_session_id, continuity, status, generation,
+           attempt, last_invocation_id, prompt, route_json, created_at, updated_at
+         ) VALUES (?, ?, ?, 'session-one', 'session', 'running', 1, 0, ?, 'prompt', ?, ?, ?)`,
+      );
+      const route = JSON.stringify({ cwd: "/tmp/project" });
+      insertDriver.run(
+        "implement:session-one",
+        "implement",
+        "foreground",
+        "inv-implement",
+        route,
+        "2026-07-25T00:00:00.000Z",
+        "2026-07-25T00:00:00.000Z",
+      );
+      insertDriver.run(
+        "session-todo:session-one",
+        "session_todo",
+        "fallback",
+        null,
+        route,
+        "2026-07-25T00:00:00.000Z",
+        "2026-07-25T00:00:00.000Z",
+      );
+
+      migrateSparkDaemonDatabase(db);
+
+      expect(db.prepare("SELECT driver_id FROM driver_wakeups").all()).toEqual([]);
+      expect(
+        db.prepare("SELECT status, error_code FROM invocations WHERE id = ?").get("inv-implement"),
+      ).toEqual({ status: "cancelled", error_code: "DRIVER_KIND_RETIRED" });
+      expect(
+        db
+          .prepare("SELECT value FROM daemon_meta WHERE key = ?")
+          .get("migration.retire-hook-owned-driver-ticks-v1"),
+      ).toEqual({ value: "complete" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("widens an existing channel delivery ledger for durable inbound receipts", () => {
     const db = new DatabaseSync(":memory:");
     try {

@@ -44,7 +44,7 @@ test("runtime model control rejects sessions outside the explicit route scope", 
           payload: { sessionId: sessionA.sessionId, model },
         },
       ),
-      /does not belong to the routed runtime owner/u,
+      /does not belong to the routed control scope/u,
     );
     await assert.rejects(
       executeSparkDaemonModelChannelPublicControl(
@@ -55,7 +55,7 @@ test("runtime model control rejects sessions outside the explicit route scope", 
           payload: { sessionId: sessionA.sessionId },
         },
       ),
-      /does not belong to the routed runtime owner/u,
+      /does not belong to the routed control scope/u,
     );
     await assert.rejects(
       executeSparkDaemonModelChannelPublicControl(
@@ -67,7 +67,7 @@ test("runtime model control rejects sessions outside the explicit route scope", 
           payload: { sessionId: daemonSession.sessionId, thinkingLevel: "high" },
         },
       ),
-      /does not belong to the routed runtime owner/u,
+      /does not belong to the routed control scope/u,
     );
 
     assert.equal((await registry.get(sessionA.sessionId))?.model, undefined);

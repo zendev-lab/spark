@@ -1479,7 +1479,7 @@ const messages = {
       bindingIdRequired: "缺少已连接目录标识。",
       workspaceUnbound: "已从当前 Cockpit 工作空间解绑；daemon 会在下一次心跳同步状态。",
       workspaceAlreadyUnbound: "当前 Cockpit 工作空间已经解绑。",
-      workspaceOwnerChanged: "绑定关系已经变化，请刷新后重试。",
+      workspaceLeaseChanged: "目录租约已经变化，请刷新后重试。",
     },
   },
   daemonAuthorization: {

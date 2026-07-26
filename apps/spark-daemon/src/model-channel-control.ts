@@ -441,12 +441,12 @@ async function requireSessionRoute(
     throw new Error("Spark daemon session registry is not available.");
   }
   const session = await options.sessionRegistry.get(sessionId);
-  if (!session) throw new Error("Session does not belong to the routed runtime owner.");
+  if (!session) throw new Error("Session does not belong to the routed control scope.");
   const matches =
     scope === "daemon"
       ? session.scope.kind === "daemon"
       : session.scope.kind === "workspace" && session.scope.workspaceId === workspaceId;
-  if (!matches) throw new Error("Session does not belong to the routed runtime owner.");
+  if (!matches) throw new Error("Session does not belong to the routed control scope.");
 }
 
 function requireModelControl(

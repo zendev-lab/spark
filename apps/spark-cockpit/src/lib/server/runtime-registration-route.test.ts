@@ -38,12 +38,18 @@ const conflict = new RuntimeWorkspaceLeaseConflictError({
   occurredAt: "2026-07-15T00:00:00.000Z",
 });
 
+function parseUrl(value: string): URL {
+  const url = URL.parse(value);
+  if (!url) throw new Error(`Expected a valid test URL: ${value}`);
+  return url;
+}
+
 describe("runtime registration lease conflict routes", () => {
   it("maps initial runtime registration conflict to HTTP 409", async () => {
     mocks.registerRuntime.mockImplementationOnce(() => {
       throw conflict;
     });
-    const url = new URL("http://localhost/api/v1/runtime/runtimes/register");
+    const url = parseUrl("http://localhost/api/v1/runtime/runtimes/register");
     const response = (await registerRuntimePost({
       request: new Request(url, {
         method: "POST",
@@ -74,7 +80,7 @@ describe("runtime registration lease conflict routes", () => {
     mocks.registerRuntimeWorkspace.mockImplementationOnce(() => {
       throw conflict;
     });
-    const url = new URL(
+    const url = parseUrl(
       "http://localhost/api/v1/runtime/runtimes/rt_11111111111111111111111111111111/workspaces/register",
     );
     const response = (await registerWorkspacePost({
@@ -103,7 +109,6 @@ describe("runtime registration lease conflict routes", () => {
 
 async function expectLeaseConflictResponse(response: Response, requestId: string): Promise<void> {
   expect(response.status).toBe(409);
-  // Primary HTTP code is workspace_lease_conflict; aliasReasonCode remains WORKSPACE_OWNER_CONFLICT.
   await expect(response.json()).resolves.toEqual({
     error: {
       code: "workspace_lease_conflict",

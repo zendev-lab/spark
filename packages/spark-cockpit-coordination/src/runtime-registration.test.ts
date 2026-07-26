@@ -28,7 +28,6 @@ import {
   RuntimeEnrollmentError,
   RuntimeTokenRefreshError,
   RuntimeWorkspaceLeaseConflictError,
-  RuntimeWorkspaceOwnerConflictError,
   unbindRuntimeWorkspace,
 } from "./runtime-registration";
 
@@ -41,6 +40,14 @@ const registrationRequest = {
 } satisfies RuntimeRegistrationRequest;
 
 const durableEnrollmentTtlMs = 100 * 365 * 24 * 60 * 60 * 1000;
+
+function parseJson(value: string, label: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error(`Expected ${label} to contain valid JSON`, { cause: error });
+  }
+}
 
 describe("runtime registration", () => {
   it("mints browser access only for this runtime's actively leased binding", () => {
@@ -262,7 +269,7 @@ describe("runtime registration", () => {
     expect(token.usedAt).toBeTruthy();
     expect(token.createdRuntimeId).toBe(registered.runtimeId);
     expect(runtimeTokens).toHaveLength(2);
-    expect(runtimeTokens.map((row) => JSON.parse(row.scopesJson))).toEqual([
+    expect(runtimeTokens.map((row) => parseJson(row.scopesJson, "runtime token scopes"))).toEqual([
       ["runtime:connect"],
       ["runtime:refresh"],
     ]);
@@ -279,7 +286,7 @@ describe("runtime registration", () => {
     db.close();
   });
 
-  it("creates a server workspace and owner binding when registration includes a workspace", () => {
+  it("creates a server workspace and active lease when registration includes a workspace", () => {
     const db = openMemoryDatabase();
     migrate(db);
     const enrollment = createRuntimeEnrollmentToken(db, {
@@ -343,7 +350,7 @@ describe("runtime registration", () => {
       status: string;
     };
     expect(binding.localPath).toBe("/Users/test/workspaces/local-default");
-    const owner = db
+    const lease = db
       .prepare(
         `SELECT workspace_id AS workspaceId,
                 runtime_workspace_binding_id AS runtimeWorkspaceBindingId,
@@ -372,7 +379,7 @@ describe("runtime registration", () => {
       displayName: "local-default",
       status: "available",
     });
-    expect(owner).toEqual({
+    expect(lease).toEqual({
       workspaceId: workspace.id,
       runtimeWorkspaceBindingId: binding.id,
       endedAt: null,
@@ -448,7 +455,7 @@ describe("runtime registration", () => {
       workspaceId: "ws_lease_other",
       ttlMs: durableEnrollmentTtlMs,
     });
-    const conflict = expectWorkspaceOwnerConflict(() =>
+    const conflict = expectWorkspaceLeaseConflict(() =>
       registerRuntime(
         db,
         {
@@ -476,7 +483,7 @@ describe("runtime registration", () => {
     db.close();
   });
 
-  it("keeps the same active owner binding for idempotent same-runtime registration", () => {
+  it("keeps the same active lease for idempotent same-runtime registration", () => {
     const db = openMemoryDatabase();
     migrate(db);
     const enrollment = createRuntimeEnrollmentToken(db, {
@@ -620,7 +627,7 @@ describe("runtime registration", () => {
       workspaceSlug: "path-second",
       ttlMs: durableEnrollmentTtlMs,
     });
-    expectWorkspaceOwnerConflict(() =>
+    expectWorkspaceLeaseConflict(() =>
       registerRuntime(
         db,
         {
@@ -676,11 +683,11 @@ describe("runtime registration", () => {
       workspaceIds: [binding.workspaceId],
       unboundAt: "2026-07-20T00:00:00.000Z",
     });
-    expect(ownerBindingState(db, binding.workspaceId)?.endedAt).toBe("2026-07-20T00:00:00.000Z");
+    expect(workspaceLeaseState(db, binding.workspaceId)?.endedAt).toBe("2026-07-20T00:00:00.000Z");
     db.close();
   });
 
-  it("rejects owner takeover across enrollment, device, and refreshed-token registration", () => {
+  it("rejects lease takeover across enrollment, device, and refreshed-token registration", () => {
     const db = openMemoryDatabase();
     migrate(db);
     insertUser(db, "usr_owner", "owner", "active");
@@ -701,18 +708,18 @@ describe("runtime registration", () => {
       },
       ownerEnrollment.refreshToken,
     );
-    const ownerBinding = owner.workspaceBinding;
-    if (!ownerBinding) throw new Error("Expected the owner workspace binding.");
-    insertPendingCommandDelivery(db, ownerBinding.workspaceId, ownerBinding.bindingId);
-    const originalOwner = ownerBindingState(db, ownerBinding.workspaceId);
+    const workspaceLease = owner.workspaceBinding;
+    if (!workspaceLease) throw new Error("Expected an active workspace lease binding.");
+    insertPendingCommandDelivery(db, workspaceLease.workspaceId, workspaceLease.bindingId);
+    const originalLease = workspaceLeaseState(db, workspaceLease.workspaceId);
     const originalDelivery = pendingDeliveryState(db);
-    if (!originalOwner || !originalDelivery) throw new Error("Expected original owner state.");
-    const originalOwnerBindingId = originalOwner.bindingId;
+    if (!originalLease || !originalDelivery) throw new Error("Expected original lease state.");
+    const originalLeaseBindingId = originalLease.bindingId;
     const originalDeliveryBindingId = originalDelivery.bindingId;
-    const conflictErrors: RuntimeWorkspaceOwnerConflictError[] = [];
+    const conflictErrors: RuntimeWorkspaceLeaseConflictError[] = [];
 
     const directGrant = createRuntimeEnrollmentToken(db, {
-      workspaceId: ownerBinding.workspaceId,
+      workspaceId: workspaceLease.workspaceId,
       ttlMs: durableEnrollmentTtlMs,
     });
     const tokenMarker = "spark_wsreg_OWNER_GUARD_SECRET_MARKER_DO_NOT_PERSIST";
@@ -721,7 +728,7 @@ describe("runtime registration", () => {
       directGrant.id,
     );
     conflictErrors.push(
-      expectWorkspaceOwnerConflict(() =>
+      expectWorkspaceLeaseConflict(() =>
         registerRuntime(
           db,
           {
@@ -749,11 +756,11 @@ describe("runtime registration", () => {
       deviceCode: deviceAuthorization.deviceCode,
     });
     const deviceWorkspaceGrant = createRuntimeEnrollmentToken(db, {
-      workspaceId: ownerBinding.workspaceId,
+      workspaceId: workspaceLease.workspaceId,
       ttlMs: durableEnrollmentTtlMs,
     });
     conflictErrors.push(
-      expectWorkspaceOwnerConflict(() =>
+      expectWorkspaceLeaseConflict(() =>
         registerRuntimeWorkspace(
           db,
           deviceRuntime.runtimeId,
@@ -783,11 +790,11 @@ describe("runtime registration", () => {
       refreshToken: refreshRuntime.refreshToken,
     });
     const refreshWorkspaceGrant = createRuntimeEnrollmentToken(db, {
-      workspaceId: ownerBinding.workspaceId,
+      workspaceId: workspaceLease.workspaceId,
       ttlMs: durableEnrollmentTtlMs,
     });
     conflictErrors.push(
-      expectWorkspaceOwnerConflict(() =>
+      expectWorkspaceLeaseConflict(() =>
         registerRuntimeWorkspace(
           db,
           refreshRuntime.runtimeId,
@@ -808,7 +815,7 @@ describe("runtime registration", () => {
       "WORKSPACE_LEASE_CONFLICT",
       "WORKSPACE_LEASE_CONFLICT",
     ]);
-    expect(ownerBindingState(db, ownerBinding.workspaceId)).toEqual(originalOwner);
+    expect(workspaceLeaseState(db, workspaceLease.workspaceId)).toEqual(originalLease);
     expect(pendingDeliveryState(db)).toEqual(originalDelivery);
     expect(
       db.prepare("SELECT COUNT(*) AS count FROM workspace_leases WHERE ended_at IS NULL").get(),
@@ -840,14 +847,14 @@ describe("runtime registration", () => {
     expect(auditEvents).toHaveLength(3);
     for (const event of auditEvents) {
       expect(event).toMatchObject({
-        workspaceId: ownerBinding.workspaceId,
+        workspaceId: workspaceLease.workspaceId,
         kind: "workspace.lease_registration_conflict",
-        subjectId: ownerBinding.bindingId,
+        subjectId: workspaceLease.bindingId,
         createdAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
       });
-      expect(JSON.parse(event.payloadJson)).toMatchObject({
+      expect(parseJson(event.payloadJson, "lease conflict event payload")).toMatchObject({
         currentRuntimeId: owner.runtimeId,
-        currentBindingId: ownerBinding.bindingId,
+        currentBindingId: workspaceLease.bindingId,
         attemptedRuntimeId: expect.stringMatching(/^rt_/),
         attemptedBindingId: expect.stringMatching(/^rtwb_/),
         outcome: "rejected",
@@ -876,10 +883,10 @@ describe("runtime registration", () => {
       `SPARK_WORKSPACE_LEASE_CONFLICT_EVIDENCE ${JSON.stringify({
         conflictCode: conflictErrors[0]?.reasonCode,
         attemptedRuntimeCount: conflictErrors.length,
-        activeOwnerCount: 1,
-        activeBindingId: originalOwnerBindingId,
-        expectedBindingId: ownerBinding.bindingId,
-        totalOwnerBindingCount: 1,
+        activeLeaseCount: 1,
+        activeBindingId: originalLeaseBindingId,
+        expectedBindingId: workspaceLease.bindingId,
+        totalLeaseCount: 1,
         pendingDeliveryPreserved: pendingDeliveryState(db)?.bindingId === originalDeliveryBindingId,
         registrationTokensConsumed: 0,
         secretMarkerPersisted: auditableText.includes(tokenMarker),
@@ -888,7 +895,7 @@ describe("runtime registration", () => {
     db.close();
   });
 
-  it("allows only one active owner when two runtime processes race", async () => {
+  it("allows only one active lease when two runtime processes race", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-owner-race-"));
     const databasePath = join(root, "cockpit.sqlite");
     const db = openDatabase({ path: databasePath });
@@ -1120,8 +1127,12 @@ describe("runtime registration", () => {
 
     expect(originalAccess?.revokedAt).toBe("2026-05-25T00:30:00.000Z");
     expect(originalRefresh?.revokedAt).toBe("2026-05-25T00:30:00.000Z");
-    expect(JSON.parse(newAccess?.scopesJson ?? "[]")).toEqual(["runtime:connect"]);
-    expect(JSON.parse(newRefresh?.scopesJson ?? "[]")).toEqual(["runtime:refresh"]);
+    expect(parseJson(newAccess?.scopesJson ?? "[]", "new access token scopes")).toEqual([
+      "runtime:connect",
+    ]);
+    expect(parseJson(newRefresh?.scopesJson ?? "[]", "new refresh token scopes")).toEqual([
+      "runtime:refresh",
+    ]);
     expect(newAccess?.revokedAt).toBeNull();
     expect(newRefresh?.revokedAt).toBeNull();
     expectRuntimeRefreshError(
@@ -1245,7 +1256,9 @@ describe("runtime registration", () => {
     });
     expect(JSON.stringify(stored)).not.toContain(authorization.deviceCode);
     expect(JSON.stringify(stored)).not.toContain(authorization.userCode);
-    expect(JSON.parse(stored.registrationJson)).toMatchObject(registrationRequest);
+    expect(parseJson(stored.registrationJson, "stored registration request")).toMatchObject(
+      registrationRequest,
+    );
     db.close();
   });
 
@@ -1491,7 +1504,7 @@ describe("runtime registration", () => {
          ORDER BY label`,
       )
       .all(registered.runtimeId) as Array<{ scopesJson: string }>;
-    expect(scopes.map((row) => JSON.parse(row.scopesJson))).toEqual([
+    expect(scopes.map((row) => parseJson(row.scopesJson, "runtime token scopes"))).toEqual([
       ["runtime:connect"],
       ["runtime:refresh"],
     ]);
@@ -1623,24 +1636,20 @@ describe("runtime registration", () => {
          ORDER BY label`,
       )
       .all(registered.runtimeId) as Array<{ scopesJson: string }>;
-    expect(activeScopes.map((row) => JSON.parse(row.scopesJson))).toEqual([
-      ["runtime:connect"],
-      ["runtime:refresh"],
-    ]);
+    expect(
+      activeScopes.map((row) => parseJson(row.scopesJson, "active runtime token scopes")),
+    ).toEqual([["runtime:connect"], ["runtime:refresh"]]);
     db.close();
   });
 });
 
-function expectWorkspaceOwnerConflict(action: () => unknown): RuntimeWorkspaceLeaseConflictError {
+function expectWorkspaceLeaseConflict(action: () => unknown): RuntimeWorkspaceLeaseConflictError {
   try {
     action();
   } catch (error) {
-    // Throws deprecated RuntimeWorkspaceOwnerConflictError subclass; reasonCode is WORKSPACE_LEASE_CONFLICT.
     expect(error).toBeInstanceOf(RuntimeWorkspaceLeaseConflictError);
-    expect(error).toBeInstanceOf(RuntimeWorkspaceOwnerConflictError);
     const conflict = error as RuntimeWorkspaceLeaseConflictError;
     expect(conflict.reasonCode).toBe("WORKSPACE_LEASE_CONFLICT");
-    expect(conflict.aliasReasonCode).toBe("WORKSPACE_OWNER_CONFLICT");
     return conflict;
   }
   throw new Error("Expected WORKSPACE_LEASE_CONFLICT.");
@@ -1664,7 +1673,7 @@ function insertPendingCommandDelivery(
   ).run(bindingId, now, now);
 }
 
-function ownerBindingState(
+function workspaceLeaseState(
   db: ReturnType<typeof openMemoryDatabase>,
   workspaceId: string,
 ): { id: string; bindingId: string; startedAt: string; endedAt: string | null } | undefined {

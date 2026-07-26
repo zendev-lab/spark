@@ -1,6 +1,5 @@
 export type {
   LeaseBindingView,
-  OwnerBindingView,
   PendingWorkspaceBindingSetup,
   PendingWorkspaceRuntimeState,
   RuntimeConnectionStatus,
@@ -54,5 +53,3 @@ export {
   updateWorkspaceResourceStatus,
   updateWorkspaceSettings,
 } from "./queries/inbox-and-workspace.ts";
-
-export { listOwnerBindings } from "./queries/helpers.ts";

@@ -17,7 +17,7 @@ import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
 import {
   SparkRolesReviewerRunner,
   createSparkRoleRegistry,
-  loadSparkMode,
+  loadSparkPhase,
   renderSparkActiveSystemPrompt,
   type SparkSessionContext,
 } from "@zendev-lab/spark-extension/host-support";
@@ -480,15 +480,15 @@ async function resolveSparkCliAgentPromptState(
   skillsCatalogPrompt: string,
   selectedSkillsPrompt: string,
 ): Promise<{ systemPrompt: string; phase: "plan" | "implement" }> {
-  const mode = (await loadSparkMode(cwd, ctx)).mode;
+  const phase = (await loadSparkPhase(cwd, ctx)).phase;
   return {
-    phase: mode,
+    phase,
     systemPrompt: composeSparkCliAgentSystemPrompt(
       cwd,
       baseSystemPrompt,
       skillsCatalogPrompt,
       selectedSkillsPrompt,
-      mode,
+      phase,
     ),
   };
 }

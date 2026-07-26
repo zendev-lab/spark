@@ -12,7 +12,7 @@ import {
   sparkUiSourceArtifactKind,
 } from "../artifact-ui-replay";
 import {
-  createWorkspaceWithOwnerBinding,
+  createWorkspaceWithLease,
   recordArtifactProjection,
 } from "@zendev-lab/spark-cockpit-coordination/projection-services";
 import {
@@ -40,7 +40,7 @@ function setupWorkspace() {
      VALUES (?, ?, 'local-default', 'Local default', 'available', '{}', '{}', ?, ?)`,
   ).run(runtimeWorkspaceBindingId, runtimeId, now, now);
 
-  const workspace = createWorkspaceWithOwnerBinding(db, {
+  const workspace = createWorkspaceWithLease(db, {
     slug: "local-default",
     name: "Local default",
     runtimeWorkspaceBindingId,

@@ -12,8 +12,8 @@ import type { PendingWorkspaceBindingSetup, WorkbenchWorkspaceSummary } from "./
 import {
   countConnectedRuntimeSessions,
   listAllRuntimeWorkspaceBindings,
-  listOwnerRuntimeConnections,
-  listOwnerRuntimeWorkspaceBindings,
+  listLeasedRuntimeConnections,
+  listLeasedRuntimeWorkspaceBindings,
   listRecentWorkspaceEvents,
   listWorkspaceLeases,
   loadWorkspaceFullByRouteId,
@@ -149,7 +149,7 @@ export function loadWorkbenchHome(
     workspaces: input.forceWorkspaceCreate ? [] : workspaces,
     redirectWorkspace: workspaces.length > 0 && !input.forceWorkspaceCreate ? workspaces[0] : null,
     runnerBindings: listAllRuntimeWorkspaceBindings(db),
-    ownerBindings: listWorkspaceLeases(db),
+    leases: listWorkspaceLeases(db),
     targetRunnerBinding: input.pendingWorkspaceSetup
       ? resolvePendingWorkspaceBinding(db, input.pendingWorkspaceSetup)
       : null,
@@ -179,9 +179,9 @@ export function loadWorkspaceDashboard(db: DatabaseSync, workspaceRouteId: strin
     // ever connected to this Cockpit. Global runtime inventory belongs on the
     // registration/binding surface; mixing it into workspace health makes an
     // unrelated online daemon look capable of controlling this workspace.
-    runnerConnections: listOwnerRuntimeConnections(db, workspace.id),
-    runnerBindings: listOwnerRuntimeWorkspaceBindings(db, workspace.id),
-    ownerBindings: listWorkspaceLeases(db, workspace.id),
+    runnerConnections: listLeasedRuntimeConnections(db, workspace.id),
+    runnerBindings: listLeasedRuntimeWorkspaceBindings(db, workspace.id),
+    leases: listWorkspaceLeases(db, workspace.id),
     recentEvents: listRecentWorkspaceEvents(db, workspace.id),
     connectedSessionCount: countConnectedRuntimeSessions(db),
   };

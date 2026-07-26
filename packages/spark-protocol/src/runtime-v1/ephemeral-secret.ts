@@ -88,7 +88,7 @@ export const serverEphemeralSecretRequestEnvelopeSchema = ephemeralSecretEnvelop
         context.addIssue({
           code: "custom",
           path: ["workspaceId"],
-          message: "Channel secret requests require one matching workspace owner route",
+          message: "Channel secret requests require one matching workspace lease route",
         });
       }
     } else if (envelope.workspaceId || envelope.workspaceBindingId) {

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import { gitCommand } from "@zendev-lab/spark-system";
-import { createWorkspaceWithOwnerBinding } from "@zendev-lab/spark-cockpit-coordination/projection-services";
+import { createWorkspaceWithLease } from "@zendev-lab/spark-cockpit-coordination/projection-services";
 import {
   builtinFreshWorkspaceProfile,
   exportWorkspaceProfileToml,
@@ -132,7 +132,7 @@ describe("workspace profiles", () => {
         workspaceSlug: "paddle-workspace",
       });
 
-      const workspace = createWorkspaceWithOwnerBinding(db, {
+      const workspace = createWorkspaceWithLease(db, {
         slug: resolved.workspaceSlug,
         name: resolved.workspaceName,
         runtimeWorkspaceBindingId,
@@ -205,7 +205,7 @@ describe("workspace profiles", () => {
 
   it("records the latest git access status for a bound profile", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "fresh",
       name: "Fresh",
       runtimeWorkspaceBindingId,
@@ -263,7 +263,7 @@ describe("workspace profiles", () => {
 
   it("exports only workspace profile config files", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "exported",
       name: "Exported",
       runtimeWorkspaceBindingId,

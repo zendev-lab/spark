@@ -12,6 +12,14 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { appendEvent } from "./projection-services.ts";
 
+function parsePersistedJson(value: string, context: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error(`Invalid persisted JSON for ${context}`, { cause: error });
+  }
+}
+
 export type RuntimeControlCommandStatus =
   | "queued"
   | "delivered"
@@ -392,7 +400,9 @@ export function pendingRuntimeControlCommands(
       .get(row.id) as { payloadJson: string };
     return {
       command,
-      payload: serverCommandPayloadSchema.parse(JSON.parse(payloadRow.payloadJson)),
+      payload: serverCommandPayloadSchema.parse(
+        parsePersistedJson(payloadRow.payloadJson, "runtime control command payload"),
+      ),
     };
   });
 }
@@ -454,7 +464,7 @@ function resolveRuntimeControlRoute(
       "WORKSPACE_REQUIRED",
     );
   }
-  const owner = db
+  const lease = db
     .prepare(
       `SELECT wob.runtime_workspace_binding_id AS bindingId
        FROM workspace_leases wob
@@ -463,13 +473,13 @@ function resolveRuntimeControlRoute(
        LIMIT 1`,
     )
     .get(workspaceId, runtimeId) as { bindingId: string } | undefined;
-  if (!owner) {
+  if (!lease) {
     throw new RuntimeControlCommandError(
-      "Workspace is not owned by this runtime.",
+      "Workspace is not leased to this runtime.",
       "WORKSPACE_ROUTE_INVALID",
     );
   }
-  return { workspaceId, bindingId: owner.bindingId };
+  return { workspaceId, bindingId: lease.bindingId };
 }
 
 function requireRuntimeControlCommandForRuntime(
@@ -562,7 +572,11 @@ function runtimeControlCommandRecord(row: RuntimeControlCommandRow): RuntimeCont
     attemptCount: Number(row.attemptCount),
     ...(row.idempotencyKey ? { idempotencyKey: row.idempotencyKey } : {}),
     ...(row.resultJson
-      ? { result: runtimeCommandResultPayloadSchema.parse(JSON.parse(row.resultJson)) }
+      ? {
+          result: runtimeCommandResultPayloadSchema.parse(
+            parsePersistedJson(row.resultJson, "runtime control command result"),
+          ),
+        }
       : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

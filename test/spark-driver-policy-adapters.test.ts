@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { test } from "vitest";
 import type { ProjectRef } from "@zendev-lab/spark-core";
 import type { SparkDriverStartRequest } from "@zendev-lab/spark-protocol";
-import { sparkImplementDriverPolicy } from "@zendev-lab/spark-tasks";
 import { defaultWorkflowRunStore, sparkWorkflowDriverPolicy } from "@zendev-lab/spark-workflows";
 import type { SparkDaemonDriverControl } from "../packages/spark-extension/src/extension/spark-daemon-driver-client.ts";
 import { SparkWorkflowRunManagerController } from "../packages/spark-extension/src/extension/spark-workflow-run-manager.ts";
@@ -15,8 +14,7 @@ import type {
   SparkToolContext,
 } from "../packages/spark-extension/src/extension/spark-tool-registration.ts";
 
-test("implement and workflow require an explicit successful-tick continuation decision", () => {
-  assert.deepEqual(sparkImplementDriverPolicy.success, { status: "dormant" });
+test("workflow requires an explicit successful-tick continuation decision", () => {
   assert.deepEqual(sparkWorkflowDriverPolicy.success, { status: "dormant" });
 });
 

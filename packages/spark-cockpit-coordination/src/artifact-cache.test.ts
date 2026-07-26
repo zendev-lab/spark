@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
-import { createWorkspaceWithOwnerBinding, recordArtifactProjection } from "./projection-services";
+import { createWorkspaceWithLease, recordArtifactProjection } from "./projection-services";
 import {
   ensureArtifactPreviewCache,
   MAX_PREVIEW_BYTES,
@@ -30,7 +30,7 @@ function setupWorkspace() {
      VALUES (?, ?, 'local-default', 'Local default', 'available', '{}', '{}', ?, ?)`,
   ).run(runtimeWorkspaceBindingId, runtimeId, now, now);
 
-  const workspace = createWorkspaceWithOwnerBinding(db, {
+  const workspace = createWorkspaceWithLease(db, {
     name: "Cache Workspace",
     slug: "cache-workspace",
     runtimeWorkspaceBindingId,

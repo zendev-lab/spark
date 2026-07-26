@@ -785,7 +785,7 @@ export function upsertWorkspaceBindings(
          updated_at = ?
      WHERE id = ? AND runtime_id = ?`,
   );
-  const ownerWorkspace = db.prepare(
+  const leasedWorkspace = db.prepare(
     `SELECT workspace_id AS workspaceId
      FROM workspace_leases
      WHERE runtime_workspace_binding_id = ? AND ended_at IS NULL
@@ -831,9 +831,9 @@ export function upsertWorkspaceBindings(
         now,
       );
     }
-    const owner = ownerWorkspace.get(bindingId) as { workspaceId: string } | undefined;
-    if (owner) {
-      syncWorkspaceIdentityFromLocalPath(db, owner.workspaceId, localPath, now);
+    const lease = leasedWorkspace.get(bindingId) as { workspaceId: string } | undefined;
+    if (lease) {
+      syncWorkspaceIdentityFromLocalPath(db, lease.workspaceId, localPath, now);
     }
   }
 }
@@ -854,9 +854,9 @@ export function listWorkspaceBindingAssignments(
      LIMIT 1`,
   );
   return bindingIds.map((bindingId) => {
-    const owner = read.get(runtimeId, bindingId) as { workspaceId: string | null } | undefined;
-    return owner?.workspaceId
-      ? { bindingId, state: "bound" as const, workspaceId: owner.workspaceId }
+    const assignment = read.get(runtimeId, bindingId) as { workspaceId: string | null } | undefined;
+    return assignment?.workspaceId
+      ? { bindingId, state: "bound" as const, workspaceId: assignment.workspaceId }
       : { bindingId, state: "unbound" as const };
   });
 }

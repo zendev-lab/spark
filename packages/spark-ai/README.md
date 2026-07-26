@@ -40,13 +40,13 @@ surface instead of `SparkHostAPI`.
 
 `@zendev-lab/spark-ai/baidu-oneapi-provider` is the bundled standalone
 `baidu-oneapi` provider plugin for Spark's native model runtime. It exposes local
-adaptive-friendly model ids (`claude-opus-4.6`, `claude-opus-4.7`,
-`claude-opus-4.8`, `claude-sonnet-5`, `claude-fable-5`, `gpt-5.5`,
-`gpt-5.5-coding-plan`, `gpt-5.6-sol`, `gpt-5.6-terra`) with
-provider-specific prices in USD per million tokens, while rewriting outbound
-payloads back to the gateway-required spelling (`Claude Opus 4.6`,
-`Claude Opus 4.7`, `Opus 4.8 Coding Plan`, `Claude Sonnet 5`, `Fable 5`,
-`gpt-5.5-coding-plan`, `gpt-5.6-sol`, `gpt-5.6-terra`).
+adaptive-friendly model ids (`claude-opus-4.6`, `claude-opus-5`,
+`claude-opus-4.8`, `claude-sonnet-5`, `claude-fable-5`, `gpt-5.6-sol`,
+`gpt-5.6-luna`, `gpt-5.6-terra`) with provider-specific prices in USD per
+million tokens, while rewriting outbound payloads back to the gateway-required
+model ids (`Claude Opus 4.6`, `claude-opus-5`, `Claude Opus 4.8`,
+`Claude Sonnet 5`, `Fable 5`, `gpt-5.6-sol`, `gpt-5.6-luna`,
+`gpt-5.6-terra`).
 
 Authentication:
 

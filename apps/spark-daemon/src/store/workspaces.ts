@@ -579,7 +579,7 @@ export function markSparkDaemonServerDisconnected(
   ).run(reason, serverUrl);
 }
 
-/** Apply the Cockpit's authoritative owner projection returned in hello/heartbeat acks. */
+/** Apply the Cockpit's authoritative lease projection returned in hello/heartbeat acks. */
 export function applyCockpitWorkspaceBindingAssignments(
   db: DatabaseSync,
   serverUrl: string,
@@ -1664,10 +1664,14 @@ function normalizeLocalPath(localPath: string): string {
 }
 
 function parseObject(value: string): Record<string, unknown> {
-  const parsed = JSON.parse(value) as unknown;
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch (error) {
+    throw new Error("Invalid persisted workspace JSON", { cause: error });
+  }
 }
 
 export function workspaceNameForPath(localPath: string): string {

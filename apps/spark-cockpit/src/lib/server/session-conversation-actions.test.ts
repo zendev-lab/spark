@@ -185,7 +185,7 @@ describe("session conversation actions", () => {
     });
   });
 
-  it("prefers the projected model catalog while the workspace owner is online", async () => {
+  it("prefers the projected model catalog while the workspace lease is online", async () => {
     const parent = vi.fn().mockResolvedValue({
       activeWorkspace: { id: "ws_demo", slug: "demo", name: "Demo" },
       sessions: [session],
@@ -222,7 +222,7 @@ describe("session conversation actions", () => {
     expect(mocks.loadModelControlForCockpit).toHaveBeenCalledWith({ workspaceId: "ws_demo" });
   });
 
-  it("uses the active workspace model projection while its owner is offline", async () => {
+  it("uses the active workspace model projection while its leased runtime is offline", async () => {
     const parent = vi.fn().mockResolvedValue({
       activeWorkspace: { id: "ws_demo", slug: "demo", name: "Demo" },
       sessions: [session],
@@ -319,7 +319,7 @@ describe("session conversation actions", () => {
 
   it("preserves the first message and archives the new session when queueing fails", async () => {
     mocks.submitConversationTurnForCockpit.mockRejectedValue(
-      new Error("workspace owner is offline"),
+      new Error("workspace lease route is offline"),
     );
 
     const result = await requireAction("startConversation")(
@@ -331,7 +331,7 @@ describe("session conversation actions", () => {
       data: {
         intent: "startConversation",
         success: false,
-        error: "workspace owner is offline",
+        error: "workspace lease route is offline",
         values: { workspaceId: "ws_demo", message: "Keep this text" },
       },
     });
@@ -340,7 +340,7 @@ describe("session conversation actions", () => {
 
   it("keeps a deterministic first-message session recoverable when queueing fails", async () => {
     mocks.submitConversationTurnForCockpit.mockRejectedValue(
-      new Error("workspace owner is offline"),
+      new Error("workspace lease route is offline"),
     );
 
     const result = await requireAction("startConversation")(

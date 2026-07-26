@@ -66,7 +66,7 @@ export function listAllRuntimeWorkspaceBindings(db: DatabaseSync) {
     .all() as unknown as RuntimeWorkspaceBindingView[];
 }
 
-export function listOwnerRuntimeWorkspaceBindings(db: DatabaseSync, workspaceId: string) {
+export function listLeasedRuntimeWorkspaceBindings(db: DatabaseSync, workspaceId: string) {
   return db
     .prepare(
       `SELECT rb.id,
@@ -90,7 +90,7 @@ export function listOwnerRuntimeWorkspaceBindings(db: DatabaseSync, workspaceId:
     .all(workspaceId) as unknown as RuntimeWorkspaceBindingView[];
 }
 
-export function listOwnerRuntimeConnections(db: DatabaseSync, workspaceId: string) {
+export function listLeasedRuntimeConnections(db: DatabaseSync, workspaceId: string) {
   return db
     .prepare(
       `SELECT DISTINCT rc.id,
@@ -134,9 +134,6 @@ export function listWorkspaceLeases(db: DatabaseSync, workspaceId?: string) {
     )
     .all(...args) as unknown as LeaseBindingView[];
 }
-
-/** @deprecated Prefer {@link listWorkspaceLeases}. */
-export const listOwnerBindings = listWorkspaceLeases;
 
 export function listRecentWorkspaceEvents(db: DatabaseSync, workspaceId: string) {
   return db

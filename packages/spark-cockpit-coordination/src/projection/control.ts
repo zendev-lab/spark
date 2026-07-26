@@ -94,12 +94,12 @@ export interface CockpitWorkspaceControlProjection {
  * Execution truth lives in spark-daemon; this table is a durable outbox flushed over
  * `server.command` runtime protocol envelopes (see command-submission.ts / runtime-ws.ts).
  */
-export function queueCommandForWorkspaceOwner(db: DatabaseSync, input: QueueCommandInput) {
+export function queueCommandForWorkspaceLease(db: DatabaseSync, input: QueueCommandInput) {
   return withTransaction(db, () => {
     assertCockpitMayWriteScope("commands");
     assertWorkspaceServerMutationAllowed(db, input.workspaceId, input.payload);
 
-    const owner = db
+    const lease = db
       .prepare(
         `SELECT runtime_workspace_binding_id AS runtimeWorkspaceBindingId
          FROM workspace_leases
@@ -108,7 +108,7 @@ export function queueCommandForWorkspaceOwner(db: DatabaseSync, input: QueueComm
       )
       .get(input.workspaceId) as { runtimeWorkspaceBindingId: string } | undefined;
 
-    if (!owner) {
+    if (!lease) {
       throw new Error(`Workspace has no active origin lease: ${input.workspaceId}`);
     }
 
@@ -141,7 +141,7 @@ export function queueCommandForWorkspaceOwner(db: DatabaseSync, input: QueueComm
       `INSERT INTO command_deliveries
         (id, command_id, runtime_workspace_binding_id, status, attempt_count, created_at, updated_at)
        VALUES (?, ?, ?, 'pending', 0, ?, ?)`,
-    ).run(command.deliveryId, command.id, owner.runtimeWorkspaceBindingId, timestamp, timestamp);
+    ).run(command.deliveryId, command.id, lease.runtimeWorkspaceBindingId, timestamp, timestamp);
 
     appendEvent(db, {
       workspaceId: input.workspaceId,
@@ -151,7 +151,7 @@ export function queueCommandForWorkspaceOwner(db: DatabaseSync, input: QueueComm
       subjectKind: "command",
       subjectId: command.id,
       payload: {
-        runtimeWorkspaceBindingId: owner.runtimeWorkspaceBindingId,
+        runtimeWorkspaceBindingId: lease.runtimeWorkspaceBindingId,
         command: {
           id: command.id,
           kind: input.payload.kind,
@@ -174,7 +174,7 @@ export function loadWorkspaceServerControl(
   db: DatabaseSync,
   workspaceId: string,
 ): CockpitWorkspaceControlProjection {
-  const owner = db
+  const lease = db
     .prepare(
       `SELECT wob.runtime_workspace_binding_id AS runtimeWorkspaceBindingId,
               rc.name AS runtimeName,
@@ -197,11 +197,11 @@ export function loadWorkspaceServerControl(
       }
     | undefined;
 
-  const snapshot = owner
-    ? latestWorkspaceSnapshotPayload(db, workspaceId, owner.runtimeWorkspaceBindingId)
+  const snapshot = lease
+    ? latestWorkspaceSnapshotPayload(db, workspaceId, lease.runtimeWorkspaceBindingId)
     : null;
   const connectionStatus: CockpitWorkspaceDaemonConnectionStatus =
-    owner && (owner.runtimeStatus === "online" || owner.runtimeStatus === "draining")
+    lease && (lease.runtimeStatus === "online" || lease.runtimeStatus === "draining")
       ? "connected"
       : "disconnected";
   const borrowed = normalizeBorrowedState(snapshot?.borrowed);
@@ -226,12 +226,12 @@ export function loadWorkspaceServerControl(
 
   return {
     workspaceId,
-    runtimeWorkspaceBindingId: owner?.runtimeWorkspaceBindingId ?? null,
+    runtimeWorkspaceBindingId: lease?.runtimeWorkspaceBindingId ?? null,
     connection: {
       status: connectionStatus,
-      runtimeStatus: owner?.runtimeStatus ?? null,
-      runtimeName: owner?.runtimeName ?? null,
-      lastSeenAt: owner ? (owner.lastHeartbeatAt ?? owner.runtimeUpdatedAt) : null,
+      runtimeStatus: lease?.runtimeStatus ?? null,
+      runtimeName: lease?.runtimeName ?? null,
+      lastSeenAt: lease ? (lease.lastHeartbeatAt ?? lease.runtimeUpdatedAt) : null,
     },
     borrowed,
     workspaceClients,

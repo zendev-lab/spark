@@ -12,7 +12,7 @@ import {
   isInsecureRemoteServerOrigin,
   isLoopbackServerOrigin,
 } from "$lib/server/daemon-registration-commands";
-import { createWorkspaceWithOwnerBinding } from "@zendev-lab/spark-cockpit-coordination/projection-services";
+import { createWorkspaceWithLease } from "@zendev-lab/spark-cockpit-coordination/projection-services";
 import {
   bindRuntimeRefreshTokenToWorkspace,
   createRuntimeEnrollmentToken,
@@ -51,7 +51,7 @@ export const load: PageServerLoad = ({ cookies, url }) => {
     insecureRemoteServerOrigin: isInsecureRemoteServerOrigin(url),
     workspaces: page.workspaces,
     runnerBindings: page.runnerBindings,
-    ownerBindings: page.ownerBindings,
+    leases: page.leases,
     pendingWorkspaceSetup,
     targetRunnerBinding: page.targetRunnerBinding,
     pendingRuntimeConnection: page.pendingRuntimeConnection,
@@ -181,7 +181,7 @@ export const actions: Actions = {
     }
 
     try {
-      const workspace = createWorkspaceWithOwnerBinding(getDatabase(), {
+      const workspace = createWorkspaceWithLease(getDatabase(), {
         name,
         slug,
         description,

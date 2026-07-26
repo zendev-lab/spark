@@ -2,8 +2,8 @@ import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import { describe, expect, it } from "vitest";
 import {
-  createWorkspaceWithOwnerBinding,
-  queueCommandForWorkspaceOwner,
+  createWorkspaceWithLease,
+  queueCommandForWorkspaceLease,
   recordInvocationUpdate,
 } from "@zendev-lab/spark-cockpit-coordination/projection-services";
 import { conversationActivityStatus, loadConversationSummaries } from "./conversation-summaries";
@@ -25,7 +25,7 @@ describe("conversation summaries", () => {
         (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
        VALUES (?, ?, 'local', 'Local', 'available', '{}', '{}', ?, ?)`,
     ).run(bindingId, runtimeId, now, now);
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local",
       name: "Local",
       runtimeWorkspaceBindingId: bindingId,
@@ -33,7 +33,7 @@ describe("conversation summaries", () => {
     });
     const workspaceId = workspace.id;
 
-    const command = queueCommandForWorkspaceOwner(db, {
+    const command = queueCommandForWorkspaceLease(db, {
       workspaceId,
       createdAt: "2026-07-10T00:01:00.000Z",
       payload: {
@@ -96,14 +96,14 @@ describe("conversation summaries", () => {
         (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
        VALUES (?, ?, 'local', 'Local', 'available', '{}', '{}', ?, ?)`,
     ).run(bindingId, runtimeId, now, now);
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local",
       name: "Local",
       runtimeWorkspaceBindingId: bindingId,
       createdAt: now,
     });
 
-    const visibleCommand = queueCommandForWorkspaceOwner(db, {
+    const visibleCommand = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       createdAt: "2026-07-10T00:01:00.000Z",
       payload: {
@@ -132,7 +132,7 @@ describe("conversation summaries", () => {
       const createdAt = new Date(
         Date.parse("2026-07-10T01:00:00.000Z") + index * 1_000,
       ).toISOString();
-      queueCommandForWorkspaceOwner(db, {
+      queueCommandForWorkspaceLease(db, {
         workspaceId: workspace.id,
         createdAt,
         payload: {
@@ -181,13 +181,13 @@ describe("conversation summaries", () => {
         (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
        VALUES (?, ?, 'local', 'Local', 'available', '{}', '{}', ?, ?)`,
     ).run(bindingId, runtimeId, now, now);
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local",
       name: "Local",
       runtimeWorkspaceBindingId: bindingId,
       createdAt: now,
     });
-    const command = queueCommandForWorkspaceOwner(db, {
+    const command = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       createdAt: "2026-07-10T00:01:00.000Z",
       payload: {

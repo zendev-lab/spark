@@ -18,8 +18,8 @@ const BAIDU_ONEAPI_OPENAI_BASE_URL = `${BAIDU_ONEAPI_BASE_URL}/v1`;
 
 const GATEWAY_MODEL_BY_ID: Record<string, string> = {
   "claude-opus-4.6": "Claude Opus 4.6",
-  "claude-opus-4.7": "Claude Opus 4.7",
-  "claude-opus-4.8": "Opus 4.8 Coding Plan",
+  "claude-opus-5": "claude-opus-5",
+  "claude-opus-4.8": "Claude Opus 4.8",
   "claude-sonnet-5": "Claude Sonnet 5",
   "claude-fable-5": "Fable 5",
   "gpt-5.6-luna": "gpt-5.6-luna",
@@ -31,6 +31,10 @@ const BAIDU_ONEAPI_OPENAI_RESPONSES_MODEL_IDS = new Set([
   "gpt-5.6-sol",
   "gpt-5.6-terra",
 ]);
+
+function gatewayModelId(modelId: string): string {
+  return GATEWAY_MODEL_BY_ID[modelId] ?? modelId;
+}
 
 type BaiduOneApiTransportApi = "anthropic-messages" | "openai-responses";
 export type BaiduOneApiStream = AsyncIterable<AssistantMessageEvent> & {
@@ -62,14 +66,14 @@ const GPT_5_6_LUNA_COST = { input: 0.1, output: 0.6, cacheRead: 0.01, cacheWrite
 const GPT_5_6_TERRA_COST = { input: 0.25, output: 1.5, cacheRead: 0.025, cacheWrite: 0.3125 };
 const GPT_5_6_SOL_COST = { input: 0.5, output: 3, cacheRead: 0.05, cacheWrite: 0.625 };
 const GPT_THINKING_LEVEL_MAP = { minimal: "low", xhigh: "xhigh" };
-const CLAUDE_FABLE_5_COST = { input: 1.1, output: 5.5, cacheRead: 0.11, cacheWrite: 1.375 };
 const CLAUDE_SONNET_5_COST = { input: 1.1, output: 5.5, cacheRead: 0.11, cacheWrite: 1.375 };
-const CLAUDE_OPUS_4_6_COST = {
+const CLAUDE_OPUS_COST = {
   input: 5.5,
   output: 27.5,
   cacheRead: 0.55,
   cacheWrite: 6.875,
 };
+const CLAUDE_FABLE_COST = CLAUDE_OPUS_COST;
 
 function asTransportStreams(module: unknown): BaiduOneApiTransportStreams {
   return module as BaiduOneApiTransportStreams;
@@ -292,7 +296,7 @@ export function streamBaiduOneApiAnthropic(
   context: Context,
   options?: SimpleStreamOptions,
 ) {
-  const gatewayModel = GATEWAY_MODEL_BY_ID[model.id] ?? model.id;
+  const gatewayModel = gatewayModelId(model.id);
   const apiKey = resolveBaiduOneApiKey(options?.apiKey);
   const transportModel = withBaiduOneApiTransportApi(model, "anthropic-messages");
   const effort = mapThinkingEffort(model, options?.reasoning);
@@ -329,7 +333,7 @@ export function streamBaiduOneApiOpenAIResponses(
   context: Context,
   options?: SimpleStreamOptions,
 ) {
-  const gatewayModel = GATEWAY_MODEL_BY_ID[model.id] ?? model.id;
+  const gatewayModel = gatewayModelId(model.id);
   const apiKey = resolveBaiduOneApiKey(options?.apiKey);
   const transportModel = withBaiduOneApiTransportApi(model, "openai-responses");
 
@@ -363,7 +367,7 @@ export default function registerBaiduOneApiProvider(pi: ProviderRegistrationAPI)
         id: "claude-opus-4.6",
         name: "Claude Opus 4.6",
         transportApi: "anthropic-messages",
-        transportModelId: "Claude Opus 4.6",
+        transportModelId: gatewayModelId("claude-opus-4.6"),
         reasoning: true,
         thinkingLevelMap: {
           minimal: "low",
@@ -373,15 +377,15 @@ export default function registerBaiduOneApiProvider(pi: ProviderRegistrationAPI)
           xhigh: "max",
         },
         input: ["text", "image"],
-        cost: CLAUDE_OPUS_4_6_COST,
+        cost: CLAUDE_OPUS_COST,
         contextWindow: 200000,
         maxTokens: 32000,
       },
       {
-        id: "claude-opus-4.7",
-        name: "Claude Opus 4.7",
+        id: "claude-opus-5",
+        name: "Claude Opus 5",
         transportApi: "anthropic-messages",
-        transportModelId: "Claude Opus 4.7",
+        transportModelId: gatewayModelId("claude-opus-5"),
         reasoning: true,
         thinkingLevelMap: {
           minimal: "low",
@@ -391,15 +395,15 @@ export default function registerBaiduOneApiProvider(pi: ProviderRegistrationAPI)
           xhigh: "xhigh",
         },
         input: ["text", "image"],
-        cost: CLAUDE_OPUS_4_6_COST,
-        contextWindow: 200000,
+        cost: CLAUDE_OPUS_COST,
+        contextWindow: 300000,
         maxTokens: 32000,
       },
       {
         id: "claude-opus-4.8",
         name: "Claude Opus 4.8",
         transportApi: "anthropic-messages",
-        transportModelId: "Opus 4.8 Coding Plan",
+        transportModelId: gatewayModelId("claude-opus-4.8"),
         reasoning: true,
         thinkingLevelMap: {
           minimal: null,
@@ -409,7 +413,7 @@ export default function registerBaiduOneApiProvider(pi: ProviderRegistrationAPI)
           xhigh: "xhigh",
         },
         input: ["text", "image"],
-        cost: CLAUDE_OPUS_4_6_COST,
+        cost: CLAUDE_OPUS_COST,
         contextWindow: 300000,
         maxTokens: 32000,
       },
@@ -417,7 +421,7 @@ export default function registerBaiduOneApiProvider(pi: ProviderRegistrationAPI)
         id: "claude-sonnet-5",
         name: "Claude Sonnet 5",
         transportApi: "anthropic-messages",
-        transportModelId: "Claude Sonnet 5",
+        transportModelId: gatewayModelId("claude-sonnet-5"),
         reasoning: true,
         thinkingLevelMap: {
           minimal: "low",
@@ -435,7 +439,7 @@ export default function registerBaiduOneApiProvider(pi: ProviderRegistrationAPI)
         id: "claude-fable-5",
         name: "Claude Fable 5",
         transportApi: "anthropic-messages",
-        transportModelId: "Fable 5",
+        transportModelId: gatewayModelId("claude-fable-5"),
         reasoning: true,
         thinkingLevelMap: {
           minimal: "low",
@@ -445,7 +449,7 @@ export default function registerBaiduOneApiProvider(pi: ProviderRegistrationAPI)
           xhigh: "xhigh",
         },
         input: ["text", "image"],
-        cost: CLAUDE_FABLE_5_COST,
+        cost: CLAUDE_FABLE_COST,
         contextWindow: 300000,
         maxTokens: 32000,
       },
@@ -454,7 +458,7 @@ export default function registerBaiduOneApiProvider(pi: ProviderRegistrationAPI)
         name: "GPT-5.6 Sol",
         baseUrl: process.env.BAIDU_ONEAPI_OPENAI_BASE_URL ?? BAIDU_ONEAPI_OPENAI_BASE_URL,
         transportApi: "openai-responses",
-        transportModelId: "gpt-5.6-sol",
+        transportModelId: gatewayModelId("gpt-5.6-sol"),
         reasoning: true,
         thinkingLevelMap: GPT_THINKING_LEVEL_MAP,
         input: ["text", "image"],
@@ -467,7 +471,7 @@ export default function registerBaiduOneApiProvider(pi: ProviderRegistrationAPI)
         name: "GPT-5.6 Luna",
         baseUrl: process.env.BAIDU_ONEAPI_OPENAI_BASE_URL ?? BAIDU_ONEAPI_OPENAI_BASE_URL,
         transportApi: "openai-responses",
-        transportModelId: "gpt-5.6-luna",
+        transportModelId: gatewayModelId("gpt-5.6-luna"),
         reasoning: true,
         thinkingLevelMap: GPT_THINKING_LEVEL_MAP,
         input: ["text", "image"],
@@ -480,7 +484,7 @@ export default function registerBaiduOneApiProvider(pi: ProviderRegistrationAPI)
         name: "GPT-5.6 Terra",
         baseUrl: process.env.BAIDU_ONEAPI_OPENAI_BASE_URL ?? BAIDU_ONEAPI_OPENAI_BASE_URL,
         transportApi: "openai-responses",
-        transportModelId: "gpt-5.6-terra",
+        transportModelId: gatewayModelId("gpt-5.6-terra"),
         reasoning: true,
         thinkingLevelMap: GPT_THINKING_LEVEL_MAP,
         input: ["text", "image"],

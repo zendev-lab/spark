@@ -107,13 +107,8 @@ export interface CreateWorkspaceWithLeaseInput extends CreateWorkspaceInput {
   runtimeWorkspaceBindingId: string;
 }
 
-/** @deprecated Prefer {@link CreateWorkspaceWithLeaseInput}. */
-export type CreateWorkspaceWithOwnerBindingInput = CreateWorkspaceWithLeaseInput;
-
 export interface WorkspaceProjection {
   id: string;
-  /** @deprecated Prefer {@link WorkspaceProjection.leaseId}. */
-  ownerBindingId: string;
   /** Active Cockpit origin lease id. */
   leaseId: string;
   createdAt: string;
@@ -146,9 +141,6 @@ export function createWorkspaceWithLease(db: DatabaseSync, input: CreateWorkspac
   });
 }
 
-/** @deprecated Prefer {@link createWorkspaceWithLease}. */
-export const createWorkspaceWithOwnerBinding = createWorkspaceWithLease;
-
 export interface UnbindWorkspaceLeaseInput {
   workspaceId: string;
   expectedRuntimeWorkspaceBindingId?: string;
@@ -160,18 +152,10 @@ export type UnbindWorkspaceLeaseResult =
   | {
       outcome: "unbound";
       leaseId: string;
-      /** @deprecated Prefer {@link UnbindWorkspaceLeaseResult} `leaseId`. */
-      ownerBindingId: string;
       runtimeWorkspaceBindingId: string;
       endedAt: string;
     }
   | { outcome: "already_unbound"; endedAt: string };
-
-/** @deprecated Prefer {@link UnbindWorkspaceLeaseInput}. */
-export type UnbindWorkspaceOwnerInput = UnbindWorkspaceLeaseInput;
-
-/** @deprecated Prefer {@link UnbindWorkspaceLeaseResult}. */
-export type UnbindWorkspaceOwnerResult = UnbindWorkspaceLeaseResult;
 
 /**
  * End only the Cockpit origin lease projection. The daemon-owned directory and its
@@ -224,15 +208,11 @@ export function unbindWorkspaceLease(
     return {
       outcome: "unbound",
       leaseId: active.id,
-      ownerBindingId: active.id,
       runtimeWorkspaceBindingId: active.runtimeWorkspaceBindingId,
       endedAt,
     };
   });
 }
-
-/** @deprecated Prefer {@link unbindWorkspaceLease}. */
-export const unbindWorkspaceOwner = unbindWorkspaceLease;
 
 export interface ArchiveWorkspaceInput {
   workspaceId: string;
@@ -393,12 +373,14 @@ function upsertWorkspaceProjection(
     );
   }
 
-  const ownerBindingId = ensureActiveOwnerBinding(
+  const leaseId = ensureActiveWorkspaceLease(
     db,
     workspace.id,
     runtimeWorkspaceBindingId,
     timestamp,
-    { replaceExisting: !existing },
+    {
+      replaceExisting: !existing,
+    },
   );
   const shouldSeedWorkspace = !hasWorkspaceProfileSource(db, workspace.id);
 
@@ -484,10 +466,10 @@ function upsertWorkspaceProjection(
     });
   }
 
-  return { ...workspace, ownerBindingId, leaseId: ownerBindingId };
+  return { ...workspace, leaseId };
 }
 
-function ensureActiveOwnerBinding(
+function ensureActiveWorkspaceLease(
   db: DatabaseSync,
   workspaceId: string,
   runtimeWorkspaceBindingId: string,
@@ -529,13 +511,13 @@ function ensureActiveOwnerBinding(
      WHERE workspace_id = ? AND ended_at IS NULL`,
   ).run(timestamp, workspaceId);
 
-  const ownerBindingId = createId("wob");
+  const leaseId = createId("wob");
   db.prepare(
     `INSERT INTO workspace_leases
       (id, workspace_id, runtime_workspace_binding_id, owner_mode, started_at, ended_at, created_at)
      VALUES (?, ?, ?, 'primary', ?, NULL, ?)`,
-  ).run(ownerBindingId, workspaceId, runtimeWorkspaceBindingId, timestamp, timestamp);
-  return ownerBindingId;
+  ).run(leaseId, workspaceId, runtimeWorkspaceBindingId, timestamp, timestamp);
+  return leaseId;
 }
 
 function hasWorkspaceProfileSource(db: DatabaseSync, workspaceId: string): boolean {

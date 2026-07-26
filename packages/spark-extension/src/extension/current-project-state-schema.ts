@@ -4,8 +4,6 @@ import { JsonStoreFormatError } from "./json-store.ts";
 export type SparkRunStrategy = "sequential" | "parallel";
 export type SparkPlanningModeSource = "auto" | "direct";
 export type SparkAgentPhase = "plan" | "implement";
-/** @deprecated Use SparkAgentPhase. */
-export type SparkAgentMode = SparkAgentPhase;
 
 export interface CurrentProjectStoreSnapshot {
   version: 1;

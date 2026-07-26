@@ -82,7 +82,7 @@ describe("Cockpit model control adapter", () => {
     });
   });
 
-  it("routes the root catalog through the active workspace owner and reads cache offline", async () => {
+  it("routes the root catalog through the active workspace lease and reads cache offline", async () => {
     const calls: unknown[] = [];
     const client: CockpitModelControlClient = {
       request: async (_method, params) => {

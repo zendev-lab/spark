@@ -75,12 +75,6 @@ function foregroundImplementIntent(objective: string): boolean {
   );
 }
 
-/** @deprecated Use suggestForegroundGoalPhase. */
-export const suggestForegroundGoalMode = suggestForegroundGoalPhase;
-
-/** @deprecated Use foregroundUnfinishedTaskPhase. */
-export const foregroundUnfinishedTaskMode = foregroundUnfinishedTaskPhase;
-
 function foregroundProgressOrCreationIntent(objective: string): boolean {
   return /(不断|持续|继续|推进|优化|改进|完善|创建|拆分|任务|完成(任务|它们|这些|全部|所有|队列)|ongoing|continue|progress|optimise|optimize|improve|create|task|finish (tasks|queue|them|all)|complete (tasks|queue|them|all))/iu.test(
     objective,

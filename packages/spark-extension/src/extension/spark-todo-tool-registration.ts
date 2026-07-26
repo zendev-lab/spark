@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import {
   applyIndependentTodoOps,
   defaultTaskGraphStore,
+  isActiveSessionTodo,
   isDeletedSessionTodo,
   type SessionTodoEntry,
   type TaskTodoOp,
@@ -83,7 +84,7 @@ export function registerSparkTodoTools(
       const action = normalizeOptionalToolString(params.action, "action") ?? "list";
       if (action === "list") {
         const todos = await loadIndependentTodos(cwd, ctx);
-        return renderSessionTodos(todos, `Session TODOs: ${visibleCount(todos)} active.`);
+        return renderSessionTodos(todos, `Session TODOs: ${unfinishedCount(todos)} active.`);
       }
       const op = sparkTodoOpFromAction(action, params);
       if (!op)
@@ -94,7 +95,7 @@ export function registerSparkTodoTools(
       const todos = applyIndependentTodoOps(await loadIndependentTodos(cwd, ctx), [op]);
       await saveIndependentTodos(cwd, ctx, todos);
       await deps.refreshSparkWidget(cwd, ctx);
-      return renderSessionTodos(todos, `Updated ${visibleCount(todos)} active session TODO(s).`);
+      return renderSessionTodos(todos, `Updated ${unfinishedCount(todos)} active session TODO(s).`);
     },
   });
 
@@ -181,8 +182,8 @@ export function registerSparkTodoTools(
   });
 }
 
-function visibleCount(todos: SessionTodoEntry[]): number {
-  return todos.filter((todo) => !isDeletedSessionTodo(todo)).length;
+function unfinishedCount(todos: SessionTodoEntry[]): number {
+  return todos.filter(isActiveSessionTodo).length;
 }
 
 function renderSessionTodos(todos: SessionTodoEntry[], header: string) {

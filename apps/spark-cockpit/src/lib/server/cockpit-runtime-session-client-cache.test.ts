@@ -1,4 +1,4 @@
-import { createWorkspaceWithOwnerBinding } from "@zendev-lab/spark-cockpit-coordination/projection-services";
+import { createWorkspaceWithLease } from "@zendev-lab/spark-cockpit-coordination/projection-services";
 import { RuntimeControlCommandError } from "@zendev-lab/spark-cockpit-coordination/runtime-control";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
@@ -49,7 +49,7 @@ describe("cockpit runtime session cache", () => {
          diagnostics_json, created_at, updated_at)
        VALUES (?, ?, 'offline-cache', 'Offline cache', 'available', '{}', '{}', ?, ?)`,
     ).run(bindingId, runtimeId, now, now);
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "offline-cache",
       name: "Offline cache",
       runtimeWorkspaceBindingId: bindingId,

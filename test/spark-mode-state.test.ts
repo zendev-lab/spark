@@ -8,7 +8,6 @@ import type { ProjectRef } from "@zendev-lab/spark-core";
 import {
   clearSparkPhase,
   loadCurrentProjectState,
-  loadSparkMode,
   loadSparkPhase,
   nextSparkSessionPhase,
   saveSparkPhase,
@@ -59,7 +58,6 @@ test("saveSparkPhase persists the current session phase and optional project ref
     await saveSparkPhase(dir, undefined, { phase: "implement", projectRef, focus: "ship" });
 
     assert.deepEqual(await loadSparkPhase(dir, undefined), { phase: "implement", projectRef });
-    assert.deepEqual(await loadSparkMode(dir, undefined), { mode: "implement", projectRef });
     assert.deepEqual(await loadCurrentProjectState(dir, undefined), {
       version: 1,
       projectRef,

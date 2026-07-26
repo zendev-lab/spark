@@ -58,23 +58,6 @@ export async function applySparkEntryResolution(
       else await enterSparkImplementationMode(piApi, deps, ctx, graph, resolution.focus);
       return;
     }
-    case "enter_mode": {
-      if (!graph) {
-        ctx.ui?.notify?.("Spark phase needs initialized Spark state.", "warning");
-        return;
-      }
-      if (resolution.mode === "plan")
-        await enterSparkPlanningMode(
-          piApi,
-          deps,
-          ctx,
-          graph,
-          resolution.focus,
-          resolution.planningSource,
-        );
-      else await enterSparkImplementationMode(piApi, deps, ctx, graph, resolution.focus);
-      return;
-    }
     case "blocked":
       ctx.ui?.notify?.(resolution.message, "warning");
       return;

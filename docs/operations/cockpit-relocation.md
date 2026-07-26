@@ -14,7 +14,7 @@ Stop before mutation when any of these is true:
 - the source daemon has active work that the operator cannot observe through local daemon status;
 - any secret appears in CLI JSON, Cockpit persistence/cache/log, generic outbox, or artifacts.
 
-Do not retry a partially completed secret request. Do not use ordinary workspace registration to steal an active origin lease (`WORKSPACE_LEASE_CONFLICT`; alias `WORKSPACE_OWNER_CONFLICT`).
+Do not retry a partially completed secret request. Do not use ordinary workspace registration to steal an active origin lease (`WORKSPACE_LEASE_CONFLICT`).
 
 ## Variables
 
@@ -137,7 +137,7 @@ Use an authenticated HTTPS browser session for protected pages. Verify:
 
 Send one secret request to an HTTP test endpoint and require rejection with `daemonExecutionCount: 0`. Run a unique marker through HTTPS/WSS test credentials, then scan Cockpit SQLite, cache, logs, artifacts, events, audit payloads, durable commands, and generic outbox. Every target must report `matchCount: 0`; only daemon-owned provider/OAuth/channel credential targets may match.
 
-Attempt ordinary registration from a second daemon against a directory that already holds an active origin lease. Require `WORKSPACE_LEASE_CONFLICT` (alias `WORKSPACE_OWNER_CONFLICT` / HTTP `workspace_lease_conflict`), then query `workspace_leases` and require active lease count `1` with the original `bindingId`.
+Attempt ordinary registration from a second daemon against a directory that already holds an active origin lease. Require `WORKSPACE_LEASE_CONFLICT` (HTTP `workspace_lease_conflict`), then query `workspace_leases` and require active lease count `1` with the original `bindingId`.
 
 ## 7. Reverse relocation and rollback
 

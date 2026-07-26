@@ -12,7 +12,7 @@ export interface WorkbenchWorkspaceSummary {
   id: string;
   slug: string;
   name: string;
-  /** Active owner-binding directory; null until a daemon directory is connected. */
+  /** Active leased directory; null until a daemon directory is connected. */
   localPath: string | null;
 }
 
@@ -57,9 +57,6 @@ export interface LeaseBindingView {
   runtimeName: string;
   runtimeStatus: string;
 }
-
-/** @deprecated Prefer {@link LeaseBindingView}. */
-export type OwnerBindingView = LeaseBindingView;
 
 export interface PendingWorkspaceBindingSetup {
   name: string;

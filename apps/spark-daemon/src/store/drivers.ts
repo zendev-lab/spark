@@ -753,9 +753,7 @@ function safeToRetry(errorCode: string | undefined): boolean {
 }
 
 function driverLane(kind: SparkDriverKind): SparkDriverRecord["lane"] {
-  if (kind === "workflow") return "background";
-  if (kind === "session_todo") return "fallback";
-  return "foreground";
+  return kind === "workflow" ? "background" : "foreground";
 }
 
 function normalizeRoute(input: SparkDriverRoute): SparkDriverRoute {
@@ -770,7 +768,7 @@ function normalizeRoute(input: SparkDriverRoute): SparkDriverRoute {
 }
 
 function driverRecord(row: DriverRow): SparkDriverRecord {
-  const route = JSON.parse(row.route_json) as SparkDriverRoute;
+  const route = parsePersistedDriverRoute(row);
   return {
     driverId: row.driver_id,
     kind: row.kind,
@@ -791,6 +789,14 @@ function driverRecord(row: DriverRow): SparkDriverRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function parsePersistedDriverRoute(row: DriverRow): SparkDriverRoute {
+  try {
+    return JSON.parse(row.route_json) as SparkDriverRoute;
+  } catch (error) {
+    throw new Error(`Invalid persisted route for driver ${row.driver_id}`, { cause: error });
+  }
 }
 
 function driverView(record: SparkDriverRecord): SparkDriverView {

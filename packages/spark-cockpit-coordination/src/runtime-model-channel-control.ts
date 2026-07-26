@@ -28,6 +28,14 @@ import {
   type RuntimeSessionRoute,
 } from "./runtime-session-control.ts";
 
+function parsePersistedJson(value: string, context: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error(`Invalid persisted JSON for ${context}`, { cause: error });
+  }
+}
+
 export interface RuntimeEphemeralSecretRequestContext {
   actorUserId: string;
   browserRequestId: string;
@@ -217,7 +225,7 @@ export function recordRuntimeEphemeralSecretProjection(
   } else if (input.result.operation === "channel.configure") {
     if (!input.runtimeWorkspaceBindingId) {
       throw new RuntimeControlCommandError(
-        "Channel secret result omitted its workspace owner route.",
+        "Channel secret result omitted its workspace lease route.",
         "CHANNEL_ROUTE_MISMATCH",
       );
     }
@@ -252,7 +260,7 @@ export function recordRuntimeModelChannelProjection(
       !command.runtimeWorkspaceBindingId
     ) {
       throw new RuntimeControlCommandError(
-        "Channel projection did not match its workspace owner route.",
+        "Channel projection did not match its workspace lease route.",
         "CHANNEL_ROUTE_MISMATCH",
       );
     }
@@ -275,7 +283,11 @@ export function getRuntimeModelControlProjection(
       "SELECT snapshot_json AS snapshotJson FROM runtime_model_control_projections WHERE runtime_id = ?",
     )
     .get(runtimeId) as { snapshotJson: string } | undefined;
-  return row ? parseSparkModelControlSnapshot(JSON.parse(row.snapshotJson)) : null;
+  return row
+    ? parseSparkModelControlSnapshot(
+        parsePersistedJson(row.snapshotJson, "runtime model control projection"),
+      )
+    : null;
 }
 
 export function getRuntimeChannelControlProjection(
@@ -298,7 +310,9 @@ export function getRuntimeChannelControlProjection(
       "CHANNEL_ROUTE_AMBIGUOUS",
     );
   }
-  return parseSparkChannelControlSnapshot(JSON.parse(rows[0]!.snapshotJson));
+  return parseSparkChannelControlSnapshot(
+    parsePersistedJson(rows[0]!.snapshotJson, "runtime channel control projection"),
+  );
 }
 
 export function runtimeModelRouteForRuntime(runtimeId: string): RuntimeSessionRoute {
@@ -380,7 +394,7 @@ function assertEphemeralRoute(
   if (channel) {
     if (route.scope !== "workspace" || route.workspaceId !== request.workspaceId) {
       throw new RuntimeControlCommandError(
-        "Channel secret request does not match the active workspace owner.",
+        "Channel secret request does not match the active workspace lease.",
         "SECRET_ROUTE_INVALID",
       );
     }
@@ -477,5 +491,9 @@ function upsertChannelProjection(
 }
 
 export function publicRuntimeObject(value: unknown): Record<string, SparkProtocolJsonValue> {
-  return sparkProtocolJsonObjectSchema.parse(JSON.parse(JSON.stringify(value)));
+  try {
+    return sparkProtocolJsonObjectSchema.parse(JSON.parse(JSON.stringify(value)));
+  } catch (error) {
+    throw new Error("Value is not a valid public runtime object", { cause: error });
+  }
 }

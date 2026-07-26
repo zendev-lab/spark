@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import type { SparkDriverKind } from "@zendev-lab/spark-protocol";
 import { describe, expect, it } from "vitest";
 import type { SparkDaemonDriverTickTask } from "../core/types.ts";
 import { SparkDriverStore } from "./drivers.ts";
@@ -486,14 +487,12 @@ describe("SparkDriverStore", () => {
     }
   });
 
-  it("uses capability success policies without spinning implement or workflow", () => {
+  it("uses capability success policies without spinning loop or workflow", () => {
     for (const [index, expected] of [
       ["goal", { status: "scheduled", dueAt: "2026-07-23T00:00:30.000Z" }],
       ["repro", { status: "scheduled", dueAt: "2026-07-23T00:00:30.000Z" }],
       ["loop", { status: "dormant" }],
-      ["implement", { status: "dormant" }],
       ["workflow", { status: "dormant" }],
-      ["session_todo", { status: "dormant" }],
     ] as const) {
       const harness = createHarness();
       try {
@@ -514,13 +513,6 @@ describe("SparkDriverStore", () => {
     const harness = createHarness();
     try {
       harness.drivers.start({
-        driverId: "fallback",
-        kind: "session_todo",
-        ownerSessionId: "owner",
-        cwd: "/workspace",
-        prompt: "todo",
-      });
-      harness.drivers.start({
         driverId: "workflow",
         kind: "workflow",
         ownerSessionId: "owner",
@@ -534,7 +526,6 @@ describe("SparkDriverStore", () => {
         cwd: "/workspace",
         prompt: "goal",
       });
-      expect(harness.drivers.require("fallback").status).toBe("stopped");
       expect(harness.drivers.require("workflow").status).toBe("scheduled");
       expect(harness.drivers.require("goal").status).toBe("scheduled");
 
@@ -553,7 +544,7 @@ describe("SparkDriverStore", () => {
     }
   });
 
-  it("prevents fallback races and makes wake replace the foreground lane", () => {
+  it("makes wake replace the foreground lane", () => {
     const harness = createHarness();
     try {
       harness.drivers.start({
@@ -563,16 +554,6 @@ describe("SparkDriverStore", () => {
         cwd: "/workspace",
         prompt: "old goal",
       });
-      expect(() =>
-        harness.drivers.start({
-          driverId: "todo-race",
-          kind: "session_todo",
-          ownerSessionId: "owner-lane",
-          cwd: "/workspace",
-          prompt: "todo",
-        }),
-      ).toThrow(/DRIVER_FOREGROUND_LANE_ACTIVE/u);
-
       harness.drivers.stop("goal-old", "switch to loop");
       harness.drivers.start({
         driverId: "loop-current",
@@ -665,7 +646,7 @@ describe("SparkDriverStore", () => {
 function runningTick(
   harness: ReturnType<typeof createHarness>,
   driverId: string,
-  kind: "goal" | "loop" | "repro" | "implement" | "workflow" | "session_todo",
+  kind: SparkDriverKind,
   ownerSessionId: string,
 ) {
   harness.drivers.start({

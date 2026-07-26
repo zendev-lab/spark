@@ -14,7 +14,7 @@ Host-neutral operating-lens primitives for Spark-style agents.
 
 ### Why Spark says `phase` while this package says `mode`
 
-`spark-modes` is a host-neutral mechanism package: “mode” means any registered lens id. Spark’s durable session operating axis is only `plan | implement`, so the Spark native tool and specs use the name **`phase`** (`phase({ action })`). Hosts pass `createModeTool({ name: "phase", label: "Phase" })`; deprecated `registerSparkModeTool` aliases remain for Pi-era callers.
+`spark-modes` is a host-neutral mechanism package: “mode” means any registered lens id. Spark’s durable session operating axis is only `plan | implement`, so the Spark native tool and specs use the name **`phase`** (`phase({ action })`). Hosts pass `createModeTool({ name: "phase", label: "Phase" })`.
 
 The package is mechanism only. It does not persist mode state and does not import Spark extension, spark-cli, goal, workflow, task, or role runtime code.
 

@@ -48,7 +48,6 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     );
   } catch (caught) {
     if (caught instanceof RuntimeWorkspaceLeaseConflictError) {
-      // Primary wire code: workspace_lease_conflict (aliasReasonCode WORKSPACE_OWNER_CONFLICT).
       return errorJson(
         caught.reasonCode.toLowerCase(),
         caught.message,

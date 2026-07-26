@@ -3,20 +3,15 @@ export type {
   ArchiveWorkspaceInput,
   ArchiveWorkspaceResult,
   CreateWorkspaceWithLeaseInput,
-  CreateWorkspaceWithOwnerBindingInput,
   UnbindWorkspaceLeaseInput,
   UnbindWorkspaceLeaseResult,
-  UnbindWorkspaceOwnerInput,
-  UnbindWorkspaceOwnerResult,
   WorkspaceProjection,
 } from "./projection/workspace.ts";
 export {
   appendEvent,
   archiveWorkspace,
   createWorkspaceWithLease,
-  createWorkspaceWithOwnerBinding,
   unbindWorkspaceLease,
-  unbindWorkspaceOwner,
 } from "./projection/workspace.ts";
 
 export type {
@@ -28,7 +23,7 @@ export type {
 export {
   createProject,
   loadWorkspaceServerControl,
-  queueCommandForWorkspaceOwner,
+  queueCommandForWorkspaceLease,
 } from "./projection/control.ts";
 
 export type {

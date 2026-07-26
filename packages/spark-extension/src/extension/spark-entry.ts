@@ -11,11 +11,7 @@ export interface SparkCommandProjectState {
 }
 
 export type SparkEntryPhase = "plan" | "implement";
-/** @deprecated Use SparkEntryPhase. */
-export type SparkEntryMode = SparkEntryPhase;
 export type SparkEntryPhaseChoice = SparkEntryPhase | "new_project";
-/** @deprecated Use SparkEntryPhaseChoice. */
-export type SparkEntryModeChoice = SparkEntryPhaseChoice;
 export type SparkEntryConfidence = "high" | "ambiguous" | "conflicting";
 
 export interface SparkEntryPhaseAnalysis {
@@ -35,8 +31,6 @@ export type SparkEntryIntent =
   | {
       kind: "direct";
       phase: SparkEntryPhase;
-      /** @deprecated Use phase. */
-      mode?: SparkEntryPhase;
       prompt: string;
     };
 
@@ -54,17 +48,8 @@ export type SparkEntryResolution =
       focus?: string;
       planningSource?: SparkPlanningModeSource;
     }
-  | {
-      /** @deprecated Use enter_phase. */
-      action: "enter_mode";
-      mode: SparkEntryPhase;
-      focus?: string;
-      planningSource?: SparkPlanningModeSource;
-    }
   | { action: "blocked"; message: string }
   | { action: "none" };
-
-export interface SparkEntryModeAnalysis extends SparkEntryPhaseAnalysis {}
 
 export function analyzeSparkEntryPhase(
   graph: TaskGraph,
@@ -230,9 +215,6 @@ export function analyzeSparkEntryPhase(
     pendingTaskCount,
   };
 }
-
-/** @deprecated Use analyzeSparkEntryPhase. */
-export const analyzeSparkEntryMode = analyzeSparkEntryPhase;
 
 function normalizePromptForSparkSignalDetection(prompt: string): string {
   return prompt

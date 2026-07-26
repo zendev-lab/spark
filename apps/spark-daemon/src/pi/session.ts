@@ -4,7 +4,7 @@ import type { SparkPaths } from "@zendev-lab/spark-system";
 
 export type SparkDaemonPromptEvent = unknown;
 
-export interface RunPiPromptOptions {
+export interface RunSparkPromptOptions {
   cwd: string;
   prompt: string;
   paths: SparkPaths;
@@ -21,7 +21,7 @@ export interface RunPiPromptOptions {
  * stack via the headless Spark session executor. The daemon no longer creates
  * a pi-coding-agent AgentSession for core prompt execution.
  */
-export async function runSparkPrompt(options: RunPiPromptOptions): Promise<unknown> {
+export async function runSparkPrompt(options: RunSparkPromptOptions): Promise<unknown> {
   const sparkHome = options.paths.piAgentDir ?? join(options.paths.dataDir, "pi-agent");
   const { createSparkHeadlessSessionExecutor } = await loadSparkHeadlessSessionModule();
   const executeSession = createSparkHeadlessSessionExecutor({ sparkHome });
@@ -35,9 +35,6 @@ export async function runSparkPrompt(options: RunPiPromptOptions): Promise<unkno
     onEvent: options.onEvent,
   });
 }
-
-/** @deprecated Use `runSparkPrompt`. */
-export const runPiPrompt = runSparkPrompt;
 
 export function extractTextDelta(event: SparkDaemonPromptEvent): string | null {
   if (!event || typeof event !== "object") return null;

@@ -29,6 +29,14 @@ import { migrate } from "./migrate.js";
 
 const roots: string[] = [];
 const now = "2026-07-15T00:00:00.000Z";
+
+function parseJson(value: string, label: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error(`Expected ${label} to contain valid JSON`, { cause: error });
+  }
+}
 const sourceInstanceId = "cockpit_11111111111111111111111111111111";
 const targetInstanceId = "cockpit_22222222222222222222222222222222";
 
@@ -163,7 +171,7 @@ describe("Cockpit instance snapshots", () => {
                     rc.id AS runtimeId,
                     rt.token_hash AS tokenHash,
                     rwb.id AS bindingId,
-                    wob.runtime_workspace_binding_id AS ownerBindingId,
+                    wob.runtime_workspace_binding_id AS leaseRuntimeWorkspaceBindingId,
                     c.id AS commandId,
                     cd.status AS deliveryStatus,
                     e.id AS eventId
@@ -184,7 +192,7 @@ describe("Cockpit instance snapshots", () => {
         runtimeId: "rt_source",
         tokenHash: "sha256:refresh-source",
         bindingId: "rtwb_source",
-        ownerBindingId: "rtwb_source",
+        leaseRuntimeWorkspaceBindingId: "rtwb_source",
         commandId: "cmd_source",
         deliveryStatus: "pending",
         eventId: "evt_source",
@@ -552,7 +560,7 @@ function setting(db: DatabaseSync, key: string): unknown {
   const row = db
     .prepare("SELECT value_json AS valueJson FROM app_settings WHERE key = ?")
     .get(key) as { valueJson: string } | undefined;
-  return row ? (JSON.parse(row.valueJson) as unknown) : null;
+  return row ? parseJson(row.valueJson, `setting ${key}`) : null;
 }
 
 function sha256(path: string): string {
@@ -562,7 +570,10 @@ function sha256(path: string): string {
 function refreshManifestDatabaseDigest(snapshotPath: string): void {
   const manifestPath = join(snapshotPath, "manifest.json");
   const databasePath = join(snapshotPath, "cockpit.sqlite");
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as CockpitSnapshotManifest;
+  const manifest = parseJson(
+    readFileSync(manifestPath, "utf8"),
+    "Cockpit snapshot manifest",
+  ) as CockpitSnapshotManifest;
   manifest.database.sha256 = sha256(databasePath);
   manifest.database.sizeBytes = statSync(databasePath).size;
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");

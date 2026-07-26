@@ -1,7 +1,7 @@
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import {
-  createWorkspaceWithOwnerBinding,
+  createWorkspaceWithLease,
   recordHumanRequestFromRuntime,
   recordHumanResponse,
 } from "@zendev-lab/spark-cockpit-coordination/projection-services";
@@ -25,7 +25,7 @@ describe("pending Workbench ask projection", () => {
         (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
        VALUES (?, ?, 'local-default', 'Local default', 'available', '{}', '{}', ?, ?)`,
     ).run(runtimeWorkspaceBindingId, runtimeId, now, now);
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId,

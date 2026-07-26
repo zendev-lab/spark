@@ -7,7 +7,7 @@
 
 import type { ServerCommandPayload } from "@zendev-lab/spark-protocol";
 import type { DatabaseSync } from "node:sqlite";
-import { queueCommandForWorkspaceOwner, type QueueCommandInput } from "./projection-services.ts";
+import { queueCommandForWorkspaceLease, type QueueCommandInput } from "./projection-services.ts";
 
 export interface SubmitServerCommandInput {
   workspaceId: string;
@@ -27,5 +27,5 @@ export function submitServerCommand(db: DatabaseSync, input: SubmitServerCommand
     payload: input.payload,
     createdAt: input.createdAt,
   };
-  return queueCommandForWorkspaceOwner(db, queueInput);
+  return queueCommandForWorkspaceLease(db, queueInput);
 }

@@ -161,13 +161,8 @@ export interface RuntimeWorkspaceLeaseConflict {
   occurredAt: string;
 }
 
-/** @deprecated Prefer {@link RuntimeWorkspaceLeaseConflict}. */
-export type RuntimeWorkspaceOwnerConflict = RuntimeWorkspaceLeaseConflict;
-
 export class RuntimeWorkspaceLeaseConflictError extends Error {
   readonly reasonCode = "WORKSPACE_LEASE_CONFLICT";
-  /** Wire/HTTP alias retained for older clients and ops docs. */
-  readonly aliasReasonCode = "WORKSPACE_OWNER_CONFLICT";
   readonly conflict: RuntimeWorkspaceLeaseConflict;
 
   constructor(conflict: RuntimeWorkspaceLeaseConflict) {
@@ -175,6 +170,3 @@ export class RuntimeWorkspaceLeaseConflictError extends Error {
     this.conflict = conflict;
   }
 }
-
-/** @deprecated Prefer {@link RuntimeWorkspaceLeaseConflictError}. */
-export class RuntimeWorkspaceOwnerConflictError extends RuntimeWorkspaceLeaseConflictError {}

@@ -1,5 +1,5 @@
 import type {
-  SparkSessionArchiveRequest,
+  SparkSessionGetRequest,
   SparkSessionBindRequest,
   SparkSessionCreateRequest,
   SparkSessionListRequest,
@@ -34,7 +34,7 @@ export interface DaemonSessionRegistry {
     externalKey: string,
     adapterAccountIdentity?: string,
   ): Promise<SparkSessionRegistryRecord>;
-  archive(sessionId: SparkSessionArchiveRequest["sessionId"]): Promise<SparkSessionRegistryRecord>;
+  archive(sessionId: SparkSessionGetRequest["sessionId"]): Promise<SparkSessionRegistryRecord>;
   setRoleIfMissing?(sessionId: string, role: string): Promise<SparkSessionRegistryRecord>;
   /** @deprecated Compatibility alias for older daemon collaborators. */
   setTitleIfMissing?(sessionId: string, title: string): Promise<SparkSessionRegistryRecord>;

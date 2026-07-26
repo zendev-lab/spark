@@ -688,7 +688,7 @@ export type SparkSessionMessageSource = "tui" | "web" | "channel" | "daemon" | "
 
 export interface SparkHostDriverContext {
   driverId: string;
-  kind: "goal" | "loop" | "repro" | "implement" | "workflow" | "session_todo";
+  kind: "goal" | "loop" | "repro" | "workflow";
   generation: number;
   ownerSessionId: string;
   stateOwnerSessionId: string;
@@ -701,13 +701,7 @@ export interface SparkHostDriverContext {
   stop(input?: { reason?: string }): Promise<unknown>;
 }
 
-export type SparkRuntimeDriverKind =
-  | "goal"
-  | "loop"
-  | "repro"
-  | "implement"
-  | "workflow"
-  | "session_todo";
+export type SparkRuntimeDriverKind = "goal" | "loop" | "repro" | "workflow";
 
 /** Capability-owned cadence/retry policy consumed by the generic daemon runtime. */
 export interface SparkDriverPolicyDefinition {

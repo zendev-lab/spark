@@ -1,6 +1,5 @@
 import type { ProjectRef } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
-import type { SparkEntryPhase } from "./spark-entry.ts";
 import {
   ASK_BEFORE_GUESSING,
   MAIN_SESSION_SCHEDULING_FIRST,
@@ -41,19 +40,6 @@ export function renderSparkGoalDriverPrompt(
     renderGoalDriverGuidance(focus),
   ].join("\n\n");
 }
-
-/** @deprecated Goal driver prompts are now driver-owned rather than phase-owned. */
-export function renderSparkGoalDriverPhasePrompt(
-  graph: TaskGraph,
-  selectedProjectRef: ProjectRef | undefined,
-  focus: string | undefined,
-  _phase: SparkEntryPhase,
-): string {
-  return renderSparkGoalDriverPrompt(graph, selectedProjectRef, focus);
-}
-
-/** @deprecated Use renderSparkGoalDriverPrompt. */
-export const renderSparkGoalDriverModePrompt = renderSparkGoalDriverPrompt;
 
 function renderGoalDriverGuidance(focus: string | undefined): string {
   const goal = focus?.trim() || "the active Spark goal";

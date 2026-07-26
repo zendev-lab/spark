@@ -3,9 +3,9 @@ import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import {
   createProject,
-  createWorkspaceWithOwnerBinding,
+  createWorkspaceWithLease,
   ingestTaskGraphSnapshot,
-  queueCommandForWorkspaceOwner,
+  queueCommandForWorkspaceLease,
   recordCommandAck,
   recordCommandReject,
   recordInvocationLogChunk,
@@ -37,7 +37,7 @@ function setupProject() {
      VALUES (?, ?, 'local-default', 'Local default', 'available', '{}', '{}', ?, ?)`,
   ).run(runtimeWorkspaceBindingId, runtimeId, now, now);
 
-  const workspace = createWorkspaceWithOwnerBinding(db, {
+  const workspace = createWorkspaceWithLease(db, {
     slug: "local-default",
     name: "Local default",
     runtimeWorkspaceBindingId,
@@ -150,9 +150,9 @@ describe("project cockpit projection", () => {
     db.close();
   });
 
-  it("includes owner binding, recent commands, delivery outcomes, and Spark daemon log chunks", () => {
+  it("includes the active lease, recent commands, delivery outcomes, and Spark daemon log chunks", () => {
     const { db, now, runtimeWorkspaceBindingId, workspace, project } = setupProject();
-    const pendingCommand = queueCommandForWorkspaceOwner(db, {
+    const pendingCommand = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       projectId: project.id,
       payload: {
@@ -162,7 +162,7 @@ describe("project cockpit projection", () => {
       },
       createdAt: offsetIso(now, 2_000),
     });
-    const ackedCommand = queueCommandForWorkspaceOwner(db, {
+    const ackedCommand = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       projectId: project.id,
       payload: {
@@ -172,7 +172,7 @@ describe("project cockpit projection", () => {
       },
       createdAt: offsetIso(now, 1_000),
     });
-    const rejectedCommand = queueCommandForWorkspaceOwner(db, {
+    const rejectedCommand = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       projectId: project.id,
       payload: {
@@ -229,7 +229,7 @@ describe("project cockpit projection", () => {
     });
 
     const cockpit = loadProjectCockpit(db, project.id);
-    expect(cockpit?.ownerBinding).toMatchObject({
+    expect(cockpit?.lease).toMatchObject({
       runtimeWorkspaceBindingId,
       runtimeStatus: "online",
     });

@@ -1520,7 +1520,7 @@ const messages = {
       workspaceUnbound:
         "Directory disconnected from this Cockpit workspace. The daemon will synchronize the change on its next heartbeat.",
       workspaceAlreadyUnbound: "This Cockpit workspace is already disconnected.",
-      workspaceOwnerChanged: "The connected directory changed. Refresh and try again.",
+      workspaceLeaseChanged: "The connected directory lease changed. Refresh and try again.",
     },
   },
   daemonAuthorization: {

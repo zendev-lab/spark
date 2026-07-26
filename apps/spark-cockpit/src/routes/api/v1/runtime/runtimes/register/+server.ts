@@ -33,7 +33,6 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
     registered = registerRuntime(getDatabase(), parsed.data, bearerToken(request));
   } catch (caught) {
     if (caught instanceof RuntimeWorkspaceLeaseConflictError) {
-      // Primary wire code: workspace_lease_conflict (aliasReasonCode WORKSPACE_OWNER_CONFLICT).
       return errorJson(
         caught.reasonCode.toLowerCase(),
         caught.message,

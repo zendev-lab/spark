@@ -58,7 +58,7 @@ function pageData(overrides: Partial<PageData> = {}): PageData {
     loopbackServerOrigin: false,
     insecureRemoteServerOrigin: false,
     runnerBindings: [],
-    ownerBindings: [],
+    leases: [],
     pendingWorkspaceSetup: null,
     targetRunnerBinding: null,
     pendingRuntimeConnection: null,
@@ -171,11 +171,13 @@ describe("workspace registration action behavior", () => {
       }),
     });
 
+    const url = URL.parse(request.url);
+    if (!url) throw new Error("Expected test request to contain a valid URL");
     const result = (await actions.prepareRegistration?.({
       cookies,
       locals: { sessionToken: "session-test" },
       request,
-      url: new URL(request.url),
+      url,
     } as never)) as Record<string, unknown>;
 
     expect(result.registrationMode).toBe("token");

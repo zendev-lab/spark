@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
-import { createWorkspaceWithOwnerBinding } from "@zendev-lab/spark-cockpit-coordination/projection-services";
+import { createWorkspaceWithLease } from "@zendev-lab/spark-cockpit-coordination/projection-services";
 import { queueWorkspaceOccupancyCommand, workspaceExists } from "./workspace-occupancy";
 
 describe("workspace occupancy commands", () => {
@@ -22,7 +22,7 @@ describe("workspace occupancy commands", () => {
        VALUES (?, ?, 'local-default', 'Local default', 'available', '{}', '{}', ?, ?)`,
     ).run(runtimeWorkspaceBindingId, runtimeId, now, now);
 
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId,

@@ -17,8 +17,8 @@ import {
   findLatestWorkspaceBindingForRuntime,
   findMatchingWorkspaceBinding,
   findOnlyAvailableWorkspaceBindingForRuntime,
-  listOwnerRuntimeConnections,
-  listOwnerRuntimeWorkspaceBindings,
+  listLeasedRuntimeConnections,
+  listLeasedRuntimeWorkspaceBindings,
   readActiveOwnerLocalPath,
   readEnrollmentRuntimeId,
 } from "./helpers.ts";
@@ -406,8 +406,8 @@ export function loadWorkspaceRegistrationPage(db: DatabaseSync, workspaceRouteId
   if (!workspace) return null;
   return {
     workspace,
-    runnerConnections: listOwnerRuntimeConnections(db, workspace.id),
-    runnerBindings: listOwnerRuntimeWorkspaceBindings(db, workspace.id),
+    runnerConnections: listLeasedRuntimeConnections(db, workspace.id),
+    runnerBindings: listLeasedRuntimeWorkspaceBindings(db, workspace.id),
     enrollmentTokens: listRuntimeEnrollmentTokens(db, {
       workspaceId: workspace.id,
       workspaceSlug: workspace.slug,

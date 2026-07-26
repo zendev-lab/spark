@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
-import { createWorkspaceWithOwnerBinding } from "@zendev-lab/spark-cockpit-coordination/projection-services";
+import { createWorkspaceWithLease } from "@zendev-lab/spark-cockpit-coordination/projection-services";
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ getDatabase: vi.fn() }));
@@ -63,7 +63,7 @@ function createWorkspace(db: DatabaseSync, slug: string, createdAt: string) {
       (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
      VALUES (?, ?, ?, ?, 'available', '{}', '{}', ?, ?)`,
   ).run(bindingId, runtimeId, `local-${slug}`, slug, createdAt, createdAt);
-  return createWorkspaceWithOwnerBinding(db, {
+  return createWorkspaceWithLease(db, {
     slug,
     name: slug,
     runtimeWorkspaceBindingId: bindingId,

@@ -24,7 +24,6 @@ import {
   type SparkInvocationListResult,
   type SparkInvocationRetentionPreviewResult,
   type SparkInvocationRetryResult,
-  type SparkSessionArchiveRequest,
   type SparkSessionBindRequest,
   type SparkSessionCreateRequest,
   type SparkSessionGetRequest,
@@ -445,7 +444,7 @@ export type LocalRpcRequest =
   | {
       id: string;
       method: "session.archive";
-      params: SparkSessionArchiveRequest;
+      params: SparkSessionGetRequest;
       sparkCommand: SparkCommand;
     }
   | {

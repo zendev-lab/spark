@@ -51,7 +51,7 @@ export async function resolveSparkEntry(
 
   const phase =
     intent.kind === "direct"
-      ? (intent.phase ?? intent.mode)
+      ? intent.phase
       : await chooseInitializedSparkPhase(ctx, graph, projectState, intent.prompt);
   if (!phase) return { action: "none" };
   if (phase === "new_project") {
@@ -100,7 +100,7 @@ function directPhaseBootstrapIdea(intent: SparkEntryIntent, idea: string): strin
   return [
     idea,
     "",
-    `Requested Spark phase: ${intent.phase ?? intent.mode}.`,
+    `Requested Spark phase: ${intent.phase}.`,
     "No current Spark project state was available, so first create/select the project and plan concrete tasks. If the project identity, scope, or acceptance criteria are ambiguous, ask for human review before narrowing the plan.",
   ].join("\n");
 }

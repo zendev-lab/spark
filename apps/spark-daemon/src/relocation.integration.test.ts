@@ -523,8 +523,14 @@ async function startCockpit(
     }
     wss.handleUpgrade(request, socket, head, (ws) => {
       ws.on("message", (data: RawData) => {
-        const parsed = JSON.parse(rawDataText(data)) as Record<string, unknown>;
-        frames.push(parsed);
+        try {
+          const parsed = JSON.parse(rawDataText(data)) as Record<string, unknown>;
+          frames.push(parsed);
+        } catch (error) {
+          throw new Error("Expected relocation WebSocket frame to contain valid JSON", {
+            cause: error,
+          });
+        }
       });
       attachRuntimeWebSocket(ws, {
         db,
@@ -694,6 +700,14 @@ function hashJson(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function parseRelocationUrl(input: string | URL | Request, context: string): URL {
+  try {
+    return new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+  } catch (error) {
+    throw new Error(`Invalid URL for ${context}`, { cause: error });
+  }
+}
+
 function relocationFailureFetch(
   scenario:
     | "instance-mismatch"
@@ -704,15 +718,16 @@ function relocationFailureFetch(
     | "local-transaction-fault",
   context: { sourceOrigin: string; targetOrigin: string; runtimeId: string },
 ): typeof fetch {
+  const targetOrigin = parseRelocationUrl(context.targetOrigin, "relocation target").origin;
   return (async (input: string | URL | Request) => {
-    const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
-    if (scenario === "target-unreachable" && url.origin === new URL(context.targetOrigin).origin) {
+    const url = parseRelocationUrl(input, "relocation request");
+    if (scenario === "target-unreachable" && url.origin === targetOrigin) {
       throw new Error("injected target unreachable");
     }
     if (url.pathname.endsWith("/relocation/metadata")) {
       return Response.json({
         instanceId:
-          scenario === "instance-mismatch" && url.origin === new URL(context.targetOrigin).origin
+          scenario === "instance-mismatch" && url.origin === targetOrigin
             ? "cockpit_22222222222222222222222222222222"
             : instanceId,
         protocolVersion: runtimeProtocolVersion,
@@ -806,7 +821,7 @@ function workspaceIdForBinding(db: DatabaseSync, bindingId: string): string {
        WHERE runtime_workspace_binding_id = ? AND ended_at IS NULL`,
     )
     .get(bindingId) as { workspaceId: string | null } | undefined;
-  if (!row?.workspaceId) throw new Error("fixture workspace owner is missing");
+  if (!row?.workspaceId) throw new Error("fixture workspace lease is missing");
   return row.workspaceId;
 }
 

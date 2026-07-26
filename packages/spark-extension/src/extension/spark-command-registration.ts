@@ -13,13 +13,7 @@ import type {
 import type { SparkEntryIntent } from "./spark-entry.ts";
 import { applySparkEntryResolution } from "./spark-entry-application.ts";
 import { detectSparkProjectState, resolveSparkEntry } from "./spark-entry-resolution.ts";
-import {
-  clearCurrentProjectRef,
-  currentSparkProject,
-  loadSparkGraph,
-  saveSparkPhase,
-  sparkSessionOwnerKey,
-} from "./session-state.ts";
+import { currentSparkProject, loadSparkGraph, sparkSessionOwnerKey } from "./session-state.ts";
 import { startOrInferSessionGoal } from "./spark-goal-tool-registration.ts";
 import {
   clearSessionGoal,
@@ -48,10 +42,6 @@ import {
   sparkLanguageForProject,
   type SparkLanguage,
 } from "./spark-i18n.ts";
-import {
-  renderSparkImplementationModePrompt,
-  renderSparkModeVisibleMessage,
-} from "./mode/index.ts";
 import { renderSparkGoalDriverPrompt } from "./spark-mode-prompts.ts";
 import {
   enterSparkUltracodeDriver,
@@ -212,32 +202,6 @@ export function registerSparkCommands(
     const graph = await loadSparkGraph(ctx.cwd, ctx);
     const projectState = await detectSparkProjectState(ctx.cwd, graph, ctx);
     const resolution = await resolveSparkEntry(ctx, intent, graph, projectState);
-    const enteringImplement =
-      intent.kind === "direct" &&
-      (intent.phase ?? intent.mode) === "implement" &&
-      (resolution.action === "enter_phase" || resolution.action === "enter_mode");
-    if (enteringImplement && graph) {
-      const project = await currentSparkProject(ctx.cwd, ctx, graph);
-      ctx.sparkActiveLens = sparkActiveLens("implement", "assist");
-      if (project) {
-        await saveSparkPhase(ctx.cwd, ctx, {
-          phase: "implement",
-          projectRef: project.ref,
-        });
-      } else {
-        await saveSparkPhase(ctx.cwd, ctx, { phase: "implement" });
-        await clearCurrentProjectRef(ctx.cwd, ctx);
-      }
-      await deps.refreshSparkWidget(ctx.cwd, ctx);
-      ctx.ui?.notify?.("Spark implement phase: daemon will work until the next blocker.", "info");
-      await startDriver(ctx, {
-        driverId: `implement:${requireDaemonOwnerSessionId(ctx)}`,
-        kind: "implement",
-        prompt: renderSparkImplementationModePrompt(graph, project?.ref, resolution.focus),
-        reason: renderSparkModeVisibleMessage("implement", project?.title, resolution.focus),
-      });
-      return;
-    }
     await applySparkEntryResolution(piApi, deps, ctx, graph, resolution);
   }
 

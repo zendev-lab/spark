@@ -66,22 +66,6 @@ export function renderSparkPhaseSystemPrompt(input: {
   });
 }
 
-/** @deprecated Use createSparkPhaseRegistry. */
-export const createSparkModeRegistry = createSparkPhaseRegistry;
-/** @deprecated Use defaultSparkPhaseRegistry. */
-export const defaultSparkModeRegistry = defaultSparkPhaseRegistry;
-/** @deprecated Use renderSparkPhaseSystemPrompt. */
-export function renderSparkModeSystemPrompt(input: {
-  basePrompt?: string;
-  mode?: Mode;
-  phase?: Mode;
-  driver?: TurnDriver;
-  language?: SparkLanguage;
-  trailingContext?: string;
-}): string {
-  return renderSparkPhaseSystemPrompt({ ...input, phase: input.phase ?? input.mode });
-}
-
 export function registerSparkPhaseTool(registerSparkTool: SparkToolRegistrar): void {
   const registry = defaultSparkPhaseRegistry();
   const descriptor = createModeTool({ registry, name: "phase", label: "Phase" });
@@ -125,9 +109,6 @@ export function registerSparkPhaseTool(registerSparkTool: SparkToolRegistrar): v
     },
   });
 }
-
-/** @deprecated Use registerSparkPhaseTool. */
-export const registerSparkModeTool = registerSparkPhaseTool;
 
 function sparkPhaseDefinition(id: Mode, title: string, summary: string) {
   return {

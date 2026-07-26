@@ -24,12 +24,20 @@ import {
 } from "./cockpit-queries";
 import {
   createProject,
-  createWorkspaceWithOwnerBinding,
-  queueCommandForWorkspaceOwner,
+  createWorkspaceWithLease,
+  queueCommandForWorkspaceLease,
   recordHumanRequestFromRuntime,
   recordInvocationUpdate,
 } from "./projection-services";
 import { createRuntimeEnrollmentToken, registerRuntime } from "./runtime-registration";
+
+function parseJson(value: string): ReturnType<typeof JSON.parse> {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error("Expected Cockpit query test data to contain valid JSON", { cause: error });
+  }
+}
 
 function setupWorkspace(slug = "spore") {
   const db = openMemoryDatabase();
@@ -47,7 +55,7 @@ function setupWorkspace(slug = "spore") {
       (id, runtime_id, local_workspace_key, local_path, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
      VALUES (?, ?, 'local-default', ?, 'Local default', 'available', '{}', '{}', ?, ?)`,
   ).run(bindingId, runtimeId, `/Users/test/workspaces/${slug}`, now, now);
-  const workspace = createWorkspaceWithOwnerBinding(db, {
+  const workspace = createWorkspaceWithLease(db, {
     slug,
     name: slug,
     runtimeWorkspaceBindingId: bindingId,
@@ -78,7 +86,7 @@ describe("loadWorkbenchLayout", () => {
         (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
        VALUES (?, ?, 'local-2', 'Local 2', 'available', '{}', '{}', ?, ?)`,
     ).run(secondBindingId, secondRuntimeId, now, now);
-    createWorkspaceWithOwnerBinding(db, {
+    createWorkspaceWithLease(db, {
       slug: "other",
       name: "other",
       runtimeWorkspaceBindingId: secondBindingId,
@@ -114,7 +122,7 @@ describe("loadWorkbenchLayout", () => {
         (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
        VALUES (?, ?, 'local-2', 'Local 2', 'available', '{}', '{}', ?, ?)`,
     ).run(secondBindingId, secondRuntimeId, now, now);
-    createWorkspaceWithOwnerBinding(db, {
+    createWorkspaceWithLease(db, {
       slug: "live",
       name: "live",
       runtimeWorkspaceBindingId: secondBindingId,
@@ -144,7 +152,7 @@ describe("loadWorkbenchLayout", () => {
         (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
        VALUES (?, ?, 'other', 'Other', 'available', '{}', '{}', ?, ?)`,
     ).run(bindingId, runtimeId, now, now);
-    createWorkspaceWithOwnerBinding(db, {
+    createWorkspaceWithLease(db, {
       slug: "other",
       name: "other",
       runtimeWorkspaceBindingId: bindingId,
@@ -229,7 +237,7 @@ describe("loadWorkspaceRegistrationPage", () => {
 });
 
 describe("loadWorkspaceDashboard", () => {
-  it("scopes runtime health to the workspace owner binding", () => {
+  it("scopes runtime health to the active workspace lease", () => {
     const { db } = setupWorkspace("spore");
     const unrelatedRuntimeId = createId("rt");
     const now = "2026-07-09T00:05:00.000Z";
@@ -272,7 +280,7 @@ describe("workspace settings slug guards", () => {
         (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
        VALUES (?, ?, 'local-2', 'Local 2', 'available', '{}', '{}', ?, ?)`,
     ).run(secondBindingId, secondRuntimeId, now, now);
-    createWorkspaceWithOwnerBinding(db, {
+    createWorkspaceWithLease(db, {
       slug: "other",
       name: "other",
       runtimeWorkspaceBindingId: secondBindingId,
@@ -290,7 +298,7 @@ describe("workspace settings slug guards", () => {
     db.close();
   });
 
-  it("exposes owner-binding localPath and keeps name aligned with the directory", () => {
+  it("exposes leased localPath and keeps name aligned with the directory", () => {
     const { db, workspace } = setupWorkspace("spore");
     const settings = loadWorkspaceSettings(db, "spore");
     expect(settings?.localPath).toBe("/Users/test/workspaces/spore");
@@ -392,7 +400,7 @@ describe("artifact conversation provenance", () => {
   it("links an invocation artifact back to its owning conversation", () => {
     const { db, workspace, bindingId } = setupWorkspace("spore");
     const sessionId = "sess_artifact_context";
-    const command = queueCommandForWorkspaceOwner(db, {
+    const command = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       payload: {
         kind: "assignment.create.request",
@@ -457,10 +465,10 @@ describe("inbox conversation provenance", () => {
 
     expect(inboxPage?.inboxItems[0]?.sessionId).toBe(sessionId);
     expect(page?.detail.sessionId).toBe(sessionId);
-    expect(JSON.parse(page!.detail.contextJson)).not.toHaveProperty("commandId");
+    expect(parseJson(page!.detail.contextJson)).not.toHaveProperty("commandId");
 
     const fallbackSessionId = "sess_inbox_command_fallback";
-    const fallbackCommand = queueCommandForWorkspaceOwner(db, {
+    const fallbackCommand = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       payload: {
         kind: "assignment.create.request",

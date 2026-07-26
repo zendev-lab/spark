@@ -734,7 +734,7 @@ function assertSessionCommandRoute(
     (session.scope.kind !== "workspace" || session.scope.workspaceId !== command.workspaceId)
   ) {
     throw new RuntimeControlCommandError(
-      "Workspace command returned a session from another owner.",
+      "Workspace command returned a session outside its lease route.",
       "SESSION_ROUTE_MISMATCH",
     );
   }
@@ -788,7 +788,9 @@ function parseHistory(
 function runtimeSessionProjectionRecord(
   row: RuntimeSessionProjectionRow,
 ): RuntimeSessionProjectionRecord {
-  const session = parseSparkSessionRegistryRecord(JSON.parse(row.recordJson));
+  const session = parseSparkSessionRegistryRecord(
+    parsePersistedJson(row.recordJson, "runtime session record"),
+  );
   const snapshotProjection = parseRuntimeSessionSnapshot(row.snapshotJson);
   const snapshot = snapshotProjection.snapshot;
   return {
@@ -851,8 +853,16 @@ function listRuntimeSessionProjectionRows(
     .all(sessionId) as unknown as RuntimeSessionProjectionRow[];
 }
 
+function parsePersistedJson(value: string, context: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error(`Invalid persisted JSON for ${context}`, { cause: error });
+  }
+}
+
 function jsonObject(value: string): Record<string, unknown> {
-  const parsed = JSON.parse(value) as unknown;
+  const parsed = parsePersistedJson(value, "runtime session metadata");
   return isRecord(parsed) ? parsed : {};
 }
 

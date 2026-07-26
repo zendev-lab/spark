@@ -32,7 +32,7 @@ import { openSparkDaemonDatabase } from "../../../../spark-daemon/src/store/sche
 import { registerWorkspace } from "../../../../spark-daemon/src/store/workspaces.ts";
 import {
   attachRuntimeWebSocket,
-  createWorkspaceWithOwnerBinding,
+  createWorkspaceWithLease,
   type RuntimeWebSocketConnection,
 } from "@zendev-lab/spark-cockpit-coordination";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
@@ -77,7 +77,7 @@ test("remote Cockpit controls both session scopes without a daemon socket", asyn
                  '{}', '{}', ?, ?)`,
       )
       .run(bindingId, runtimeId, root, now, now);
-    const cockpitWorkspace = createWorkspaceWithOwnerBinding(cockpitDb, {
+    const cockpitWorkspace = createWorkspaceWithLease(cockpitDb, {
       slug: "remote-session",
       name: "Remote session workspace",
       runtimeWorkspaceBindingId: bindingId,

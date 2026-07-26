@@ -7,7 +7,7 @@ import {
 } from "@zendev-lab/spark-cockpit-coordination/liveness";
 import {
   createProject,
-  createWorkspaceWithOwnerBinding,
+  createWorkspaceWithLease,
 } from "@zendev-lab/spark-cockpit-coordination/projection-services";
 
 describe("runtime liveness", () => {
@@ -107,7 +107,7 @@ describe("runtime liveness", () => {
        VALUES (?, ?, 'local-default', 'Local default', 'available', '{}', '{}', ?, ?)`,
     ).run(bindingId, runtimeId, createdAt, createdAt);
 
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId: bindingId,
@@ -185,7 +185,7 @@ describe("runtime liveness", () => {
        VALUES (?, ?, 'local-default', 'Local default', 'available', '{}', '{}', ?, ?)`,
     ).run(bindingId, runtimeId, createdAt, createdAt);
 
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId: bindingId,

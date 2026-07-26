@@ -1,12 +1,8 @@
 export { resolveActiveMode } from "@zendev-lab/spark-modes";
 export {
-  createSparkModeRegistry,
   createSparkPhaseRegistry,
-  defaultSparkModeRegistry,
   defaultSparkPhaseRegistry,
-  registerSparkModeTool,
   registerSparkPhaseTool,
-  renderSparkModeSystemPrompt,
   renderSparkPhaseSystemPrompt,
 } from "./spark-mode-layer.ts";
 export {
@@ -17,7 +13,6 @@ export {
   WORKFLOW_AND_SUBAGENT_ARE_TOOLS,
   renderModePrompt,
   renderSparkImplementationModePrompt,
-  renderSparkModeVisibleMessage,
   renderSparkPhaseVisibleMessage,
   renderSparkPlanningModePrompt,
 } from "./spark-mode-renderers.ts";

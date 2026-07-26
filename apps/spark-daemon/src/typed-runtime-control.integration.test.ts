@@ -13,7 +13,7 @@ import {
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import {
   attachRuntimeWebSocket,
-  createWorkspaceWithOwnerBinding,
+  createWorkspaceWithLease,
   requireRuntimeControlCommand,
   submitRuntimeControlCommand,
   type RuntimeWebSocketConnection,
@@ -91,7 +91,7 @@ it("typed runtime control reconnect executes once and stores one terminal result
        VALUES (?, ?, 'typed-control', ?, 'Typed control', 'available', '{}', '{}', ?, ?)`,
       )
       .run(bindingId, runtimeId, root, now, now);
-    const workspace = createWorkspaceWithOwnerBinding(cockpitDb, {
+    const workspace = createWorkspaceWithLease(cockpitDb, {
       slug: "typed-control",
       name: "Typed control",
       runtimeWorkspaceBindingId: bindingId,

@@ -81,7 +81,6 @@ import { runSparkCommandBridge, cancelSparkBridgeInvocation } from "./spark/brid
 import { createChannelAwareTaskExecutor, sessionSourceForTask } from "./spark/session-run.js";
 import { reconcileSessionNotificationDeliveries } from "./session-notification-delivery.ts";
 import { notifySessionRequestCompletion } from "./session-request-completion-notify.ts";
-import { reconcileIdleSessionTodos } from "./session-todo-auto-runner.ts";
 import {
   nextSparkDaemonTokenRefreshDelayMs,
   refreshSparkDaemonCredentials,
@@ -163,7 +162,6 @@ interface PreparedDaemonRuntime {
   invocationStore: SparkInvocationStore;
   driverStore: SparkDriverStore;
   nextDriverGcAtMs: number;
-  nextTodoReconcileAtMs: number;
   channelReplyDeliveryStore: ChannelReplyDeliveryStore;
   scheduler: SparkInvocationScheduler | null;
   mailStore: SparkSessionMailStore;
@@ -294,7 +292,6 @@ async function createPreparedDaemonRuntime(
     invocationStore,
     driverStore,
     nextDriverGcAtMs: Date.now() + 60_000,
-    nextTodoReconcileAtMs: 0,
     channelReplyDeliveryStore,
     scheduler,
     mailStore:
@@ -461,7 +458,6 @@ function canOpenDaemonAdmission(runtime: PreparedDaemonRuntime): boolean {
 async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<void> {
   runtime.scheduler?.recover();
   runtime.driverStore.reconcileTerminalTicks();
-  await reconcileSessionTodoDrivers(runtime, true);
   runtime.scheduler?.activateAdmission();
   runtime.invocationRegistry.activateAdmission();
   runtime.admission.open = true;
@@ -529,7 +525,6 @@ function commitDaemonServingFence(runtime: PreparedDaemonRuntime): void {
 async function runSchedulerLoop(runtime: PreparedDaemonRuntime): Promise<void> {
   while (!runtime.runtimeSignal.aborted) {
     if (runtime.admission.open) await reconcileDriverHiddenSessionGc(runtime);
-    if (runtime.admission.open) await reconcileSessionTodoDrivers(runtime);
     const materialized = runtime.admission.open ? materializeDriverDue(runtime) : undefined;
     const didWork = (runtime.scheduler?.processBatch() ?? false) || Boolean(materialized);
     if (!didWork) {
@@ -545,7 +540,6 @@ async function runDaemonOnce(runtime: PreparedDaemonRuntime): Promise<void> {
   const { scheduler, channelIngress, runtimeSignal } = runtime;
   if (scheduler) {
     await reconcileDriverHiddenSessionGc(runtime, true);
-    await reconcileSessionTodoDrivers(runtime, true);
     materializeDriverDue(runtime);
     scheduler.processBatch();
     await scheduler.wait();
@@ -578,29 +572,6 @@ async function gcDriverHiddenSessions(driverStore: SparkDriverStore): Promise<vo
   for (const error of result.errors) {
     console.warn(
       `[spark-daemon] hidden driver session GC failed for ${error.executionSessionId}: ${error.message}`,
-    );
-  }
-}
-
-async function reconcileSessionTodoDrivers(
-  runtime: PreparedDaemonRuntime,
-  force = false,
-): Promise<void> {
-  const sessionRegistry = runtime.options.sessionRegistry;
-  if (!sessionRegistry || (!runtime.admission.open && runtime.options.drainSignal?.aborted)) return;
-  const now = Date.now();
-  if (!force && now < runtime.nextTodoReconcileAtMs) return;
-  runtime.nextTodoReconcileAtMs = now + 1_000;
-  const result = await reconcileIdleSessionTodos({
-    driverStore: runtime.driverStore,
-    sessionRegistry,
-    resolveWorkspaceCwd: (workspaceId) =>
-      resolveWorkspaceLocalPath(runtime.options.db, workspaceId),
-    canAdmit: () => canOpenDaemonAdmission(runtime),
-  });
-  for (const error of result.errors) {
-    console.warn(
-      `[spark-daemon] session TODO driver reconcile failed for ${error.sessionId}: ${error.message}`,
     );
   }
 }
@@ -1060,7 +1031,7 @@ function prepareChannelIngress(
             : undefined;
           const session = await options.sessionRegistry?.get(assignment.sessionId);
           if (session && session.scope.kind !== "workspace") {
-            throw new Error(`channel session ${assignment.sessionId} has no workspace owner`);
+            throw new Error(`channel session ${assignment.sessionId} has no workspace scope`);
           }
           const workspaceId =
             session?.scope.kind === "workspace"
@@ -1232,9 +1203,9 @@ async function runSparkDaemonServerConnectionsOnce(
 ): Promise<void> {
   if (options.signal?.aborted) return;
   await Promise.allSettled(
-    [...desiredSparkDaemonUplinks(options).values()].map(async ({ config }) => {
-      await runSparkDaemonServerConnection({ ...options, config });
-    }),
+    [...desiredSparkDaemonUplinks(options).values()].map(({ config }) =>
+      runSparkDaemonServerConnection({ ...options, config }),
+    ),
   );
 }
 

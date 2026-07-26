@@ -4,8 +4,8 @@ import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import { loadSessionActivity } from "./session-activity";
 import {
   appendEvent,
-  createWorkspaceWithOwnerBinding,
-  queueCommandForWorkspaceOwner,
+  createWorkspaceWithLease,
+  queueCommandForWorkspaceLease,
   recordInvocationLogChunk,
   recordInvocationUpdate,
 } from "./projection-services";
@@ -28,7 +28,7 @@ function setupWorkspace() {
       (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
      VALUES (?, ?, 'spore', 'Spore workspace', 'available', '{}', '{}', ?, ?)`,
   ).run(runtimeWorkspaceBindingId, runtimeId, now, now);
-  const workspace = createWorkspaceWithOwnerBinding(db, {
+  const workspace = createWorkspaceWithLease(db, {
     slug: "spore",
     name: "spore",
     runtimeWorkspaceBindingId,
@@ -288,7 +288,7 @@ describe("session activity projection", () => {
     const { db, workspace, runtimeWorkspaceBindingId } = setupWorkspace();
     const sessionId = "sess_ui";
     const otherSessionId = "sess_other";
-    const command = queueCommandForWorkspaceOwner(db, {
+    const command = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       createdAt: "2026-07-09T00:01:00.000Z",
       payload: {
@@ -301,7 +301,7 @@ describe("session activity projection", () => {
         },
       },
     });
-    queueCommandForWorkspaceOwner(db, {
+    queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       createdAt: "2026-07-09T00:02:00.000Z",
       payload: {
@@ -467,7 +467,7 @@ describe("session activity projection", () => {
   it("queries the selected session directly instead of truncating through workspace activity", () => {
     const { db, workspace } = setupWorkspace();
     const selectedSessionId = "sess_long_running";
-    const selected = queueCommandForWorkspaceOwner(db, {
+    const selected = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       createdAt: "2026-07-09T00:00:30.000Z",
       payload: {
@@ -482,7 +482,7 @@ describe("session activity projection", () => {
     });
 
     for (let index = 0; index < 90; index += 1) {
-      queueCommandForWorkspaceOwner(db, {
+      queueCommandForWorkspaceLease(db, {
         workspaceId: workspace.id,
         createdAt: new Date(Date.UTC(2026, 6, 9, 1, index)).toISOString(),
         payload: {
@@ -498,7 +498,7 @@ describe("session activity projection", () => {
     }
 
     for (let index = 0; index < 24; index += 1) {
-      queueCommandForWorkspaceOwner(db, {
+      queueCommandForWorkspaceLease(db, {
         workspaceId: workspace.id,
         createdAt: new Date(Date.UTC(2026, 6, 10, 1, index)).toISOString(),
         payload: {
@@ -617,7 +617,7 @@ describe("session activity projection", () => {
       "2026-07-09T00:00:00.000Z",
       "2026-07-09T00:00:00.000Z",
     );
-    const otherWorkspace = createWorkspaceWithOwnerBinding(db, {
+    const otherWorkspace = createWorkspaceWithLease(db, {
       slug: "other",
       name: "other",
       runtimeWorkspaceBindingId: otherRuntimeWorkspaceBindingId,

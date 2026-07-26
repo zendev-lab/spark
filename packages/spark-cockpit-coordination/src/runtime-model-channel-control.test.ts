@@ -1,7 +1,7 @@
 import { createId } from "@zendev-lab/spark-protocol";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import { describe, expect, it } from "vitest";
-import { createWorkspaceWithOwnerBinding } from "./projection-services.ts";
+import { createWorkspaceWithLease } from "./projection-services.ts";
 import {
   registerRuntimeEphemeralSecretDispatcher,
   runRuntimeEphemeralSecretRequest,
@@ -16,7 +16,7 @@ const now = "2026-07-15T00:00:00.000Z";
 const marker = "SPARK_SECRET_MARKER_runtime_control";
 
 describe("runtime ephemeral secret control", () => {
-  it("routes a workspace model catalog through its active owner", () => {
+  it("routes a workspace model catalog through its active lease", () => {
     const h = setup();
     try {
       expect(runtimeModelRouteForWorkspace(h.db, h.workspaceId)).toEqual({
@@ -191,7 +191,7 @@ describe("runtime ephemeral secret control", () => {
     h.db.close();
   });
 
-  it("requires the active workspace owner route for channel credentials", async () => {
+  it("requires the active workspace lease route for channel credentials", async () => {
     const h = setup();
     let executionCount = 0;
     const unregister = registerRuntimeEphemeralSecretDispatcher(
@@ -300,7 +300,7 @@ function setup() {
        diagnostics_json, created_at, updated_at)
      VALUES (?, ?, 'local', 'Local', 'available', '{}', '{}', ?, ?)`,
   ).run(bindingId, runtimeId, now, now);
-  const workspace = createWorkspaceWithOwnerBinding(db, {
+  const workspace = createWorkspaceWithLease(db, {
     runtimeWorkspaceBindingId: bindingId,
     slug: "local",
     name: "Local",

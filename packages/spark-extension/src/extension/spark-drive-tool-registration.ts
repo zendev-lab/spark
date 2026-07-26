@@ -183,11 +183,7 @@ async function stopAllForegroundDrivers(
 ): Promise<void> {
   const { drivers } = await driverControl.list({ ownerSessionId, includeStopped: false });
   for (const driver of drivers) {
-    if (
-      driver.kind !== "workflow" &&
-      driver.kind !== "session_todo" &&
-      driver.status !== "stopped"
-    ) {
+    if (driver.kind !== "workflow" && driver.status !== "stopped") {
       await driverControl.stop({ driverId: driver.driverId, reason });
     }
   }

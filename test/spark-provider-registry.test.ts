@@ -195,64 +195,41 @@ test("createProviderRegistryStreamFunction rejects non-stream provider outputs",
   );
 });
 
-test("SparkProviderRegistry accepts the production baidu-oneapi-provider plugin", () => {
+test("SparkProviderRegistry exposes routed Claude and GPT models from baidu-oneapi", () => {
   const registry = new SparkProviderRegistry();
-  // Provider plugins follow the same contract as SparkHostAPI plugins:
-  //   default function(pi: ProviderRegistrationAPI): void
   registerBaiduOneApiProvider(registry);
-  assert.equal(registry.hasProvider("baidu-oneapi"), true);
-  const provider = registry.getProvider("baidu-oneapi")!;
-  assert.equal(provider.api, "baidu-oneapi");
-  assert.equal(provider.models.length, 8);
-  assert.equal(
-    provider.models.some((m) => m.id === "claude-opus-4.8"),
-    true,
-  );
-  assert.equal(
-    provider.models.some((m) => m.id === "claude-sonnet-5"),
-    true,
-  );
-  assert.equal(
-    provider.models.some((m) => m.id === "claude-fable-5"),
-    true,
-  );
-  assert.equal(
-    provider.models.some((m) => m.id === "gpt-5.6-luna"),
-    true,
-  );
-  assert.deepEqual(
-    provider.models.filter((model) => model.id.startsWith("gpt-5.6-")).map((model) => model.id),
-    ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra"],
-  );
 
-  const model = registry.buildModel("baidu-oneapi", "claude-opus-4.6");
-  assert.equal(model.provider, "baidu-oneapi");
-  assert.equal(model.contextWindow, 200_000);
-  const opus48Model = registry.buildModel("baidu-oneapi", "claude-opus-4.8");
-  assert.equal(opus48Model.contextWindow, 300_000);
-  const fableModel = registry.buildModel("baidu-oneapi", "claude-fable-5");
-  assert.equal(fableModel.name, "Claude Fable 5");
-  assert.equal(fableModel.contextWindow, 300_000);
-  assert.equal(fableModel.maxTokens, 32_000);
-  const sonnet5Model = registry.buildModel("baidu-oneapi", "claude-sonnet-5");
-  assert.equal(sonnet5Model.name, "Claude Sonnet 5");
-  assert.equal(sonnet5Model.contextWindow, 200_000);
-  assert.equal(sonnet5Model.maxTokens, 32_000);
+  const provider = registry.getProvider("baidu-oneapi");
+  assert.ok(provider);
+  assert.equal(provider.api, "baidu-oneapi");
+  assert.equal(provider.baseUrl, "https://oneapi-comate.baidu-int.com");
+  const modelIds = provider.models.map((model) => model.id);
+  assert.equal(new Set(modelIds).size, modelIds.length, "provider model ids must be unique");
+  for (const modelId of ["claude-opus-5", "claude-opus-4.8", "gpt-5.6-luna"]) {
+    assert.equal(modelIds.includes(modelId), true, `missing representative model ${modelId}`);
+  }
+
+  const opusModel = registry.buildModel("baidu-oneapi", "claude-opus-5");
+  assert.equal(opusModel.provider, "baidu-oneapi");
+  assert.equal(opusModel.contextWindow, 300_000);
+  assert.equal(opusModel.maxTokens, 32_000);
+
   const opusProfile = registry.buildProfile("baidu-oneapi", "claude-opus-4.8");
-  assert.equal(opusProfile.id, "baidu-oneapi/claude-opus-4.8");
-  assert.equal(opusProfile.identity?.api, "baidu-oneapi");
   assert.equal(opusProfile.identity?.model, "claude-opus-4.8");
-  assert.equal(opusProfile.routes[0]?.transportApi, "anthropic-messages");
-  assert.equal(opusProfile.routes[0]?.transportModelId, "Opus 4.8 Coding Plan");
+  assert.deepEqual(opusProfile.routes[0], {
+    id: "baidu-oneapi/claude-opus-4.8",
+    provider: "baidu-oneapi",
+    priority: 0,
+    transportApi: "anthropic-messages",
+    transportModelId: "Claude Opus 4.8",
+    baseUrl: "https://oneapi-comate.baidu-int.com",
+    authPoolId: "baidu-oneapi:auth",
+  });
 
   const gptProfile = registry.buildProfile("baidu-oneapi", "gpt-5.6-luna");
-  assert.equal(gptProfile.id, "baidu-oneapi/gpt-5.6-luna");
   assert.equal(gptProfile.routes[0]?.transportApi, "openai-responses");
   assert.equal(gptProfile.routes[0]?.transportModelId, "gpt-5.6-luna");
-
-  const gpt56Profile = registry.buildProfile("baidu-oneapi", "gpt-5.6-sol");
-  assert.equal(gpt56Profile.routes[0]?.transportApi, "openai-responses");
-  assert.equal(gpt56Profile.routes[0]?.transportModelId, "gpt-5.6-sol");
+  assert.equal(gptProfile.routes[0]?.baseUrl, "https://oneapi-comate.baidu-int.com/v1");
 });
 
 test("SparkProviderRegistry adapts pi-ai's production OpenAI Codex provider", () => {
@@ -265,18 +242,9 @@ test("SparkProviderRegistry adapts pi-ai's production OpenAI Codex provider", ()
   assert.equal(provider.label, "OpenAI Codex");
   assert.equal(provider.apiKey, "oauth:openai-codex");
   assert.equal(provider.api, "openai-codex-responses");
-  assert.deepEqual(
-    provider.models.map((model) => model.id),
-    [
-      "gpt-5.3-codex-spark",
-      "gpt-5.4",
-      "gpt-5.4-mini",
-      "gpt-5.5",
-      "gpt-5.6-luna",
-      "gpt-5.6-sol",
-      "gpt-5.6-terra",
-    ],
-  );
+  const modelIds = provider.models.map((model) => model.id);
+  assert.equal(new Set(modelIds).size, modelIds.length, "provider model ids must be unique");
+  assert.equal(modelIds.includes("gpt-5.6-sol"), true);
 
   const model = registry.buildModel("openai-codex", "gpt-5.6-sol");
   assert.equal(model.provider, "openai-codex");

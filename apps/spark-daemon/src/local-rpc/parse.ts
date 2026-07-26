@@ -17,7 +17,6 @@ import {
   sparkTurnStatusRequestSchema,
   sparkTurnStreamRequestSchema,
   sparkTurnSubmitRequestSchema,
-  sparkSessionArchiveRequestSchema,
   sparkSessionBindRequestSchema,
   sparkSessionCreateRequestSchema,
   sparkSessionGetRequestSchema,
@@ -64,7 +63,12 @@ import type {
 } from "./types.ts";
 
 export function parseLocalRpcRequest(line: string): LocalRpcRequest {
-  const value = JSON.parse(line) as unknown;
+  let value: unknown;
+  try {
+    value = JSON.parse(line);
+  } catch (error) {
+    throw new Error("Invalid local RPC request JSON.", { cause: error });
+  }
   if (!isRecord(value) || typeof value.id !== "string") {
     throw new Error("Invalid local RPC request.");
   }
@@ -359,7 +363,7 @@ export function parseLocalRpcRequest(line: string): LocalRpcRequest {
     return withSparkCommand({
       id: value.id,
       method: value.method,
-      params: sparkSessionArchiveRequestSchema.parse(value.params),
+      params: sparkSessionGetRequestSchema.parse(value.params),
     });
   }
   if (value.method === "side-thread.ensure")

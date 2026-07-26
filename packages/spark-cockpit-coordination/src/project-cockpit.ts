@@ -3,9 +3,17 @@ import { normalizeSparkTaskStatusGroup } from "@zendev-lab/spark-tasks";
 import { sweepStaleInvocations, sweepStaleRuntimeConnections } from "./liveness.ts";
 import { loadWorkspaceServerControl } from "./projection-services";
 
+function parseJson(value: string, label: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error(`Expected ${label} to contain valid JSON`, { cause: error });
+  }
+}
+
 function parseJsonObject(value: string | null | undefined): Record<string, unknown> {
   if (!value) return {};
-  const parsed = JSON.parse(value) as unknown;
+  const parsed = parseJson(value, "project cockpit object");
   return isRecord(parsed) ? parsed : {};
 }
 
@@ -13,7 +21,7 @@ function parseJsonArray(value: string | null): string[] {
   if (!value) {
     return [];
   }
-  const parsed = JSON.parse(value) as unknown;
+  const parsed = parseJson(value, "project cockpit array");
   return Array.isArray(parsed)
     ? parsed.filter((item): item is string => typeof item === "string")
     : [];
@@ -101,7 +109,7 @@ export interface ProjectCockpitTask {
   readyFrontier: boolean;
 }
 
-export interface ProjectCockpitOwnerBinding {
+export interface ProjectCockpitLease {
   runtimeWorkspaceBindingId: string;
   displayName: string;
   bindingStatus: string;
@@ -178,7 +186,7 @@ export function loadProjectCockpit(db: DatabaseSync, projectId: string) {
     return null;
   }
 
-  const ownerBinding =
+  const lease =
     (db
       .prepare(
         `SELECT wob.runtime_workspace_binding_id AS runtimeWorkspaceBindingId,
@@ -192,7 +200,7 @@ export function loadProjectCockpit(db: DatabaseSync, projectId: string) {
          WHERE wob.workspace_id = ? AND wob.ended_at IS NULL
          LIMIT 1`,
       )
-      .get(project.workspaceId) as ProjectCockpitOwnerBinding | undefined) ?? null;
+      .get(project.workspaceId) as ProjectCockpitLease | undefined) ?? null;
 
   const latestSnapshot = db
     .prepare(
@@ -464,7 +472,7 @@ export function loadProjectCockpit(db: DatabaseSync, projectId: string) {
 
   return {
     project,
-    ownerBinding,
+    lease,
     workspaceControl: loadWorkspaceServerControl(db, project.workspaceId),
     latestSnapshot: latestSnapshot ?? null,
     projectKind,

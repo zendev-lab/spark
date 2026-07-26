@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import {
-  createWorkspaceWithOwnerBinding,
+  createWorkspaceWithLease,
   submitRuntimeControlCommand,
 } from "@zendev-lab/spark-cockpit-coordination";
 import { conversationTurnIdempotencyKey } from "./conversation-submission";
@@ -26,7 +26,7 @@ describe("Cockpit conversation runtime idempotency contract", () => {
          diagnostics_json, created_at, updated_at)
        VALUES (?, ?, 'workspace-local', 'Workspace', 'available', '{}', '{}', ?, ?)`,
     ).run(bindingId, runtimeId, now, now);
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "idempotency-workspace",
       name: "Idempotency workspace",
       runtimeWorkspaceBindingId: bindingId,

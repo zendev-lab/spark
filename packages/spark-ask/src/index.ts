@@ -657,7 +657,6 @@ export * from "./schema.ts";
 export * from "./flow.ts";
 export {
   DEFAULT_ASK_WAIT_TIMEOUT_MS,
-  DEFAULT_ASK_REVIEWER_FALLBACK_AFTER_MS,
   registerSparkAskActionTool,
   registerSparkAskAutoAnswerProvider,
 } from "./action-tool.ts";

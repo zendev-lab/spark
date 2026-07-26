@@ -72,7 +72,7 @@ describe("legacy autonomous driver migration", () => {
         now: "2026-07-23T00:00:10.000Z",
       });
       expect(report).toMatchObject({
-        imported: { goal: 1, loop: 1, implement: 1 },
+        imported: { goal: 1, loop: 1 },
         strippedLegacyRuntimeFields: 2,
       });
       expect(drivers.require("goal-migrate")).toMatchObject({
@@ -81,7 +81,7 @@ describe("legacy autonomous driver migration", () => {
         dueAt: "2026-07-23T00:01:00.000Z",
       });
       expect(drivers.require("loop-migrate").status).toBe("stopped");
-      expect(drivers.require("implement:session-migrate").status).toBe("stopped");
+      expect(drivers.get("implement:session-migrate")).toBeUndefined();
       expect(readJson(goalPath).goal).not.toHaveProperty("retryState");
       expect(readJson(loopPath).loop).not.toHaveProperty("schedule");
 
@@ -121,5 +121,9 @@ function writeJson(path: string, value: unknown): void {
 }
 
 function readJson(path: string): Record<string, unknown> {
-  return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(`Unable to parse test JSON fixture ${path}`, { cause: error });
+  }
 }

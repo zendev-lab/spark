@@ -54,6 +54,8 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
 
     CREATE TABLE IF NOT EXISTS driver_wakeups (
       driver_id TEXT PRIMARY KEY,
+      -- implement and session_todo remain accepted only so historical databases
+      -- can open long enough for retireHookOwnedDriverTicks() to remove them.
       kind TEXT NOT NULL CHECK (kind IN ('goal', 'loop', 'repro', 'implement', 'workflow', 'session_todo')),
       lane TEXT NOT NULL CHECK (lane IN ('foreground', 'background', 'fallback')),
       owner_session_id TEXT NOT NULL,
@@ -212,6 +214,7 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
   addMissingRuntimeCommandReceiptColumns(db);
   addMissingInvocationColumns(db);
   addMissingDriverColumns(db);
+  retireHookOwnedDriverTicks(db);
   db.exec(`
     INSERT OR IGNORE INTO invocation_event_delivery_consumers (destination, registered_at)
     SELECT DISTINCT destination, MIN(updated_at)
@@ -314,6 +317,50 @@ function migrateChannelDeliverySchema(db: DatabaseSync): void {
           SELECT RAISE(ABORT, 'channel delivery idempotency_key is immutable');
         END;
     `);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+/**
+ * Implementation phase and session TODO continuation now run at the host
+ * agent-end lifecycle boundary. Cancel any attached invocation and remove the
+ * historical daemon wakeups so a retained row cannot emit another tick.
+ */
+function retireHookOwnedDriverTicks(db: DatabaseSync): void {
+  if (!tableExists(db, "driver_wakeups")) return;
+  const now = new Date().toISOString();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare(
+      `UPDATE invocations
+       SET status = 'cancelled',
+           cancel_reason = COALESCE(cancel_reason, 'continuation moved to agent-end hook'),
+           error_code = COALESCE(error_code, 'DRIVER_KIND_RETIRED'),
+           error_message = COALESCE(error_message, 'implement and session TODO continuation are hook-owned'),
+           updated_at = ?,
+           finished_at = COALESCE(finished_at, ?)
+       WHERE status IN ('queued', 'running')
+         AND id IN (
+           SELECT last_invocation_id
+           FROM driver_wakeups
+           WHERE kind IN ('implement', 'session_todo') AND last_invocation_id IS NOT NULL
+         )`,
+    ).run(now, now);
+    db.exec(`
+      DELETE FROM driver_hidden_sessions
+      WHERE driver_id IN (
+        SELECT driver_id FROM driver_wakeups WHERE kind IN ('implement', 'session_todo')
+      );
+      DELETE FROM driver_wakeups WHERE kind IN ('implement', 'session_todo');
+    `);
+    db.prepare(
+      `INSERT INTO daemon_meta (key, value, updated_at)
+       VALUES ('migration.retire-hook-owned-driver-ticks-v1', 'complete', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    ).run(now);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");

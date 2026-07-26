@@ -6,7 +6,6 @@ import {
   parseSparkSessionRegistryRecord,
   parseSparkSessionRegistryRecords,
   parseSparkSessionView,
-  sparkSessionArchiveRequestSchema,
   sparkSessionBindRequestSchema,
   sparkSessionCreateRequestSchema,
   sparkSessionGetRequestSchema,
@@ -221,7 +220,7 @@ export async function executeSparkDaemonSessionControl(
       return { result: data, projection: { kind: "session.detail", data } };
     }
     case "session.archive.request": {
-      const parsed = sparkSessionArchiveRequestSchema.parse({
+      const parsed = sparkSessionGetRequestSchema.parse({
         ...request.payload,
         sessionId: request.sessionId ?? request.payload.sessionId,
       });
@@ -262,12 +261,16 @@ export async function executeSparkDaemonSessionControl(
       const existing = idempotencyKey ? store.findByIdempotencyKey(idempotencyKey) : undefined;
       if (existing) {
         assertIdempotentTurnReplay(existing, parsed);
-        const replay = sparkTurnSubmitResultSchema.parse({
+        return {
+          result: publicObject(
+            sparkTurnSubmitResultSchema.parse({
+              invocationId: existing.invocationId,
+              status: "queued",
+              acceptedAt: existing.createdAt,
+            }),
+          ),
           invocationId: existing.invocationId,
-          status: "queued",
-          acceptedAt: existing.createdAt,
-        });
-        return { result: publicObject(replay), invocationId: existing.invocationId };
+        };
       }
 
       // Dynamic defaults are frozen only for the first admission. A retry of
@@ -277,6 +280,7 @@ export async function executeSparkDaemonSessionControl(
       const thinkingLevel = await effectiveTurnThinkingLevel(options, parsed.sessionId);
       await options.sessionRegistry?.recordTurnQueued(parsed.sessionId);
       let submitted;
+      let raced: ReturnType<typeof store.findByIdempotencyKey>;
       try {
         submitted = submitInvocationTask(
           options.db,
@@ -316,7 +320,7 @@ export async function executeSparkDaemonSessionControl(
           invocationSource(parsed.messageMetadata),
         );
       } catch (error) {
-        const raced = idempotencyKey ? store.findByIdempotencyKey(idempotencyKey) : undefined;
+        raced = idempotencyKey ? store.findByIdempotencyKey(idempotencyKey) : undefined;
         if (raced) {
           try {
             assertIdempotentTurnReplay(raced, parsed);
@@ -325,8 +329,10 @@ export async function executeSparkDaemonSessionControl(
               await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
             }
           }
-          const replay = turnSubmitResultForInvocation(raced);
-          return { result: publicObject(replay), invocationId: raced.invocationId };
+          return {
+            result: publicObject(turnSubmitResultForInvocation(raced)),
+            invocationId: raced.invocationId,
+          };
         }
         await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
         throw error;
@@ -946,7 +952,11 @@ function isTerminalInvocationStatus(status: SparkInvocationStatus): boolean {
 }
 
 function publicObject(value: Record<string, unknown>): Record<string, SparkProtocolJsonValue> {
-  return JSON.parse(JSON.stringify(value)) as Record<string, SparkProtocolJsonValue>;
+  try {
+    return JSON.parse(JSON.stringify(value)) as Record<string, SparkProtocolJsonValue>;
+  } catch (error) {
+    throw new Error("Value is not a valid public session object", { cause: error });
+  }
 }
 
 function encodedBytes(value: unknown): number {

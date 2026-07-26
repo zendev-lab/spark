@@ -268,7 +268,6 @@ export const sparkSessionBindRequestSchema = z.object({
 export const sparkSessionUnbindRequestSchema = sparkSessionBindRequestSchema.omit({
   adapterId: true,
 });
-export const sparkSessionArchiveRequestSchema = sparkSessionGetRequestSchema;
 export const sparkSessionSetModelRequestSchema = sparkSessionGetRequestSchema.extend({
   model: sparkModelRefSchema,
 });
@@ -303,8 +302,6 @@ export const sparkAssignmentSchema = z.object({
   title: z.string().min(1).optional(),
 });
 
-export const sparkAssignmentCreatePayloadSchema = sparkAssignmentSchema;
-
 export type SparkSessionStatus = z.infer<typeof sparkSessionStatusSchema>;
 export type SparkChannelAdapter = z.infer<typeof sparkChannelAdapterSchema>;
 export type SparkSessionChannelBinding = z.infer<typeof sparkSessionChannelBindingSchema>;
@@ -336,7 +333,6 @@ export type SparkSessionMediaReadResult = z.infer<typeof sparkSessionMediaReadRe
 export type SparkSessionPendingTurn = z.infer<typeof sparkSessionPendingTurnSchema>;
 export type SparkSessionBindRequest = z.infer<typeof sparkSessionBindRequestSchema>;
 export type SparkSessionUnbindRequest = z.infer<typeof sparkSessionUnbindRequestSchema>;
-export type SparkSessionArchiveRequest = z.infer<typeof sparkSessionArchiveRequestSchema>;
 export type SparkSessionSetModelRequest = z.infer<typeof sparkSessionSetModelRequestSchema>;
 export type SparkSessionSetThinkingRequest = z.infer<typeof sparkSessionSetThinkingRequestSchema>;
 export type SparkAssignmentSource = z.infer<typeof sparkAssignmentSourceSchema>;

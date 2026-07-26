@@ -1,10 +1,15 @@
 # Daemon-owned autonomous drivers
 
-Spark daemon is the only runtime owner for autonomous `goal`, `loop`, `repro`,
-`implement`, `workflow`, and `session_todo` execution. TUI, Cockpit, and
-structurally compatible extension hosts send control requests, subscribe to
-events, and render projections. Closing or reconnecting a frontend cannot
-pause, advance, retry, or duplicate a driver.
+Spark daemon is the only runtime owner for timer-driven `goal`, `loop`, `repro`,
+and `workflow` execution. TUI, Cockpit, and structurally compatible extension
+hosts send control requests, subscribe to events, and render projections.
+Closing or reconnecting a frontend cannot pause, advance, retry, or duplicate
+a driver.
+
+Implementation phase and session TODO continuation are deliberately not daemon
+drivers. `spark-extension` reconciles them at `agent_end` and may enqueue one
+hidden follow-up per user-input cycle when actionable work remains. The guard
+prevents recursive continuation, and blocked-only TODO state never retries.
 
 ## State ownership
 
@@ -16,7 +21,7 @@ Domain state remains in the workspace `.spark/` tree:
 - tasks and implement readiness;
 - workflow control state.
 
-Dynamic execution state lives only in daemon SQLite:
+Dynamic execution state for timer-driven drivers lives only in daemon SQLite:
 
 - current generation and status;
 - next due time;
@@ -27,21 +32,17 @@ Dynamic execution state lives only in daemon SQLite:
 - fresh hidden execution sessions.
 
 Domain files do not persist `schedule` or `retryState`. The one-way startup
-migration imports active legacy state and removes those fields only after the
-daemon wake has been created successfully.
+migration imports active legacy `goal`, `loop`, `repro`, and `workflow` state
+and removes those fields only after the daemon wake has been created
+successfully. A separate compatibility migration cancels attached invocations
+and removes historical `implement` and `session_todo` wake rows.
 
 ## Driver protocol
 
 The shared protocol defines:
 
 ```ts
-type SparkDriverKind =
-  | "goal"
-  | "loop"
-  | "repro"
-  | "implement"
-  | "workflow"
-  | "session_todo";
+type SparkDriverKind = "goal" | "loop" | "repro" | "workflow";
 
 type SparkDriverStatus =
   | "scheduled"
@@ -103,19 +104,17 @@ Startup reconciliation:
 Capability packages register policy definitions; the daemon provides generic
 time, generation, invocation, retry, and recovery mechanisms.
 
-| Driver | Successful tick without an explicit decision | Safe retry delays |
+| Driver | Default after a successful tick | Safe retry delays |
 | --- | --- | --- |
-| `goal` | continue after 30 seconds while domain state remains active | 30s, 60s, 120s cap |
-| `loop` | dormant; the tick must schedule its next run | 30s, 60s, 120s cap |
-| `repro` | continue after 30 seconds while incomplete | 30s, 60s, 120s cap |
-| `implement` | dormant; schedule immediately only after proving ready work remains | 30s, 60s, 120s cap |
-| `workflow` | dormant; schedule after the capability confirms more work | 1s, 2s, 5s, 10s, 30s cap |
-| `session_todo` | dormant; restart only when the TODO digest changes | 30s, 60s, 120s cap |
+| `goal` | continue in 30s while active | 30s / 60s / 120s |
+| `loop` | dormant until explicitly scheduled | 30s / 60s / 120s |
+| `repro` | continue in 30s while incomplete | 30s / 60s / 120s |
+| `workflow` | dormant until capability schedules | 1s / 2s / 5s / 10s / 30s |
 
-One logical owner session has one foreground lane. Starting `goal`, `loop`,
-`repro`, or `implement` atomically stops the prior foreground or fallback
-driver. Workflows use a separate background lane. `session_todo` is a fallback
-and cannot start while an explicit foreground driver is active.
+One logical owner session has one foreground lane. Starting `goal`, `loop`, or
+`repro` atomically stops the prior foreground driver. Workflows use a separate
+background lane. Hook-owned implementation and TODO reconciliation do not
+participate in driver lanes or generation-based scheduling.
 
 ## Fresh loop continuity
 
@@ -134,10 +133,12 @@ retain the record for a later daemon retry.
 ## Frontend boundary
 
 Frontend code must not contain a driver timer, awaiting-turn map, foreground
-generation, workflow manager poll, or end-of-agent continuation hook. When the
-daemon is unavailable, a driver control request fails explicitly; there is no
-local fallback. Architecture tests enforce this boundary and prevent daemon
-code from importing a product frontend facade.
+generation, or workflow manager poll. When the daemon is unavailable, a driver
+control request fails explicitly; there is no local timer fallback.
+`spark-extension` may own the guarded `agent_end` reconciliation hook for
+implementation phase and session TODOs, but that hook has no cadence, retry, or
+persistent driver state. Architecture tests enforce this boundary and prevent
+daemon code from importing a product frontend facade.
 
 ## marrow-core replacement boundary
 

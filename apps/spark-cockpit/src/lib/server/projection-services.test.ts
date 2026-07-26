@@ -8,10 +8,10 @@ import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import {
   appendEvent,
   createProject,
-  createWorkspaceWithOwnerBinding,
+  createWorkspaceWithLease,
   ingestTaskGraphSnapshot,
   loadWorkspaceServerControl,
-  queueCommandForWorkspaceOwner,
+  queueCommandForWorkspaceLease,
   recordArtifactProjection,
   recordHumanRequestFromRuntime,
   recordHumanResponse,
@@ -23,6 +23,14 @@ import {
   loadEventBatch,
   serializeEventRow,
 } from "@zendev-lab/spark-cockpit-coordination/events";
+
+function parseJson(value: string, label: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error(`Expected ${label} to contain valid JSON`, { cause: error });
+  }
+}
 
 function setupRuntimeBinding() {
   const db = openMemoryDatabase();
@@ -48,10 +56,10 @@ function setupRuntimeBinding() {
 }
 
 describe("projection services", () => {
-  it("creates a workspace, binds its runtime owner, creates a project, and queues a command", () => {
+  it("creates a workspace, leases it to a runtime, creates a project, and queues a command", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
 
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId,
@@ -63,7 +71,7 @@ describe("projection services", () => {
       name: "MVP",
       createdAt: now,
     });
-    const command = queueCommandForWorkspaceOwner(db, {
+    const command = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       projectId: project.id,
       idempotencyKey: createId("idem"),
@@ -87,7 +95,7 @@ describe("projection services", () => {
     const delivery = db
       .prepare("SELECT status FROM command_deliveries WHERE command_id = ?")
       .get(command.id) as { status: string };
-    expect(JSON.parse(projectRow.metadataJson)).toMatchObject({
+    expect(parseJson(projectRow.metadataJson, "project metadata")).toMatchObject({
       sourceOfTruth: "spark-cockpit-routing",
     });
     expect(delivery.status).toBe("pending");
@@ -99,7 +107,7 @@ describe("projection services", () => {
     const queuedEvent = db
       .prepare("SELECT payload_json AS payloadJson FROM events WHERE kind = 'command.queued'")
       .get() as { payloadJson: string };
-    expect(JSON.parse(queuedEvent.payloadJson)).toMatchObject({
+    expect(parseJson(queuedEvent.payloadJson, "queued event payload")).toMatchObject({
       runtimeWorkspaceBindingId,
       command: {
         id: command.id,
@@ -114,13 +122,13 @@ describe("projection services", () => {
 
   it("records invocation streaming chunks as replayable SSE payloads", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId,
       createdAt: now,
     });
-    const command = queueCommandForWorkspaceOwner(db, {
+    const command = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       idempotencyKey: createId("idem"),
       payload: {
@@ -206,7 +214,7 @@ describe("projection services", () => {
 
   it("projects borrowed workspaces as snapshot-only and blocks server mutations", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId,
@@ -274,7 +282,7 @@ describe("projection services", () => {
       serverMutationAllowed: false,
     });
     expect(() =>
-      queueCommandForWorkspaceOwner(db, {
+      queueCommandForWorkspaceLease(db, {
         workspaceId: workspace.id,
         projectId: project.id,
         payload: { kind: "task.start.request", title: "Start MVP task" },
@@ -291,7 +299,7 @@ describe("projection services", () => {
 
   it("projects disconnected workspaces as snapshot-only without stale status wording", () => {
     const { db, runtimeId, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId,
@@ -314,7 +322,7 @@ describe("projection services", () => {
     });
     expect(control.control.message).not.toMatch(/stale/iu);
     expect(() =>
-      queueCommandForWorkspaceOwner(db, {
+      queueCommandForWorkspaceLease(db, {
         workspaceId: workspace.id,
         payload: { kind: "task.start.request", title: "Start MVP task" },
         createdAt: now,
@@ -325,7 +333,7 @@ describe("projection services", () => {
 
   it("allows server mutations for connected unborrowed workspaces", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId,
@@ -352,7 +360,7 @@ describe("projection services", () => {
       serverMutationAllowed: true,
     });
     expect(() =>
-      queueCommandForWorkspaceOwner(db, {
+      queueCommandForWorkspaceLease(db, {
         workspaceId: workspace.id,
         payload: { kind: "task.start.request", title: "Start MVP task" },
         createdAt: now,
@@ -364,7 +372,7 @@ describe("projection services", () => {
   it("finalizes an existing registered workspace instead of inserting a duplicate slug", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
     const workspaceId = createId("ws");
-    const ownerBindingId = createId("wob");
+    const leaseId = createId("wob");
     db.prepare(
       `INSERT INTO workspaces
         (id, slug, name, description, status, settings_json, created_at, updated_at)
@@ -374,7 +382,7 @@ describe("projection services", () => {
       `INSERT INTO workspace_leases
         (id, workspace_id, runtime_workspace_binding_id, owner_mode, started_at, ended_at, created_at)
        VALUES (?, ?, ?, 'primary', ?, NULL, ?)`,
-    ).run(ownerBindingId, workspaceId, runtimeWorkspaceBindingId, now, now);
+    ).run(leaseId, workspaceId, runtimeWorkspaceBindingId, now, now);
 
     const input = {
       slug: "local-default",
@@ -405,8 +413,8 @@ describe("projection services", () => {
       runtimeWorkspaceBindingId,
       createdAt: "2026-05-22T00:01:00.000Z",
     };
-    const finalized = createWorkspaceWithOwnerBinding(db, input);
-    const finalizedAgain = createWorkspaceWithOwnerBinding(db, input);
+    const finalized = createWorkspaceWithLease(db, input);
+    const finalizedAgain = createWorkspaceWithLease(db, input);
 
     const workspaceCount = db.prepare("SELECT COUNT(*) AS count FROM workspaces").get() as {
       count: number;
@@ -424,7 +432,7 @@ describe("projection services", () => {
       description: string | null;
       settingsJson: string;
     };
-    const activeOwnerCount = db
+    const activeLeaseCount = db
       .prepare(
         `SELECT COUNT(*) AS count
          FROM workspace_leases
@@ -442,17 +450,17 @@ describe("projection services", () => {
       .get(workspaceId) as { count: number };
 
     expect(finalized.id).toBe(workspaceId);
-    expect(finalized.ownerBindingId).toBe(ownerBindingId);
+    expect(finalized.leaseId).toBe(leaseId);
     expect(finalizedAgain.id).toBe(workspaceId);
     expect(workspaceCount.count).toBe(1);
     expect(workspace).toMatchObject({
       name: "Local default",
       description: "Ready for work",
     });
-    expect(JSON.parse(workspace.settingsJson)).toEqual({
+    expect(parseJson(workspace.settingsJson, "workspace settings")).toEqual({
       profileInputs: { workspaceSlug: "local-default" },
     });
-    expect(activeOwnerCount.count).toBe(1);
+    expect(activeLeaseCount.count).toBe(1);
     expect(profileCount.count).toBe(1);
     expect(agentCount.count).toBe(1);
     expect(resourceCount.count).toBe(1);
@@ -461,7 +469,7 @@ describe("projection services", () => {
 
   it("records runtime-originated human requests and user responses", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId,
@@ -520,7 +528,7 @@ describe("projection services", () => {
 
   it("ingests task graph snapshots and artifact projections", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId,

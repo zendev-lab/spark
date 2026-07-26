@@ -85,13 +85,13 @@ export function renderSparkImplementationModePrompt(
         WORKFLOW_AND_SUBAGENT_ARE_TOOLS,
         PARALLEL_EXECUTION_WORKFLOW_STRATEGY,
         "If work becomes open-ended with no natural completion condition, suggest /loop. If the user wants autonomous completion with auto-decision policy and reviewer-gated completion, suggest /goal. If the user wants a scripted saved workflow, suggest /workflow.",
-        'When this phase is running as a daemon driver tick, inspect project_status before ending: call driver({ action: "schedule", delayMs: 0, reason }) only when concrete ready work remains; call driver({ action: "stop", reason }) when no work is ready, a blocker exists, or a human/review decision is pending. Omitting both leaves the driver dormant to prevent a no-progress spin.',
+        "Implementation continuation is lifecycle-hook owned, not a daemon driver tick. Before ending, reconcile the session-owned running task and ready frontier; the agent-end hook may queue one bounded follow-up when actionable work remains.",
         ASK_BEFORE_GUESSING,
       ]
     : [
         'Select a current project with task_write({ action: "project_use" }) before claiming project-bound work; use task_read({ action: "workspace_status" }) to inspect available projects first if needed.',
         "Do not claim project-bound work until a current project is selected.",
-        'When running inside a daemon driver tick, call driver({ action: "stop", reason: "no current project" }) before ending the turn.',
+        "Without a current project there is no actionable implementation frontier; do not schedule background continuation.",
         ASK_BEFORE_GUESSING,
       ];
   return renderModePrompt(graph, selectedProjectRef, focus, "Implementation", requirements);
@@ -166,6 +166,3 @@ export function renderSparkPhaseVisibleMessage(
   if (focus?.trim()) parts.push(`focus: ${focus.trim()}`);
   return parts.join(" · ");
 }
-
-/** @deprecated Use renderSparkPhaseVisibleMessage. */
-export const renderSparkModeVisibleMessage = renderSparkPhaseVisibleMessage;

@@ -1,14 +1,7 @@
 import { z } from "zod";
 import { isoDateTimeSchema } from "./refs.ts";
 
-export const sparkDriverKindOptions = [
-  "goal",
-  "loop",
-  "repro",
-  "implement",
-  "workflow",
-  "session_todo",
-] as const;
+export const sparkDriverKindOptions = ["goal", "loop", "repro", "workflow"] as const;
 
 export const sparkDriverStatusOptions = [
   "scheduled",

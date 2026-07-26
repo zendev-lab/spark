@@ -25,7 +25,7 @@ describe("workspace directory identity", () => {
     expect(isReservedWorkbenchPathSegment("daemon")).toBe(true);
   });
 
-  it("syncs workspace name/slug and owner binding display name together", () => {
+  it("syncs workspace name/slug and leased binding display name together", () => {
     const db = openMemoryDatabase();
     migrate(db);
     const now = "2026-07-20T00:00:00.000Z";

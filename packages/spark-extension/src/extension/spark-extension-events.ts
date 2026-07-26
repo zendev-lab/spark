@@ -20,6 +20,7 @@ import {
 } from "./role-run-completions.ts";
 import { sparkActiveLensDriveMode, sparkActiveLensPhase } from "./spark-drive-state.ts";
 import type { SparkModeMessageApi } from "./spark-mode-entry.ts";
+import { createSparkAgentEndReconciliationController } from "./spark-agent-end-reconciliation.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 
 interface SparkExtensionEventApi extends SparkModeMessageApi {
@@ -53,6 +54,7 @@ export function registerSparkExtensionEvents(
 ): SparkExtensionEventHandlers {
   const pendingSparkAgentInstructions = new Map<string, { instruction: string; goalId?: string }>();
   const goalToolBaselines = new Map<string, string[]>();
+  const agentEndReconciliation = createSparkAgentEndReconciliationController(pi);
 
   function queueSparkAgentInstruction(
     ctx: SparkToolContext,
@@ -66,16 +68,17 @@ export function registerSparkExtensionEvents(
   const syncGoalAskAutoAnswerPolicy = (ctx: SparkToolContext) =>
     syncSparkGoalAskAutoAnswerPolicy(ctx, deps);
 
-  pi.on?.("input", async (event: unknown, ctx: SparkToolContext) =>
-    handleSparkInput(event, ctx, {
+  pi.on?.("input", (event: unknown, ctx: SparkToolContext) => {
+    agentEndReconciliation.reset(ctx);
+    return handleSparkInput(event, ctx, {
       piApi: pi,
       deps: {
         queueSparkAgentInstruction,
         refreshSparkWidget: deps.refreshSparkWidget,
         ensureWorkflowRunManager: deps.ensureWorkflowRunManager,
       },
-    }),
-  );
+    });
+  });
   pi.on?.("before_role_start", async (event: unknown, ctx: SparkToolContext) =>
     injectSparkHints(event, ctx),
   );
@@ -143,6 +146,11 @@ export function registerSparkExtensionEvents(
     await syncGoalInteractiveToolAvailability(pi, ctx, goalToolBaselines);
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
+  // turn_end also fires between normal tool-call iterations; agent_end owns
+  // continuation for hook-driven modes without interrupting the current loop.
+  pi.on?.("agent_end", async (_event: unknown, ctx: SparkToolContext) => {
+    await agentEndReconciliation.reconcile(ctx);
+  });
   pi.on?.("tool_execution_start", async (_event: unknown, ctx: SparkToolContext) => {
     await syncGoalAskAutoAnswerPolicy(ctx);
   });
@@ -158,6 +166,7 @@ export function registerSparkExtensionEvents(
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
   pi.on?.("session_shutdown", async (event: unknown, ctx: SparkToolContext) => {
+    agentEndReconciliation.reset(ctx);
     await cleanupOwnedBackgroundSubroles(ctx.cwd, ctx, shutdownReason(event), {
       refreshSparkWidget: deps.refreshSparkWidget,
     });
@@ -173,6 +182,7 @@ export function registerSparkExtensionEvents(
     }
   });
   pi.on?.("session_switch", async (_event: unknown, ctx: SparkToolContext) => {
+    agentEndReconciliation.reset(ctx);
     await ensureLocalSparkDirectory(ctx.cwd);
     ensureSparkClaimReaper(ctx.cwd);
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx, { skipSweep: true });

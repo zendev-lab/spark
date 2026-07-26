@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
-import { createWorkspaceWithOwnerBinding, unbindWorkspaceOwner } from "./projection-services.ts";
+import { createWorkspaceWithLease, unbindWorkspaceLease } from "./projection-services.ts";
 import {
   markRuntimeControlCommandDeliveryAttempt,
   pendingRuntimeControlCommands,
@@ -31,7 +31,7 @@ function setup() {
        diagnostics_json, created_at, updated_at)
      VALUES (?, ?, 'control-local', 'Control workspace', 'available', '{}', '{}', ?, ?)`,
   ).run(bindingId, runtimeId, now, now);
-  const workspace = createWorkspaceWithOwnerBinding(db, {
+  const workspace = createWorkspaceWithLease(db, {
     slug: "control-workspace",
     name: "Control workspace",
     runtimeWorkspaceBindingId: bindingId,
@@ -74,7 +74,7 @@ describe("runtime control command outbox", () => {
     h.db.close();
   });
 
-  it("does not deliver queued workspace commands after the owner projection is unbound", () => {
+  it("does not deliver queued workspace commands after the lease is ended", () => {
     const h = setup();
     const daemon = submitRuntimeControlCommand(h.db, {
       runtimeId: h.runtimeId,
@@ -88,7 +88,7 @@ describe("runtime control command outbox", () => {
       createdAt: h.now,
     });
 
-    unbindWorkspaceOwner(h.db, {
+    unbindWorkspaceLease(h.db, {
       workspaceId: h.workspaceId,
       expectedRuntimeWorkspaceBindingId: h.bindingId,
       endedAt: "2026-07-15T00:01:00.000Z",

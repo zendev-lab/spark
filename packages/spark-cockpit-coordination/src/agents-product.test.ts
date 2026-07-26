@@ -4,7 +4,7 @@ import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import { agentsCockpitSource, loadAgentsProductProjection } from "./agents-product";
 import { submitServerCommand } from "./command-submission";
 import {
-  createWorkspaceWithOwnerBinding,
+  createWorkspaceWithLease,
   recordArtifactProjection,
   recordInvocationUpdate,
 } from "./projection-services";
@@ -28,7 +28,7 @@ function setupAgentWorkspace() {
      VALUES (?, ?, 'agent-workspace', 'Agent workspace', 'available', '{}', '{}', ?, ?)`,
   ).run(runtimeWorkspaceBindingId, runtimeId, now, now);
 
-  const workspace = createWorkspaceWithOwnerBinding(db, {
+  const workspace = createWorkspaceWithLease(db, {
     name: "Agent Workspace",
     slug: "agent-workspace",
     runtimeWorkspaceBindingId,

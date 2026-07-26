@@ -68,14 +68,14 @@
     if (taskForm?.values?.prompt) draftPrompt = taskForm.values.prompt;
   });
 
-  let runtimeStatus = $derived(data.ownerBinding?.runtimeStatus ?? "blocked");
+  let runtimeStatus = $derived(data.lease?.runtimeStatus ?? "blocked");
   let runtimeContext = $derived(
-    data.ownerBinding
-      ? `${data.ownerBinding.displayName} · ${data.ownerBinding.runtimeName}`
+    data.lease
+      ? `${data.lease.displayName} · ${data.lease.runtimeName}`
       : t.chat.noOwnerContext,
   );
   let canStartTask = $derived(
-    data.ownerBinding?.bindingStatus === "available" &&
+    data.lease?.bindingStatus === "available" &&
       data.workspaceControl.control.serverMutationAllowed,
   );
   let workspaceControlLabel = $derived(
@@ -102,7 +102,7 @@
     )?.runtimeInvocationId ?? null,
   );
   let taskActionLabel = $derived(
-    !data.ownerBinding
+    !data.lease
       ? t.chat.noOwnerButton
       : !canStartTask
         ? t.chat.unavailableButton
@@ -114,8 +114,8 @@
     hasActiveRun ? t.chat.busyState : canStartTask ? t.chat.readyState : t.chat.offlineState,
   );
   let ownerCommandNote = $derived(
-    data.ownerBinding
-      ? `${t.chat.ownerPrefix} ${data.ownerBinding.displayName} · ${data.ownerBinding.runtimeName}${
+    data.lease
+      ? `${t.chat.ownerPrefix} ${data.lease.displayName} · ${data.lease.runtimeName}${
           canStartTask ? "" : ` · ${workspaceControlLabel}`
         }`
       : "",

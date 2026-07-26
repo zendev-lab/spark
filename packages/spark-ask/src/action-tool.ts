@@ -16,8 +16,6 @@ import {
 export type SparkAskAction = "ask" | "flow";
 export type SparkAskAutoAnswerMode = "reviewer";
 export const DEFAULT_ASK_WAIT_TIMEOUT_MS = 60 * 60_000;
-/** @deprecated Use DEFAULT_ASK_WAIT_TIMEOUT_MS. */
-export const DEFAULT_ASK_REVIEWER_FALLBACK_AFTER_MS = DEFAULT_ASK_WAIT_TIMEOUT_MS;
 const MAX_ASK_WAIT_TIMEOUT_MS = 24 * 60 * 60_000;
 
 export interface SparkAskActionToolApi {
@@ -363,11 +361,17 @@ async function maybeRecordAskEvidence(
     if (didHumanAskTimeOut(result)) return result;
     throw new Error("ask.recordAsEvidence requires a completed user-answered result");
   }
+  let evidenceBody: JsonValue;
+  try {
+    evidenceBody = JSON.parse(JSON.stringify(body)) as JsonValue;
+  } catch (error) {
+    throw new Error("ask evidence body must be JSON-serializable", { cause: error });
+  }
   const evidence = await defaultEvidenceStore(cwd).put({
     kind: "record",
     title: `Ask evidence: ${optionalString(params.title)?.trim() || "user decision"}`,
     format: "json",
-    body: JSON.parse(JSON.stringify(body)) as JsonValue,
+    body: evidenceBody,
     provenance: { producer: "ask" },
   });
   await recordCanonicalAskEvidenceReceipt(cwd, evidence);

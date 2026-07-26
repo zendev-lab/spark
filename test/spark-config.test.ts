@@ -156,7 +156,7 @@ test("loadSparkConfig + saveSparkConfig round-trip preserves user fields", async
         extensionProfileVersion: CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
         extensions: ["@zendev-lab/pi-extension/extension", "@zendev-lab/spark-cue", "my-extension"],
         providers: ["@zendev-lab/spark-ai/baidu-oneapi-provider", "my-provider"],
-        activeModelId: "baidu-oneapi/claude-opus-4.7",
+        activeModelId: "baidu-oneapi/claude-opus-5",
         activeThinkingLevel: "medium",
         compact: {
           enabled: false,
@@ -182,7 +182,7 @@ test("loadSparkConfig + saveSparkConfig round-trip preserves user fields", async
       "@zendev-lab/spark-ai/openai-codex-provider",
       "my-provider",
     ]);
-    assert.equal(config.activeModelId, "baidu-oneapi/claude-opus-4.7");
+    assert.equal(config.activeModelId, "baidu-oneapi/claude-opus-5");
     assert.equal(config.activeProvider, undefined);
     assert.equal(config.activeModel, undefined);
     assert.equal(config.activeThinkingLevel, "medium");

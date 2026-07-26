@@ -3,11 +3,11 @@ import { describe, expect, it } from "vitest";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import {
-  createWorkspaceWithOwnerBinding,
-  queueCommandForWorkspaceOwner,
+  createWorkspaceWithLease,
+  queueCommandForWorkspaceLease,
   recordHumanRequestFromRuntime,
   recordHumanResponse,
-  unbindWorkspaceOwner,
+  unbindWorkspaceLease,
 } from "./projection-services";
 import { requireRuntimeControlCommand, submitRuntimeControlCommand } from "./runtime-control.ts";
 import { hashSecret } from "./security.ts";
@@ -15,13 +15,23 @@ import { attachRuntimeWebSocket, authenticateRuntimeToken } from "./runtime-ws.t
 import type { DatabaseSync } from "node:sqlite";
 import type { RawData } from "ws";
 
+function parseJson(value: string): ReturnType<typeof JSON.parse> {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error("Expected runtime WebSocket test payload to contain valid JSON", {
+      cause: error,
+    });
+  }
+}
+
 class FakeRuntimeSocket extends EventEmitter {
   readonly sent: string[] = [];
   closed: { code?: number; reason?: string } | undefined;
   failNextType: string | undefined;
 
   send(data: string): void {
-    const type = (JSON.parse(data) as { type?: unknown }).type;
+    const type = (parseJson(data) as { type?: unknown }).type;
     if (type === this.failNextType) {
       this.failNextType = undefined;
       throw new Error(`simulated ${String(type)} send failure`);
@@ -88,7 +98,7 @@ function setupRuntime() {
   });
 
   const helloAck = ws.sent
-    .map((message) => JSON.parse(message))
+    .map((message) => parseJson(message))
     .find((message) => message.type === "server.hello_ack");
   return {
     db,
@@ -101,7 +111,7 @@ function setupRuntime() {
 }
 
 function createWorkspace(db: DatabaseSync, workspaceBindingId: string, now: string) {
-  return createWorkspaceWithOwnerBinding(db, {
+  return createWorkspaceWithLease(db, {
     slug: "local-default",
     name: "Local default",
     runtimeWorkspaceBindingId: workspaceBindingId,
@@ -189,7 +199,7 @@ describe("runtime WebSocket handling", () => {
       },
     });
 
-    const ack = JSON.parse(ws.sent.at(-1) ?? "{}");
+    const ack = parseJson(ws.sent.at(-1) ?? "{}");
     expect(ack.type).toBe("server.ingest_ack");
     expect(ack.ackOf).toBe(messageId);
 
@@ -212,17 +222,17 @@ describe("runtime WebSocket handling", () => {
     expect(row.kind).toBe("daemon.view_event");
     expect(row.subjectKind).toBe("view_model");
     expect(row.subjectId).toBe("session-daemon");
-    expect(JSON.parse(row.payloadJson)).toMatchObject({
+    expect(parseJson(row.payloadJson)).toMatchObject({
       type: "daemon.view_event",
       view: { type: "session.message", sessionId: "session-daemon" },
     });
     db.close();
   });
 
-  it("rejects stale runtime routes after their Cockpit owner binding is ended", () => {
+  it("rejects stale runtime routes after their Cockpit lease is ended", () => {
     const { db, ws, now, runtimeId, workspaceBindingId } = setupRuntime();
     const workspace = createWorkspace(db, workspaceBindingId, now);
-    unbindWorkspaceOwner(db, {
+    unbindWorkspaceLease(db, {
       workspaceId: workspace.id,
       expectedRuntimeWorkspaceBindingId: workspaceBindingId,
       endedAt: "2026-07-20T00:01:00.000Z",
@@ -248,7 +258,7 @@ describe("runtime WebSocket handling", () => {
       },
     });
 
-    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({
+    expect(parseJson(ws.sent.at(-1) ?? "{}")).toMatchObject({
       type: "server.error",
       payload: { code: "workspace_lease_mismatch" },
     });
@@ -334,11 +344,11 @@ describe("runtime WebSocket handling", () => {
       ["daemon.interaction.request", "daemon_event", "session-daemon"],
       ["daemon.interaction.response", "daemon_event", "session-daemon"],
     ]);
-    expect(JSON.parse(rows[0]!.payloadJson)).toMatchObject({
+    expect(parseJson(rows[0]!.payloadJson)).toMatchObject({
       type: "daemon.interaction.request",
       request: { kind: "askFlow", requestId, questions: [{ id: "next" }] },
     });
-    expect(JSON.parse(rows[1]!.payloadJson)).toMatchObject({
+    expect(parseJson(rows[1]!.payloadJson)).toMatchObject({
       type: "daemon.interaction.response",
       response: { kind: "askFlow", requestId, status: "answered", answers: { next: "continue" } },
     });
@@ -349,10 +359,10 @@ describe("runtime WebSocket handling", () => {
     const { db, ws, now, runtimeId, runtimeSessionId, workspaceBindingId } = setupRuntime();
 
     const helloAck = ws.sent
-      .map((message) => JSON.parse(message))
+      .map((message) => parseJson(message))
       .find((message) => message.type === "server.hello_ack");
     const reconcileRequest = ws.sent
-      .map((message) => JSON.parse(message))
+      .map((message) => parseJson(message))
       .find((message) => message.type === "runtime.reconcile.request");
     expect(helloAck.type).toBe("server.hello_ack");
     expect(helloAck.payload.workspaceBindingAssignments).toEqual([
@@ -373,7 +383,7 @@ describe("runtime WebSocket handling", () => {
       },
     });
 
-    const heartbeatAck = JSON.parse(ws.sent.at(-1) ?? "{}");
+    const heartbeatAck = parseJson(ws.sent.at(-1) ?? "{}");
     expect(heartbeatAck.type).toBe("server.heartbeat_ack");
     expect(heartbeatAck.payload.sequence).toBe(1);
 
@@ -437,7 +447,7 @@ describe("runtime WebSocket handling", () => {
       displayName: string;
       localPath: string | null;
     }>;
-    const ownerBinding = db
+    const workspaceLease = db
       .prepare(
         `SELECT runtime_workspace_binding_id AS runtimeWorkspaceBindingId
          FROM workspace_leases
@@ -452,14 +462,14 @@ describe("runtime WebSocket handling", () => {
         localPath: "/Users/test/workspaces/local-default",
       },
     ]);
-    expect(ownerBinding.runtimeWorkspaceBindingId).toBe(workspaceBindingId);
+    expect(workspaceLease.runtimeWorkspaceBindingId).toBe(workspaceBindingId);
     db.close();
   });
 
   it("flushes queued commands and records command acknowledgements", () => {
     const { db, ws, now, runtimeId, runtimeSessionId, workspaceBindingId } = setupRuntime();
     const workspace = createWorkspace(db, workspaceBindingId, now);
-    const command = queueCommandForWorkspaceOwner(db, {
+    const command = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       idempotencyKey: createId("idem"),
       payload: { kind: "task.start.request", title: "Start task" },
@@ -479,7 +489,7 @@ describe("runtime WebSocket handling", () => {
       },
     });
 
-    const routedCommand = JSON.parse(ws.sent.at(-1) ?? "{}");
+    const routedCommand = parseJson(ws.sent.at(-1) ?? "{}");
     expect(routedCommand.type).toBe("server.command");
     expect(routedCommand.commandId).toBe(command.id);
 
@@ -505,7 +515,7 @@ describe("runtime WebSocket handling", () => {
       .prepare("SELECT status FROM mirrored_invocations WHERE runtime_invocation_id = ?")
       .get(invocationId) as { status: string };
 
-    expect(JSON.parse(ws.sent.at(-1) ?? "{}").type).toBe("server.ingest_ack");
+    expect(parseJson(ws.sent.at(-1) ?? "{}").type).toBe("server.ingest_ack");
     expect(delivery.status).toBe("acked");
     expect(invocation.status).toBe("queued");
     db.close();
@@ -528,7 +538,7 @@ describe("runtime WebSocket handling", () => {
       payload: { runtimeId, runtimeSessionId, sequence: 2, observedAt: now },
     });
     const routedCommand = ws.sent
-      .map((message) => JSON.parse(message))
+      .map((message) => parseJson(message))
       .findLast((message) => message.type === "server.command");
     expect(routedCommand).toMatchObject({
       runtimeId,
@@ -637,7 +647,7 @@ describe("runtime WebSocket handling", () => {
     expect(JSON.stringify(ws.sent)).not.toContain(secretMarker);
     expect(
       ws.sent
-        .map((message) => JSON.parse(message))
+        .map((message) => parseJson(message))
         .filter((message) => message.type === "server.error")
         .map((message) => message.payload.code),
     ).toEqual(
@@ -653,7 +663,7 @@ describe("runtime WebSocket handling", () => {
   it("keeps a command pending when the WebSocket write fails", () => {
     const { db, ws, now, runtimeId, runtimeSessionId, workspaceBindingId } = setupRuntime();
     const workspace = createWorkspace(db, workspaceBindingId, now);
-    const command = queueCommandForWorkspaceOwner(db, {
+    const command = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       idempotencyKey: createId("idem"),
       payload: { kind: "task.start.request", title: "Retry task" },
@@ -718,7 +728,7 @@ describe("runtime WebSocket handling", () => {
   it("recovers an unacknowledged command when the runtime reconnects", () => {
     const { db, ws, now, runtimeId, runtimeSessionId, workspaceBindingId } = setupRuntime();
     const workspace = createWorkspace(db, workspaceBindingId, now);
-    const command = queueCommandForWorkspaceOwner(db, {
+    const command = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       idempotencyKey: createId("idem"),
       payload: { kind: "task.start.request", title: "Reconnect task" },
@@ -738,7 +748,7 @@ describe("runtime WebSocket handling", () => {
       },
     });
     const firstDelivery = ws.sent
-      .map((message) => JSON.parse(message))
+      .map((message) => parseJson(message))
       .findLast((message) => message.type === "server.command");
     expect(firstDelivery.commandId).toBe(command.id);
     ws.close(1006, "transport lost before ack");
@@ -773,7 +783,7 @@ describe("runtime WebSocket handling", () => {
     });
 
     const redelivery = reconnectSocket.sent
-      .map((message) => JSON.parse(message))
+      .map((message) => parseJson(message))
       .find((message) => message.type === "server.command");
     expect(redelivery).toMatchObject({ commandId: command.id });
     expect(redelivery.messageId).not.toBe(firstDelivery.messageId);
@@ -830,7 +840,7 @@ describe("runtime WebSocket handling", () => {
     });
 
     const delivery = ws.sent
-      .map((message) => JSON.parse(message))
+      .map((message) => parseJson(message))
       .findLast(
         (message) => message.type === "server.command" && message.commandId === command.commandId,
       );
@@ -857,7 +867,7 @@ describe("runtime WebSocket handling", () => {
       ackOf: delivery.messageId,
       payload: { accepted: true },
     });
-    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({
+    expect(parseJson(ws.sent.at(-1) ?? "{}")).toMatchObject({
       type: "server.error",
       payload: { code: "command_route_mismatch" },
     });
@@ -874,7 +884,7 @@ describe("runtime WebSocket handling", () => {
       payload: { accepted: true },
     });
     expect(requireRuntimeControlCommand(db, command.commandId).status).toBe("accepted");
-    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({
+    expect(parseJson(ws.sent.at(-1) ?? "{}")).toMatchObject({
       type: "server.ingest_ack",
       payload: { receivedType: "runtime.command.ack" },
     });
@@ -902,7 +912,7 @@ describe("runtime WebSocket handling", () => {
         projection: { kind: "daemon.status", data: { online: true } },
       },
     });
-    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({
+    expect(parseJson(ws.sent.at(-1) ?? "{}")).toMatchObject({
       type: "server.ingest_ack",
       ackOf: resultMessageId,
       payload: { receivedType: "runtime.command.result" },
@@ -910,7 +920,7 @@ describe("runtime WebSocket handling", () => {
     db.close();
   });
 
-  it("routes workspace control responses through the persisted workspace owner", () => {
+  it("routes workspace control responses through the persisted workspace lease", () => {
     const { db, ws, now, runtimeId, runtimeSessionId, workspaceBindingId } = setupRuntime();
     const workspace = createWorkspace(db, workspaceBindingId, now);
     const completedCommand = submitRuntimeControlCommand(db, {
@@ -939,13 +949,13 @@ describe("runtime WebSocket handling", () => {
       },
     });
     const completedDelivery = ws.sent
-      .map((message) => JSON.parse(message))
+      .map((message) => parseJson(message))
       .findLast(
         (message) =>
           message.type === "server.command" && message.commandId === completedCommand.commandId,
       );
     const rejectedDelivery = ws.sent
-      .map((message) => JSON.parse(message))
+      .map((message) => parseJson(message))
       .findLast(
         (message) =>
           message.type === "server.command" && message.commandId === rejectedCommand.commandId,
@@ -996,7 +1006,7 @@ describe("runtime WebSocket handling", () => {
       workspaceId: workspace.id,
       runtimeWorkspaceBindingId: workspaceBindingId,
     });
-    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({
+    expect(parseJson(ws.sent.at(-1) ?? "{}")).toMatchObject({
       type: "server.ingest_ack",
       ackOf: resultMessageId,
       payload: { receivedType: "runtime.command.result" },
@@ -1023,7 +1033,7 @@ describe("runtime WebSocket handling", () => {
       workspaceId: workspace.id,
       runtimeWorkspaceBindingId: workspaceBindingId,
     });
-    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({
+    expect(parseJson(ws.sent.at(-1) ?? "{}")).toMatchObject({
       type: "server.ingest_ack",
       payload: { receivedType: "runtime.command.reject" },
     });
@@ -1070,7 +1080,7 @@ describe("runtime WebSocket handling", () => {
       },
     });
     const firstDelivery = ws.sent
-      .map((message) => JSON.parse(message))
+      .map((message) => parseJson(message))
       .findLast(
         (message) => message.type === "server.command" && message.commandId === command.commandId,
       );
@@ -1105,7 +1115,7 @@ describe("runtime WebSocket handling", () => {
     });
 
     const redelivery = reconnectSocket.sent
-      .map((message) => JSON.parse(message))
+      .map((message) => parseJson(message))
       .find((message) => message.type === "server.command");
     expect(redelivery).toMatchObject({ commandId: command.commandId });
     expect(redelivery.messageId).not.toBe(firstDelivery.messageId);
@@ -1119,7 +1129,7 @@ describe("runtime WebSocket handling", () => {
   it("does not flush queued commands for unavailable workspace bindings", () => {
     const { db, ws, now, runtimeId, runtimeSessionId, workspaceBindingId } = setupRuntime();
     const workspace = createWorkspace(db, workspaceBindingId, now);
-    const command = queueCommandForWorkspaceOwner(db, {
+    const command = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       idempotencyKey: createId("idem"),
       payload: { kind: "task.start.request", title: "Start task" },
@@ -1148,7 +1158,7 @@ describe("runtime WebSocket handling", () => {
     expect(
       ws.sent
         .slice(sentBeforeHeartbeat)
-        .map((message) => JSON.parse(message))
+        .map((message) => parseJson(message))
         .some((message) => message.type === "server.command"),
     ).toBe(false);
     const delivery = db
@@ -1198,7 +1208,7 @@ describe("runtime WebSocket handling", () => {
       },
     });
 
-    const delivered = JSON.parse(ws.sent.at(-1) ?? "{}");
+    const delivered = parseJson(ws.sent.at(-1) ?? "{}");
     expect(delivered.type).toBe("human.response.deliver");
     expect(delivered.humanRequestId).toBe(request.humanRequestId);
     expect(delivered.humanResponseId).toBe(response.humanResponseId);
@@ -1288,7 +1298,7 @@ describe("runtime WebSocket handling", () => {
 
     ws.emitMessage(channelResponse);
 
-    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({
+    expect(parseJson(ws.sent.at(-1) ?? "{}")).toMatchObject({
       type: "server.ingest_ack",
       ackOf: firstMessageId,
       payload: { accepted: true, receivedType: "human.response.recorded" },
@@ -1324,11 +1334,11 @@ describe("runtime WebSocket handling", () => {
       deliveryAttemptCount: 0,
       ackedAt: now,
     });
-    expect(JSON.parse(projection.answerJson)).toEqual(channelResponse.payload);
+    expect(parseJson(projection.answerJson)).toEqual(channelResponse.payload);
 
     const replayMessageId = createId("msg");
     ws.emitMessage({ ...channelResponse, messageId: replayMessageId });
-    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({
+    expect(parseJson(ws.sent.at(-1) ?? "{}")).toMatchObject({
       type: "server.ingest_ack",
       ackOf: replayMessageId,
     });
@@ -1362,7 +1372,7 @@ describe("runtime WebSocket handling", () => {
     expect(
       ws.sent
         .slice(sentBeforeHeartbeat)
-        .map((message) => JSON.parse(message))
+        .map((message) => parseJson(message))
         .some((message) => message.type === "human.response.deliver"),
     ).toBe(false);
     db.close();
@@ -1377,7 +1387,7 @@ describe("runtime WebSocket handling", () => {
         (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
        VALUES (?, ?, 'other-local', 'Other local', 'available', '{}', '{}', ?, ?)`,
     ).run(otherBindingId, runtimeId, now, now);
-    const otherWorkspace = createWorkspaceWithOwnerBinding(db, {
+    const otherWorkspace = createWorkspaceWithLease(db, {
       slug: "other-local",
       name: "Other local",
       runtimeWorkspaceBindingId: otherBindingId,
@@ -1465,7 +1475,7 @@ describe("runtime WebSocket handling", () => {
 
     for (const testCase of invalidRoutes) {
       ws.emitMessage(testCase.envelope);
-      expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({
+      expect(parseJson(ws.sent.at(-1) ?? "{}")).toMatchObject({
         type: "server.error",
         payload: { code: testCase.code },
       });
@@ -1641,7 +1651,7 @@ describe("runtime WebSocket handling", () => {
     expect(taskCount.count).toBe(1);
     expect(logCount.count).toBe(1);
     expect(artifact.title).toBe("MVP report");
-    expect(JSON.parse(ws.sent.at(-1) ?? "{}").type).toBe("server.ingest_ack");
+    expect(parseJson(ws.sent.at(-1) ?? "{}").type).toBe("server.ingest_ack");
     db.close();
   });
 
@@ -1693,7 +1703,7 @@ describe("runtime WebSocket handling", () => {
     expect(snapshotCount.count).toBe(1);
     expect(taskCount.count).toBe(1);
     expect(receipt.replayCount).toBe(1);
-    expect(JSON.parse(reconnectedSocket.sent.at(-1) ?? "{}")).toMatchObject({
+    expect(parseJson(reconnectedSocket.sent.at(-1) ?? "{}")).toMatchObject({
       type: "server.ingest_ack",
       ackOf: messageId,
     });

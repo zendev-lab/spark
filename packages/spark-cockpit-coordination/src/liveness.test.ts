@@ -6,7 +6,7 @@ import {
   sweepStaleInvocations,
   sweepStaleRuntimeConnections,
 } from "./liveness";
-import { createProject, createWorkspaceWithOwnerBinding } from "./projection-services";
+import { createProject, createWorkspaceWithLease } from "./projection-services";
 
 describe("runtime liveness", () => {
   it("runs mutating sweeps once per process interval", () => {
@@ -144,7 +144,7 @@ describe("runtime liveness", () => {
        VALUES (?, ?, 'local-default', 'Local default', 'available', '{}', '{}', ?, ?)`,
     ).run(bindingId, runtimeId, createdAt, createdAt);
 
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId: bindingId,
@@ -186,7 +186,15 @@ describe("runtime liveness", () => {
 
     expect(result.lostInvocationIds).toEqual([invocationId]);
     expect(row).toEqual({ status: "lost", terminalReason: "invocation_projection_stale" });
-    expect(JSON.parse(event.payloadJson)).toMatchObject({
+    let eventPayload: unknown;
+    try {
+      eventPayload = JSON.parse(event.payloadJson);
+    } catch (error) {
+      throw new Error("Expected invocation.updated event payload to be valid JSON", {
+        cause: error,
+      });
+    }
+    expect(eventPayload).toMatchObject({
       runtimeInvocationId,
       status: "lost",
       terminalReason: "invocation_projection_stale",
@@ -222,7 +230,7 @@ describe("runtime liveness", () => {
        VALUES (?, ?, 'local-default', 'Local default', 'available', '{}', '{}', ?, ?)`,
     ).run(bindingId, runtimeId, createdAt, createdAt);
 
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId: bindingId,

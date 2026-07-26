@@ -194,9 +194,7 @@ function validateSparkDaemonDriverTickTask(
     task.kind !== "goal" &&
     task.kind !== "loop" &&
     task.kind !== "repro" &&
-    task.kind !== "implement" &&
-    task.kind !== "workflow" &&
-    task.kind !== "session_todo"
+    task.kind !== "workflow"
   ) {
     throw new Error("driver.tick task requires a supported driver kind");
   }

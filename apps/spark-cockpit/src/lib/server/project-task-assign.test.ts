@@ -3,10 +3,18 @@ import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import {
   createProject,
-  createWorkspaceWithOwnerBinding,
-  queueCommandForWorkspaceOwner,
+  createWorkspaceWithLease,
+  queueCommandForWorkspaceLease,
 } from "@zendev-lab/spark-cockpit-coordination/projection-services";
 import { buildProjectTaskAssignCommandPayload } from "./project-task-assign";
+
+function parseJson(value: string): ReturnType<typeof JSON.parse> {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error("Expected queued command payload to contain valid JSON", { cause: error });
+  }
+}
 
 describe("project task assign command", () => {
   it("builds an existing task.start command for a ready board task", () => {
@@ -45,7 +53,7 @@ describe("project task assign command", () => {
         (id, runtime_id, local_workspace_key, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
        VALUES (?, ?, 'local-default', 'Local default', 'available', '{}', '{}', ?, ?)`,
     ).run(runtimeWorkspaceBindingId, runtimeId, now, now);
-    const workspace = createWorkspaceWithOwnerBinding(db, {
+    const workspace = createWorkspaceWithLease(db, {
       slug: "local-default",
       name: "Local default",
       runtimeWorkspaceBindingId,
@@ -58,7 +66,7 @@ describe("project task assign command", () => {
       createdAt: now,
     });
 
-    const command = queueCommandForWorkspaceOwner(db, {
+    const command = queueCommandForWorkspaceLease(db, {
       workspaceId: workspace.id,
       projectId: project.id,
       payload: buildProjectTaskAssignCommandPayload({
@@ -80,7 +88,7 @@ describe("project task assign command", () => {
       .get(command.id) as { kind: string; payloadJson: string; deliveryStatus: string };
     expect(row.kind).toBe("task.start.request");
     expect(row.deliveryStatus).toBe("pending");
-    expect(JSON.parse(row.payloadJson)).toMatchObject({
+    expect(parseJson(row.payloadJson)).toMatchObject({
       kind: "task.start.request",
       payload: { runtimeTaskId: "task-build", source: "project-cockpit-board" },
     });
