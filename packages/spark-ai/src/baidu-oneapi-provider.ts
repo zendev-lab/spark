@@ -18,7 +18,7 @@ const BAIDU_ONEAPI_OPENAI_BASE_URL = `${BAIDU_ONEAPI_BASE_URL}/v1`;
 
 const GATEWAY_MODEL_BY_ID: Record<string, string> = {
   "claude-opus-4.6": "Claude Opus 4.6",
-  "claude-opus-5": "claude-opus-5",
+  "claude-opus-5": "Opus 5",
   "claude-opus-4.8": "Claude Opus 4.8",
   "claude-sonnet-5": "Claude Sonnet 5",
   "claude-fable-5": "Fable 5",
