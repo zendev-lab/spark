@@ -2825,6 +2825,46 @@ test("SparkAgentLoop drainOutboxIntoMessages turns sendUserMessage envelopes int
   assert.equal((messages[3] as AssistantMessage).content[0]!.type, "text");
 });
 
+test("SparkAgentLoop consumes a non-triggering turn_end follow-up inside the current run", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-turn-end-follow-up-test" });
+  const firstAssistant = buildAssistant([{ type: "text", text: "premature final" }]);
+  const secondAssistant = buildAssistant([{ type: "text", text: "reconciled final" }]);
+  const contexts: Message[][] = [];
+  let calls = 0;
+  host.on("turn_end", () => {
+    if (calls !== 1) return;
+    host.sendMessage(
+      {
+        customType: "spark-agent-end-reconciliation",
+        content: "reconcile current state",
+        display: false,
+        authority: "runtime_control",
+        trust: "trusted",
+      },
+      { deliverAs: "followUp", triggerTurn: false },
+    );
+  });
+  const fake: SparkAgentStreamFunction = (_model, context) => {
+    contexts.push([...context.messages]);
+    calls += 1;
+    const message = calls === 1 ? firstAssistant : secondAssistant;
+    return {
+      async *[Symbol.asyncIterator]() {
+        yield { type: "done", reason: "stop", message };
+      },
+      result: async () => message,
+    } as ReturnType<SparkAgentStreamFunction>;
+  };
+  const loop = new SparkAgentLoop({ host, streamFunction: fake, getModel: () => TEST_MODEL });
+
+  const result = await loop.submit("start");
+
+  assert.equal(calls, 2);
+  assert.equal(result.content[0]?.type, "text");
+  assert.match(JSON.stringify(result.content), /reconciled final/);
+  assert.match(messageContentText(contexts[1]?.at(-1)?.content), /reconcile current state/);
+});
+
 test("SparkAgentLoop triggerTurn queues hidden custom messages without visible user echo", async () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-trigger-turn-custom-test" });
   const finalAssistant = buildAssistant([{ type: "text", text: "goal tick executed" }]);

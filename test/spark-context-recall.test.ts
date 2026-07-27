@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { registerSparkContextTool } from "@zendev-lab/spark-host/context";
+import {
+  createSparkContextRegistry,
+  registerSparkContextTool,
+} from "@zendev-lab/spark-host/context";
 import { registerSparkMemoryTool } from "@zendev-lab/spark-memory/extension";
 
 type ToolResult = {
@@ -31,21 +34,20 @@ interface ToolConfig {
 
 test("context tool lists and previews registered providers within budgets", async () => {
   const tools = new Map<string, ToolConfig>();
+  const registry = createSparkContextRegistry([
+    {
+      id: "test.provider",
+      label: "Test provider",
+      description: "Provides deterministic test context.",
+      defaultBudgetChars: 20,
+      async render() {
+        return "abcdefghijklmnopqrstuvwxyz";
+      },
+    },
+  ]);
   registerSparkContextTool(
     { registerTool: (config) => tools.set(config.name, config as ToolConfig) },
-    {
-      providers: [
-        {
-          id: "test.provider",
-          label: "Test provider",
-          description: "Provides deterministic test context.",
-          defaultBudgetChars: 20,
-          async render() {
-            return "abcdefghijklmnopqrstuvwxyz";
-          },
-        },
-      ],
-    },
+    { registry },
   );
 
   assert.deepEqual(tools.get("context")?.policy, {

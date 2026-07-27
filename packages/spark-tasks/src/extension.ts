@@ -371,16 +371,18 @@ export function registerSparkTodoTool(pi: SparkTaskHostApi, options: SparkTodoTo
     name: "todo",
     label: "Todo",
     description:
-      "Session-bound TODO checklist. Track lightweight, standalone next-steps for the current session that survive reload and are not tied to a claimed task. Use action=list to view the checklist and init/append/start/done/upsert_done/block/cancel/delete/restore/remove/note to edit it.",
+      "Mutate the session-bound TODO checklist of lightweight standalone next-steps that survive reload and are not tied to a claimed task. Current TODO state is injected automatically; use the registered context provider only for explicit diagnostics.",
     promptGuidelines: [
       "Use todo for standalone session next-steps that are not tied to a claimed durable task.",
       "Use task_write({ action: 'plan_update' }) for plan items of the currently claimed task, and task_write({ action: 'plan' }) to create durable project tasks.",
-      "Prefer one in_progress item at a time; start advances the checklist and done/cancel close items.",
+      "When an injected session TODO snapshot is active, mark an item in_progress before doing its work and prefer one in_progress item at a time.",
+      "As soon as completion evidence or an exact blocker is known, update that item with done, block, cancel, or note before starting unrelated work; do not batch status transitions at the final response.",
+      "Before finalizing, reconcile every active item from the injected snapshot directly. Normal agent flow must not call the deprecated list compatibility action.",
     ],
     parameters: Type.Object({
       action: Type.String({
         description:
-          "list | init | append | start | done | upsert_done | block | cancel | delete | restore | remove | note",
+          "init | append | start | done | upsert_done | block | cancel | delete | restore | remove | note",
       }),
       id: Type.Optional(Type.String({ description: "Target TODO id for id-addressed ops." })),
       item: Type.Optional(Type.String({ description: "TODO item text for single-item ops." })),

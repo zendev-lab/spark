@@ -13,6 +13,7 @@ import { NO_SPARK_PROJECT_FOUND_HINT } from "./spark-project-guidance.ts";
 import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
 import { normalizeOptionalToolString, normalizeToolStringArray } from "./task-plan-tool.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
+import { SPARK_SESSION_TODO_CONTEXT_PROVIDER_ID } from "./spark-session-todo-context.ts";
 
 interface SparkTodoToolDependencies {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
@@ -84,7 +85,7 @@ export function registerSparkTodoTools(
       const action = normalizeOptionalToolString(params.action, "action") ?? "list";
       if (action === "list") {
         const todos = await loadIndependentTodos(cwd, ctx);
-        return renderSessionTodos(todos, `Session TODOs: ${unfinishedCount(todos)} active.`);
+        return renderDeprecatedTodoList(todos);
       }
       const op = sparkTodoOpFromAction(action, params);
       if (!op)
@@ -92,10 +93,11 @@ export function registerSparkTodoTools(
           content: [{ type: "text", text: "todo op is required." }],
           details: { error: "missing_op" },
         };
-      const todos = applyIndependentTodoOps(await loadIndependentTodos(cwd, ctx), [op]);
+      const before = await loadIndependentTodos(cwd, ctx);
+      const todos = applyIndependentTodoOps(before, [op]);
       await saveIndependentTodos(cwd, ctx, todos);
       await deps.refreshSparkWidget(cwd, ctx);
-      return renderSessionTodos(todos, `Updated ${unfinishedCount(todos)} active session TODO(s).`);
+      return renderTodoMutation(action, before, todos);
     },
   });
 
@@ -184,6 +186,57 @@ export function registerSparkTodoTools(
 
 function unfinishedCount(todos: SessionTodoEntry[]): number {
   return todos.filter(isActiveSessionTodo).length;
+}
+
+function renderDeprecatedTodoList(todos: SessionTodoEntry[]) {
+  const rendered = renderSessionTodos(todos, `Session TODOs: ${unfinishedCount(todos)} active.`);
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `${rendered.content[0]?.text ?? ""}\nDeprecated: normal agent flow receives this state automatically. Use context preview with providerIds=["${SPARK_SESSION_TODO_CONTEXT_PROVIDER_ID}"] only for explicit diagnostics.`,
+      },
+    ],
+    details: {
+      ...rendered.details,
+      deprecated: true,
+      replacementProviderId: SPARK_SESSION_TODO_CONTEXT_PROVIDER_ID,
+    },
+  };
+}
+
+function renderTodoMutation(action: string, before: SessionTodoEntry[], todos: SessionTodoEntry[]) {
+  const changedTodoIds = collectChangedTodoIds(before, todos);
+  const changed = changedTodoIds.length ? ` Changed: ${changedTodoIds.join(", ")}.` : "";
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `Applied todo action=${action}; ${unfinishedCount(todos)} active session TODO(s).${changed}`,
+      },
+    ],
+    details: {
+      action,
+      activeCount: unfinishedCount(todos),
+      changedTodoIds,
+    },
+  };
+}
+
+function collectChangedTodoIds(
+  before: readonly SessionTodoEntry[],
+  after: readonly SessionTodoEntry[],
+): string[] {
+  const beforeByKey = new Map(before.map((todo) => [todoIdentity(todo), JSON.stringify(todo)]));
+  const afterByKey = new Map(after.map((todo) => [todoIdentity(todo), JSON.stringify(todo)]));
+  return [
+    ...after.filter((todo) => beforeByKey.get(todoIdentity(todo)) !== JSON.stringify(todo)),
+    ...before.filter((todo) => !afterByKey.has(todoIdentity(todo))),
+  ].map(todoIdentity);
+}
+
+function todoIdentity(todo: SessionTodoEntry): string {
+  return todo.id?.trim() || todo.content;
 }
 
 function renderSessionTodos(todos: SessionTodoEntry[], header: string) {

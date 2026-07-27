@@ -9,6 +9,8 @@ export interface SparkContextBundle {
   content: string;
   budgetChars: number;
   truncated: boolean;
+  empty?: boolean;
+  revision?: string;
   priority?: number;
   refs?: string[];
 }
@@ -34,15 +36,53 @@ export interface SparkContextHostApi {
 }
 
 export interface SparkContextToolOptions {
-  providers: SparkContextProvider[];
+  providers?: SparkContextProvider[];
+  registry?: SparkContextRegistry;
 }
 
-interface CompactContextProvider {
+export interface SparkContextProviderSummary {
   id: string;
   label: string;
   description: string;
   defaultBudgetChars: number;
   priority?: number;
+}
+
+export interface SparkContextRenderOptions {
+  providerIds?: readonly string[];
+  budgetChars?: number;
+}
+
+export interface SparkContextRegistry {
+  list(): SparkContextProviderSummary[];
+  render(ctx: unknown, options?: SparkContextRenderOptions): Promise<SparkContextBundle[]>;
+}
+
+/** Shared provider registry used by both explicit previews and lifecycle projections. */
+export function createSparkContextRegistry(
+  contextProviders: readonly SparkContextProvider[] = [],
+): SparkContextRegistry {
+  const providers = new Map<string, SparkContextProvider>();
+  for (const provider of contextProviders) {
+    if (providers.has(provider.id)) throw new Error(`duplicate context provider: ${provider.id}`);
+    providers.set(provider.id, provider);
+  }
+  return {
+    list: () => [...providers.values()].map((provider) => compactProvider(provider)),
+    async render(ctx, options = {}) {
+      const selected = selectContextProviders(providers, options.providerIds);
+      const bundles = await Promise.all(
+        selected.map((provider) =>
+          renderSparkContextProvider(
+            provider,
+            ctx,
+            options.budgetChars ?? provider.defaultBudgetChars,
+          ),
+        ),
+      );
+      return bundles.filter((bundle): bundle is SparkContextBundle => Boolean(bundle));
+    },
+  };
 }
 
 class ToolCallText implements ToolRenderComponent {
@@ -63,16 +103,16 @@ export function registerSparkContextTool(
   pi: SparkContextHostApi,
   options: SparkContextToolOptions,
 ): void {
-  const providers = new Map(options.providers.map((provider) => [provider.id, provider]));
+  const registry = resolveContextRegistry(options);
   pi.registerTool({
     name: "context",
     label: "Context",
     description:
       "Canonical registered context provider tool. List or preview bounded provider output; no freeform prompt injection.",
     promptGuidelines: [
-      "Use context preview/list to inspect registered context providers before relying on injected context.",
+      "Current-round hook snapshots identify their provider and supersede older snapshots; use context preview/list for explicit diagnostics, not routine refetching.",
       "Do not pass arbitrary system prompt text; context content must come from registered providers with budgets.",
-      "Use providerIds and budgetChars to keep context bounded and explicit.",
+      "Use providerIds and budgetChars to keep diagnostic context bounded and explicit.",
     ],
     policy: {
       effect: "read",
@@ -94,7 +134,7 @@ export function registerSparkContextTool(
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const action = normalizeContextAction(params.action);
       if (action === "list") {
-        const rows = [...providers.values()].map((provider) => compactProvider(provider));
+        const rows = registry.list();
         return {
           content: [
             {
@@ -113,14 +153,9 @@ export function registerSparkContextTool(
         };
       }
 
-      const selected = selectProviders(providers, params.providerIds);
+      const providerIds = normalizeProviderIds(params.providerIds);
       const budgetChars = normalizeBudget(params.budgetChars);
-      const bundles = await Promise.all(
-        selected.map((provider) =>
-          renderProvider(provider, ctx, budgetChars ?? provider.defaultBudgetChars),
-        ),
-      );
-      const visible = bundles.filter((bundle): bundle is SparkContextBundle => Boolean(bundle));
+      const visible = await registry.render(ctx, { providerIds, budgetChars });
       return {
         content: [
           {
@@ -138,7 +173,7 @@ export function registerSparkContextTool(
   });
 }
 
-function compactProvider(provider: SparkContextProvider): CompactContextProvider {
+function compactProvider(provider: SparkContextProvider): SparkContextProviderSummary {
   return {
     id: provider.id,
     label: provider.label,
@@ -148,7 +183,7 @@ function compactProvider(provider: SparkContextProvider): CompactContextProvider
   };
 }
 
-async function renderProvider(
+export async function renderSparkContextProvider(
   provider: SparkContextProvider,
   ctx: unknown,
   budgetChars: number,
@@ -163,6 +198,8 @@ async function renderProvider(
     content: truncatedContent.content,
     budgetChars,
     truncated: truncatedContent.truncated,
+    empty: typeof rendered === "string" ? undefined : rendered.empty,
+    revision: typeof rendered === "string" ? undefined : rendered.revision,
     priority: provider.priority,
     refs: typeof rendered === "string" ? undefined : rendered.refs,
   };
@@ -179,18 +216,31 @@ function truncateToBudget(
   };
 }
 
-function selectProviders(
-  providers: Map<string, SparkContextProvider>,
-  providerIds: unknown,
+function resolveContextRegistry(options: SparkContextToolOptions): SparkContextRegistry {
+  if (options.registry && options.providers)
+    throw new Error("context tool accepts registry or providers, not both");
+  return options.registry ?? createSparkContextRegistry(options.providers);
+}
+
+function selectContextProviders(
+  providers: ReadonlyMap<string, SparkContextProvider>,
+  providerIds: readonly string[] | undefined,
 ): SparkContextProvider[] {
-  if (providerIds === undefined || providerIds === null) return [...providers.values()];
-  if (!Array.isArray(providerIds)) throw new Error("context.providerIds must be an array");
-  return providerIds.map((id, index) => {
-    if (typeof id !== "string" || !id.trim())
-      throw new Error(`context.providerIds[${index}] must be a string`);
+  if (providerIds === undefined) return [...providers.values()];
+  return providerIds.map((id) => {
     const provider = providers.get(id);
     if (!provider) throw new Error(`unknown context provider: ${id}`);
     return provider;
+  });
+}
+
+function normalizeProviderIds(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) throw new Error("context.providerIds must be an array");
+  return value.map((id, index) => {
+    if (typeof id !== "string" || !id.trim())
+      throw new Error(`context.providerIds[${index}] must be a string`);
+    return id;
   });
 }
 

@@ -38,6 +38,7 @@ import {
 import {
   defaultTaskGraphStore,
   defaultTaskTodoStore,
+  isActiveSessionTodo,
   renderTaskPlanReadinessRules,
   TaskGraph,
   TaskGraphStore,
@@ -9652,29 +9653,53 @@ test("session-bound todo implementation is registered as impl_todo", () => {
   const { tools } = registerSparkToolsForTest();
   assert.equal(tools.has("impl_update_todos"), false);
   assert.ok(tools.has("impl_todo"), "missing session-bound impl_todo tool");
-  assert.ok(tools.has("todo"), "missing public todo tool");
+  const todo = tools.get("todo");
+  assert.ok(todo, "missing public todo tool");
+  assert.doesNotMatch(todo.description ?? "", /action=list/);
+  assert.doesNotMatch(JSON.stringify(todo.parameters), /list \| init/);
+  assert.match(
+    (todo.promptGuidelines ?? []).join("\n"),
+    /completion evidence or an exact blocker.*before starting unrelated work/,
+  );
 });
 
-test("todo tool tracks session-bound checklist independent of claimed tasks", async () => {
+test("todo tool tracks session-bound checklist without list read roundtrips", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-session-todo-"));
   try {
     const ctx = testSparkContext(dir, "main");
-    const { tools } = registerSparkToolsForTest();
-
-    const initial = await executeSparkTool(tools, "todo", ctx, { action: "list" });
-    assert.match(toolText(initial), /Session TODOs: 0 active/);
-
-    await executeSparkTool(tools, "todo", ctx, {
+    const run = registerSparkToolsForTest();
+    const init = await executeSparkTool(run.tools, "todo", ctx, {
       action: "init",
       items: ["Draft the RFC", "Collect review feedback"],
     });
-    const afterInit = await executeSparkTool(tools, "todo", ctx, { action: "list" });
-    const afterInitText = toolText(afterInit);
-    assert.match(afterInitText, /Session TODOs: 2 active/);
-    assert.match(afterInitText, /\[in_progress\].*Draft the RFC/);
-    assert.match(afterInitText, /\[pending\].*Collect review feedback/);
+    assert.match(toolText(init), /Applied todo action=init; 2 active/);
+    assert.doesNotMatch(toolText(init), /Draft the RFC/);
 
-    await executeSparkTool(tools, "todo", ctx, { action: "done", item: "Draft the RFC" });
+    const preview = await executeSparkTool(run.tools, "context", ctx, {
+      action: "preview",
+      providerIds: ["spark.todos"],
+    });
+    assert.match(toolText(preview), /Session TODOs: 2 active/);
+    assert.match(toolText(preview), /\[in_progress\].*Draft the RFC/);
+    assert.match(toolText(preview), /\[pending\].*Collect review feedback/);
+
+    const firstHook = (await run.eventHandlers.get("before_agent_start")?.[0]?.({}, ctx)) as {
+      messages?: Array<{ content?: string; details?: Record<string, unknown> }>;
+    };
+    const firstSnapshot = firstHook.messages?.find(
+      (message) => message.details?.providerId === "spark.todos",
+    );
+    assert.match(firstSnapshot?.content ?? "", /Draft the RFC/);
+    const unchangedHook = (await run.eventHandlers.get("before_agent_start")?.[0]?.({}, ctx)) as
+      | { messages?: Array<{ details?: Record<string, unknown> }> }
+      | undefined;
+    assert.equal(
+      unchangedHook?.messages?.some((message) => message.details?.providerId === "spark.todos") ??
+        false,
+      false,
+    );
+
+    await executeSparkTool(run.tools, "todo", ctx, { action: "done", item: "Draft the RFC" });
     const reloaded = await loadIndependentTodos(dir, ctx);
     assert.deepEqual(
       reloaded.map((todo) => [todo.content, todo.status]),
@@ -9683,12 +9708,42 @@ test("todo tool tracks session-bound checklist independent of claimed tasks", as
         ["Collect review feedback", "in_progress"],
       ],
     );
-    await executeSparkTool(tools, "todo", ctx, {
+    const changedHook = (await run.eventHandlers.get("before_agent_start")?.[0]?.({}, ctx)) as {
+      messages?: Array<{ content?: string; details?: Record<string, unknown> }>;
+    };
+    const changedSnapshot = changedHook.messages?.find(
+      (message) => message.details?.providerId === "spark.todos",
+    );
+    assert.match(changedSnapshot?.content ?? "", /\[in_progress\].*Collect review feedback/);
+
+    await executeSparkTool(run.tools, "todo", ctx, {
       action: "done",
       item: "Collect review feedback",
     });
-    const completed = await executeSparkTool(tools, "todo", ctx, { action: "list" });
-    assert.match(toolText(completed), /Session TODOs: 0 active/);
+    const completed = await loadIndependentTodos(dir, ctx);
+    assert.equal(completed.filter(isActiveSessionTodo).length, 0);
+    const clearedHook = (await run.eventHandlers.get("before_agent_start")?.[0]?.({}, ctx)) as {
+      messages?: Array<{ content?: string; details?: Record<string, unknown> }>;
+    };
+    const clearedSnapshot = clearedHook.messages?.find(
+      (message) => message.details?.providerId === "spark.todos",
+    );
+    assert.equal(clearedSnapshot?.details?.cleared, true);
+    assert.match(clearedSnapshot?.content ?? "", /0 active/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("todo list remains a deprecated compatibility read", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-session-todo-list-compat-"));
+  try {
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    const listed = await executeSparkTool(tools, "todo", ctx, { action: "list" });
+    assert.match(toolText(listed), /Deprecated/);
+    assert.equal(listed.details?.deprecated, true);
+    assert.equal(listed.details?.replacementProviderId, "spark.todos");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -10345,7 +10400,12 @@ async function useOnlySparkProjectInExplicitPlanMode(
 ): Promise<void> {
   await useOnlySparkProject(tools, ctx);
   const statePath = currentProjectStatePath(ctx.cwd, ctx);
-  const state = JSON.parse(await readFile(statePath, "utf8")) as { projectRef?: string };
+  let state: { projectRef?: string };
+  try {
+    state = JSON.parse(await readFile(statePath, "utf8")) as { projectRef?: string };
+  } catch (error) {
+    assert.fail(`expected valid current-project state JSON: ${String(error)}`);
+  }
   assert.ok(state.projectRef);
 }
 

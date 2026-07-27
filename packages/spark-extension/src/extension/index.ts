@@ -1,5 +1,9 @@
 import { registerSparkAskAutoAnswerProvider } from "@zendev-lab/spark-ask";
-import { registerSparkContextTool } from "@zendev-lab/spark-host/context";
+import {
+  createSparkContextRegistry,
+  registerSparkContextTool,
+  type SparkContextProvider,
+} from "@zendev-lab/spark-host/context";
 import {
   registerSparkTaskTool,
   registerSparkTodoTool,
@@ -43,6 +47,11 @@ import { registerSparkPhaseTool } from "./mode/index.ts";
 import { sparkSessionKey } from "./session-state.ts";
 import type { SparkRegisteredToolConfig, SparkToolContext } from "./spark-tool-registration.ts";
 import { SparkWidgetController } from "./spark-widget-controller.ts";
+import { createSparkTurnContextController } from "./spark-turn-context-controller.ts";
+import {
+  createSparkSessionTodoContextProvider,
+  SPARK_SESSION_TODO_CONTEXT_PROVIDER_ID,
+} from "./spark-session-todo-context.ts";
 import { SparkRoleRunTuiController } from "./spark-role-run-tui-controller.ts";
 import { createSparkRoleRegistry } from "./spark-role-registry.ts";
 import {
@@ -92,6 +101,26 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   const driverControl = pi.driverControl ?? sparkDaemonDriverControl;
   const widgetController = new SparkWidgetController();
   const roleRunTuiController = new SparkRoleRunTuiController(pi);
+  const contextProviders: SparkContextProvider[] = [
+    {
+      id: "spark.active",
+      label: sparkExtensionContextProviderStrings.label,
+      description: sparkExtensionContextProviderStrings.description,
+      defaultBudgetChars: 4_000,
+      priority: 100,
+      async render(ctx) {
+        const toolCtx = ctx as SparkToolContext;
+        const content = await renderActiveSparkContextSummary(toolCtx.cwd, toolCtx);
+        if (!content) return undefined;
+        return { content, refs: ["SPARK.md", ".spark/projects.json"] };
+      },
+    },
+    createSparkSessionTodoContextProvider(),
+  ];
+  const contextRegistry = createSparkContextRegistry(contextProviders);
+  const turnContextController = createSparkTurnContextController(contextRegistry, {
+    providerIds: [SPARK_SESSION_TODO_CONTEXT_PROVIDER_ID],
+  });
 
   async function refreshSparkWidget(cwd: string, ctx?: SparkToolContext): Promise<void> {
     await widgetController.refresh(cwd, ctx);
@@ -120,6 +149,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   const eventHandlers = registerSparkExtensionEvents(pi, {
     refreshSparkWidget,
     ensureWorkflowRunManager: (cwd, ctx) => workflowRunManagerController.ensure(cwd, ctx),
+    turnContextController,
     createAskAutoAnswerResolver: (ctx) => (request, askCtx) =>
       answerAskWithReviewer(request, askCtx, ctx),
   });
@@ -247,23 +277,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     registerSparkTodoTool(genericToolRegistrar, {
       handler: createSparkTodoHandler((name) => registeredSparkTools.get(name)),
     });
-    registerSparkContextTool(genericToolRegistrar, {
-      providers: [
-        {
-          id: "spark.active",
-          label: sparkExtensionContextProviderStrings.label,
-          description: sparkExtensionContextProviderStrings.description,
-          defaultBudgetChars: 4_000,
-          priority: 100,
-          async render(ctx) {
-            const toolCtx = ctx as SparkToolContext;
-            const content = await renderActiveSparkContextSummary(toolCtx.cwd, toolCtx);
-            if (!content) return undefined;
-            return { content, refs: ["SPARK.md", ".spark/projects.json"] };
-          },
-        },
-      ],
-    });
+    registerSparkContextTool(genericToolRegistrar, { registry: contextRegistry });
   }
 }
 

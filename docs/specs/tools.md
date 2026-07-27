@@ -35,8 +35,17 @@ TUI and Cockpit use the same daemon-owned Side Thread contract; presentation sta
 - `task_read` inspects task, project, workspace, project-list, and run state.
 - `task_write` selects projects and plans, claims, finishes, recovers, or updates tasks. New and claimed tasks require an objectively verifiable plan.
 - `assign` dispatches the ready frontier and dry-runs by default.
+- `todo` mutates the session-bound standalone checklist; its current state is projected automatically rather than fetched in normal agent flow.
 - `goal`, `loop`, `drive`, `phase`, and `repro` own their named foreground state machines. Spark native hosts expose the plan/implement switch as `phase({ action })` (`spark-modes` remains the host-neutral lens mechanism that defaults its descriptor name to `mode`).
 - `workflow` lists/reads controlled selectors; `workflow_run` executes a saved selector or trusted metadata-first script.
+
+### Hook-projected state
+
+The `spark.todos` context provider reads durable Session TODO state at model-round start. A changed snapshot is current for that round and supersedes older snapshots for the same provider; clearing the checklist emits one tombstone. Provider content is hidden `runtime_data/untrusted`: statuses and identifiers are state facts, while checklist text remains data rather than instructions. Unchanged snapshots are not appended repeatedly, and session compaction or switching resets the delivery cursor so current state is projected again.
+
+TODO mutations still reload the durable store and validate their target at execution time; a hook snapshot is never a write precondition. `context({ action: "preview", providerIds: ["spark.todos"] })` is the explicit diagnostic path. `todo({ action: "list" })` remains a deprecated compatibility read for this migration and is not part of normal model guidance.
+
+Task and goal state may adopt this projection pattern only after their multi-session write paths expose revision, lease, or equivalent conflict validation. Until then, historical summaries and hook text do not replace the scoped `task_read` and `goal({ action: "status" })` authority rules.
 
 Direct role/session calls do not create task attribution.
 

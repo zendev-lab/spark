@@ -22,6 +22,7 @@ import { sparkActiveLensDriveMode, sparkActiveLensPhase } from "./spark-drive-st
 import type { SparkModeMessageApi } from "./spark-mode-entry.ts";
 import { createSparkAgentEndReconciliationController } from "./spark-agent-end-reconciliation.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
+import type { SparkTurnContextController } from "./spark-turn-context-controller.ts";
 
 interface SparkExtensionEventApi extends SparkModeMessageApi {
   on?(event: string, handler: (event: unknown, ctx: SparkToolContext) => unknown): void;
@@ -32,6 +33,7 @@ interface SparkExtensionEventApi extends SparkModeMessageApi {
 export interface SparkExtensionEventDeps {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
   ensureWorkflowRunManager: (cwd: string, ctx: SparkToolContext) => Promise<void>;
+  turnContextController?: Pick<SparkTurnContextController, "collect" | "reset">;
   createAskAutoAnswerResolver?: (
     ctx: SparkToolContext,
   ) =>
@@ -90,7 +92,8 @@ export function registerSparkExtensionEvents(
     const pendingInstruction = await activePendingInstruction(ctx, pendingEntry);
     if (pendingEntry && !pendingInstruction) pendingSparkAgentInstructions.delete(sessionKey);
     const inbox = await collectUnreadHiddenRoleRunInbox(ctx.cwd, ctx);
-    if (!pendingInstruction && inbox.summaries.length === 0) {
+    const contextMessages = (await deps.turnContextController?.collect(ctx)) ?? [];
+    if (!pendingInstruction && inbox.summaries.length === 0 && contextMessages.length === 0) {
       pendingSparkAgentInstructions.delete(sessionKey);
       return undefined;
     }
@@ -120,6 +123,7 @@ export function registerSparkExtensionEvents(
             },
           ]
         : []),
+      ...contextMessages,
     ];
     const compatibilityMessage =
       messages.length === 1
@@ -146,8 +150,13 @@ export function registerSparkExtensionEvents(
     await syncGoalInteractiveToolAvailability(pi, ctx, goalToolBaselines);
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
-  // turn_end also fires between normal tool-call iterations; agent_end owns
-  // continuation for hook-driven modes without interrupting the current loop.
+  // turn_end also fires between normal tool-call iterations. Only a successful
+  // assistant turn without tool calls may reconcile inside the current loop.
+  pi.on?.("turn_end", async (event: unknown, ctx: SparkToolContext) => {
+    if (isTerminalAssistantTurnEvent(event))
+      await agentEndReconciliation.reconcile(ctx, { triggerTurn: false });
+  });
+  // Cross-host and exceptional lifecycle paths retain agent_end as a bounded fallback.
   pi.on?.("agent_end", async (_event: unknown, ctx: SparkToolContext) => {
     await agentEndReconciliation.reconcile(ctx);
   });
@@ -155,6 +164,7 @@ export function registerSparkExtensionEvents(
     await syncGoalAskAutoAnswerPolicy(ctx);
   });
   pi.on?.("session_start", async (_event: unknown, ctx: SparkToolContext) => {
+    deps.turnContextController?.reset(ctx);
     await ensureLocalSparkDirectory(ctx.cwd);
     ensureSparkClaimReaper(ctx.cwd);
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx, { skipSweep: true });
@@ -163,10 +173,12 @@ export function registerSparkExtensionEvents(
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
   pi.on?.("session_compact", async (_event: unknown, ctx: SparkToolContext) => {
+    deps.turnContextController?.reset(ctx);
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
   pi.on?.("session_shutdown", async (event: unknown, ctx: SparkToolContext) => {
     agentEndReconciliation.reset(ctx);
+    deps.turnContextController?.reset(ctx);
     await cleanupOwnedBackgroundSubroles(ctx.cwd, ctx, shutdownReason(event), {
       refreshSparkWidget: deps.refreshSparkWidget,
     });
@@ -183,6 +195,7 @@ export function registerSparkExtensionEvents(
   });
   pi.on?.("session_switch", async (_event: unknown, ctx: SparkToolContext) => {
     agentEndReconciliation.reset(ctx);
+    deps.turnContextController?.reset(ctx);
     await ensureLocalSparkDirectory(ctx.cwd);
     ensureSparkClaimReaper(ctx.cwd);
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx, { skipSweep: true });
@@ -285,6 +298,21 @@ function isToolExecutionEvent(event: unknown, toolName: string): boolean {
     (event as { toolName?: unknown }).toolName === toolName &&
     (event as { isError?: unknown }).isError !== true,
   );
+}
+
+function isTerminalAssistantTurnEvent(event: unknown): boolean {
+  if (!event || typeof event !== "object") return false;
+  const message = (event as { message?: unknown }).message;
+  if (!message || typeof message !== "object") return false;
+  const stopReason = (message as { stopReason?: unknown }).stopReason;
+  if (stopReason === "error" || stopReason === "aborted") return false;
+  const content = (message as { content?: unknown }).content;
+  if (!Array.isArray(content)) return true;
+  return !content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const type = (part as { type?: unknown }).type;
+    return type === "toolCall" || type === "tool_call";
+  });
 }
 
 function shutdownReason(event: unknown): string {

@@ -169,7 +169,7 @@ test("agent-end TODO reconciliation does not continue blocked or terminal checkl
   }
 });
 
-test("Spark extension wires hook-owned reconciliation to agent_end rather than turn_end", () => {
+test("Spark extension wires hook-owned reconciliation to turn_end with agent_end fallback", () => {
   const handlers = new Map<string, (event: unknown, ctx: SparkToolContext) => unknown>();
   registerSparkExtensionEvents(
     {
@@ -184,6 +184,57 @@ test("Spark extension wires hook-owned reconciliation to agent_end rather than t
     },
   );
 
+  assert.ok(handlers.has("turn_end"));
   assert.ok(handlers.has("agent_end"));
-  assert.equal(handlers.has("turn_end"), false);
+});
+
+test("terminal turn_end reconciles in-run while tool and failed turns defer to agent_end", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "spark-terminal-todo-reconciliation-"));
+  const handlers = new Map<string, (event: unknown, ctx: SparkToolContext) => unknown>();
+  const sent: SentMessage[] = [];
+  registerSparkExtensionEvents(
+    {
+      on(event, handler) {
+        handlers.set(event, handler);
+      },
+      sendMessage(message, options) {
+        sent.push({ message, options });
+      },
+    },
+    {
+      refreshSparkWidget: async () => undefined,
+      ensureWorkflowRunManager: async () => undefined,
+    },
+  );
+
+  try {
+    const terminalCtx: SparkToolContext = { cwd, sessionId: "terminal" };
+    await saveIndependentTodos(cwd, terminalCtx, [
+      { id: "todo-terminal", content: "Reconcile before final output", status: "in_progress" },
+    ]);
+    await handlers.get("turn_end")?.(
+      { message: { stopReason: "stop", content: [{ type: "text", text: "Done" }] } },
+      terminalCtx,
+    );
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0]?.options, { deliverAs: "followUp", triggerTurn: false });
+
+    await handlers.get("agent_end")?.({}, terminalCtx);
+    assert.equal(sent.length, 1, "agent_end fallback must not duplicate in-run reconciliation");
+
+    for (const [sessionId, message] of [
+      ["tooling", { stopReason: "toolUse", content: [{ type: "toolCall", name: "todo" }] }],
+      ["failed", { stopReason: "error", content: [{ type: "text", text: "failed" }] }],
+      ["aborted", { stopReason: "aborted", content: [{ type: "text", text: "aborted" }] }],
+    ] as const) {
+      const ctx: SparkToolContext = { cwd, sessionId };
+      await saveIndependentTodos(cwd, ctx, [
+        { id: `todo-${sessionId}`, content: `Pending ${sessionId}`, status: "pending" },
+      ]);
+      await handlers.get("turn_end")?.({ message }, ctx);
+    }
+    assert.equal(sent.length, 1, "non-terminal turn_end events must not reconcile");
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });

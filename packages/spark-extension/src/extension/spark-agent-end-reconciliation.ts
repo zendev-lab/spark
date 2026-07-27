@@ -32,7 +32,7 @@ interface AgentEndReconciliation {
  */
 export function createSparkAgentEndReconciliationController(pi: SparkModeMessageApi): {
   reset(ctx: SparkToolContext): void;
-  reconcile(ctx: SparkToolContext): Promise<boolean>;
+  reconcile(ctx: SparkToolContext, options?: { triggerTurn?: boolean }): Promise<boolean>;
 } {
   const remindedSessionKeys = new Set<string>();
 
@@ -40,7 +40,7 @@ export function createSparkAgentEndReconciliationController(pi: SparkModeMessage
     reset(ctx) {
       remindedSessionKeys.delete(sparkSessionOwnerKey(ctx));
     },
-    async reconcile(ctx) {
+    async reconcile(ctx, options = {}) {
       if (ctx.driver) return false;
       const sessionKey = sparkSessionOwnerKey(ctx);
       const checks = await Promise.all([
@@ -68,7 +68,7 @@ export function createSparkAgentEndReconciliationController(pi: SparkModeMessage
             trust: "trusted",
             details: Object.assign({}, ...actionable.map((check) => check.details)),
           },
-          { deliverAs: "followUp", triggerTurn: true },
+          { deliverAs: "followUp", triggerTurn: options.triggerTurn ?? true },
         );
       } catch (error) {
         remindedSessionKeys.delete(sessionKey);
@@ -91,7 +91,7 @@ async function collectSessionTodoReconciliation(
     sections: [
       `Session TODO check found ${actionable.length} pending or in-progress item(s).`,
       ...renderTodos(unfinished),
-      "Call todo action=list and reconcile the checklist against actual evidence. Mark completed work done, continue work that remains in scope, block items with the exact blocker, or cancel items intentionally dropped.",
+      "Reconcile these items directly against actual evidence: mark completed work done, continue work that remains in scope, block items with the exact blocker, or cancel items intentionally dropped. Do not fetch the checklist again first.",
     ],
     details: {
       actionableTodoIds: actionable.map((todo) => todo.id).filter(Boolean),
@@ -166,7 +166,8 @@ function renderTodos(todos: SessionTodoEntry[]): string[] {
     return `- [${todo.status}] ${identity} ${compactTodoContent(todo.content)}`;
   });
   const omitted = todos.length - rendered.length;
-  if (omitted > 0) rendered.push(`- … ${omitted} more unfinished TODO(s); call todo action=list.`);
+  if (omitted > 0)
+    rendered.push(`- … ${omitted} more unfinished TODO(s) remain in the current hook snapshot.`);
   return rendered;
 }
 
