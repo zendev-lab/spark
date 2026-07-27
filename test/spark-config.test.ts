@@ -27,6 +27,7 @@ test("default Spark providers include shared Baidu OneAPI and OpenAI Codex adapt
     false,
   );
   assert.deepEqual(DEFAULT_SPARK_CONFIG.extensions, [...DEFAULT_SPARK_EXTENSION_SPECS]);
+  assert.equal(CURRENT_SPARK_EXTENSION_PROFILE_VERSION, 2);
   assert.equal(
     DEFAULT_SPARK_CONFIG.extensionProfileVersion,
     CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
@@ -74,6 +75,28 @@ test("legacy bundled extension profiles migrate to current defaults without Graf
   assert.deepEqual(migrated.extensions, [...DEFAULT_SPARK_EXTENSION_SPECS, "my-extension"]);
   assert.equal(migrated.extensions.includes("@zendev-lab/spark-graft/extension"), false);
   assert.equal(migrated.extensionProfileVersion, CURRENT_SPARK_EXTENSION_PROFILE_VERSION);
+});
+
+test("version-one default extension profiles gain the mandatory evidence capability", () => {
+  const versionOneDefaults = DEFAULT_SPARK_EXTENSION_SPECS.filter(
+    (specifier) => specifier !== "@zendev-lab/spark-artifacts/extension",
+  );
+  const migrated = mergeSparkConfigWithDefault({
+    extensionProfileVersion: 1,
+    extensions: [...versionOneDefaults, "my-extension"],
+  });
+
+  assert.deepEqual(migrated.extensions, [...DEFAULT_SPARK_EXTENSION_SPECS, "my-extension"]);
+  assert.equal(migrated.extensionProfileVersion, CURRENT_SPARK_EXTENSION_PROFILE_VERSION);
+});
+
+test("version-one custom extension subsets remain explicit", () => {
+  const migrated = mergeSparkConfigWithDefault({
+    extensionProfileVersion: 1,
+    extensions: ["@zendev-lab/spark-cue/extension", "my-extension"],
+  });
+
+  assert.deepEqual(migrated.extensions, ["@zendev-lab/spark-cue/extension", "my-extension"]);
 });
 
 test("legacy singleton facade recovers the canonical default extension profile", () => {

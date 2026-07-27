@@ -5,6 +5,7 @@
  */
 export const DEFAULT_SPARK_EXTENSION_SPECS = [
   "@zendev-lab/spark-ask/extension",
+  "@zendev-lab/spark-artifacts/extension",
   "@zendev-lab/spark-cue/extension",
   "@zendev-lab/spark-files/extension",
   "@zendev-lab/spark-ai/models-extension",

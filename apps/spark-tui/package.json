@@ -21,6 +21,7 @@
   "dependencies": {
     "@earendil-works/pi-ai": "^0.80.6",
     "@zendev-lab/spark-ai": "workspace:^",
+    "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-ask": "workspace:^",
     "@zendev-lab/spark-channels": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",

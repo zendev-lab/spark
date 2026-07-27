@@ -443,6 +443,9 @@ importers:
       '@zendev-lab/spark-ai':
         specifier: workspace:^
         version: link:../../packages/spark-ai
+      '@zendev-lab/spark-artifacts':
+        specifier: workspace:^
+        version: link:../../packages/spark-artifacts
       '@zendev-lab/spark-ask':
         specifier: workspace:^
         version: link:../../packages/spark-ask

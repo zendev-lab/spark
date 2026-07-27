@@ -52,9 +52,10 @@ export interface SparkConfig {
   activeThinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 }
 
-export const CURRENT_SPARK_EXTENSION_PROFILE_VERSION = 1;
+export const CURRENT_SPARK_EXTENSION_PROFILE_VERSION = 2;
 
 const CURRENT_SPARK_EXTENSION_FACADE = "@zendev-lab/spark-extension/extension";
+const EVIDENCE_EXTENSION = "@zendev-lab/spark-artifacts/extension";
 /** Pi product / prior Spark-native facade; rewrite to the Spark-native boundary. */
 const LEGACY_PI_EXTENSION_FACADE = "@zendev-lab/pi-extension/extension";
 const LEGACY_DEFAULT_EXTENSION_CORE = [
@@ -240,6 +241,14 @@ export function migrateSparkExtensionProfile(
     ),
   );
   if (version >= CURRENT_SPARK_EXTENSION_PROFILE_VERSION) return normalized;
+  if (version === 1) {
+    if (!versionOneDefaultProfile(normalized)) return normalized;
+    const versionOneDefaults = new Set<string>(
+      DEFAULT_SPARK_EXTENSION_SPECS.filter((specifier) => specifier !== EVIDENCE_EXTENSION),
+    );
+    const custom = normalized.filter((specifier) => !versionOneDefaults.has(specifier));
+    return dedupeStrings([...DEFAULT_SPARK_EXTENSION_SPECS, ...custom]);
+  }
   // Prior Spark-native facade lived at pi-extension; rewrite and recover known bundled profiles.
   if (extensions.includes(LEGACY_PI_EXTENSION_FACADE)) {
     const historicalBundled = new Set<string>([
@@ -270,6 +279,15 @@ export function migrateSparkExtensionProfile(
   ]);
   const custom = normalized.filter((specifier) => !legacyBundled.has(specifier));
   return dedupeStrings([...DEFAULT_SPARK_EXTENSION_SPECS, ...custom]);
+}
+
+function versionOneDefaultProfile(normalized: readonly string[]): boolean {
+  return (
+    normalized.includes(CURRENT_SPARK_EXTENSION_FACADE) &&
+    DEFAULT_SPARK_EXTENSION_SPECS.filter((specifier) => specifier !== EVIDENCE_EXTENSION).every(
+      (specifier) => normalized.includes(specifier),
+    )
+  );
 }
 
 function legacyDefaultProfile(normalized: readonly string[]): boolean {

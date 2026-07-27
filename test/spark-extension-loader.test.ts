@@ -17,6 +17,7 @@ import {
 test("loadBuiltinExtensionFactories exposes the retained Spark CLI builtin extension set", () => {
   const builtinExpected = [
     "@zendev-lab/spark-ask/extension",
+    "@zendev-lab/spark-artifacts/extension",
     "@zendev-lab/spark-cue/extension",
     "@zendev-lab/spark-files/extension",
     "@zendev-lab/spark-fusion/extension",
@@ -60,6 +61,8 @@ test("default Spark extension profile leaves optional capabilities available onl
     host.getAllTools().some((tool) => tool.name === "fusion"),
     false,
   );
+  assert.ok(host.getActiveTools().includes("evidence"));
+  assert.ok(host.getActiveTools().includes("artifact"));
 });
 
 test("root Pi extension list and native builtins both expose self-extension tools", async () => {
@@ -68,6 +71,9 @@ test("root Pi extension list and native builtins both expose self-extension tool
   ) as {
     pi?: { extensions?: string[] };
   };
+  assert.ok(
+    rootPackage.pi?.extensions?.includes("./packages/spark-artifacts/src/extension-entry.ts"),
+  );
   assert.ok(rootPackage.pi?.extensions?.includes("./packages/spark-memory/src/extension-entry.ts"));
   assert.ok(
     rootPackage.pi?.extensions?.includes("./packages/spark-session/src/extension-entry.ts"),
@@ -88,6 +94,7 @@ test("root Pi extension list and native builtins both expose self-extension tool
   assert.ok(
     rootPackage.pi?.extensions?.includes("./packages/spark-extension/src/extension/index.ts"),
   );
+  assert.ok([...DEFAULT_SPARK_EXTENSION_SPECS].includes("@zendev-lab/spark-artifacts/extension"));
   assert.ok([...DEFAULT_SPARK_EXTENSION_SPECS].includes("@zendev-lab/spark-memory/extension"));
   assert.ok([...DEFAULT_SPARK_EXTENSION_SPECS].includes("@zendev-lab/spark-session/extension"));
   assert.ok([...DEFAULT_SPARK_EXTENSION_SPECS].includes("@zendev-lab/spark-web/extension"));
@@ -159,6 +166,7 @@ test("SparkExtensionLoader loads builtin factories through explicit imports", as
     api: host,
     extensions: [
       "@zendev-lab/spark-ask/extension",
+      "@zendev-lab/spark-artifacts/extension",
       "@zendev-lab/spark-cue/extension",
       "@zendev-lab/spark-files/extension",
       "@zendev-lab/spark-fusion/extension",
@@ -178,6 +186,8 @@ test("SparkExtensionLoader loads builtin factories through explicit imports", as
   );
   const tools = host.getActiveTools();
   assert.ok(tools.includes("ask"));
+  assert.ok(tools.includes("evidence"));
+  assert.ok(tools.includes("artifact"));
   assert.ok(!tools.includes("ask_user"));
   assert.ok(!tools.includes("ask_flow"));
   assert.ok(tools.includes("cue_exec"));
