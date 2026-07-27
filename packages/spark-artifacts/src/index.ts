@@ -1021,8 +1021,14 @@ function serializeArtifactBody(format: ArtifactFormat, body: JsonValue | string)
 }
 
 function parseArtifactBody(format: ArtifactFormat, body: string): JsonValue | string {
-  if (format === "json") return JSON.parse(body) as JsonValue;
-  return body;
+  if (format !== "json") return body;
+  try {
+    return JSON.parse(body) as JsonValue;
+  } catch (error) {
+    throw new ArtifactValidationError(
+      `stored JSON artifact body is invalid: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 function extensionForFormat(format: ArtifactFormat): string {
@@ -1116,6 +1122,7 @@ export {
   ProductArtifactStore,
   ProductArtifactValidationError,
   applyWorktreeToPrBody,
+  asSparkUiJsonValue,
   attachPrWorktree,
   defaultProductArtifactStore,
   isProductArtifactBody,
@@ -1125,8 +1132,12 @@ export {
   newProductArtifactRef,
   parseForgeUrl,
   prBodyFromSnapshot,
+  previewFormatAsProductArtifactFormat,
   prWorktreePath,
   removePrWorktree,
+  renderProductPreviewDocument,
+  startTemporaryProductPreview,
+  closeTemporaryProductPreviews,
   syncForgeIssue,
   syncForgePr,
   type AttachPrWorktreeInput,
@@ -1146,9 +1157,12 @@ export {
   type ProductArtifactFormat,
   type ProductArtifactKind,
   type ProductArtifactQuery,
+  type ProductPreviewDocumentInput,
+  type ProductPreviewRenderResult,
   type ProductArtifactRef,
   type ProductArtifactStoreOptions,
   type PutProductArtifactInput,
+  type TemporaryProductPreview,
   type WorktreeCommandRunner,
   type WorktreeStatus,
 } from "./product/index.ts";

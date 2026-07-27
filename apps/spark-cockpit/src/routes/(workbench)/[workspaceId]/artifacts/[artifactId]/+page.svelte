@@ -11,6 +11,11 @@
   let common = $derived(data.messages.common);
   let previewCache = $derived(data.cacheBlobs.find((blob) => blob.isPreview));
   let preview = $derived(data.preview);
+  let previewDocumentHtml = $derived(
+    "documentHtml" in preview && typeof preview.documentHtml === "string"
+      ? preview.documentHtml
+      : null,
+  );
   let workspaceUrl = $derived(workspacePath({ slug: data.artifact.workspaceSlug }));
   let displayTitle = $derived(
     data.artifact.title.match(/^Role run .*? for (.+)$/i)?.[1] ?? data.artifact.title,
@@ -76,7 +81,20 @@
       <div class="form-error" role="alert">{form.message}</div>
     {/if}
 
-    {#if sparkUiReplay}
+    {#if previewDocumentHtml}
+      <iframe
+        class="product-preview-frame"
+        title={`${t.preview.title}: ${displayTitle}`}
+        srcdoc={previewDocumentHtml}
+        sandbox=""
+      ></iframe>
+      <div class="preview-actions">
+        <span>{data.artifact.format} · {formatSize(preview.body?.bytes ?? null)}</span>
+        <Button variant="secondary" href={`/api/v1/artifacts/${data.artifact.id}/content`}>
+          {t.preview.openRaw}
+        </Button>
+      </div>
+    {:else if sparkUiReplay}
       <div class="spark-ui-replay-body">
         <SparkUiRenderer
           document={sparkUiReplay.document}
@@ -224,6 +242,7 @@
 
   .spark-ui-replay-body { padding: var(--spacing-xl); }
   :global(.preview-panel .ui-panel-body) { gap: 0; }
+  .product-preview-frame { background: white; border: 0; display: block; height: min(70vh, 760px); min-height: 32rem; width: 100%; }
   .preview-body { background: var(--color-ink); color: var(--color-border); font-size: var(--text-caption); margin: 0; max-height: 60vh; overflow: auto; padding: var(--spacing-xl); white-space: pre-wrap; }
 
   .preview-empty { align-items: center; display: grid; gap: var(--spacing-sm); justify-items: center; padding: var(--spacing-xxl); text-align: center; }

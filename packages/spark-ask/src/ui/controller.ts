@@ -47,6 +47,7 @@ export class SparkAskFlowController {
   private options: AskFlowOptions;
   private done: ((result: SparkAskFlowResult) => void) | null = null;
   private tui: SparkAskTui | null = null;
+  private pasteBuffer: string | null = null;
 
   constructor(options: AskFlowOptions) {
     this.options = options;
@@ -76,6 +77,11 @@ export class SparkAskFlowController {
     return {
       render: () => this.renderFrame(tui, renderTheme),
       handleInput: (data: string) => {
+        const paste = this.consumeBracketedPaste(data);
+        if (paste.consumed) {
+          if (paste.text) this.handleText(paste.text);
+          return;
+        }
         const normalized = normalizeAskKey(data);
         if (normalized === "backspace") {
           this.handleBackspace();
@@ -276,6 +282,30 @@ export class SparkAskFlowController {
       return true;
     }
     return false;
+  }
+
+  private consumeBracketedPaste(data: string): { consumed: boolean; text?: string } {
+    const startMarker = "\u001b[200~";
+    const endMarker = "\u001b[201~";
+    if (this.pasteBuffer !== null) {
+      const buffered = `${this.pasteBuffer}${data}`;
+      const endIndex = buffered.indexOf(endMarker);
+      if (endIndex < 0) {
+        this.pasteBuffer = buffered;
+        return { consumed: true };
+      }
+      const text = buffered.slice(0, endIndex);
+      this.pasteBuffer = null;
+      return { consumed: true, text };
+    }
+
+    const startIndex = data.indexOf(startMarker);
+    if (startIndex < 0) return { consumed: false };
+    const pasted = data.slice(startIndex + startMarker.length);
+    const endIndex = pasted.indexOf(endMarker);
+    if (endIndex >= 0) return { consumed: true, text: pasted.slice(0, endIndex) };
+    this.pasteBuffer = pasted;
+    return { consumed: true };
   }
 
   private preserveInputDraft(): void {

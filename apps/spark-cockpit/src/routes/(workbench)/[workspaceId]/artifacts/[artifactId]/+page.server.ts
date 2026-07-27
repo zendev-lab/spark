@@ -1,4 +1,6 @@
 import { error as kitError, fail } from "@sveltejs/kit";
+import type { PreviewContentFormat } from "@zendev-lab/spark-artifacts";
+import { renderProductPreviewDocument } from "@zendev-lab/spark-artifacts/preview-renderer";
 import { getRequestDictionary, localeCookieName } from "$lib/i18n";
 import {
   loadArtifactDetailPage,
@@ -8,7 +10,7 @@ import { getDatabase } from "$lib/server/db";
 import type { ArtifactPreviewStatus } from "@zendev-lab/spark-cockpit-coordination/artifact-cache";
 import type { Actions, PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = ({ params }) => {
+export const load = (({ params }) => {
   const page = loadArtifactDetailPage(getDatabase(), params.workspaceId, params.artifactId);
   if (!page) throw kitError(404, "Artifact not found");
 
@@ -25,6 +27,12 @@ export const load: PageServerLoad = ({ params }) => {
     lastAccessedAt: page.previewResult.cache.lastAccessedAt,
     error: page.previewResult.cache.error,
     body: previewBody,
+    documentHtml: renderStoredProductPreview({
+      kind: page.artifact.kind,
+      format: page.artifact.format,
+      title: page.artifact.title,
+      body: previewBody,
+    }),
     inlineLimitBytes: PREVIEW_INLINE_LIMIT_BYTES,
   };
 
@@ -42,7 +50,7 @@ export const load: PageServerLoad = ({ params }) => {
       error: blob.errorJson ? parseJsonObject(blob.errorJson) : null,
     })),
   };
-};
+}) satisfies PageServerLoad;
 
 export const actions: Actions = {
   preparePreview: async ({ cookies, params, request }) => {
@@ -69,8 +77,12 @@ export const actions: Actions = {
 };
 
 function parseJsonObject(value: string) {
-  const parsed = JSON.parse(value) as unknown;
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 }
 
 /** Cap the inline preview body shown on the detail page; full content stays
@@ -93,6 +105,33 @@ function truncatePreviewBody(
     bytes: body.byteLength,
     mime,
   };
+}
+
+function renderStoredProductPreview(input: {
+  kind: string;
+  format: string;
+  title: string;
+  body: { text: string | null; truncated: boolean } | null;
+}): string | null {
+  if (input.kind !== "preview" || !input.body || input.body.text === null || input.body.truncated) {
+    return null;
+  }
+  if (!isPreviewContentFormat(input.format)) return null;
+  return renderProductPreviewDocument({
+    title: input.title,
+    format: input.format,
+    content: input.body.text,
+  }).html;
+}
+
+function isPreviewContentFormat(value: string): value is PreviewContentFormat {
+  return (
+    value === "md" ||
+    value === "mdx" ||
+    value === "html" ||
+    value === "a2ui" ||
+    value === "spark-ui"
+  );
 }
 
 function isTextMime(mime: string | null): boolean {

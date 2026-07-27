@@ -64,6 +64,7 @@ import {
   channelQuotePreviewFromDetails,
   compactToolPreview,
   canonicalToolStatus,
+  isRecord,
   stringFromRecord,
   toolStatusColor,
   toolStatusIcon,
@@ -200,7 +201,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
     this.keybindingContext = options.keybindingContext ?? { hasUI: true };
     this.slashCommands = {
       ...createSparkNativeLocalControlSlashCommands(),
-      ...(options.slashCommands ?? {}),
+      ...options.slashCommands,
     };
     this.interactionHandler = options.interactionHandler;
     this.statusContext = options.statusContext;
@@ -657,26 +658,25 @@ export class SparkNativeTuiApp implements Component, Focusable {
     this.tui.requestRender();
   }
 
+  private async executeThinkingSelectAction(action: SparkActionView): Promise<void> {
+    const thinkingLevel = stringFromRecord(action.payload, "thinkingLevel");
+    if (thinkingLevel) {
+      await this.invokeRegisteredSlashCommand("settings", `set thinking ${thinkingLevel}`, false);
+      return;
+    }
+    const thinkingBar = sparkSlashActionBarForInput("/thinking");
+    if (thinkingBar) this.openActionBar(thinkingBar);
+  }
+
   private async executeActionBarAction(action: SparkActionView): Promise<void> {
     try {
       switch (action.intent) {
         case "model.select":
           await this.invokeRegisteredSlashCommand("model", "", false);
           return;
-        case "thinking.select": {
-          const thinkingLevel = stringFromRecord(action.payload, "thinkingLevel");
-          if (thinkingLevel) {
-            await this.invokeRegisteredSlashCommand(
-              "settings",
-              `set thinking ${thinkingLevel}`,
-              false,
-            );
-          } else {
-            const thinkingBar = sparkSlashActionBarForInput("/thinking");
-            if (thinkingBar) this.openActionBar(thinkingBar);
-          }
+        case "thinking.select":
+          await this.executeThinkingSelectAction(action);
           return;
-        }
         case "settings.inspect":
           await this.invokeRegisteredSlashCommand("settings", "inspect", true);
           return;
@@ -1330,6 +1330,30 @@ export class SparkNativeTuiApp implements Component, Focusable {
     const icon = toolStatusIcon(status);
     const preview = compactToolPreview(message.text);
     const styledHeader = this.renderToolHeader(header, status, icon);
+    const previewDetails = isRecord(message.details?.preview) ? message.details.preview : undefined;
+    const isMarkdownPreview =
+      toolName === "artifact" &&
+      status === "succeeded" &&
+      stringFromRecord(message.details ?? {}, "action") === "open_preview" &&
+      stringFromRecord(previewDetails ?? {}, "target") === "tui" &&
+      stringFromRecord(previewDetails ?? {}, "format") === "md";
+    if (isMarkdownPreview) {
+      const id = message.toolCallId ? this.renderTheme.fg("dim", ` · ${message.toolCallId}`) : "";
+      const innerWidth = Math.max(1, width - 2);
+      const lines = [
+        truncateToWidth(`${this.renderTheme.fg("border", "┌─")} ${styledHeader}${id}`, width),
+      ];
+      for (const line of this.renderMarkdownBlock(message.text || " ", innerWidth)) {
+        lines.push(truncateToWidth(`${this.renderTheme.fg("border", "│")} ${line}`, width));
+      }
+      lines.push(
+        truncateToWidth(
+          `${this.renderTheme.fg("border", "└─")} ${this.renderTheme.fg("dim", "Markdown preview")}`,
+          width,
+        ),
+      );
+      return lines;
+    }
     if (!this.toolsExpanded) {
       const suffix = this.renderTheme.fg("dim", " • folded (Ctrl+O expand)");
       const previewText = preview ? ` ${this.renderTheme.fg("muted", `— ${preview}`)}` : "";

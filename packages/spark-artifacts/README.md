@@ -12,6 +12,11 @@ Product artifacts (`issue` / `pr` / `preview`) for users, plus an **agent-intern
 - ISSUE/PR sync from GitHub (`gh`) or GitLab (`glab`).
 - PR create prefers a git worktree under `.spark/worktrees/pr-…`.
 - Preview artifacts are continuously updated (version + progress).
+- Preview formats are `md`, safe `mdx` (Spark's declarative `mdx-lite`), sanitized `html`, read-only A2UI v0.9.x, and `spark-ui` (`SparkUiDocumentV1` or `mdx-lite` source).
+- Cockpit artifact pages embed the safe preview document. `artifact action=open_preview` renders Markdown directly in an attached TUI; other formats require a local Cockpit/browser surface and receive an expiring, tokenized `127.0.0.1` URL. Channel, remote, and headless sessions report the preview as unsupported instead of claiming it opened.
+- HTML previews run with scripts, forms, external media, framing, and network loads disabled. A2UI accepts only the official v0.9/v0.9.1 basic catalog and does not dispatch actions in the initial read-only implementation.
+
+Google's GenUI SDK is a Flutter A2UI renderer, so it is not a separate Spark wire format. Web producers should emit `a2ui`; Spark's older declarative format remains available as `spark-ui` for compatibility.
 
 ### Evidence (agent-only)
 

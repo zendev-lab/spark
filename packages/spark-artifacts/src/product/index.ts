@@ -42,6 +42,20 @@ export {
 } from "./forge.ts";
 
 export {
+  asSparkUiJsonValue,
+  previewFormatAsProductArtifactFormat,
+  renderProductPreviewDocument,
+  type ProductPreviewDocumentInput,
+  type ProductPreviewRenderResult,
+} from "./preview-renderer.ts";
+
+export {
+  closeTemporaryProductPreviews,
+  startTemporaryProductPreview,
+  type TemporaryProductPreview,
+} from "./preview-server.ts";
+
+export {
   applyWorktreeToPrBody,
   attachPrWorktree,
   prWorktreePath,

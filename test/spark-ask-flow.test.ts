@@ -450,6 +450,52 @@ test("single-question ask_flow custom answer blocks a required decision gate", (
   });
 });
 
+test("ask flow custom input accepts bracketed paste split across terminal chunks", () => {
+  const request = createSparkAskFlowRequest({
+    flow: "paste-custom",
+    mode: "decision",
+    title: "Preview surface",
+    questions: [
+      {
+        id: "surface",
+        prompt: "Which surface?",
+        type: "single",
+        required: true,
+        options: [
+          { value: "tui", label: "TUI" },
+          { value: "cockpit", label: "Cockpit" },
+        ],
+      },
+    ],
+  });
+  const controller = new SparkAskFlowController({ request, language: "en" });
+  let result: Awaited<ReturnType<typeof runSparkAskFlow>> | undefined;
+  const component = controller.run(
+    { terminal: { columns: 100 }, requestRender() {} },
+    {
+      fg: (_color, text) => text,
+      bold: (text) => text,
+      strikethrough: (text) => text,
+      dim: (text) => text,
+    },
+    (flowResult) => {
+      result = flowResult;
+    },
+  );
+
+  component.handleInput("down");
+  component.handleInput("down");
+  component.handleInput("enter");
+  component.handleInput("\u001b[200~first line\n");
+  component.handleInput("second line\u001b[20");
+  component.handleInput("1~");
+  component.handleInput("enter");
+  component.handleInput("enter");
+
+  assert.equal(result?.status, "answered");
+  assert.equal(result?.answers.surface?.customText, "first line\nsecond line");
+});
+
 test("ask flow fullscreen keeps one custom fallback and omits chat fallback", () => {
   const question = {
     id: "route",

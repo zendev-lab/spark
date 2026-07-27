@@ -1251,7 +1251,7 @@ const messages = {
     hero: {
       eyebrow: "Workspace",
       title: "Artifacts",
-      lede: "Product deliverables only: forge Issues, PRs, and live md/mdx/html previews.",
+      lede: "Product deliverables only: forge Issues, PRs, and live Markdown, HTML, A2UI, or Spark UI previews.",
     },
     metrics: {
       aria: "Artifact status",

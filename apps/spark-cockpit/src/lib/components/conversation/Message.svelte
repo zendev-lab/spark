@@ -163,6 +163,7 @@
               kind={part.kind}
               state={part.state}
               summary={part.summary}
+              previewLabel={partLabels.expand}
               {statusLabel}
             />
           {:else if part.type === "error"}

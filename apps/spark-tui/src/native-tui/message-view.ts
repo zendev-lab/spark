@@ -96,7 +96,12 @@ export function messageViewToNativeMessages(message: SparkMessageView): SparkNat
       toolStatus: partStatusToToolStatus(part.status),
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
-      details: { partStatus: part.status, partType: part.type },
+      details: {
+        ...message.metadata,
+        ...part.metadata,
+        partStatus: part.status,
+        partType: part.type,
+      },
     });
   }
   return messages;

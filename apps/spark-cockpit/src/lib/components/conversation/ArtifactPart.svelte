@@ -7,10 +7,14 @@
     kind?: string;
     state?: string;
     summary?: string;
+    previewLabel: string;
     statusLabel: (status: string) => string;
   };
 
-  let { artifactRef, title, kind, state, summary, statusLabel }: Props = $props();
+  let { artifactRef, title, kind, state, summary, previewLabel, statusLabel }: Props = $props();
+  let previewUrl = $derived(
+    summary?.trim().match(/^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/preview\/[A-Za-z0-9_-]+$/u)?.[0] ?? null,
+  );
 </script>
 
 <article class="artifact-part">
@@ -23,7 +27,11 @@
     {#if kind}<span class="artifact-kind">{kind}</span>{/if}
     {#if state}<span class="artifact-state {state}">{statusLabel(state)}</span>{/if}
   </header>
-  {#if summary?.trim()}<p>{summary}</p>{/if}
+  {#if previewUrl}
+    <a class="preview-link" href={previewUrl} target="_blank" rel="noreferrer">{previewLabel}</a>
+  {:else if summary?.trim()}
+    <p>{summary}</p>
+  {/if}
 </article>
 
 <style>
@@ -98,6 +106,16 @@
     background: var(--color-danger-weak, #fef2f2);
     color: var(--color-danger-strong, #b91c1c);
   }
+
+  .preview-link {
+    color: var(--color-primary);
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: none;
+    width: fit-content;
+  }
+
+  .preview-link:hover { text-decoration: underline; }
 
   p {
     color: var(--color-ink-muted);

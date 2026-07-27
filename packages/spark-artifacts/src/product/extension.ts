@@ -1,5 +1,10 @@
 import { Type } from "typebox";
-import type { SparkHostAPI, ToolConfig, ToolRenderComponent } from "@zendev-lab/spark-core";
+import type {
+  SparkHostAPI,
+  SparkHostContext,
+  ToolConfig,
+  ToolRenderComponent,
+} from "@zendev-lab/spark-core";
 import {
   PRODUCT_ARTIFACT_KINDS,
   applyWorktreeToPrBody,
@@ -20,6 +25,8 @@ import {
   type ProductArtifactRef,
   type PrArtifactBody,
 } from "./index.ts";
+import { previewFormatAsProductArtifactFormat } from "./preview-renderer.ts";
+import { startTemporaryProductPreview } from "./preview-server.ts";
 
 export interface PiProductArtifactsExtensionApi {
   registerTool(config: ToolConfig): void;
@@ -50,10 +57,11 @@ class ToolCallText implements ToolRenderComponent {
 }
 
 const PRODUCT_KIND_DESCRIPTION =
-  "Product artifact kind is one of: issue (forge-tracked issue), pr (forge pull/merge request; prefer worktree), preview (md/mdx/html deliverable with continuous progress updates).";
+  "Product artifact kind is one of: issue (forge-tracked issue), pr (forge pull/merge request; prefer worktree), preview (md/mdx/html/a2ui/spark-ui deliverable with continuous progress updates).";
 
 const PRODUCT_PROMPT_GUIDELINES = [
   "Use artifact for product-facing ISSUE / PR / preview only. Internal evidence (document/record/trace/knowledge) uses the evidence tool.",
+  "Artifact refs may use an unambiguous prefix (for example artifact:ebf25150). Use open_preview directly when only a preview is requested; do not call read first.",
   "When producing a webpage, MDX, or Markdown deliverable, create a preview artifact and keep updating it as work progresses — do not leave progress only in chat or local files.",
   "When working on a PR artifact, attach and use its git worktree; do not mutate the main working tree by default.",
   "Sync ISSUE/PR state from GitHub (gh) or GitLab (glab) with action=sync so Cockpit stays accurate.",
@@ -73,7 +81,9 @@ export function registerProductArtifactTool(pi: PiProductArtifactsExtensionApi):
           "create | update | list | read | sync | attach_worktree | remove_worktree | open_preview",
       }),
       artifactRef: Type.Optional(
-        Type.String({ description: "Product artifact ref (artifact:…)." }),
+        Type.String({
+          description: "Product artifact ref or unambiguous prefix (artifact:…).",
+        }),
       ),
       kind: Type.Optional(
         Type.String({
@@ -87,7 +97,9 @@ export function registerProductArtifactTool(pi: PiProductArtifactsExtensionApi):
       repo: Type.Optional(Type.String({ description: "owner/repo or GitLab path" })),
       number: Type.Optional(Type.Number({ description: "Issue or PR number" })),
       content: Type.Optional(Type.String({ description: "Preview content for create/update." })),
-      format: Type.Optional(Type.String({ description: "Preview format: md | mdx | html" })),
+      format: Type.Optional(
+        Type.String({ description: "Preview format: md | mdx | html | a2ui | spark-ui" }),
+      ),
       updateMode: Type.Optional(
         Type.String({ description: "Preview update mode: replace | append. Default replace." }),
       ),
@@ -112,7 +124,7 @@ export function registerProductArtifactTool(pi: PiProductArtifactsExtensionApi):
         const limit = normalizeLimit(params.limit, 20);
         const kind = normalizeOptionalKind(params.kind);
         const artifacts = await store.list({ kind });
-        const newest = artifacts.slice().reverse().slice(0, limit);
+        const newest = artifacts.toReversed().slice(0, limit);
         const lines = [
           `Product artifacts: ${artifacts.length}${newest.length < artifacts.length ? ` (showing ${newest.length})` : ""}`,
           ...newest.map((artifact) => renderListLine(artifact)),
@@ -125,12 +137,14 @@ export function registerProductArtifactTool(pi: PiProductArtifactsExtensionApi):
       }
 
       if (action === "read" || action === "open_preview") {
-        const ref = normalizeRef(params.artifactRef, "artifactRef");
-        const artifact = await store.get(ref);
-        if (action === "open_preview" && artifact.kind !== "preview") {
+        const artifact = await resolveProductArtifact(store, params.artifactRef);
+        if (action === "read") {
+          return toolResult(action, renderDetail(artifact), { artifact: compactDetail(artifact) });
+        }
+        if (artifact.kind !== "preview" || artifact.body.kind !== "preview") {
           throw new Error("open_preview requires a preview artifact");
         }
-        return toolResult(action, renderDetail(artifact), { artifact: compactDetail(artifact) });
+        return openProductPreview(artifact as ProductArtifact<PreviewArtifactBody>, ctx);
       }
 
       if (action === "create") {
@@ -143,8 +157,7 @@ export function registerProductArtifactTool(pi: PiProductArtifactsExtensionApi):
       }
 
       if (action === "update") {
-        const ref = normalizeRef(params.artifactRef, "artifactRef");
-        const existing = await store.get(ref);
+        const existing = await resolveProductArtifact(store, params.artifactRef);
         const updated = await updateProductArtifact(store, existing, params);
         return toolResult(action, `Updated ${updated.ref} [${updated.kind}] ${updated.title}`, {
           changed: true,
@@ -163,8 +176,7 @@ export function registerProductArtifactTool(pi: PiProductArtifactsExtensionApi):
       }
 
       if (action === "attach_worktree") {
-        const ref = normalizeRef(params.artifactRef, "artifactRef");
-        const existing = await store.get(ref);
+        const existing = await resolveProductArtifact(store, params.artifactRef);
         if (existing.kind !== "pr" || existing.body.kind !== "pr") {
           throw new Error("attach_worktree requires a pr artifact");
         }
@@ -177,7 +189,7 @@ export function registerProductArtifactTool(pi: PiProductArtifactsExtensionApi):
           baseRef: existing.body.baseRef,
         });
         const body = applyWorktreeToPrBody(existing.body, attached);
-        const updated = await store.update(ref, { body });
+        const updated = await store.update(existing.ref, { body });
         const statusLine =
           attached.worktreeStatus === "attached"
             ? `Attached worktree ${attached.worktreePath}`
@@ -192,8 +204,7 @@ export function registerProductArtifactTool(pi: PiProductArtifactsExtensionApi):
       }
 
       // remove_worktree
-      const ref = normalizeRef(params.artifactRef, "artifactRef");
-      const existing = await store.get(ref);
+      const existing = await resolveProductArtifact(store, params.artifactRef);
       if (existing.kind !== "pr" || existing.body.kind !== "pr") {
         throw new Error("remove_worktree requires a pr artifact");
       }
@@ -211,7 +222,7 @@ export function registerProductArtifactTool(pi: PiProductArtifactsExtensionApi):
         worktreeError: removed.worktreeError,
         worktreePath: removed.worktreeStatus === "removed" ? undefined : existing.body.worktreePath,
       };
-      const updated = await store.update(ref, { body });
+      const updated = await store.update(existing.ref, { body });
       return toolResult(action, `Worktree ${removed.worktreeStatus} for ${updated.ref}`, {
         changed: true,
         refs: { artifactRef: updated.ref },
@@ -225,6 +236,65 @@ export function registerProductArtifactTool(pi: PiProductArtifactsExtensionApi):
 export function registerSparkProductArtifactTools(pi: SparkHostAPI): void {
   if (!pi.registerTool) throw new Error("spark-artifacts product tool requires registerTool");
   registerProductArtifactTool({ registerTool: (config) => pi.registerTool?.(config) });
+}
+
+async function openProductPreview(
+  artifact: ProductArtifact<PreviewArtifactBody>,
+  ctx: SparkHostContext,
+) {
+  const format = artifact.body.format;
+  const previewBase = {
+    artifactRef: artifact.ref,
+    title: artifact.title,
+    format,
+  };
+  if (format === "md" && ctx.sessionSource === "tui") {
+    return toolResult("open_preview", artifact.body.content, {
+      artifact: compactPreviewArtifact(artifact),
+      preview: { ...previewBase, target: "tui", supported: true },
+    });
+  }
+
+  const cockpitCapable =
+    ctx.sessionSource === "web" ||
+    (ctx.hasUI === true && ctx.sessionSource !== "tui" && ctx.sessionSurface !== "channel");
+  if (!cockpitCapable) {
+    const message =
+      format === "md"
+        ? "Markdown preview requires an attached TUI or Cockpit session."
+        : `${format} preview is available only from local Cockpit; no reachable browser surface is attached.`;
+    return toolResult("open_preview", message, {
+      artifact: compactPreviewArtifact(artifact),
+      preview: { ...previewBase, target: "unsupported", supported: false, reason: message },
+    });
+  }
+
+  const opened = await startTemporaryProductPreview(artifact);
+  return toolResult("open_preview", `Preview ready: ${opened.url}\nExpires: ${opened.expiresAt}`, {
+    artifact: compactPreviewArtifact(artifact, opened.url),
+    preview: {
+      ...previewBase,
+      target: "browser",
+      supported: true,
+      url: opened.url,
+      expiresAt: opened.expiresAt,
+    },
+  });
+}
+
+function compactPreviewArtifact(
+  artifact: ProductArtifact<PreviewArtifactBody>,
+  preview?: string,
+): Record<string, unknown> {
+  return {
+    ref: artifact.ref,
+    kind: artifact.kind,
+    title: artifact.title,
+    format: artifact.format,
+    ...(preview ? { preview } : {}),
+    createdAt: artifact.createdAt,
+    updatedAt: artifact.updatedAt,
+  };
 }
 
 async function createProductArtifact(
@@ -245,7 +315,7 @@ async function createProductArtifact(
       version: 1,
       progress: normalizeProgress(params.progress),
     };
-    return store.put({ kind, title, format: format === "html" ? "html" : "mdx", body });
+    return store.put({ kind, title, format: previewFormatAsProductArtifactFormat(format), body });
   }
 
   const fromUrl = typeof params.url === "string" ? parseForgeUrl(params.url) : undefined;
@@ -284,12 +354,11 @@ async function updateProductArtifact(
 ): Promise<ProductArtifact> {
   if (existing.kind === "preview" && existing.body.kind === "preview") {
     const mode = params.updateMode === "append" ? "append" : "replace";
-    const nextContent =
-      typeof params.content === "string"
-        ? mode === "append"
-          ? `${existing.body.content}${params.content}`
-          : params.content
-        : existing.body.content;
+    let nextContent = existing.body.content;
+    if (typeof params.content === "string") {
+      nextContent =
+        mode === "append" ? `${existing.body.content}${params.content}` : params.content;
+    }
     const format = normalizePreviewFormat(params.format ?? existing.body.format);
     const body: PreviewArtifactBody = {
       ...existing.body,
@@ -300,12 +369,12 @@ async function updateProductArtifact(
     };
     return store.update(existing.ref, {
       title: typeof params.title === "string" ? params.title : existing.title,
-      format: format === "html" ? "html" : "mdx",
+      format: previewFormatAsProductArtifactFormat(format),
       body,
     });
   }
 
-  if (typeof params.body !== "undefined") {
+  if (params.body !== undefined) {
     if (!isProductArtifactBody(params.body) || params.body.kind !== existing.kind) {
       throw new Error("body must match existing product artifact kind");
     }
@@ -467,6 +536,29 @@ function normalizeRef(value: unknown, field: string): ProductArtifactRef {
   return value as ProductArtifactRef;
 }
 
+async function resolveProductArtifact(
+  store: ReturnType<typeof defaultProductArtifactStore>,
+  value: unknown,
+): Promise<ProductArtifact> {
+  const requestedRef = normalizeRef(value, "artifactRef");
+  const exact = await store.tryGet(requestedRef);
+  if (exact) return exact;
+
+  const artifacts = await store.list();
+  const matches = artifacts.filter((artifact) => artifact.ref.startsWith(requestedRef));
+  if (matches.length === 0) {
+    throw new Error(`artifact not found: ${requestedRef}`);
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      `artifactRef is ambiguous: ${requestedRef} matches ${matches.length} artifacts`,
+    );
+  }
+  const match = matches[0];
+  if (!match) throw new Error(`artifact not found: ${requestedRef}`);
+  return store.get(match.ref);
+}
+
 function normalizeRequiredString(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${field} is required`);
   return value.trim();
@@ -495,8 +587,16 @@ function normalizeForge(value: unknown): "github" | "gitlab" | undefined {
 
 function normalizePreviewFormat(value: unknown): PreviewContentFormat {
   if (value === undefined || value === null) return "mdx";
-  if (value === "md" || value === "mdx" || value === "html") return value;
-  throw new Error("format must be md, mdx, or html");
+  if (
+    value === "md" ||
+    value === "mdx" ||
+    value === "html" ||
+    value === "a2ui" ||
+    value === "spark-ui"
+  ) {
+    return value;
+  }
+  throw new Error("format must be md, mdx, html, a2ui, or spark-ui");
 }
 
 function normalizeProgress(value: unknown): PreviewArtifactBody["progress"] | undefined {

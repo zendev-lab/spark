@@ -1218,7 +1218,7 @@ const messages = {
     hero: {
       eyebrow: "工作空间",
       title: "产物",
-      lede: "仅产品交付物：远端 Issue、PR，以及 md/mdx/html 预览进度。",
+      lede: "仅产品交付物：远端 Issue、PR，以及 Markdown、HTML、A2UI 或 Spark UI 实时预览。",
     },
     metrics: {
       aria: "产物状态",

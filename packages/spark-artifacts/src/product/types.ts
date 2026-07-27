@@ -21,7 +21,7 @@ export const PRODUCT_ARTIFACT_FORMATS = [
   "text",
 ] as const satisfies readonly ProductArtifactFormat[];
 
-export type PreviewContentFormat = "md" | "mdx" | "html";
+export type PreviewContentFormat = "md" | "mdx" | "html" | "a2ui" | "spark-ui";
 
 export interface PreviewProgress {
   label?: string;
@@ -133,7 +133,11 @@ export function isProductArtifactBody(value: unknown): value is ProductArtifactB
   }
   if (record.kind === "preview") {
     return (
-      (record.format === "md" || record.format === "mdx" || record.format === "html") &&
+      (record.format === "md" ||
+        record.format === "mdx" ||
+        record.format === "html" ||
+        record.format === "a2ui" ||
+        record.format === "spark-ui") &&
       typeof record.content === "string" &&
       typeof record.version === "number"
     );

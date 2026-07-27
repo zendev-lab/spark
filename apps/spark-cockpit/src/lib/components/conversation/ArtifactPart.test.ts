@@ -13,13 +13,13 @@ describe("ArtifactPart component contract", () => {
     expect(() => compile(source, { filename: componentPath, generate: "server" })).not.toThrow();
   });
 
-  it("renders daemon artifact references without inventing a Cockpit route", () => {
+  it("keeps daemon artifact refs route-free while exposing verified preview URLs", () => {
     const source = readFileSync(componentPath, "utf8");
 
     expect(source).toContain("<strong>{title}</strong>");
     expect(source).toContain("<code>{artifactRef}</code>");
     expect(source).not.toContain("artifactHref");
     expect(source).not.toContain("/artifacts/");
-    expect(source).not.toContain("<a ");
+    expect(source).toContain("href={previewUrl}");
   });
 });

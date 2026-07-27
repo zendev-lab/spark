@@ -101,6 +101,8 @@ export function toolResultToMessageView(message: ToolResultMessage): SparkMessag
   const summary =
     summarizeToolResultContent(message.content) ??
     `${message.toolName} ${message.isError ? "failed" : "completed"}`;
+  const resultMetadata = toolResultPresentationMetadata(message.details);
+  const partMetadata = resultMetadata.preview ? resultMetadata : {};
   return {
     version: SPARK_PROTOCOL_VERSION,
     id,
@@ -120,10 +122,10 @@ export function toolResultToMessageView(message: ToolResultMessage): SparkMessag
         toolName: message.toolName,
         status: message.isError ? "failed" : "complete",
         summary,
-        metadata: {},
+        metadata: partMetadata,
       },
     ],
-    metadata: { kind: "tool_result" },
+    metadata: resultMetadata,
   };
 }
 
@@ -207,6 +209,19 @@ export function contentToText(content: unknown): string {
 export function timestampToIso(timestamp: unknown): string | undefined {
   if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) return undefined;
   return new Date(timestamp).toISOString();
+}
+
+function toolResultPresentationMetadata(details: unknown): SparkMessageView["metadata"] {
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return { kind: "tool_result" };
+  }
+  const record = details as Record<string, unknown>;
+  const preview = recordField(record, "preview");
+  return jsonMetadata({
+    kind: "tool_result",
+    ...(stringField(record, "action") ? { action: stringField(record, "action") } : {}),
+    ...(preview ? { preview } : {}),
+  });
 }
 
 export function jsonMetadata(record: Record<string, unknown>): SparkMessageView["metadata"] {
