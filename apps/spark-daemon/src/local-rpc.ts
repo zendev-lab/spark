@@ -19,6 +19,7 @@ export {
   requestDaemonStatus,
   requestDaemonStop,
   requestHumanInteractionList,
+  requestHumanInteractionRespond,
   requestDriverRestart,
   requestDriverSchedule,
   requestDriverStart,

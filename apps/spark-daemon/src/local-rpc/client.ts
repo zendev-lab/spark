@@ -31,6 +31,8 @@ import {
   type LocalDaemonStopResult,
   type LocalHumanInteractionListParams,
   type LocalHumanInteractionListResult,
+  type LocalHumanInteractionRespondParams,
+  type LocalHumanInteractionRespondResult,
   type LocalTurnCancelParams,
   type LocalTurnCancelResult,
   type LocalTurnStatusResult,
@@ -96,6 +98,17 @@ export async function requestHumanInteractionList(
     paths,
     { id: localRequestId(), method: "human.interaction.list", params },
     (value) => value as LocalHumanInteractionListResult,
+  );
+}
+
+export async function requestHumanInteractionRespond(
+  paths: SparkPaths,
+  params: LocalHumanInteractionRespondParams,
+): Promise<LocalHumanInteractionRespondResult> {
+  return localRpcRequest(
+    paths,
+    { id: localRequestId(), method: "human.interaction.respond", params },
+    (value) => value as LocalHumanInteractionRespondResult,
   );
 }
 

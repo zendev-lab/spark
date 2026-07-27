@@ -87,6 +87,7 @@ import {
   buildDaemonStatus,
   daemon,
   daemonSync,
+  daemonAsk,
   daemonSubmit,
   type DaemonStatus,
   restart,
@@ -154,6 +155,8 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
         return await restartSuccessor(paths, args.slice(1), io);
       case "submit":
         return await daemonSubmit(paths, args.slice(1), io);
+      case "ask":
+        return await daemonAsk(paths, args.slice(1), io);
       case "workspace":
       case "ws":
         return await workspace(paths, subcommand, rest, io);
