@@ -252,6 +252,9 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
     },
     human: {
       interaction: {
+        list: os.human.interaction.list.handler(async ({ input: params }) =>
+          invoke("human.interaction.list", params),
+        ),
         respond: os.human.interaction.respond.handler(async ({ input: params }) =>
           invoke("human.interaction.respond", params),
         ),

@@ -401,6 +401,12 @@ export const sparkLocalRpcOrpcContract = {
   },
   human: {
     interaction: {
+      list: procedure(
+        "GET",
+        "/human/interaction/list",
+        z.object({ sessionId: z.string().min(1).optional() }).default({}),
+        z.object({ waits: z.array(z.unknown()) }),
+      ),
       respond: procedure("POST", "/human/interaction/respond", z.record(z.string(), z.unknown())),
     },
   },
@@ -478,6 +484,7 @@ export const sparkLocalRpcOrpcMethodPaths = {
   "provider.auth.login.status": ["provider", "auth", "login", "status"],
   "provider.auth.login.respond": ["provider", "auth", "login", "respond"],
   "provider.auth.login.cancel": ["provider", "auth", "login", "cancel"],
+  "human.interaction.list": ["human", "interaction", "list"],
   "human.interaction.respond": ["human", "interaction", "respond"],
 } as const;
 

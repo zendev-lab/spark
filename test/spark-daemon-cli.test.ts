@@ -787,6 +787,43 @@ test("daemon session list defaults to live attachable workspace clients", async 
   assert.doesNotMatch(list.text, /wcl-old-a/u);
 });
 
+test("daemon ask commands expose pending interactions and JSON answers", () => {
+  assert.deepEqual(parseSparkDaemonCliArgs(["ask", "list", "--session", "session-a", "--json"]), {
+    action: "ask",
+    subcommand: "list",
+    json: true,
+    sessionId: "session-a",
+  });
+  assert.deepEqual(
+    parseSparkDaemonCliArgs([
+      "ask",
+      "answer",
+      "interaction-a",
+      "--answers",
+      '{"decision":"reuse-existing-megatron"}',
+      "--session",
+      "session-a",
+    ]),
+    {
+      action: "ask",
+      subcommand: "answer",
+      json: false,
+      interactionRequestId: "interaction-a",
+      sessionId: "session-a",
+      invocationId: undefined,
+      answers: { decision: "reuse-existing-megatron" },
+    },
+  );
+  assert.deepEqual(parseSparkDaemonCliArgs(["ask", "cancel", "interaction-a"]), {
+    action: "ask",
+    subcommand: "cancel",
+    json: false,
+    interactionRequestId: "interaction-a",
+    sessionId: undefined,
+    invocationId: undefined,
+  });
+});
+
 test("daemon sessions plural alias routes to live list", () => {
   assert.deepEqual(parseSparkDaemonCliArgs(["sessions", "list", "--json"]), {
     action: "sessions",

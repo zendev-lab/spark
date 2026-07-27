@@ -43,6 +43,7 @@ import { sparkCommandFromLocalRpcRequest } from "../command-dispatcher.ts";
 import { isRecord } from "./is-record.ts";
 import { workspaceProfile } from "./results.ts";
 import type {
+  LocalHumanInteractionListParams,
   LocalHumanInteractionRespondParams,
   LocalRpcRequest,
   LocalTurnCancelParams,
@@ -128,6 +129,13 @@ export function parseLocalRpcRequest(line: string): LocalRpcRequest {
       id: value.id,
       method: value.method,
       params: sparkSessionMailMutationRequestSchema.parse(value.params),
+    });
+  }
+  if (value.method === "human.interaction.list") {
+    return withSparkCommand({
+      id: value.id,
+      method: value.method,
+      params: parseLocalHumanInteractionListParams(value.params),
     });
   }
   if (value.method === "human.interaction.respond") {
@@ -495,6 +503,16 @@ export function parseLocalWorkspaceRelocateParams(value: unknown): LocalWorkspac
     toServerUrl: value.toServerUrl,
     ...(typeof value.fromServerUrl === "string" ? { fromServerUrl: value.fromServerUrl } : {}),
   };
+}
+
+export function parseLocalHumanInteractionListParams(
+  value: unknown,
+): LocalHumanInteractionListParams {
+  if (value == null) return {};
+  if (!isRecord(value)) throw new Error("Invalid human.interaction.list params.");
+  return typeof value.sessionId === "string" && value.sessionId.trim()
+    ? { sessionId: value.sessionId.trim() }
+    : {};
 }
 
 export function parseUplinkServerUrlParams(value: unknown): { serverUrl: string } {

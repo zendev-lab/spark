@@ -79,6 +79,7 @@ export async function handleLocalRpcLine(
       case "channel.reload":
       case "channel.notify":
         return await handleChannelRequest(ctx, request);
+      case "human.interaction.list":
       case "human.interaction.respond":
         return await handleHumanRequest(ctx, request);
       case "turn.submit":

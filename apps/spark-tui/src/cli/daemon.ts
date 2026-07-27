@@ -95,6 +95,7 @@ export type SparkDaemonCliAction =
   | "invocation"
   | "start"
   | "sessions"
+  | "ask"
   | "channel"
   | "runs"
   | "events"
@@ -499,6 +500,15 @@ export interface SparkDaemonSessionsCommand extends SparkDaemonCliCommandBase {
   externalKey?: string;
 }
 
+export interface SparkDaemonAskCommand extends SparkDaemonCliCommandBase {
+  action: "ask";
+  subcommand: "list" | "answer" | "cancel";
+  interactionRequestId?: string;
+  sessionId?: string;
+  invocationId?: string;
+  answers?: Record<string, unknown>;
+}
+
 export interface SparkDaemonChannelCommand extends SparkDaemonCliCommandBase {
   action: "channel";
   subcommand: "list" | "status" | "reload" | "notify";
@@ -541,6 +551,7 @@ export type SparkDaemonCliCommand =
   | SparkDaemonSubmitCommand
   | SparkDaemonInvocationCommand
   | SparkDaemonSessionsCommand
+  | SparkDaemonAskCommand
   | SparkDaemonChannelCommand
   | SparkDaemonRunsCommand
   | SparkDaemonEventsCommand
@@ -553,6 +564,7 @@ export type SparkDaemonCliResult =
   | SparkDaemonSubmitResult
   | SparkDaemonInvocationResult
   | SparkDaemonSessionsResult
+  | SparkDaemonAskResult
   | SparkDaemonChannelResult
   | SparkDaemonRunsResult
   | SparkDaemonEventsResult
@@ -602,6 +614,40 @@ export interface ManagedSessionRegistryResult {
   session?: Record<string, unknown>;
   text: string;
   observedAt: string;
+}
+
+export interface SparkDaemonPendingHumanInteraction {
+  humanRequestId: string;
+  interactionRequestId: string;
+  sessionId: string;
+  invocationId: string;
+  title: string;
+  prompt: string;
+  questions: Array<{
+    id: string;
+    prompt: string;
+    options?: Array<{ value: string; label: string }>;
+  }>;
+  createdAt: string;
+}
+
+export type SparkDaemonAskCommandResult =
+  | {
+      subcommand: "list";
+      waits: SparkDaemonPendingHumanInteraction[];
+      text: string;
+      observedAt: string;
+    }
+  | {
+      subcommand: "answer" | "cancel";
+      result: SparkDaemonHumanInteractionRespondResult;
+      text: string;
+      observedAt: string;
+    };
+
+export interface SparkDaemonAskResult {
+  action: "ask";
+  result: SparkDaemonAskCommandResult;
 }
 
 export interface SparkDaemonChannelResult {
@@ -734,6 +780,9 @@ export function parseSparkDaemonCliArgs(argv: string[]): SparkDaemonCliCommand {
     case "session":
     case "sessions":
       return parseSparkDaemonSessionsCommand(parsed, json);
+    case "ask":
+    case "human":
+      return parseSparkDaemonAskCommand(parsed, json);
     case "channel":
     case "channels": {
       const [subcommand = "status"] = parsed.positionals;
@@ -992,6 +1041,61 @@ function parseSparkDaemonRunsCommand(
   throw new Error(`unknown daemon run command: ${subcommand}`);
 }
 
+function parseSparkDaemonAskCommand(
+  parsed: ReturnType<typeof parseSparkCliOptions>,
+  json: boolean,
+): SparkDaemonAskCommand {
+  const [subcommand = "list", positionalInteractionRequestId] = parsed.positionals;
+  if (subcommand === "list") {
+    return {
+      action: "ask",
+      subcommand,
+      json,
+      sessionId: readStringOption(parsed.options, "session")?.trim(),
+    };
+  }
+  if (subcommand !== "answer" && subcommand !== "cancel") {
+    throw new Error(`unknown spark daemon ask command: ${subcommand}`);
+  }
+  const interactionRequestId =
+    readStringOption(parsed.options, "interaction")?.trim() ||
+    positionalInteractionRequestId?.trim();
+  if (!interactionRequestId) {
+    throw new Error(`spark daemon ask ${subcommand} requires <interaction-request-id>`);
+  }
+  if (subcommand === "cancel") {
+    return {
+      action: "ask",
+      subcommand,
+      json,
+      interactionRequestId,
+      sessionId: readStringOption(parsed.options, "session")?.trim(),
+      invocationId: readStringOption(parsed.options, "invocation")?.trim(),
+    };
+  }
+  const rawAnswers =
+    readStringOption(parsed.options, "answers") ?? readStringOption(parsed.options, "answer");
+  if (!rawAnswers) throw new Error("spark daemon ask answer requires --answers <json>");
+  let parsedAnswers: unknown;
+  try {
+    parsedAnswers = JSON.parse(rawAnswers);
+  } catch (error) {
+    throw new Error("spark daemon ask answer requires valid JSON in --answers", { cause: error });
+  }
+  if (!isRecord(parsedAnswers)) {
+    throw new Error("spark daemon ask answer requires a JSON object in --answers");
+  }
+  return {
+    action: "ask",
+    subcommand,
+    json,
+    interactionRequestId,
+    sessionId: readStringOption(parsed.options, "session")?.trim(),
+    invocationId: readStringOption(parsed.options, "invocation")?.trim(),
+    answers: parsedAnswers,
+  };
+}
+
 function parseSparkDaemonEventsCommand(
   parsed: ReturnType<typeof parseSparkCliOptions>,
   json: boolean,
@@ -1029,6 +1133,8 @@ export async function handleSparkDaemonCliCommand(
       return { action: "invocation", result: await clientInvocation(command, client) };
     case "sessions":
       return { action: "sessions", result: await clientSessions(command, client) };
+    case "ask":
+      return { action: "ask", result: await clientAsk(command, client) };
     case "channel":
       if (command.subcommand === "notify") {
         return {
@@ -1071,7 +1177,10 @@ export async function runSparkDaemonCliCommand(
     return 0;
   }
   if (
-    (result.action === "sessions" || result.action === "events" || result.action === "channel") &&
+    (result.action === "sessions" ||
+      result.action === "ask" ||
+      result.action === "events" ||
+      result.action === "channel") &&
     !command.json
   ) {
     output.write(result.result.text);
@@ -1729,6 +1838,71 @@ async function clientRuns(
     text: "No Spark daemon run list provider is configured.\n",
     observedAt: observedAt(client),
   };
+}
+
+async function clientAsk(
+  command: SparkDaemonAskCommand,
+  client: SparkDaemonClientOptions,
+): Promise<SparkDaemonAskCommandResult> {
+  if (command.subcommand === "list") {
+    const response = await requestSparkDaemonControl<{ waits: unknown[] }>(
+      "human.interaction.list",
+      command.sessionId ? { sessionId: command.sessionId } : {},
+      client,
+    );
+    const waits = response.waits.filter(
+      isPendingHumanInteraction,
+    ) as SparkDaemonPendingHumanInteraction[];
+    return {
+      subcommand: "list",
+      waits,
+      text: renderPendingHumanInteractions(waits),
+      observedAt: observedAt(client),
+    };
+  }
+  const response = await clientRespondHumanInteraction(
+    {
+      interactionRequestId: command.interactionRequestId!,
+      ...(command.sessionId ? { sessionId: command.sessionId } : {}),
+      ...(command.invocationId ? { invocationId: command.invocationId } : {}),
+      status: command.subcommand === "cancel" ? "cancelled" : "answered",
+      answers: command.answers ?? {},
+    },
+    client,
+  );
+  return {
+    subcommand: command.subcommand,
+    result: response,
+    text: `${response.message}\n`,
+    observedAt: observedAt(client),
+  };
+}
+
+function isPendingHumanInteraction(value: unknown): value is SparkDaemonPendingHumanInteraction {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.humanRequestId === "string" &&
+    typeof value.interactionRequestId === "string" &&
+    typeof value.sessionId === "string" &&
+    typeof value.title === "string" &&
+    typeof value.prompt === "string" &&
+    Array.isArray(value.questions) &&
+    typeof value.createdAt === "string"
+  );
+}
+
+function renderPendingHumanInteractions(waits: SparkDaemonPendingHumanInteraction[]): string {
+  if (waits.length === 0) return "No pending Spark daemon human interactions.\n";
+  return `${waits
+    .map((wait) =>
+      [
+        `${wait.interactionRequestId} human=${wait.humanRequestId} session=${wait.sessionId}`,
+        `title=${wait.title}`,
+        `prompt=${wait.prompt}`,
+        `questions=${JSON.stringify(wait.questions)}`,
+      ].join("\n"),
+    )
+    .join("\n\n")}\n`;
 }
 
 async function clientEvents(

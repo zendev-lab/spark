@@ -3,7 +3,10 @@ import { requireHumanInteractionResponder, requireHumanWaitRegistry } from "../h
 import type { LocalRpcDispatchContext } from "./context.ts";
 import type { LocalRpcRequest, LocalRpcResponse } from "../types.ts";
 
-type HumanRequest = Extract<LocalRpcRequest, { method: "human.interaction.respond" }>;
+type HumanRequest = Extract<
+  LocalRpcRequest,
+  { method: "human.interaction.list" | "human.interaction.respond" }
+>;
 
 export async function handleHumanRequest(
   ctx: LocalRpcDispatchContext,
@@ -11,6 +14,12 @@ export async function handleHumanRequest(
 ): Promise<LocalRpcResponse> {
   const { options } = ctx;
   switch (request.method) {
+    case "human.interaction.list": {
+      const waits = requireHumanWaitRegistry(options)
+        .listPending()
+        .filter((wait) => !request.params.sessionId || wait.sessionId === request.params.sessionId);
+      return { id: request.id, ok: true, result: { waits } };
+    }
     case "human.interaction.respond": {
       const waits = requireHumanWaitRegistry(options);
       let wait;

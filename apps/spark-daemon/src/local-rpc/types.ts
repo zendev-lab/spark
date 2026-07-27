@@ -51,6 +51,7 @@ import type {
 } from "../core/index.ts";
 import type {
   SparkDaemonHumanWaitDeliveryResult,
+  SparkDaemonHumanWaitRecord,
   SparkDaemonHumanWaitRegistry,
 } from "../core/human-waits.ts";
 import type { SparkDaemonLeaseTransferBroker } from "../core/lease-transfer.ts";
@@ -247,6 +248,12 @@ export type LocalRpcRequest =
       id: string;
       method: "session.notification.deliver";
       params: { sessionId: string; messageId: string };
+      sparkCommand: SparkCommand;
+    }
+  | {
+      id: string;
+      method: "human.interaction.list";
+      params: LocalHumanInteractionListParams;
       sparkCommand: SparkCommand;
     }
   | {
@@ -558,6 +565,14 @@ export type LocalRpcWireRequest = {
 };
 
 export type LocalTurnCancelParams = LocalTurnCancelRequest;
+
+export interface LocalHumanInteractionListParams {
+  sessionId?: string;
+}
+
+export type LocalHumanInteractionListResult = {
+  waits: SparkDaemonHumanWaitRecord[];
+};
 
 export interface LocalHumanInteractionRespondParams {
   interactionRequestId: string;

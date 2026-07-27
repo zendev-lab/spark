@@ -162,10 +162,29 @@ export class SparkDaemonHumanInteractionBroker {
     const runtimeId = route ? this.options.getRuntimeId(route)?.trim() : undefined;
     const localTui = context.sessionSource === "tui";
     const cockpitProjected = Boolean(runtimeId && route);
-    if (!cockpitProjected && !localTui) {
+    const operatorAnswerable =
+      context.sessionSource === "daemon" || context.sessionSource === "session";
+    if (!cockpitProjected && !localTui && !operatorAnswerable) {
       return createBlockedInteractionResponse(
         request,
         "Daemon could not resolve a Cockpit runtime/workspace route for this ask.",
+      );
+    }
+    if (!cockpitProjected && operatorAnswerable && !context.sessionId.trim()) {
+      return createBlockedInteractionResponse(
+        request,
+        "A route-less daemon ask requires an owning session for local answering.",
+      );
+    }
+    if (
+      !cockpitProjected &&
+      operatorAnswerable &&
+      (durable.ask.delivery ?? "blocking") === "blocking" &&
+      durable.ask.timeoutMs === undefined
+    ) {
+      return createBlockedInteractionResponse(
+        request,
+        "A route-less blocking daemon ask requires timeoutMs so it cannot wait indefinitely.",
       );
     }
 
