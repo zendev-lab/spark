@@ -45,9 +45,9 @@ function fakeStream(messageText = "ok") {
   };
 }
 
-function providerConfig(apiKey?: string): ProviderConfig {
+function providerConfig(apiKey?: string, name = "oauth-provider"): ProviderConfig {
   return {
-    name: "oauth-provider",
+    name,
     baseUrl: "https://oauth.test",
     apiKey,
     api: "openai-completions",
@@ -313,6 +313,326 @@ test("native /login api-key stores a provider key without echoing the secret", a
   });
 });
 
+test("native /login with an unknown provider reports both provider summaries without prompting", async () => {
+  await withAuthDir(async (dir, authPath) => {
+    const store = new SparkAuthStore({ path: authPath });
+    await store.reload();
+    const providerRegistry = new SparkProviderRegistry();
+    providerRegistry.registerProvider("known-api-provider", providerConfig("MISSING_KEY"));
+    const services = {
+      cwd: dir,
+      config: { extensions: [], providers: [] },
+      runtime: new SparkHostRuntime({ cwd: dir }),
+      providerRegistry,
+      authStore: store,
+      diagnostics: [],
+    } as unknown as SparkCliHostServices;
+    const commands = createSparkPiParitySlashCommands(services);
+    let secretCalls = 0;
+    const result = await commands.login!.handler("unknown-provider", {
+      app: {
+        secret: async () => {
+          secretCalls += 1;
+          return "must-not-be-requested";
+        },
+      } as never,
+      session: new SparkNativeSession(),
+      exit: () => undefined,
+    });
+
+    assert.match(String(result), /Unknown provider: unknown-provider/);
+    assert.match(String(result), /Supported OAuth providers:/);
+    assert.match(String(result), /known-api-provider/);
+    assert.equal(secretCalls, 0);
+    assert.equal(store.has("unknown-provider"), false);
+  });
+});
+
+test("native /login picker routes an OAuth-backed model provider through its auth ref", async () => {
+  await withAuthDir(async (dir, authPath) => {
+    registerSparkOAuthProvider(testOAuthProvider());
+    const store = new SparkAuthStore({ path: authPath });
+    await store.reload();
+    const authResolver = new SparkProviderAuthResolver(store);
+    const providerRegistry = new SparkProviderRegistry();
+    providerRegistry.registerProvider("oauth-provider", providerConfig("oauth:test-oauth"));
+    const services = {
+      cwd: dir,
+      config: { extensions: [], providers: [] },
+      runtime: new SparkHostRuntime({ cwd: dir }),
+      providerRegistry,
+      authStore: store,
+      authResolver,
+      diagnostics: [],
+    } as unknown as SparkCliHostServices;
+    const commands = createSparkPiParitySlashCommands(services);
+    const selectedOptions: string[][] = [];
+    const result = await commands.login!.handler("", {
+      app: {
+        select: async (_title: string, options: readonly string[]) => {
+          selectedOptions.push([...options]);
+          const option = options.find((entry) =>
+            entry.startsWith("oauth-provider — oauth:test-oauth"),
+          );
+          assert.ok(option);
+          return option;
+        },
+        secret: async () => assert.fail("OAuth-backed providers must not prompt for an API key"),
+      } as never,
+      session: new SparkNativeSession(),
+      exit: () => undefined,
+    });
+
+    assert.match(String(result), /Logged in OAuth provider: test-oauth/);
+    assert.equal(store.get("test-oauth")?.type, "oauth");
+    assert.equal(
+      selectedOptions[0]?.filter((option) => option.startsWith("oauth-provider —")).length,
+      1,
+    );
+    assert.match(
+      selectedOptions[0]?.find((option) => option.startsWith("oauth-provider —")) ?? "",
+      /missing/,
+    );
+  });
+});
+
+test("native /login with an OAuth-backed model provider argument resolves its auth ref", async () => {
+  await withAuthDir(async (dir, authPath) => {
+    registerSparkOAuthProvider(testOAuthProvider());
+    const store = new SparkAuthStore({ path: authPath });
+    await store.reload();
+    const authResolver = new SparkProviderAuthResolver(store);
+    const providerRegistry = new SparkProviderRegistry();
+    providerRegistry.registerProvider("oauth-provider", providerConfig("oauth:test-oauth"));
+    const services = {
+      cwd: dir,
+      config: { extensions: [], providers: [] },
+      runtime: new SparkHostRuntime({ cwd: dir }),
+      providerRegistry,
+      authStore: store,
+      authResolver,
+      diagnostics: [],
+    } as unknown as SparkCliHostServices;
+    const commands = createSparkPiParitySlashCommands(services);
+    const result = await commands.login!.handler("oauth-provider", {
+      app: {
+        secret: async () => assert.fail("OAuth-backed providers must not prompt for an API key"),
+      } as never,
+      session: new SparkNativeSession(),
+      exit: () => undefined,
+    });
+
+    assert.match(String(result), /Logged in OAuth provider: test-oauth/);
+    assert.equal(store.get("test-oauth")?.type, "oauth");
+    assert.equal(store.has("oauth-provider"), false);
+  });
+});
+
+test("native /login picker excludes none and literal providers but keeps env and missing providers", async () => {
+  await withAuthDir(async (dir, authPath) => {
+    const store = new SparkAuthStore({ path: authPath });
+    await store.reload();
+    const authResolver = new SparkProviderAuthResolver(store, { env: {} });
+    const providerRegistry = new SparkProviderRegistry();
+    providerRegistry.registerProvider("none-provider", providerConfig(undefined, "none-provider"));
+    providerRegistry.registerProvider(
+      "literal-provider",
+      providerConfig("literal-key", "literal-provider"),
+    );
+    providerRegistry.registerProvider(
+      "env-provider",
+      providerConfig("ENV_PROVIDER_KEY", "env-provider"),
+    );
+    providerRegistry.registerProvider(
+      "missing-provider",
+      providerConfig("MISSING_KEY", "missing-provider"),
+    );
+    const services = {
+      cwd: dir,
+      config: { extensions: [], providers: [] },
+      runtime: new SparkHostRuntime({ cwd: dir }),
+      providerRegistry,
+      authStore: store,
+      authResolver,
+      diagnostics: [],
+    } as unknown as SparkCliHostServices;
+    const commands = createSparkPiParitySlashCommands(services);
+    let options: readonly string[] = [];
+    const result = await commands.login!.handler("", {
+      app: {
+        select: async (_title: string, values: readonly string[]) => {
+          options = values;
+          return undefined;
+        },
+      } as never,
+      session: new SparkNativeSession(),
+      exit: () => undefined,
+    });
+
+    assert.doesNotMatch(options.join("\n"), /none-provider|literal-provider/);
+    assert.match(options.join("\n"), /env-provider/);
+    assert.match(options.join("\n"), /missing-provider/);
+    assert.match(String(result), /Login cancelled/);
+  });
+});
+
+test("native /login explicit none and literal providers do not prompt for secrets", async () => {
+  await withAuthDir(async (dir, authPath) => {
+    const store = new SparkAuthStore({ path: authPath });
+    await store.reload();
+    const authResolver = new SparkProviderAuthResolver(store);
+    const providerRegistry = new SparkProviderRegistry();
+    providerRegistry.registerProvider("none-provider", providerConfig(undefined, "none-provider"));
+    providerRegistry.registerProvider(
+      "literal-provider",
+      providerConfig("literal-key", "literal-provider"),
+    );
+    const services = {
+      cwd: dir,
+      config: { extensions: [], providers: [] },
+      runtime: new SparkHostRuntime({ cwd: dir }),
+      providerRegistry,
+      authStore: store,
+      authResolver,
+      diagnostics: [],
+    } as unknown as SparkCliHostServices;
+    const commands = createSparkPiParitySlashCommands(services);
+    const context = {
+      app: {
+        secret: async () => assert.fail("none and literal providers must not prompt for secrets"),
+      } as never,
+      session: new SparkNativeSession(),
+      exit: () => undefined,
+    };
+
+    const noneResult = await commands.login!.handler("none-provider", context);
+    const literalResult = await commands.login!.handler("literal-provider", context);
+
+    assert.equal(String(noneResult), "Provider none-provider does not require login.");
+    assert.match(String(literalResult), /literal authentication.*configuration.*Spark auth store/i);
+    assert.equal(store.listProviders().length, 0);
+  });
+});
+
+test("native /login with an API-key provider argument prompts securely and stores the key", async () => {
+  await withAuthDir(async (dir, authPath) => {
+    const store = new SparkAuthStore({ path: authPath });
+    await store.reload();
+    const authResolver = new SparkProviderAuthResolver(store);
+    const providerRegistry = new SparkProviderRegistry();
+    providerRegistry.registerProvider("oauth-provider", providerConfig("MISSING_KEY"));
+    const services = {
+      cwd: dir,
+      config: { extensions: [], providers: [] },
+      runtime: new SparkHostRuntime({ cwd: dir }),
+      providerRegistry,
+      authStore: store,
+      authResolver,
+      diagnostics: [],
+    } as unknown as SparkCliHostServices;
+    const commands = createSparkPiParitySlashCommands(services);
+    const secretCalls: string[] = [];
+    const result = await commands.login!.handler("oauth-provider", {
+      app: {
+        secret: async (title: string) => {
+          secretCalls.push(title);
+          return "explicit-provider-secret";
+        },
+      } as never,
+      session: new SparkNativeSession(),
+      exit: () => undefined,
+    });
+
+    assert.deepEqual(secretCalls, ["Enter API key for oauth-provider"]);
+    assert.match(String(result), /Stored API key for Spark provider: oauth-provider/);
+    assert.equal(
+      authResolver.resolveApiKey(providerConfig("MISSING_KEY")),
+      "explicit-provider-secret",
+    );
+    assert.doesNotMatch(String(result), /explicit-provider-secret/);
+  });
+});
+
+test("native /login without arguments picks an API-key provider and uses masked input", async () => {
+  await withAuthDir(async (dir, authPath) => {
+    const store = new SparkAuthStore({ path: authPath });
+    await store.reload();
+    const authResolver = new SparkProviderAuthResolver(store);
+    const providerRegistry = new SparkProviderRegistry();
+    providerRegistry.registerProvider("oauth-provider", providerConfig("MISSING_KEY"));
+    const runtime = new SparkHostRuntime({ cwd: dir });
+    const services = {
+      cwd: dir,
+      config: { extensions: [], providers: [] },
+      runtime,
+      providerRegistry,
+      authStore: store,
+      authResolver,
+      diagnostics: [],
+    } as unknown as SparkCliHostServices;
+    const commands = createSparkPiParitySlashCommands(services);
+    const context = {
+      app: {
+        select: async (_title: string, options: readonly string[]) => {
+          const option = options.find((entry) => !entry.endsWith("— oauth"));
+          assert.ok(option);
+          assert.notEqual(option, "oauth-provider");
+          return option;
+        },
+        secret: async () => "local-picker-secret",
+      } as never,
+      session: new SparkNativeSession(),
+      exit: () => undefined,
+    };
+
+    const result = await commands.login!.handler("", context);
+
+    assert.match(String(result), /Stored API key for Spark provider: oauth-provider/);
+    assert.equal(authResolver.resolveApiKey(providerConfig("MISSING_KEY")), "local-picker-secret");
+    assert.doesNotMatch(String(result), /local-picker-secret/);
+  });
+});
+
+test("native /logout without arguments picks a stored credential", async () => {
+  await withAuthDir(async (dir, authPath) => {
+    const store = new SparkAuthStore({ path: authPath });
+    await store.reload();
+    await store.set("stored-provider", {
+      type: "api_key",
+      provider: "stored-provider",
+      apiKey: "logout-secret",
+      updatedAt: "2026-07-24T00:00:00.000Z",
+    });
+    const providerRegistry = new SparkProviderRegistry();
+    providerRegistry.registerProvider("stored-provider", providerConfig("MISSING_KEY"));
+    const services = {
+      cwd: dir,
+      config: { extensions: [], providers: [] },
+      runtime: new SparkHostRuntime({ cwd: dir }),
+      providerRegistry,
+      authStore: store,
+      authResolver: new SparkProviderAuthResolver(store),
+      diagnostics: [],
+    } as unknown as SparkCliHostServices;
+    const selectedOptions: string[][] = [];
+    const commands = createSparkPiParitySlashCommands(services);
+    const result = await commands.logout!.handler("", {
+      app: {
+        select: async (_title: string, options: readonly string[]) => {
+          selectedOptions.push([...options]);
+          return options[0];
+        },
+      } as never,
+      session: new SparkNativeSession(),
+      exit: () => undefined,
+    });
+
+    assert.deepEqual(selectedOptions, [["stored-provider"]]);
+    assert.match(String(result), /Removed stored Spark credential for stored-provider/);
+    assert.equal(store.has("stored-provider"), false);
+  });
+});
+
 test("first-run onboarding renders a no-credential setup guide", async () => {
   await withAuthDir(async (dir, authPath) => {
     const store = new SparkAuthStore({ path: authPath });
@@ -334,7 +654,8 @@ test("first-run onboarding renders a no-credential setup guide", async () => {
     const message = renderSparkFirstRunOnboarding(services);
     assert.match(message ?? "", /Spark first-run setup/);
     assert.match(message ?? "", /Missing credentials for oauth-provider/);
-    assert.match(message ?? "", /\/login api-key <provider> <key>/);
+    assert.match(message ?? "", /Run \/login and choose a provider/);
+    assert.doesNotMatch(message ?? "", /<key>|api-key <provider>/);
     assert.match(message ?? "", /\/model \[provider\/model\]/);
 
     await store.set("oauth-provider", {
@@ -364,7 +685,10 @@ test("daemon-backed /login stores API keys without exposing them in the transcri
   const runtime = new SparkHostRuntime({
     cwd: "/tmp/spark-daemon-api-key-login",
     hasUI: true,
-    ui: { input: async () => "daemon-api-key-secret" },
+    ui: {
+      input: async () => assert.fail("API keys must not use visible input"),
+      secret: async () => "daemon-api-key-secret",
+    },
   });
   const services = {
     cwd: runtime.cwd,
@@ -386,6 +710,136 @@ test("daemon-backed /login stores API keys without exposing them in the transcri
     session.messages.map((message) => message.text).join("\n"),
     /daemon-api-key-secret/,
   );
+});
+
+test("daemon-backed /login picker excludes providers that do not require login", async () => {
+  const snapshot: SparkModelControlSnapshot = {
+    providers: [
+      {
+        providerName: "none-provider",
+        label: "No Auth",
+        auth: { providerName: "none-provider", kind: "none", configured: true },
+        models: [],
+      },
+      {
+        providerName: "cursor",
+        label: "Cursor",
+        auth: { providerName: "cursor", kind: "api_key", configured: false },
+        models: [],
+      },
+    ],
+    diagnostics: [],
+  };
+  let options: readonly string[] = [];
+  const client = daemonAuthClient(snapshot);
+  const services = {
+    cwd: "/tmp/spark-daemon-filtered-picker",
+    runtime: new SparkHostRuntime({ cwd: "/tmp/spark-daemon-filtered-picker" }),
+    diagnostics: [],
+  } as unknown as SparkCliHostServices;
+  const commands = createSparkPiParitySlashCommands(services, client);
+  const result = await commands.login!.handler("", {
+    app: {
+      select: async (_title: string, values: readonly string[]) => {
+        options = values;
+        return undefined;
+      },
+    } as never,
+    session: new SparkNativeSession(),
+    exit: () => undefined,
+  });
+
+  assert.equal(options.length, 1);
+  assert.match(options[0] ?? "", /Cursor \(cursor\)/);
+  assert.doesNotMatch(options.join("\n"), /No Auth|none-provider/);
+  assert.match(String(result), /Login cancelled/);
+});
+
+test("daemon-backed /login reports when no providers require login", async () => {
+  const snapshot = authSnapshot({
+    providerName: "none-provider",
+    label: "No Auth",
+    auth: { providerName: "none-provider", kind: "none", configured: true },
+    models: [],
+  });
+  const client = daemonAuthClient(snapshot);
+  const services = {
+    cwd: "/tmp/spark-daemon-no-login",
+    runtime: new SparkHostRuntime({ cwd: "/tmp/spark-daemon-no-login" }),
+    diagnostics: [],
+  } as unknown as SparkCliHostServices;
+  const commands = createSparkPiParitySlashCommands(services, client);
+  const result = await commands.login!.handler("", {
+    app: {
+      select: async () => assert.fail("picker must not open when no providers require login"),
+    } as never,
+    session: new SparkNativeSession(),
+    exit: () => undefined,
+  });
+
+  assert.equal(String(result), "No Spark providers require login.");
+  const explicit = await commands.login!.handler("none-provider", {
+    app: {} as never,
+    session: new SparkNativeSession(),
+    exit: () => undefined,
+  });
+  assert.equal(String(explicit), "Provider No Auth does not require login.");
+});
+
+test("daemon-backed /login without arguments picks a provider from the daemon snapshot", async () => {
+  const snapshot: SparkModelControlSnapshot = {
+    providers: [
+      {
+        providerName: "cursor",
+        label: "Cursor",
+        auth: { providerName: "cursor", kind: "api_key", configured: false },
+        models: [],
+      },
+      {
+        providerName: "oauth-models",
+        label: "OAuth Models",
+        auth: {
+          providerName: "oauth-models",
+          kind: "oauth",
+          configured: true,
+          source: "stored",
+          reference: "test-oauth",
+        },
+        models: [],
+      },
+    ],
+    diagnostics: [],
+  };
+  const selectedOptions: string[][] = [];
+  const client = daemonAuthClient(snapshot, {
+    startOAuth: async () => authFlow({ status: "succeeded" }),
+  });
+  const runtime = new SparkHostRuntime({
+    cwd: "/tmp/spark-daemon-picker-login",
+    hasUI: true,
+  });
+  const services = {
+    cwd: runtime.cwd,
+    runtime,
+    diagnostics: [],
+  } as unknown as SparkCliHostServices;
+  const commands = createSparkPiParitySlashCommands(services, client);
+  const context = {
+    app: {
+      select: async (_title: string, options: readonly string[]) => {
+        selectedOptions.push([...options]);
+        return options[1];
+      },
+    } as never,
+    session: new SparkNativeSession(async () => "unused"),
+    exit: () => undefined,
+  };
+
+  const result = await commands.login!.handler("", context);
+
+  assert.match(String(result), /Logged in OAuth provider: OAuth Models/);
+  assert.match(selectedOptions[0]?.[0] ?? "", /Cursor \(cursor\).*api key.*missing/);
+  assert.match(selectedOptions[0]?.[1] ?? "", /OAuth Models.*oauth.*configured.*source=stored/);
 });
 
 test("daemon-backed /login drives OAuth status and prompts through daemon RPC", async () => {
@@ -511,6 +965,66 @@ test("daemon-backed /login cancels OAuth when interactive input is dismissed", a
 
   assert.deepEqual(cancelled, ["flow-1"]);
   assert.match(String(result), /OAuth login cancelled for Test OAuth/);
+});
+
+test("daemon-backed /logout without arguments picks only daemon-managed credentials", async () => {
+  const snapshot: SparkModelControlSnapshot = {
+    providers: [
+      {
+        providerName: "env-provider",
+        label: "Environment Provider",
+        auth: {
+          providerName: "env-provider",
+          kind: "api_key",
+          configured: true,
+          source: "environment",
+        },
+        models: [],
+      },
+      {
+        providerName: "oauth-models",
+        label: "OAuth Models",
+        auth: {
+          providerName: "oauth-models",
+          kind: "oauth",
+          configured: true,
+          source: "stored",
+          reference: "test-oauth",
+        },
+        models: [],
+      },
+    ],
+    diagnostics: [],
+  };
+  const removed: string[] = [];
+  let options: readonly string[] = [];
+  const client = daemonAuthClient(snapshot, {
+    logout: async (providerName) => {
+      removed.push(providerName);
+      return true;
+    },
+  });
+  const services = {
+    cwd: "/tmp/spark-daemon-picker-logout",
+    runtime: new SparkHostRuntime({ cwd: "/tmp/spark-daemon-picker-logout" }),
+    diagnostics: [],
+  } as unknown as SparkCliHostServices;
+  const commands = createSparkPiParitySlashCommands(services, client);
+  const result = await commands.logout!.handler("", {
+    app: {
+      select: async (_title: string, values: readonly string[]) => {
+        options = values;
+        return values[0];
+      },
+    } as never,
+    session: new SparkNativeSession(async () => "unused"),
+    exit: () => undefined,
+  });
+
+  assert.equal(options.length, 1);
+  assert.match(options[0] ?? "", /OAuth Models.*source=stored/);
+  assert.deepEqual(removed, ["test-oauth"]);
+  assert.match(String(result), /Removed stored Spark credential: test-oauth/);
 });
 
 test("daemon-backed /logout removes the OAuth credential reference", async () => {

@@ -501,6 +501,8 @@ export interface ExtensionUi {
   notify?: (message: string, level?: ExtensionUiNotifyLevel) => void;
   confirm?: (title: string, message: string) => Promise<boolean>;
   input?: (title: string, defaultValue?: string) => Promise<string | undefined>;
+  /** Collect a value through a host UI that renders only masked input. */
+  secret?: (title: string) => Promise<string | undefined>;
   select?: (title: string, options: string[]) => Promise<string | undefined>;
   selectWithCustom?: (
     title: string,

@@ -1,6 +1,7 @@
 export {
   CombinedAutocompleteProvider,
   Editor,
+  Input,
   Key,
   Markdown,
   matchesKey,

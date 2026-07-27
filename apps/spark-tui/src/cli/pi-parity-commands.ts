@@ -154,7 +154,7 @@ export function createSparkPiParitySlashCommands(
     },
     login: {
       description: STRINGS.descriptions.login,
-      argumentHint: "[provider|api-key <provider> <key>]",
+      argumentHint: "[provider] (API keys are prompted securely)",
       getArgumentCompletions: (prefix) => authProviderCompletions(services, prefix),
       handler: async (args, ctx) =>
         modelAuthClient
@@ -163,12 +163,12 @@ export function createSparkPiParitySlashCommands(
     },
     logout: {
       description: STRINGS.descriptions.logout,
-      argumentHint: "<provider>",
+      argumentHint: "[provider]",
       getArgumentCompletions: (prefix) => storedCredentialCompletions(services, prefix),
-      handler: async (args) =>
+      handler: async (args, ctx) =>
         modelAuthClient
-          ? handleDaemonLogoutCommand(modelAuthClient, args)
-          : handleLogoutCommand(services, args),
+          ? handleDaemonLogoutCommand(modelAuthClient, args, ctx)
+          : handleLogoutCommand(services, args, ctx),
     },
     new: {
       description: STRINGS.descriptions.new,
@@ -814,8 +814,15 @@ async function handleDaemonLoginCommand(
   ctx: SparkNativeSlashCommandContext,
 ): Promise<string> {
   const snapshot = await client.snapshot();
-  const providerId = args.trim();
-  if (!providerId) return renderDaemonAuthSummary(snapshot);
+  const explicitProviderId = args.trim();
+  const loginProviders = daemonLoginProviders(snapshot);
+  const providerId = explicitProviderId || (await selectDaemonAuthProvider(snapshot, ctx, "login"));
+  if (!providerId) {
+    if (snapshot.providers.length === 0)
+      return "No Spark providers are registered with the daemon.";
+    if (loginProviders.length === 0) return "No Spark providers require login.";
+    return "Login cancelled; no credential was stored.";
+  }
 
   const provider = findDaemonAuthProvider(snapshot, providerId);
   if (!provider) {
@@ -834,7 +841,7 @@ async function handleDaemonLoginCommand(
   if (provider.auth.kind === "api_key") {
     const apiKey = await services.runtime
       .makeContext()
-      .ui?.input?.(`Enter API key for ${provider.label}`);
+      .ui?.secret?.(`Enter API key for ${provider.label}`);
     if (apiKey === undefined)
       return `Login cancelled for ${provider.label}; no credential was stored.`;
     const normalizedApiKey = apiKey.trim();
@@ -863,14 +870,15 @@ async function handleDaemonLoginCommand(
 async function handleDaemonLogoutCommand(
   client: SparkDaemonModelAuthClient,
   args: string,
+  ctx: SparkNativeSlashCommandContext,
 ): Promise<string> {
   const snapshot = await client.snapshot();
-  const providerId = args.trim();
+  const configured = daemonManagedCredentialProviders(snapshot);
+  const providerId = args.trim() || (await selectDaemonAuthProvider(snapshot, ctx, "logout"));
   if (!providerId) {
-    const configured = configuredDaemonCredentialIds(snapshot);
-    return configured.length
-      ? `Usage: /logout <provider>\nConfigured providers: ${configured.join(", ")}`
-      : "Usage: /logout <provider>\nNo daemon-managed credentials are configured.";
+    return configured.length === 0
+      ? "No daemon-managed credentials are configured."
+      : "Logout cancelled; no credential was removed.";
   }
 
   const provider = findDaemonAuthProvider(snapshot, providerId);
@@ -995,16 +1003,30 @@ async function waitForDaemonOAuthPoll(flow: SparkAuthFlow): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
 }
 
-function renderDaemonAuthSummary(snapshot: SparkModelControlSnapshot): string {
-  const lines = ["Spark daemon provider authentication:"];
-  if (snapshot.providers.length === 0) return `${lines[0]}\nNo providers registered.`;
-  for (const provider of snapshot.providers) {
-    lines.push(
-      `${provider.providerName}: ${provider.auth.kind} ${provider.auth.configured ? "configured" : "missing"}`,
-    );
-  }
-  lines.push("Use /login <provider> to configure a missing credential.");
-  return lines.join("\n");
+async function selectDaemonAuthProvider(
+  snapshot: SparkModelControlSnapshot,
+  ctx: SparkNativeSlashCommandContext,
+  mode: "login" | "logout",
+): Promise<string | undefined> {
+  const providers =
+    mode === "logout" ? daemonManagedCredentialProviders(snapshot) : daemonLoginProviders(snapshot);
+  if (providers.length === 0) return undefined;
+  const labels = providers.map(formatDaemonAuthProviderOption);
+  const selected = await ctx.app.select(
+    mode === "login" ? "Select provider to log in" : "Select credential to remove",
+    labels,
+  );
+  const index = selected === undefined ? -1 : labels.indexOf(selected);
+  return index < 0 ? undefined : providers[index]?.providerName;
+}
+
+function formatDaemonAuthProviderOption(provider: SparkModelCatalogProvider): string {
+  const details = [
+    provider.auth.kind.replace("_", " "),
+    provider.auth.configured ? "configured" : "missing",
+    provider.auth.source ? `source=${provider.auth.source}` : undefined,
+  ].filter(Boolean);
+  return `${provider.label} (${provider.providerName}) — ${details.join(" · ")}`;
 }
 
 function findDaemonAuthProvider(
@@ -1025,20 +1047,20 @@ function daemonCredentialId(provider: SparkModelCatalogProvider): string {
     : provider.providerName;
 }
 
-function configuredDaemonCredentialIds(snapshot: SparkModelControlSnapshot): string[] {
-  return [
-    ...new Set(
-      snapshot.providers
-        .filter(
-          (provider) =>
-            provider.auth.configured &&
-            provider.auth.kind !== "none" &&
-            provider.auth.source !== "environment" &&
-            provider.auth.source !== "literal",
-        )
-        .map(daemonCredentialId),
-    ),
-  ];
+function daemonLoginProviders(snapshot: SparkModelControlSnapshot): SparkModelCatalogProvider[] {
+  return snapshot.providers.filter((provider) => provider.auth.kind !== "none");
+}
+
+function daemonManagedCredentialProviders(
+  snapshot: SparkModelControlSnapshot,
+): SparkModelCatalogProvider[] {
+  return snapshot.providers.filter(
+    (provider) =>
+      provider.auth.configured &&
+      provider.auth.kind !== "none" &&
+      provider.auth.source !== "environment" &&
+      provider.auth.source !== "literal",
+  );
 }
 
 function isTerminalOAuthFlow(flow: SparkAuthFlow): boolean {
@@ -1059,10 +1081,35 @@ async function handleLoginCommand(
 ): Promise<string> {
   if (!services.authStore) return STRINGS.authStoreUnavailable;
   const tokens = args.trim().split(/\s+/u).filter(Boolean);
-  const providerId = tokens.join(" ");
-  if (!providerId) return renderAuthSummary(services);
   if (tokens[0] === "api-key" || tokens[0] === "key") {
     return await handleApiKeyLoginCommand(services, tokens.slice(1));
+  }
+  const explicitProviderRef = tokens.length > 0 ? tokens.join(" ") : undefined;
+  const selected = explicitProviderRef
+    ? resolveExplicitLocalAuthProvider(services, explicitProviderRef)
+    : await selectLocalAuthProvider(services, ctx);
+  if (!selected) {
+    if (explicitProviderRef) {
+      const supported = listOAuthProviderSummaries();
+      return [
+        `Unknown provider: ${explicitProviderRef}`,
+        `Supported OAuth providers: ${supported.map((provider) => provider.id).join(", ") || "none"}`,
+        renderProviderSummary(services),
+      ].join("\n");
+    }
+    return "Login cancelled; no credential was stored.";
+  }
+  const { providerId } = selected;
+  if (selected.kind === "none") return `Provider ${providerId} does not require login.`;
+  if (selected.kind === "literal") {
+    return `Provider ${providerId} uses literal authentication from configuration; update that configuration instead of the Spark auth store.`;
+  }
+  if (selected.kind === "api_key") {
+    const apiKey = await ctx.app.secret(`Enter API key for ${providerId}`);
+    if (apiKey === undefined) return `Login cancelled for ${providerId}; no credential was stored.`;
+    const normalized = apiKey.trim();
+    if (!normalized) return `API key for ${providerId} must be non-empty.`;
+    return await handleApiKeyLoginCommand(services, [providerId, normalized]);
   }
 
   const supported = listOAuthProviderSummaries();
@@ -1104,12 +1151,18 @@ async function handleApiKeyLoginCommand(
   return `Stored API key for Spark provider: ${providerId}${ref}.`;
 }
 
-async function handleLogoutCommand(services: SparkCliHostServices, args: string): Promise<string> {
+async function handleLogoutCommand(
+  services: SparkCliHostServices,
+  args: string,
+  ctx: SparkNativeSlashCommandContext,
+): Promise<string> {
   if (!services.authStore) return STRINGS.authStoreUnavailable;
-  const providerId = args.trim();
+  const stored = services.authStore.listProviders();
+  const providerId = args.trim() || (await ctx.app.select("Select credential to remove", stored));
   if (!providerId) {
-    const stored = services.authStore.listProviders();
-    return stored.length ? STRINGS.logoutUsageStored(stored) : STRINGS.logoutUsageEmpty;
+    return stored.length === 0
+      ? "No stored Spark credentials are configured."
+      : "Logout cancelled; no credential was removed.";
   }
 
   const provider = services.providerRegistry.getProvider(providerId);
@@ -1180,21 +1233,70 @@ function createOAuthLoginCallbacks(
   };
 }
 
-function renderAuthSummary(services: SparkCliHostServices): string {
-  const oauthProviders = listOAuthProviderSummaries();
-  const lines = [
-    "Spark provider authentication:",
-    `auth store: ${services.authStore?.path ?? "unavailable"}`,
-    `supported OAuth providers: ${oauthProviders.map((provider) => provider.id).join(", ") || "none"}`,
-    renderProviderSummary(services),
-  ];
-  const stored = services.authStore?.listProviders() ?? [];
-  lines.push(
-    stored.length
-      ? `stored Spark credentials: ${stored.join(", ")}`
-      : "stored Spark credentials: none",
+function resolveExplicitLocalAuthProvider(
+  services: SparkCliHostServices,
+  providerRef: string,
+): LocalAuthProviderSelection | undefined {
+  const normalized = providerRef.toLocaleLowerCase();
+  const oauth = listOAuthProviderSummaries().find(
+    (provider) =>
+      provider.id.toLocaleLowerCase() === normalized ||
+      provider.name.toLocaleLowerCase() === normalized,
   );
-  return lines.join("\n");
+  if (oauth) return { providerId: oauth.id, kind: "oauth" };
+  const provider = services.providerRegistry
+    .listProviders()
+    .find((entry) => entry.name.toLocaleLowerCase() === normalized);
+  if (!provider) return undefined;
+  const status = services.authResolver?.status(provider);
+  if (status?.kind === "oauth" && status.ref) {
+    return { providerId: status.ref, kind: "oauth" };
+  }
+  if (status?.kind === "none" || status?.kind === "literal") {
+    return { providerId: provider.name, kind: status.kind };
+  }
+  return { providerId: provider.name, kind: "api_key" };
+}
+
+interface LocalAuthProviderSelection {
+  providerId: string;
+  kind: "oauth" | "api_key" | "none" | "literal";
+}
+
+async function selectLocalAuthProvider(
+  services: SparkCliHostServices,
+  ctx: SparkNativeSlashCommandContext,
+): Promise<LocalAuthProviderSelection | undefined> {
+  const oauthProviders = listOAuthProviderSummaries();
+  const records: Array<{
+    label: string;
+    value: LocalAuthProviderSelection;
+  }> = oauthProviders.map((provider) => ({
+    label: `${provider.name} (${provider.id}) — oauth`,
+    value: { providerId: provider.id, kind: "oauth" },
+  }));
+  for (const provider of services.providerRegistry.listProviders()) {
+    const status = services.authResolver?.status(provider);
+    if (status?.kind === "oauth" && status.ref) {
+      records.push({
+        label: `${provider.name} — oauth:${status.ref} · ${status.configured ? "configured" : "missing"}`,
+        value: { providerId: status.ref, kind: "oauth" },
+      });
+      continue;
+    }
+    if (status?.kind === "none" || status?.kind === "literal") continue;
+    if (oauthProviders.some((oauth) => oauth.id === provider.name)) continue;
+    records.push({
+      label: `${provider.name} — ${status?.kind ?? "api key"} · ${status?.configured ? "configured" : "missing"}`,
+      value: { providerId: provider.name, kind: "api_key" },
+    });
+  }
+  const selected = await ctx.app.select(
+    "Select provider to log in",
+    records.map((record) => record.label),
+  );
+  if (!selected) return undefined;
+  return records.find((record) => record.label === selected)?.value;
 }
 
 function renderProviderSummary(services: SparkCliHostServices): string {

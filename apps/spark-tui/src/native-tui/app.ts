@@ -107,6 +107,11 @@ import {
 } from "./widgets.ts";
 import { nativeAskAnswers, nativeAskFlowRequest, nativeAskLanguage } from "./ask-helpers.ts";
 import {
+  presentNativeInputPrompt,
+  presentNativeSecretPrompt,
+  presentNativeSelectPrompt,
+} from "./prompt.ts";
+import {
   createEditorTheme,
   DEFAULT_NATIVE_THEME,
   isOverlayRequest,
@@ -237,6 +242,18 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   async executeSlashCommand(input: string): Promise<void> {
     await this.runSlashCommand(input);
+  }
+
+  input(title: string, defaultValue?: string): Promise<string | undefined> {
+    return presentNativeInputPrompt(this, this.renderTheme, title, defaultValue);
+  }
+
+  secret(title: string): Promise<string | undefined> {
+    return presentNativeSecretPrompt(this, this.renderTheme, title);
+  }
+
+  select(title: string, options: readonly string[]): Promise<string | undefined> {
+    return presentNativeSelectPrompt(this, this.renderTheme, title, options);
   }
 
   actionBarSnapshot(): { id: string; selectedActionId?: string; focused: boolean } | undefined {

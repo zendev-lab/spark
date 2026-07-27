@@ -3,12 +3,13 @@ import { test } from "vitest";
 
 import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
 
-import type { Component, TUI } from "../apps/spark-tui/src/tui/pi-tui-adapter.ts";
+import type { Component, Focusable, TUI } from "../apps/spark-tui/src/tui/pi-tui-adapter.ts";
 
 import { SparkKeybindings } from "../apps/spark-tui/src/host/keybindings.ts";
 import { SparkHostRuntime } from "../apps/spark-tui/src/host/runtime.ts";
 import type { SparkHostMessageRenderer } from "../apps/spark-tui/src/host/types.ts";
 import { createSparkDaemonNativeCommands } from "../apps/spark-tui/src/cli/daemon.ts";
+import { maskNativeSecretRender } from "../apps/spark-tui/src/native-tui/prompt.ts";
 import {
   createSparkNativeUiTransport,
   SparkNativeSession,
@@ -24,7 +25,7 @@ function stripAnsi(text: string): string {
 function fakeTui(): TUI {
   return {
     requestRender: () => undefined,
-    terminal: { rows: 30, cols: 100 },
+    terminal: { rows: 30, cols: 100, columns: 100 },
     addChild: () => undefined,
     removeChild: () => undefined,
     setFocus: () => undefined,
@@ -81,6 +82,70 @@ test("SparkNativeSession responder context streams assistant chunks without dupl
   assert.equal(assistantMessages.length, 1);
   assert.equal(assistantMessages[0]!.text, "hello world");
   assert.equal(assistantMessages[0]!.streaming, false);
+});
+
+test("native secret masking preserves only prompt, reverse-video CSI, and the Pi cursor marker", () => {
+  const cursorMarker = "\x1b_pi:c\x07";
+  const redCsi = "\x1b[31m";
+  const cursorCsi = "\x1b[2C";
+  const osc = "\x1b]0;secret-title\x07";
+  const unknownApc = "\x1b_private-secret\x07";
+  const unknownEscape = "\x1bX";
+  const raw = `> \x1b[7m${"secret"[0]}\x1b[27m${cursorMarker}${redCsi}${cursorCsi}${osc}${unknownApc}${unknownEscape}${"secret".slice(1)}  `;
+  const masked = maskNativeSecretRender(raw);
+
+  assert.equal(masked, `> \x1b[7m•\x1b[27m${cursorMarker}•••••••  `);
+  assert.match(masked, /^> /u);
+  assert.equal(masked.includes(cursorMarker), true);
+  assert.equal(masked.includes("\x1b[7m"), true);
+  assert.equal(masked.includes("\x1b[27m"), true);
+  assert.equal(masked.includes(redCsi), false);
+  assert.equal(masked.includes(cursorCsi), false);
+  assert.equal(masked.includes(osc), false);
+  assert.equal(masked.includes(unknownApc), false);
+  assert.equal(masked.includes(unknownEscape), false);
+  assert.doesNotMatch(masked, /secret-title|private-secret|secret  /u);
+});
+
+test("SparkNativeTuiApp masks secret input and keeps it out of the transcript", async () => {
+  let overlay: Component | undefined;
+  const tui = {
+    requestRender: () => undefined,
+    terminal: { rows: 30, cols: 100, columns: 100 },
+    addChild: () => undefined,
+    removeChild: () => undefined,
+    setFocus: () => undefined,
+    showOverlay(component: Component) {
+      overlay = component;
+      if ("focused" in component) (component as Component & Focusable).focused = true;
+      return { hide: () => (overlay = undefined) };
+    },
+  } as unknown as TUI;
+  const session = new SparkNativeSession();
+  const app = new SparkNativeTuiApp(tui, session, () => undefined);
+  const secretMarker = "sk-live-secret-marker";
+  const transcriptBefore = session.messages.map(({ role, text }) => ({ role, text }));
+
+  const pending = app.secret("Enter API key");
+  assert.ok(overlay);
+  overlay.handleInput?.(secretMarker);
+  const rawRendered = overlay.render(80).join("\n");
+  assert.doesNotMatch(rawRendered, /sk-live-secret-marker/);
+  assert.equal(rawRendered.includes("\x1b[7m"), true);
+  assert.equal(rawRendered.includes("\x1b[27m"), true);
+  assert.equal(rawRendered.includes("\x1b_pi:c\x07"), true);
+  assert.match(rawRendered, /^.*> /mu);
+  const rendered = stripAnsi(rawRendered);
+  assert.doesNotMatch(rendered, /sk-live-secret-marker/);
+  assert.match(rendered, /•{8,}/u);
+  overlay.handleInput?.("\r");
+
+  assert.equal(await pending, secretMarker);
+  assert.deepEqual(
+    session.messages.map(({ role, text }) => ({ role, text })),
+    transcriptBefore,
+  );
+  assert.doesNotMatch(app.render(80).join("\n"), /sk-live-secret-marker/);
 });
 
 test("SparkNativeTuiApp folds tool output and toggles thinking/tool visibility", () => {

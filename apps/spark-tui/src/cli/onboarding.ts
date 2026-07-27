@@ -80,8 +80,8 @@ export function renderSparkFirstRunOnboarding(services: SparkCliHostServices): s
     authLine,
     providerLine,
     "1. Select a default model with /model [provider/model].",
-    "2. Add credentials with /login api-key <provider> <key> or /login <oauth-provider>.",
+    "2. Run /login and choose a provider; API keys are collected in a masked prompt.",
     "3. Optional: start the daemon with /start, then send your first prompt.",
-    "Run /login with no arguments to inspect auth status; secrets are stored in the effective Spark auth.json.",
+    "Credentials are stored in the effective Spark auth store; secret values are never added to the transcript.",
   ].join("\n");
 }
