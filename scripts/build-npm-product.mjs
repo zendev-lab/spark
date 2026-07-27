@@ -176,6 +176,7 @@ await Promise.all([
   ),
   bundle("apps/spark-cockpit/src/cli-entry.ts", resolve(productDist, "spark-cockpit.js")),
   bundle("apps/spark-cockpit/server/index.ts", resolve(productDist, "spark-cockpit-server.js")),
+  bundle("packages/spark-acp/scripts/stdio.ts", resolve(productDist, "spark-acp.js")),
 ]);
 
 await Promise.all([

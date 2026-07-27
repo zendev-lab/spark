@@ -6,6 +6,7 @@ import {
   CHANNEL_DELIVERY_OUTCOME_UNKNOWN_ERROR_CODE,
   channelDeliveryNotSent,
 } from "@zendev-lab/spark-channels";
+import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import { SPARK_PROTOCOL_VERSION, type SparkDaemonEvent } from "@zendev-lab/spark-protocol";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import type {
@@ -1399,7 +1400,57 @@ describe("daemon native session execution", () => {
       sessionId: "sess_side_readonly",
       prompt: "inspect the current implementation",
     };
-    const executeSession = vi.fn(async () => ({ assistantText: "findings" }));
+    const toolExecutions: string[] = [];
+    const hookExecutions: string[] = [];
+    const executeSession = vi.fn(async (input: unknown) => {
+      const allowedToolEffects = (
+        input as {
+          allowedToolEffects?: readonly (
+            | "read"
+            | "local_write"
+            | "external_write"
+            | "destructive"
+          )[];
+        }
+      ).allowedToolEffects;
+      const host = new SparkHostRuntime({ cwd: "/workspace", allowedToolEffects });
+      for (const [name, effect] of [
+        ["read-tool", "read"],
+        ["write-tool", "local_write"],
+      ] as const) {
+        host.registerTool({
+          name,
+          description: name,
+          parameters: {},
+          policy: { effect },
+          async execute() {
+            toolExecutions.push(name);
+            return { content: [{ type: "text", text: name }] };
+          },
+        });
+      }
+      expect(host.getActiveTools()).toEqual(["read-tool"]);
+      const writeTool = host.getTool("write-tool")!;
+      writeTool.active = true;
+      expect(host.isToolDispatchAllowed("write-tool", writeTool)).toBe(false);
+      expect(toolExecutions).toEqual([]);
+
+      host.on("session_before_compact", () => hookExecutions.push("unknown"));
+      host.on("session_before_compact", () => hookExecutions.push("write"), {
+        effects: ["local_write"],
+      });
+      host.on(
+        "session_before_compact",
+        () => {
+          hookExecutions.push("read");
+          return "read-checkpoint";
+        },
+        { effects: ["read"] },
+      );
+      await expect(host.emit("session_before_compact", {})).resolves.toEqual(["read-checkpoint"]);
+      expect(hookExecutions).toEqual(["read"]);
+      return { assistantText: "findings" };
+    });
 
     await executeSparkDaemonSessionRunTask(task, context(task), {
       paths,

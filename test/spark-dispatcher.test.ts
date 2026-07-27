@@ -8,7 +8,7 @@ import {
   runSparkDispatcher,
 } from "../apps/spark-cli/src/cli.ts";
 
-test("parseSparkDispatcherArgs routes default, tui, daemon, cockpit, sessions, and print commands", () => {
+test("parseSparkDispatcherArgs routes default, tui, daemon, cockpit, ACP, sessions, and print commands", () => {
   assert.deepEqual(parseSparkDispatcherArgs([]), {
     kind: "dispatch",
     target: "tui",
@@ -31,6 +31,11 @@ test("parseSparkDispatcherArgs routes default, tui, daemon, cockpit, sessions, a
     kind: "dispatch",
     target: "cockpit",
     argv: ["--port", "5174"],
+  });
+  assert.deepEqual(parseSparkDispatcherArgs(["acp"]), {
+    kind: "dispatch",
+    target: "acp",
+    argv: [],
   });
   assert.deepEqual(parseSparkDispatcherArgs(["sessions", "list", "--all-workspaces"]), {
     kind: "dispatch",
@@ -154,10 +159,13 @@ test("spark paths reports one SPARK_HOME without dispatching or writing", async 
   }
 });
 
-test("dispatcher resolves daemon plane through spark-tui adapter", () => {
-  const command = resolveTargetCommand("daemon");
-  assert.match(command.command, /spark-tui(?:$|\/bin\/spark-tui$)/u);
-  assert.deepEqual(command.args, ["daemon"]);
+test("dispatcher resolves daemon and ACP adapters", () => {
+  const daemon = resolveTargetCommand("daemon");
+  assert.match(daemon.command, /spark-tui(?:$|\/bin\/spark-tui$)/u);
+  assert.deepEqual(daemon.args, ["daemon"]);
+  const acp = resolveTargetCommand("acp");
+  assert.match(acp.command, /packages\/spark-acp\/scripts\/stdio\.ts$/u);
+  assert.deepEqual(acp.args, []);
 });
 
 test("runSparkDispatcher invokes injected launcher with the selected target", async () => {
@@ -191,7 +199,7 @@ test("runSparkDispatcher fails fast for non-TTY TUI while preserving headless sh
     },
   };
   const launcher = {
-    run: async (target: "tui" | "daemon" | "server" | "cockpit", argv: string[]) => {
+    run: async (target: "tui" | "daemon" | "cockpit" | "acp", argv: string[]) => {
       calls.push({ target, argv });
       return 0;
     },
