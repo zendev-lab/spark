@@ -490,7 +490,7 @@ describe("SparkDriverStore", () => {
   it("uses capability success policies without spinning loop or workflow", () => {
     for (const [index, expected] of [
       ["goal", { status: "scheduled", dueAt: "2026-07-23T00:00:30.000Z" }],
-      ["repro", { status: "scheduled", dueAt: "2026-07-23T00:00:30.000Z" }],
+      ["repro", { status: "dormant" }],
       ["loop", { status: "dormant" }],
       ["workflow", { status: "dormant" }],
     ] as const) {

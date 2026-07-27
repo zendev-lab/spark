@@ -1,6 +1,18 @@
 Spark repro drive tick — Stage 1/5: Setup (setup), phase=plan.
+Goal Contract (draft): Reproduce the target behavior with inspectable evidence
+Plan revision: 1. Difficulty: 8/10; 16/11 minimum steps. Stop Guard: 0/3 unchanged settlements.
 
-Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver); do one concrete step per tick.
+Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver); execute one typed plan step per tick.
+
+Current typed plan steps:
+  [ ] [safe_local] repro-contract-frozen — Reproduction claim and acceptance contract frozen; done when: Reproduction claim and acceptance contract frozen; evidence: At least one inspectable evidence ref
+  [ ] [safe_local] competitor-baseline-availability-researched — Runnable competitor/reference baseline availability verified (typically Megatron); done when: Runnable competitor/reference baseline availability verified (typically Megatron); evidence: At least one inspectable evidence ref
+  [ ] [ask_decision] baseline-construction-strategy-approved — Reuse existing baseline or construction approach approved by the user; done when: Reuse existing baseline or construction approach approved by the user; evidence: Canonical ask decision evidence with the selected value
+  [ ] [safe_local] implementation-landscape-researched — Reusable implementation and extension boundaries researched; done when: Reusable implementation and extension boundaries researched; evidence: At least one inspectable evidence ref
+  [ ] [safe_local] alignment-paths-researched — Real-module and eager alignment paths compared; done when: Real-module and eager alignment paths compared; evidence: At least one inspectable evidence ref
+  [ ] [ask_decision] implementation-strategy-approved — Reuse, adapt, or new implementation strategy approved by the user; done when: Reuse, adapt, or new implementation strategy approved by the user; evidence: Canonical ask decision evidence with the selected value
+  [ ] [ask_decision] alignment-strategy-approved — Real-module or eager alignment strategy approved by the user; done when: Real-module or eager alignment strategy approved by the user; evidence: Canonical ask decision evidence with the selected value
+  [ ] [safe_local] baseline-probe-passed — Minimum baseline comparison probe passed against an available or user-approved constructed baseline; done when: Minimum baseline comparison probe passed against an available or user-approved constructed baseline; evidence: Passing command result captured as evidence
 
 Current evidence-backed requirements:
   [ ] [evidence] repro-contract-frozen — Reproduction claim and acceptance contract frozen
@@ -12,7 +24,7 @@ Current evidence-backed requirements:
   [ ] [decision] alignment-strategy-approved — Real-module or eager alignment strategy approved by the user
   [ ] [validation] baseline-probe-passed — Minimum baseline comparison probe passed against an available or user-approved constructed baseline
 
-Next: research "Reproduction claim and acceptance contract frozen", store the findings as evidence, then call repro({ action: "record", requirementId: "repro-contract-frozen", proof: { kind: "evidence", evidenceRefs: ["evidence:..."] } }).
+Next: make the Goal Contract concrete. Use repro({ action: "plan", reason: "...", goalContract: { objective: "...", constraints: ["..."], nonGoals: ["..."], successCriteria: ["..."], evidenceRequired: ["..."] } }), store the reviewed contract as evidence, then call repro({ action: "record", requirementId: "repro-contract-frozen", proof: { kind: "evidence", evidenceRefs: ["evidence:..."] } }). Any later Goal Contract change reopens this requirement.
 
 Repro drive requirements:
 - Operate in the selected phase (plan); use its tool policy for plan or implement work.
@@ -22,9 +34,11 @@ Repro drive requirements:
 - Before ending every repro turn, leave a verifiable checkpoint. If the turn produced a coherent set of repository changes and committing is authorized and safe, create a small git commit promptly. Never include unrelated pre-existing changes.
 - If a safe commit is not appropriate yet, show the work completed in the turn: cite concrete evidence refs or file paths, summarize the relevant diff, report commands/tests and their results, or ask about the exact blocker. Do not end with only a progress claim.
 - If blocked on an external dependency the user cannot resolve, report that blocker; otherwise prefer ask over /repro stop.
-- End the turn after one concrete step; the next repro tick is scheduled automatically.
+- Before ending this daemon-owned tick, call repro({ action: "settle", reason: "..." }). The driver is dormant by default; only settle may schedule the next tick.
+- If settle returns Recover Ask, call canonical ask immediately with one concrete unblock question. Do not schedule around the Ask gate.
 
 Plan-phase research-first guidance:
+- Reassess difficulty when scope or uncertainty changes. Use repro action=plan with difficulty 1-10 and a complete revised step list; higher difficulty must produce more independently verifiable steps.
 - Classify each unknown as fact, reversible choice, material user decision, or validation uncertainty.
 - Research facts from the workspace, dependencies, environment, and primary upstream sources before asking the user.
 - Prioritize whether a runnable competitor/reference baseline already exists (typically a Megatron implementation). Prove availability with concrete paths, entrypoints, or failed-lookup evidence; do not assume a paper or announcement means the baseline is runnable.

@@ -14,6 +14,7 @@ import {
   stableId,
   type ArtifactRef,
   type EvidenceRef,
+  type SparkHostDriverContext,
   type ExtensionRoleRunRequest,
   type ExtensionRoleRunResult,
   type ExtensionRoleRunStatus,
@@ -6324,6 +6325,98 @@ test("repro record accepts only receipt-backed ask decisions with matching value
         }),
       /canonical ask evidence with a valid receipt/u,
     );
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro plan, step, and settle enforce the typed protocol and bounded continuation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-v4-tool-protocol-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "start",
+      objective: "Reproduce target logits",
+    });
+
+    const planned = await executeSparkTool(tools, "repro", ctx, {
+      action: "plan",
+      reason: "Freeze a precise evidence contract",
+      difficulty: 10,
+      goalContract: {
+        objective: "Reproduce target logits for 20 steps",
+        constraints: ["Use official weights"],
+        nonGoals: ["Performance tuning"],
+        successCriteria: ["20-step outputs are bitwise equal"],
+        evidenceRequired: ["Captured command output"],
+      },
+    });
+    assert.match(toolText(planned), /Goal Contract: draft/u);
+    assert.equal(
+      (await readSessionRepro(dir, ctx))?.goalContract.objective,
+      "Reproduce target logits for 20 steps",
+    );
+    assert.deepEqual(
+      {
+        difficulty: (await readSessionRepro(dir, ctx))?.plan.difficulty,
+        minimumStepCount: (await readSessionRepro(dir, ctx))?.plan.minimumStepCount,
+      },
+      { difficulty: 10, minimumStepCount: 13 },
+    );
+
+    const evidence = await defaultEvidenceStore(dir).put({
+      kind: "record",
+      title: "Reviewed reproduction contract",
+      format: "text",
+      body: "The goal, constraints, non-goals, and evidence contract were reviewed.",
+      provenance: { producer: "spark" },
+    });
+    const stepped = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId: "repro-contract-frozen",
+      stepStatus: "done",
+      stepEvidenceRefs: [evidence.ref],
+    });
+    assert.match(toolText(stepped), /updated to done/u);
+
+    const scheduled: Array<{ delayMs?: number; prompt?: string; reason?: string }> = [];
+    const stopped: Array<{ reason?: string } | undefined> = [];
+    const driver: SparkHostDriverContext = {
+      driverId: "repro-driver",
+      kind: "repro",
+      generation: 1,
+      ownerSessionId: ctx.sessionId,
+      stateOwnerSessionId: ctx.sessionId,
+      async schedule(input) {
+        scheduled.push(input);
+        return input;
+      },
+      async stop(input) {
+        stopped.push(input);
+        return input;
+      },
+    };
+    (ctx as TestSparkContext & { driver: SparkHostDriverContext }).driver = driver;
+
+    for (let index = 0; index < 3; index += 1) {
+      const settled = await executeSparkTool(tools, "repro", ctx, {
+        action: "settle",
+        reason: `settlement ${index + 1}`,
+      });
+      assert.match(toolText(settled), /next tick scheduled/u);
+    }
+    const recover = await executeSparkTool(tools, "repro", ctx, {
+      action: "settle",
+      reason: "settlement 4",
+    });
+    assert.match(toolText(recover), /Recover Ask required/u);
+    assert.equal(scheduled.length, 3);
+    assert.equal(scheduled[0]?.delayMs, 30_000);
+    assert.match(scheduled[0]?.prompt ?? "", /call repro\(\{ action: "settle"/u);
+    assert.deepEqual(stopped, []);
+    assert.equal((await readSessionRepro(dir, ctx))?.stopGuard.decision, "ask");
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
