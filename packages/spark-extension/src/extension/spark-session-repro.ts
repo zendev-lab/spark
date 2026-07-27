@@ -1,16 +1,21 @@
 /**
  * Persistence adapter for the host-neutral @zendev-lab/spark-repro state machine.
- * Legacy v1/v2 snapshots are migrated fail-closed into evidence-backed v3 requirements.
+ * Legacy v1/v2/v3 snapshots are migrated fail-closed into the v4 goal/plan protocol.
  */
 
 import type { EvidenceRef } from "@zendev-lab/spark-core";
 import {
   DEFAULT_REPRO_STAGES,
   isReproRequirementSatisfied,
+  migrateSparkSessionReproV3,
+  reproProgressDigest,
+  stepDefinitionDigest,
   type SparkReproRequirement,
   type SparkReproStage,
+  type SparkReproStep,
   type SparkSessionPhase,
   type SparkSessionRepro,
+  type SparkSessionReproV3,
 } from "@zendev-lab/spark-repro";
 import {
   rebuildSessionIndex,
@@ -21,9 +26,15 @@ import { readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 
 export * from "@zendev-lab/spark-repro";
 
+interface SparkSessionReproSnapshotV4 {
+  version: 4;
+  repro?: SparkSessionRepro;
+  [key: string]: unknown;
+}
+
 interface SparkSessionReproSnapshotV3 {
   version: 3;
-  repro?: SparkSessionRepro;
+  repro?: SparkSessionReproV3;
   [key: string]: unknown;
 }
 
@@ -50,7 +61,7 @@ interface LegacySparkReproStage {
 }
 
 interface LegacySparkSessionRepro extends Omit<
-  SparkSessionRepro,
+  SparkSessionReproV3,
   "version" | "currentPhase" | "stages"
 > {
   version: 1 | 2;
@@ -65,6 +76,7 @@ interface LegacySparkSessionReproSnapshot {
 }
 
 type StoredSparkSessionReproSnapshot =
+  | SparkSessionReproSnapshotV4
   | SparkSessionReproSnapshotV3
   | LegacySparkSessionReproSnapshot;
 
@@ -79,18 +91,28 @@ export async function readSessionRepro(
   const path = sessionReproStorePath(cwd, ctx);
   const snapshot = await readJsonFileOptional<StoredSparkSessionReproSnapshot>(path);
   if (!snapshot) return undefined;
-  if (snapshot.version === 3) {
+  if (snapshot.version === 4) {
     const repro = sanitizeStoredSessionRepro(snapshot.repro);
     if (JSON.stringify(repro) !== JSON.stringify(snapshot.repro)) {
-      await writeJsonFileAtomic(path, { version: 3, repro } satisfies SparkSessionReproSnapshotV3);
+      await writeJsonFileAtomic(path, { version: 4, repro } satisfies SparkSessionReproSnapshotV4);
       await rebuildSessionIndex(cwd);
     }
     return repro;
   }
+  if (snapshot.version === 3) {
+    const sanitized = sanitizeStoredSessionReproV3(snapshot.repro);
+    const migrated = sanitized ? migrateSparkSessionReproV3(sanitized) : undefined;
+    const repro = sanitizeStoredSessionRepro(migrated);
+    await writeJsonFileAtomic(path, { version: 4, repro } satisfies SparkSessionReproSnapshotV4);
+    await rebuildSessionIndex(cwd);
+    return repro;
+  }
   if (snapshot.version !== 1 && snapshot.version !== 2) return undefined;
 
-  const repro = snapshot.repro ? migrateLegacySessionRepro(snapshot.repro) : undefined;
-  await writeJsonFileAtomic(path, { version: 3, repro } satisfies SparkSessionReproSnapshotV3);
+  const v3 = snapshot.repro ? migrateLegacySessionRepro(snapshot.repro) : undefined;
+  const migrated = v3 ? migrateSparkSessionReproV3(v3) : undefined;
+  const repro = sanitizeStoredSessionRepro(migrated);
+  await writeJsonFileAtomic(path, { version: 4, repro } satisfies SparkSessionReproSnapshotV4);
   await rebuildSessionIndex(cwd);
   return repro;
 }
@@ -101,8 +123,8 @@ export async function writeSessionRepro(
   ctx?: SparkSessionContext,
 ): Promise<void> {
   const path = sessionReproStorePath(cwd, ctx);
-  const snapshot: SparkSessionReproSnapshotV3 = {
-    version: 3,
+  const snapshot: SparkSessionReproSnapshotV4 = {
+    version: 4,
     repro: repro ? withoutReproRuntimeState(repro) : undefined,
   };
   await writeJsonFileAtomic(path, snapshot);
@@ -120,7 +142,7 @@ export async function clearSessionRepro(cwd: string, ctx?: SparkSessionContext):
   await writeSessionRepro(cwd, undefined, ctx);
 }
 
-function migrateLegacySessionRepro(legacy: LegacySparkSessionRepro): SparkSessionRepro {
+function migrateLegacySessionRepro(legacy: LegacySparkSessionRepro): SparkSessionReproV3 {
   const defaultStages = structuredClone(DEFAULT_REPRO_STAGES);
   const stages = defaultStages.map((template) => {
     const legacyStage = legacy.stages.find((stage) => stage.name === template.name);
@@ -236,54 +258,167 @@ function legacyEvidenceRef(value: string | undefined): EvidenceRef | undefined {
     : undefined;
 }
 
+function sanitizeStoredSessionReproV3(
+  repro: SparkSessionReproV3 | undefined,
+): SparkSessionReproV3 | undefined {
+  if (!repro) return undefined;
+  return {
+    ...repro,
+    stages: sanitizeReproStages(repro.stages),
+  };
+}
+
 function sanitizeStoredSessionRepro(
   repro: SparkSessionRepro | undefined,
 ): SparkSessionRepro | undefined {
   if (!repro) return undefined;
-  return {
+  const stages = sanitizeReproStages(repro.stages);
+  const contractRequirement = stages
+    .flatMap((stage) => stage.acceptance)
+    .find((requirement) => requirement.id === "repro-contract-frozen");
+  const contractFrozen = contractRequirement
+    ? isReproRequirementSatisfied(contractRequirement)
+    : false;
+  const contractEvidenceRefs = repro.goalContract.evidenceRefs.filter(isEvidenceRef);
+  const { frozenAt: _frozenAt, ...goalContractWithoutFrozenAt } = repro.goalContract;
+  const goalContract = contractFrozen
+    ? {
+        ...repro.goalContract,
+        status: "frozen" as const,
+        evidenceRefs: contractEvidenceRefs,
+      }
+    : {
+        ...goalContractWithoutFrozenAt,
+        status: "draft" as const,
+        evidenceRefs: [],
+      };
+  const steps = repro.plan.steps.map((step) => {
+    const evidenceRefs = step.evidenceRefs.filter(isEvidenceRef);
+    const mustReopen =
+      step.status === "done" && !isStoredStepVerificationValid(repro, step, evidenceRefs);
+    const { blocker: _blocker, verification: _verification, ...stepWithoutRuntimeProof } = step;
+    return {
+      ...(mustReopen ? stepWithoutRuntimeProof : step),
+      status: mustReopen ? ("pending" as const) : step.status,
+      evidenceRefs,
+    };
+  });
+  const limit =
+    Number.isInteger(repro.stopGuard.limit) && repro.stopGuard.limit > 0
+      ? repro.stopGuard.limit
+      : 3;
+  const stagnationCount =
+    Number.isInteger(repro.stopGuard.stagnationCount) && repro.stopGuard.stagnationCount >= 0
+      ? repro.stopGuard.stagnationCount
+      : 0;
+  const decision =
+    repro.stopGuard.decision === "continue" ||
+    repro.stopGuard.decision === "ask" ||
+    repro.stopGuard.decision === "complete"
+      ? repro.stopGuard.decision
+      : repro.status === "complete"
+        ? "complete"
+        : "continue";
+  const sanitized: SparkSessionRepro = {
     ...repro,
-    stages: repro.stages.map((stage) => {
-      let invalidProofRemoved = false;
-      const acceptance = stage.acceptance.map((requirement): SparkReproRequirement => {
-        if (requirement.kind === "evidence") {
-          const evidenceRefs = requirement.evidenceRefs.filter(isEvidenceRef);
-          invalidProofRemoved ||= evidenceRefs.length !== requirement.evidenceRefs.length;
-          return { ...requirement, evidenceRefs };
-        }
-        if (
-          requirement.kind === "decision" &&
-          requirement.decisionRef &&
-          !isEvidenceRef(requirement.decisionRef)
-        ) {
-          invalidProofRemoved = true;
-          const {
-            decisionRef: _decisionRef,
-            selectedValue: _selectedValue,
-            rationale: _rationale,
-            ...pending
-          } = requirement;
-          return pending;
-        }
-        if (
-          requirement.kind === "validation" &&
-          requirement.resultRef &&
-          !isEvidenceRef(requirement.resultRef)
-        ) {
-          invalidProofRemoved = true;
-          const { resultRef: _resultRef, passed: _passed, ...pending } = requirement;
-          return pending;
-        }
-        return requirement;
-      });
-      if (!stage.gate) return { ...stage, acceptance };
-      const gateHasLegacyRefs = stage.gate.evaluation?.evidenceRefs.some(
-        (ref) => !isEvidenceRef(ref),
-      );
-      if (!invalidProofRemoved && !gateHasLegacyRefs) return { ...stage, acceptance };
-      const { evaluation: _evaluation, ...gate } = stage.gate;
-      return { ...stage, acceptance, gate };
-    }),
+    stages,
+    goalContract,
+    plan: { ...repro.plan, steps },
+    stopGuard: {
+      ...repro.stopGuard,
+      limit,
+      stagnationCount,
+      decision,
+    },
   };
+  if (
+    typeof sanitized.stopGuard.lastProgressDigest === "string" &&
+    sanitized.stopGuard.lastProgressDigest.trim()
+  ) {
+    return sanitized;
+  }
+  return {
+    ...sanitized,
+    stopGuard: {
+      ...sanitized.stopGuard,
+      lastProgressDigest: reproProgressDigest(sanitized),
+    },
+  };
+}
+
+function isStoredStepVerificationValid(
+  repro: SparkSessionRepro,
+  step: SparkReproStep,
+  evidenceRefs: EvidenceRef[],
+): boolean {
+  const verification = step.verification;
+  if (!verification || verification.verdict !== "Pass") return false;
+  const expectedProofKind =
+    step.authority === "ask_approval"
+      ? "approval"
+      : step.authority === "ask_decision"
+        ? "decision"
+        : "evidence";
+  return (
+    verification.planRevision === repro.plan.currentRevision &&
+    verification.stepId === step.id &&
+    verification.definitionDigest === stepDefinitionDigest(step) &&
+    verification.proofKind === expectedProofKind &&
+    JSON.stringify(verification.evidenceRefs) === JSON.stringify(evidenceRefs) &&
+    JSON.stringify(verification.verifiedDoneWhen) === JSON.stringify(step.doneWhen) &&
+    (expectedProofKind !== "approval" ||
+      (verification.approvalResult === "approved" &&
+        JSON.stringify(verification.selectedValues) === JSON.stringify(["approve"]))) &&
+    (expectedProofKind === "evidence" ||
+      (typeof verification.askRequestHash === "string" &&
+        typeof verification.acceptedAnswerHash === "string" &&
+        Array.isArray(verification.selectedValues) &&
+        verification.selectedValues.length > 0))
+  );
+}
+
+function sanitizeReproStages(stages: readonly SparkReproStage[]): SparkReproStage[] {
+  return stages.map((stage) => {
+    let invalidProofRemoved = false;
+    const acceptance = stage.acceptance.map((requirement): SparkReproRequirement => {
+      if (requirement.kind === "evidence") {
+        const evidenceRefs = requirement.evidenceRefs.filter(isEvidenceRef);
+        invalidProofRemoved ||= evidenceRefs.length !== requirement.evidenceRefs.length;
+        return { ...requirement, evidenceRefs };
+      }
+      if (
+        requirement.kind === "decision" &&
+        requirement.decisionRef &&
+        !isEvidenceRef(requirement.decisionRef)
+      ) {
+        invalidProofRemoved = true;
+        const {
+          decisionRef: _decisionRef,
+          selectedValue: _selectedValue,
+          rationale: _rationale,
+          ...pending
+        } = requirement;
+        return pending;
+      }
+      if (
+        requirement.kind === "validation" &&
+        requirement.resultRef &&
+        !isEvidenceRef(requirement.resultRef)
+      ) {
+        invalidProofRemoved = true;
+        const { resultRef: _resultRef, passed: _passed, ...pending } = requirement;
+        return pending;
+      }
+      return requirement;
+    });
+    if (!stage.gate) return { ...stage, acceptance };
+    const gateHasLegacyRefs = stage.gate.evaluation?.evidenceRefs.some(
+      (ref) => !isEvidenceRef(ref),
+    );
+    if (!invalidProofRemoved && !gateHasLegacyRefs) return { ...stage, acceptance };
+    const { evaluation: _evaluation, ...gate } = stage.gate;
+    return { ...stage, acceptance, gate };
+  });
 }
 
 function isEvidenceRef(value: string): value is EvidenceRef {

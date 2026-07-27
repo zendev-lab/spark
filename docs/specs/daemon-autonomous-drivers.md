@@ -108,13 +108,20 @@ time, generation, invocation, retry, and recovery mechanisms.
 | --- | --- | --- |
 | `goal` | continue in 30s while active | 30s / 60s / 120s |
 | `loop` | dormant until explicitly scheduled | 30s / 60s / 120s |
-| `repro` | continue in 30s while incomplete | 30s / 60s / 120s |
+| `repro` | dormant until `repro settle` proves semantic progress and explicitly schedules | 30s / 60s / 120s |
 | `workflow` | dormant until capability schedules | 1s / 2s / 5s / 10s / 30s |
 
 One logical owner session has one foreground lane. Starting `goal`, `loop`, or
 `repro` atomically stops the prior foreground driver. Workflows use a separate
 background lane. Hook-owned implementation and TODO reconciliation do not
 participate in driver lanes or generation-based scheduling.
+
+Repro's domain-level Stop Guard is not a second timer or retry owner. It hashes
+the durable Goal Contract, typed plan progress, requirement proof, and gates.
+`repro settle` explicitly schedules a 30-second continuation only while that
+semantic state is progressing. Three unchanged settlements leave the driver
+dormant and require a Recover Ask. Transient execution failures still use the
+daemon retry delays in the table.
 
 ## Fresh loop continuity
 

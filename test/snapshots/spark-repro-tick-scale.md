@@ -1,6 +1,12 @@
 Spark repro drive tick — Stage 4/5: Scale (scale), phase=implement.
+Goal Contract (draft): Reproduce the target behavior with inspectable evidence
+Plan revision: 1. Difficulty: 8/10; 16/11 minimum steps. Stop Guard: 0/3 unchanged settlements.
 
-Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver); do one concrete step per tick.
+Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver); execute one typed plan step per tick.
+
+Current typed plan steps:
+  [ ] [safe_local] target-scale-convergence — Convergence verified at target scale; done when: Convergence verified at target scale; evidence: Passing command result captured as evidence
+  [ ] [safe_local] performance-budget — Performance metrics within budget; done when: Performance metrics within budget; evidence: Passing command result captured as evidence
 
 Current evidence-backed requirements:
   [ ] [validation] target-scale-convergence — Convergence verified at target scale
@@ -18,7 +24,8 @@ Repro drive requirements:
 - Before ending every repro turn, leave a verifiable checkpoint. If the turn produced a coherent set of repository changes and committing is authorized and safe, create a small git commit promptly. Never include unrelated pre-existing changes.
 - If a safe commit is not appropriate yet, show the work completed in the turn: cite concrete evidence refs or file paths, summarize the relevant diff, report commands/tests and their results, or ask about the exact blocker. Do not end with only a progress claim.
 - If blocked on an external dependency the user cannot resolve, report that blocker; otherwise prefer ask over /repro stop.
-- End the turn after one concrete step; the next repro tick is scheduled automatically.
+- Before ending this daemon-owned tick, call repro({ action: "settle", reason: "..." }). The driver is dormant by default; only settle may schedule the next tick.
+- If settle returns Recover Ask, call canonical ask immediately with one concrete unblock question. Do not schedule around the Ask gate.
 
 Implement-phase guidance:
 - Execute the planned tasks in the main session: write code, run tests, and fix failures.
