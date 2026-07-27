@@ -20,6 +20,9 @@ import {
   recordReproRequirementProof,
   satisfyAcceptanceCondition,
   sessionReproStorePath,
+  stepDefinitionDigest,
+  updateReproStep,
+  verifyReproStepPass,
   type SparkReproRequirementProof,
   type SparkSessionRepro,
   type SparkSessionReproV3,
@@ -116,6 +119,30 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       passed: true,
     });
 
+    for (const step of repro.plan.steps.filter((candidate) => candidate.stage === "setup")) {
+      const evidenceRefs = [artifactRef(`step-${step.id}`)];
+      const verifier = verifyReproStepPass(repro, step.id, {
+        verdict: "Pass",
+        planRevision: repro.plan.currentRevision,
+        definitionDigest: stepDefinitionDigest(step),
+        proofKind: step.authority === "ask_decision" ? "decision" : "evidence",
+        evidenceRefs,
+        verifiedDoneWhen: [...step.doneWhen],
+        ...(step.authority === "ask_decision"
+          ? {
+              askRequestHash: `request-${step.id}`,
+              acceptedAnswerHash: `answer-${step.id}`,
+              selectedValues: ["accepted"],
+            }
+          : {}),
+      });
+      assert.equal(verifier.verdict, "Pass");
+      repro = updateReproStep(repro, step.id, {
+        status: "done",
+        evidenceRefs,
+        verifier,
+      })!;
+    }
     assert.equal(isPhaseComplete(repro), true);
     assert.equal(isStageComplete(repro), true);
     const scaffold = advanceReproStage(repro);
