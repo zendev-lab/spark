@@ -1,12 +1,13 @@
-import type {
-  AssistantMessage,
-  AssistantMessageEvent,
-  Context,
-  Model,
-  StreamOptions,
-  TextContent,
-  ThinkingContent,
-  ToolCall,
+import {
+  createAssistantMessageEventStream,
+  type AssistantMessage,
+  type AssistantMessageEvent,
+  type Context,
+  type Model,
+  type StreamOptions,
+  type TextContent,
+  type ThinkingContent,
+  type ToolCall,
 } from "@earendil-works/pi-ai";
 import { cappedExponentialCeiling, equalJitter } from "@zendev-lab/spark-retry";
 
@@ -32,8 +33,13 @@ export type SparkProviderStreamFunction = (
   result(): Promise<AssistantMessage>;
 };
 
+export type ProviderApiKeyResolution = string | undefined | Promise<string | undefined>;
+
 export interface ProviderRegistryRunnerOptions {
-  resolveApiKey?: (provider: ProviderConfig, selection: SparkActiveSelection) => string | undefined;
+  resolveApiKey?: (
+    provider: ProviderConfig,
+    selection: SparkActiveSelection,
+  ) => ProviderApiKeyResolution;
 }
 
 export interface SparkWorkflowModelRunRequest {
@@ -89,26 +95,27 @@ function createResolverBackedProviderStream(
     ...(options?.sessionId !== undefined ? { sessionId: options.sessionId } : {}),
   });
   const model = materializeRouteModel(profile, decision.route);
-  const streamOptions = withPiAiOpenAiResponsesPromptCacheBridge(
-    model.api,
-    withOpenAiCompatiblePromptCacheKey(
-      withProviderTransportRetries(
-        withResolvedApiKey(options, runnerOptions.resolveApiKey?.(provider, selection)),
+  const apiKey = runnerOptions.resolveApiKey?.(provider, selection);
+  return createAuthResolvedProviderStream(model as Model<string>, apiKey, (resolvedApiKey) => {
+    const streamOptions = withPiAiOpenAiResponsesPromptCacheBridge(
+      model.api,
+      withOpenAiCompatiblePromptCacheKey(
+        withProviderTransportRetries(withResolvedApiKey(options, resolvedApiKey)),
       ),
-    ),
-  );
-  const createStream = () =>
-    normalizeProviderStream(
-      provider.streamSimple(model as Model<ProviderConfig["api"]>, context, streamOptions),
-      selection.providerName,
     );
-  const stream = retryProviderStreamBeforeOutput(
-    createStream(),
-    createStream,
-    selection.providerName,
-    streamOptions,
-  );
-  return retagAssistantMessageStream(stream, resolveSparkModelMessageIdentity(profile));
+    const createStream = () =>
+      normalizeProviderStream(
+        provider.streamSimple(model as Model<ProviderConfig["api"]>, context, streamOptions),
+        selection.providerName,
+      );
+    const stream = retryProviderStreamBeforeOutput(
+      createStream(),
+      createStream,
+      selection.providerName,
+      streamOptions,
+    );
+    return retagAssistantMessageStream(stream, resolveSparkModelMessageIdentity(profile));
+  });
 }
 
 function retryProviderStreamBeforeOutput(
@@ -394,6 +401,56 @@ function clampOpenAiPromptCacheKey(key: string | undefined): string | undefined 
   return chars.length <= OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH
     ? key
     : chars.slice(0, OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH).join("");
+}
+
+export function createAuthResolvedProviderStream(
+  model: Model<string>,
+  apiKey: ProviderApiKeyResolution,
+  start: (resolvedApiKey: string | undefined) => SparkProviderStreamFunctionReturn,
+): SparkProviderStreamFunctionReturn {
+  if (!isPromiseLike(apiKey)) return start(apiKey);
+  const output = createAssistantMessageEventStream();
+  void apiKey
+    .then(async (resolvedApiKey) => {
+      const inner = start(resolvedApiKey);
+      for await (const event of inner) output.push(event);
+      output.end();
+    })
+    .catch((error: unknown) => {
+      output.push({
+        type: "error",
+        reason: "error",
+        error: providerSetupErrorMessage(model, error),
+      });
+    });
+  return output;
+}
+
+type SparkProviderStreamFunctionReturn = ReturnType<SparkProviderStreamFunction>;
+
+function providerSetupErrorMessage(model: Model<string>, error: unknown): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "error",
+    errorMessage: error instanceof Error ? error.message : String(error),
+    timestamp: Date.now(),
+  };
+}
+
+function isPromiseLike(value: ProviderApiKeyResolution): value is Promise<string | undefined> {
+  return typeof (value as Promise<string | undefined> | undefined)?.then === "function";
 }
 
 function withResolvedApiKey(
