@@ -46,16 +46,19 @@ export interface SparkToolResultRawRecoveryDecision {
   omittedChars?: number;
 }
 
-export interface SparkToolResultRawRecoveryPath {
-  kind: "artifact";
-  artifactRef: string;
-  readTool: "artifact" | "evidence";
-  readArgs: {
-    action: "read";
-    artifactRef: string;
-    maxChars: number;
-  };
-}
+export type SparkToolResultRawRecoveryPath =
+  | {
+      kind: "evidence";
+      evidenceRef: string;
+      readTool: "evidence";
+      readArgs: { action: "read"; evidenceRef: string; maxChars: number };
+    }
+  | {
+      kind: "artifact";
+      artifactRef: string;
+      readTool: "artifact" | "evidence";
+      readArgs: { action: "read"; artifactRef: string; maxChars: number };
+    };
 
 export interface SparkToolResultCompactionResult {
   content: ToolResultTextPart[];

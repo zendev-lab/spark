@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { registerSparkArtifactTool } from "@zendev-lab/spark-artifacts/extension";
 import { evaluateSparkBehavior } from "@zendev-lab/spark-turn/behavior-eval";
 import {
@@ -1996,28 +1996,29 @@ test("SparkAgentLoop records raw trace artifact for large lossy compacted tool o
     const toolResult = loop.getMessages().find((message) => message.role === "toolResult");
     const text = (toolResult as { content: Array<{ text?: string }> }).content[0]?.text ?? "";
     assert.match(text, /\[4497 blank lines collapsed\]/);
-    assert.match(text, /\[recovery\] Full raw tool output saved as artifact:/);
+    assert.match(text, /\[recovery\] Full raw tool output saved as evidence:/);
     assert.match(
       text,
-      /evidence\(\{ action: "read", artifactRef: "artifact:[^"]+", maxChars: 20000 \}\)/,
+      /evidence\(\{ action: "read", evidenceRef: "evidence:[^"]+", maxChars: 20000 \}\)/,
     );
     assert.equal((toolResult as { toolCallId?: string }).toolCallId, toolCallEnvelope.id);
     assert.equal((toolResult as { toolName?: string }).toolName, toolCallEnvelope.name);
     assert.equal((toolResult as { isError?: boolean }).isError, false);
     const recovery = (toolResult as { details?: { toolResultRawRecovery?: any } }).details
       ?.toolResultRawRecovery;
-    assert.match(recovery.artifactRef, /^artifact:/);
+    assert.match(recovery.evidenceRef, /^evidence:/);
+    assert.equal(recovery.artifactRef, recovery.evidenceRef);
     assert.equal(recovery.reason, "lossy_compaction");
     assert.equal(recovery.bodyChars, noisyOutput.length);
     assert.deepEqual(recovery.recoveryPath, {
-      kind: "artifact",
-      artifactRef: recovery.artifactRef,
+      kind: "evidence",
+      evidenceRef: recovery.evidenceRef,
       readTool: "evidence",
-      readArgs: { action: "read", artifactRef: recovery.artifactRef, maxChars: 20_000 },
+      readArgs: { action: "read", evidenceRef: recovery.evidenceRef, maxChars: 20_000 },
     });
 
-    const store = defaultArtifactStore(dir);
-    const artifact = await store.get(recovery.artifactRef);
+    const store = defaultEvidenceStore(dir);
+    const artifact = await store.get(recovery.evidenceRef);
     assert.equal(artifact.kind, "trace");
     assert.equal(artifact.format, "text");
     assert.equal(artifact.curation?.status, "raw");
@@ -2027,13 +2028,13 @@ test("SparkAgentLoop records raw trace artifact for large lossy compacted tool o
       artifact.provenance.note,
       "Raw recoverable tool result for cue_exec (lossy_compaction)",
     );
-    assert.equal(await store.getBody(recovery.artifactRef), noisyOutput);
+    assert.equal(await store.getBody(recovery.evidenceRef), noisyOutput);
 
     const artifactTool = host.getTool("evidence");
     assert.ok(artifactTool);
     const readResult = await artifactTool.config.execute(
       "read-raw-output",
-      { action: "read", artifactRef: recovery.artifactRef, maxChars: noisyOutput.length + 200 },
+      { action: "read", evidenceRef: recovery.evidenceRef, maxChars: noisyOutput.length + 200 },
       new AbortController().signal,
       () => undefined,
       host.makeContext(),
@@ -2129,8 +2130,11 @@ test("SparkAgentLoop offloads failed long output while preserving diagnostics an
     assert.match(text, /exit code: 7/u);
     assert.match(text, /evidence\(\{ action: "read"/u);
     assert.equal(result.details.toolResultRawRecovery.reason, "error_compaction");
-    const store = defaultArtifactStore(dir);
-    const artifact = await store.get(result.details.toolResultRawRecovery.artifactRef);
+    const store = defaultEvidenceStore(dir);
+    const recovery = result.details.toolResultRawRecovery;
+    assert.match(recovery.evidenceRef, /^evidence:/);
+    assert.equal(recovery.artifactRef, recovery.evidenceRef);
+    const artifact = await store.get(recovery.evidenceRef);
     assert.equal(await store.getBody(artifact.ref), diagnostic);
   } finally {
     await rm(dir, { recursive: true, force: true });

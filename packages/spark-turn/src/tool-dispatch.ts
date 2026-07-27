@@ -16,6 +16,8 @@ import type { SparkTurnRegisteredTool } from "./turn-types.ts";
 import type { SparkToolApprovalMethod, SparkToolApprovalRejectAction } from "./turn-types.ts";
 
 export type ToolResultRawRecoveryRecord = {
+  evidenceRef?: string;
+  /** @deprecated Compatibility alias for consumers that predate canonical evidence refs. */
   artifactRef: string;
   reason: SparkToolResultRawRecoveryDecision["reason"];
   omittedChars: number;
@@ -45,6 +47,7 @@ export function mergeToolResultDetails(
     ...(rawRecovery
       ? {
           toolResultRawRecovery: {
+            ...(rawRecovery.evidenceRef ? { evidenceRef: rawRecovery.evidenceRef } : {}),
             artifactRef: rawRecovery.artifactRef,
             reason: rawRecovery.reason,
             omittedChars: rawRecovery.omittedChars,
@@ -57,12 +60,20 @@ export function mergeToolResultDetails(
   };
 }
 
-export function rawToolResultRecoveryPath(artifactRef: string): SparkToolResultRawRecoveryPath {
+export function rawToolResultRecoveryPath(ref: string): SparkToolResultRawRecoveryPath {
+  if (ref.startsWith("evidence:")) {
+    return {
+      kind: "evidence",
+      evidenceRef: ref,
+      readTool: "evidence",
+      readArgs: { action: "read", evidenceRef: ref, maxChars: 20_000 },
+    };
+  }
   return {
     kind: "artifact",
-    artifactRef,
+    artifactRef: ref,
     readTool: "evidence",
-    readArgs: { action: "read", artifactRef, maxChars: 20_000 },
+    readArgs: { action: "read", artifactRef: ref, maxChars: 20_000 },
   };
 }
 
@@ -102,17 +113,21 @@ export function artifactRefFromToolResult(result: {
 }): string | undefined {
   const details = isPlainRecord(result.details) ? result.details : undefined;
   const refs = isPlainRecord(details?.refs) ? details.refs : undefined;
-  const fromRefs = stringField(refs, "artifactRef");
-  if (fromRefs?.startsWith("artifact:")) return fromRefs;
+  const fromRefs = stringField(refs, "evidenceRef") ?? stringField(refs, "artifactRef");
+  if (isLedgerRef(fromRefs)) return fromRefs;
   const artifact = isPlainRecord(details?.artifact) ? details.artifact : undefined;
   const fromArtifact = stringField(artifact, "ref");
-  if (fromArtifact?.startsWith("artifact:")) return fromArtifact;
+  if (isLedgerRef(fromArtifact)) return fromArtifact;
   const text = Array.isArray(result.content)
     ? result.content
         .map((part) => (isPlainRecord(part) && typeof part.text === "string" ? part.text : ""))
         .join("\n")
     : "";
-  return text.match(/artifact:[A-Za-z0-9._:-]+/u)?.[0];
+  return text.match(/(?:evidence|artifact):[A-Za-z0-9._:-]+/u)?.[0];
+}
+
+function isLedgerRef(value: string | undefined): value is string {
+  return value?.startsWith("evidence:") === true || value?.startsWith("artifact:") === true;
 }
 
 export function jsonSafe(value: unknown, seen = new WeakSet<object>()): unknown {

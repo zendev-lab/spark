@@ -1126,16 +1126,19 @@ export class SparkAgentLoop {
         `Spark raw tool-result artifact persistence timed out after ${this.toolTimeoutMs}ms`,
         (error) => artifactAbort.abort(error),
       );
-      const artifactRef = artifactRefFromToolResult(recorded);
-      if (!artifactRef) return undefined;
-      const recoveryPath = rawToolResultRecoveryPath(artifactRef);
+      const recoveryRef = artifactRefFromToolResult(recorded);
+      if (!recoveryRef) return undefined;
+      const recoveryPath = rawToolResultRecoveryPath(recoveryRef);
+      const evidenceRef = recoveryRef.startsWith("evidence:") ? recoveryRef : undefined;
+      const readRefArg = evidenceRef ? "evidenceRef" : "artifactRef";
       return {
-        artifactRef,
+        ...(evidenceRef ? { evidenceRef } : {}),
+        artifactRef: recoveryRef,
         reason: input.decision.reason ?? "lossy_compaction",
         omittedChars: input.decision.omittedChars ?? 0,
         bodyChars: rawBody.bodyChars,
         recoveryPath,
-        readHint: `Full raw tool output saved as ${artifactRef}; recover with evidence({ action: "read", artifactRef: "${artifactRef}", maxChars: 20000 })`,
+        readHint: `Full raw tool output saved as ${recoveryRef}; recover with evidence({ action: "read", ${readRefArg}: "${recoveryRef}", maxChars: 20000 })`,
       };
     } catch {
       // Raw recovery must never make the original tool call fail. The compacted

@@ -127,7 +127,7 @@ test("Spark prompt preserves base prompt and stays a single-line phase marker", 
   assert.match(prompt, /Tools:/);
   assert.match(
     prompt,
-    /task_read, task_write, assign, artifact, ask, role, learning, context, recall, workflow, spark-cue/,
+    /task_read, task_write, assign, evidence, artifact, ask, role, learning, context, recall, workflow, spark-cue/,
   );
   assert.doesNotMatch(prompt, /spark-graft/);
   assert.doesNotMatch(prompt, /workflow, patch/);

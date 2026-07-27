@@ -104,8 +104,11 @@ test("artifact store writes hashes, blobs, and lineage links", async () => {
   }
 });
 
-test("artifact tool describes valid provenance producers", () => {
-  const tools = new Map<string, { promptGuidelines?: string[]; parameters?: unknown }>();
+test("evidence tool describes valid provenance producers and proof refs", () => {
+  const tools = new Map<
+    string,
+    { promptGuidelines?: string[]; parameters?: unknown; policy?: unknown }
+  >();
   registerSparkArtifactTool({ registerTool: (config) => tools.set(config.name, config) });
   const tool = tools.get("evidence");
   assert.ok(tool);
@@ -114,6 +117,17 @@ test("artifact tool describes valid provenance producers", () => {
   const parameters = JSON.stringify(tool.parameters);
   assert.match(promptGuidelines, /agent-private|agent-internal|never treat it as user-visible/i);
   assert.match(promptGuidelines, /Prefer format=json and kind=record/);
+  assert.match(
+    promptGuidelines,
+    /action=record.*evidence: refs.*artifact: refs are not substitutes/,
+  );
+  assert.deepEqual(tool.policy, {
+    effect: "local_write",
+    executionMode: "sequential",
+    domains: ["evidence"],
+    phases: ["plan", "implement"],
+    approval: "none",
+  });
   assert.doesNotMatch(promptGuidelines, /Spark-specific artifact aliases/);
   for (const text of [promptGuidelines, parameters]) {
     assert.match(
@@ -125,8 +139,8 @@ test("artifact tool describes valid provenance producers", () => {
   assert.match(parameters, /Role ref filter|role ref/i);
 });
 
-test("artifact record stores validation evidence as a producer-tagged record", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-artifact-record-kind-"));
+test("evidence record stores canonical proof in the internal ledger", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-evidence-record-kind-"));
   try {
     const tools = new Map<
       string,
@@ -155,11 +169,14 @@ test("artifact record stores validation evidence as a producer-tagged record", a
     );
 
     assert.equal(recorded.details.artifact.kind, "record");
-    const listed = await defaultArtifactStore(dir).list({ producer: "task" });
+    assert.match(recorded.details.refs.evidenceRef, /^evidence:/u);
+    assert.equal(recorded.details.refs.artifactRef, recorded.details.refs.evidenceRef);
+    const listed = await defaultEvidenceStore(dir).list({ producer: "task" });
     assert.deepEqual(
       listed.map((artifact) => artifact.ref),
-      [recorded.details.refs.artifactRef],
+      [recorded.details.refs.evidenceRef],
     );
+    assert.deepEqual(await defaultArtifactStore(dir).list({ producer: "task" }), []);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -285,10 +302,10 @@ test("artifact record tool stores top-level refs as provenance shortcuts", async
       { cwd: dir },
     );
 
-    const recordedArtifactRef = recorded.details.refs.artifactRef as `artifact:${string}`;
-    const recordedArtifact = await defaultArtifactStore(dir).get(recordedArtifactRef);
-    assert.equal(recordedArtifact.provenance.projectRef, projectRef);
-    assert.equal(recordedArtifact.provenance.taskRef, taskRef);
+    const recordedEvidenceRef = recorded.details.refs.evidenceRef as `evidence:${string}`;
+    const recordedEvidence = await defaultEvidenceStore(dir).get(recordedEvidenceRef);
+    assert.equal(recordedEvidence.provenance.projectRef, projectRef);
+    assert.equal(recordedEvidence.provenance.taskRef, taskRef);
 
     const listed = await tool.execute(
       "artifact-list-shortcuts",

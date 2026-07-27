@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import type {
   SparkHostAPI,
   ToolConfig,
+  ToolPolicy,
   ToolRenderComponent,
   ToolRenderTheme,
 } from "@zendev-lab/spark-core";
@@ -12,7 +13,7 @@ import {
   ARTIFACT_LINK_RELATIONS,
   ARTIFACT_PRODUCERS,
   ARTIFACT_RETENTIONS,
-  defaultArtifactStore,
+  defaultEvidenceStore,
   isArtifactCurationStatus,
   isArtifactFormat,
   isArtifactKind,
@@ -52,6 +53,13 @@ const ARTIFACT_PRODUCER_DESCRIPTION =
   "producer: spark | role | task | review | ask | cue | user. Prefer producer=task (+ runRef/taskRef) for execution notes; ask/review/cue when that capability owns the write.";
 const ARTIFACT_KIND_DESCRIPTION =
   "Internal ledger kinds only: record (default; one JSON fact/decision/result), trace (prunable raw output), knowledge (learning capability), document (rare long prose). Not user-facing; product ISSUE/PR/preview use artifact.";
+const EVIDENCE_TOOL_POLICY = {
+  effect: "local_write",
+  executionMode: "sequential",
+  domains: ["evidence"],
+  phases: ["plan", "implement"],
+  approval: "none",
+} as const satisfies ToolPolicy;
 
 class ToolCallText implements ToolRenderComponent {
   private readonly text: string;
@@ -76,12 +84,14 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
       "Agent-internal ledger only (not Cockpit/user UI). Compact provenance-backed notes for other tools and later turns. Product ISSUE/PR/preview use artifact.",
     promptGuidelines: [
       "evidence is agent-private: never treat it as user-visible content; Cockpit shows only artifact (issue/pr/preview).",
+      "Use evidence action=record to create evidence: refs for repro, goal, validation, and other internal proof gates; memory learning refs and product artifact: refs are not substitutes.",
       "Prefer format=json and kind=record with a compact body: { summary: string, data?: object }. Use kind=trace for raw/prunable tool dumps.",
       "Keep titles short; keep bodies small. Do not write long markdown essays into evidence.",
       "Use list/read to recover prior notes; use record to append. promote/archive/supersede only when curating durable ask/learning contracts.",
       ARTIFACT_KIND_DESCRIPTION,
       ARTIFACT_PRODUCER_DESCRIPTION,
     ],
+    policy: EVIDENCE_TOOL_POLICY,
     parameters: Type.Object({
       action: Type.String({
         description: "record | list | read | link | compact | promote | archive | supersede",
@@ -190,7 +200,7 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = requireCwd(ctx, "evidence");
-      const store = defaultArtifactStore(cwd);
+      const store = defaultEvidenceStore(cwd);
       const action = normalizeAction(params.action);
 
       if (action === "list") {
