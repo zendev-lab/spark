@@ -89,6 +89,8 @@ test("models lists available models by default", async () => {
   assert.match(text, /openai\s+gpt-4o-mini/);
   assert.doesNotMatch(text, /demo-offline/);
   assert.equal(result.details?.count, 2);
+  assert.deepEqual(result.details?.providers, ["openai"]);
+  assert.equal(result.details?.invalidProvider, undefined);
 });
 
 test("models can include unavailable registered models with auth column", async () => {
@@ -99,6 +101,7 @@ test("models can include unavailable registered models with auth column", async 
   assert.match(text, /local\s+demo-offline/);
   assert.match(text, /demo-offline\s+8K\s+1K\s+no\s+no\s+no/);
   assert.equal(result.details?.count, 3);
+  assert.deepEqual(result.details?.providers, ["local", "openai"]);
 });
 
 test("models supports provider, query, and limit filters", async () => {
@@ -109,6 +112,26 @@ test("models supports provider, query, and limit filters", async () => {
   assert.doesNotMatch(text, /gpt-5/);
   assert.equal(result.details?.count, 1);
   assert.equal(result.details?.totalMatched, 1);
+});
+
+test("models rejects providers outside the available registry view", async () => {
+  const result = await executeModels({ provider: "local" });
+  const text = result.content[0]?.text ?? "";
+  assert.match(text, /Provider "local" is not available\./);
+  assert.match(text, /Valid providers: openai\./);
+  assert.doesNotMatch(text, /demo-offline/);
+  assert.equal(result.details?.count, 0);
+  assert.equal(result.details?.invalidProvider, "local");
+  assert.deepEqual(result.details?.providers, ["openai"]);
+});
+
+test("models accepts a registered provider in the all-models view", async () => {
+  const result = await executeModels({ provider: "local", includeUnavailable: true });
+  const text = result.content[0]?.text ?? "";
+  assert.match(text, /Registered models \(1; provider=local\)/);
+  assert.match(text, /local\s+demo-offline/);
+  assert.equal(result.details?.invalidProvider, undefined);
+  assert.deepEqual(result.details?.providers, ["local", "openai"]);
 });
 
 test("models reports a clear host capability error when modelRegistry is missing", async () => {
