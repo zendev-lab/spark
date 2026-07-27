@@ -70,6 +70,11 @@ const cases: Array<{
     expected: "transient",
   },
   {
+    name: "concatenated provider JSON envelope maps to transient",
+    input: "Unexpected non-whitespace character after JSON at position 73800 (line 1 column 73801)",
+    expected: "transient",
+  },
+  {
     name: "Mismatched api maps to provider_mismatch",
     input: new Error("Mismatched api: baidu-oneapi expected openai-responses"),
     expected: "provider_mismatch",
