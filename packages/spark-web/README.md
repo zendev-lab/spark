@@ -15,6 +15,7 @@ The package is conservative by default:
 - Retrieved page text is wrapped as untrusted web content so prompt-injection text is not treated as instructions.
 - Provider keys are read from environment/config but never echoed in tool output.
 - Content is cached under `.spark/web/content.json` and can be recovered with `get_search_content`.
+- Every public web tool result is hard-capped at 32,000 characters; use the returned `responseId` to request cached content with an explicit bound.
 - If a Pi host already registered the same tool name (for example through `pi-web-access`), registration skips by default rather than replacing it.
 - If Pi blocks tool inspection during extension loading, Spark retries registration at `session_start`; this keeps coexistence safe while still allowing Spark-only replacement mode.
 

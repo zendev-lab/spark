@@ -14,7 +14,9 @@ import {
   searchSparkWeb,
   type SparkWebSearchProvider,
 } from "../packages/spark-web/src/index.ts";
-import sparkWebExtension from "../packages/spark-web/src/extension.ts";
+import sparkWebExtension, {
+  SPARK_WEB_TOOL_OUTPUT_MAX_CHARS,
+} from "../packages/spark-web/src/extension.ts";
 import type { ToolConfig } from "../packages/spark-core/src/index.ts";
 
 const mockFetcher: typeof fetch = async (_url) =>
@@ -36,6 +38,68 @@ const mockSearchProvider: SparkWebSearchProvider = {
     };
   },
 };
+
+test("web-access tools enforce a hard output limit across provider, fetch, leaf, and cache paths", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-web-output-limit-"));
+  try {
+    const huge = "x".repeat(SPARK_WEB_TOOL_OUTPUT_MAX_CHARS * 4);
+    const hugeProvider: SparkWebSearchProvider = {
+      async search(query, options) {
+        return {
+          query,
+          answer: huge,
+          results: Array.from({ length: options.numResults }, (_value, index) => ({
+            title: `Result ${index + 1}`,
+            url: `https://example.com/${index + 1}`,
+            snippet: huge,
+          })),
+        };
+      },
+    };
+    const hugeFetcher: typeof fetch = async () =>
+      new Response(huge, { headers: { "content-type": "text/plain" }, status: 200 });
+    const api = new FakeApi();
+    sparkWebExtension(api, {
+      contentStorePath: join(dir, "content.json"),
+      searchProvider: hugeProvider,
+      fetcher: hugeFetcher,
+      allowPrivateHosts: true,
+    });
+    const ctx = {
+      cwd: dir,
+      runLeaf: async () => ({ degraded: false, text: huge, model: "fake/model" }),
+    };
+    const signal = new AbortController().signal;
+    const execute = (name: string, params: Record<string, unknown>) =>
+      api.tools.get(name)!.execute(name, params, signal, () => undefined, ctx);
+
+    const search = await execute("web_search", { query: "large" });
+    assert.ok((search.content[0]?.text.length ?? 0) <= SPARK_WEB_TOOL_OUTPUT_MAX_CHARS);
+    assert.match(search.content[0]?.text ?? "", /responseId: spark-web:/);
+    assert.ok(JSON.stringify(search.details).length < 1_000);
+
+    const code = await execute("code_search", { query: "large", maxTokens: 100_000 });
+    assert.ok((code.content[0]?.text.length ?? 0) <= SPARK_WEB_TOOL_OUTPUT_MAX_CHARS);
+    assert.match(code.content[0]?.text ?? "", /responseId: spark-web:/);
+    assert.ok(JSON.stringify(code.details).length < 1_000);
+
+    const fetched = await execute("fetch_content", {
+      url: "https://example.com/large",
+      prompt: "Summarize",
+    });
+    assert.ok((fetched.content[0]?.text.length ?? 0) <= SPARK_WEB_TOOL_OUTPUT_MAX_CHARS);
+    assert.match(fetched.content[0]?.text ?? "", /responseId: spark-web:/);
+    assert.ok(JSON.stringify(fetched.details).length < 2_000);
+
+    const responseId = (fetched.details as { responseId: string }).responseId;
+    const recovered = await execute("get_search_content", { responseId, maxChars: 100_000_000 });
+    assert.ok((recovered.content[0]?.text.length ?? 0) <= SPARK_WEB_TOOL_OUTPUT_MAX_CHARS);
+    assert.match(recovered.content[0]?.text ?? "", /responseId: spark-web:/);
+    assert.ok(JSON.stringify(recovered.details).length < 2_000);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test("spark-web refuses unsafe SSRF-style URLs", async () => {
   await assert.rejects(() => assertSafeWebUrl("http://localhost/admin"), SparkWebSafetyError);
