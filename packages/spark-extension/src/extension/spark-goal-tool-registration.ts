@@ -29,7 +29,10 @@ import type {
 } from "./reviewer-runner.ts";
 import { withSparkReviewerLease } from "./spark-reviewer-lease.ts";
 import { recordGoalSubjectReview } from "./subject-review-store.ts";
-import { type SparkDaemonDriverControl } from "./spark-daemon-driver-client.ts";
+import {
+  prepareSparkDaemonDriverOwner,
+  type SparkDaemonDriverControl,
+} from "./spark-daemon-driver-client.ts";
 
 export type SparkGoalToolAction =
   | "status"
@@ -124,6 +127,7 @@ export function registerSparkGoalTool(
       }
 
       if (action === "set" || action === "start") {
+        const ownerSessionId = await prepareSparkDaemonDriverOwner(ctx, deps.driverControl);
         const objective = resolveGoalObjective(action, params.objective, graph, project);
         if (!objective)
           return {
@@ -142,7 +146,13 @@ export function registerSparkGoalTool(
           source,
           status: "active",
         });
-        await startGoalDriver(ctx, deps.driverControl, goal, "goal activated by tool");
+        await startGoalDriver(
+          ctx,
+          deps.driverControl,
+          ownerSessionId,
+          goal,
+          "goal activated by tool",
+        );
         await refreshGoalRuntimeState(cwd, ctx, deps);
         return goalResult(goal, action, renderGoalActivationResult(goal, graph, project));
       }
@@ -210,10 +220,12 @@ export function registerSparkGoalTool(
             ],
             details: { found: true, action, error: "goal_already_complete", goal: existingGoal },
           };
+        const ownerSessionId = await prepareSparkDaemonDriverOwner(ctx, deps.driverControl);
         const resumed = await updateSessionGoalStatus(cwd, ctx, "active");
         await startGoalDriver(
           ctx,
           deps.driverControl,
+          ownerSessionId,
           resumed ?? existingGoal,
           "goal resumed by tool",
         );
@@ -317,11 +329,10 @@ export function registerSparkGoalTool(
 async function startGoalDriver(
   ctx: SparkToolContext,
   driverControl: SparkDaemonDriverControl,
+  ownerSessionId: string,
   goal: SparkSessionGoal,
   reason: string,
 ): Promise<void> {
-  const ownerSessionId = ctx.sessionId?.trim();
-  if (!ownerSessionId) throw new Error("Spark goal driver requires a daemon-owned session");
   await driverControl.start({
     driverId: goal.goalId,
     kind: "goal",

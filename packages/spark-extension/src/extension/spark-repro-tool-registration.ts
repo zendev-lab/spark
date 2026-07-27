@@ -27,7 +27,10 @@ import {
 } from "./spark-session-repro.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 import { sparkSessionOwnerKey } from "@zendev-lab/spark-loop";
-import { type SparkDaemonDriverControl } from "./spark-daemon-driver-client.ts";
+import {
+  prepareSparkDaemonDriverOwner,
+  type SparkDaemonDriverControl,
+} from "./spark-daemon-driver-client.ts";
 
 interface SparkReproToolDeps {
   driverControl: SparkDaemonDriverControl;
@@ -121,6 +124,7 @@ export function registerSparkReproTool(
       }
 
       if (action === "start") {
+        const ownerSessionId = await prepareSparkDaemonDriverOwner(ctx, deps.driverControl);
         const objective = normalizeOptionalReproObjective(params.objective);
         const existing = await readSessionRepro(cwd, ctx);
         if (existing?.status === "active") {
@@ -129,7 +133,13 @@ export function registerSparkReproTool(
               ? { ...existing, objective, updatedAt: nowIso() }
               : existing;
           if (repro !== existing) await writeSessionRepro(cwd, repro, ctx);
-          await startReproDriver(ctx, deps.driverControl, repro, "repro activated by tool");
+          await startReproDriver(
+            ctx,
+            deps.driverControl,
+            ownerSessionId,
+            repro,
+            "repro activated by tool",
+          );
           await deps.refreshSparkWidget?.(cwd, ctx);
           return {
             content: [
@@ -148,7 +158,13 @@ export function registerSparkReproTool(
         await clearSessionLoop(cwd, ctx);
         const repro = createSparkSessionRepro(sparkSessionOwnerKey(ctx), undefined, { objective });
         await writeSessionRepro(cwd, repro, ctx);
-        await startReproDriver(ctx, deps.driverControl, repro, "repro activated by tool");
+        await startReproDriver(
+          ctx,
+          deps.driverControl,
+          ownerSessionId,
+          repro,
+          "repro activated by tool",
+        );
         ctx.sparkActiveLens = sparkActiveLens(repro.currentPhase, "repro");
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
@@ -309,11 +325,10 @@ export function registerSparkReproTool(
 async function startReproDriver(
   ctx: SparkToolContext,
   driverControl: SparkDaemonDriverControl,
+  ownerSessionId: string,
   repro: SparkSessionRepro,
   reason: string,
 ): Promise<void> {
-  const ownerSessionId = ctx.sessionId?.trim();
-  if (!ownerSessionId) throw new Error("Spark repro driver requires a daemon-owned session");
   await driverControl.start({
     driverId: repro.reproId,
     kind: "repro",

@@ -46,6 +46,28 @@ test("sparkSessionKey prefers host sessionId over sessionManager stubs", () => {
   );
 });
 
+test("sparkSessionKey uses the native Pi session id before file or leaf fallbacks", () => {
+  assert.equal(
+    sparkSessionKey({
+      sessionManager: {
+        getSessionId: () => "pi-session-uuid",
+        getSessionFile: () => "/tmp/pi-session.jsonl",
+        getLeafId: () => "leaf:ignored",
+      },
+    }),
+    "session:pi-session-uuid",
+  );
+  assert.equal(
+    sparkSessionOwnerKey({
+      sessionManager: {
+        getSessionId: () => "session:already-qualified-pi",
+        getSessionFile: () => "/tmp/pi-session.jsonl",
+      },
+    }),
+    "session:already-qualified-pi",
+  );
+});
+
 test("sparkSessionKey accepts fully-qualified session manager leaf keys", () => {
   assert.equal(
     sparkSessionKey({ sessionManager: { getLeafId: () => "session:5ad35e499eafe941" } }),

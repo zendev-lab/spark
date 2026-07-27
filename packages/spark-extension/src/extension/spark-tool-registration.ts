@@ -53,6 +53,7 @@ export interface SparkToolContext {
   };
   isIdle?: () => boolean;
   sessionManager?: {
+    getSessionId?: () => string;
     getSessionFile?: () => string | undefined;
     getLeafId?: () => string | undefined;
   };

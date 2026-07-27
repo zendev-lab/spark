@@ -9,6 +9,7 @@ export interface SparkSessionContext {
   /** Optional absolute path to the Spark state root directory (`.../.spark`). */
   sparkStateRoot?: string;
   sessionManager?: {
+    getSessionId?: () => string;
     getSessionFile?: () => string | undefined;
     getLeafId?: () => string | undefined;
   };
@@ -19,6 +20,13 @@ export function sparkSessionKey(ctx?: SparkSessionContext): string {
   if (sessionId) {
     if (sessionId.startsWith("session:") || sessionId.startsWith("leaf:")) return sessionId;
     return `session:${sessionId}`;
+  }
+  const managerSessionId = ctx?.sessionManager?.getSessionId?.().trim();
+  if (managerSessionId) {
+    if (managerSessionId.startsWith("session:") || managerSessionId.startsWith("leaf:")) {
+      return managerSessionId;
+    }
+    return `session:${managerSessionId}`;
   }
   const sessionFile = ctx?.sessionManager?.getSessionFile?.();
   if (sessionFile) return `session:${stableId(sessionFile)}`;

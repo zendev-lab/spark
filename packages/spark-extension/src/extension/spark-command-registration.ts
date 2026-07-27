@@ -64,6 +64,10 @@ import {
   parseReproCommandArgs,
 } from "./spark-command-parser-utils.ts";
 import { registerSparkWorkflowCommands } from "./spark-command-workflow-registration.ts";
+import {
+  prepareSparkDaemonDriverOwner,
+  sparkDaemonDriverOwnerSessionId,
+} from "./spark-daemon-driver-client.ts";
 import type {
   SparkCommandApi,
   SparkCommandContext,
@@ -512,7 +516,7 @@ export function registerSparkCommands(
         .filter((line): line is string => Boolean(line))
         .join("\n");
       await startDriver(ctx, {
-        driverId: `goal-infer:${requireDaemonOwnerSessionId(ctx)}`,
+        driverId: `goal-infer:${sparkDaemonDriverOwnerSessionId(ctx)}`,
         kind: "goal",
         prompt: instruction,
         reason: "infer goal from active context",
@@ -776,7 +780,7 @@ export function registerSparkCommands(
       reason?: string;
     },
   ): Promise<SparkDriverView> {
-    const ownerSessionId = requireDaemonOwnerSessionId(ctx);
+    const ownerSessionId = await prepareSparkDaemonDriverOwner(ctx, deps.driverControl);
     const result = await deps.driverControl.start({
       ...input,
       ownerSessionId,
@@ -790,7 +794,7 @@ export function registerSparkCommands(
     ctx: SparkCommandContext,
     kind: SparkDriverKind,
   ): Promise<SparkDriverView | undefined> {
-    const ownerSessionId = requireDaemonOwnerSessionId(ctx);
+    const ownerSessionId = sparkDaemonDriverOwnerSessionId(ctx);
     const result = await deps.driverControl.list({
       ownerSessionId,
       includeStopped: false,
@@ -805,16 +809,6 @@ export function registerSparkCommands(
   ): Promise<void> {
     const driver = await driverForKind(ctx, kind);
     if (driver) await deps.driverControl.stop({ driverId: driver.driverId, reason });
-  }
-
-  function requireDaemonOwnerSessionId(ctx: SparkCommandContext): string {
-    const sessionId = ctx.sessionId?.trim();
-    if (!sessionId) {
-      throw new Error(
-        "Spark daemon driver control requires a daemon-owned session; no local timer fallback is available.",
-      );
-    }
-    return sessionId;
   }
 
   function parseFreshLoopArgs(rawArgs: string): {

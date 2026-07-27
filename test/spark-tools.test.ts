@@ -149,6 +149,7 @@ type SparkToolResult = Awaited<ReturnType<SparkToolConfig["execute"]>>;
 type TestNotification = { message: string; level?: "info" | "warning" | "error" | "success" };
 type TestSparkDaemonDriverControl = SparkDaemonDriverControl & {
   drivers: Map<string, Awaited<ReturnType<SparkDaemonDriverControl["start"]>>["driver"]>;
+  ensuredOwners: Array<{ sessionId: string; cwd: string }>;
 };
 
 function executionReadyPlan(objective: string): TaskPlan {
@@ -669,6 +670,7 @@ type TestSparkContext = {
   sessionId: string;
   sendUserMessage?: (content: string) => Promise<void>;
   sessionManager: {
+    getSessionId?: () => string;
     getSessionFile: () => string | undefined;
     getLeafId: () => string | undefined;
   };
@@ -5105,6 +5107,70 @@ test("spark_goal inference describes substantive project outcomes instead of tas
     "Achieve the intended project outcome: Complete alignment of precision-sensitive report generation.",
   );
   assert.doesNotMatch(objective ?? "", /Advance project|to completion|unfinished|ready/i);
+});
+
+test("native Pi session context starts goal and repro daemon drivers", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-native-pi-drivers-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "native-pi");
+    const piSessionId = "pi-native-session-uuid";
+    (ctx as { sessionId?: string }).sessionId = undefined;
+    ctx.sessionManager.getSessionId = () => piSessionId;
+    const run = registerSparkToolsForTest();
+
+    const goalCommand = run.commands.get("goal");
+    assert.ok(goalCommand, "missing /goal command");
+    await goalCommand.handler("Finish from native Pi", ctx);
+    assert.deepEqual(run.driverControl.ensuredOwners, [{ sessionId: piSessionId, cwd: dir }]);
+    assert.equal(activeTestDriver(run, "goal")?.ownerSessionId, piSessionId);
+    assert.equal((await loadSessionGoal(dir, ctx))?.sessionKey, `session:${piSessionId}`);
+
+    await executeSparkTool(run.tools, "repro", ctx, {
+      action: "start",
+      objective: "Reproduce from native Pi",
+    });
+    assert.deepEqual(run.driverControl.ensuredOwners, [
+      { sessionId: piSessionId, cwd: dir },
+      { sessionId: piSessionId, cwd: dir },
+    ]);
+    assert.equal(activeTestDriver(run, "repro")?.ownerSessionId, piSessionId);
+    assert.equal((await readSessionRepro(dir, ctx))?.sessionKey, `session:${piSessionId}`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("native Pi ephemeral sessions cannot start durable goal or repro drivers", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-native-pi-ephemeral-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "native-pi-ephemeral");
+    (ctx as { sessionId?: string }).sessionId = undefined;
+    ctx.sessionManager.getSessionId = () => "pi-ephemeral-session-uuid";
+    ctx.sessionManager.getSessionFile = () => undefined;
+    const run = registerSparkToolsForTest();
+
+    await assert.rejects(
+      executeSparkTool(run.tools, "goal", ctx, {
+        action: "start",
+        objective: "Must remain durable",
+      }),
+      /persistent Pi session/u,
+    );
+    await assert.rejects(
+      executeSparkTool(run.tools, "repro", ctx, {
+        action: "start",
+        objective: "Must remain durable",
+      }),
+      /persistent Pi session/u,
+    );
+    assert.deepEqual(run.driverControl.ensuredOwners, []);
+    assert.equal(await loadSessionGoal(dir, ctx), undefined);
+    assert.equal(await readSessionRepro(dir, ctx), undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("spark_goal tool sets and updates durable session goals", async () => {
@@ -10446,6 +10512,7 @@ function createTestDriverControl(): TestSparkDaemonDriverControl {
     string,
     Awaited<ReturnType<SparkDaemonDriverControl["start"]>>["driver"]
   >();
+  const ensuredOwners: Array<{ sessionId: string; cwd: string }> = [];
   const observedAt = () => new Date().toISOString();
   const requireDriver = (driverId: string) => {
     const driver = drivers.get(driverId);
@@ -10454,6 +10521,10 @@ function createTestDriverControl(): TestSparkDaemonDriverControl {
   };
   return {
     drivers,
+    ensuredOwners,
+    async ensureOwnerSession(input) {
+      ensuredOwners.push(input);
+    },
     async start(input) {
       for (const [driverId, driver] of drivers) {
         if (

@@ -22,7 +22,10 @@ import {
   writeSessionRepro,
 } from "./spark-session-repro.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
-import { type SparkDaemonDriverControl } from "./spark-daemon-driver-client.ts";
+import {
+  prepareSparkDaemonDriverOwner,
+  type SparkDaemonDriverControl,
+} from "./spark-daemon-driver-client.ts";
 
 interface SparkDriveToolDeps {
   driverControl: SparkDaemonDriverControl;
@@ -90,7 +93,7 @@ export function registerSparkDriveTool(
         };
       }
 
-      const ownerSessionId = requireDriveOwnerSessionId(ctx);
+      const ownerSessionId = await prepareSparkDaemonDriverOwner(ctx, deps.driverControl);
       // Availability is checked before mutating workspace state. There is no
       // frontend fallback when the daemon control plane is unavailable.
       await deps.driverControl.list({ ownerSessionId, includeStopped: false });
@@ -246,12 +249,6 @@ async function startSelectedDriver(
       reason: "repro drive selected",
     });
   }
-}
-
-function requireDriveOwnerSessionId(ctx: SparkToolContext): string {
-  const ownerSessionId = ctx.sessionId?.trim();
-  if (!ownerSessionId) throw new Error("Spark drive control requires a daemon-owned session");
-  return ownerSessionId;
 }
 
 function activeLensPhaseForDrive(
