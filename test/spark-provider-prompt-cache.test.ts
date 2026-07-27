@@ -29,6 +29,27 @@ const fakeProvider: ProviderConfig = {
   ],
 };
 
+function fakeAssistant(stopReason: "stop" | "error", errorMessage?: string) {
+  return {
+    role: "assistant" as const,
+    content: [],
+    api: "openai-responses",
+    provider: "fake",
+    model: "model-a",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason,
+    ...(errorMessage ? { errorMessage } : {}),
+    timestamp: Date.now(),
+  };
+}
+
 test("provider registry stream path forwards prompt_cache_key to OpenAI-compatible options", async () => {
   const registry = new SparkProviderRegistry();
   let capturedOptions: any;
@@ -99,6 +120,96 @@ test("provider transport preserves an explicit retry policy", () => {
   );
 
   assert.equal(capturedOptions.maxRetries, 2);
+});
+
+test("provider stream retries concatenated JSON failures before visible output", async () => {
+  const registry = new SparkProviderRegistry();
+  let calls = 0;
+  registry.registerProvider("fake", {
+    ...fakeProvider,
+    streamSimple: () => {
+      calls += 1;
+      const attempt = calls;
+      return {
+        async *[Symbol.asyncIterator]() {
+          const partial = fakeAssistant("stop");
+          yield { type: "start", partial };
+          if (attempt === 1) {
+            yield {
+              type: "error",
+              reason: "error",
+              error: fakeAssistant(
+                "error",
+                "Unexpected non-whitespace character after JSON at position 77107 (line 1 column 77108)",
+              ),
+            };
+            return;
+          }
+          yield { type: "done", reason: "stop", message: partial };
+        },
+      };
+    },
+  });
+  registry.setActive({ providerName: "fake", modelId: "model-a" });
+
+  const stream = createProviderRegistryStreamFunction(registry)(
+    registry.buildActiveModel() as never,
+    { messages: [], tools: [] } as never,
+    {
+      signal: new AbortController().signal,
+      maxRetries: 1,
+      maxRetryDelayMs: 1,
+    } as never,
+  );
+  const eventTypes: string[] = [];
+  for await (const event of stream) eventTypes.push(event.type);
+
+  assert.equal(calls, 2);
+  assert.deepEqual(eventTypes, ["start", "done"]);
+  assert.equal((await stream.result()).stopReason, "stop");
+});
+
+test("provider stream preserves errors after visible output", async () => {
+  const registry = new SparkProviderRegistry();
+  let calls = 0;
+  registry.registerProvider("fake", {
+    ...fakeProvider,
+    streamSimple: () => {
+      calls += 1;
+      return {
+        async *[Symbol.asyncIterator]() {
+          const partial = fakeAssistant("error");
+          yield { type: "start", partial };
+          yield { type: "text_start", contentIndex: 0, partial };
+          yield {
+            type: "error",
+            reason: "error",
+            error: fakeAssistant(
+              "error",
+              "Unexpected non-whitespace character after JSON at position 77107 (line 1 column 77108)",
+            ),
+          };
+        },
+      };
+    },
+  });
+  registry.setActive({ providerName: "fake", modelId: "model-a" });
+
+  const stream = createProviderRegistryStreamFunction(registry)(
+    registry.buildActiveModel() as never,
+    { messages: [], tools: [] } as never,
+    {
+      signal: new AbortController().signal,
+      maxRetries: 1,
+      maxRetryDelayMs: 1,
+    } as never,
+  );
+  const eventTypes: string[] = [];
+  for await (const event of stream) eventTypes.push(event.type);
+
+  assert.equal(calls, 1);
+  assert.deepEqual(eventTypes, ["start", "text_start", "error"]);
+  assert.equal((await stream.result()).stopReason, "error");
 });
 
 test("provider registry bridge composes an existing OpenAI Responses payload hook", async () => {
