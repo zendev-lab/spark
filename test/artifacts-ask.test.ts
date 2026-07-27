@@ -1318,6 +1318,62 @@ test("ask evidence timeout returns a blocker without minting decision evidence",
   }
 });
 
+test("ask evidence rejection names the observed non-answer status", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-ask-evidence-status-"));
+  try {
+    const tools = new Map<string, { execute: Function }>();
+    const registerTool = (config: { name: string; execute: Function }) =>
+      tools.set(config.name, config);
+    registerSparkAskTools({ registerTool });
+    registerSparkAskActionTool(
+      { registerTool },
+      { resolveTool: (name) => tools.get(name) as never },
+    );
+    const tool = tools.get("ask");
+    assert.ok(tool);
+
+    await assert.rejects(
+      () =>
+        tool.execute(
+          "ask-evidence-status-test",
+          {
+            action: "ask",
+            recordAsEvidence: true,
+            mode: "decision",
+            questions: [
+              {
+                id: "strategy",
+                prompt: "Reuse or implement anew?",
+                type: "single",
+                required: true,
+                options: [
+                  { value: "reuse", label: "Reuse" },
+                  { value: "new", label: "New implementation" },
+                ],
+              },
+            ],
+          },
+          new AbortController().signal,
+          () => undefined,
+          {
+            cwd: dir,
+            ui: {
+              interaction: async (request: Record<string, unknown>) => ({
+                kind: "askFlow",
+                requestId: request.requestId,
+                status: "cancelled",
+              }),
+            },
+          },
+        ),
+      /recordAsEvidence requires a completed user-answered result \(observed status=cancelled/u,
+    );
+    assert.deepEqual(await defaultEvidenceStore(dir).list({ producer: "ask" }), []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("ask action tool returns a human answer before reviewer fallback", async () => {
   const tools = new Map<string, { execute: Function }>();
   const registerTool = (config: { name: string; execute: Function }) =>

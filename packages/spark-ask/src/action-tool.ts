@@ -289,6 +289,18 @@ function didHumanAskTimeOut(result: Awaited<ReturnType<ToolConfig["execute"]>>):
   );
 }
 
+function describeAskResultStatus(result: Awaited<ReturnType<ToolConfig["execute"]>>): string {
+  const details = isRecord(result.details) ? result.details : undefined;
+  const inner = details && isRecord(details.result) ? details.result : undefined;
+  const status = typeof inner?.status === "string" ? inner.status : undefined;
+  if (status === "pending") return "status=pending (async/inbox request, no answer yet)";
+  if (status === "cancelled") return "status=cancelled (no user answer)";
+  if (status === "no_selection")
+    return "status=no_selection (interactive surface produced no choice)";
+  if (status) return `status=${status}`;
+  return inner ? "an incomplete ask result" : "no ask result payload";
+}
+
 async function waitForReviewerFallback(timeoutMs: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) throw signal.reason ?? new Error("ask aborted");
   await new Promise<void>((resolve, reject) => {
@@ -359,7 +371,11 @@ async function maybeRecordAskEvidence(
   };
   if (!isUserAnsweredAskEvidenceArtifactBody(body)) {
     if (didHumanAskTimeOut(result)) return result;
-    throw new Error("ask.recordAsEvidence requires a completed user-answered result");
+    throw new Error(
+      `ask.recordAsEvidence requires a completed user-answered result (observed ${describeAskResultStatus(result)}). ` +
+        "No evidence was recorded and no decision proof exists. Re-ask the same question when a user can answer, " +
+        "or continue with work that does not depend on this decision; never substitute a prior or synthesized approval.",
+    );
   }
   let evidenceBody: JsonValue;
   try {
