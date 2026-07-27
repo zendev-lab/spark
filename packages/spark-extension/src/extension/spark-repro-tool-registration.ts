@@ -118,8 +118,15 @@ export function registerSparkReproTool(
         return repro
           ? reproStatusResult(repro)
           : {
-              content: [{ type: "text" as const, text: "No repro drive is active." }],
-              details: { active: false },
+              content: [
+                {
+                  type: "text" as const,
+                  text:
+                    'No repro drive is active. Use repro({ action: "start" }) to (re)activate the ' +
+                    "reproduction contract before recording proof; previously recorded evidence: refs remain valid.",
+                },
+              ],
+              details: { active: false, recovery: 'repro({ action: "start" })' },
             };
       }
 
@@ -480,8 +487,15 @@ async function activeRepro(
 
 function noActiveReproResult() {
   return {
-    content: [{ type: "text" as const, text: "No active repro drive." }],
-    details: {},
+    content: [
+      {
+        type: "text" as const,
+        text:
+          'No active repro drive. Recorded proof needs an active drive: call repro({ action: "start" }) ' +
+          "(existing evidence refs stay valid and are re-bound after start), then retry this record/evaluate/advance call.",
+      },
+    ],
+    details: { active: false, recovery: 'repro({ action: "start" })' },
   };
 }
 

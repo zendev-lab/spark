@@ -182,6 +182,76 @@ test("evidence record stores canonical proof in the internal ledger", async () =
   }
 });
 
+test("evidence link accepts canonical evidence refs on both sides", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-evidence-link-"));
+  try {
+    const tools = new Map<string, { execute: Function }>();
+    registerSparkArtifactTool({ registerTool: (config) => tools.set(config.name, config) });
+    const tool = tools.get("evidence");
+    assert.ok(tool);
+
+    const signal = new AbortController().signal;
+    const record = async (title: string) =>
+      await tool.execute(
+        "evidence-link-record",
+        {
+          action: "record",
+          kind: "record",
+          title,
+          format: "json",
+          body: { summary: title },
+          provenance: { producer: "task" },
+        },
+        signal,
+        () => undefined,
+        { cwd: dir },
+      );
+
+    const parent = await record("Torch baseline probe");
+    const child = await record("Paddle baseline probe");
+    const from = child.details.refs.evidenceRef as string;
+    const to = parent.details.refs.evidenceRef as string;
+    assert.match(from, /^evidence:/u);
+    assert.match(to, /^evidence:/u);
+
+    const linked = await tool.execute(
+      "evidence-link",
+      { action: "link", from, to, relation: "derived-from" },
+      signal,
+      () => undefined,
+      { cwd: dir },
+    );
+    assert.equal(linked.details.refs.evidenceRef, from);
+    assert.equal(linked.details.refs.targetRef, to);
+
+    const stored = await defaultEvidenceStore(dir).get(from as never);
+    assert.deepEqual(stored.links, [{ from, to, relation: "derived-from" }]);
+
+    const withParent = await tool.execute(
+      "evidence-parent",
+      {
+        action: "record",
+        kind: "record",
+        title: "Derived comparison",
+        format: "json",
+        body: { summary: "compare" },
+        provenance: { producer: "task", parentArtifactRefs: [to] },
+      },
+      signal,
+      () => undefined,
+      { cwd: dir },
+    );
+    const derived = await defaultEvidenceStore(dir).get(
+      withParent.details.refs.evidenceRef as never,
+    );
+    assert.deepEqual(derived.links, [
+      { from: withParent.details.refs.evidenceRef, to, relation: "parent" },
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("artifact record rejects retired verification kind with a directed hint", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-artifact-retired-kind-"));
   try {

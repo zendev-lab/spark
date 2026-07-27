@@ -831,6 +831,11 @@ function assertEvidenceRefValue(value: unknown, label: string): void {
   }
 }
 
+export function assertOptionalEvidenceRefValue(value: unknown, label: string): void {
+  if (value === undefined) return;
+  assertEvidenceRefValue(value, label);
+}
+
 export function refId(ref: string): string {
   const index = ref.indexOf(":");
   if (index < 0) throw new ArtifactValidationError(`invalid ref: ${ref}`);
@@ -859,7 +864,7 @@ export function defaultArtifactCuration(
 
 function validateArtifactLink(link: unknown, index: number): void {
   if (!isRecord(link)) throw new ArtifactValidationError(`links[${index}] must be an object`);
-  assertRefValue(link.from, "artifact", `links[${index}].from`);
+  assertEvidenceRefValue(link.from, `links[${index}].from`);
   if (typeof link.to !== "string" || !isRef(link.to)) {
     throw new ArtifactValidationError(`links[${index}].to must be a valid ref`);
   }
@@ -883,7 +888,7 @@ function validateProvenance(provenance: unknown): void {
       throw new ArtifactValidationError("provenance.parentArtifactRefs must be an array");
     }
     provenance.parentArtifactRefs.forEach((ref, index) =>
-      assertRefValue(ref, "artifact", `provenance.parentArtifactRefs[${index}]`),
+      assertEvidenceRefValue(ref, `provenance.parentArtifactRefs[${index}]`),
     );
   }
 }
@@ -899,7 +904,7 @@ function validateArtifactCuration(curation: unknown): void {
   assertOptionalNonEmptyString(curation.reason, "curation.reason");
   assertOptionalArtifactRefArray(curation.promotedFrom, "curation.promotedFrom");
   assertOptionalArtifactRefArray(curation.supersededBy, "curation.supersededBy");
-  assertOptionalRefValue(curation.compactedInto, "artifact", "curation.compactedInto");
+  assertOptionalEvidenceRefValue(curation.compactedInto, "curation.compactedInto");
   assertOptionalNonEmptyString(curation.expiresAt, "curation.expiresAt");
 }
 
