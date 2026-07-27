@@ -10,10 +10,13 @@ import { sparkActiveLens } from "./spark-drive-state.ts";
 import {
   advanceReproPhase,
   advanceReproStage,
+  createReproStepAskBinding,
   createSparkSessionRepro,
+  encodeReproStepAskBinding,
   currentPhaseAcceptance,
   currentReproStage,
   currentReproSteps,
+  decodeReproStepAskBinding,
   evaluateStageGate,
   isPhaseComplete,
   isReproRequirementSatisfied,
@@ -23,7 +26,9 @@ import {
   reproRequirementBlockers,
   reviseReproPlan,
   settleReproTick,
+  stepDefinitionDigest,
   updateReproStep,
+  verifyReproStepPass,
   writeSessionRepro,
   type SparkReproGoalContractInput,
   type SparkReproRequirement,
@@ -33,6 +38,7 @@ import {
   type SparkReproStepAuthority,
   type SparkReproStepDefinition,
   type SparkReproStepStatus,
+  type SparkReproStepVerifierResult,
   type SparkSessionRepro,
 } from "./spark-session-repro.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
@@ -73,7 +79,7 @@ export function registerSparkReproTool(
       "Use repro action=status to inspect the goal contract, current plan revision, typed steps, stable requirement ids, and blockers.",
       "Use repro action=start to begin the repro drive (clears goal/loop); pass objective for user-supplied reproduction focus.",
       "Use repro action=plan to set difficulty (1-10), revise the Goal Contract, or append a complete typed plan revision. Higher difficulty increases the enforced minimum step budget. Every step needs one goal, explicit doneWhen/evidenceRequired, authority, and stable id.",
-      "Use repro action=step to update one step. A done step requires existing evidence; ask_decision/ask_approval steps require canonical ask evidence.",
+      "Use repro action=step to update one step. A done step requires existing evidence that passes a typed StepVerifier; safe_local steps require spark.repro.step-proof/v1, while ask_decision/ask_approval steps require a current bound canonical Ask receipt.",
       "In setup, first verify whether a runnable competitor/reference baseline exists (typically Megatron). If missing, ask how to construct it before any baseline probe; do not invent a substitute.",
       "Prefer the main session for repro scheduling and execution; do not default to role/session/assign/workflow fan-out.",
       "When blocked by a missing decision, ambiguity, or a problem the user can unblock, call ask immediately; do not guess or end with only a prose blocker.",
@@ -263,7 +269,33 @@ export function registerSparkReproTool(
         if (!repro) return noActiveReproResult();
         const stepId = normalizeRequiredString(params.stepId, "stepId");
         const input = normalizeReproStepUpdate(params);
-        const updated = updateReproStep(repro, stepId, input);
+        const currentStep = repro.plan.steps.find((candidate) => candidate.id === stepId);
+        if (!currentStep) {
+          return {
+            content: [{ type: "text" as const, text: `Repro step not found: ${stepId}` }],
+            details: { error: "step_not_found", stepId },
+          };
+        }
+        const verifier =
+          input.status === "done"
+            ? await verifyReproStepEvidence(cwd, repro, currentStep, input.evidenceRefs ?? [])
+            : undefined;
+        if (input.status === "done" && verifier?.verdict !== "Pass") {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Cannot complete repro step ${stepId}: ${verifier?.reasons.join("; ") ?? "StepVerifier did not pass"}`,
+              },
+            ],
+            details: { ...reproDetails(repro), verifier },
+            isError: true,
+          };
+        }
+        const updated = updateReproStep(repro, stepId, {
+          ...input,
+          ...(verifier ? { verifier } : {}),
+        });
         if (!updated) {
           return {
             content: [{ type: "text" as const, text: `Repro step not found: ${stepId}` }],
@@ -646,6 +678,9 @@ function normalizeReproStepUpdate(params: Record<string, unknown>): {
         normalizeEvidenceRef(ref, `stepEvidenceRefs[${index}]`),
       )
     : undefined;
+  if (status === "done" && (!evidenceRefs || evidenceRefs.length === 0)) {
+    throw new Error("stepStatus=done requires a non-empty stepEvidenceRefs array");
+  }
   const blocker = normalizeOptionalString(params.blocker);
   return {
     status: status as SparkReproStepStatus,
@@ -747,6 +782,120 @@ async function validateReproProofEvidence(
   return { ...proof, selectedValue };
 }
 
+interface SparkReproStepProofEvidence {
+  schema: "spark.repro.step-proof/v1";
+  planRevision: number;
+  stepId: string;
+  definitionDigest: string;
+  proofKind: "evidence";
+  doneWhen: string[];
+  passed: true;
+}
+
+async function verifyReproStepEvidence(
+  cwd: string,
+  repro: SparkSessionRepro,
+  step: SparkReproStep,
+  inputEvidenceRefs: EvidenceRef[],
+): Promise<SparkReproStepVerifierResult> {
+  const evidenceRefs = uniqueEvidenceRefs([...step.evidenceRefs, ...inputEvidenceRefs]);
+  const store = defaultEvidenceStore(cwd);
+  const entries = await Promise.all(evidenceRefs.map((ref) => store.tryGet(ref)));
+  if (entries.some((entry) => !entry)) {
+    return {
+      verdict: "Repair",
+      stepId: step.id,
+      reasons: evidenceRefs
+        .map((ref, index) => (entries[index] ? "" : `evidence not found: ${ref}`))
+        .filter(Boolean),
+    };
+  }
+  const presentEntries = entries.filter((entry): entry is NonNullable<typeof entry> =>
+    Boolean(entry),
+  );
+
+  if (step.authority === "safe_local") {
+    const expectedDigest = stepDefinitionDigest(step);
+    const proof = presentEntries.find((entry) => isStepProofEvidence(entry.body));
+    if (!proof || !isStepProofEvidence(proof.body)) {
+      return {
+        verdict: "Repair",
+        stepId: step.id,
+        reasons: ["safe_local Step requires a spark.repro.step-proof/v1 evidence artifact"],
+      };
+    }
+    if (
+      proof.body.planRevision !== repro.plan.currentRevision ||
+      proof.body.stepId !== step.id ||
+      proof.body.definitionDigest !== expectedDigest ||
+      JSON.stringify(proof.body.doneWhen) !== JSON.stringify(step.doneWhen)
+    ) {
+      return {
+        verdict: "Repair",
+        stepId: step.id,
+        reasons: ["step-proof evidence is stale or does not match the current doneWhen"],
+      };
+    }
+    return verifyReproStepPass(repro, step.id, {
+      verdict: "Pass",
+      planRevision: repro.plan.currentRevision,
+      definitionDigest: expectedDigest,
+      proofKind: "evidence",
+      evidenceRefs,
+      verifiedDoneWhen: [...step.doneWhen],
+    });
+  }
+
+  for (const entry of presentEntries) {
+    const verified = await verifyCanonicalAskEvidenceArtifact(cwd, entry);
+    if (!verified) continue;
+    const binding = decodeReproStepAskBinding(verified.request.context);
+    const expectedBinding = createReproStepAskBinding(repro, step);
+    if (!binding || JSON.stringify(binding) !== JSON.stringify(expectedBinding)) continue;
+    const expectedMode = step.authority === "ask_approval" ? "approval" : "decision";
+    if (verified.request.mode !== expectedMode || verified.selectedValues.length === 0) continue;
+    if (step.authority === "ask_approval" && verified.selectedValues.length !== 1) continue;
+    if (step.authority === "ask_approval" && verified.selectedValues[0] !== "approve") continue;
+    return verifyReproStepPass(repro, step.id, {
+      verdict: "Pass",
+      planRevision: repro.plan.currentRevision,
+      definitionDigest: expectedBinding.definitionDigest,
+      proofKind: step.authority === "ask_approval" ? "approval" : "decision",
+      evidenceRefs,
+      verifiedDoneWhen: [...step.doneWhen],
+      askRequestHash: verified.requestHash,
+      acceptedAnswerHash: verified.answersHash,
+      selectedValues: [...verified.selectedValues],
+      ...(step.authority === "ask_approval" ? { approvalResult: "approved" as const } : {}),
+    });
+  }
+  return {
+    verdict: step.authority === "ask_approval" ? "Ask" : "Repair",
+    stepId: step.id,
+    reasons: [
+      step.authority === "ask_approval"
+        ? 'approval Step requires a bound canonical Ask with selected value "approve"'
+        : "decision Step requires a canonical Ask bound to the current plan revision and step definition",
+    ],
+  };
+}
+
+function isStepProofEvidence(value: unknown): value is SparkReproStepProofEvidence {
+  return (
+    isRecord(value) &&
+    value.schema === "spark.repro.step-proof/v1" &&
+    typeof value.planRevision === "number" &&
+    Number.isInteger(value.planRevision) &&
+    value.planRevision > 0 &&
+    typeof value.stepId === "string" &&
+    typeof value.definitionDigest === "string" &&
+    value.proofKind === "evidence" &&
+    Array.isArray(value.doneWhen) &&
+    value.doneWhen.every((entry) => typeof entry === "string" && entry.length > 0) &&
+    value.passed === true
+  );
+}
+
 async function validateReproStepEvidence(cwd: string, step: SparkReproStep): Promise<void> {
   const store = defaultEvidenceStore(cwd);
   const evidence = await Promise.all(step.evidenceRefs.map((ref) => store.tryGet(ref)));
@@ -762,6 +911,10 @@ async function validateReproStepEvidence(cwd: string, step: SparkReproStep): Pro
   throw new Error(
     `${step.authority} step ${step.id} requires canonical ask evidence with a valid receipt`,
   );
+}
+
+function uniqueEvidenceRefs(values: readonly EvidenceRef[]): EvidenceRef[] {
+  return [...new Set(values)];
 }
 
 function normalizeEvidenceRef(value: unknown, field: string): EvidenceRef {
@@ -943,7 +1096,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     : undefined;
   const nextRequirement = matchingRequirement ?? (!nextStep ? unsatisfied[0] : undefined);
   if (nextRequirement) lines.push("", renderRequirementNextStep(nextRequirement));
-  else if (nextStep) lines.push("", renderPlanStepNextAction(nextStep));
+  else if (nextStep) lines.push("", renderPlanStepNextAction(repro, nextStep));
   else if (gateBlocking) {
     lines.push(
       "",
@@ -1047,15 +1200,19 @@ function renderRequirementNextStep(requirement: SparkReproRequirement): string {
   }
 }
 
-function renderPlanStepNextAction(step: SparkReproStep): string {
+function renderPlanStepNextAction(repro: SparkSessionRepro, step: SparkReproStep): string {
   const checkpoint = `then call repro({ action: "step", stepId: "${step.id}", stepStatus: "done", stepEvidenceRefs: ["evidence:..."] })`;
+  const askContext =
+    step.authority === "safe_local"
+      ? undefined
+      : encodeReproStepAskBinding(createReproStepAskBinding(repro, step));
   switch (step.authority) {
     case "safe_local":
       return `Next typed step: ${step.goal}. Execute the smallest safe-local action that can satisfy: ${step.doneWhen.join("; ")}. Capture ${step.evidenceRequired.join("; ")}, ${checkpoint}.`;
     case "ask_decision":
-      return `Next typed step: ${step.goal}. Research enough to narrow the choice, then call canonical ask with delivery="blocking" and recordAsEvidence=true. ${checkpoint}; the evidence must be the canonical ask receipt.`;
+      return `Next typed step: ${step.goal}. Research enough to narrow the choice, then call canonical ask with delivery="blocking", mode="decision", context=${JSON.stringify(askContext)}, and recordAsEvidence=true. ${checkpoint}; the evidence must be the canonical ask receipt.`;
     case "ask_approval":
-      return `Next typed step: ${step.goal}. Do not perform the external, destructive, or scope-expanding action yet. Call canonical ask for explicit approval with recordAsEvidence=true, ${checkpoint}; the evidence must be the canonical ask receipt.`;
+      return `Next typed step: ${step.goal}. Do not perform the external, destructive, or scope-expanding action yet. Call canonical ask with delivery="blocking", mode="approval", context=${JSON.stringify(askContext)}, a single approval option value="approve" or value="reject", and recordAsEvidence=true. ${checkpoint}; only value="approve" can pass this Step.`;
     default: {
       const exhaustive: never = step.authority;
       return exhaustive;

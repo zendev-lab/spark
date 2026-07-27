@@ -9,8 +9,10 @@ import {
   isReproRequirementSatisfied,
   migrateSparkSessionReproV3,
   reproProgressDigest,
+  stepDefinitionDigest,
   type SparkReproRequirement,
   type SparkReproStage,
+  type SparkReproStep,
   type SparkSessionPhase,
   type SparkSessionRepro,
   type SparkSessionReproV3,
@@ -99,7 +101,8 @@ export async function readSessionRepro(
   }
   if (snapshot.version === 3) {
     const sanitized = sanitizeStoredSessionReproV3(snapshot.repro);
-    const repro = sanitized ? migrateSparkSessionReproV3(sanitized) : undefined;
+    const migrated = sanitized ? migrateSparkSessionReproV3(sanitized) : undefined;
+    const repro = sanitizeStoredSessionRepro(migrated);
     await writeJsonFileAtomic(path, { version: 4, repro } satisfies SparkSessionReproSnapshotV4);
     await rebuildSessionIndex(cwd);
     return repro;
@@ -107,7 +110,8 @@ export async function readSessionRepro(
   if (snapshot.version !== 1 && snapshot.version !== 2) return undefined;
 
   const v3 = snapshot.repro ? migrateLegacySessionRepro(snapshot.repro) : undefined;
-  const repro = v3 ? migrateSparkSessionReproV3(v3) : undefined;
+  const migrated = v3 ? migrateSparkSessionReproV3(v3) : undefined;
+  const repro = sanitizeStoredSessionRepro(migrated);
   await writeJsonFileAtomic(path, { version: 4, repro } satisfies SparkSessionReproSnapshotV4);
   await rebuildSessionIndex(cwd);
   return repro;
@@ -290,10 +294,11 @@ function sanitizeStoredSessionRepro(
       };
   const steps = repro.plan.steps.map((step) => {
     const evidenceRefs = step.evidenceRefs.filter(isEvidenceRef);
-    const mustReopen = step.status === "done" && evidenceRefs.length === 0;
-    const { blocker: _blocker, ...stepWithoutBlocker } = step;
+    const mustReopen =
+      step.status === "done" && !isStoredStepVerificationValid(repro, step, evidenceRefs);
+    const { blocker: _blocker, verification: _verification, ...stepWithoutRuntimeProof } = step;
     return {
-      ...(mustReopen ? stepWithoutBlocker : step),
+      ...(mustReopen ? stepWithoutRuntimeProof : step),
       status: mustReopen ? ("pending" as const) : step.status,
       evidenceRefs,
     };
@@ -339,6 +344,37 @@ function sanitizeStoredSessionRepro(
       lastProgressDigest: reproProgressDigest(sanitized),
     },
   };
+}
+
+function isStoredStepVerificationValid(
+  repro: SparkSessionRepro,
+  step: SparkReproStep,
+  evidenceRefs: EvidenceRef[],
+): boolean {
+  const verification = step.verification;
+  if (!verification || verification.verdict !== "Pass") return false;
+  const expectedProofKind =
+    step.authority === "ask_approval"
+      ? "approval"
+      : step.authority === "ask_decision"
+        ? "decision"
+        : "evidence";
+  return (
+    verification.planRevision === repro.plan.currentRevision &&
+    verification.stepId === step.id &&
+    verification.definitionDigest === stepDefinitionDigest(step) &&
+    verification.proofKind === expectedProofKind &&
+    JSON.stringify(verification.evidenceRefs) === JSON.stringify(evidenceRefs) &&
+    JSON.stringify(verification.verifiedDoneWhen) === JSON.stringify(step.doneWhen) &&
+    (expectedProofKind !== "approval" ||
+      (verification.approvalResult === "approved" &&
+        JSON.stringify(verification.selectedValues) === JSON.stringify(["approve"]))) &&
+    (expectedProofKind === "evidence" ||
+      (typeof verification.askRequestHash === "string" &&
+        typeof verification.acceptedAnswerHash === "string" &&
+        Array.isArray(verification.selectedValues) &&
+        verification.selectedValues.length > 0))
+  );
 }
 
 function sanitizeReproStages(stages: readonly SparkReproStage[]): SparkReproStage[] {

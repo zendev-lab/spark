@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { nowIso, stableId, type EvidenceRef } from "@zendev-lab/spark-core";
 export * from "./driver-policy.ts";
 
@@ -121,10 +123,42 @@ export interface SparkReproStepDefinition {
 export interface SparkReproStep extends SparkReproStepDefinition {
   status: SparkReproStepStatus;
   evidenceRefs: EvidenceRef[];
+  verification?: Extract<SparkReproStepVerifierResult, { verdict: "Pass" }>;
   blocker?: string;
   createdAt: string;
   updatedAt: string;
 }
+
+export type SparkReproStepProofKind = "evidence" | "decision" | "approval";
+
+export interface SparkReproStepAskBinding {
+  schema: "spark.repro.step-ask/v1";
+  planRevision: number;
+  stepId: string;
+  definitionDigest: string;
+  doneWhen: string[];
+  authority: "ask_decision" | "ask_approval";
+}
+
+export type SparkReproStepVerifierResult =
+  | {
+      verdict: "Pass";
+      planRevision: number;
+      stepId: string;
+      definitionDigest: string;
+      proofKind: SparkReproStepProofKind;
+      evidenceRefs: EvidenceRef[];
+      verifiedDoneWhen: string[];
+      askRequestHash?: string;
+      acceptedAnswerHash?: string;
+      selectedValues?: string[];
+      approvalResult?: "approved";
+    }
+  | {
+      verdict: "Repair" | "Ask" | "Replan";
+      stepId: string;
+      reasons: string[];
+    };
 
 export interface SparkReproPlanRevision {
   revision: number;
@@ -380,23 +414,12 @@ export function recordReproRequirementProof(
   const timestamp = nowIso();
   const requirement = acceptance[index]!;
   const proofRefs = reproRequirementEvidenceRefs(requirement);
-  const seededDefinition = stepDefinitionForRequirement(stage.name, requirement);
-  const steps = repro.plan.steps.map((step) => {
-    if (step.id !== requirementId || !sameStepDefinition(step, seededDefinition)) return step;
-    const { blocker: _blocker, ...stepWithoutBlocker } = step;
-    return {
-      ...stepWithoutBlocker,
-      status: "done" as const,
-      evidenceRefs: uniqueEvidenceRefs([...step.evidenceRefs, ...proofRefs]),
-      updatedAt: timestamp,
-    };
-  });
   const freezesGoalContract =
     requirementId === "repro-contract-frozen" && isReproRequirementSatisfied(requirement);
   return {
     ...repro,
     stages,
-    plan: { ...repro.plan, steps },
+    plan: repro.plan,
     ...(freezesGoalContract
       ? {
           goalContract: {
@@ -618,18 +641,18 @@ export function reviseReproPlan(
         };
       })
     : repro.plan.steps;
-  const steps = goalChanged
-    ? revisedSteps.map((step) => {
-        if (step.id !== "repro-contract-frozen") return step;
-        const { blocker: _blocker, ...stepWithoutBlocker } = step;
-        return {
-          ...stepWithoutBlocker,
-          status: "pending" as const,
-          evidenceRefs: [],
-          updatedAt: timestamp,
-        };
-      })
-    : revisedSteps;
+  const steps = revisedSteps.map((step) => {
+    const shouldReopen = planChanged && step.status === "done";
+    const shouldClearContract = goalChanged && step.id === "repro-contract-frozen";
+    if (!shouldReopen && !shouldClearContract) return step;
+    const { blocker: _blocker, verification: _verification, ...stepWithoutRuntimeProof } = step;
+    return {
+      ...stepWithoutRuntimeProof,
+      status: "pending" as const,
+      evidenceRefs: shouldClearContract ? [] : step.evidenceRefs,
+      updatedAt: timestamp,
+    };
+  });
   const revisions = planChanged
     ? [
         ...repro.plan.revisions,
@@ -664,6 +687,7 @@ export interface UpdateReproStepInput {
   status: SparkReproStepStatus;
   evidenceRefs?: EvidenceRef[];
   blocker?: string;
+  verifier?: SparkReproStepVerifierResult;
 }
 
 export function updateReproStep(
@@ -687,19 +711,44 @@ export function updateReproStep(
   }
   const timestamp = nowIso();
   const evidenceRefs = uniqueEvidenceRefs([...current.evidenceRefs, ...(input.evidenceRefs ?? [])]);
-  if (input.status === "done" && evidenceRefs.length === 0) {
-    throw new Error(`repro step ${stepId} requires evidence before it can be done`);
+  if (input.status === "done") {
+    if (evidenceRefs.length === 0) {
+      throw new Error(`repro step ${stepId} requires evidence before it can be done`);
+    }
+    if (input.verifier?.verdict !== "Pass") {
+      throw new Error(
+        `repro step ${stepId} requires a passing StepVerifier result before it can be done`,
+      );
+    }
+    const expected = expectedStepPass(repro, current, evidenceRefs);
+    if (!sameStepPassBinding(input.verifier, expected)) {
+      throw new Error(
+        `repro step ${stepId} verifier binding does not match the current plan revision or definition`,
+      );
+    }
   }
   const blocker = input.blocker?.trim();
   if (input.status === "blocked" && !blocker) {
     throw new Error(`repro step ${stepId} requires a blocker when blocked`);
   }
-  const { blocker: _currentBlocker, ...stepWithoutBlocker } = current;
+  const {
+    blocker: _currentBlocker,
+    verification: _currentVerification,
+    ...stepWithoutRuntimeProof
+  } = current;
   const steps = [...repro.plan.steps];
   steps[index] = {
-    ...stepWithoutBlocker,
+    ...stepWithoutRuntimeProof,
     status: input.status,
     evidenceRefs,
+    ...(input.status === "done"
+      ? {
+          verification: input.verifier as Extract<
+            SparkReproStepVerifierResult,
+            { verdict: "Pass" }
+          >,
+        }
+      : {}),
     ...(input.status === "blocked" ? { blocker: blocker! } : {}),
     updatedAt: timestamp,
   };
@@ -708,6 +757,86 @@ export function updateReproStep(
     plan: { ...repro.plan, steps },
     updatedAt: timestamp,
   };
+}
+
+export function stepDefinitionDigest(step: SparkReproStepDefinition): string {
+  return createHash("sha256")
+    .update(JSON.stringify(stepDefinitionValue(step)))
+    .digest("hex");
+}
+
+export function createReproStepAskBinding(
+  repro: SparkSessionRepro,
+  step: SparkReproStep,
+): SparkReproStepAskBinding {
+  if (step.authority !== "ask_decision" && step.authority !== "ask_approval") {
+    throw new Error(`repro step ${step.id} does not require a canonical ask`);
+  }
+  return {
+    schema: "spark.repro.step-ask/v1",
+    planRevision: repro.plan.currentRevision,
+    stepId: step.id,
+    definitionDigest: stepDefinitionDigest(step),
+    doneWhen: [...step.doneWhen],
+    authority: step.authority,
+  };
+}
+
+export function encodeReproStepAskBinding(binding: SparkReproStepAskBinding): string {
+  return `spark.repro.step-ask/v1:${JSON.stringify(binding)}`;
+}
+
+export function decodeReproStepAskBinding(
+  value: string | undefined,
+): SparkReproStepAskBinding | undefined {
+  const prefix = "spark.repro.step-ask/v1:";
+  if (!value?.startsWith(prefix)) return undefined;
+  try {
+    const binding = JSON.parse(value.slice(prefix.length)) as Partial<SparkReproStepAskBinding>;
+    if (
+      binding.schema !== "spark.repro.step-ask/v1" ||
+      !Number.isInteger(binding.planRevision) ||
+      (binding.planRevision ?? 0) < 1 ||
+      typeof binding.stepId !== "string" ||
+      !binding.stepId ||
+      typeof binding.definitionDigest !== "string" ||
+      !binding.definitionDigest ||
+      !Array.isArray(binding.doneWhen) ||
+      binding.doneWhen.some((entry) => typeof entry !== "string" || !entry) ||
+      (binding.authority !== "ask_decision" && binding.authority !== "ask_approval")
+    ) {
+      return undefined;
+    }
+    return {
+      schema: binding.schema,
+      planRevision: binding.planRevision as number,
+      stepId: binding.stepId,
+      definitionDigest: binding.definitionDigest,
+      doneWhen: [...binding.doneWhen],
+      authority: binding.authority,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function verifyReproStepPass(
+  repro: SparkSessionRepro,
+  stepId: string,
+  input: Omit<Extract<SparkReproStepVerifierResult, { verdict: "Pass" }>, "stepId">,
+): SparkReproStepVerifierResult {
+  const step = repro.plan.steps.find((candidate) => candidate.id === stepId);
+  if (!step) return { verdict: "Repair", stepId, reasons: [`unknown step: ${stepId}`] };
+  const actual = { ...input, stepId } as Extract<SparkReproStepVerifierResult, { verdict: "Pass" }>;
+  const expected = expectedStepPass(repro, step, input.evidenceRefs);
+  if (!sameStepPassBinding(actual, expected)) {
+    return {
+      verdict: "Repair",
+      stepId,
+      reasons: ["proof does not match the current plan revision, step definition, or doneWhen"],
+    };
+  }
+  return actual;
 }
 
 export function currentReproSteps(repro: SparkSessionRepro): SparkReproStep[] {
@@ -876,7 +1005,7 @@ function createInitialReproPlan(
       const definition = stepDefinitionForRequirement(stage.name, requirement);
       return {
         ...definition,
-        status: isReproRequirementSatisfied(requirement) ? "done" : "pending",
+        status: "pending",
         evidenceRefs: reproRequirementEvidenceRefs(requirement),
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -941,6 +1070,10 @@ function stepDefinitionForRequirement(
 }
 
 function stepDefinition(step: SparkReproStep): SparkReproStepDefinition {
+  return stepDefinitionValue(step);
+}
+
+function stepDefinitionValue(step: SparkReproStepDefinition): SparkReproStepDefinition {
   return {
     id: step.id,
     stage: step.stage,
@@ -950,6 +1083,52 @@ function stepDefinition(step: SparkReproStep): SparkReproStepDefinition {
     authority: step.authority,
     ...(step.dependsOn ? { dependsOn: [...step.dependsOn] } : {}),
   };
+}
+
+function expectedStepPass(
+  repro: SparkSessionRepro,
+  step: SparkReproStep,
+  evidenceRefs: EvidenceRef[],
+): Extract<SparkReproStepVerifierResult, { verdict: "Pass" }> {
+  return {
+    verdict: "Pass",
+    planRevision: repro.plan.currentRevision,
+    stepId: step.id,
+    definitionDigest: stepDefinitionDigest(step),
+    proofKind:
+      step.authority === "ask_approval"
+        ? "approval"
+        : step.authority === "ask_decision"
+          ? "decision"
+          : "evidence",
+    evidenceRefs: [...evidenceRefs],
+    verifiedDoneWhen: [...step.doneWhen],
+    ...(step.authority === "ask_approval" ? { approvalResult: "approved" as const } : {}),
+  };
+}
+
+function sameStepPassBinding(
+  actual: Extract<SparkReproStepVerifierResult, { verdict: "Pass" }>,
+  expected: Extract<SparkReproStepVerifierResult, { verdict: "Pass" }>,
+): boolean {
+  return (
+    actual.planRevision === expected.planRevision &&
+    actual.stepId === expected.stepId &&
+    actual.definitionDigest === expected.definitionDigest &&
+    actual.proofKind === expected.proofKind &&
+    JSON.stringify(actual.evidenceRefs) === JSON.stringify(expected.evidenceRefs) &&
+    JSON.stringify(actual.verifiedDoneWhen) === JSON.stringify(expected.verifiedDoneWhen) &&
+    (expected.approvalResult === undefined || actual.approvalResult === "approved") &&
+    (expected.proofKind === "approval"
+      ? actual.approvalResult === "approved" &&
+        JSON.stringify(actual.selectedValues) === JSON.stringify(["approve"])
+      : true) &&
+    (expected.proofKind === "evidence" ||
+      (typeof actual.askRequestHash === "string" &&
+        typeof actual.acceptedAnswerHash === "string" &&
+        Array.isArray(actual.selectedValues) &&
+        actual.selectedValues.length > 0))
+  );
 }
 
 function normalizeGoalContractInput(

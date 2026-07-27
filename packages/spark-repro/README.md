@@ -22,8 +22,9 @@ step for every configured stage, use unique stable ids, and have an acyclic
 dependency graph. Difficulty is an integer from 1 to 10 and enforces adaptive
 minimum plan sizes of 4, 6, 8, 11, or 13 steps; the fixed five-stage coverage
 requirement still applies. A step cannot start before its dependencies finish
-or become `done` without evidence. Decision and approval step evidence is
-additionally verified by the host as canonical Ask evidence.
+or become `done` without a passing typed StepVerifier result. Safe-local steps require
+structured proof bound to the current definition and `doneWhen`; decision and approval
+steps additionally require a current canonical Ask receipt bound to the exact Step.
 
 Setup is research-first and separates three requirement kinds:
 

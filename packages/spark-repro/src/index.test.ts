@@ -9,7 +9,9 @@ import {
   recordReproRequirementProof,
   reviseReproPlan,
   settleReproTick,
+  stepDefinitionDigest,
   updateReproStep,
+  verifyReproStepPass,
   type SparkReproStepDefinition,
   type SparkReproRequirementProof,
   type SparkSessionRepro,
@@ -150,7 +152,7 @@ describe("spark-repro", () => {
     });
     expect(
       repro.plan.steps.find((step) => step.id === "competitor-baseline-availability-researched"),
-    ).toMatchObject({ status: "done", evidenceRefs: [ref("baseline")] });
+    ).toMatchObject({ status: "pending", evidenceRefs: [] });
   });
 
   it("rejects incomplete or cyclic plan revisions", () => {
@@ -200,13 +202,44 @@ describe("spark-repro", () => {
     ).toThrow(/cannot depend on later-stage step/u);
   });
 
-  it("requires evidence for done steps and asks after three unchanged settlements", () => {
+  it("requires a current passing StepVerifier result and asks after three unchanged settlements", () => {
     let repro = createSparkSessionRepro("session:test");
-    expect(() => updateReproStep(repro, "repro-contract-frozen", { status: "done" })).toThrow(
-      /requires evidence/u,
+    const step = repro.plan.steps.find((candidate) => candidate.id === "repro-contract-frozen")!;
+    const evidenceRefs = [ref("contract")];
+    expect(() => updateReproStep(repro, step.id, { status: "done", evidenceRefs })).toThrow(
+      /requires a passing StepVerifier/u,
     );
 
+    const staleVerifier = verifyReproStepPass(repro, step.id, {
+      verdict: "Pass",
+      planRevision: repro.plan.currentRevision + 1,
+      definitionDigest: stepDefinitionDigest(step),
+      proofKind: "evidence",
+      evidenceRefs,
+      verifiedDoneWhen: step.doneWhen,
+    });
+    expect(staleVerifier.verdict).toBe("Repair");
+    expect(() =>
+      updateReproStep(repro, step.id, { status: "done", evidenceRefs, verifier: staleVerifier }),
+    ).toThrow(/requires a passing StepVerifier/u);
+
+    const verifier = verifyReproStepPass(repro, step.id, {
+      verdict: "Pass",
+      planRevision: repro.plan.currentRevision,
+      definitionDigest: stepDefinitionDigest(step),
+      proofKind: "evidence",
+      evidenceRefs,
+      verifiedDoneWhen: step.doneWhen,
+    });
+    expect(verifier.verdict).toBe("Pass");
+    repro = updateReproStep(repro, step.id, { status: "done", evidenceRefs, verifier })!;
+    expect(repro.plan.steps.find((candidate) => candidate.id === step.id)).toMatchObject({
+      status: "done",
+      verification: { verdict: "Pass", planRevision: 1 },
+    });
+
     expect(settleReproTick(repro).decision).toBe("continue");
+    repro = settleReproTick(repro).repro;
     repro = settleReproTick(repro).repro;
     repro = settleReproTick(repro).repro;
     const third = settleReproTick(repro);
@@ -219,6 +252,50 @@ describe("spark-repro", () => {
     const reset = settleReproTick(progressed);
     expect(reset.decision).toBe("continue");
     expect(reset.repro.stopGuard.stagnationCount).toBe(0);
+  });
+
+  it("requires an explicit approve answer for approval Steps", () => {
+    let repro = createSparkSessionRepro("session:test");
+    const approvalStepId = "repro-contract-frozen";
+    repro = reviseReproPlan(repro, {
+      reason: "Make contract freeze an explicit approval",
+      steps: repro.plan.steps.map((step) =>
+        step.id === approvalStepId
+          ? { ...stepDefinition(step), authority: "ask_approval" as const }
+          : stepDefinition(step),
+      ),
+    });
+    const step = repro.plan.steps.find((candidate) => candidate.id === approvalStepId)!;
+    const evidenceRefs = [ref("approval")];
+    const rejected = verifyReproStepPass(repro, step.id, {
+      verdict: "Pass",
+      planRevision: repro.plan.currentRevision,
+      definitionDigest: stepDefinitionDigest(step),
+      proofKind: "approval",
+      evidenceRefs,
+      verifiedDoneWhen: step.doneWhen,
+      askRequestHash: "request-hash",
+      acceptedAnswerHash: "answer-hash",
+      selectedValues: ["reject"],
+      approvalResult: "approved",
+    });
+    expect(rejected.verdict).toBe("Repair");
+
+    const approved = verifyReproStepPass(repro, step.id, {
+      verdict: "Pass",
+      planRevision: repro.plan.currentRevision,
+      definitionDigest: stepDefinitionDigest(step),
+      proofKind: "approval",
+      evidenceRefs,
+      verifiedDoneWhen: step.doneWhen,
+      askRequestHash: "request-hash",
+      acceptedAnswerHash: "answer-hash",
+      selectedValues: ["approve"],
+      approvalResult: "approved",
+    });
+    expect(approved.verdict).toBe("Pass");
+    repro = updateReproStep(repro, step.id, { status: "done", evidenceRefs, verifier: approved })!;
+    expect(repro.plan.steps.find((candidate) => candidate.id === step.id)?.status).toBe("done");
   });
 
   it("does not start a step before its dependencies finish", () => {

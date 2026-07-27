@@ -25,7 +25,10 @@ export interface CanonicalAskEvidenceAnswer {
 }
 
 export interface VerifiedCanonicalAskEvidence {
+  request: SparkAskAutoAnswerRequest;
+  requestHash: string;
   answers: CanonicalAskEvidenceAnswer[];
+  answersHash: string;
   selectedValues: string[];
 }
 
@@ -87,8 +90,13 @@ export async function verifyCanonicalAskEvidenceArtifact(
   ) {
     return undefined;
   }
+  const request = normalizeCanonicalAskRequest(evidence.body);
+  if (!request) return undefined;
   return {
+    request,
+    requestHash: hashCanonicalValue(request),
     answers,
+    answersHash: hashAnswers(answers),
     selectedValues: uniqueStrings(
       answers.flatMap((answer) => [
         ...answer.values,
@@ -96,6 +104,15 @@ export async function verifyCanonicalAskEvidenceArtifact(
       ]),
     ),
   };
+}
+
+function normalizeCanonicalAskRequest(value: unknown): SparkAskAutoAnswerRequest | undefined {
+  if (!isRecord(value) || value.schema !== "spark.ask.evidence/v1" || !isRecord(value.request)) {
+    return undefined;
+  }
+  const request = value.request;
+  if (!Array.isArray(request.questions) || request.questions.length === 0) return undefined;
+  return JSON.parse(JSON.stringify(request)) as SparkAskAutoAnswerRequest;
 }
 
 function normalizeUserAnsweredAskEvidence(
@@ -175,7 +192,11 @@ function asEvidenceRef(value: string): EvidenceRef {
 }
 
 function hashAnswers(answers: readonly CanonicalAskEvidenceAnswer[]): string {
-  return createHash("sha256").update(JSON.stringify(answers)).digest("hex");
+  return hashCanonicalValue(answers);
+}
+
+function hashCanonicalValue(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 function uniqueStrings(values: readonly string[]): string[] {
