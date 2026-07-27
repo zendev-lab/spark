@@ -1,4 +1,5 @@
 import { rm } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   DEFAULT_READY_TASK_MAX_CONCURRENCY,
@@ -8,7 +9,11 @@ import {
 import {
   legacyCurrentProjectStorePath,
   rebuildSessionIndex,
+  sanitizeStoreScope,
   sessionStateStorePath,
+  sparkSessionFileKey,
+  sparkSessionKey,
+  sparkStateRootPath,
   type SparkSessionContext,
 } from "@zendev-lab/spark-loop";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
@@ -33,8 +38,20 @@ export async function loadCurrentProjectState(
 ): Promise<CurrentProjectStoreSnapshot | undefined> {
   const filePath = currentProjectStorePath(cwd, ctx);
   const raw = await readJsonFileOptional<Record<string, unknown>>(filePath);
-  if (!raw) return undefined;
-  return normalizeCurrentProjectStoreSnapshot(raw, filePath);
+  if (raw) return normalizeCurrentProjectStoreSnapshot(raw, filePath);
+
+  const legacyPath = legacySessionKeyStatePath(cwd, ctx);
+  if (!legacyPath) return undefined;
+  const legacyRaw = await readJsonFileOptional<Record<string, unknown>>(legacyPath);
+  if (!legacyRaw) return undefined;
+
+  // Pi now exposes a stable native session id. Import the old file-hash keyed
+  // selection once so a reload does not silently lose project context.
+  const snapshot = normalizeCurrentProjectStoreSnapshot(legacyRaw, legacyPath);
+  await saveCurrentProjectState(cwd, ctx, snapshot);
+  await rm(legacyPath, { force: true });
+  await rebuildSessionIndex(cwd, ctx);
+  return snapshot;
 }
 
 export async function loadCurrentProjectRef(
@@ -111,6 +128,12 @@ export async function currentSparkProject(
 
 export function currentProjectStorePath(cwd: string, ctx: SparkSessionContext | undefined): string {
   return sessionStateStorePath(cwd, ctx);
+}
+
+function legacySessionKeyStatePath(cwd: string, ctx?: SparkSessionContext): string | undefined {
+  const fileKey = sparkSessionFileKey(ctx);
+  if (!fileKey || fileKey === sparkSessionKey(ctx)) return undefined;
+  return join(sparkStateRootPath(cwd, ctx), "sessions", sanitizeStoreScope(fileKey), "state.json");
 }
 
 export async function importLegacyCurrentProjectState(

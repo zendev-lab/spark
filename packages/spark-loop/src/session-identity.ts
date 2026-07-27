@@ -15,6 +15,11 @@ export interface SparkSessionContext {
   };
 }
 
+export function sparkSessionFileKey(ctx?: SparkSessionContext): string | undefined {
+  const sessionFile = ctx?.sessionManager?.getSessionFile?.();
+  return sessionFile ? `session:${stableId(sessionFile)}` : undefined;
+}
+
 export function sparkSessionKey(ctx?: SparkSessionContext): string {
   const sessionId = ctx?.sessionId?.trim();
   if (sessionId) {
@@ -28,8 +33,8 @@ export function sparkSessionKey(ctx?: SparkSessionContext): string {
     }
     return `session:${managerSessionId}`;
   }
-  const sessionFile = ctx?.sessionManager?.getSessionFile?.();
-  if (sessionFile) return `session:${stableId(sessionFile)}`;
+  const fileKey = sparkSessionFileKey(ctx);
+  if (fileKey) return fileKey;
   const leaf = ctx?.sessionManager?.getLeafId?.();
   if (leaf) {
     if (leaf.startsWith("session:") || leaf.startsWith("leaf:")) return leaf;
