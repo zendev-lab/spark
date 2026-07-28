@@ -22,7 +22,10 @@ import { registerSparkRecoverTaskClaimTool } from "./spark-recover-task-claim-to
 import { registerSparkRunReadyTasksTool } from "./spark-run-ready-tasks-tool-registration.ts";
 import { registerSparkGoalTool } from "./spark-goal-tool-registration.ts";
 import { registerSparkLoopTool } from "./spark-loop-tool-registration.ts";
-import { registerSparkReproTool } from "./spark-repro-tool-registration.ts";
+import {
+  ensureActiveReproDriver,
+  registerSparkReproTool,
+} from "./spark-repro-tool-registration.ts";
 import { registerSparkDriveTool } from "./spark-drive-tool-registration.ts";
 import { registerSparkDriverTool } from "./spark-driver-tool-registration.ts";
 import { registerSparkWorkflowDriverTool } from "./spark-workflow-driver-tool-registration.ts";
@@ -62,6 +65,7 @@ import {
 import { registerSparkReflectionCommands } from "./reflection-in-session-scheduler.ts";
 import { sparkActiveLensPhase } from "./spark-drive-state.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
+import { readSessionRepro } from "./spark-session-repro.ts";
 import {
   sparkDaemonDriverControl,
   type SparkDaemonDriverControl,
@@ -152,6 +156,10 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     turnContextController,
     createAskAutoAnswerResolver: (ctx) => (request, askCtx) =>
       answerAskWithReviewer(request, askCtx, ctx),
+    ensureActiveReproDriver: async (ctx) => {
+      const repro = await readSessionRepro(ctx.cwd, ctx);
+      if (repro?.status === "active") await ensureActiveReproDriver(ctx, driverControl, repro);
+    },
   });
 
   const registeredSparkTools = new Map<string, SparkRegisteredToolConfig>();
@@ -249,7 +257,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     ensureSparkStateForActiveWorkspace,
     refreshSparkWidget,
   });
-  registerSparkDriverTool(registerSparkTool);
+  registerSparkDriverTool(registerSparkTool, { driverControl });
   registerSparkWorkflowDriverTool(registerSparkImplementationTool, {
     workflowRunManager: workflowRunManagerController,
   });
