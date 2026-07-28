@@ -249,7 +249,7 @@ export class SparkProviderAuthResolver {
     if (ref.kind === "literal") return ref.value;
     const credential = this.#store.get(ref.provider);
     if (credential?.type !== "oauth") return undefined;
-    return getOAuthProvider(ref.provider)?.getApiKey(credential.credentials);
+    return credential.credentials.access;
   }
 
   /** Resolve and durably persist a refreshed OAuth credential when it is expired. */
@@ -289,8 +289,11 @@ export class SparkProviderAuthResolver {
     const credential = this.#resolveStoredOAuth(ref.provider);
     if (credential?.type !== "oauth") return { done: true };
     if (this.#now() >= credential.credentials.expires) return { done: false };
-    const value = getOAuthProvider(ref.provider)?.getApiKey(credential.credentials);
-    return value === undefined ? { done: true } : { done: true, value };
+    // Stored OAuth credentials already define the provider-ready access token.
+    // Avoid consulting pi-ai's mutable registry on this non-refresh path: a
+    // structurally compatible host may carry a newer kernel with a different
+    // OAuth registry surface while Spark still owns this canonical auth file.
+    return { done: true, value: credential.credentials.access };
   }
 
   async #refreshOAuth(providerId: string): Promise<string | undefined> {
