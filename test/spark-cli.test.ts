@@ -481,6 +481,191 @@ test("Baidu OneAPI adapters use upstream transport APIs but report baidu-oneapi"
   }
 });
 
+const malformedResponsesSse = `data: ${JSON.stringify({
+  type: "response.in_progress",
+  response: { id: "resp_bad_1", status: "in_progress" },
+})}${JSON.stringify({
+  type: "response.in_progress",
+  response: { id: "resp_bad_2", status: "in_progress" },
+})}\n\n`;
+
+const completedResponsesSse = `data: ${JSON.stringify({
+  type: "response.completed",
+  response: {
+    id: "resp_ok",
+    status: "completed",
+    usage: {
+      input_tokens: 1,
+      output_tokens: 1,
+      total_tokens: 2,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens_details: { reasoning_tokens: 0 },
+    },
+  },
+})}\n\n`;
+
+function responsesSse(body: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+test("Baidu OneAPI direct Responses stream retries malformed wire envelopes by default", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return responsesSse(fetchCalls === 1 ? malformedResponsesSse : completedResponsesSse);
+  }) as typeof fetch;
+
+  try {
+    const stream = streamBaiduOneApiOpenAIResponses(
+      baiduTestModel(),
+      { messages: [], tools: [] },
+      { apiKey: "test-key", maxRetryDelayMs: 1 },
+    );
+    const eventTypes: string[] = [];
+    for await (const event of stream) eventTypes.push(event.type);
+
+    assert.equal(fetchCalls, 2);
+    assert.deepEqual(eventTypes, ["start", "done"]);
+    assert.equal((await stream.result()).stopReason, "stop");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Baidu OneAPI direct Responses stream exhausts its bounded default retry budget", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return responsesSse(malformedResponsesSse);
+  }) as typeof fetch;
+
+  try {
+    const stream = streamBaiduOneApiOpenAIResponses(
+      baiduTestModel(),
+      { messages: [], tools: [] },
+      { apiKey: "test-key", maxRetryDelayMs: 1 },
+    );
+    const eventTypes: string[] = [];
+    for await (const event of stream) eventTypes.push(event.type);
+
+    assert.equal(fetchCalls, 4);
+    assert.deepEqual(eventTypes, ["start", "error"]);
+    assert.equal((await stream.result()).stopReason, "error");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Baidu OneAPI direct Responses stream honors disabled provider retries", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return responsesSse(malformedResponsesSse);
+  }) as typeof fetch;
+
+  try {
+    const stream = streamBaiduOneApiOpenAIResponses(
+      baiduTestModel(),
+      { messages: [], tools: [] },
+      { apiKey: "test-key", maxRetries: 0, maxRetryDelayMs: 1 },
+    );
+    const eventTypes: string[] = [];
+    for await (const event of stream) eventTypes.push(event.type);
+
+    assert.equal(fetchCalls, 1);
+    assert.deepEqual(eventTypes, ["start", "error"]);
+    const result = await stream.result();
+    assert.equal(result.stopReason, "error");
+    assert.match(result.errorMessage ?? "", /Unexpected non-whitespace character after JSON/u);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Baidu OneAPI direct Responses stream does not retry after visible output", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  const textStart = `data: ${JSON.stringify({
+    type: "response.output_item.added",
+    output_index: 0,
+    item: {
+      type: "message",
+      id: "msg_partial",
+      role: "assistant",
+      status: "in_progress",
+      content: [],
+    },
+  })}\n\n`;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return responsesSse(`${textStart}${malformedResponsesSse}`);
+  }) as typeof fetch;
+
+  try {
+    const stream = streamBaiduOneApiOpenAIResponses(
+      baiduTestModel(),
+      { messages: [], tools: [] },
+      { apiKey: "test-key", maxRetryDelayMs: 1 },
+    );
+    const eventTypes: string[] = [];
+    for await (const event of stream) eventTypes.push(event.type);
+
+    assert.equal(fetchCalls, 1);
+    assert.deepEqual(eventTypes, ["start", "text_start", "error"]);
+    assert.equal((await stream.result()).stopReason, "error");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Baidu OneAPI direct Responses stream does not retry after cancellation", async () => {
+  const originalFetch = globalThis.fetch;
+  const controller = new AbortController();
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    controller.abort(new Error("cancelled by test"));
+    return responsesSse(malformedResponsesSse);
+  }) as typeof fetch;
+
+  try {
+    const stream = streamBaiduOneApiOpenAIResponses(
+      baiduTestModel(),
+      { messages: [], tools: [] },
+      { apiKey: "test-key", signal: controller.signal, maxRetryDelayMs: 1 },
+    );
+    const eventTypes: string[] = [];
+    for await (const event of stream) eventTypes.push(event.type);
+
+    assert.equal(fetchCalls, 1);
+    assert.deepEqual(eventTypes, ["start", "error"]);
+    assert.equal((await stream.result()).stopReason, "aborted");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+function baiduTestModel() {
+  return {
+    id: "gpt-5.6-sol",
+    name: "Baidu test model",
+    api: "baidu-oneapi",
+    provider: "baidu-oneapi",
+    baseUrl: "https://oneapi-comate.baidu-int.com/v1",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 1000,
+    maxTokens: 1000,
+  } as never;
+}
+
 test("Spark CLI host lets ordinary input reach the agent without /spark wrapping", () => {
   const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
   sparkCliHostExtension({

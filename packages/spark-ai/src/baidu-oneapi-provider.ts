@@ -9,12 +9,17 @@ import type {
   SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 
+import {
+  isConcatenatedProviderJsonFailure,
+  retryProviderStreamBeforeOutput,
+} from "./provider-stream-retry.ts";
 import type { ProviderRegistrationAPI } from "./provider-registry.ts";
 
 const BAIDU_ONEAPI_PROVIDER = "baidu-oneapi";
 const BAIDU_ONEAPI_API = "baidu-oneapi";
 const BAIDU_ONEAPI_BASE_URL = "https://oneapi-comate.baidu-int.com";
 const BAIDU_ONEAPI_OPENAI_BASE_URL = `${BAIDU_ONEAPI_BASE_URL}/v1`;
+const BAIDU_ONEAPI_STREAM_MAX_RETRIES = 3;
 
 const GATEWAY_MODEL_BY_ID: Record<string, string> = {
   "claude-opus-4.6": "Claude Opus 4.6",
@@ -336,19 +341,27 @@ export function streamBaiduOneApiOpenAIResponses(
   const gatewayModel = gatewayModelId(model.id);
   const apiKey = resolveBaiduOneApiKey(options?.apiKey);
   const transportModel = withBaiduOneApiTransportApi(model, "openai-responses");
+  const createStream = () =>
+    startBaiduOneApiStream(
+      model,
+      () =>
+        baiduOneApiOpenAIResponsesApi.streamSimple(transportModel, context, {
+          ...options,
+          ...(apiKey !== undefined ? { apiKey } : {}),
+          async onPayload(payload: unknown) {
+            const remapped = remapOpenAIResponsesModel(payload, gatewayModel);
+            return (await options?.onPayload?.(remapped, model)) ?? remapped;
+          },
+        }) as BaiduOneApiStream,
+    );
 
-  return startBaiduOneApiStream(
-    model,
-    () =>
-      baiduOneApiOpenAIResponsesApi.streamSimple(transportModel, context, {
-        ...options,
-        ...(apiKey !== undefined ? { apiKey } : {}),
-        async onPayload(payload: unknown) {
-          const remapped = remapOpenAIResponsesModel(payload, gatewayModel);
-          return (await options?.onPayload?.(remapped, model)) ?? remapped;
-        },
-      }) as BaiduOneApiStream,
-  );
+  return retryProviderStreamBeforeOutput(createStream(), createStream, {
+    providerName: BAIDU_ONEAPI_PROVIDER,
+    maxRetries: options?.maxRetries ?? BAIDU_ONEAPI_STREAM_MAX_RETRIES,
+    ...(options?.maxRetryDelayMs !== undefined ? { maxRetryDelayMs: options.maxRetryDelayMs } : {}),
+    ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+    shouldRetry: isConcatenatedProviderJsonFailure,
+  });
 }
 
 function remapOpenAIResponsesModel(payload: unknown, gatewayModel: string): unknown {

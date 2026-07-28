@@ -8,6 +8,9 @@ import type {
   ThinkingLevelMap,
 } from "@earendil-works/pi-ai";
 import { cappedExponentialCeiling } from "@zendev-lab/spark-retry";
+
+import { isConcatenatedProviderJsonErrorText } from "./provider-stream-retry.ts";
+
 export type {
   Api,
   AssistantMessage,
@@ -1011,9 +1014,7 @@ function chooseFailureClass(input: NormalizedProviderFailure): FailureClass {
     /econnreset|etimedout|timeout|socket hang up|temporary|temporarily|network error|overloaded|try again later|servers are currently overloaded/u.test(
       text,
     ) ||
-    /unexpected non-whitespace character after json at position \d+ \(line \d+ column \d+\)/u.test(
-      text,
-    )
+    isConcatenatedProviderJsonErrorText(text)
   ) {
     return "transient";
   }
