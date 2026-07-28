@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
+import { SPARK_PROTOCOL_VERSION, type SparkTurnSubmitResult } from "@zendev-lab/spark-protocol";
 
 import type { Component, Focusable, TUI } from "../apps/spark-tui/src/tui/pi-tui-adapter.ts";
 
@@ -14,6 +14,9 @@ import {
   createSparkNativeUiTransport,
   SparkNativeSession,
   SparkNativeTuiApp,
+  type SparkNativeAdmissionContext,
+  type SparkNativeResponder,
+  type SparkNativeResponderContext,
 } from "../apps/spark-tui/src/native-tui.ts";
 
 const ESC = String.fromCharCode(27);
@@ -225,7 +228,10 @@ test("SparkNativeTuiApp renders session, model, thinking, run, and queue state c
     rendered,
     /session Fix renderer • model openai-codex\/gpt-5\.4 • thinking high • state running • queue steer=1 follow-up=1/,
   );
-  assert.match(rendered, /Enter steer • Alt\+Enter follow-up • Esc stop • Alt\+Up restore queue/);
+  assert.match(
+    rendered,
+    /Enter steer • Alt\+Enter follow-up • Esc cancel active • Alt\+Up restore queue/,
+  );
   assert.match(rendered, /◆ Input queue · local 2/);
   assert.match(rendered, /├─ 1\. steer · steer now/);
   assert.match(rendered, /└─ 2\. follow-up · then summarize/);
@@ -245,6 +251,63 @@ test("SparkNativeTuiApp renders session, model, thinking, run, and queue state c
   );
 
   session.abort("test cleanup");
+});
+
+test("SparkNativeTuiApp labels daemon-owned admission and queue state explicitly", async () => {
+  let nextInvocation = 0;
+  let cancelCalls = 0;
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async (_input: string, _context: SparkNativeAdmissionContext) => {
+        nextInvocation += 1;
+        return {
+          invocationId: `inv_${nextInvocation}`,
+          status: "queued" as const,
+          acceptedAt: `2026-07-28T00:00:0${nextInvocation}.000Z`,
+        };
+      },
+      observe: async (_admission: SparkTurnSubmitResult, context: SparkNativeResponderContext) =>
+        await new Promise<string>((_resolve, reject) => {
+          context.signal?.addEventListener(
+            "abort",
+            () => reject(context.signal?.reason ?? new Error("detached")),
+            { once: true },
+          );
+        }),
+      cancel: async (invocationId: string) => {
+        cancelCalls += 1;
+        return {
+          invocationId,
+          status: "cancelled" as const,
+          cancelRequested: true,
+        };
+      },
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+  const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
+
+  await session.submit("first", { submissionId: "idem_render_first" });
+  await new Promise((resolve) => setImmediate(resolve));
+  await session.submit("second", {
+    mode: "followUp",
+    submissionId: "idem_render_second",
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const rendered = stripAnsi(app.render(120).join("\n"));
+  assert.match(rendered, /queue steer=0 follow-up=0 daemon=2/u);
+  assert.match(rendered, /◆ Daemon turn queue · admitting 0 · admitted 2/u);
+  assert.match(rendered, /daemon queued · first/u);
+  assert.match(rendered, /daemon queued · second/u);
+  assert.match(rendered, /daemon owns execution · Esc cancels the active invocation/u);
+  assert.doesNotMatch(rendered, /Alt\+Up restore/u);
+
+  app.dispose();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(cancelCalls, 0);
 });
 
 test("SparkNativeTuiApp bounds queue rows and sanitizes inline image previews", async () => {

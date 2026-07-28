@@ -8,6 +8,8 @@ export type {
   SparkNativeMessage,
   SparkNativeToolMessageInput,
   SparkNativeCustomMessageInput,
+  SparkNativeAdmissionContext,
+  SparkNativeInvocationStatusContext,
   SparkNativeResponderContext,
   SparkNativeResponder,
   SparkNativeQueuedInput,
@@ -29,6 +31,7 @@ export type {
   SparkNativeTuiAppOptions,
 } from "./types.ts";
 export { SPARK_NATIVE_KERNEL_SLASH_COMMANDS } from "./types.ts";
+export { SparkNativeAdmissionError } from "./types.ts";
 export { SparkNativeSession, defaultSparkNativeResponder } from "./session.ts";
 export {
   createSparkNativeLocalControlSlashCommands,

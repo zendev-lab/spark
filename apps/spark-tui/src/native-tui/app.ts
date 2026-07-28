@@ -230,6 +230,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   dispose(): void {
     this.closeActionBar();
+    this.session.detach();
     if (this.session.onChange === this.handleSessionChange) this.session.onChange = undefined;
     this.stopWorkingSpinner();
   }
@@ -268,7 +269,21 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   renderQueueInspection(): string {
     const queued = this.session.queuedInputs;
-    if (queued.length === 0) return "Turn queue is empty.";
+    const daemonPending = this.session.daemonPending;
+    if (queued.length === 0 && daemonPending.length === 0) return "Turn queue is empty.";
+    if (this.session.daemonOwnsQueue) {
+      return [
+        `Daemon turn queue: ${queued.length} awaiting admission · ${daemonPending.length} admitted`,
+        ...queued.map(
+          (input, index) =>
+            `${index + 1}. admitting ${input.mode === "followUp" ? "follow-up" : "steer"} — ${compactNativeQueuePreview(input.text)}`,
+        ),
+        ...daemonPending.map(
+          (turn, index) =>
+            `${queued.length + index + 1}. ${turn.status} ${turn.invocationId} — ${compactNativeQueuePreview(turn.prompt)}`,
+        ),
+      ].join("\n");
+    }
     return [
       `Turn queue: ${queued.length} pending input${queued.length === 1 ? "" : "s"}`,
       ...queued.map(
@@ -1262,15 +1277,23 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
     const visible = queued.slice(0, MAX_NATIVE_QUEUE_ITEMS);
     const hidden = queued.length - visible.length;
+    const daemonOwned = this.session.daemonOwnsQueue;
     const lines = [
       this.renderTheme.bold(
         this.renderTheme.fg(
           "accent",
-          `◆ Input queue · local ${queued.length}` +
-            (daemonPending.length > 0 ? ` · daemon ${daemonPending.length}` : ""),
+          daemonOwned
+            ? `◆ Daemon turn queue · admitting ${queued.length} · admitted ${daemonPending.length}`
+            : `◆ Input queue · local ${queued.length}` +
+                (daemonPending.length > 0 ? ` · daemon ${daemonPending.length}` : ""),
         ),
       ),
-      this.renderTheme.fg("muted", "│ Enter steer · Alt+Enter follow-up · Alt+Up restore all"),
+      this.renderTheme.fg(
+        "muted",
+        daemonOwned
+          ? "│ daemon owns execution · Esc cancels the active invocation"
+          : "│ Enter steer · Alt+Enter follow-up · Alt+Up restore all",
+      ),
     ];
     for (const [index, input] of visible.entries()) {
       const isLast = index === visible.length - 1 && hidden === 0 && daemonPending.length === 0;
@@ -1759,7 +1782,15 @@ export class SparkNativeTuiApp implements Component, Focusable {
         ...(modelLabel ? { model: modelLabel } : {}),
         ...(thinkingLevel ? { thinkingLevel } : {}),
         state: this.sessionStateLabel(),
-        ...(queue.total > 0 ? { queue: { steer: queue.steer, followUp: queue.followUp } } : {}),
+        ...(queue.total > 0
+          ? {
+              queue: {
+                steer: queue.steer,
+                followUp: queue.followUp,
+                daemonPending: queue.daemonPending,
+              },
+            }
+          : {}),
       }) +
       driverSuffix +
       commandSuffix +
@@ -1769,7 +1800,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   private footerLine(): string {
     return this.session.isProcessing
-      ? `${this.workingSpinner()} Working... • ${nativeTuiStrings.busyFooter(this.session.queuedCount > 0)}`
+      ? `${this.workingSpinner()} Working... • ${nativeTuiStrings.busyFooter(this.session.canRestoreQueuedInput)}`
       : nativeTuiStrings.footer;
   }
 

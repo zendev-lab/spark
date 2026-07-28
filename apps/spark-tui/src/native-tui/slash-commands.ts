@@ -48,7 +48,7 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
   });
   return {
     stop: {
-      description: "stop the current Spark turn and clear queued follow-ups",
+      description: "request cancellation of the current Spark invocation",
       argumentHint: "[reason]",
       metadata: {
         source: "extension",

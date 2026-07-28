@@ -23,6 +23,7 @@ export type SlashHandlerDeps = {
   getLatestRetryPrompt: () => string | null;
   retryConversationTurn: (prompt: string) => void;
   submitThinkingSelection: () => Promise<void>;
+  openActivityPane: () => void;
 };
 
 function thinkingLevelFromAction(action: SparkActionView): SparkThinkingLevel | null {
@@ -61,6 +62,16 @@ function showSessionInspector(): boolean {
   const mobileDetails = firstVisibleElement("details.mobile-details");
   if (mobileDetails instanceof HTMLDetailsElement) mobileDetails.open = true;
   return focusSurface("[data-session-inspector-surface]");
+}
+
+async function prepareActivitySurface(openActivityPane: () => void): Promise<void> {
+  openActivityPane();
+  await tick();
+  if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 1200px)").matches) {
+    const mobileDetails = document.querySelector<HTMLDetailsElement>("details.mobile-details");
+    if (mobileDetails) mobileDetails.open = true;
+    await tick();
+  }
 }
 
 export function createSlashHandlers(deps: SlashHandlerDeps) {
@@ -201,21 +212,21 @@ export function createSlashHandlers(deps: SlashHandlerDeps) {
     if (action.intent === "status.inspect") {
       clearSlashInput(surface);
       await invalidateAll();
-      await tick();
+      await prepareActivitySurface(deps.openActivityPane);
       if (!focusSurface("[data-session-status-bar]")) showSessionInspector();
       return;
     }
 
     if (action.intent === "session.inspect") {
       clearSlashInput(surface);
-      await tick();
+      await prepareActivitySurface(deps.openActivityPane);
       showSessionInspector();
       return;
     }
 
     if (action.intent === "queue.inspect") {
       clearSlashInput(surface);
-      await tick();
+      await prepareActivitySurface(deps.openActivityPane);
       showQueueSurface();
       return;
     }

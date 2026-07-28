@@ -11,7 +11,8 @@
 </script>
 
 {#if items.length > 0}
-  <section class="session-queue" aria-label={labels.region} data-session-queue>
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex (slash actions focus a lone queue item here) -->
+  <section class="session-queue" aria-label={labels.region} data-session-queue tabindex="-1">
     {#if items.length === 1}
       {#each items as item (item.id)}
         <div class="single-queue-item">
