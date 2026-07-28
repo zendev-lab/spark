@@ -25,7 +25,7 @@
   },
   "dependencies": {
     "@cursor/sdk": "1.0.23",
-    "@earendil-works/pi-ai": "^0.80.6",
+    "@earendil-works/pi-ai": "^0.82.1",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-retry": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",

@@ -21,8 +21,8 @@ let rootManifest;
 const dependencies = {
   "@core-workspace/infoflow-sdk-nodejs": "2026.6.12-beta.1",
   "@cursor/sdk": "1.0.23",
-  "@earendil-works/pi-ai": "0.80.6",
-  "@earendil-works/pi-tui": "0.80.6",
+  "@earendil-works/pi-ai": "0.82.1",
+  "@earendil-works/pi-tui": "0.82.1",
   "@sveltejs/kit": "2.65.1",
   "web-push": "3.6.7",
   ws: "^8.18.3",

@@ -308,7 +308,7 @@ test("SparkProviderRegistry adapts pi-ai's production OpenAI Codex provider", ()
   assert.equal(model.provider, "openai-codex");
   assert.equal(model.api, "openai-codex-responses");
   assert.equal(model.baseUrl, "https://chatgpt.com/backend-api");
-  assert.equal(model.contextWindow, 372_000);
+  assert.equal(model.contextWindow, 272_000);
   assert.deepEqual(model.input, ["text", "image"]);
 
   const profile = registry.buildProfile("openai-codex", "gpt-5.6-sol");

@@ -52,7 +52,6 @@ type BaiduOneApiTransportStreams = {
 type PiAiRuntimeApi = typeof piAi & {
   lazyApi?: (load: () => Promise<BaiduOneApiTransportStreams>) => BaiduOneApiTransportStreams;
   anthropicMessagesApi?: () => BaiduOneApiTransportStreams;
-  openAIResponsesApi?: () => BaiduOneApiTransportStreams;
 };
 
 const piAiRuntime = piAi as PiAiRuntimeApi;
@@ -61,11 +60,11 @@ const baiduOneApiAnthropicMessagesApi =
   lazyBaiduOneApiApi(() =>
     import("@earendil-works/pi-ai/api/anthropic-messages").then(asTransportStreams),
   );
-const baiduOneApiOpenAIResponsesApi =
-  piAiRuntime.openAIResponsesApi?.() ??
-  lazyBaiduOneApiApi(() =>
-    import("@earendil-works/pi-ai/api/openai-responses").then(asTransportStreams),
-  );
+const baiduOneApiOpenAIResponsesApi = lazyBaiduOneApiApi(() =>
+  import("@earendil-works/pi-ai/api/openai-responses").then((module) =>
+    silenceOpenAiSdkTransportLogs(asTransportStreams(module)),
+  ),
+);
 
 const GPT_5_6_LUNA_COST = { input: 0.1, output: 0.6, cacheRead: 0.01, cacheWrite: 0.125 };
 const GPT_5_6_TERRA_COST = { input: 0.25, output: 1.5, cacheRead: 0.025, cacheWrite: 0.3125 };
@@ -82,6 +81,29 @@ const CLAUDE_FABLE_COST = CLAUDE_OPUS_COST;
 
 function asTransportStreams(module: unknown): BaiduOneApiTransportStreams {
   return module as BaiduOneApiTransportStreams;
+}
+
+function silenceOpenAiSdkTransportLogs(
+  transport: BaiduOneApiTransportStreams,
+): BaiduOneApiTransportStreams {
+  return {
+    stream: (model, context, options) =>
+      withOpenAiSdkLoggingDisabled(() => transport.stream(model, context, options)),
+    streamSimple: (model, context, options) =>
+      withOpenAiSdkLoggingDisabled(() => transport.streamSimple(model, context, options)),
+  };
+}
+
+function withOpenAiSdkLoggingDisabled<T>(start: () => T): T {
+  const previous = process.env.OPENAI_LOG;
+  process.env.OPENAI_LOG = "off";
+  try {
+    // pi-ai creates the OpenAI client synchronously before returning its event stream.
+    return start();
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_LOG;
+    else process.env.OPENAI_LOG = previous;
+  }
 }
 
 function lazyBaiduOneApiApi(

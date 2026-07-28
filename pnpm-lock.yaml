@@ -438,8 +438,8 @@ importers:
   apps/spark-tui:
     dependencies:
       '@earendil-works/pi-ai':
-        specifier: ^0.80.6
-        version: 0.80.6(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
+        specifier: ^0.82.1
+        version: 0.82.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
       '@zendev-lab/spark-ai':
         specifier: workspace:^
         version: link:../../packages/spark-ai
@@ -538,8 +538,8 @@ importers:
         specifier: 1.0.23
         version: 1.0.23
       '@earendil-works/pi-ai':
-        specifier: ^0.80.6
-        version: 0.80.6(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
+        specifier: ^0.82.1
+        version: 0.82.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
@@ -1148,14 +1148,14 @@ importers:
   packages/spark-text:
     dependencies:
       '@earendil-works/pi-tui':
-        specifier: ^0.80.6
-        version: 0.80.6
+        specifier: ^0.82.1
+        version: 0.82.1
 
   packages/spark-tui:
     dependencies:
       '@earendil-works/pi-tui':
-        specifier: ^0.80.6
-        version: 0.80.6
+        specifier: ^0.82.1
+        version: 0.82.1
       '@zendev-lab/spark-text':
         specifier: workspace:^
         version: link:../spark-text
@@ -1857,13 +1857,13 @@ packages:
     resolution: {integrity: sha512-VIh8oW89XXACUkQqB2N8TaU3A/y2jQieF++VC6QqIqKhKRKj7kd+pzeh43MXusuPpebtxtEzqvjaCLlc1xbYTQ==}
     engines: {node: '>=22.13'}
 
-  '@earendil-works/pi-ai@0.80.6':
-    resolution: {integrity: sha512-7xfLk8sANBp+bpPEbjoOZTbPxsa+++b1JXAoSJsNa3vbs9AHHEclmvg54XLQcxH+fuwaeti/g2jeIfJ+mVYLpA==}
+  '@earendil-works/pi-ai@0.82.1':
+    resolution: {integrity: sha512-3WFYRhEp3lQB3444EhPMBcM7zSaEUE3eJgHOR7s4081NLqbw/FsWilIKWXSua0Gv3sRr7m9xMidR3pPDE7jI/A==}
     engines: {node: '>=22.19.0'}
     hasBin: true
 
-  '@earendil-works/pi-tui@0.80.6':
-    resolution: {integrity: sha512-bSuzS4EVSqEPj/Qr/p9eqCESfKsGuDNbl77EGci8Iaqqt/C/XCBZL1MjXaxSWW1NsT5afjp/Cb0NTPzOLv/aPA==}
+  '@earendil-works/pi-tui@0.82.1':
+    resolution: {integrity: sha512-9yN8hALfKaxZq7n54EMxqhFCWnMi6LHkraMJ/1YjHiATq75XrI6XDMVppn9EDtiK7Fks8hUe1SDXUTrIvwRWfQ==}
     engines: {node: '>=22.19.0'}
 
   '@emmetio/abbreviation@2.3.3':
@@ -8634,7 +8634,7 @@ snapshots:
       '@cursor/sdk-linux-x64': 1.0.23
       '@cursor/sdk-win32-x64': 1.0.23
 
-  '@earendil-works/pi-ai@0.80.6(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)':
+  '@earendil-works/pi-ai@0.82.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)':
     dependencies:
       '@anthropic-ai/sdk': 0.91.1(zod@4.4.3)
       '@aws-sdk/client-bedrock-runtime': 3.1048.0
@@ -8655,7 +8655,7 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-tui@0.80.6':
+  '@earendil-works/pi-tui@0.82.1':
     dependencies:
       get-east-asian-width: 1.6.0
       marked: 18.0.5
