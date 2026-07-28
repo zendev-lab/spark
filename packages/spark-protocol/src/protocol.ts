@@ -272,6 +272,137 @@ export const sparkTaskViewSchema = z.object({
  * Legacy snapshots may still carry evidence kinds here; new emits use
  * `evidence.update` + `sparkEvidenceViewSchema` instead.
  */
+export const SPARK_ARTIFACT_PROJECTION_MAX_INLINE_BYTES = 256 * 1024;
+
+const sparkArtifactProjectionProgressSchema = z
+  .object({
+    label: z.string().optional(),
+    percent: z.number().optional(),
+    stage: z.string().optional(),
+  })
+  .strict();
+
+const sparkArtifactProjectionJsonContentRefSchema = z
+  .object({
+    productArtifactRef: sparkRefSchema,
+    inlineJson: sparkJsonObjectSchema.optional(),
+  })
+  .strict();
+
+const sparkArtifactProjectionPreviewContentRefSchema = z
+  .object({
+    productArtifactRef: sparkRefSchema,
+    previewFormat: z.enum(["md", "mdx", "html", "a2ui", "spark-ui"]),
+    version: z.number().int().positive(),
+    progress: sparkArtifactProjectionProgressSchema.nullable(),
+    inlineMarkdown: z.string().optional(),
+    inlineText: z.string().optional(),
+  })
+  .strict();
+
+export const sparkArtifactProjectionContentRefSchema = z.union([
+  sparkArtifactProjectionPreviewContentRefSchema,
+  sparkArtifactProjectionJsonContentRefSchema,
+]);
+
+function utf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+export const sparkArtifactProjectionSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    format: z.enum(["markdown", "json", "text", "blob"]),
+    mime: z.string().min(1),
+    sizeBytes: z.number().int().nonnegative(),
+    hash: z.string().regex(/^[a-f0-9]{64}$/, "hash must be a lowercase SHA-256 digest"),
+    contentRef: sparkArtifactProjectionContentRefSchema,
+  })
+  .strict()
+  .superRefine((projection, context) => {
+    const contentRef = projection.contentRef;
+    const isPreview = "previewFormat" in contentRef;
+    let inlineBytes: number | undefined;
+
+    if (isPreview) {
+      const isMarkdown = contentRef.previewFormat === "md";
+      const expectedFormat = isMarkdown ? "markdown" : "text";
+      const expectedMime = isMarkdown
+        ? "text/markdown; charset=utf-8"
+        : "text/plain; charset=utf-8";
+      if (projection.format !== expectedFormat) {
+        context.addIssue({
+          code: "custom",
+          message: `${contentRef.previewFormat} preview must use ${expectedFormat} transport format`,
+          path: ["format"],
+        });
+      }
+      if (projection.mime !== expectedMime) {
+        context.addIssue({
+          code: "custom",
+          message: `${contentRef.previewFormat} preview must use ${expectedMime}`,
+          path: ["mime"],
+        });
+      }
+      if (isMarkdown && contentRef.inlineText !== undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "md preview must use inlineMarkdown",
+          path: ["contentRef", "inlineText"],
+        });
+      }
+      if (!isMarkdown && contentRef.inlineMarkdown !== undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "rich preview must use inlineText",
+          path: ["contentRef", "inlineMarkdown"],
+        });
+      }
+      const inline = isMarkdown ? contentRef.inlineMarkdown : contentRef.inlineText;
+      if (inline !== undefined) inlineBytes = utf8ByteLength(inline);
+    } else {
+      if (projection.format !== "json") {
+        context.addIssue({
+          code: "custom",
+          message: "issue/pr Product Artifact projections must use json transport format",
+          path: ["format"],
+        });
+      }
+      if (projection.mime !== "application/json") {
+        context.addIssue({
+          code: "custom",
+          message: "json Product Artifact projection must use application/json",
+          path: ["mime"],
+        });
+      }
+      if (contentRef.inlineJson !== undefined) {
+        if (projection.format !== "json") {
+          context.addIssue({
+            code: "custom",
+            message: "inlineJson requires json transport format",
+            path: ["format"],
+          });
+        }
+        inlineBytes = utf8ByteLength(`${JSON.stringify(contentRef.inlineJson, null, 2)}\n`);
+      }
+    }
+
+    if (inlineBytes !== undefined && inlineBytes > SPARK_ARTIFACT_PROJECTION_MAX_INLINE_BYTES) {
+      context.addIssue({
+        code: "custom",
+        message: `inline Product Artifact projection exceeds ${SPARK_ARTIFACT_PROJECTION_MAX_INLINE_BYTES} bytes`,
+        path: ["contentRef"],
+      });
+    }
+    if (inlineBytes !== undefined && inlineBytes !== projection.sizeBytes) {
+      context.addIssue({
+        code: "custom",
+        message: "sizeBytes must match the projected inline content",
+        path: ["sizeBytes"],
+      });
+    }
+  });
+
 export const sparkArtifactViewSchema = z.object({
   version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),
   ref: sparkRefSchema,
@@ -668,12 +799,46 @@ export const sparkDaemonSessionUpdatedEventSchema = sparkDaemonEventBaseSchema.e
   title: z.string().min(1).optional(),
 });
 
+export const sparkDaemonProductArtifactProjectedEventSchema = sparkDaemonEventBaseSchema
+  .extend({
+    type: z.literal("daemon.product_artifact.projected"),
+    artifact: z
+      .object({
+        ref: sparkRefSchema,
+        kind: z.enum(["issue", "pr", "preview"]),
+        title: z.string().min(1),
+        projection: sparkArtifactProjectionSchema,
+        createdAt: sparkIsoDateTimeSchema.optional(),
+        updatedAt: sparkIsoDateTimeSchema.optional(),
+      })
+      .strict(),
+  })
+  .superRefine((event, context) => {
+    const contentRef = event.artifact.projection.contentRef;
+    if (contentRef.productArtifactRef !== event.artifact.ref) {
+      context.addIssue({
+        code: "custom",
+        message: "projection contentRef must reference the projected Product Artifact",
+        path: ["artifact", "projection", "contentRef", "productArtifactRef"],
+      });
+    }
+    const hasPreviewShape = "previewFormat" in contentRef;
+    if ((event.artifact.kind === "preview") !== hasPreviewShape) {
+      context.addIssue({
+        code: "custom",
+        message: "Product Artifact kind must match its projection content shape",
+        path: ["artifact", "projection", "contentRef"],
+      });
+    }
+  });
+
 export const sparkDaemonEventSchema = z.discriminatedUnion("type", [
   sparkDaemonTaskLifecycleEventSchema,
   sparkDaemonViewEventSchema,
   sparkDaemonInteractionRequestEventSchema,
   sparkDaemonInteractionResponseEventSchema,
   sparkDaemonSessionUpdatedEventSchema,
+  sparkDaemonProductArtifactProjectedEventSchema,
 ]);
 
 export type SparkViewModelStatus = z.infer<typeof sparkViewModelStatusSchema>;
@@ -691,6 +856,10 @@ export type SparkToolCallView = z.infer<typeof sparkToolCallViewSchema>;
 export type SparkRunView = z.infer<typeof sparkRunViewSchema>;
 export type SparkTaskTodoView = z.infer<typeof sparkTaskTodoViewSchema>;
 export type SparkTaskView = z.infer<typeof sparkTaskViewSchema>;
+export type SparkArtifactProjectionContentRef = z.infer<
+  typeof sparkArtifactProjectionContentRefSchema
+>;
+export type SparkArtifactProjection = z.infer<typeof sparkArtifactProjectionSchema>;
 export type SparkArtifactView = z.infer<typeof sparkArtifactViewSchema>;
 export type SparkEvidenceView = z.infer<typeof sparkEvidenceViewSchema>;
 export type SparkSessionMailChannelDeliveryView = z.infer<
@@ -714,6 +883,9 @@ export type SparkDaemonInteractionResponseEvent = z.infer<
   typeof sparkDaemonInteractionResponseEventSchema
 >;
 export type SparkDaemonSessionUpdatedEvent = z.infer<typeof sparkDaemonSessionUpdatedEventSchema>;
+export type SparkDaemonProductArtifactProjectedEvent = z.infer<
+  typeof sparkDaemonProductArtifactProjectedEventSchema
+>;
 export type SparkDaemonEvent = z.infer<typeof sparkDaemonEventSchema>;
 
 export function parseSparkInteractionRequest(value: unknown): SparkInteractionRequest {

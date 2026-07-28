@@ -44,6 +44,7 @@ import type {
   SparkDaemonTaskExecutor,
 } from "../core/types.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";
+import { productArtifactDaemonProjectionEventFromToolResult } from "../product-artifact-projection.ts";
 import type { DaemonSessionRegistry } from "../session-registry.ts";
 import { ensureDaemonSessionTranscript } from "../session-transcript-control.ts";
 import { ChannelReplyEventProjector } from "../channels/reply-stream.ts";
@@ -1124,6 +1125,15 @@ function emitHeadlessEvent(
   task: SparkDaemonSessionRunTask,
   context: SparkDaemonTaskExecutionContext,
 ): void {
+  const productArtifact = productArtifactDaemonProjectionEventFromToolResult(raw, {
+    ...(task.workspaceId ? { workspaceId: task.workspaceId } : {}),
+    ...(task.projectId ? { projectId: task.projectId } : {}),
+    sessionId: task.sessionId,
+    invocationId: context.invocationId,
+    metadata: daemonTaskRouteMetadata(task),
+  });
+  if (productArtifact) void context.emitEvent?.(productArtifact);
+
   const event = daemonEventFromHeadlessEvent(raw, task, context.invocationId);
   if (event) void context.emitEvent?.(event);
 }

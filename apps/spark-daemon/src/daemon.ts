@@ -42,6 +42,7 @@ import type { SparkDaemonModelControl } from "./model-control.ts";
 import { executeSparkDaemonEphemeralSecretControl } from "./model-channel-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import {
+  artifactProjected,
   commandReject,
   commandResult,
   invocationLogChunk,
@@ -50,6 +51,7 @@ import {
   runtimeEnvelope,
   type RouteContext,
 } from "./protocol/outbound.js";
+import { productArtifactProjectionPayload } from "./product-artifact-projection.ts";
 import {
   acknowledgeRuntimeCommandTerminalForRoute,
   claimRuntimeCommandReceipt,
@@ -636,6 +638,20 @@ export function runtimeEnvelopeForInvocationEvent(
     return null;
   }
   const messageId = invocationEventMessageId(pending.event);
+  if (event.type === "daemon.product_artifact.projected") {
+    if (!route.workspaceId) return null;
+    return artifactProjected(
+      productArtifactProjectionPayload(event.artifact, {
+        workspaceId: route.workspaceId,
+        scope: event.projectId ? "project" : "workspace",
+        ...(event.invocationId ? { invocationId: event.invocationId } : {}),
+        ...(event.sessionId ? { sessionId: event.sessionId } : {}),
+        ...(event.projectId ? { projectId: event.projectId } : {}),
+      }),
+      route,
+      { messageId },
+    );
+  }
   if (event.type === "daemon.task.lifecycle") {
     return invocationUpdated(
       {

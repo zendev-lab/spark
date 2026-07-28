@@ -440,12 +440,33 @@ export interface RecordArtifactProjectionInput {
   invocationId?: string | null;
   humanRequestId?: string | null;
   payload: ArtifactProjectionPayload;
+  /** Canonical-store backfills update content without erasing richer runtime associations. */
+  preserveAssociations?: boolean;
   createdAt?: string;
 }
 
 export function recordArtifactProjection(db: DatabaseSync, input: RecordArtifactProjectionInput) {
   return withTransaction(db, () => {
     const timestamp = input.createdAt ?? nowIso();
+    const existing = db
+      .prepare(
+        `SELECT workspace_id AS workspaceId,
+                project_id AS projectId,
+                scope,
+                invocation_id AS invocationId,
+                human_request_id AS humanRequestId,
+                hash,
+                content_ref_json AS contentRefJson,
+                provenance_json AS provenanceJson
+         FROM artifacts
+         WHERE id = ?`,
+      )
+      .get(input.payload.artifactId) as ExistingArtifactProjectionRow | undefined;
+    if (existing && existing.workspaceId !== input.workspaceId) {
+      throw new Error(
+        `Artifact projection ${input.payload.artifactId} already belongs to another workspace.`,
+      );
+    }
     const invocation = input.invocationId
       ? (db
           .prepare(
@@ -456,22 +477,62 @@ export function recordArtifactProjection(db: DatabaseSync, input: RecordArtifact
           | { id: string }
           | undefined)
       : undefined;
+    const incomingProvenance = input.payload.provenance;
+    const existingProvenance = existing ? parseJsonRecord(existing.provenanceJson) : {};
+    const incomingIsStale =
+      existing !== undefined &&
+      isStaleProductArtifactProjection(existing, input.payload, existingProvenance);
+
+    if (incomingIsStale) {
+      const staleProvenance = { ...incomingProvenance, ...existingProvenance };
+      db.prepare(
+        `UPDATE artifacts
+         SET project_id = COALESCE(project_id, ?),
+             scope = CASE
+               WHEN project_id IS NULL AND ? IS NOT NULL THEN ?
+               ELSE scope
+             END,
+             invocation_id = COALESCE(invocation_id, ?),
+             human_request_id = COALESCE(human_request_id, ?),
+             provenance_json = ?
+         WHERE id = ?`,
+      ).run(
+        input.projectId ?? null,
+        input.projectId ?? null,
+        input.payload.scope,
+        invocation?.id ?? null,
+        input.humanRequestId ?? null,
+        toJson(staleProvenance),
+        input.payload.artifactId,
+      );
+      mergeArtifactProjectionLinks(db, input.payload.artifactId, input.payload.links, timestamp);
+      appendArtifactProjectionEvent(db, input, timestamp, existing.projectId);
+      return { artifactId: input.payload.artifactId, ignoredAsStale: true };
+    }
+
+    const provenance =
+      input.preserveAssociations && existing
+        ? { ...existingProvenance, ...incomingProvenance }
+        : incomingProvenance;
 
     db.prepare(
       `INSERT INTO artifacts
         (id, workspace_id, project_id, scope, kind, title, format, source, runtime_workspace_binding_id, invocation_id, human_request_id, hash, size_bytes, content_ref_json, provenance_json, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
-         workspace_id = excluded.workspace_id,
-         project_id = excluded.project_id,
-         scope = excluded.scope,
+         project_id = COALESCE(excluded.project_id, artifacts.project_id),
+         scope = CASE
+           WHEN excluded.project_id IS NULL AND artifacts.project_id IS NOT NULL
+             THEN artifacts.scope
+           ELSE excluded.scope
+         END,
          kind = excluded.kind,
          title = excluded.title,
          format = excluded.format,
          source = excluded.source,
          runtime_workspace_binding_id = excluded.runtime_workspace_binding_id,
-         invocation_id = excluded.invocation_id,
-         human_request_id = excluded.human_request_id,
+         invocation_id = COALESCE(excluded.invocation_id, artifacts.invocation_id),
+         human_request_id = COALESCE(excluded.human_request_id, artifacts.human_request_id),
          hash = excluded.hash,
          size_bytes = excluded.size_bytes,
          content_ref_json = excluded.content_ref_json,
@@ -492,40 +553,143 @@ export function recordArtifactProjection(db: DatabaseSync, input: RecordArtifact
       input.payload.hash ?? null,
       input.payload.sizeBytes ?? null,
       toJson(input.payload.contentRef),
-      toJson(input.payload.provenance),
+      toJson(provenance),
       timestamp,
       timestamp,
     );
 
-    db.prepare("DELETE FROM artifact_links WHERE artifact_id = ?").run(input.payload.artifactId);
-    for (const link of input.payload.links) {
-      db.prepare(
-        `INSERT INTO artifact_links
-          (id, artifact_id, target_kind, target_id, relation, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(
-        createId("link"),
-        input.payload.artifactId,
-        link.targetKind,
-        link.targetId,
-        link.relation,
-        timestamp,
-      );
+    if (!input.preserveAssociations || !existing) {
+      db.prepare("DELETE FROM artifact_links WHERE artifact_id = ?").run(input.payload.artifactId);
+      insertArtifactProjectionLinks(db, input.payload.artifactId, input.payload.links, timestamp);
     }
 
-    appendEvent(db, {
-      workspaceId: input.workspaceId,
-      projectId: input.projectId ?? null,
-      actorKind: input.payload.source === "runtime" ? "runtime" : "server",
-      actorId: input.runtimeWorkspaceBindingId ?? null,
-      kind: "artifact.projected",
-      subjectKind: "artifact",
-      subjectId: input.payload.artifactId,
-      createdAt: timestamp,
-    });
+    appendArtifactProjectionEvent(db, input, timestamp, existing?.projectId);
 
     return { artifactId: input.payload.artifactId };
   });
+}
+
+interface ExistingArtifactProjectionRow {
+  workspaceId: string;
+  projectId: string | null;
+  scope: string;
+  invocationId: string | null;
+  humanRequestId: string | null;
+  hash: string | null;
+  contentRefJson: string;
+  provenanceJson: string;
+}
+
+function isStaleProductArtifactProjection(
+  existing: ExistingArtifactProjectionRow,
+  incoming: ArtifactProjectionPayload,
+  existingProvenance: Record<string, unknown>,
+): boolean {
+  const existingContentRef = parseJsonRecord(existing.contentRefJson);
+  const existingRef = stringField(existingProvenance, "productArtifactRef");
+  const incomingRef = stringField(incoming.provenance, "productArtifactRef");
+  if (!existingRef || !incomingRef || existingRef !== incomingRef) return false;
+
+  const existingVersion = positiveIntegerField(existingContentRef, "version");
+  const incomingVersion = positiveIntegerField(incoming.contentRef, "version");
+  if (existingVersion !== undefined && incomingVersion !== undefined) {
+    return (
+      incomingVersion < existingVersion ||
+      (incomingVersion === existingVersion &&
+        existing.hash !== null &&
+        incoming.hash !== undefined &&
+        incoming.hash !== existing.hash)
+    );
+  }
+
+  const existingUpdatedAt = isoTimeField(existingProvenance, "productArtifactUpdatedAt");
+  const incomingUpdatedAt = isoTimeField(incoming.provenance, "productArtifactUpdatedAt");
+  if (existingUpdatedAt === undefined || incomingUpdatedAt === undefined) return false;
+  return (
+    incomingUpdatedAt < existingUpdatedAt ||
+    (incomingUpdatedAt === existingUpdatedAt &&
+      existing.hash !== null &&
+      incoming.hash !== undefined &&
+      incoming.hash !== existing.hash)
+  );
+}
+
+function insertArtifactProjectionLinks(
+  db: DatabaseSync,
+  artifactId: string,
+  links: ArtifactProjectionPayload["links"],
+  timestamp: string,
+): void {
+  for (const link of links) {
+    db.prepare(
+      `INSERT INTO artifact_links
+        (id, artifact_id, target_kind, target_id, relation, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(createId("link"), artifactId, link.targetKind, link.targetId, link.relation, timestamp);
+  }
+}
+
+function mergeArtifactProjectionLinks(
+  db: DatabaseSync,
+  artifactId: string,
+  links: ArtifactProjectionPayload["links"],
+  timestamp: string,
+): void {
+  for (const link of links) {
+    const exists = db
+      .prepare(
+        `SELECT 1
+         FROM artifact_links
+         WHERE artifact_id = ? AND target_kind = ? AND target_id = ? AND relation = ?
+         LIMIT 1`,
+      )
+      .get(artifactId, link.targetKind, link.targetId, link.relation);
+    if (!exists) insertArtifactProjectionLinks(db, artifactId, [link], timestamp);
+  }
+}
+
+function appendArtifactProjectionEvent(
+  db: DatabaseSync,
+  input: RecordArtifactProjectionInput,
+  timestamp: string,
+  existingProjectId?: string | null,
+): void {
+  appendEvent(db, {
+    workspaceId: input.workspaceId,
+    projectId: input.projectId ?? existingProjectId ?? null,
+    actorKind: input.payload.source === "runtime" ? "runtime" : "server",
+    actorId: input.runtimeWorkspaceBindingId ?? null,
+    kind: "artifact.projected",
+    subjectKind: "artifact",
+    subjectId: input.payload.artifactId,
+    createdAt: timestamp,
+  });
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function stringField(value: Record<string, unknown>, key: string): string | undefined {
+  const field = value[key];
+  return typeof field === "string" && field.trim() ? field : undefined;
+}
+
+function positiveIntegerField(value: Record<string, unknown>, key: string): number | undefined {
+  const field = value[key];
+  return typeof field === "number" && Number.isInteger(field) && field > 0 ? field : undefined;
+}
+
+function isoTimeField(value: Record<string, unknown>, key: string): number | undefined {
+  const field = stringField(value, key);
+  if (!field) return undefined;
+  const time = Date.parse(field);
+  return Number.isNaN(time) ? undefined : time;
 }
 
 export interface RecordCommandAckInput {

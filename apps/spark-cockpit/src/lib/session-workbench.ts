@@ -32,6 +32,8 @@ export interface SessionWorkbenchActivityReport {
   role: string | null;
   status: string | null;
   createdAt: string;
+  artifactKind?: "issue" | "pr" | "preview";
+  artifactFormat?: string;
   runKind?: string;
   interaction?: {
     requestId: string | null;
@@ -457,7 +459,9 @@ function sessionEvidence(
 
 function activityArtifact(report: SessionWorkbenchActivityReport): SessionWorkbenchArtifact {
   const kind =
-    report.kind === "artifact.update" ? "artifact" : report.kind.slice("artifact.".length);
+    report.kind === "artifact.update"
+      ? (report.artifactKind ?? "artifact")
+      : report.kind.slice("artifact.".length);
   const canonicalChange = kind === "diff" || kind === "patch";
   return {
     id: artifactId(report.id),
@@ -465,7 +469,7 @@ function activityArtifact(report: SessionWorkbenchActivityReport): SessionWorkbe
     source: "activity",
     title: report.title || report.id,
     kind,
-    format: canonicalChange ? "diff" : "text",
+    format: canonicalChange ? "diff" : (report.artifactFormat ?? "text"),
     status: report.status,
     producer: report.role,
     createdAt: report.createdAt,

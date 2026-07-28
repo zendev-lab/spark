@@ -3,6 +3,7 @@ import {
   createId,
   runtimeProtocolVersion,
   sparkAgentsCockpitSource,
+  type ArtifactProjectionPayload,
 } from "@zendev-lab/spark-protocol";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import {
@@ -1320,6 +1321,12 @@ describe("projection services", () => {
       payload: artifactPayload,
       createdAt: "2026-05-22T00:02:00.000Z",
     });
+    recordArtifactProjection(db, {
+      runtimeWorkspaceBindingId,
+      workspaceId: workspace.id,
+      payload: { ...artifactPayload, scope: "workspace" },
+      createdAt: "2026-05-22T00:03:00.000Z",
+    });
 
     const snapshotCount = db
       .prepare("SELECT COUNT(*) AS count FROM task_graph_snapshots")
@@ -1331,8 +1338,12 @@ describe("projection services", () => {
       .get(artifactId) as {
       count: number;
     };
-    const artifact = db.prepare("SELECT title FROM artifacts WHERE id = ?").get(artifactId) as {
+    const artifact = db
+      .prepare("SELECT title, project_id AS projectId, scope FROM artifacts WHERE id = ?")
+      .get(artifactId) as {
       title: string;
+      projectId: string | null;
+      scope: string;
     };
     const linkCount = db
       .prepare("SELECT COUNT(*) AS count FROM artifact_links WHERE artifact_id = ?")
@@ -1341,8 +1352,161 @@ describe("projection services", () => {
     expect(replayedSnapshot.snapshotId).toBe(snapshot.snapshotId);
     expect(snapshotCount.count).toBe(1);
     expect(artifact.title).toBe("MVP report");
+    expect(artifact.projectId).toBe(project.id);
+    expect(artifact.scope).toBe("project");
     expect(artifactCount.count).toBe(1);
     expect(linkCount.count).toBe(1);
+    db.close();
+  });
+
+  it("keeps Product Artifact revisions monotonic while reconcile preserves rich associations", () => {
+    const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
+    const workspace = createWorkspaceWithLease(db, {
+      slug: "product-artifacts",
+      name: "Product artifacts",
+      runtimeWorkspaceBindingId,
+      createdAt: now,
+    });
+    const project = createProject(db, {
+      workspaceId: workspace.id,
+      slug: "preview",
+      name: "Preview",
+      createdAt: now,
+    });
+    const artifactId = createId("art");
+    const productArtifactRef = "artifact:preview:monotonic";
+    const projection = (
+      version: number,
+      updatedAt: string,
+      content: string,
+    ): ArtifactProjectionPayload => ({
+      artifactId,
+      scope: "project" as const,
+      kind: "preview",
+      title: "Monotonic preview",
+      format: "text" as const,
+      source: "runtime" as const,
+      hash: `hash-v${version}`,
+      sizeBytes: Buffer.byteLength(content),
+      contentRef: {
+        productArtifactRef,
+        previewFormat: "mdx",
+        version,
+        progress: null,
+        inlineText: content,
+      },
+      provenance: {
+        producer: "spark-product-artifact",
+        productArtifactRef,
+        productArtifactUpdatedAt: updatedAt,
+        runtimeInvocationId: `inv-${version}`,
+      },
+      links: [
+        {
+          targetKind: "invocation",
+          targetId: `inv-${version}`,
+          relation: "produced-by",
+        },
+      ],
+    });
+
+    const revisionOne = projection(1, "2026-05-22T00:01:00.000Z", "version one");
+    const revisionTwo = projection(2, "2026-05-22T00:02:00.000Z", "version two");
+    recordArtifactProjection(db, {
+      runtimeWorkspaceBindingId,
+      workspaceId: workspace.id,
+      projectId: project.id,
+      payload: revisionOne,
+      createdAt: "2026-05-22T00:01:00.000Z",
+    });
+    recordArtifactProjection(db, {
+      runtimeWorkspaceBindingId,
+      workspaceId: workspace.id,
+      projectId: project.id,
+      payload: revisionTwo,
+      createdAt: "2026-05-22T00:02:00.000Z",
+    });
+
+    recordArtifactProjection(db, {
+      runtimeWorkspaceBindingId,
+      workspaceId: workspace.id,
+      payload: {
+        ...revisionOne,
+        scope: "workspace",
+        provenance: {
+          producer: "spark-product-artifact",
+          productArtifactRef,
+          productArtifactUpdatedAt: "2026-05-22T00:01:00.000Z",
+        },
+        links: [],
+      },
+      preserveAssociations: true,
+      createdAt: "2026-05-22T00:03:00.000Z",
+    });
+
+    const revisionThree = projection(3, "2026-05-22T00:04:00.000Z", "version three");
+    recordArtifactProjection(db, {
+      runtimeWorkspaceBindingId,
+      workspaceId: workspace.id,
+      payload: {
+        ...revisionThree,
+        scope: "workspace",
+        provenance: {
+          producer: "spark-product-artifact",
+          productArtifactRef,
+          productArtifactUpdatedAt: "2026-05-22T00:04:00.000Z",
+        },
+        links: [],
+      },
+      preserveAssociations: true,
+      createdAt: "2026-05-22T00:04:00.000Z",
+    });
+
+    const stored = db
+      .prepare(
+        `SELECT project_id AS projectId,
+                scope,
+                hash,
+                content_ref_json AS contentRefJson,
+                provenance_json AS provenanceJson
+         FROM artifacts
+         WHERE id = ?`,
+      )
+      .get(artifactId) as {
+      projectId: string | null;
+      scope: string;
+      hash: string | null;
+      contentRefJson: string;
+      provenanceJson: string;
+    };
+    expect(stored.projectId).toBe(project.id);
+    expect(stored.scope).toBe("project");
+    expect(stored.hash).toBe("hash-v3");
+    expect(parseJson(stored.contentRefJson, "content ref")).toMatchObject({
+      version: 3,
+      inlineText: "version three",
+    });
+    expect(parseJson(stored.provenanceJson, "provenance")).toMatchObject({
+      productArtifactUpdatedAt: "2026-05-22T00:04:00.000Z",
+      runtimeInvocationId: "inv-2",
+    });
+    expect(
+      db
+        .prepare(
+          `SELECT target_id AS targetId, relation
+           FROM artifact_links
+           WHERE artifact_id = ?`,
+        )
+        .all(artifactId),
+    ).toEqual([{ targetId: "inv-2", relation: "produced-by" }]);
+
+    expect(() =>
+      recordArtifactProjection(db, {
+        runtimeWorkspaceBindingId,
+        workspaceId: "ws_other",
+        payload: revisionThree,
+      }),
+    ).toThrow(/already belongs to another workspace/);
     db.close();
   });
 });

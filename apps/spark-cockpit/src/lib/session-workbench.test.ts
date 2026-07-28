@@ -350,6 +350,17 @@ describe("session workbench projection", () => {
             status: "completed",
             createdAt: "2026-07-13T08:03:00.000Z",
           },
+          {
+            id: "artifact:preview-reload-safe",
+            kind: "artifact.update",
+            artifactKind: "preview",
+            artifactFormat: "mdx",
+            title: "Reload-safe preview",
+            text: "Projected product preview.",
+            role: "assistant",
+            status: "ready",
+            createdAt: "2026-07-13T08:04:00.000Z",
+          },
         ],
       },
     });
@@ -369,6 +380,15 @@ describe("session workbench projection", () => {
         source: "activity",
         kind: "evidence",
         title: "Reload-safe artifact",
+      },
+    ]);
+    expect(view.artifacts).toMatchObject([
+      {
+        id: "preview-reload-safe",
+        source: "activity",
+        kind: "preview",
+        format: "mdx",
+        status: "ready",
       },
     ]);
   });
