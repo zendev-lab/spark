@@ -96,8 +96,9 @@ export function registerSparkTodoTools(
       const before = await loadIndependentTodos(cwd, ctx);
       const todos = applyIndependentTodoOps(before, [op]);
       await saveIndependentTodos(cwd, ctx, todos);
+      const persisted = await loadIndependentTodos(cwd, ctx);
       await deps.refreshSparkWidget(cwd, ctx);
-      return renderTodoMutation(action, before, todos);
+      return renderTodoMutation(action, before, persisted);
     },
   });
 
