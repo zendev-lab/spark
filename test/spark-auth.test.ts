@@ -196,6 +196,32 @@ test("SparkProviderAuthResolver handles env, stored API key, literal, and OAuth 
   });
 });
 
+test("SparkProviderAuthResolver observes OAuth login from another process immediately", async () => {
+  await withAuthDir(async (_dir, authPath) => {
+    registerSparkOAuthProvider(testOAuthProvider());
+    const daemonStore = new SparkAuthStore({ path: authPath });
+    const loginStore = new SparkAuthStore({ path: authPath });
+    await daemonStore.reload();
+    const resolver = new SparkProviderAuthResolver(daemonStore);
+    const provider = providerConfig("oauth:test-oauth");
+
+    assert.equal(resolver.resolveApiKey(provider), undefined);
+    await loginStore.setOAuth("test-oauth", {
+      ...oauthCredentials,
+      access: "token-from-completed-login",
+      expires: Number.MAX_SAFE_INTEGER,
+    });
+
+    assert.equal(
+      resolver.resolveApiKey(provider),
+      undefined,
+      "the long-lived daemon store remains stale until async resolution reloads it",
+    );
+    assert.equal(await resolver.resolveApiKeyAsync(provider), "token-from-completed-login");
+    assert.equal(resolver.resolveApiKey(provider), "token-from-completed-login");
+  });
+});
+
 test("SparkProviderAuthResolver resolves Cursor env and stored API keys without status leakage", async () => {
   await withAuthDir(async (_dir, authPath) => {
     const registry = new SparkProviderRegistry();

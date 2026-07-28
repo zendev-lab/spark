@@ -38,11 +38,11 @@
       "stability": "supported",
       "stateWriter": "host"
     },
-    "@zendev-lab/spark-acp-spike": {
-      "path": "packages/spark-acp-spike",
-      "layer": "experiment",
-      "owner": "protocol-experiments",
-      "stability": "experimental",
+    "@zendev-lab/spark-acp": {
+      "path": "packages/spark-acp",
+      "layer": "adapter",
+      "owner": "acp",
+      "stability": "supported",
       "stateWriter": "none"
     },
     "@zendev-lab/spark-ai": {

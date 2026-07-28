@@ -260,7 +260,7 @@ class LocalSparkProviderControl implements SparkProviderControl {
     return await createProviderRegistryLeafRunner({
       registry: state.registry,
       runnerOptions: {
-        resolveApiKey: (provider) => this.#authResolver.resolveApiKey(provider),
+        resolveApiKey: (provider) => this.#authResolver.resolveApiKeyAsync(provider),
       },
     })(request);
   }

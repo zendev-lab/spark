@@ -58,8 +58,10 @@ state; Cockpit owns its coordination database and projections.
   rewritten while reading configuration; there is no facade workspace.
 - `spark-cockpit-*` names are Cockpit-private. Shared code must move to a
   capability or foundation package before daemon/native reuse.
-- `spark-acp-spike` and `spark-mcp-spike` remain experiments until they have a
-  production owner, default lifecycle, and validation contract.
+- `spark-acp` is the supported stateless ACP adapter. It depends on
+  `spark-daemon-client` and `spark-protocol`, while daemon session/invocation
+  stores remain the only writers. `spark-mcp-spike` remains experimental until
+  it has a production owner, default lifecycle, and validation contract.
 - `spark-context` was removed after all callers converged on
   `spark-host/context`; compatibility-only re-export packages are not permanent
   architecture.

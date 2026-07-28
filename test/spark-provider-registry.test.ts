@@ -180,6 +180,64 @@ test("createProviderRegistryStreamFunction normalizes bare async provider stream
   assert.deepEqual(await stream.result(), retaggedAssistant);
 });
 
+test("createProviderRegistryStreamFunction awaits hot-reloaded provider auth", async () => {
+  const registry = new SparkProviderRegistry();
+  const capture: { options?: { apiKey?: string } } = {};
+  const capturedApiKey = () => capture.options?.apiKey;
+  const assistant = {
+    role: "assistant",
+    content: [{ type: "text", text: "authenticated" }],
+    stopReason: "stop",
+  };
+  registry.registerProvider("fake", {
+    ...fakeProvider,
+    streamSimple: (_model, _context, options) => {
+      capture.options = options as { apiKey?: string };
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield { type: "done", reason: "stop", message: assistant };
+        },
+      };
+    },
+  });
+  registry.setActive({ providerName: "fake", modelId: "model-a" });
+
+  const stream = createProviderRegistryStreamFunction(registry, {
+    resolveApiKey: async () => {
+      await Promise.resolve();
+      return "hot-reloaded-token";
+    },
+  })(registry.buildActiveModel() as never, { messages: [], tools: [] } as never);
+
+  assert.equal(capturedApiKey(), undefined, "provider startup must wait for async auth resolution");
+  await stream.result();
+  assert.equal(capturedApiKey(), "hot-reloaded-token");
+});
+
+test("createProviderRegistryStreamFunction fails closed when auth reload fails", async () => {
+  const registry = new SparkProviderRegistry();
+  let providerStarted = false;
+  registry.registerProvider("fake", {
+    ...fakeProvider,
+    streamSimple: () => {
+      providerStarted = true;
+      return fakeStream(undefined, undefined);
+    },
+  });
+  registry.setActive({ providerName: "fake", modelId: "model-a" });
+
+  const stream = createProviderRegistryStreamFunction(registry, {
+    resolveApiKey: async () => {
+      throw new Error("auth reload failed");
+    },
+  })(registry.buildActiveModel() as never, { messages: [], tools: [] } as never);
+  const result = await stream.result();
+
+  assert.equal(providerStarted, false);
+  assert.equal(result.stopReason, "error");
+  assert.match(result.errorMessage ?? "", /auth reload failed/u);
+});
+
 test("createProviderRegistryStreamFunction rejects non-stream provider outputs", () => {
   const registry = new SparkProviderRegistry();
   registry.registerProvider("fake", fakeProvider);

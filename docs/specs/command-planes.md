@@ -13,10 +13,11 @@ spark <plane> <resource> <verb> [args...]
 | `spark daemon` | daemon execution plane | persistent sessions, channel listeners, SQLite invocations, autonomous driver timing/retry/recovery, events, logs, process state | domain goal/review/task definitions |
 | `spark cockpit` | coordination plane and web UI host | project, task, goal, review, evidence, workflow, workspace coordination, assign, and Cockpit UI | daemon execution or autonomous timers, local process logs, TUI rendering |
 | `spark tui` | tui local control plane | interactive terminal UI, attach/resume, visible transcript, theme, export | canonical business-state ownership |
+| `spark acp` | ACP stdio adapter | protocol translation for new/prompt/cancel/permission | durable sessions, invocations, provider policy, or execution truth |
 | slash `system` | TUI kernel command source | `/help`, `/exit`, `/quit`, `/clear`, `/reload` | project/task/goal/session/workflow commands |
 | slash `extension` | extension command source | extension-owned resource commands | TUI kernel lifecycle |
 
-`spark cockpit` is both the coordination CLI and the web UI host; it is not a second daemon execution plane.
+`spark cockpit` is both the coordination CLI and the web UI host; it is not a second daemon execution plane. `spark acp` is a stateless adapter: its session id is the canonical daemon session id and only connection-local active-invocation routing is retained.
 
 ## Boundary invariants
 
@@ -28,7 +29,7 @@ spark <plane> <resource> <verb> [args...]
 
 | Domain | Authoritative owner | Adapters and projections |
 | --- | --- | --- |
-| persistent sessions, invocations, Side Threads, channel execution | `apps/spark-daemon` using the shared registry/store contracts | local RPC, runtime WebSocket, TUI, Cockpit, channel transports |
+| persistent sessions, invocations, Side Threads, channel execution | `apps/spark-daemon` using the shared registry/store contracts | local RPC, runtime WebSocket, TUI, Cockpit, ACP, channel transports |
 | autonomous goal/loop/repro/implement/workflow cadence, retry, and recovery | `apps/spark-daemon`; capability packages provide registered success/retry policy | TUI, Cockpit, and compatible hosts send controls and render `driver.update` |
 | model/tool turn execution and effect policy | `spark-turn` and `spark-host` | daemon and native host runners provide session context |
 | cross-surface schemas and semantics | `spark-protocol` | each transport performs validation and translation only |

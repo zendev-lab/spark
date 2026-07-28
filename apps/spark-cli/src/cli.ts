@@ -13,7 +13,7 @@ import {
 
 const dispatcherStrings = sparkCliDispatcherStrings();
 
-export type SparkDispatcherTarget = "tui" | "daemon" | "cockpit";
+export type SparkDispatcherTarget = "tui" | "daemon" | "cockpit" | "acp";
 
 export type SparkDispatcherCommand =
   | {
@@ -79,6 +79,8 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
       return errorCommand('The "spark server" namespace was removed. Use "spark cockpit" instead.');
     case "cockpit":
       return { kind: "dispatch", target: "cockpit", argv: rest };
+    case "acp":
+      return { kind: "dispatch", target: "acp", argv: rest };
     case "sessions":
     case "session":
       return { kind: "dispatch", target: "tui", argv };
@@ -374,6 +376,8 @@ export function resolveTargetCommand(target: SparkDispatcherTarget): {
       return { command: "spark-tui", args: ["daemon"], label: targetLabel(target) };
     case "cockpit":
       return { command: "spark-cockpit", args: [], label: targetLabel(target) };
+    case "acp":
+      return { command: "spark-acp", args: [], label: targetLabel(target) };
   }
 }
 
@@ -389,16 +393,23 @@ function localTargetCommand(target: SparkDispatcherTarget): string | undefined {
       return fileURLToPath(new URL("../../spark-tui/bin/spark-tui", import.meta.url));
     case "cockpit":
       return fileURLToPath(new URL("../../spark-cockpit/bin/spark-cockpit", import.meta.url));
+    case "acp":
+      return fileURLToPath(
+        new URL("../../../packages/spark-acp/scripts/stdio.ts", import.meta.url),
+      );
   }
 }
 
 function productTargetCommand(target: SparkDispatcherTarget): string | undefined {
   const productDist = process.env.SPARK_PRODUCT_DIST;
   if (!productDist) return undefined;
-  const productEntry = join(
-    productDist,
-    target === "cockpit" ? "spark-cockpit.js" : "spark-tui.js",
-  );
+  const entryByTarget: Record<SparkDispatcherTarget, string> = {
+    tui: "spark-tui.js",
+    daemon: "spark-tui.js",
+    cockpit: "spark-cockpit.js",
+    acp: "spark-acp.js",
+  };
+  const productEntry = join(productDist, entryByTarget[target]);
   return existsSync(productEntry) ? productEntry : undefined;
 }
 

@@ -1,6 +1,6 @@
 ---
 title: CLI reference
-description: Stable public Spark dispatcher commands and common daemon and Cockpit operations.
+description: Stable public Spark dispatcher commands and common daemon, Cockpit, and ACP operations.
 ---
 
 ## Dispatcher
@@ -17,6 +17,7 @@ spark update status|check|apply|rollback|retry|configure
 spark version [--json]
 spark daemon <command> [args...]
 spark cockpit [command] [args...]
+spark acp
 spark --help
 spark --version
 ```
@@ -31,6 +32,7 @@ spark --version
 - `spark version` reports exact package and build identity.
 - `spark daemon` addresses execution-plane resources.
 - `spark cockpit` starts or administers the web coordination surface.
+- `spark acp` starts the ACP NDJSON stdio adapter over daemon-owned sessions.
 
 Unknown subcommands fail instead of being treated as prompts.
 
@@ -72,6 +74,14 @@ spark daemon invocation status <invocation-id> --json
 spark daemon invocation stream <invocation-id> --after <cursor> --limit 500 --json
 spark daemon invocation cancel <invocation-id> --reason <text> --json
 ```
+
+## ACP clients
+
+Start the daemon before configuring an ACP client to launch `spark acp`. The
+adapter currently supports session new, text prompt, cancel, streamed assistant
+and tool updates, and tool permission. Session load/resume/fork, provider
+selection, and MCP-over-ACP are not advertised. stdout is reserved for ACP
+NDJSON; startup recovery details go to stderr.
 
 ## Workspaces and remote Cockpit
 

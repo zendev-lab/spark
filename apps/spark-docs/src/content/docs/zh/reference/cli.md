@@ -1,6 +1,6 @@
 ---
 title: CLI 参考
-description: 稳定的公开 Spark 分发命令，以及常用 daemon 和 Cockpit 操作。
+description: 稳定的公开 Spark 分发命令，以及常用 daemon、Cockpit 与 ACP 操作。
 ---
 
 ## 分发器
@@ -17,6 +17,7 @@ spark update status|check|apply|rollback|retry|configure
 spark version [--json]
 spark daemon <command> [args...]
 spark cockpit [command] [args...]
+spark acp
 spark --help
 spark --version
 ```
@@ -31,6 +32,7 @@ spark --version
 - `spark version` 报告精确的 package 与 build identity。
 - `spark daemon` 操作 execution-plane 资源。
 - `spark cockpit` 启动或管理 Web coordination 界面。
+- `spark acp` 在 daemon-owned session 上启动 ACP NDJSON stdio adapter。
 
 未知子命令会失败，不会被解释为 prompt。
 
@@ -71,6 +73,13 @@ spark daemon invocation status <invocation-id> --json
 spark daemon invocation stream <invocation-id> --after <cursor> --limit 500 --json
 spark daemon invocation cancel <invocation-id> --reason <text> --json
 ```
+
+## ACP client
+
+配置 ACP client 启动 `spark acp` 前，应先启动 daemon。当前 adapter 支持
+session new、文本 prompt、cancel、assistant/tool 流式更新和 tool permission；
+不宣告 session load/resume/fork、provider selection 或 MCP-over-ACP。stdout
+只用于 ACP NDJSON，启动失败的恢复提示写入 stderr。
 
 ## Workspace 与远程 Cockpit
 
