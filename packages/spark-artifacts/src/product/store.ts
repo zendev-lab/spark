@@ -55,9 +55,9 @@ export class ProductArtifactStore {
     if (!isProductArtifactFormat(format)) {
       throw new ProductArtifactValidationError(`invalid format: ${String(format)}`);
     }
-    const now = new Date().toISOString();
     const ref = input.ref ?? newProductArtifactRef();
     const existing = input.ref ? await this.tryGet<T>(input.ref) : null;
+    const updatedAt = nextProductArtifactTimestamp(existing?.updatedAt);
     const serialized = serializeBody(format, input.body);
     const hash = createHash("sha256").update(serialized).digest("hex");
     const blobPath = join("blobs", `${hash}.${extensionForFormat(format)}`);
@@ -69,8 +69,8 @@ export class ProductArtifactStore {
       body: input.body,
       hash,
       blobPath,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
+      createdAt: existing?.createdAt ?? updatedAt,
+      updatedAt,
     };
     if (!artifact.title) throw new ProductArtifactValidationError("title is required");
     await writeTextFileAtomic(join(this.rootDir, blobPath), serialized);
@@ -155,6 +155,14 @@ export function newProductArtifactRef(id: string = randomUUID()): ProductArtifac
 
 export function defaultProductArtifactStore(cwd: string): ProductArtifactStore {
   return new ProductArtifactStore({ rootDir: join(cwd, ".spark", "artifacts") });
+}
+
+function nextProductArtifactTimestamp(previous?: string): string {
+  const currentTime = Date.now();
+  const previousTime = previous ? Date.parse(previous) : Number.NaN;
+  return new Date(
+    Number.isNaN(previousTime) ? currentTime : Math.max(currentTime, previousTime + 1),
+  ).toISOString();
 }
 
 function defaultFormatForKind(kind: ProductArtifactKind): ProductArtifactFormat {

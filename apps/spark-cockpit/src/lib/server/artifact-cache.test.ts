@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -355,7 +355,7 @@ describe("artifact cache", () => {
     }
   });
 
-  it("readArtifactPreviewContent transitions to read_error when the cached file vanishes", () => {
+  it("readArtifactPreviewContent rematerializes inline content when the cache file vanishes", () => {
     const { db, now, runtimeWorkspaceBindingId, workspace } = setupWorkspace();
     const cacheRoot = mkdtempSync(join(tmpdir(), "spark-artifact-cache-"));
     const artifactId = createId("art");
@@ -384,12 +384,9 @@ describe("artifact cache", () => {
       rmSync(cache.cachePath, { force: true });
 
       const result = readArtifactPreviewContent(db, artifactId, { cacheRoot, now });
-      expect(result.cache.previewStatus).toBe("error");
-      expect(result.cache.error?.reason).toBe("read_error");
-      expect(result.body).toBeUndefined();
-      // Touch the cache path so finally cleanup is happy if anything else
-      // needs it; not strictly necessary for the assertion.
-      writeFileSync(cache.cachePath, "leftover");
+      expect(result.cache.previewStatus).toBe("ready");
+      expect(result.cache.error).toBeNull();
+      expect(result.body?.toString("utf8")).toBe("# Hello\n");
     } finally {
       db.close();
       rmSync(cacheRoot, { recursive: true, force: true });

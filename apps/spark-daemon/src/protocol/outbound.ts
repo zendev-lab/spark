@@ -95,8 +95,12 @@ export function daemonEvent(payload: DaemonEventPayload, route: RouteContext) {
   return runtimeEnvelope("daemon.event", payload, route);
 }
 
-export function artifactProjected(payload: ArtifactProjectionPayload, route: RouteContext) {
-  return runtimeEnvelope("artifact.projected", payload, route);
+export function artifactProjected(
+  payload: ArtifactProjectionPayload,
+  route: RouteContext,
+  options: { messageId?: string } = {},
+) {
+  return runtimeEnvelope("artifact.projected", payload, route, options);
 }
 
 export function reconcileReport(payload: RuntimeReconcileReportPayload, route: RouteContext) {

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -94,6 +94,132 @@ describe("artifact preview cache", () => {
       const cache = ensureArtifactPreviewCache(db, "artifact-large", { cacheRoot });
       expect(cache.previewStatus).toBe("too_large");
       expect(cache.error?.reason).toBe("too_large");
+    } finally {
+      rmSync(cacheRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("replaces a cached preview when its content reference changes without a hash", () => {
+    const { db, workspace, runtimeWorkspaceBindingId } = setupWorkspace();
+    const cacheRoot = mkdtempSync(join(tmpdir(), "spark-artifact-cache-"));
+    try {
+      const basePayload = {
+        artifactId: "artifact-content-update",
+        scope: "workspace" as const,
+        kind: "document",
+        title: "Updated preview",
+        format: "markdown" as const,
+        source: "runtime" as const,
+        provenance: { producer: "task" },
+        links: [],
+      };
+      recordArtifactProjection(db, {
+        workspaceId: workspace.id,
+        runtimeWorkspaceBindingId,
+        payload: { ...basePayload, contentRef: { inlineMarkdown: "# First\n" } },
+      });
+      const first = ensureArtifactPreviewCache(db, basePayload.artifactId, {
+        cacheRoot,
+        now: "2026-05-22T00:01:00.000Z",
+      });
+
+      recordArtifactProjection(db, {
+        workspaceId: workspace.id,
+        runtimeWorkspaceBindingId,
+        payload: { ...basePayload, contentRef: { inlineMarkdown: "# Second\n" } },
+      });
+      const second = readArtifactPreviewContent(db, basePayload.artifactId, {
+        cacheRoot,
+        now: "2026-05-22T00:02:00.000Z",
+      });
+
+      expect(second.cache.id).toBe(first.id);
+      expect(second.cache.sourceRef).toEqual({ inlineMarkdown: "# Second\n" });
+      expect(second.body?.toString("utf8")).toBe("# Second\n");
+      expect(
+        (
+          db
+            .prepare(
+              "SELECT COUNT(*) AS count FROM artifact_cache_blobs WHERE artifact_id = ? AND state != 'evicted'",
+            )
+            .get(basePayload.artifactId) as { count: number }
+        ).count,
+      ).toBe(1);
+    } finally {
+      rmSync(cacheRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("replaces a cached preview when its artifact hash changes", () => {
+    const { db, workspace, runtimeWorkspaceBindingId } = setupWorkspace();
+    const cacheRoot = mkdtempSync(join(tmpdir(), "spark-artifact-cache-"));
+    try {
+      const basePayload = {
+        artifactId: "artifact-hash-update",
+        scope: "workspace" as const,
+        kind: "document",
+        title: "Hashed preview",
+        format: "text" as const,
+        source: "runtime" as const,
+        contentRef: { inlineText: "canonical\n" },
+        provenance: { producer: "task" },
+        links: [],
+      };
+      recordArtifactProjection(db, {
+        workspaceId: workspace.id,
+        runtimeWorkspaceBindingId,
+        payload: { ...basePayload, hash: "sha256:first" },
+      });
+      const first = ensureArtifactPreviewCache(db, basePayload.artifactId, { cacheRoot });
+      writeFileSync(first.cachePath, "stale\n", "utf8");
+
+      recordArtifactProjection(db, {
+        workspaceId: workspace.id,
+        runtimeWorkspaceBindingId,
+        payload: { ...basePayload, hash: "sha256:second" },
+      });
+      const second = readArtifactPreviewContent(db, basePayload.artifactId, { cacheRoot });
+
+      expect(second.cache.id).toBe(first.id);
+      expect(second.cache.hash).toBe("sha256:second");
+      expect(second.body?.toString("utf8")).toBe("canonical\n");
+    } finally {
+      rmSync(cacheRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rematerializes a ready inline preview when its cache file is missing", () => {
+    const { db, workspace, runtimeWorkspaceBindingId } = setupWorkspace();
+    const cacheRoot = mkdtempSync(join(tmpdir(), "spark-artifact-cache-"));
+    try {
+      recordArtifactProjection(db, {
+        workspaceId: workspace.id,
+        runtimeWorkspaceBindingId,
+        payload: {
+          artifactId: "artifact-missing-file",
+          scope: "workspace",
+          kind: "document",
+          title: "Recoverable preview",
+          format: "markdown",
+          source: "runtime",
+          contentRef: { inlineMarkdown: "# Restored\n" },
+          provenance: { producer: "task" },
+          links: [],
+        },
+      });
+      const first = ensureArtifactPreviewCache(db, "artifact-missing-file", { cacheRoot });
+      rmSync(first.cachePath);
+      expect(existsSync(first.cachePath)).toBe(false);
+
+      const recovered = readArtifactPreviewContent(db, "artifact-missing-file", {
+        cacheRoot,
+        now: "2026-05-22T00:03:00.000Z",
+      });
+
+      expect(recovered.cache.id).toBe(first.id);
+      expect(recovered.cache.previewStatus).toBe("ready");
+      expect(recovered.body?.toString("utf8")).toBe("# Restored\n");
+      expect(existsSync(first.cachePath)).toBe(true);
     } finally {
       rmSync(cacheRoot, { recursive: true, force: true });
     }

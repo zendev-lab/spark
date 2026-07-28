@@ -21,6 +21,7 @@ import {
   serializeServerCommandEnvelope,
   taskGraphSnapshotEnvelopeSchema,
   workspaceSnapshotEnvelopeSchema,
+  type ArtifactProjectionPayload,
 } from "@zendev-lab/spark-protocol";
 import {
   markRuntimeControlCommandDeliveryAttempt,
@@ -478,6 +479,10 @@ export function handleMvpRuntimeMessage(
       invocationId: routed.invocationId || null,
       humanRequestId: routed.humanRequestId || null,
       payload: artifactProjection.data.payload,
+      preserveAssociations: isContextFreeProductArtifactReconcile(
+        artifactProjection.data.payload,
+        routed,
+      ),
     });
     rememberProcessedRuntimeMessage(context, artifactProjection.data);
     sendIngestAck(
@@ -490,6 +495,25 @@ export function handleMvpRuntimeMessage(
   }
 
   return false;
+}
+
+function isContextFreeProductArtifactReconcile(
+  payload: ArtifactProjectionPayload,
+  route: {
+    projectId?: string;
+    invocationId?: string;
+    sessionId?: string;
+    humanRequestId: string;
+  },
+): boolean {
+  return (
+    payload.scope === "workspace" &&
+    payload.provenance.producer === "spark-product-artifact" &&
+    !route.projectId &&
+    !route.invocationId &&
+    !route.sessionId &&
+    !route.humanRequestId
+  );
 }
 
 function validateRecordedHumanResponseRoute(

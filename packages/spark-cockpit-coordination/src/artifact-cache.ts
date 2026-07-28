@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { isDeepStrictEqual } from "node:util";
 import { createId } from "@zendev-lab/spark-protocol";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 
@@ -104,23 +105,6 @@ export function ensureArtifactPreviewCache(
   }
 
   const timestamp = options.now ?? new Date().toISOString();
-  const existing = db
-    .prepare(
-      `SELECT *
-       FROM artifact_cache_blobs
-       WHERE artifact_id = ? AND is_preview = 1 AND state != 'evicted'
-       ORDER BY created_at DESC
-       LIMIT 1`,
-    )
-    .get(artifactId) as ArtifactCacheBlobRow | undefined;
-
-  if (existing) {
-    db.prepare(
-      "UPDATE artifact_cache_blobs SET last_accessed_at = ?, updated_at = ? WHERE id = ?",
-    ).run(timestamp, timestamp, existing.id);
-    return mapCacheRow({ ...existing, last_accessed_at: timestamp, updated_at: timestamp });
-  }
-
   const contentRef = parseJsonObject(artifact.contentRefJson);
   const explicit = explicitNonReadyReason({
     format: artifact.format,
@@ -133,36 +117,98 @@ export function ensureArtifactPreviewCache(
     safePathSegment(artifact.id),
     `preview${extensionForFormat(artifact.format, inline?.mime)}`,
   );
-  const cacheId = createId("blob");
   const state: ArtifactCacheRecord["state"] = explicit ? "failed" : inline ? "ready" : "missing";
   const sizeBytes = inline ? Buffer.byteLength(inline.body) : artifact.sizeBytes;
   const mime = inline?.mime ?? mimeForFormat(artifact.format);
   const errorJson = explicit ? JSON.stringify(explicit) : null;
+  const existing = db
+    .prepare(
+      `SELECT *
+       FROM artifact_cache_blobs
+       WHERE artifact_id = ? AND is_preview = 1 AND state != 'evicted'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    )
+    .get(artifactId) as ArtifactCacheBlobRow | undefined;
+
+  const existingError = existing?.error_json ? parseErrorJson(existing.error_json) : null;
+  const sourceChanged =
+    existing !== undefined &&
+    (existing.hash !== artifact.hash ||
+      !isDeepStrictEqual(parseJsonObject(existing.source_ref_json), contentRef));
+  const cacheShapeChanged =
+    existing !== undefined &&
+    (existing.cache_path !== cachePath ||
+      existing.mime !== mime ||
+      existing.size_bytes !== (sizeBytes ?? null));
+  const recoverableCacheFailure =
+    existing !== undefined &&
+    ((existing.state === "ready" && !existsSync(existing.cache_path)) ||
+      (existing.state === "failed" && existingError?.reason === "read_error" && inline !== null));
+
+  if (existing && !sourceChanged && !cacheShapeChanged && !recoverableCacheFailure) {
+    db.prepare(
+      "UPDATE artifact_cache_blobs SET last_accessed_at = ?, updated_at = ? WHERE id = ?",
+    ).run(timestamp, timestamp, existing.id);
+    return mapCacheRow({ ...existing, last_accessed_at: timestamp, updated_at: timestamp });
+  }
+
+  const cacheId = existing?.id ?? createId("blob");
 
   mkdirSync(dirname(cachePath), { recursive: true });
   if (inline) {
     writeFileSync(cachePath, inline.body, "utf8");
   }
 
-  db.prepare(
-    `INSERT INTO artifact_cache_blobs
-      (id, artifact_id, hash, size_bytes, mime, cache_path, source_ref_json, state, is_preview, pin_reason, fetched_at, last_accessed_at, expires_at, error_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?, NULL, ?, ?, ?)`,
-  ).run(
-    cacheId,
-    artifact.id,
-    artifact.hash,
-    sizeBytes ?? null,
-    mime,
-    cachePath,
-    JSON.stringify(contentRef),
-    state,
-    inline ? timestamp : null,
-    timestamp,
-    errorJson,
-    timestamp,
-    timestamp,
-  );
+  if (existing) {
+    db.prepare(
+      `UPDATE artifact_cache_blobs
+       SET hash = ?,
+           size_bytes = ?,
+           mime = ?,
+           cache_path = ?,
+           source_ref_json = ?,
+           state = ?,
+           fetched_at = ?,
+           last_accessed_at = ?,
+           expires_at = NULL,
+           error_json = ?,
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(
+      artifact.hash,
+      sizeBytes ?? null,
+      mime,
+      cachePath,
+      JSON.stringify(contentRef),
+      state,
+      inline ? timestamp : null,
+      timestamp,
+      errorJson,
+      timestamp,
+      cacheId,
+    );
+  } else {
+    db.prepare(
+      `INSERT INTO artifact_cache_blobs
+        (id, artifact_id, hash, size_bytes, mime, cache_path, source_ref_json, state, is_preview, pin_reason, fetched_at, last_accessed_at, expires_at, error_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?, NULL, ?, ?, ?)`,
+    ).run(
+      cacheId,
+      artifact.id,
+      artifact.hash,
+      sizeBytes ?? null,
+      mime,
+      cachePath,
+      JSON.stringify(contentRef),
+      state,
+      inline ? timestamp : null,
+      timestamp,
+      errorJson,
+      timestamp,
+      timestamp,
+    );
+  }
 
   return {
     id: cacheId,
@@ -179,7 +225,7 @@ export function ensureArtifactPreviewCache(
     expiresAt: null,
     error: explicit ?? null,
     previewStatus: derivePreviewStatus(state, explicit ?? null),
-    createdAt: timestamp,
+    createdAt: existing?.created_at ?? timestamp,
     updatedAt: timestamp,
   };
 }
