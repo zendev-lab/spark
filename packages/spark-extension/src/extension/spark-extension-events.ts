@@ -39,6 +39,7 @@ export interface SparkExtensionEventDeps {
   ) =>
     | SparkToolContext["askAutoAnswerResolver"]
     | Promise<SparkToolContext["askAutoAnswerResolver"]>;
+  ensureActiveReproDriver?: (ctx: SparkToolContext) => Promise<void>;
 }
 
 export interface SparkExtensionEventHandlers {
@@ -148,6 +149,7 @@ export function registerSparkExtensionEvents(
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await syncGoalAskAutoAnswerPolicy(ctx);
     await syncGoalInteractiveToolAvailability(pi, ctx, goalToolBaselines);
+    await deps.ensureActiveReproDriver?.(ctx);
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
   // turn_end also fires between normal tool-call iterations. Only a successful
@@ -170,6 +172,7 @@ export function registerSparkExtensionEvents(
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx, { skipSweep: true });
     await resumeOwnedBackgroundSubroles(ctx.cwd, ctx);
     await sweepExpiredSparkClaims(ctx.cwd, ctx);
+    await deps.ensureActiveReproDriver?.(ctx);
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
   pi.on?.("session_compact", async (_event: unknown, ctx: SparkToolContext) => {

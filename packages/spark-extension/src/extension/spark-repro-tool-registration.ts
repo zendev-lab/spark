@@ -4,6 +4,7 @@ import { Type } from "typebox";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { verifyCanonicalAskEvidenceArtifact } from "@zendev-lab/spark-ask";
 import type { EvidenceRef } from "@zendev-lab/spark-core";
+import type { SparkDriverView } from "@zendev-lab/spark-protocol";
 import { clearSessionGoal } from "./spark-session-goals.ts";
 import { clearSessionLoop } from "./spark-session-loops.ts";
 import { sparkActiveLens } from "./spark-drive-state.ts";
@@ -174,12 +175,14 @@ export function registerSparkReproTool(
 
       if (action === "status") {
         const repro = await readSessionRepro(cwd, ctx);
-        return repro
-          ? reproStatusResult(repro)
-          : {
-              content: [{ type: "text" as const, text: "No repro drive is active." }],
-              details: { active: false },
-            };
+        if (!repro) {
+          return {
+            content: [{ type: "text" as const, text: "No repro drive is active." }],
+            details: { active: false },
+          };
+        }
+        const driverHealth = await ensureActiveReproDriver(ctx, deps.driverControl, repro);
+        return reproStatusResult(repro, driverHealth);
       }
 
       if (action === "start") {
@@ -201,13 +204,11 @@ export function registerSparkReproTool(
                 })
               : existing;
           if (repro !== existing) await writeSessionRepro(cwd, repro, ctx);
-          await startReproDriver(
-            ctx,
-            deps.driverControl,
+          const driverHealth = await ensureActiveReproDriver(ctx, deps.driverControl, repro, {
             ownerSessionId,
-            repro,
-            "repro activated by tool",
-          );
+            forceSchedule: true,
+            reason: "repro activated by tool",
+          });
           await deps.refreshSparkWidget?.(cwd, ctx);
           return {
             content: [
@@ -215,24 +216,22 @@ export function registerSparkReproTool(
                 type: "text" as const,
                 text:
                   repro === existing
-                    ? "Repro drive is already active."
+                    ? `Repro drive is already active; driver ${driverHealth.status}.`
                     : `Repro drive objective updated: ${objective}`,
               },
             ],
-            details: reproDetails(repro),
+            details: { ...reproDetails(repro), driver: driverHealth },
           };
         }
         await clearSessionGoal(cwd, ctx);
         await clearSessionLoop(cwd, ctx);
         const repro = createSparkSessionRepro(sparkSessionOwnerKey(ctx), undefined, { objective });
         await writeSessionRepro(cwd, repro, ctx);
-        await startReproDriver(
-          ctx,
-          deps.driverControl,
+        const driverHealth = await ensureActiveReproDriver(ctx, deps.driverControl, repro, {
           ownerSessionId,
-          repro,
-          "repro activated by tool",
-        );
+          forceSchedule: true,
+          reason: "repro activated by tool",
+        });
         ctx.sparkActiveLens = sparkActiveLens(repro.currentPhase, "repro");
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
@@ -242,7 +241,7 @@ export function registerSparkReproTool(
               text: `Repro drive started research-first. Stage: ${repro.stages[0]!.title}, Phase: ${repro.currentPhase}`,
             },
           ],
-          details: reproDetails(repro),
+          details: { ...reproDetails(repro), driver: driverHealth },
         };
       }
 
@@ -525,22 +524,50 @@ export function registerSparkReproTool(
   });
 }
 
-async function startReproDriver(
+export interface SparkReproDriverHealth {
+  status: SparkDriverView["status"] | "missing" | "unreachable";
+  recovered: boolean;
+  driver?: SparkDriverView;
+  error?: string;
+}
+
+export async function ensureActiveReproDriver(
   ctx: SparkToolContext,
   driverControl: SparkDaemonDriverControl,
-  ownerSessionId: string,
   repro: SparkSessionRepro,
-  reason: string,
-): Promise<void> {
-  await driverControl.start({
-    driverId: repro.reproId,
-    kind: "repro",
-    ownerSessionId,
-    continuity: "session",
-    cwd: ctx.cwd,
-    prompt: renderReproTickInstruction(repro),
-    reason,
-  });
+  options: { ownerSessionId?: string; forceSchedule?: boolean; reason?: string } = {},
+): Promise<SparkReproDriverHealth> {
+  if (repro.status !== "active") return { status: "missing", recovered: false };
+  let current: SparkDriverView | undefined;
+  try {
+    const listed = await driverControl.list({ driverId: repro.reproId, includeStopped: true });
+    current = listed.drivers[0];
+  } catch (error) {
+    return { status: "unreachable", recovered: false, error: errorMessage(error) };
+  }
+  const needsStart =
+    options.forceSchedule === true || current === undefined || current.status === "stopped";
+  if (!needsStart) return { status: current.status, recovered: false, driver: current };
+  try {
+    const ownerSessionId =
+      options.ownerSessionId ?? (await prepareSparkDaemonDriverOwner(ctx, driverControl));
+    const started = await driverControl.start({
+      driverId: repro.reproId,
+      kind: "repro",
+      ownerSessionId,
+      continuity: "session",
+      cwd: ctx.cwd,
+      prompt: renderReproTickInstruction(repro),
+      reason: options.reason ?? "active repro driver recovered",
+    });
+    return { status: started.driver.status, recovered: true, driver: started.driver };
+  } catch (error) {
+    return { status: "unreachable", recovered: false, error: errorMessage(error) };
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function normalizeReproAction(value: unknown): SparkReproToolAction {
@@ -952,11 +979,12 @@ function noActiveReproResult() {
   };
 }
 
-function reproStatusResult(repro: SparkSessionRepro) {
+function reproStatusResult(repro: SparkSessionRepro, driverHealth: SparkReproDriverHealth) {
   const stage = currentReproStage(repro);
   const steps = currentReproSteps(repro);
   const lines = [
     `Repro drive: ${repro.status}`,
+    `Driver: ${driverHealth.status}${driverHealth.recovered ? " (recovered)" : ""}${driverHealth.error ? ` — ${driverHealth.error}` : ""}`,
     `Goal Contract: ${repro.goalContract.status}`,
     `Objective: ${repro.goalContract.objective}`,
     `Plan revision: ${repro.plan.currentRevision}; difficulty: ${repro.plan.difficulty}/10; steps: ${repro.plan.steps.length}/${repro.plan.minimumStepCount} minimum`,
@@ -989,7 +1017,7 @@ function reproStatusResult(repro: SparkSessionRepro) {
   );
   return {
     content: [{ type: "text" as const, text: lines.filter(Boolean).join("\n") }],
-    details: reproDetails(repro),
+    details: { ...reproDetails(repro), driver: driverHealth },
   };
 }
 
