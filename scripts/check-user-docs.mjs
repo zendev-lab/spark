@@ -18,12 +18,18 @@ const pageSet = new Set(pages);
 const requiredPages = [
   "index.md",
   "getting-started.md",
+  "concepts/feature-map.md",
   "concepts/surfaces.md",
+  "guides/plan-and-implement.md",
+  "guides/automation.md",
+  "guides/tui.md",
   "guides/runs-and-sessions.md",
+  "guides/collaboration.md",
   "guides/side-threads.md",
   "guides/cockpit.md",
   "reference/configuration-and-paths.md",
   "reference/cli.md",
+  "reference/tools.md",
   "troubleshooting.md",
 ];
 
@@ -71,6 +77,10 @@ if (help.status !== 0) {
     "spark bg [--session <id>] [--json] <prompt>",
     "spark paths [--json]",
     "spark doctor",
+    "spark --print [--wait] <prompt>",
+    "spark --mode rpc",
+    "spark --list-models [search]",
+    "spark install|remove|update|list|config [resource]",
     "spark install --managed [--version <version>] [--prefix <path>]",
     "spark update status|check|apply|rollback|retry|configure",
     "spark version [--json]",
@@ -89,6 +99,11 @@ for (const page of ["reference/cli.md", "zh/reference/cli.md"]) {
     "spark bg",
     "spark paths",
     "spark doctor",
+    "spark --print",
+    "spark --mode rpc",
+    "spark --list-models",
+    "spark install|remove|update|list|config",
+    "--prompt-template",
     "spark install --managed",
     "spark update",
     "spark version",
@@ -96,6 +111,207 @@ for (const page of ["reference/cli.md", "zh/reference/cli.md"]) {
     "spark cockpit",
   ]) {
     if (!source.includes(command)) failures.push(`${page} does not document ${command}`);
+  }
+}
+
+for (const page of ["guides/plan-and-implement.md", "zh/guides/plan-and-implement.md"]) {
+  const source = await readFile(join(docsRoot, page), "utf8");
+  for (const command of ["/plan", "/implement"]) {
+    if (!source.includes(command)) failures.push(`${page} does not teach ${command}`);
+  }
+}
+
+for (const page of ["guides/automation.md", "zh/guides/automation.md"]) {
+  const source = await readFile(join(docsRoot, page), "utf8");
+  for (const command of [
+    "/automate",
+    "/goal",
+    "/loop",
+    "/repro",
+    "/workflow run",
+    "/workflow pause",
+  ]) {
+    if (!source.includes(command)) failures.push(`${page} does not teach ${command}`);
+  }
+}
+
+for (const page of ["guides/tui.md", "zh/guides/tui.md"]) {
+  const source = await readFile(join(docsRoot, page), "utf8");
+  for (const command of ["/help", "/help commands", "/help all", "/inspect", "/automate"]) {
+    if (!source.includes(command)) failures.push(`${page} does not teach ${command}`);
+  }
+}
+
+const featureMapHeadings = {
+  "concepts/feature-map.md": [
+    "## 0. Product surfaces and distribution",
+    "## 1. Core runtime: one daemon",
+    "## 2. Interactive design: Cockpit and TUI",
+    "## 3. Base agent tools",
+    "## 4. Tasks and autonomous progress",
+    "## 5. Channels and multi-session collaboration",
+    "## 6. Models, context, extensions, and operations",
+  ],
+  "zh/concepts/feature-map.md": [
+    "## 0. 产品表面与分发",
+    "## 1. 核心运行时：一个 daemon",
+    "## 2. 交互式设计：Cockpit 与 TUI",
+    "## 3. 基础 agent 工具",
+    "## 4. 任务与自主推进",
+    "## 5. 渠道与多会话协作",
+    "## 6. 模型、上下文、扩展与运维",
+  ],
+};
+for (const [page, headings] of Object.entries(featureMapHeadings)) {
+  const source = await readFile(join(docsRoot, page), "utf8");
+  for (const heading of headings) {
+    if (!source.includes(heading))
+      failures.push(`${page} is missing feature-map heading ${heading}`);
+  }
+}
+
+const publicTools = [
+  "ask",
+  "read",
+  "write",
+  "edit",
+  "ls",
+  "grep",
+  "find",
+  "web_search",
+  "code_search",
+  "fetch_content",
+  "get_search_content",
+  "task_read",
+  "task_write",
+  "assign",
+  "todo",
+  "artifact",
+  "evidence",
+  "memory",
+  "context",
+  "role",
+  "session",
+  "models",
+  "goal",
+  "loop",
+  "repro",
+  "drive",
+  "driver",
+  "phase",
+  "workflow",
+  "workflow_run",
+  "cue_exec",
+  "cue_run",
+  "cue_script",
+  "script_run",
+  "script_eval",
+  "cue_jobs",
+  "cue_resources",
+  "cue_schedule",
+  "cue_scope",
+  "cue_history",
+];
+for (const page of ["reference/tools.md", "zh/reference/tools.md"]) {
+  const source = await readFile(join(docsRoot, page), "utf8");
+  for (const tool of publicTools) {
+    if (!source.includes(`\`${tool}\``)) failures.push(`${page} does not catalog ${tool}`);
+  }
+  for (const internalName of [/\bimpl_/u, /\bworkflow_driver\b/u]) {
+    if (internalName.test(source)) failures.push(`${page} exposes internal tool ${internalName}`);
+  }
+}
+
+for (const page of ["guides/collaboration.md", "zh/guides/collaboration.md"]) {
+  const source = await readFile(join(docsRoot, page), "utf8");
+  for (const term of [
+    "Role",
+    "Session",
+    "Side Thread",
+    "Feishu",
+    "Infoflow",
+    "QQ Bot",
+    "`session`",
+    "`ask`",
+    "`context`",
+    "`todo`",
+  ]) {
+    if (!source.includes(term)) failures.push(`${page} does not explain ${term}`);
+  }
+}
+
+const journeyPages = [
+  "getting-started.md",
+  "zh/getting-started.md",
+  "guides/plan-and-implement.md",
+  "zh/guides/plan-and-implement.md",
+];
+const internalJourneyTerms = [
+  /\binvocation\b/iu,
+  /\bdriver\b/iu,
+  /\blane\b/iu,
+  /\bsettle\b/iu,
+  /\blease\b/iu,
+  /\bCAS\b/u,
+  /\boutbox\b/iu,
+  /\bturn admission\b/iu,
+  /\breceipt\b/iu,
+  /\bcursor\b/iu,
+];
+for (const page of journeyPages) {
+  const source = await readFile(join(docsRoot, page), "utf8");
+  for (const term of internalJourneyTerms) {
+    if (term.test(source)) failures.push(`${page} exposes internal journey terminology: ${term}`);
+  }
+}
+
+const gettingStartedLinks = {
+  "getting-started.md": "/guides/plan-and-implement/",
+  "zh/getting-started.md": "/zh/guides/plan-and-implement/",
+};
+for (const [page, target] of Object.entries(gettingStartedLinks)) {
+  const source = await readFile(join(docsRoot, page), "utf8");
+  if (!source.includes(target)) failures.push(`${page} does not link to ${target}`);
+}
+
+for (const page of ["reference/cli.md", "zh/reference/cli.md"]) {
+  const source = await readFile(join(docsRoot, page), "utf8");
+  if (source.includes("spark daemon sync")) {
+    failures.push(`${page} documents the removed spark daemon sync command`);
+  }
+}
+
+for (const { surface, args, requiredLines } of [
+  {
+    surface: "daemon",
+    args: ["daemon", "--help"],
+    requiredLines: [
+      "spark daemon session show <session-id>",
+      "spark daemon channel status --workspace <id>",
+      "spark daemon run cancel <run-id>",
+    ],
+  },
+  {
+    surface: "cockpit",
+    args: ["cockpit", "--help"],
+    requiredLines: [
+      "spark cockpit web status",
+      "spark cockpit workflow list",
+      "spark cockpit instance backup",
+    ],
+  },
+]) {
+  const result = spawnSync(join(root, "apps/spark-cli/bin/spark"), args, {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, FORCE_COLOR: "0" },
+  });
+  if (result.status !== 0) {
+    failures.push(`${surface} help failed: ${result.stderr.trim() || `exit ${result.status}`}`);
+    continue;
+  }
+  for (const line of requiredLines) {
+    if (!result.stdout.includes(line)) failures.push(`${surface} help no longer exposes: ${line}`);
   }
 }
 

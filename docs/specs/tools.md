@@ -112,4 +112,6 @@ Registered tools and active tools are distinct. Only active tools enter the mode
 
 `web_search`, `fetch_content`, `get_search_content`, and `code_search` treat fetched text as untrusted data. Credentials are configuration and must not appear in output.
 
-Use one canonical action tool per stateful domain. Hosts may narrow surfaces; channel-bound hosts expose only `session` and permanently disable cue tools, `role`, `assign`, and `workflow_run`.
+Use one canonical action tool per stateful domain. Hosts may narrow surfaces;
+channel-bound hosts expose only `session`, `ask`, `context`, and `todo`, and
+permanently disable cue tools, `role`, `assign`, and `workflow_run`.

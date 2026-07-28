@@ -35,10 +35,6 @@ export function isDoneTaskStatus(status: string): boolean {
   return ["done", "completed", "succeeded", "success"].includes(status.toLowerCase());
 }
 
-export function cockpitTaskDeepLink(taskRef: string): string {
-  return `cockpit://tasks/${encodeURIComponent(taskRef)}`;
-}
-
 export function isReviewArtifact(
   artifact: Pick<SparkArtifactView, "title" | "preview" | "producer" | "metadata">,
 ): boolean {
@@ -77,34 +73,34 @@ export function workflowRunDisplayStatus(run: SparkRunView): string {
 
 export function workflowRunControlHints(run: SparkRunView): string[] {
   if (!/^run:[a-zA-Z0-9-]+$/u.test(run.id)) {
-    return ["Actions: /workflow-runs to open the live dynamic workflow dashboard"];
+    return ["Actions: /workflow runs to open the live dynamic workflow dashboard"];
   }
-  const inspect = `/workflow-inspect ${run.id}`;
-  const save = `/workflow-save ${run.id}`;
+  const inspect = `/workflow inspect ${run.id}`;
+  const save = `/workflow save ${run.id}`;
   const status = workflowRunDisplayStatus(run);
   if (status === "running" || status === "queued") {
     return [
       `Actions: ${inspect}`,
-      `         /workflow-pause ${run.id}`,
-      `         /workflow-stop ${run.id}`,
+      `         /workflow pause ${run.id}`,
+      `         /workflow stop ${run.id}`,
       `         ${save}`,
     ];
   }
   if (status === "paused" || status === "stale") {
     return [
       `Actions: ${inspect}`,
-      `         /workflow-resume ${run.id}`,
-      `         /workflow-stop ${run.id}`,
-      `         /workflow-restart ${run.id}`,
+      `         /workflow resume ${run.id}`,
+      `         /workflow stop ${run.id}`,
+      `         /workflow restart ${run.id}`,
       `         ${save}`,
-      `         /workflow-ack ${run.id}`,
+      `         /workflow ack ${run.id}`,
     ];
   }
   return [
     `Actions: ${inspect}`,
-    `         /workflow-restart ${run.id}`,
+    `         /workflow restart ${run.id}`,
     `         ${save}`,
-    `         /workflow-ack ${run.id}`,
+    `         /workflow ack ${run.id}`,
   ];
 }
 

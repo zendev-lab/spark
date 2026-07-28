@@ -51,11 +51,7 @@ import {
   readSparkSessionExportFormat,
   type SparkSessionExportFormat,
 } from "../host/session-navigation.ts";
-import {
-  SparkSessionMailStore,
-  sessionMailStatus,
-  type SparkSessionMailMessage,
-} from "../host/session-mail-store.ts";
+import { sessionMailStatus, type SparkSessionMailMessage } from "../host/session-mail-store.ts";
 import {
   forkDaemonSession,
   listDaemonSessions,
@@ -1580,16 +1576,16 @@ async function clientSessions(
     };
   }
   if (command.subcommand === "inbox") {
-    const mailStore = createLocalSessionMailStore(client);
     const sessionId = command.sessionId!;
     if (command.inboxAction === "read" || command.inboxAction === "ack") {
       const messageId = command.messageId?.trim();
       if (!messageId)
         throw new Error(`spark daemon session inbox ${command.inboxAction} requires <message-id>`);
-      const message =
+      const result =
         command.inboxAction === "read"
-          ? await mailStore.read(sessionId, messageId)
-          : await mailStore.ack(sessionId, messageId);
+          ? await requestSparkDaemonControl("session.mail.read", { sessionId, messageId }, client)
+          : await requestSparkDaemonControl("session.mail.ack", { sessionId, messageId }, client);
+      const message = result.message;
       const withStatus = { ...message, status: sessionMailStatus(message) };
       return {
         subcommand: "inbox",
@@ -1600,13 +1596,16 @@ async function clientSessions(
         observedAt: observedAt(client),
       };
     }
-    const messages = (await mailStore.list(sessionId, { includeAcked: command.all })).map(
-      (message) => ({
-        ...message,
-        status: sessionMailStatus(message),
-        preview: previewMailBody(message.body),
-      }),
+    const inbox = await requestSparkDaemonControl(
+      "session.inbox",
+      { sessionId, includeAcked: command.all },
+      client,
     );
+    const messages = inbox.messages.map((message) => ({
+      ...message,
+      status: sessionMailStatus(message),
+      preview: previewMailBody(message.body),
+    }));
     return {
       subcommand: "inbox",
       sessionId,
@@ -1829,13 +1828,6 @@ function createLocalSessionStore(client: SparkDaemonClientOptions): SparkSession
   return new SparkSessionStore({
     cwd: process.cwd(),
     ...(client.sparkHome ? { sparkHome: client.sparkHome } : {}),
-  });
-}
-
-function createLocalSessionMailStore(client: SparkDaemonClientOptions): SparkSessionMailStore {
-  return new SparkSessionMailStore({
-    ...(client.sparkHome ? { sparkHome: client.sparkHome } : {}),
-    now: client.now,
   });
 }
 
@@ -2596,6 +2588,7 @@ function defaultWorkspaceClientDisplayName(kind: SparkWorkspaceClientKind): stri
 async function clientEnsureRunning(client: SparkDaemonClientOptions): Promise<void> {
   const paths = resolveSparkDaemonClientPaths(client);
   if (
+    client.controlRequest ||
     client.startService ||
     client.daemonStatus ||
     client.turnSubmit ||

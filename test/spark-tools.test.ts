@@ -724,6 +724,51 @@ test("Spark command surface does not expose the removed /spark entry", () => {
   assert.equal(run.commands.has("spark"), false);
 });
 
+test("/automate only prefills an existing canonical automation command", async () => {
+  const ctx = testSparkContext("/tmp/spark-automate-picker", "main");
+  const run = registerSparkToolsForTest();
+  const automate = run.commands.get("automate");
+  assert.ok(automate, "missing /automate command");
+
+  const expected = new Map([
+    ["Goal — finish one defined outcome", "/goal start "],
+    ["Loop — repeat open-ended work", "/loop start "],
+    ["Repro — follow evidence-gated reproduction steps", "/repro start "],
+    ["Workflow — choose a saved procedure", "/workflow list"],
+  ]);
+  let shownOptions: string[] = [];
+  ctx.ui.select = async (title, options) => {
+    assert.equal(title, "Choose how Spark should continue");
+    shownOptions = options;
+    return ctx.selected;
+  };
+
+  for (const [selection, command] of expected) {
+    ctx.selected = selection;
+    ctx.editorText = undefined;
+    await automate.handler("", ctx);
+    assert.equal(ctx.editorText, command);
+  }
+  assert.deepEqual(shownOptions, [...expected.keys()]);
+  assert.equal(run.driverControl.drivers.size, 0);
+  assert.equal(run.messages.length, 0);
+  assert.equal(run.customMessages.length, 0);
+
+  ctx.selected = undefined;
+  ctx.editorText = "unchanged";
+  await automate.handler("", ctx);
+  assert.equal(ctx.editorText, "unchanged");
+
+  await automate.handler("goal", ctx);
+  assert.match(ctx.notifications.at(-1)?.message ?? "", /Usage: \/automate/);
+  assert.equal(ctx.notifications.at(-1)?.level, "warning");
+
+  ctx.ui.select = undefined as never;
+  await automate.handler("", ctx);
+  assert.match(ctx.notifications.at(-1)?.message ?? "", /\/goal start <objective>/);
+  assert.match(ctx.notifications.at(-1)?.message ?? "", /\/workflow list/);
+});
+
 test("/ultracode enters opt-in high-effort workflow generation mode", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-ultracode-command-"));
   try {
@@ -865,8 +910,22 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     );
     const workflowCommand = initializedRun.commands.get("workflow");
     assert.ok(workflowCommand, "missing /workflow command");
+    assert.deepEqual(
+      (await workflowCommand.getArgumentCompletions?.("pa"))?.map((entry) => entry.value),
+      ["pause"],
+    );
+    assert.deepEqual(
+      (await workflowCommand.getArgumentCompletions?.("run builtin:re"))?.map(
+        (entry) => entry.value,
+      ),
+      ["run builtin:research", "run builtin:review"],
+    );
     const workflowsCommand = initializedRun.commands.get("workflows");
     assert.ok(workflowsCommand, "missing /workflows command");
+    assert.equal(workflowsCommand.metadata?.deprecatedAliasFor, "/workflow list");
+    const workflowRunsCommand = initializedRun.commands.get("workflow-runs");
+    assert.ok(workflowRunsCommand, "missing /workflow-runs command");
+    assert.equal(workflowRunsCommand.metadata?.deprecatedAliasFor, "/workflow runs [runRef]");
     const researchWorkflowCommand = initializedRun.commands.get("workflow:research");
     assert.ok(researchWorkflowCommand, "missing /workflow:research command");
     assert.equal(initializedRun.commands.get("workflow:triage"), undefined);
@@ -874,6 +933,16 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
 
     await workflowCommand.handler("builtin:research Compare design options", initializedCtx);
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.deepEqual(initializedCtx.sparkActiveLens, {
+      phase: "plan",
+      drive: "workflow",
+    });
+
+    await workflowCommand.handler(
+      "run research Compare canonical workflow actions",
+      initializedCtx,
+    );
     assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
     assert.deepEqual(initializedCtx.sparkActiveLens, {
       phase: "plan",
@@ -898,6 +967,10 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     initializedCtx.selected = "builtin:review";
     initializedCtx.inputValue = "Review the workflow UI direction";
     await workflowCommand.handler("", initializedCtx);
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+
+    initializedCtx.selected = "builtin:research";
+    await workflowCommand.handler("list Canonical navigator focus", initializedCtx);
     assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
 
     initializedCtx.selected = "workspace:triage";
@@ -7845,6 +7918,7 @@ test("workflow run slash commands expose direct dashboard controls", async () =>
       publishedViews.push(event);
     };
 
+    const workflow = commands.get("workflow");
     const dashboard = commands.get("workflow-runs");
     const inspect = commands.get("workflow-inspect");
     const pause = commands.get("workflow-pause");
@@ -7852,6 +7926,7 @@ test("workflow run slash commands expose direct dashboard controls", async () =>
     const stop = commands.get("workflow-stop");
     const restart = commands.get("workflow-restart");
     const save = commands.get("workflow-save");
+    assert.ok(workflow, "missing /workflow");
     assert.ok(dashboard, "missing /workflow-runs");
     assert.ok(inspect, "missing /workflow-inspect");
     assert.ok(pause, "missing /workflow-pause");
@@ -7860,17 +7935,17 @@ test("workflow run slash commands expose direct dashboard controls", async () =>
     assert.ok(restart, "missing /workflow-restart");
     assert.ok(save, "missing /workflow-save");
 
-    await dashboard.handler(run.ref, ctx);
+    await workflow.handler(`runs ${run.ref}`, ctx);
     assert.match(JSON.stringify(publishedViews), new RegExp(run.ref));
     assert.match(JSON.stringify(publishedViews), /"dynamicStatus":"running"/);
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Spark dynamic workflow dashboard/);
     assert.match(ctx.notifications.at(-1)?.message ?? "", new RegExp(run.ref));
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Actions: inspect, pause, stop, save/);
 
-    await inspect.handler(run.ref, ctx);
+    await workflow.handler(`inspect ${run.ref}`, ctx);
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Selected: run:/);
 
-    await pause.handler(run.ref, ctx);
+    await workflow.handler(`pause ${run.ref}`, ctx);
     assert.equal((await dynamicStore.get(run.ref))?.status, "paused");
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Control: pause .* -> paused/);
 
@@ -7878,7 +7953,7 @@ test("workflow run slash commands expose direct dashboard controls", async () =>
     assert.equal((await dynamicStore.get(run.ref))?.status, "running");
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Control: resume .* -> running/);
 
-    await stop.handler(run.ref, ctx);
+    await workflow.handler(`stop ${run.ref}`, ctx);
     assert.equal((await dynamicStore.get(run.ref))?.status, "stopped");
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Control: stop .* -> stopped/);
 
@@ -7886,7 +7961,7 @@ test("workflow run slash commands expose direct dashboard controls", async () =>
     assert.equal((await dynamicStore.get(run.ref))?.status, "running");
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Control: restart .* -> running/);
 
-    await save.handler(run.ref, ctx);
+    await workflow.handler(`save ${run.ref}`, ctx);
     assert.match(
       ctx.notifications.at(-1)?.message ?? "",
       /Control: save .* -> workspace:slash-control/,
@@ -7896,7 +7971,18 @@ test("workflow run slash commands expose direct dashboard controls", async () =>
       /^workspace:slash-control/u,
     );
 
+    await dashboard.handler(run.ref, ctx);
+    await inspect.handler(run.ref, ctx);
+    assert.match(JSON.stringify(publishedViews), new RegExp(run.ref));
     await assert.rejects(async () => pause.handler("", ctx), /\/workflow-pause requires a runRef/);
+    await assert.rejects(
+      async () => workflow.handler("pause", ctx),
+      /\/workflow pause requires a runRef/,
+    );
+    await assert.rejects(
+      async () => workflow.handler("runs task:not-a-run", ctx),
+      /\/workflow runs requires a runRef/,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

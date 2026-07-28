@@ -82,7 +82,9 @@ describe("Cockpit slash action presentation", () => {
     const initial = cockpitSlashSuggestionsForInput("/", messages);
 
     expect(initial.map((suggestion) => suggestion.command)).toContain("session");
+    expect(initial.map((suggestion) => suggestion.command)).toContain("workflow");
     expect(initial.map((suggestion) => suggestion.command)).not.toContain("sessions");
+    expect(initial.map((suggestion) => suggestion.command)).not.toContain("workflow-runs");
     expect(initial.find((suggestion) => suggestion.command === "model")).toMatchObject({
       canonicalCommand: "model",
       title: "模型控制",
@@ -97,7 +99,9 @@ describe("Cockpit slash action presentation", () => {
       }),
     ]);
     expect(cockpitSlashSuggestionsForInput("/sessions", messages)).toEqual([]);
+    expect(cockpitSlashSuggestionsForInput("/workflow-", messages)).toEqual([]);
     expect(cockpitSlashSuggestionsForInput("//sessions", messages)).toEqual([]);
+    expect(sparkSlashActionBarForInput("/workflow-runs")?.id).toBe("workflow");
   });
 
   it("routes only the explicit session picker commands directly on Enter", () => {

@@ -3,6 +3,22 @@ title: Cockpit
 description: 启动本地 Web 界面，理解它与 daemon 的关系，并保护远程浏览器访问。
 ---
 
+## 何时使用 Cockpit
+
+当单个终端会话视野不足时，使用 Cockpit。Workspace workbench 提供：
+
+- **概览**：连接状态与常用入口；
+- 固定的**对话**侧栏：继续已有 session 或开始新对话；
+- **收件箱**：处理问题与确认；
+- **产物**：查看 Issue、PR 与 preview；
+- **资源**：管理仓库、文档、链接和工具。
+
+进入对话后，会话检查器把摘要、产物、变更和任务分开。摘要先显示状态与数量；
+工作目录、模型、session ID 和时间放在默认折叠的技术详情中。
+
+TUI 的 `/inspect` 只展示当前终端 session 的本地投影；Cockpit 才是跨 session 和
+workspace 的浏览器控制面。两者都把执行提交给 Spark daemon。
+
 ## 启动 Cockpit
 
 ```bash

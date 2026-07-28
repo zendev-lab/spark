@@ -3,7 +3,7 @@ title: Spark Docs
 description: User documentation for Spark across its CLI, TUI, daemon, and Cockpit surfaces.
 template: splash
 hero:
-  tagline: Run coding-agent work in the foreground, hand durable work to the daemon, and supervise it from the terminal or Cockpit.
+  tagline: Describe a goal, turn it into verifiable tasks, and supervise the implementation from the terminal or Cockpit.
   actions:
     - text: Get started
       link: /getting-started/
@@ -20,18 +20,22 @@ Spark is a controlled coding-agent suite with one public `spark` command and
 three product surfaces:
 
 - the **TUI** for interactive work,
-- the **daemon** for durable sessions and background invocations, and
+- the **daemon** for durable sessions and background work, and
 - **Cockpit** for web-based control and projection.
 
-Start with [installation and your first run](/getting-started/). Read
-[surfaces and ownership](/concepts/surfaces/) before automating Spark or
-operating it remotely.
+Start with [installation and your first run](/getting-started/), then
+[plan and implement a change](/guides/plan-and-implement/). Learn
+[the complete feature map](/concepts/feature-map/) when you want to see how
+CLI, daemon, TUI, Cockpit, tools, automation, and collaboration fit together.
+Read [surface ownership](/concepts/surfaces/) only when you need to automate,
+operate remotely, or diagnose the system.
 
 ## What this documentation covers
 
 - installing the published npm product,
 - choosing foreground, background, TUI, or Cockpit workflows,
 - resuming workspace-bound sessions,
+- supervising tasks, automation, channels, and multi-session collaboration,
 - inspecting configuration and state paths, and
 - diagnosing common local and remote-access failures.
 

@@ -101,7 +101,28 @@ describe("CLI/TUI strings", () => {
     expect(sparkTuiCliStrings().helpText).toContain("--session-id <session-id>");
     expect(sparkTuiCliStrings().helpText).toContain("workspace-bound");
     expect(sparkTuiCliStrings("zh").noModelsRegistered).toContain("尚未注册 Spark 模型");
-    expect(sparkNativeTuiStrings().commandHelp(0, [])).toContain("Spark native TUI commands");
+    const commandHelpInput = {
+      mode: "commands" as const,
+      groups: [
+        {
+          id: "common" as const,
+          commands: [{ name: "plan", description: "Plan verifiable work" }],
+        },
+        {
+          id: "automation" as const,
+          commands: [{ name: "goal", description: "Continue until done" }],
+        },
+      ],
+      registeredCount: 2,
+      hiddenAliasCount: 1,
+    };
+    expect(sparkNativeTuiStrings().commandHelp(commandHelpInput)).toContain("Common");
+    expect(sparkNativeTuiStrings().commandHelp(commandHelpInput)).toContain("Automation");
+    expect(sparkNativeTuiStrings().commandHelp(commandHelpInput)).toContain(
+      "1 compatibility alias hidden",
+    );
+    expect(sparkNativeTuiStrings("zh").commandHelp(commandHelpInput)).toContain("常用");
+    expect(sparkNativeTuiStrings("zh").commandHelp(commandHelpInput)).toContain("自动推进");
     expect(sparkNativeTuiStrings("zh").emptyCommand).toContain("空命令");
     expect(
       sparkNativeTuiStrings().statusLine({

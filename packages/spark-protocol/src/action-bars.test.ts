@@ -22,7 +22,7 @@ describe("Spark action-bar protocol", () => {
       "goal",
       "loop",
       "repro",
-      "workflow-runs",
+      "workflow",
       "help",
       "hotkeys",
     ]);
@@ -35,6 +35,9 @@ describe("Spark action-bar protocol", () => {
     expect(Object.keys(sparkSlashActionBarCatalog)).toEqual(lookupNames);
 
     for (const descriptor of sparkSlashCommandDescriptors) {
+      expect(descriptor.discoverableAliases).toEqual(
+        descriptor.discoverableAliases.filter((alias) => descriptor.aliases.includes(alias)),
+      );
       expect(sparkSlashActionBarCatalog[descriptor.name]).toBe(descriptor.actionBar);
       for (const alias of descriptor.aliases) {
         expect(sparkSlashActionBarCatalog[alias]).toBe(descriptor.actionBar);
@@ -79,8 +82,11 @@ describe("Spark action-bar protocol", () => {
       suggestions: [
         { command: "repro", canonicalCommand: "repro" },
         { command: "resume", canonicalCommand: "session" },
-        { command: "runs", canonicalCommand: "workflow-runs" },
       ],
+    });
+    expect(resolveSparkSlashEditorInput("/workflow-")).toEqual({
+      kind: "unknown",
+      command: "workflow-",
     });
   });
 
@@ -96,7 +102,7 @@ describe("Spark action-bar protocol", () => {
     expect(alias).toMatchObject({
       kind: "exact",
       command: "run",
-      descriptor: { name: "workflow-runs", actionBar: { id: "workflow-runs" } },
+      descriptor: { name: "workflow", actionBar: { id: "workflow" } },
     });
     expect(resolveSparkSlashEditorInput("/NEW")).toMatchObject({
       kind: "exact",
@@ -171,18 +177,21 @@ describe("Spark action-bar protocol", () => {
       sparkSlashActionBarForInput("/workflow-runs")?.actions.map((action) => action.intent),
     ).toEqual(["workflow.open", "workflow.inspect"]);
 
-    const workflowRuns = sparkSlashActionBarForInput("/workflow-runs");
-    expect(sparkSlashActionBarForInput("/runs")).toBe(workflowRuns);
-    expect(sparkSlashActionBarForInput("/run")).toBe(workflowRuns);
-    expect(sparkSlashActionBarForInput("/workflows")).toBe(workflowRuns);
+    const workflow = sparkSlashActionBarForInput("/workflow");
+    expect(sparkSlashActionBarForInput("/workflow-runs")).toBe(workflow);
+    expect(sparkSlashActionBarForInput("/runs")).toBe(workflow);
+    expect(sparkSlashActionBarForInput("/run")).toBe(workflow);
+    expect(sparkSlashActionBarForInput("/workflows")).toBe(workflow);
   });
 
   it("only opens a catalog bar for an exact argument-free slash command", () => {
     expect(sparkSlashActionBarForInput(" /MODEL \n")?.id).toBe("model");
     expect(sparkSlashActionBarForInput("/new")?.id).toBe("session");
-    expect(sparkSlashActionBarForInput("/runs")?.id).toBe("workflow-runs");
-    expect(sparkSlashActionBarForInput("/run")?.id).toBe("workflow-runs");
-    expect(sparkSlashActionBarForInput("/workflows")?.id).toBe("workflow-runs");
+    expect(sparkSlashActionBarForInput("/workflow")?.id).toBe("workflow");
+    expect(sparkSlashActionBarForInput("/workflow-runs")?.id).toBe("workflow");
+    expect(sparkSlashActionBarForInput("/runs")?.id).toBe("workflow");
+    expect(sparkSlashActionBarForInput("/run")?.id).toBe("workflow");
+    expect(sparkSlashActionBarForInput("/workflows")?.id).toBe("workflow");
     expect(sparkSlashActionBarForInput("/model openai/gpt-5")).toBeUndefined();
     expect(sparkSlashActionBarForInput("/settings set thinking high")).toBeUndefined();
     expect(sparkSlashActionBarForInput("//model")).toBeUndefined();

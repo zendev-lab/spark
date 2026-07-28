@@ -579,11 +579,34 @@ test("spark daemon session inbox lists, reads, and acknowledges durable mail", a
     await store.save(
       store.createSession({ id: "session-b", timestamp: "2026-07-08T00:00:00.000Z" }),
     );
+    const now = () => Date.parse("2026-07-08T00:01:00.000Z");
+    const mailStore = new SparkSessionMailStore({ sparkHome, now });
+    const rpcCalls: string[] = [];
     const client = {
-      sparkHome,
-      now: () => Date.parse("2026-07-08T00:01:00.000Z"),
+      now,
+      controlRequest: async (method, params) => {
+        rpcCalls.push(method);
+        if (method === "session.inbox") {
+          const input = params as { sessionId: string; includeAcked: boolean };
+          return {
+            messages: await mailStore.list(input.sessionId, {
+              includeAcked: input.includeAcked,
+            }),
+          };
+        }
+        if (method === "session.mail.read" || method === "session.mail.ack") {
+          const input = params as { sessionId: string; messageId: string };
+          return {
+            message:
+              method === "session.mail.read"
+                ? await mailStore.read(input.sessionId, input.messageId)
+                : await mailStore.ack(input.sessionId, input.messageId),
+          };
+        }
+        throw new Error(`unexpected daemon control request: ${method}`);
+      },
     } satisfies SparkDaemonClientOptions;
-    const sent = await new SparkSessionMailStore({ sparkHome, now: client.now }).send({
+    const sent = await mailStore.send({
       toSessionId: "session-b",
       fromSessionId: "session-a",
       kind: "request",
@@ -608,6 +631,7 @@ test("spark daemon session inbox lists, reads, and acknowledges durable mail", a
     assert.equal(listResult.messages[0]?.id, sent.message.id);
     assert.equal(listResult.messages[0]?.status, "pending");
     assert.equal(listResult.messages[0]?.preview, "hello");
+    assert.deepEqual(rpcCalls, ["session.inbox"]);
 
     const read = await handleSparkDaemonCliCommand(
       {
@@ -630,6 +654,7 @@ test("spark daemon session inbox lists, reads, and acknowledges durable mail", a
     assert.equal(readResult.message.toSessionId, "session-b");
     assert.equal(readResult.message.body, "hello");
     assert.equal(readResult.message.status, "read");
+    assert.deepEqual(rpcCalls, ["session.inbox", "session.mail.read"]);
 
     await handleSparkDaemonCliCommand(
       {
@@ -654,6 +679,12 @@ test("spark daemon session inbox lists, reads, and acknowledges durable mail", a
     );
     assert.equal(afterAck.action, "sessions");
     assert.equal((afterAck as { result: { messages: unknown[] } }).result.messages.length, 0);
+    assert.deepEqual(rpcCalls, [
+      "session.inbox",
+      "session.mail.read",
+      "session.mail.ack",
+      "session.inbox",
+    ]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

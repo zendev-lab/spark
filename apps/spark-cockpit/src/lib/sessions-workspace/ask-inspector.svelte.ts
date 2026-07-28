@@ -16,6 +16,8 @@ export function buildInspectorLabels(copy: SessionsWorkbenchCopy): SessionInspec
     artifactsHeading: copy.artifactsHeading,
     tasksHeading: copy.tasksHeading,
     changesHeading: copy.changesHeading,
+    runs: copy.runsSummary,
+    technicalDetails: copy.technicalDetails,
     noTasksTitle: copy.noTasksTitle,
     noTasksBody: copy.noTasksBody,
     noArtifactsTitle: copy.noArtifactsTitle,

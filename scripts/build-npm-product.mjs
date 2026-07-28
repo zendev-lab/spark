@@ -24,6 +24,7 @@ const dependencies = {
   "@earendil-works/pi-ai": "0.82.1",
   "@earendil-works/pi-tui": "0.82.1",
   "@sveltejs/kit": "2.65.1",
+  "sanitize-html": "2.17.6",
   "web-push": "3.6.7",
   ws: "^8.18.3",
 };

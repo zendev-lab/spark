@@ -72,6 +72,9 @@ Spark 会按需启动或连接本地 daemon。应使用 `spark daemon status --j
 
 ## 下一步
 
-- 了解[每个界面拥有什么行为](/zh/concepts/surfaces/)。
+- [规划并实现第一个修改](/zh/guides/plan-and-implement/)。
+- 查看[完整功能地图](/zh/concepts/feature-map/)，不必先背全部命令。
+- 了解 [TUI 的渐进式控制](/zh/guides/tui/)。
 - 在[前台运行、后台工作和会话](/zh/guides/runs-and-sessions/)之间选择。
 - 打开 [Cockpit Web 界面](/zh/guides/cockpit/)。
+- 只有普通 Plan 和 Implement 不够时才使用[自动推进](/zh/guides/automation/)。

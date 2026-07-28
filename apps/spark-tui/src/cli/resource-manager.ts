@@ -100,7 +100,13 @@ export async function runSparkResourceCommand(
       : STRINGS.packageAlreadyInstalled(kind, source);
   } else if (action === "remove") {
     if (!source) throw new Error(STRINGS.removeRequiresSource);
-    const kind = options.kind ?? inferResourceKind(source);
+    const matchingKinds = new Set(
+      manifest.packages
+        .filter((record) => packageRecordMatches(record, source))
+        .map((record) => record.kind),
+    );
+    const manifestKind = matchingKinds.size === 1 ? [...matchingKinds][0] : undefined;
+    const kind = options.kind ?? manifestKind ?? inferResourceKind(source);
     const removedRecords = removeInstalledPackages(manifest, source, kind);
     for (const record of removedRecords) await removeManagedPath(record.path, packageRoot);
     const configChanged = removeResource(config, kind, source, removedRecords);

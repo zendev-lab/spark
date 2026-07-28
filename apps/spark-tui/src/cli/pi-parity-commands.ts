@@ -34,11 +34,7 @@ import {
   renderSparkSmartCompactionPrompt,
 } from "../host/compaction.ts";
 import { listOAuthProviderSummaries } from "../host/auth.ts";
-import {
-  SparkSessionMailStore,
-  sessionMailStatus,
-  type SparkSessionMailMessage,
-} from "../host/session-mail-store.ts";
+import { sessionMailStatus, type SparkSessionMailMessage } from "../host/session-mail-store.ts";
 import type { SparkCliHostServices } from "../host/index.ts";
 import type { SparkConfig } from "../host/config.ts";
 import type { SparkDaemonModelAuthClient } from "./model-control.ts";
@@ -47,6 +43,13 @@ const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as 
 const STRINGS = sparkTuiPiParityStrings();
 
 type SparkThinkingLevel = NonNullable<SparkConfig["activeThinkingLevel"]>;
+
+export interface SparkSessionInboxClient {
+  currentSessionId: string;
+  list(sessionId: string): Promise<SparkSessionMailMessage[]>;
+  read(sessionId: string, messageId: string): Promise<SparkSessionMailMessage>;
+  ack(sessionId: string, messageId: string): Promise<SparkSessionMailMessage>;
+}
 
 const PI_COMMANDS = [
   "settings",
@@ -76,6 +79,7 @@ export const PI_PARITY_COMMAND_NAMES: readonly string[] = PI_COMMANDS;
 export function createSparkPiParitySlashCommands(
   services: SparkCliHostServices,
   modelAuthClient?: SparkDaemonModelAuthClient,
+  inboxClient?: SparkSessionInboxClient,
 ): SparkNativeSlashCommandMap {
   return withPiParityMetadata({
     settings: {
@@ -125,7 +129,7 @@ export function createSparkPiParitySlashCommands(
     inbox: {
       description: "List, read, or acknowledge durable Spark session mail",
       argumentHint: "[session-id] | read <message-id> [session-id] | ack <message-id> [session-id]",
-      handler: async (args) => handleInboxCommand(services, args),
+      handler: async (args) => handleInboxCommand(args, inboxClient),
     },
     changelog: {
       description: STRINGS.descriptions.changelog,
@@ -348,34 +352,24 @@ function renderScopedModels(services: SparkCliHostServices): string {
     .join("\n");
 }
 
-async function handleInboxCommand(services: SparkCliHostServices, args: string): Promise<string> {
+async function handleInboxCommand(
+  args: string,
+  client: SparkSessionInboxClient | undefined,
+): Promise<string> {
+  if (!client) return "Inbox requires a connected Spark daemon.";
   const tokens = args.trim().split(/\s+/u).filter(Boolean);
   const action = tokens[0] === "read" || tokens[0] === "ack" ? tokens[0] : "list";
-  const store = sparkSessionMailStore(services);
   if (action === "read" || action === "ack") {
     const messageId = tokens[1];
-    const sessionId = tokens[2] ?? (await currentTuiMailSessionId(services));
+    const sessionId = tokens[2] ?? client.currentSessionId;
     if (!messageId || !sessionId) return `Usage: /inbox ${action} <message-id> [session-id]`;
-    const message =
-      action === "read"
-        ? await store.read(sessionId, messageId)
-        : await store.ack(sessionId, messageId);
+    const message = await client[action](sessionId, messageId);
     return renderTuiInboxMessage(action, message);
   }
-  const sessionId = tokens[0] ?? (await currentTuiMailSessionId(services));
+  const sessionId = tokens[0] ?? client.currentSessionId;
   if (!sessionId) return "Usage: /inbox [session-id]";
-  const messages = await store.list(sessionId);
+  const messages = await client.list(sessionId);
   return renderTuiInboxList(sessionId, messages);
-}
-
-function sparkSessionMailStore(services: SparkCliHostServices): SparkSessionMailStore {
-  return new SparkSessionMailStore({ sparkHome: dirname(services.sessionStore.sessionsRoot) });
-}
-
-async function currentTuiMailSessionId(
-  services: SparkCliHostServices,
-): Promise<string | undefined> {
-  return (await services.sessionStore.findMostRecent())?.id;
 }
 
 function renderTuiInboxList(sessionId: string, messages: SparkSessionMailMessage[]): string {

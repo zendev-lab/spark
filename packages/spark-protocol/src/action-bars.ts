@@ -93,7 +93,10 @@ export interface SparkSlashInput {
 /** One canonical editor command and the compatibility aliases that open the same action bar. */
 export interface SparkSlashCommandDescriptor {
   readonly name: string;
+  /** Exact lookup names retained for compatibility. */
   readonly aliases: readonly string[];
+  /** Compatibility aliases that may also appear in prefix completion. */
+  readonly discoverableAliases: readonly string[];
   readonly actionBar: SparkActionBarView;
 }
 
@@ -245,8 +248,8 @@ const reproActionBar = lifecycleActionBar("repro", "Reproduction controls", {
   stop: "Stop repro",
 });
 
-const workflowRunsActionBar = actionBar({
-  id: "workflow-runs",
+const workflowActionBar = actionBar({
+  id: "workflow",
   title: "Workflow runs",
   description: "Open the run board or inspect the selected workflow run.",
   actions: [
@@ -290,7 +293,7 @@ export const sparkSlashCommandDescriptors: readonly SparkSlashCommandDescriptor[
   slashCommand("goal", goalActionBar),
   slashCommand("loop", loopActionBar),
   slashCommand("repro", reproActionBar),
-  slashCommand("workflow-runs", workflowRunsActionBar, ["runs", "run", "workflows"]),
+  slashCommand("workflow", workflowActionBar, ["workflow-runs", "runs", "run", "workflows"], []),
   slashCommand("help", helpActionBar),
   slashCommand("hotkeys", hotkeysActionBar),
 ]);
@@ -393,10 +396,18 @@ function slashCommand(
   name: string,
   actionBar: SparkActionBarView,
   aliases: readonly string[] = [],
+  discoverableAliases: readonly string[] = aliases,
 ): SparkSlashCommandDescriptor {
+  const lookupAliases = new Set(aliases);
+  for (const alias of discoverableAliases) {
+    if (!lookupAliases.has(alias)) {
+      throw new Error(`Discoverable Spark slash alias is not a lookup alias: ${alias}`);
+    }
+  }
   return Object.freeze({
     name,
     aliases: Object.freeze([...aliases]),
+    discoverableAliases: Object.freeze([...discoverableAliases]),
     actionBar,
   });
 }
@@ -424,7 +435,7 @@ function slashSuggestionsForQuery(query: string): readonly SparkSlashSuggestion[
       continue;
     }
 
-    const alias = descriptor.aliases.find((candidate) => candidate.startsWith(query));
+    const alias = descriptor.discoverableAliases.find((candidate) => candidate.startsWith(query));
     if (alias) aliasMatches.push(slashSuggestion(alias, descriptor));
   }
 

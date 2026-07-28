@@ -3,6 +3,25 @@ title: Cockpit
 description: Start the local web surface, understand its daemon relationship, and secure remote browser access.
 ---
 
+## When to use Cockpit
+
+Use Cockpit when one terminal session is too narrow. Its workspace workbench
+provides:
+
+- **Overview** for connection status and shortcuts,
+- a persistent **Conversations** rail for existing and new sessions,
+- **Inbox** for questions and approvals,
+- **Artifacts** for Issues, PRs, and previews, and
+- **Resources** for repositories, documents, links, and tools.
+
+Inside a conversation, the inspector separates Summary, Artifacts, Changes,
+and Tasks. Summary shows status and counts first; working directory, model,
+session ID, and timestamps remain under Technical details.
+
+The TUI `/inspect` panel is only the current terminal session's local
+projection. Cockpit is the browser control surface across sessions and
+workspaces. Both submit execution to Spark daemons.
+
 ## Start Cockpit
 
 ```bash

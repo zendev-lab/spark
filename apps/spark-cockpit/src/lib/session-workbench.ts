@@ -144,6 +144,8 @@ export interface SessionInspectorLabels {
   artifactsHeading: string;
   tasksHeading: string;
   changesHeading: string;
+  runs: string;
+  technicalDetails: string;
   noTasksTitle: string;
   noTasksBody: string;
   noArtifactsTitle: string;
