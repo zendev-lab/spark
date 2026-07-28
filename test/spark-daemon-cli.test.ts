@@ -10,6 +10,7 @@ import {
   SparkDaemonLocalRpcRemoteError,
   SparkDaemonLocalRpcUnavailableError,
 } from "@zendev-lab/spark-daemon-client/local-rpc";
+import { SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
 import { parseSparkDaemonEvent, parseSparkInteractionRequest } from "@zendev-lab/spark-protocol";
 
 import {
@@ -35,6 +36,7 @@ import {
   type SparkDaemonClientOptions,
 } from "../apps/spark-tui/src/cli/daemon.ts";
 import { loadSparkHeadlessSessionModule } from "../apps/spark-daemon/src/spark/session-run.ts";
+import { SparkNativeAdmissionError } from "../apps/spark-tui/src/native-tui.ts";
 import { CREATE_SPARK_SESSION_SELECTION } from "../apps/spark-tui/src/tui/session-selector.ts";
 
 test("Spark daemon loads headless session executor from workspace package source", async () => {
@@ -3296,6 +3298,109 @@ test("Spark native responder retries an ACK loss with the same idempotency key",
   assert.equal(submissions.length, 2);
   assert.deepEqual(submissions[0], submissions[1]);
   assert.equal(submissions[0]?.idempotencyKey, "idem_native_submit_1");
+});
+
+test("Spark native responder observes an admitted invocation without resubmitting it", async () => {
+  const submissions: Array<{ prompt: string; idempotencyKey?: string }> = [];
+  const responder = createSparkDaemonNativeResponder(
+    {
+      startService: () => ({ kind: "detached" as const, alreadyRunning: false, detail: "started" }),
+      daemonStatus: async () => ({
+        observedAt: "2026-07-28T00:00:00.000Z",
+        servers: [],
+        invocations: { queued: 1, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
+      }),
+      turnSubmit: async (_paths, input) => {
+        submissions.push(input);
+        return {
+          invocationId: "inv_twophase",
+          status: "queued" as const,
+          acceptedAt: "2026-07-28T00:00:00.000Z",
+        };
+      },
+    },
+    { sessionId: "native-two-phase", waitForCompletion: false },
+  );
+
+  const admission = await responder.admit("persist first", {
+    submissionId: "idem_two_phase",
+  });
+  const output = await responder.observe(admission, { messages: [] });
+
+  assert.match(output, /queued for Spark daemon session native-two-phase/u);
+  assert.equal(submissions.length, 1);
+  assert.equal(submissions[0]?.prompt, "persist first");
+  assert.equal(submissions[0]?.idempotencyKey, "idem_two_phase");
+});
+
+test("Spark native responder classifies a typed daemon rejection as rejected admission", async () => {
+  const responder = createSparkDaemonNativeResponder(
+    {
+      startService: () => ({ kind: "detached" as const, alreadyRunning: false, detail: "started" }),
+      daemonStatus: async () => ({
+        observedAt: "2026-07-28T00:00:00.000Z",
+        servers: [],
+        invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
+      }),
+      turnSubmit: async () => {
+        const remote = new SparkDaemonRemoteError("turn validation rejected", {
+          code: "INVALID_ARGUMENT",
+        });
+        throw new Error(remote.message, { cause: remote });
+      },
+    },
+    { sessionId: "native-rejected-admission" },
+  );
+
+  await assert.rejects(
+    () =>
+      responder.admit("reject this prompt", {
+        submissionId: "idem_rejected_admission",
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof SparkNativeAdmissionError);
+      assert.equal(error.outcome, "rejected");
+      assert.ok(error.cause instanceof Error);
+      return true;
+    },
+  );
+});
+
+test("Spark native responder reads exact invocation status without resubmitting", async () => {
+  const statusReads: string[] = [];
+  let submissions = 0;
+  const responder = createSparkDaemonNativeResponder(
+    {
+      startService: () => ({ kind: "detached" as const, alreadyRunning: false, detail: "started" }),
+      daemonStatus: async () => ({
+        observedAt: "2026-07-28T00:00:00.000Z",
+        servers: [],
+        invocations: { queued: 0, running: 1, succeeded: 0, failed: 0, cancelled: 0 },
+      }),
+      turnSubmit: async () => {
+        submissions += 1;
+        throw new Error("status reconciliation must not submit");
+      },
+      turnStatus: async (_paths, input) => {
+        statusReads.push(input.invocationId);
+        return {
+          invocationId: input.invocationId,
+          status: "running" as const,
+          createdAt: "2026-07-28T00:00:00.000Z",
+          updatedAt: "2026-07-28T00:00:01.000Z",
+          startedAt: "2026-07-28T00:00:00.500Z",
+          eventCursor: 2,
+        };
+      },
+    },
+    { sessionId: "native-status" },
+  );
+
+  const status = await responder.status("inv_status");
+
+  assert.equal(status.status, "running");
+  assert.deepEqual(statusReads, ["inv_status"]);
+  assert.equal(submissions, 0);
 });
 
 test("production TUI Shift+Tab overrides extension shortcut and updates session thinking", async () => {

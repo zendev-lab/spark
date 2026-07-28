@@ -2,14 +2,11 @@
   import { enhance } from "$app/forms";
   import {
     Composer,
-    SessionQueue,
-    SessionStatusBar,
     SlashActionBar,
     SlashCommandMenu,
   } from "$lib/components/conversation";
   import { ModelRuntimeControl } from "$lib/components/model-selector";
   import Icon from "$lib/Icon.svelte";
-  import SessionAskPanel from "$lib/SessionAskPanel.svelte";
   import {
     SPARK_TURN_ATTACHMENT_MAX_BYTES,
     SPARK_TURN_ATTACHMENT_MAX_COUNT,
@@ -253,51 +250,6 @@
             />
           {/if}
         {/snippet}
-        {#snippet header()}
-          <div class="composer-runtime-header">
-            {#if host.sessionPendingAsk && host.askDetailMessages}
-              <SessionAskPanel ask={host.sessionPendingAsk} messages={host.askDetailMessages} />
-            {/if}
-            {#if host.liveSessionView?.cwd}
-              <SessionStatusBar
-                labels={host.statusBarLabels}
-                cwd={host.compactWorkingDirectory(host.liveSessionView.cwd)}
-                gitBranch={host.liveSessionView.gitBranch}
-                inputTokens={host.runtimeStatusUsage.inputTokens}
-                outputTokens={host.runtimeStatusUsage.outputTokens}
-                cacheReadTokens={host.runtimeStatusUsage.cacheReadTokens}
-                cacheWriteTokens={host.runtimeStatusUsage.cacheWriteTokens}
-                costUsd={host.runtimeStatusUsage.costUsd}
-                latestCacheHitPercent={host.runtimeStatusUsage.latestCacheHitPercent}
-                contextTokens={host.runtimeStatusUsage.contextTokens}
-                contextWindow={host.runtimeStatusUsage.contextWindow}
-              />
-            {/if}
-            <SessionQueue
-              items={host.queueItems}
-              labels={host.queueLabels}
-              hasRunningTurn={host.conversationBusy}
-            >
-              {#snippet actions(item)}
-                <button
-                  class="queue-remove-button"
-                  type="submit"
-                  form={host.queueRemoveFormId(item.id)}
-                  disabled={host.dequeueState === "submitting"}
-                  aria-label={`${host.copy.removeQueued}: ${item.text}`}
-                  title={host.copy.removeQueued}
-                >
-                  <Icon name="close" size={13} stroke={2.2} />
-                  <span>
-                    {host.dequeuingTurnId === item.id && host.dequeueState === "submitting"
-                      ? host.copy.removingQueued
-                      : host.copy.removeQueued}
-                  </span>
-                </button>
-              {/snippet}
-            </SessionQueue>
-          </div>
-        {/snippet}
         {#snippet context()}
           {#if host.modelProvidersLength > 0}
             <ModelRuntimeControl
@@ -383,15 +335,6 @@
               aria-live="polite"
             >
               {host.cancelFeedback}
-            </p>
-          {/if}
-          {#if host.dequeueFeedback}
-            <p
-              class="form-feedback {host.dequeueState}"
-              role={host.dequeueState === "error" ? "alert" : "status"}
-              aria-live="polite"
-            >
-              {host.dequeueFeedback}
             </p>
           {/if}
         {/snippet}
@@ -532,45 +475,6 @@
     font-weight: 650;
     margin: 0;
     text-align: center;
-  }
-
-  .composer-runtime-header {
-    display: grid;
-    gap: 8px;
-    min-width: 0;
-  }
-
-  .queue-remove-button {
-    align-items: center;
-    background: transparent;
-    border: 1px solid var(--color-border-soft);
-    border-radius: var(--rounded-sm);
-    color: var(--color-ink-subtle);
-    cursor: pointer;
-    display: inline-flex;
-    font: inherit;
-    font-size: 11px;
-    font-weight: 600;
-    gap: 4px;
-    min-height: 26px;
-    padding: 3px 7px;
-    white-space: nowrap;
-  }
-
-  .queue-remove-button:hover:not(:disabled) {
-    background: var(--color-surface);
-    border-color: var(--color-danger-soft, var(--color-border));
-    color: var(--color-danger);
-  }
-
-  .queue-remove-button:focus-visible {
-    box-shadow: var(--shadow-focus);
-    outline: none;
-  }
-
-  .queue-remove-button:disabled {
-    cursor: wait;
-    opacity: 0.55;
   }
 
   .sr-only {

@@ -125,6 +125,12 @@ export function sparkCliDispatcherStrings(
 export interface SparkNativeTuiStrings {
   welcome: string;
   stoppedTurn: (reason: string, clearedQueued: number) => string;
+  admissionRejected: (error: string) => string;
+  admissionUnconfirmed: (submissionId: string, error: string) => string;
+  cancellationRequested: (invocationId?: string) => string;
+  cancellationAlreadyTerminal: (invocationId: string, status: string) => string;
+  cancellationUnconfirmed: (invocationId: string, error: string) => string;
+  observationInterrupted: (invocationId: string, error: string) => string;
   turnFailed: (error: string) => string;
   steeringUpdate: (body: string) => string;
   defaultHelp: string;
@@ -152,7 +158,7 @@ export interface SparkNativeTuiStrings {
     model?: string;
     thinkingLevel?: string;
     state: string;
-    queue?: { steer: number; followUp: number };
+    queue?: { steer: number; followUp: number; daemonPending?: number };
   }) => string;
   queuedInput: (mode: "steer" | "followUp", position: number) => string;
   queuedUserPrefix: (mode: "steer" | "followUp") => string;
@@ -195,6 +201,20 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
       `Stopped current Spark turn (${reason}).${
         clearedQueued > 0 ? ` Restored ${clearedQueued} queued input(s) to the editor.` : ""
       }`,
+    admissionRejected: (error) =>
+      `Spark daemon rejected the turn: ${error}. The input can be restored with Alt+Up or resubmitted with /retry.`,
+    admissionUnconfirmed: (submissionId, error) =>
+      `Daemon admission ${submissionId} has an unknown outcome: ${error}. Spark will retry the same request identity; do not resubmit it as a new turn.`,
+    cancellationRequested: (invocationId) =>
+      invocationId
+        ? `Cancellation requested for daemon invocation ${invocationId}; the daemon remains the source of truth until it reaches a terminal state.`
+        : "Cancellation will be requested as soon as daemon admission is acknowledged.",
+    cancellationAlreadyTerminal: (invocationId, status) =>
+      `Daemon invocation ${invocationId} was already ${status}; no new cancellation was recorded.`,
+    cancellationUnconfirmed: (invocationId, error) =>
+      `Cancellation for daemon invocation ${invocationId} could not be confirmed: ${error}. Do not assume it stopped; inspect /status or /queue.`,
+    observationInterrupted: (invocationId, error) =>
+      `Live observation of daemon invocation ${invocationId} was interrupted: ${error}. Daemon ownership is retained; inspect /status or reconnect for the latest projection.`,
     turnFailed: (error) =>
       `Spark turn failed: ${error}. Use /retry to resubmit or /status to inspect the daemon.`,
     steeringUpdate: (body) =>
@@ -223,7 +243,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
       { name: "clear", description: "clear the visible transcript" },
       {
         name: "stop",
-        description: "stop the current Spark turn and clear queued follow-ups",
+        description: "request cancellation of the current Spark invocation",
         argumentHint: "[reason]",
       },
       { name: "retry", description: "resubmit the previous user prompt" },
@@ -255,17 +275,23 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     appTitle: "Spark",
     footer: "Enter submit • /help commands • Ctrl+C/Ctrl+D exit",
     busyFooter: (hasQueuedInput) =>
-      `Enter steer • Alt+Enter follow-up • Esc stop${hasQueuedInput ? " • Alt+Up restore queue" : ""}`,
+      `Enter steer • Alt+Enter follow-up • Esc cancel active${hasQueuedInput ? " • Alt+Up restore queue" : ""}`,
     statusLine: ({ session, model, thinkingLevel, state, queue }) =>
       [
         `session ${session}`,
         ...(model ? [`model ${model}`] : []),
         ...(thinkingLevel ? [`thinking ${thinkingLevel}`] : []),
         `state ${state}`,
-        ...(queue ? [`queue steer=${queue.steer} follow-up=${queue.followUp}`] : []),
+        ...(queue
+          ? [
+              `queue steer=${queue.steer} follow-up=${queue.followUp}${
+                queue.daemonPending ? ` daemon=${queue.daemonPending}` : ""
+              }`,
+            ]
+          : []),
       ].join(" • "),
     queuedInput: (mode, position) =>
-      `Queued ${mode === "followUp" ? "follow-up" : "steering message"} #${position}. Use /stop to clear queued work or stop the current turn; Alt+Up restores queued input.`,
+      `Queued ${mode === "followUp" ? "follow-up" : "steering message"} #${position}. Use /stop to cancel the active turn; Alt+Up restores local queued input.`,
     queuedUserPrefix: (mode) =>
       mode === "followUp" ? "you follow-up queued> " : "you steer queued> ",
     thinkingFolded: (streaming) =>
@@ -287,7 +313,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
         "Basics:",
         "- /help — show this help",
         "- /clear — clear the visible transcript",
-        "- /stop [reason] — stop the current Spark turn and restore queued inputs to the editor",
+        "- /stop [reason] — request cancellation of the current Spark invocation",
         "- /retry — resubmit the previous user prompt",
         "- /exit or /quit — exit the native TUI",
       ].join("\n"),
@@ -302,6 +328,20 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
       `已停止当前 Spark turn（${reason}）。${
         clearedQueued > 0 ? `已将 ${clearedQueued} 条 queued input 恢复到编辑器。` : ""
       }`,
+    admissionRejected: (error) =>
+      `Spark daemon 拒绝了该 turn：${error}。可用 Alt+Up 恢复输入，或用 /retry 重新提交。`,
+    admissionUnconfirmed: (submissionId, error) =>
+      `daemon admission ${submissionId} 的结果未知：${error}。Spark 将使用同一请求身份重试；不要把它作为新 turn 再次提交。`,
+    cancellationRequested: (invocationId) =>
+      invocationId
+        ? `已请求取消 daemon invocation ${invocationId}；在进入终态前仍以 daemon 状态为准。`
+        : "daemon 接纳完成后将立即请求取消。",
+    cancellationAlreadyTerminal: (invocationId, status) =>
+      `daemon invocation ${invocationId} 已处于 ${status} 终态；没有记录新的取消请求。`,
+    cancellationUnconfirmed: (invocationId, error) =>
+      `无法确认 daemon invocation ${invocationId} 的取消结果：${error}。不要假定它已停止；请用 /status 或 /queue 检查。`,
+    observationInterrupted: (invocationId, error) =>
+      `daemon invocation ${invocationId} 的实时观察已中断：${error}。执行所有权仍在 daemon；请用 /status 检查或重新连接以获取最新投影。`,
     turnFailed: (error) =>
       `Spark turn 失败：${error}。使用 /retry 重新提交，或用 /status 检查 daemon。`,
     steeringUpdate: (body) =>
@@ -326,7 +366,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
       { name: "clear", description: "清空可见 transcript" },
       {
         name: "stop",
-        description: "停止当前 Spark turn 并清空 queued follow-up",
+        description: "请求取消当前 Spark invocation",
         argumentHint: "[reason]",
       },
       { name: "retry", description: "重新提交上一条用户 prompt" },
@@ -357,17 +397,23 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     appTitle: "Spark",
     footer: "Enter 提交 • /help 命令 • Ctrl+C/Ctrl+D 退出",
     busyFooter: (hasQueuedInput) =>
-      `Enter 引导当前运行 • Alt+Enter 排队下一轮 • Esc 停止${hasQueuedInput ? " • Alt+Up 恢复队列" : ""}`,
+      `Enter 引导当前运行 • Alt+Enter 排队下一轮 • Esc 取消当前 invocation${hasQueuedInput ? " • Alt+Up 恢复本地队列" : ""}`,
     statusLine: ({ session, model, thinkingLevel, state, queue }) =>
       [
         `会话 ${session}`,
         ...(model ? [`模型 ${model}`] : []),
         ...(thinkingLevel ? [`思考级别 ${thinkingLevel}`] : []),
         `状态 ${zhNativeSessionState(state)}`,
-        ...(queue ? [`队列 引导=${queue.steer} 下一轮=${queue.followUp}`] : []),
+        ...(queue
+          ? [
+              `队列 引导=${queue.steer} 下一轮=${queue.followUp}${
+                queue.daemonPending ? ` daemon=${queue.daemonPending}` : ""
+              }`,
+            ]
+          : []),
       ].join(" • "),
     queuedInput: (mode, position) =>
-      `已排队第 ${position} 条${mode === "followUp" ? "下一轮消息" : "引导消息"}。使用 /stop 清空队列或停止当前运行；Alt+Up 可恢复队列输入。`,
+      `已排队第 ${position} 条${mode === "followUp" ? "下一轮消息" : "引导消息"}。使用 /stop 取消当前运行；Alt+Up 可恢复本地队列输入。`,
     queuedUserPrefix: (mode) =>
       mode === "followUp" ? "你（下一轮已排队）> " : "你（引导已排队）> ",
     thinkingFolded: (streaming) =>
@@ -389,7 +435,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
         "基础：",
         "- /help — 显示此帮助",
         "- /clear — 清空可见 transcript",
-        "- /stop [reason] — 停止当前 Spark turn 并把 queued input 恢复到编辑器",
+        "- /stop [reason] — 请求取消当前 Spark invocation",
         "- /retry — 重新提交上一条用户 prompt",
         "- /exit 或 /quit — 退出 native TUI",
       ].join("\n"),

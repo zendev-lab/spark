@@ -38,6 +38,8 @@ const inboxServerPath = resolve(
 );
 const layoutPath = resolve(libRoot, "../routes/(workbench)/+layout.svelte");
 const workspacePath = resolve(libRoot, "SessionsWorkspace.svelte");
+const conversationPanePath = resolve(libRoot, "sessions-workspace/SessionConversationPane.svelte");
+const composerPanePath = resolve(libRoot, "sessions-workspace/SessionComposerPane.svelte");
 const messages = getDictionary("en").inboxDetail;
 const ask: PendingWorkbenchAsk = {
   id: "inbox_preview",
@@ -96,11 +98,17 @@ describe("SessionAskPanel", () => {
     expect(document.querySelector(".pending-count")?.textContent).toBe("2");
   });
 
-  it("is mounted from the session composer, not a global dialog", () => {
+  it("is mounted beside the session composer, not inside its send form or a global dialog", () => {
     const layout = readFileSync(layoutPath, "utf8");
     const workspace = readFileSync(workspacePath, "utf8");
+    const conversationPane = readFileSync(conversationPanePath, "utf8");
+    const composerPane = readFileSync(composerPanePath, "utf8");
     expect(layout).not.toContain("GlobalAskDialog");
-    expect(workspace).toContain("SessionAskPanel");
+    expect(conversationPane).toContain("<SessionAskPanel");
+    expect(conversationPane.indexOf("<SessionAskPanel")).toBeLessThan(
+      conversationPane.indexOf("<SessionComposerPane"),
+    );
+    expect(composerPane.includes("SessionAskPanel")).toBe(false);
     expect(workspace).toContain("sessionPendingAsk");
   });
 

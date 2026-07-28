@@ -73,7 +73,14 @@ import {
   type SparkDaemonManagedSessionsClient,
 } from "./session-registry.ts";
 import type { ChannelStatusSnapshot } from "./channel-status.ts";
-import type { SparkNativeSlashCommandMap } from "../native-tui.ts";
+import {
+  SparkNativeAdmissionError,
+  type SparkNativeAdmissionContext,
+  type SparkNativeInvocationStatusContext,
+  type SparkNativeResponder,
+  type SparkNativeResponderContext,
+  type SparkNativeSlashCommandMap,
+} from "../native-tui.ts";
 import {
   consoleSparkCliOutput,
   parseSparkCliOptions,
@@ -1130,22 +1137,22 @@ export interface SparkDaemonNativeResponderOptions {
   ) => void | Promise<void>;
 }
 
-interface SparkDaemonNativeResponderContext {
-  submissionId?: string;
-  signal?: AbortSignal;
-  appendAssistantChunk?: (chunk: string) => void;
-  finishAssistantMessage?: () => void;
-}
+export type SparkDaemonNativeResponderContext = Omit<SparkNativeResponderContext, "messages"> & {
+  messages?: SparkNativeResponderContext["messages"];
+};
+
+export type SparkDaemonNativeResponder = SparkNativeResponder &
+  Required<Pick<SparkNativeResponder, "admit" | "observe" | "cancel" | "status">> &
+  ((input: string, context?: SparkDaemonNativeResponderContext) => Promise<string>);
 
 export function createSparkDaemonNativeResponder(
   client: SparkDaemonClientOptions = {},
   options: SparkDaemonNativeResponderOptions = {},
-): (input: string, context?: SparkDaemonNativeResponderContext) => Promise<string> {
+): SparkDaemonNativeResponder {
   const sessionId = options.sessionId ?? `spark-cli-${Date.now().toString(36)}`;
   let sessionReady: Promise<void> | undefined;
-  return async (input: string, context?: SparkDaemonNativeResponderContext) => {
-    const prompt = input.trim();
-    if (!prompt) return STRINGS.ignoredEmptyPrompt;
+
+  const ensureReady = async () => {
     if (options.ensureSession || options.workspaceId) {
       sessionReady ??= (
         options.ensureSession
@@ -1164,31 +1171,68 @@ export function createSparkDaemonNativeResponder(
       });
       await sessionReady;
     }
+  };
+
+  const admit = async (
+    input: string,
+    context: SparkNativeAdmissionContext = {},
+  ): Promise<LocalTurnSubmitResult> => {
+    const prompt = input.trim();
+    if (!prompt) throw new Error(STRINGS.ignoredEmptyPrompt);
+    let submissionStarted = false;
+    try {
+      await ensureReady();
+      submissionStarted = true;
+      return await clientSubmit(
+        {
+          sessionId,
+          prompt,
+          idempotencyKey: context.submissionId,
+          messageMetadata: {
+            origin: { kind: "user", host: "tui", surface: "local" },
+          },
+        },
+        client,
+        { signal: context.signal },
+      );
+    } catch (error) {
+      if (context.signal?.aborted) {
+        throw context.signal.reason instanceof Error
+          ? context.signal.reason
+          : new Error("daemon admission aborted");
+      }
+      if (error instanceof SparkNativeAdmissionError) throw error;
+      const remoteCause =
+        error instanceof SparkDaemonRemoteError ||
+        (error instanceof Error && error.cause instanceof SparkDaemonRemoteError);
+      throw new SparkNativeAdmissionError(
+        error instanceof Error ? error.message : String(error),
+        !submissionStarted || remoteCause ? "rejected" : "unknown",
+        { cause: error },
+      );
+    }
+  };
+
+  const observe = async (
+    admission: LocalTurnSubmitResult,
+    context: SparkNativeResponderContext,
+  ): Promise<string> => {
     const live = createDaemonLiveAssistantRenderer(
       context,
       options.onViewEvent,
       options.onInteractionRequest,
     );
-    const result = await clientSubmitStreaming(
-      {
-        sessionId,
-        prompt,
-        idempotencyKey: context?.submissionId,
-        messageMetadata: {
-          origin: { kind: "user", host: "tui", surface: "local" },
-        },
-      },
-      client,
-      {
+    if (live.onEvent) {
+      await pollInvocationEvents(admission.invocationId, client, {
         signal: context?.signal,
         timeoutMs: options.timeoutMs,
         onEvent: live.onEvent,
-      },
-    );
-    if (options.waitForCompletion === false) {
-      return STRINGS.queuedSession(sessionId, result.invocationId);
+      });
     }
-    const finalText = await waitForSubmittedTurn(sessionId, result, client, {
+    if (options.waitForCompletion === false) {
+      return STRINGS.queuedSession(sessionId, admission.invocationId);
+    }
+    const finalText = await waitForSubmittedTurn(sessionId, admission, client, {
       signal: context?.signal,
       pollIntervalMs: options.pollIntervalMs,
       timeoutMs: options.timeoutMs,
@@ -1199,10 +1243,38 @@ export function createSparkDaemonNativeResponder(
     }
     return finalText;
   };
+
+  const responder = async (
+    input: string,
+    context?: SparkDaemonNativeResponderContext,
+  ): Promise<string> => {
+    const prompt = input.trim();
+    if (!prompt) return STRINGS.ignoredEmptyPrompt;
+    const responderContext: SparkNativeResponderContext = {
+      ...context,
+      messages: context?.messages ?? [],
+    };
+    const admission = await admit(prompt, {
+      submissionId: responderContext.submissionId,
+      signal: responderContext.signal,
+    });
+    return await observe(admission, responderContext);
+  };
+
+  return Object.assign(responder, {
+    admit,
+    observe,
+    cancel: async (invocationId: string, reason: string) =>
+      await clientCancelTurn({ invocationId, reason }, client),
+    status: async (invocationId: string, context: SparkNativeInvocationStatusContext = {}) =>
+      await clientTurnStatus({ invocationId }, client, {
+        signal: context.signal,
+      }),
+  }) as SparkDaemonNativeResponder;
 }
 
 function createDaemonLiveAssistantRenderer(
-  context: SparkDaemonNativeResponderContext | undefined,
+  context: SparkNativeResponderContext | undefined,
   onViewEvent: ((event: SparkViewModelEvent) => void) | undefined,
   onInteractionRequest:
     | ((
@@ -2385,22 +2457,6 @@ export async function clientCancelTurn(
   return await localRpcRequest(paths, "turn.cancel", input);
 }
 
-async function clientSubmitStreaming(
-  input: SparkDaemonTurnSubmitInput,
-  client: SparkDaemonClientOptions,
-  handlers: {
-    onEvent?: (event: SparkDaemonEvent) => void | Promise<void>;
-    signal?: AbortSignal;
-    timeoutMs?: number;
-  } = {},
-): Promise<LocalTurnSubmitResult> {
-  throwIfAborted(handlers.signal);
-  await clientEnsureRunning(client);
-  const submitted = await clientSubmit(input, client, { signal: handlers.signal });
-  if (handlers.onEvent) await pollInvocationEvents(submitted.invocationId, client, handlers);
-  return submitted;
-}
-
 async function pollInvocationEvents(
   invocationId: string,
   client: SparkDaemonClientOptions,
@@ -2684,7 +2740,7 @@ async function localRpcRequest<M extends SparkLocalRpcMethod>(
         isRecord(error.payload) && typeof error.payload.message === "string"
           ? error.payload.message
           : STRINGS.localRpcFailed;
-      throw new Error(message);
+      throw new Error(message, { cause: error });
     }
     throw error;
   }

@@ -7,6 +7,7 @@
 
 export {
   SPARK_NATIVE_KERNEL_SLASH_COMMANDS,
+  SparkNativeAdmissionError,
   SparkNativeSession,
   SparkNativeTuiApp,
   createSparkNativeLocalControlSlashCommands,
@@ -18,6 +19,8 @@ export {
   runNativeSparkTui,
   type RunNativeSparkTuiOptions,
   type SparkNativeAbortResult,
+  type SparkNativeAdmissionContext,
+  type SparkNativeInvocationStatusContext,
   type SparkNativeCockpitPanel,
   type SparkNativeCockpitSnapshot,
   type SparkNativeCustomMessageInput,
