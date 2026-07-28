@@ -98,6 +98,37 @@ export function runSparkDriverStoreContract(
       }
     });
 
+    it("DRV-GENERATION-000 materializes a new repro under its repro id at generation one", () => {
+      const harness = createHarness();
+      try {
+        expect(
+          harness.drivers.start({
+            driverId: "repro-123",
+            kind: "repro",
+            ownerSessionId: "session-repro",
+            cwd: "/workspace",
+            prompt: "reproduce model",
+            now: "2026-07-23T00:00:00.000Z",
+          }),
+        ).toMatchObject({ driverId: "repro-123", kind: "repro", generation: 1 });
+
+        const invocation = harness.drivers.materializeDue("2026-07-23T00:00:00.000Z");
+        expect(invocation).toMatchObject({
+          sourceRef: "repro-123",
+          task: {
+            type: "driver.tick",
+            driverId: "repro-123",
+            kind: "repro",
+            generation: 1,
+            ownerSessionId: "session-repro",
+          },
+        });
+        expect(harness.drivers.materializeDue("2026-07-23T00:00:01.000Z")).toBeUndefined();
+      } finally {
+        harness.close();
+      }
+    });
+
     it("DRV-GENERATION-001 keeps an explicit generation schedule when the old tick completes", () => {
       const harness = createHarness();
       try {

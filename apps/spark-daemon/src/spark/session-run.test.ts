@@ -6,7 +6,9 @@ import {
   CHANNEL_DELIVERY_OUTCOME_UNKNOWN_ERROR_CODE,
   channelDeliveryNotSent,
 } from "@zendev-lab/spark-channels";
+import type { SparkHostDriverContext } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
+import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
 import { SPARK_PROTOCOL_VERSION, type SparkDaemonEvent } from "@zendev-lab/spark-protocol";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import type {
@@ -41,7 +43,154 @@ function context(
   };
 }
 
+function driverContext(
+  kind: SparkHostDriverContext["kind"],
+  generation: number,
+  driverId = `${kind}-driver`,
+): SparkHostDriverContext {
+  return {
+    driverId,
+    kind,
+    generation,
+    ownerSessionId: "owner-session",
+    stateOwnerSessionId: "owner-session",
+    schedule: vi.fn(async () => undefined),
+    stop: vi.fn(async () => undefined),
+  };
+}
+
 describe("daemon native session execution", () => {
+  it("autoloads the built-in repro skill only on generation one until its checkpoint persists", async () => {
+    const calls: unknown[] = [];
+    const executeSession = vi.fn(async (input: unknown) => {
+      calls.push(input);
+      return { assistantText: "done" };
+    });
+    const task = (sessionId: string): SparkDaemonSessionRunTask => ({
+      type: "session.run",
+      sessionId,
+      prompt: "continue",
+    });
+
+    await executeSparkDaemonSessionRunTask(
+      task("sess_repro_first"),
+      context(task("sess_repro_first")),
+      { paths, executeSession },
+      driverContext("repro", 1, "repro-123"),
+    );
+    await executeSparkDaemonSessionRunTask(
+      task("sess_repro_later"),
+      context(task("sess_repro_later")),
+      { paths, executeSession },
+      driverContext("repro", 2, "repro-123"),
+    );
+    await executeSparkDaemonSessionRunTask(
+      { ...task("sess_repro_resumed"), resumeFromInterrupt: true },
+      context(task("sess_repro_resumed")),
+      { paths, executeSession },
+      driverContext("repro", 1, "repro-123"),
+    );
+    await executeSparkDaemonSessionRunTask(
+      task("sess_goal_first"),
+      context(task("sess_goal_first")),
+      { paths, executeSession },
+      driverContext("goal", 1),
+    );
+    await executeSparkDaemonSessionRunTask(task("sess_direct"), context(task("sess_direct")), {
+      paths,
+      executeSession,
+    });
+
+    expect(calls[0]).toEqual(
+      expect.objectContaining({
+        prompt: expect.stringContaining("load once for reproId=repro-123"),
+        messageMetadata: expect.objectContaining({
+          sparkReproSkillCheckpoint: {
+            skillName: "model-reproduction",
+            reproId: "repro-123",
+          },
+        }),
+      }),
+    );
+    expect(JSON.stringify(calls[0])).toContain("Known Diff Procedure");
+    expect(calls[2]).toEqual(
+      expect.objectContaining({
+        prompt: expect.stringContaining("load once for reproId=repro-123"),
+        resumeFromInterrupt: true,
+      }),
+    );
+    expect(JSON.stringify(calls[2])).toContain("Known Diff Procedure");
+    for (const index of [1, 3, 4]) {
+      expect(calls[index]).toEqual(expect.objectContaining({ prompt: "continue" }));
+      expect(JSON.stringify(calls[index])).not.toContain("Known Diff Procedure");
+    }
+  });
+
+  it("does not duplicate a persisted repro skill checkpoint when generation one resumes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-repro-skill-checkpoint-"));
+    const cwd = join(root, "workspace");
+    const sparkHome = join(root, "pi-agent");
+    const sessionId = "sess_repro_checkpointed";
+    const store = new SparkSessionStore({ cwd, sparkHome });
+    const record = store.createCanonicalSession({ id: sessionId });
+    store.appendMessage(record, {
+      role: "user",
+      content: "first repro tick",
+      metadata: {
+        sparkReproSkillCheckpoint: {
+          skillName: "model-reproduction",
+          reproId: "repro-123",
+        },
+      },
+    });
+    await store.save(record);
+    const executeSession = vi.fn(async (_input: unknown) => ({ assistantText: "done" }));
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId,
+      prompt: "continue",
+      cwd,
+      resumeFromInterrupt: true,
+    };
+
+    try {
+      await executeSparkDaemonSessionRunTask(
+        task,
+        context(task),
+        {
+          paths: { ...paths, piAgentDir: sparkHome },
+          executeSession,
+          sessionRegistry: {
+            get: vi.fn(
+              async () =>
+                ({
+                  sessionId,
+                  cwd,
+                  sessionPath: record.path,
+                  bindings: [],
+                }) as never,
+            ),
+            recordRun: vi.fn(async () => ({}) as never),
+            recordTurnQueued: vi.fn(async () => ({}) as never),
+            recordTurnSettled: vi.fn(async () => ({}) as never),
+          },
+        },
+        driverContext("repro", 1, "repro-123"),
+      );
+
+      expect(executeSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: "continue",
+          resumeFromInterrupt: true,
+          sessionPath: record.path,
+        }),
+      );
+      expect(JSON.stringify(executeSession.mock.calls[0])).not.toContain("Known Diff Procedure");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("leaves daemon execution timeout ownership with the pausable scheduler", async () => {
     const executeSession = vi.fn(async (_input: unknown) => ({ assistantText: "done" }));
     const task: SparkDaemonSessionRunTask = {

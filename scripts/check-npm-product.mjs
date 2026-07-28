@@ -65,6 +65,10 @@ if (await exists(productManifestPath)) {
     "dist/spark-daemon.js",
     "dist/spark-headless-role-executor.js",
     "dist/migrations/0001_initial.sql",
+    "skills/model-reproduction/SKILL.md",
+    "skills/model-reproduction/references/known-diffs/catalog.md",
+    "skills/model-reproduction/references/known-diffs/source-notes.md",
+    "skills/model-reproduction/references/provenance.md",
     "build/handler.js",
   ]) {
     if (!(await exists(resolve(productDirectory, asset))))
