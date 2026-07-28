@@ -73,7 +73,7 @@ async function writeProductManifest() {
     ...(rootManifest.bugs ? { bugs: rootManifest.bugs } : {}),
     type: "module",
     bin: { spark: "./bin/spark" },
-    files: ["bin", "dist", "build", "README.md", "LICENSE"],
+    files: ["bin", "dist", "build", "skills", "README.md", "LICENSE"],
     engines: { node: rootManifest.engines.node },
     publishConfig: {
       access: "public",
@@ -186,6 +186,9 @@ await Promise.all([
     recursive: true,
   }),
   cp(resolve(root, "apps/spark-cockpit/build"), resolve(productDirectory, "build"), {
+    recursive: true,
+  }),
+  cp(resolve(root, "packages/spark-host/skills"), resolve(productDirectory, "skills"), {
     recursive: true,
   }),
   cp(resolve(root, "README.md"), resolve(productDirectory, "README.md")),
