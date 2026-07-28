@@ -1,36 +1,39 @@
 import { driverUpdateEvent, SparkDriverStore } from "../../store/drivers.ts";
+import { SparkDaemonControlError } from "../../control-error.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
-import type { LocalRpcRequest, LocalRpcResponse } from "../types.ts";
+import type { LocalRpcServiceOutput, LocalRpcServiceRequest } from "../types.ts";
 
-type DriverRequest = Extract<LocalRpcRequest, { method: `driver.${string}` }>;
+type DriverRequest = Extract<LocalRpcServiceRequest, { method: `driver.${string}` }>;
 
 export async function handleDriverRequest(
   ctx: LocalRpcDispatchContext,
   request: DriverRequest,
-): Promise<LocalRpcResponse> {
+): Promise<LocalRpcServiceOutput<DriverRequest>> {
   const store = new SparkDriverStore(ctx.db);
-  const mutation = (record: ReturnType<SparkDriverStore["start"]>): LocalRpcResponse => {
+  const mutation = (record: ReturnType<SparkDriverStore["start"]>) => {
     const result = store.mutationResult(record);
     ctx.options.eventBus?.publish(driverUpdateEvent(result.driver));
-    return { id: request.id, ok: true, result };
+    return result;
   };
   switch (request.method) {
     case "driver.start": {
       const session = await ctx.options.sessionRegistry?.get(request.params.ownerSessionId);
       if (ctx.options.sessionRegistry && !session) {
-        throw new Error(`DRIVER_OWNER_NOT_FOUND: ${request.params.ownerSessionId}`);
+        throw new SparkDaemonControlError(
+          "driver_owner_not_found",
+          `Driver owner session was not found: ${request.params.ownerSessionId}`,
+        );
       }
       if (session?.status === "archived") {
-        throw new Error(`DRIVER_OWNER_ARCHIVED: ${request.params.ownerSessionId}`);
+        throw new SparkDaemonControlError(
+          "driver_owner_archived",
+          `Driver owner session is archived: ${request.params.ownerSessionId}`,
+        );
       }
       return mutation(store.start(request.params));
     }
     case "driver.status":
-      return {
-        id: request.id,
-        ok: true,
-        result: store.listResult(request.params),
-      };
+      return store.listResult(request.params);
     case "driver.stop":
       return mutation(
         store.stop(request.params.driverId, request.params.reason ?? "stopped by control plane"),

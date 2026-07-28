@@ -1,5 +1,6 @@
 import {
   createSparkModelControlClient,
+  sparkLocalRpcProcedureSchemas,
   sparkModelValue,
   type SparkModelControlClient,
   type SparkModelControlSnapshot,
@@ -23,13 +24,44 @@ export function createSparkDaemonModelAuthClient(
   options: SparkDaemonModelAuthClientOptions = {},
 ): SparkDaemonModelAuthClient {
   const client = createSparkModelControlClient(
-    async (method, params) => requestSparkDaemonControl(method, params ?? {}, daemon),
+    async (method, params) => requestSparkDaemonModelControl(method, params, daemon),
     options,
   );
   return {
     ...client,
     logout: async (providerName) => (await client.logout(providerName)).removed,
   };
+}
+
+async function requestSparkDaemonModelControl(
+  method: string,
+  params: unknown,
+  daemon: SparkDaemonClientOptions,
+): Promise<unknown> {
+  if (!isSparkDaemonModelControlMethod(method)) {
+    throw new Error(`Unknown Spark daemon model control method: ${method}`);
+  }
+  const input = sparkLocalRpcProcedureSchemas[method].input.parse(params ?? {});
+  return requestSparkDaemonControl(method, input, daemon);
+}
+
+const SPARK_DAEMON_MODEL_CONTROL_METHODS = [
+  "model.catalog",
+  "session.model.set",
+  "session.thinking.set",
+  "model.default.set",
+  "provider.auth.api-key.set",
+  "provider.auth.logout",
+  "provider.auth.login.start",
+  "provider.auth.login.status",
+  "provider.auth.login.respond",
+  "provider.auth.login.cancel",
+] as const;
+
+type SparkDaemonModelControlMethod = (typeof SPARK_DAEMON_MODEL_CONTROL_METHODS)[number];
+
+function isSparkDaemonModelControlMethod(method: string): method is SparkDaemonModelControlMethod {
+  return SPARK_DAEMON_MODEL_CONTROL_METHODS.some((candidate) => candidate === method);
 }
 
 export function daemonSnapshotToPickerState(

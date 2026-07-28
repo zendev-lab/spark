@@ -1,4 +1,6 @@
+import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
+import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createORPCClient } from "@orpc/client";
@@ -10,6 +12,7 @@ import { RPCLink } from "@orpc/client/message-port";
 import { z } from "zod";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  createSocketMessagePort,
   createUnixSocketMessagePortPair,
   type UnixSocketMessagePortPair,
 } from "./socket-message-port.ts";
@@ -67,6 +70,55 @@ describe("Unix socket MessagePort adapter", () => {
     });
     pair.server.close();
     await closed;
+  });
+
+  it("discards a late message after close like a native MessagePort", async () => {
+    const pair = await openPair();
+
+    pair.client.close();
+
+    expect(() => pair.client.postMessage({ late: true })).not.toThrow();
+  });
+
+  it("rejects an oversized frame before buffering it without bound", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spark-socket-port-"));
+    dirs.push(dir);
+    const pair = await createUnixSocketMessagePortPair(join(dir, "orpc.sock"), {
+      maxMessageBytes: 64,
+    });
+    fixtures.push(pair);
+    const failure = new Promise<Error>((resolve) => {
+      pair.client.on("error", (error) => resolve(error));
+    });
+
+    pair.server.postMessage({ payload: "x".repeat(128) });
+
+    await expect(failure).resolves.toMatchObject({
+      message: "Socket MessagePort frame exceeded 64 bytes.",
+    });
+  });
+
+  it("closes a malformed frame instead of leaving an RPC pending", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spark-socket-port-"));
+    dirs.push(dir);
+    const socketPath = join(dir, "orpc.sock");
+    const server = createServer((socket) => socket.end("{not-json\n"));
+    server.listen(socketPath);
+    await once(server, "listening");
+    const socket = createConnection(socketPath);
+    await once(socket, "connect");
+    const port = createSocketMessagePort(socket);
+    const failure = new Promise<Error>((resolve) => {
+      port.on("error", (error) => resolve(error));
+    });
+    const closed = new Promise<void>((resolve) => {
+      port.on("close", () => resolve());
+    });
+
+    await expect(failure).resolves.toBeInstanceOf(SyntaxError);
+    await expect(closed).resolves.toBeUndefined();
+    port.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
   it("runs oRPC procedures over the socket MessagePort pair", async () => {

@@ -1739,11 +1739,7 @@ async function waitForInvocationTerminal(
         status.status === "cancelled"
       ) {
         // Fetch the full result
-        return await requestSparkDaemonControl<SparkTurnResult>(
-          "turn.result",
-          { invocationId },
-          client,
-        );
+        return await requestSparkDaemonControl("turn.result", { invocationId }, client);
       }
       // Still running/queued — poll again
       const remaining = deadline - Date.now();

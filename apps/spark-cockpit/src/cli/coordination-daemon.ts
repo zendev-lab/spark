@@ -1,30 +1,33 @@
 import {
-  parseSparkSessionRegistryRecord,
-  sparkTurnSubmitResultSchema,
+  sparkLocalRpcProcedureSchemas,
   type SparkAssignment,
+  type SparkLocalRpcInput,
+  type SparkLocalRpcMethod,
+  type SparkLocalRpcOutput,
   type SparkSessionRegistryRecord,
   type SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
-import {
-  requestSparkDaemonLocalRpc,
-  type SparkDaemonLocalRpcClientOptions,
-} from "@zendev-lab/spark-daemon-client/local-rpc";
+import { requestSparkDaemon, type SparkDaemonClientOptions } from "@zendev-lab/spark-daemon-client";
+
+export type CockpitCoordinationDaemonRequest = <M extends SparkLocalRpcMethod>(
+  method: M,
+  params: SparkLocalRpcInput<M>,
+  options?: SparkDaemonClientOptions,
+) => Promise<unknown>;
 
 export interface CockpitCoordinationDaemonClientOptions {
   runtimeDir?: string;
   cwd?: string;
   env?: Record<string, string | undefined>;
-  request?: typeof requestSparkDaemonLocalRpc;
+  request?: CockpitCoordinationDaemonRequest;
 }
 
 export async function getManagedSession(
   sessionId: string,
   options: CockpitCoordinationDaemonClientOptions = {},
 ): Promise<SparkSessionRegistryRecord> {
-  return parseSparkSessionRegistryRecord(
-    await daemonRequest("session.get", { sessionId }, options),
-  );
+  return daemonRequest("session.get", { sessionId }, options);
 }
 
 export async function submitAssignment(
@@ -35,7 +38,7 @@ export async function submitAssignment(
   },
   options: CockpitCoordinationDaemonClientOptions = {},
 ): Promise<SparkTurnSubmitResult> {
-  const result = await daemonRequest(
+  return daemonRequest(
     "turn.submit",
     {
       sessionId: input.sessionId,
@@ -45,16 +48,14 @@ export async function submitAssignment(
     },
     options,
   );
-  return sparkTurnSubmitResultSchema.parse(result);
 }
 
-async function daemonRequest<T>(
-  method: string,
-  params: unknown,
+async function daemonRequest<M extends SparkLocalRpcMethod>(
+  method: M,
+  params: SparkLocalRpcInput<M>,
   options: CockpitCoordinationDaemonClientOptions,
-): Promise<T> {
-  const request = options.request ?? requestSparkDaemonLocalRpc;
-  const rpcOptions: SparkDaemonLocalRpcClientOptions = {
+): Promise<SparkLocalRpcOutput<M>> {
+  const rpcOptions: SparkDaemonClientOptions = {
     paths: {
       runtimeDir:
         options.runtimeDir ??
@@ -62,5 +63,9 @@ async function daemonRequest<T>(
     },
     ...(options.env ? { env: options.env } : {}),
   };
-  return await request<T>(method, params, rpcOptions);
+  if (options.request) {
+    const injected = await options.request(method, params, rpcOptions);
+    return sparkLocalRpcProcedureSchemas[method].output.parse(injected) as SparkLocalRpcOutput<M>;
+  }
+  return await requestSparkDaemon(method, params, rpcOptions);
 }

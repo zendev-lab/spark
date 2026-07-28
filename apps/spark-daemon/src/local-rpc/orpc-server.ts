@@ -1,7 +1,4 @@
-/**
- * Parallel oRPC MessagePort listener beside the legacy line-delimited local-rpc
- * socket. Live methods round-trip here; everything else stays on daemon.sock.
- */
+/** oRPC MessagePort listener beside the temporary legacy NDJSON socket. */
 import { mkdirSync, rmSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname, join } from "node:path";
@@ -24,25 +21,43 @@ export interface LocalRpcOrpcServer {
 export async function startLocalRpcOrpcServer(options: {
   paths: SparkPaths;
   db: DatabaseSync;
+  forceCloseTimeoutMs?: number;
   onStop?: () => void | Promise<void>;
   handlerOptions?: LocalRpcHandlerOptions;
+  onRequestStart?: (request: Promise<unknown>) => void;
 }): Promise<LocalRpcOrpcServer> {
   const socketPath = localRpcOrpcSocketPath(options.paths);
   mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
   rmSync(socketPath, { force: true });
 
+  const sockets = new Set<Socket>();
+  const inFlightRequests = new Set<Promise<unknown>>();
+  let closePromise: Promise<void> | undefined;
+  let closing = false;
+  const trackRequest = (request: Promise<unknown>) => {
+    inFlightRequests.add(request);
+    options.onRequestStart?.(request);
+    void request.then(
+      () => inFlightRequests.delete(request),
+      () => inFlightRequests.delete(request),
+    );
+  };
   const routerInput: CreateLocalRpcOrpcRouterOptions = {
     paths: options.paths,
     db: options.db,
     ...(options.onStop ? { onStop: options.onStop } : {}),
     ...(options.handlerOptions ? { options: options.handlerOptions } : {}),
+    isAcceptingRequests: () => !closing,
+    onRequestStart: trackRequest,
   };
   const router = createLocalRpcOrpcRouter(routerInput);
   const handler = new RPCHandler(router);
-  const sockets = new Set<Socket>();
-  let closePromise: Promise<void> | undefined;
 
   const server: Server = createServer((socket) => {
+    if (closing) {
+      socket.destroy();
+      return;
+    }
     sockets.add(socket);
     socket.once("close", () => sockets.delete(socket));
     const port = createSocketMessagePort(socket);
@@ -67,14 +82,27 @@ export async function startLocalRpcOrpcServer(options: {
     socketPath,
     close: () => {
       if (closePromise) return closePromise;
-      closePromise = new Promise<void>((resolve, reject) => {
-        for (const socket of sockets) socket.destroy();
+      closing = true;
+      const transportClosed = new Promise<void>((resolve, reject) => {
         server.close((error) => {
           rmSync(socketPath, { force: true });
           if (error) reject(error);
           else resolve();
         });
       });
+      for (const socket of sockets) socket.pause();
+      const forceClose = setTimeout(() => {
+        for (const socket of sockets) socket.destroy();
+      }, options.forceCloseTimeoutMs ?? 5_000);
+      forceClose.unref();
+      const requestsSettled = Promise.allSettled([...inFlightRequests]).then(() => {
+        for (const socket of sockets) socket.end();
+      });
+      closePromise = Promise.allSettled([transportClosed, requestsSettled])
+        .then(([transport]) => {
+          if (transport.status === "rejected") throw transport.reason;
+        })
+        .finally(() => clearTimeout(forceClose));
       return closePromise;
     },
   };

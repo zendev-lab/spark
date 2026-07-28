@@ -1,8 +1,7 @@
 import { resolve } from "node:path";
 import {
-  parseSparkSessionRegistryRecord,
-  sparkDriverListResultSchema,
-  sparkDriverMutationResultSchema,
+  type SparkLocalRpcInput,
+  type SparkLocalRpcOutput,
   type SparkDriverListResult,
   type SparkDriverMutationRequest,
   type SparkDriverMutationResult,
@@ -11,10 +10,7 @@ import {
   type SparkDriverStatusRequest,
   type SparkDriverWakeRequest,
 } from "@zendev-lab/spark-protocol";
-import {
-  requestSparkDaemonLocalRpc,
-  SparkDaemonLocalRpcRemoteError,
-} from "@zendev-lab/spark-daemon-client/local-rpc";
+import { requestSparkDaemon, SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 
 export interface SparkDaemonDriverControl {
@@ -71,12 +67,12 @@ async function ensureSparkDaemonOwnerSession(input: {
   sessionId: string;
   cwd: string;
 }): Promise<void> {
-  const workspace = await requestSparkDaemonLocalRpc<unknown>("workspace.ensure-local", {
+  const workspace = await requestSparkDaemon("workspace.ensure-local", {
     localPath: input.cwd,
   });
-  const workspaceId = requiredStringField(workspace, "id", "workspace.ensure-local");
+  const workspaceId = workspace.id;
   try {
-    await requestSparkDaemonLocalRpc("session.create", {
+    await requestSparkDaemon("session.create", {
       sessionId: input.sessionId,
       scope: { kind: "workspace", workspaceId },
       cwd: input.cwd,
@@ -84,9 +80,7 @@ async function ensureSparkDaemonOwnerSession(input: {
   } catch (error) {
     if (!isSessionAlreadyExists(error)) throw error;
   }
-  const session = parseSparkSessionRegistryRecord(
-    await requestSparkDaemonLocalRpc<unknown>("session.get", { sessionId: input.sessionId }),
-  );
+  const session = await requestSparkDaemon("session.get", { sessionId: input.sessionId });
   if (session.status === "archived") {
     throw new Error(`Spark daemon session is archived: ${input.sessionId}`);
   }
@@ -100,36 +94,26 @@ async function ensureSparkDaemonOwnerSession(input: {
 
 function isSessionAlreadyExists(error: unknown): boolean {
   return (
-    error instanceof SparkDaemonLocalRpcRemoteError &&
-    /(?:session_exists|session already exists)/iu.test(error.message)
+    error instanceof SparkDaemonRemoteError &&
+    isRecord(error.payload) &&
+    error.payload.code === "session_exists"
   );
 }
 
-function requiredStringField(value: unknown, field: string, source: string): string {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(`Invalid ${source} response`);
-  }
-  const candidate = (value as Record<string, unknown>)[field];
-  if (typeof candidate !== "string" || !candidate.trim()) {
-    throw new Error(`Invalid ${source} response: missing ${field}`);
-  }
-  return candidate.trim();
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export async function startSparkDaemonDriver(
   input: SparkDriverStartRequest,
 ): Promise<SparkDriverMutationResult> {
-  return sparkDriverMutationResultSchema.parse(
-    await requestSparkDaemonLocalRpc("driver.start", input),
-  );
+  return requestSparkDaemon("driver.start", input);
 }
 
 export async function listSparkDaemonDrivers(
   input: SparkDriverStatusRequest,
 ): Promise<SparkDriverListResult> {
-  return sparkDriverListResultSchema.parse(
-    await requestSparkDaemonLocalRpc("driver.status", input),
-  );
+  return requestSparkDaemon("driver.status", input);
 }
 
 export async function stopSparkDaemonDriver(
@@ -156,9 +140,15 @@ export async function scheduleSparkDaemonDriver(
   return driverMutation("driver.schedule", input);
 }
 
-async function driverMutation(
-  method: "driver.stop" | "driver.restart" | "driver.wake" | "driver.schedule",
-  input: SparkDriverMutationRequest | SparkDriverWakeRequest | SparkDriverScheduleRequest,
-): Promise<SparkDriverMutationResult> {
-  return sparkDriverMutationResultSchema.parse(await requestSparkDaemonLocalRpc(method, input));
+type SparkDriverMutationMethod =
+  | "driver.stop"
+  | "driver.restart"
+  | "driver.wake"
+  | "driver.schedule";
+
+async function driverMutation<M extends SparkDriverMutationMethod>(
+  method: M,
+  input: SparkLocalRpcInput<M>,
+): Promise<SparkLocalRpcOutput<M>> {
+  return requestSparkDaemon(method, input);
 }

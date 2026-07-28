@@ -16,6 +16,7 @@ import {
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
 import type { SparkOAuthFlowSnapshot } from "@zendev-lab/spark-ai/control";
+import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 
 export interface SparkDaemonModelControl {
@@ -88,6 +89,13 @@ class DaemonModelControl implements SparkDaemonModelControl {
   }
 
   async setApiKey(providerName: string, apiKey: string): Promise<SparkModelControlSnapshot> {
+    const provider = requireProvider(await this.snapshot(), providerName);
+    if (provider.auth.kind !== "api_key") {
+      throw new SparkDaemonControlError(
+        "provider_auth_method_unsupported",
+        `Spark provider ${providerName} does not accept API keys.`,
+      );
+    }
     await this.#providerControl.setApiKey(providerName, apiKey);
     return await this.snapshot();
   }
@@ -100,6 +108,13 @@ class DaemonModelControl implements SparkDaemonModelControl {
   }
 
   async startOAuth(providerName: string): Promise<SparkAuthFlow> {
+    const provider = requireProvider(await this.snapshot(), providerName);
+    if (provider.auth.kind !== "oauth") {
+      throw new SparkDaemonControlError(
+        "provider_oauth_not_supported",
+        `Spark provider ${providerName} does not support OAuth login.`,
+      );
+    }
     return await this.#mapFlow(await this.#providerControl.startOAuth(providerName));
   }
 
@@ -110,17 +125,40 @@ class DaemonModelControl implements SparkDaemonModelControl {
   }
 
   async respondOAuth(flowId: string, promptId: string, value: string): Promise<SparkAuthFlow> {
+    const flow = this.#requireFlow(this.#providerControl.oauthStatus(flowId), flowId);
+    if (flow.phase !== "waiting_for_input" || !flow.prompt || flow.prompt.id !== promptId) {
+      throw new SparkDaemonControlError(
+        "provider_oauth_prompt_conflict",
+        `OAuth flow ${flowId} is not waiting for prompt ${promptId}.`,
+      );
+    }
+    if (
+      (flow.prompt.kind === "select" &&
+        !flow.prompt.options?.some((option) => option.id === value)) ||
+      (flow.prompt.kind !== "select" && flow.prompt.allowEmpty !== true && !value.trim())
+    ) {
+      throw new SparkDaemonControlError(
+        "provider_oauth_response_invalid",
+        `OAuth response is invalid for prompt ${promptId}.`,
+      );
+    }
     return await this.#mapFlow(this.#providerControl.respondOAuth(flowId, promptId, value));
   }
 
   async cancelOAuth(flowId: string): Promise<SparkAuthFlow> {
+    this.#requireFlow(this.#providerControl.oauthStatus(flowId), flowId);
     return await this.#mapFlow(this.#providerControl.cancelOAuth(flowId));
   }
 
   async effectiveModel(sessionId?: string): Promise<SparkModelRef> {
     const snapshot = await this.snapshot(sessionId);
     const selected = snapshot.session?.model ?? snapshot.defaultModel;
-    if (!selected) throw new Error("No Spark provider/model is registered yet.");
+    if (!selected) {
+      throw new SparkDaemonControlError(
+        "model_not_found",
+        "No Spark provider/model is registered yet.",
+      );
+    }
     return requireAvailableModel(snapshot, selected).model;
   }
 
@@ -166,7 +204,12 @@ class DaemonModelControl implements SparkDaemonModelControl {
   }
 
   #requireFlow(flow: SparkOAuthFlowSnapshot | undefined, flowId: string): SparkOAuthFlowSnapshot {
-    if (!flow) throw new Error(`Unknown OAuth flow: ${flowId}`);
+    if (!flow) {
+      throw new SparkDaemonControlError(
+        "provider_oauth_flow_not_found",
+        `Unknown OAuth flow: ${flowId}`,
+      );
+    }
     return flow;
   }
 
@@ -298,14 +341,32 @@ function requireAvailableModel(
         candidate.model.modelId === requested.modelId,
     );
   if (!entry) {
-    throw new Error(`Unknown Spark model: ${requested.providerName}/${requested.modelId}`);
+    throw new SparkDaemonControlError(
+      "model_not_found",
+      `Unknown Spark model: ${requested.providerName}/${requested.modelId}`,
+    );
   }
   if (!entry.available) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "model_unavailable",
       entry.unavailableReason ?? `Spark model ${modelValue(entry.model)} is unavailable.`,
     );
   }
   return entry;
+}
+
+function requireProvider(
+  snapshot: SparkModelControlSnapshot,
+  providerName: string,
+): SparkModelCatalogProvider {
+  const provider = snapshot.providers.find((candidate) => candidate.providerName === providerName);
+  if (!provider) {
+    throw new SparkDaemonControlError(
+      "provider_not_found",
+      `Unknown Spark provider: ${providerName}`,
+    );
+  }
+  return provider;
 }
 
 function modelRefFromValue(

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createId, runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { readSparkDaemonConfig, writeSparkDaemonConfig } from "./config.js";
+import { SparkDaemonControlError } from "./control-error.ts";
 import {
   getSparkDaemonServerProfile,
   listSparkDaemonServerProfiles,
@@ -23,6 +24,138 @@ import {
 describe("Spark daemon workspace registration", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("classifies workspace registration transport and upstream HTTP failures", async () => {
+    const { root, paths } = tempSparkPaths();
+    writeSparkDaemonConfig(paths, {
+      installationId: "install-test",
+      displayName: "Test daemon",
+    });
+    const input = {
+      serverUrl: "https://cockpit.example.test",
+      registrationToken: "spark_wsreg_failure",
+      workspaceRegistration: {
+        localWorkspaceKey: "spark",
+        displayName: "Spark",
+      },
+    };
+
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new Error("connect ECONNREFUSED");
+        }),
+      );
+      await expect(ensureSparkDaemonRegistrationForWorkspace(paths, input)).rejects.toMatchObject({
+        name: "SparkDaemonControlError",
+        code: "workspace_registration_unavailable",
+      });
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          jsonResponse({ error: { code: "cockpit_overloaded", message: "try later" } }, 503),
+        ),
+      );
+      await expect(ensureSparkDaemonRegistrationForWorkspace(paths, input)).rejects.toMatchObject({
+        name: "SparkDaemonControlError",
+        code: "workspace_registration_failed",
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps malformed successful registration responses internal", async () => {
+    const { root, paths } = tempSparkPaths();
+    writeSparkDaemonConfig(paths, {
+      installationId: "install-test",
+      displayName: "Test daemon",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("{not-json", {
+            status: 201,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+
+    try {
+      let failure: unknown;
+      try {
+        await ensureSparkDaemonRegistrationForWorkspace(paths, {
+          serverUrl: "https://cockpit.example.test",
+          registrationToken: "spark_wsreg_corrupt_response",
+          workspaceRegistration: {
+            localWorkspaceKey: "spark",
+            displayName: "Spark",
+          },
+        });
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(SyntaxError);
+      expect(failure).not.toBeInstanceOf(SparkDaemonControlError);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("classifies registration URL, token, and metadata input rejections", async () => {
+    const { root, paths } = tempSparkPaths();
+    writeSparkDaemonConfig(paths, {
+      installationId: "install-test",
+      displayName: "Test daemon",
+    });
+
+    try {
+      for (const serverUrl of [
+        "not a URL",
+        "ftp://cockpit.example.test",
+        "https://user:secret@cockpit.example.test",
+        "https://cockpit.example.test/workspace",
+        "http://192.168.1.8:5173",
+      ]) {
+        try {
+          validateRegistrationServerUrl(serverUrl);
+          expect.unreachable(`expected invalid registration URL: ${serverUrl}`);
+        } catch (error) {
+          expect(error).toMatchObject({
+            name: "SparkDaemonControlError",
+            code: "workspace_registration_invalid",
+          });
+        }
+      }
+
+      await expect(
+        ensureSparkDaemonRegistrationForWorkspace(paths, {
+          serverUrl: "https://cockpit.example.test",
+          workspaceRegistration: {
+            localWorkspaceKey: "spark",
+            displayName: "Spark",
+          },
+        }),
+      ).rejects.toMatchObject({ code: "workspace_registration_invalid" });
+
+      await upsertSparkDaemonServerProfile(paths, {
+        serverUrl: "https://cockpit.example.test",
+        runtimeId: "rt_11111111111141111111111111111111",
+        runtimeToken: "spark_rt_access_11111111111111111111111111111111",
+      });
+      await expect(
+        ensureSparkDaemonRegistrationForWorkspace(paths, {
+          serverUrl: "https://cockpit.example.test",
+          registrationToken: "spark_wsreg_missing_metadata",
+        }),
+      ).rejects.toMatchObject({ code: "workspace_registration_invalid" });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("authenticates a local Cockpit switch and validates the unbind response", async () => {

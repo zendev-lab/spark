@@ -6,11 +6,9 @@ import {
   type SparkSessionListRequest,
   type SparkSessionRegistryRecord,
   type SparkSessionUnbindRequest,
+  type SparkLocalRpcInput,
 } from "@zendev-lab/spark-protocol";
-import {
-  requestSparkDaemonLocalRpc,
-  type SparkDaemonLocalRpcClientOptions,
-} from "@zendev-lab/spark-daemon-client/local-rpc";
+import { requestSparkDaemon, type SparkDaemonClientOptions } from "@zendev-lab/spark-daemon-client";
 
 export interface SparkDaemonManagedSessionsClient {
   create(input: SparkSessionCreateRequest): Promise<SparkSessionRegistryRecord>;
@@ -24,18 +22,23 @@ export interface SparkDaemonManagedSessionsClient {
 /** Client-side adapter only. Session persistence and mutation stay behind the
  * daemon acknowledgement boundary. */
 export function createDaemonManagedSessionsClient(
-  options: SparkDaemonLocalRpcClientOptions = {},
+  options: SparkDaemonClientOptions = {},
 ): SparkDaemonManagedSessionsClient {
-  const requestRecord = async (method: string, params: unknown) =>
-    parseSparkSessionRegistryRecord(
-      await requestSparkDaemonLocalRpc<unknown>(method, params, options),
-    );
+  const requestRecord = async <
+    M extends
+      | "session.create"
+      | "session.get"
+      | "session.bind"
+      | "session.unbind"
+      | "session.archive",
+  >(
+    method: M,
+    params: SparkLocalRpcInput<M>,
+  ) => parseSparkSessionRegistryRecord(await requestSparkDaemon(method, params, options));
   return {
     create: async (input) => await requestRecord("session.create", input),
     list: async (params = {}) =>
-      parseSparkSessionRegistryRecords(
-        await requestSparkDaemonLocalRpc<unknown>("session.list", params, options),
-      ),
+      parseSparkSessionRegistryRecords(await requestSparkDaemon("session.list", params, options)),
     get: async (sessionId) => await requestRecord("session.get", { sessionId }),
     bind: async (sessionId, externalKey) =>
       await requestRecord("session.bind", {

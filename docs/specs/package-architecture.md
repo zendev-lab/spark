@@ -51,8 +51,13 @@ state; Cockpit owns its coordination database and projections.
 - `spark-system` contains only local-system mechanisms: paths, permissions,
   commands, SQLite opening, strings, and the socket MessagePort adapter. It has
   no Spark workspace dependency.
-- `spark-daemon-client` owns legacy local RPC and oRPC client transports. This
-  keeps protocol-aware daemon calls out of the system-primitives package.
+- `spark-daemon-client` owns the protocol-aware daemon client facade. Typed oRPC
+  is its primary transport; the legacy local-RPC client is an internal 0.1.x
+  connection fallback for published N-1 compatibility. This keeps daemon calls
+  out of the system-primitives package.
+- The transport-neutral local control service stays private to
+  `apps/spark-daemon`; oRPC and legacy socket adapters share that service and
+  cannot own policy, durable state, or alternative handler implementations.
 - `spark-extension` owns product extension composition and policy for native
   and structurally compatible hosts. Legacy `pi-extension` specifiers are
   rewritten while reading configuration; there is no facade workspace.
@@ -65,6 +70,12 @@ state; Cockpit owns its coordination database and projections.
 - `spark-context` was removed after all callers converged on
   `spark-host/context`; compatibility-only re-export packages are not permanent
   architecture.
+
+The legacy `daemon.sock` path is removed only in a 0.2 release after a migrated
+0.1.x has shipped and the old-client/new-daemon, new-client/old-daemon,
+exact-tarball product, and updater/rollback gates pass. The compatibility
+adapter receives no new product behavior while it waits for that exit gate;
+`daemon-orpc.sock` remains the canonical socket after removal.
 
 ## When to create or merge a package
 

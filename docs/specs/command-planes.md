@@ -22,7 +22,7 @@ spark <plane> <resource> <verb> [args...]
 ## Boundary invariants
 
 - Every stateful domain has exactly one authoritative owner. `packages/spark-cockpit-coordination` owns server coordination plus Cockpit query/projection APIs, but its projections are never execution truth for tasks, runs, artifacts, asks, reviews, or invocations.
-- Transports and app adapters translate through owner APIs; they do not duplicate execution or policy, and they must not read or write another owner's store. Cockpit may cache or project Spark state, but it must not mutate local Spark stores directly.
+- Transports and app adapters translate through owner APIs; they do not duplicate execution or policy, and they must not read or write another owner's store. Typed oRPC is the primary local control path; the 0.1.x `daemon.sock` adapter only preserves N-1 wire compatibility and receives no new product behavior. Cockpit may cache or project Spark state, but it must not mutate local Spark stores directly.
 - Reusable capability and runtime behavior belongs in `packages/spark-*`; executable apps retain bootstrap, presentation, and compatibility glue. Boundary regressions are enforced by the dependency-cruiser stage of `pnpm run check`.
 
 ### Capability owners
@@ -45,7 +45,7 @@ The default place for a change is inside its existing owner. Create another work
 
 Before adding a second adapter or surface, first move shared validation and semantics into the existing protocol/owner API. Transports remain thin, projections must be rebuildable, and caches cannot become admission or execution truth. Compatibility adapters have written exit criteria and do not receive new product behavior.
 
-`pnpm run check:architecture` is the mechanical growth ratchet. During the early product phase its ceilings are recorded in `architecture/packages.json` plus a 4,000-line production-file limit, and it rejects additions to the frozen compatibility extension manifest. The headroom allows a small number of evidence-backed owner boundaries without pinning every ceiling to today's count. These remain ceilings, not design targets: an oversized module should still be split at a domain/adapter boundary before it reaches the limit. Raising a ceiling requires an architecture rationale in the same change; deleting a package or compatibility manifest entry never requires lowering a frozen allowlist first.
+`scripts/check-architecture-ratchets.mjs`, run by `pnpm run check:static`, is the mechanical growth ratchet. During the early product phase its ceilings are recorded in `architecture/packages.json` plus a 4,000-line production-file limit, and it rejects additions to the frozen compatibility extension manifest. The headroom allows a small number of evidence-backed owner boundaries without pinning every ceiling to today's count. These remain ceilings, not design targets: an oversized module should still be split at a domain/adapter boundary before it reaches the limit. Raising a ceiling requires an architecture rationale in the same change; deleting a package or compatibility manifest entry never requires lowering a frozen allowlist first.
 
 ### Open-source adoption
 

@@ -30,6 +30,94 @@ describe("daemon session notification delivery reconciliation", () => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 
+  it("reports invalid notification selection and adapter routing as domain errors", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-notification-domain-errors-"));
+    roots.push(root);
+    const mailStore = new SparkSessionMailStore({ sparkHome: root });
+    const session: SparkSessionRegistryRecord = {
+      sessionId: "sess_domain_errors",
+      scope: { kind: "workspace", workspaceId: "ws_domain_errors" },
+      workspaceId: "ws_domain_errors",
+      status: "ready",
+      bindings: [],
+      createdAt: "2026-07-15T04:00:00.000Z",
+      updatedAt: "2026-07-15T04:00:00.000Z",
+    };
+    const request = await mailStore.send({
+      toSessionId: session.sessionId,
+      kind: "request",
+      body: "Not a notification",
+      source: "tool",
+    });
+    const internal = await mailStore.send({
+      toSessionId: session.sessionId,
+      kind: "notification",
+      body: "Internal notification",
+      source: "tool",
+    });
+    const mailbox = await mailStore.send({
+      toSessionId: session.sessionId,
+      kind: "notification",
+      visibility: "user",
+      delivery: "mailbox",
+      body: "Mailbox notification",
+      source: "tool",
+    });
+    const routed = await mailStore.send({
+      toSessionId: session.sessionId,
+      kind: "notification",
+      visibility: "user",
+      delivery: "channel",
+      deliveryTargets: [{ adapter: "infoflow", externalKey: "infoflow:user:user-1" }],
+      body: "Channel notification",
+      source: "tool",
+    });
+    const status = vi.fn(() => channelStatus(session.workspaceId, []));
+    const deps = {
+      mailStore,
+      sessionRegistry: { get: vi.fn(async () => session) },
+      channelIngress: { status, notify: vi.fn() },
+    };
+
+    await expect(
+      deliverSessionNotification(
+        { sessionId: session.sessionId, messageId: request.message.id },
+        deps,
+      ),
+    ).rejects.toMatchObject({ code: "session_mail_not_notification" });
+    await expect(
+      deliverSessionNotification(
+        { sessionId: session.sessionId, messageId: internal.message.id },
+        deps,
+      ),
+    ).rejects.toMatchObject({ code: "session_mail_not_user_visible" });
+    await expect(
+      deliverSessionNotification(
+        { sessionId: session.sessionId, messageId: mailbox.message.id },
+        deps,
+      ),
+    ).rejects.toMatchObject({ code: "session_mail_not_channel_delivery" });
+    await expect(
+      deliverSessionNotification(
+        { sessionId: session.sessionId, messageId: routed.message.id },
+        deps,
+      ),
+    ).rejects.toMatchObject({ code: "channel_adapter_not_found" });
+
+    status.mockReturnValue(
+      channelStatus(session.workspaceId, [
+        { id: "info-primary", type: "infoflow" },
+        { id: "info-secondary", type: "infoflow" },
+      ]),
+    );
+    await expect(
+      deliverSessionNotification(
+        { sessionId: session.sessionId, messageId: routed.message.id },
+        deps,
+      ),
+    ).rejects.toMatchObject({ code: "channel_adapter_required" });
+  });
+
   it("persists notification intent before send and never blind-resends after receipt projection fails", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-notification-outbox-"));
     roots.push(root);

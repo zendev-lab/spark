@@ -21,6 +21,7 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import type { SparkPaths } from "@zendev-lab/spark-system";
+import { readSparkBuildInfo } from "@zendev-lab/spark-update";
 import { type SparkDaemonConfig } from "./config.js";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import {
@@ -77,7 +78,13 @@ import type { RunSparkCommandFn, CancelSparkInvocationFn } from "./spark/bridge.
 import { executeClaimedCommand } from "./claimed-command.ts";
 export { startSparkDaemon } from "./daemon-start.ts";
 
-export const sparkDaemonVersion = "0.1.0";
+export function resolveSparkDaemonVersion(
+  options: Parameters<typeof readSparkBuildInfo>[0] = {},
+): string {
+  return readSparkBuildInfo(options).version;
+}
+
+export const sparkDaemonVersion = resolveSparkDaemonVersion();
 
 export const sparkDaemonSupportedFeatures: RuntimeFeature[] = [
   "ws-control-v1",

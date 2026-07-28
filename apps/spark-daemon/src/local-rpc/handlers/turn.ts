@@ -11,10 +11,14 @@ import {
   settleManagedSessionTurn,
 } from "../helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
-import type { LocalRpcRequest, LocalRpcResponse } from "../types.ts";
+import {
+  parseLocalRpcServiceOutput,
+  type LocalRpcServiceOutput,
+  type LocalRpcServiceRequest,
+} from "../types.ts";
 
 type TurnRequest = Extract<
-  LocalRpcRequest,
+  LocalRpcServiceRequest,
   {
     method:
       | "turn.submit"
@@ -31,7 +35,7 @@ type TurnRequest = Extract<
 export async function handleTurnRequest(
   ctx: LocalRpcDispatchContext,
   request: TurnRequest,
-): Promise<LocalRpcResponse> {
+): Promise<LocalRpcServiceOutput<TurnRequest>> {
   const { paths, db, options } = ctx;
   switch (request.method) {
     case "turn.submit": {
@@ -45,28 +49,20 @@ export async function handleTurnRequest(
           payload: { ...request.params },
         },
       );
-      return { id: request.id, ok: true, result: executed.result };
+      return parseLocalRpcServiceOutput(request.method, executed.result);
     }
     case "turn.status": {
       const executed = await executeSparkDaemonSessionControl(
         sessionControlOptions(paths, db, options),
         { kind: "turn.status.request", scope: "any", payload: { ...request.params } },
       );
-      return { id: request.id, ok: true, result: executed.result };
+      return parseLocalRpcServiceOutput(request.method, executed.result);
     }
     case "turn.result": {
-      return {
-        id: request.id,
-        ok: true,
-        result: invocationResult(new SparkInvocationStore(db), request.params.invocationId),
-      };
+      return invocationResult(new SparkInvocationStore(db), request.params.invocationId);
     }
     case "invocation.list": {
-      return {
-        id: request.id,
-        ok: true,
-        result: invocationListResult(new SparkInvocationStore(db), request.params),
-      };
+      return invocationListResult(new SparkInvocationStore(db), request.params);
     }
     case "invocation.retry": {
       const store = new SparkInvocationStore(db);
@@ -85,45 +81,37 @@ export async function handleTurnRequest(
         }
         throw error;
       }
-      return {
-        id: request.id,
-        ok: true,
-        result: sparkInvocationRetryResultSchema.parse({
-          invocationId: retried.invocationId,
-          retryOfInvocationId: request.params.invocationId,
-          status: "queued",
-          acceptedAt: retried.createdAt,
-        }),
-      };
+      return sparkInvocationRetryResultSchema.parse({
+        invocationId: retried.invocationId,
+        retryOfInvocationId: request.params.invocationId,
+        status: "queued",
+        acceptedAt: retried.createdAt,
+      });
     }
     case "invocation.retention.preview": {
       const preview = new SparkInvocationStore(db).retentionPreview(
         request.params.before,
         request.params.limit,
       );
-      return {
-        id: request.id,
-        ok: true,
-        result: sparkInvocationRetentionPreviewResultSchema.parse({
-          ...preview,
-          dryRun: true,
-          observedAt: new Date().toISOString(),
-        }),
-      };
+      return sparkInvocationRetentionPreviewResultSchema.parse({
+        ...preview,
+        dryRun: true,
+        observedAt: new Date().toISOString(),
+      });
     }
     case "turn.stream": {
       const executed = await executeSparkDaemonSessionControl(
         sessionControlOptions(paths, db, options),
         { kind: "turn.stream.subscribe", scope: "any", payload: { ...request.params } },
       );
-      return { id: request.id, ok: true, result: executed.result };
+      return parseLocalRpcServiceOutput(request.method, executed.result);
     }
     case "turn.cancel": {
       const executed = await executeSparkDaemonSessionControl(
         sessionControlOptions(paths, db, options),
         { kind: "turn.cancel.request", scope: "any", payload: { ...request.params } },
       );
-      return { id: request.id, ok: true, result: executed.result };
+      return parseLocalRpcServiceOutput(request.method, executed.result);
     }
   }
 }

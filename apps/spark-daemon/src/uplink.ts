@@ -10,6 +10,7 @@ import {
   type LeaseTransferSettlement,
 } from "./core/lease-transfer.js";
 import type { SparkDaemonHumanWaitRegistry } from "./core/human-waits.js";
+import { SparkDaemonControlError } from "./control-error.ts";
 import { runtimeEnvelope } from "./protocol/outbound.js";
 import {
   getSparkDaemonServerProfile,
@@ -87,10 +88,11 @@ export async function parkSparkDaemonUplink(
   paths: SparkPaths,
   serverUrl: string,
 ): Promise<SparkDaemonServerProfile> {
-  const normalized = normalizeSparkDaemonServerUrl(serverUrl);
+  const normalized = normalizeUplinkServerUrl(serverUrl);
   const existing = getSparkDaemonServerProfile(paths, normalized);
   if (!existing) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "uplink_profile_not_found",
       `No Spark daemon profile for ${normalized}. Login or register that origin first.`,
     );
   }
@@ -101,10 +103,11 @@ export async function unparkSparkDaemonUplink(
   paths: SparkPaths,
   serverUrl: string,
 ): Promise<SparkDaemonServerProfile> {
-  const normalized = normalizeSparkDaemonServerUrl(serverUrl);
+  const normalized = normalizeUplinkServerUrl(serverUrl);
   const existing = getSparkDaemonServerProfile(paths, normalized);
   if (!existing) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "uplink_profile_not_found",
       `No Spark daemon profile for ${normalized}. Login or register that origin first.`,
     );
   }
@@ -117,20 +120,23 @@ export function preferSparkDaemonWorkspaceUplink(
   db: DatabaseSync,
   input: { workspace: string; serverUrl: string },
 ): PreferWorkspaceUplinkResult {
-  const serverUrl = normalizeSparkDaemonServerUrl(input.serverUrl);
+  const serverUrl = normalizeUplinkServerUrl(input.serverUrl);
   const profile = getSparkDaemonServerProfile(paths, serverUrl);
   if (!profile) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "uplink_profile_not_found",
       `No Spark daemon profile for ${serverUrl}. Login or register that origin before prefer.`,
     );
   }
   if (!hasRunnableCredentials(profile)) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "uplink_profile_unrunnable",
       `Spark daemon profile for ${serverUrl} is not runnable. Complete login/register first.`,
     );
   }
   if (profile.parked) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "uplink_parked",
       `Origin ${serverUrl} is parked. Unpark it before preferring a workspace onto it.`,
     );
   }
@@ -157,20 +163,23 @@ export async function preferSparkDaemonWorkspaceUplinkWithTransfer(
   input: { workspace: string; serverUrl: string },
   options: PreferWorkspaceUplinkWithTransferOptions,
 ): Promise<PreferWorkspaceUplinkResult> {
-  const targetServerUrl = normalizeSparkDaemonServerUrl(input.serverUrl);
+  const targetServerUrl = normalizeUplinkServerUrl(input.serverUrl);
   const profile = getSparkDaemonServerProfile(paths, targetServerUrl);
   if (!profile) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "uplink_profile_not_found",
       `No Spark daemon profile for ${targetServerUrl}. Login or register that origin before prefer.`,
     );
   }
   if (!hasRunnableCredentials(profile)) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "uplink_profile_unrunnable",
       `Spark daemon profile for ${targetServerUrl} is not runnable. Complete login/register first.`,
     );
   }
   if (profile.parked) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "uplink_parked",
       `Origin ${targetServerUrl} is parked. Unpark it before preferring a workspace onto it.`,
     );
   }
@@ -218,7 +227,8 @@ export async function preferSparkDaemonWorkspaceUplinkWithTransfer(
     options.onOutboxReady?.();
   }
   if (settled.decision === "reject") {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "uplink_transfer_rejected",
       `Lease transfer for ${workspace.displayName} was rejected by an occupying session.`,
     );
   }
@@ -360,7 +370,10 @@ export function sparkDaemonUplinkStatus(
 function resolveWorkspaceForUplink(db: DatabaseSync, identifier: string): SparkDaemonWorkspace {
   const trimmed = identifier.trim();
   if (!trimmed) {
-    throw new Error("Workspace identifier is required.");
+    throw new SparkDaemonControlError(
+      "uplink_workspace_not_found",
+      "Workspace identifier is required.",
+    );
   }
   const byId = getWorkspaceById(db, trimmed);
   if (byId) return byId;
@@ -375,9 +388,21 @@ function resolveWorkspaceForUplink(db: DatabaseSync, identifier: string): SparkD
   );
   if (matches.length === 1) return matches[0]!;
   if (matches.length > 1) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "uplink_workspace_ambiguous",
       `Ambiguous workspace: ${trimmed}. Use a workspace id (${matches.map((item) => item.id).join(", ")}).`,
     );
   }
-  throw new Error(`Unknown workspace: ${trimmed}`);
+  throw new SparkDaemonControlError("uplink_workspace_not_found", `Unknown workspace: ${trimmed}`);
+}
+
+function normalizeUplinkServerUrl(serverUrl: string): string {
+  try {
+    return normalizeSparkDaemonServerUrl(serverUrl);
+  } catch {
+    throw new SparkDaemonControlError(
+      "uplink_url_invalid",
+      `Invalid Spark daemon uplink URL: ${serverUrl}`,
+    );
+  }
 }

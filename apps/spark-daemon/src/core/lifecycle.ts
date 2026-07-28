@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
+import { SparkDaemonControlError } from "../control-error.ts";
 
 export type SparkDaemonLifecycleState = "starting" | "running" | "draining" | "stopping";
 export type SparkDaemonLifecyclePhase =
@@ -210,7 +211,10 @@ export class SparkDaemonLifecycle {
       generation: randomUUID(),
     };
     if (this.stopRequestedAt) {
-      throw new Error("Spark daemon is stopping and cannot restart.");
+      throw new SparkDaemonControlError(
+        "daemon_restart_conflict",
+        "Spark daemon is stopping and cannot restart.",
+      );
     }
     if (!this.restartRequestedAt) {
       this.restartRequestedAt = now;

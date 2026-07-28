@@ -33,10 +33,24 @@ import {
   type ChannelReplyTarget,
 } from "./reply.ts";
 
-export class ChannelRegistryError extends Error {
-  readonly code: string;
+export type ChannelRegistryErrorCode =
+  | "route_not_found"
+  | "adapter_exists"
+  | "adapter_unavailable"
+  | "invalid_action"
+  | "unsupported_operation"
+  | "interaction_not_supported"
+  | "unsupported_adapter"
+  | "adapter_not_found"
+  | "image_not_supported"
+  | "adapter_required"
+  | "recipient_required"
+  | "invalid_config";
 
-  constructor(code: string, message: string) {
+export class ChannelRegistryError extends Error {
+  readonly code: ChannelRegistryErrorCode;
+
+  constructor(code: ChannelRegistryErrorCode, message: string) {
     super(message);
     this.name = "ChannelRegistryError";
     this.code = code;

@@ -1510,7 +1510,7 @@ test("turn submit retries an ambiguous local RPC close with one stable idempoten
           id: request.id,
           ok: true,
           result: {
-            invocationId: "inv_recovered_admission",
+            invocationId: "inv_recoveredadmission",
             status: "queued",
             acceptedAt: "2026-07-15T00:00:00.000Z",
           },
@@ -1534,10 +1534,15 @@ test("turn submit retries an ambiguous local RPC close with one stable idempoten
     );
 
     assert.equal(result.action, "submit");
-    assert.equal(result.result.invocationId, "inv_recovered_admission");
+    assert.equal(result.result.invocationId, "inv_recoveredadmission");
     assert.equal(requests.length, 9);
-    for (const request of requests) assert.deepEqual(request, requests[0]);
-    assert.equal(requests[0]?.params?.idempotencyKey, `turn.submit:${requests[0]?.id}`);
+    for (const request of requests) {
+      assert.equal(request.method, "turn.submit");
+      assert.deepEqual(request.params, requests[0]?.params);
+      assert.equal(request.sparkCommand, undefined);
+    }
+    assert.equal(new Set(requests.map((request) => request.id)).size, requests.length);
+    assert.match(requests[0]?.params?.idempotencyKey ?? "", /^turn\.submit:spark_cli_/u);
     assert.deepEqual(retryDelays, [50, 100, 200, 400, 800, 1_600, 2_500, 2_500]);
   } finally {
     await closeLocalRpcServer(server);
@@ -1607,7 +1612,7 @@ test("turn submit periodically recovers daemon service without changing the requ
   }
 });
 
-test("turn submit retries a bound successor's starting response with the same request", async () => {
+test("turn submit retries a bound successor's starting response with stable input", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-turn-start-"));
   const paths = testDaemonPaths(dir);
   const requests: CapturedLocalRpcRequest[] = [];
@@ -1633,7 +1638,7 @@ test("turn submit retries a bound successor's starting response with the same re
           id: request.id,
           ok: true,
           result: {
-            invocationId: "inv_successor_ready",
+            invocationId: "inv_successorready",
             status: "queued",
             acceptedAt: "2026-07-15T00:00:00.000Z",
           },
@@ -1657,9 +1662,13 @@ test("turn submit retries a bound successor's starting response with the same re
     );
 
     assert.equal(result.action, "submit");
-    assert.equal(result.result.invocationId, "inv_successor_ready");
+    assert.equal(result.result.invocationId, "inv_successorready");
     assert.equal(requests.length, 4);
-    for (const request of requests) assert.deepEqual(request, requests[0]);
+    for (const request of requests) {
+      assert.equal(request.method, "turn.submit");
+      assert.deepEqual(request.params, requests[0]?.params);
+    }
+    assert.equal(new Set(requests.map((request) => request.id)).size, requests.length);
     assert.deepEqual(retryDelays, [50, 100, 200]);
   } finally {
     await closeLocalRpcServer(server);

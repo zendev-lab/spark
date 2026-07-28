@@ -14,6 +14,11 @@ export interface SocketMessagePortLike {
   close(): void;
 }
 
+export interface SocketMessagePortOptions {
+  /** Maximum encoded JSON frame size accepted from the socket. */
+  maxMessageBytes?: number;
+}
+
 type MessageListener = (event: { data: unknown }) => void;
 type CloseListener = () => void;
 type ErrorListener = (error: Error) => void;
@@ -23,11 +28,15 @@ type ErrorListener = (error: Error) => void;
  * Frames are newline-delimited JSON `{ "data": ... }` so string/object
  * payloads from oRPC's default (non-transfer) codec survive the socket.
  */
-export function createSocketMessagePort(socket: Socket): SocketMessagePortLike {
+export function createSocketMessagePort(
+  socket: Socket,
+  options: SocketMessagePortOptions = {},
+): SocketMessagePortLike {
   const messageListeners = new Set<MessageListener>();
   const closeListeners = new Set<CloseListener>();
   const errorListeners = new Set<ErrorListener>();
   const decoder = new StringDecoder("utf8");
+  const maxMessageBytes = options.maxMessageBytes ?? 8 * 1024 * 1024;
   let buffer = "";
   let closed = false;
 
@@ -44,6 +53,11 @@ export function createSocketMessagePort(socket: Socket): SocketMessagePortLike {
   const handleLine = (line: string) => {
     const trimmed = line.trim();
     if (!trimmed) return;
+    if (Buffer.byteLength(line) > maxMessageBytes) {
+      emitError(new Error(`Socket MessagePort frame exceeded ${maxMessageBytes} bytes.`));
+      socket.destroy();
+      return;
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(trimmed);
@@ -53,6 +67,7 @@ export function createSocketMessagePort(socket: Socket): SocketMessagePortLike {
           ? cause
           : new Error("Socket MessagePort received invalid JSON frame."),
       );
+      socket.destroy();
       return;
     }
     if (
@@ -62,6 +77,7 @@ export function createSocketMessagePort(socket: Socket): SocketMessagePortLike {
       Array.isArray(parsed)
     ) {
       emitError(new Error("Socket MessagePort frame must be an object with a data field."));
+      socket.destroy();
       return;
     }
     const event = { data: (parsed as { data: unknown }).data };
@@ -76,7 +92,16 @@ export function createSocketMessagePort(socket: Socket): SocketMessagePortLike {
       const line = buffer.slice(0, newline);
       buffer = buffer.slice(newline + 1);
       handleLine(line);
+      if (socket.destroyed) {
+        buffer = "";
+        return;
+      }
       newline = buffer.indexOf("\n");
+    }
+    if (Buffer.byteLength(buffer) > maxMessageBytes) {
+      emitError(new Error(`Socket MessagePort frame exceeded ${maxMessageBytes} bytes.`));
+      buffer = "";
+      socket.destroy();
     }
   });
   socket.on("end", emitClose);
@@ -103,7 +128,11 @@ export function createSocketMessagePort(socket: Socket): SocketMessagePortLike {
     },
     postMessage(data: unknown): void {
       if (closed || socket.destroyed) {
-        throw new Error("Cannot postMessage on a closed Socket MessagePort.");
+        // Match the native MessagePort contract: messages posted after close
+        // are discarded. oRPC may asynchronously enqueue a final abort frame
+        // while the peer close callback is settling.
+        if (!closed) emitClose();
+        return;
       }
       socket.write(`${JSON.stringify({ data })}\n`);
     },
@@ -128,6 +157,7 @@ export interface UnixSocketMessagePortPair {
  */
 export async function createUnixSocketMessagePortPair(
   socketPath: string,
+  options: SocketMessagePortOptions = {},
 ): Promise<UnixSocketMessagePortPair> {
   const server = createServer();
   await listenUnix(server, socketPath);
@@ -148,8 +178,8 @@ export async function createUnixSocketMessagePortPair(
   const clientSocket = await connectUnix(socketPath);
   const serverSocket = await serverSocketPromise;
 
-  const client = createSocketMessagePort(clientSocket);
-  const serverPort = createSocketMessagePort(serverSocket);
+  const client = createSocketMessagePort(clientSocket, options);
+  const serverPort = createSocketMessagePort(serverSocket, options);
 
   return {
     client,

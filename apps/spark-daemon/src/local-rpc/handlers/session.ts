@@ -8,6 +8,7 @@ import {
   type SparkSessionMailMessage,
   type SparkSessionSendRequest,
 } from "@zendev-lab/spark-protocol";
+import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 import { executeSparkDaemonSessionControl } from "../../session-control.ts";
 import { SparkDriverStore } from "../../store/drivers.ts";
 import {
@@ -17,10 +18,14 @@ import {
   sessionControlOptions,
 } from "../helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
-import type { LocalRpcRequest, LocalRpcResponse } from "../types.ts";
+import {
+  parseLocalRpcServiceOutput,
+  type LocalRpcServiceOutput,
+  type LocalRpcServiceRequest,
+} from "../types.ts";
 
 type SessionRequest = Extract<
-  LocalRpcRequest,
+  LocalRpcServiceRequest,
   {
     method:
       | "session.notification.deliver"
@@ -43,19 +48,26 @@ type SessionRequest = Extract<
 export async function handleSessionRequest(
   ctx: LocalRpcDispatchContext,
   request: SessionRequest,
-): Promise<LocalRpcResponse> {
+): Promise<LocalRpcServiceOutput<SessionRequest>> {
   const { paths, db, options } = ctx;
   switch (request.method) {
     case "session.notification.deliver": {
+      if (options.mailStore) {
+        await requireSessionMail(
+          options.mailStore,
+          request.params.sessionId,
+          request.params.messageId,
+        );
+      }
       const result = await deliverSessionNotificationFromLocalRpc(options, request.params);
-      return { id: request.id, ok: true, result };
+      return parseLocalRpcServiceOutput(request.method, result);
     }
     case "session.list": {
       const executed = await executeSparkDaemonSessionControl(
         sessionControlOptions(paths, db, options),
         { kind: "session.list.request", scope: "any", payload: { ...request.params } },
       );
-      return { id: request.id, ok: true, result: executed.result.sessions };
+      return parseLocalRpcServiceOutput(request.method, executed.result.sessions);
     }
     case "session.get": {
       const executed = await executeSparkDaemonSessionControl(
@@ -67,7 +79,7 @@ export async function handleSessionRequest(
           payload: { ...request.params },
         },
       );
-      return { id: request.id, ok: true, result: executed.result.session };
+      return parseLocalRpcServiceOutput(request.method, executed.result.session);
     }
     case "session.snapshot": {
       const executed = await executeSparkDaemonSessionControl(
@@ -97,18 +109,14 @@ export async function handleSessionRequest(
             error: driver.error,
           })),
       });
-      return {
-        id: request.id,
-        ok: true,
-        result: await projectSessionMailbox(options, withDrivers),
-      };
+      return await projectSessionMailbox(options, withDrivers);
     }
     case "session.create": {
       const executed = await executeSparkDaemonSessionControl(
         sessionControlOptions(paths, db, options),
         { kind: "session.create.request", scope: "any", payload: { ...request.params } },
       );
-      return { id: request.id, ok: true, result: executed.result.session };
+      return parseLocalRpcServiceOutput(request.method, executed.result.session);
     }
     case "session.bind":
     case "session.unbind":
@@ -126,56 +134,59 @@ export async function handleSessionRequest(
           payload: { ...request.params },
         },
       );
-      return { id: request.id, ok: true, result: executed.result.session };
+      return parseLocalRpcServiceOutput(request.method, executed.result.session);
     }
     case "session.send": {
       const result = await sendSessionMail(ctx, request.params);
-      return { id: request.id, ok: true, result };
+      return result;
     }
     case "session.inbox": {
       if (!options.mailStore) {
-        throw new Error("Spark daemon session mail store is unavailable.");
+        throw new SparkSessionRegistryError(
+          "session_mail_store_unavailable",
+          "Spark daemon session mail store is unavailable.",
+        );
       }
       const messages = await options.mailStore.list(request.params.sessionId, {
         includeAcked: request.params.includeAcked,
       });
-      return {
-        id: request.id,
-        ok: true,
-        result: sparkSessionInboxResultSchema.parse({ messages }),
-      };
+      return sparkSessionInboxResultSchema.parse({ messages });
     }
     case "session.mail.read":
     case "session.mail.ack": {
       const mutate =
         request.method === "session.mail.read" ? options.mailStore?.read : options.mailStore?.ack;
       if (!mutate || !options.mailStore) {
-        throw new Error("Spark daemon session mail mutation store is unavailable.");
+        throw new SparkSessionRegistryError(
+          "session_mail_store_unavailable",
+          "Spark daemon session mail mutation store is unavailable.",
+        );
       }
+      await requireSessionMail(
+        options.mailStore,
+        request.params.sessionId,
+        request.params.messageId,
+      );
       const message = await mutate.call(
         options.mailStore,
         request.params.sessionId,
         request.params.messageId,
       );
-      return {
-        id: request.id,
-        ok: true,
-        result: sparkSessionMailMutationResultSchema.parse({ message }),
-      };
+      return sparkSessionMailMutationResultSchema.parse({ message });
     }
     case "session.model.set": {
       const session = await requireModelControl(options).setSessionModel(
         request.params.sessionId,
         request.params.model,
       );
-      return { id: request.id, ok: true, result: session };
+      return session;
     }
     case "session.thinking.set": {
       const session = await requireModelControl(options).setSessionThinkingLevel(
         request.params.sessionId,
         request.params.thinkingLevel,
       );
-      return { id: request.id, ok: true, result: session };
+      return session;
     }
   }
 }
@@ -184,10 +195,16 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
   const { paths, db, options } = ctx;
   const mailStore = options.mailStore;
   if (!mailStore?.send || !mailStore.recordRequestAdmission) {
-    throw new Error("Spark daemon session mail admission store is unavailable.");
+    throw new SparkSessionRegistryError(
+      "session_mail_store_unavailable",
+      "Spark daemon session mail admission store is unavailable.",
+    );
   }
   if (params.toSessionId === params.fromSessionId) {
-    throw new Error("session send must target a different session");
+    throw new SparkSessionRegistryError(
+      "session_mail_self_target",
+      "session send must target a different session",
+    );
   }
   const targetExecuted = await executeSparkDaemonSessionControl(
     sessionControlOptions(paths, db, options),
@@ -201,21 +218,33 @@ async function sendSessionMail(ctx: LocalRpcDispatchContext, params: SparkSessio
   const target = parseSparkSessionRegistryRecord(targetExecuted.result.session);
   if (params.origin.surface === "channel") {
     if (!params.originBinding) {
-      throw new Error("originating channel request is missing immutable origin binding");
+      throw new SparkSessionRegistryError(
+        "session_mail_origin_binding_required",
+        "originating channel request is missing immutable origin binding",
+      );
     }
     if (
       target.scope.kind !== "workspace" ||
       target.scope.workspaceId !== params.originBinding.workspaceId
     ) {
-      throw new Error("message-platform sessions can send within their own workspace only");
+      throw new SparkSessionRegistryError(
+        "session_mail_workspace_scope_mismatch",
+        "message-platform sessions can send within their own workspace only",
+      );
     }
   }
   if (params.kind === "request") {
     if (target.status === "archived") {
-      throw new Error(`cannot request archived persistent session: ${params.toSessionId}`);
+      throw new SparkSessionRegistryError(
+        "session_mail_target_archived",
+        `cannot request archived persistent session: ${params.toSessionId}`,
+      );
     }
     if (target.bindings.length > 0) {
-      throw new Error("session request targets must be local sessions");
+      throw new SparkSessionRegistryError(
+        "session_mail_target_not_local",
+        "session request targets must be local sessions",
+      );
     }
   }
 
@@ -302,4 +331,21 @@ function acceptedAdmission(message: SparkSessionMailMessage) {
     status: "queued",
     acceptedAt: admission.acceptedAt,
   });
+}
+
+async function requireSessionMail(
+  mailStore: NonNullable<LocalRpcDispatchContext["options"]["mailStore"]>,
+  sessionId: string,
+  messageId: string,
+): Promise<SparkSessionMailMessage> {
+  const message = (await mailStore.list(sessionId, { includeAcked: true })).find(
+    (candidate) => candidate.id === messageId,
+  );
+  if (!message) {
+    throw new SparkSessionRegistryError(
+      "session_mail_not_found",
+      `Spark session mail not found: ${messageId}`,
+    );
+  }
+  return message;
 }

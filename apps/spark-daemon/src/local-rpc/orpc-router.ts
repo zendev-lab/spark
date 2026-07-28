@@ -1,15 +1,19 @@
 /**
  * oRPC router for local-rpc methods.
  *
- * Every contracted method is live: handlers bridge into the same legacy
- * `handleLocalRpcLine` dispatch used by daemon.sock so behavior stays unified.
+ * Every contracted method calls the transport-neutral daemon service directly.
  */
 import type { DatabaseSync } from "node:sqlite";
 import { ORPCError, implement } from "@orpc/server";
-import { sparkLocalRpcOrpcContract } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
-import { isSparkSideThreadErrorCode } from "@zendev-lab/spark-protocol/side-thread";
+import {
+  isSparkLocalRpcOrpcErrorCodeForMethod,
+  sparkLocalRpcOrpcContract,
+  type SparkLocalRpcInput,
+  type SparkLocalRpcMethod,
+} from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
 import type { SparkPaths } from "@zendev-lab/spark-system";
-import { invokeLegacyLocalRpc, legacyLocalRpcErrorCode } from "./orpc-bridge.ts";
+import { localRpcError } from "./helpers.ts";
+import { invokeLocalRpcService } from "./service.ts";
 import type { LocalRpcHandlerOptions } from "./types.ts";
 
 export interface CreateLocalRpcOrpcRouterOptions {
@@ -17,6 +21,8 @@ export interface CreateLocalRpcOrpcRouterOptions {
   db: DatabaseSync;
   options?: LocalRpcHandlerOptions;
   onStop?: () => void | Promise<void>;
+  isAcceptingRequests?: () => boolean;
+  onRequestStart?: (request: Promise<unknown>) => void;
 }
 
 export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions) {
@@ -24,23 +30,46 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
   const { paths, db, onStop } = input;
   const handlerOptions = input.options ?? {};
 
-  const invoke = (method: string, params: unknown = {}) =>
-    invokeLegacyLocalRpc(method, params, {
+  const invoke = async <M extends SparkLocalRpcMethod>(
+    method: M,
+    params: SparkLocalRpcInput<M>,
+  ) => {
+    if (input.isAcceptingRequests?.() === false) {
+      throw new ORPCError("INTERNAL_SERVER_ERROR");
+    }
+    const request = invokeLocalRpcService(method, params, {
       paths,
       db,
       ...(onStop ? { onStop } : {}),
       handlerOptions,
     });
-
-  const invokeSideThread = async (method: string, params: unknown = {}) => {
+    input.onRequestStart?.(request);
     try {
-      return await invoke(method, params);
+      return await request;
     } catch (error) {
-      const code = legacyLocalRpcErrorCode(error);
-      if (isSparkSideThreadErrorCode(code)) {
-        throw new ORPCError(code, {
-          message: error instanceof Error ? error.message : "Side Thread request failed.",
-        });
+      const mapped = localRpcError(error);
+      if (isSparkLocalRpcOrpcErrorCodeForMethod(method, mapped.code)) {
+        switch (mapped.code) {
+          case "workspace_path_conflict":
+            if (mapped.kind) {
+              throw new ORPCError("workspace_path_conflict", {
+                message: mapped.message,
+                data: { kind: mapped.kind },
+              });
+            }
+            break;
+          case "channel_delivery_not_sent":
+          case "channel_delivery_outcome_unknown":
+            if (mapped.certainty) {
+              throw new ORPCError(mapped.code, {
+                message: mapped.message,
+                data: { certainty: mapped.certainty },
+              });
+            }
+            break;
+          default:
+            throw new ORPCError(mapped.code, { message: mapped.message });
+        }
       }
       throw new ORPCError("INTERNAL_SERVER_ERROR");
     }
@@ -48,9 +77,9 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
 
   return os.router({
     daemon: {
-      status: os.daemon.status.handler(async () => invoke("daemon.status")),
-      stop: os.daemon.stop.handler(async () => invoke("daemon.stop")),
-      restart: os.daemon.restart.handler(async () => invoke("daemon.restart")),
+      status: os.daemon.status.handler(async () => invoke("daemon.status", {})),
+      stop: os.daemon.stop.handler(async () => invoke("daemon.stop", {})),
+      restart: os.daemon.restart.handler(async () => invoke("daemon.restart", {})),
     },
     channel: {
       status: os.channel.status.handler(async ({ input: params }) =>
@@ -101,7 +130,7 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       ),
     },
     workspace: {
-      list: os.workspace.list.handler(async () => invoke("workspace.list")),
+      list: os.workspace.list.handler(async () => invoke("workspace.list", {})),
       register: os.workspace.register.handler(async ({ input: params }) =>
         invoke("workspace.register", params),
       ),
@@ -150,7 +179,7 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       prefer: os.uplink.prefer.handler(async ({ input: params }) =>
         invoke("uplink.prefer", params),
       ),
-      status: os.uplink.status.handler(async () => invoke("uplink.status")),
+      status: os.uplink.status.handler(async () => invoke("uplink.status", {})),
     },
     session: {
       list: os.session.list.handler(async ({ input: params }) => invoke("session.list", params)),
@@ -196,22 +225,22 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
     },
     sideThread: {
       ensure: os.sideThread.ensure.handler(async ({ input: params }) =>
-        invokeSideThread("side-thread.ensure", params),
+        invoke("side-thread.ensure", params),
       ),
       snapshot: os.sideThread.snapshot.handler(async ({ input: params }) =>
-        invokeSideThread("side-thread.snapshot", params),
+        invoke("side-thread.snapshot", params),
       ),
       submit: os.sideThread.submit.handler(async ({ input: params }) =>
-        invokeSideThread("side-thread.submit", params),
+        invoke("side-thread.submit", params),
       ),
       reset: os.sideThread.reset.handler(async ({ input: params }) =>
-        invokeSideThread("side-thread.reset", params),
+        invoke("side-thread.reset", params),
       ),
       configure: os.sideThread.configure.handler(async ({ input: params }) =>
-        invokeSideThread("side-thread.configure", params),
+        invoke("side-thread.configure", params),
       ),
       handoff: os.sideThread.handoff.handler(async ({ input: params }) =>
-        invokeSideThread("side-thread.handoff", params),
+        invoke("side-thread.handoff", params),
       ),
     },
     model: {

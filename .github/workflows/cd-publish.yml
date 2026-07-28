@@ -51,7 +51,7 @@ jobs:
         run: node scripts/smoke-npm-product.mjs --tarball dist/release/spark-${{ github.ref_name }}.tgz
 
       - name: Verify N-1 expand-only migration compatibility
-        run: node scripts/test-release-migration.mjs --tarball dist/release/spark-${{ github.ref_name }}.tgz
+        run: node scripts/test-release-migration.mjs --tarball dist/release/spark-${{ github.ref_name }}.tgz --baseline-version 0.1.0
 
       - name: Upload release artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

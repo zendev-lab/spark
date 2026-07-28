@@ -1,6 +1,6 @@
 {
   "name": "spark",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Spark monorepo: daemon-first agent orchestration across TUI, Cockpit, and channels, with Pi product compatibility retained.",
   "keywords": [
@@ -30,7 +30,8 @@
   "type": "module",
   "scripts": {
     "check": "pnpm run check:static && pnpm run check:docs && pnpm run test:unit && pnpm run test:process:source",
-    "check:static": "pnpm --filter @zendev-lab/spark-cockpit exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/check-architecture-ratchets.mjs && node scripts/check-npm-product.mjs && depcruise --config .dependency-cruiser.cjs apps packages test && pnpm run check:test-quality && node scripts/check-doc-terminology.mjs && vp fmt . --check && vp lint --quiet && pnpm run typecheck",
+    "check:static": "pnpm --filter @zendev-lab/spark-cockpit exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/check-architecture-ratchets.mjs && node scripts/check-npm-product.mjs && pnpm run check:boundaries && pnpm run check:test-quality && node scripts/check-doc-terminology.mjs && vp fmt . --check && vp lint --quiet && pnpm run typecheck",
+    "check:boundaries": "depcruise --config .dependency-cruiser.cjs apps packages test",
     "fix": "pnpm --filter @zendev-lab/spark-cockpit exec svelte-kit sync && vp fmt . --write && vp lint --fix --quiet && pnpm run typecheck",
     "typecheck": "pnpm --filter @zendev-lab/spark-cockpit run check && vp check --no-fmt --no-lint && pnpm --filter @zendev-lab/spark-daemon run check",
     "check:test-quality": "node scripts/check-test-quality.mjs",

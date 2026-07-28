@@ -12,9 +12,7 @@ import {
   parseSparkDaemonEvent,
   parseSparkInteractionResponse,
   parseSparkSessionView,
-  sparkCommandKindForLocalRpcMethod,
-  sparkProtocolJsonObjectSchema,
-  type SparkCommand,
+  sparkLocalRpcProcedureSchemas,
   type SparkAssignment,
   type SparkDaemonEvent,
   type SparkInvocationListResult,
@@ -22,6 +20,9 @@ import {
   type SparkInvocationRetryResult,
   type SparkInvocationStatus,
   type SparkInteractionRequest,
+  type SparkLocalRpcInput,
+  type SparkLocalRpcMethod,
+  type SparkLocalRpcOutput,
   type SparkSessionCreateRequest,
   type SparkSessionListRequest,
   type SparkSessionRegistryRecord,
@@ -37,16 +38,11 @@ import { sparkDaemonCliStrings } from "@zendev-lab/spark-i18n/cli";
 import { cappedExponentialCeiling, equalJitter } from "@zendev-lab/spark-retry";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import {
-  requestSparkDaemonLocalRpcWire,
-  SparkDaemonLocalRpcError,
-  SparkDaemonLocalRpcRemoteError,
-  SparkDaemonLocalRpcUnavailableError,
-} from "@zendev-lab/spark-daemon-client/local-rpc";
-import {
-  createSparkDaemonOrpcClient,
-  invokeSparkDaemonOrpcLiveMethod,
-  isSparkDaemonOrpcLiveMethod,
-} from "@zendev-lab/spark-daemon-client/orpc";
+  requestSparkDaemon,
+  SparkDaemonRemoteError,
+  SparkDaemonRpcError,
+  SparkDaemonUnavailableError,
+} from "@zendev-lab/spark-daemon-client";
 import { SparkSessionStore, type SparkSessionInfo } from "@zendev-lab/spark-host/session-store";
 
 import {
@@ -125,6 +121,11 @@ export interface SparkDaemonClientPaths {
   lockPath: string;
 }
 
+export type SparkDaemonControlRequest = <M extends SparkLocalRpcMethod>(
+  method: M,
+  params: SparkLocalRpcInput<M>,
+) => Promise<unknown>;
+
 export interface SparkDaemonTurnTransportRetryEvent {
   operation: "submit" | "read";
   failureCount: number;
@@ -159,7 +160,7 @@ export interface SparkDaemonClientOptions {
     paths: SparkDaemonClientPaths,
     input: { invocationId: string; after?: number; limit?: number },
   ) => Promise<LocalTurnStreamResult>;
-  controlRequest?: (method: string, params: unknown) => Promise<unknown>;
+  controlRequest?: SparkDaemonControlRequest;
   workspaceEnsureLocal?: (
     paths: SparkDaemonClientPaths,
     input: LocalWorkspaceEnsureLocalInput,
@@ -1400,10 +1401,9 @@ export async function attachSparkWorkspaceClient(
     const paths = resolveSparkDaemonClientPaths(client);
     const pollTransfer = async () => {
       try {
-        const result = await localRpcRequest<{
-          pending: Array<Record<string, unknown>>;
-          observedAt: string;
-        }>(paths, localRpcWireRequest("workspace.transfer.pending", { workspaceId: workspace.id }));
+        const result = await localRpcRequest(paths, "workspace.transfer.pending", {
+          workspaceId: workspace.id,
+        });
         for (const item of result.pending ?? []) {
           const transferId = typeof item.transferId === "string" ? item.transferId : null;
           if (!transferId || promptedTransfers.has(transferId)) continue;
@@ -1420,14 +1420,11 @@ export async function attachSparkWorkspaceClient(
             expiresAt: typeof item.expiresAt === "string" ? item.expiresAt : "",
           });
           if (decision === "accept" || decision === "reject") {
-            await localRpcRequest(
-              paths,
-              localRpcWireRequest("workspace.transfer.respond", {
-                transferId,
-                decision,
-                source: "tui",
-              }),
-            );
+            await localRpcRequest(paths, "workspace.transfer.respond", {
+              transferId,
+              decision,
+              source: "tui",
+            });
           }
         }
       } catch {
@@ -1813,73 +1810,6 @@ function observedAt(client: SparkDaemonClientOptions): string {
   return new Date(client.now?.() ?? Date.now()).toISOString();
 }
 
-type LocalRpcWireRequest = {
-  id: string;
-  method: string;
-  params?: unknown;
-  sparkCommand: SparkCommand;
-};
-
-function localRpcWireRequest(
-  method: string,
-  params?: unknown,
-  id: string = localRequestId(),
-): LocalRpcWireRequest {
-  const kind = sparkCommandKindForLocalRpcMethod(method);
-  if (!kind) throw new Error(`Unknown Spark daemon local RPC method: ${method}`);
-  const payload = sparkProtocolJsonObjectSchema.safeParse(params ?? {});
-  const commandPayload =
-    method === "provider.auth.api-key.set" ||
-    method === "provider.auth.login.respond" ||
-    method === "human.interaction.respond"
-      ? {}
-      : payload.success
-        ? payload.data
-        : {};
-  return {
-    id,
-    method,
-    ...(params !== undefined ? { params } : {}),
-    sparkCommand: {
-      schemaVersion: "spark.command.v1",
-      id,
-      kind,
-      route: localRpcCommandRoute(method, params),
-      payload: commandPayload,
-      transport: { kind: "local-rpc", method, requestId: id },
-    },
-  };
-}
-
-function localRpcCommandRoute(method: string, params: unknown): SparkCommand["route"] {
-  if (!isRecord(params)) return {};
-  if (method === "turn.submit" && typeof params.sessionId === "string") {
-    return { sessionId: params.sessionId };
-  }
-  if (method === "turn.cancel" && typeof params.invocationId === "string") {
-    return { invocationId: params.invocationId };
-  }
-  if (method === "human.interaction.respond") {
-    return {
-      ...(typeof params.sessionId === "string" ? { sessionId: params.sessionId } : {}),
-      ...(typeof params.invocationId === "string" ? { invocationId: params.invocationId } : {}),
-    };
-  }
-  if (method === "workspace.ensure-local" && typeof params.localPath === "string") {
-    return { workspaceLocalPath: params.localPath };
-  }
-  if (method === "workspace.client.attach" && typeof params.workspaceId === "string") {
-    return { workspaceBindingId: params.workspaceId };
-  }
-  if (
-    (method === "workspace.client.heartbeat" || method === "workspace.client.release") &&
-    typeof params.clientId === "string"
-  ) {
-    return { clientId: params.clientId };
-  }
-  return {};
-}
-
 async function clientStatus(client: SparkDaemonClientOptions): Promise<SparkDaemonClientStatus> {
   const paths = resolveSparkDaemonClientPaths(client);
   if (client.daemonStatus) {
@@ -1892,10 +1822,7 @@ async function clientStatus(client: SparkDaemonClientOptions): Promise<SparkDaem
     return { running: false, socketPath: paths.socketPath, pidFile: paths.pidFile, lock };
   }
   try {
-    const status = await localRpcRequest<SparkDaemonLocalStatus>(
-      paths,
-      localRpcWireRequest("daemon.status"),
-    );
+    const status = await localRpcRequest(paths, "daemon.status", {});
     return {
       running: true,
       pid,
@@ -1925,10 +1852,9 @@ async function clientChannelStatus(
 ): Promise<ChannelStatusSnapshot> {
   const paths = resolveSparkDaemonClientPaths(client);
   if (client.channelStatus) return await client.channelStatus(paths);
-  return await localRpcRequest<ChannelStatusSnapshot>(
-    paths,
-    localRpcWireRequest("channel.status", { workspaceId: command.workspaceId }),
-  );
+  return await localRpcRequest(paths, "channel.status", {
+    workspaceId: command.workspaceId,
+  });
 }
 
 async function clientChannelReload(
@@ -1938,10 +1864,9 @@ async function clientChannelReload(
   const paths = resolveSparkDaemonClientPaths(client);
   if (client.channelReload) return await client.channelReload(paths, command.workspaceId);
   await clientEnsureRunning(client);
-  return await localRpcRequest<ChannelStatusSnapshot>(
-    paths,
-    localRpcWireRequest("channel.reload", { workspaceId: command.workspaceId }),
-  );
+  return await localRpcRequest(paths, "channel.reload", {
+    workspaceId: command.workspaceId,
+  });
 }
 
 async function clientChannelNotify(
@@ -1966,10 +1891,11 @@ async function clientChannelNotify(
         }
       : {}),
   };
-  return await localRpcRequest<ChannelNotifySendResult>(
-    paths,
-    localRpcWireRequest("channel.notify", params),
-  );
+  const result = await localRpcRequest(paths, "channel.notify", params);
+  if (result.action === "list") {
+    throw new Error("Spark daemon returned a list result for a channel send request.");
+  }
+  return result;
 }
 
 async function clientInvocation(
@@ -1977,7 +1903,7 @@ async function clientInvocation(
   client: SparkDaemonClientOptions,
 ): Promise<SparkDaemonInvocationResult["result"]> {
   if (command.subcommand === "list") {
-    return await requestSparkDaemonControl<LocalInvocationListResult>(
+    return await requestSparkDaemonControl(
       "invocation.list",
       {
         ...(command.status ? { status: command.status } : {}),
@@ -1990,7 +1916,10 @@ async function clientInvocation(
     );
   }
   if (command.subcommand === "retention") {
-    return await requestSparkDaemonControl<LocalInvocationRetentionPreviewResult>(
+    if (!command.before) {
+      throw new Error("Spark invocation retention preview requires --before.");
+    }
+    return await requestSparkDaemonControl(
       "invocation.retention.preview",
       {
         before: command.before,
@@ -2004,18 +1933,10 @@ async function clientInvocation(
     return await clientTurnStatus({ invocationId }, client);
   }
   if (command.subcommand === "result") {
-    return await requestSparkDaemonControl<LocalTurnResult>(
-      "turn.result",
-      { invocationId },
-      client,
-    );
+    return await requestSparkDaemonControl("turn.result", { invocationId }, client);
   }
   if (command.subcommand === "retry") {
-    return await requestSparkDaemonControl<LocalInvocationRetryResult>(
-      "invocation.retry",
-      { invocationId },
-      client,
-    );
+    return await requestSparkDaemonControl("invocation.retry", { invocationId }, client);
   }
   if (command.subcommand === "stream") {
     return await clientTurnStreamPage(
@@ -2043,14 +1964,13 @@ async function clientSubmit(
     ...input,
     idempotencyKey: input.idempotencyKey ?? `turn.submit:${admissionId}`,
   };
-  const wireRequest = localRpcWireRequest("turn.submit", admissionInput, admissionId);
   let failureCount = 0;
   while (true) {
     throwIfAborted(options.signal);
     try {
       return client.turnSubmit
         ? await client.turnSubmit(paths, admissionInput)
-        : await localRpcRequest<LocalTurnSubmitResult>(paths, wireRequest, {
+        : await localRpcRequest(paths, "turn.submit", admissionInput, {
             signal: options.signal,
           });
     } catch (error) {
@@ -2072,19 +1992,21 @@ async function clientSubmit(
 }
 
 function isRetryableTurnTransportError(error: unknown): boolean {
-  if (error instanceof SparkDaemonLocalRpcRemoteError) {
+  if (error instanceof SparkDaemonRemoteError) {
     return isDaemonStartingRemoteError(error);
   }
-  if (error instanceof SparkDaemonLocalRpcUnavailableError) {
+  if (error instanceof SparkDaemonUnavailableError) {
     return !/does not support|unknown local RPC method/iu.test(error.message);
   }
   return (
-    error instanceof SparkDaemonLocalRpcError &&
-    /connection closed before a response/iu.test(error.message)
+    error instanceof SparkDaemonRpcError &&
+    /connection closed before a response|timed out waiting for daemon|oRPC transport failed/iu.test(
+      error.message,
+    )
   );
 }
 
-function isDaemonStartingRemoteError(error: SparkDaemonLocalRpcRemoteError): boolean {
+function isDaemonStartingRemoteError(error: SparkDaemonRemoteError): boolean {
   const payload = isRecord(error.payload) ? error.payload : undefined;
   return (
     payload?.code === "daemon_starting" ||
@@ -2135,10 +2057,12 @@ async function recoverTurnTransportIfDue(
 
 function isDaemonUnavailableTransportError(error: unknown): boolean {
   return (
-    error instanceof SparkDaemonLocalRpcUnavailableError ||
-    (error instanceof SparkDaemonLocalRpcError &&
-      !(error instanceof SparkDaemonLocalRpcRemoteError) &&
-      /connection closed before a response/iu.test(error.message))
+    error instanceof SparkDaemonUnavailableError ||
+    (error instanceof SparkDaemonRpcError &&
+      !(error instanceof SparkDaemonRemoteError) &&
+      /connection closed before a response|timed out waiting for daemon|oRPC transport failed/iu.test(
+        error.message,
+      ))
   );
 }
 
@@ -2244,33 +2168,18 @@ async function retryTurnTransportRead<T>(
 }
 
 /** Shared daemon-owned model/auth control request used by native TUI adapters. */
-export async function requestSparkDaemonControl<T>(
-  method: string,
-  params: unknown,
+export async function requestSparkDaemonControl<M extends SparkLocalRpcMethod>(
+  method: M,
+  params: SparkLocalRpcInput<M>,
   client: SparkDaemonClientOptions = {},
-): Promise<T> {
+): Promise<SparkLocalRpcOutput<M>> {
   const paths = resolveSparkDaemonClientPaths(client);
   await clientEnsureRunning(client);
-  if (client.controlRequest) return (await client.controlRequest(method, params)) as T;
-  if (isSparkDaemonOrpcLiveMethod(method)) {
-    let handle: Awaited<ReturnType<typeof createSparkDaemonOrpcClient>> | undefined;
-    try {
-      handle = await createSparkDaemonOrpcClient({ paths });
-    } catch {
-      // The parallel socket is optional during migration. Falling back is safe
-      // only before a request crosses that transport boundary.
-    }
-    if (handle) {
-      try {
-        return (await invokeSparkDaemonOrpcLiveMethod(handle.client, method, params ?? {})) as T;
-      } finally {
-        // Once connected, fail closed on any call error. Retrying an unknown
-        // mutation outcome over legacy NDJSON could execute it twice.
-        handle.close();
-      }
-    }
+  if (client.controlRequest) {
+    const injected = await client.controlRequest(method, params);
+    return sparkLocalRpcProcedureSchemas[method].output.parse(injected) as SparkLocalRpcOutput<M>;
   }
-  return await localRpcRequest<T>(paths, localRpcWireRequest(method, params));
+  return await requestSparkDaemon(method, params, daemonRequestOptions(paths));
 }
 
 export interface SparkDaemonHumanInteractionRespondInput {
@@ -2316,11 +2225,7 @@ export async function clientRespondHumanInteraction(
   for (let attempt = 1; attempt <= HUMAN_INTERACTION_RESPONSE_MAX_ATTEMPTS; attempt += 1) {
     throwIfAborted(options.signal);
     try {
-      const result = await requestSparkDaemonControl<SparkDaemonHumanInteractionRespondResult>(
-        "human.interaction.respond",
-        params,
-        client,
-      );
+      const result = await requestSparkDaemonControl("human.interaction.respond", params, client);
       if (result.outcome !== "transient" || attempt === HUMAN_INTERACTION_RESPONSE_MAX_ATTEMPTS) {
         return result;
       }
@@ -2448,11 +2353,10 @@ export async function clientTurnStatus(
   if (options.ensureRunning !== false) await clientEnsureRunning(client);
   throwIfAborted(options.signal);
   if (client.turnStatus) return await client.turnStatus(paths, input);
-  return await localRpcRequest<LocalTurnStatusResult>(
-    paths,
-    localRpcWireRequest("turn.status", input),
-    { signal: options.signal, timeoutMs: options.timeoutMs },
-  );
+  return await localRpcRequest(paths, "turn.status", input, {
+    signal: options.signal,
+    timeoutMs: options.timeoutMs,
+  });
 }
 
 export async function clientTurnStreamPage(
@@ -2465,11 +2369,10 @@ export async function clientTurnStreamPage(
   if (options.ensureRunning !== false) await clientEnsureRunning(client);
   throwIfAborted(options.signal);
   if (client.turnStream) return await client.turnStream(paths, input);
-  return await localRpcRequest<LocalTurnStreamResult>(
-    paths,
-    localRpcWireRequest("turn.stream", input),
-    { signal: options.signal, timeoutMs: options.timeoutMs },
-  );
+  return await localRpcRequest(paths, "turn.stream", input, {
+    signal: options.signal,
+    timeoutMs: options.timeoutMs,
+  });
 }
 
 export async function clientCancelTurn(
@@ -2479,10 +2382,7 @@ export async function clientCancelTurn(
   const paths = resolveSparkDaemonClientPaths(client);
   await clientEnsureRunning(client);
   if (client.turnCancel) return await client.turnCancel(paths, input);
-  return await localRpcRequest<LocalTurnCancelResult>(
-    paths,
-    localRpcWireRequest("turn.cancel", input),
-  );
+  return await localRpcRequest(paths, "turn.cancel", input);
 }
 
 async function clientSubmitStreaming(
@@ -2586,10 +2486,7 @@ async function clientWorkspaceList(
   const paths = resolveSparkDaemonClientPaths(client);
   await clientEnsureRunning(client);
   if (client.workspaceList) return await client.workspaceList(paths);
-  return await localRpcRequest<LocalDaemonWorkspaceListResult>(
-    paths,
-    localRpcWireRequest("workspace.list"),
-  );
+  return await localRpcRequest(paths, "workspace.list", {});
 }
 
 async function clientEnsureLocalWorkspace(
@@ -2599,10 +2496,7 @@ async function clientEnsureLocalWorkspace(
   const paths = resolveSparkDaemonClientPaths(client);
   await clientEnsureRunning(client);
   if (client.workspaceEnsureLocal) return await client.workspaceEnsureLocal(paths, input);
-  return await localRpcRequest<SparkDaemonWorkspace>(
-    paths,
-    localRpcWireRequest("workspace.ensure-local", input),
-  );
+  return await localRpcRequest(paths, "workspace.ensure-local", input);
 }
 
 async function clientWorkspaceClientAttach(
@@ -2611,10 +2505,7 @@ async function clientWorkspaceClientAttach(
 ): Promise<LocalWorkspaceClientResult> {
   const paths = resolveSparkDaemonClientPaths(client);
   if (client.workspaceClientAttach) return await client.workspaceClientAttach(paths, input);
-  return await localRpcRequest<LocalWorkspaceClientResult>(
-    paths,
-    localRpcWireRequest("workspace.client.attach", input),
-  );
+  return await localRpcRequest(paths, "workspace.client.attach", input);
 }
 
 async function clientWorkspaceClientHeartbeat(
@@ -2623,10 +2514,7 @@ async function clientWorkspaceClientHeartbeat(
 ): Promise<LocalWorkspaceClientResult> {
   const paths = resolveSparkDaemonClientPaths(client);
   if (client.workspaceClientHeartbeat) return await client.workspaceClientHeartbeat(paths, input);
-  return await localRpcRequest<LocalWorkspaceClientResult>(
-    paths,
-    localRpcWireRequest("workspace.client.heartbeat", input),
-  );
+  return await localRpcRequest(paths, "workspace.client.heartbeat", input);
 }
 
 async function clientWorkspaceClientRelease(
@@ -2635,10 +2523,7 @@ async function clientWorkspaceClientRelease(
 ): Promise<LocalWorkspaceClientResult> {
   const paths = resolveSparkDaemonClientPaths(client);
   if (client.workspaceClientRelease) return await client.workspaceClientRelease(paths, input);
-  return await localRpcRequest<LocalWorkspaceClientResult>(
-    paths,
-    localRpcWireRequest("workspace.client.release", input),
-  );
+  return await localRpcRequest(paths, "workspace.client.release", input);
 }
 
 function defaultWorkspaceClientDisplayName(kind: SparkWorkspaceClientKind): string {
@@ -2670,7 +2555,7 @@ async function clientEnsureRunning(client: SparkDaemonClientOptions): Promise<vo
   const pid = readPidFile(paths.pidFile);
   if (pid && isProcessAlive(pid)) {
     try {
-      await localRpcRequest(paths, localRpcWireRequest("daemon.status"));
+      await localRpcRequest(paths, "daemon.status", {});
       return;
     } catch {
       // Restart unreachable process below.
@@ -2772,7 +2657,7 @@ async function waitForDaemonRpc(
   let lastError: unknown;
   while (now() <= deadline) {
     try {
-      await localRpcRequest(paths, localRpcWireRequest("daemon.status"));
+      await localRpcRequest(paths, "daemon.status", {});
       return;
     } catch (error) {
       lastError = error;
@@ -2784,26 +2669,16 @@ async function waitForDaemonRpc(
   );
 }
 
-async function localRpcRequest<T>(
+async function localRpcRequest<M extends SparkLocalRpcMethod>(
   paths: SparkDaemonClientPaths,
-  request: LocalRpcWireRequest,
+  method: M,
+  params: SparkLocalRpcInput<M>,
   options: { signal?: AbortSignal; timeoutMs?: number } = {},
-): Promise<T> {
+): Promise<SparkLocalRpcOutput<M>> {
   try {
-    const timeoutMs =
-      options.timeoutMs === undefined ? undefined : Math.max(1, Math.floor(options.timeoutMs));
-    return await requestSparkDaemonLocalRpcWire<T>(request, {
-      socketPath: paths.socketPath,
-      signal: options.signal,
-      ...(timeoutMs === undefined
-        ? {}
-        : {
-            connectTimeoutMs: Math.min(1_000, timeoutMs),
-            responseTimeoutMs: Math.min(30_000, timeoutMs),
-          }),
-    });
+    return await requestSparkDaemon(method, params, daemonRequestOptions(paths, options));
   } catch (error) {
-    if (error instanceof SparkDaemonLocalRpcRemoteError) {
+    if (error instanceof SparkDaemonRemoteError) {
       if (isDaemonStartingRemoteError(error)) throw error;
       const message =
         isRecord(error.payload) && typeof error.payload.message === "string"
@@ -2813,6 +2688,25 @@ async function localRpcRequest<T>(
     }
     throw error;
   }
+}
+
+function daemonRequestOptions(
+  paths: SparkDaemonClientPaths,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+) {
+  const timeoutMs =
+    options.timeoutMs === undefined ? undefined : Math.max(1, Math.floor(options.timeoutMs));
+  return {
+    paths: { runtimeDir: paths.runtimeDir },
+    legacySocketPath: paths.socketPath,
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    ...(timeoutMs === undefined
+      ? {}
+      : {
+          connectTimeoutMs: Math.min(1_000, timeoutMs),
+          responseTimeoutMs: Math.min(30_000, timeoutMs),
+        }),
+  };
 }
 
 function resolveSparkDaemonClientPaths(
