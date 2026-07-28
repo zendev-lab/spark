@@ -208,6 +208,7 @@
             newSession: data.messages.sessions.newSession,
             searchPlaceholder: data.messages.sessions.searchPlaceholder,
             emptyTitle: data.messages.sessions.emptyTitle,
+            emptyBody: data.messages.sessions.emptyBody,
             daemonUnavailableTitle: data.messages.sessions.daemonUnavailableTitle,
             daemonUnavailableBody: data.messages.sessions.daemonUnavailableBody,
             listLabel: data.messages.sessions.listLabel,

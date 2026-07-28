@@ -171,7 +171,7 @@ test("Spark prompt templates register as slash commands without overriding built
     assert.equal(await harness.submit("/help"), "command");
     await harness.flush();
     assert.equal(submitted.length, 1, "built-in /help should not submit a template prompt");
-    assert.match(stripAnsi(harness.render()), /Spark native TUI commands:/);
+    assert.match(stripAnsi(harness.render()), /Spark — start here/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -144,7 +144,7 @@ test("Cockpit status contract reports malformed envelopes with field paths", () 
   );
 });
 
-test("deprecation map covers legacy slash aliases with canonical targets", async () => {
+test("deprecation map covers legacy slash aliases and only advertises real CLI targets", async () => {
   const rows = JSON.parse(await readFile(DEPRECATIONS_PATH, "utf8")) as Array<{
     legacy?: string;
     canonicalSlash?: string;
@@ -164,15 +164,19 @@ test("deprecation map covers legacy slash aliases with canonical targets", async
     const row = byLegacy.get(legacy);
     assert.equal(Boolean(row), true, legacy);
     assert.equal(typeof row?.canonicalSlash, "string", `${legacy}.canonicalSlash`);
-    assert.equal(typeof row?.canonicalCliTarget, "string", `${legacy}.canonicalCliTarget`);
     assert.match(row?.status ?? "", /deprecated alias|removed/u, `${legacy}.status`);
   }
   assert.equal(byLegacy.get("/sessions")?.canonicalCliTarget, "spark daemon session list");
   assert.equal(byLegacy.get("/tasks")?.canonicalCliTarget, "spark cockpit task list");
   assert.equal(byLegacy.get("/fork")?.canonicalCliTarget, "spark daemon session fork --current");
+  assert.equal(byLegacy.get("/workflow-runs")?.canonicalCliTarget, undefined);
+  assert.equal(byLegacy.get("/workflow-pause")?.canonicalCliTarget, undefined);
+  assert.equal(byLegacy.get("/workflow-resume")?.canonicalCliTarget, undefined);
+  assert.equal(byLegacy.get("/workflow-stop")?.canonicalCliTarget, undefined);
 
   for (const row of rows) {
-    const [root, ...argv] = row.canonicalCliTarget?.split(/\s+/u) ?? [];
+    if (!row.canonicalCliTarget) continue;
+    const [root, ...argv] = row.canonicalCliTarget.split(/\s+/u);
     assert.equal(root, "spark", `${row.legacy}.canonicalCliTarget root`);
     assert.doesNotMatch(
       row.canonicalCliTarget ?? "",

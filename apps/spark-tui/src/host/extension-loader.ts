@@ -3,6 +3,7 @@
 import type { SparkHostAPI } from "@zendev-lab/spark-core";
 
 import sparkAskExtension from "@zendev-lab/spark-ask/extension";
+import sparkArtifactsExtension from "@zendev-lab/spark-artifacts/extension";
 import sparkCueExtension from "@zendev-lab/spark-cue/extension";
 import sparkFilesExtension from "@zendev-lab/spark-files/extension";
 import sparkFusionExtension from "@zendev-lab/spark-fusion/extension";
@@ -10,6 +11,7 @@ import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
 import sparkRolesExtension from "@zendev-lab/spark-roles/extension";
 import sparkSessionExtension from "@zendev-lab/spark-session/extension";
 import sparkWebExtension from "@zendev-lab/spark-web/extension";
+import sparkWorkflowsExtension from "@zendev-lab/spark-workflows/extension";
 
 import { DEFAULT_SPARK_EXTENSION_SPECS } from "./extension-specs.ts";
 
@@ -19,6 +21,7 @@ import sparkExtension from "@zendev-lab/spark-extension/extension";
 
 export type SparkBuiltinExtensionName =
   | "@zendev-lab/spark-ask"
+  | "@zendev-lab/spark-artifacts"
   | "@zendev-lab/spark-cue"
   | "@zendev-lab/spark-files"
   | "@zendev-lab/spark-fusion"
@@ -27,6 +30,7 @@ export type SparkBuiltinExtensionName =
   | "@zendev-lab/spark-roles"
   | "@zendev-lab/spark-session"
   | "@zendev-lab/spark-web"
+  | "@zendev-lab/spark-workflows"
   | "@zendev-lab/spark-ai"
   | "spark";
 
@@ -61,6 +65,11 @@ const BUILTIN_EXTENSION_FACTORIES: readonly SparkBuiltinCapabilityFactory[] = [
     name: "@zendev-lab/spark-ask",
     specifier: "@zendev-lab/spark-ask/extension",
     factory: sparkAskExtension as SparkCapabilityFactory,
+  },
+  {
+    name: "@zendev-lab/spark-artifacts",
+    specifier: "@zendev-lab/spark-artifacts/extension",
+    factory: sparkArtifactsExtension as SparkCapabilityFactory,
   },
   {
     name: "@zendev-lab/spark-cue",
@@ -101,6 +110,11 @@ const BUILTIN_EXTENSION_FACTORIES: readonly SparkBuiltinCapabilityFactory[] = [
     name: "@zendev-lab/spark-web",
     specifier: "@zendev-lab/spark-web/extension",
     factory: sparkWebExtension as SparkCapabilityFactory,
+  },
+  {
+    name: "@zendev-lab/spark-workflows",
+    specifier: "@zendev-lab/spark-workflows/extension",
+    factory: sparkWorkflowsExtension as SparkCapabilityFactory,
   },
   {
     name: "@zendev-lab/spark-graft",

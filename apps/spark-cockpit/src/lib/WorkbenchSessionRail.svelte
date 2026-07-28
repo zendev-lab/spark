@@ -62,6 +62,7 @@
       newSession: string;
       searchPlaceholder: string;
       emptyTitle: string;
+      emptyBody: string;
       daemonUnavailableTitle: string;
       daemonUnavailableBody: string;
       listLabel: string;
@@ -147,6 +148,8 @@
 </script>
 
 <div class="session-rail">
+  <h2 class="session-list-title">{messages.listLabel}</h2>
+
   <div class="session-toolbar">
     <label class="session-filter">
       <Icon name="search" size={15} stroke={2.1} />
@@ -197,7 +200,13 @@
 
   {#if filteredSessions.length === 0}
     {#if sessionsAvailable}
-      <p class="session-empty">{messages.emptyTitle}</p>
+      <div class="session-empty">
+        <strong>{messages.emptyTitle}</strong>
+        <p>{messages.emptyBody}</p>
+        {#if activeWorkspaceId && sessionControlAvailable}
+          <a href={`${sessionsHref}?new=workspace`}>{messages.newSession}</a>
+        {/if}
+      </div>
     {/if}
   {:else}
     <div class="session-groups" aria-label={messages.listLabel}>
@@ -282,6 +291,15 @@
     flex-direction: column;
     gap: 8px;
     min-height: 0;
+  }
+
+  .session-list-title {
+    color: var(--color-ink-subtle);
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.06em;
+    margin: 2px 4px 0;
+    text-transform: uppercase;
   }
 
   .session-toolbar {
@@ -376,6 +394,24 @@
     font-size: 13px;
     line-height: 1.45;
     margin: 8px 4px 0;
+  }
+
+  .session-empty strong {
+    color: var(--color-ink);
+  }
+
+  .session-empty p {
+    margin: 4px 0 10px;
+  }
+
+  .session-empty a {
+    color: var(--color-primary);
+    font-weight: 650;
+    text-decoration: none;
+  }
+
+  .session-empty a:hover {
+    text-decoration: underline;
   }
 
   .session-unavailable {

@@ -96,7 +96,11 @@ active for the sender).
 
 ## Channel policy
 
-A channel-bound host exposes only canonical `session`. It permanently disables cue tools, `role`, `assign`, and `workflow_run`, including after extension lifecycle events. The caller may inspect same-workspace sessions, request work only from an unarchived local session, and may not perform lifecycle or call actions.
+A channel-bound host exposes only canonical `session`, `ask`, `context`, and
+`todo`. It permanently disables cue tools, `role`, `assign`, and
+`workflow_run`, including after extension lifecycle events. The caller may
+inspect same-workspace sessions, request work only from an unarchived local
+session, and may not perform lifecycle or call actions.
 
 Inbound adapters first persist a normalized, raw-payload-free receipt in the daemon SQLite ledger. A leased worker then resolves/binds the platform conversation and submits the exact human body with channel origin metadata. `(workspace, adapter, externalKey, platformMessageId)` produces a stable hashed identity, so platform replay and overlapping restart generations converge on one invocation. Messages whose platform supplies no ID remain at-least-once.
 

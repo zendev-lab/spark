@@ -5,6 +5,7 @@
  */
 export const DEFAULT_SPARK_EXTENSION_SPECS = [
   "@zendev-lab/spark-ask/extension",
+  "@zendev-lab/spark-artifacts/extension",
   "@zendev-lab/spark-cue/extension",
   "@zendev-lab/spark-files/extension",
   "@zendev-lab/spark-ai/models-extension",
@@ -12,5 +13,6 @@ export const DEFAULT_SPARK_EXTENSION_SPECS = [
   "@zendev-lab/spark-roles/extension",
   "@zendev-lab/spark-session/extension",
   "@zendev-lab/spark-web/extension",
+  "@zendev-lab/spark-workflows/extension",
   "@zendev-lab/spark-extension/extension",
 ] as const;

@@ -100,6 +100,79 @@ test("current Spark-native facade alone with profile version recovers defaults",
   assert.deepEqual(migrated.extensions, [...DEFAULT_SPARK_EXTENSION_SPECS]);
 });
 
+test("persisted v1 default profile gains the current artifact and workflow capabilities", () => {
+  const v1Defaults = [
+    "@zendev-lab/spark-ask/extension",
+    "@zendev-lab/spark-cue/extension",
+    "@zendev-lab/spark-files/extension",
+    "@zendev-lab/spark-ai/models-extension",
+    "@zendev-lab/spark-memory/extension",
+    "@zendev-lab/spark-roles/extension",
+    "@zendev-lab/spark-session/extension",
+    "@zendev-lab/spark-web/extension",
+    "@zendev-lab/spark-extension/extension",
+  ];
+
+  const migrated = mergeSparkConfigWithDefault({
+    extensionProfileVersion: 1,
+    extensions: [...v1Defaults, "my-extension"],
+  });
+
+  assert.deepEqual(migrated.extensions, [...DEFAULT_SPARK_EXTENSION_SPECS, "my-extension"]);
+  assert.equal(migrated.extensionProfileVersion, 2);
+  assert.equal(migrated.extensions.includes("@zendev-lab/spark-artifacts/extension"), true);
+  assert.equal(migrated.extensions.includes("@zendev-lab/spark-workflows/extension"), true);
+});
+
+test("persisted v1 custom subsets remain explicit across profile migration", () => {
+  const migrated = mergeSparkConfigWithDefault({
+    extensionProfileVersion: 1,
+    extensions: ["@zendev-lab/spark-extension/extension", "my-extension"],
+  });
+
+  assert.deepEqual(migrated.extensions, ["@zendev-lab/spark-extension/extension", "my-extension"]);
+  assert.equal(migrated.extensionProfileVersion, CURRENT_SPARK_EXTENSION_PROFILE_VERSION);
+});
+
+test("unversioned Spark-native default profile also gains current capabilities", () => {
+  const migrated = mergeSparkConfigWithDefault({
+    extensions: [
+      "@zendev-lab/spark-ask/extension",
+      "@zendev-lab/spark-cue/extension",
+      "@zendev-lab/spark-files/extension",
+      "@zendev-lab/spark-ai/models-extension",
+      "@zendev-lab/spark-memory/extension",
+      "@zendev-lab/spark-roles/extension",
+      "@zendev-lab/spark-session/extension",
+      "@zendev-lab/spark-web/extension",
+      "@zendev-lab/spark-extension/extension",
+    ],
+  });
+
+  assert.deepEqual(migrated.extensions, [...DEFAULT_SPARK_EXTENSION_SPECS]);
+});
+
+test("unversioned legacy default profile drops formerly bundled Graft", () => {
+  const migrated = mergeSparkConfigWithDefault({
+    extensions: [
+      "@zendev-lab/spark-ask/extension",
+      "@zendev-lab/spark-cue/extension",
+      "@zendev-lab/spark-files/extension",
+      "@zendev-lab/spark-ai/models-extension",
+      "@zendev-lab/spark-memory/extension",
+      "@zendev-lab/spark-roles/extension",
+      "@zendev-lab/spark-session/extension",
+      "@zendev-lab/spark-web/extension",
+      "@zendev-lab/spark-graft/extension",
+      "@zendev-lab/spark-extension/extension",
+      "my-extension",
+    ],
+  });
+
+  assert.deepEqual(migrated.extensions, [...DEFAULT_SPARK_EXTENSION_SPECS, "my-extension"]);
+  assert.equal(migrated.extensions.includes("@zendev-lab/spark-graft/extension"), false);
+});
+
 test("versioned pi-extension entries rewrite to spark-extension without profile rebuild", () => {
   const migrated = mergeSparkConfigWithDefault({
     extensionProfileVersion: CURRENT_SPARK_EXTENSION_PROFILE_VERSION,

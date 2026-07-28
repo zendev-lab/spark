@@ -66,6 +66,13 @@ describe("SessionInspector rendered contract", () => {
     expect(body).toContain('aria-selected="true"');
     expect(body).toContain(labels.summaryHeading);
     expect(body).toContain("STATUS_running");
+    expect(body).toContain(labels.runs);
+    expect(body).toContain(labels.tabs.tasks);
+    expect(body).toContain(labels.tabs.changes);
+    expect(body).toContain(labels.tabs.artifacts);
+    expect(body).toContain(labels.technicalDetails);
+    expect(body).toMatch(/<details class="technical-details [^"]+">/u);
+    expect(body).not.toMatch(/<details[^>]*\sopen(?:\s|>)/u);
     expect(body).toContain("/workspace/spark");
     expect(body).toContain("Fixture / Model");
     expect(body).toContain("sess-summary");
@@ -129,13 +136,14 @@ describe("SessionInspector rendered contract", () => {
     expect(body).not.toContain(labels.noSessionTodoTitle);
   });
 
-  it("renders a restrained TODO empty state without an invented execution link", () => {
+  it("omits the TODO rail when the session has no TODO state", () => {
     const body = renderInspector(sessionWorkbenchView(), {
       instanceId: "inspector-empty",
     });
 
-    expect(body).toContain(labels.noSessionTodoTitle);
-    expect(body).toContain(labels.noSessionTodoBody);
+    expect(body).not.toContain("session-todo-rail");
+    expect(body).not.toContain(labels.noSessionTodoTitle);
+    expect(body).not.toContain(labels.noSessionTodoBody);
     expect(body).not.toContain(labels.openSessionTodo);
     expect(body).not.toContain('href="#message:');
   });
