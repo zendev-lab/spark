@@ -18,7 +18,7 @@
     "./text": "./src/text.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-tui": "^0.80.6",
+    "@earendil-works/pi-tui": "^0.82.1",
     "@zendev-lab/spark-text": "workspace:^"
   }
 }

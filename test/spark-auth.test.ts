@@ -14,6 +14,7 @@ import {
   SparkHostRuntime,
   SparkProviderAuthResolver,
   SparkProviderRegistry,
+  listOAuthProviderSummaries,
   registerSparkOAuthProvider,
   resetSparkOAuthProviders,
   type ProviderConfig,
@@ -140,6 +141,14 @@ async function withAuthDir(fn: (dir: string, authPath: string) => Promise<void>)
     resetSparkOAuthProviders();
   }
 }
+
+test("Spark OAuth registry restores the pi-ai 0.82 built-in providers", () => {
+  resetSparkOAuthProviders();
+  assert.deepEqual(
+    listOAuthProviderSummaries().map((provider) => provider.id),
+    ["anthropic", "github-copilot", "openai-codex"],
+  );
+});
 
 test("SparkAuthStore persists OAuth credentials with restrictive file mode", async () => {
   await withAuthDir(async (_dir, authPath) => {

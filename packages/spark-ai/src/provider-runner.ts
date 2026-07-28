@@ -219,7 +219,7 @@ export function withOpenAiCompatiblePromptCacheKey(
 }
 
 /**
- * pi-ai 0.80.x does not read Spark's explicit prompt-cache option. Bridge it at
+ * pi-ai does not read Spark's explicit prompt-cache option. Bridge it at
  * the payload boundary without overloading `sessionId`, which also controls
  * provider affinity headers. Keep a caller-supplied session id as the stronger
  * affinity signal, and never leak this workaround to other APIs.

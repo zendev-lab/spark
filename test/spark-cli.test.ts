@@ -511,13 +511,20 @@ function responsesSse(body: string): Response {
   });
 }
 
-test("Baidu OneAPI direct Responses stream retries malformed wire envelopes by default", async () => {
+test("Baidu OneAPI direct Responses stream retries malformed wire envelopes without SDK logs", async () => {
   const originalFetch = globalThis.fetch;
+  const originalError = console.error;
+  const previousOpenAiLog = process.env.OPENAI_LOG;
+  const sdkErrors: unknown[][] = [];
   let fetchCalls = 0;
+  process.env.OPENAI_LOG = "debug";
   globalThis.fetch = (async () => {
     fetchCalls += 1;
     return responsesSse(fetchCalls === 1 ? malformedResponsesSse : completedResponsesSse);
   }) as typeof fetch;
+  console.error = (...args: unknown[]) => {
+    sdkErrors.push(args);
+  };
 
   try {
     const stream = streamBaiduOneApiOpenAIResponses(
@@ -531,7 +538,12 @@ test("Baidu OneAPI direct Responses stream retries malformed wire envelopes by d
     assert.equal(fetchCalls, 2);
     assert.deepEqual(eventTypes, ["start", "done"]);
     assert.equal((await stream.result()).stopReason, "stop");
+    assert.deepEqual(sdkErrors, []);
+    assert.equal(process.env.OPENAI_LOG, "debug");
   } finally {
+    if (previousOpenAiLog === undefined) delete process.env.OPENAI_LOG;
+    else process.env.OPENAI_LOG = previousOpenAiLog;
+    console.error = originalError;
     globalThis.fetch = originalFetch;
   }
 });

@@ -6,11 +6,13 @@ import { test } from "vitest";
 
 import {
   SparkAuthStore,
+  SparkOAuthFlowBroker,
   createSparkProviderControl,
   registerSparkOAuthProvider,
   resetSparkOAuthProviders,
   type SparkOAuthProviderInterface,
 } from "../packages/spark-ai/src/control/index.ts";
+import { adaptPiOAuthProvider } from "../packages/spark-ai/src/control/auth.ts";
 import type { ProviderRegistrationAPI } from "../packages/spark-ai/src/index.ts";
 
 const future = Date.parse("2030-01-01T00:00:00.000Z");
@@ -254,6 +256,96 @@ test("OAuth broker exposes only interaction state and prepareModel refreshes dur
     );
   });
 });
+
+test("pi-ai 0.82 OAuth prompts preserve empty input and per-prompt cancellation", async () => {
+  await withSparkHome(async (sparkHome) => {
+    let completeBrowserCallback!: () => void;
+    const browserCallback = new Promise<void>((resolve) => {
+      completeBrowserCallback = resolve;
+    });
+    const piProvider: Parameters<typeof adaptPiOAuthProvider>[0] = {
+      id: "pi-oauth-fixture",
+      name: "Pi OAuth Fixture",
+      auth: {
+        oauth: {
+          name: "Pi OAuth Fixture",
+          async login(interaction) {
+            const enterpriseDomain = await interaction.prompt({
+              type: "text",
+              message: "Enterprise domain (blank for default)",
+            });
+            assert.equal(enterpriseDomain, "");
+
+            const manualAbort = new AbortController();
+            const manualCode = interaction.prompt({
+              type: "manual_code",
+              message: "Paste callback URL",
+              signal: manualAbort.signal,
+            });
+            await browserCallback;
+            manualAbort.abort();
+            await assert.rejects(manualCode, (error: unknown) => {
+              assert.equal((error as Error).name, "AbortError");
+              return true;
+            });
+            return {
+              type: "oauth",
+              refresh: "pi-refresh-secret",
+              access: "pi-access-secret",
+              expires: future,
+            };
+          },
+          async refresh(credential) {
+            return credential;
+          },
+          async toAuth(credential) {
+            return { apiKey: credential.access };
+          },
+        },
+      },
+    } as Parameters<typeof adaptPiOAuthProvider>[0];
+    registerSparkOAuthProvider(adaptPiOAuthProvider(piProvider));
+
+    const store = new SparkAuthStore({ path: join(sparkHome, "auth.json") });
+    const broker = new SparkOAuthFlowBroker({ store });
+    const started = await broker.start(piProvider.id);
+    assert.equal(started.prompt?.kind, "text");
+    assert.equal(started.prompt?.allowEmpty, true);
+
+    broker.respond(started.id, started.prompt!.id, "");
+    const manualPrompt = await waitForOAuthPrompt(broker, started.id, "manual_code");
+    assert.doesNotMatch(JSON.stringify(manualPrompt), /pi-(?:access|refresh)-secret/u);
+
+    completeBrowserCallback();
+    const complete = await waitForOAuthTerminal(broker, started.id);
+    assert.equal(complete.phase, "complete");
+    assert.equal(complete.prompt, undefined);
+    await store.reload();
+    assert.equal(store.get(piProvider.id)?.type, "oauth");
+  });
+});
+
+async function waitForOAuthPrompt(
+  broker: SparkOAuthFlowBroker,
+  flowId: string,
+  kind: "text" | "manual_code" | "select",
+) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const snapshot = broker.status(flowId);
+    if (snapshot?.prompt?.kind === kind) return snapshot;
+    await new Promise<void>((resolve) => setTimeout(resolve, 2));
+  }
+  throw new Error(`OAuth flow ${flowId} did not request ${kind}`);
+}
+
+async function waitForOAuthTerminal(broker: SparkOAuthFlowBroker, flowId: string) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const snapshot = broker.status(flowId);
+    if (snapshot && ["complete", "failed", "cancelled"].includes(snapshot.phase)) return snapshot;
+    await new Promise<void>((resolve) => setTimeout(resolve, 2));
+  }
+  throw new Error(`OAuth flow ${flowId} did not finish`);
+}
 
 async function waitForTerminal(
   control: ReturnType<typeof createSparkProviderControl>,

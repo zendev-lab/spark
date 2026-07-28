@@ -1,6 +1,5 @@
 import { resolve } from "node:path";
 
-import type { OAuthProviderInterface } from "@earendil-works/pi-ai/oauth";
 import type { LeafCapabilityRequest, LeafCapabilityResult } from "@zendev-lab/spark-core";
 
 import { createProviderRegistryLeafRunner } from "../leaf-host-runner.ts";
@@ -17,6 +16,7 @@ import {
   listOAuthProviderSummaries,
   normalizeProviderAuthRef,
   type SparkAuthStoreOptions,
+  type SparkOAuthProviderInterface,
   type SparkProviderAuthStatus,
 } from "./auth.ts";
 import { SparkOAuthFlowBroker, type SparkOAuthFlowSnapshot } from "./oauth-flow.ts";
@@ -403,4 +403,4 @@ function modelSnapshot(
 
 // Keep the dependency on pi-ai's locked OAuth surface visible in this Node-only
 // boundary; callers never need to import provider implementations themselves.
-export type SparkControlOAuthProvider = OAuthProviderInterface;
+export type SparkControlOAuthProvider = SparkOAuthProviderInterface;
