@@ -10,6 +10,7 @@ import type {
 } from "@earendil-works/pi-ai";
 
 import {
+  classifyProviderFailure,
   materializeRouteModel,
   resolveSparkModelMessageIdentity,
   retagAssistantMessageStream,
@@ -93,11 +94,114 @@ function createResolverBackedProviderStream(
       ),
     ),
   );
-  const stream = normalizeProviderStream(
+  const initialStream = normalizeProviderStream(
     provider.streamSimple(model as Model<ProviderConfig["api"]>, context, streamOptions),
     selection.providerName,
   );
+  const stream = createRetryingProviderStream(initialStream, () =>
+    normalizeProviderStream(
+      provider.streamSimple(model as Model<ProviderConfig["api"]>, context, streamOptions),
+      selection.providerName,
+    ),
+  );
   return retagAssistantMessageStream(stream, resolveSparkModelMessageIdentity(profile));
+}
+
+const SPARK_PROVIDER_ASSISTANT_ERROR_MAX_RETRIES = 1;
+
+function createRetryingProviderStream(
+  initialStream: AsyncIterable<AssistantMessageEvent> & { result(): Promise<AssistantMessage> },
+  factory: () => AsyncIterable<AssistantMessageEvent> & { result(): Promise<AssistantMessage> },
+): AsyncIterable<AssistantMessageEvent> & { result(): Promise<AssistantMessage> } {
+  let currentStream = initialStream;
+  let retries = 0;
+  return {
+    async *[Symbol.asyncIterator]() {
+      while (true) {
+        const stream = currentStream;
+        const buffered: AssistantMessageEvent[] = [];
+        let released = false;
+        let retry = false;
+
+        for await (const event of stream) {
+          if (
+            event.type === "error" &&
+            !released &&
+            retries < SPARK_PROVIDER_ASSISTANT_ERROR_MAX_RETRIES &&
+            isRetriableProviderAssistantError(event.error)
+          ) {
+            retries += 1;
+            currentStream = factory();
+            retry = true;
+            break;
+          }
+
+          if (!released) {
+            buffered.push(event);
+            if (
+              assistantEventHasVisibleContent(event) ||
+              event.type === "done" ||
+              event.type === "error"
+            ) {
+              released = true;
+              yield* buffered;
+              buffered.length = 0;
+            }
+          } else {
+            yield event;
+          }
+        }
+
+        if (retry) continue;
+        yield* buffered;
+        return;
+      }
+    },
+    async result() {
+      while (true) {
+        const result = await currentStream.result();
+        if (
+          retries < SPARK_PROVIDER_ASSISTANT_ERROR_MAX_RETRIES &&
+          !assistantMessageHasVisibleContent(result) &&
+          isRetriableProviderAssistantError(result)
+        ) {
+          retries += 1;
+          currentStream = factory();
+          continue;
+        }
+        return result;
+      }
+    },
+  };
+}
+
+function isRetriableProviderAssistantError(message: AssistantMessage): boolean {
+  if (message.stopReason !== "error") return false;
+  return classifyProviderFailure(message).policy.retriable;
+}
+
+function assistantMessageHasVisibleContent(message: AssistantMessage): boolean {
+  if (!Array.isArray(message.content)) return false;
+  return message.content.some((content) => {
+    if (content.type === "text") return content.text.length > 0;
+    if (content.type === "thinking") return content.thinking.length > 0;
+    return true;
+  });
+}
+
+function assistantEventHasVisibleContent(event: AssistantMessageEvent): boolean {
+  switch (event.type) {
+    case "thinking_delta":
+    case "text_delta":
+    case "toolcall_delta":
+      return event.delta.length > 0;
+    case "thinking_end":
+    case "text_end":
+    case "toolcall_end":
+      return true;
+    default:
+      return false;
+  }
 }
 
 function withProviderTransportRetries(
