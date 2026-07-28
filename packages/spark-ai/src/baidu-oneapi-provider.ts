@@ -1,5 +1,6 @@
 import * as piAi from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
+import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import type {
   AnthropicEffort,
   Api,
@@ -7,6 +8,7 @@ import type {
   AssistantMessageEvent,
   Context,
   Model,
+  ProviderStreams,
   SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 
@@ -46,21 +48,8 @@ type BaiduOneApiTransportApi = "anthropic-messages" | "openai-responses";
 export type BaiduOneApiStream = AsyncIterable<AssistantMessageEvent> & {
   result(): Promise<AssistantMessage>;
 };
-type BaiduOneApiTransportStreams = {
-  stream(model: Model<Api>, context: Context, options?: unknown): BaiduOneApiStream;
-  streamSimple(model: Model<Api>, context: Context, options?: unknown): BaiduOneApiStream;
-};
-type PiAiRuntimeApi = typeof piAi & {
-  lazyApi?: (load: () => Promise<BaiduOneApiTransportStreams>) => BaiduOneApiTransportStreams;
-};
-
-const piAiRuntime = piAi as PiAiRuntimeApi;
-const baiduOneApiAnthropicMessagesApi = asTransportStreams(anthropicMessagesApi());
-const baiduOneApiOpenAIResponsesApi = lazyBaiduOneApiApi(() =>
-  import("@earendil-works/pi-ai/api/openai-responses").then((module) =>
-    silenceOpenAiSdkTransportLogs(asTransportStreams(module)),
-  ),
-);
+const baiduOneApiAnthropicMessagesApi = anthropicMessagesApi();
+const baiduOneApiOpenAIResponsesApi = silenceOpenAiSdkTransportLogs(openAIResponsesApi());
 
 const GPT_5_6_LUNA_COST = { input: 0.1, output: 0.6, cacheRead: 0.01, cacheWrite: 0.125 };
 const GPT_5_6_TERRA_COST = { input: 0.25, output: 1.5, cacheRead: 0.025, cacheWrite: 0.3125 };
@@ -75,13 +64,7 @@ const CLAUDE_OPUS_COST = {
 };
 const CLAUDE_FABLE_COST = CLAUDE_OPUS_COST;
 
-function asTransportStreams(module: unknown): BaiduOneApiTransportStreams {
-  return module as BaiduOneApiTransportStreams;
-}
-
-function silenceOpenAiSdkTransportLogs(
-  transport: BaiduOneApiTransportStreams,
-): BaiduOneApiTransportStreams {
+function silenceOpenAiSdkTransportLogs(transport: ProviderStreams): ProviderStreams {
   return {
     stream: (model, context, options) =>
       withOpenAiSdkLoggingDisabled(() => transport.stream(model, context, options)),
@@ -100,58 +83,6 @@ function withOpenAiSdkLoggingDisabled<T>(start: () => T): T {
     if (previous === undefined) delete process.env.OPENAI_LOG;
     else process.env.OPENAI_LOG = previous;
   }
-}
-
-function lazyBaiduOneApiApi(
-  load: () => Promise<BaiduOneApiTransportStreams>,
-): BaiduOneApiTransportStreams {
-  if (typeof piAiRuntime.lazyApi === "function") return piAiRuntime.lazyApi(load);
-
-  return {
-    stream: (model, context, options) =>
-      lazyBaiduOneApiStream(model, async () => (await load()).stream(model, context, options)),
-    streamSimple: (model, context, options) =>
-      lazyBaiduOneApiStream(model, async () =>
-        (await load()).streamSimple(model, context, options),
-      ),
-  };
-}
-
-function lazyBaiduOneApiStream(
-  model: Model<Api>,
-  setup: () => Promise<BaiduOneApiStream>,
-): BaiduOneApiStream {
-  const stream = piAi.createAssistantMessageEventStream();
-  setup()
-    .then(async (inner) => {
-      for await (const event of inner) stream.push(event);
-      stream.end();
-    })
-    .catch((error: unknown) => {
-      stream.push({ type: "error", reason: "error", error: createSetupErrorMessage(model, error) });
-    });
-  return stream;
-}
-
-function createSetupErrorMessage(model: Model<Api>, error: unknown): AssistantMessage {
-  return {
-    role: "assistant",
-    content: [],
-    api: model.api,
-    provider: model.provider,
-    model: model.id,
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: "error",
-    errorMessage: error instanceof Error ? error.message : String(error),
-    timestamp: Date.now(),
-  };
 }
 
 function mapThinkingEffort(

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { SparkDaemonControlError } from "../control-error.ts";
+import { buildPendingDeliveriesQuery } from "./invocation-delivery-query.ts";
 
 export const sparkInvocationStatuses = [
   "queued",
@@ -829,63 +830,16 @@ export class SparkInvocationStore {
             )
           )`
       : "";
-    // Pre-fix workspace turns may have a NULL binding and a very large event
-    // backlog. Recover only one checkpoint without flooding a reconnected
-    // Cockpit with obsolete stream deltas. A terminal invocation row is newer
-    // truth than its event stream: the daemon persists completion before it
-    // appends the terminal lifecycle event, so a crash can leave the latest
-    // lifecycle at `running`. In that case select the latest event sequence and
-    // synthesize terminal lifecycle truth below; acknowledging that sequence
-    // compactly advances the durable cursor. Newly admitted turns always carry
-    // workspace_binding_id and retain the full live event stream.
-    const legacyRecoveryFilter = normalizedBindings
-      ? ` AND (
-            i.workspace_binding_id IS NOT NULL
-            OR e.sequence = CASE
-              WHEN i.status IN ('succeeded', 'failed', 'cancelled') THEN (
-                SELECT MAX(latest.sequence)
-                FROM invocation_events latest
-                WHERE latest.invocation_id = i.id
-              )
-              ELSE COALESCE(
-                (
-                  SELECT MAX(lifecycle.sequence)
-                  FROM invocation_events lifecycle
-                  WHERE lifecycle.invocation_id = i.id
-                    AND lifecycle.kind = 'daemon.task.lifecycle'
-                ),
-                (
-                  SELECT MAX(latest.sequence)
-                  FROM invocation_events latest
-                  WHERE latest.invocation_id = i.id
-                )
-              )
-            END
-          )`
-      : "";
-    const rows = this.db
-      .prepare(
-        `SELECT ${invocationSelectColumns("i")},
-                e.invocation_id AS event_invocation_id,
-                e.sequence AS event_sequence,
-                e.kind AS event_kind,
-                e.payload_json AS event_payload_json,
-                e.created_at AS event_created_at
-         FROM invocation_events e
-         JOIN invocations i ON i.id = e.invocation_id
-         LEFT JOIN invocation_event_deliveries d
-           ON d.destination = ? AND d.invocation_id = e.invocation_id
-         WHERE e.sequence > COALESCE(d.sequence, 0)${bindingFilter}${legacyRecoveryFilter}
-         ORDER BY e.created_at, e.invocation_id, e.sequence
-         LIMIT ?`,
-      )
+    const invocationRows = this.db
+      .prepare(buildPendingDeliveriesQuery(invocationSelectColumns("i"), bindingFilter))
       .all(
+        ...(normalizedBindings ? ["legacy", "legacy"] : [null, null]),
         normalizedDestination,
         ...(normalizedBindings ?? []),
         ...(normalizedBindings ?? []),
         normalizedLimit,
       ) as unknown as PendingDeliveryRow[];
-    return rows.map((row) => ({
+    return invocationRows.map((row) => ({
       invocation: invocationRecord(row),
       event:
         normalizedBindings &&

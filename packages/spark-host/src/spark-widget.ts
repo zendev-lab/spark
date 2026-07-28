@@ -49,12 +49,6 @@ export interface SparkDynamicWorkflowRunWidgetEntry {
   delivery?: "result" | "error";
 }
 
-export interface SparkLoopScheduleWidgetEntry {
-  label: string;
-  scheduledAtMs: number;
-  nextRunAtMs: number;
-}
-
 export interface SparkGoalWidgetEntry {
   status: "active" | "paused" | "complete";
   objective: string;
@@ -63,16 +57,6 @@ export interface SparkGoalWidgetEntry {
 export interface SparkLoopWidgetEntry {
   status: "active";
   objective: string;
-  schedule?: SparkLoopScheduleWidgetEntry;
-}
-
-export interface SparkReproScheduleWidgetEntry {
-  /** Label for the tick interval (e.g. "30s"). */
-  label: string;
-  /** When the current tick was scheduled (epoch ms). */
-  scheduledAtMs: number;
-  /** When the next tick fires (epoch ms). */
-  nextRunAtMs: number;
 }
 
 export interface SparkReproWidgetEntry {
@@ -84,7 +68,6 @@ export interface SparkReproWidgetEntry {
   phase: string;
   acceptance: Array<{ description: string; satisfied: boolean }>;
   gate?: { id: string; passed: boolean };
-  schedule?: SparkReproScheduleWidgetEntry;
 }
 
 export interface SparkProjectWidgetEntry {
@@ -356,10 +339,7 @@ function formatReproLine(
   const satisfied = repro.acceptance.filter((condition) => condition.satisfied).length;
   const total = repro.acceptance.length;
   const frame = Number.isInteger(animationFrame) ? Math.max(0, animationFrame) : 0;
-  // Show progress bar countdown (like loop) when schedule exists, else pulse
-  const statusContent = repro.schedule
-    ? reproScheduleProgress(repro.schedule)
-    : ACTIVE_GOAL_PULSE_FRAMES[frame % ACTIVE_GOAL_PULSE_FRAMES.length];
+  const statusContent = ACTIVE_GOAL_PULSE_FRAMES[frame % ACTIVE_GOAL_PULSE_FRAMES.length];
   const status = theme.fg("accent", statusContent);
   const stageLabel = `${repro.stageName} ${repro.stageIndex + 1}/${repro.totalStages}`;
   const objectiveLabel = repro.objective ? `${repro.objective} · ` : "";
@@ -372,14 +352,6 @@ function formatReproLine(
     `): ${objectiveLabel}${stageLabel} · ${focusLabel}${gateLabel}`,
   )}`;
   return `${theme.fg("accent", "◆")} ${body}`;
-}
-
-function reproScheduleProgress(schedule: SparkReproScheduleWidgetEntry): string {
-  const total = Math.max(1, schedule.nextRunAtMs - schedule.scheduledAtMs);
-  const elapsed = Math.min(total, Math.max(0, Date.now() - schedule.scheduledAtMs));
-  const segments = 5;
-  const filled = Math.min(segments, Math.max(0, Math.floor((elapsed / total) * segments)));
-  return `${"▰".repeat(filled)}${"▱".repeat(segments - filled)} ${schedule.label}`;
 }
 
 function formatGoalLine(
@@ -401,21 +373,10 @@ function formatLoopLine(
   theme: SparkWidgetTheme,
   animationFrame: number,
 ): string {
-  const statusContent =
-    loop.status === "active" && loop.schedule
-      ? loopScheduleProgress(loop.schedule)
-      : goalStatusSymbol(loop.status, animationFrame);
+  const statusContent = goalStatusSymbol(loop.status, animationFrame);
   const status = theme.fg(goalStatusColor(loop.status), statusContent);
   const summary = `${theme.fg("dim", "Loop(")}${status}${theme.fg("dim", `): ${loop.objective}`)}`;
   return `${theme.fg("accent", "◆")} ${summary}`;
-}
-
-function loopScheduleProgress(schedule: SparkLoopScheduleWidgetEntry): string {
-  const total = Math.max(1, schedule.nextRunAtMs - schedule.scheduledAtMs);
-  const elapsed = Math.min(total, Math.max(0, Date.now() - schedule.scheduledAtMs));
-  const segments = 5;
-  const filled = Math.min(segments, Math.max(0, Math.floor((elapsed / total) * segments)));
-  return `${"▰".repeat(filled)}${"▱".repeat(segments - filled)} ${schedule.label}`;
 }
 
 function goalStatusSymbol(status: SparkGoalWidgetEntry["status"], animationFrame: number): string {

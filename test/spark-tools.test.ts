@@ -40,6 +40,7 @@ import {
 import {
   defaultTaskGraphStore,
   defaultTaskTodoStore,
+  decideTaskPlanBeforeCreate,
   isActiveSessionTodo,
   renderTaskPlanReadinessRules,
   TaskGraph,
@@ -54,6 +55,8 @@ import { registerSparkMemoryTool } from "@zendev-lab/spark-memory/extension";
 import piAskExtension from "../packages/spark-ask/src/extension.ts";
 import sparkExtension from "../packages/spark-extension/src/extension/index.ts";
 import { SparkWorkflowRunManagerController } from "../packages/spark-extension/src/extension/spark-workflow-run-manager.ts";
+import { registerSparkReproTool } from "../packages/spark-extension/src/extension/spark-repro-tool-registration.ts";
+import { collectReproOrchestrationSnapshot } from "../packages/spark-extension/src/extension/spark-repro-orchestration.ts";
 import { JsonStoreFormatError } from "../packages/spark-extension/src/extension/json-store.ts";
 import type { SparkToolContext } from "../packages/spark-extension/src/extension/spark-tool-registration.ts";
 import type { SparkDaemonDriverControl } from "../packages/spark-extension/src/extension/spark-daemon-driver-client.ts";
@@ -89,6 +92,7 @@ import {
   normalizeSparkRunReadyTasksPositiveInteger,
 } from "../packages/spark-extension/src/extension/spark-run-ready-tasks-tool-registration.ts";
 import { normalizeSparkPlanTaskInputs } from "../packages/spark-extension/src/extension/spark-plan-tasks-tool-registration.ts";
+import { collectReproExperimentIssues } from "../packages/spark-extension/src/extension/spark-repro-experiment-lint.ts";
 import { normalizeSparkClaimTaskInput } from "../packages/spark-extension/src/extension/spark-claim-task-tool-registration.ts";
 import { normalizeSparkFinishTaskInput } from "../packages/spark-extension/src/extension/spark-finish-task-tool-registration.ts";
 import {
@@ -137,19 +141,24 @@ import { normalizeSparkAskReplayArtifactRef } from "../packages/spark-extension/
 import {
   readSessionRepro,
   sessionReproStorePath,
+  writeSessionRepro,
 } from "../packages/spark-extension/src/extension/spark-session-repro.ts";
 import {
   createReproStepAskBinding,
   createSparkSessionRepro,
   encodeReproStepAskBinding,
+  reproStepPlanRevision,
   stepDefinitionDigest,
+  updateReproStep,
 } from "@zendev-lab/spark-repro";
 import {
+  encodeSubgoalReceipt,
   inferSessionGoalObjective,
   loadSessionGoal,
   loadSessionLoop,
   setSessionGoal,
   setSessionLoop,
+  subgoalDefinitionDigest,
   updateSessionGoalStatus,
 } from "../packages/spark-loop/src/index.ts";
 import type {
@@ -165,6 +174,7 @@ type TestNotification = { message: string; level?: "info" | "warning" | "error" 
 type TestSparkDaemonDriverControl = SparkDaemonDriverControl & {
   drivers: Map<string, Awaited<ReturnType<SparkDaemonDriverControl["start"]>>["driver"]>;
   ensuredOwners: Array<{ sessionId: string; cwd: string }>;
+  startInputs: Parameters<SparkDaemonDriverControl["start"]>[0][];
 };
 
 function executionReadyPlan(objective: string): TaskPlan {
@@ -6715,13 +6725,7 @@ test("repro plan, step, and settle enforce the typed protocol and bounded contin
       (await readSessionRepro(dir, ctx))?.goalContract.objective,
       "Reproduce target logits for 20 steps",
     );
-    assert.deepEqual(
-      {
-        difficulty: (await readSessionRepro(dir, ctx))?.plan.difficulty,
-        minimumStepCount: (await readSessionRepro(dir, ctx))?.plan.minimumStepCount,
-      },
-      { difficulty: 10, minimumStepCount: 13 },
-    );
+    assert.equal((await readSessionRepro(dir, ctx))?.plan.difficulty, 10);
 
     const reproBeforeStep = await readSessionRepro(dir, ctx);
     const contractStep = reproBeforeStep?.plan.steps.find(
@@ -6734,7 +6738,7 @@ test("repro plan, step, and settle enforce the typed protocol and bounded contin
       format: "json",
       body: {
         schema: "spark.repro.step-proof/v1",
-        planRevision: reproBeforeStep.plan.currentRevision,
+        planRevision: reproStepPlanRevision(reproBeforeStep, contractStep.id),
         stepId: contractStep.id,
         definitionDigest: stepDefinitionDigest(contractStep),
         proofKind: "evidence",
@@ -10971,6 +10975,26 @@ function storeDirNameForTest(ref: string): string {
   return ref.replace(/[^a-zA-Z0-9._-]/gu, "-").replace(/-+/gu, "-");
 }
 
+function reproScheduleSpy(
+  ownerSessionId: string,
+  scheduled: Parameters<SparkHostDriverContext["schedule"]>[0][],
+): SparkHostDriverContext {
+  return {
+    driverId: "repro-schedule-spy",
+    kind: "repro",
+    generation: 1,
+    ownerSessionId,
+    stateOwnerSessionId: ownerSessionId,
+    async schedule(input) {
+      scheduled.push(input);
+      return input;
+    },
+    async stop(input) {
+      return input;
+    },
+  };
+}
+
 function testSparkContext(cwd: string, sessionName: string): TestSparkContext {
   const sessionFile = join(cwd, ".pi-sessions", `${sessionName}.json`);
   const context: TestSparkContext = {
@@ -11005,6 +11029,7 @@ function createTestDriverControl(): TestSparkDaemonDriverControl {
     Awaited<ReturnType<SparkDaemonDriverControl["start"]>>["driver"]
   >();
   const ensuredOwners: Array<{ sessionId: string; cwd: string }> = [];
+  const startInputs: Parameters<SparkDaemonDriverControl["start"]>[0][] = [];
   const observedAt = () => new Date().toISOString();
   const requireDriver = (driverId: string) => {
     const driver = drivers.get(driverId);
@@ -11014,10 +11039,12 @@ function createTestDriverControl(): TestSparkDaemonDriverControl {
   return {
     drivers,
     ensuredOwners,
+    startInputs,
     async ensureOwnerSession(input) {
       ensuredOwners.push(input);
     },
     async start(input) {
+      startInputs.push(input);
       for (const [driverId, driver] of drivers) {
         if (
           driver.ownerSessionId === input.ownerSessionId &&
@@ -11282,3 +11309,878 @@ function largeLegacyRoleRunBody(runRef: RunRef, runName: string, paddingBytes: n
     jsonEvents: [],
   };
 }
+
+test("repro experiment lint rejects placeholders and honors active item status", () => {
+  const issuesFor = (
+    title: string,
+    status: "pending" | "in_progress" | "blocked" | "done" | "cancelled" | "deleted" = "pending",
+  ) =>
+    collectReproExperimentIssues([
+      {
+        name: "boundary",
+        title: "Boundary experiment",
+        description: "Exercise mechanical experiment lint boundaries.",
+        plan: {
+          ...executionReadyPlan("Exercise mechanical experiment lint boundaries"),
+          items: [
+            {
+              id: "item-boundary",
+              title,
+              status,
+              notes: [],
+              evidenceRefs: [],
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            },
+          ],
+        },
+      },
+    ]);
+  const rejected: Array<[string, "command" | "expected"]> = [
+    ["command:; expected: exit code 0", "command"],
+    ["script: TBD; expected: exit code 0", "command"],
+    ["command: describe what to run; expected: exit code 0", "command"],
+    ["command: determine later; expected: exit code 0", "command"],
+    ["Use git history; expected: exit code 0", "command"],
+    ["Review `documentation text`; expected: exit code 0", "command"],
+    ["Inspect packages/spark-extension/src/index.ts; expected: exit code 0", "command"],
+    ["packages/spark-extension/src/index.ts; expected: exit code 0", "command"],
+    ["command: packages/spark-extension/src/index.ts; expected: exit code 0", "command"],
+    ["command: pnpm test test/repro.test.ts; expected:", "expected"],
+    ["command: pnpm test test/repro.test.ts; expected: observable", "expected"],
+    ["command: pnpm test test/repro.test.ts; assert:", "expected"],
+    ["command: pnpm test test/repro.test.ts; expected: TBD", "expected"],
+    ["command: pnpm test test/repro.test.ts; expected: expected result", "expected"],
+  ];
+  for (const [title, field] of rejected) {
+    assert.ok(
+      issuesFor(title).some((issue) => issue.field === field),
+      title,
+    );
+  }
+  assert.deepEqual(
+    issuesFor("command: pnpm test test/repro.test.ts; expected: exit code 0 and 3 tests passed"),
+    [],
+  );
+  assert.deepEqual(issuesFor("script: packages/tools/probe.ts; expected: exit code 0"), []);
+  assert.deepEqual(issuesFor("./tools/probe.sh --case x; expected: exit code 0"), []);
+  for (const status of ["done", "cancelled", "deleted"] as const) {
+    assert.deepEqual(issuesFor("command:; expected:", status), []);
+  }
+  for (const status of ["in_progress", "blocked"] as const) {
+    assert.deepEqual(
+      issuesFor("command:; expected:", status).map((issue) => issue.field),
+      ["command", "expected"],
+    );
+  }
+});
+
+test("impl_plan_tasks enforces concrete experiments for the bound reproduce project", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-experiment-plan-lint-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "start",
+      objective: "Reproduce experiment planning behavior",
+    });
+    const initial = await readSessionRepro(dir, ctx);
+    assert.ok(initial?.projectRef);
+    const reproduceIndex = initial.stages.findIndex((stage) => stage.name === "reproduce");
+    assert.notEqual(reproduceIndex, -1);
+    await writeSessionRepro(dir, { ...initial, currentStageIndex: reproduceIndex }, ctx);
+
+    const taskInput = (name: string, item: string) => ({
+      name,
+      title: "Run " + name + " experiment",
+      description: "Execute a bounded repro experiment and retain objective evidence.",
+      kind: "implement",
+      status: "pending",
+      plan: {
+        ...executionReadyPlan("Run " + name + " experiment with retained evidence"),
+        items: [{ title: item }],
+      },
+    });
+    const boundTaskCount = () =>
+      defaultTaskGraphStore(dir)
+        .load()
+        .then((graph) => graph?.tasks(initial.projectRef).length ?? 0);
+    const initialCount = await boundTaskCount();
+
+    const missingCommand = await executeSparkTool(tools, "impl_plan_tasks", ctx, {
+      project: initial.projectRef,
+      tasks: [taskInput("missing-command", "expected: exit code 0 and 3 matching rows")],
+    });
+    const commandDetails = missingCommand.details as {
+      error?: string;
+      issues?: Array<{ field?: string; task?: string; itemIndex?: number; itemId?: string }>;
+    };
+    assert.equal(commandDetails.error, "repro_experiment_not_concrete");
+    assert.equal(commandDetails.issues?.[0]?.field, "command");
+    assert.match(commandDetails.issues?.[0]?.task ?? "", /missing-command/u);
+    assert.equal(commandDetails.issues?.[0]?.itemIndex, 0);
+    assert.ok(commandDetails.issues?.[0]?.itemId);
+    assert.equal(await boundTaskCount(), initialCount);
+
+    const missingExpected = await executeSparkTool(tools, "impl_plan_tasks", ctx, {
+      project: initial.projectRef,
+      tasks: [taskInput("missing-expected", "command: pnpm test test/repro-experiment.test.ts")],
+    });
+    const expectedDetails = missingExpected.details as {
+      error?: string;
+      issues?: Array<{ field?: string; task?: string }>;
+    };
+    assert.equal(expectedDetails.error, "repro_experiment_not_concrete");
+    assert.equal(expectedDetails.issues?.[0]?.field, "expected");
+    assert.match(expectedDetails.issues?.[0]?.task ?? "", /missing-expected/u);
+    assert.equal(await boundTaskCount(), initialCount);
+
+    const accepted = await executeSparkTool(tools, "impl_plan_tasks", ctx, {
+      project: initial.projectRef,
+      tasks: [
+        taskInput(
+          "concrete-experiment",
+          "command: pnpm test test/repro-experiment.test.ts; expected: exit code 0 and 3 tests passed",
+        ),
+      ],
+    });
+    assert.equal((accepted.details as { error?: string }).error, undefined);
+    assert.match(toolText(accepted), /Planned tasks: created=1 updated=0/u);
+    assert.equal(await boundTaskCount(), initialCount + 1);
+
+    const store = defaultTaskGraphStore(dir);
+    let otherProjectRef: ProjectRef | undefined;
+    await store.update((graph) => {
+      otherProjectRef = graph.createProject({
+        title: "Unbound experiment project",
+        description: "This project is not bound to the active repro.",
+      }).ref;
+    });
+    assert.ok(otherProjectRef);
+    const unbound = await executeSparkTool(tools, "impl_plan_tasks", ctx, {
+      project: otherProjectRef,
+      tasks: [
+        taskInput(
+          "unbound-project-task",
+          "Inspect packages/spark-extension/src and validate the implementation evidence",
+        ),
+      ],
+    });
+    assert.equal((unbound.details as { error?: string }).error, undefined);
+    assert.match(toolText(unbound), /Planned tasks: created=1 updated=0/u);
+    assert.equal((await defaultTaskGraphStore(dir).load())?.tasks(otherProjectRef).length, 1);
+
+    const scaleIndex = initial.stages.findIndex((stage) => stage.name === "scale");
+    assert.notEqual(scaleIndex, -1);
+    await writeSessionRepro(dir, { ...initial, currentStageIndex: scaleIndex }, ctx);
+    const scaleCount = await boundTaskCount();
+    const scaleRejected = await executeSparkTool(tools, "impl_plan_tasks", ctx, {
+      project: initial.projectRef,
+      tasks: [taskInput("scale-missing-command", "expected: exit code 0")],
+    });
+    assert.equal(
+      (scaleRejected.details as { error?: string; stage?: string }).error,
+      "repro_experiment_not_concrete",
+    );
+    assert.equal((scaleRejected.details as { stage?: string }).stage, "scale");
+    assert.equal(await boundTaskCount(), scaleCount);
+
+    await writeSessionRepro(
+      dir,
+      { ...initial, status: "complete", currentStageIndex: reproduceIndex },
+      ctx,
+    );
+    const completeAccepted = await executeSparkTool(tools, "impl_plan_tasks", ctx, {
+      project: initial.projectRef,
+      tasks: [
+        taskInput(
+          "complete-repro-task",
+          "Inspect packages/spark-extension/src and validate implementation evidence",
+        ),
+      ],
+    });
+    assert.equal((completeAccepted.details as { error?: string }).error, undefined);
+
+    await writeSessionRepro(dir, { ...initial, status: "active", currentStageIndex: 0 }, ctx);
+    const otherStageAccepted = await executeSparkTool(tools, "impl_plan_tasks", ctx, {
+      project: initial.projectRef,
+      tasks: [
+        taskInput(
+          "setup-stage-task",
+          "Inspect packages/spark-extension/src and validate setup evidence",
+        ),
+      ],
+    });
+    assert.equal((otherStageAccepted.details as { error?: string }).error, undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("repro entry surfaces start the driver with the canonical rendered prompt", async () => {
+  const prompts: string[] = [];
+  for (const entry of ["drive", "command", "tool"] as const) {
+    const dir = await mkdtemp(join(tmpdir(), "spark-repro-prompt-" + entry + "-"));
+    try {
+      await writeEmptySparkProject(dir);
+      const ctx = testSparkContext(dir, entry);
+      const run = registerSparkToolsForTest();
+      if (entry === "drive") {
+        await executeSparkTool(run.tools, "drive", ctx, { action: "start", drive: "repro" });
+      } else if (entry === "command") {
+        const command = run.commands.get("repro");
+        assert.ok(command);
+        await command.handler("start", ctx);
+      } else {
+        await executeSparkTool(run.tools, "repro", ctx, { action: "start" });
+      }
+      const started = run.driverControl.startInputs.at(-1);
+      assert.equal(started?.kind, "repro");
+      assert.equal(typeof started?.prompt, "string");
+      prompts.push(started.prompt);
+    } finally {
+      await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
+  }
+  assert.equal(prompts.length, 3);
+  assert.equal(prompts[0], prompts[1]);
+  assert.equal(prompts[1], prompts[2]);
+});
+
+test("repro start creates a generic project with five ready plans and three-task frontier", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-project-binding-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "start",
+      objective: "Reproduce target logits with inspectable evidence",
+    });
+
+    const repro = await readSessionRepro(dir, ctx);
+    assert.equal(repro?.version, 5);
+    assert.ok(repro?.projectRef);
+    const graph = await defaultTaskGraphStore(dir).load();
+    assert.ok(graph);
+    const project = graph.getProject(repro.projectRef);
+    assert.equal(project.kind, "generic");
+    assert.equal(project.kindState, undefined);
+    const tasks = graph.tasks(project.ref);
+    assert.equal(tasks.length, 5);
+    assert.equal(
+      tasks.every((task) => decideTaskPlanBeforeCreate(task).accepted),
+      true,
+    );
+    assert.deepEqual(
+      graph
+        .readyTasks(project.ref)
+        .map((task) => task.name)
+        .sort(),
+      ["alignment-paths", "baseline-availability", "implementation-landscape"],
+    );
+    assert.equal(project.roadmap.items.length, 1);
+    assert.equal(project.roadmap.items[0]?.taskRefs?.length, 5);
+    assert.deepEqual(
+      [...new Set(repro.subgoals.flatMap((subgoal) => subgoal.taskRefs))].sort(),
+      tasks.map((task) => task.ref).sort(),
+    );
+    const persisted = JSON.parse(await readFile(sessionReproStorePath(dir, ctx), "utf8")) as {
+      version: number;
+      repro?: { projectRef?: string };
+    };
+    assert.equal(persisted.version, 5);
+    assert.equal(persisted.repro?.projectRef, project.ref);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro settle schedules the safe ready frontier at the default cadence", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-settle-ready-frontier-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "ready-frontier") as TestSparkContext & {
+      driver?: SparkHostDriverContext;
+    };
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, { action: "start" });
+    const repro = await readSessionRepro(dir, ctx);
+    assert.ok(repro?.projectRef);
+    const graph = await defaultTaskGraphStore(dir).load();
+    assert.ok(graph);
+    assert.ok(graph.readyTasks(repro.projectRef).length > 0);
+
+    const scheduled: Parameters<SparkHostDriverContext["schedule"]>[0][] = [];
+    ctx.driver = reproScheduleSpy(ctx.sessionId, scheduled);
+    await executeSparkTool(tools, "repro", ctx, { action: "settle" });
+
+    assert.equal(scheduled.length, 1);
+    assert.equal(scheduled[0]?.delayMs, 30_000);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro settle keeps a ten second cadence when any safe task run is active", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-settle-active-run-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "active-run") as TestSparkContext & {
+      driver?: SparkHostDriverContext;
+    };
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, { action: "start" });
+    const repro = await readSessionRepro(dir, ctx);
+    assert.ok(repro?.projectRef);
+    const safeTaskRef = repro.subgoals.find(
+      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRefs.length > 0,
+    )?.taskRefs[0];
+    assert.ok(safeTaskRef);
+    await defaultTaskGraphStore(dir).update((graph) => {
+      graph.recordRun({
+        ref: "run:repro-safe-active" as RunRef,
+        projectRef: repro.projectRef!,
+        taskRef: safeTaskRef,
+        status: "running",
+        startedAt: "2026-07-28T00:00:00.000Z",
+        outputArtifacts: [],
+      });
+      graph.recordRun({
+        ref: "run:repro-safe-later-success" as RunRef,
+        projectRef: repro.projectRef!,
+        taskRef: safeTaskRef,
+        status: "succeeded",
+        startedAt: "2026-07-28T00:00:01.000Z",
+        finishedAt: "2026-07-28T00:00:02.000Z",
+        outputArtifacts: [],
+      });
+    });
+    const graph = await defaultTaskGraphStore(dir).load();
+    assert.ok(graph);
+    assert.ok(collectReproOrchestrationSnapshot(repro, graph).activeTaskRefs.includes(safeTaskRef));
+
+    const scheduled: Parameters<SparkHostDriverContext["schedule"]>[0][] = [];
+    ctx.driver = reproScheduleSpy(ctx.sessionId, scheduled);
+    await executeSparkTool(tools, "repro", ctx, { action: "settle" });
+
+    assert.equal(scheduled.length, 1);
+    assert.equal(scheduled[0]?.delayMs, 10_000);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro settle leaves the driver dormant while awaiting owner ask authority", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-settle-awaiting-ask-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "awaiting-ask") as TestSparkContext & {
+      driver?: SparkHostDriverContext;
+    };
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, { action: "start" });
+    const repro = await readSessionRepro(dir, ctx);
+    assert.ok(repro?.projectRef);
+    await writeSessionRepro(
+      dir,
+      {
+        ...repro,
+        subgoals: repro.subgoals.map((subgoal) =>
+          subgoal.authority === "safe_local" ? { ...subgoal, taskRefs: [] } : subgoal,
+        ),
+      },
+      ctx,
+    );
+
+    const scheduled: Parameters<SparkHostDriverContext["schedule"]>[0][] = [];
+    ctx.driver = reproScheduleSpy(ctx.sessionId, scheduled);
+    const settled = await executeSparkTool(tools, "repro", ctx, { action: "settle" });
+
+    assert.equal(scheduled.length, 0);
+    assert.equal(settled.details?.dormantReason, "awaiting_ask");
+    assert.match(toolText(settled), /awaiting a canonical ask response.*driver remains dormant/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro settle schedules a thirty second repair tick when bound ask tasks are terminal", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-settle-terminal-ask-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "terminal-ask") as TestSparkContext & {
+      driver?: SparkHostDriverContext;
+    };
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, { action: "start" });
+    const repro = await readSessionRepro(dir, ctx);
+    assert.ok(repro?.projectRef);
+    const safeSubgoal = repro.subgoals.find(
+      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRefs.length > 0,
+    );
+    assert.ok(safeSubgoal);
+    const taskRef = safeSubgoal.taskRefs[0]!;
+    const askRepro = {
+      ...repro,
+      subgoals: repro.subgoals.map((subgoal) =>
+        subgoal.id === safeSubgoal.id
+          ? { ...subgoal, authority: "ask_decision" as const }
+          : subgoal,
+      ),
+    };
+    await writeSessionRepro(dir, askRepro, ctx);
+    await defaultTaskGraphStore(dir).update((graph) => {
+      graph.setTaskStatus(taskRef, "done");
+    });
+    const scheduled: Parameters<SparkHostDriverContext["schedule"]>[0][] = [];
+    ctx.driver = reproScheduleSpy(ctx.sessionId, scheduled);
+    const settled = await executeSparkTool(tools, "repro", ctx, { action: "settle" });
+    assert.equal(scheduled.length, 1);
+    assert.equal(scheduled[0]?.delayMs, 30_000);
+    assert.equal(settled.details?.dormantReason, undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro orchestration excludes ask authority tasks from the dispatchable frontier", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-frontier-ask-exclusion-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "ask-exclusion");
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, { action: "start" });
+    const repro = await readSessionRepro(dir, ctx);
+    assert.ok(repro?.projectRef);
+    const safeSubgoal = repro.subgoals.find(
+      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRefs.length > 0,
+    );
+    assert.ok(safeSubgoal);
+    const askTaskRef = safeSubgoal.taskRefs[0]!;
+    const withAskAuthority = {
+      ...repro,
+      subgoals: repro.subgoals.map((subgoal) =>
+        subgoal.ref === safeSubgoal.ref
+          ? { ...subgoal, authority: "ask_decision" as const }
+          : subgoal,
+      ),
+    };
+    const graph = await defaultTaskGraphStore(dir).load();
+    assert.ok(graph);
+
+    const snapshot = collectReproOrchestrationSnapshot(withAskAuthority, graph);
+    assert.equal(snapshot.dispatchableTaskRefs.includes(askTaskRef), false);
+    assert.equal(snapshot.excludedAskTaskRefs.includes(askTaskRef), true);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro delegation persists the assignment before dispatch and completes only a matching receipt", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-subgoal-delegation-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "owner");
+    const initial = createSparkSessionRepro(ctx.sessionId);
+    const subgoal = initial.subgoals.find((candidate) => candidate.authority === "safe_local");
+    if (!subgoal) throw new Error("missing safe_local repro subgoal");
+    await writeSessionRepro(dir, initial, ctx);
+    const delegatedEvidence = await defaultEvidenceStore(dir).put({
+      kind: "record",
+      title: "Delegated subgoal proof",
+      format: "json",
+      body: { passed: true },
+      provenance: { producer: "spark" },
+    });
+    const delegatedEvidenceRef = delegatedEvidence.ref as EvidenceRef;
+
+    const tools = new Map<string, SparkToolConfig>();
+    let persistedAtDispatch: string | undefined;
+    let dispatchedAssignment:
+      | Parameters<
+          NonNullable<Parameters<typeof registerSparkReproTool>[1]["sendSessionRequest"]>
+        >[0]["assignment"]
+      | undefined;
+    registerSparkReproTool(
+      (config) => {
+        tools.set(config.name, config as SparkToolConfig);
+      },
+      {
+        driverControl: createTestDriverControl(),
+        async sendSessionRequest(input) {
+          dispatchedAssignment = input.assignment;
+          persistedAtDispatch = await readFile(sessionReproStorePath(dir, ctx), "utf8");
+          return encodeSubgoalReceipt({
+            subgoalRef: input.assignment.subgoalRef,
+            status: "done",
+            planRevision: input.assignment.planRevision,
+            definitionDigest: input.assignment.definitionDigest,
+            evidenceRefs: [delegatedEvidenceRef],
+          });
+        },
+      },
+    );
+
+    const result = await executeSparkTool(tools, "repro", ctx, {
+      action: "delegate",
+      stepId: subgoal.id,
+      targetSessionId: "session-executor",
+    });
+    assert.match(toolText(result), /receipt verified and completed/u);
+    if (!dispatchedAssignment) throw new Error("missing dispatched assignment");
+    assert.equal(dispatchedAssignment.schema, "spark.subgoal.assignment/v1");
+    assert.equal(dispatchedAssignment.ownerSessionId, ctx.sessionId);
+    assert.equal(dispatchedAssignment.subgoalRef, subgoal.ref);
+    assert.equal(dispatchedAssignment.planRevision, subgoal.planRevision);
+    assert.equal(dispatchedAssignment.definitionDigest, subgoalDefinitionDigest(subgoal));
+
+    if (!persistedAtDispatch) throw new Error("dispatch must observe the persisted delegation");
+    const dispatchEnvelope = JSON.parse(persistedAtDispatch) as {
+      repro?: {
+        subgoals?: Array<{
+          ref?: string;
+          status?: string;
+          delegation?: {
+            sessionId?: string;
+            planRevision?: number;
+            definitionDigest?: string;
+            delegatedAt?: string;
+          };
+        }>;
+      };
+    };
+    const delegated = dispatchEnvelope.repro?.subgoals?.find(
+      (candidate) => candidate.ref === subgoal.ref,
+    );
+    assert.equal(delegated?.status, "in_progress");
+    assert.deepEqual(delegated?.delegation, {
+      sessionId: "session-executor",
+      planRevision: subgoal.planRevision,
+      definitionDigest: subgoalDefinitionDigest(subgoal),
+      delegatedAt: dispatchedAssignment.assignedAt,
+    });
+
+    const completed = (await readSessionRepro(dir, ctx))?.subgoals.find(
+      (candidate) => candidate.ref === subgoal.ref,
+    );
+    assert.equal(completed?.status, "done");
+    assert.deepEqual(completed?.evidenceRefs, [delegatedEvidenceRef]);
+    assert.equal(completed?.verification?.verdict, "Pass");
+    assert.equal(completed?.delegation?.sessionId, "session-executor");
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro delegation keeps persisted work pending when receipt revision or digest mismatches", async () => {
+  for (const mismatch of ["revision", "digest"] as const) {
+    const dir = await mkdtemp(join(tmpdir(), `spark-repro-subgoal-${mismatch}-repair-`));
+    try {
+      await writeEmptySparkProject(dir);
+      const ctx = testSparkContext(dir, `owner-${mismatch}`);
+      const initial = createSparkSessionRepro(ctx.sessionId);
+      const subgoal = initial.subgoals.find((candidate) => candidate.authority === "safe_local");
+      if (!subgoal) throw new Error("missing safe_local repro subgoal");
+      await writeSessionRepro(dir, initial, ctx);
+
+      const tools = new Map<string, SparkToolConfig>();
+      registerSparkReproTool(
+        (config) => {
+          tools.set(config.name, config as SparkToolConfig);
+        },
+        {
+          driverControl: createTestDriverControl(),
+          async sendSessionRequest(input) {
+            return encodeSubgoalReceipt({
+              subgoalRef: input.assignment.subgoalRef,
+              status: "done",
+              planRevision:
+                mismatch === "revision"
+                  ? input.assignment.planRevision + 1
+                  : input.assignment.planRevision,
+              definitionDigest:
+                mismatch === "digest"
+                  ? "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                  : input.assignment.definitionDigest,
+              evidenceRefs: ["evidence:delegated-proof" as EvidenceRef],
+            });
+          },
+        },
+      );
+
+      const result = await executeSparkTool(tools, "repro", ctx, {
+        action: "delegate",
+        stepId: subgoal.ref,
+        targetSessionId: "session-executor",
+      });
+      assert.match(toolText(result), /Repair:/u);
+      assert.equal(result.details?.verdict, "Repair");
+      assert.match(
+        toolText(result),
+        mismatch === "revision" ? /plan revision/u : /definitionDigest/u,
+      );
+
+      const persisted = (await readSessionRepro(dir, ctx))?.subgoals.find(
+        (candidate) => candidate.ref === subgoal.ref,
+      );
+      assert.equal(persisted?.status, "in_progress");
+      assert.equal(persisted?.verification, undefined);
+      assert.equal(persisted?.delegation?.sessionId, "session-executor");
+      assert.equal(persisted?.delegation?.planRevision, subgoal.planRevision);
+      assert.equal(persisted?.delegation?.definitionDigest, subgoalDefinitionDigest(subgoal));
+    } finally {
+      await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
+  }
+});
+
+test("repro delegation rejects decision authorities in the owner main session", async () => {
+  for (const authority of ["ask_decision", "ask_approval"] as const) {
+    const dir = await mkdtemp(join(tmpdir(), `spark-repro-subgoal-${authority}-owner-`));
+    try {
+      await writeEmptySparkProject(dir);
+      const ctx = testSparkContext(dir, `owner-${authority}`);
+      const initial = createSparkSessionRepro(ctx.sessionId);
+      const subgoal = initial.subgoals.find((candidate) => candidate.authority === "safe_local");
+      if (!subgoal) throw new Error("missing safe_local repro subgoal");
+      await writeSessionRepro(
+        dir,
+        {
+          ...initial,
+          subgoals: initial.subgoals.map((candidate) =>
+            candidate.ref === subgoal.ref ? { ...candidate, authority } : candidate,
+          ),
+        },
+        ctx,
+      );
+
+      let dispatched = false;
+      const tools = new Map<string, SparkToolConfig>();
+      registerSparkReproTool(
+        (config) => {
+          tools.set(config.name, config as SparkToolConfig);
+        },
+        {
+          driverControl: createTestDriverControl(),
+          async sendSessionRequest() {
+            dispatched = true;
+            throw new Error("decision authority must not dispatch");
+          },
+        },
+      );
+
+      await assert.rejects(
+        () =>
+          executeSparkTool(tools, "repro", ctx, {
+            action: "delegate",
+            stepId: subgoal.id,
+            targetSessionId: "session-executor",
+          }),
+        /owner 主会话/u,
+      );
+      assert.equal(dispatched, false);
+      const persisted = (await readSessionRepro(dir, ctx))?.subgoals.find(
+        (candidate) => candidate.ref === subgoal.ref,
+      );
+      assert.equal(persisted?.status, "pending");
+      assert.equal(persisted?.delegation, undefined);
+    } finally {
+      await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
+  }
+});
+
+test("repro delegation rejects missing evidence before owner completion", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-subgoal-missing-evidence-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "owner-missing-evidence");
+    const initial = createSparkSessionRepro(ctx.sessionId);
+    const subgoal = initial.subgoals.find((candidate) => candidate.authority === "safe_local");
+    if (!subgoal) throw new Error("missing safe_local repro subgoal");
+    await writeSessionRepro(dir, initial, ctx);
+
+    const tools = new Map<string, SparkToolConfig>();
+    registerSparkReproTool(
+      (config) => {
+        tools.set(config.name, config as SparkToolConfig);
+      },
+      {
+        driverControl: createTestDriverControl(),
+        async sendSessionRequest(input) {
+          return encodeSubgoalReceipt({
+            subgoalRef: input.assignment.subgoalRef,
+            status: "done",
+            planRevision: input.assignment.planRevision,
+            definitionDigest: input.assignment.definitionDigest,
+            evidenceRefs: ["evidence:missing-delegated-proof" as EvidenceRef],
+          });
+        },
+      },
+    );
+
+    const result = await executeSparkTool(tools, "repro", ctx, {
+      action: "delegate",
+      stepId: subgoal.id,
+      targetSessionId: "session-executor",
+    });
+    assert.match(toolText(result), /Repair: delegated evidence not found/u);
+    assert.equal(result.details?.verdict, "Repair");
+    const persisted = (await readSessionRepro(dir, ctx))?.subgoals.find(
+      (candidate) => candidate.ref === subgoal.ref,
+    );
+    assert.equal(persisted?.status, "in_progress");
+    assert.equal(persisted?.verification, undefined);
+    assert.equal(persisted?.delegation?.sessionId, "session-executor");
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro delegation turns malformed receipts and corrupt evidence reads into Repair", async () => {
+  for (const failure of ["malformed-receipt", "corrupt-evidence"] as const) {
+    const dir = await mkdtemp(join(tmpdir(), `spark-repro-subgoal-${failure}-`));
+    try {
+      await writeEmptySparkProject(dir);
+      const ctx = testSparkContext(dir, `owner-${failure}`);
+      const initial = createSparkSessionRepro(ctx.sessionId);
+      const subgoal = initial.subgoals.find((candidate) => candidate.authority === "safe_local");
+      if (!subgoal) throw new Error("missing safe_local repro subgoal");
+      await writeSessionRepro(dir, initial, ctx);
+
+      const corruptEvidenceRef = "evidence:corrupt-delegated-proof" as EvidenceRef;
+      if (failure === "corrupt-evidence") {
+        const corruptPath = defaultEvidenceStore(dir).pathFor(corruptEvidenceRef);
+        await mkdir(dirname(corruptPath), { recursive: true });
+        await writeFile(corruptPath, "{not valid evidence metadata", "utf8");
+      }
+
+      const tools = new Map<string, SparkToolConfig>();
+      registerSparkReproTool(
+        (config) => {
+          tools.set(config.name, config as SparkToolConfig);
+        },
+        {
+          driverControl: createTestDriverControl(),
+          async sendSessionRequest(input) {
+            return failure === "malformed-receipt"
+              ? { schema: "spark.subgoal.receipt/v0", subgoalRef: input.assignment.subgoalRef }
+              : encodeSubgoalReceipt({
+                  subgoalRef: input.assignment.subgoalRef,
+                  status: "done",
+                  planRevision: input.assignment.planRevision,
+                  definitionDigest: input.assignment.definitionDigest,
+                  evidenceRefs: [corruptEvidenceRef],
+                });
+          },
+        },
+      );
+
+      const result = await executeSparkTool(tools, "repro", ctx, {
+        action: "delegate",
+        stepId: subgoal.id,
+        targetSessionId: "session-executor",
+      });
+      assert.match(toolText(result), /Repair:/u);
+      assert.equal(result.details?.verdict, "Repair");
+      assert.match(
+        toolText(result),
+        failure === "malformed-receipt"
+          ? /invalid delegated receipt/u
+          : /delegated evidence validation failed/u,
+      );
+      const persisted = (await readSessionRepro(dir, ctx))?.subgoals.find(
+        (candidate) => candidate.ref === subgoal.ref,
+      );
+      assert.equal(persisted?.status, "in_progress");
+      assert.equal(persisted?.verification, undefined);
+      assert.equal(persisted?.delegation?.sessionId, "session-executor");
+    } finally {
+      await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+    }
+  }
+});
+
+test("repro advance reports the target stage when its planned subgoals are missing", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-advance-planning-blocker-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, { action: "start" });
+
+    const repro = await readSessionRepro(dir, ctx);
+    if (!repro) throw new Error("missing active repro");
+    const setupSteps = repro.plan.steps.filter((step) => step.stage === "setup");
+    let completed = repro;
+    for (const step of setupSteps) {
+      const evidenceRef = `evidence:${step.id}` as EvidenceRef;
+      const updated = updateReproStep(completed, step.id, {
+        status: "done",
+        evidenceRefs: [evidenceRef],
+        verifier: {
+          verdict: "Pass",
+          planRevision:
+            completed.subgoals.find((subgoal) => subgoal.id === step.id)?.planRevision ??
+            completed.plan.currentRevision,
+          stepId: step.id,
+          definitionDigest: stepDefinitionDigest(step),
+          proofKind: step.authority === "safe_local" ? "evidence" : "decision",
+          evidenceRefs: [evidenceRef],
+          verifiedDoneWhen: step.doneWhen,
+          ...(step.authority === "safe_local"
+            ? {}
+            : {
+                askRequestHash: "setup-request",
+                acceptedAnswerHash: "setup-answer",
+                selectedValues: ["approved"],
+              }),
+        },
+      });
+      if (!updated) throw new Error(`missing setup step ${step.id}`);
+      completed = updated;
+    }
+    await writeSessionRepro(
+      dir,
+      {
+        ...completed,
+        stages: completed.stages.map((stage) =>
+          stage.name === "setup"
+            ? {
+                ...stage,
+                acceptance: stage.acceptance.map((requirement) =>
+                  requirement.kind === "evidence"
+                    ? { ...requirement, evidenceRefs: ["evidence:setup-complete"] }
+                    : requirement.kind === "decision"
+                      ? {
+                          ...requirement,
+                          decisionRef: "evidence:setup-decision",
+                          selectedValue: "approved",
+                        }
+                      : {
+                          ...requirement,
+                          command: "pnpm test",
+                          resultRef: "evidence:setup-validation",
+                          passed: true,
+                        },
+                ),
+              }
+            : stage,
+        ),
+        subgoals: completed.subgoals.filter((subgoal) => subgoal.stage !== "scaffold"),
+      },
+      ctx,
+    );
+
+    const advanced = await executeSparkTool(tools, "repro", ctx, { action: "advance" });
+    const blocker =
+      "Stage scaffold has no planned subgoals. Plan concrete subgoals and task experiments before advancing.";
+    assert.match(toolText(advanced), /Stage scaffold has no planned subgoals/u);
+    assert.ok(Array.isArray(advanced.details?.blockingReasons));
+    assert.ok(advanced.details.blockingReasons.includes(blocker));
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});

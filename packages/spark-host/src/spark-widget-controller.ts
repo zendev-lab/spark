@@ -352,9 +352,6 @@ function sparkForegroundDriverWidgetEntries(
       loop: {
         status: sessionLoop.status,
         objective: compactGoalObjective(sessionLoop.objective),
-        schedule: sessionLoop.schedule
-          ? sparkLoopScheduleWidgetEntry(sessionLoop.schedule)
-          : undefined,
       },
     };
   }
@@ -366,30 +363,6 @@ function sparkForegroundDriverWidgetEntries(
         },
       }
     : {};
-}
-
-function sparkLoopScheduleWidgetEntry(schedule: {
-  scheduledAt: string;
-  nextRunAt: string;
-  delayMs: number;
-}) {
-  const scheduledAtMs = Date.parse(schedule.scheduledAt);
-  const nextRunAtMs = Date.parse(schedule.nextRunAt);
-  if (!Number.isFinite(scheduledAtMs) || !Number.isFinite(nextRunAtMs)) return undefined;
-  return {
-    label: formatLoopScheduleLabel(schedule.delayMs),
-    scheduledAtMs,
-    nextRunAtMs,
-  };
-}
-
-function formatLoopScheduleLabel(delayMs: number): string {
-  if (delayMs >= 24 * 60 * 60_000 && delayMs % (24 * 60 * 60_000) === 0)
-    return `${delayMs / (24 * 60 * 60_000)}d`;
-  if (delayMs >= 3_600_000 && delayMs % 3_600_000 === 0) return `${delayMs / 3_600_000}h`;
-  if (delayMs >= 60_000 && delayMs % 60_000 === 0) return `${delayMs / 60_000}m`;
-  if (delayMs >= 1_000 && delayMs % 1_000 === 0) return `${delayMs / 1_000}s`;
-  return `${delayMs}ms`;
 }
 
 function compactGoalObjective(objective: string): string {

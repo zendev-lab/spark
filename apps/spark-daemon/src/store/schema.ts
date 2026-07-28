@@ -193,6 +193,8 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       WHERE status = 'archived';
     CREATE INDEX IF NOT EXISTS invocation_events_cursor_idx
       ON invocation_events(invocation_id, sequence);
+    CREATE INDEX IF NOT EXISTS invocation_events_delivery_order_idx
+      ON invocation_events(created_at, invocation_id, sequence);
     CREATE INDEX IF NOT EXISTS invocation_event_deliveries_cursor_idx
       ON invocation_event_deliveries(destination, invocation_id, sequence);
     CREATE INDEX IF NOT EXISTS outbox_status_idx ON outbox(status, created_at);

@@ -1,12 +1,17 @@
 Spark repro drive tick — Stage 4/5: Scale (scale), phase=implement.
 Goal Contract (draft): Reproduce the target behavior with inspectable evidence
-Plan revision: 1. Difficulty: 8/10; 16/11 minimum steps. Stop Guard: 0/3 unchanged settlements.
+Plan revision: 1. Difficulty: 8/10; 8 materialized subgoals. Stop Guard: 0/3 unchanged settlements.
 
-Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver); execute one typed plan step per tick.
+Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver) and each stage is advanced through explicit orchestration.
+
+Orchestration loop:
+- Plan stage-scoped subgoals and concrete task plans.
+- Compute the dependency-ready safe_local task frontier.
+- Use assign to dispatch independent ready tasks in parallel.
+- Never dispatch ask_decision or ask_approval authority tasks; they remain owner-only.
+- Reconcile child run and task status, then validate evidence and receipts before the owner settles.
 
 Current typed plan steps:
-  [ ] [safe_local] target-scale-convergence — Convergence verified at target scale; done when: Convergence verified at target scale; evidence: Passing command result captured as evidence
-  [ ] [safe_local] performance-budget — Performance metrics within budget; done when: Performance metrics within budget; evidence: Passing command result captured as evidence
 
 Current evidence-backed requirements:
   [ ] [validation] target-scale-convergence — Convergence verified at target scale

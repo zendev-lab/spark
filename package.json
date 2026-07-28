@@ -90,6 +90,7 @@
     "dependency-cruiser": "^18.1.0",
     "es-toolkit": "catalog:",
     "esbuild": "^0.28.0",
+    "jiti": "2.7.0",
     "jscpd": "^5.0.12",
     "knip": "^6.27.0",
     "p-retry": "catalog:",
