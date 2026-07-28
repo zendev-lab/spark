@@ -15,6 +15,7 @@ import {
   issueBodyFromSnapshot,
   parseForgeUrl,
   prBodyFromSnapshot,
+  projectProductArtifact,
   removePrWorktree,
   syncForgeIssue,
   syncForgePr,
@@ -291,6 +292,7 @@ function compactPreviewArtifact(
     kind: artifact.kind,
     title: artifact.title,
     format: artifact.format,
+    projection: projectProductArtifact(artifact),
     ...(preview ? { preview } : {}),
     createdAt: artifact.createdAt,
     updatedAt: artifact.updatedAt,
@@ -472,6 +474,7 @@ function compactDetail(artifact: ProductArtifact): Record<string, unknown> {
     title: artifact.title,
     format: artifact.format,
     body: artifact.body,
+    projection: projectProductArtifact(artifact),
     createdAt: artifact.createdAt,
     updatedAt: artifact.updatedAt,
   };

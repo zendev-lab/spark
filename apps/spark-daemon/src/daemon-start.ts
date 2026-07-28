@@ -105,6 +105,11 @@ import {
   type StartSparkDaemonOptions,
 } from "./daemon.ts";
 import { createRepeatedErrorReporter } from "./repeated-error-reporter.ts";
+import { artifactProjected } from "./protocol/outbound.ts";
+import {
+  PRODUCT_ARTIFACT_PROJECTION_RECONCILE_INTERVAL_MS,
+  ProductArtifactProjectionReconciler,
+} from "./product-artifact-projection.ts";
 
 export async function startSparkDaemon(options: StartSparkDaemonOptions): Promise<void> {
   const runtime = await createPreparedDaemonRuntime(options);
@@ -1302,6 +1307,7 @@ async function runSparkDaemonServerConnection(
   await new Promise<void>((resolvePromise, reject) => {
     const runtimeSession = { id: undefined as string | undefined };
     let heartbeat: NodeJS.Timeout | undefined;
+    let productArtifactReconcileTimer: NodeJS.Timeout | undefined;
     let tokenRefresh: NodeJS.Timeout | undefined;
     let intentionalClose = false;
     let settled = false;
@@ -1311,7 +1317,9 @@ async function runSparkDaemonServerConnection(
     let inFlightInvocationEvent:
       | { messageId: string; invocationId: string; sequence: number }
       | undefined;
+    let productArtifactReconcileRun: Promise<void> | undefined;
     const invocationStore = new SparkInvocationStore(options.db);
+    const productArtifactReconciler = new ProductArtifactProjectionReconciler();
     const deliveryDestination = `cockpit:${runtimeId}`;
     const currentWorkspaceBindingIds = () =>
       serverUrl
@@ -1393,6 +1401,10 @@ async function runSparkDaemonServerConnection(
         clearInterval(heartbeat);
         heartbeat = undefined;
       }
+      if (productArtifactReconcileTimer) {
+        clearInterval(productArtifactReconcileTimer);
+        productArtifactReconcileTimer = undefined;
+      }
       if (tokenRefresh) {
         clearTimeout(tokenRefresh);
         tokenRefresh = undefined;
@@ -1417,6 +1429,50 @@ async function runSparkDaemonServerConnection(
     const ws = new WebSocket(webSocketUrl, {
       headers: { Authorization: `Bearer ${runtimeToken}` },
     });
+    const flushProductArtifactProjections = async () => {
+      if (!runtimeReady || ws.readyState !== WebSocket.OPEN || !serverUrl) return;
+      const workspaces = listWorkspacesForServer(options.db, serverUrl);
+      for (const workspace of workspaces) {
+        if (!workspace.serverBindingId || !workspace.serverWorkspaceId) continue;
+        const pending = await productArtifactReconciler.collect({
+          localPath: workspace.localPath,
+          workspaceBindingId: workspace.serverBindingId,
+          workspaceId: workspace.serverWorkspaceId,
+        });
+        for (const projection of pending) {
+          try {
+            sendJson(
+              ws,
+              artifactProjected(
+                projection.payload,
+                {
+                  runtimeId,
+                  workspaceBindingId: projection.workspaceBindingId,
+                  workspaceId: projection.workspaceId,
+                },
+                { messageId: projection.messageId },
+              ),
+            );
+          } catch (error) {
+            productArtifactReconciler.markSendFailed(projection.messageId);
+            throw error;
+          }
+        }
+      }
+    };
+    const queueProductArtifactReconcile = () => {
+      if (productArtifactReconcileRun) return;
+      const run = flushProductArtifactProjections()
+        .catch((error: unknown) => {
+          logDaemonError(runtimeId, error);
+        })
+        .finally(() => {
+          activeHandlers.delete(run);
+          productArtifactReconcileRun = undefined;
+        });
+      productArtifactReconcileRun = run;
+      activeHandlers.add(run);
+    };
     const flushNextInvocationEvent = () => {
       if (!runtimeReady || inFlightInvocationEvent || ws.readyState !== WebSocket.OPEN) {
         return;
@@ -1500,8 +1556,14 @@ async function runSparkDaemonServerConnection(
           runtimeReady = true;
           flushPendingRuntimeCommandTerminals(ws, options.db, runtimeId, serverUrl);
           flushNextInvocationEvent();
+          queueProductArtifactReconcile();
+          productArtifactReconcileTimer ??= setInterval(
+            queueProductArtifactReconcile,
+            PRODUCT_ARTIFACT_PROJECTION_RECONCILE_INTERVAL_MS,
+          );
         },
         onIngestAck(ackOf) {
+          productArtifactReconciler.acknowledge(ackOf);
           const inFlight = inFlightInvocationEvent;
           if (inFlight?.messageId !== ackOf) return;
           invocationStore.acknowledgeDelivery(

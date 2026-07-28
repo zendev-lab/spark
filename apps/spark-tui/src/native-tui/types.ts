@@ -11,6 +11,9 @@ import type {
   SparkRunView,
   SparkSessionView,
   SparkTaskView,
+  SparkTurnCancelResult,
+  SparkTurnStatusResult,
+  SparkTurnSubmitResult,
   SparkToolCallView,
 } from "@zendev-lab/spark-protocol";
 import type { SparkKeybindingContext, SparkKeybindings } from "../host/keybindings.ts";
@@ -74,10 +77,48 @@ export interface SparkNativeResponderContext {
   readonly finishAssistantMessage?: () => void;
 }
 
-export type SparkNativeResponder = (
+export interface SparkNativeAdmissionContext {
+  /** Stable daemon admission identity. */
+  readonly submissionId?: string;
+  /** Used by the compatibility callable; durable busy admission omits it. */
+  readonly signal?: AbortSignal;
+}
+
+export class SparkNativeAdmissionError extends Error {
+  override readonly name = "SparkNativeAdmissionError";
+  readonly outcome: "rejected" | "unknown";
+
+  constructor(message: string, outcome: "rejected" | "unknown", options?: ErrorOptions) {
+    super(message, options);
+    this.outcome = outcome;
+  }
+}
+
+export interface SparkNativeInvocationStatusContext {
+  readonly signal?: AbortSignal;
+}
+
+type SparkNativeResponderFunction = (
   input: string,
   context: SparkNativeResponderContext,
 ) => string | Promise<string>;
+
+/**
+ * A plain responder remains valid for local/tests. Daemon-backed responders
+ * expose two-phase admission/observation so the TUI never owns durable queueing.
+ */
+export type SparkNativeResponder = SparkNativeResponderFunction & {
+  admit?: (input: string, context: SparkNativeAdmissionContext) => Promise<SparkTurnSubmitResult>;
+  observe?: (
+    admission: SparkTurnSubmitResult,
+    context: SparkNativeResponderContext,
+  ) => Promise<string>;
+  cancel?: (invocationId: string, reason: string) => Promise<SparkTurnCancelResult>;
+  status?: (
+    invocationId: string,
+    context?: SparkNativeInvocationStatusContext,
+  ) => Promise<SparkTurnStatusResult>;
+};
 
 export interface SparkNativeQueuedInput {
   readonly text: string;

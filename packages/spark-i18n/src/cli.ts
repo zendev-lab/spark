@@ -5,7 +5,7 @@ export interface SparkCliDispatcherStrings {
   dispatchFailure: (targetLabel: string, detail: string) => string;
   signalExit: (targetLabel: string, signal: string) => string;
   helpText: string;
-  targetLabel: (target: "tui" | "daemon" | "cockpit") => string;
+  targetLabel: (target: "tui" | "daemon" | "cockpit" | "acp") => string;
   tuiRequiresTty: string;
 }
 
@@ -35,7 +35,7 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
     dispatchFailure: (targetLabel, detail) => `Unable to dispatch to ${targetLabel}: ${detail}`,
     signalExit: (targetLabel, signal) => `${targetLabel} exited due to signal ${signal}`,
     helpText:
-      'spark - Spark command dispatcher\n\nUsage:\n  spark\n  spark run [--json] [--wait] [--resume <session>] <prompt>\n  spark bg [--session <id>] [--json] <prompt>\n  spark paths [--json]\n  spark doctor\n  spark tui [initial message]\n  spark --print [--wait] <prompt>\n  spark --mode json --print <prompt>\n  spark --mode rpc\n  spark --list-models [search]\n  spark install|remove|update|list|config [resource]\n  spark install --managed [--version <version>] [--prefix <path>]\n  spark update status|check|apply|rollback|retry|configure\n  spark version [--json]\n  spark daemon <command> [args...]\n  spark cockpit [command] [args...]\n  spark --help\n  spark --version\n\nDispatches to Spark surfaces:\n  spark run       foreground headless run (alias-friendly replacement for --print)\n  spark bg        submit a background daemon invocation and return its receipt\n  spark paths     print the unified Spark configuration and state paths\n  spark doctor    top-level Spark health check via the daemon CLI\n  spark tui       tui local control plane: interactive terminal UI, attach/resume, local UI settings\n  spark update    managed installation, update policy, and rollback owner\n  spark daemon    daemon execution plane: session, invocation, events, logs, process state\n  spark cockpit   cross-daemon coordination and Web presentation host\n\nFlags:\n  --wait, -w    Wait for invocation to reach terminal status before exiting (print/run mode)\n\nCompatibility aliases are documented in docs/specs/command-planes.md. Unknown subcommands fail loudly instead of being interpreted as prompts. Use "spark tui ..." for interactive TUI input.\n',
+      'spark - Spark command dispatcher\n\nUsage:\n  spark\n  spark run [--json] [--wait] [--resume <session>] <prompt>\n  spark bg [--session <id>] [--json] <prompt>\n  spark paths [--json]\n  spark doctor\n  spark tui [initial message]\n  spark --print [--wait] <prompt>\n  spark --mode json --print <prompt>\n  spark --mode rpc\n  spark --list-models [search]\n  spark install|remove|update|list|config [resource]\n  spark install --managed [--version <version>] [--prefix <path>]\n  spark update status|check|apply|rollback|retry|configure\n  spark version [--json]\n  spark daemon <command> [args...]\n  spark cockpit [command] [args...]\n  spark acp\n  spark --help\n  spark --version\n\nDispatches to Spark surfaces:\n  spark run       foreground headless run (alias-friendly replacement for --print)\n  spark bg        submit a background daemon invocation and return its receipt\n  spark paths     print the unified Spark configuration and state paths\n  spark doctor    top-level Spark health check via the daemon CLI\n  spark tui       tui local control plane: interactive terminal UI, attach/resume, local UI settings\n  spark update    managed installation, update policy, and rollback owner\n  spark daemon    daemon execution plane: session, invocation, events, logs, process state\n  spark cockpit   cross-daemon coordination and Web presentation host\n  spark acp       ACP NDJSON stdio adapter backed by canonical daemon sessions\n\nFlags:\n  --wait, -w    Wait for invocation to reach terminal status before exiting (print/run mode)\n\nCompatibility aliases are documented in docs/specs/command-planes.md. Unknown subcommands fail loudly instead of being interpreted as prompts. Use "spark tui ..." for interactive TUI input.\n',
     tuiRequiresTty:
       'Spark TUI requires an interactive terminal (stdin and stdout must be TTYs). Use "spark --print <prompt>", "spark --mode rpc", or "spark daemon submit ..." for non-interactive/headless use.',
     targetLabel: (target) => {
@@ -46,6 +46,8 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
           return "Spark daemon";
         case "cockpit":
           return "Spark Cockpit";
+        case "acp":
+          return "Spark ACP adapter";
       }
     },
   },
@@ -57,7 +59,7 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
     dispatchFailure: (targetLabel, detail) => `无法分发到 ${targetLabel}：${detail}`,
     signalExit: (targetLabel, signal) => `${targetLabel} 因信号 ${signal} 退出`,
     helpText:
-      'spark - Spark 命令分发器\n\n用法：\n  spark\n  spark run [--json] [--wait] [--resume <session>] <prompt>\n  spark bg [--session <id>] [--json] <prompt>\n  spark paths [--json]\n  spark doctor\n  spark tui [初始消息]\n  spark --print [--wait] <prompt>\n  spark --mode json --print <prompt>\n  spark --mode rpc\n  spark --list-models [search]\n  spark install|remove|update|list|config [resource]\n  spark install --managed [--version <version>] [--prefix <path>]\n  spark update status|check|apply|rollback|retry|configure\n  spark version [--json]\n  spark daemon <command> [args...]\n  spark cockpit [command] [args...]\n  spark --help\n  spark --version\n\n分发到 Spark 界面：\n  spark run       前台 headless 执行（替代 --print 的一等动词）\n  spark bg        将后台 turn 提交到 Spark daemon 队列\n  spark paths     打印统一的 Spark 配置和状态路径\n  spark doctor    通过 daemon CLI 执行顶层 Spark 健康检查\n  spark tui       tui local control plane：interactive terminal UI、attach/resume、local UI settings\n  spark update    托管安装、更新策略和回滚状态所有者\n  spark daemon    daemon execution plane：session、invocation、events、logs、process state\n  spark cockpit   coordination plane and Cockpit 网页 UI\n\nFlags：\n  --wait, -w    等待调用到达终态后再退出（print/run mode）\n\nCompatibility aliases are documented in docs/specs/command-planes.md。未知子命令会直接失败，不会被解释成 prompt。交互式 TUI 输入请使用 "spark tui ..."。\n',
+      'spark - Spark 命令分发器\n\n用法：\n  spark\n  spark run [--json] [--wait] [--resume <session>] <prompt>\n  spark bg [--session <id>] [--json] <prompt>\n  spark paths [--json]\n  spark doctor\n  spark tui [初始消息]\n  spark --print [--wait] <prompt>\n  spark --mode json --print <prompt>\n  spark --mode rpc\n  spark --list-models [search]\n  spark install|remove|update|list|config [resource]\n  spark install --managed [--version <version>] [--prefix <path>]\n  spark update status|check|apply|rollback|retry|configure\n  spark version [--json]\n  spark daemon <command> [args...]\n  spark cockpit [command] [args...]\n  spark acp\n  spark --help\n  spark --version\n\n分发到 Spark 界面：\n  spark run       前台 headless 执行（替代 --print 的一等动词）\n  spark bg        将后台 turn 提交到 Spark daemon 队列\n  spark paths     打印统一的 Spark 配置和状态路径\n  spark doctor    通过 daemon CLI 执行顶层 Spark 健康检查\n  spark tui       tui local control plane：interactive terminal UI、attach/resume、local UI settings\n  spark update    托管安装、更新策略和回滚状态所有者\n  spark daemon    daemon execution plane：session、invocation、events、logs、process state\n  spark cockpit   coordination plane and Cockpit 网页 UI\n  spark acp       使用 canonical daemon session 的 ACP NDJSON stdio adapter\n\nFlags：\n  --wait, -w    等待调用到达终态后再退出（print/run mode）\n\nCompatibility aliases are documented in docs/specs/command-planes.md。未知子命令会直接失败，不会被解释成 prompt。交互式 TUI 输入请使用 "spark tui ..."。\n',
     tuiRequiresTty:
       'Spark TUI 需要交互式终端（stdin 和 stdout 必须是 TTY）。非交互/headless 使用请改用 "spark --print <prompt>"、"spark --mode rpc" 或 "spark daemon submit ..."。',
     targetLabel: (target) => {
@@ -68,6 +70,8 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
           return "Spark daemon";
         case "cockpit":
           return "Spark Cockpit";
+        case "acp":
+          return "Spark ACP adapter";
       }
     },
   },
@@ -118,9 +122,43 @@ export function sparkCliDispatcherStrings(
   return DISPATCHER[language];
 }
 
+export type SparkNativeCommandHelpMode = "quick" | "commands" | "all";
+
+export type SparkNativeCommandHelpGroup =
+  | "common"
+  | "automation"
+  | "workflow"
+  | "session"
+  | "advanced";
+
+export interface SparkNativeCommandHelpEntry {
+  name: string;
+  description: string;
+  argumentHint?: string;
+  source?: string;
+  canonicalCliTarget?: string;
+  deprecatedAliasFor?: string;
+}
+
+export interface SparkNativeCommandHelpInput {
+  mode: SparkNativeCommandHelpMode;
+  groups: Array<{
+    id: SparkNativeCommandHelpGroup;
+    commands: SparkNativeCommandHelpEntry[];
+  }>;
+  registeredCount: number;
+  hiddenAliasCount: number;
+}
+
 export interface SparkNativeTuiStrings {
   welcome: string;
   stoppedTurn: (reason: string, clearedQueued: number) => string;
+  admissionRejected: (error: string) => string;
+  admissionUnconfirmed: (submissionId: string, error: string) => string;
+  cancellationRequested: (invocationId?: string) => string;
+  cancellationAlreadyTerminal: (invocationId: string, status: string) => string;
+  cancellationUnconfirmed: (invocationId: string, error: string) => string;
+  observationInterrupted: (invocationId: string, error: string) => string;
   turnFailed: (error: string) => string;
   steeringUpdate: (body: string) => string;
   defaultHelp: string;
@@ -148,7 +186,7 @@ export interface SparkNativeTuiStrings {
     model?: string;
     thinkingLevel?: string;
     state: string;
-    queue?: { steer: number; followUp: number };
+    queue?: { steer: number; followUp: number; daemonPending?: number };
   }) => string;
   queuedInput: (mode: "steer" | "followUp", position: number) => string;
   queuedUserPrefix: (mode: "steer" | "followUp") => string;
@@ -162,7 +200,7 @@ export interface SparkNativeTuiStrings {
   exiting: string;
   cockpitPanelClosed: string;
   cockpitPanelOpen: (panel: string, countsLine: string) => string;
-  commandHelp: (registeredCount: number, registeredCommands: string[]) => string;
+  commandHelp: (input: SparkNativeCommandHelpInput) => string;
 }
 
 function zhNativeSessionState(state: string): string {
@@ -180,6 +218,89 @@ function zhNativeSessionState(state: string): string {
   return labels[state] ?? state;
 }
 
+const COMMAND_HELP_GROUP_LABELS: Record<
+  SparkLanguage,
+  Record<SparkNativeCommandHelpGroup, string>
+> = {
+  en: {
+    common: "Common",
+    automation: "Automation",
+    workflow: "Workflows",
+    session: "Sessions & context",
+    advanced: "Advanced",
+  },
+  zh: {
+    common: "常用",
+    automation: "自动推进",
+    workflow: "工作流",
+    session: "会话与上下文",
+    advanced: "高级",
+  },
+};
+
+function renderNativeCommandHelp(
+  language: SparkLanguage,
+  input: SparkNativeCommandHelpInput,
+): string {
+  const labels = COMMAND_HELP_GROUP_LABELS[language];
+  const diagnostic = input.mode === "all";
+  const renderCommand = (command: SparkNativeCommandHelpEntry): string => {
+    const hint = command.argumentHint ? ` ${command.argumentHint}` : "";
+    const source = diagnostic && command.source ? ` [${command.source}]` : "";
+    const target =
+      diagnostic && command.canonicalCliTarget ? ` → ${command.canonicalCliTarget}` : "";
+    const alias =
+      diagnostic && command.deprecatedAliasFor
+        ? language === "zh"
+          ? `（兼容别名，改用 ${command.deprecatedAliasFor}）`
+          : ` (compatibility alias for ${command.deprecatedAliasFor})`
+        : "";
+    return `- /${command.name}${hint} — ${command.description}${source}${target}${alias}`;
+  };
+  const renderGroups = (groups: SparkNativeCommandHelpInput["groups"]): string[] =>
+    groups.flatMap((group) =>
+      group.commands.length > 0 ? [labels[group.id], ...group.commands.map(renderCommand)] : [],
+    );
+
+  if (input.mode === "quick") {
+    const common = input.groups.find((group) => group.id === "common")?.commands ?? [];
+    return [
+      language === "zh" ? "Spark — 从这里开始" : "Spark — start here",
+      language === "zh"
+        ? "- 普通输入 — 直接描述目标；Spark 忙碌时会安全排队"
+        : "- ordinary input — describe your goal; Spark queues it safely while busy",
+      ...common.map(renderCommand),
+      language === "zh"
+        ? "使用 /help commands 查看分组命令；使用 /help all 查看兼容别名和诊断信息。"
+        : "Use /help commands for grouped commands; use /help all for aliases and diagnostics.",
+    ].join("\n");
+  }
+
+  const footer =
+    input.mode === "all"
+      ? language === "zh"
+        ? `已注册 ${input.registeredCount} 个命令；包含兼容别名和诊断目标。`
+        : `${input.registeredCount} commands registered; compatibility aliases and diagnostic targets included.`
+      : input.hiddenAliasCount > 0
+        ? language === "zh"
+          ? `已隐藏 ${input.hiddenAliasCount} 个兼容别名；使用 /help all 查看。`
+          : `${input.hiddenAliasCount} compatibility alias${input.hiddenAliasCount === 1 ? "" : "es"} hidden; use /help all to inspect them.`
+        : language === "zh"
+          ? "当前没有隐藏的兼容别名。"
+          : "No compatibility aliases are hidden.";
+  return [
+    input.mode === "all"
+      ? language === "zh"
+        ? "Spark 命令注册表（诊断）"
+        : "Spark command registry (diagnostic)"
+      : language === "zh"
+        ? "Spark 命令"
+        : "Spark commands",
+    ...renderGroups(input.groups),
+    footer,
+  ].join("\n");
+}
+
 const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
   en: {
     welcome: [
@@ -191,6 +312,20 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
       `Stopped current Spark turn (${reason}).${
         clearedQueued > 0 ? ` Restored ${clearedQueued} queued input(s) to the editor.` : ""
       }`,
+    admissionRejected: (error) =>
+      `Spark daemon rejected the turn: ${error}. The input can be restored with Alt+Up or resubmitted with /retry.`,
+    admissionUnconfirmed: (submissionId, error) =>
+      `Daemon admission ${submissionId} has an unknown outcome: ${error}. Spark will retry the same request identity; do not resubmit it as a new turn.`,
+    cancellationRequested: (invocationId) =>
+      invocationId
+        ? `Cancellation requested for daemon invocation ${invocationId}; the daemon remains the source of truth until it reaches a terminal state.`
+        : "Cancellation will be requested as soon as daemon admission is acknowledged.",
+    cancellationAlreadyTerminal: (invocationId, status) =>
+      `Daemon invocation ${invocationId} was already ${status}; no new cancellation was recorded.`,
+    cancellationUnconfirmed: (invocationId, error) =>
+      `Cancellation for daemon invocation ${invocationId} could not be confirmed: ${error}. Do not assume it stopped; inspect /status or /queue.`,
+    observationInterrupted: (invocationId, error) =>
+      `Live observation of daemon invocation ${invocationId} was interrupted: ${error}. Daemon ownership is retained; inspect /status or reconnect for the latest projection.`,
     turnFailed: (error) =>
       `Spark turn failed: ${error}. Use /retry to resubmit or /status to inspect the daemon.`,
     steeringUpdate: (body) =>
@@ -208,9 +343,9 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     widgetRenderFailed: (error) => `widget render failed: ${error}`,
     inputPreparationFailed: (error) => `Input preparation failed: ${error}`,
     noQueuedInputToRestore: "No queued input to restore.",
-    noWorkflowRunSelected: "No workflow run is selected in the Spark cockpit.",
+    noWorkflowRunSelected: "No workflow run is selected in the local session inspector.",
     selectedWorkflowNotLive: (id) =>
-      `Selected workflow ${id} is not a live dynamic workflow runRef. Use /workflow-runs to list dynamic runs.`,
+      `Selected workflow ${id} is not a live dynamic workflow runRef. Use /workflow runs to list dynamic runs.`,
     hostCommandNotRegistered: (name) => `/${name} is not registered in this Spark host.`,
     noInteractionHandler:
       "Spark native TUI received an interaction request but no handler is installed.",
@@ -219,49 +354,55 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
       { name: "clear", description: "clear the visible transcript" },
       {
         name: "stop",
-        description: "stop the current Spark turn and clear queued follow-ups",
+        description: "request cancellation of the current Spark invocation",
         argumentHint: "[reason]",
       },
       { name: "retry", description: "resubmit the previous user prompt" },
       {
-        name: "cockpit",
-        description: "show Spark cockpit panels",
+        name: "inspect",
+        description: "show the local session inspector",
         argumentHint: "[overview|workflows|runs|tasks|artifacts|reviews|graft|off]",
       },
-      { name: "workflows", description: "open the workflow cockpit panel" },
-      { name: "runs", description: "open the run cockpit panel" },
-      { name: "tasks", description: "open the task cockpit panel" },
-      { name: "artifacts", description: "open the Cockpit artifacts panel (issue/pr/preview)" },
+      { name: "workflows", description: "open workflows in the local session inspector" },
+      { name: "runs", description: "open runs in the local session inspector" },
+      { name: "tasks", description: "open tasks in the local session inspector" },
+      { name: "artifacts", description: "open local product artifacts (issue/pr/preview)" },
       {
         name: "evidence",
         description:
           "deprecated alias; opens product Artifacts (issue/pr/preview), not the internal evidence ledger",
       },
-      { name: "reviews", description: "open the reviewer verdict cockpit panel" },
-      { name: "graft", description: "open the Graft provenance cockpit panel" },
+      { name: "reviews", description: "open reviewer verdicts in the local session inspector" },
+      { name: "graft", description: "open Graft provenance in the local session inspector" },
       { name: "exit", description: "exit the native TUI" },
       { name: "quit", description: "exit the native TUI" },
     ],
     keybindings: {
       toggleTools: "Toggle tool output expansion",
       toggleThinking: "Toggle thinking block expansion",
-      toggleCockpit: "Toggle the Spark workflow/task/artifact cockpit panel",
-      cycleCockpitPanel: "Cycle Spark cockpit workflow/run/task/artifact panels",
+      toggleCockpit: "Toggle the local session inspector",
+      cycleCockpitPanel: "Cycle local workflow/run/task/artifact panels",
     },
     appTitle: "Spark",
     footer: "Enter submit • /help commands • Ctrl+C/Ctrl+D exit",
     busyFooter: (hasQueuedInput) =>
-      `Enter steer • Alt+Enter follow-up • Esc stop${hasQueuedInput ? " • Alt+Up restore queue" : ""}`,
+      `Enter steer • Alt+Enter follow-up • Esc cancel active${hasQueuedInput ? " • Alt+Up restore queue" : ""}`,
     statusLine: ({ session, model, thinkingLevel, state, queue }) =>
       [
         `session ${session}`,
         ...(model ? [`model ${model}`] : []),
         ...(thinkingLevel ? [`thinking ${thinkingLevel}`] : []),
         `state ${state}`,
-        ...(queue ? [`queue steer=${queue.steer} follow-up=${queue.followUp}`] : []),
+        ...(queue
+          ? [
+              `queue steer=${queue.steer} follow-up=${queue.followUp}${
+                queue.daemonPending ? ` daemon=${queue.daemonPending}` : ""
+              }`,
+            ]
+          : []),
       ].join(" • "),
     queuedInput: (mode, position) =>
-      `Queued ${mode === "followUp" ? "follow-up" : "steering message"} #${position}. Use /stop to clear queued work or stop the current turn; Alt+Up restores queued input.`,
+      `Queued ${mode === "followUp" ? "follow-up" : "steering message"} #${position}. Use /stop to cancel the active turn; Alt+Up restores local queued input.`,
     queuedUserPrefix: (mode) =>
       mode === "followUp" ? "you follow-up queued> " : "you steer queued> ",
     thinkingFolded: (streaming) =>
@@ -273,20 +414,10 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     commandFailed: (name, error) => `Command /${name} failed: ${error}`,
     noTurnRunning: "No Spark turn is currently running.",
     exiting: "Exiting Spark native TUI.",
-    cockpitPanelClosed: "Spark cockpit panel closed.",
-    cockpitPanelOpen: (panel, countsLine) => `Spark cockpit ${panel} panel open.\n${countsLine}`,
-    commandHelp: (registeredCount, registeredCommands) =>
-      [
-        "Spark native TUI commands:",
-        `${registeredCount} additional registered host/daemon command${registeredCount === 1 ? "" : "s"} available.`,
-        ...registeredCommands,
-        "Basics:",
-        "- /help — show this help",
-        "- /clear — clear the visible transcript",
-        "- /stop [reason] — stop the current Spark turn and restore queued inputs to the editor",
-        "- /retry — resubmit the previous user prompt",
-        "- /exit or /quit — exit the native TUI",
-      ].join("\n"),
+    cockpitPanelClosed: "Local session inspector closed.",
+    cockpitPanelOpen: (panel, countsLine) =>
+      `Local session inspector ${panel} panel open.\n${countsLine}`,
+    commandHelp: (input) => renderNativeCommandHelp("en", input),
   },
   zh: {
     welcome: [
@@ -298,6 +429,20 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
       `已停止当前 Spark turn（${reason}）。${
         clearedQueued > 0 ? `已将 ${clearedQueued} 条 queued input 恢复到编辑器。` : ""
       }`,
+    admissionRejected: (error) =>
+      `Spark daemon 拒绝了该 turn：${error}。可用 Alt+Up 恢复输入，或用 /retry 重新提交。`,
+    admissionUnconfirmed: (submissionId, error) =>
+      `daemon admission ${submissionId} 的结果未知：${error}。Spark 将使用同一请求身份重试；不要把它作为新 turn 再次提交。`,
+    cancellationRequested: (invocationId) =>
+      invocationId
+        ? `已请求取消 daemon invocation ${invocationId}；在进入终态前仍以 daemon 状态为准。`
+        : "daemon 接纳完成后将立即请求取消。",
+    cancellationAlreadyTerminal: (invocationId, status) =>
+      `daemon invocation ${invocationId} 已处于 ${status} 终态；没有记录新的取消请求。`,
+    cancellationUnconfirmed: (invocationId, error) =>
+      `无法确认 daemon invocation ${invocationId} 的取消结果：${error}。不要假定它已停止；请用 /status 或 /queue 检查。`,
+    observationInterrupted: (invocationId, error) =>
+      `daemon invocation ${invocationId} 的实时观察已中断：${error}。执行所有权仍在 daemon；请用 /status 检查或重新连接以获取最新投影。`,
     turnFailed: (error) =>
       `Spark turn 失败：${error}。使用 /retry 重新提交，或用 /status 检查 daemon。`,
     steeringUpdate: (body) =>
@@ -313,7 +458,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     widgetRenderFailed: (error) => `widget 渲染失败：${error}`,
     inputPreparationFailed: (error) => `输入准备失败：${error}`,
     noQueuedInputToRestore: "没有可恢复的 queued input。",
-    noWorkflowRunSelected: "Spark cockpit 中尚未选择 workflow run。",
+    noWorkflowRunSelected: "本地会话检查器中尚未选择 workflow run。",
     selectedWorkflowNotLive: (id) => `选中的 workflow ${id} 不是 live dynamic workflow runRef。`,
     hostCommandNotRegistered: (name) => `/${name} 没有在此 Spark host 中注册。`,
     noInteractionHandler: "Spark native TUI 收到 interaction request，但未安装 handler。",
@@ -322,48 +467,54 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
       { name: "clear", description: "清空可见 transcript" },
       {
         name: "stop",
-        description: "停止当前 Spark turn 并清空 queued follow-up",
+        description: "请求取消当前 Spark invocation",
         argumentHint: "[reason]",
       },
       { name: "retry", description: "重新提交上一条用户 prompt" },
       {
-        name: "cockpit",
-        description: "显示 Spark cockpit panel",
+        name: "inspect",
+        description: "显示本地会话检查器",
         argumentHint: "[overview|workflows|runs|tasks|artifacts|reviews|graft|off]",
       },
-      { name: "workflows", description: "打开 workflow cockpit panel" },
-      { name: "runs", description: "打开 run cockpit panel" },
-      { name: "tasks", description: "打开 task cockpit panel" },
-      { name: "artifacts", description: "打开 Cockpit 产物面板（issue/pr/preview）" },
+      { name: "workflows", description: "在本地会话检查器中打开 workflow" },
+      { name: "runs", description: "在本地会话检查器中打开 run" },
+      { name: "tasks", description: "在本地会话检查器中打开 task" },
+      { name: "artifacts", description: "打开本地产物（issue/pr/preview）" },
       {
         name: "evidence",
         description: "已弃用别名；打开产品 Artifacts（issue/pr/preview），不是内部 evidence 账本",
       },
-      { name: "reviews", description: "打开 reviewer verdict cockpit panel" },
-      { name: "graft", description: "打开 Graft provenance cockpit panel" },
+      { name: "reviews", description: "在本地会话检查器中打开 reviewer verdict" },
+      { name: "graft", description: "在本地会话检查器中打开 Graft provenance" },
       { name: "exit", description: "退出 native TUI" },
       { name: "quit", description: "退出 native TUI" },
     ],
     keybindings: {
       toggleTools: "切换 tool output 展开状态",
       toggleThinking: "切换 thinking block 展开状态",
-      toggleCockpit: "切换 Spark workflow/task/artifact cockpit panel",
-      cycleCockpitPanel: "循环切换 Spark cockpit workflow/run/task/artifact panel",
+      toggleCockpit: "切换本地会话检查器",
+      cycleCockpitPanel: "循环切换本地 workflow/run/task/artifact 面板",
     },
     appTitle: "Spark",
     footer: "Enter 提交 • /help 命令 • Ctrl+C/Ctrl+D 退出",
     busyFooter: (hasQueuedInput) =>
-      `Enter 引导当前运行 • Alt+Enter 排队下一轮 • Esc 停止${hasQueuedInput ? " • Alt+Up 恢复队列" : ""}`,
+      `Enter 引导当前运行 • Alt+Enter 排队下一轮 • Esc 取消当前 invocation${hasQueuedInput ? " • Alt+Up 恢复本地队列" : ""}`,
     statusLine: ({ session, model, thinkingLevel, state, queue }) =>
       [
         `会话 ${session}`,
         ...(model ? [`模型 ${model}`] : []),
         ...(thinkingLevel ? [`思考级别 ${thinkingLevel}`] : []),
         `状态 ${zhNativeSessionState(state)}`,
-        ...(queue ? [`队列 引导=${queue.steer} 下一轮=${queue.followUp}`] : []),
+        ...(queue
+          ? [
+              `队列 引导=${queue.steer} 下一轮=${queue.followUp}${
+                queue.daemonPending ? ` daemon=${queue.daemonPending}` : ""
+              }`,
+            ]
+          : []),
       ].join(" • "),
     queuedInput: (mode, position) =>
-      `已排队第 ${position} 条${mode === "followUp" ? "下一轮消息" : "引导消息"}。使用 /stop 清空队列或停止当前运行；Alt+Up 可恢复队列输入。`,
+      `已排队第 ${position} 条${mode === "followUp" ? "下一轮消息" : "引导消息"}。使用 /stop 取消当前运行；Alt+Up 可恢复本地队列输入。`,
     queuedUserPrefix: (mode) =>
       mode === "followUp" ? "你（下一轮已排队）> " : "你（引导已排队）> ",
     thinkingFolded: (streaming) =>
@@ -375,20 +526,9 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     commandFailed: (name, error) => `命令 /${name} 失败：${error}`,
     noTurnRunning: "当前没有运行中的 Spark turn。",
     exiting: "正在退出 Spark native TUI。",
-    cockpitPanelClosed: "Spark cockpit panel 已关闭。",
-    cockpitPanelOpen: (panel, countsLine) => `Spark cockpit ${panel} panel 已打开。\n${countsLine}`,
-    commandHelp: (registeredCount, registeredCommands) =>
-      [
-        "Spark native TUI 命令：",
-        `额外 host/daemon 注册命令：${registeredCount} 个。`,
-        ...registeredCommands,
-        "基础：",
-        "- /help — 显示此帮助",
-        "- /clear — 清空可见 transcript",
-        "- /stop [reason] — 停止当前 Spark turn 并把 queued input 恢复到编辑器",
-        "- /retry — 重新提交上一条用户 prompt",
-        "- /exit 或 /quit — 退出 native TUI",
-      ].join("\n"),
+    cockpitPanelClosed: "本地会话检查器已关闭。",
+    cockpitPanelOpen: (panel, countsLine) => `本地会话检查器 ${panel} 面板已打开。\n${countsLine}`,
+    commandHelp: (input) => renderNativeCommandHelp("zh", input),
   },
 };
 
@@ -532,7 +672,7 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
       "- daemon-first native pi-tui host",
       "- slash autocomplete and /model selection",
       "- native widget factory rendering",
-      "- Spark cockpit panels for workflows, runs, tasks, artifacts, reviews, and Graft",
+      "- local session inspector for workflows, runs, tasks, artifacts, reviews, and Graft",
     ].join("\n"),
     trust: (cwd) =>
       `Spark trusts this workspace only through explicit config and tool-approval flows. cwd=${cwd}`,
@@ -570,7 +710,7 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
       "- daemon-first native pi-tui host",
       "- slash autocomplete and /model selection",
       "- native widget factory rendering",
-      "- Spark cockpit panels for workflows, runs, tasks, artifacts, reviews, and Graft",
+      "- 用本地会话检查器查看 workflow、run、task、artifact、review 和 Graft",
     ].join("\n"),
     trust: (cwd) => `Spark 只通过显式 config 和 tool approval 信任此 workspace。cwd=${cwd}`,
     newTranscript: "已开始新的 Spark native transcript。",
@@ -599,7 +739,7 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
   },
 };
 
-const DAEMON_HELP_TEXT = `spark daemon - daemon execution plane\n\nUsage:\n  spark daemon [--workspace <name>]\n  spark daemon login --server-url <url> [--no-open]\n  spark daemon status [--json]\n  spark daemon start [--json]\n  spark daemon stop [--yes]\n  spark daemon restart [--yes] [--wait]\n  spark daemon logs [--follow] [--lines <n>]\n  spark daemon submit --session <id> --prompt <text> [--reset] [--json]\n  spark daemon ask list [--session <id>] [--json]\n  spark daemon ask answer <interaction-request-id> --answers <json> [--session <id>] [--json]\n  spark daemon ask cancel <interaction-request-id> [--session <id>] [--json]\n  spark daemon invocation list [--status <state>] [--session <id>] [--since <iso>] [--limit <n>] [--offset <n>] [--json]\n  spark daemon invocation status <invocation-id> [--json]\n  spark daemon invocation result <invocation-id> [--json]\n  spark daemon invocation stream <invocation-id> [--after <cursor>] [--limit <n>] [--json]\n  spark daemon invocation cancel <invocation-id> [--reason <text>] [--json]\n  spark daemon invocation retry <invocation-id> [--json]\n  spark daemon invocation retention --before <iso> [--limit <n>] [--json]\n  spark daemon session list [--json] [--registry] [--include-archived]\n  spark daemon session create --workspace <id> [--title <text>] [--role <role>] [--json]\n  spark daemon session bind <session-id> --external-key <key> [--json]\n  spark daemon session unbind <session-id> --external-key <key> [--json]\n  spark daemon session archive <session-id> [--json]\n  spark daemon session export --session <id|path> [--format jsonl|json|text] [--leaf <entry-id|root>] [--json]\n  spark daemon session replay --session <id|path> [--leaf <entry-id|root>] [--json]\n  spark daemon session inbox --session <session-id> [--all] [--json]\n  spark daemon session inbox read <message-id> --session <session-id> [--json]\n  spark daemon session inbox ack <message-id> --session <session-id> [--json]\n  spark daemon channel list [--json]\n  spark daemon channel status [--json]\n  spark daemon run list [--json]\n  spark daemon events watch [--json]\n  spark daemon workspace register [path] --server-url <url> --token <token|-> --name <name>\n  spark daemon workspace ls [--json] [--all] [--full]\n  spark daemon workspace show [name] [--json]\n  spark daemon workspace stop <name> [--yes]\n\nDaemon login grants machine connectivity only. Every workspace registration consumes a fresh one-time workspace token. Spark CLI starts/wakes the Spark daemon and talks over local IPC; SQLite-backed invocations are execution truth. Project/task/goal/review/assign commands belong under spark cockpit, the coordination CLI and Web host. Session registry and channel listeners are daemon-owned (see docs/specs/sessions-and-channels.md).`;
+const DAEMON_HELP_TEXT = `spark daemon - daemon execution plane\n\nUsage:\n  spark daemon [--workspace <name>]\n  spark daemon login --server-url <url> [--no-open]\n  spark daemon status [--json]\n  spark daemon start [--json]\n  spark daemon stop [--yes]\n  spark daemon restart [--yes] [--wait]\n  spark daemon logs [--follow] [--lines <n>]\n  spark daemon submit --session <id> --prompt <text> [--reset] [--json]\n  spark daemon ask list [--session <id>] [--json]\n  spark daemon ask answer <interaction-request-id> --answers <json> [--session <id>] [--json]\n  spark daemon ask cancel <interaction-request-id> [--session <id>] [--json]\n  spark daemon invocation list [--status <state>] [--session <id>] [--since <iso>] [--limit <n>] [--offset <n>] [--json]\n  spark daemon invocation status <invocation-id> [--json]\n  spark daemon invocation result <invocation-id> [--json]\n  spark daemon invocation stream <invocation-id> [--after <cursor>] [--limit <n>] [--json]\n  spark daemon invocation cancel <invocation-id> [--reason <text>] [--json]\n  spark daemon invocation retry <invocation-id> [--json]\n  spark daemon invocation retention --before <iso> [--limit <n>] [--json]\n  spark daemon session list [--json] [--registry] [--include-archived]\n  spark daemon session create --workspace <id> [--title <text>] [--role <role>] [--json]\n  spark daemon session show <session-id> [--json]\n  spark daemon session tree <session-id> [--json]\n  spark daemon session fork <session-id> [--id <new-session-id>] [--json]\n  spark daemon session clone <session-id> [--id <new-session-id>] [--json]\n  spark daemon session bind <session-id> --external-key <key> [--json]\n  spark daemon session unbind <session-id> --external-key <key> [--json]\n  spark daemon session archive <session-id> [--json]\n  spark daemon session export --session <id|path> [--format jsonl|json|text] [--leaf <entry-id|root>] [--json]\n  spark daemon session replay --session <id|path> [--leaf <entry-id|root>] [--json]\n  spark daemon session inbox --session <session-id> [--all] [--json]\n  spark daemon session inbox read <message-id> --session <session-id> [--json]\n  spark daemon session inbox ack <message-id> --session <session-id> [--json]\n  spark daemon channel list --workspace <id> [--json]\n  spark daemon channel status --workspace <id> [--json]\n  spark daemon channel reload --workspace <id> [--json]\n  spark daemon channel notify --workspace <id> [--action test|send] [--json]\n  spark daemon run list [--state <state>] [--limit <n>] [--json]\n  spark daemon run show <run-id> [--json]\n  spark daemon run cancel <run-id> [--json]\n  spark daemon events watch [--limit <n>] [--json]\n  spark daemon workspace register [path] --server-url <url> --token <token|-> --name <name>\n  spark daemon workspace ls [--json] [--all] [--full]\n  spark daemon workspace show [name] [--json]\n  spark daemon workspace stop <name> [--yes]\n\nDaemon login grants machine connectivity only. Every workspace registration consumes a fresh one-time workspace token. Spark CLI starts/wakes the Spark daemon and talks over local IPC; SQLite-backed invocations are execution truth. Project/task/goal/review/assign commands belong under spark cockpit, the coordination CLI and Web host. Session registry and channel listeners are daemon-owned (see docs/specs/sessions-and-channels.md).`;
 
 const DAEMON_STRINGS: Record<SparkLanguage, SparkDaemonCliStrings> = {
   en: {

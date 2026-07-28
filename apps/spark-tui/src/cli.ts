@@ -1277,8 +1277,8 @@ const NATIVE_SLASH_COMMAND_EXCLUSIONS = [
   "reload",
   "stop",
   "retry",
+  "inspect",
   "cockpit",
-  "workflows",
   "runs",
   "run",
   "tasks",
@@ -1527,7 +1527,31 @@ function createSparkNativeSlashCommands(
 ): SparkNativeSlashCommandMap {
   const daemonCommands = createSparkDaemonNativeCommands(daemonClient);
   const localControlCommands = createSparkNativeLocalControlSlashCommands();
-  const piParityCommands = createSparkPiParitySlashCommands(services, modelControl);
+  const piParityCommands = createSparkPiParitySlashCommands(services, modelControl, {
+    currentSessionId,
+    list: async (sessionId) => {
+      await ensureCurrentSession();
+      return (
+        await requestSparkDaemonControl(
+          "session.inbox",
+          { sessionId, includeAcked: false },
+          daemonClient,
+        )
+      ).messages;
+    },
+    read: async (sessionId, messageId) => {
+      await ensureCurrentSession();
+      return (
+        await requestSparkDaemonControl("session.mail.read", { sessionId, messageId }, daemonClient)
+      ).message;
+    },
+    ack: async (sessionId, messageId) => {
+      await ensureCurrentSession();
+      return (
+        await requestSparkDaemonControl("session.mail.ack", { sessionId, messageId }, daemonClient)
+      ).message;
+    },
+  });
   const sideThreadCommands = createSparkNativeSideThreadSlashCommands({
     parentSessionId: () => currentSessionId,
     client: {
@@ -1739,11 +1763,7 @@ async function waitForInvocationTerminal(
         status.status === "cancelled"
       ) {
         // Fetch the full result
-        return await requestSparkDaemonControl<SparkTurnResult>(
-          "turn.result",
-          { invocationId },
-          client,
-        );
+        return await requestSparkDaemonControl("turn.result", { invocationId }, client);
       }
       // Still running/queued — poll again
       const remaining = deadline - Date.now();

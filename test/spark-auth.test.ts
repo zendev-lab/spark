@@ -14,6 +14,7 @@ import {
   SparkHostRuntime,
   SparkProviderAuthResolver,
   SparkProviderRegistry,
+  listOAuthProviderSummaries,
   registerSparkOAuthProvider,
   resetSparkOAuthProviders,
   type ProviderConfig,
@@ -141,6 +142,14 @@ async function withAuthDir(fn: (dir: string, authPath: string) => Promise<void>)
   }
 }
 
+test("Spark OAuth registry restores the pi-ai 0.82 built-in providers", () => {
+  resetSparkOAuthProviders();
+  assert.deepEqual(
+    listOAuthProviderSummaries().map((provider) => provider.id),
+    ["anthropic", "github-copilot", "openai-codex"],
+  );
+});
+
 test("SparkAuthStore persists OAuth credentials with restrictive file mode", async () => {
   await withAuthDir(async (_dir, authPath) => {
     const store = new SparkAuthStore({
@@ -154,10 +163,13 @@ test("SparkAuthStore persists OAuth credentials with restrictive file mode", asy
     assert.deepEqual(store.listProviders(), ["test-oauth"]);
     assert.equal(store.get("test-oauth")?.type, "oauth");
 
-    const onDisk = JSON.parse(await readFile(authPath, "utf8")) as {
-      version: number;
-      credentials: Record<string, unknown>;
-    };
+    const serializedAuth = await readFile(authPath, "utf8");
+    let onDisk: { version: number; credentials: Record<string, unknown> };
+    try {
+      onDisk = JSON.parse(serializedAuth) as typeof onDisk;
+    } catch (error) {
+      assert.fail(`persisted Spark auth fixture is not valid JSON: ${String(error)}`);
+    }
     assert.equal(onDisk.version, 1);
     assert.equal(typeof onDisk.credentials["test-oauth"], "object");
     assert.equal((await stat(authPath)).mode & 0o777, 0o600);
@@ -193,6 +205,49 @@ test("SparkProviderAuthResolver handles env, stored API key, literal, and OAuth 
     await store.setOAuth("test-oauth", oauthCredentials);
     assert.equal(resolver.hasConfiguredAuth(providerConfig("oauth:test-oauth")), true);
     assert.equal(resolver.resolveApiKey(providerConfig("oauth:test-oauth")), "access-token");
+  });
+});
+
+test("SparkProviderAuthResolver uses an unexpired stored OAuth access token without registry lookup", async () => {
+  await withAuthDir(async (_dir, authPath) => {
+    const store = new SparkAuthStore({ path: authPath });
+    await store.reload();
+    await store.setOAuth("version-skew-oauth", {
+      ...oauthCredentials,
+      access: "host-independent-access-token",
+      expires: Number.MAX_SAFE_INTEGER,
+    });
+    const resolver = new SparkProviderAuthResolver(store);
+    const provider = providerConfig("oauth:version-skew-oauth");
+
+    assert.equal(resolver.resolveApiKey(provider), "host-independent-access-token");
+    assert.equal(await resolver.resolveApiKeyAsync(provider), "host-independent-access-token");
+  });
+});
+
+test("SparkProviderAuthResolver observes OAuth login from another process immediately", async () => {
+  await withAuthDir(async (_dir, authPath) => {
+    registerSparkOAuthProvider(testOAuthProvider());
+    const daemonStore = new SparkAuthStore({ path: authPath });
+    const loginStore = new SparkAuthStore({ path: authPath });
+    await daemonStore.reload();
+    const resolver = new SparkProviderAuthResolver(daemonStore);
+    const provider = providerConfig("oauth:test-oauth");
+
+    assert.equal(resolver.resolveApiKey(provider), undefined);
+    await loginStore.setOAuth("test-oauth", {
+      ...oauthCredentials,
+      access: "token-from-completed-login",
+      expires: Number.MAX_SAFE_INTEGER,
+    });
+
+    assert.equal(
+      resolver.resolveApiKey(provider),
+      undefined,
+      "the long-lived daemon store remains stale until async resolution reloads it",
+    );
+    assert.equal(await resolver.resolveApiKeyAsync(provider), "token-from-completed-login");
+    assert.equal(resolver.resolveApiKey(provider), "token-from-completed-login");
   });
 });
 

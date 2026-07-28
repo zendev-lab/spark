@@ -75,6 +75,9 @@ Spark starts or contacts the local daemon as needed. Run `spark daemon status
 
 ## Next steps
 
-- Learn [which surface owns which behavior](/concepts/surfaces/).
+- [Plan and implement your first change](/guides/plan-and-implement/).
+- Browse the [complete feature map](/concepts/feature-map/) without learning every command.
+- Learn the [TUI's progressive controls](/guides/tui/).
 - Choose between [foreground runs, background work, and sessions](/guides/runs-and-sessions/).
 - Open the [Cockpit web surface](/guides/cockpit/).
+- Use [automation](/guides/automation/) only when ordinary Plan and Implement are not enough.

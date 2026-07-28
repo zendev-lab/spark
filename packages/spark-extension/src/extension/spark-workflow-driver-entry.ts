@@ -368,7 +368,7 @@ async function resolveWorkflowSelector(
     : "Spark workflow driver needs an explicit saved workflow selector.";
   const suffix = available.length
     ? ` Available workflow(s): ${visibleAvailable.join(", ")}${hiddenAvailable > 0 ? `, … ${hiddenAvailable} more` : ""}.`
-    : " Create a saved workspace workflow under .agents/workflows/<name>.js, then run /workflow workspace:<name>.";
+    : " Create a saved workspace workflow under .agents/workflows/<name>.js, then run /workflow run workspace:<name>.";
   ctx.ui?.notify?.(reason + suffix, "warning");
   return false;
 }

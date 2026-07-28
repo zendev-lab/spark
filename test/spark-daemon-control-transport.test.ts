@@ -1,32 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  createOrpc: vi.fn(),
-  invokeOrpc: vi.fn(),
-  legacyRequest: vi.fn(),
+  request: vi.fn(),
 }));
 
-vi.mock("@zendev-lab/spark-daemon-client/orpc", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@zendev-lab/spark-daemon-client/orpc")>()),
-  createSparkDaemonOrpcClient: mocks.createOrpc,
-  invokeSparkDaemonOrpcLiveMethod: mocks.invokeOrpc,
-  isSparkDaemonOrpcLiveMethod: () => true,
-}));
-
-vi.mock("@zendev-lab/spark-daemon-client/local-rpc", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@zendev-lab/spark-daemon-client/local-rpc")>()),
-  requestSparkDaemonLocalRpcWire: mocks.legacyRequest,
+vi.mock("@zendev-lab/spark-daemon-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@zendev-lab/spark-daemon-client")>()),
+  requestSparkDaemon: mocks.request,
 }));
 
 import { requestSparkDaemonControl } from "../apps/spark-tui/src/cli/daemon.ts";
 
+const paths = {
+  runtimeDir: "/tmp/spark-control-transport",
+  socketPath: "/tmp/spark-control-transport/daemon.sock",
+  pidFile: "/tmp/spark-control-transport/daemon.pid",
+  lockPath: "/tmp/spark-control-transport/daemon.lock",
+};
 const client = {
-  paths: {
-    runtimeDir: "/tmp/spark-control-transport",
-    socketPath: "/tmp/spark-control-transport/daemon.sock",
-    pidFile: "/tmp/spark-control-transport/daemon.pid",
-    lockPath: "/tmp/spark-control-transport/daemon.lock",
-  },
+  paths,
   startService: vi.fn(),
 };
 
@@ -35,21 +27,24 @@ afterEach(() => {
 });
 
 describe("daemon control transport migration", () => {
-  it("falls back before dispatch when the oRPC socket is unavailable", async () => {
-    mocks.createOrpc.mockRejectedValueOnce(new Error("connect ENOENT"));
-    mocks.legacyRequest.mockResolvedValueOnce({ source: "legacy" });
+  it("delegates protocol selection and pre-dispatch fallback to the unified facade", async () => {
+    mocks.request.mockResolvedValueOnce({ source: "daemon-client" });
 
     await expect(
       requestSparkDaemonControl("side-thread.ensure", { parentSessionId: "parent" }, client),
-    ).resolves.toEqual({ source: "legacy" });
-    expect(mocks.invokeOrpc).not.toHaveBeenCalled();
-    expect(mocks.legacyRequest).toHaveBeenCalledOnce();
+    ).resolves.toEqual({ source: "daemon-client" });
+    expect(mocks.request).toHaveBeenCalledWith(
+      "side-thread.ensure",
+      { parentSessionId: "parent" },
+      {
+        paths: { runtimeDir: paths.runtimeDir },
+        legacySocketPath: paths.socketPath,
+      },
+    );
   });
 
-  it("does not replay an unknown oRPC mutation outcome over the legacy socket", async () => {
-    const close = vi.fn();
-    mocks.createOrpc.mockResolvedValueOnce({ client: {}, close });
-    mocks.invokeOrpc.mockRejectedValueOnce(new Error("connection closed after dispatch"));
+  it("propagates a post-connect facade failure without adding another retry path", async () => {
+    mocks.request.mockRejectedValueOnce(new Error("connection closed after dispatch"));
 
     await expect(
       requestSparkDaemonControl(
@@ -58,19 +53,51 @@ describe("daemon control transport migration", () => {
         client,
       ),
     ).rejects.toThrow("connection closed after dispatch");
-    expect(mocks.legacyRequest).not.toHaveBeenCalled();
-    expect(close).toHaveBeenCalledOnce();
+    expect(mocks.request).toHaveBeenCalledOnce();
   });
 
-  it("returns a live oRPC result and closes its one-shot transport", async () => {
-    const close = vi.fn();
-    mocks.createOrpc.mockResolvedValueOnce({ client: {}, close });
-    mocks.invokeOrpc.mockResolvedValueOnce({ source: "orpc" });
+  it("preserves the caller-provided control request injection seam", async () => {
+    const controlRequest = vi.fn().mockResolvedValueOnce({
+      parentSessionId: "parent",
+      sessionId: "side",
+      generation: 1,
+      mode: "contextual",
+      status: "idle",
+    });
 
     await expect(
-      requestSparkDaemonControl("side-thread.snapshot", { parentSessionId: "parent" }, client),
-    ).resolves.toEqual({ source: "orpc" });
-    expect(mocks.legacyRequest).not.toHaveBeenCalled();
-    expect(close).toHaveBeenCalledOnce();
+      requestSparkDaemonControl(
+        "side-thread.snapshot",
+        { parentSessionId: "parent" },
+        { ...client, controlRequest },
+      ),
+    ).resolves.toEqual({
+      parentSessionId: "parent",
+      sessionId: "side",
+      generation: 1,
+      mode: "contextual",
+      status: "idle",
+      pendingTurns: [],
+      exchanges: [],
+      hasMore: false,
+      projectionTruncated: false,
+    });
+    expect(controlRequest).toHaveBeenCalledWith("side-thread.snapshot", {
+      parentSessionId: "parent",
+    });
+    expect(mocks.request).not.toHaveBeenCalled();
+  });
+
+  it("validates injected control responses against the method contract", async () => {
+    const controlRequest = vi.fn().mockResolvedValueOnce({ source: "not-a-snapshot" });
+
+    await expect(
+      requestSparkDaemonControl(
+        "side-thread.snapshot",
+        { parentSessionId: "parent" },
+        { ...client, controlRequest },
+      ),
+    ).rejects.toThrow();
+    expect(mocks.request).not.toHaveBeenCalled();
   });
 });

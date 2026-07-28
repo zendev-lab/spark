@@ -10,6 +10,7 @@ import {
   SparkDaemonLocalRpcRemoteError,
   SparkDaemonLocalRpcUnavailableError,
 } from "@zendev-lab/spark-daemon-client/local-rpc";
+import { SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
 import { parseSparkDaemonEvent, parseSparkInteractionRequest } from "@zendev-lab/spark-protocol";
 
 import {
@@ -35,6 +36,7 @@ import {
   type SparkDaemonClientOptions,
 } from "../apps/spark-tui/src/cli/daemon.ts";
 import { loadSparkHeadlessSessionModule } from "../apps/spark-daemon/src/spark/session-run.ts";
+import { SparkNativeAdmissionError } from "../apps/spark-tui/src/native-tui.ts";
 import { CREATE_SPARK_SESSION_SELECTION } from "../apps/spark-tui/src/tui/session-selector.ts";
 
 test("Spark daemon loads headless session executor from workspace package source", async () => {
@@ -577,11 +579,34 @@ test("spark daemon session inbox lists, reads, and acknowledges durable mail", a
     await store.save(
       store.createSession({ id: "session-b", timestamp: "2026-07-08T00:00:00.000Z" }),
     );
+    const now = () => Date.parse("2026-07-08T00:01:00.000Z");
+    const mailStore = new SparkSessionMailStore({ sparkHome, now });
+    const rpcCalls: string[] = [];
     const client = {
-      sparkHome,
-      now: () => Date.parse("2026-07-08T00:01:00.000Z"),
+      now,
+      controlRequest: async (method, params) => {
+        rpcCalls.push(method);
+        if (method === "session.inbox") {
+          const input = params as { sessionId: string; includeAcked: boolean };
+          return {
+            messages: await mailStore.list(input.sessionId, {
+              includeAcked: input.includeAcked,
+            }),
+          };
+        }
+        if (method === "session.mail.read" || method === "session.mail.ack") {
+          const input = params as { sessionId: string; messageId: string };
+          return {
+            message:
+              method === "session.mail.read"
+                ? await mailStore.read(input.sessionId, input.messageId)
+                : await mailStore.ack(input.sessionId, input.messageId),
+          };
+        }
+        throw new Error(`unexpected daemon control request: ${method}`);
+      },
     } satisfies SparkDaemonClientOptions;
-    const sent = await new SparkSessionMailStore({ sparkHome, now: client.now }).send({
+    const sent = await mailStore.send({
       toSessionId: "session-b",
       fromSessionId: "session-a",
       kind: "request",
@@ -606,6 +631,7 @@ test("spark daemon session inbox lists, reads, and acknowledges durable mail", a
     assert.equal(listResult.messages[0]?.id, sent.message.id);
     assert.equal(listResult.messages[0]?.status, "pending");
     assert.equal(listResult.messages[0]?.preview, "hello");
+    assert.deepEqual(rpcCalls, ["session.inbox"]);
 
     const read = await handleSparkDaemonCliCommand(
       {
@@ -628,6 +654,7 @@ test("spark daemon session inbox lists, reads, and acknowledges durable mail", a
     assert.equal(readResult.message.toSessionId, "session-b");
     assert.equal(readResult.message.body, "hello");
     assert.equal(readResult.message.status, "read");
+    assert.deepEqual(rpcCalls, ["session.inbox", "session.mail.read"]);
 
     await handleSparkDaemonCliCommand(
       {
@@ -652,6 +679,12 @@ test("spark daemon session inbox lists, reads, and acknowledges durable mail", a
     );
     assert.equal(afterAck.action, "sessions");
     assert.equal((afterAck as { result: { messages: unknown[] } }).result.messages.length, 0);
+    assert.deepEqual(rpcCalls, [
+      "session.inbox",
+      "session.mail.read",
+      "session.mail.ack",
+      "session.inbox",
+    ]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1547,7 +1580,7 @@ test("turn submit retries an ambiguous local RPC close with one stable idempoten
           id: request.id,
           ok: true,
           result: {
-            invocationId: "inv_recovered_admission",
+            invocationId: "inv_recoveredadmission",
             status: "queued",
             acceptedAt: "2026-07-15T00:00:00.000Z",
           },
@@ -1571,10 +1604,15 @@ test("turn submit retries an ambiguous local RPC close with one stable idempoten
     );
 
     assert.equal(result.action, "submit");
-    assert.equal(result.result.invocationId, "inv_recovered_admission");
+    assert.equal(result.result.invocationId, "inv_recoveredadmission");
     assert.equal(requests.length, 9);
-    for (const request of requests) assert.deepEqual(request, requests[0]);
-    assert.equal(requests[0]?.params?.idempotencyKey, `turn.submit:${requests[0]?.id}`);
+    for (const request of requests) {
+      assert.equal(request.method, "turn.submit");
+      assert.deepEqual(request.params, requests[0]?.params);
+      assert.equal(request.sparkCommand, undefined);
+    }
+    assert.equal(new Set(requests.map((request) => request.id)).size, requests.length);
+    assert.match(requests[0]?.params?.idempotencyKey ?? "", /^turn\.submit:spark_cli_/u);
     assert.deepEqual(retryDelays, [50, 100, 200, 400, 800, 1_600, 2_500, 2_500]);
   } finally {
     await closeLocalRpcServer(server);
@@ -1644,7 +1682,7 @@ test("turn submit periodically recovers daemon service without changing the requ
   }
 });
 
-test("turn submit retries a bound successor's starting response with the same request", async () => {
+test("turn submit retries a bound successor's starting response with stable input", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-turn-start-"));
   const paths = testDaemonPaths(dir);
   const requests: CapturedLocalRpcRequest[] = [];
@@ -1670,7 +1708,7 @@ test("turn submit retries a bound successor's starting response with the same re
           id: request.id,
           ok: true,
           result: {
-            invocationId: "inv_successor_ready",
+            invocationId: "inv_successorready",
             status: "queued",
             acceptedAt: "2026-07-15T00:00:00.000Z",
           },
@@ -1694,9 +1732,13 @@ test("turn submit retries a bound successor's starting response with the same re
     );
 
     assert.equal(result.action, "submit");
-    assert.equal(result.result.invocationId, "inv_successor_ready");
+    assert.equal(result.result.invocationId, "inv_successorready");
     assert.equal(requests.length, 4);
-    for (const request of requests) assert.deepEqual(request, requests[0]);
+    for (const request of requests) {
+      assert.equal(request.method, "turn.submit");
+      assert.deepEqual(request.params, requests[0]?.params);
+    }
+    assert.equal(new Set(requests.map((request) => request.id)).size, requests.length);
     assert.deepEqual(retryDelays, [50, 100, 200]);
   } finally {
     await closeLocalRpcServer(server);
@@ -3324,6 +3366,109 @@ test("Spark native responder retries an ACK loss with the same idempotency key",
   assert.equal(submissions.length, 2);
   assert.deepEqual(submissions[0], submissions[1]);
   assert.equal(submissions[0]?.idempotencyKey, "idem_native_submit_1");
+});
+
+test("Spark native responder observes an admitted invocation without resubmitting it", async () => {
+  const submissions: Array<{ prompt: string; idempotencyKey?: string }> = [];
+  const responder = createSparkDaemonNativeResponder(
+    {
+      startService: () => ({ kind: "detached" as const, alreadyRunning: false, detail: "started" }),
+      daemonStatus: async () => ({
+        observedAt: "2026-07-28T00:00:00.000Z",
+        servers: [],
+        invocations: { queued: 1, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
+      }),
+      turnSubmit: async (_paths, input) => {
+        submissions.push(input);
+        return {
+          invocationId: "inv_twophase",
+          status: "queued" as const,
+          acceptedAt: "2026-07-28T00:00:00.000Z",
+        };
+      },
+    },
+    { sessionId: "native-two-phase", waitForCompletion: false },
+  );
+
+  const admission = await responder.admit("persist first", {
+    submissionId: "idem_two_phase",
+  });
+  const output = await responder.observe(admission, { messages: [] });
+
+  assert.match(output, /queued for Spark daemon session native-two-phase/u);
+  assert.equal(submissions.length, 1);
+  assert.equal(submissions[0]?.prompt, "persist first");
+  assert.equal(submissions[0]?.idempotencyKey, "idem_two_phase");
+});
+
+test("Spark native responder classifies a typed daemon rejection as rejected admission", async () => {
+  const responder = createSparkDaemonNativeResponder(
+    {
+      startService: () => ({ kind: "detached" as const, alreadyRunning: false, detail: "started" }),
+      daemonStatus: async () => ({
+        observedAt: "2026-07-28T00:00:00.000Z",
+        servers: [],
+        invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
+      }),
+      turnSubmit: async () => {
+        const remote = new SparkDaemonRemoteError("turn validation rejected", {
+          code: "INVALID_ARGUMENT",
+        });
+        throw new Error(remote.message, { cause: remote });
+      },
+    },
+    { sessionId: "native-rejected-admission" },
+  );
+
+  await assert.rejects(
+    () =>
+      responder.admit("reject this prompt", {
+        submissionId: "idem_rejected_admission",
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof SparkNativeAdmissionError);
+      assert.equal(error.outcome, "rejected");
+      assert.ok(error.cause instanceof Error);
+      return true;
+    },
+  );
+});
+
+test("Spark native responder reads exact invocation status without resubmitting", async () => {
+  const statusReads: string[] = [];
+  let submissions = 0;
+  const responder = createSparkDaemonNativeResponder(
+    {
+      startService: () => ({ kind: "detached" as const, alreadyRunning: false, detail: "started" }),
+      daemonStatus: async () => ({
+        observedAt: "2026-07-28T00:00:00.000Z",
+        servers: [],
+        invocations: { queued: 0, running: 1, succeeded: 0, failed: 0, cancelled: 0 },
+      }),
+      turnSubmit: async () => {
+        submissions += 1;
+        throw new Error("status reconciliation must not submit");
+      },
+      turnStatus: async (_paths, input) => {
+        statusReads.push(input.invocationId);
+        return {
+          invocationId: input.invocationId,
+          status: "running" as const,
+          createdAt: "2026-07-28T00:00:00.000Z",
+          updatedAt: "2026-07-28T00:00:01.000Z",
+          startedAt: "2026-07-28T00:00:00.500Z",
+          eventCursor: 2,
+        };
+      },
+    },
+    { sessionId: "native-status" },
+  );
+
+  const status = await responder.status("inv_status");
+
+  assert.equal(status.status, "running");
+  assert.deepEqual(statusReads, ["inv_status"]);
+  assert.equal(submissions, 0);
 });
 
 test("production TUI Shift+Tab overrides extension shortcut and updates session thinking", async () => {

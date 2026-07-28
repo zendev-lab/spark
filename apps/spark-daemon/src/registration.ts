@@ -11,6 +11,7 @@ import {
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import WebSocket from "ws";
 import { readSparkDaemonConfig, writeSparkDaemonConfig, type SparkDaemonConfig } from "./config.js";
+import { SparkDaemonControlError } from "./control-error.ts";
 import { sparkDaemonSupportedFeatures, sparkDaemonVersion } from "./daemon.js";
 import { fetchRegistrationEndpoint } from "./registration-http.js";
 import {
@@ -228,17 +229,21 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
     ? sparkDaemonConfigForServerProfile(identity, existingProfile)
     : identity;
   if (!input.registrationToken) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "workspace_registration_invalid",
       `Workspace registration for ${serverUrl} requires a new one-time workspace token. Cockpit machine credentials do not grant access to additional workspaces.`,
+    );
+  }
+  if (!input.workspaceRegistration) {
+    throw new SparkDaemonControlError(
+      "workspace_registration_invalid",
+      "Workspace registration metadata is required.",
     );
   }
   if (hasRunnableSparkDaemonCredentialsForServer(current, serverUrl)) {
     current = shouldRefreshSparkDaemonToken(current)
       ? await refreshSparkDaemonCredentials({ paths, config: current })
       : current;
-    if (!input.workspaceRegistration) {
-      throw new Error("Workspace registration metadata is required.");
-    }
     const registered = await registerWorkspaceWithRuntime({
       serverUrl,
       runtimeId: current.runtimeId!,
@@ -341,12 +346,26 @@ export function validateRegistrationServerUrl(
   serverUrl: string,
   options: { allowInsecureHttp?: boolean } = {},
 ): string {
-  const parsed = new URL(serverUrl);
+  let parsed: URL;
+  try {
+    parsed = new URL(serverUrl);
+  } catch {
+    throw new SparkDaemonControlError(
+      "workspace_registration_invalid",
+      "Cockpit server URL must be a valid absolute URL.",
+    );
+  }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("Cockpit server URL must use http:// or https://.");
+    throw new SparkDaemonControlError(
+      "workspace_registration_invalid",
+      "Cockpit server URL must use http:// or https://.",
+    );
   }
   if (parsed.username || parsed.password) {
-    throw new Error("Cockpit credentials must not be embedded in --server-url.");
+    throw new SparkDaemonControlError(
+      "workspace_registration_invalid",
+      "Cockpit credentials must not be embedded in --server-url.",
+    );
   }
   const forbiddenParams = ["token", "registration", "enrollment"];
   const found = new Set<string>();
@@ -358,13 +377,17 @@ export function validateRegistrationServerUrl(
   }
 
   if (found.size > 0) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "workspace_registration_invalid",
       `Registration secrets must not be embedded in --server-url (${[...found].join(", ")}). Pass the workspace registration token with --token <token>, --token -, or SPARK_WORKSPACE_REGISTRATION_TOKEN.`,
     );
   }
 
   if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
-    throw new Error("Cockpit server URL must be an origin without a path, query, or fragment.");
+    throw new SparkDaemonControlError(
+      "workspace_registration_invalid",
+      "Cockpit server URL must be an origin without a path, query, or fragment.",
+    );
   }
 
   if (
@@ -372,7 +395,8 @@ export function validateRegistrationServerUrl(
     !isLoopbackHostname(parsed.hostname) &&
     !options.allowInsecureHttp
   ) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "workspace_registration_invalid",
       `Refusing insecure Cockpit URL ${parsed.origin}: daemon credentials would cross the network over plaintext HTTP. Use HTTPS, or pass --allow-insecure-http only on a trusted private network.`,
     );
   }
@@ -581,7 +605,7 @@ async function requestSparkDaemonRegistration(input: {
     if (response.status === 401 || response.status === 403) {
       throw new RegistrationGrantRefusedError(message);
     }
-    throw new Error(message);
+    throw new SparkDaemonControlError("workspace_registration_failed", message);
   }
 
   return runtimeRegistrationResponseSchema.parse(await response.json());
@@ -616,7 +640,7 @@ async function registerWorkspaceWithRuntime(input: {
     if (response.status === 401 || response.status === 403) {
       throw new RegistrationGrantRefusedError(message);
     }
-    throw new Error(message);
+    throw new SparkDaemonControlError("workspace_registration_failed", message);
   }
 
   return runtimeWorkspaceRegistrationResponseSchema.parse(await response.json());

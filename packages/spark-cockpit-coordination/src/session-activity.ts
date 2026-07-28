@@ -35,6 +35,10 @@ export interface SessionActivityReport {
   role: string | null;
   status: string | null;
   createdAt: string;
+  /** Product Artifact kind retained across daemon-event persistence/reload. */
+  artifactKind?: "issue" | "pr" | "preview";
+  /** Product Artifact display format retained across daemon-event persistence/reload. */
+  artifactFormat?: string;
   /** Structured run category; top-level session runs stay out of the chat transcript. */
   runKind?: string;
   /** Runtime turn correlation used to reconcile live and durable projections. */
@@ -680,6 +684,7 @@ function reportFromDaemonPayload(
       const status = stringValue(artifact, "status");
       const preview = stringValue(artifact, "preview");
       const artifactKind = stringValue(artifact, "kind");
+      const artifactFormat = stringValue(artifact, "format");
       // Legacy tool side-channels used artifact.update for evidence kinds.
       if (!PRODUCT_ARTIFACT_KINDS.has(artifactKind ?? "")) {
         return {
@@ -700,6 +705,8 @@ function reportFromDaemonPayload(
         role: stringValue(artifact, "producer"),
         status,
         createdAt: row.createdAt,
+        artifactKind: artifactKind as "issue" | "pr" | "preview",
+        ...(artifactFormat ? { artifactFormat } : {}),
       };
     }
     if (viewType === "evidence.update") {

@@ -8,6 +8,7 @@ const canonicalRootScripts = [
   "build",
   "build:docs",
   "check",
+  "check:boundaries",
   "check:docs",
   "check:static",
   "check:test-quality",
@@ -62,6 +63,10 @@ test("root package exposes one compact validation and release surface", async ()
   );
   assert.equal(scripts["build:docs"], "pnpm --filter @zendev-lab/spark-docs run build");
   assert.equal(scripts["check:docs"], "pnpm --filter @zendev-lab/spark-docs run check");
+  assert.equal(
+    scripts["check:boundaries"],
+    "depcruise --config .dependency-cruiser.cjs apps packages test",
+  );
   assert.equal(scripts["deploy:docs"], "pnpm --filter @zendev-lab/spark-docs run deploy");
   assert.equal(scripts["dev:docs"], "pnpm --filter @zendev-lab/spark-docs run dev");
   assert.equal(scripts["preview:docs"], "pnpm --filter @zendev-lab/spark-docs run preview");
@@ -74,7 +79,7 @@ test("root package exposes one compact validation and release surface", async ()
     "pnpm --filter @zendev-lab/spark-docs exec astro sync",
     "node scripts/check-architecture-ratchets.mjs",
     "node scripts/check-npm-product.mjs",
-    "depcruise --config .dependency-cruiser.cjs apps packages test",
+    "pnpm run check:boundaries",
     "pnpm run check:test-quality",
     "node scripts/check-doc-terminology.mjs",
     "vp fmt . --check",
@@ -114,7 +119,7 @@ test("root package exposes one compact validation and release surface", async ()
   assert.match(scripts.typecheck ?? "", /@zendev-lab\/spark-daemon run check$/u);
   assert.doesNotMatch(
     Object.keys(scripts).join("\n"),
-    /(?:test:file|(?:build|check|test|publish):npm-product|check:(?:architecture|boundaries|distribution))/u,
+    /(?:test:file|(?:build|check|test|publish):npm-product|check:(?:architecture|distribution))/u,
   );
 });
 

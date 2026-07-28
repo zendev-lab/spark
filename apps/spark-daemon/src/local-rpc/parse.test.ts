@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parseLocalRpcRequest } from "./parse.ts";
+import { sparkLocalRpcProcedureSchemas } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
+import { isSparkLocalRpcMethod, parseLocalRpcRequest } from "./parse.ts";
 
 describe("side-thread local RPC parsing", () => {
-  it("maps each side-thread method to a validated transport command", () => {
+  it("parses every side-thread method through the protocol catalog", () => {
     const cases = [
-      ["side-thread.ensure", { parentSessionId: "parent" }, "side-thread.ensure.request"],
-      ["side-thread.snapshot", { parentSessionId: "parent" }, "side-thread.snapshot.request"],
+      ["side-thread.ensure", { parentSessionId: "parent" }],
+      ["side-thread.snapshot", { parentSessionId: "parent" }],
       [
         "side-thread.submit",
         {
@@ -14,17 +15,11 @@ describe("side-thread local RPC parsing", () => {
           prompt: "inspect",
           idempotencyKey: "key",
         },
-        "side-thread.submit.request",
       ],
-      [
-        "side-thread.reset",
-        { parentSessionId: "parent", expectedGeneration: 1, mode: "tangent" },
-        "side-thread.reset.request",
-      ],
+      ["side-thread.reset", { parentSessionId: "parent", expectedGeneration: 1, mode: "tangent" }],
       [
         "side-thread.configure",
         { parentSessionId: "parent", expectedGeneration: 1, thinkingOverride: "low" },
-        "side-thread.configure.request",
       ],
       [
         "side-thread.handoff",
@@ -35,13 +30,25 @@ describe("side-thread local RPC parsing", () => {
           kind: "full",
           idempotencyKey: "key",
         },
-        "side-thread.handoff.request",
       ],
     ] as const;
 
-    for (const [method, params, kind] of cases) {
+    for (const [method, params] of cases) {
       const request = parseLocalRpcRequest(JSON.stringify({ id: method, method, params }));
-      expect(request.sparkCommand).toMatchObject({ kind, route: { sessionId: "parent" } });
+      expect(request).toEqual({
+        id: method,
+        method,
+        params: sparkLocalRpcProcedureSchemas[method].input.parse(params),
+      });
     }
+  });
+
+  it("recognizes exactly the 67 protocol-owned methods", () => {
+    const methods = Object.keys(sparkLocalRpcProcedureSchemas);
+    expect(methods).toHaveLength(67);
+    expect(methods.every(isSparkLocalRpcMethod)).toBe(true);
+    expect(() =>
+      parseLocalRpcRequest(JSON.stringify({ id: "unknown", method: "legacy.unknown", params: {} })),
+    ).toThrow("Unknown local RPC method: legacy.unknown");
   });
 });

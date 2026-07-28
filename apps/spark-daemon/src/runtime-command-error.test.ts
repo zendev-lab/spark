@@ -12,10 +12,12 @@ describe("runtime command failure projection", () => {
     ).toEqual({ reasonCode: "side_thread_not_found", message: "no active child" });
   });
 
-  it("does not expose arbitrary internal error codes", () => {
-    expect(runtimeCommandFailure(new SparkSessionRegistryError("sqlite_busy", "busy"))).toEqual({
+  it("does not expose non-Side Thread session error codes", () => {
+    expect(
+      runtimeCommandFailure(new SparkSessionRegistryError("session_not_found", "missing")),
+    ).toEqual({
       reasonCode: "COMMAND_EXECUTION_FAILED",
-      message: "busy",
+      message: "missing",
     });
   });
 });

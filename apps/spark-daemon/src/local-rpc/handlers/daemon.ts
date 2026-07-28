@@ -1,40 +1,35 @@
 import { SparkInvocationStore } from "../../store/invocations.ts";
 import { SparkChannelDeliveryStore } from "../../store/channel-deliveries.ts";
 import { sparkDaemonServerStatusSummaries } from "../../store/workspaces.js";
+import { SparkDaemonControlError } from "../../control-error.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
-import type { LocalRpcRequest, LocalRpcResponse } from "../types.ts";
+import type { LocalRpcServiceOutput, LocalRpcServiceRequest } from "../types.ts";
 
 type DaemonRequest = Extract<
-  LocalRpcRequest,
+  LocalRpcServiceRequest,
   { method: "daemon.status" | "daemon.stop" | "daemon.restart" }
 >;
 
 export async function handleDaemonRequest(
   ctx: LocalRpcDispatchContext,
   request: DaemonRequest,
-): Promise<LocalRpcResponse> {
+): Promise<LocalRpcServiceOutput<DaemonRequest>> {
   const { db, onStop, options } = ctx;
   switch (request.method) {
     case "daemon.status": {
       const store = new SparkInvocationStore(db);
       const oldestActive = store.oldestActive();
       return {
-        id: request.id,
-        ok: true,
-        result: {
-          servers: sparkDaemonServerStatusSummaries(db),
-          invocations: store.counts(),
-          invocationHealth: {
-            ...(oldestActive.queued ? { oldestQueuedAt: oldestActive.queued } : {}),
-            ...(oldestActive.running ? { oldestRunningAt: oldestActive.running } : {}),
-          },
-          channelDeliveries: new SparkChannelDeliveryStore(db).summary(),
-          lifecycle: options.getLifecycle?.() ?? { state: "running" },
-          ...(options.getBuildFingerprint
-            ? { buildFingerprint: options.getBuildFingerprint() }
-            : {}),
-          observedAt: new Date().toISOString(),
+        servers: sparkDaemonServerStatusSummaries(db),
+        invocations: store.counts(),
+        invocationHealth: {
+          ...(oldestActive.queued ? { oldestQueuedAt: oldestActive.queued } : {}),
+          ...(oldestActive.running ? { oldestRunningAt: oldestActive.running } : {}),
         },
+        channelDeliveries: new SparkChannelDeliveryStore(db).summary(),
+        lifecycle: options.getLifecycle?.() ?? { state: "running" },
+        ...(options.getBuildFingerprint ? { buildFingerprint: options.getBuildFingerprint() } : {}),
+        observedAt: new Date().toISOString(),
       };
     }
     case "daemon.stop":
@@ -43,22 +38,17 @@ export async function handleDaemonRequest(
         void onStop?.();
       }, 0);
       return {
-        id: request.id,
-        ok: true,
-        result: {
-          stopping: true,
-          observedAt: new Date().toISOString(),
-        },
+        stopping: true,
+        observedAt: new Date().toISOString(),
       };
     case "daemon.restart": {
       if (!options.onRestart) {
-        throw new Error("Spark daemon restart control is not available.");
+        throw new SparkDaemonControlError(
+          "daemon_restart_unavailable",
+          "Spark daemon restart control is not available.",
+        );
       }
-      return {
-        id: request.id,
-        ok: true,
-        result: await options.onRestart(),
-      };
+      return await options.onRestart();
     }
   }
 }

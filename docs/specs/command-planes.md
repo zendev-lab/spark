@@ -13,22 +13,23 @@ spark <plane> <resource> <verb> [args...]
 | `spark daemon` | daemon execution plane | persistent sessions, channel listeners, SQLite invocations, autonomous driver timing/retry/recovery, events, logs, process state | domain goal/review/task definitions |
 | `spark cockpit` | coordination plane and web UI host | project, task, goal, review, evidence, workflow, workspace coordination, assign, and Cockpit UI | daemon execution or autonomous timers, local process logs, TUI rendering |
 | `spark tui` | tui local control plane | interactive terminal UI, attach/resume, visible transcript, theme, export | canonical business-state ownership |
+| `spark acp` | ACP stdio adapter | protocol translation for new/prompt/cancel/permission | durable sessions, invocations, provider policy, or execution truth |
 | slash `system` | TUI kernel command source | `/help`, `/exit`, `/quit`, `/clear`, `/reload` | project/task/goal/session/workflow commands |
 | slash `extension` | extension command source | extension-owned resource commands | TUI kernel lifecycle |
 
-`spark cockpit` is both the coordination CLI and the web UI host; it is not a second daemon execution plane.
+`spark cockpit` is both the coordination CLI and the web UI host; it is not a second daemon execution plane. `spark acp` is a stateless adapter: its session id is the canonical daemon session id and only connection-local active-invocation routing is retained.
 
 ## Boundary invariants
 
 - Every stateful domain has exactly one authoritative owner. `packages/spark-cockpit-coordination` owns server coordination plus Cockpit query/projection APIs, but its projections are never execution truth for tasks, runs, artifacts, asks, reviews, or invocations.
-- Transports and app adapters translate through owner APIs; they do not duplicate execution or policy, and they must not read or write another owner's store. Cockpit may cache or project Spark state, but it must not mutate local Spark stores directly.
+- Transports and app adapters translate through owner APIs; they do not duplicate execution or policy, and they must not read or write another owner's store. Typed oRPC is the primary local control path; the 0.1.x `daemon.sock` adapter only preserves N-1 wire compatibility and receives no new product behavior. Cockpit may cache or project Spark state, but it must not mutate local Spark stores directly.
 - Reusable capability and runtime behavior belongs in `packages/spark-*`; executable apps retain bootstrap, presentation, and compatibility glue. Boundary regressions are enforced by the dependency-cruiser stage of `pnpm run check`.
 
 ### Capability owners
 
 | Domain | Authoritative owner | Adapters and projections |
 | --- | --- | --- |
-| persistent sessions, invocations, Side Threads, channel execution | `apps/spark-daemon` using the shared registry/store contracts | local RPC, runtime WebSocket, TUI, Cockpit, channel transports |
+| persistent sessions, invocations, Side Threads, channel execution | `apps/spark-daemon` using the shared registry/store contracts | local RPC, runtime WebSocket, TUI, Cockpit, ACP, channel transports |
 | autonomous goal/loop/repro/implement/workflow cadence, retry, and recovery | `apps/spark-daemon`; capability packages provide registered success/retry policy | TUI, Cockpit, and compatible hosts send controls and render `driver.update` |
 | model/tool turn execution and effect policy | `spark-turn` and `spark-host` | daemon and native host runners provide session context |
 | cross-surface schemas and semantics | `spark-protocol` | each transport performs validation and translation only |
@@ -44,7 +45,7 @@ The default place for a change is inside its existing owner. Create another work
 
 Before adding a second adapter or surface, first move shared validation and semantics into the existing protocol/owner API. Transports remain thin, projections must be rebuildable, and caches cannot become admission or execution truth. Compatibility adapters have written exit criteria and do not receive new product behavior.
 
-`pnpm run check:architecture` is the mechanical growth ratchet. During the early product phase its ceilings are recorded in `architecture/packages.json` plus a 4,000-line production-file limit, and it rejects additions to the frozen compatibility extension manifest. The headroom allows a small number of evidence-backed owner boundaries without pinning every ceiling to today's count. These remain ceilings, not design targets: an oversized module should still be split at a domain/adapter boundary before it reaches the limit. Raising a ceiling requires an architecture rationale in the same change; deleting a package or compatibility manifest entry never requires lowering a frozen allowlist first.
+`scripts/check-architecture-ratchets.mjs`, run by `pnpm run check:static`, is the mechanical growth ratchet. During the early product phase its ceilings are recorded in `architecture/packages.json` plus a 4,000-line production-file limit, and it rejects additions to the frozen compatibility extension manifest. The headroom allows a small number of evidence-backed owner boundaries without pinning every ceiling to today's count. These remain ceilings, not design targets: an oversized module should still be split at a domain/adapter boundary before it reaches the limit. Raising a ceiling requires an architecture rationale in the same change; deleting a package or compatibility manifest entry never requires lowering a frozen allowlist first.
 
 ### Open-source adoption
 

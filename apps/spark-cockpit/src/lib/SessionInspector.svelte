@@ -91,15 +91,8 @@
 </script>
 
 <section class="session-inspector" aria-label={labels.ariaLabel}>
-  <div class="session-todo-rail" aria-label={labels.sessionTodoHeading}>
-    {#if view.sessionTodo === null}
-      <EmptyState
-        title={labels.noSessionTodoTitle}
-        body={labels.noSessionTodoBody}
-        icon="check"
-        compact
-      />
-    {:else}
+  {#if view.sessionTodo !== null}
+    <div class="session-todo-rail" aria-label={labels.sessionTodoHeading}>
       <section
         class="inspector-section session-todo-section"
         aria-labelledby={sessionTodoHeadingId()}
@@ -127,8 +120,8 @@
           <p class="session-todo-empty">{labels.noActiveSessionTodo}</p>
         {/if}
       </section>
-    {/if}
-  </div>
+    </div>
+  {/if}
 
   <div class="inspector-tabs" role="tablist" aria-label={labels.ariaLabel}>
     {#each tabs as tab, index}
@@ -158,7 +151,7 @@
     {#if activeTab === "summary"}
       <section class="inspector-section" aria-labelledby={headingId("summary")}>
         <h2 id={headingId("summary")}>{labels.summaryHeading}</h2>
-        <dl class="context-list">
+        <dl class="summary-grid">
           <div>
             <dt>{labels.sessionStatus}</dt>
             <dd>
@@ -168,30 +161,52 @@
             </dd>
           </div>
           <div>
-            <dt>{labels.workingDirectory}</dt>
-            <dd title={view.context.cwd ?? labels.unavailable}><code>{view.context.cwd ?? labels.unavailable}</code></dd>
+            <dt>{labels.runs}</dt>
+            <dd>{view.runs.length}</dd>
           </div>
           <div>
-            <dt>{labels.model}</dt>
-            <dd title={view.context.model?.displayLabel ?? labels.unavailable}>{view.context.model?.displayLabel ?? labels.unavailable}</dd>
+            <dt>{labels.tabs.tasks}</dt>
+            <dd>{view.tasks.length}</dd>
           </div>
           <div>
-            <dt>{labels.sessionId}</dt>
-            <dd title={view.context.sessionId}><code>{view.context.sessionId}</code></dd>
+            <dt>{labels.tabs.changes}</dt>
+            <dd>{view.changes.length}</dd>
           </div>
           <div>
-            <dt>{labels.createdAt}</dt>
-            <dd title={view.context.createdAt ?? labels.unavailable}>
-              {view.context.createdAt
-                ? compactTimestamp(view.context.createdAt)
-                : labels.unavailable}
-            </dd>
-          </div>
-          <div>
-            <dt>{labels.updatedAt}</dt>
-            <dd title={view.context.updatedAt ?? labels.unavailable}>{view.context.updatedAt ? compactTimestamp(view.context.updatedAt) : labels.unavailable}</dd>
+            <dt>{labels.tabs.artifacts}</dt>
+            <dd>{view.artifacts.length}</dd>
           </div>
         </dl>
+
+        <details class="technical-details">
+          <summary>{labels.technicalDetails}</summary>
+          <dl class="context-list">
+            <div>
+              <dt>{labels.workingDirectory}</dt>
+              <dd title={view.context.cwd ?? labels.unavailable}><code>{view.context.cwd ?? labels.unavailable}</code></dd>
+            </div>
+            <div>
+              <dt>{labels.model}</dt>
+              <dd title={view.context.model?.displayLabel ?? labels.unavailable}>{view.context.model?.displayLabel ?? labels.unavailable}</dd>
+            </div>
+            <div>
+              <dt>{labels.sessionId}</dt>
+              <dd title={view.context.sessionId}><code>{view.context.sessionId}</code></dd>
+            </div>
+            <div>
+              <dt>{labels.createdAt}</dt>
+              <dd title={view.context.createdAt ?? labels.unavailable}>
+                {view.context.createdAt
+                  ? compactTimestamp(view.context.createdAt)
+                  : labels.unavailable}
+              </dd>
+            </div>
+            <div>
+              <dt>{labels.updatedAt}</dt>
+              <dd title={view.context.updatedAt ?? labels.unavailable}>{view.context.updatedAt ? compactTimestamp(view.context.updatedAt) : labels.unavailable}</dd>
+            </div>
+          </dl>
+        </details>
       </section>
 
     {:else if activeTab === "artifacts"}
@@ -421,6 +436,51 @@
     font-size: var(--text-section-title);
     font-weight: var(--weight-section-title);
     margin: 0;
+  }
+
+  .summary-grid {
+    display: grid;
+    gap: var(--spacing-sm);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin: 0;
+  }
+
+  .summary-grid > div {
+    background: var(--color-surface-soft);
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--rounded-lg);
+    display: grid;
+    gap: var(--spacing-xxs);
+    min-width: 0;
+    padding: var(--spacing-md);
+  }
+
+  .summary-grid dt {
+    color: var(--color-ink-subtle);
+    font-size: var(--text-caption);
+  }
+
+  .summary-grid dd {
+    color: var(--color-ink);
+    font-size: var(--text-section-title);
+    font-weight: var(--weight-section-title);
+    margin: 0;
+  }
+
+  .technical-details {
+    border-top: 1px solid var(--color-border-soft);
+    padding-top: var(--spacing-md);
+  }
+
+  .technical-details > summary {
+    color: var(--color-ink-subtle);
+    cursor: pointer;
+    font-size: var(--text-caption);
+    font-weight: 650;
+  }
+
+  .technical-details > .context-list {
+    margin-top: var(--spacing-md);
   }
 
   .card-list {

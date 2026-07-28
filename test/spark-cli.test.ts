@@ -19,7 +19,14 @@ import {
   type SparkRpcState,
 } from "../apps/spark-tui/src/cli.ts";
 import type { SparkDaemonClientOptions } from "../apps/spark-tui/src/cli/daemon.ts";
-import { SparkNativeSession } from "../apps/spark-tui/src/native-tui.ts";
+import {
+  SparkNativeAdmissionError,
+  SparkNativeSession,
+  type SparkNativeAdmissionContext,
+  type SparkNativeResponder,
+  type SparkNativeResponderContext,
+} from "../apps/spark-tui/src/native-tui.ts";
+import type { SparkTurnSubmitResult } from "@zendev-lab/spark-protocol";
 import sparkCliHostExtension from "../apps/spark-tui/src/spark-host-extension.ts";
 
 test("parseSparkCliArgs treats positional args as the initial message", () => {
@@ -481,6 +488,203 @@ test("Baidu OneAPI adapters use upstream transport APIs but report baidu-oneapi"
   }
 });
 
+const malformedResponsesSse = `data: ${JSON.stringify({
+  type: "response.in_progress",
+  response: { id: "resp_bad_1", status: "in_progress" },
+})}${JSON.stringify({
+  type: "response.in_progress",
+  response: { id: "resp_bad_2", status: "in_progress" },
+})}\n\n`;
+
+const completedResponsesSse = `data: ${JSON.stringify({
+  type: "response.completed",
+  response: {
+    id: "resp_ok",
+    status: "completed",
+    usage: {
+      input_tokens: 1,
+      output_tokens: 1,
+      total_tokens: 2,
+      input_tokens_details: { cached_tokens: 0 },
+      output_tokens_details: { reasoning_tokens: 0 },
+    },
+  },
+})}\n\n`;
+
+function responsesSse(body: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+test("Baidu OneAPI direct Responses stream retries malformed wire envelopes without SDK logs", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalError = console.error;
+  const previousOpenAiLog = process.env.OPENAI_LOG;
+  const sdkErrors: unknown[][] = [];
+  let fetchCalls = 0;
+  process.env.OPENAI_LOG = "debug";
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return responsesSse(fetchCalls === 1 ? malformedResponsesSse : completedResponsesSse);
+  }) as typeof fetch;
+  console.error = (...args: unknown[]) => {
+    sdkErrors.push(args);
+  };
+
+  try {
+    const stream = streamBaiduOneApiOpenAIResponses(
+      baiduTestModel(),
+      { messages: [], tools: [] },
+      { apiKey: "test-key", maxRetryDelayMs: 1 },
+    );
+    const eventTypes: string[] = [];
+    for await (const event of stream) eventTypes.push(event.type);
+
+    assert.equal(fetchCalls, 2);
+    assert.deepEqual(eventTypes, ["start", "done"]);
+    assert.equal((await stream.result()).stopReason, "stop");
+    assert.deepEqual(sdkErrors, []);
+    assert.equal(process.env.OPENAI_LOG, "debug");
+  } finally {
+    if (previousOpenAiLog === undefined) delete process.env.OPENAI_LOG;
+    else process.env.OPENAI_LOG = previousOpenAiLog;
+    console.error = originalError;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Baidu OneAPI direct Responses stream exhausts its bounded default retry budget", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return responsesSse(malformedResponsesSse);
+  }) as typeof fetch;
+
+  try {
+    const stream = streamBaiduOneApiOpenAIResponses(
+      baiduTestModel(),
+      { messages: [], tools: [] },
+      { apiKey: "test-key", maxRetryDelayMs: 1 },
+    );
+    const eventTypes: string[] = [];
+    for await (const event of stream) eventTypes.push(event.type);
+
+    assert.equal(fetchCalls, 2);
+    assert.deepEqual(eventTypes, ["start", "error"]);
+    assert.equal((await stream.result()).stopReason, "error");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Baidu OneAPI direct Responses stream honors disabled provider retries", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return responsesSse(malformedResponsesSse);
+  }) as typeof fetch;
+
+  try {
+    const stream = streamBaiduOneApiOpenAIResponses(
+      baiduTestModel(),
+      { messages: [], tools: [] },
+      { apiKey: "test-key", maxRetries: 0, maxRetryDelayMs: 1 },
+    );
+    const eventTypes: string[] = [];
+    for await (const event of stream) eventTypes.push(event.type);
+
+    assert.equal(fetchCalls, 1);
+    assert.deepEqual(eventTypes, ["start", "error"]);
+    const result = await stream.result();
+    assert.equal(result.stopReason, "error");
+    assert.match(result.errorMessage ?? "", /Unexpected non-whitespace character after JSON/u);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Baidu OneAPI direct Responses stream does not retry after visible output", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  const textStart = `data: ${JSON.stringify({
+    type: "response.output_item.added",
+    output_index: 0,
+    item: {
+      type: "message",
+      id: "msg_partial",
+      role: "assistant",
+      status: "in_progress",
+      content: [],
+    },
+  })}\n\n`;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return responsesSse(`${textStart}${malformedResponsesSse}`);
+  }) as typeof fetch;
+
+  try {
+    const stream = streamBaiduOneApiOpenAIResponses(
+      baiduTestModel(),
+      { messages: [], tools: [] },
+      { apiKey: "test-key", maxRetryDelayMs: 1 },
+    );
+    const eventTypes: string[] = [];
+    for await (const event of stream) eventTypes.push(event.type);
+
+    assert.equal(fetchCalls, 1);
+    assert.deepEqual(eventTypes, ["start", "text_start", "error"]);
+    assert.equal((await stream.result()).stopReason, "error");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Baidu OneAPI direct Responses stream does not retry after cancellation", async () => {
+  const originalFetch = globalThis.fetch;
+  const controller = new AbortController();
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    controller.abort(new Error("cancelled by test"));
+    return responsesSse(malformedResponsesSse);
+  }) as typeof fetch;
+
+  try {
+    const stream = streamBaiduOneApiOpenAIResponses(
+      baiduTestModel(),
+      { messages: [], tools: [] },
+      { apiKey: "test-key", signal: controller.signal, maxRetryDelayMs: 1 },
+    );
+    const eventTypes: string[] = [];
+    for await (const event of stream) eventTypes.push(event.type);
+
+    assert.equal(fetchCalls, 1);
+    assert.deepEqual(eventTypes, ["start", "error"]);
+    assert.equal((await stream.result()).stopReason, "aborted");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+function baiduTestModel() {
+  return {
+    id: "gpt-5.6-sol",
+    name: "Baidu test model",
+    api: "baidu-oneapi",
+    provider: "baidu-oneapi",
+    baseUrl: "https://oneapi-comate.baidu-int.com/v1",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 1000,
+    maxTokens: 1000,
+  } as never;
+}
+
 test("Spark CLI host lets ordinary input reach the agent without /spark wrapping", () => {
   const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
   sparkCliHostExtension({
@@ -522,6 +726,642 @@ test("Spark native session queues steering updates while processing", async () =
   assert.equal(calls[0], "first");
   assert.match(calls[1] ?? "", /^Steering update for the previous Spark turn\./);
   assert.match(calls[1] ?? "", /Steering 1:\nsecond/);
+});
+
+test("Spark native session admits busy input to the daemon before observing it", async () => {
+  let releaseFirst: (() => void) | undefined;
+  const admitted: Array<{ prompt: string; submissionId?: string; invocationId: string }> = [];
+  const observed: string[] = [];
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async (prompt: string, context: SparkNativeAdmissionContext) => {
+        const invocationId = `inv_${admitted.length + 1}`;
+        admitted.push({ prompt, submissionId: context.submissionId, invocationId });
+        return {
+          invocationId,
+          status: "queued" as const,
+          acceptedAt: `2026-07-28T00:00:0${admitted.length}.000Z`,
+        };
+      },
+      observe: async (admission: SparkTurnSubmitResult, _context: SparkNativeResponderContext) => {
+        observed.push(admission.invocationId);
+        if (admission.invocationId === "inv_1") {
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          });
+        }
+        return `done ${admission.invocationId}`;
+      },
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      }),
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  assert.equal(await session.submit("first", { submissionId: "idem_first" }), "started");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    await session.submit("second", {
+      mode: "steer",
+      submissionId: "idem_second",
+    }),
+    "queued",
+  );
+  assert.equal(
+    await session.submit("third", {
+      mode: "followUp",
+      submissionId: "idem_third",
+    }),
+    "queued",
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(
+    admitted.map(({ submissionId }) => submissionId),
+    ["idem_first", "idem_second", "idem_third"],
+  );
+  assert.equal(admitted[0]?.prompt, "first");
+  assert.match(admitted[1]?.prompt ?? "", /^Steering update for the previous Spark turn\./u);
+  assert.match(admitted[1]?.prompt ?? "", /Steering 1:\nsecond/u);
+  assert.equal(admitted[2]?.prompt, "third");
+  assert.deepEqual(observed, ["inv_1"]);
+  assert.deepEqual(session.queuedInputs, []);
+  assert.deepEqual(
+    session.daemonPending.map(({ invocationId }) => invocationId),
+    ["inv_1", "inv_2", "inv_3"],
+  );
+
+  releaseFirst?.();
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.deepEqual(observed, ["inv_1", "inv_2", "inv_3"]);
+  assert.equal(session.isProcessing, false);
+  assert.deepEqual(session.daemonPending, []);
+});
+
+test("Spark native session makes definitively rejected admissions recoverable", async () => {
+  let releaseFirst: (() => void) | undefined;
+  const observed: string[] = [];
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async (_prompt: string, context: SparkNativeAdmissionContext) => {
+        if (context.submissionId === "idem_rejected_second") {
+          throw new SparkNativeAdmissionError("workspace policy rejected the turn", "rejected");
+        }
+        return {
+          invocationId: "inv_rejected_first",
+          status: "running" as const,
+          acceptedAt: "2026-07-28T00:00:00.000Z",
+        };
+      },
+      observe: async (admission: SparkTurnSubmitResult) => {
+        observed.push(admission.invocationId);
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+        return "first complete";
+      },
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      }),
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("first", { submissionId: "idem_rejected_first" });
+  await new Promise((resolve) => setImmediate(resolve));
+  await session.submit("recover me", {
+    mode: "followUp",
+    submissionId: "idem_rejected_second",
+  });
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.deepEqual(observed, ["inv_rejected_first"]);
+  assert.deepEqual(session.queuedInputs, []);
+  assert.equal(session.canRestoreQueuedInput, true);
+  assert.equal(session.restoreQueuedText(), "recover me");
+  assert.match(
+    session.messages.map(({ text }) => text).join("\n"),
+    /workspace policy rejected the turn/u,
+  );
+
+  releaseFirst?.();
+  await new Promise((resolve) => setImmediate(resolve));
+});
+
+test("Spark native session retries unknown admission with the same request identity", async () => {
+  const admissions: Array<{ prompt: string; submissionId?: string }> = [];
+  const observed: string[] = [];
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async (prompt: string, context: SparkNativeAdmissionContext) => {
+        admissions.push({ prompt, submissionId: context.submissionId });
+        if (admissions.length === 1) {
+          throw new SparkNativeAdmissionError("connection closed after request write", "unknown");
+        }
+        return {
+          invocationId: "inv_unknown_replay",
+          status: "queued" as const,
+          acceptedAt: "2026-07-28T00:00:00.000Z",
+        };
+      },
+      observe: async (admission: SparkTurnSubmitResult) => {
+        observed.push(admission.invocationId);
+        return "replayed admission complete";
+      },
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      }),
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("submit exactly once", { submissionId: "idem_unknown" });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  for (let index = 0; index < 3; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.deepEqual(admissions, [
+    { prompt: "submit exactly once", submissionId: "idem_unknown" },
+    { prompt: "submit exactly once", submissionId: "idem_unknown" },
+  ]);
+  assert.deepEqual(observed, ["inv_unknown_replay"]);
+  assert.equal(session.canRestoreQueuedInput, false);
+  assert.equal(session.isProcessing, false);
+  assert.match(session.messages.map(({ text }) => text).join("\n"), /unknown outcome/u);
+});
+
+test("Spark native session bounds detach by aborting an unacknowledged admission", async () => {
+  let admissionSignal: AbortSignal | undefined;
+  const cancellations: string[] = [];
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async (_prompt: string, context: SparkNativeAdmissionContext) => {
+        admissionSignal = context.signal;
+        return await new Promise<SparkTurnSubmitResult>((_resolve, reject) => {
+          context.signal?.addEventListener(
+            "abort",
+            () => reject(context.signal?.reason ?? new Error("detached")),
+            { once: true },
+          );
+        });
+      },
+      observe: async () => "must not observe before ACK",
+      cancel: async (invocationId: string) => {
+        cancellations.push(invocationId);
+        return {
+          invocationId,
+          status: "cancelled" as const,
+          cancelRequested: true,
+        };
+      },
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("detach before ACK", { submissionId: "idem_detach_admission" });
+  await new Promise((resolve) => setImmediate(resolve));
+  session.detach();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(admissionSignal?.aborted, true);
+  assert.deepEqual(cancellations, []);
+  assert.equal(session.isProcessing, false);
+  assert.equal(
+    session.messages.some(({ text }) => /rejected the turn/u.test(text)),
+    false,
+  );
+});
+
+test("Spark native session cancels snapshot-owned running then earliest queued invocation", async () => {
+  const cancellations: Array<{ invocationId: string; reason: string }> = [];
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async () => {
+        throw new Error("snapshot cancellation must not submit");
+      },
+      observe: async () => {
+        throw new Error("snapshot cancellation must not observe");
+      },
+      cancel: async (invocationId: string, reason: string) => {
+        cancellations.push({ invocationId, reason });
+        return {
+          invocationId,
+          status: "cancelled" as const,
+          cancelRequested: true,
+        };
+      },
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+  session.applySessionView({
+    ...session.toSessionView("attached"),
+    pendingTurns: [
+      {
+        invocationId: "inv_snapshot_queued_first",
+        prompt: "queued first",
+        status: "queued",
+        createdAt: "2026-07-28T00:00:00.000Z",
+      },
+      {
+        invocationId: "inv_snapshot_running",
+        prompt: "running",
+        status: "running",
+        createdAt: "2026-07-28T00:00:01.000Z",
+      },
+      {
+        invocationId: "inv_snapshot_queued_second",
+        prompt: "queued second",
+        status: "queued",
+        createdAt: "2026-07-28T00:00:02.000Z",
+      },
+    ],
+  });
+
+  assert.equal(session.isProcessing, true);
+  assert.deepEqual(session.abort("stop attached running"), {
+    aborted: true,
+    clearedQueued: 0,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(cancellations, [
+    {
+      invocationId: "inv_snapshot_running",
+      reason: "stop attached running",
+    },
+  ]);
+
+  assert.deepEqual(session.abort("stop earliest queued"), {
+    aborted: true,
+    clearedQueued: 0,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(cancellations, [
+    {
+      invocationId: "inv_snapshot_running",
+      reason: "stop attached running",
+    },
+    {
+      invocationId: "inv_snapshot_queued_first",
+      reason: "stop earliest queued",
+    },
+  ]);
+});
+
+test("Spark native session retains then settles daemon state after live observation disconnects", async () => {
+  let statusReads = 0;
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async () => ({
+        invocationId: "inv_observation_running",
+        status: "running" as const,
+        acceptedAt: "2026-07-28T00:00:00.000Z",
+      }),
+      observe: async () => {
+        throw new Error("stream transport disconnected");
+      },
+      status: async (invocationId: string) => {
+        statusReads += 1;
+        return {
+          invocationId,
+          status: statusReads === 1 ? ("running" as const) : ("succeeded" as const),
+          createdAt: "2026-07-28T00:00:00.000Z",
+          updatedAt: "2026-07-28T00:00:01.000Z",
+          ...(statusReads === 1
+            ? { startedAt: "2026-07-28T00:00:00.500Z" }
+            : { finishedAt: "2026-07-28T00:00:02.000Z" }),
+          eventCursor: 4,
+        };
+      },
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "running" as const,
+        cancelRequested: true,
+      }),
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("keep daemon truth", { submissionId: "idem_observation_running" });
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.deepEqual(
+    session.daemonPending.map(({ invocationId, status }) => ({ invocationId, status })),
+    [{ invocationId: "inv_observation_running", status: "running" }],
+  );
+  assert.equal(session.isProcessing, true);
+  assert.match(
+    session.messages.map(({ text }) => text).join("\n"),
+    /Live observation .* was interrupted: stream transport disconnected/u,
+  );
+  assert.equal(
+    session.messages.some(({ text }) => /Spark turn failed/u.test(text)),
+    false,
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 550));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(statusReads, 2);
+  assert.deepEqual(session.daemonPending, []);
+  assert.equal(session.isProcessing, false);
+});
+
+test("Spark native session aborts status reconciliation when the TUI detaches", async () => {
+  let statusSignal: AbortSignal | undefined;
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async () => ({
+        invocationId: "inv_status_detach",
+        status: "running" as const,
+        acceptedAt: "2026-07-28T00:00:00.000Z",
+      }),
+      observe: async () => {
+        throw new Error("stream transport disconnected");
+      },
+      status: async (invocationId: string, context?: { readonly signal?: AbortSignal }) => {
+        statusSignal = context?.signal;
+        return await new Promise<{
+          invocationId: string;
+          status: "running";
+          createdAt: string;
+          updatedAt: string;
+          eventCursor: number;
+        }>((_resolve, reject) => {
+          context?.signal?.addEventListener(
+            "abort",
+            () => reject(context.signal?.reason ?? new Error("detached")),
+            { once: true },
+          );
+        });
+      },
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "running" as const,
+        cancelRequested: true,
+      }),
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("detach during status read", { submissionId: "idem_status_detach" });
+  for (let index = 0; index < 4 && !statusSignal; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.notEqual(statusSignal, undefined);
+
+  session.detach();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(statusSignal?.aborted, true);
+  assert.equal(session.isProcessing, false);
+});
+
+test("Spark native session settles observation failures from exact daemon status", async () => {
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async () => ({
+        invocationId: "inv_observation_failed",
+        status: "running" as const,
+        acceptedAt: "2026-07-28T00:00:00.000Z",
+      }),
+      observe: async () => {
+        throw new Error("stream ended");
+      },
+      status: async (invocationId: string) => ({
+        invocationId,
+        status: "failed" as const,
+        createdAt: "2026-07-28T00:00:00.000Z",
+        updatedAt: "2026-07-28T00:00:01.000Z",
+        finishedAt: "2026-07-28T00:00:01.000Z",
+        error: { code: "provider_error", message: "provider upstream 503" },
+        eventCursor: 4,
+      }),
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "failed" as const,
+        cancelRequested: false,
+      }),
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("surface daemon failure", { submissionId: "idem_observation_failed" });
+  for (let index = 0; index < 4; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.deepEqual(session.daemonPending, []);
+  assert.equal(session.isProcessing, false);
+  assert.match(
+    session.messages.map(({ text }) => text).join("\n"),
+    /Spark turn failed: provider upstream 503/u,
+  );
+});
+
+test("Spark native session defers exact daemon cancellation until admission is acknowledged", async () => {
+  let acknowledgeFirst: ((receipt: SparkTurnSubmitResult) => void) | undefined;
+  let releaseCancelledObservation: (() => void) | undefined;
+  const admissions: string[] = [];
+  const cancellations: Array<{ invocationId: string; reason: string }> = [];
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async (prompt: string) => {
+        admissions.push(prompt);
+        if (admissions.length === 1) {
+          return await new Promise<SparkTurnSubmitResult>((resolve) => {
+            acknowledgeFirst = resolve;
+          });
+        }
+        return {
+          invocationId: "inv_2",
+          status: "queued" as const,
+          acceptedAt: "2026-07-28T00:00:02.000Z",
+        };
+      },
+      observe: async (admission: SparkTurnSubmitResult, _context: SparkNativeResponderContext) => {
+        if (admission.invocationId === "inv_1") {
+          if (cancellations.some(({ invocationId }) => invocationId === admission.invocationId)) {
+            throw new Error("cancelled by daemon");
+          }
+          await new Promise<void>((resolve) => {
+            releaseCancelledObservation = resolve;
+          });
+          throw new Error("cancelled by daemon");
+        }
+        return "second complete";
+      },
+      cancel: async (invocationId: string, reason: string) => {
+        cancellations.push({ invocationId, reason });
+        releaseCancelledObservation?.();
+        return {
+          invocationId,
+          status: "cancelled" as const,
+          cancelRequested: true,
+        };
+      },
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("first", { submissionId: "idem_cancel_first" });
+  await session.submit("leave queued", {
+    mode: "followUp",
+    submissionId: "idem_cancel_second",
+  });
+  assert.deepEqual(session.abort("operator stop"), {
+    aborted: true,
+    clearedQueued: 0,
+  });
+  assert.deepEqual(cancellations, []);
+
+  acknowledgeFirst?.({
+    invocationId: "inv_1",
+    status: "running",
+    acceptedAt: "2026-07-28T00:00:01.000Z",
+  });
+  for (let index = 0; index < 5; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  assert.deepEqual(cancellations, [{ invocationId: "inv_1", reason: "operator stop" }]);
+  assert.equal(admissions.length, 2);
+  assert.equal(
+    session.messages.some((message) => /Stopped current Spark turn/u.test(message.text)),
+    false,
+  );
+  assert.equal(
+    session.messages.some((message) =>
+      /Cancellation will be requested as soon as daemon admission is acknowledged/u.test(
+        message.text,
+      ),
+    ),
+    true,
+  );
+});
+
+test("Spark native session does not claim a daemon turn stopped when cancellation is unconfirmed", async () => {
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async () => ({
+        invocationId: "inv_unconfirmed",
+        status: "running" as const,
+        acceptedAt: "2026-07-28T00:00:00.000Z",
+      }),
+      observe: async (_admission: SparkTurnSubmitResult, context: SparkNativeResponderContext) =>
+        await new Promise<string>((_resolve, reject) => {
+          context.signal?.addEventListener(
+            "abort",
+            () => reject(context.signal?.reason ?? new Error("detached")),
+            { once: true },
+          );
+        }),
+      cancel: async () => {
+        throw new Error("connection closed before response");
+      },
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("long daemon turn", { submissionId: "idem_unconfirmed" });
+  await new Promise((resolve) => setImmediate(resolve));
+  session.abort("operator stop");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(
+    session.messages.some((message) =>
+      /Cancellation for daemon invocation inv_unconfirmed could not be confirmed/u.test(
+        message.text,
+      ),
+    ),
+    true,
+  );
+  assert.equal(
+    session.messages.some((message) => /Stopped current Spark turn/u.test(message.text)),
+    false,
+  );
+
+  session.detach();
+  await new Promise((resolve) => setImmediate(resolve));
+});
+
+test("Spark native session surfaces terminal provider failure when cancellation loses the race", async () => {
+  let rejectObservation: ((error: Error) => void) | undefined;
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async () => ({
+        invocationId: "inv_cancel_provider",
+        status: "running" as const,
+        acceptedAt: "2026-07-28T00:00:00.000Z",
+      }),
+      observe: async () =>
+        await new Promise<string>((_resolve, reject) => {
+          rejectObservation = reject;
+        }),
+      status: async (invocationId: string) => ({
+        invocationId,
+        status: "failed" as const,
+        createdAt: "2026-07-28T00:00:00.000Z",
+        updatedAt: "2026-07-28T00:00:01.000Z",
+        finishedAt: "2026-07-28T00:00:01.000Z",
+        error: { code: "provider_error", message: "provider upstream 503" },
+        eventCursor: 1,
+      }),
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "failed" as const,
+        cancelRequested: false,
+      }),
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("provider may fail", { submissionId: "idem_cancel_provider" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(session.abort("operator stop"), {
+    aborted: true,
+    clearedQueued: 0,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  rejectObservation?.(new Error("provider upstream 503"));
+  for (let index = 0; index < 3; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  const transcript = session.messages.map(({ text }) => text).join("\n");
+  assert.match(
+    transcript,
+    /inv_cancel_provider was already failed; no new cancellation was recorded/u,
+  );
+  assert.match(transcript, /Spark turn failed: provider upstream 503/u);
+  assert.doesNotMatch(transcript, /Cancellation requested for daemon invocation/u);
+  assert.doesNotMatch(transcript, /Stopped current Spark turn/u);
+  assert.deepEqual(session.daemonPending, []);
 });
 
 test("Spark CLI host preserves slash commands and shell input", () => {

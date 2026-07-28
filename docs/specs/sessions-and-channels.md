@@ -40,7 +40,18 @@ A Side Thread is a daemon-owned, read-only child conversation attached to one pe
 
 All side-thread mutations use the dedicated daemon controller. Submit, reset, configure, and handoff require the caller's expected generation; submit and handoff also require idempotency keys, and handoff pins the expected head exchange. Mutations for the same parent are serialized. Reusing an idempotency key with different content or acting on a stale generation/head fails closed instead of guessing. Ordinary session submit, lifecycle, binding, model, and thinking mutation paths reject the hidden child.
 
-Every side-thread model run receives the read-only prompt and `allowedToolEffects=["read"]`. The host enforces the effect policy immediately before tool dispatch, independently of model instructions; unknown, malformed, write, execution, policy-changing, or external side effects are denied. Because extension lifecycle listeners do not yet declare effects, a restricted host also suppresses their dispatch; automatic transcript compaction may still update the child transcript, but post-compact Memory/candidate hooks cannot mutate workspace state. A side-thread answer can describe a possible change, but it cannot claim that the change was performed.
+Every side-thread model run receives the read-only prompt and `allowedToolEffects=["read"]`. The host enforces the effect policy immediately before tool dispatch, independently of model instructions; unknown, malformed, write, execution, policy-changing, or external side effects are denied. Restricted hosts also suppress lifecycle listeners whose effects are missing, malformed, or outside that allowlist; automatic transcript compaction may still update the child transcript, but post-compact Memory/candidate hooks cannot mutate workspace state. A side-thread answer can describe a possible change, but it cannot claim that the change was performed.
+
+The executable contract is layered rather than inferred from prompt text:
+
+- `packages/spark-host/src/runtime.test.ts` owns `HOST-EFFECT-001` through
+  `HOST-EFFECT-003` for tool admission, stale active-bit rechecks, lifecycle
+  effects, and ordinary-session compatibility;
+- `apps/spark-daemon/src/spark/session-run.test.ts` proves a Side Thread run
+  installs the read-only allowlist before host construction and that write or
+  unclassified compaction hooks remain suppressed;
+- `test/spark-agent-loop.test.ts` proves the agent loop rechecks host policy at
+  final dispatch.
 
 Snapshots are display projections capped below the runtime command envelope: oversized prompts and answers are UTF-8-safely shortened with explicit truncation metadata, and older exchanges are paged out before transport. The native transcript remains intact. `handoff full` admits the complete visible side-thread exchanges from that transcript to the parent subject to its separate 48 KiB admission cap; `handoff summary` admits a compact bounded rendering. Both treat the material as untrusted analysis that the parent must verify. The daemon admits the parent invocation before it resets the child generation, and an idempotent replay completes any still-pending reset without submitting a second parent turn.
 
@@ -85,7 +96,11 @@ active for the sender).
 
 ## Channel policy
 
-A channel-bound host exposes only canonical `session`. It permanently disables cue tools, `role`, `assign`, and `workflow_run`, including after extension lifecycle events. The caller may inspect same-workspace sessions, request work only from an unarchived local session, and may not perform lifecycle or call actions.
+A channel-bound host exposes only canonical `session`, `ask`, `context`, and
+`todo`. It permanently disables cue tools, `role`, `assign`, and
+`workflow_run`, including after extension lifecycle events. The caller may
+inspect same-workspace sessions, request work only from an unarchived local
+session, and may not perform lifecycle or call actions.
 
 Inbound adapters first persist a normalized, raw-payload-free receipt in the daemon SQLite ledger. A leased worker then resolves/binds the platform conversation and submits the exact human body with channel origin metadata. `(workspace, adapter, externalKey, platformMessageId)` produces a stable hashed identity, so platform replay and overlapping restart generations converge on one invocation. Messages whose platform supplies no ID remain at-least-once.
 

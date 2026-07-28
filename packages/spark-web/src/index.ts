@@ -277,6 +277,25 @@ export function githubRawUrlFor(url: URL): string | undefined {
   return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${pathParts.join("/")}`;
 }
 
+export function truncateSparkWebText(text: string, maxChars: number): string {
+  if (!Number.isFinite(maxChars) || maxChars <= 0)
+    throw new Error("web text limit must be positive");
+  const limit = Math.floor(maxChars);
+  if (text.length <= limit) return text;
+
+  let prefixLength = limit - "\n[truncated]".length;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const suffix = `\n[truncated ${text.length - prefixLength} chars]`;
+    const nextPrefixLength = limit - suffix.length;
+    if (nextPrefixLength === prefixLength) return `${text.slice(0, prefixLength)}${suffix}`;
+    prefixLength = nextPrefixLength;
+  }
+
+  const suffix = `\n[truncated ${text.length - prefixLength} chars]`;
+  if (suffix.length >= limit) return suffix.slice(0, limit);
+  return `${text.slice(0, limit - suffix.length)}${suffix}`;
+}
+
 export function renderSearchResponses(responses: readonly SparkWebSearchResponse[]): string {
   return responses
     .map((response) => {

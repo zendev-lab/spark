@@ -5,7 +5,14 @@ import {
   createSparkSessionRepro,
   evaluateStageGate,
   isPhaseComplete,
+  isReproRequirementSatisfied,
   recordReproRequirementProof,
+  reviseReproPlan,
+  settleReproTick,
+  stepDefinitionDigest,
+  updateReproStep,
+  verifyReproStepPass,
+  type SparkReproStepDefinition,
   type SparkReproRequirementProof,
   type SparkSessionRepro,
 } from "./index.ts";
@@ -13,6 +20,29 @@ import {
 const ref = (id: string) => `evidence:${id}` as EvidenceRef;
 
 describe("spark-repro", () => {
+  it("starts with a draft Goal Contract and a typed plan seeded from fixed gates", () => {
+    const repro = createSparkSessionRepro("session:test", undefined, {
+      objective: "Reproduce target logits",
+    });
+
+    expect(repro.version).toBe(4);
+    expect(repro.goalContract).toMatchObject({
+      status: "draft",
+      objective: "Reproduce target logits",
+    });
+    expect(repro.plan.currentRevision).toBe(1);
+    expect(repro.plan).toMatchObject({ difficulty: 8, minimumStepCount: 11 });
+    expect(repro.plan.steps[0]).toMatchObject({
+      id: "repro-contract-frozen",
+      stage: "setup",
+      authority: "safe_local",
+      status: "pending",
+    });
+    expect(
+      repro.plan.steps.find((step) => step.id === "implementation-strategy-approved"),
+    ).toMatchObject({ authority: "ask_decision" });
+  });
+
   it("requires research, explicit decisions, and a passing probe during setup", () => {
     let repro = createSparkSessionRepro("session:test");
     const proofs: Array<[string, SparkReproRequirementProof]> = [
@@ -78,4 +108,226 @@ describe("spark-repro", () => {
     })!;
     expect(repro.stages[2]?.gate?.evaluation).toBeUndefined();
   });
+
+  it("appends plan revisions, preserves unchanged progress, and reopens a changed contract", () => {
+    let repro = createSparkSessionRepro("session:test", undefined, {
+      objective: "Original objective",
+    });
+    repro = recordReproRequirementProof(repro, "repro-contract-frozen", {
+      kind: "evidence",
+      evidenceRefs: [ref("contract")],
+    })!;
+    repro = recordReproRequirementProof(repro, "competitor-baseline-availability-researched", {
+      kind: "evidence",
+      evidenceRefs: [ref("baseline")],
+    })!;
+    const steps = repro.plan.steps.map(stepDefinition);
+
+    repro = reviseReproPlan(repro, {
+      reason: "Clarify the reproduction target",
+      goalContract: {
+        objective: "Revised objective",
+        constraints: ["Use official weights"],
+        nonGoals: ["Performance tuning"],
+        successCriteria: ["20-step bitwise parity"],
+        evidenceRequired: ["Command output"],
+      },
+      steps,
+    });
+
+    expect(repro.plan.currentRevision).toBe(2);
+    expect(repro.plan.revisions).toHaveLength(2);
+    expect(repro.goalContract.status).toBe("draft");
+    expect(repro.goalContract.evidenceRefs).toEqual([]);
+    expect(
+      isReproRequirementSatisfied(
+        repro.stages[0]!.acceptance.find(
+          (requirement) => requirement.id === "repro-contract-frozen",
+        )!,
+      ),
+    ).toBe(false);
+    expect(repro.plan.steps.find((step) => step.id === "repro-contract-frozen")).toMatchObject({
+      status: "pending",
+      evidenceRefs: [],
+    });
+    expect(
+      repro.plan.steps.find((step) => step.id === "competitor-baseline-availability-researched"),
+    ).toMatchObject({ status: "pending", evidenceRefs: [] });
+  });
+
+  it("rejects incomplete or cyclic plan revisions", () => {
+    const repro = createSparkSessionRepro("session:test");
+    const steps = repro.plan.steps.map(stepDefinition);
+
+    expect(() =>
+      reviseReproPlan(repro, {
+        reason: "Introduce a cycle",
+        steps: steps.map((step, index) =>
+          index === 0
+            ? { ...step, dependsOn: [steps[1]!.id] }
+            : index === 1
+              ? { ...step, dependsOn: [steps[0]!.id] }
+              : step,
+        ),
+      }),
+    ).toThrow(/dependency cycle/u);
+    expect(() =>
+      reviseReproPlan(repro, {
+        reason: "Drop a stage",
+        steps: steps.filter((step) => step.stage !== "deliver"),
+      }),
+    ).toThrow(/requires at least one step for stage deliver/u);
+    expect(() =>
+      reviseReproPlan(repro, {
+        reason: "Under-split a hard task",
+        difficulty: 10,
+        steps: steps.filter(
+          (step) =>
+            ![
+              "competitor-baseline-availability-researched",
+              "implementation-landscape-researched",
+              "alignment-paths-researched",
+              "alignment-strategy-approved",
+            ].includes(step.id),
+        ),
+      }),
+    ).toThrow(/difficulty 10 requires at least 13 plan steps/u);
+    expect(() =>
+      reviseReproPlan(repro, {
+        reason: "Depend on future-stage work",
+        steps: steps.map((step) =>
+          step.id === "repro-contract-frozen" ? { ...step, dependsOn: ["pr-submitted"] } : step,
+        ),
+      }),
+    ).toThrow(/cannot depend on later-stage step/u);
+  });
+
+  it("requires a current passing StepVerifier result and asks after three unchanged settlements", () => {
+    let repro = createSparkSessionRepro("session:test");
+    const step = repro.plan.steps.find((candidate) => candidate.id === "repro-contract-frozen")!;
+    const evidenceRefs = [ref("contract")];
+    expect(() => updateReproStep(repro, step.id, { status: "done", evidenceRefs })).toThrow(
+      /requires a passing StepVerifier/u,
+    );
+
+    const staleVerifier = verifyReproStepPass(repro, step.id, {
+      verdict: "Pass",
+      planRevision: repro.plan.currentRevision + 1,
+      definitionDigest: stepDefinitionDigest(step),
+      proofKind: "evidence",
+      evidenceRefs,
+      verifiedDoneWhen: step.doneWhen,
+    });
+    expect(staleVerifier.verdict).toBe("Repair");
+    expect(() =>
+      updateReproStep(repro, step.id, { status: "done", evidenceRefs, verifier: staleVerifier }),
+    ).toThrow(/requires a passing StepVerifier/u);
+
+    const verifier = verifyReproStepPass(repro, step.id, {
+      verdict: "Pass",
+      planRevision: repro.plan.currentRevision,
+      definitionDigest: stepDefinitionDigest(step),
+      proofKind: "evidence",
+      evidenceRefs,
+      verifiedDoneWhen: step.doneWhen,
+    });
+    expect(verifier.verdict).toBe("Pass");
+    repro = updateReproStep(repro, step.id, { status: "done", evidenceRefs, verifier })!;
+    expect(repro.plan.steps.find((candidate) => candidate.id === step.id)).toMatchObject({
+      status: "done",
+      verification: { verdict: "Pass", planRevision: 1 },
+    });
+
+    expect(settleReproTick(repro).decision).toBe("continue");
+    repro = settleReproTick(repro).repro;
+    repro = settleReproTick(repro).repro;
+    repro = settleReproTick(repro).repro;
+    const third = settleReproTick(repro);
+    expect(third.decision).toBe("ask");
+    expect(third.repro.stopGuard.stagnationCount).toBe(3);
+
+    const progressed = updateReproStep(third.repro, "repro-contract-frozen", {
+      status: "in_progress",
+    })!;
+    const reset = settleReproTick(progressed);
+    expect(reset.decision).toBe("continue");
+    expect(reset.repro.stopGuard.stagnationCount).toBe(0);
+  });
+
+  it("requires an explicit approve answer for approval Steps", () => {
+    let repro = createSparkSessionRepro("session:test");
+    const approvalStepId = "repro-contract-frozen";
+    repro = reviseReproPlan(repro, {
+      reason: "Make contract freeze an explicit approval",
+      steps: repro.plan.steps.map((step) =>
+        step.id === approvalStepId
+          ? { ...stepDefinition(step), authority: "ask_approval" as const }
+          : stepDefinition(step),
+      ),
+    });
+    const step = repro.plan.steps.find((candidate) => candidate.id === approvalStepId)!;
+    const evidenceRefs = [ref("approval")];
+    const rejected = verifyReproStepPass(repro, step.id, {
+      verdict: "Pass",
+      planRevision: repro.plan.currentRevision,
+      definitionDigest: stepDefinitionDigest(step),
+      proofKind: "approval",
+      evidenceRefs,
+      verifiedDoneWhen: step.doneWhen,
+      askRequestHash: "request-hash",
+      acceptedAnswerHash: "answer-hash",
+      selectedValues: ["reject"],
+      approvalResult: "approved",
+    });
+    expect(rejected.verdict).toBe("Repair");
+
+    const approved = verifyReproStepPass(repro, step.id, {
+      verdict: "Pass",
+      planRevision: repro.plan.currentRevision,
+      definitionDigest: stepDefinitionDigest(step),
+      proofKind: "approval",
+      evidenceRefs,
+      verifiedDoneWhen: step.doneWhen,
+      askRequestHash: "request-hash",
+      acceptedAnswerHash: "answer-hash",
+      selectedValues: ["approve"],
+      approvalResult: "approved",
+    });
+    expect(approved.verdict).toBe("Pass");
+    repro = updateReproStep(repro, step.id, { status: "done", evidenceRefs, verifier: approved })!;
+    expect(repro.plan.steps.find((candidate) => candidate.id === step.id)?.status).toBe("done");
+  });
+
+  it("does not start a step before its dependencies finish", () => {
+    let repro = createSparkSessionRepro("session:test");
+    repro = reviseReproPlan(repro, {
+      reason: "Make setup ordering explicit",
+      steps: repro.plan.steps.map((step) =>
+        step.id === "competitor-baseline-availability-researched"
+          ? { ...stepDefinition(step), dependsOn: ["repro-contract-frozen"] }
+          : stepDefinition(step),
+      ),
+    });
+
+    expect(() =>
+      updateReproStep(repro, "competitor-baseline-availability-researched", {
+        status: "done",
+        evidenceRefs: [ref("baseline")],
+      }),
+    ).toThrow(/incomplete dependencies: repro-contract-frozen/u);
+  });
 });
+
+function stepDefinition(
+  step: SparkSessionRepro["plan"]["steps"][number],
+): SparkReproStepDefinition {
+  return {
+    id: step.id,
+    stage: step.stage,
+    goal: step.goal,
+    doneWhen: step.doneWhen,
+    evidenceRequired: step.evidenceRequired,
+    authority: step.authority,
+    ...(step.dependsOn ? { dependsOn: step.dependsOn } : {}),
+  };
+}

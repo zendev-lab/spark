@@ -1,15 +1,9 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
   import {
-    Composer,
     ConversationViewport,
     Message as ConversationMessage,
-    SessionQueue,
-    SessionStatusBar,
-    SlashActionBar,
-    SlashCommandMenu,
   } from "$lib/components/conversation";
-  import { ModelRuntimeControl } from "$lib/components/model-selector";
   import Icon from "$lib/Icon.svelte";
   import SessionAskPanel from "$lib/SessionAskPanel.svelte";
   import type { Snippet } from "svelte";
@@ -21,15 +15,25 @@
   let {
     host,
     sessionDetails,
+    activityPaneOpen,
+    onToggleActivityPane,
   }: {
     host: SessionConversationHost;
     sessionDetails: Snippet<[boolean?]>;
+    activityPaneOpen: boolean;
+    onToggleActivityPane: () => void;
   } = $props();
 
   let sideThreadOpen = $state(false);
 </script>
 
-<SessionStageHeader {host} {sessionDetails} onOpenSideThread={() => (sideThreadOpen = true)} />
+<SessionStageHeader
+  {host}
+  {sessionDetails}
+  {activityPaneOpen}
+  {onToggleActivityPane}
+  onOpenSideThread={() => (sideThreadOpen = true)}
+/>
 
     {#key host.selected.sessionId}
       <ConversationViewport
@@ -126,6 +130,11 @@
       <input type="hidden" name="message" value={host.retryPrompt} />
     </form>
 
+    {#if host.sessionPendingAsk && host.askDetailMessages}
+      <div class="session-ask-dock">
+        <SessionAskPanel ask={host.sessionPendingAsk} messages={host.askDetailMessages} />
+      </div>
+    {/if}
 
 <SessionComposerPane {host} />
 
@@ -170,5 +179,14 @@
     font-size: 13px;
     line-height: 1.5;
     max-width: 380px;
+  }
+
+  .session-ask-dock {
+    align-self: center;
+    flex: 0 0 auto;
+    max-height: min(42dvh, 460px);
+    max-width: 800px;
+    overflow-y: auto;
+    width: 100%;
   }
 </style>

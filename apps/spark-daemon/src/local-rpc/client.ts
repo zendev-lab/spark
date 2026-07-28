@@ -1,19 +1,15 @@
-import { randomUUID } from "node:crypto";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import {
-  requestSparkDaemonLocalRpcWire,
-  SparkDaemonLocalRpcError,
-  SparkDaemonLocalRpcRemoteError,
-  SparkDaemonLocalRpcUnavailableError,
-} from "@zendev-lab/spark-daemon-client/local-rpc";
+  requestSparkDaemon,
+  SparkDaemonRemoteError,
+  SparkDaemonRpcError,
+  SparkDaemonUnavailableError,
+} from "@zendev-lab/spark-daemon-client";
 import type { ChannelNotifyInput, ChannelsConfig } from "@zendev-lab/spark-channels";
 import {
-  parseSparkSessionView,
-  sparkDriverListResultSchema,
-  sparkDriverMutationResultSchema,
-  sparkTurnCancelResultSchema,
-  sparkTurnStatusResultSchema,
-  sparkTurnStreamPageSchema,
+  type SparkLocalRpcInput,
+  type SparkLocalRpcMethod,
+  type SparkLocalRpcOutput,
   type SparkSessionView,
   type SparkDriverListResult,
   type SparkDriverMutationRequest,
@@ -25,7 +21,6 @@ import {
 } from "@zendev-lab/spark-protocol";
 import {
   LocalRpcUnavailableError,
-  localRpcSocketPath,
   type LocalDaemonRestartResult,
   type LocalDaemonStatusResult,
   type LocalDaemonStopResult,
@@ -46,7 +41,6 @@ import {
   type LocalWorkspaceRegisterRequest,
   type LocalWorkspaceRelocateRequest,
   type LocalWorkspaceRelocateResult,
-  type LocalRpcWireRequest,
   type WorkspaceListResult,
 } from "./types.ts";
 import {
@@ -75,114 +69,82 @@ import type { DaemonChannelIngressStatus } from "../channels/ingress.ts";
 import type { SparkDaemonWorkspace } from "../store/workspaces.js";
 
 export async function requestWorkspaceList(paths: SparkPaths): Promise<WorkspaceListResult> {
-  return localRpcRequest(paths, { id: localRequestId(), method: "workspace.list" }, workspaceList);
+  return workspaceList(await localRpcRequest(paths, "workspace.list", {}));
 }
 
 export async function requestDaemonStatus(paths: SparkPaths): Promise<LocalDaemonStatusResult> {
-  return localRpcRequest(paths, { id: localRequestId(), method: "daemon.status" }, daemonStatus);
+  return daemonStatus(await localRpcRequest(paths, "daemon.status", {}));
 }
 
 export async function requestDaemonStop(paths: SparkPaths): Promise<LocalDaemonStopResult> {
-  return localRpcRequest(paths, { id: localRequestId(), method: "daemon.stop" }, daemonStop);
+  return daemonStop(await localRpcRequest(paths, "daemon.stop", {}));
 }
 
 export async function requestDaemonRestart(paths: SparkPaths): Promise<LocalDaemonRestartResult> {
-  return localRpcRequest(paths, { id: localRequestId(), method: "daemon.restart" }, daemonRestart);
+  return daemonRestart(await localRpcRequest(paths, "daemon.restart", {}));
 }
 
 export async function requestHumanInteractionList(
   paths: SparkPaths,
   params: LocalHumanInteractionListParams = {},
 ): Promise<LocalHumanInteractionListResult> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "human.interaction.list", params },
-    (value) => value as LocalHumanInteractionListResult,
-  );
+  return localRpcRequest(paths, "human.interaction.list", params);
 }
 
 export async function requestHumanInteractionRespond(
   paths: SparkPaths,
   params: LocalHumanInteractionRespondParams,
 ): Promise<LocalHumanInteractionRespondResult> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "human.interaction.respond", params },
-    (value) => value as LocalHumanInteractionRespondResult,
-  );
+  return localRpcRequest(paths, "human.interaction.respond", params);
 }
 
 export async function requestDriverStart(
   paths: SparkPaths,
   params: SparkDriverStartRequest,
 ): Promise<SparkDriverMutationResult> {
-  return localRpcRequest(paths, { id: localRequestId(), method: "driver.start", params }, (value) =>
-    sparkDriverMutationResultSchema.parse(value),
-  );
+  return localRpcRequest(paths, "driver.start", params);
 }
 
 export async function requestDriverStatus(
   paths: SparkPaths,
   params: SparkDriverStatusRequest = { includeStopped: false },
 ): Promise<SparkDriverListResult> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "driver.status", params },
-    (value) => sparkDriverListResultSchema.parse(value),
-  );
+  return localRpcRequest(paths, "driver.status", params);
 }
 
 export async function requestDriverStop(
   paths: SparkPaths,
   params: SparkDriverMutationRequest,
 ): Promise<SparkDriverMutationResult> {
-  return requestDriverMutation(paths, "driver.stop", params);
+  return localRpcRequest(paths, "driver.stop", params);
 }
 
 export async function requestDriverRestart(
   paths: SparkPaths,
   params: SparkDriverMutationRequest,
 ): Promise<SparkDriverMutationResult> {
-  return requestDriverMutation(paths, "driver.restart", params);
+  return localRpcRequest(paths, "driver.restart", params);
 }
 
 export async function requestDriverWake(
   paths: SparkPaths,
   params: SparkDriverWakeRequest,
 ): Promise<SparkDriverMutationResult> {
-  return requestDriverMutation(paths, "driver.wake", params);
+  return localRpcRequest(paths, "driver.wake", params);
 }
 
 export async function requestDriverSchedule(
   paths: SparkPaths,
   params: SparkDriverScheduleRequest,
 ): Promise<SparkDriverMutationResult> {
-  return requestDriverMutation(paths, "driver.schedule", params);
-}
-
-async function requestDriverMutation(
-  paths: SparkPaths,
-  method: "driver.stop" | "driver.restart" | "driver.wake" | "driver.schedule",
-  params: SparkDriverMutationRequest | SparkDriverWakeRequest | SparkDriverScheduleRequest,
-): Promise<SparkDriverMutationResult> {
-  return localRpcRequest(paths, { id: localRequestId(), method, params }, (value) =>
-    sparkDriverMutationResultSchema.parse(value),
-  );
+  return localRpcRequest(paths, "driver.schedule", params);
 }
 
 export async function requestChannelStatus(
   paths: SparkPaths,
   workspaceId: string,
 ): Promise<DaemonChannelIngressStatus> {
-  return localRpcRequest(
-    paths,
-    {
-      id: localRequestId(),
-      method: "channel.status",
-      params: { workspaceId },
-    },
-    channelIngressStatus,
-  );
+  return channelIngressStatus(await localRpcRequest(paths, "channel.status", { workspaceId }));
 }
 
 export async function requestChannelConfigure(
@@ -190,14 +152,8 @@ export async function requestChannelConfigure(
   workspaceId: string,
   config: ChannelsConfig,
 ): Promise<DaemonChannelIngressStatus> {
-  return localRpcRequest(
-    paths,
-    {
-      id: localRequestId(),
-      method: "channel.configure",
-      params: { workspaceId, config },
-    },
-    channelIngressStatus,
+  return channelIngressStatus(
+    await localRpcRequest(paths, "channel.configure", { workspaceId, config }),
   );
 }
 
@@ -205,82 +161,50 @@ export async function requestChannelReload(
   paths: SparkPaths,
   workspaceId: string,
 ): Promise<DaemonChannelIngressStatus> {
-  return localRpcRequest(
-    paths,
-    {
-      id: localRequestId(),
-      method: "channel.reload",
-      params: { workspaceId },
-    },
-    channelIngressStatus,
-  );
+  return channelIngressStatus(await localRpcRequest(paths, "channel.reload", { workspaceId }));
 }
 
 export async function requestChannelNotify(
   paths: SparkPaths,
   params: ChannelNotifyInput & { workspaceId: string },
-): Promise<unknown> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "channel.notify", params },
-    (value) => value,
-  );
+): Promise<SparkLocalRpcOutput<"channel.notify">> {
+  return localRpcRequest(paths, "channel.notify", params);
 }
 
 export async function requestTurnSubmit(
   paths: SparkPaths,
   params: LocalTurnSubmitParams,
 ): Promise<LocalTurnSubmitResult> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "turn.submit", params: localTurnSubmitParams(params) },
-    turnSubmit,
-  );
+  return turnSubmit(await localRpcRequest(paths, "turn.submit", localTurnSubmitParams(params)));
 }
 
 export async function requestTurnStatus(
   paths: SparkPaths,
   invocationId: string,
 ): Promise<LocalTurnStatusResult> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "turn.status", params: { invocationId } },
-    (value) => sparkTurnStatusResultSchema.parse(value),
-  );
+  return localRpcRequest(paths, "turn.status", { invocationId });
 }
 
 export async function requestTurnStream(
   paths: SparkPaths,
   params: { invocationId: string; after?: number; limit?: number },
 ): Promise<LocalTurnStreamResult> {
-  return localRpcRequest(paths, { id: localRequestId(), method: "turn.stream", params }, (value) =>
-    sparkTurnStreamPageSchema.parse(value),
-  );
+  return localRpcRequest(paths, "turn.stream", params);
 }
 
 export async function requestTurnCancel(
   paths: SparkPaths,
   params: LocalTurnCancelParams,
 ): Promise<LocalTurnCancelResult> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "turn.cancel", params: localTurnCancelParams(params) },
-    (value) => sparkTurnCancelResultSchema.parse(value),
-  );
+  return localRpcRequest(paths, "turn.cancel", localTurnCancelParams(params));
 }
 
 export async function requestWorkspaceRegister(
   paths: SparkPaths,
   params: LocalWorkspaceRegisterRequest,
 ): Promise<SparkDaemonWorkspace> {
-  return localRpcRequest(
-    paths,
-    {
-      id: localRequestId(),
-      method: "workspace.register",
-      params: localWorkspaceRegisterParams(params),
-    },
-    sparkDaemonWorkspace,
+  return sparkDaemonWorkspace(
+    await localRpcRequest(paths, "workspace.register", localWorkspaceRegisterParams(params)),
   );
 }
 
@@ -288,66 +212,42 @@ export async function requestWorkspaceRelocate(
   paths: SparkPaths,
   params: LocalWorkspaceRelocateRequest,
 ): Promise<LocalWorkspaceRelocateResult> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "workspace.relocate", params },
-    relocationResult,
-  );
+  return relocationResult(await localRpcRequest(paths, "workspace.relocate", params));
 }
 
 export async function requestUplinkPark(
   paths: SparkPaths,
   params: { serverUrl: string },
-): Promise<unknown> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "uplink.park", params },
-    (value) => value,
-  );
+): Promise<SparkLocalRpcOutput<"uplink.park">> {
+  return localRpcRequest(paths, "uplink.park", params);
 }
 
 export async function requestUplinkUnpark(
   paths: SparkPaths,
   params: { serverUrl: string },
-): Promise<unknown> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "uplink.unpark", params },
-    (value) => value,
-  );
+): Promise<SparkLocalRpcOutput<"uplink.unpark">> {
+  return localRpcRequest(paths, "uplink.unpark", params);
 }
 
 export async function requestUplinkPrefer(
   paths: SparkPaths,
   params: { workspace: string; serverUrl: string; force?: boolean },
-): Promise<unknown> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "uplink.prefer", params },
-    (value) => value,
-  );
+): Promise<SparkLocalRpcOutput<"uplink.prefer">> {
+  return localRpcRequest(paths, "uplink.prefer", params);
 }
 
-export async function requestUplinkStatus(paths: SparkPaths): Promise<unknown> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "uplink.status" },
-    (value) => value,
-  );
+export async function requestUplinkStatus(
+  paths: SparkPaths,
+): Promise<SparkLocalRpcOutput<"uplink.status">> {
+  return localRpcRequest(paths, "uplink.status", {});
 }
 
 export async function requestWorkspaceEnsureLocal(
   paths: SparkPaths,
   params: LocalWorkspaceEnsureLocalRequest,
 ): Promise<SparkDaemonWorkspace> {
-  return localRpcRequest(
-    paths,
-    {
-      id: localRequestId(),
-      method: "workspace.ensure-local",
-      params: localWorkspaceEnsureLocalParams(params),
-    },
-    sparkDaemonWorkspace,
+  return sparkDaemonWorkspace(
+    await localRpcRequest(paths, "workspace.ensure-local", localWorkspaceEnsureLocalParams(params)),
   );
 }
 
@@ -355,36 +255,26 @@ export async function requestWorkspaceAttach(
   paths: SparkPaths,
   id: string,
 ): Promise<SparkDaemonWorkspace> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "workspace.attach", params: { id } },
-    sparkDaemonWorkspace,
-  );
+  return sparkDaemonWorkspace(await localRpcRequest(paths, "workspace.attach", { id }));
 }
 
 export async function requestWorkspaceStop(
   paths: SparkPaths,
   id: string,
 ): Promise<SparkDaemonWorkspace> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "workspace.stop", params: { id } },
-    sparkDaemonWorkspace,
-  );
+  return sparkDaemonWorkspace(await localRpcRequest(paths, "workspace.stop", { id }));
 }
 
 export async function requestWorkspaceClientAttach(
   paths: SparkPaths,
   params: LocalWorkspaceClientAttachRequest,
 ): Promise<LocalWorkspaceClientResult> {
-  return localRpcRequest(
-    paths,
-    {
-      id: localRequestId(),
-      method: "workspace.client.attach",
-      params: localWorkspaceClientAttachParams(params),
-    },
-    localWorkspaceClientResult,
+  return localWorkspaceClientResult(
+    await localRpcRequest(
+      paths,
+      "workspace.client.attach",
+      localWorkspaceClientAttachParams(params),
+    ),
   );
 }
 
@@ -392,14 +282,12 @@ export async function requestWorkspaceClientHeartbeat(
   paths: SparkPaths,
   params: LocalWorkspaceClientHeartbeatRequest,
 ): Promise<LocalWorkspaceClientResult> {
-  return localRpcRequest(
-    paths,
-    {
-      id: localRequestId(),
-      method: "workspace.client.heartbeat",
-      params: localWorkspaceClientHeartbeatParams(params),
-    },
-    localWorkspaceClientResult,
+  return localWorkspaceClientResult(
+    await localRpcRequest(
+      paths,
+      "workspace.client.heartbeat",
+      localWorkspaceClientHeartbeatParams(params),
+    ),
   );
 }
 
@@ -407,10 +295,8 @@ export async function requestWorkspaceClientRelease(
   paths: SparkPaths,
   clientId: string,
 ): Promise<LocalWorkspaceClientResult> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "workspace.client.release", params: { clientId } },
-    localWorkspaceClientResult,
+  return localWorkspaceClientResult(
+    await localRpcRequest(paths, "workspace.client.release", { clientId }),
   );
 }
 
@@ -418,14 +304,12 @@ export async function requestWorkspaceExecutorEnsure(
   paths: SparkPaths,
   params: LocalWorkspaceExecutorEnsureRequest,
 ): Promise<LocalWorkspaceClientResult> {
-  return localRpcRequest(
-    paths,
-    {
-      id: localRequestId(),
-      method: "workspace.executor.ensure",
-      params: localWorkspaceExecutorEnsureParams(params),
-    },
-    localWorkspaceClientResult,
+  return localWorkspaceClientResult(
+    await localRpcRequest(
+      paths,
+      "workspace.executor.ensure",
+      localWorkspaceExecutorEnsureParams(params),
+    ),
   );
 }
 
@@ -433,36 +317,26 @@ export async function requestSessionSnapshot(
   paths: SparkPaths,
   sessionId: string,
 ): Promise<SparkSessionView> {
-  return localRpcRequest(
-    paths,
-    { id: localRequestId(), method: "session.snapshot", params: { sessionId } },
-    parseSparkSessionView,
-  );
+  return localRpcRequest(paths, "session.snapshot", { sessionId });
 }
 
-export async function localRpcRequest<T>(
+export async function localRpcRequest<M extends SparkLocalRpcMethod>(
   paths: SparkPaths,
-  request: LocalRpcWireRequest,
-  parseResult: (value: unknown) => T,
-): Promise<T> {
-  const socketPath = localRpcSocketPath(paths);
+  method: M,
+  params: SparkLocalRpcInput<M>,
+): Promise<SparkLocalRpcOutput<M>> {
   try {
-    const result = await requestSparkDaemonLocalRpcWire<unknown>(request, { socketPath });
-    return parseResult(result);
+    return await requestSparkDaemon(method, params, { paths });
   } catch (error) {
-    if (error instanceof SparkDaemonLocalRpcUnavailableError) {
+    if (error instanceof SparkDaemonUnavailableError) {
       throw new LocalRpcUnavailableError(error.message);
     }
-    if (error instanceof SparkDaemonLocalRpcRemoteError) {
+    if (error instanceof SparkDaemonRemoteError) {
       throw localRpcResponseError(error.payload);
     }
-    if (error instanceof SparkDaemonLocalRpcError) {
+    if (error instanceof SparkDaemonRpcError) {
       throw new Error(error.message);
     }
     throw error;
   }
-}
-
-function localRequestId(): string {
-  return `local-${randomUUID()}`;
 }

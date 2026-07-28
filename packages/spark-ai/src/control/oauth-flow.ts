@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-  OAuthAuthInfo,
-  OAuthDeviceCodeInfo,
-  OAuthLoginCallbacks,
-  OAuthPrompt,
-  OAuthSelectPrompt,
-} from "@earendil-works/pi-ai/oauth";
+import type { OAuthAuthInfo, OAuthDeviceCodeInfo } from "@earendil-works/pi-ai/oauth";
 
-import { SparkAuthStore } from "./auth.ts";
+import {
+  SparkAuthStore,
+  type SparkOAuthLoginCallbacks,
+  type SparkOAuthPrompt,
+  type SparkOAuthSelectPrompt,
+} from "./auth.ts";
 
 export type SparkOAuthFlowPhase =
   | "running"
@@ -155,26 +154,30 @@ export class SparkOAuthFlowBroker {
     }
   }
 
-  #callbacks(flow: SparkOAuthFlowRecord): OAuthLoginCallbacks {
+  #callbacks(flow: SparkOAuthFlowRecord): SparkOAuthLoginCallbacks {
     return {
       onAuth: (info) => this.#onAuth(flow, info),
       onDeviceCode: (info) => this.#onDeviceCode(flow, info),
       onPrompt: async (prompt) => {
-        const response = await this.#waitForInput(flow, textPrompt(prompt));
+        const response = await this.#waitForInput(flow, textPrompt(prompt), prompt.signal);
         if (response === undefined) throw abortError();
         return response;
       },
-      onManualCodeInput: async () => {
-        const response = await this.#waitForInput(flow, {
-          id: randomUUID(),
-          kind: "manual_code",
-          message: "Paste the authorization code",
-          allowEmpty: false,
-        });
+      onManualCodeInput: async (signal) => {
+        const response = await this.#waitForInput(
+          flow,
+          {
+            id: randomUUID(),
+            kind: "manual_code",
+            message: "Paste the authorization code",
+            allowEmpty: false,
+          },
+          signal,
+        );
         if (response === undefined) throw abortError();
         return response;
       },
-      onSelect: (prompt) => this.#waitForInput(flow, selectPrompt(prompt)),
+      onSelect: (prompt) => this.#waitForInput(flow, selectPrompt(prompt), prompt.signal),
       onProgress: (message) => {
         flow.progress = [...flow.progress, redact(message)].slice(-MAX_PROGRESS_ENTRIES);
         this.#touch(flow);
@@ -204,14 +207,30 @@ export class SparkOAuthFlowBroker {
   #waitForInput(
     flow: SparkOAuthFlowRecord,
     prompt: SparkOAuthFlowPrompt,
+    signal?: AbortSignal,
   ): Promise<string | undefined> {
-    if (flow.abortController.signal.aborted) return Promise.resolve(undefined);
+    if (flow.abortController.signal.aborted || signal?.aborted) return Promise.resolve(undefined);
     if (flow.pending) throw new Error("OAuth provider requested overlapping prompts");
     flow.phase = "waiting_for_input";
     flow.prompt = prompt;
     this.#touch(flow);
     return new Promise((resolve) => {
-      flow.pending = { promptId: prompt.id, resolve };
+      const settle = (value: string | undefined): void => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve(value);
+      };
+      const pending: PendingInput = { promptId: prompt.id, resolve: settle };
+      const onAbort = (): void => {
+        if (flow.pending !== pending) return;
+        delete flow.pending;
+        delete flow.prompt;
+        flow.phase = "running";
+        this.#touch(flow);
+        settle(undefined);
+      };
+      flow.pending = pending;
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) onAbort();
     });
   }
 
@@ -234,7 +253,7 @@ export class SparkOAuthFlowBroker {
   }
 }
 
-function textPrompt(prompt: OAuthPrompt): SparkOAuthFlowPrompt {
+function textPrompt(prompt: SparkOAuthPrompt): SparkOAuthFlowPrompt {
   return {
     id: randomUUID(),
     kind: "text",
@@ -244,7 +263,7 @@ function textPrompt(prompt: OAuthPrompt): SparkOAuthFlowPrompt {
   };
 }
 
-function selectPrompt(prompt: OAuthSelectPrompt): SparkOAuthFlowPrompt {
+function selectPrompt(prompt: SparkOAuthSelectPrompt): SparkOAuthFlowPrompt {
   return {
     id: randomUUID(),
     kind: "select",

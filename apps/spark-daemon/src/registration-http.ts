@@ -1,3 +1,5 @@
+import { SparkDaemonControlError } from "./control-error.ts";
+
 export async function fetchRegistrationEndpoint(
   url: URL,
   init: RequestInit,
@@ -7,9 +9,9 @@ export async function fetchRegistrationEndpoint(
     return await fetchFn(url, init);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "workspace_registration_unavailable",
       `Request to ${url.toString()} failed (Cockpit origin: ${url.origin}): ${detail}.${loopbackHint(url)}`,
-      { cause: error },
     );
   }
 }

@@ -1,14 +1,19 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import type { ToolConfig } from "@zendev-lab/spark-core";
 import { describe, expect, it } from "vitest";
+import { registerProductArtifactTool } from "./extension.ts";
 import {
+  PRODUCT_ARTIFACT_PROJECTION_MAX_INLINE_BYTES,
   PRODUCT_ARTIFACT_KINDS,
   defaultProductArtifactStore,
   issueBodyFromSnapshot,
   parseForgeUrl,
   prBodyFromSnapshot,
+  projectProductArtifact,
   attachPrWorktree,
   removePrWorktree,
 } from "./index.ts";
@@ -48,8 +53,195 @@ describe("product artifact kinds", () => {
     if (updated.body.kind !== "preview") throw new Error("expected preview");
     expect(updated.body.version).toBe(2);
     expect(updated.body.progress?.percent).toBe(40);
+    expect(Date.parse(updated.updatedAt)).toBeGreaterThan(Date.parse(created.updatedAt));
     const listed = await store.list({ kind: "preview" });
     expect(listed).toHaveLength(1);
+  });
+
+  it("projects previews through a bounded coarse transport contract", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-product-projection-"));
+    const store = defaultProductArtifactStore(dir);
+    const markdown = await store.put({
+      kind: "preview",
+      title: "Markdown",
+      format: "markdown",
+      body: {
+        schemaVersion: 1,
+        kind: "preview",
+        format: "md",
+        content: "# Durable",
+        version: 3,
+        progress: { stage: "review", percent: 80 },
+      },
+    });
+    expect(projectProductArtifact(markdown)).toEqual({
+      schemaVersion: 1,
+      format: "markdown",
+      mime: "text/markdown; charset=utf-8",
+      sizeBytes: Buffer.byteLength("# Durable"),
+      hash: createHash("sha256").update("# Durable").digest("hex"),
+      contentRef: {
+        productArtifactRef: markdown.ref,
+        previewFormat: "md",
+        version: 3,
+        progress: { stage: "review", percent: 80 },
+        inlineMarkdown: "# Durable",
+      },
+    });
+
+    const rich = await store.put({
+      kind: "preview",
+      title: "HTML",
+      format: "html",
+      body: {
+        schemaVersion: 1,
+        kind: "preview",
+        format: "html",
+        content: "<main>Durable</main>",
+        version: 1,
+      },
+    });
+    expect(projectProductArtifact(rich)).toMatchObject({
+      format: "text",
+      mime: "text/plain; charset=utf-8",
+      contentRef: {
+        productArtifactRef: rich.ref,
+        previewFormat: "html",
+        version: 1,
+        progress: null,
+        inlineText: "<main>Durable</main>",
+      },
+    });
+
+    const oversized = await store.put({
+      kind: "preview",
+      title: "Oversized",
+      format: "mdx",
+      body: {
+        schemaVersion: 1,
+        kind: "preview",
+        format: "mdx",
+        content: "x".repeat(PRODUCT_ARTIFACT_PROJECTION_MAX_INLINE_BYTES + 1),
+        version: 1,
+      },
+    });
+    const projection = projectProductArtifact(oversized);
+    expect(projection.sizeBytes).toBe(PRODUCT_ARTIFACT_PROJECTION_MAX_INLINE_BYTES + 1);
+    expect(projection.contentRef).not.toHaveProperty("inlineText");
+    expect(projection.contentRef).not.toHaveProperty("inlineMarkdown");
+  });
+
+  it.each([
+    {
+      kind: "issue" as const,
+      title: "Issue",
+      body: {
+        schemaVersion: 1 as const,
+        kind: "issue" as const,
+        forge: "github" as const,
+        repo: "acme/app",
+        number: 7,
+        url: "https://github.com/acme/app/issues/7",
+        state: "open",
+        title: "Issue",
+      },
+    },
+    {
+      kind: "pr" as const,
+      title: "PR",
+      body: {
+        schemaVersion: 1 as const,
+        kind: "pr" as const,
+        forge: "github" as const,
+        repo: "acme/app",
+        number: 8,
+        url: "https://github.com/acme/app/pull/8",
+        state: "open",
+        title: "PR",
+        headRef: "feature",
+        baseRef: "main",
+      },
+    },
+  ])("projects $kind bodies as bounded inline JSON", async ({ kind, title, body }) => {
+    const dir = await mkdtemp(join(tmpdir(), `spark-product-${kind}-projection-`));
+    const artifact = await defaultProductArtifactStore(dir).put({
+      kind,
+      title,
+      format: "json",
+      body,
+    });
+    const projection = projectProductArtifact(artifact);
+    expect(projection).toMatchObject({
+      schemaVersion: 1,
+      format: "json",
+      mime: "application/json",
+      hash: createHash("sha256")
+        .update(`${JSON.stringify(body, null, 2)}\n`)
+        .digest("hex"),
+      contentRef: {
+        productArtifactRef: artifact.ref,
+        inlineJson: { kind },
+      },
+    });
+    expect(projection.sizeBytes).toBe(Buffer.byteLength(`${JSON.stringify(body, null, 2)}\n`));
+  });
+
+  it("puts projections on detail results but not list summaries", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-product-projection-tool-"));
+    let tool: ToolConfig | undefined;
+    registerProductArtifactTool({ registerTool: (config) => (tool = config) });
+    if (!tool) throw new Error("artifact tool was not registered");
+    const signal = new AbortController().signal;
+    const created = await tool.execute(
+      "create-preview",
+      {
+        action: "create",
+        kind: "preview",
+        title: "Cockpit preview",
+        format: "md",
+        content: "# Persistent",
+      },
+      signal,
+      () => undefined,
+      { cwd, sessionSource: "tui", hasUI: true },
+    );
+    const artifact = created.details?.artifact;
+    const artifactRef = (created.details?.refs as { artifactRef?: string } | undefined)
+      ?.artifactRef;
+    if (!artifact || typeof artifact !== "object" || Array.isArray(artifact) || !artifactRef) {
+      throw new Error("create result did not include the projected artifact");
+    }
+    const artifactRecord = artifact as Record<string, unknown>;
+    expect(artifactRecord.projection).toMatchObject({
+      schemaVersion: 1,
+      format: "markdown",
+      contentRef: { productArtifactRef: artifactRef, inlineMarkdown: "# Persistent" },
+    });
+
+    const opened = await tool.execute(
+      "open-preview",
+      { action: "open_preview", artifactRef },
+      signal,
+      () => undefined,
+      { cwd, sessionSource: "tui", hasUI: true },
+    );
+    const openedArtifact = opened.details?.artifact;
+    if (!openedArtifact || typeof openedArtifact !== "object" || Array.isArray(openedArtifact)) {
+      throw new Error("open_preview result did not include the projected artifact");
+    }
+    const openedArtifactRecord = openedArtifact as Record<string, unknown>;
+    expect(openedArtifactRecord.projection).toMatchObject({
+      contentRef: { productArtifactRef: artifactRef },
+    });
+
+    const listed = await tool.execute("list-preview", { action: "list" }, signal, () => undefined, {
+      cwd,
+      sessionSource: "tui",
+      hasUI: true,
+    });
+    const summaries = listed.details?.artifacts as Array<Record<string, unknown>>;
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).not.toHaveProperty("projection");
   });
 
   it("parses forge issue and PR URLs", () => {

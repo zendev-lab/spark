@@ -17,7 +17,7 @@ test("Spark resource manager installs, lists, updates, and removes local package
   const dir = await mkdtemp(join(tmpdir(), "spark-resource-parity-"));
   const configPath = join(dir, "config.json");
   const packageRoot = join(dir, "packages");
-  const source = join(dir, "source-skill");
+  const source = join(dir, "resource-bundle");
   try {
     await mkdir(source, { recursive: true });
     await writeFile(
@@ -60,11 +60,7 @@ test("Spark resource manager installs, lists, updates, and removes local package
     );
     assert.match(formatSparkResourceResult(listed), /packages:/);
 
-    const removed = await runSparkResourceCommand("remove", source, {
-      configPath,
-      packageRoot,
-      kind: "skill",
-    });
+    const removed = await runSparkResourceCommand("remove", source, { configPath, packageRoot });
     assert.equal(removed.changed, true);
     const after = JSON.parse(await readFile(configPath, "utf8")) as { skills?: string[] };
     assert.deepEqual(after.skills, []);

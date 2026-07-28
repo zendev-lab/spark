@@ -1,4 +1,5 @@
 import * as piAi from "@earendil-works/pi-ai";
+import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import type {
   AnthropicEffort,
   Api,
@@ -9,16 +10,22 @@ import type {
   SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 
+import {
+  isConcatenatedProviderJsonErrorText,
+  isConcatenatedProviderJsonFailure,
+  retryProviderStreamBeforeOutput,
+} from "./provider-stream-retry.ts";
 import type { ProviderRegistrationAPI } from "./provider-registry.ts";
 
 const BAIDU_ONEAPI_PROVIDER = "baidu-oneapi";
 const BAIDU_ONEAPI_API = "baidu-oneapi";
 const BAIDU_ONEAPI_BASE_URL = "https://oneapi-comate.baidu-int.com";
 const BAIDU_ONEAPI_OPENAI_BASE_URL = `${BAIDU_ONEAPI_BASE_URL}/v1`;
+const BAIDU_ONEAPI_STREAM_MAX_RETRIES = 1;
 
 const GATEWAY_MODEL_BY_ID: Record<string, string> = {
   "claude-opus-4.6": "Claude Opus 4.6",
-  "claude-opus-5": "claude-opus-5",
+  "claude-opus-5": "Opus 5",
   "claude-opus-4.8": "Claude Opus 4.8",
   "claude-sonnet-5": "Claude Sonnet 5",
   "claude-fable-5": "Fable 5",
@@ -46,21 +53,15 @@ type BaiduOneApiTransportStreams = {
 };
 type PiAiRuntimeApi = typeof piAi & {
   lazyApi?: (load: () => Promise<BaiduOneApiTransportStreams>) => BaiduOneApiTransportStreams;
-  anthropicMessagesApi?: () => BaiduOneApiTransportStreams;
-  openAIResponsesApi?: () => BaiduOneApiTransportStreams;
 };
 
 const piAiRuntime = piAi as PiAiRuntimeApi;
-const baiduOneApiAnthropicMessagesApi =
-  piAiRuntime.anthropicMessagesApi?.() ??
-  lazyBaiduOneApiApi(() =>
-    import("@earendil-works/pi-ai/api/anthropic-messages").then(asTransportStreams),
-  );
-const baiduOneApiOpenAIResponsesApi =
-  piAiRuntime.openAIResponsesApi?.() ??
-  lazyBaiduOneApiApi(() =>
-    import("@earendil-works/pi-ai/api/openai-responses").then(asTransportStreams),
-  );
+const baiduOneApiAnthropicMessagesApi = asTransportStreams(anthropicMessagesApi());
+const baiduOneApiOpenAIResponsesApi = lazyBaiduOneApiApi(() =>
+  import("@earendil-works/pi-ai/api/openai-responses").then((module) =>
+    silenceOpenAiSdkTransportLogs(asTransportStreams(module)),
+  ),
+);
 
 const GPT_5_6_LUNA_COST = { input: 0.1, output: 0.6, cacheRead: 0.01, cacheWrite: 0.125 };
 const GPT_5_6_TERRA_COST = { input: 0.25, output: 1.5, cacheRead: 0.025, cacheWrite: 0.3125 };
@@ -77,6 +78,29 @@ const CLAUDE_FABLE_COST = CLAUDE_OPUS_COST;
 
 function asTransportStreams(module: unknown): BaiduOneApiTransportStreams {
   return module as BaiduOneApiTransportStreams;
+}
+
+function silenceOpenAiSdkTransportLogs(
+  transport: BaiduOneApiTransportStreams,
+): BaiduOneApiTransportStreams {
+  return {
+    stream: (model, context, options) =>
+      withOpenAiSdkLoggingDisabled(() => transport.stream(model, context, options)),
+    streamSimple: (model, context, options) =>
+      withOpenAiSdkLoggingDisabled(() => transport.streamSimple(model, context, options)),
+  };
+}
+
+function withOpenAiSdkLoggingDisabled<T>(start: () => T): T {
+  const previous = process.env.OPENAI_LOG;
+  process.env.OPENAI_LOG = "off";
+  try {
+    // pi-ai creates the OpenAI client synchronously before returning its event stream.
+    return start();
+  } finally {
+    if (previous === undefined) delete process.env.OPENAI_LOG;
+    else process.env.OPENAI_LOG = previous;
+  }
 }
 
 function lazyBaiduOneApiApi(
@@ -336,19 +360,29 @@ export function streamBaiduOneApiOpenAIResponses(
   const gatewayModel = gatewayModelId(model.id);
   const apiKey = resolveBaiduOneApiKey(options?.apiKey);
   const transportModel = withBaiduOneApiTransportApi(model, "openai-responses");
+  const createStream = () =>
+    startBaiduOneApiStream(
+      model,
+      () =>
+        baiduOneApiOpenAIResponsesApi.streamSimple(transportModel, context, {
+          ...options,
+          ...(apiKey !== undefined ? { apiKey } : {}),
+          async onPayload(payload: unknown) {
+            const remapped = remapOpenAIResponsesModel(payload, gatewayModel);
+            return (await options?.onPayload?.(remapped, model)) ?? remapped;
+          },
+        }) as BaiduOneApiStream,
+    );
 
-  return startBaiduOneApiStream(
-    model,
-    () =>
-      baiduOneApiOpenAIResponsesApi.streamSimple(transportModel, context, {
-        ...options,
-        ...(apiKey !== undefined ? { apiKey } : {}),
-        async onPayload(payload: unknown) {
-          const remapped = remapOpenAIResponsesModel(payload, gatewayModel);
-          return (await options?.onPayload?.(remapped, model)) ?? remapped;
-        },
-      }) as BaiduOneApiStream,
-  );
+  return retryProviderStreamBeforeOutput(createStream(), createStream, {
+    providerName: BAIDU_ONEAPI_PROVIDER,
+    maxRetries: Math.min(options?.maxRetries ?? BAIDU_ONEAPI_STREAM_MAX_RETRIES, 1),
+    ...(options?.maxRetryDelayMs !== undefined ? { maxRetryDelayMs: options.maxRetryDelayMs } : {}),
+    ...(options?.signal !== undefined ? { signal: options.signal } : {}),
+    shouldRetry: isConcatenatedProviderJsonFailure,
+    shouldRetryThrown: (error) =>
+      isConcatenatedProviderJsonErrorText(error instanceof Error ? error.message : String(error)),
+  });
 }
 
 function remapOpenAIResponsesModel(payload: unknown, gatewayModel: string): unknown {

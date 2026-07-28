@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { launchctlCommand, type SparkPaths } from "@zendev-lab/spark-system";
-import { requestSparkDaemonLocalRpcWire } from "@zendev-lab/spark-daemon-client/local-rpc";
+import { requestSparkDaemon } from "@zendev-lab/spark-daemon-client";
 import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
 import { cappedExponentialCeiling } from "@zendev-lab/spark-retry";
 import { sparkDaemonEntrypointPath } from "./build-reload.ts";
@@ -741,21 +741,7 @@ async function probeSparkDaemonReady(
   },
 ): Promise<boolean> {
   try {
-    const status = await requestSparkDaemonLocalRpcWire<{
-      lifecycle?: {
-        state?: unknown;
-        process?: {
-          pid?: unknown;
-          instanceId?: unknown;
-          generation?: unknown;
-          protocolVersion?: unknown;
-          acceptedRestartId?: unknown;
-        };
-      };
-    }>(
-      { id: `restart_successor_${process.pid}_${Date.now()}`, method: "daemon.status" },
-      { paths },
-    );
+    const status = await requestSparkDaemon("daemon.status", {}, { paths });
     return matchesSparkDaemonRestartReplacement(status, expected);
   } catch {
     return false;

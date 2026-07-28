@@ -219,7 +219,7 @@ export async function createSparkCliHostServices(
   runtime.setLeafRunner(
     createProviderRegistryLeafRunner({
       registry: providerRegistry,
-      runnerOptions: { resolveApiKey: (provider) => authResolver.resolveApiKey(provider) },
+      runnerOptions: { resolveApiKey: (provider) => authResolver.resolveApiKeyAsync(provider) },
     }),
   );
   const modelRegistry = new SparkHostModelRegistry(providerRegistry, {
@@ -254,7 +254,7 @@ export async function createSparkCliHostServices(
 
   const sessionStore = new SparkSessionStore({ cwd, sparkHome: options.sparkHome });
   const workflowModelRunner = createProviderRegistryWorkflowModelRunner(providerRegistry, {
-    resolveApiKey: (provider) => authResolver.resolveApiKey(provider),
+    resolveApiKey: (provider) => authResolver.resolveApiKeyAsync(provider),
   });
   const runCompactionModel: SparkCompactionModelRunner = async (request) => {
     const response = await workflowModelRunner({
@@ -324,7 +324,7 @@ export async function createSparkCliHostServices(
     selectedSkillsPrompt,
   );
   const streamFunction = createProviderRegistryStreamFunction(providerRegistry, {
-    resolveApiKey: (provider) => authResolver.resolveApiKey(provider),
+    resolveApiKey: (provider) => authResolver.resolveApiKeyAsync(provider),
   });
   const agentLoop = new SparkAgentLoop({
     host: runtime,

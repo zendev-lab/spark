@@ -1,8 +1,17 @@
 import { Type } from "typebox";
+import {
+  sparkDaemonDriverControl,
+  sparkDaemonDriverOwnerSessionId,
+  type SparkDaemonDriverControl,
+} from "./spark-daemon-driver-client.ts";
 import type { SparkToolRegistrar } from "./spark-tool-registration.ts";
 
 /** Tick-local control surface. It is unavailable outside daemon-owned driver invocations. */
-export function registerSparkDriverTool(registerSparkTool: SparkToolRegistrar): void {
+export function registerSparkDriverTool(
+  registerSparkTool: SparkToolRegistrar,
+  deps: { driverControl?: SparkDaemonDriverControl } = {},
+): void {
+  const driverControl = deps.driverControl ?? sparkDaemonDriverControl;
   registerSparkTool({
     name: "driver",
     label: "Spark Driver",
@@ -16,11 +25,47 @@ export function registerSparkDriverTool(registerSparkTool: SparkToolRegistrar): 
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       if (!ctx.driver) {
-        return {
-          content: [{ type: "text" as const, text: "No daemon driver tick is active." }],
-          details: { error: "driver_context_unavailable" },
-          isError: true,
-        };
+        if (params.action !== "status") {
+          return {
+            content: [{ type: "text" as const, text: "No daemon driver tick is active." }],
+            details: { error: "driver_context_unavailable" },
+            isError: true,
+          };
+        }
+        try {
+          const ownerSessionId = sparkDaemonDriverOwnerSessionId(ctx);
+          const result = await driverControl.list({ ownerSessionId, includeStopped: false });
+          if (result.drivers.length === 0) {
+            return {
+              content: [
+                { type: "text" as const, text: "No persistent daemon driver is registered." },
+              ],
+              details: { ownerSessionId, drivers: [] },
+            };
+          }
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: result.drivers
+                  .map(
+                    (driver) => `Driver ${driver.driverId} (${driver.kind}) is ${driver.status}.`,
+                  )
+                  .join("\n"),
+              },
+            ],
+            details: { ownerSessionId, drivers: result.drivers },
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return {
+            content: [
+              { type: "text" as const, text: `Daemon driver status unavailable: ${message}` },
+            ],
+            details: { error: "driver_status_unavailable", message },
+            isError: true,
+          };
+        }
       }
       const action = params.action;
       if (action === "status") {

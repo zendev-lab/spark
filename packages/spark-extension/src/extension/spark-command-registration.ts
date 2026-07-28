@@ -86,8 +86,7 @@ export function registerSparkCommands(
   deps: SparkCommandRegistrationDeps,
 ): void {
   pi.registerCommand("plan", {
-    description:
-      "Set the Spark session phase to plan directly, or initialize an existing non-empty project into the plan phase.",
+    description: "Turn a goal into verifiable project tasks without implementing them yet.",
     async handler(args, ctx) {
       await handleSparkEntryCommand(pi, ctx, {
         kind: "direct",
@@ -98,8 +97,7 @@ export function registerSparkCommands(
   });
 
   pi.registerCommand("implement", {
-    description:
-      "Set the Spark session phase to implement: keep working through ready project tasks until blocked.",
+    description: "Work through ready project tasks until complete or blocked.",
     async handler(args, ctx) {
       await handleSparkEntryCommand(pi, ctx, {
         kind: "direct",
@@ -109,17 +107,67 @@ export function registerSparkCommands(
     },
   });
 
+  pi.registerCommand("automate", {
+    description: "Choose an existing long-running mode without starting it yet.",
+    metadata: {
+      source: "extension",
+      extensionId: "spark-drive",
+      plane: "tui",
+      resource: "automation",
+      verbs: ["select"],
+    },
+    async handler(args, ctx) {
+      if (args.trim()) {
+        ctx.ui?.notify?.(
+          "Usage: /automate. Choose a mode, then complete and submit the canonical command.",
+          "warning",
+        );
+        return;
+      }
+
+      const choices = new Map([
+        ["Goal — finish one defined outcome", "/goal start "],
+        ["Loop — repeat open-ended work", "/loop start "],
+        ["Repro — follow evidence-gated reproduction steps", "/repro start "],
+        ["Workflow — choose a saved procedure", "/workflow list"],
+      ]);
+      if (!ctx.ui?.select) {
+        ctx.ui?.notify?.(
+          [
+            "Choose an existing automation command:",
+            "- /goal start <objective>",
+            "- /loop start <objective>",
+            "- /repro start <objective>",
+            "- /workflow list",
+          ].join("\n"),
+          "info",
+        );
+        return;
+      }
+
+      const selection = await ctx.ui.select("Choose how Spark should continue", [
+        ...choices.keys(),
+      ]);
+      const command = selection ? choices.get(selection) : undefined;
+      if (!command) return;
+      const setEditorText = ctx.ui.setEditorText ?? ctx.setEditorText;
+      if (setEditorText) {
+        setEditorText(command);
+        return;
+      }
+      ctx.ui.notify?.(`Enter ${command.trimEnd()}`, "info");
+    },
+  });
+
   pi.registerCommand("goal", {
-    description:
-      "Set, inspect, or stop the current session's durable Spark goal. Usage: /goal [start|status|stop|restart] [objective]; unrecognized text is treated as the goal objective.",
+    description: "Continue toward a durable goal until it finishes or needs your input.",
     argumentHint: "[start|status|stop|restart] [objective]",
     metadata: {
       source: "extension",
       extensionId: "spark-drive",
-      plane: "cockpit",
+      plane: "daemon",
       resource: "goal",
       verbs: ["start", "status", "stop", "restart"],
-      canonicalCliTarget: "spark cockpit goal status",
     },
     async handler(args, ctx) {
       await handleSparkGoalCommand(pi, ctx, args.trim());
@@ -127,16 +175,14 @@ export function registerSparkCommands(
   });
 
   pi.registerCommand("loop", {
-    description:
-      "Start, inspect, or stop an open-ended Spark loop driver; unlike /goal, this never requests reviewer-gated completion. Usage: /loop [start|status|stop|restart] [objective].",
+    description: "Repeat open-ended work only when the loop schedules another step.",
     argumentHint: "[start|status|stop|restart] [objective]",
     metadata: {
       source: "extension",
       extensionId: "spark-drive",
-      plane: "cockpit",
+      plane: "daemon",
       resource: "loop",
       verbs: ["start", "status", "stop", "restart"],
-      canonicalCliTarget: "spark cockpit goal status",
     },
     async handler(args, ctx) {
       await handleSparkLoopCommand(pi, ctx, args.trim());
@@ -144,16 +190,14 @@ export function registerSparkCommands(
   });
 
   pi.registerCommand("repro", {
-    description:
-      "Start, inspect, or stop the milestone-driven Spark repro drive. Usage: /repro [start|status|stop|restart] [objective]; unrecognized text is treated as the repro objective.",
+    description: "Run an evidence-gated reproduction from setup through delivery.",
     argumentHint: "[start|status|stop|restart] [objective]",
     metadata: {
       source: "extension",
       extensionId: "spark-drive",
-      plane: "cockpit",
+      plane: "daemon",
       resource: "repro",
       verbs: ["start", "status", "stop", "restart"],
-      canonicalCliTarget: "spark cockpit goal status",
     },
     async handler(args, ctx) {
       await handleSparkReproCommand(pi, ctx, args.trim());
@@ -170,10 +214,11 @@ export function registerSparkCommands(
   async function handleSparkDynamicWorkflowDashboardCommand(
     ctx: SparkCommandContext,
     args: string,
+    commandLabel = "workflow-runs",
   ): Promise<void> {
     const store = defaultSparkDynamicWorkflowEventStore(ctx.cwd);
     await store.reconcileStale();
-    const runRef = args ? parseDynamicWorkflowRunRefArg("workflow-runs", args) : undefined;
+    const runRef = args ? parseDynamicWorkflowRunRefArg(commandLabel, args) : undefined;
     const runs = await store.listRuns();
     publishDynamicWorkflowRunViews(ctx, runs);
     const text = renderSparkDynamicWorkflowDashboardText(
@@ -193,8 +238,9 @@ export function registerSparkCommands(
     ctx: SparkCommandContext,
     action: SparkWorkflowNavigatorAction,
     args: string,
+    commandLabel = `workflow-${action}`,
   ): Promise<void> {
-    const runRef = parseDynamicWorkflowRunRefArg(`workflow-${action}`, args);
+    const runRef = parseDynamicWorkflowRunRefArg(commandLabel, args);
     await executeDynamicWorkflowNavigatorAction(ctx, deps, { dynamicAction: action, runRef });
   }
 

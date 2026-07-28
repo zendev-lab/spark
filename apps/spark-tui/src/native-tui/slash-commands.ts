@@ -30,8 +30,9 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
     panel: SparkNativeCockpitPanel,
     canonicalCliTarget: string,
     resource: string,
+    deprecatedAliasFor?: string,
   ): SparkNativeSlashCommand => ({
-    description: `open the ${panel} cockpit panel`,
+    description: `open the ${panel} local session panel`,
     metadata: {
       source: "extension",
       extensionId: SPARK_NATIVE_LOCAL_CONTROL_EXTENSION_ID,
@@ -43,12 +44,13 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
       resource,
       verbs: ["list", "open"],
       canonicalCliTarget,
+      ...(deprecatedAliasFor ? { deprecatedAliasFor } : {}),
     },
     handler: (_args, ctx) => ctx.app.openCockpitPanel(panel) || undefined,
   });
   return {
     stop: {
-      description: "stop the current Spark turn and clear queued follow-ups",
+      description: "stop the current Spark run",
       argumentHint: "[reason]",
       metadata: {
         source: "extension",
@@ -68,7 +70,7 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
       },
     },
     retry: {
-      description: "resubmit the previous user prompt",
+      description: "run the previous request again",
       metadata: {
         source: "extension",
         extensionId: SPARK_NATIVE_LOCAL_CONTROL_EXTENSION_ID,
@@ -129,16 +131,15 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
         return "Usage: /queue [inspect|restore]";
       },
     },
-    cockpit: {
-      description: "show Spark cockpit panels",
+    inspect: {
+      description: "show the local session inspector",
       argumentHint: "[overview|workflows|runs|tasks|artifacts|reviews|graft|off]",
       metadata: {
         source: "extension",
         extensionId: SPARK_NATIVE_LOCAL_CONTROL_EXTENSION_ID,
-        plane: "cockpit",
-        resource: "status",
-        verbs: ["open"],
-        canonicalCliTarget: "spark cockpit status",
+        plane: "tui",
+        resource: "session",
+        verbs: ["inspect"],
       },
       getArgumentCompletions: (prefix) =>
         ["overview", "workflows", "runs", "tasks", "artifacts", "reviews", "graft", "off"]
@@ -146,15 +147,41 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
           .map((value) => ({ value, label: value })),
       handler: (args, ctx) => ctx.app.openCockpitPanelFromArgs(args) || undefined,
     },
-    workflows: panelCommand("workflows", "spark cockpit workflow list", "workflow"),
-    runs: panelCommand("runs", "spark daemon run list", "run"),
+    cockpit: {
+      description: "show the local session inspector",
+      argumentHint: "[overview|workflows|runs|tasks|artifacts|reviews|graft|off]",
+      metadata: {
+        source: "extension",
+        extensionId: SPARK_NATIVE_LOCAL_CONTROL_EXTENSION_ID,
+        plane: "tui",
+        resource: "session",
+        verbs: ["inspect"],
+        deprecatedAliasFor: "/inspect",
+      },
+      getArgumentCompletions: (prefix) =>
+        ["overview", "workflows", "runs", "tasks", "artifacts", "reviews", "graft", "off"]
+          .filter((value) => value.startsWith(prefix.toLowerCase()))
+          .map((value) => ({ value, label: value })),
+      handler: (args, ctx) => ctx.app.openCockpitPanelFromArgs(args) || undefined,
+    },
+    runs: panelCommand("runs", "spark daemon run list", "run", "/run list"),
     run: panelCommand("runs", "spark daemon run list", "run"),
-    tasks: panelCommand("tasks", "spark cockpit task list", "task"),
+    tasks: panelCommand("tasks", "spark cockpit task list", "task", "/task list"),
     task: panelCommand("tasks", "spark cockpit task list", "task"),
-    artifacts: panelCommand("artifacts", "spark cockpit artifact list", "artifact"),
+    artifacts: panelCommand(
+      "artifacts",
+      "spark cockpit artifact list",
+      "artifact",
+      "/artifact list",
+    ),
     artifact: panelCommand("artifacts", "spark cockpit artifact list", "artifact"),
-    evidence: panelCommand("artifacts", "spark cockpit artifact list", "artifact"),
-    reviews: panelCommand("reviews", "spark cockpit review list", "review"),
+    evidence: panelCommand(
+      "artifacts",
+      "spark cockpit artifact list",
+      "artifact",
+      "/artifact list",
+    ),
+    reviews: panelCommand("reviews", "spark cockpit review list", "review", "/review list"),
     review: panelCommand("reviews", "spark cockpit review list", "review"),
     graft: panelCommand("graft", "spark cockpit status", "graft"),
   };
@@ -198,11 +225,16 @@ export function nativeKernelSlashCommandEntries(): Array<{
   name: (typeof SPARK_NATIVE_KERNEL_SLASH_COMMANDS)[number];
   description: string;
   argumentHint?: string;
+  deprecatedAliasFor?: string;
 }> {
   return [
-    { name: "help", description: "show native TUI commands" },
+    {
+      name: "help",
+      description: "show quick help or the complete command catalog",
+      argumentHint: "[commands|all]",
+    },
     { name: "exit", description: "exit the native TUI" },
-    { name: "quit", description: "exit the native TUI" },
+    { name: "quit", description: "exit the native TUI", deprecatedAliasFor: "/exit" },
     { name: "clear", description: "clear the visible transcript" },
     { name: "reload", description: "reload extension-owned slash command state" },
   ];

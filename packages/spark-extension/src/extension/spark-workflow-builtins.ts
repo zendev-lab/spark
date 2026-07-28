@@ -82,8 +82,8 @@ export function renderSparkWorkflowGuidance(
         : "The focus did not identify a specific saved workflow.";
   const policy =
     workflowSelector === "agent:auto"
-      ? ' Inspect available saved workflows with workflow({ action: "list" }); read candidate workflows with workflow({ action: "read" }). When an existing saved workflow clearly satisfies the user goal, use that selector and proceed through Spark workflow/runtime boundaries. When reusable scripted orchestration is required and no saved workflow applies, create a workspace workflow definition under .agents/workflows/<name>.js, then use /workflow workspace:<name> or report why execution should wait. Do not invent a selector, do not execute inline scripts, and ask only if choosing or creating the workflow would change user-visible scope or trust boundaries.'
-      : " /workflow only accepts saved workspace:/user: workflow selectors; ask for an explicit selector before execution.";
+      ? ' Inspect available saved workflows with workflow({ action: "list" }); read candidate workflows with workflow({ action: "read" }). When an existing saved workflow clearly satisfies the user goal, use that selector and proceed through Spark workflow/runtime boundaries. When reusable scripted orchestration is required and no saved workflow applies, create a workspace workflow definition under .agents/workflows/<name>.js, then use /workflow run workspace:<name> or report why execution should wait. Do not invent a selector, do not execute inline scripts, and ask only if choosing or creating the workflow would change user-visible scope or trust boundaries.'
+      : " /workflow run accepts saved workspace:/user: workflow selectors; ask for an explicit selector before execution.";
   return recommendation + policy + budgetCatalog + savedCatalog;
 }
 

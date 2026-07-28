@@ -1,15 +1,24 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-import {
-  getOAuthProvider,
-  getOAuthProviders,
-  registerOAuthProvider,
-  resetOAuthProviders,
-  type OAuthCredentials,
-  type OAuthLoginCallbacks,
-  type OAuthProviderInterface,
+import type {
+  AuthEvent,
+  AuthInteraction,
+  AuthPrompt,
+  OAuthCredential,
+  Provider,
+} from "@earendil-works/pi-ai";
+import type {
+  OAuthAuthInfo,
+  OAuthCredentials,
+  OAuthDeviceCodeInfo,
+  OAuthLoginCallbacks,
+  OAuthPrompt,
+  OAuthSelectPrompt,
 } from "@earendil-works/pi-ai/oauth";
+import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
+import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 
 import type { ProviderConfig } from "../provider-registry.ts";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
@@ -55,9 +64,141 @@ export interface SparkProviderAuthResolverOptions {
 const AUTH_FILE_VERSION = 1;
 const oauthRefreshes = new Map<string, Promise<string | undefined>>();
 
-export const registerSparkOAuthProvider = registerOAuthProvider;
-export const resetSparkOAuthProviders = resetOAuthProviders;
-export type SparkOAuthProviderInterface = OAuthProviderInterface;
+export interface SparkOAuthPrompt extends OAuthPrompt {
+  signal?: AbortSignal;
+}
+
+export interface SparkOAuthSelectPrompt extends OAuthSelectPrompt {
+  signal?: AbortSignal;
+}
+
+export interface SparkOAuthLoginCallbacks extends Omit<
+  OAuthLoginCallbacks,
+  "onPrompt" | "onManualCodeInput" | "onSelect"
+> {
+  onAuth(info: OAuthAuthInfo): void;
+  onDeviceCode(info: OAuthDeviceCodeInfo): void;
+  onPrompt(prompt: SparkOAuthPrompt): Promise<string>;
+  onManualCodeInput?(signal?: AbortSignal): Promise<string>;
+  onSelect(prompt: SparkOAuthSelectPrompt): Promise<string | undefined>;
+}
+
+export interface SparkOAuthProviderInterface {
+  readonly id: string;
+  readonly name: string;
+  login(callbacks: SparkOAuthLoginCallbacks): Promise<OAuthCredentials>;
+  refreshToken(credentials: OAuthCredentials): Promise<OAuthCredentials>;
+  getApiKey(credentials: OAuthCredentials): string | Promise<string>;
+}
+
+const BUILT_IN_SPARK_OAUTH_PROVIDERS = [
+  adaptPiOAuthProvider(anthropicProvider()),
+  adaptPiOAuthProvider(githubCopilotProvider()),
+  adaptPiOAuthProvider(openaiCodexProvider()),
+];
+const sparkOAuthProviders = new Map(
+  BUILT_IN_SPARK_OAUTH_PROVIDERS.map((provider) => [provider.id, provider]),
+);
+
+export function registerSparkOAuthProvider(provider: SparkOAuthProviderInterface): void {
+  sparkOAuthProviders.set(provider.id, provider);
+}
+
+export function resetSparkOAuthProviders(): void {
+  sparkOAuthProviders.clear();
+  for (const provider of BUILT_IN_SPARK_OAUTH_PROVIDERS) {
+    sparkOAuthProviders.set(provider.id, provider);
+  }
+}
+
+function getSparkOAuthProvider(providerId: string): SparkOAuthProviderInterface | undefined {
+  return sparkOAuthProviders.get(providerId);
+}
+
+export function adaptPiOAuthProvider(provider: Provider): SparkOAuthProviderInterface {
+  const oauth = provider.auth.oauth;
+  if (!oauth) throw new Error(`pi-ai provider "${provider.id}" does not define OAuth`);
+  return {
+    id: provider.id,
+    name: provider.name,
+    async login(callbacks) {
+      return fromPiOAuthCredential(await oauth.login(toPiAuthInteraction(callbacks)));
+    },
+    async refreshToken(credentials) {
+      return fromPiOAuthCredential(await oauth.refresh(toPiOAuthCredential(credentials)));
+    },
+    async getApiKey(credentials) {
+      return (await oauth.toAuth(toPiOAuthCredential(credentials))).apiKey ?? credentials.access;
+    },
+  };
+}
+
+function toPiAuthInteraction(callbacks: SparkOAuthLoginCallbacks): AuthInteraction {
+  return {
+    ...(callbacks.signal !== undefined ? { signal: callbacks.signal } : {}),
+    prompt: (prompt) => resolvePiAuthPrompt(callbacks, prompt),
+    notify: (event) => notifyLegacyOAuthCallbacks(callbacks, event),
+  };
+}
+
+async function resolvePiAuthPrompt(
+  callbacks: SparkOAuthLoginCallbacks,
+  prompt: AuthPrompt,
+): Promise<string> {
+  if (prompt.type === "select") {
+    const selected = await callbacks.onSelect({
+      message: prompt.message,
+      options: prompt.options.map((option) => ({ id: option.id, label: option.label })),
+      ...(prompt.signal !== undefined ? { signal: prompt.signal } : {}),
+    });
+    if (selected === undefined) throw oauthAbortError();
+    return selected;
+  }
+  if (prompt.type === "manual_code" && callbacks.onManualCodeInput) {
+    return callbacks.onManualCodeInput(prompt.signal);
+  }
+  return callbacks.onPrompt({
+    message: prompt.message,
+    ...(prompt.placeholder !== undefined ? { placeholder: prompt.placeholder } : {}),
+    ...(prompt.type === "text" ? { allowEmpty: true } : {}),
+    ...(prompt.signal !== undefined ? { signal: prompt.signal } : {}),
+  });
+}
+
+function notifyLegacyOAuthCallbacks(callbacks: SparkOAuthLoginCallbacks, event: AuthEvent): void {
+  if (event.type === "auth_url") {
+    callbacks.onAuth({
+      url: event.url,
+      ...(event.instructions !== undefined ? { instructions: event.instructions } : {}),
+    });
+    return;
+  }
+  if (event.type === "device_code") {
+    callbacks.onDeviceCode({
+      userCode: event.userCode,
+      verificationUri: event.verificationUri,
+      ...(event.intervalSeconds !== undefined ? { intervalSeconds: event.intervalSeconds } : {}),
+      ...(event.expiresInSeconds !== undefined ? { expiresInSeconds: event.expiresInSeconds } : {}),
+    });
+    return;
+  }
+  callbacks.onProgress?.(event.message);
+}
+
+function toPiOAuthCredential(credentials: OAuthCredentials): OAuthCredential {
+  return { ...credentials, type: "oauth" };
+}
+
+function fromPiOAuthCredential(credential: OAuthCredential): OAuthCredentials {
+  const { type: _type, ...credentials } = credential;
+  return credentials;
+}
+
+function oauthAbortError(): Error {
+  const error = new Error("OAuth login cancelled");
+  error.name = "AbortError";
+  return error;
+}
 
 export function defaultSparkAuthPath(sparkHome?: string): string {
   return resolveSparkUserPaths({ sparkHome }).authFile;
@@ -166,8 +307,8 @@ export class SparkAuthStore {
 
   async loginOAuth(
     providerId: string,
-    callbacks: OAuthLoginCallbacks,
-    provider: OAuthProviderInterface | undefined = getOAuthProvider(providerId),
+    callbacks: SparkOAuthLoginCallbacks,
+    provider: SparkOAuthProviderInterface | undefined = getSparkOAuthProvider(providerId),
   ): Promise<void> {
     if (!provider) throw new Error(`Unknown OAuth provider: ${providerId}`);
     const credentials = await provider.login(callbacks);
@@ -249,7 +390,7 @@ export class SparkProviderAuthResolver {
     if (ref.kind === "literal") return ref.value;
     const credential = this.#store.get(ref.provider);
     if (credential?.type !== "oauth") return undefined;
-    return getOAuthProvider(ref.provider)?.getApiKey(credential.credentials);
+    return credential.credentials.access;
   }
 
   /** Resolve and durably persist a refreshed OAuth credential when it is expired. */
@@ -289,8 +430,11 @@ export class SparkProviderAuthResolver {
     const credential = this.#resolveStoredOAuth(ref.provider);
     if (credential?.type !== "oauth") return { done: true };
     if (this.#now() >= credential.credentials.expires) return { done: false };
-    const value = getOAuthProvider(ref.provider)?.getApiKey(credential.credentials);
-    return value === undefined ? { done: true } : { done: true, value };
+    // Stored OAuth credentials already define the provider-ready access token.
+    // Avoid consulting pi-ai's mutable registry on this non-refresh path: a
+    // structurally compatible host may carry a newer kernel with a different
+    // OAuth registry surface while Spark still owns this canonical auth file.
+    return { done: true, value: credential.credentials.access };
   }
 
   async #refreshOAuth(providerId: string): Promise<string | undefined> {
@@ -300,14 +444,14 @@ export class SparkProviderAuthResolver {
     if (this.#store.loadError) throw this.#store.loadError;
     const credential = this.#resolveStoredOAuth(providerId);
     if (credential?.type !== "oauth") return undefined;
-    const oauthProvider = getOAuthProvider(providerId);
+    const oauthProvider = getSparkOAuthProvider(providerId);
     if (!oauthProvider) throw new Error(`Unknown OAuth provider: ${providerId}`);
     if (this.#now() < credential.credentials.expires) {
-      return oauthProvider.getApiKey(credential.credentials);
+      return await oauthProvider.getApiKey(credential.credentials);
     }
     const refreshed = await oauthProvider.refreshToken(credential.credentials);
     await this.#store.setOAuth(providerId, refreshed);
-    return oauthProvider.getApiKey(refreshed);
+    return await oauthProvider.getApiKey(refreshed);
   }
 
   #storedApiKey(provider: ProviderConfig, alternateKey?: string): string | undefined {
@@ -321,7 +465,7 @@ export class SparkProviderAuthResolver {
 }
 
 export function listOAuthProviderSummaries(): Array<{ id: string; name: string }> {
-  return getOAuthProviders()
+  return [...sparkOAuthProviders.values()]
     .map((provider) => ({ id: provider.id, name: provider.name }))
     .sort((left, right) => left.id.localeCompare(right.id));
 }

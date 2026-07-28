@@ -15,6 +15,7 @@ import {
   type WorkspaceSessionSurface,
 } from "@zendev-lab/spark-protocol";
 import { asciiSlug } from "@zendev-lab/spark-system";
+import { SparkDaemonControlError } from "../control-error.ts";
 
 export interface WorkspaceProfileRegistration {
   sourceKind: "builtin" | "git";
@@ -298,7 +299,10 @@ export function rebindWorkspaceServerUrl(
 ): { workspace: SparkDaemonWorkspace; previousServerUrl: string } {
   const workspace = getWorkspaceById(db, options.workspaceId);
   if (!workspace) {
-    throw new Error(`Unknown workspace: ${options.workspaceId}`);
+    throw new SparkDaemonControlError(
+      "workspace_not_found",
+      `Unknown workspace: ${options.workspaceId}`,
+    );
   }
   const serverUrl = options.serverUrl;
   const previousServerUrl = workspace.serverUrl;
@@ -923,7 +927,10 @@ export function stopWorkspace(
 ): SparkDaemonWorkspace {
   const workspace = getWorkspaceById(db, options.id);
   if (!workspace) {
-    throw new Error(`Unknown workspace connection: ${options.id}`);
+    throw new SparkDaemonControlError(
+      "workspace_not_found",
+      `Unknown workspace connection: ${options.id}`,
+    );
   }
 
   const now = options.now ?? new Date().toISOString();
@@ -955,7 +962,10 @@ export function attachWorkspace(
 ): SparkDaemonWorkspace {
   const workspace = getWorkspaceById(db, options.id);
   if (!workspace) {
-    throw new Error(`Unknown workspace connection: ${options.id}`);
+    throw new SparkDaemonControlError(
+      "workspace_not_found",
+      `Unknown workspace connection: ${options.id}`,
+    );
   }
 
   const now = options.now ?? new Date().toISOString();
@@ -982,7 +992,10 @@ export function attachWorkspaceClient(
 ): SparkDaemonWorkspaceClient {
   const workspace = getWorkspaceById(db, options.workspaceId);
   if (!workspace) {
-    throw new Error(`Unknown workspace connection: ${options.workspaceId}`);
+    throw new SparkDaemonControlError(
+      "workspace_not_found",
+      `Unknown workspace connection: ${options.workspaceId}`,
+    );
   }
 
   const now = options.now ?? new Date().toISOString();
@@ -994,7 +1007,8 @@ export function attachWorkspaceClient(
     )
     .get(clientId) as { workspaceId: string; attachedAt: string } | undefined;
   if (existing && existing.workspaceId !== workspace.id) {
-    throw new Error(
+    throw new SparkDaemonControlError(
+      "workspace_client_conflict",
       `Workspace client ${clientId} is already bound to workspace ${existing.workspaceId}.`,
     );
   }
@@ -1032,7 +1046,10 @@ export function heartbeatWorkspaceClient(
 ): SparkDaemonWorkspaceClient {
   const client = getWorkspaceClientById(db, options.clientId);
   if (!client) {
-    throw new Error(`Unknown workspace client: ${options.clientId}`);
+    throw new SparkDaemonControlError(
+      "workspace_client_not_found",
+      `Unknown workspace client: ${options.clientId}`,
+    );
   }
   const now = options.now ?? new Date().toISOString();
   db.prepare(
@@ -1056,7 +1073,10 @@ export function releaseWorkspaceClient(
 ): SparkDaemonWorkspaceClient {
   const client = getWorkspaceClientById(db, options.clientId);
   if (!client) {
-    throw new Error(`Unknown workspace client: ${options.clientId}`);
+    throw new SparkDaemonControlError(
+      "workspace_client_not_found",
+      `Unknown workspace client: ${options.clientId}`,
+    );
   }
   const now = options.now ?? new Date().toISOString();
   db.prepare(

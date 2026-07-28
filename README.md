@@ -1,16 +1,18 @@
 # spark
 
-Spark is a controlled coding-agent suite with native TUI, daemon, and Cockpit hosts. The public command dispatcher exposes three surfaces:
+Spark is a controlled coding-agent suite with native TUI, daemon, Cockpit, and protocol-adapter surfaces. The public command dispatcher exposes:
 
 ```text
 spark tui
 spark daemon
 spark cockpit
+spark acp
 ```
 
 - `spark tui` is the interactive terminal host.
 - `spark daemon` owns persistent sessions, SQLite invocations, channels, local execution, and autonomous driver timing/retry/recovery.
 - `spark cockpit` launches the web control and projection surface; it does not run autonomous timers.
+- `spark acp` runs a stateless ACP stdio adapter over canonical daemon sessions and invocations.
 
 The single `@zendev-lab/spark-extension` composition root exposes the canonical capability tools to native and structurally compatible hosts. `role` manages reusable definitions and fresh anonymous calls; `session` owns persistent lifecycle, continuity, bindings, calls, and mail.
 
@@ -34,6 +36,7 @@ spark daemon invocation status <invocation-id> --json
 spark daemon invocation stream <invocation-id> --after <cursor> --limit 500 --json
 spark daemon invocation cancel <invocation-id> --reason <text> --json
 spark cockpit
+spark acp
 ```
 
 Inside an agent host, ordinary input is lightweight by default. `/plan` creates or refines durable tasks, while daemon-owned drivers run `/implement`, `/loop`, `/goal`, `/repro`, and `/workflow` independently of the frontend. `/loop fresh <objective>` resets the hidden execution session for every tick while retaining the logical owner's workspace state. In Spark-native TUI, `/btw` controls a daemon-owned read-only Side Thread using command/status output; its lifecycle and subcommands are specified in [`docs/specs/tools.md`](./docs/specs/tools.md#native-btw).

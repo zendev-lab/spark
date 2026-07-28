@@ -1,7 +1,6 @@
 import { error as kitError, fail } from "@sveltejs/kit";
-import type { PreviewContentFormat } from "@zendev-lab/spark-artifacts";
-import { renderProductPreviewDocument } from "@zendev-lab/spark-artifacts/preview-renderer";
 import { getRequestDictionary, localeCookieName } from "$lib/i18n";
+import { renderStoredProductPreview } from "$lib/server/product-artifact-preview";
 import {
   loadArtifactDetailPage,
   prepareArtifactPreviewForWorkspace,
@@ -18,6 +17,7 @@ export const load = (({ params }) => {
     page.previewResult.cache.previewStatus === "ready" && page.previewResult.body
       ? truncatePreviewBody(page.previewResult.body, page.previewResult.cache.mime)
       : null;
+  const contentRef = parseJsonObject(page.artifact.contentRefJson);
   const preview = {
     status: page.previewResult.cache.previewStatus satisfies ArtifactPreviewStatus,
     state: page.previewResult.cache.state,
@@ -29,8 +29,8 @@ export const load = (({ params }) => {
     body: previewBody,
     documentHtml: renderStoredProductPreview({
       kind: page.artifact.kind,
-      format: page.artifact.format,
       title: page.artifact.title,
+      contentRef,
       body: previewBody,
     }),
     inlineLimitBytes: PREVIEW_INLINE_LIMIT_BYTES,
@@ -39,7 +39,7 @@ export const load = (({ params }) => {
   return {
     artifact: {
       ...page.artifact,
-      contentRef: parseJsonObject(page.artifact.contentRefJson),
+      contentRef,
       provenance: parseJsonObject(page.artifact.provenanceJson),
     },
     links: page.links,
@@ -105,33 +105,6 @@ function truncatePreviewBody(
     bytes: body.byteLength,
     mime,
   };
-}
-
-function renderStoredProductPreview(input: {
-  kind: string;
-  format: string;
-  title: string;
-  body: { text: string | null; truncated: boolean } | null;
-}): string | null {
-  if (input.kind !== "preview" || !input.body || input.body.text === null || input.body.truncated) {
-    return null;
-  }
-  if (!isPreviewContentFormat(input.format)) return null;
-  return renderProductPreviewDocument({
-    title: input.title,
-    format: input.format,
-    content: input.body.text,
-  }).html;
-}
-
-function isPreviewContentFormat(value: string): value is PreviewContentFormat {
-  return (
-    value === "md" ||
-    value === "mdx" ||
-    value === "html" ||
-    value === "a2ui" ||
-    value === "spark-ui"
-  );
 }
 
 function isTextMime(mime: string | null): boolean {

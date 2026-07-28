@@ -14,6 +14,8 @@
     target,
     rel,
     ariaLabel,
+    ariaExpanded,
+    ariaControls,
     class: className = "",
     onclick,
     children,
@@ -30,6 +32,8 @@
     target?: "_blank" | "_self" | "_parent" | "_top";
     rel?: string;
     ariaLabel?: string;
+    ariaExpanded?: boolean;
+    ariaControls?: string;
     class?: string;
     onclick?: (event: MouseEvent) => void;
     children: Snippet;
@@ -61,6 +65,8 @@
     {value}
     {form}
     aria-label={ariaLabel}
+    aria-expanded={ariaExpanded}
+    aria-controls={ariaControls}
     {onclick}
   >
     {@render children()}

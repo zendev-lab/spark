@@ -45,9 +45,10 @@
     type Snippet,
   } from "svelte";
   import SessionDetailsPanel from "$lib/sessions-workspace/SessionDetailsPanel.svelte";
+  import SessionActivityPanel from "$lib/sessions-workspace/SessionActivityPanel.svelte";
   import SessionStartPane from "$lib/sessions-workspace/SessionStartPane.svelte";
   import type { SessionConversationHost } from "$lib/sessions-workspace/conversation-host";
-  // SessionAskPanel mounts from SessionComposerPane via conversationHost.sessionPendingAsk.
+  // SessionAskPanel mounts beside the composer via conversationHost.sessionPendingAsk.
   import {
     adoptCancelledTurnIntoLiveState,
     adoptQueuedTurnIntoLiveState,
@@ -92,6 +93,8 @@
   type ConversationPaneComponent = Component<{
     host: SessionConversationHost;
     sessionDetails: Snippet<[boolean?]>;
+    activityPaneOpen: boolean;
+    onToggleActivityPane: () => void;
   }>;
 
   type Props = {
@@ -143,6 +146,7 @@
     sessions.find((session) => session.sessionId === selectedSessionId) ?? null,
   );
   let ConversationPane = $state<ConversationPaneComponent | null>(null);
+  let activityPaneOpen = $state(true);
   let conversationPaneRequest: Promise<ConversationPaneComponent> | null = null;
 
   $effect(() => {
@@ -581,6 +585,9 @@
     getLatestRetryPrompt: () => latestRetryPrompt,
     retryConversationTurn,
     submitThinkingSelection,
+    openActivityPane: () => {
+      activityPaneOpen = true;
+    },
   });
 
   let conversationHost = $derived.by((): SessionConversationHost => ({
@@ -684,6 +691,7 @@
 {#snippet sessionDetails(compact = false)}
   {#if selected}
     {#key selected.sessionId}
+      <SessionActivityPanel host={conversationHost} />
       <SessionDetailsPanel
         {selected}
         {compact}
@@ -702,7 +710,12 @@
   {/if}
 {/snippet}
 
-<section class="sessions-stage" class:has-selection={Boolean(selected)} aria-label={messages.aria}>
+<section
+  class="sessions-stage"
+  class:has-selection={Boolean(selected)}
+  class:activity-pane-open={activityPaneOpen}
+  aria-label={messages.aria}
+>
   <main class="stage-pane">
     {#if !selected}
       <SessionStartPane
@@ -737,14 +750,24 @@
         onSlashAction={(action) => handleSlashAction(action, "start")}
       />
     {:else if ConversationPane}
-      <ConversationPane host={conversationHost} {sessionDetails} />
+      <ConversationPane
+        host={conversationHost}
+        {sessionDetails}
+        {activityPaneOpen}
+        onToggleActivityPane={() => (activityPaneOpen = !activityPaneOpen)}
+      />
     {:else}
       <div class="conversation-loading" aria-busy="true"></div>
     {/if}
   </main>
 
   {#if selected}
-    <aside class="details-pane" aria-label={messages.detailsTitle}>
+    <aside
+      id="session-activity-details-pane"
+      class="details-pane"
+      aria-label={messages.detailsTitle}
+      hidden={!activityPaneOpen}
+    >
       <div class="details-heading">
         <p class="kicker">{copy.conversationContext}</p>
         <h2>{copy.conversationWorkbench}</h2>
@@ -773,7 +796,7 @@
     min-height: 180px;
   }
 
-  .sessions-stage.has-selection {
+  .sessions-stage.has-selection.activity-pane-open {
     grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
   }
 
@@ -798,15 +821,20 @@
     padding: 22px 20px;
   }
 
+  .details-pane[hidden] {
+    display: none;
+  }
+
   .details-heading h2 {
     color: var(--color-ink);
     font-size: 15px;
     font-weight: 650;
   }
 
-  @media (max-width: 960px) {
+  @media (max-width: 1200px) {
     .sessions-stage,
-    .sessions-stage.has-selection {
+    .sessions-stage.has-selection,
+    .sessions-stage.has-selection.activity-pane-open {
       grid-template-columns: minmax(0, 1fr);
       height: 100%;
       min-height: 0;

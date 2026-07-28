@@ -1,12 +1,13 @@
-import type {
-  AssistantMessage,
-  AssistantMessageEvent,
-  Context,
-  Model,
-  StreamOptions,
-  TextContent,
-  ThinkingContent,
-  ToolCall,
+import {
+  createAssistantMessageEventStream,
+  type AssistantMessage,
+  type AssistantMessageEvent,
+  type Context,
+  type Model,
+  type StreamOptions,
+  type TextContent,
+  type ThinkingContent,
+  type ToolCall,
 } from "@earendil-works/pi-ai";
 
 import {
@@ -17,6 +18,7 @@ import {
   SparkModelRegistry,
   SparkRouteResolver,
 } from "./index.ts";
+import { retryProviderStreamBeforeOutput } from "./provider-stream-retry.ts";
 import type {
   ProviderConfig,
   SparkActiveSelection,
@@ -31,8 +33,13 @@ export type SparkProviderStreamFunction = (
   result(): Promise<AssistantMessage>;
 };
 
+export type ProviderApiKeyResolution = string | undefined | Promise<string | undefined>;
+
 export interface ProviderRegistryRunnerOptions {
-  resolveApiKey?: (provider: ProviderConfig, selection: SparkActiveSelection) => string | undefined;
+  resolveApiKey?: (
+    provider: ProviderConfig,
+    selection: SparkActiveSelection,
+  ) => ProviderApiKeyResolution;
 }
 
 export interface SparkWorkflowModelRunRequest {
@@ -86,157 +93,29 @@ function createResolverBackedProviderStream(
     ...(options?.sessionId !== undefined ? { sessionId: options.sessionId } : {}),
   });
   const model = materializeRouteModel(profile, decision.route);
-  const streamOptions = withPiAiOpenAiResponsesPromptCacheBridge(
-    model.api,
-    withOpenAiCompatiblePromptCacheKey(
-      withProviderTransportRetries(
-        withResolvedApiKey(options, runnerOptions.resolveApiKey?.(provider, selection)),
+  const apiKey = runnerOptions.resolveApiKey?.(provider, selection);
+  return createAuthResolvedProviderStream(model as Model<string>, apiKey, (resolvedApiKey) => {
+    const streamOptions = withPiAiOpenAiResponsesPromptCacheBridge(
+      model.api,
+      withOpenAiCompatiblePromptCacheKey(
+        withProviderTransportRetries(withResolvedApiKey(options, resolvedApiKey)),
       ),
-    ),
-  );
-  const initialStream = normalizeProviderStream(
-    provider.streamSimple(model as Model<ProviderConfig["api"]>, context, streamOptions),
-    selection.providerName,
-  );
-  const stream = createRetryingProviderStream(initialStream, () =>
-    normalizeProviderStream(
-      provider.streamSimple(model as Model<ProviderConfig["api"]>, context, streamOptions),
-      selection.providerName,
-    ),
-  );
-  return retagAssistantMessageStream(stream, resolveSparkModelMessageIdentity(profile));
-}
-
-const SPARK_PROVIDER_ASSISTANT_ERROR_MAX_RETRIES = 1;
-
-function createRetryingProviderStream(
-  initialStream: AsyncIterable<AssistantMessageEvent> & { result(): Promise<AssistantMessage> },
-  factory: () => AsyncIterable<AssistantMessageEvent> & { result(): Promise<AssistantMessage> },
-): AsyncIterable<AssistantMessageEvent> & { result(): Promise<AssistantMessage> } {
-  let currentStream = initialStream;
-  let retries = 0;
-  let visibleOutputReleased = false;
-  return {
-    async *[Symbol.asyncIterator]() {
-      while (true) {
-        const stream = currentStream;
-        const buffered: AssistantMessageEvent[] = [];
-        let released = false;
-        let retry = false;
-
-        try {
-          for await (const event of stream) {
-            if (
-              event.type === "error" &&
-              !released &&
-              retries < SPARK_PROVIDER_ASSISTANT_ERROR_MAX_RETRIES &&
-              isRetriableProviderAssistantError(event.error)
-            ) {
-              retries += 1;
-              currentStream = factory();
-              retry = true;
-              break;
-            }
-
-            if (!released) {
-              buffered.push(event);
-              if (
-                assistantEventHasVisibleContent(event) ||
-                event.type === "done" ||
-                event.type === "error"
-              ) {
-                released = true;
-                if (assistantEventHasVisibleContent(event)) visibleOutputReleased = true;
-                yield* buffered;
-                buffered.length = 0;
-              }
-            } else {
-              if (assistantEventHasVisibleContent(event)) visibleOutputReleased = true;
-              yield event;
-            }
-          }
-        } catch (error) {
-          if (
-            !released &&
-            !visibleOutputReleased &&
-            retries < SPARK_PROVIDER_ASSISTANT_ERROR_MAX_RETRIES &&
-            isRetriableProviderFailure(error)
-          ) {
-            retries += 1;
-            currentStream = factory();
-            retry = true;
-          } else {
-            throw error;
-          }
-        }
-
-        if (retry) continue;
-        yield* buffered;
-        return;
-      }
-    },
-    async result() {
-      while (true) {
-        try {
-          const result = await currentStream.result();
-          if (
-            retries < SPARK_PROVIDER_ASSISTANT_ERROR_MAX_RETRIES &&
-            !assistantMessageHasVisibleContent(result) &&
-            isRetriableProviderAssistantError(result)
-          ) {
-            retries += 1;
-            currentStream = factory();
-            continue;
-          }
-          return result;
-        } catch (error) {
-          if (
-            !visibleOutputReleased &&
-            retries < SPARK_PROVIDER_ASSISTANT_ERROR_MAX_RETRIES &&
-            isRetriableProviderFailure(error)
-          ) {
-            retries += 1;
-            currentStream = factory();
-            continue;
-          }
-          throw error;
-        }
-      }
-    },
-  };
-}
-
-function isRetriableProviderFailure(input: unknown): boolean {
-  return classifyProviderFailure(input).policy.retriable;
-}
-
-function isRetriableProviderAssistantError(message: AssistantMessage): boolean {
-  if (message.stopReason !== "error") return false;
-  return isRetriableProviderFailure(message);
-}
-
-function assistantMessageHasVisibleContent(message: AssistantMessage): boolean {
-  if (!Array.isArray(message.content)) return false;
-  return message.content.some((content) => {
-    if (content.type === "text") return content.text.length > 0;
-    if (content.type === "thinking") return content.thinking.length > 0;
-    return true;
+    );
+    const createStream = () =>
+      normalizeProviderStream(
+        provider.streamSimple(model as Model<ProviderConfig["api"]>, context, streamOptions),
+        selection.providerName,
+      );
+    const stream = retryProviderStreamBeforeOutput(createStream(), createStream, {
+      providerName: selection.providerName,
+      maxRetries: selection.providerName === "baidu-oneapi" ? 0 : 1,
+      maxRetryDelayMs: 1,
+      ...(streamOptions?.signal !== undefined ? { signal: streamOptions.signal } : {}),
+      shouldRetry: (message) => classifyProviderFailure(message).failureClass === "transient",
+      shouldRetryThrown: (error) => classifyProviderFailure(error).failureClass === "transient",
+    });
+    return retagAssistantMessageStream(stream, resolveSparkModelMessageIdentity(profile));
   });
-}
-
-function assistantEventHasVisibleContent(event: AssistantMessageEvent): boolean {
-  switch (event.type) {
-    case "thinking_delta":
-    case "text_delta":
-    case "toolcall_delta":
-      return event.delta.length > 0;
-    case "thinking_end":
-    case "text_end":
-    case "toolcall_end":
-      return true;
-    default:
-      return false;
-  }
 }
 
 function withProviderTransportRetries(
@@ -339,7 +218,7 @@ export function withOpenAiCompatiblePromptCacheKey(
 }
 
 /**
- * pi-ai 0.80.x does not read Spark's explicit prompt-cache option. Bridge it at
+ * pi-ai does not read Spark's explicit prompt-cache option. Bridge it at
  * the payload boundary without overloading `sessionId`, which also controls
  * provider affinity headers. Keep a caller-supplied session id as the stronger
  * affinity signal, and never leak this workaround to other APIs.
@@ -396,6 +275,56 @@ function clampOpenAiPromptCacheKey(key: string | undefined): string | undefined 
   return chars.length <= OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH
     ? key
     : chars.slice(0, OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH).join("");
+}
+
+export function createAuthResolvedProviderStream(
+  model: Model<string>,
+  apiKey: ProviderApiKeyResolution,
+  start: (resolvedApiKey: string | undefined) => SparkProviderStreamFunctionReturn,
+): SparkProviderStreamFunctionReturn {
+  if (!isPromiseLike(apiKey)) return start(apiKey);
+  const output = createAssistantMessageEventStream();
+  void apiKey
+    .then(async (resolvedApiKey) => {
+      const inner = start(resolvedApiKey);
+      for await (const event of inner) output.push(event);
+      output.end();
+    })
+    .catch((error: unknown) => {
+      output.push({
+        type: "error",
+        reason: "error",
+        error: providerSetupErrorMessage(model, error),
+      });
+    });
+  return output;
+}
+
+type SparkProviderStreamFunctionReturn = ReturnType<SparkProviderStreamFunction>;
+
+function providerSetupErrorMessage(model: Model<string>, error: unknown): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "error",
+    errorMessage: error instanceof Error ? error.message : String(error),
+    timestamp: Date.now(),
+  };
+}
+
+function isPromiseLike(value: ProviderApiKeyResolution): value is Promise<string | undefined> {
+  return typeof (value as Promise<string | undefined> | undefined)?.then === "function";
 }
 
 function withResolvedApiKey(

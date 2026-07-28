@@ -6,7 +6,10 @@ import { test } from "vitest";
 
 import { TaskGraph, defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 
-import { saveCurrentProjectRef } from "../packages/spark-extension/src/extension/current-project-state.ts";
+import {
+  currentProjectStorePath,
+  saveCurrentProjectRef,
+} from "../packages/spark-extension/src/extension/current-project-state.ts";
 import {
   currentSparkProject,
   loadSparkGraph,
@@ -18,6 +21,8 @@ import {
   sessionLoopStorePath,
   setSessionGoal,
   setSessionLoop,
+  sanitizeStoreScope,
+  sparkSessionFileKey,
   sparkSessionKey,
   sparkSessionKey as sparkLoopSessionKey,
   sparkSessionOwnerKey,
@@ -106,6 +111,52 @@ test("spark-loop session identity accepts fully-qualified session manager leaf k
     sparkLoopSessionKey({ sessionManager: { getLeafId: () => "raw-leaf" } }),
     "leaf:raw-leaf",
   );
+});
+
+test("project selection migrates from the legacy session-file key on reload", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-project-reload-migration-"));
+  try {
+    const repo = join(dir, "repo");
+    const stateRoot = join(dir, "state-owner", ".spark");
+    const sessionFile = join(dir, "pi-sessions", "active.jsonl");
+    await mkdir(repo, { recursive: true });
+    await mkdir(stateRoot, { recursive: true });
+    const graph = new TaskGraph();
+    const project = graph.createProject({
+      title: "Reload project",
+      description: "persist selection",
+    });
+    await defaultTaskGraphStore(join(dir, "state-owner")).save(graph);
+
+    const legacyContext = {
+      sparkStateRoot: stateRoot,
+      sessionManager: { getSessionFile: () => sessionFile },
+    };
+    const reloadedContext = {
+      sparkStateRoot: stateRoot,
+      sessionId: "native-reload-session",
+      sessionManager: { getSessionFile: () => sessionFile },
+    };
+
+    const legacyKey = sparkSessionFileKey(legacyContext);
+    assert.ok(legacyKey);
+    assert.equal(sparkSessionFileKey(reloadedContext), legacyKey);
+    assert.notEqual(sparkSessionKey(reloadedContext), legacyKey);
+    await saveCurrentProjectRef(repo, legacyContext, project.ref);
+    const reloadedGraph = await loadSparkGraph(repo, reloadedContext);
+    assert.ok(reloadedGraph);
+    assert.equal(
+      (await currentSparkProject(repo, reloadedContext, reloadedGraph))?.ref,
+      project.ref,
+    );
+    await assert.rejects(
+      readFile(join(stateRoot, "sessions", sanitizeStoreScope(legacyKey), "state.json"), "utf8"),
+      { code: "ENOENT" },
+    );
+    await readFile(currentProjectStorePath(repo, reloadedContext), "utf8");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("Spark state helpers honor explicit sparkStateRoot", async () => {

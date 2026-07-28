@@ -24,6 +24,10 @@
     "./spark-widget-controller": "./src/spark-widget-controller.ts",
     "./types": "./src/types.ts"
   },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test": "vp test run"
+  },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
@@ -33,5 +37,9 @@
     "@zendev-lab/spark-text": "workspace:^",
     "@zendev-lab/spark-workflows": "workspace:^",
     "typebox": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

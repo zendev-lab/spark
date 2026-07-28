@@ -55,7 +55,6 @@ export interface SparkConfig {
 export const CURRENT_SPARK_EXTENSION_PROFILE_VERSION = 2;
 
 const CURRENT_SPARK_EXTENSION_FACADE = "@zendev-lab/spark-extension/extension";
-const EVIDENCE_EXTENSION = "@zendev-lab/spark-artifacts/extension";
 /** Pi product / prior Spark-native facade; rewrite to the Spark-native boundary. */
 const LEGACY_PI_EXTENSION_FACADE = "@zendev-lab/pi-extension/extension";
 const LEGACY_DEFAULT_EXTENSION_CORE = [
@@ -64,6 +63,17 @@ const LEGACY_DEFAULT_EXTENSION_CORE = [
   "@zendev-lab/spark-files/extension",
   "@zendev-lab/spark-ai/models-extension",
   "@zendev-lab/spark-roles/extension",
+] as const;
+const SPARK_EXTENSION_PROFILE_V1 = [
+  "@zendev-lab/spark-ask/extension",
+  "@zendev-lab/spark-cue/extension",
+  "@zendev-lab/spark-files/extension",
+  "@zendev-lab/spark-ai/models-extension",
+  "@zendev-lab/spark-memory/extension",
+  "@zendev-lab/spark-roles/extension",
+  "@zendev-lab/spark-session/extension",
+  "@zendev-lab/spark-web/extension",
+  CURRENT_SPARK_EXTENSION_FACADE,
 ] as const;
 
 export const DEFAULT_SPARK_CONFIG: SparkConfig = {
@@ -241,13 +251,8 @@ export function migrateSparkExtensionProfile(
     ),
   );
   if (version >= CURRENT_SPARK_EXTENSION_PROFILE_VERSION) return normalized;
-  if (version === 1) {
-    if (!versionOneDefaultProfile(normalized)) return normalized;
-    const versionOneDefaults = new Set<string>(
-      DEFAULT_SPARK_EXTENSION_SPECS.filter((specifier) => specifier !== EVIDENCE_EXTENSION),
-    );
-    const custom = normalized.filter((specifier) => !versionOneDefaults.has(specifier));
-    return dedupeStrings([...DEFAULT_SPARK_EXTENSION_SPECS, ...custom]);
+  if (version === 1 && containsBundledProfile(normalized, SPARK_EXTENSION_PROFILE_V1)) {
+    return migrateKnownBundledProfile(normalized, SPARK_EXTENSION_PROFILE_V1);
   }
   // Prior Spark-native facade lived at pi-extension; rewrite and recover known bundled profiles.
   if (extensions.includes(LEGACY_PI_EXTENSION_FACADE)) {
@@ -266,28 +271,23 @@ export function migrateSparkExtensionProfile(
   if (extensions.length === 1 && extensions[0] === CURRENT_SPARK_EXTENSION_FACADE) {
     return [...DEFAULT_SPARK_EXTENSION_SPECS];
   }
-  if (!legacyDefaultProfile(normalized)) return normalized;
-
-  const legacyBundled = new Set<string>([
-    ...LEGACY_DEFAULT_EXTENSION_CORE,
-    "@zendev-lab/spark-memory/extension",
-    "@zendev-lab/spark-session/extension",
-    "@zendev-lab/spark-web/extension",
-    "@zendev-lab/spark-graft/extension",
-    CURRENT_SPARK_EXTENSION_FACADE,
-    LEGACY_PI_EXTENSION_FACADE,
-  ]);
-  const custom = normalized.filter((specifier) => !legacyBundled.has(specifier));
-  return dedupeStrings([...DEFAULT_SPARK_EXTENSION_SPECS, ...custom]);
-}
-
-function versionOneDefaultProfile(normalized: readonly string[]): boolean {
-  return (
-    normalized.includes(CURRENT_SPARK_EXTENSION_FACADE) &&
-    DEFAULT_SPARK_EXTENSION_SPECS.filter((specifier) => specifier !== EVIDENCE_EXTENSION).every(
-      (specifier) => normalized.includes(specifier),
-    )
-  );
+  if (legacyDefaultProfile(normalized)) {
+    const legacyBundled = new Set<string>([
+      ...LEGACY_DEFAULT_EXTENSION_CORE,
+      "@zendev-lab/spark-memory/extension",
+      "@zendev-lab/spark-session/extension",
+      "@zendev-lab/spark-web/extension",
+      "@zendev-lab/spark-graft/extension",
+      CURRENT_SPARK_EXTENSION_FACADE,
+      LEGACY_PI_EXTENSION_FACADE,
+    ]);
+    const custom = normalized.filter((specifier) => !legacyBundled.has(specifier));
+    return dedupeStrings([...DEFAULT_SPARK_EXTENSION_SPECS, ...custom]);
+  }
+  if (version === 0 && containsBundledProfile(normalized, SPARK_EXTENSION_PROFILE_V1)) {
+    return migrateKnownBundledProfile(normalized, SPARK_EXTENSION_PROFILE_V1);
+  }
+  return normalized;
 }
 
 function legacyDefaultProfile(normalized: readonly string[]): boolean {
@@ -296,6 +296,22 @@ function legacyDefaultProfile(normalized: readonly string[]): boolean {
     normalized.includes(CURRENT_SPARK_EXTENSION_FACADE) &&
     normalized.includes("@zendev-lab/spark-graft/extension")
   );
+}
+
+function containsBundledProfile(
+  extensions: readonly string[],
+  bundledProfile: readonly string[],
+): boolean {
+  return bundledProfile.every((specifier) => extensions.includes(specifier));
+}
+
+function migrateKnownBundledProfile(
+  extensions: readonly string[],
+  bundledProfile: readonly string[],
+): string[] {
+  const bundled = new Set(bundledProfile);
+  const custom = extensions.filter((specifier) => !bundled.has(specifier));
+  return dedupeStrings([...DEFAULT_SPARK_EXTENSION_SPECS, ...custom]);
 }
 
 function dedupeStrings(values: readonly string[]): string[] {

@@ -8,10 +8,7 @@ import {
   type SparkTurnStatusResult,
   type SparkTurnStreamPage,
 } from "@zendev-lab/spark-protocol";
-import {
-  requestSparkDaemonLocalRpc,
-  SparkDaemonLocalRpcUnavailableError,
-} from "@zendev-lab/spark-daemon-client";
+import { requestSparkDaemon, SparkDaemonUnavailableError } from "@zendev-lab/spark-daemon-client";
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_DIAGNOSTIC_EVENTS = 100;
@@ -41,11 +38,11 @@ export interface CockpitInvocationDiagnosticsSnapshot {
 }
 
 const daemonInvocationDiagnosticsClient: CockpitInvocationDiagnosticsClient = {
-  daemonStatus: async () => await requestSparkDaemonLocalRpc("daemon.status"),
-  list: async (input) => await requestSparkDaemonLocalRpc("invocation.list", input),
-  status: async (invocationId) => await requestSparkDaemonLocalRpc("turn.status", { invocationId }),
+  daemonStatus: async () => await requestSparkDaemon("daemon.status", {}),
+  list: async (input) => await requestSparkDaemon("invocation.list", input),
+  status: async (invocationId) => await requestSparkDaemon("turn.status", { invocationId }),
   stream: async (invocationId, after, limit) =>
-    await requestSparkDaemonLocalRpc("turn.stream", { invocationId, after, limit }),
+    await requestSparkDaemon("turn.stream", { invocationId, after, limit }),
 };
 
 export async function loadInvocationDiagnosticsForCockpit(
@@ -75,7 +72,7 @@ export async function loadInvocationDiagnosticsForCockpit(
     const selected = invocationId ? await loadSelectedInvocation(invocationId, client) : null;
     return { available: true, daemon, list, selected };
   } catch (error) {
-    if (error instanceof SparkDaemonLocalRpcUnavailableError) {
+    if (error instanceof SparkDaemonUnavailableError) {
       return {
         available: false,
         daemon: null,

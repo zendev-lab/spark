@@ -6,6 +6,9 @@ import {
   type SparkMessageView,
   type SparkSessionPendingTurn,
   type SparkSessionView,
+  type SparkTurnCancelResult,
+  type SparkTurnStatusResult,
+  type SparkTurnSubmitResult,
   type SparkToolCallView,
 } from "@zendev-lab/spark-protocol";
 
@@ -20,6 +23,7 @@ import {
 import { nativeTuiStrings } from "./strings.ts";
 import {
   MAX_TRANSCRIPT_MESSAGES,
+  SparkNativeAdmissionError,
   type SparkNativeAbortResult,
   type SparkNativeCustomMessageInput,
   type SparkNativeMessage,
@@ -30,9 +34,75 @@ import {
   type SparkNativeToolMessageInput,
 } from "./types.ts";
 
+const DAEMON_ADMISSION_RETRY_MS = 250;
+const DAEMON_STATUS_RECONCILE_MS = 500;
+
+async function waitForDaemonRetry(
+  signal: AbortSignal,
+  delayMs: number,
+  label: string,
+): Promise<void> {
+  if (signal.aborted) {
+    throw signal.reason instanceof Error ? signal.reason : new Error(`${label} aborted`);
+  }
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason instanceof Error ? signal.reason : new Error(`${label} aborted`));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function nativeDaemonErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (
+    typeof error === "number" ||
+    typeof error === "boolean" ||
+    typeof error === "bigint" ||
+    typeof error === "symbol"
+  ) {
+    return error.toString();
+  }
+  if (error === null) return "null";
+  if (error === undefined) return "unknown error";
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "unprintable error";
+  }
+}
+
 function formatSteeringSubmission(inputs: string[]): string {
   const body = inputs.map((input, index) => `Steering ${index + 1}:\n${input.trim()}`).join("\n\n");
   return nativeTuiStrings.steeringUpdate(body);
+}
+
+type SparkNativeDaemonObservation = {
+  readonly text: string;
+  readonly effectivePrompt: string;
+  readonly mode: SparkNativeQueuedInput["mode"];
+  readonly submissionId: string;
+  admission?: SparkTurnSubmitResult;
+  admissionPromise?: Promise<SparkTurnSubmitResult>;
+  admissionAbort?: AbortController;
+  admissionFailureHandled?: boolean;
+  cancelReason?: string;
+  cancelResult?: SparkTurnCancelResult;
+  observerAbort?: AbortController;
+  userMessageDisplayed?: boolean;
+};
+
+function hasDaemonQueueCapabilities(
+  responder: SparkNativeResponder,
+): responder is SparkNativeResponder &
+  Required<Pick<SparkNativeResponder, "admit" | "observe" | "cancel">> {
+  return Boolean(responder.admit && responder.observe && responder.cancel);
 }
 
 export function defaultSparkNativeResponder(input: string): string {
@@ -51,8 +121,18 @@ export class SparkNativeSession {
   readonly messages: SparkNativeMessage[] = [];
   /** Optimistic local queue (steer/followUp) until turn.submit ack / drain. */
   private readonly queuedFollowUps: SparkNativeQueuedInput[] = [];
+  /** Definite admission failures whose text is safe to return to the editor. */
+  private readonly failedAdmissions: SparkNativeQueuedInput[] = [];
   /** Durable daemon admission projection; undefined until a snapshot supplies it. */
   private daemonPendingTurns: SparkSessionPendingTurn[] | undefined;
+  /** Ordered observers for already admitted daemon invocations; never execution authority. */
+  private readonly daemonObservations: SparkNativeDaemonObservation[] = [];
+  private daemonAdmissionTail: Promise<void> = Promise.resolve();
+  private daemonObserverRunning = false;
+  private activeDaemonObservation: SparkNativeDaemonObservation | undefined;
+  private readonly daemonCancellationRequests = new Map<string, Promise<void>>();
+  private readonly reportedDaemonFailures = new Set<string>();
+  private daemonDetached = false;
   private readonly responder: SparkNativeResponder;
   private lastSubmittedInput: { text: string; submissionId: string } | undefined;
   private processing = false;
@@ -71,15 +151,30 @@ export class SparkNativeSession {
   }
 
   get isProcessing(): boolean {
-    return this.processing;
+    return (
+      this.processing ||
+      this.daemonObserverRunning ||
+      (!this.daemonDetached &&
+        (this.daemonObservations.length > 0 || (this.daemonPendingTurns?.length ?? 0) > 0))
+    );
   }
 
   get canRetry(): boolean {
-    return !this.processing && this.lastSubmittedInput !== undefined;
+    return !this.isProcessing && this.lastSubmittedInput !== undefined;
   }
 
   get canStopOrRestore(): boolean {
-    return this.processing || this.queuedFollowUps.length > 0 || this.daemonQueuedCount() > 0;
+    return this.isProcessing || this.queuedFollowUps.length > 0 || this.daemonQueuedCount() > 0;
+  }
+
+  get daemonOwnsQueue(): boolean {
+    return hasDaemonQueueCapabilities(this.responder);
+  }
+
+  get canRestoreQueuedInput(): boolean {
+    return (
+      this.failedAdmissions.length > 0 || (!this.daemonOwnsQueue && this.queuedFollowUps.length > 0)
+    );
   }
 
   get queuedCount(): number {
@@ -122,6 +217,12 @@ export class SparkNativeSession {
     if (!text) return "ignored";
     const submissionId = options.submissionId ?? createId("idem");
     this.lastSubmittedInput = { text, submissionId };
+
+    if (hasDaemonQueueCapabilities(this.responder)) {
+      const queued = this.isProcessing || this.daemonObservations.length > 0;
+      this.enqueueDaemonObservation(text, options.mode ?? "steer", submissionId, queued);
+      return queued ? "queued" : "started";
+    }
 
     if (this.processing) {
       const mode = options.mode ?? "steer";
@@ -190,7 +291,7 @@ export class SparkNativeSession {
     const localPending = this.localOptimisticPendingTurns();
     const daemonPending = this.daemonPendingTurns ?? [];
     const pendingTurns = [...localPending, ...daemonPending];
-    const status = this.processing ? "streaming" : pendingTurns.length > 0 ? "queued" : "idle";
+    const status = this.isProcessing ? "streaming" : pendingTurns.length > 0 ? "queued" : "idle";
     return {
       version: SPARK_PROTOCOL_VERSION,
       sessionId,
@@ -225,7 +326,6 @@ export class SparkNativeSession {
     this.messages.splice(0, this.messages.length, ...messages);
     if (view.pendingTurns !== undefined) {
       this.daemonPendingTurns = view.pendingTurns.map((turn) => ({ ...turn }));
-      this.reconcileOptimisticQueueAgainstDaemon();
     }
     this.sortMessagesChronologically();
     this.trimTranscript();
@@ -240,6 +340,34 @@ export class SparkNativeSession {
   }
 
   abort(reason: string = "user stop"): SparkNativeAbortResult {
+    if (hasDaemonQueueCapabilities(this.responder)) {
+      const pending = this.daemonCancellationTarget();
+      const admittedObservation = pending
+        ? this.daemonObservations.find(
+            (candidate) => candidate.admission?.invocationId === pending.invocationId,
+          )
+        : (this.activeDaemonObservation ??
+          this.daemonObservations.find((candidate) => candidate.admission));
+      if (pending || admittedObservation?.admission) {
+        const invocationId = pending?.invocationId ?? admittedObservation?.admission?.invocationId;
+        if (!invocationId) return { aborted: false, clearedQueued: 0 };
+        if (admittedObservation) admittedObservation.cancelReason ??= reason;
+        void this.requestDaemonCancelById(invocationId, reason, admittedObservation);
+        return { aborted: true, clearedQueued: 0 };
+      }
+
+      const awaitingAdmission = this.daemonObservations.find((candidate) => !candidate.admission);
+      if (!awaitingAdmission) {
+        return { aborted: false, clearedQueued: 0 };
+      }
+      awaitingAdmission.cancelReason ??= reason;
+      this.pushMessage({
+        role: "system",
+        text: nativeTuiStrings.cancellationRequested(),
+      });
+      return { aborted: true, clearedQueued: 0 };
+    }
+
     const clearedQueued = this.queuedFollowUps.length;
     const restoredText = this.restoreQueuedText();
     if (!this.processing) {
@@ -263,10 +391,29 @@ export class SparkNativeSession {
     return { aborted: true, clearedQueued, restoredText };
   }
 
+  /**
+   * Stop observing daemon events when the TUI detaches. Durable admissions and
+   * daemon execution deliberately continue.
+   */
+  detach(): void {
+    if (!hasDaemonQueueCapabilities(this.responder)) return;
+    this.daemonDetached = true;
+    for (const observation of this.daemonObservations) {
+      observation.admissionAbort?.abort(new Error("Spark TUI detached"));
+    }
+    this.activeDaemonObservation?.observerAbort?.abort(new Error("Spark TUI detached"));
+  }
+
   restoreQueuedText(): string | undefined {
-    if (this.queuedFollowUps.length === 0) return undefined;
-    const restored = this.queuedFollowUps.map((entry) => entry.text).join("\n\n");
-    this.queuedFollowUps.splice(0, this.queuedFollowUps.length);
+    const recoverable = this.daemonOwnsQueue
+      ? this.failedAdmissions
+      : [...this.failedAdmissions, ...this.queuedFollowUps];
+    if (recoverable.length === 0) return undefined;
+    const restored = recoverable.map((entry) => entry.text).join("\n\n");
+    this.failedAdmissions.splice(0, this.failedAdmissions.length);
+    if (!this.daemonOwnsQueue) {
+      this.queuedFollowUps.splice(0, this.queuedFollowUps.length);
+    }
     this.emitChange();
     return restored;
   }
@@ -346,6 +493,578 @@ export class SparkNativeSession {
     });
   }
 
+  private enqueueDaemonObservation(
+    text: string,
+    mode: SparkNativeQueuedInput["mode"],
+    submissionId: string,
+    queued: boolean,
+  ): void {
+    this.removeFailedAdmission(submissionId);
+    const observation: SparkNativeDaemonObservation = {
+      text,
+      effectivePrompt: queued && mode === "steer" ? formatSteeringSubmission([text]) : text,
+      mode,
+      submissionId,
+    };
+    this.daemonObservations.push(observation);
+    if (queued) {
+      this.queuedFollowUps.push({ text, mode, submissionId });
+    } else {
+      observation.userMessageDisplayed = true;
+      this.pushMessage({ role: "user", text: displayNativeSubmittedInput(text) });
+    }
+
+    const admissionPromise = this.daemonAdmissionTail
+      .then(async () => await this.admitDaemonObservation(observation))
+      .catch((error: unknown) => {
+        if (!this.daemonDetached) this.handleDaemonAdmissionFailure(observation, error);
+        throw error;
+      });
+    observation.admissionPromise = admissionPromise;
+    this.daemonAdmissionTail = admissionPromise.then(
+      () => undefined,
+      () => undefined,
+    );
+    if (!this.daemonObserverRunning) {
+      void this.drainDaemonObservations();
+    }
+    this.emitChange();
+  }
+
+  private async admitDaemonObservation(
+    observation: SparkNativeDaemonObservation,
+  ): Promise<SparkTurnSubmitResult> {
+    if (!hasDaemonQueueCapabilities(this.responder)) {
+      throw new Error("Spark daemon responder capabilities are unavailable");
+    }
+    if (this.daemonDetached) throw new Error("Spark TUI detached before daemon admission");
+    const admissionAbort = new AbortController();
+    observation.admissionAbort = admissionAbort;
+    let admission: SparkTurnSubmitResult;
+    try {
+      let unknownOutcomeReported = false;
+      while (true) {
+        try {
+          admission = await this.responder.admit(observation.effectivePrompt, {
+            submissionId: observation.submissionId,
+            signal: admissionAbort.signal,
+          });
+          break;
+        } catch (error) {
+          if (this.daemonDetached || admissionAbort.signal.aborted) throw error;
+          if (error instanceof SparkNativeAdmissionError && error.outcome === "rejected") {
+            throw error;
+          }
+          if (!unknownOutcomeReported) {
+            unknownOutcomeReported = true;
+            this.pushMessage({
+              role: "system",
+              text: nativeTuiStrings.admissionUnconfirmed(
+                observation.submissionId,
+                nativeDaemonErrorMessage(error),
+              ),
+            });
+          }
+          await waitForDaemonRetry(
+            admissionAbort.signal,
+            DAEMON_ADMISSION_RETRY_MS,
+            "admission retry",
+          );
+        }
+      }
+    } finally {
+      observation.admissionAbort = undefined;
+    }
+    observation.admission = admission;
+    this.removeOptimisticInput(observation.submissionId);
+    this.removeFailedAdmission(observation.submissionId);
+    if (admission.status === "queued" || admission.status === "running") {
+      this.upsertDaemonPending({
+        invocationId: admission.invocationId,
+        prompt: observation.text,
+        status: admission.status,
+        createdAt: admission.acceptedAt,
+      });
+    }
+    if (observation.cancelReason) {
+      void this.requestDaemonCancelById(
+        admission.invocationId,
+        observation.cancelReason,
+        observation,
+      );
+    }
+    this.emitChange();
+    return admission;
+  }
+
+  private async drainDaemonObservations(): Promise<void> {
+    if (this.daemonObserverRunning || this.daemonDetached) return;
+    this.daemonObserverRunning = true;
+    this.emitChange();
+    try {
+      while (!this.daemonDetached) {
+        const observation = this.daemonObservations[0];
+        if (!observation) break;
+        try {
+          const admission = await observation.admissionPromise;
+          if (!admission) {
+            throw new Error("Spark daemon admission completed without a receipt");
+          }
+          if (this.daemonDetached) break;
+          await this.observeDaemonObservation(observation, admission);
+        } catch (error) {
+          if (!this.daemonDetached) {
+            if (!observation.admission) {
+              this.handleDaemonAdmissionFailure(observation, error);
+            } else {
+              this.pushMessage({
+                role: "system",
+                text: nativeTuiStrings.turnFailed(nativeDaemonErrorMessage(error)),
+              });
+            }
+          }
+        } finally {
+          if (this.daemonObservations[0] === observation) {
+            this.daemonObservations.shift();
+          } else {
+            const index = this.daemonObservations.indexOf(observation);
+            if (index >= 0) this.daemonObservations.splice(index, 1);
+          }
+        }
+      }
+    } finally {
+      this.activeDaemonObservation = undefined;
+      this.daemonObserverRunning = false;
+      this.trimTranscript();
+      this.emitChange();
+    }
+  }
+
+  private async observeDaemonObservation(
+    observation: SparkNativeDaemonObservation,
+    admission: SparkTurnSubmitResult,
+  ): Promise<void> {
+    if (!hasDaemonQueueCapabilities(this.responder)) return;
+    this.activeDaemonObservation = observation;
+    const observerAbort = new AbortController();
+    observation.observerAbort = observerAbort;
+    if (!observation.userMessageDisplayed) {
+      observation.userMessageDisplayed = true;
+      this.pushMessage({ role: "user", text: displayNativeSubmittedInput(observation.text) });
+    }
+
+    let streamedAssistant = false;
+    let finishAssistantRequested = false;
+    let response: string | undefined;
+    let observationError: unknown;
+    try {
+      try {
+        response = await this.responder.observe(admission, {
+          messages: this.messages,
+          submissionId: observation.submissionId,
+          signal: observerAbort.signal,
+          appendAssistantChunk: (chunk) => {
+            streamedAssistant = true;
+            this.appendAssistantChunk(chunk);
+          },
+          finishAssistantMessage: () => {
+            finishAssistantRequested = true;
+          },
+        });
+      } catch (error) {
+        if (this.daemonDetached || observerAbort.signal.aborted) return;
+        observationError = error;
+      }
+
+      if (this.daemonDetached || observerAbort.signal.aborted) return;
+
+      if (this.responder.status) {
+        let interruptionReported = false;
+        let observedNonterminalStatus = false;
+        while (!this.daemonDetached && !observerAbort.signal.aborted) {
+          let status: SparkTurnStatusResult;
+          try {
+            status = await this.responder.status(admission.invocationId, {
+              signal: observerAbort.signal,
+            });
+          } catch (statusError) {
+            if (this.daemonDetached || observerAbort.signal.aborted) return;
+            if (!interruptionReported) {
+              interruptionReported = true;
+              this.pushMessage({
+                role: "system",
+                text: nativeTuiStrings.observationInterrupted(
+                  admission.invocationId,
+                  [observationError, statusError]
+                    .filter((error) => error !== undefined)
+                    .map(nativeDaemonErrorMessage)
+                    .join("; "),
+                ),
+              });
+            }
+            try {
+              await waitForDaemonRetry(
+                observerAbort.signal,
+                DAEMON_STATUS_RECONCILE_MS,
+                "status reconciliation",
+              );
+            } catch (error) {
+              if (this.daemonDetached || observerAbort.signal.aborted) return;
+              throw error;
+            }
+            continue;
+          }
+
+          if (this.daemonDetached || observerAbort.signal.aborted) return;
+          if (status.status === "queued" || status.status === "running") {
+            observedNonterminalStatus = true;
+            this.upsertDaemonPending({
+              invocationId: status.invocationId,
+              prompt: observation.text,
+              status: status.status,
+              createdAt: status.createdAt,
+              ...(status.startedAt ? { startedAt: status.startedAt } : {}),
+            });
+            if (!interruptionReported) {
+              interruptionReported = true;
+              this.pushMessage({
+                role: "system",
+                text: nativeTuiStrings.observationInterrupted(
+                  admission.invocationId,
+                  observationError === undefined
+                    ? "the live observer ended before the daemon reached a terminal state"
+                    : nativeDaemonErrorMessage(observationError),
+                ),
+              });
+            }
+            try {
+              await waitForDaemonRetry(
+                observerAbort.signal,
+                DAEMON_STATUS_RECONCILE_MS,
+                "status reconciliation",
+              );
+            } catch (error) {
+              if (this.daemonDetached || observerAbort.signal.aborted) return;
+              throw error;
+            }
+            continue;
+          }
+
+          this.removeDaemonPending(admission.invocationId);
+          if (streamedAssistant || finishAssistantRequested) this.finishAssistantMessage();
+          if (status.status === "failed") {
+            this.reportDaemonFailure(
+              admission.invocationId,
+              status.error?.message ??
+                (observationError instanceof Error
+                  ? observationError.message
+                  : `Invocation ${admission.invocationId} failed`),
+            );
+          } else if (status.status === "cancelled" && !observation.cancelReason) {
+            this.pushMessage({
+              role: "system",
+              text: nativeTuiStrings.turnFailed(
+                status.cancelReason ?? `Invocation ${admission.invocationId} was cancelled`,
+              ),
+            });
+          } else if (
+            status.status === "succeeded" &&
+            !observedNonterminalStatus &&
+            !streamedAssistant &&
+            response
+          ) {
+            this.pushMessage({ role: "assistant", text: response });
+          }
+          this.emitChange();
+          return;
+        }
+        return;
+      }
+
+      const cancelTerminal = observation.cancelResult;
+      if (
+        cancelTerminal &&
+        (cancelTerminal.status === "succeeded" ||
+          cancelTerminal.status === "failed" ||
+          cancelTerminal.status === "cancelled")
+      ) {
+        this.removeDaemonPending(admission.invocationId);
+        if (streamedAssistant || finishAssistantRequested) this.finishAssistantMessage();
+        if (cancelTerminal.status === "failed") {
+          this.reportDaemonFailure(
+            admission.invocationId,
+            observationError instanceof Error
+              ? observationError.message
+              : `Invocation ${admission.invocationId} failed`,
+          );
+        }
+        this.emitChange();
+        return;
+      }
+
+      if (observationError !== undefined) {
+        this.pushMessage({
+          role: "system",
+          text: nativeTuiStrings.observationInterrupted(
+            admission.invocationId,
+            nativeDaemonErrorMessage(observationError),
+          ),
+        });
+        return;
+      }
+
+      // Compatibility responders without `status` historically resolve only
+      // at terminal state. Daemon-backed responders always expose exact status.
+      this.removeDaemonPending(admission.invocationId);
+      if (streamedAssistant || finishAssistantRequested) {
+        this.finishAssistantMessage();
+      } else if (response) {
+        this.pushMessage({ role: "assistant", text: response });
+      }
+      this.emitChange();
+    } finally {
+      observation.observerAbort = undefined;
+      if (this.activeDaemonObservation === observation) {
+        this.activeDaemonObservation = undefined;
+      }
+      this.emitChange();
+    }
+  }
+
+  private daemonCancellationTarget(): SparkSessionPendingTurn | undefined {
+    const pending = this.daemonPendingTurns ?? [];
+    return (
+      pending.find((turn) => turn.status === "running") ??
+      pending.find((turn) => turn.status === "queued")
+    );
+  }
+
+  private async requestDaemonCancelById(
+    invocationId: string,
+    reason: string,
+    observation?: SparkNativeDaemonObservation,
+  ): Promise<void> {
+    if (!hasDaemonQueueCapabilities(this.responder)) return;
+    const existing = this.daemonCancellationRequests.get(invocationId);
+    if (existing) {
+      await existing;
+      return;
+    }
+
+    const request = this.performDaemonCancellation(invocationId, reason, observation);
+    this.daemonCancellationRequests.set(invocationId, request);
+    try {
+      await request;
+    } finally {
+      if (this.daemonCancellationRequests.get(invocationId) === request) {
+        this.daemonCancellationRequests.delete(invocationId);
+      }
+    }
+  }
+
+  private async performDaemonCancellation(
+    invocationId: string,
+    reason: string,
+    observation?: SparkNativeDaemonObservation,
+  ): Promise<void> {
+    if (!hasDaemonQueueCapabilities(this.responder)) return;
+    let result: SparkTurnCancelResult;
+    try {
+      result = await this.responder.cancel(invocationId, reason);
+      if (observation) observation.cancelResult = result;
+    } catch (error) {
+      const reconciled = await this.reconcileCancellationAfterError(
+        invocationId,
+        error,
+        observation,
+      );
+      if (!reconciled) {
+        this.pushMessage({
+          role: "system",
+          text: nativeTuiStrings.cancellationUnconfirmed(
+            invocationId,
+            error instanceof Error ? error.message : String(error),
+          ),
+        });
+      }
+      return;
+    }
+
+    if (result.cancelRequested) {
+      this.pushMessage({
+        role: "system",
+        text: nativeTuiStrings.cancellationRequested(invocationId),
+      });
+    } else if (
+      result.status === "succeeded" ||
+      result.status === "failed" ||
+      result.status === "cancelled"
+    ) {
+      this.pushMessage({
+        role: "system",
+        text: nativeTuiStrings.cancellationAlreadyTerminal(invocationId, result.status),
+      });
+    } else {
+      this.pushMessage({
+        role: "system",
+        text: nativeTuiStrings.cancellationUnconfirmed(
+          invocationId,
+          `daemon returned cancelRequested=false with status ${result.status}`,
+        ),
+      });
+    }
+
+    if (
+      result.status === "succeeded" ||
+      result.status === "failed" ||
+      result.status === "cancelled"
+    ) {
+      this.removeDaemonPending(invocationId);
+      if (result.status === "failed") {
+        await this.reportFailureFromDaemonStatus(invocationId);
+      }
+    }
+    this.emitChange();
+  }
+
+  private async reconcileCancellationAfterError(
+    invocationId: string,
+    cancellationError: unknown,
+    observation?: SparkNativeDaemonObservation,
+  ): Promise<boolean> {
+    if (!this.responder.status) return false;
+    let status: SparkTurnStatusResult;
+    try {
+      status = await this.responder.status(invocationId);
+    } catch {
+      return false;
+    }
+
+    if (status.status === "queued" || status.status === "running") {
+      const current = this.daemonPendingTurns?.find((turn) => turn.invocationId === invocationId);
+      if (current) {
+        this.upsertDaemonPending({
+          ...current,
+          status: status.status,
+          ...(status.startedAt ? { startedAt: status.startedAt } : {}),
+        });
+      }
+      if (status.cancelReason) {
+        this.pushMessage({
+          role: "system",
+          text: nativeTuiStrings.cancellationRequested(invocationId),
+        });
+      } else {
+        this.pushMessage({
+          role: "system",
+          text: nativeTuiStrings.cancellationUnconfirmed(
+            invocationId,
+            cancellationError instanceof Error
+              ? cancellationError.message
+              : String(cancellationError),
+          ),
+        });
+      }
+      return true;
+    }
+
+    const reconciled: SparkTurnCancelResult = {
+      invocationId,
+      status: status.status,
+      cancelRequested: false,
+    };
+    if (observation) observation.cancelResult = reconciled;
+    this.removeDaemonPending(invocationId);
+    this.pushMessage({
+      role: "system",
+      text: nativeTuiStrings.cancellationAlreadyTerminal(invocationId, status.status),
+    });
+    if (status.status === "failed") {
+      this.reportDaemonFailure(
+        invocationId,
+        status.error?.message ?? `Invocation ${invocationId} failed`,
+      );
+    }
+    this.emitChange();
+    return true;
+  }
+
+  private async reportFailureFromDaemonStatus(invocationId: string): Promise<void> {
+    if (!this.responder.status) {
+      this.reportDaemonFailure(invocationId, `Invocation ${invocationId} failed`);
+      return;
+    }
+    try {
+      const status = await this.responder.status(invocationId);
+      this.reportDaemonFailure(
+        invocationId,
+        status.error?.message ?? `Invocation ${invocationId} failed`,
+      );
+    } catch (error) {
+      this.reportDaemonFailure(
+        invocationId,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  private reportDaemonFailure(invocationId: string, error: string): void {
+    if (this.reportedDaemonFailures.has(invocationId)) return;
+    this.reportedDaemonFailures.add(invocationId);
+    this.pushMessage({
+      role: "system",
+      text: nativeTuiStrings.turnFailed(error),
+    });
+  }
+
+  private rememberFailedAdmission(observation: SparkNativeDaemonObservation): void {
+    this.removeFailedAdmission(observation.submissionId);
+    this.failedAdmissions.push({
+      text: observation.text,
+      mode: observation.mode,
+      submissionId: observation.submissionId,
+    });
+  }
+
+  private handleDaemonAdmissionFailure(
+    observation: SparkNativeDaemonObservation,
+    error: unknown,
+  ): void {
+    if (observation.admissionFailureHandled) return;
+    observation.admissionFailureHandled = true;
+    this.removeOptimisticInput(observation.submissionId);
+    this.rememberFailedAdmission(observation);
+    this.pushMessage({
+      role: "system",
+      text: nativeTuiStrings.admissionRejected(nativeDaemonErrorMessage(error)),
+    });
+  }
+
+  private removeFailedAdmission(submissionId: string): void {
+    const index = this.failedAdmissions.findIndex((input) => input.submissionId === submissionId);
+    if (index >= 0) this.failedAdmissions.splice(index, 1);
+  }
+
+  private removeOptimisticInput(submissionId: string): void {
+    const index = this.queuedFollowUps.findIndex((input) => input.submissionId === submissionId);
+    if (index >= 0) this.queuedFollowUps.splice(index, 1);
+  }
+
+  private upsertDaemonPending(pending: SparkSessionPendingTurn): void {
+    this.daemonPendingTurns ??= [];
+    const index = this.daemonPendingTurns.findIndex(
+      (turn) => turn.invocationId === pending.invocationId,
+    );
+    if (index >= 0) this.daemonPendingTurns[index] = pending;
+    else this.daemonPendingTurns.push(pending);
+  }
+
+  private removeDaemonPending(invocationId: string): void {
+    if (!this.daemonPendingTurns) return;
+    const index = this.daemonPendingTurns.findIndex((turn) => turn.invocationId === invocationId);
+    if (index >= 0) this.daemonPendingTurns.splice(index, 1);
+  }
+
   private async process(input: string, submissionId: string): Promise<void> {
     this.processing = true;
     const turnId = ++this.activeTurnId;
@@ -420,23 +1139,6 @@ export class SparkNativeSession {
       status: "queued" as const,
       createdAt,
     }));
-  }
-
-  /**
-   * Drop optimistic local rows once the daemon reports a matching queued/running
-   * prompt (exact text). Steer coalesce remains local-only until submit.
-   */
-  private reconcileOptimisticQueueAgainstDaemon(): void {
-    const admitted = new Set(
-      (this.daemonPendingTurns ?? []).map((turn) => turn.prompt.trim()).filter(Boolean),
-    );
-    if (admitted.size === 0) return;
-    for (let index = this.queuedFollowUps.length - 1; index >= 0; index -= 1) {
-      const entry = this.queuedFollowUps[index];
-      if (entry && admitted.has(entry.text.trim())) {
-        this.queuedFollowUps.splice(index, 1);
-      }
-    }
   }
 
   private trimTranscript(): void {

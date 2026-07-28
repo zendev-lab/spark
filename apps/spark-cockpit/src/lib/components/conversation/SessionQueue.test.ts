@@ -44,6 +44,7 @@ describe("SessionQueue component contract", () => {
     expect(body).not.toContain("NEXT_LABEL");
     expect(body).toContain(item.text);
     expect(body).not.toContain("<details");
+    expect(body).toMatch(/data-session-queue[^>]*tabindex="-1"/);
   });
 
   it("labels a lone follow-up as next only behind a genuinely running turn", () => {

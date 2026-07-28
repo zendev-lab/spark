@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { sparkProtocolJsonObjectSchema } from "./command-events.ts";
+import { sparkProtocolJsonObjectSchema, sparkProtocolJsonValueSchema } from "./command-events.ts";
 import { sparkTurnSubmitResultSchema } from "./invocation-lifecycle.ts";
 import {
   sparkChannelAdapterSchema,
@@ -36,7 +36,7 @@ export const sparkSessionMailDeliveryReceiptSchema = sparkSessionMailChannelTarg
   lastAttemptAt: z.string().nullable(),
   deliveredAt: z.string().nullable(),
   lastError: z.string().nullable(),
-  receipt: z.unknown(),
+  receipt: sparkProtocolJsonValueSchema,
 });
 
 export const sparkSessionMailRequestAdmissionSchema = z.discriminatedUnion("status", [

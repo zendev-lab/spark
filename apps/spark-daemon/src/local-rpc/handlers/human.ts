@@ -1,24 +1,28 @@
 import { SparkDaemonHumanWaitLookupError } from "../../core/human-waits.ts";
 import { requireHumanInteractionResponder, requireHumanWaitRegistry } from "../helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
-import type { LocalRpcRequest, LocalRpcResponse } from "../types.ts";
+import {
+  parseLocalRpcServiceOutput,
+  type LocalRpcServiceOutput,
+  type LocalRpcServiceRequest,
+} from "../types.ts";
 
 type HumanRequest = Extract<
-  LocalRpcRequest,
+  LocalRpcServiceRequest,
   { method: "human.interaction.list" | "human.interaction.respond" }
 >;
 
 export async function handleHumanRequest(
   ctx: LocalRpcDispatchContext,
   request: HumanRequest,
-): Promise<LocalRpcResponse> {
+): Promise<LocalRpcServiceOutput<HumanRequest>> {
   const { options } = ctx;
   switch (request.method) {
     case "human.interaction.list": {
       const waits = requireHumanWaitRegistry(options)
         .listPending()
         .filter((wait) => !request.params.sessionId || wait.sessionId === request.params.sessionId);
-      return { id: request.id, ok: true, result: { waits } };
+      return parseLocalRpcServiceOutput(request.method, { waits });
     }
     case "human.interaction.respond": {
       const waits = requireHumanWaitRegistry(options);
@@ -44,7 +48,7 @@ export async function handleHumanRequest(
         answers: request.params.answers,
         responseArtifactRefs: request.params.responseArtifactRefs,
       });
-      return { id: request.id, ok: true, result };
+      return parseLocalRpcServiceOutput(request.method, result);
     }
   }
 }

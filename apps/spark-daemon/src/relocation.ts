@@ -8,6 +8,7 @@ import {
 } from "@zendev-lab/spark-protocol";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 
+import { SparkDaemonControlError } from "./control-error.ts";
 import { validateRegistrationServerUrl } from "./registration.ts";
 import { fetchRegistrationEndpoint } from "./registration-http.ts";
 import { readSparkDaemonConfig, writeSparkDaemonConfig, type SparkDaemonConfig } from "./config.ts";
@@ -39,10 +40,31 @@ export interface SparkDaemonRelocationResult {
   relocatedAt: string;
 }
 
-export class SparkDaemonRelocationError extends Error {
-  readonly code: string;
+const sparkDaemonRelocationErrorCodeOptions = [
+  "RELOCATION_TARGET_INVALID",
+  "RELOCATION_TARGET_UNCHANGED",
+  "RELOCATION_INSTANCE_MISMATCH",
+  "RELOCATION_RUNTIME_MISMATCH",
+  "RELOCATION_METADATA_REJECTED",
+  "RELOCATION_PREFLIGHT_REJECTED",
+  "RELOCATION_SOURCE_NOT_FOUND",
+  "RELOCATION_TARGET_COLLISION",
+  "RELOCATION_SOURCE_NOT_CONFIGURED",
+  "RELOCATION_SOURCE_REQUIRED",
+  "RELOCATION_HTTPS_REQUIRED",
+  "RELOCATION_WEBSOCKET_INVALID",
+  "RELOCATION_CONFIG_CHANGED",
+  "RELOCATION_CONFIG_INCOMPLETE",
+] as const;
 
-  constructor(message: string, code: string) {
+export type SparkDaemonRelocationErrorCode = (typeof sparkDaemonRelocationErrorCodeOptions)[number];
+
+const sparkDaemonRelocationErrorCodes = new Set<string>(sparkDaemonRelocationErrorCodeOptions);
+
+export class SparkDaemonRelocationError extends Error {
+  readonly code: SparkDaemonRelocationErrorCode;
+
+  constructor(message: string, code: SparkDaemonRelocationErrorCode) {
     super(message);
     this.code = code;
   }
@@ -133,7 +155,12 @@ export async function relocateSparkDaemonCockpit(
 
 async function fetchRelocationMetadata(serverUrl: string, fetchFn?: typeof fetch) {
   const url = new URL("/api/v1/runtime/relocation/metadata", serverUrl);
-  const response = await fetchRegistrationEndpoint(url, { method: "GET" }, fetchFn);
+  const response = await fetchRelocationEndpoint(
+    url,
+    { method: "GET" },
+    "RELOCATION_METADATA_REJECTED",
+    fetchFn,
+  );
   if (!response.ok) {
     throw await relocationHttpError(response, url, "RELOCATION_METADATA_REJECTED");
   }
@@ -146,19 +173,42 @@ async function fetchTargetPreflight(
   fetchFn?: typeof fetch,
 ): Promise<RuntimeRelocationPreflightResponse> {
   const url = new URL("/api/v1/runtime/relocation/preflight", serverUrl);
-  const response = await fetchRegistrationEndpoint(
+  const response = await fetchRelocationEndpoint(
     url,
     {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(request),
     },
+    "RELOCATION_PREFLIGHT_REJECTED",
     fetchFn,
   );
   if (!response.ok) {
     throw await relocationHttpError(response, url, "RELOCATION_PREFLIGHT_REJECTED");
   }
   return runtimeRelocationPreflightResponseSchema.parse(await response.json());
+}
+
+async function fetchRelocationEndpoint(
+  url: URL,
+  init: RequestInit,
+  code: Extract<
+    SparkDaemonRelocationErrorCode,
+    "RELOCATION_METADATA_REJECTED" | "RELOCATION_PREFLIGHT_REJECTED"
+  >,
+  fetchFn?: typeof fetch,
+): Promise<Response> {
+  try {
+    return await fetchRegistrationEndpoint(url, init, fetchFn);
+  } catch (error) {
+    if (
+      error instanceof SparkDaemonControlError &&
+      error.code === "workspace_registration_unavailable"
+    ) {
+      throw new SparkDaemonRelocationError(error.message, code);
+    }
+    throw error;
+  }
 }
 
 async function applyLocalRelocation(
@@ -416,7 +466,18 @@ function requireSourceProfile(paths: SparkPaths, serverUrl: string): SparkDaemon
 }
 
 function validateRelocationTarget(serverUrl: string): string {
-  const normalized = validateRegistrationServerUrl(serverUrl);
+  let normalized: string;
+  try {
+    normalized = validateRegistrationServerUrl(serverUrl);
+  } catch (error) {
+    if (
+      error instanceof SparkDaemonControlError &&
+      error.code === "workspace_registration_invalid"
+    ) {
+      throw new SparkDaemonRelocationError(error.message, "RELOCATION_TARGET_INVALID");
+    }
+    throw error;
+  }
   if (new URL(normalized).protocol !== "https:") {
     throw new SparkDaemonRelocationError(
       "Cockpit relocation target must use HTTPS.",
@@ -443,7 +504,7 @@ function validateTargetWebSocketUrl(serverUrl: string, value: string): string {
 async function relocationHttpError(
   response: Response,
   url: URL,
-  fallbackCode: string,
+  fallbackCode: SparkDaemonRelocationErrorCode,
 ): Promise<SparkDaemonRelocationError> {
   const text = await response.text();
   let parsed: unknown;
@@ -454,12 +515,19 @@ async function relocationHttpError(
   }
   const record = isRecord(parsed) ? parsed : undefined;
   const nested = record && isRecord(record.error) ? record.error : undefined;
-  const code = stringValue(nested?.code) ?? stringValue(record?.code) ?? fallbackCode;
+  const candidateCode = (
+    stringValue(nested?.code) ??
+    stringValue(record?.code) ??
+    fallbackCode
+  ).toUpperCase();
+  const code = sparkDaemonRelocationErrorCodes.has(candidateCode)
+    ? (candidateCode as SparkDaemonRelocationErrorCode)
+    : fallbackCode;
   const message =
     stringValue(nested?.message) ??
     stringValue(record?.message) ??
     `Cockpit relocation request failed with HTTP ${response.status}.`;
-  return new SparkDaemonRelocationError(`${message} (${url.origin})`, code.toUpperCase());
+  return new SparkDaemonRelocationError(`${message} (${url.origin})`, code);
 }
 
 function assertRelocationSourceUnchanged(

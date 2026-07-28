@@ -66,6 +66,7 @@ export function registerSparkModelsTool(pi: SparkModelsExtensionApi): void {
     promptGuidelines: [
       "Use models when you need concrete model ids before setting role or session model choices.",
       "By default, models lists only currently usable models with configured credentials.",
+      "Use only provider ids returned in details.providers; an unknown or unavailable provider is rejected with the valid provider list.",
       "Pass includeUnavailable=true only when the user asks for all registered models, including those without credentials.",
     ],
     policy: {
@@ -82,7 +83,10 @@ export function registerSparkModelsTool(pi: SparkModelsExtensionApi): void {
         }),
       ),
       provider: Type.Optional(
-        Type.String({ description: "Optional provider filter, e.g. openai." }),
+        Type.String({
+          description:
+            "Exact provider id from the selected registry view. Invalid values return the valid provider list.",
+        }),
       ),
       includeUnavailable: Type.Optional(
         Type.Boolean({
@@ -111,11 +115,16 @@ export function registerSparkModelsTool(pi: SparkModelsExtensionApi): void {
       const baseModels = includeUnavailable
         ? registry.getAll()
         : await Promise.resolve(registry.getAvailable());
-      const entries = baseModels
-        .map((model) => toModelEntry(model, registry, includeUnavailable))
-        .filter((entry) => matchesProvider(entry, provider))
-        .filter((entry) => matchesQuery(entry, query))
-        .sort(compareModelEntries);
+      const providers = collectProviders(baseModels);
+      const invalidProvider =
+        provider !== undefined && !providers.includes(provider) ? provider : undefined;
+      const entries = invalidProvider
+        ? []
+        : baseModels
+            .map((model) => toModelEntry(model, registry, includeUnavailable))
+            .filter((entry) => matchesProvider(entry, provider))
+            .filter((entry) => matchesQuery(entry, query))
+            .sort(compareModelEntries);
       const renderedEntries = limit === undefined ? entries : entries.slice(0, limit);
       const omitted = Math.max(0, entries.length - renderedEntries.length);
       const registryError = registry.getError?.();
@@ -125,6 +134,8 @@ export function registerSparkModelsTool(pi: SparkModelsExtensionApi): void {
         omitted,
         includeUnavailable,
         provider,
+        providers,
+        invalidProvider,
         query,
         registryError,
       });
@@ -133,6 +144,8 @@ export function registerSparkModelsTool(pi: SparkModelsExtensionApi): void {
         details: {
           includeUnavailable,
           provider,
+          providers,
+          invalidProvider,
           query,
           count: renderedEntries.length,
           totalMatched: entries.length,
@@ -209,6 +222,10 @@ function normalizeTokenCount(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function collectProviders(models: readonly RegistryModel[]): string[] {
+  return [...new Set(models.map((model) => model.provider))].sort((a, b) => a.localeCompare(b));
+}
+
 function matchesProvider(entry: ModelEntry, provider: string | undefined): boolean {
   return provider === undefined || entry.provider === provider;
 }
@@ -231,6 +248,8 @@ function renderModels(input: {
   omitted: number;
   includeUnavailable: boolean;
   provider: string | undefined;
+  providers: string[];
+  invalidProvider: string | undefined;
   query: string | undefined;
   registryError: string | undefined;
 }): string {
@@ -243,6 +262,14 @@ function renderModels(input: {
   const lines = input.registryError
     ? [`Warning: errors loading models.json: ${input.registryError}`, "", title]
     : [title];
+  if (input.invalidProvider) {
+    const providerScope = input.includeUnavailable ? "registered" : "available";
+    lines.push(
+      `Provider ${JSON.stringify(input.invalidProvider)} is not ${providerScope}.`,
+      `Valid providers: ${input.providers.length > 0 ? input.providers.join(", ") : "(none)"}.`,
+    );
+    return lines.join("\n");
+  }
   if (input.entries.length === 0) {
     lines.push("No matching models.");
     return lines.join("\n");

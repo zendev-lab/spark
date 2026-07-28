@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
 import { existsSync } from "node:fs";
 import { chmod } from "node:fs/promises";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "vitest";
 
 import { RoleRegistry } from "@zendev-lab/spark-roles";
@@ -14,6 +15,7 @@ import {
   stableId,
   type ArtifactRef,
   type EvidenceRef,
+  type SparkHostDriverContext,
   type ExtensionRoleRunRequest,
   type ExtensionRoleRunResult,
   type ExtensionRoleRunStatus,
@@ -44,6 +46,10 @@ import {
   TaskGraphStore,
 } from "@zendev-lab/spark-tasks";
 import { registerSparkArtifactTool } from "@zendev-lab/spark-artifacts/extension";
+import type { SparkDaemonDriverTickTask } from "../apps/spark-daemon/src/core/types.ts";
+import { SparkDriverStore } from "../apps/spark-daemon/src/store/drivers.ts";
+import { SparkInvocationStore } from "../apps/spark-daemon/src/store/invocations.ts";
+import { migrateSparkDaemonDatabase } from "../apps/spark-daemon/src/store/schema.ts";
 import { registerSparkMemoryTool } from "@zendev-lab/spark-memory/extension";
 import piAskExtension from "../packages/spark-ask/src/extension.ts";
 import sparkExtension from "../packages/spark-extension/src/extension/index.ts";
@@ -128,7 +134,16 @@ import {
   normalizeTaskStatus,
 } from "../packages/spark-extension/src/extension/task-plan-tool.ts";
 import { normalizeSparkAskReplayArtifactRef } from "../packages/spark-extension/src/extension/spark-ask-tool-registration.ts";
-import { readSessionRepro } from "../packages/spark-extension/src/extension/spark-session-repro.ts";
+import {
+  readSessionRepro,
+  sessionReproStorePath,
+} from "../packages/spark-extension/src/extension/spark-session-repro.ts";
+import {
+  createReproStepAskBinding,
+  createSparkSessionRepro,
+  encodeReproStepAskBinding,
+  stepDefinitionDigest,
+} from "@zendev-lab/spark-repro";
 import {
   inferSessionGoalObjective,
   loadSessionGoal,
@@ -709,6 +724,51 @@ test("Spark command surface does not expose the removed /spark entry", () => {
   assert.equal(run.commands.has("spark"), false);
 });
 
+test("/automate only prefills an existing canonical automation command", async () => {
+  const ctx = testSparkContext("/tmp/spark-automate-picker", "main");
+  const run = registerSparkToolsForTest();
+  const automate = run.commands.get("automate");
+  assert.ok(automate, "missing /automate command");
+
+  const expected = new Map([
+    ["Goal — finish one defined outcome", "/goal start "],
+    ["Loop — repeat open-ended work", "/loop start "],
+    ["Repro — follow evidence-gated reproduction steps", "/repro start "],
+    ["Workflow — choose a saved procedure", "/workflow list"],
+  ]);
+  let shownOptions: string[] = [];
+  ctx.ui.select = async (title, options) => {
+    assert.equal(title, "Choose how Spark should continue");
+    shownOptions = options;
+    return ctx.selected;
+  };
+
+  for (const [selection, command] of expected) {
+    ctx.selected = selection;
+    ctx.editorText = undefined;
+    await automate.handler("", ctx);
+    assert.equal(ctx.editorText, command);
+  }
+  assert.deepEqual(shownOptions, [...expected.keys()]);
+  assert.equal(run.driverControl.drivers.size, 0);
+  assert.equal(run.messages.length, 0);
+  assert.equal(run.customMessages.length, 0);
+
+  ctx.selected = undefined;
+  ctx.editorText = "unchanged";
+  await automate.handler("", ctx);
+  assert.equal(ctx.editorText, "unchanged");
+
+  await automate.handler("goal", ctx);
+  assert.match(ctx.notifications.at(-1)?.message ?? "", /Usage: \/automate/);
+  assert.equal(ctx.notifications.at(-1)?.level, "warning");
+
+  ctx.ui.select = undefined as never;
+  await automate.handler("", ctx);
+  assert.match(ctx.notifications.at(-1)?.message ?? "", /\/goal start <objective>/);
+  assert.match(ctx.notifications.at(-1)?.message ?? "", /\/workflow list/);
+});
+
 test("/ultracode enters opt-in high-effort workflow generation mode", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-ultracode-command-"));
   try {
@@ -850,8 +910,22 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     );
     const workflowCommand = initializedRun.commands.get("workflow");
     assert.ok(workflowCommand, "missing /workflow command");
+    assert.deepEqual(
+      (await workflowCommand.getArgumentCompletions?.("pa"))?.map((entry) => entry.value),
+      ["pause"],
+    );
+    assert.deepEqual(
+      (await workflowCommand.getArgumentCompletions?.("run builtin:re"))?.map(
+        (entry) => entry.value,
+      ),
+      ["run builtin:research", "run builtin:review"],
+    );
     const workflowsCommand = initializedRun.commands.get("workflows");
     assert.ok(workflowsCommand, "missing /workflows command");
+    assert.equal(workflowsCommand.metadata?.deprecatedAliasFor, "/workflow list");
+    const workflowRunsCommand = initializedRun.commands.get("workflow-runs");
+    assert.ok(workflowRunsCommand, "missing /workflow-runs command");
+    assert.equal(workflowRunsCommand.metadata?.deprecatedAliasFor, "/workflow runs [runRef]");
     const researchWorkflowCommand = initializedRun.commands.get("workflow:research");
     assert.ok(researchWorkflowCommand, "missing /workflow:research command");
     assert.equal(initializedRun.commands.get("workflow:triage"), undefined);
@@ -859,6 +933,16 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
 
     await workflowCommand.handler("builtin:research Compare design options", initializedCtx);
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.deepEqual(initializedCtx.sparkActiveLens, {
+      phase: "plan",
+      drive: "workflow",
+    });
+
+    await workflowCommand.handler(
+      "run research Compare canonical workflow actions",
+      initializedCtx,
+    );
     assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
     assert.deepEqual(initializedCtx.sparkActiveLens, {
       phase: "plan",
@@ -883,6 +967,10 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     initializedCtx.selected = "builtin:review";
     initializedCtx.inputValue = "Review the workflow UI direction";
     await workflowCommand.handler("", initializedCtx);
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+
+    initializedCtx.selected = "builtin:research";
+    await workflowCommand.handler("list Canonical navigator focus", initializedCtx);
     assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
 
     initializedCtx.selected = "workspace:triage";
@@ -6356,6 +6444,397 @@ test("repro record accepts only receipt-backed ask decisions with matching value
   }
 });
 
+test("repro approval Steps require a current bound approving Ask receipt", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-step-approval-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, { action: "start" });
+    const initial = await readSessionRepro(dir, ctx);
+    if (!initial) throw new Error("missing active repro");
+    const stepId = "repro-contract-frozen";
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "plan",
+      reason: "Require explicit contract approval",
+      steps: initial.plan.steps.map((step) => ({
+        id: step.id,
+        stage: step.stage,
+        goal: step.goal,
+        doneWhen: step.doneWhen,
+        evidenceRequired: step.evidenceRequired,
+        authority: step.id === stepId ? "ask_approval" : step.authority,
+        ...(step.dependsOn ? { dependsOn: step.dependsOn } : {}),
+      })),
+    });
+    const repro = await readSessionRepro(dir, ctx);
+    const step = repro?.plan.steps.find((candidate) => candidate.id === stepId);
+    if (!repro || !step) throw new Error("missing approval step");
+    const askContext = encodeReproStepAskBinding(createReproStepAskBinding(repro, step));
+    const ask = async (selected: "Approve" | "Reject", context = askContext) => {
+      ctx.selected = selected;
+      return await executeSparkTool(tools, "ask", ctx, {
+        action: "ask",
+        delivery: "blocking",
+        recordAsEvidence: true,
+        title: "Approve contract freeze",
+        mode: "approval",
+        context,
+        questions: [
+          {
+            id: "approval",
+            prompt: "Approve this exact Step definition?",
+            type: "single",
+            required: true,
+            options: [
+              { value: "approve", label: "Approve" },
+              { value: "reject", label: "Reject" },
+            ],
+          },
+        ],
+      });
+    };
+
+    const rejectedAsk = await ask("Reject");
+    const rejectedRef = rejectedAsk.details?.askEvidenceRef;
+    assert.equal(typeof rejectedRef, "string");
+    const rejected = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [rejectedRef],
+    });
+    assert.equal(rejected.isError, true);
+    assert.match(toolText(rejected), /selected value "approve"/u);
+
+    const staleBinding = encodeReproStepAskBinding({
+      ...createReproStepAskBinding(repro, step),
+      planRevision: repro.plan.currentRevision - 1,
+    });
+    const staleAsk = await ask("Approve", staleBinding);
+    const staleRef = staleAsk.details?.askEvidenceRef;
+    assert.equal(typeof staleRef, "string");
+    const stale = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [staleRef],
+    });
+    assert.equal(stale.isError, true);
+    assert.match(toolText(stale), /bound canonical Ask/u);
+
+    const approvedAsk = await ask("Approve");
+    const approvedRef = approvedAsk.details?.askEvidenceRef;
+    assert.equal(typeof approvedRef, "string");
+    const approved = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [approvedRef],
+    });
+    assert.match(toolText(approved), /updated to done/u);
+    assert.deepEqual(
+      (await readSessionRepro(dir, ctx))?.plan.steps.find((candidate) => candidate.id === stepId)
+        ?.verification?.selectedValues,
+      ["approve"],
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("daemon-owned repro lifecycle fails closed without settle and recovers after stagnation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-daemon-e2e-"));
+  const db = new DatabaseSync(":memory:");
+  migrateSparkDaemonDatabase(db);
+  const drivers = new SparkDriverStore(db);
+  const invocations = new SparkInvocationStore(db);
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main") as TestSparkContext & {
+      driver?: SparkHostDriverContext;
+    };
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "start",
+      objective: "Exercise the daemon-owned repro lifecycle",
+    });
+    const planned = await executeSparkTool(tools, "repro", ctx, {
+      action: "plan",
+      reason: "Bind a concrete daemon lifecycle contract",
+      goalContract: {
+        objective: "Exercise the daemon-owned repro lifecycle",
+        constraints: ["Use the daemon-owned driver"],
+        nonGoals: ["Complete the full reproduction"],
+        successCriteria: ["A settled tick schedules exactly one next tick"],
+        evidenceRequired: ["Persisted repro and daemon driver state"],
+      },
+    });
+    assert.equal(planned.isError, undefined);
+    ctx.selected = "Reuse";
+    const ask = await executeSparkTool(tools, "ask", ctx, {
+      action: "ask",
+      delivery: "blocking",
+      recordAsEvidence: true,
+      title: "Choose daemon lifecycle baseline",
+      mode: "decision",
+      questions: [
+        {
+          id: "strategy",
+          prompt: "Reuse the daemon lifecycle baseline?",
+          type: "single",
+          required: true,
+          options: [
+            { value: "reuse", label: "Reuse" },
+            { value: "new", label: "Construct a new baseline" },
+          ],
+        },
+      ],
+    });
+    const decisionRef = ask.details?.askEvidenceRef;
+    assert.equal(typeof decisionRef, "string");
+    const recorded = await executeSparkTool(tools, "repro", ctx, {
+      action: "record",
+      requirementId: "baseline-construction-strategy-approved",
+      proof: { kind: "decision", decisionRef, selectedValue: "reuse" },
+    });
+    assert.match(toolText(recorded), /Recorded decision proof/u);
+
+    const repro = await readSessionRepro(dir, ctx);
+    if (!repro) throw new Error("missing planned repro state");
+    const driverId = repro.reproId;
+    const ownerSessionId = ctx.sessionId;
+    drivers.start({
+      driverId,
+      kind: "repro",
+      ownerSessionId,
+      cwd: dir,
+      prompt: "daemon-owned repro tick",
+      now: "2026-07-27T00:00:00.000Z",
+    });
+    const daemonDriver: SparkHostDriverContext = {
+      driverId,
+      kind: "repro",
+      generation: drivers.require(driverId).generation,
+      ownerSessionId,
+      stateOwnerSessionId: ownerSessionId,
+      async schedule(input) {
+        const current = drivers.require(driverId);
+        const updated = drivers.schedule(
+          { driverId, generation: current.generation, ...input },
+          "2026-07-27T00:00:01.000Z",
+        );
+        daemonDriver.generation = updated.generation;
+        return updated;
+      },
+      async stop(input) {
+        const updated = drivers.stop(driverId, input?.reason, "2026-07-27T00:00:01.000Z");
+        daemonDriver.generation = updated.generation;
+        return updated;
+      },
+    };
+    ctx.driver = daemonDriver;
+
+    const runDaemonTick = async (now: string, settle = true) => {
+      const materialized = drivers.materializeDue(now);
+      assert.ok(materialized, `expected a daemon tick at ${now}`);
+      const invocation = invocations.claimNext("repro-e2e-worker", now);
+      assert.ok(invocation);
+      const task = invocation.task as SparkDaemonDriverTickTask;
+      daemonDriver.generation = task.generation;
+      const result = settle
+        ? await executeSparkTool(tools, "repro", ctx, {
+            action: "settle",
+            reason: `daemon settlement at ${now}`,
+          })
+        : undefined;
+      drivers.completeTick(invocation, task, { status: "succeeded", now });
+      if (!result) return undefined;
+      return result;
+    };
+
+    await runDaemonTick("2026-07-27T00:00:02.000Z", false);
+    assert.equal(drivers.require(driverId).status, "dormant");
+    assert.equal(drivers.require(driverId).status, "dormant");
+    assert.equal(drivers.materializeDue("2026-07-27T00:01:00.000Z"), undefined);
+
+    drivers.start({
+      driverId,
+      kind: "repro",
+      ownerSessionId,
+      cwd: dir,
+      prompt: "daemon-owned repro recovery tick",
+      now: "2026-07-27T00:02:00.000Z",
+    });
+    daemonDriver.generation = drivers.require(driverId).generation;
+    for (let index = 0; index < 3; index += 1) {
+      const result = await runDaemonTick(`2026-07-27T00:0${3 + index}:00.000Z`);
+      assert.ok(result);
+      assert.match(toolText(result), /next tick scheduled/u);
+      assert.equal(drivers.require(driverId).status, "scheduled");
+    }
+    const recover = await runDaemonTick("2026-07-27T00:06:00.000Z");
+    assert.ok(recover);
+    assert.match(toolText(recover), /Recover Ask required/u);
+    assert.equal(drivers.require(driverId).status, "dormant");
+    assert.equal(drivers.materializeDue("2026-07-27T00:07:00.000Z"), undefined);
+  } finally {
+    db.close();
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("reading a v4 done Step without verifier provenance reopens it fail closed", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-v4-migration-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const repro = createSparkSessionRepro(ctx.sessionId);
+    const [firstStep, ...otherSteps] = repro.plan.steps;
+    if (!firstStep) throw new Error("missing seeded repro step");
+    const stored = {
+      ...repro,
+      plan: {
+        ...repro.plan,
+        steps: [
+          { ...firstStep, status: "done" as const, evidenceRefs: ["evidence:legacy"] },
+          ...otherSteps,
+        ],
+      },
+    };
+    const path = sessionReproStorePath(dir, ctx);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, JSON.stringify({ version: 4, repro: stored }), "utf8");
+    const restored = await readSessionRepro(dir, ctx);
+    assert.equal(restored?.plan.steps[0]?.status, "pending");
+    assert.deepEqual(restored?.plan.steps[0]?.evidenceRefs, ["evidence:legacy"]);
+    assert.equal(restored?.plan.steps[0]?.verification, undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro plan, step, and settle enforce the typed protocol and bounded continuation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-v4-tool-protocol-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "start",
+      objective: "Reproduce target logits",
+    });
+
+    const planned = await executeSparkTool(tools, "repro", ctx, {
+      action: "plan",
+      reason: "Freeze a precise evidence contract",
+      difficulty: 10,
+      goalContract: {
+        objective: "Reproduce target logits for 20 steps",
+        constraints: ["Use official weights"],
+        nonGoals: ["Performance tuning"],
+        successCriteria: ["20-step outputs are bitwise equal"],
+        evidenceRequired: ["Captured command output"],
+      },
+    });
+    assert.match(toolText(planned), /Goal Contract: draft/u);
+    assert.equal(
+      (await readSessionRepro(dir, ctx))?.goalContract.objective,
+      "Reproduce target logits for 20 steps",
+    );
+    assert.deepEqual(
+      {
+        difficulty: (await readSessionRepro(dir, ctx))?.plan.difficulty,
+        minimumStepCount: (await readSessionRepro(dir, ctx))?.plan.minimumStepCount,
+      },
+      { difficulty: 10, minimumStepCount: 13 },
+    );
+
+    const reproBeforeStep = await readSessionRepro(dir, ctx);
+    const contractStep = reproBeforeStep?.plan.steps.find(
+      (step) => step.id === "repro-contract-frozen",
+    );
+    if (!reproBeforeStep || !contractStep) throw new Error("missing seeded repro contract step");
+    const evidence = await defaultEvidenceStore(dir).put({
+      kind: "record",
+      title: "Reviewed reproduction contract",
+      format: "json",
+      body: {
+        schema: "spark.repro.step-proof/v1",
+        planRevision: reproBeforeStep.plan.currentRevision,
+        stepId: contractStep.id,
+        definitionDigest: stepDefinitionDigest(contractStep),
+        proofKind: "evidence",
+        doneWhen: contractStep.doneWhen,
+        passed: true,
+      },
+      provenance: { producer: "spark" },
+    });
+    const stepped = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId: "repro-contract-frozen",
+      stepStatus: "done",
+      stepEvidenceRefs: [evidence.ref],
+    });
+    assert.match(toolText(stepped), /updated to done/u);
+
+    const forgedEvidence = await defaultEvidenceStore(dir).put({
+      kind: "record",
+      title: "Unbound proof",
+      format: "text",
+      body: "ordinary evidence is not a StepVerifier proof",
+      provenance: { producer: "spark" },
+    });
+    const unbound = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId: "competitor-baseline-availability-researched",
+      stepStatus: "done",
+      stepEvidenceRefs: [forgedEvidence.ref],
+    });
+    assert.equal(unbound.isError, true);
+    assert.match(toolText(unbound), /StepVerifier|step-proof/u);
+
+    const scheduled: Array<{ delayMs?: number; prompt?: string; reason?: string }> = [];
+    const stopped: Array<{ reason?: string } | undefined> = [];
+    const driver: SparkHostDriverContext = {
+      driverId: "repro-driver",
+      kind: "repro",
+      generation: 1,
+      ownerSessionId: ctx.sessionId,
+      stateOwnerSessionId: ctx.sessionId,
+      async schedule(input) {
+        scheduled.push(input);
+        return input;
+      },
+      async stop(input) {
+        stopped.push(input);
+        return input;
+      },
+    };
+    (ctx as TestSparkContext & { driver: SparkHostDriverContext }).driver = driver;
+
+    for (let index = 0; index < 3; index += 1) {
+      const settled = await executeSparkTool(tools, "repro", ctx, {
+        action: "settle",
+        reason: `settlement ${index + 1}`,
+      });
+      assert.match(toolText(settled), /next tick scheduled/u);
+    }
+    const recover = await executeSparkTool(tools, "repro", ctx, {
+      action: "settle",
+      reason: "settlement 4",
+    });
+    assert.match(toolText(recover), /Recover Ask required/u);
+    assert.equal(scheduled.length, 3);
+    assert.equal(scheduled[0]?.delayMs, 30_000);
+    assert.match(scheduled[0]?.prompt ?? "", /call repro\(\{ action: "settle"/u);
+    assert.deepEqual(stopped, []);
+    assert.equal((await readSessionRepro(dir, ctx))?.stopGuard.decision, "ask");
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
 test("foreground driver slash commands share status, stop, and restart grammar", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-foreground-command-grammar-"));
   try {
@@ -7466,6 +7945,7 @@ test("workflow run slash commands expose direct dashboard controls", async () =>
       publishedViews.push(event);
     };
 
+    const workflow = commands.get("workflow");
     const dashboard = commands.get("workflow-runs");
     const inspect = commands.get("workflow-inspect");
     const pause = commands.get("workflow-pause");
@@ -7473,6 +7953,7 @@ test("workflow run slash commands expose direct dashboard controls", async () =>
     const stop = commands.get("workflow-stop");
     const restart = commands.get("workflow-restart");
     const save = commands.get("workflow-save");
+    assert.ok(workflow, "missing /workflow");
     assert.ok(dashboard, "missing /workflow-runs");
     assert.ok(inspect, "missing /workflow-inspect");
     assert.ok(pause, "missing /workflow-pause");
@@ -7481,17 +7962,17 @@ test("workflow run slash commands expose direct dashboard controls", async () =>
     assert.ok(restart, "missing /workflow-restart");
     assert.ok(save, "missing /workflow-save");
 
-    await dashboard.handler(run.ref, ctx);
+    await workflow.handler(`runs ${run.ref}`, ctx);
     assert.match(JSON.stringify(publishedViews), new RegExp(run.ref));
     assert.match(JSON.stringify(publishedViews), /"dynamicStatus":"running"/);
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Spark dynamic workflow dashboard/);
     assert.match(ctx.notifications.at(-1)?.message ?? "", new RegExp(run.ref));
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Actions: inspect, pause, stop, save/);
 
-    await inspect.handler(run.ref, ctx);
+    await workflow.handler(`inspect ${run.ref}`, ctx);
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Selected: run:/);
 
-    await pause.handler(run.ref, ctx);
+    await workflow.handler(`pause ${run.ref}`, ctx);
     assert.equal((await dynamicStore.get(run.ref))?.status, "paused");
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Control: pause .* -> paused/);
 
@@ -7499,7 +7980,7 @@ test("workflow run slash commands expose direct dashboard controls", async () =>
     assert.equal((await dynamicStore.get(run.ref))?.status, "running");
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Control: resume .* -> running/);
 
-    await stop.handler(run.ref, ctx);
+    await workflow.handler(`stop ${run.ref}`, ctx);
     assert.equal((await dynamicStore.get(run.ref))?.status, "stopped");
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Control: stop .* -> stopped/);
 
@@ -7507,7 +7988,7 @@ test("workflow run slash commands expose direct dashboard controls", async () =>
     assert.equal((await dynamicStore.get(run.ref))?.status, "running");
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Control: restart .* -> running/);
 
-    await save.handler(run.ref, ctx);
+    await workflow.handler(`save ${run.ref}`, ctx);
     assert.match(
       ctx.notifications.at(-1)?.message ?? "",
       /Control: save .* -> workspace:slash-control/,
@@ -7517,7 +7998,18 @@ test("workflow run slash commands expose direct dashboard controls", async () =>
       /^workspace:slash-control/u,
     );
 
+    await dashboard.handler(run.ref, ctx);
+    await inspect.handler(run.ref, ctx);
+    assert.match(JSON.stringify(publishedViews), new RegExp(run.ref));
     await assert.rejects(async () => pause.handler("", ctx), /\/workflow-pause requires a runRef/);
+    await assert.rejects(
+      async () => workflow.handler("pause", ctx),
+      /\/workflow pause requires a runRef/,
+    );
+    await assert.rejects(
+      async () => workflow.handler("runs task:not-a-run", ctx),
+      /\/workflow runs requires a runRef/,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

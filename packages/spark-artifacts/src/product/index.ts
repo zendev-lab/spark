@@ -56,6 +56,14 @@ export {
 } from "./preview-server.ts";
 
 export {
+  PRODUCT_ARTIFACT_PROJECTION_MAX_INLINE_BYTES,
+  projectProductArtifact,
+  type ProductArtifactProjection,
+  type ProductArtifactProjectionContentRef,
+  type ProductArtifactProjectionFormat,
+} from "./projection.ts";
+
+export {
   applyWorktreeToPrBody,
   attachPrWorktree,
   prWorktreePath,

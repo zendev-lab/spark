@@ -10,10 +10,14 @@
   let {
     host,
     sessionDetails,
+    activityPaneOpen,
+    onToggleActivityPane,
     onOpenSideThread,
   }: {
     host: SessionConversationHost;
     sessionDetails: Snippet<[boolean?]>;
+    activityPaneOpen: boolean;
+    onToggleActivityPane: () => void;
     onOpenSideThread: () => void;
   } = $props();
 
@@ -48,6 +52,24 @@
           <Icon name="repos" size={14} stroke={2.1} />
           <span>{host.messages.sideThread.title}</span>
         </Button>
+        <span class="desktop-activity-toggle">
+          <Button
+            variant="secondary"
+            size="compact"
+            type="button"
+            ariaExpanded={activityPaneOpen}
+            ariaControls="session-activity-details-pane"
+            ariaLabel={host.copy.activityAndQueue}
+            title={activityPaneOpen ? host.copy.hideDetails : host.copy.showDetails}
+            onclick={onToggleActivityPane}
+          >
+            <Icon name="activity" size={14} stroke={2.1} />
+            <span>{host.copy.activityAndQueue}</span>
+            {#if host.queueItems.length > 0}
+              <span class="activity-count">{host.queueItems.length}</span>
+            {/if}
+          </Button>
+        </span>
         {#if host.conversationBusy}
           <span
             class="session-working-indicator"
@@ -254,6 +276,23 @@
     max-width: min(260px, 36vw);
   }
 
+  .activity-count {
+    align-items: center;
+    background: var(--color-primary-weak);
+    border-radius: 999px;
+    color: var(--color-primary);
+    display: inline-flex;
+    font-size: 10px;
+    height: 18px;
+    justify-content: center;
+    min-width: 18px;
+    padding: 0 5px;
+  }
+
+  .desktop-activity-toggle {
+    display: inline-flex;
+  }
+
   .mobile-details summary {
     align-items: center;
     color: var(--color-ink-muted);
@@ -319,7 +358,11 @@
     display: none;
   }
 
-  @media (max-width: 960px) {
+  @media (max-width: 1200px) {
+    .desktop-activity-toggle {
+      display: none;
+    }
+
     .mobile-details {
       background: var(--color-surface);
       border: 1px solid var(--color-border);

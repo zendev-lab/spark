@@ -99,6 +99,32 @@ Startup reconciliation:
 - restores missing active legacy drivers during the one-way migration;
 - retains scheduled and retry-wait state while daemon admission is draining.
 
+### Executable contract
+
+`apps/spark-daemon/src/store/drivers.contract.ts` exports the reusable
+`runSparkDriverStoreContract` suite. The SQLite store binds the suite from
+`drivers.test.ts`; process-owned admission and migration behavior remains in the
+app integration lane.
+
+| Invariant | Executable anchor |
+| --- | --- |
+| Overdue wakes coalesce while a busy owner does not starve another owner | `DRV-ADMISSION-001`, `DRV-ADMISSION-002` in `store/drivers.contract.ts` |
+| Explicit schedule/stop wins over stale completion through generation CAS | `DRV-GENERATION-001` through `DRV-GENERATION-003` |
+| Interrupted running work resumes without a duplicate tick | `DRV-RECOVERY-001` |
+| Terminal invocations attached to running wakes reconcile once | `DRV-RECOVERY-002` |
+| Safe failures retry; unknown outcomes and manual abort fail closed | `DRV-FAILURE-001`, `DRV-FAILURE-002` |
+| One-shot wake prompts and fresh continuity retain their stated ownership | `DRV-WAKE-001`, `DRV-CONTINUITY-001`, `DRV-CONTINUITY-002` |
+| Foreground lanes and stop/restart cancellation remain atomic | `DRV-LANE-001`, `DRV-LANE-002`, `DRV-CANCEL-001` through `DRV-CANCEL-003` |
+| Missing active legacy wakes are restored only through the one-way migration | `store/driver-state-migration.test.ts` — `imports legacy cadence once, strips frontend runtime fields, and repairs a missing wake` |
+| Closed startup/drain admission does not materialize scheduled or retry-wait wakes | `daemon.test.ts` — `keeps production scheduler and channel admission paused when serving fence commit fails` |
+| Active work drains while queued successor work remains durable | `daemon.test.ts` — `drains active scheduler work and leaves queued work for the restart successor` |
+
+Run the owning contract with:
+
+```bash
+pnpm --filter @zendev-lab/spark-daemon run test
+```
+
 ## Policy and lanes
 
 Capability packages register policy definitions; the daemon provides generic
@@ -108,13 +134,20 @@ time, generation, invocation, retry, and recovery mechanisms.
 | --- | --- | --- |
 | `goal` | continue in 30s while active | 30s / 60s / 120s |
 | `loop` | dormant until explicitly scheduled | 30s / 60s / 120s |
-| `repro` | continue in 30s while incomplete | 30s / 60s / 120s |
+| `repro` | dormant until `repro settle` proves semantic progress and explicitly schedules | 30s / 60s / 120s |
 | `workflow` | dormant until capability schedules | 1s / 2s / 5s / 10s / 30s |
 
 One logical owner session has one foreground lane. Starting `goal`, `loop`, or
 `repro` atomically stops the prior foreground driver. Workflows use a separate
 background lane. Hook-owned implementation and TODO reconciliation do not
 participate in driver lanes or generation-based scheduling.
+
+Repro's domain-level Stop Guard is not a second timer or retry owner. It hashes
+the durable Goal Contract, typed plan progress, requirement proof, and gates.
+`repro settle` explicitly schedules a 30-second continuation only while that
+semantic state is progressing. Three unchanged settlements leave the driver
+dormant and require a Recover Ask. Transient execution failures still use the
+daemon retry delays in the table.
 
 ## Fresh loop continuity
 

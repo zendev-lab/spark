@@ -21,7 +21,10 @@ import type {
   SparkActiveSelection,
   SparkProviderRegistry,
 } from "./provider-registry.ts";
-import type { ProviderRegistryRunnerOptions } from "./provider-runner.ts";
+import {
+  createAuthResolvedProviderStream,
+  type ProviderRegistryRunnerOptions,
+} from "./provider-runner.ts";
 
 export interface SparkLeafHostRunnerOptions {
   registry: SparkProviderRegistry;
@@ -115,14 +118,16 @@ function createSelectionStreamFunction(
   };
   return ((model, context, streamOptions) => {
     const apiKey = runnerOptions?.resolveApiKey?.(provider, selection);
-    const options =
-      apiKey !== undefined &&
-      (streamOptions as { apiKey?: unknown } | undefined)?.apiKey === undefined
-        ? { ...(streamOptions ?? {}), apiKey }
-        : streamOptions;
-    const raw = provider.streamSimple(model as Model<Api>, context, options);
-    const normalized = normalizeProviderStream(raw, selection.providerName);
-    return retagAssistantMessageStream(normalized, identity);
+    return createAuthResolvedProviderStream(model, apiKey, (resolvedApiKey) => {
+      const options =
+        resolvedApiKey !== undefined &&
+        (streamOptions as { apiKey?: unknown } | undefined)?.apiKey === undefined
+          ? { ...(streamOptions ?? {}), apiKey: resolvedApiKey }
+          : streamOptions;
+      const raw = provider.streamSimple(model as Model<Api>, context, options);
+      const normalized = normalizeProviderStream(raw, selection.providerName);
+      return retagAssistantMessageStream(normalized, identity);
+    });
   }) as SparkProviderStreamFunction;
 }
 

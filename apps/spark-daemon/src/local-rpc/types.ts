@@ -1,60 +1,34 @@
-import {
-  parseSparkDefaultModelSetRequest,
-  parseSparkSessionSetModelRequest,
-  parseSparkSessionSetThinkingRequest,
-  sparkSideThreadConfigureRequestSchema,
-  sparkSideThreadEnsureRequestSchema,
-  sparkSideThreadHandoffRequestSchema,
-  sparkSideThreadResetRequestSchema,
-  sparkSideThreadSnapshotRequestSchema,
-  sparkSideThreadSubmitRequestSchema,
-  sparkInvocationListRequestSchema,
-  sparkInvocationRetentionPreviewRequestSchema,
-  sparkInvocationRetryRequestSchema,
-  sparkTurnStatusRequestSchema,
-  sparkTurnStreamRequestSchema,
-  type SparkAssignment,
-  type SparkCommand,
-  type SparkDaemonEvent,
-  type SparkDriverMutationRequest,
-  type SparkDriverScheduleRequest,
-  type SparkDriverStartRequest,
-  type SparkDriverStatusRequest,
-  type SparkDriverWakeRequest,
-  type SparkInvocationListResult,
-  type SparkInvocationRetentionPreviewResult,
-  type SparkInvocationRetryResult,
-  type SparkSessionBindRequest,
-  type SparkSessionCreateRequest,
-  type SparkSessionGetRequest,
-  type SparkSessionListRequest,
-  type SparkSessionInboxRequest,
-  type SparkSessionMailMutationRequest,
-  type SparkSessionSendRequest,
-  type SparkSessionSnapshotRequest,
-  type SparkSessionUnbindRequest,
-  type SparkTurnCancelResult,
-  type SparkTurnResult,
-  type SparkTurnStatusResult,
-  type SparkTurnStreamPage,
-  type SparkTurnSubmitResult,
+import { join } from "node:path";
+import { sparkLocalRpcProcedureSchemas } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
+import type {
+  SparkAssignment,
+  SparkDaemonEvent,
+  SparkInvocationListResult,
+  SparkInvocationRetentionPreviewResult,
+  SparkInvocationRetryResult,
+  SparkLocalRpcMethod,
+  SparkLocalRpcOutput,
+  SparkLocalRpcParsedInput,
+  SparkTurnCancelResult,
+  SparkTurnResult,
+  SparkTurnStatusResult,
+  SparkTurnStreamPage,
+  SparkTurnSubmitResult,
 } from "@zendev-lab/spark-protocol";
-import type { ChannelNotifyInput, ChannelsConfig } from "@zendev-lab/spark-channels";
 import type { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import type { DaemonChannelIngressRuntime } from "../channels/ingress.ts";
-import type { SessionNotificationDeliveryQueue } from "../session-notification-delivery.ts";
 import type {
-  SparkDaemonLifecycleSnapshot,
   SparkDaemonHumanInteractionResponder,
+  SparkDaemonLifecycleSnapshot,
   SparkDaemonRestartRequestResult,
 } from "../core/index.ts";
-import type {
-  SparkDaemonHumanWaitDeliveryResult,
-  SparkDaemonHumanWaitRecord,
-  SparkDaemonHumanWaitRegistry,
-} from "../core/human-waits.ts";
+import type { SparkDaemonHumanWaitRegistry } from "../core/human-waits.ts";
 import type { SparkDaemonLeaseTransferBroker } from "../core/lease-transfer.ts";
+import type { SparkDaemonModelControl } from "../model-control.ts";
+import type { SparkDaemonRelocationRequest, SparkDaemonRelocationResult } from "../relocation.ts";
+import type { DaemonSessionRegistry } from "../session-registry.ts";
+import type { SessionNotificationDeliveryQueue } from "../session-notification-delivery.ts";
 import type { SparkChannelDeliverySummary } from "../store/channel-deliveries.ts";
 import type {
   RegisterWorkspaceOptions,
@@ -62,10 +36,6 @@ import type {
   SparkDaemonWorkspaceClient,
   WorkspacePathConflictError,
 } from "../store/workspaces.js";
-import type { DaemonSessionRegistry } from "../session-registry.ts";
-import type { SparkDaemonModelControl } from "../model-control.ts";
-import type { SparkDaemonRelocationRequest, SparkDaemonRelocationResult } from "../relocation.ts";
-import { join } from "node:path";
 
 type EnsureSparkDaemonRegistrationForWorkspace =
   typeof import("../registration.js").ensureSparkDaemonRegistrationForWorkspace;
@@ -123,7 +93,6 @@ export type LocalInvocationListResult = SparkInvocationListResult;
 export type LocalInvocationRetryResult = SparkInvocationRetryResult;
 export type LocalInvocationRetentionPreviewResult = SparkInvocationRetentionPreviewResult;
 export type LocalTurnResult = SparkTurnResult;
-
 export type LocalTurnSubmitResult = SparkTurnSubmitResult;
 export type LocalTurnStatusResult = SparkTurnStatusResult;
 export type LocalTurnStreamResult = SparkTurnStreamPage;
@@ -216,363 +185,40 @@ export interface LocalRpcHandlerOptions {
   eventBus?: SparkDaemonLocalEventBus;
 }
 
-export type LocalRpcRequest =
-  | { id: string; method: "daemon.status"; sparkCommand: SparkCommand }
-  | { id: string; method: "daemon.stop"; sparkCommand: SparkCommand }
-  | { id: string; method: "daemon.restart"; sparkCommand: SparkCommand }
-  | {
-      id: string;
-      method: "channel.status";
-      params: { workspaceId: string };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "channel.reload";
-      params: { workspaceId: string };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "channel.configure";
-      params: { workspaceId: string; config: ChannelsConfig };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "channel.notify";
-      params: ChannelNotifyInput & { workspaceId: string };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "session.notification.deliver";
-      params: { sessionId: string; messageId: string };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "human.interaction.list";
-      params: LocalHumanInteractionListParams;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "human.interaction.respond";
-      params: LocalHumanInteractionRespondParams;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "turn.submit";
-      params: LocalTurnSubmitParams;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "turn.status" | "turn.result";
-      params: ReturnType<typeof sparkTurnStatusRequestSchema.parse>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "invocation.list";
-      params: ReturnType<typeof sparkInvocationListRequestSchema.parse>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "invocation.retry";
-      params: ReturnType<typeof sparkInvocationRetryRequestSchema.parse>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "invocation.retention.preview";
-      params: ReturnType<typeof sparkInvocationRetentionPreviewRequestSchema.parse>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "driver.start";
-      params: SparkDriverStartRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "driver.status";
-      params: SparkDriverStatusRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "driver.stop" | "driver.restart";
-      params: SparkDriverMutationRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "driver.wake";
-      params: SparkDriverWakeRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "driver.schedule";
-      params: SparkDriverScheduleRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "turn.stream";
-      params: ReturnType<typeof sparkTurnStreamRequestSchema.parse>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "turn.cancel";
-      params: LocalTurnCancelParams;
-      sparkCommand: SparkCommand;
-    }
-  | { id: string; method: "workspace.list"; sparkCommand: SparkCommand }
-  | {
-      id: string;
-      method: "workspace.register";
-      params: LocalWorkspaceRegisterParams;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "workspace.relocate";
-      params: LocalWorkspaceRelocateRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "uplink.park" | "uplink.unpark";
-      params: { serverUrl: string };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "uplink.prefer";
-      params: { workspace: string; serverUrl: string; force?: boolean };
-      sparkCommand: SparkCommand;
-    }
-  | { id: string; method: "uplink.status"; sparkCommand: SparkCommand }
-  | {
-      id: string;
-      method: "workspace.transfer.pending";
-      params: { workspaceId?: string };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "workspace.transfer.respond";
-      params: {
-        transferId: string;
-        decision: "accept" | "reject";
-        source?: "tui" | "cli";
-      };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "workspace.ensure-local";
-      params: LocalWorkspaceEnsureLocalParams;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "workspace.attach" | "workspace.stop";
-      params: { id: string };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "workspace.client.attach";
-      params: LocalWorkspaceClientAttachParams;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "workspace.client.heartbeat";
-      params: LocalWorkspaceClientHeartbeatParams;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "workspace.client.release";
-      params: { clientId: string };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "workspace.executor.ensure";
-      params: LocalWorkspaceExecutorEnsureParams;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "session.list";
-      params: SparkSessionListRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "session.get";
-      params: SparkSessionGetRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "session.snapshot";
-      params: SparkSessionSnapshotRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "session.create";
-      params: SparkSessionCreateRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "session.bind";
-      params: SparkSessionBindRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "session.unbind";
-      params: SparkSessionUnbindRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "session.archive";
-      params: SparkSessionGetRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "session.send";
-      params: SparkSessionSendRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "session.inbox";
-      params: SparkSessionInboxRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "session.mail.read" | "session.mail.ack";
-      params: SparkSessionMailMutationRequest;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "session.model.set";
-      params: ReturnType<typeof parseSparkSessionSetModelRequest>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "session.thinking.set";
-      params: ReturnType<typeof parseSparkSessionSetThinkingRequest>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "side-thread.ensure";
-      params: ReturnType<typeof sparkSideThreadEnsureRequestSchema.parse>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "side-thread.snapshot";
-      params: ReturnType<typeof sparkSideThreadSnapshotRequestSchema.parse>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "side-thread.submit";
-      params: ReturnType<typeof sparkSideThreadSubmitRequestSchema.parse>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "side-thread.reset";
-      params: ReturnType<typeof sparkSideThreadResetRequestSchema.parse>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "side-thread.configure";
-      params: ReturnType<typeof sparkSideThreadConfigureRequestSchema.parse>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "side-thread.handoff";
-      params: ReturnType<typeof sparkSideThreadHandoffRequestSchema.parse>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "model.catalog";
-      params: { sessionId?: string };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "model.default.set";
-      params: ReturnType<typeof parseSparkDefaultModelSetRequest>;
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "provider.auth.api-key.set";
-      params: { providerName: string; apiKey: string };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "provider.auth.logout" | "provider.auth.login.start";
-      params: { providerName: string };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "provider.auth.login.status" | "provider.auth.login.cancel";
-      params: { flowId: string };
-      sparkCommand: SparkCommand;
-    }
-  | {
-      id: string;
-      method: "provider.auth.login.respond";
-      params: { flowId: string; promptId: string; value: string };
-      sparkCommand: SparkCommand;
-    };
+export type LocalRpcServiceRequest = {
+  [M in SparkLocalRpcMethod]: {
+    method: M;
+    params: SparkLocalRpcParsedInput<M>;
+  };
+}[SparkLocalRpcMethod];
 
-export type LocalRpcWireRequest = {
-  id: string;
-  method: string;
-  params?: unknown;
-  sparkCommand?: SparkCommand;
-};
+/** Output union correlated to one request or request-family method union. */
+export type LocalRpcServiceOutput<Request extends LocalRpcServiceRequest> = Request extends {
+  method: infer Method extends SparkLocalRpcMethod;
+}
+  ? SparkLocalRpcOutput<Method>
+  : never;
+
+/**
+ * The protocol catalog is the one runtime narrowing boundary for domain values
+ * whose owning subsystem exposes a deliberately broader persistence/projection
+ * type. The cast only restores the method/schema correlation lost by indexed
+ * access through a generic method.
+ */
+export function parseLocalRpcServiceOutput<Method extends SparkLocalRpcMethod>(
+  method: Method,
+  value: unknown,
+): SparkLocalRpcOutput<Method> {
+  return sparkLocalRpcProcedureSchemas[method].output.parse(value) as SparkLocalRpcOutput<Method>;
+}
+
+/** Temporary 0.1.x NDJSON envelope; method/input correlation remains protocol-owned. */
+export type LocalRpcRequest = { id: string } & LocalRpcServiceRequest;
 
 export type LocalTurnCancelParams = LocalTurnCancelRequest;
 
-export interface LocalHumanInteractionListParams {
-  sessionId?: string;
-}
-
-export type LocalHumanInteractionListResult = {
-  waits: SparkDaemonHumanWaitRecord[];
-};
+export type LocalHumanInteractionListParams = SparkLocalRpcParsedInput<"human.interaction.list">;
+export type LocalHumanInteractionListResult = SparkLocalRpcOutput<"human.interaction.list">;
 
 export interface LocalHumanInteractionRespondParams {
   interactionRequestId: string;
@@ -584,12 +230,13 @@ export interface LocalHumanInteractionRespondParams {
   responseArtifactRefs: string[];
 }
 
-export type LocalHumanInteractionRespondResult = SparkDaemonHumanWaitDeliveryResult;
+export type LocalHumanInteractionRespondResult = SparkLocalRpcOutput<"human.interaction.respond">;
 
 export type LocalRpcErrorPayload = {
   message: string;
   code?: string;
   kind?: WorkspacePathConflictError["kind"];
+  certainty?: "not-sent" | "unknown";
 };
 
 export type LocalRpcResponse =

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { SparkDaemonControlError } from "./control-error.ts";
 import {
   desiredUplinkServerUrls,
   parkSparkDaemonUplink,
@@ -18,11 +19,117 @@ import { attachWorkspaceClient, getWorkspaceById, registerWorkspace } from "./st
 
 const roots: string[] = [];
 
+function expectControlError(run: () => unknown, code: SparkDaemonControlError["code"]): void {
+  try {
+    run();
+    expect.unreachable(`expected ${code}`);
+  } catch (error) {
+    expect(error).toBeInstanceOf(SparkDaemonControlError);
+    expect(error).toMatchObject({ code });
+  }
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 describe("daemon uplink park/prefer", () => {
+  it("reports invalid operator choices with stable uplink codes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-uplink-errors-"));
+    roots.push(root);
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+        configFile: join(root, "config", "daemon.toml"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    const workspacePath = join(root, "known");
+    mkdirSync(workspacePath, { recursive: true });
+    const workspace = registerWorkspace(db, {
+      serverUrl: "https://current.example/",
+      localPath: workspacePath,
+      localWorkspaceKey: "known",
+      displayName: "known",
+    });
+
+    await expect(parkSparkDaemonUplink(paths, "not a URL")).rejects.toMatchObject({
+      name: "SparkDaemonControlError",
+      code: "uplink_url_invalid",
+    });
+    await expect(parkSparkDaemonUplink(paths, "https://missing.example/")).rejects.toMatchObject({
+      name: "SparkDaemonControlError",
+      code: "uplink_profile_not_found",
+    });
+
+    const unrunnable = "https://unrunnable.example/";
+    await upsertSparkDaemonServerProfile(paths, { serverUrl: unrunnable });
+    expectControlError(
+      () =>
+        preferSparkDaemonWorkspaceUplink(paths, db, {
+          workspace: workspace.id,
+          serverUrl: unrunnable,
+        }),
+      "uplink_profile_unrunnable",
+    );
+
+    const parked = "https://parked.example/";
+    await upsertSparkDaemonServerProfile(paths, {
+      serverUrl: parked,
+      runtimeId: "rt_dddddddddddddddddddddddddddddddd",
+      runtimeToken: "spark_rt_access_33333333333333333333333333333333",
+      parked: true,
+    });
+    expectControlError(
+      () =>
+        preferSparkDaemonWorkspaceUplink(paths, db, {
+          workspace: workspace.id,
+          serverUrl: parked,
+        }),
+      "uplink_parked",
+    );
+
+    const target = "https://target.example/";
+    await upsertSparkDaemonServerProfile(paths, {
+      serverUrl: target,
+      runtimeId: "rt_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      runtimeToken: "spark_rt_access_44444444444444444444444444444444",
+    });
+    expectControlError(
+      () =>
+        preferSparkDaemonWorkspaceUplink(paths, db, {
+          workspace: "workspace-missing",
+          serverUrl: target,
+        }),
+      "uplink_workspace_not_found",
+    );
+
+    for (const suffix of ["one", "two"]) {
+      const duplicatePath = join(root, suffix);
+      mkdirSync(duplicatePath);
+      registerWorkspace(db, {
+        serverUrl: "https://current.example/",
+        localPath: duplicatePath,
+        localWorkspaceKey: suffix,
+        displayName: "duplicate",
+      });
+    }
+    expectControlError(
+      () =>
+        preferSparkDaemonWorkspaceUplink(paths, db, {
+          workspace: "duplicate",
+          serverUrl: target,
+        }),
+      "uplink_workspace_ambiguous",
+    );
+    db.close();
+  });
+
   it("omits parked origins from the desired uplink set and restores on unpark", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-uplink-park-"));
     roots.push(root);
@@ -233,7 +340,10 @@ describe("daemon uplink park/prefer", () => {
     );
     const pending = transfers.pendingForWorkspace(workspace.id)!;
     transfers.respond(pending.transferId, "reject", "cockpit");
-    await expect(preferPromise).rejects.toThrow(/rejected by an occupying session/);
+    await expect(preferPromise).rejects.toMatchObject({
+      name: "SparkDaemonControlError",
+      code: "uplink_transfer_rejected",
+    });
     expect(getWorkspaceById(db, workspace.id)?.serverUrl).toBe(prod);
     db.close();
   });

@@ -21,6 +21,7 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import type { SparkPaths } from "@zendev-lab/spark-system";
+import { readSparkBuildInfo } from "@zendev-lab/spark-update";
 import { type SparkDaemonConfig } from "./config.js";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import {
@@ -41,6 +42,7 @@ import type { SparkDaemonModelControl } from "./model-control.ts";
 import { executeSparkDaemonEphemeralSecretControl } from "./model-channel-control.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import {
+  artifactProjected,
   commandReject,
   commandResult,
   invocationLogChunk,
@@ -49,6 +51,7 @@ import {
   runtimeEnvelope,
   type RouteContext,
 } from "./protocol/outbound.js";
+import { productArtifactProjectionPayload } from "./product-artifact-projection.ts";
 import {
   acknowledgeRuntimeCommandTerminalForRoute,
   claimRuntimeCommandReceipt,
@@ -77,7 +80,13 @@ import type { RunSparkCommandFn, CancelSparkInvocationFn } from "./spark/bridge.
 import { executeClaimedCommand } from "./claimed-command.ts";
 export { startSparkDaemon } from "./daemon-start.ts";
 
-export const sparkDaemonVersion = "0.1.0";
+export function resolveSparkDaemonVersion(
+  options: Parameters<typeof readSparkBuildInfo>[0] = {},
+): string {
+  return readSparkBuildInfo(options).version;
+}
+
+export const sparkDaemonVersion = resolveSparkDaemonVersion();
 
 export const sparkDaemonSupportedFeatures: RuntimeFeature[] = [
   "ws-control-v1",
@@ -629,6 +638,20 @@ export function runtimeEnvelopeForInvocationEvent(
     return null;
   }
   const messageId = invocationEventMessageId(pending.event);
+  if (event.type === "daemon.product_artifact.projected") {
+    if (!route.workspaceId) return null;
+    return artifactProjected(
+      productArtifactProjectionPayload(event.artifact, {
+        workspaceId: route.workspaceId,
+        scope: event.projectId ? "project" : "workspace",
+        ...(event.invocationId ? { invocationId: event.invocationId } : {}),
+        ...(event.sessionId ? { sessionId: event.sessionId } : {}),
+        ...(event.projectId ? { projectId: event.projectId } : {}),
+      }),
+      route,
+      { messageId },
+    );
+  }
   if (event.type === "daemon.task.lifecycle") {
     return invocationUpdated(
       {

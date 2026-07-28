@@ -21,11 +21,11 @@ let rootManifest;
 const dependencies = {
   "@core-workspace/infoflow-sdk-nodejs": "2026.6.12-beta.1",
   "@cursor/sdk": "1.0.23",
-  "@earendil-works/pi-ai": "0.80.6",
-  "@earendil-works/pi-tui": "0.80.6",
+  "@earendil-works/pi-ai": "0.82.1",
+  "@earendil-works/pi-tui": "0.82.1",
   "@sveltejs/kit": "2.65.1",
   marked: "^18.0.7",
-  "sanitize-html": "^2.17.6",
+  "sanitize-html": "2.17.6",
   "web-push": "3.6.7",
   ws: "^8.18.3",
 };
@@ -178,6 +178,7 @@ await Promise.all([
   ),
   bundle("apps/spark-cockpit/src/cli-entry.ts", resolve(productDist, "spark-cockpit.js")),
   bundle("apps/spark-cockpit/server/index.ts", resolve(productDist, "spark-cockpit-server.js")),
+  bundle("packages/spark-acp/scripts/stdio.ts", resolve(productDist, "spark-acp.js")),
 ]);
 
 await Promise.all([

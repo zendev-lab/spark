@@ -44,7 +44,7 @@ adaptive-friendly model ids (`claude-opus-4.6`, `claude-opus-5`,
 `claude-opus-4.8`, `claude-sonnet-5`, `claude-fable-5`, `gpt-5.6-sol`,
 `gpt-5.6-luna`, `gpt-5.6-terra`) with provider-specific prices in USD per
 million tokens, while rewriting outbound payloads back to the gateway-required
-model ids (`Claude Opus 4.6`, `claude-opus-5`, `Claude Opus 4.8`,
+model ids (`Claude Opus 4.6`, `Opus 5`, `Claude Opus 4.8`,
 `Claude Sonnet 5`, `Fable 5`, `gpt-5.6-sol`, `gpt-5.6-luna`,
 `gpt-5.6-terra`).
 

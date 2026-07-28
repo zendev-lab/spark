@@ -62,9 +62,20 @@ export default defineConfig({
               link: "/getting-started/",
             },
             {
-              label: "Surfaces and ownership",
-              translations: { zh: "界面与所有权" },
-              link: "/concepts/surfaces/",
+              label: "Plan and implement a change",
+              translations: { zh: "规划并实现一个修改" },
+              link: "/guides/plan-and-implement/",
+            },
+          ],
+        },
+        {
+          label: "Capabilities",
+          translations: { zh: "能力地图" },
+          items: [
+            {
+              label: "Feature map",
+              translations: { zh: "功能地图" },
+              link: "/concepts/feature-map/",
             },
           ],
         },
@@ -73,19 +84,61 @@ export default defineConfig({
           translations: { zh: "使用 Spark" },
           items: [
             {
+              label: "TUI",
+              translations: { zh: "TUI" },
+              link: "/guides/tui/",
+            },
+            {
               label: "Runs and sessions",
               translations: { zh: "运行与会话" },
               link: "/guides/runs-and-sessions/",
+            },
+            {
+              label: "Cockpit",
+              translations: { zh: "Cockpit" },
+              link: "/guides/cockpit/",
+            },
+            {
+              label: "Collaboration and channels",
+              translations: { zh: "协作与渠道" },
+              link: "/guides/collaboration/",
             },
             {
               label: "Side Threads",
               translations: { zh: "Side Threads" },
               link: "/guides/side-threads/",
             },
+          ],
+        },
+        {
+          label: "Automate",
+          translations: { zh: "自动推进" },
+          items: [
             {
-              label: "Cockpit",
-              translations: { zh: "Cockpit" },
-              link: "/guides/cockpit/",
+              label: "Long-running work",
+              translations: { zh: "长期工作" },
+              link: "/guides/automation/",
+            },
+          ],
+        },
+        {
+          label: "Operate and extend",
+          translations: { zh: "运维与扩展" },
+          items: [
+            {
+              label: "Surfaces and ownership",
+              translations: { zh: "界面与所有权" },
+              link: "/concepts/surfaces/",
+            },
+            {
+              label: "Configuration and paths",
+              translations: { zh: "配置与路径" },
+              link: "/reference/configuration-and-paths/",
+            },
+            {
+              label: "Troubleshooting",
+              translations: { zh: "故障排查" },
+              link: "/troubleshooting/",
             },
           ],
         },
@@ -94,19 +147,14 @@ export default defineConfig({
           translations: { zh: "参考" },
           items: [
             {
-              label: "Configuration and paths",
-              translations: { zh: "配置与路径" },
-              link: "/reference/configuration-and-paths/",
-            },
-            {
               label: "CLI",
               translations: { zh: "CLI" },
               link: "/reference/cli/",
             },
             {
-              label: "Troubleshooting",
-              translations: { zh: "故障排查" },
-              link: "/troubleshooting/",
+              label: "Agent tools",
+              translations: { zh: "Agent 工具" },
+              link: "/reference/tools/",
             },
           ],
         },

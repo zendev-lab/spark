@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, extname, join, relative } from "node:path";
+import { dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const architecture = readJson(join(root, "architecture/packages.json"));
@@ -42,157 +43,227 @@ const validStateWriters = new Set([
   "user",
   "workspace",
 ]);
+const legacyDaemonClientCompatibilitySources = new Set([
+  "packages/spark-daemon-client/src/daemon-client.ts",
+  "packages/spark-daemon-client/src/daemon-local-rpc.ts",
+]);
 
-const failures = [];
-const workspacePackages = ["apps", "packages"].flatMap((workspaceDir) =>
-  readdirSync(join(root, workspaceDir), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .filter((entry) => isFile(join(root, workspaceDir, entry.name, "package.json")))
-    .map((entry) => {
-      const path = `${workspaceDir}/${entry.name}`;
-      return { path, manifest: readJson(join(root, path, "package.json")) };
-    }),
-);
-const workspaceByName = new Map(
-  workspacePackages.map((workspacePackage) => [workspacePackage.manifest.name, workspacePackage]),
-);
-const declaredPackages = architecture.packages ?? {};
-
-if (workspacePackages.length > architecture.maxWorkspacePackages) {
-  failures.push(
-    `workspace package count grew to ${workspacePackages.length}; the package budget is ${architecture.maxWorkspacePackages}. Consolidate an owner boundary before adding another workspace.`,
+function runArchitectureRatchets() {
+  const failures = [];
+  const workspacePackages = ["apps", "packages"].flatMap((workspaceDir) =>
+    readdirSync(join(root, workspaceDir), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .filter((entry) => isFile(join(root, workspaceDir, entry.name, "package.json")))
+      .map((entry) => {
+        const path = `${workspaceDir}/${entry.name}`;
+        return { path, manifest: readJson(join(root, path, "package.json")) };
+      }),
   );
-}
+  const workspaceByName = new Map(
+    workspacePackages.map((workspacePackage) => [workspacePackage.manifest.name, workspacePackage]),
+  );
+  const declaredPackages = architecture.packages ?? {};
 
-for (const { path, manifest } of workspacePackages) {
-  const declaration = declaredPackages[manifest.name];
-  if (!declaration) {
-    failures.push(`${path} (${manifest.name}) is missing from architecture/packages.json.`);
-    continue;
-  }
-  if (declaration.path !== path) {
+  if (workspacePackages.length > architecture.maxWorkspacePackages) {
     failures.push(
-      `${manifest.name} is declared at ${declaration.path}, but its manifest is at ${path}.`,
-    );
-  }
-  if (!validLayers.has(declaration.layer)) {
-    failures.push(`${manifest.name} has invalid architecture layer ${declaration.layer}.`);
-  }
-  if (!declaration.owner?.trim()) {
-    failures.push(`${manifest.name} must declare a non-empty architecture owner.`);
-  }
-  if (!validStabilities.has(declaration.stability)) {
-    failures.push(`${manifest.name} has invalid stability ${declaration.stability}.`);
-  }
-  if (!validStateWriters.has(declaration.stateWriter)) {
-    failures.push(`${manifest.name} has invalid stateWriter ${declaration.stateWriter}.`);
-  }
-  if (manifest.private !== true) {
-    failures.push(
-      `${manifest.name} must remain private; @zendev-lab/spark is the only published product.`,
+      `workspace package count grew to ${workspacePackages.length}; the package budget is ${architecture.maxWorkspacePackages}. Consolidate an owner boundary before adding another workspace.`,
     );
   }
 
-  const declaredRuntimeDependencies = new Set([
-    ...Object.keys(manifest.dependencies ?? {}),
-    ...Object.keys(manifest.optionalDependencies ?? {}),
-    ...Object.keys(manifest.peerDependencies ?? {}),
-  ]);
-  const workspaceRuntimeDependencies = [...declaredRuntimeDependencies].filter((dependency) =>
-    workspaceByName.has(dependency),
-  );
-  if (declaration.allowedWorkspaceDependencies) {
-    const allowed = new Set(declaration.allowedWorkspaceDependencies);
-    for (const dependency of workspaceRuntimeDependencies) {
-      if (!allowed.has(dependency)) {
-        failures.push(
-          `${manifest.name} may depend only on [${[...allowed].join(", ")}], but declares ${dependency}.`,
-        );
-      }
+  for (const { path, manifest } of workspacePackages) {
+    const declaration = declaredPackages[manifest.name];
+    if (!declaration) {
+      failures.push(`${path} (${manifest.name}) is missing from architecture/packages.json.`);
+      continue;
     }
-  }
-
-  for (const [subpath, target] of Object.entries(manifest.exports ?? {})) {
-    if (typeof target !== "string" || !target.startsWith("./")) continue;
-    if (!isFile(join(root, path, target))) {
-      failures.push(`${manifest.name} export ${subpath} points to missing file ${target}.`);
-    }
-  }
-
-  visit(join(root, path), (sourcePath) => {
-    if (!isProductionSource(sourcePath)) return;
-    const source = readFileSync(sourcePath, "utf8");
-    const lines = source.split(/\r?\n/u).length;
-    if (lines > maxProductionFileLines) {
+    if (declaration.path !== path) {
       failures.push(
-        `${relative(root, sourcePath)} has ${lines} lines; the production-file ceiling is ${maxProductionFileLines}. Split it at a domain or adapter boundary.`,
+        `${manifest.name} is declared at ${declaration.path}, but its manifest is at ${path}.`,
       );
     }
-    for (const importedPackage of workspaceImports(source)) {
-      if (importedPackage === manifest.name || !workspaceByName.has(importedPackage)) continue;
-      if (!declaredRuntimeDependencies.has(importedPackage)) {
-        failures.push(
-          `${relative(root, sourcePath)} imports ${importedPackage}, but ${manifest.name} does not declare it as a runtime dependency.`,
-        );
+    if (!validLayers.has(declaration.layer)) {
+      failures.push(`${manifest.name} has invalid architecture layer ${declaration.layer}.`);
+    }
+    if (!declaration.owner?.trim()) {
+      failures.push(`${manifest.name} must declare a non-empty architecture owner.`);
+    }
+    if (!validStabilities.has(declaration.stability)) {
+      failures.push(`${manifest.name} has invalid stability ${declaration.stability}.`);
+    }
+    if (!validStateWriters.has(declaration.stateWriter)) {
+      failures.push(`${manifest.name} has invalid stateWriter ${declaration.stateWriter}.`);
+    }
+    if (manifest.private !== true) {
+      failures.push(
+        `${manifest.name} must remain private; @zendev-lab/spark is the only published product.`,
+      );
+    }
+
+    const declaredRuntimeDependencies = new Set([
+      ...Object.keys(manifest.dependencies ?? {}),
+      ...Object.keys(manifest.optionalDependencies ?? {}),
+      ...Object.keys(manifest.peerDependencies ?? {}),
+    ]);
+    const workspaceRuntimeDependencies = [...declaredRuntimeDependencies].filter((dependency) =>
+      workspaceByName.has(dependency),
+    );
+    if (declaration.allowedWorkspaceDependencies) {
+      const allowed = new Set(declaration.allowedWorkspaceDependencies);
+      for (const dependency of workspaceRuntimeDependencies) {
+        if (!allowed.has(dependency)) {
+          failures.push(
+            `${manifest.name} may depend only on [${[...allowed].join(", ")}], but declares ${dependency}.`,
+          );
+        }
       }
     }
-  });
-}
 
-for (const [name, declaration] of Object.entries(declaredPackages)) {
-  const workspacePackage = workspaceByName.get(name);
-  if (!workspacePackage) {
-    failures.push(
-      `architecture/packages.json declares removed or missing package ${name} at ${declaration.path}.`,
+    for (const [subpath, target] of Object.entries(manifest.exports ?? {})) {
+      if (typeof target !== "string" || !target.startsWith("./")) continue;
+      if (!isFile(join(root, path, target))) {
+        failures.push(`${manifest.name} export ${subpath} points to missing file ${target}.`);
+      }
+    }
+
+    visit(join(root, path), (sourcePath) => {
+      if (!isProductionSource(sourcePath)) return;
+      const source = readFileSync(sourcePath, "utf8");
+      const repositoryPath = relative(root, sourcePath).replaceAll("\\", "/");
+      const lines = source.split(/\r?\n/u).length;
+      if (lines > maxProductionFileLines) {
+        failures.push(
+          `${relative(root, sourcePath)} has ${lines} lines; the production-file ceiling is ${maxProductionFileLines}. Split it at a domain or adapter boundary.`,
+        );
+      }
+      for (const importedPackage of workspaceImports(source)) {
+        if (importedPackage === manifest.name || !workspaceByName.has(importedPackage)) continue;
+        if (!declaredRuntimeDependencies.has(importedPackage)) {
+          failures.push(
+            `${relative(root, sourcePath)} imports ${importedPackage}, but ${manifest.name} does not declare it as a runtime dependency.`,
+          );
+        }
+      }
+      if (!isLegacyDaemonClientBoundaryExempt(repositoryPath)) {
+        const violations = findLegacyDaemonClientViolations(source, repositoryPath);
+        if (violations.length > 0) {
+          failures.push(
+            `${repositoryPath} bypasses the protocol-aware daemon client facade (${violations.join(", ")}). Use requestSparkDaemon/createSparkDaemonClient; keep legacy transport access inside spark-daemon-client compatibility sources.`,
+          );
+        }
+      }
+    });
+  }
+
+  for (const [name, declaration] of Object.entries(declaredPackages)) {
+    const workspacePackage = workspaceByName.get(name);
+    if (!workspacePackage) {
+      failures.push(
+        `architecture/packages.json declares removed or missing package ${name} at ${declaration.path}.`,
+      );
+    }
+  }
+
+  const rootPackage = readJson(join(root, "package.json"));
+  const compatibilityExtensions = Array.isArray(rootPackage.pi?.extensions)
+    ? rootPackage.pi.extensions
+    : [];
+  for (const extension of compatibilityExtensions) {
+    if (!frozenCompatibilityExtensions.has(extension)) {
+      failures.push(
+        `Compatibility loader extension surface grew: ${extension}. New capabilities must target Spark-native hosts.`,
+      );
+    }
+  }
+
+  const tsconfig = readJson(join(root, "tsconfig.base.json"));
+  for (const [specifier, targets] of Object.entries(tsconfig.compilerOptions?.paths ?? {})) {
+    if (
+      specifier.includes("pi-extension") ||
+      (Array.isArray(targets) &&
+        targets.some((target) => target.includes("packages/pi-extension/")))
+    ) {
+      failures.push(
+        `Retired pi-extension facade remains in tsconfig path mapping ${specifier}. Legacy config migration must not recreate a source workspace alias.`,
+      );
+    }
+  }
+
+  for (const { path, manifest } of workspacePackages) {
+    if (
+      path !== "apps/spark-daemon" &&
+      manifest.scripts?.check === "vp check --no-fmt --no-lint ."
+    ) {
+      failures.push(
+        `${path} duplicates the root typecheck with a boilerplate check script. Keep workspace scripts only when they add package-local validation.`,
+      );
+    }
+    if (manifest.scripts?.["test:mutation"] === "stryker run") {
+      failures.push(
+        `${path} duplicates the root mutation runner. Invoke the package's Stryker config through scripts/run-leaf-mutation.mjs instead.`,
+      );
+    }
+  }
+
+  if (failures.length > 0) {
+    console.error(
+      ["Architecture ratchet failed:", ...failures.map((failure) => `- ${failure}`)].join("\n"),
+    );
+    process.exitCode = 1;
+  } else {
+    console.log(
+      `Architecture ratchet passed (${workspacePackages.length}/${architecture.maxWorkspacePackages} workspaces classified; production imports declared; daemon RPC facade enforced; production files <= ${maxProductionFileLines} lines; compatibility surface frozen).`,
     );
   }
 }
 
-const rootPackage = readJson(join(root, "package.json"));
-const compatibilityExtensions = Array.isArray(rootPackage.pi?.extensions)
-  ? rootPackage.pi.extensions
-  : [];
-for (const extension of compatibilityExtensions) {
-  if (!frozenCompatibilityExtensions.has(extension)) {
-    failures.push(
-      `Compatibility loader extension surface grew: ${extension}. New capabilities must target Spark-native hosts.`,
-    );
-  }
-}
-
-const tsconfig = readJson(join(root, "tsconfig.base.json"));
-for (const [specifier, targets] of Object.entries(tsconfig.compilerOptions?.paths ?? {})) {
-  if (
-    specifier.includes("pi-extension") ||
-    (Array.isArray(targets) && targets.some((target) => target.includes("packages/pi-extension/")))
-  ) {
-    failures.push(
-      `Retired pi-extension facade remains in tsconfig path mapping ${specifier}. Legacy config migration must not recreate a source workspace alias.`,
-    );
-  }
-}
-
-for (const { path, manifest } of workspacePackages) {
-  if (path !== "apps/spark-daemon" && manifest.scripts?.check === "vp check --no-fmt --no-lint .") {
-    failures.push(
-      `${path} duplicates the root typecheck with a boilerplate check script. Keep workspace scripts only when they add package-local validation.`,
-    );
-  }
-  if (manifest.scripts?.["test:mutation"] === "stryker run") {
-    failures.push(
-      `${path} duplicates the root mutation runner. Invoke the package's Stryker config through scripts/run-leaf-mutation.mjs instead.`,
-    );
-  }
-}
-
-if (failures.length > 0) {
-  console.error(
-    ["Architecture ratchet failed:", ...failures.map((failure) => `- ${failure}`)].join("\n"),
+export function findLegacyDaemonClientViolations(source, fileName = "source.ts") {
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
   );
-  process.exitCode = 1;
-} else {
-  console.log(
-    `Architecture ratchet passed (${workspacePackages.length}/${architecture.maxWorkspacePackages} workspaces classified; production imports declared; production files <= ${maxProductionFileLines} lines; compatibility surface frozen).`,
+  let importsLegacySubpath = false;
+  let usesLegacyRequestSymbol = false;
+
+  function inspect(node) {
+    const moduleSpecifier =
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteralLike(node.moduleSpecifier)
+        ? node.moduleSpecifier.text
+        : ts.isCallExpression(node) &&
+            node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+            node.arguments.length === 1 &&
+            ts.isStringLiteralLike(node.arguments[0])
+          ? node.arguments[0].text
+          : undefined;
+    if (moduleSpecifier === "@zendev-lab/spark-daemon-client/local-rpc") {
+      importsLegacySubpath = true;
+    }
+    if (
+      ts.isIdentifier(node) &&
+      (node.text === "requestSparkDaemonLocalRpc" || node.text === "requestSparkDaemonLocalRpcWire")
+    ) {
+      usesLegacyRequestSymbol = true;
+    }
+    ts.forEachChild(node, inspect);
+  }
+  inspect(sourceFile);
+
+  return [
+    ...(importsLegacySubpath ? ["legacy local-rpc subpath import"] : []),
+    ...(usesLegacyRequestSymbol ? ["legacy request symbol"] : []),
+  ];
+}
+
+export function isLegacyDaemonClientBoundaryExempt(repositoryPath) {
+  const normalized = repositoryPath.replaceAll("\\", "/").replace(/^\.\//u, "");
+  return (
+    legacyDaemonClientCompatibilitySources.has(normalized) ||
+    /(?:^|\/)(?:__fixtures__|__tests__|fixtures|test|tests)(?:\/|$)/u.test(normalized) ||
+    /\.(?:fixture|spec|test)\.[^/]+$/u.test(normalized)
   );
 }
 
@@ -233,4 +304,8 @@ function isFile(path) {
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
+  runArchitectureRatchets();
 }

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
 import { loadSparkHeadlessSessionModule } from "@zendev-lab/spark-host/headless-loader";
@@ -9,6 +8,7 @@ import {
 } from "@zendev-lab/spark-roles";
 import { killActiveSparkRoleRunProcesses, runSparkTask } from "@zendev-lab/spark-runtime";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+import { artifactProjectionIdForRef } from "../product-artifact-projection.ts";
 type ArtifactRef = `artifact:${string}`;
 type ProjectRef = `proj:${string}`;
 type RunRef = `run:${string}`;
@@ -506,7 +506,10 @@ async function projectSparkArtifacts(input: {
   let assistantText: string | undefined;
   for (const artifactRef of input.artifactRefs) {
     const artifact = await input.artifactStore.get(artifactRef);
-    const artifactId = artifactIdForSparkRef(artifactRef);
+    if (!input.route.workspaceId) {
+      throw new Error("Artifact projection requires a routed workspace id.");
+    }
+    const artifactId = artifactProjectionIdForRef(input.route.workspaceId, artifactRef);
     const serializedPreview = await input.artifactStore.getBody(artifactRef);
     assistantText ??= assistantTextFromProjectedArtifact({
       kind: artifact.kind,
@@ -768,10 +771,6 @@ function taskGraphForCommand(
     dependencies: [],
     payload: {},
   };
-}
-
-function artifactIdForSparkRef(ref: ArtifactRef): `art_${string}` {
-  return `art_${createHash("sha256").update(ref).digest("hex").slice(0, 32)}`;
 }
 
 function stableTaskName(taskRuntimeId: string): string {

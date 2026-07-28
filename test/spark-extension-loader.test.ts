@@ -13,6 +13,12 @@ import {
   loadPlugins,
   loadSparkExtensions,
 } from "../apps/spark-tui/src/host/index.ts";
+import {
+  createSparkNativeLocalControlSlashCommands,
+  createSparkNativeRuntimeSlashCommands,
+} from "../apps/spark-tui/src/native-tui.ts";
+import { catalogSparkNativeCommands } from "../apps/spark-tui/src/native-tui/command-presentation.ts";
+import { nativeKernelSlashCommandEntries } from "../apps/spark-tui/src/native-tui/slash-commands.ts";
 
 test("loadBuiltinExtensionFactories exposes the retained Spark CLI builtin extension set", () => {
   const builtinExpected = [
@@ -26,6 +32,7 @@ test("loadBuiltinExtensionFactories exposes the retained Spark CLI builtin exten
     "@zendev-lab/spark-roles/extension",
     "@zendev-lab/spark-session/extension",
     "@zendev-lab/spark-web/extension",
+    "@zendev-lab/spark-workflows/extension",
     "@zendev-lab/spark-graft/extension",
     "@zendev-lab/spark-extension/extension",
   ];
@@ -61,8 +68,67 @@ test("default Spark extension profile leaves optional capabilities available onl
     host.getAllTools().some((tool) => tool.name === "fusion"),
     false,
   );
-  assert.ok(host.getActiveTools().includes("evidence"));
-  assert.ok(host.getActiveTools().includes("artifact"));
+  assert.equal(
+    host.getAllTools().some((tool) => tool.name === "artifact"),
+    true,
+  );
+  assert.equal(
+    host.getAllTools().some((tool) => tool.name === "evidence"),
+    true,
+  );
+  assert.equal(
+    host.getAllTools().some((tool) => tool.name === "workflow"),
+    true,
+  );
+});
+
+test("default Spark extension profile exposes a bounded everyday TUI catalog", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-extension-loader-default-catalog" });
+  await new SparkExtensionLoader({ api: host }).load();
+  const commands = {
+    ...createSparkNativeRuntimeSlashCommands(host),
+    ...createSparkNativeLocalControlSlashCommands(),
+  };
+  const visible = catalogSparkNativeCommands(commands, nativeKernelSlashCommandEntries());
+  const all = catalogSparkNativeCommands(commands, nativeKernelSlashCommandEntries(), {
+    includeDeprecated: true,
+  });
+
+  const common = visible.filter((entry) => entry.group === "common").map((entry) => entry.name);
+  assert.equal(common.length <= 7, true);
+  assert.equal(
+    common.every((name) =>
+      ["help", "implement", "inbox", "plan", "retry", "status", "stop"].includes(name),
+    ),
+    true,
+  );
+  assert.equal(common.includes("help"), true);
+  assert.equal(common.includes("plan"), true);
+  assert.equal(common.includes("implement"), true);
+  assert.equal(visible.find((entry) => entry.name === "automate")?.group, "automation");
+  assert.equal(
+    visible.some((entry) => entry.name === "inspect"),
+    true,
+  );
+  assert.equal(
+    visible.some((entry) => entry.name === "cockpit"),
+    false,
+  );
+  assert.equal(
+    visible.some((entry) => entry.name === "workflows" || entry.name === "workflow-pause"),
+    false,
+  );
+  assert.equal(commands.workflows?.handler instanceof Function, true);
+  assert.equal(commands["workflow-pause"]?.handler instanceof Function, true);
+  assert.equal(
+    all.find((entry) => entry.name === "workflows")?.deprecatedAliasFor,
+    "/workflow list",
+  );
+  assert.equal(
+    all.find((entry) => entry.name === "workflow-runs")?.deprecatedAliasFor,
+    "/workflow runs [runRef]",
+  );
+  assert.equal(all.find((entry) => entry.name === "cockpit")?.deprecatedAliasFor, "/inspect");
 });
 
 test("root Pi extension list and native builtins both expose self-extension tools", async () => {
@@ -71,9 +137,6 @@ test("root Pi extension list and native builtins both expose self-extension tool
   ) as {
     pi?: { extensions?: string[] };
   };
-  assert.ok(
-    rootPackage.pi?.extensions?.includes("./packages/spark-artifacts/src/extension-entry.ts"),
-  );
   assert.ok(rootPackage.pi?.extensions?.includes("./packages/spark-memory/src/extension-entry.ts"));
   assert.ok(
     rootPackage.pi?.extensions?.includes("./packages/spark-session/src/extension-entry.ts"),
@@ -94,10 +157,11 @@ test("root Pi extension list and native builtins both expose self-extension tool
   assert.ok(
     rootPackage.pi?.extensions?.includes("./packages/spark-extension/src/extension/index.ts"),
   );
-  assert.ok([...DEFAULT_SPARK_EXTENSION_SPECS].includes("@zendev-lab/spark-artifacts/extension"));
   assert.ok([...DEFAULT_SPARK_EXTENSION_SPECS].includes("@zendev-lab/spark-memory/extension"));
   assert.ok([...DEFAULT_SPARK_EXTENSION_SPECS].includes("@zendev-lab/spark-session/extension"));
   assert.ok([...DEFAULT_SPARK_EXTENSION_SPECS].includes("@zendev-lab/spark-web/extension"));
+  assert.ok([...DEFAULT_SPARK_EXTENSION_SPECS].includes("@zendev-lab/spark-artifacts/extension"));
+  assert.ok([...DEFAULT_SPARK_EXTENSION_SPECS].includes("@zendev-lab/spark-workflows/extension"));
   assert.equal(
     (DEFAULT_SPARK_EXTENSION_SPECS as readonly string[]).includes(
       "@zendev-lab/spark-graft/extension",
@@ -166,7 +230,6 @@ test("SparkExtensionLoader loads builtin factories through explicit imports", as
     api: host,
     extensions: [
       "@zendev-lab/spark-ask/extension",
-      "@zendev-lab/spark-artifacts/extension",
       "@zendev-lab/spark-cue/extension",
       "@zendev-lab/spark-files/extension",
       "@zendev-lab/spark-fusion/extension",
@@ -186,8 +249,6 @@ test("SparkExtensionLoader loads builtin factories through explicit imports", as
   );
   const tools = host.getActiveTools();
   assert.ok(tools.includes("ask"));
-  assert.ok(tools.includes("evidence"));
-  assert.ok(tools.includes("artifact"));
   assert.ok(!tools.includes("ask_user"));
   assert.ok(!tools.includes("ask_flow"));
   assert.ok(tools.includes("cue_exec"));

@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compile } from "svelte/compiler";
+import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
+
+import WorkbenchSessionRail from "./WorkbenchSessionRail.svelte";
+import { getDictionary } from "./i18n";
 
 const componentPath = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -69,6 +73,43 @@ describe("WorkbenchSessionRail component contract", () => {
     expect(source.indexOf('<label class="session-filter">')).toBeLessThan(
       source.indexOf('<Icon name="new-message"'),
     );
+  });
+
+  it("labels the conversation rail and gives an empty workspace a next step", () => {
+    const dictionary = getDictionary("en");
+    const messages = dictionary.sessions;
+    const body = render(WorkbenchSessionRail, {
+      props: {
+        sessions: [],
+        workspaces: [{ id: "workspace-1", slug: "spark", name: "Spark" }],
+        activeWorkspaceId: "workspace-1",
+        sessionsAvailable: true,
+        sessionControlAvailable: true,
+        locale: "en",
+        common: dictionary.common,
+        messages: {
+          newSession: messages.newSession,
+          searchPlaceholder: messages.searchPlaceholder,
+          emptyTitle: messages.emptyTitle,
+          emptyBody: messages.emptyBody,
+          daemonUnavailableTitle: messages.daemonUnavailableTitle,
+          daemonUnavailableBody: messages.daemonUnavailableBody,
+          listLabel: messages.listLabel,
+          untitledConversation: messages.untitledConversation,
+          unknownWorkspace: messages.unknownWorkspace,
+          channelSessionBadge: messages.channelSessionBadge,
+          channelLabels: messages.channelLabels,
+          sessionTypes: messages.sessionTypes,
+          archiveSubmit: messages.archiveSubmit,
+        },
+      },
+    }).body;
+
+    expect(body).toContain(messages.listLabel);
+    expect(body).toContain(messages.emptyTitle);
+    expect(body).toContain(messages.emptyBody);
+    expect(body).toContain('href="/spark/sessions?new=workspace"');
+    expect(body).toContain(`>${messages.newSession}</a>`);
   });
 
   it("keeps cached conversations searchable while workspace control is offline", () => {

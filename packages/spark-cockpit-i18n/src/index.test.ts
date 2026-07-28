@@ -37,4 +37,30 @@ describe("Cockpit dictionaries", () => {
       collectKeys(getCockpitDictionary("en")).sort(),
     );
   });
+
+  it("keeps high-frequency disconnected and session-inspector copy user-facing", () => {
+    const en = getCockpitDictionary("en");
+    const zh = getCockpitDictionary("zh-CN");
+    const enCopy = [
+      en.sessions.daemonUnavailableBody,
+      en.sessions.workbench.noChangesBody,
+      en.sessions.workbench.noTasksBody,
+      en.sessions.workbench.slashActions.reasons.ownerOffline,
+      en.agents.chat.noOwnerContext,
+      en.agents.chat.offlineState,
+      en.agents.chat.noOwnerButton,
+    ].join("\n");
+    const zhCopy = [
+      zh.sessions.daemonUnavailableBody,
+      zh.sessions.workbench.noChangesBody,
+      zh.sessions.workbench.noTasksBody,
+      zh.sessions.workbench.slashActions.reasons.ownerOffline,
+      zh.agents.chat.noOwnerContext,
+      zh.agents.chat.offlineState,
+      zh.agents.chat.noOwnerButton,
+    ].join("\n");
+
+    expect(enCopy).not.toMatch(/origin lease|canonical diff|internal projects/iu);
+    expect(zhCopy).not.toMatch(/起源租约|规范差异|内部项目/u);
+  });
 });
