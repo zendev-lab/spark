@@ -74,6 +74,7 @@ import {
   saveIndependentTodos,
   saveTodoDisplayNumberState,
 } from "../packages/spark-extension/src/extension/session-todos.ts";
+import { renderSessionTodoContext } from "../packages/spark-extension/src/extension/spark-session-todo-context.ts";
 import {
   normalizeSparkStatusFormat,
   normalizeSparkStatusLimit,
@@ -10292,6 +10293,202 @@ test("todo tool tracks session-bound checklist without list read roundtrips", as
     );
     assert.equal(clearedSnapshot?.details?.cleared, true);
     assert.match(clearedSnapshot?.content ?? "", /0 active/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("todo start, block, and cancel mutations stay compact and match durable hook snapshots", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-session-todo-mutation-matrix-"));
+  try {
+    const ctx = testSparkContext(dir, "main");
+    const run = registerSparkToolsForTest();
+    const items = ["Implement parser", "Wait for approval", "Archive fallback"];
+
+    const assertHookMatchesDurableStore = async () => {
+      const durable = await loadIndependentTodos(dir, ctx);
+      const hook = (await run.eventHandlers.get("before_agent_start")?.[0]?.({}, ctx)) as
+        | {
+            messages?: Array<{ content?: string; details?: Record<string, unknown> }>;
+          }
+        | undefined;
+      const snapshot = hook?.messages?.find(
+        (message) => message.details?.providerId === "spark.todos",
+      );
+      assert.ok(snapshot, "expected changed spark.todos hook snapshot");
+      const durableContext = renderSessionTodoContext(durable.filter(isActiveSessionTodo));
+      assert.equal(snapshot.content?.endsWith(durableContext), true);
+      return durable;
+    };
+
+    const initialized = await executeSparkTool(run.tools, "todo", ctx, {
+      action: "init",
+      items,
+    });
+    assert.match(toolText(initialized), /Applied todo action=init; 3 active/);
+    for (const item of items) assert.equal(toolText(initialized).includes(item), false);
+    let durable = await assertHookMatchesDurableStore();
+    const [first, second, third] = durable;
+    assert.ok(first?.id);
+    assert.ok(second?.id);
+    assert.ok(third?.id);
+    const firstId = first.id;
+    const secondId = second.id;
+    const thirdId = third.id;
+
+    const started = await executeSparkTool(run.tools, "todo", ctx, {
+      action: "start",
+      id: secondId,
+    });
+    const startedDetails = started.details as {
+      action?: string;
+      activeCount?: number;
+      changedTodoIds?: string[];
+    };
+    assert.match(toolText(started), /Applied todo action=start; 3 active/);
+    assert.doesNotMatch(toolText(started), /Session TODOs:/);
+    for (const item of items) assert.equal(toolText(started).includes(item), false);
+    assert.equal(startedDetails.action, "start");
+    assert.equal(startedDetails.activeCount, 3);
+    assert.deepEqual(new Set(startedDetails.changedTodoIds), new Set([firstId, secondId]));
+    durable = await assertHookMatchesDurableStore();
+    assert.equal(durable.find((todo) => todo.id === firstId)?.status, "pending");
+    assert.equal(durable.find((todo) => todo.id === secondId)?.status, "in_progress");
+
+    const blockedBy = ["ask:approval-window", "task:dependency"];
+    const blocked = await executeSparkTool(run.tools, "todo", ctx, {
+      action: "block",
+      id: secondId,
+      blockedBy,
+    });
+    const blockedDetails = blocked.details as {
+      action?: string;
+      activeCount?: number;
+      changedTodoIds?: string[];
+    };
+    assert.match(toolText(blocked), /Applied todo action=block; 3 active/);
+    assert.doesNotMatch(toolText(blocked), /Session TODOs:|blockedBy:/);
+    for (const item of items) assert.equal(toolText(blocked).includes(item), false);
+    assert.equal(blockedDetails.action, "block");
+    assert.equal(blockedDetails.activeCount, 3);
+    assert.deepEqual(new Set(blockedDetails.changedTodoIds), new Set([firstId, secondId]));
+    durable = await assertHookMatchesDurableStore();
+    assert.equal(durable.find((todo) => todo.id === firstId)?.status, "in_progress");
+    assert.equal(durable.find((todo) => todo.id === secondId)?.status, "blocked");
+    assert.deepEqual(durable.find((todo) => todo.id === secondId)?.blockedBy, blockedBy);
+
+    const cancelled = await executeSparkTool(run.tools, "todo", ctx, {
+      action: "cancel",
+      id: firstId,
+    });
+    const cancelledDetails = cancelled.details as {
+      action?: string;
+      activeCount?: number;
+      changedTodoIds?: string[];
+    };
+    assert.match(toolText(cancelled), /Applied todo action=cancel; 2 active/);
+    assert.doesNotMatch(toolText(cancelled), /Session TODOs:/);
+    for (const item of items) assert.equal(toolText(cancelled).includes(item), false);
+    assert.equal(cancelledDetails.action, "cancel");
+    assert.equal(cancelledDetails.activeCount, 2);
+    assert.deepEqual(new Set(cancelledDetails.changedTodoIds), new Set([firstId, thirdId]));
+    durable = await assertHookMatchesDurableStore();
+    assert.equal(durable.find((todo) => todo.id === firstId)?.status, "cancelled");
+    assert.equal(durable.find((todo) => todo.id === secondId)?.status, "blocked");
+    assert.equal(durable.find((todo) => todo.id === thirdId)?.status, "in_progress");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("spark.todos preview exposes blockers, bounds, refs, and direct empty state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-session-todo-context-details-"));
+  try {
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await saveIndependentTodos(dir, ctx, [
+      {
+        id: "todo-blocked",
+        content: "Resolve deployment approval before releasing the production artifact",
+        status: "blocked",
+        blockedBy: ["ask:approval-window", "task:dependency"],
+      },
+      {
+        id: "todo-pending",
+        content: "Prepare a deliberately long follow-up item for bounded context rendering",
+        status: "pending",
+      },
+    ]);
+
+    const preview = await executeSparkTool(tools, "context", ctx, {
+      action: "preview",
+      providerIds: ["spark.todos"],
+    });
+    assert.match(
+      toolText(preview),
+      /- \[blocked\] todo-blocked: Resolve deployment approval before releasing the production artifact/,
+    );
+    assert.match(toolText(preview), /blockedBy: ask:approval-window, task:dependency/);
+    const previewBundle = (
+      preview.details as {
+        bundles?: Array<{
+          providerId?: string;
+          budgetChars?: number;
+          content?: string;
+          truncated?: boolean;
+          empty?: boolean;
+          revision?: string;
+          priority?: number;
+          refs?: string[];
+        }>;
+      }
+    ).bundles?.[0];
+    assert.equal(previewBundle?.providerId, "spark.todos");
+    assert.equal(previewBundle?.budgetChars, 2_000);
+    assert.equal(previewBundle?.truncated, false);
+    assert.equal(previewBundle?.empty, false);
+    assert.match(previewBundle?.revision ?? "", /^[0-9a-f]{64}$/);
+    assert.equal(previewBundle?.priority, 110);
+    assert.deepEqual(previewBundle?.refs, [".spark/todos/todos.sqlite"]);
+
+    const bounded = await executeSparkTool(tools, "context", ctx, {
+      action: "preview",
+      providerIds: ["spark.todos"],
+      budgetChars: 80,
+    });
+    const boundedBundle = (
+      bounded.details as {
+        bundles?: Array<{ content?: string; budgetChars?: number; truncated?: boolean }>;
+      }
+    ).bundles?.[0];
+    assert.equal(boundedBundle?.budgetChars, 80);
+    assert.equal(boundedBundle?.truncated, true);
+    assert.ok((boundedBundle?.content?.length ?? Number.POSITIVE_INFINITY) <= 80);
+    assert.match(boundedBundle?.content ?? "", /…$/);
+
+    await saveIndependentTodos(dir, ctx, []);
+    const empty = await executeSparkTool(tools, "context", ctx, {
+      action: "preview",
+      providerIds: ["spark.todos"],
+    });
+    assert.match(
+      toolText(empty),
+      /Session TODOs: 0 active\. Earlier active snapshots are cleared\./,
+    );
+    const emptyBundle = (
+      empty.details as {
+        bundles?: Array<{
+          providerId?: string;
+          empty?: boolean;
+          truncated?: boolean;
+          refs?: string[];
+        }>;
+      }
+    ).bundles?.[0];
+    assert.equal(emptyBundle?.providerId, "spark.todos");
+    assert.equal(emptyBundle?.empty, true);
+    assert.equal(emptyBundle?.truncated, false);
+    assert.deepEqual(emptyBundle?.refs, [".spark/todos/todos.sqlite"]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
