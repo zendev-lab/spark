@@ -100,7 +100,11 @@ class CapturingSocket implements ServerSocket {
   readonly sent: unknown[] = [];
 
   send(data: string): void {
-    this.sent.push(JSON.parse(data));
+    try {
+      this.sent.push(JSON.parse(data));
+    } catch (error) {
+      throw new Error("captured daemon socket payload is not valid JSON", { cause: error });
+    }
   }
 }
 
@@ -403,7 +407,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
-  it("keeps production scheduler and channel admission paused when serving fence commit fails", async () => {
+  it("DRV-STARTUP-005 keeps production scheduler and channel admission paused when serving fence commit fails", async () => {
     const harness = makeHarness();
     const store = new SparkInvocationStore(harness.db);
     const drivers = new SparkDriverStore(harness.db, store);
@@ -705,7 +709,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
-  it("drains active scheduler work and leaves queued work for the restart successor", async () => {
+  it("DRV-DRAIN-001 drains active scheduler work and leaves queued work for the restart successor", async () => {
     const harness = makeHarness();
     const shutdown = new AbortController();
     const lifecycle = new SparkDaemonLifecycle();

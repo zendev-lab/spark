@@ -106,18 +106,30 @@ Startup reconciliation:
 `drivers.test.ts`; process-owned admission and migration behavior remains in the
 app integration lane.
 
-| Invariant | Executable anchor |
-| --- | --- |
-| Overdue wakes coalesce while a busy owner does not starve another owner | `DRV-ADMISSION-001`, `DRV-ADMISSION-002` in `store/drivers.contract.ts` |
-| Explicit schedule/stop wins over stale completion through generation CAS | `DRV-GENERATION-001` through `DRV-GENERATION-003` |
-| Interrupted running work resumes without a duplicate tick | `DRV-RECOVERY-001` |
-| Terminal invocations attached to running wakes reconcile once | `DRV-RECOVERY-002` |
-| Safe failures retry; unknown outcomes and manual abort fail closed | `DRV-FAILURE-001`, `DRV-FAILURE-002` |
-| One-shot wake prompts and fresh continuity retain their stated ownership | `DRV-WAKE-001`, `DRV-CONTINUITY-001`, `DRV-CONTINUITY-002` |
-| Foreground lanes and stop/restart cancellation remain atomic | `DRV-LANE-001`, `DRV-LANE-002`, `DRV-CANCEL-001` through `DRV-CANCEL-003` |
-| Missing active legacy wakes are restored only through the one-way migration | `store/driver-state-migration.test.ts` — `imports legacy cadence once, strips frontend runtime fields, and repairs a missing wake` |
-| Closed startup/drain admission does not materialize scheduled or retry-wait wakes | `daemon.test.ts` — `keeps production scheduler and channel admission paused when serving fence commit fails` |
-| Active work drains while queued successor work remains durable | `daemon.test.ts` — `drains active scheduler work and leaves queued work for the restart successor` |
+| Invariant ID | Exact full Vitest name | Repository path | Reconciliation coverage |
+| --- | --- | --- | --- |
+| `DRV-ADMISSION-001` | `SparkDriverStore contract > DRV-ADMISSION-001 coalesces an overdue wake while the owner session is busy` | `apps/spark-daemon/src/store/drivers.contract.ts` | Startup 2/5: materialize one overdue wake without duplication |
+| `DRV-ADMISSION-002` | `SparkDriverStore contract > DRV-ADMISSION-002 does not let one busy owner starve another owner's due driver` | `apps/spark-daemon/src/store/drivers.contract.ts` | Admission fairness |
+| `DRV-GENERATION-000` | `SparkDriverStore contract > DRV-GENERATION-000 materializes a new repro under its repro id at generation one` | `apps/spark-daemon/src/store/drivers.contract.ts` | Initial generation identity |
+| `DRV-GENERATION-001` | `SparkDriverStore contract > DRV-GENERATION-001 keeps an explicit generation schedule when the old tick completes` | `apps/spark-daemon/src/store/drivers.contract.ts` | Generation CAS |
+| `DRV-GENERATION-002` | `SparkDriverStore contract > DRV-GENERATION-002 clears retry attempts when a recovered tick explicitly schedules success` | `apps/spark-daemon/src/store/drivers.contract.ts` | Recovered schedule CAS |
+| `DRV-GENERATION-003` | `SparkDriverStore contract > DRV-GENERATION-003 advances generation before materializing policy continuations and retries` | `apps/spark-daemon/src/store/drivers.contract.ts` | Continuation/retry CAS |
+| `DRV-RECOVERY-001` | `SparkDriverStore contract > DRV-RECOVERY-001 keeps a running wake attached to the same invocation across resume` | `apps/spark-daemon/src/store/drivers.contract.ts` | Startup 1/5: resume interrupted running work without a second tick |
+| `DRV-RECOVERY-002` | `SparkDriverStore contract > DRV-RECOVERY-002 reconciles a terminal invocation left beside an unsettled running wake` | `apps/spark-daemon/src/store/drivers.contract.ts` | Startup 3/5: settle terminal work still attached to a running wake |
+| `DRV-FAILURE-001` | `SparkDriverStore contract > DRV-FAILURE-001 applies backoff and fail-closed terminal policies` | `apps/spark-daemon/src/store/drivers.contract.ts` | Safe retry and fail closed |
+| `DRV-FAILURE-002` | `SparkDriverStore contract > DRV-FAILURE-002 uses capped retry sequences for foreground and workflow drivers` | `apps/spark-daemon/src/store/drivers.contract.ts` | Retry ceilings |
+| `DRV-CONTINUITY-001` | `SparkDriverStore contract > DRV-CONTINUITY-001 builds fresh ticks against a hidden reset session while retaining owner state` | `apps/spark-daemon/src/store/drivers.contract.ts` | Fresh continuity ownership |
+| `DRV-WAKE-001` | `SparkDriverStore contract > DRV-WAKE-001 consumes a manual wake prompt exactly once and retains the base driver prompt` | `apps/spark-daemon/src/store/drivers.contract.ts` | One-shot wake prompt |
+| `DRV-CONTINUITY-002` | `SparkDriverStore contract > DRV-CONTINUITY-002 garbage-collects expired fresh sessions and retains failed removals` | `apps/spark-daemon/src/store/drivers.contract.ts` | Hidden-session retention |
+| `DRV-POLICY-001` | `SparkDriverStore contract > DRV-POLICY-001 uses capability success policies without spinning loop or workflow` | `apps/spark-daemon/src/store/drivers.contract.ts` | Capability continuation policy |
+| `DRV-LANE-001` | `SparkDriverStore contract > DRV-LANE-001 atomically replaces the foreground lane while preserving workflow background work` | `apps/spark-daemon/src/store/drivers.contract.ts` | Foreground/background lanes |
+| `DRV-LANE-002` | `SparkDriverStore contract > DRV-LANE-002 makes wake replace the foreground lane` | `apps/spark-daemon/src/store/drivers.contract.ts` | Wake lane replacement |
+| `DRV-CANCEL-001` | `SparkDriverStore contract > DRV-CANCEL-001 requests cancellation for a running tick when its driver is stopped` | `apps/spark-daemon/src/store/drivers.contract.ts` | Stop cancellation |
+| `DRV-CANCEL-002` | `SparkDriverStore contract > DRV-CANCEL-002 lets the current tick stop its driver without aborting its own invocation` | `apps/spark-daemon/src/store/drivers.contract.ts` | Self-completion cancellation exception |
+| `DRV-CANCEL-003` | `SparkDriverStore contract > DRV-CANCEL-003 cancels the current tick when the same driver is started or restarted` | `apps/spark-daemon/src/store/drivers.contract.ts` | Restart cancellation |
+| `DRV-STARTUP-004` | `legacy autonomous driver migration > DRV-STARTUP-004 imports legacy cadence once, strips frontend runtime fields, and repairs a missing wake` | `apps/spark-daemon/src/store/driver-state-migration.test.ts` | Startup 4/5: one-way migration restores a missing active wake |
+| `DRV-STARTUP-005` | `Spark daemon handleCommand task.start.request > DRV-STARTUP-005 keeps production scheduler and channel admission paused when serving fence commit fails` | `apps/spark-daemon/src/daemon.test.ts` | Startup 5/5: closed admission retains scheduled and retry-wait wakes |
+| `DRV-DRAIN-001` | `Spark daemon handleCommand task.start.request > DRV-DRAIN-001 drains active scheduler work and leaves queued work for the restart successor` | `apps/spark-daemon/src/daemon.test.ts` | Shutdown/drain: finish active work and retain queued successor work |
 
 Run the owning contract with:
 
