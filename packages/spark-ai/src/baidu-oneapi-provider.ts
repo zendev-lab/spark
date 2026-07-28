@@ -1,4 +1,5 @@
 import * as piAi from "@earendil-works/pi-ai";
+import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import type {
   AnthropicEffort,
   Api,
@@ -51,15 +52,10 @@ type BaiduOneApiTransportStreams = {
 };
 type PiAiRuntimeApi = typeof piAi & {
   lazyApi?: (load: () => Promise<BaiduOneApiTransportStreams>) => BaiduOneApiTransportStreams;
-  anthropicMessagesApi?: () => BaiduOneApiTransportStreams;
 };
 
 const piAiRuntime = piAi as PiAiRuntimeApi;
-const baiduOneApiAnthropicMessagesApi =
-  piAiRuntime.anthropicMessagesApi?.() ??
-  lazyBaiduOneApiApi(() =>
-    import("@earendil-works/pi-ai/api/anthropic-messages").then(asTransportStreams),
-  );
+const baiduOneApiAnthropicMessagesApi = asTransportStreams(anthropicMessagesApi());
 const baiduOneApiOpenAIResponsesApi = lazyBaiduOneApiApi(() =>
   import("@earendil-works/pi-ai/api/openai-responses").then((module) =>
     silenceOpenAiSdkTransportLogs(asTransportStreams(module)),
