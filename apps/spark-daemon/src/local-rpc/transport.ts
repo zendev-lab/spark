@@ -2,7 +2,6 @@ import { mkdirSync, rmSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { dirname } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { StringDecoder } from "node:string_decoder";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import { readSparkDaemonConfig } from "../config.ts";
@@ -31,11 +30,14 @@ import {
   type SparkDaemonLocalEventBus,
 } from "./types.ts";
 
+const DEFAULT_LEGACY_MAX_REQUEST_BYTES = 8 * 1024 * 1024;
+
 export async function startLocalRpcServer(options: {
   paths: SparkPaths;
   sparkHome: string;
   db: DatabaseSync;
   forceCloseTimeoutMs?: number;
+  legacyMaxRequestBytes?: number;
   onStop?: () => void | Promise<void>;
   onStopRequested?: () => void;
   onRestart?: () => LocalDaemonRestartResult | Promise<LocalDaemonRestartResult>;
@@ -54,15 +56,26 @@ export async function startLocalRpcServer(options: {
   getRuntimeIdForServer?: (serverUrl: string) => string | undefined;
   mailStore?: LocalRpcMailStore;
 }): Promise<LocalRpcServer> {
+  const legacyMaxRequestBytes = options.legacyMaxRequestBytes ?? DEFAULT_LEGACY_MAX_REQUEST_BYTES;
+  if (!Number.isSafeInteger(legacyMaxRequestBytes) || legacyMaxRequestBytes < 1) {
+    throw new RangeError("legacyMaxRequestBytes must be a positive safe integer.");
+  }
   const socketPath = localRpcSocketPath(options.paths);
   mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
   rmSync(socketPath, { force: true });
   const sockets = new Map<Socket, { pending: number; closeWhenIdle: boolean }>();
   // Transport shutdown may time out, but handlers still own daemon resources
   // until they settle. Keep that lifetime independent from socket lifetime.
-  const inFlightRequests = new Set<Promise<void>>();
+  const inFlightRequests = new Set<Promise<unknown>>();
   let closePromise: Promise<void> | undefined;
   let closing = false;
+  const trackRequest = (request: Promise<unknown>) => {
+    inFlightRequests.add(request);
+    void request.then(
+      () => inFlightRequests.delete(request),
+      () => inFlightRequests.delete(request),
+    );
+  };
 
   const config = readSparkDaemonConfig(options.paths);
   const sessionRegistry =
@@ -122,17 +135,14 @@ export async function startLocalRpcServer(options: {
       {
         onRequestStart: (request) => {
           state.pending += 1;
-          inFlightRequests.add(request);
-          void request.then(
-            () => inFlightRequests.delete(request),
-            () => inFlightRequests.delete(request),
-          );
+          trackRequest(request);
         },
         onRequestSettled: () => {
           state.pending -= 1;
           if (state.closeWhenIdle && state.pending === 0) socket.end();
         },
       },
+      legacyMaxRequestBytes,
     );
   });
 
@@ -155,8 +165,12 @@ export async function startLocalRpcServer(options: {
     orpcServer = await startLocalRpcOrpcServer({
       paths: options.paths,
       db: options.db,
+      ...(options.forceCloseTimeoutMs === undefined
+        ? {}
+        : { forceCloseTimeoutMs: options.forceCloseTimeoutMs }),
       ...(options.onStop ? { onStop: options.onStop } : {}),
       handlerOptions,
+      onRequestStart: trackRequest,
     });
   } catch (error) {
     // oRPC is additive; legacy local-rpc must still start if the parallel socket fails.
@@ -188,8 +202,8 @@ export async function startLocalRpcServer(options: {
         for (const socket of sockets.keys()) socket.destroy();
       }, options.forceCloseTimeoutMs ?? 5_000);
       forceClose.unref();
-      const requestsSettled = Promise.allSettled([...inFlightRequests]);
       const orpcClosed = orpcServer?.close() ?? Promise.resolve();
+      const requestsSettled = Promise.allSettled([...inFlightRequests]);
       closePromise = Promise.allSettled([transportClosed, requestsSettled, orpcClosed])
         .then(([transport]) => {
           if (transport.status === "rejected") throw transport.reason;
@@ -208,20 +222,26 @@ function handleLocalRpcSocket(
   eventBus: SparkDaemonLocalEventBus | undefined,
   handlerOptions: LocalRpcHandlerOptions,
   lifecycle: { onRequestStart(request: Promise<void>): void; onRequestSettled(): void },
+  maxRequestBytes: number,
 ): void {
-  const decoder = new StringDecoder("utf8");
-  let buffer = "";
+  let buffer = Buffer.alloc(0);
   socket.on("error", () => {
     // Clients may time out or disconnect before a long-running request writes
     // its response. Treat broken local RPC pipes as per-client failures rather
     // than daemon-fatal uncaught Socket errors.
   });
   socket.on("data", (chunk) => {
-    buffer += decoder.write(chunk);
-    let newline = buffer.indexOf("\n");
+    const incoming = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    buffer = Buffer.concat([buffer, incoming]);
+    let newline = buffer.indexOf(0x0a);
     while (newline !== -1) {
-      const line = buffer.slice(0, newline);
-      buffer = buffer.slice(newline + 1);
+      if (newline > maxRequestBytes) {
+        buffer = Buffer.alloc(0);
+        socket.destroy();
+        return;
+      }
+      const line = buffer.subarray(0, newline).toString("utf8");
+      buffer = buffer.subarray(newline + 1);
       const request = handleLocalRpcLine(line, paths, db, onStop, handlerOptions).then(
         async (response) => {
           await writeLocalRpcResponse(socket, response);
@@ -232,7 +252,11 @@ function handleLocalRpcSocket(
         () => lifecycle.onRequestSettled(),
         () => lifecycle.onRequestSettled(),
       );
-      newline = buffer.indexOf("\n");
+      newline = buffer.indexOf(0x0a);
+    }
+    if (buffer.length > maxRequestBytes) {
+      buffer = Buffer.alloc(0);
+      socket.destroy();
     }
   });
 }

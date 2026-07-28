@@ -2,7 +2,7 @@
 description: "spark：以 Pi SDK 为内核，统一 TUI / Cockpit / 消息平台的本地智能开发编排"
 owner: zrr1999
 created: 2026-05-18
-updated: 2026-07-23
+updated: 2026-07-27
 inspired_by:
   - pi-sdk
   - cue-shell
@@ -28,6 +28,7 @@ inspired_by:
 ## 目标
 
 - 以 daemon 为持久会话与调用调度真源；TUI、Cockpit、消息通道、本地 RPC 共用一套 registry 与 invocation，不维护并行会话状态机。
+- 本地 daemon 控制面以 `spark-protocol` 类型化契约和 oRPC 为唯一主路径；兼容传输只翻译旧 wire，不拥有业务语义或状态。
 - 以 daemon 为 `goal | loop | repro | workflow` 定时驱动的唯一自治运行时；计时、generation、重试、恢复和 fresh 隐藏执行均进入 SQLite 与现有 invocation scheduler，前端只发控制命令并展示投影。`implement` 阶段与 session TODO 延续由 `spark-extension` 的受限 `agent_end` hook 协调，每个用户输入周期至多追加一次 follow-up，不进入 daemon tick。
 - 在 `spark-protocol` 中沉淀跨表面交互协议（ask 判定、slash/action catalog、session status / pending turns、可展示错误），各表面只保留呈现与执行胶水。
 - 保持 Pi SDK 为内核：模型流、provider、终端 UI 原语继续建立在 `pi-ai` / `pi-tui`（经 `spark-ai` / `spark-tui` 边界）之上，不把“退场 Pi 产品”误解为剥离 SDK。
@@ -85,6 +86,7 @@ inspired_by:
 - Spark 原生 Side Thread 已通过隔离的真实 TUI/Zellij 验收：提交与繁忙并行拒绝、daemon 重启恢复、model/thinking 配置、全文和摘要 handoff 均由真实 daemon invocation 验证。Cockpit 使用同一 daemon controller 提供完整 BTW 操作；旧 `pi-btw` 包、skill 与 Pi discovery 已删除。
 - 以 `pnpm run check` 的 architecture ratchet 守住工作区数量、生产文件体量和冻结 Pi manifest；前期 ceiling 保留适度扩展余量，但新增 workspace 仍须证明稳定依赖边界。先通过 `pnpm run report:hygiene` 分类 Knip/jscpd/complexity 的动态入口误报，再把稳定基线升级为非增长门禁。
 - Spark v0.1 通过生成的自包含 `@zendev-lab/spark` 产物发布 npm；源码 workspace 保持 private，完整 check 校验公开产品与内部 owner 分类，`pnpm run smoke` 在仓库外安装 tarball 并验证 dispatcher、TUI、daemon migrations/lifecycle 与 Cockpit health。
+- 本地 RPC 分两阶段收敛：0.1.x 将一方调用迁到统一 oRPC client，`daemon.sock` 只服务已发布的 N-1 客户端且不再承接新行为；仅在迁移版已发布、双向跨版本 IPC、精确 tarball smoke 与 updater/rollback 门禁通过后，0.2 才删除 legacy socket/client/adapter。
 - 将现有 PR/CI 读取能力收敛成 change delivery feedback 事件，先完成“失败反馈回原 session”，再考虑 GitHub Checks 回写。
 - 会话队列双层收敛：TUI 乐观层 ↔ daemon `pendingTurns` 真相；Cockpit 继续只投影 daemon。
 - 自治 driver 硬切完成后，以它替代 marrow-core 的核心运行时；systemd 安装、自检/doctor、独立更新器、外部服务托管、profile 导入完善与日志保留作为非阻塞运维 TODO，且不得形成第二个运行时 owner。
@@ -109,3 +111,4 @@ inspired_by:
 - 2026-07-23：用户确认恢复 npm 发布、以原生 BTW 完全替代并删除 `pi-btw`、Cockpit 与 TUI 共用 daemon Side Thread controller，同时为早期架构增长 ceiling 留出适度余量；发布面收敛为编译后、自包含的 `@zendev-lab/spark` 产品包，内部 workspace 不成为公共 API。
 - 2026-07-23：将 `pi-extension` 完整并入 `spark-extension`，原生与兼容加载器共用单一组合根；继续保留 `pi-ai` / `pi-tui` SDK 内核。
 - 2026-07-23：将 goal/loop/repro/implement/workflow/session TODO 的计时、generation、重试、恢复与 fresh continuity 硬切到 daemon；确定每个 Unix 用户独立 daemon，并将 marrow-core 的非核心运维便利能力转为 Spark TODO。
+- 2026-07-27：确定本地 RPC 以类型化 oRPC 为主路径，并以已发布 0.1.x 兼容验证作为 0.2 删除 `daemon.sock` 的退出门禁。

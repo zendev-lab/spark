@@ -866,10 +866,10 @@ function findDeliveryTargetIndex(
   );
 }
 
-function jsonValue(value: unknown): unknown {
+function jsonValue(value: unknown): SparkProtocolJsonValue {
   if (value === undefined) return null;
   try {
-    return JSON.parse(JSON.stringify(value)) as unknown;
+    return JSON.parse(JSON.stringify(value)) as SparkProtocolJsonValue;
   } catch {
     return null;
   }

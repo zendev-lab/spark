@@ -68,19 +68,24 @@ export const sparkDriverWakeRequestSchema = sparkDriverMutationRequestSchema.ext
  * Only the currently executing driver tick may call schedule. The generation
  * is a daemon-issued compare-and-swap token, never a client-side timer token.
  */
-export const sparkDriverScheduleRequestSchema = z.object({
-  driverId: z.string().min(1),
-  generation: z.number().int().positive(),
-  dueAt: isoDateTimeSchema.optional(),
-  delayMs: z
-    .number()
-    .int()
-    .min(0)
-    .max(7 * 24 * 60 * 60_000)
-    .optional(),
-  reason: z.string().optional(),
-  prompt: z.string().min(1).optional(),
-});
+export const sparkDriverScheduleRequestSchema = z
+  .object({
+    driverId: z.string().min(1),
+    generation: z.number().int().positive(),
+    dueAt: isoDateTimeSchema.optional(),
+    delayMs: z
+      .number()
+      .int()
+      .min(0)
+      .max(7 * 24 * 60 * 60_000)
+      .optional(),
+    reason: z.string().optional(),
+    prompt: z.string().min(1).optional(),
+  })
+  .refine((request) => request.dueAt !== undefined || request.delayMs !== undefined, {
+    message: "dueAt or delayMs is required",
+    path: ["dueAt"],
+  });
 
 export const sparkDriverListResultSchema = z.object({
   drivers: z.array(sparkDriverViewSchema),

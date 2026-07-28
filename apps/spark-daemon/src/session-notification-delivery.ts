@@ -13,6 +13,7 @@ import type {
   DaemonChannelIngressRuntime,
   DaemonChannelIngressStatus,
 } from "./channels/ingress.ts";
+import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import type {
   SparkChannelDeliveryRecord,
@@ -78,13 +79,22 @@ async function deliverSelectedSessionNotificationTargets(
     );
   }
   if (message.kind !== "notification") {
-    throw new Error(`session mail ${input.messageId} is not a notification`);
+    throw new SparkSessionRegistryError(
+      "session_mail_not_notification",
+      `session mail ${input.messageId} is not a notification`,
+    );
   }
   if (message.visibility !== "user") {
-    throw new Error(`session notification ${input.messageId} is not user-visible`);
+    throw new SparkSessionRegistryError(
+      "session_mail_not_user_visible",
+      `session notification ${input.messageId} is not user-visible`,
+    );
   }
   if (message.delivery !== "channel") {
-    throw new Error(`session mail ${input.messageId} is not a channel delivery`);
+    throw new SparkSessionRegistryError(
+      "session_mail_not_channel_delivery",
+      `session mail ${input.messageId} is not a channel delivery`,
+    );
   }
 
   const deliveries: SessionNotificationDeliveryReceipt[] = [];
@@ -211,6 +221,7 @@ async function deliverSelectedSessionNotificationTargets(
         text: message.body,
       });
     } catch (error) {
+      if (error instanceof SparkDaemonControlError) throw error;
       const updated = await deps.mailStore.recordChannelDelivery(
         input.sessionId,
         input.messageId,
@@ -469,7 +480,8 @@ function resolveNotificationAdapter(
       (entry) => entry.adapterAccountIdentity === stableIdentity,
     );
     if (stableMatches.length !== 1) {
-      throw new Error(
+      throw new SparkDaemonControlError(
+        stableMatches.length === 0 ? "channel_adapter_not_found" : "channel_adapter_required",
         stableMatches.length === 0
           ? `channel provider account is not configured for ${target.adapter}`
           : `multiple channel adapters use provider account ${stableIdentity}`,
@@ -478,16 +490,27 @@ function resolveNotificationAdapter(
     selected = stableMatches[0];
   } else if (target.adapterId?.trim()) {
     selected = matching.find((entry) => entry.id === target.adapterId);
-    if (!selected) throw new Error(`channel adapter is not configured: ${target.adapterId}`);
+    if (!selected) {
+      throw new SparkDaemonControlError(
+        "channel_adapter_not_found",
+        `channel adapter is not configured: ${target.adapterId}`,
+      );
+    }
   } else {
     selected = matching.find((entry) => entry.id === target.adapter);
     if (!selected && matching.length === 1) selected = matching[0];
   }
   if (!selected) {
     if (matching.length === 0) {
-      throw new Error(`no configured channel adapter for type ${target.adapter}`);
+      throw new SparkDaemonControlError(
+        "channel_adapter_not_found",
+        `no configured channel adapter for type ${target.adapter}`,
+      );
     }
-    throw new Error(`multiple channel adapters use type ${target.adapter}`);
+    throw new SparkDaemonControlError(
+      "channel_adapter_required",
+      `multiple channel adapters use type ${target.adapter}`,
+    );
   }
   const adapterAccountIdentity = selected.adapterAccountIdentity?.trim();
   return {

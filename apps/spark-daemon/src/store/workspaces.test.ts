@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { SparkDaemonControlError } from "../control-error.ts";
 import { openSparkDaemonDatabase } from "./schema.js";
 import {
   addWorkspace,
@@ -23,6 +24,7 @@ import {
   markSparkDaemonServerDisconnected,
   planWorkspaceRegistration,
   reconcileWorkspaces,
+  rebindWorkspaceServerUrl,
   registerWorkspace,
   releaseWorkspaceClient,
   resolveWorkspaceBindingId,
@@ -32,6 +34,16 @@ import {
   workspaceKeyForPath,
   workspaceSummaries,
 } from "./workspaces.js";
+
+function expectControlError(run: () => unknown, code: SparkDaemonControlError["code"]): void {
+  try {
+    run();
+    expect.unreachable(`expected ${code}`);
+  } catch (error) {
+    expect(error).toBeInstanceOf(SparkDaemonControlError);
+    expect(error).toMatchObject({ code });
+  }
+}
 
 function withSparkDaemonWorkspaceStore<T>(
   run: (context: { db: ReturnType<typeof openSparkDaemonDatabase>; root: string }) => T,
@@ -58,6 +70,50 @@ function withSparkDaemonWorkspaceStore<T>(
 }
 
 describe("Spark daemon workspace store", () => {
+  it("reports caller-addressable workspace and client lookup failures with stable codes", () => {
+    withSparkDaemonWorkspaceStore(({ db, root }) => {
+      const workspace = registerWorkspace(db, {
+        localPath: root,
+        displayName: "Known workspace",
+      });
+
+      expectControlError(
+        () => attachWorkspace(db, { id: "workspace-missing" }),
+        "workspace_not_found",
+      );
+      expectControlError(
+        () => stopWorkspace(db, { id: "workspace-missing" }),
+        "workspace_not_found",
+      );
+      expectControlError(
+        () =>
+          attachWorkspaceClient(db, {
+            workspaceId: "workspace-missing",
+            kind: "interactive",
+          }),
+        "workspace_not_found",
+      );
+      expectControlError(
+        () =>
+          rebindWorkspaceServerUrl(db, {
+            workspaceId: "workspace-missing",
+            serverUrl: "https://target.example/",
+          }),
+        "workspace_not_found",
+      );
+      expectControlError(
+        () => heartbeatWorkspaceClient(db, { clientId: "client-missing" }),
+        "workspace_client_not_found",
+      );
+      expectControlError(
+        () => releaseWorkspaceClient(db, { clientId: "client-missing" }),
+        "workspace_client_not_found",
+      );
+
+      expect(getWorkspaceById(db, workspace.id)).toMatchObject({ id: workspace.id });
+    });
+  });
+
   it("applies bound and unbound Cockpit owner assignments without removing the local workspace", () => {
     withSparkDaemonWorkspaceStore(({ db, root }) => {
       const serverUrl = "https://cockpit.example/";
@@ -552,13 +608,15 @@ describe("Spark daemon workspace store", () => {
         now: "2026-05-26T00:00:00.000Z",
       });
 
-      expect(() =>
-        attachWorkspaceClient(db, {
-          workspaceId: second.id,
-          clientId: "exec-bound",
-          kind: "executor",
-        }),
-      ).toThrow(/already bound to workspace/);
+      expectControlError(
+        () =>
+          attachWorkspaceClient(db, {
+            workspaceId: second.id,
+            clientId: "exec-bound",
+            kind: "executor",
+          }),
+        "workspace_client_conflict",
+      );
       expect(getWorkspaceById(db, first.id)?.executor).toMatchObject({
         state: "unhealthy",
         unhealthyReason: "heartbeat-missed",

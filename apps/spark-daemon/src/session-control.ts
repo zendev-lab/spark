@@ -37,6 +37,7 @@ import {
 import type { SparkPaths } from "@zendev-lab/spark-system";
 
 import type { SparkDaemonModelControl } from "./model-control.ts";
+import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import { validateSparkDaemonTask, type SparkDaemonTask } from "./core/index.ts";
 import { SparkInvocationStore, type SparkInvocationRecord } from "./store/invocations.ts";
@@ -132,7 +133,10 @@ export async function executeSparkDaemonSessionControl(
       const session = await requireSession(options, parsed.sessionId, request);
       assertOrdinarySessionVisible(session);
       if (!options.paths.piAgentDir) {
-        throw new Error("Spark daemon native session storage is not available.");
+        throw new SparkDaemonControlError(
+          "session_storage_unavailable",
+          "Spark daemon native session storage is not available.",
+        );
       }
       const snapshot = projectPendingSessionTurns(
         options.db,
@@ -153,7 +157,10 @@ export async function executeSparkDaemonSessionControl(
       const session = await requireSession(options, parsed.sessionId, request);
       assertOrdinarySessionVisible(session);
       if (!options.paths.piAgentDir) {
-        throw new Error("Spark daemon native session storage is not available.");
+        throw new SparkDaemonControlError(
+          "session_storage_unavailable",
+          "Spark daemon native session storage is not available.",
+        );
       }
       const chunk = await loadSparkSessionMediaChunk({
         sessionsRoot: join(options.paths.piAgentDir, "sessions"),
@@ -247,7 +254,10 @@ export async function executeSparkDaemonSessionControl(
         );
       }
       if (!session && request.scope !== "any") {
-        throw new Error("Spark daemon session registry is not available.");
+        throw new SparkDaemonControlError(
+          "session_registry_unavailable",
+          "Spark daemon session registry is not available.",
+        );
       }
       if (session) assertOriginBindingTarget(parsed.originBinding, session);
       const route: { cwd?: string; workspaceId?: string } = session
@@ -413,7 +423,10 @@ function assertIdempotentTurnReplay(
     JSON.stringify(task.attachments) !== JSON.stringify(parsed.attachments) ||
     JSON.stringify(originBindingFromTask(task)) !== JSON.stringify(parsed.originBinding)
   ) {
-    throw new Error(`Invocation idempotency conflict: ${parsed.idempotencyKey ?? "unknown"}`);
+    throw new SparkDaemonControlError(
+      "invocation_idempotency_conflict",
+      `Invocation idempotency conflict: ${parsed.idempotencyKey ?? "unknown"}`,
+    );
   }
 }
 
@@ -449,7 +462,12 @@ export function assertIdempotentTurnPayloadReplay(
 }
 
 function requireSessionRegistry(options: SparkDaemonSessionControlOptions): DaemonSessionRegistry {
-  if (!options.sessionRegistry) throw new Error("Spark daemon session registry is not available.");
+  if (!options.sessionRegistry) {
+    throw new SparkDaemonControlError(
+      "session_registry_unavailable",
+      "Spark daemon session registry is not available.",
+    );
+  }
   return options.sessionRegistry;
 }
 
@@ -775,7 +793,12 @@ function boundedSessionList(
   requestedLimit = maxSessionListRecords,
 ) {
   const start = cursor ? sessions.findIndex((session) => session.sessionId === cursor) + 1 : 0;
-  if (cursor && start === 0) throw new Error("Session list cursor is no longer available.");
+  if (cursor && start === 0) {
+    throw new SparkDaemonControlError(
+      "session_list_cursor_not_found",
+      "Session list cursor is no longer available.",
+    );
+  }
   const remaining = Math.max(0, sessions.length - start);
   let limit = Math.min(maxSessionListRecords, requestedLimit, remaining);
   while (limit > 0) {

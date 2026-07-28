@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { SparkDaemonControlError } from "../control-error.ts";
 
 export const sparkInvocationStatuses = [
   "queued",
@@ -273,7 +274,12 @@ export class SparkInvocationStore {
 
   submitIfSessionIdle(input: SubmitSparkInvocationInput): SparkInvocationRecord {
     const sessionId = input.sessionId?.trim();
-    if (!sessionId) throw new Error("SESSION_NOT_IDLE: idle admission requires sessionId");
+    if (!sessionId) {
+      throw new SparkDaemonControlError(
+        "session_not_idle",
+        "SESSION_NOT_IDLE: idle admission requires sessionId",
+      );
+    }
     this.db.exec("BEGIN IMMEDIATE");
     try {
       if (input.idempotencyKey) {
@@ -293,7 +299,8 @@ export class SparkInvocationStore {
         )
         .get(sessionId) as { id: string } | undefined;
       if (pending) {
-        throw new Error(
+        throw new SparkDaemonControlError(
+          "session_not_idle",
           `SESSION_NOT_IDLE: session ${sessionId} already has pending invocation ${pending.id}`,
         );
       }
@@ -354,7 +361,12 @@ export class SparkInvocationStore {
 
   require(invocationId: string): SparkInvocationRecord {
     const record = this.get(invocationId);
-    if (!record) throw new Error(`Unknown Spark invocation: ${invocationId}`);
+    if (!record) {
+      throw new SparkDaemonControlError(
+        "invocation_not_found",
+        `Unknown Spark invocation: ${invocationId}`,
+      );
+    }
     return record;
   }
 
@@ -909,7 +921,8 @@ export class SparkInvocationStore {
       )
       .run(normalizedDestination, now);
     if (normalizedSequence > this.latestEventSequence(invocationId)) {
-      throw new Error(
+      throw new SparkDaemonControlError(
+        "invocation_cursor_gap",
         `INVOCATION_DELIVERY_CURSOR_GAP: cursor ${normalizedSequence} is beyond latest sequence`,
       );
     }
@@ -945,19 +958,29 @@ export class SparkInvocationStore {
         !Array.isArray(original.task) &&
         (original.task as { type?: unknown }).type === "driver.tick")
     ) {
-      throw new Error(
+      throw new SparkDaemonControlError(
+        "invocation_not_retryable",
         `INVOCATION_NOT_RETRYABLE: ${invocationId} is a driver tick; use driver.restart or driver.wake`,
       );
     }
     if (original.status !== "failed") {
-      throw new Error(`INVOCATION_NOT_RETRYABLE: ${invocationId} is ${original.status}`);
+      throw new SparkDaemonControlError(
+        "invocation_not_retryable",
+        `INVOCATION_NOT_RETRYABLE: ${invocationId} is ${original.status}`,
+      );
     }
     if (!isRetryableInvocationError(original.errorCode)) {
-      throw new Error(
+      throw new SparkDaemonControlError(
+        "invocation_not_retryable",
         `INVOCATION_NOT_RETRYABLE: ${original.errorCode ?? "UNKNOWN"} requires correction before resubmission`,
       );
     }
-    if (!original.task) throw new Error(`INVOCATION_NOT_RETRYABLE: ${invocationId} has no task`);
+    if (!original.task) {
+      throw new SparkDaemonControlError(
+        "invocation_not_retryable",
+        `INVOCATION_NOT_RETRYABLE: ${invocationId} has no task`,
+      );
+    }
     return this.submit({
       commandId: original.commandId,
       workspaceBindingId: original.workspaceBindingId,
@@ -1038,7 +1061,8 @@ export class SparkInvocationStore {
     const latestSequence = this.latestEventSequence(invocationId);
     const normalizedAfter = Math.max(0, Math.floor(after));
     if (normalizedAfter > latestSequence) {
-      throw new Error(
+      throw new SparkDaemonControlError(
+        "invocation_cursor_gap",
         `INVOCATION_CURSOR_GAP: cursor ${normalizedAfter} is beyond latest sequence ${latestSequence}`,
       );
     }
@@ -1257,7 +1281,10 @@ function assertIdempotentSubmission(
     existing.retryOfInvocationId !== input.retryOfInvocationId ||
     JSON.stringify(existing.task) !== JSON.stringify(input.task)
   ) {
-    throw new Error(`Invocation idempotency conflict: ${input.idempotencyKey}`);
+    throw new SparkDaemonControlError(
+      "invocation_idempotency_conflict",
+      `Invocation idempotency conflict: ${input.idempotencyKey}`,
+    );
   }
 }
 

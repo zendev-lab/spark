@@ -87,6 +87,46 @@ describe("daemon model control", () => {
     expect(flow).not.toHaveProperty("access");
   });
 
+  it("emits protocol-owned model and OAuth control errors at explicit decision points", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-model-errors-"));
+    roots.push(root);
+    const sessionRegistry = createDaemonSessionRegistry(root, {
+      daemonId: "install-model-errors",
+      daemonCwd: root,
+    });
+    const control = createSparkDaemonModelControl({
+      providerControl: fakeProviderControl(),
+      sessionRegistry,
+    });
+
+    await expect(control.startOAuth("missing-provider")).rejects.toMatchObject({
+      code: "provider_not_found",
+    });
+    await expect(control.startOAuth("baidu-oneapi")).rejects.toMatchObject({
+      code: "provider_oauth_not_supported",
+    });
+    await expect(control.setApiKey("openai-codex", "secret")).rejects.toMatchObject({
+      code: "provider_auth_method_unsupported",
+    });
+    await expect(control.respondOAuth("flow_1", "wrong-prompt", "code")).rejects.toMatchObject({
+      code: "provider_oauth_prompt_conflict",
+    });
+    await expect(control.respondOAuth("flow_1", "prompt_1", "")).rejects.toMatchObject({
+      code: "provider_oauth_response_invalid",
+    });
+    await expect(
+      control.setDefaultModel({ providerName: "missing-provider", modelId: "missing-model" }),
+    ).rejects.toMatchObject({ code: "model_not_found" });
+
+    const missingFlowControl = createSparkDaemonModelControl({
+      providerControl: { ...fakeProviderControl(), oauthStatus: () => undefined },
+      sessionRegistry,
+    });
+    await expect(missingFlowControl.oauthStatus("missing-flow")).rejects.toMatchObject({
+      code: "provider_oauth_flow_not_found",
+    });
+  });
+
   it("uses the current session model for a bounded role leaf without a provider override", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-model-title-"));
     roots.push(root);

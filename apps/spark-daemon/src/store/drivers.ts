@@ -21,6 +21,7 @@ import {
   type SparkInvocationRecord,
 } from "./invocations.ts";
 import type { SparkDaemonDriverTickTask } from "../core/types.ts";
+import { SparkDaemonControlError } from "../control-error.ts";
 import { sparkDriverPolicy } from "./driver-policies.ts";
 
 export interface SparkDriverRoute {
@@ -122,8 +123,9 @@ export class SparkDriverStore {
           )
           .get(ownerSessionId) as { driver_id: string } | undefined;
         if (foreground) {
-          throw new Error(
-            `DRIVER_FOREGROUND_LANE_ACTIVE: ${ownerSessionId} is owned by ${foreground.driver_id}`,
+          throw new SparkDaemonControlError(
+            "driver_foreground_lane_active",
+            `Driver foreground lane for ${ownerSessionId} is owned by ${foreground.driver_id}.`,
           );
         }
       }
@@ -221,7 +223,9 @@ export class SparkDriverStore {
 
   require(driverId: string): SparkDriverRecord {
     const record = this.get(driverId);
-    if (!record) throw new Error(`DRIVER_NOT_FOUND: ${driverId}`);
+    if (!record) {
+      throw new SparkDaemonControlError("driver_not_found", `Driver was not found: ${driverId}`);
+    }
     return record;
   }
 
@@ -327,7 +331,10 @@ export class SparkDriverStore {
 
   schedule(input: SparkDriverScheduleRequest, now = new Date().toISOString()): SparkDriverRecord {
     if (input.dueAt === undefined && input.delayMs === undefined) {
-      throw new Error("DRIVER_SCHEDULE_INVALID: dueAt or delayMs is required");
+      throw new SparkDaemonControlError(
+        "driver_schedule_invalid",
+        "Driver schedule requires dueAt or delayMs.",
+      );
     }
     const dueAt =
       input.dueAt ?? new Date(Date.parse(now) + Math.max(0, input.delayMs ?? 0)).toISOString();
@@ -350,7 +357,8 @@ export class SparkDriverStore {
         ).changes,
     );
     if (changes !== 1) {
-      throw new Error(
+      throw new SparkDaemonControlError(
+        "driver_generation_conflict",
         `DRIVER_GENERATION_CONFLICT: ${input.driverId} generation ${input.generation}`,
       );
     }

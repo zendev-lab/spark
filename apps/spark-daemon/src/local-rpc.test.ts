@@ -975,8 +975,12 @@ describe("Spark daemon local RPC", () => {
       expect(response).toMatchObject({
         id: "rpc_register",
         ok: false,
-        error: { message: "hello ack failed" },
+        error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Spark daemon request failed.",
+        },
       });
+      expect(JSON.stringify(response)).not.toContain("hello ack failed");
       expect(listWorkspaces(db)).toHaveLength(0);
       expect(
         db.prepare("SELECT COUNT(*) AS count FROM daemon_workspace_grants").get(),
@@ -3394,6 +3398,51 @@ describe("Spark daemon local RPC", () => {
       expect(socket.destroyed).toBe(true);
     } finally {
       socket.destroy();
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("bounds an unterminated legacy request without taking down the listener", async () => {
+    const root = mkdtempSync(join(tmpdir(), "s-rpc-frame-"));
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    const server = await startLocalRpcServer({
+      paths,
+      sparkHome: join(root, ".spark"),
+      db,
+      legacyMaxRequestBytes: 64,
+    });
+    const oversizedSocket = createConnection(server.socketPath);
+    oversizedSocket.on("error", () => {
+      // The compatibility listener rejects an oversized partial frame by
+      // closing only that client connection.
+    });
+
+    try {
+      await once(oversizedSocket, "connect");
+      const socketClosed = once(oversizedSocket, "close");
+      oversizedSocket.write("x".repeat(65));
+      await socketClosed;
+
+      await expect(
+        requestSparkDaemonLocalRpcWire(
+          { id: "status-after-oversized-frame", method: "daemon.status" },
+          { paths },
+        ),
+      ).resolves.toMatchObject({ lifecycle: { state: "running" } });
+    } finally {
+      oversizedSocket.destroy();
+      await server.close();
       db.close();
       rmSync(root, { recursive: true, force: true });
     }

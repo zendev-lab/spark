@@ -481,11 +481,11 @@ test("spark cockpit assign submits through the daemon RPC without a side assignm
   };
   const daemonClient: CockpitCoordinationDaemonClientOptions = {
     runtimeDir,
-    request: async <T>(method: string, params?: unknown) => {
-      if (method === "session.get") return session as T;
+    request: async (method, params) => {
+      if (method === "session.get") return session;
       if (method === "turn.submit") {
         submissions.push(params);
-        return { invocationId: "inv_assignment", status: "queued", acceptedAt: now } as T;
+        return { invocationId: "inv_assignment", status: "queued", acceptedAt: now };
       }
       throw new Error(`unexpected daemon method: ${method}`);
     },

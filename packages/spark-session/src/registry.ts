@@ -11,6 +11,7 @@ import {
   type SparkSessionStatus,
   type SparkSideThreadMode,
 } from "@zendev-lab/spark-protocol/session-assignment";
+import type { SparkSessionRegistryErrorCode } from "@zendev-lab/spark-protocol/session-errors";
 import type { SparkModelRef, SparkThinkingLevel } from "@zendev-lab/spark-protocol/model-control";
 
 const LEGACY_REGISTRY_VERSIONS = new Set([1, 2]);
@@ -99,9 +100,9 @@ export interface ResolveBindingInput {
 }
 
 export class SparkSessionRegistryError extends Error {
-  readonly code: string;
+  readonly code: SparkSessionRegistryErrorCode;
 
-  constructor(code: string, message: string) {
+  constructor(code: SparkSessionRegistryErrorCode, message: string) {
     super(message);
     this.name = "SparkSessionRegistryError";
     this.code = code;

@@ -17,6 +17,15 @@ async function tempRegistry(): Promise<SparkSessionRegistry> {
 }
 
 describe("SparkSessionRegistry", () => {
+  it("requires every registry error code to be registered in spark-protocol", () => {
+    const registered = new SparkSessionRegistryError("session_not_found", "missing");
+    // @ts-expect-error Unregistered session domain codes must fail package typecheck.
+    const unregistered = new SparkSessionRegistryError("unregistered_session_error", "internal");
+
+    expect(registered.code).toBe("session_not_found");
+    expect(unregistered.code).toBe("unregistered_session_error");
+  });
+
   it("reads v1 workspace records as canonical workspace ownership", async () => {
     const registry = await tempRegistry();
     await writeFile(

@@ -20,7 +20,7 @@ import {
   type SparkTurnResult,
   type SparkTurnStatusResult,
 } from "@zendev-lab/spark-protocol";
-import { requestSparkDaemonLocalRpc } from "@zendev-lab/spark-daemon-client/local-rpc";
+import { requestSparkDaemon, type SparkDaemonClient } from "@zendev-lab/spark-daemon-client";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -35,6 +35,8 @@ const CHANNEL_ALLOWED_ACTIONS: ReadonlySet<SparkSessionAction> = new Set([
   "read",
   "ack",
 ]);
+type SparkSessionDaemonRequest = SparkDaemonClient["request"];
+const defaultDaemonRequest: SparkSessionDaemonRequest = requestSparkDaemon;
 
 export type SparkSessionSurface = "local" | "channel";
 export type SparkSessionActivity = "idle" | "running";
@@ -80,7 +82,7 @@ export interface SparkSessionToolContext {
 }
 
 export interface SparkSessionActionDeps {
-  request?: typeof requestSparkDaemonLocalRpc;
+  request?: SparkSessionDaemonRequest;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   now?: () => number;
 }
@@ -98,7 +100,7 @@ export async function executeSparkSessionAction(
   deps: SparkSessionActionDeps = {},
 ) {
   const { action, params, signal, ctx } = input;
-  const request = deps.request ?? requestSparkDaemonLocalRpc;
+  const request = deps.request ?? defaultDaemonRequest;
   assertChannelActionAllowed(action, ctx);
   const channelWorkspaceId = await currentChannelWorkspaceId(ctx, request, signal);
 
@@ -106,7 +108,7 @@ export async function executeSparkSessionAction(
     case "list": {
       const requestParams = await listRequest(params, ctx, request, signal, channelWorkspaceId);
       const records = parseSparkSessionRegistryRecords(
-        await request<unknown>("session.list", requestParams, { signal }),
+        await request("session.list", requestParams, { signal }),
       );
       const requestedSurface = normalizeSessionSurface(params.surface);
       const requestedActivity = normalizeSessionActivity(params.activity);
@@ -150,9 +152,7 @@ export async function executeSparkSessionAction(
     case "create": {
       const createRequest = await sessionCreateRequest(params, ctx, request, signal);
       const session = projectSession(
-        parseSparkSessionRegistryRecord(
-          await request<unknown>("session.create", createRequest, { signal }),
-        ),
+        parseSparkSessionRegistryRecord(await request("session.create", createRequest, { signal })),
       );
       return sessionResult(`Created persistent Spark session.\n${renderSession(session)}`, {
         action,
@@ -170,7 +170,7 @@ export async function executeSparkSessionAction(
       );
       const session = projectSession(
         parseSparkSessionRegistryRecord(
-          await request<unknown>(`session.${action}`, { sessionId, externalKey }, { signal }),
+          await request(`session.${action}`, { sessionId, externalKey }, { signal }),
         ),
       );
       return sessionResult(
@@ -182,7 +182,7 @@ export async function executeSparkSessionAction(
       const sessionId = requiredString(params.sessionId, "session archive requires sessionId");
       const session = projectSession(
         parseSparkSessionRegistryRecord(
-          await request<unknown>("session.archive", { sessionId }, { signal }),
+          await request("session.archive", { sessionId }, { signal }),
         ),
       );
       return sessionResult(`Archived persistent Spark session.\n${renderSession(session)}`, {
@@ -265,7 +265,7 @@ export async function executeSparkSessionAction(
       const correlationId = optionalString(params.correlationId, "correlationId");
       const subject = optionalString(params.subject, "subject");
       const admitted = sparkSessionSendResultSchema.parse(
-        await request<unknown>(
+        await request(
           "session.send",
           {
             toSessionId,
@@ -362,7 +362,7 @@ export async function executeSparkSessionAction(
       const limit = normalizeLimit(params.limit);
       const offset = normalizeOffset(params.offset);
       const allMessages = sparkSessionInboxResultSchema.parse(
-        await request<unknown>("session.inbox", { sessionId, includeAcked }, { signal }),
+        await request("session.inbox", { sessionId, includeAcked }, { signal }),
       ).messages;
       const messages = allMessages.slice(offset, offset + limit).map((message) => ({
         ...withMailStatus(message),
@@ -383,7 +383,7 @@ export async function executeSparkSessionAction(
       const sessionId = await currentInboxSessionId(params.sessionId, ctx, action);
       const messageId = requiredString(params.messageId, `session ${action} requires messageId`);
       const message = sparkSessionMailMutationResultSchema.parse(
-        await request<unknown>(
+        await request(
           action === "read" ? "session.mail.read" : "session.mail.ack",
           { sessionId, messageId },
           { signal },
@@ -412,7 +412,7 @@ export async function executePersistentSessionCall(
       "message-platform sessions cannot call another session directly; forward the request with session action=send",
     );
   }
-  const request = deps.request ?? requestSparkDaemonLocalRpc;
+  const request = deps.request ?? defaultDaemonRequest;
   const sessionId = requiredString(input.params.sessionId, "session call requires sessionId");
   const instruction = requiredString(
     input.params.instruction,
@@ -436,7 +436,7 @@ export async function executePersistentSessionCall(
     throw new Error(`cannot call archived persistent session: ${sessionId}`);
   const currentSessionId = await requireCurrentSessionId(input.ctx, "call");
   const submitted = parseTurnSubmitResult(
-    await request<unknown>(
+    await request(
       "turn.submit",
       {
         sessionId,
@@ -462,7 +462,7 @@ export async function executePersistentSessionCall(
 async function listRequest(
   params: Record<string, unknown>,
   ctx: SparkSessionToolContext,
-  request: typeof requestSparkDaemonLocalRpc,
+  request: SparkSessionDaemonRequest,
   signal: AbortSignal,
   channelWorkspaceId?: string,
 ): Promise<SparkSessionListRequest> {
@@ -500,7 +500,7 @@ async function listRequest(
 async function sessionCreateRequest(
   params: Record<string, unknown>,
   ctx: SparkSessionToolContext,
-  request: typeof requestSparkDaemonLocalRpc,
+  request: SparkSessionDaemonRequest,
   signal: AbortSignal,
 ): Promise<SparkSessionCreateRequest> {
   const scope = optionalScope(params.scope) ?? "workspace";
@@ -532,24 +532,22 @@ async function sessionCreateRequest(
 
 async function currentWorkspaceId(
   ctx: SparkSessionToolContext,
-  request: typeof requestSparkDaemonLocalRpc,
+  request: SparkSessionDaemonRequest,
   signal: AbortSignal,
 ): Promise<string> {
   const cwd = requiredString(ctx.cwd, "session action requires ctx.cwd");
-  const result = await request<unknown>("workspace.ensure-local", { localPath: cwd }, { signal });
+  const result = await request("workspace.ensure-local", { localPath: cwd }, { signal });
   if (!isRecord(result) || typeof result.id !== "string" || !result.id.trim())
     throw new Error("Spark daemon returned an invalid workspace.ensure-local result");
   return result.id.trim();
 }
 
 async function requestSession(
-  request: typeof requestSparkDaemonLocalRpc,
+  request: SparkSessionDaemonRequest,
   sessionId: string,
   signal: AbortSignal,
 ): Promise<SparkSessionRegistryRecord> {
-  return parseSparkSessionRegistryRecord(
-    await request<unknown>("session.get", { sessionId }, { signal }),
-  );
+  return parseSparkSessionRegistryRecord(await request("session.get", { sessionId }, { signal }));
 }
 
 function assertChannelActionAllowed(
@@ -564,7 +562,7 @@ function assertChannelActionAllowed(
 
 async function currentChannelWorkspaceId(
   ctx: SparkSessionToolContext,
-  request: typeof requestSparkDaemonLocalRpc,
+  request: SparkSessionDaemonRequest,
   signal: AbortSignal,
 ): Promise<string | undefined> {
   if (ctx.sessionSurface !== "channel") return undefined;
@@ -930,7 +928,7 @@ type RequestCompletion =
   | { timedOut: false; status: SparkTurnStatusResult; result: SparkTurnResult };
 
 async function waitForRequestResult(input: {
-  request: typeof requestSparkDaemonLocalRpc;
+  request: SparkSessionDaemonRequest;
   invocationId: string;
   timeoutMs: number;
   signal: AbortSignal;
@@ -942,7 +940,7 @@ async function waitForRequestResult(input: {
   let status: SparkTurnStatusResult | undefined;
   while (true) {
     status = sparkTurnStatusResultSchema.parse(
-      await input.request<unknown>(
+      await input.request(
         "turn.status",
         { invocationId: input.invocationId },
         { signal: input.signal },
@@ -950,7 +948,7 @@ async function waitForRequestResult(input: {
     );
     if (isTerminalStatus(status.status)) {
       const result = sparkTurnResultSchema.parse(
-        await input.request<unknown>(
+        await input.request(
           "turn.result",
           { invocationId: input.invocationId },
           { signal: input.signal },

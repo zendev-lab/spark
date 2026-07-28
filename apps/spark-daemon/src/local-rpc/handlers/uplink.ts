@@ -6,28 +6,32 @@ import {
 } from "../../uplink.ts";
 import { SparkDaemonLeaseTransferBroker } from "../../core/lease-transfer.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
-import type { LocalRpcRequest, LocalRpcResponse } from "../types.ts";
+import {
+  parseLocalRpcServiceOutput,
+  type LocalRpcServiceOutput,
+  type LocalRpcServiceRequest,
+} from "../types.ts";
 
 type UplinkRequest = Extract<
-  LocalRpcRequest,
+  LocalRpcServiceRequest,
   { method: "uplink.park" | "uplink.unpark" | "uplink.prefer" | "uplink.status" }
 >;
 
 export async function handleUplinkRequest(
   ctx: LocalRpcDispatchContext,
   request: UplinkRequest,
-): Promise<LocalRpcResponse> {
+): Promise<LocalRpcServiceOutput<UplinkRequest>> {
   const { paths, db, options } = ctx;
   switch (request.method) {
     case "uplink.park": {
       const profile = await parkSparkDaemonUplink(paths, request.params.serverUrl);
       options.onUplinkReconfigure?.(profile.serverUrl);
-      return { id: request.id, ok: true, result: profile };
+      return { serverUrl: profile.serverUrl, parked: true };
     }
     case "uplink.unpark": {
       const profile = await unparkSparkDaemonUplink(paths, request.params.serverUrl);
       options.onUplinkReconfigure?.(profile.serverUrl);
-      return { id: request.id, ok: true, result: profile };
+      return { serverUrl: profile.serverUrl, parked: false };
     }
     case "uplink.prefer": {
       const transfers = options.leaseTransfers ?? new SparkDaemonLeaseTransferBroker();
@@ -49,13 +53,9 @@ export async function handleUplinkRequest(
         options.onUplinkReconfigure?.(preferred.previousServerUrl);
       }
       options.onUplinkReconfigure?.(preferred.serverUrl);
-      return { id: request.id, ok: true, result: preferred };
+      return parseLocalRpcServiceOutput(request.method, preferred);
     }
     case "uplink.status":
-      return {
-        id: request.id,
-        ok: true,
-        result: sparkDaemonUplinkStatus(paths, db),
-      };
+      return sparkDaemonUplinkStatus(paths, db);
   }
 }

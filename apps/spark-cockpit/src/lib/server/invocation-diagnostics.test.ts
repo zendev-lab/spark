@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SparkDaemonLocalRpcUnavailableError } from "@zendev-lab/spark-daemon-client";
+import { SparkDaemonUnavailableError } from "@zendev-lab/spark-daemon-client";
 import { loadInvocationDiagnosticsForCockpit } from "./invocation-diagnostics";
 
 const NOW = "2026-07-15T12:00:00.000Z";
@@ -46,7 +46,7 @@ describe("Cockpit invocation diagnostics", () => {
   it("degrades to an empty bounded projection when the daemon is unavailable", async () => {
     const client = diagnosticsClient();
     client.daemonStatus = vi.fn(async () => {
-      throw new SparkDaemonLocalRpcUnavailableError("daemon unavailable");
+      throw new SparkDaemonUnavailableError("daemon unavailable");
     });
 
     await expect(

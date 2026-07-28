@@ -168,6 +168,7 @@ export {
   ChannelRegistryError,
   channelAdapterAccountIdentity,
   parseChannelsConfig,
+  type ChannelRegistryErrorCode,
 } from "./registry.ts";
 export { FakeChannelTransport } from "./transport.ts";
 export {

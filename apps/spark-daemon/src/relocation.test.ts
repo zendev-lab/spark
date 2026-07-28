@@ -137,6 +137,57 @@ describe("daemon Cockpit relocation", () => {
     }
   });
 
+  it("maps unregistered remote error codes to the typed relocation fallback", async () => {
+    const h = await setup();
+    try {
+      await expect(
+        relocateSparkDaemonCockpit(
+          h.paths,
+          h.db,
+          { fromServerUrl: sourceUrl, toServerUrl: targetUrl },
+          {
+            fetchFn: relocationFetch({
+              preflightStatus: 409,
+              preflightCode: "remote_private_error",
+            }),
+          },
+        ),
+      ).rejects.toMatchObject({ code: "RELOCATION_PREFLIGHT_REJECTED" });
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("keeps registration transport failures inside the relocation error domain", async () => {
+    const h = await setup();
+    try {
+      await expect(
+        relocateSparkDaemonCockpit(
+          h.paths,
+          h.db,
+          { fromServerUrl: sourceUrl, toServerUrl: targetUrl },
+          { fetchFn: relocationFetch({ unreachable: true }) },
+        ),
+      ).rejects.toMatchObject({ code: "RELOCATION_METADATA_REJECTED" });
+    } finally {
+      await h.cleanup();
+    }
+  });
+
+  it("keeps registration URL validation failures inside the relocation error domain", async () => {
+    const h = await setup();
+    try {
+      await expect(
+        relocateSparkDaemonCockpit(h.paths, h.db, {
+          fromServerUrl: sourceUrl,
+          toServerUrl: "https://target.example.test/with-a-path",
+        }),
+      ).rejects.toMatchObject({ code: "RELOCATION_TARGET_INVALID" });
+    } finally {
+      await h.cleanup();
+    }
+  });
+
   it("rejects a locally registered target collision before network preflight", async () => {
     const h = await setup();
     try {

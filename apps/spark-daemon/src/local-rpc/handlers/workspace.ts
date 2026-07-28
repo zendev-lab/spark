@@ -10,13 +10,18 @@ import {
   releaseWorkspaceClient,
   stopWorkspace,
 } from "../../store/workspaces.js";
+import { SparkDaemonControlError } from "../../control-error.ts";
 import { relocateSparkDaemonCockpit } from "../../relocation.ts";
 import { workspaceClientResult } from "../helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
-import type { LocalRpcRequest, LocalRpcResponse } from "../types.ts";
+import {
+  parseLocalRpcServiceOutput,
+  type LocalRpcServiceOutput,
+  type LocalRpcServiceRequest,
+} from "../types.ts";
 
 type WorkspaceRequest = Extract<
-  LocalRpcRequest,
+  LocalRpcServiceRequest,
   {
     method:
       | "workspace.list"
@@ -37,7 +42,7 @@ type WorkspaceRequest = Extract<
 export async function handleWorkspaceRequest(
   ctx: LocalRpcDispatchContext,
   request: WorkspaceRequest,
-): Promise<LocalRpcResponse> {
+): Promise<LocalRpcServiceOutput<WorkspaceRequest>> {
   const {
     paths,
     db,
@@ -48,31 +53,19 @@ export async function handleWorkspaceRequest(
   } = ctx;
   switch (request.method) {
     case "workspace.list":
-      return {
-        id: request.id,
-        ok: true,
-        result: {
-          workspaces: listWorkspaces(db),
-          observedAt: new Date().toISOString(),
-        },
-      };
+      return parseLocalRpcServiceOutput(request.method, {
+        workspaces: listWorkspaces(db),
+        observedAt: new Date().toISOString(),
+      });
     case "workspace.ensure-local":
-      return {
-        id: request.id,
-        ok: true,
-        result: ensureLocalWorkspace(db, request.params),
-      };
+      return parseLocalRpcServiceOutput(request.method, ensureLocalWorkspace(db, request.params));
     case "workspace.relocate":
-      return {
-        id: request.id,
-        ok: true,
-        result: await (options.relocateSparkDaemonCockpit ?? relocateSparkDaemonCockpit)(
-          paths,
-          db,
-          request.params,
-          { onUplinkReconfigure: options.onUplinkReconfigure },
-        ),
-      };
+      return await (options.relocateSparkDaemonCockpit ?? relocateSparkDaemonCockpit)(
+        paths,
+        db,
+        request.params,
+        { onUplinkReconfigure: options.onUplinkReconfigure },
+      );
     case "workspace.transfer.pending": {
       const transfers = options.leaseTransfers;
       const pending = !transfers
@@ -84,18 +77,17 @@ export async function handleWorkspaceRequest(
             })()
           : transfers.listPending();
       return {
-        id: request.id,
-        ok: true,
-        result: {
-          pending,
-          observedAt: new Date().toISOString(),
-        },
+        pending,
+        observedAt: new Date().toISOString(),
       };
     }
     case "workspace.transfer.respond": {
       const transfers = options.leaseTransfers;
       if (!transfers) {
-        throw new Error("Lease transfer broker is not available on this daemon.");
+        throw new SparkDaemonControlError(
+          "workspace_transfer_unavailable",
+          "Lease transfer broker is not available on this daemon.",
+        );
       }
       const settlement = transfers.respond(
         request.params.transferId,
@@ -105,9 +97,12 @@ export async function handleWorkspaceRequest(
           : "unknown",
       );
       if (!settlement) {
-        throw new Error(`Unknown or already settled lease transfer: ${request.params.transferId}`);
+        throw new SparkDaemonControlError(
+          "workspace_transfer_not_found",
+          `Unknown or already settled lease transfer: ${request.params.transferId}`,
+        );
       }
-      return { id: request.id, ok: true, result: settlement };
+      return settlement;
     }
     case "workspace.register": {
       // A workspace-scoped one-time token is explicit authority to move the
@@ -144,7 +139,10 @@ export async function handleWorkspaceRequest(
           : {}),
       });
       if (!serviceRegistration.workspaceBinding) {
-        throw new Error("Workspace registration did not return a server workspace connection.");
+        throw new SparkDaemonControlError(
+          "workspace_registration_failed",
+          "Workspace registration did not return a server workspace connection.",
+        );
       }
       await verifyWorkspaceConnection({
         config: serviceRegistration.config,
@@ -186,42 +184,38 @@ export async function handleWorkspaceRequest(
         options.onUplinkReconfigure?.(planned.previousServerUrl);
       }
       options.onUplinkReconfigure?.(workspace.serverUrl);
-      return {
-        id: request.id,
-        ok: true,
-        result: {
-          ...workspace,
-          ...(serviceRegistration.workspaceAuthorization
-            ? { workspaceAuthorization: serviceRegistration.workspaceAuthorization }
-            : {}),
-        },
-      };
+      return parseLocalRpcServiceOutput(request.method, {
+        ...workspace,
+        ...(serviceRegistration.workspaceAuthorization
+          ? { workspaceAuthorization: serviceRegistration.workspaceAuthorization }
+          : {}),
+      });
     }
     case "workspace.attach": {
       const workspace = attachWorkspace(db, { id: request.params.id });
       options.onUplinkReconfigure?.(workspace.serverUrl);
-      return { id: request.id, ok: true, result: workspace };
+      return parseLocalRpcServiceOutput(request.method, workspace);
     }
     case "workspace.stop": {
       const workspace = stopWorkspace(db, { id: request.params.id });
       options.onUplinkReconfigure?.(workspace.serverUrl);
-      return { id: request.id, ok: true, result: workspace };
+      return parseLocalRpcServiceOutput(request.method, workspace);
     }
     case "workspace.client.attach": {
       const client = attachWorkspaceClient(db, request.params);
-      return { id: request.id, ok: true, result: workspaceClientResult(db, client) };
+      return parseLocalRpcServiceOutput(request.method, workspaceClientResult(db, client));
     }
     case "workspace.client.heartbeat": {
       const client = heartbeatWorkspaceClient(db, request.params);
-      return { id: request.id, ok: true, result: workspaceClientResult(db, client) };
+      return parseLocalRpcServiceOutput(request.method, workspaceClientResult(db, client));
     }
     case "workspace.client.release": {
       const client = releaseWorkspaceClient(db, request.params);
-      return { id: request.id, ok: true, result: workspaceClientResult(db, client) };
+      return parseLocalRpcServiceOutput(request.method, workspaceClientResult(db, client));
     }
     case "workspace.executor.ensure": {
       const client = ensureWorkspaceExecutorClient(db, request.params);
-      return { id: request.id, ok: true, result: workspaceClientResult(db, client) };
+      return parseLocalRpcServiceOutput(request.method, workspaceClientResult(db, client));
     }
   }
 }

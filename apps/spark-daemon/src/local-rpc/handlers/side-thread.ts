@@ -1,10 +1,14 @@
 import { executeSparkDaemonSideThreadControl } from "../../side-thread-control.ts";
 import { sessionControlOptions } from "../helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
-import type { LocalRpcRequest, LocalRpcResponse } from "../types.ts";
+import {
+  parseLocalRpcServiceOutput,
+  type LocalRpcServiceOutput,
+  type LocalRpcServiceRequest,
+} from "../types.ts";
 
 type SideThreadRequest = Extract<
-  LocalRpcRequest,
+  LocalRpcServiceRequest,
   {
     method:
       | "side-thread.ensure"
@@ -19,7 +23,7 @@ type SideThreadRequest = Extract<
 export async function handleSideThreadRequest(
   ctx: LocalRpcDispatchContext,
   request: SideThreadRequest,
-): Promise<LocalRpcResponse> {
+): Promise<LocalRpcServiceOutput<SideThreadRequest>> {
   const executed = await executeSparkDaemonSideThreadControl(
     sessionControlOptions(ctx.paths, ctx.db, ctx.options),
     {
@@ -33,5 +37,5 @@ export async function handleSideThreadRequest(
       payload: request.params,
     },
   );
-  return { id: request.id, ok: true, result: executed.result };
+  return parseLocalRpcServiceOutput(request.method, executed.result);
 }
