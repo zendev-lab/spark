@@ -6,6 +6,7 @@ import { parseSparkDaemonEvent } from "@zendev-lab/spark-protocol";
 import { describe, expect, it } from "vitest";
 import { migrateSparkDaemonDatabase } from "./schema.ts";
 import { MAX_INVOCATION_EVENT_PAGE_LIMIT, SparkInvocationStore } from "./invocations.ts";
+import { buildPendingDeliveriesQuery } from "./invocation-delivery-query.ts";
 import { registerWorkspace } from "./workspaces.ts";
 
 function createStore(): { db: DatabaseSync; store: SparkInvocationStore } {
@@ -197,18 +198,84 @@ describe("SparkInvocationStore", () => {
 
       expect(
         store.pendingDeliveries("cockpit:runtime-a").map(({ event }) => event.sequence),
-      ).toEqual([1, 2, 3]);
+      ).toEqual([1]);
+      store.acknowledgeDelivery("cockpit:runtime-a", invocation.invocationId, 1);
+      expect(
+        store.pendingDeliveries("cockpit:runtime-a").map(({ event }) => event.sequence),
+      ).toEqual([2]);
       store.acknowledgeDelivery("cockpit:runtime-a", invocation.invocationId, 2);
       expect(
         store.pendingDeliveries("cockpit:runtime-a").map(({ event }) => event.sequence),
       ).toEqual([3]);
       expect(
         store.pendingDeliveries("cockpit:runtime-b").map(({ event }) => event.sequence),
-      ).toEqual([1, 2, 3]);
-      store.acknowledgeDelivery("cockpit:runtime-a", invocation.invocationId, 1);
+      ).toEqual([1]);
+      store.acknowledgeDelivery("cockpit:runtime-a", invocation.invocationId, 3);
+      expect(store.pendingDeliveries("cockpit:runtime-a")).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("drains an interleaved backlog in stable global delivery order", () => {
+    const { db, store } = createStore();
+    try {
+      const events: Array<{ invocationId: string; sequence: number; createdAt: string }> = [];
+      const equalTimestamp = "2026-07-15T00:00:00.000Z";
+      for (let index = 0; index < 64; index += 1) {
+        const createdAt =
+          index < 4
+            ? equalTimestamp
+            : new Date(Date.UTC(2026, 6, 15, 0, 0, 0, index)).toISOString();
+        const invocation = store.submit({
+          sessionId: "session-delivery-backlog-" + index,
+          prompt: "deliver backlog event " + index,
+          now: createdAt,
+        });
+        for (let sequence = 0; sequence < 3; sequence += 1) {
+          const event = store.appendEvent(
+            invocation.invocationId,
+            "daemon.view_event",
+            { index, sequence },
+            createdAt,
+          );
+          events.push({
+            invocationId: event.invocationId,
+            sequence: event.sequence,
+            createdAt: event.createdAt,
+          });
+        }
+      }
+      const expected = [...events].sort(
+        (left, right) =>
+          left.createdAt.localeCompare(right.createdAt) ||
+          left.invocationId.localeCompare(right.invocationId) ||
+          left.sequence - right.sequence,
+      );
+      const delivered: typeof expected = [];
+      for (;;) {
+        const pending = store.pendingDeliveries("cockpit:stable-order", 1);
+        if (pending.length === 0) break;
+        const event = pending[0]!.event;
+        delivered.push({
+          invocationId: event.invocationId,
+          sequence: event.sequence,
+          createdAt: event.createdAt,
+        });
+        store.acknowledgeDelivery("cockpit:stable-order", event.invocationId, event.sequence);
+      }
+      expect(delivered).toEqual(expected);
       expect(
-        store.pendingDeliveries("cockpit:runtime-a").map(({ event }) => event.sequence),
-      ).toEqual([3]);
+        new Set(delivered.map((event) => event.invocationId + ":" + event.sequence)).size,
+      ).toBe(events.length);
+      expect(store.pendingDeliveries("cockpit:stable-order", 1)).toEqual([]);
+      const plan = db
+        .prepare("EXPLAIN QUERY PLAN " + buildPendingDeliveriesQuery("i.id", ""))
+        .all(null, null, "cockpit:explain", 1) as Array<{ detail: string }>;
+      const details = plan.map(({ detail }) => detail).join("\n");
+      expect(details).toContain("invocation_events_cursor_idx");
+      expect(details).toContain("invocation_events_delivery_order_idx");
+      expect(details).toMatch(/SEARCH .*delivery/u);
     } finally {
       db.close();
     }
@@ -419,11 +486,15 @@ describe("SparkInvocationStore", () => {
         status: "succeeded",
       });
 
-      expect(
-        store
-          .pendingDeliveries("cockpit:bound-delivery", 10, [workspace.id])
-          .map(({ event }) => event.sequence),
-      ).toEqual([1, 2, 3]);
+      const deliveredSequences: number[] = [];
+      for (;;) {
+        const pending = store.pendingDeliveries("cockpit:bound-delivery", 10, [workspace.id]);
+        if (pending.length === 0) break;
+        const sequence = pending[0]!.event.sequence;
+        deliveredSequences.push(sequence);
+        store.acknowledgeDelivery("cockpit:bound-delivery", invocation.invocationId, sequence);
+      }
+      expect(deliveredSequences).toEqual([1, 2, 3]);
     } finally {
       db.close();
     }

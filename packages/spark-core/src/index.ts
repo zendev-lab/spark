@@ -770,7 +770,8 @@ export type RefKind =
   | "run"
   | "review"
   | "ask"
-  | "cue-job";
+  | "cue-job"
+  | "subgoal";
 
 export type Ref<K extends RefKind> = `${K}:${string}` & { readonly __kind?: K };
 
@@ -785,6 +786,87 @@ export type RunRef = Ref<"run">;
 export type ReviewRef = Ref<"review">;
 export type AskRef = Ref<"ask">;
 export type CueJobRef = Ref<"cue-job">;
+export type SubgoalRef = Ref<"subgoal">;
+
+export type SparkSubgoalStatus = "pending" | "in_progress" | "done" | "blocked" | "cancelled";
+export type SparkSubgoalAuthority = "safe_local" | "ask_decision" | "ask_approval";
+
+export interface SparkSubgoalDelegation {
+  sessionId: string;
+  planRevision: number;
+  definitionDigest: string;
+  delegatedAt: string;
+}
+
+export const SPARK_SUBGOAL_ASSIGNMENT_SCHEMA = "spark.subgoal.assignment/v1" as const;
+export const SPARK_SUBGOAL_RECEIPT_SCHEMA = "spark.subgoal.receipt/v1" as const;
+
+export type SparkSubgoalReceiptStatus = "accepted" | "done" | "repair";
+
+export interface SparkSubgoalAssignment {
+  schema: typeof SPARK_SUBGOAL_ASSIGNMENT_SCHEMA;
+  subgoalRef: SubgoalRef;
+  goalId: string;
+  planRevision: number;
+  definitionDigest: string;
+  definition: SparkSubgoalDefinition;
+  ownerSessionId: string;
+  evidenceRequired: string[];
+  assignedAt: string;
+}
+
+export interface SparkSubgoalReceipt {
+  schema: typeof SPARK_SUBGOAL_RECEIPT_SCHEMA;
+  subgoalRef: SubgoalRef;
+  status: SparkSubgoalReceiptStatus;
+  planRevision: number;
+  definitionDigest: string;
+  evidenceRefs: EvidenceRef[];
+  reason?: string;
+}
+
+export type SparkSubgoalDelegationOutcome =
+  | { status: "accepted"; delegation: SparkSubgoalDelegation; receipt: SparkSubgoalReceipt }
+  | { status: "repair"; receipt: SparkSubgoalReceipt };
+
+export interface SparkSubgoalDefinition {
+  goal: string;
+  doneWhen: string[];
+  evidenceRequired: string[];
+  authority: SparkSubgoalAuthority;
+  dependsOn?: SubgoalRef[];
+}
+
+export type SparkSubgoalVerificationResult =
+  | {
+      verdict: "Pass";
+      subgoalRef: SubgoalRef;
+      planRevision: number;
+      definitionDigest: string;
+      evidenceRefs: EvidenceRef[];
+      verifiedDoneWhen: string[];
+      canonicalAskEvidenceRef?: EvidenceRef;
+    }
+  | {
+      verdict: "Repair";
+      subgoalRef: SubgoalRef;
+      reasons: string[];
+    };
+
+export interface SparkSubgoal extends SparkSubgoalDefinition {
+  ref: SubgoalRef;
+  goalId: string;
+  roleRef: RoleRef;
+  planRevision: number;
+  status: SparkSubgoalStatus;
+  taskRefs: TaskRef[];
+  evidenceRefs: EvidenceRef[];
+  delegation?: SparkSubgoalDelegation;
+  verification?: Extract<SparkSubgoalVerificationResult, { verdict: "Pass" }>;
+  blocker?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export type AnyRef =
   | SparkRef
@@ -796,7 +878,8 @@ export type AnyRef =
   | RunRef
   | ReviewRef
   | AskRef
-  | CueJobRef;
+  | CueJobRef
+  | SubgoalRef;
 
 export type PiErrorCode =
   | "INVALID_REF"
@@ -872,6 +955,7 @@ export function isRefKind(value: string): value is RefKind {
     "review",
     "ask",
     "cue-job",
+    "subgoal",
   ].includes(value);
 }
 

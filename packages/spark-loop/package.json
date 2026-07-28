@@ -15,8 +15,16 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run src/subgoals.test.ts",
+    "test": "vp test run src/subgoals.test.ts"
+  },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-tasks": "workspace:^"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

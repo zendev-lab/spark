@@ -19,7 +19,8 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "@zendev-lab/spark-core": "workspace:^"
+    "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-loop": "workspace:^"
   },
   "devDependencies": {
     "@stryker-mutator/core": "catalog:",
