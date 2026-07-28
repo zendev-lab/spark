@@ -53,7 +53,7 @@ export function appendSparkStateDiagnosticsLines(
   diagnostics: SparkStateDiagnosticsSummary,
 ): void {
   lines.push(
-    `Bounded output: showing at most ${diagnostics.boundedLimit} item(s) per category; large artifact threshold=${formatByteSize(diagnostics.largeArtifactThresholdBytes)}.`,
+    `Bounded output: showing at most ${diagnostics.boundedLimit} item(s) per category; large evidence threshold=${formatByteSize(diagnostics.largeArtifactThresholdBytes)}.`,
   );
   appendTerminalProjectDiagnostics(lines, diagnostics.terminalProjects);
   appendInactiveWorkflowRunDiagnostics(lines, diagnostics.inactiveWorkflowRuns);
@@ -63,7 +63,7 @@ export function appendSparkStateDiagnosticsLines(
   appendProtectedFileDiagnostics(lines, "role reports", diagnostics.roleReports);
   appendStoreV2DoctorFindings(lines, diagnostics.doctor);
   lines.push(
-    "Protected-store diagnostics are read-only; no project graph, TODO record, session state, artifact, note, role-report, workflow-run, or review index files were deleted.",
+    "Protected-store diagnostics are read-only; no project graph, TODO record, session state, evidence, Product Artifact, note, role-report, workflow-run, or review index files were deleted.",
   );
 }
 
@@ -93,7 +93,7 @@ export function appendRoleRunArtifactRetentionLines(
   limit: number,
 ): void {
   lines.push(
-    `Scanned ${plan.scanned} artifact metadata file(s); threshold=${formatByteSize(plan.thresholdBytes)}; tail=${formatByteSize(plan.tailBytes)}.`,
+    `Scanned ${plan.scanned} evidence metadata file(s); threshold=${formatByteSize(plan.thresholdBytes)}; tail=${formatByteSize(plan.tailBytes)}.`,
   );
   if (plan.exportDir) lines.push(`Export directory: ${plan.exportDir}`);
   const visible = plan.candidates.slice(0, limit);
@@ -189,7 +189,7 @@ function appendLargeArtifactDiagnostics(
   summary: SparkStateDiagnosticsSummary["largeArtifacts"],
 ): void {
   lines.push(
-    `Large artifacts: ${summary.count}${summary.shown < summary.count ? ` (showing ${summary.shown})` : ""}`,
+    `Large evidence: ${summary.count}${summary.shown < summary.count ? ` (showing ${summary.shown})` : ""}`,
   );
   for (const artifact of summary.candidates) {
     const provenance = [
@@ -211,7 +211,7 @@ function appendOrphanBlobDiagnostics(
   summary: SparkStateDiagnosticsSummary["orphanBlobs"],
 ): void {
   lines.push(
-    `Orphan artifact blobs: ${summary.count}${summary.shown < summary.count ? ` (showing ${summary.shown})` : ""}`,
+    `Orphan evidence blobs: ${summary.count}${summary.shown < summary.count ? ` (showing ${summary.shown})` : ""}`,
   );
   for (const blob of summary.candidates)
     lines.push(`  - ${blob.path} ${formatByteSize(blob.bytes)} mtime=${blob.mtime}`);
@@ -261,7 +261,9 @@ export function formatSparkStateCacheKind(kind: SparkStateCacheKind): string {
 export function formatSparkProtectedStoreReason(reason: SparkProtectedStoreReason): string {
   switch (reason) {
     case "artifact-history":
-      return "artifacts";
+      return "Product Artifacts";
+    case "evidence-ledger":
+      return "evidence ledger";
     case "task-graph":
       return "project graph";
     case "todo-records":

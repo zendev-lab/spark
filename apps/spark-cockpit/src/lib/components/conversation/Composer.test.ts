@@ -10,7 +10,7 @@ const baseProps: ComponentProps<typeof Composer> = {
   submitLabel: "Send",
   submittingLabel: "Sending",
   ariaLabel: "Message",
-  multilineHint: "Shift Enter for a new line",
+  multilineHint: "Enter for newline, Command or Control Enter to send",
 };
 
 let mounted: Record<string, unknown> | undefined;
@@ -60,22 +60,27 @@ function pressKey(textarea: HTMLTextAreaElement, init: KeyboardEventInit) {
 }
 
 describe("Composer", () => {
-  it("submits the owning form with its send button on plain Enter", async () => {
+  it.each([
+    { metaKey: true, label: "Command Enter" },
+    { ctrlKey: true, label: "Control Enter" },
+  ])("submits the owning form with its send button on $label", async (modifier) => {
     const { textarea, submit, requestSubmit } = await renderComposer();
 
-    const event = pressKey(textarea, { key: "Enter" });
+    const event = pressKey(textarea, { key: "Enter", ...modifier });
 
     expect(event.defaultPrevented).toBe(true);
     expect(requestSubmit).toHaveBeenCalledOnce();
     expect(requestSubmit).toHaveBeenCalledWith(submit);
   });
 
-  it("leaves Shift Enter and IME composition Enter to the editor", async () => {
+  it("leaves plain Enter, Shift Enter, and IME composition Enter to the editor", async () => {
     const { textarea, requestSubmit } = await renderComposer();
 
+    const plain = pressKey(textarea, { key: "Enter" });
     const multiline = pressKey(textarea, { key: "Enter", shiftKey: true });
-    const composing = pressKey(textarea, { key: "Enter", isComposing: true });
+    const composing = pressKey(textarea, { key: "Enter", metaKey: true, isComposing: true });
 
+    expect(plain.defaultPrevented).toBe(false);
     expect(multiline.defaultPrevented).toBe(false);
     expect(composing.defaultPrevented).toBe(false);
     expect(requestSubmit).not.toHaveBeenCalled();
@@ -85,7 +90,7 @@ describe("Composer", () => {
     const onKeydown = vi.fn((event: KeyboardEvent) => event.preventDefault());
     const { textarea, requestSubmit } = await renderComposer({ onKeydown });
 
-    const event = pressKey(textarea, { key: "Enter" });
+    const event = pressKey(textarea, { key: "Enter", metaKey: true });
 
     expect(onKeydown).toHaveBeenCalledOnce();
     expect(event.defaultPrevented).toBe(true);
@@ -133,7 +138,7 @@ describe("Composer", () => {
     expect(retry?.closest(".composer-submit-actions")).toBeNull();
     expect(form.querySelector(".composer-submit-actions")?.children).toHaveLength(1);
 
-    pressKey(textarea, { key: "Enter" });
+    pressKey(textarea, { key: "Enter", metaKey: true });
 
     expect(requestSubmit).toHaveBeenCalledOnce();
     expect(requestSubmit).toHaveBeenCalledWith(submit);

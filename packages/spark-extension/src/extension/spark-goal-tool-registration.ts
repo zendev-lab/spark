@@ -1,5 +1,5 @@
 import { Type } from "typebox";
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import { nowIso, type ArtifactRef, type JsonValue, type RoleRef } from "@zendev-lab/spark-core";
 import { currentSparkProject, loadSparkGraph, sparkSessionKey } from "./session-state.ts";
@@ -389,8 +389,8 @@ function normalizeGoalCompletionRequirements(value: unknown): GoalReviewRequirem
     if (!rawEvidenceRefs)
       throw new Error(`goal requirements[${index}].evidenceRefs must be an array`);
     const evidenceRefs = rawEvidenceRefs.map((ref) => {
-      if (!ref.startsWith("artifact:") || ref.length === "artifact:".length)
-        throw new Error(`goal requirements[${index}].evidenceRefs must contain artifact: refs`);
+      if (!ref.startsWith("evidence:") || ref.length === "evidence:".length)
+        throw new Error(`goal requirements[${index}].evidenceRefs must contain evidence: refs`);
       return ref as ArtifactRef;
     });
     const note =
@@ -636,7 +636,7 @@ async function recordGoalTransitionReviewArtifact(
     finishedAt: review.record.finishedAt,
     ...(review.record.thinking ? { thinking: review.record.thinking } : {}),
   };
-  const artifact = await defaultArtifactStore(cwd).put({
+  const artifact = await defaultEvidenceStore(cwd).put({
     kind: "record",
     title: `Goal ${request.requestedStatus} review for session goal: ${oneLine(goal.objective)}`,
     format: "json",
@@ -704,7 +704,7 @@ function renderGoalEditRejectedMessage(
   const blockers = verdict?.blockers?.length
     ? `\nBlockers: ${formatGoalReviewList(verdict.blockers)}`
     : "";
-  const artifact = result.reviewArtifactRef ? `\nReview artifact: ${result.reviewArtifactRef}` : "";
+  const artifact = result.reviewArtifactRef ? `\nReview evidence: ${result.reviewArtifactRef}` : "";
   return `Goal edit blocked by reviewer for session goal: ${oneLine(goal.objective)}\nReview outcome: ${verdict?.outcome ?? "blocked"}\nReview summary: ${summary}${findings}${blockers}${artifact}`;
 }
 
@@ -717,7 +717,7 @@ function renderGoalPauseRejectedMessage(
   const blockers = verdict?.blockers?.length
     ? `\nBlockers: ${formatGoalReviewList(verdict.blockers)}`
     : "";
-  const artifact = result.reviewArtifactRef ? `\nReview artifact: ${result.reviewArtifactRef}` : "";
+  const artifact = result.reviewArtifactRef ? `\nReview evidence: ${result.reviewArtifactRef}` : "";
   return `Goal pause blocked by reviewer for session goal: ${oneLine(goal.objective)}\nReview outcome: ${verdict?.outcome ?? "blocked"}\nReview summary: ${summary}${blockers}${artifact}`;
 }
 
@@ -738,7 +738,7 @@ function goalCompletionResult(
       content: [
         {
           type: "text" as const,
-          text: `Goal completion approved by reviewer for session goal: ${oneLine(originalGoal.objective)}\nReview summary: ${oneLine(result.reason)}\nReview artifact: ${result.artifactRef}`,
+          text: `Goal completion approved by reviewer for session goal: ${oneLine(originalGoal.objective)}\nReview summary: ${oneLine(result.reason)}\nReview evidence: ${result.artifactRef}`,
         },
       ],
       details: {
@@ -756,7 +756,7 @@ function goalCompletionResult(
       ? `\nBlockers: ${formatGoalReviewList(result.blockers)}`
       : "";
     const remainingWork = result.remainingWork ? `\nRemaining work: ${result.remainingWork}` : "";
-    const artifact = result.artifactRef ? `\nReview artifact: ${result.artifactRef}` : "";
+    const artifact = result.artifactRef ? `\nReview evidence: ${result.artifactRef}` : "";
     return {
       content: [
         {

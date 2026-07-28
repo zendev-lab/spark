@@ -4,12 +4,13 @@ import {
   type LearningLocation,
   type LearningRecord,
 } from "@zendev-lab/spark-memory";
-import { defaultArtifactStore, type Artifact } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore, type Artifact } from "@zendev-lab/spark-artifacts";
 import {
   DependencyError,
   isRef,
   nowIso,
   type ArtifactRef,
+  type EvidenceRef,
   type JsonValue,
   type ProjectRef,
   type RoleRef,
@@ -52,7 +53,7 @@ interface NormalizedSparkFinishTaskInput {
   task?: string;
   status: "done" | "failed" | "cancelled";
   summary?: string;
-  evidenceRefs: ArtifactRef[];
+  evidenceRefs: EvidenceRef[];
   evidence?: SparkFinishEvidenceInput;
 }
 
@@ -155,12 +156,14 @@ export function normalizeSparkFinishTaskInput(
   };
 }
 
-function normalizeFinishEvidenceRefs(value: unknown): ArtifactRef[] {
+function normalizeFinishEvidenceRefs(value: unknown): EvidenceRef[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string"))
-    throw new Error("evidenceRefs must be an array of artifact refs");
+    throw new Error("evidenceRefs must be an array of evidence refs");
   return value.map((ref, index) => {
-    if (!isRef(ref, "artifact")) throw new Error(`evidenceRefs[${index}] must be an artifact: ref`);
+    if (!isRef(ref, "evidence")) {
+      throw new Error(`evidenceRefs[${index}] must be an evidence: ref`);
+    }
     return ref;
   });
 }
@@ -238,11 +241,11 @@ export function registerSparkFinishTaskTool(
       ),
       summary: Type.Optional(Type.String({ description: "Short completion/failure summary." })),
       evidenceRefs: Type.Optional(
-        Type.Array(Type.String({ description: "Artifact refs that evidence completion." })),
+        Type.Array(Type.String({ description: "Evidence refs that prove completion." })),
       ),
       evidence: Type.Optional(
         Type.Object({
-          title: Type.Optional(Type.String({ description: "Evidence artifact title." })),
+          title: Type.Optional(Type.String({ description: "Evidence title." })),
           notes: Type.Optional(Type.String({ description: "Bounded evidence notes." })),
           changedFiles: Type.Optional(
             Type.Array(Type.String({ description: "Changed file path." })),
@@ -263,7 +266,7 @@ export function registerSparkFinishTaskTool(
       let reviewArtifact: Artifact<JsonValue> | undefined;
       let reviewResult: ReviewerRunResult | undefined;
       let finishEvidenceRefs = input.evidenceRefs;
-      let generatedEvidenceArtifact: Artifact<JsonValue> | undefined;
+      let generatedEvidenceArtifact: (Artifact<JsonValue> & { ref: EvidenceRef }) | undefined;
       if (input.status === "done") {
         let candidate = await resolveFinishReviewCandidate(store, cwd, ctx, input);
         if (isFinishTaskErrorResult(candidate)) {
@@ -454,7 +457,7 @@ export function registerSparkFinishTaskTool(
         ? `\nLearning candidate: ${learningCandidate.artifact.ref} — ${learningCandidate.artifact.body.title}`
         : "";
       const generatedEvidenceSuffix = generatedEvidenceArtifact
-        ? `\nGenerated evidence artifact: ${generatedEvidenceArtifact.ref}`
+        ? `\nGenerated evidence: ${generatedEvidenceArtifact.ref}`
         : "";
       const executionSuffix = renderFinishNextStepSuffix(finishedResult.nextReady, input.status);
       return {
@@ -503,7 +506,7 @@ async function checkResearchFollowUpDisposition(
 
   const sources: Array<{ source: string; text: string }> = [];
   if (summary) sources.push({ source: "finish summary", text: summary });
-  const artifactStore = defaultArtifactStore(cwd);
+  const artifactStore = defaultEvidenceStore(cwd);
   for (const artifactRef of task.outputArtifacts) {
     try {
       sources.push({ source: artifactRef, text: await artifactStore.getBody(artifactRef) });
@@ -528,7 +531,7 @@ async function checkResearchFollowUpDisposition(
 }
 
 function sourceDispositionedInSummary(source: string, summary: string): boolean {
-  if (!summary || !isRef(source, "artifact")) return false;
+  if (!summary || !isRef(source, "evidence")) return false;
   return summary
     .split(/\r?\n/)
     .some((line) => line.includes(source) && hasFollowUpDisposition(line));
@@ -886,10 +889,10 @@ async function recordTaskFinishEvidenceArtifact(
   projectRef: ProjectRef,
   task: Task,
   input: NormalizedSparkFinishTaskInput,
-): Promise<Artifact<JsonValue>> {
+): Promise<Artifact<JsonValue> & { ref: EvidenceRef }> {
   const title = input.evidence?.title ?? `Task evidence for @${task.name}: ${task.title}`;
   const body = renderTaskFinishEvidenceMarkdown(task, input);
-  return defaultArtifactStore(cwd).put({
+  return (await defaultEvidenceStore(cwd).put({
     kind: "trace",
     title,
     format: "markdown",
@@ -901,7 +904,7 @@ async function recordTaskFinishEvidenceArtifact(
     },
     links: [{ to: task.ref, relation: "output" }],
     curation: { status: "candidate", retention: "task" },
-  });
+  })) as Artifact<JsonValue> & { ref: EvidenceRef };
 }
 
 function renderTaskFinishEvidenceMarkdown(
@@ -951,7 +954,7 @@ async function recordTaskReviewArtifact(
       ? { stderrPreview: truncateReviewRunOutput(review.record.stderr, 4_000) }
       : {}),
   };
-  const artifact = await defaultArtifactStore(cwd).put({
+  const artifact = await defaultEvidenceStore(cwd).put({
     kind: "record",
     title: `Task finish review for @${task.name}: ${task.title}`,
     format: "json",
@@ -1055,7 +1058,7 @@ async function buildTaskEvidencePreviews(
   artifactRefs: ArtifactRef[],
 ): Promise<GoalReviewEvidencePreview[]> {
   if (!artifactRefs.length) return [];
-  const store = defaultArtifactStore(cwd);
+  const store = defaultEvidenceStore(cwd);
   return Promise.all(
     artifactRefs.slice(-10).map(async (ref) => {
       try {

@@ -30,7 +30,14 @@
       "path": ".spark/artifacts/",
       "owner": "spark-artifacts",
       "kind": "canonical",
-      "notes": "Artifact metadata and blobs remain separate; owners store artifact refs only."
+      "notes": "User-facing issue, PR, and preview Product Artifacts only; refs use artifact:."
+    },
+    {
+      "id": "evidence",
+      "path": ".spark/evidence/",
+      "owner": "spark-artifacts",
+      "kind": "canonical",
+      "notes": "Agent-internal evidence ledger only; refs use evidence: and are never projected as Product Artifacts."
     }
   ],
   "rebuildableIndexes": [

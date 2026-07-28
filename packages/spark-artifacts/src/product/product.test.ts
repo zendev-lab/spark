@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { ToolConfig } from "@zendev-lab/spark-core";
 import { describe, expect, it } from "vitest";
+import { defaultEvidenceStore } from "../index.ts";
 import { registerProductArtifactTool } from "./extension.ts";
 import {
   PRODUCT_ARTIFACT_PROJECTION_MAX_INLINE_BYTES,
@@ -340,11 +341,11 @@ describe("product artifact kinds", () => {
     expect(removed.worktreeStatus).toBe("removed");
   });
 
-  it("keeps product artifacts out of evidence-only listing expectations", async () => {
+  it("keeps Product Artifacts and internal evidence in separate stores and ref namespaces", async () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-product-isolation-"));
-    await mkdir(join(dir, ".spark", "artifacts"), { recursive: true });
-    const store = defaultProductArtifactStore(dir);
-    await store.put({
+    const productStore = defaultProductArtifactStore(dir);
+    const evidenceStore = defaultEvidenceStore(dir);
+    const product = await productStore.put({
       kind: "preview",
       title: "Only product",
       body: {
@@ -355,7 +356,23 @@ describe("product artifact kinds", () => {
         version: 1,
       },
     });
-    const listed = await store.list();
-    expect(listed.every((item) => ["issue", "pr", "preview"].includes(item.kind))).toBe(true);
+    const evidence = await evidenceStore.put({
+      kind: "record",
+      title: "Internal proof",
+      format: "json",
+      body: { passed: true },
+      provenance: { producer: "review" },
+    });
+    await writeFile(
+      join(dir, ".spark", "artifacts", "legacy-invalid-evidence.json"),
+      JSON.stringify({ artifactRef: "artifact:legacy-evidence", kind: "trace" }),
+      "utf8",
+    );
+
+    expect(product.ref).toMatch(/^artifact:/u);
+    expect(evidence.ref).toMatch(/^evidence:/u);
+    expect((await productStore.list()).map((item) => item.ref)).toEqual([product.ref]);
+    expect((await evidenceStore.list()).map((item) => item.ref)).toEqual([evidence.ref]);
+    await expect(evidenceStore.get(product.ref)).rejects.toThrow(/must be an evidence: ref/u);
   });
 });

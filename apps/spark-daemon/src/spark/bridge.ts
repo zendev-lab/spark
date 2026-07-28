@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { loadSparkHeadlessSessionModule } from "@zendev-lab/spark-host/headless-loader";
 import {
   builtinRoleRef,
@@ -8,8 +8,7 @@ import {
 } from "@zendev-lab/spark-roles";
 import { killActiveSparkRoleRunProcesses, runSparkTask } from "@zendev-lab/spark-runtime";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
-import { artifactProjectionIdForRef } from "../product-artifact-projection.ts";
-type ArtifactRef = `artifact:${string}`;
+type EvidenceRef = `evidence:${string}`;
 type ProjectRef = `proj:${string}`;
 type RunRef = `run:${string}`;
 type TaskRef = `task:${string}`;
@@ -20,7 +19,7 @@ type TaskRun = {
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   failureKind?: string;
   errorMessage?: string;
-  outputArtifacts: ArtifactRef[];
+  outputArtifacts: EvidenceRef[];
   completionSummary?: { summary?: string };
 };
 
@@ -42,15 +41,15 @@ type TaskGraphStoreLike = {
 };
 
 type ArtifactStoreLike = {
-  get(ref: ArtifactRef): Promise<{
-    ref: ArtifactRef;
+  get(ref: EvidenceRef): Promise<{
+    ref: EvidenceRef;
     kind: string;
     title: string;
     format: string;
     hash?: string;
     provenance: { runRef?: string; taskRef?: string };
   }>;
-  getBody(ref: ArtifactRef): Promise<string>;
+  getBody(ref: EvidenceRef): Promise<string>;
 };
 
 type TaskGraphLike = {
@@ -65,7 +64,7 @@ type TaskGraphLike = {
 };
 
 type SparkRuntimeModules = {
-  defaultArtifactStore(cwd: string): ArtifactStoreLike;
+  defaultEvidenceStore(cwd: string): ArtifactStoreLike;
   builtinRoleRef(id: "worker"): RoleRef;
   createDefaultRoleRegistry(): unknown;
   hydrateDefaultRoleRegistry(
@@ -82,7 +81,6 @@ type SparkRuntimeModules = {
 };
 import {
   createId,
-  type ArtifactProjectionPayload,
   type InvocationLogChunkStream,
   type ServerCommandPayload,
   type serverCommandEnvelopeSchema,
@@ -91,7 +89,6 @@ import type { SparkPaths } from "@zendev-lab/spark-system";
 import { extractFinalAssistantText, extractTextDelta } from "../pi/session.ts";
 import type { SparkDaemonWorkspace } from "../store/workspaces.js";
 import {
-  artifactProjected,
   commandAck,
   commandReject,
   invocationLogChunk,
@@ -161,8 +158,8 @@ async function loadSparkRuntimeModules(): Promise<SparkRuntimeModules> {
   // their branded refs and narrower creation inputs are the same values this
   // bridge passes at runtime, but TypeScript cannot prove that variance.
   return {
-    defaultArtifactStore:
-      defaultArtifactStore as unknown as SparkRuntimeModules["defaultArtifactStore"],
+    defaultEvidenceStore:
+      defaultEvidenceStore as unknown as SparkRuntimeModules["defaultEvidenceStore"],
     builtinRoleRef,
     createDefaultRoleRegistry,
     hydrateDefaultRoleRegistry,
@@ -250,7 +247,7 @@ export async function runSparkCommandBridge(
   const taskGraphStore =
     input.taskGraphStore ?? spark!.defaultTaskGraphStore(input.workspace.localPath);
   const artifactStore =
-    input.artifactStore ?? spark!.defaultArtifactStore(input.workspace.localPath);
+    input.artifactStore ?? spark!.defaultEvidenceStore(input.workspace.localPath);
 
   let binding: SparkTaskBinding | undefined;
   try {
@@ -312,24 +309,21 @@ export async function runSparkCommandBridge(
     await mergeTaskProgressIntoStore(taskGraphStore, binding.graph, binding.taskRef);
 
     const completedAt = new Date().toISOString();
-    const projectedArtifacts = await projectSparkArtifacts({
+    const projectedEvidence = await readSparkEvidenceOutputs({
       artifactStore,
-      artifactRefs: run.outputArtifacts,
-      emit: (message) => input.emit(message),
-      route,
-      invocationId,
+      evidenceRefs: run.outputArtifacts,
     });
-    const outputArtifactIds = projectedArtifacts.artifactIds;
+    const outputArtifactIds: string[] = [];
     const fallbackAssistantText = fallbackAssistantTextForCompletedRun({
       assistantChunkCount,
       assistantText,
       latestFinalAssistantText,
-      artifactAssistantText: projectedArtifacts.assistantText,
+      artifactAssistantText: projectedEvidence.assistantText,
       completionSummary: run.completionSummary?.summary,
     });
     if (fallbackAssistantText) {
       emitLogChunk("assistant", fallbackAssistantText, {
-        source: projectedArtifacts.assistantText ? "role_run_artifact" : "role_run_final",
+        source: projectedEvidence.assistantText ? "role_run_evidence" : "role_run_final",
       });
     }
     const terminalStatus = invocationStatusForRun(run);
@@ -495,64 +489,21 @@ async function ensureSparkTaskBinding(input: {
   };
 }
 
-async function projectSparkArtifacts(input: {
+async function readSparkEvidenceOutputs(input: {
   artifactStore: ArtifactStoreLike;
-  artifactRefs: ArtifactRef[];
-  emit(message: unknown): void;
-  route: RouteContext;
-  invocationId: string;
-}): Promise<{ artifactIds: string[]; assistantText?: string }> {
-  const projected: string[] = [];
+  evidenceRefs: EvidenceRef[];
+}): Promise<{ assistantText?: string }> {
   let assistantText: string | undefined;
-  for (const artifactRef of input.artifactRefs) {
-    const artifact = await input.artifactStore.get(artifactRef);
-    if (!input.route.workspaceId) {
-      throw new Error("Artifact projection requires a routed workspace id.");
-    }
-    const artifactId = artifactProjectionIdForRef(input.route.workspaceId, artifactRef);
-    const serializedPreview = await input.artifactStore.getBody(artifactRef);
+  for (const evidenceRef of input.evidenceRefs) {
+    const artifact = await input.artifactStore.get(evidenceRef);
+    const serializedPreview = await input.artifactStore.getBody(evidenceRef);
     assistantText ??= assistantTextFromProjectedArtifact({
       kind: artifact.kind,
       format: artifact.format,
       body: serializedPreview,
     });
-    const payload: ArtifactProjectionPayload = {
-      artifactId,
-      scope: "project",
-      kind: artifact.kind,
-      title: artifact.title,
-      format:
-        artifact.format === "json" || artifact.format === "markdown" || artifact.format === "text"
-          ? artifact.format
-          : "blob",
-      source: "runtime",
-      hash: artifact.hash,
-      sizeBytes: Buffer.byteLength(serializedPreview, "utf8"),
-      mime: mimeForArtifactFormat(artifact.format),
-      contentRef: {
-        sparkArtifactRef: artifactRef,
-        inlineMarkdown: artifact.format === "markdown" ? serializedPreview : undefined,
-        inlineText: artifact.format === "text" ? serializedPreview : undefined,
-        ...(assistantText ? { assistantTextPreview: assistantText } : {}),
-      },
-      contentAvailability: {
-        hash: artifact.hash,
-        mime: mimeForArtifactFormat(artifact.format),
-        sizeBytes: Buffer.byteLength(serializedPreview, "utf8"),
-        daemonAvailable: true,
-      },
-      provenance: {
-        runtimeInvocationId: input.invocationId,
-        sparkArtifactRef: artifactRef,
-        sparkRunRef: artifact.provenance.runRef,
-        sparkTaskRef: artifact.provenance.taskRef,
-      },
-      links: [{ targetKind: "invocation", targetId: input.invocationId, relation: "produced-by" }],
-    };
-    input.emit(artifactProjected(payload, { ...input.route, invocationId: input.invocationId }));
-    projected.push(artifactId);
   }
-  return { artifactIds: projected, assistantText };
+  return { assistantText };
 }
 
 function fallbackAssistantTextForCompletedRun(input: {
@@ -779,13 +730,6 @@ function stableTaskName(taskRuntimeId: string): string {
     .replaceAll(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
   return normalized ? `spark-daemon-${normalized}` : "spark-daemon-task";
-}
-
-function mimeForArtifactFormat(format: string): string {
-  if (format === "markdown") return "text/markdown; charset=utf-8";
-  if (format === "json") return "application/json; charset=utf-8";
-  if (format === "text") return "text/plain; charset=utf-8";
-  return "application/octet-stream";
 }
 
 export function commandRejectForUnknownInvocation(route: RouteContext, messageId: string) {

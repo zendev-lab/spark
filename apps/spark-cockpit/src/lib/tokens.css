@@ -155,8 +155,19 @@
 
   /* ----- Layout primitives ----------------------------------------------- */
 
-  --layout-sidebar-width: 240px;
-  --layout-top-bar-height: 64px;
+  --shell-topbar-height: 52px;
+  --shell-sidebar-width: 260px;
+  --shell-sidebar-width-compact: 240px;
+  --layout-sidebar-width: var(--shell-sidebar-width-compact);
+  --layout-top-bar-height: var(--shell-topbar-height);
+
+  /* ----- Controls and motion --------------------------------------------- */
+
+  --control-height-compact: 32px;
+  --control-height-default: 40px;
+  --control-height-touch: 44px;
+  --motion-fast: 120ms;
+  --motion-default: 180ms;
 
   /* ----- Breakpoints (informational; @media uses literals) --------------- */
   /*

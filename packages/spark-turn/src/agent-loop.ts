@@ -126,7 +126,7 @@ import {
 
 import {
   appendRawRecoveryHint,
-  artifactRefFromToolResult,
+  evidenceRefFromToolResult,
   collectToolCalls,
   errorToolResult,
   isPlainRecord,
@@ -1048,7 +1048,7 @@ export class SparkAgentLoop {
           compaction: compacted.details,
         });
         const rawRecovery = recoveryDecision.record
-          ? await this.recordRawToolResultArtifact({
+          ? await this.recordRawToolResultEvidence({
               toolCall,
               result,
               ctx,
@@ -1076,7 +1076,7 @@ export class SparkAgentLoop {
     }
   }
 
-  private async recordRawToolResultArtifact(input: {
+  private async recordRawToolResultEvidence(input: {
     toolCall: ToolCall;
     result: {
       content: Array<{ type: string; text?: string; [key: string]: unknown }>;
@@ -1088,7 +1088,7 @@ export class SparkAgentLoop {
     signal: AbortSignal;
   }): Promise<ToolResultRawRecoveryRecord | undefined> {
     if (input.toolCall.name === "artifact" || input.toolCall.name === "evidence") return undefined;
-    const evidenceTool = this.host.getTool("evidence") ?? this.host.getTool("artifact");
+    const evidenceTool = this.host.getTool("evidence");
     if (
       !evidenceTool ||
       !this.isToolAvailable(evidenceTool) ||
@@ -1126,16 +1126,16 @@ export class SparkAgentLoop {
         `Spark raw tool-result artifact persistence timed out after ${this.toolTimeoutMs}ms`,
         (error) => artifactAbort.abort(error),
       );
-      const artifactRef = artifactRefFromToolResult(recorded);
-      if (!artifactRef) return undefined;
-      const recoveryPath = rawToolResultRecoveryPath(artifactRef);
+      const evidenceRef = evidenceRefFromToolResult(recorded);
+      if (!evidenceRef) return undefined;
+      const recoveryPath = rawToolResultRecoveryPath(evidenceRef);
       return {
-        artifactRef,
+        evidenceRef,
         reason: input.decision.reason ?? "lossy_compaction",
         omittedChars: input.decision.omittedChars ?? 0,
         bodyChars: rawBody.bodyChars,
         recoveryPath,
-        readHint: `Full raw tool output saved as ${artifactRef}; recover with evidence({ action: "read", artifactRef: "${artifactRef}", maxChars: 20000 })`,
+        readHint: `Full raw tool output saved as ${evidenceRef}; recover with evidence({ action: "read", evidenceRef: "${evidenceRef}", maxChars: 20000 })`,
       };
     } catch {
       // Raw recovery must never make the original tool call fail. The compacted

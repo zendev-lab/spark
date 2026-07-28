@@ -22,6 +22,7 @@ import {
   isPhaseComplete,
   isReproRequirementSatisfied,
   isStageComplete,
+  nextReproStep,
   recordReproRequirementProof,
   readSessionRepro,
   reproRequirementBlockers,
@@ -1086,18 +1087,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
   const unsatisfied = requirements.filter(
     (requirement) => !isReproRequirementSatisfied(requirement),
   );
-  const incompleteSteps = steps.filter(
-    (step) => step.status !== "done" && step.status !== "cancelled",
-  );
-  const completedStepIds = new Set(
-    repro.plan.steps
-      .filter((step) => step.status === "done" || step.status === "cancelled")
-      .map((step) => step.id),
-  );
-  const nextStep =
-    incompleteSteps.find((step) =>
-      (step.dependsOn ?? []).every((dependency) => completedStepIds.has(dependency)),
-    ) ?? incompleteSteps[0];
+  const nextStep = nextReproStep(repro);
   const gateBlocking = stage.gate && stage.gate.evaluation?.passed !== true;
   const lines = [
     `Spark repro drive tick — Stage ${repro.currentStageIndex + 1}/${repro.stages.length}: ${stage.title} (${stage.name}), phase=${repro.currentPhase}.`,

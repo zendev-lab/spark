@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { ArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import type { JsonValue, RoleRef, RunRef, TaskRef, ProjectRef } from "@zendev-lab/spark-core";
 import {
   collectRoleRunArtifactRetentionPlan,
@@ -45,7 +45,7 @@ test("runtime role-run artifact body guard owns compact artifact shape", () => {
 test("runtime role-run artifact preview owns bounded metadata reads", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-runtime-role-run-preview-"));
   try {
-    const store = new ArtifactStore({ rootDir: join(dir, ".spark", "artifacts") });
+    const store = defaultEvidenceStore(dir);
     const roleRef = "role:builtin-worker" as RoleRef;
     const runRef = "run:preview" as RunRef;
     const taskRef = "task:preview" as TaskRef;
@@ -91,18 +91,18 @@ test("runtime role-run artifact preview owns bounded metadata reads", async () =
   }
 });
 
-test("runtime role-run retention ignores legacy agent-run artifact kind", async () => {
+test("runtime role-run retention ignores legacy agent-run evidence kind", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-runtime-agent-run-retention-"));
   try {
-    const artifactRoot = join(dir, ".spark", "artifacts");
-    const blobDir = join(artifactRoot, "blobs");
+    const evidenceRoot = join(dir, ".spark", "evidence");
+    const blobDir = join(evidenceRoot, "blobs");
     await mkdir(blobDir, { recursive: true });
     await writeFile(join(blobDir, "legacy-agent-run.txt"), "x".repeat(2048), "utf8");
     await writeFile(
-      join(artifactRoot, "legacy-agent-run.json"),
+      join(evidenceRoot, "legacy-agent-run.json"),
       `${JSON.stringify(
         {
-          ref: "artifact:legacy-agent-run",
+          ref: "evidence:legacy-agent-run",
           kind: "agent-run",
           title: "Legacy agent run",
           format: "text",
@@ -123,7 +123,7 @@ test("runtime role-run retention ignores legacy agent-run artifact kind", async 
     });
 
     assert.equal(plan.candidates.length, 0);
-    const skipped = plan.skipped.find((item) => item.ref === "artifact:legacy-agent-run");
+    const skipped = plan.skipped.find((item) => item.ref === "evidence:legacy-agent-run");
     assert.equal(skipped?.kind, "agent-run");
     assert.equal(skipped?.reason, "not_role_run_artifact");
   } finally {
@@ -134,10 +134,7 @@ test("runtime role-run retention ignores legacy agent-run artifact kind", async 
 test("runtime role-run retention compacts historical transcript blobs without extension state", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-runtime-role-run-retention-"));
   try {
-    const store = new ArtifactStore({
-      rootDir: join(dir, ".spark", "artifacts"),
-      inlineBodyThresholdBytes: 512,
-    });
+    const store = defaultEvidenceStore(dir);
     const body = {
       schemaVersion: 1,
       runRef: "run:runtime-retention" as RunRef,
@@ -178,7 +175,7 @@ test("runtime role-run retention compacts historical transcript blobs without ex
     const before = JSON.parse(await readFile(store.pathFor(artifact.ref), "utf8")) as {
       blobPath: string;
     };
-    const blobPath = join(dir, ".spark", "artifacts", before.blobPath);
+    const blobPath = join(dir, ".spark", "evidence", before.blobPath);
     assert.equal(existsSync(blobPath), true);
 
     const dryRun = await collectRoleRunArtifactRetentionPlan(dir, {

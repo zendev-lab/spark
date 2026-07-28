@@ -119,7 +119,6 @@ function emitFakeSparkLifecycle(
   const invocationId = createId("inv");
   (input as { __fakeInvocationId?: string }).__fakeInvocationId = invocationId;
   const taskRuntimeId = `task-${invocationId}`;
-  const artifactId = createId("art");
   const startedAt = new Date().toISOString();
   const completedAt = new Date().toISOString();
   const prompt = input.command.payload.payload?.prompt;
@@ -170,30 +169,6 @@ function emitFakeSparkLifecycle(
       },
     });
   }
-  const outputText = options.chunks.join("");
-  input.emit({
-    type: "artifact.projected",
-    payload: {
-      artifactId,
-      kind: "task-summary",
-      format: "markdown",
-      source: "runtime",
-      contentRef: {
-        runtimePathRef: "file:///fake/task-summary.md",
-        inlineMarkdown:
-          options.status === "succeeded"
-            ? `# ✅ Task succeeded\n\n${outputText}`
-            : `# ⚠️ Task failed\n\n${options.errorMessage}`,
-      },
-      contentAvailability: { daemonAvailable: true, sizeBytes: 1, mime: "text/markdown" },
-      provenance: {
-        runtimeInvocationId: invocationId,
-        status: options.status,
-        agentChunkCount: options.chunks.length,
-      },
-      links: [{ targetKind: "invocation", targetId: invocationId, relation: "produced-by" }],
-    },
-  });
   input.emit({
     type: "task_graph.snapshot",
     payload: {
@@ -201,7 +176,7 @@ function emitFakeSparkLifecycle(
       tasks: [
         {
           status: options.status === "succeeded" ? "done" : "failed",
-          outputArtifactIds: [artifactId],
+          outputArtifactIds: [],
         },
       ],
     },
@@ -218,7 +193,7 @@ function emitFakeSparkLifecycle(
       status: options.status,
       completedAt,
       terminalReason: options.errorMessage,
-      payload: { outputArtifactIds: [artifactId], commandKind: input.command.payload.kind },
+      payload: { outputArtifactIds: [], commandKind: input.command.payload.kind },
     },
   });
 }
@@ -1323,7 +1298,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
           invocationId: (input as { __fakeInvocationId?: string }).__fakeInvocationId!,
           taskRuntimeId: `task-${(input as { __fakeInvocationId?: string }).__fakeInvocationId}`,
           status: "succeeded",
-          outputArtifactIds: ["art_fake"],
+          outputArtifactIds: [],
         };
       });
 
@@ -1336,7 +1311,6 @@ describe("Spark daemon handleCommand task.start.request", () => {
         "task_graph.snapshot",
         "invocation.log_chunk",
         "invocation.log_chunk",
-        "artifact.projected",
         "task_graph.snapshot",
         "invocation.updated",
         "runtime.command.result",
@@ -1380,40 +1354,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
       const secondChunk = ws.sent[4] as { payload: { sequence: number; content: string } };
       expect(secondChunk.payload).toMatchObject({ sequence: 2, content: " world" });
 
-      const projection = ws.sent[5] as {
-        payload: {
-          artifactId: string;
-          kind: string;
-          format: string;
-          source: string;
-          contentRef: { inlineMarkdown?: string; runtimePathRef?: string };
-          contentAvailability?: { daemonAvailable: boolean; sizeBytes?: number; mime?: string };
-          provenance: Record<string, unknown>;
-          links: { targetKind: string; targetId: string; relation: string }[];
-        };
-      };
-      expect(projection.payload.artifactId).toMatch(/^art_/);
-      expect(projection.payload).toMatchObject({
-        kind: "task-summary",
-        format: "markdown",
-        source: "runtime",
-      });
-      expect(projection.payload.contentRef.runtimePathRef).toMatch(/^file:\/\//);
-      expect(projection.payload.contentRef.inlineMarkdown).toContain("Task succeeded");
-      expect(projection.payload.contentRef.inlineMarkdown).toContain("Hello world");
-      expect(projection.payload.contentAvailability?.daemonAvailable).toBe(true);
-      expect(projection.payload.provenance).toMatchObject({
-        runtimeInvocationId: invocationId,
-        status: "succeeded",
-        agentChunkCount: 2,
-      });
-      expect(projection.payload.links[0]).toMatchObject({
-        targetKind: "invocation",
-        targetId: invocationId,
-        relation: "produced-by",
-      });
-
-      const doneSnapshot = ws.sent[6] as {
+      const doneSnapshot = ws.sent[5] as {
         payload: {
           snapshotVersion: number;
           tasks: { status: string; outputArtifactIds: string[] }[];
@@ -1421,11 +1362,9 @@ describe("Spark daemon handleCommand task.start.request", () => {
       };
       expect(doneSnapshot.payload.snapshotVersion).toBe(2);
       expect(doneSnapshot.payload.tasks[0]?.status).toBe("done");
-      expect(doneSnapshot.payload.tasks[0]?.outputArtifactIds).toEqual([
-        projection.payload.artifactId,
-      ]);
+      expect(doneSnapshot.payload.tasks[0]?.outputArtifactIds).toEqual([]);
 
-      const succeeded = ws.sent[7] as {
+      const succeeded = ws.sent[6] as {
         payload: {
           status: string;
           completedAt?: string;
@@ -1434,7 +1373,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
       };
       expect(succeeded.payload).toMatchObject({ status: "succeeded" });
       expect(succeeded.payload.completedAt).toBeDefined();
-      expect(succeeded.payload.payload?.outputArtifactIds).toEqual([projection.payload.artifactId]);
+      expect(succeeded.payload.payload?.outputArtifactIds).toEqual([]);
       expect(
         harness.db
           .prepare("SELECT status, workspace_binding_id AS workspaceBindingId FROM invocations")
@@ -1473,7 +1412,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
           invocationId: (input as { __fakeInvocationId?: string }).__fakeInvocationId!,
           taskRuntimeId: `task-${(input as { __fakeInvocationId?: string }).__fakeInvocationId}`,
           status: "succeeded",
-          outputArtifactIds: ["art_fake"],
+          outputArtifactIds: [],
         };
       });
 
@@ -1546,7 +1485,6 @@ describe("Spark daemon handleCommand task.start.request", () => {
         "invocation.updated",
         "task_graph.snapshot",
         "invocation.log_chunk",
-        "artifact.projected",
         "task_graph.snapshot",
         "invocation.updated",
         "runtime.command.result",
@@ -1561,28 +1499,13 @@ describe("Spark daemon handleCommand task.start.request", () => {
         content: "model exploded",
       });
 
-      const projection = ws.sent[4] as {
-        payload: {
-          artifactId: string;
-          kind: string;
-          contentRef: { inlineMarkdown?: string };
-          provenance: Record<string, unknown>;
-        };
-      };
-      expect(projection.payload.kind).toBe("task-summary");
-      expect(projection.payload.contentRef.inlineMarkdown).toContain("Task failed");
-      expect(projection.payload.contentRef.inlineMarkdown).toContain("model exploded");
-      expect(projection.payload.provenance).toMatchObject({ status: "failed" });
-
-      const failedSnapshot = ws.sent[5] as {
+      const failedSnapshot = ws.sent[4] as {
         payload: { tasks: { status: string; outputArtifactIds: string[] }[] };
       };
       expect(failedSnapshot.payload.tasks[0]?.status).toBe("failed");
-      expect(failedSnapshot.payload.tasks[0]?.outputArtifactIds).toEqual([
-        projection.payload.artifactId,
-      ]);
+      expect(failedSnapshot.payload.tasks[0]?.outputArtifactIds).toEqual([]);
 
-      const failed = ws.sent[6] as {
+      const failed = ws.sent[5] as {
         payload: {
           status: string;
           terminalReason?: string;
@@ -1593,7 +1516,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
         status: "failed",
         terminalReason: "model exploded",
       });
-      expect(failed.payload.payload?.outputArtifactIds).toEqual([projection.payload.artifactId]);
+      expect(failed.payload.payload?.outputArtifactIds).toEqual([]);
       expect(harness.db.prepare("SELECT status FROM invocations").get()).toMatchObject({
         status: "failed",
       });

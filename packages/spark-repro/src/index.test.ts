@@ -6,6 +6,8 @@ import {
   evaluateStageGate,
   isPhaseComplete,
   isReproRequirementSatisfied,
+  nextReproStep,
+  normalizeStoredSparkSessionRepro,
   recordReproRequirementProof,
   reviseReproPlan,
   settleReproTick,
@@ -20,6 +22,67 @@ import {
 const ref = (id: string) => `evidence:${id}` as EvidenceRef;
 
 describe("spark-repro", () => {
+  it("selects the first dependency-ready step in the current stage", () => {
+    const base = createSparkSessionRepro("session:test");
+    const first = base.plan.steps[0]!;
+    const second = base.plan.steps[1]!;
+    const repro: SparkSessionRepro = {
+      ...base,
+      plan: {
+        ...base.plan,
+        steps: base.plan.steps.map((step) =>
+          step.id === first.id
+            ? { ...step, status: "blocked" }
+            : step.id === second.id
+              ? { ...step, dependsOn: [first.id] }
+              : step,
+        ),
+      },
+    };
+
+    expect(nextReproStep(repro)?.id).toBe(first.id);
+  });
+
+  it("normalizes stored proof fail-closed and rejects invalid state", () => {
+    const repro = createSparkSessionRepro("session:test");
+    const first = repro.plan.steps[0]!;
+    const stored: SparkSessionRepro = {
+      ...repro,
+      plan: {
+        ...repro.plan,
+        steps: repro.plan.steps.map((step) =>
+          step.id === first.id
+            ? {
+                ...step,
+                status: "done",
+                evidenceRefs: [ref("legacy")],
+              }
+            : step,
+        ),
+      },
+      stopGuard: {
+        ...repro.stopGuard,
+        lastProgressDigest: "",
+        limit: 0,
+        stagnationCount: -1,
+      },
+    };
+
+    const normalized = normalizeStoredSparkSessionRepro(stored);
+    expect(normalized).toMatchObject({
+      stopGuard: {
+        limit: 3,
+        stagnationCount: 0,
+        lastProgressDigest: expect.any(String),
+      },
+    });
+    expect(normalized?.plan.steps.find((step) => step.id === first.id)).toMatchObject({
+      status: "pending",
+      evidenceRefs: [ref("legacy")],
+    });
+    expect(normalizeStoredSparkSessionRepro({ version: 4, reproId: "broken" })).toBeUndefined();
+  });
+
   it("starts with a draft Goal Contract and a typed plan seeded from fixed gates", () => {
     const repro = createSparkSessionRepro("session:test", undefined, {
       objective: "Reproduce target logits",

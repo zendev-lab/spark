@@ -14,6 +14,7 @@ map for internal contracts and operator procedures.
 - [`specs/sessions-and-channels.md`](./specs/sessions-and-channels.md): persistent sessions, daemon-owned Side Threads, origins, mail, and channel policy.
 - [`specs/daemon-autonomous-drivers.md`](./specs/daemon-autonomous-drivers.md): daemon-owned goal/loop/repro/implement/workflow cadence, retry, recovery, fresh continuity, and the marrow-core replacement boundary.
 - [`specs/human-interaction.md`](./specs/human-interaction.md): ask/approval waits, status vocabulary, and correlation.
+- [`specs/cockpit-product-design.md`](./specs/cockpit-product-design.md): daemon-truth, Work-first session hierarchy, interaction boundaries, and reachable-state UI verification.
 - [`specs/turn.md`](./specs/turn.md): daemon command and event vocabulary.
 - [`specs/spark-runtime-integration.md`](./specs/spark-runtime-integration.md): `spark run --json` integration.
 - [`specs/spark-cockpit-remote-access.md`](./specs/spark-cockpit-remote-access.md): remote Cockpit operation.

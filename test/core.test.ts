@@ -60,7 +60,7 @@ test("refs carry kind and id", () => {
   assert.equal(isRef("agent:builtin-worker"), false);
   assert.throws(() => refKind("agent:builtin-worker"), /unknown ref kind/);
 
-  // evidence is a first-class RefKind (ArtifactRef may be evidence:…); isRefKind must accept it
+  // Evidence is a first-class RefKind with its own namespace.
   assert.equal(isRefKind("evidence"), true);
   const evidenceRef = newRef("evidence", "proof");
   assert.equal(evidenceRef, "evidence:proof");
@@ -94,17 +94,18 @@ test("artifact contract validates persisted metadata shape", () => {
     updatedAt: "2026-05-28T00:00:00.000Z",
   };
 
-  assert.doesNotThrow(() => validateArtifact(artifact));
+  assert.doesNotThrow(() => validateArtifact(artifact, "artifact"));
   assert.throws(
-    () => validateArtifact({ ...artifact, provenance: undefined }),
+    () => validateArtifact({ ...artifact, provenance: undefined }, "artifact"),
     /provenance must be an object/,
   );
   assert.throws(
-    () => validateArtifact({ ...artifact, bodyTruncated: true, bodyPreview: "preview" }),
+    () =>
+      validateArtifact({ ...artifact, bodyTruncated: true, bodyPreview: "preview" }, "artifact"),
     /bodySize must be a positive number/,
   );
   assert.throws(
-    () => validateArtifact({ ...artifact, curation: { status: "kept" } }),
+    () => validateArtifact({ ...artifact, curation: { status: "kept" } }, "artifact"),
     /curation.status must be valid/,
   );
 });

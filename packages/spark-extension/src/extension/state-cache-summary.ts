@@ -47,6 +47,7 @@ export async function collectSparkProtectedStoreSummaries(
     await summarizeProtectedSparkStore(root, join("todos", "todos.sqlite"), "todo-records", false),
     await summarizeProtectedSparkStore(root, "sessions", "session-state", true),
     await summarizeProtectedSparkStore(root, "artifacts", "artifact-history", true),
+    await summarizeProtectedSparkStore(root, "evidence", "evidence-ledger", true),
     await summarizeProtectedSparkStore(root, "notes", "notes", true),
     await summarizeProtectedSparkStore(root, "role-reports", "role-reports", true),
     await summarizeProtectedSparkStore(root, "workflow-runs.json", "workflow-runs", false),

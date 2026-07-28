@@ -47,12 +47,12 @@ export interface SparkToolResultRawRecoveryDecision {
 }
 
 export interface SparkToolResultRawRecoveryPath {
-  kind: "artifact";
-  artifactRef: string;
-  readTool: "artifact" | "evidence";
+  kind: "evidence";
+  evidenceRef: string;
+  readTool: "evidence";
   readArgs: {
     action: "read";
-    artifactRef: string;
+    evidenceRef: string;
     maxChars: number;
   };
 }

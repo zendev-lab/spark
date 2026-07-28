@@ -1,5 +1,5 @@
 import { type Artifact } from "@zendev-lab/spark-artifacts";
-import { isRef, type ArtifactRef } from "@zendev-lab/spark-core";
+import { isRef, type EvidenceRef } from "@zendev-lab/spark-core";
 
 export function normalizeArtifactLimit(value: unknown, fallback: number, field = "limit"): number {
   if (value === undefined || value === null) return fallback;
@@ -28,9 +28,9 @@ export function normalizeArtifactBoolean(
   return value;
 }
 
-export function normalizeArtifactRef(value: unknown): ArtifactRef {
-  if (typeof value !== "string") throw new Error("artifactRef must be a string");
-  if (!isRef(value, "artifact")) throw new Error("artifactRef must be an artifact: ref");
+export function normalizeEvidenceRef(value: unknown): EvidenceRef {
+  if (typeof value !== "string") throw new Error("evidenceRef must be a string");
+  if (!isRef(value, "evidence")) throw new Error("evidenceRef must be an evidence: ref");
   return value;
 }
 
