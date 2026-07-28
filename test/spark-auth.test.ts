@@ -154,10 +154,13 @@ test("SparkAuthStore persists OAuth credentials with restrictive file mode", asy
     assert.deepEqual(store.listProviders(), ["test-oauth"]);
     assert.equal(store.get("test-oauth")?.type, "oauth");
 
-    const onDisk = JSON.parse(await readFile(authPath, "utf8")) as {
-      version: number;
-      credentials: Record<string, unknown>;
-    };
+    const serializedAuth = await readFile(authPath, "utf8");
+    let onDisk: { version: number; credentials: Record<string, unknown> };
+    try {
+      onDisk = JSON.parse(serializedAuth) as typeof onDisk;
+    } catch (error) {
+      assert.fail(`persisted Spark auth fixture is not valid JSON: ${String(error)}`);
+    }
     assert.equal(onDisk.version, 1);
     assert.equal(typeof onDisk.credentials["test-oauth"], "object");
     assert.equal((await stat(authPath)).mode & 0o777, 0o600);
@@ -193,6 +196,23 @@ test("SparkProviderAuthResolver handles env, stored API key, literal, and OAuth 
     await store.setOAuth("test-oauth", oauthCredentials);
     assert.equal(resolver.hasConfiguredAuth(providerConfig("oauth:test-oauth")), true);
     assert.equal(resolver.resolveApiKey(providerConfig("oauth:test-oauth")), "access-token");
+  });
+});
+
+test("SparkProviderAuthResolver uses an unexpired stored OAuth access token without registry lookup", async () => {
+  await withAuthDir(async (_dir, authPath) => {
+    const store = new SparkAuthStore({ path: authPath });
+    await store.reload();
+    await store.setOAuth("version-skew-oauth", {
+      ...oauthCredentials,
+      access: "host-independent-access-token",
+      expires: Number.MAX_SAFE_INTEGER,
+    });
+    const resolver = new SparkProviderAuthResolver(store);
+    const provider = providerConfig("oauth:version-skew-oauth");
+
+    assert.equal(resolver.resolveApiKey(provider), "host-independent-access-token");
+    assert.equal(await resolver.resolveApiKeyAsync(provider), "host-independent-access-token");
   });
 });
 
