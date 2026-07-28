@@ -115,6 +115,7 @@ function createRetryingProviderStream(
 ): AsyncIterable<AssistantMessageEvent> & { result(): Promise<AssistantMessage> } {
   let currentStream = initialStream;
   let retries = 0;
+  let visibleOutputReleased = false;
   return {
     async *[Symbol.asyncIterator]() {
       while (true) {
@@ -123,32 +124,49 @@ function createRetryingProviderStream(
         let released = false;
         let retry = false;
 
-        for await (const event of stream) {
+        try {
+          for await (const event of stream) {
+            if (
+              event.type === "error" &&
+              !released &&
+              retries < SPARK_PROVIDER_ASSISTANT_ERROR_MAX_RETRIES &&
+              isRetriableProviderAssistantError(event.error)
+            ) {
+              retries += 1;
+              currentStream = factory();
+              retry = true;
+              break;
+            }
+
+            if (!released) {
+              buffered.push(event);
+              if (
+                assistantEventHasVisibleContent(event) ||
+                event.type === "done" ||
+                event.type === "error"
+              ) {
+                released = true;
+                if (assistantEventHasVisibleContent(event)) visibleOutputReleased = true;
+                yield* buffered;
+                buffered.length = 0;
+              }
+            } else {
+              if (assistantEventHasVisibleContent(event)) visibleOutputReleased = true;
+              yield event;
+            }
+          }
+        } catch (error) {
           if (
-            event.type === "error" &&
             !released &&
+            !visibleOutputReleased &&
             retries < SPARK_PROVIDER_ASSISTANT_ERROR_MAX_RETRIES &&
-            isRetriableProviderAssistantError(event.error)
+            isRetriableProviderFailure(error)
           ) {
             retries += 1;
             currentStream = factory();
             retry = true;
-            break;
-          }
-
-          if (!released) {
-            buffered.push(event);
-            if (
-              assistantEventHasVisibleContent(event) ||
-              event.type === "done" ||
-              event.type === "error"
-            ) {
-              released = true;
-              yield* buffered;
-              buffered.length = 0;
-            }
           } else {
-            yield event;
+            throw error;
           }
         }
 
@@ -159,25 +177,42 @@ function createRetryingProviderStream(
     },
     async result() {
       while (true) {
-        const result = await currentStream.result();
-        if (
-          retries < SPARK_PROVIDER_ASSISTANT_ERROR_MAX_RETRIES &&
-          !assistantMessageHasVisibleContent(result) &&
-          isRetriableProviderAssistantError(result)
-        ) {
-          retries += 1;
-          currentStream = factory();
-          continue;
+        try {
+          const result = await currentStream.result();
+          if (
+            retries < SPARK_PROVIDER_ASSISTANT_ERROR_MAX_RETRIES &&
+            !assistantMessageHasVisibleContent(result) &&
+            isRetriableProviderAssistantError(result)
+          ) {
+            retries += 1;
+            currentStream = factory();
+            continue;
+          }
+          return result;
+        } catch (error) {
+          if (
+            !visibleOutputReleased &&
+            retries < SPARK_PROVIDER_ASSISTANT_ERROR_MAX_RETRIES &&
+            isRetriableProviderFailure(error)
+          ) {
+            retries += 1;
+            currentStream = factory();
+            continue;
+          }
+          throw error;
         }
-        return result;
       }
     },
   };
 }
 
+function isRetriableProviderFailure(input: unknown): boolean {
+  return classifyProviderFailure(input).policy.retriable;
+}
+
 function isRetriableProviderAssistantError(message: AssistantMessage): boolean {
   if (message.stopReason !== "error") return false;
-  return classifyProviderFailure(message).policy.retriable;
+  return isRetriableProviderFailure(message);
 }
 
 function assistantMessageHasVisibleContent(message: AssistantMessage): boolean {
