@@ -2232,7 +2232,7 @@ test("Spark runtime exposes one executor role assignment contract", () => {
     roleRef: builtinRoleRef("reviewer"),
   });
 
-  assert.equal(sparkTaskExecutorRoleRef(research), builtinRoleRef("scout"));
+  assert.equal(sparkTaskExecutorRoleRef(research), builtinRoleRef("researcher"));
   assert.equal(sparkTaskExecutorRoleRef(plan), builtinRoleRef("worker"));
   assert.equal(sparkTaskExecutorRoleRef(review), builtinRoleRef("reviewer"));
   assert.equal(sparkTaskExecutorRoleRef(implementation), builtinRoleRef("worker"));

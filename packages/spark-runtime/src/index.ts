@@ -1307,7 +1307,7 @@ export function sparkTaskExecutorRoleRef(task: Task, defaultRoleRef?: RoleRef): 
 }
 
 function defaultRoleRefForTaskKind(kind: Task["kind"]): RoleRef {
-  if (kind === "research") return "role:builtin-scout" as RoleRef;
+  if (kind === "research") return "role:builtin-researcher" as RoleRef;
   if (kind === "review") return "role:builtin-reviewer" as RoleRef;
   return "role:builtin-worker" as RoleRef;
 }

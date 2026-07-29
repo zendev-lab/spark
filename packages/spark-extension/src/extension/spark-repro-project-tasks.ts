@@ -23,7 +23,7 @@ export function initialReproProjectTasks(
       description:
         "Inspect the workspace and dependency manifests, then prove whether a runnable reference baseline exists.",
       kind: "research",
-      roleRef: "role:builtin-scout",
+      roleRef: "role:builtin-explorer",
       plan: taskPlan(roadmapItem, {
         objective: `Determine whether a runnable competitor/reference baseline exists for ${objective}, including the exact launch command or exact missing inputs.`,
         successCriteria: [
@@ -44,7 +44,7 @@ export function initialReproProjectTasks(
       description:
         "Trace existing implementation modules and identify reusable boundaries for the target reproduction.",
       kind: "research",
-      roleRef: "role:builtin-scout",
+      roleRef: "role:builtin-researcher",
       plan: taskPlan(roadmapItem, {
         objective: `Produce a source-backed implementation map for ${objective} that identifies reusable modules, extension boundaries, and incompatible assumptions.`,
         successCriteria: [
@@ -65,7 +65,7 @@ export function initialReproProjectTasks(
       description:
         "Run source-backed comparisons of the available alignment paths and their observability constraints.",
       kind: "research",
-      roleRef: "role:builtin-scout",
+      roleRef: "role:builtin-explorer",
       plan: taskPlan(roadmapItem, {
         objective: `Compare real-module and eager alignment paths for ${objective} using executable probes and observable outputs.`,
         successCriteria: [

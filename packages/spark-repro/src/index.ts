@@ -1202,7 +1202,7 @@ function subgoalDefinitionFromStep(
 }
 
 function reproStepRoleRef(authority: SparkReproStepAuthority): `role:${string}` {
-  return authority === "safe_local" ? "role:builtin-scout" : "role:builtin-reviewer";
+  return authority === "safe_local" ? "role:builtin-researcher" : "role:builtin-reviewer";
 }
 
 function createGoalContract(
