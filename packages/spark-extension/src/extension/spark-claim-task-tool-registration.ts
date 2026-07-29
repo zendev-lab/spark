@@ -133,6 +133,17 @@ export function registerSparkClaimTaskTool(
       ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      const sessionKey = sparkSessionKey(ctx);
+      if (sessionKey === "session:ephemeral")
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Cannot claim a main task from an ephemeral session. Start or resume a persistent session first.",
+            },
+          ],
+          details: { found: true, error: "durable_session_required" },
+        };
       if (params.plan !== undefined)
         return {
           content: [
@@ -161,7 +172,6 @@ export function registerSparkClaimTaskTool(
           },
         };
       const status = input.requestedStatus ?? (input.roleRef ? "pending" : "running");
-      const sessionKey = sparkSessionKey(ctx);
       const store = defaultTaskGraphStore(cwd);
       const existingGraph = await store.load();
       if (!existingGraph)

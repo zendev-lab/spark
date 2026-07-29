@@ -52,6 +52,7 @@ import { sparkSessionKey } from "./session-state.ts";
 import type { SparkRegisteredToolConfig, SparkToolContext } from "./spark-tool-registration.ts";
 import { SparkWidgetController } from "./spark-widget-controller.ts";
 import { createSparkTurnContextController } from "./spark-turn-context-controller.ts";
+import { createSparkSessionHeartbeatController } from "./spark-session-heartbeat.ts";
 import {
   createSparkSessionTodoContextProvider,
   SPARK_SESSION_TODO_CONTEXT_PROVIDER_ID,
@@ -128,6 +129,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   const turnContextController = createSparkTurnContextController(contextRegistry, {
     providerIds: [SPARK_SESSION_TODO_CONTEXT_PROVIDER_ID],
   });
+  const sessionHeartbeatController = createSparkSessionHeartbeatController();
 
   async function refreshSparkWidget(cwd: string, ctx?: SparkToolContext): Promise<void> {
     await widgetController.refresh(cwd, ctx);
@@ -157,6 +159,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     refreshSparkWidget,
     ensureWorkflowRunManager: (cwd, ctx) => workflowRunManagerController.ensure(cwd, ctx),
     turnContextController,
+    sessionHeartbeatController,
     createAskAutoAnswerResolver: (ctx) => (request, askCtx) =>
       answerAskWithReviewer(request, askCtx, ctx),
     ensureActiveReproDriver: async (ctx) => {
