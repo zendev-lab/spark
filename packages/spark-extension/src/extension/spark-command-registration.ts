@@ -4,7 +4,7 @@ import {
   loopContinuationPrompt,
 } from "@zendev-lab/spark-loop";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
-import { nowIso, type ProjectRef } from "@zendev-lab/spark-core";
+import { type ProjectRef } from "@zendev-lab/spark-core";
 import type {
   SparkDriverContinuity,
   SparkDriverKind,
@@ -13,7 +13,7 @@ import type {
 import type { SparkEntryIntent } from "./spark-entry.ts";
 import { applySparkEntryResolution } from "./spark-entry-application.ts";
 import { detectSparkProjectState, resolveSparkEntry } from "./spark-entry-resolution.ts";
-import { currentSparkProject, loadSparkGraph, sparkSessionOwnerKey } from "./session-state.ts";
+import { currentSparkProject, loadSparkGraph } from "./session-state.ts";
 import { startOrInferSessionGoal } from "./spark-goal-tool-registration.ts";
 import {
   clearSessionGoal,
@@ -29,11 +29,12 @@ import {
 } from "./spark-session-loops.ts";
 import {
   clearSessionRepro,
-  createSparkSessionRepro,
   currentReproStage,
   readSessionRepro,
+  reviseReproPlan,
   writeSessionRepro,
 } from "./spark-session-repro.ts";
+import { createProjectBackedSessionRepro } from "./spark-repro-project.ts";
 import { renderReproTickInstruction } from "./spark-repro-tool-registration.ts";
 import {
   goalContextStrings,
@@ -416,13 +417,26 @@ export function registerSparkCommands(
     }
 
     const existing = await readSessionRepro(ctx.cwd, ctx);
-    const repro =
+    const active =
       existing?.status === "active"
-        ? objective && existing.objective !== objective
-          ? { ...existing, objective, updatedAt: nowIso() }
-          : existing
-        : createSparkSessionRepro(sparkSessionOwnerKey(ctx), undefined, { objective });
-    if (repro !== existing) await writeSessionRepro(ctx.cwd, repro, ctx);
+        ? existing.projectRef
+          ? existing
+          : (await createProjectBackedSessionRepro(ctx.cwd, ctx, { existing })).repro
+        : (await createProjectBackedSessionRepro(ctx.cwd, ctx, { objective })).repro;
+    const repro =
+      objective && active.objective !== objective
+        ? reviseReproPlan(active, {
+            reason: "Repro objective updated by command",
+            goalContract: {
+              objective,
+              constraints: active.goalContract.constraints,
+              nonGoals: active.goalContract.nonGoals,
+              successCriteria: active.goalContract.successCriteria,
+              evidenceRequired: active.goalContract.evidenceRequired,
+            },
+          })
+        : active;
+    if (repro !== active) await writeSessionRepro(ctx.cwd, repro, ctx);
 
     const stage = currentReproStage(repro);
     ctx.sparkActiveLens = sparkActiveLens(repro.currentPhase, "repro");

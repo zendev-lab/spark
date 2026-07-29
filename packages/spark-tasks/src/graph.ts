@@ -53,6 +53,7 @@ import {
   normalizeRoleRef,
   normalizeTask,
   normalizeTaskCancellation,
+  normalizeTaskExecutionPolicy,
   normalizeTaskPlan,
   normalizeTaskRefs,
   normalizeTaskRun,
@@ -139,6 +140,7 @@ export class TaskGraph {
       kind: input.kind ?? "generic",
       status,
       roleRef: normalizeRoleRef(input.roleRef),
+      executionPolicy: normalizeTaskExecutionPolicy(input.executionPolicy, input.kind ?? "generic"),
       finishedBy: input.finishedBy,
       cancellation:
         status === "cancelled"
@@ -192,6 +194,10 @@ export class TaskGraph {
             kind: input.kind ?? existing.kind,
             status: input.status ?? existing.status,
             roleRef: normalizeRoleRef(input.roleRef ?? existing.roleRef),
+            executionPolicy: normalizeTaskExecutionPolicy(
+              input.executionPolicy ?? existing.executionPolicy,
+              input.kind ?? existing.kind,
+            ),
             supersededBy: input.supersededBy ?? existing.supersededBy,
             plan: normalizeTaskPlan(input.plan ?? existing.plan, description, title),
           })
@@ -203,6 +209,7 @@ export class TaskGraph {
             kind: input.kind,
             status: input.status,
             roleRef: normalizeRoleRef(input.roleRef),
+            executionPolicy: normalizeTaskExecutionPolicy(input.executionPolicy, input.kind),
             supersededBy: input.supersededBy,
             plan: normalizeTaskPlan(input.plan, description, title),
           });
@@ -428,6 +435,7 @@ export class TaskGraph {
         | "kind"
         | "status"
         | "roleRef"
+        | "executionPolicy"
         | "finishedBy"
         | "cancellation"
         | "supersededBy"
@@ -459,6 +467,10 @@ export class TaskGraph {
       kind: patch.kind ?? task.kind,
       status,
       roleRef: normalizeRoleRef(patch.roleRef ?? task.roleRef),
+      executionPolicy: normalizeTaskExecutionPolicy(
+        patch.executionPolicy ?? task.executionPolicy,
+        patch.kind ?? task.kind,
+      ),
       finishedBy: isUnfinishedTaskStatus(status)
         ? (patch.finishedBy ?? task.finishedBy)
         : (patch.finishedBy ?? task.finishedBy ?? attributionFromTask({ ...task, ...patch })),

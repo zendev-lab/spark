@@ -179,8 +179,20 @@ function resolveCreateRequest(
   input: SparkSessionCreateRequest,
   options: CreateDaemonSessionRegistryOptions,
 ): CreateSparkSessionInput {
-  if (!input.scope) return resolveRegistryCreateInput(input, options);
-  if (input.scope.kind === "daemon") {
+  const taskExecution = "taskExecution" in input ? input.taskExecution : undefined;
+  const {
+    taskExecution: _taskExecution,
+    scope,
+    ...ordinaryInput
+  } = input as SparkSessionCreateRequest & {
+    taskExecution?: NonNullable<SparkSessionCreateRequest["taskExecution"]>;
+  };
+  const createInput: Omit<CreateSparkSessionInput, "scope"> = {
+    ...ordinaryInput,
+    ...(taskExecution ? { relation: { kind: "task_execution", ...taskExecution } } : {}),
+  };
+  if (!scope) return resolveRegistryCreateInput(createInput, options);
+  if (scope.kind === "daemon") {
     const daemonId = options.daemonId?.trim();
     if (!daemonId) {
       throw new SparkSessionRegistryError(
@@ -195,7 +207,7 @@ function resolveCreateRequest(
         "daemon-global session creation requires a daemon execution directory",
       );
     }
-    const { scope: _scope, workspaceId: _workspaceId, cwd: _cwd, ...rest } = input;
+    const { workspaceId: _workspaceId, cwd: _cwd, ...rest } = createInput;
     return {
       ...rest,
       scope: { kind: "daemon", daemonId },
@@ -204,9 +216,9 @@ function resolveCreateRequest(
   }
   return resolveRegistryCreateInput(
     {
-      ...input,
-      scope: input.scope,
-      workspaceId: input.scope.workspaceId,
+      ...createInput,
+      scope,
+      workspaceId: scope.workspaceId,
     },
     options,
   );

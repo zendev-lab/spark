@@ -14,6 +14,8 @@ import {
   type TaskCompletionIssue,
   type TaskCompletionReadiness,
   type TaskDependency,
+  type TaskExecutionPolicy,
+  type TaskKind,
   type TaskPlan,
   type TaskPlanIssue,
   type TaskPlanIssueKind,
@@ -250,6 +252,7 @@ export function normalizeTask(task: Task): Task {
     kind: task.kind,
     status: task.status,
     roleRef: normalizeRoleRef(task.roleRef),
+    executionPolicy: normalizeTaskExecutionPolicy(task.executionPolicy, task.kind),
     finishedBy: normalizeTaskAttribution(task.finishedBy),
     cancellation:
       task.status === "cancelled"
@@ -300,6 +303,132 @@ export function normalizeTaskPlan(
     openQuestions: normalizeStringList(plan?.openQuestions),
     askRefs: normalizeStringList(plan?.askRefs) as TaskPlan["askRefs"],
   };
+}
+
+export function normalizeTaskExecutionPolicy(
+  policy: Partial<TaskExecutionPolicy> | undefined,
+  kind: TaskKind = "generic",
+): TaskExecutionPolicy {
+  if (policy !== undefined && (!policy || typeof policy !== "object" || Array.isArray(policy))) {
+    throw new Error("task executionPolicy must be an object");
+  }
+  if (
+    policy?.continuity !== undefined &&
+    policy.continuity !== "fresh" &&
+    policy.continuity !== "reuse_within_revision"
+  ) {
+    throw new Error("task executionPolicy.continuity is invalid");
+  }
+  if (
+    policy?.isolation !== undefined &&
+    policy.isolation !== "isolated_worktree" &&
+    policy.isolation !== "isolated_results" &&
+    policy.isolation !== "readonly"
+  ) {
+    throw new Error("task executionPolicy.isolation is invalid");
+  }
+  if (
+    policy?.comparison !== undefined &&
+    policy.comparison !== "reference" &&
+    policy.comparison !== "target" &&
+    policy.comparison !== "paired" &&
+    policy.comparison !== "single_side"
+  ) {
+    throw new Error("task executionPolicy.comparison is invalid");
+  }
+  if (
+    policy?.concurrencyKeys !== undefined &&
+    (!Array.isArray(policy.concurrencyKeys) ||
+      policy.concurrencyKeys.some((key) => typeof key !== "string"))
+  ) {
+    throw new Error("task executionPolicy.concurrencyKeys must be strings");
+  }
+  if (
+    policy?.maxAttempts !== undefined &&
+    (!Number.isInteger(policy.maxAttempts) || policy.maxAttempts < 1)
+  ) {
+    throw new Error("task executionPolicy.maxAttempts must be a positive integer");
+  }
+  if (
+    policy?.timeoutMs !== undefined &&
+    (!Number.isInteger(policy.timeoutMs) || policy.timeoutMs < 1)
+  ) {
+    throw new Error("task executionPolicy.timeoutMs must be a positive integer");
+  }
+  if (
+    policy?.resources !== undefined &&
+    (!policy.resources || typeof policy.resources !== "object" || Array.isArray(policy.resources))
+  ) {
+    throw new Error("task executionPolicy.resources must be an object");
+  }
+  if (
+    policy?.resources?.gpuCount !== undefined &&
+    (!Number.isInteger(policy.resources.gpuCount) || policy.resources.gpuCount < 0)
+  ) {
+    throw new Error("task executionPolicy.resources.gpuCount must be a non-negative integer");
+  }
+  if (
+    policy?.resources?.minGpuMemoryGiB !== undefined &&
+    (!Number.isFinite(policy.resources.minGpuMemoryGiB) || policy.resources.minGpuMemoryGiB <= 0)
+  ) {
+    throw new Error("task executionPolicy.resources.minGpuMemoryGiB must be positive");
+  }
+  const continuity = policy?.continuity ?? "reuse_within_revision";
+  const isolation =
+    policy?.isolation === "isolated_worktree" ||
+    policy?.isolation === "isolated_results" ||
+    policy?.isolation === "readonly"
+      ? policy.isolation
+      : kind === "implement"
+        ? "isolated_worktree"
+        : kind === "research" || kind === "review" || kind === "plan"
+          ? "readonly"
+          : "isolated_results";
+  const comparison =
+    policy?.comparison === "reference" ||
+    policy?.comparison === "target" ||
+    policy?.comparison === "paired" ||
+    policy?.comparison === "single_side"
+      ? policy.comparison
+      : "single_side";
+  const gpuCount = policy?.resources?.gpuCount ?? 0;
+  const minGpuMemoryGiB = normalizeOptionalPositiveNumber(policy?.resources?.minGpuMemoryGiB);
+  const topologyClass = normalizeOptionalString(policy?.resources?.topologyClass);
+  const resources =
+    gpuCount > 0 ||
+    minGpuMemoryGiB !== undefined ||
+    topologyClass ||
+    policy?.resources?.exclusiveNode
+      ? {
+          gpuCount,
+          ...(minGpuMemoryGiB !== undefined ? { minGpuMemoryGiB } : {}),
+          ...(topologyClass ? { topologyClass } : {}),
+          ...(policy?.resources?.exclusiveNode ? { exclusiveNode: true } : {}),
+        }
+      : undefined;
+  return {
+    continuity,
+    isolation,
+    comparison,
+    ...(resources ? { resources } : {}),
+    concurrencyKeys: [...new Set(normalizeStringList(policy?.concurrencyKeys))],
+    ...(normalizeOptionalPositiveInteger(policy?.timeoutMs) !== undefined
+      ? { timeoutMs: normalizeOptionalPositiveInteger(policy?.timeoutMs) }
+      : {}),
+    maxAttempts: policy?.maxAttempts ?? 2,
+  };
+}
+
+function normalizeOptionalPositiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function normalizeOptionalPositiveNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function normalizeTaskPlanItems(
@@ -1199,6 +1328,15 @@ export function cloneTask(task: Task): Task {
     claim: task.claim ? { ...task.claim } : undefined,
     finishedBy: task.finishedBy ? { ...task.finishedBy } : undefined,
     cancellation: task.cancellation ? { ...task.cancellation } : undefined,
+    executionPolicy: task.executionPolicy
+      ? {
+          ...task.executionPolicy,
+          resources: task.executionPolicy.resources
+            ? { ...task.executionPolicy.resources }
+            : undefined,
+          concurrencyKeys: [...task.executionPolicy.concurrencyKeys],
+        }
+      : undefined,
     supersededBy: [...task.supersededBy],
     inputArtifacts: [...task.inputArtifacts],
     outputArtifacts: [...task.outputArtifacts],
@@ -1212,6 +1350,18 @@ export function normalizeTaskRun(run: TaskRun): TaskRun {
     ...run,
     roleRef: normalizeRoleRef(run.roleRef),
     runName: run.runName?.trim() || undefined,
+    execution: run.execution ? { ...run.execution } : undefined,
+    resourceAllocation: run.resourceAllocation
+      ? {
+          ...run.resourceAllocation,
+          groups: run.resourceAllocation.groups.map((group) => ({
+            ...group,
+            gpuIds: [...group.gpuIds],
+          })),
+          gpuIds: [...run.resourceAllocation.gpuIds],
+          concurrencyKeys: [...run.resourceAllocation.concurrencyKeys],
+        }
+      : undefined,
     outputArtifacts: [...run.outputArtifacts],
     completionSummary: run.completionSummary
       ? {

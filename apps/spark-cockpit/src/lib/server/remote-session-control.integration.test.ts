@@ -156,7 +156,7 @@ test("remote Cockpit controls both session scopes without a daemon socket", asyn
         scope: { kind: "daemon" },
         cwd: "/tmp/remote-path-injection",
       }),
-      /cannot select daemon-local cwd or sessionPath/u,
+      /cannot select daemon-local cwd, sessionPath, or task execution/u,
     );
 
     const bound = await client.bind({

@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 export * from "./driver-policy.ts";
+export * from "./repro-builtins.ts";
 import {
   getBuiltinWorkflowDefinition,
   listBuiltinWorkflows,
@@ -236,6 +237,7 @@ export * from "./types.ts";
 export * from "./metadata.ts";
 export * from "./runtime.ts";
 export * from "./events.ts";
+export * from "./task-resource-inventory.ts";
 export * from "./builtins.ts";
 export * from "./dynamic-workflow-run-store.ts";
 export * from "./dynamic-workflow-event-store.ts";

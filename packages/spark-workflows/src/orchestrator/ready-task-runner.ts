@@ -3,12 +3,15 @@ import {
   DEFAULT_READY_TASK_TIMEOUT_MS,
   type RunRef,
   type Task,
+  type TaskResourceAllocation,
+  type TaskResourceInventory,
   type TaskRef,
   type TaskRun,
   type ProjectRef,
 } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import { delay } from "es-toolkit";
+import { packTaskResourceFrontier, type DeferredTaskResource } from "./task-resource-scheduler.ts";
 
 export interface ReadyTaskRunInput {
   graph: TaskGraph;
@@ -16,6 +19,7 @@ export interface ReadyTaskRunInput {
   dryRun: boolean;
   timeoutMs: number;
   signal: AbortSignal;
+  resourceAllocation?: TaskResourceAllocation;
   claim?: {
     sessionId?: string;
     leaseMs?: number;
@@ -36,6 +40,8 @@ export interface ReadyTaskRunnerOptions {
   runTask: ReadyTaskRun;
   killRuns?: ReadyTaskRunKiller;
   projectRef?: ProjectRef;
+  /** Optional fail-closed frontier selected by the caller. */
+  taskRefs?: readonly TaskRef[];
   dryRun?: boolean;
   /** Maximum number of child runs running at the same time. Default: 4. */
   maxConcurrency?: number;
@@ -43,6 +49,8 @@ export interface ReadyTaskRunnerOptions {
   timeoutMs?: number;
   /** Per-child timeout. Defaults to no per-task timeout; use only when deliberately bounding each child. */
   taskTimeoutMs?: number;
+  /** Node-local inventory used for GPU/topology/concurrency-key packing. */
+  resourceInventory?: TaskResourceInventory;
   onSchedule?: (result: ReadyTaskRunnerSchedule) => void | Promise<void>;
   onProgress?: (result: ReadyTaskRunnerProgress) => void | Promise<void>;
   claim?: {
@@ -54,6 +62,7 @@ export interface ReadyTaskRunnerOptions {
 export interface ReadyTaskRunnerSchedule {
   taskRef: TaskRef;
   runRef?: RunRef;
+  resourceAllocation?: TaskResourceAllocation;
   running: number;
   scheduled: number;
 }
@@ -78,6 +87,7 @@ export interface ReadyTaskRunnerResult {
   foregroundTimedOut: boolean;
   detached: boolean;
   detachedRunRefs: RunRef[];
+  resourceDeferred: DeferredTaskResource[];
   maxConcurrency: number;
 }
 
@@ -91,11 +101,16 @@ export async function runReadyTasks(input: ReadyTaskRunnerOptions): Promise<Read
   const runs: TaskRun[] = [];
   const running = new Set<Promise<TaskRun>>();
   const scheduled = new Set<TaskRef>();
+  const allowedTaskRefs = input.taskRefs ? new Set(input.taskRefs) : undefined;
   const promiseRunRefs = new Map<Promise<TaskRun>, RunRef>();
   const schedulerAbort = new AbortController();
+  const resourceDeferred = new Map<TaskRef, DeferredTaskResource>();
   let foregroundTimedOut = false;
 
-  const schedule = async (task: Task): Promise<void> => {
+  const schedule = async (
+    task: Task,
+    resourceAllocation: TaskResourceAllocation,
+  ): Promise<void> => {
     scheduled.add(task.ref);
     const preexistingRunRefs = new Set(input.graph.runs(task.projectRef).map((run) => run.ref));
     const runPromise = input
@@ -103,8 +118,9 @@ export async function runReadyTasks(input: ReadyTaskRunnerOptions): Promise<Read
         graph: input.graph,
         taskRef: task.ref,
         dryRun,
-        timeoutMs: taskTimeoutMs ?? 0,
+        timeoutMs: task.executionPolicy?.timeoutMs ?? taskTimeoutMs ?? 0,
         signal: schedulerAbort.signal,
+        resourceAllocation,
         claim: dryRun
           ? undefined
           : {
@@ -114,14 +130,16 @@ export async function runReadyTasks(input: ReadyTaskRunnerOptions): Promise<Read
       })
       .catch((error: unknown) => taskRunRecordedForTaskError(input.graph, task, error))
       .then(async (run) => {
-        runs.push(run);
+        const allocatedRun = { ...run, resourceAllocation };
+        input.graph.recordRun(allocatedRun);
+        runs.push(allocatedRun);
         await input.onProgress?.({
           taskRef: task.ref,
-          run,
+          run: allocatedRun,
           running: Math.max(0, running.size - 1),
           completed: runs.length,
         });
-        return run;
+        return allocatedRun;
       })
       .finally(() => {
         running.delete(runPromise);
@@ -136,6 +154,7 @@ export async function runReadyTasks(input: ReadyTaskRunnerOptions): Promise<Read
     await input.onSchedule?.({
       taskRef: task.ref,
       runRef,
+      resourceAllocation,
       running: running.size,
       scheduled: scheduled.size,
     });
@@ -148,17 +167,29 @@ export async function runReadyTasks(input: ReadyTaskRunnerOptions): Promise<Read
         break;
       }
 
-      const ready = input.graph
+      const readyCandidates = input.graph
         .readyTasks(input.projectRef)
-        .filter((task) => !scheduled.has(task.ref))
-        .slice(0, Math.max(0, maxConcurrency - running.size));
-      for (const task of ready) await schedule(task);
+        .filter((task) => !allowedTaskRefs || allowedTaskRefs.has(task.ref))
+        .filter((task) => !scheduled.has(task.ref));
+      const packing = packTaskResourceFrontier({
+        tasks: readyCandidates,
+        runs: input.graph.runs(),
+        inventory: input.resourceInventory ?? { nodeId: "unmanaged", gpus: [] },
+        maxConcurrency,
+      });
+      for (const deferred of packing.deferred) resourceDeferred.set(deferred.taskRef, deferred);
+      for (const packed of packing.scheduled) {
+        resourceDeferred.delete(packed.taskRef);
+        const task = readyCandidates.find((candidate) => candidate.ref === packed.taskRef);
+        if (task) await schedule(task, packed.allocation);
+      }
 
       if (running.size === 0) {
         const hasMoreReady = input.graph
           .readyTasks(input.projectRef)
+          .filter((task) => !allowedTaskRefs || allowedTaskRefs.has(task.ref))
           .some((task) => !scheduled.has(task.ref));
-        if (!hasMoreReady) break;
+        if (!hasMoreReady || packing.scheduled.length === 0) break;
         continue;
       }
 
@@ -201,6 +232,7 @@ export async function runReadyTasks(input: ReadyTaskRunnerOptions): Promise<Read
     foregroundTimedOut,
     detached: detachedRunRefs.length > 0,
     detachedRunRefs,
+    resourceDeferred: [...resourceDeferred.values()],
     maxConcurrency,
   };
 }

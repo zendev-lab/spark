@@ -41,6 +41,8 @@ test("builtin Pi roles expose audited capability profiles", () => {
   );
   assert.equal(ROLE_CAPABILITY_VOCAB.includes("record" as never), false);
   assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.scout, ["read", "net"]);
+  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.explorer, ["read", "exec"]);
+  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.researcher, ["read", "net"]);
   assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.reviewer, ["read", "net"]);
   assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.worker, ["read", "net", "exec", "write"]);
 
@@ -67,6 +69,21 @@ test("builtin Pi roles expose audited capability profiles", () => {
   ]);
 
   assert.deepEqual(byId.get("reviewer")?.allowedTools, builtinRoleAllowedTools("scout"));
+  assert.deepEqual(byId.get("researcher")?.allowedTools, builtinRoleAllowedTools("scout"));
+
+  assert.deepEqual(byId.get("explorer")?.allowedTools, [
+    "read",
+    "grep",
+    "find",
+    "ls",
+    "context",
+    "cue_exec",
+    "cue_run",
+    "cue_script",
+    "script_run",
+    "script_eval",
+    "cue_jobs",
+  ]);
 
   assert.deepEqual(byId.get("worker")?.allowedTools, [
     ...builtinRoleAllowedTools("reviewer"),

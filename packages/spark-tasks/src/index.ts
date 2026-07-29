@@ -13,6 +13,7 @@ export {
   isDeletedSessionTodo,
   isUnfinishedTaskStatus,
   normalizeTaskPlan,
+  normalizeTaskExecutionPolicy,
   renderNonConcreteTaskIssues,
   renderTaskPlanReadinessRules,
   taskCompletionReadiness,

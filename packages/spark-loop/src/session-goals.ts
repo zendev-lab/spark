@@ -78,6 +78,8 @@ export async function setSessionGoal(
     objective: string;
     source: SparkSessionGoalSource;
     status?: SparkSessionGoalStatus;
+    /** Internal managed-session identity used to bind a queued TaskRun before dispatch. */
+    goalId?: string;
   },
 ): Promise<SparkSessionGoal> {
   const objective = normalizeGoalObjective(input.objective);
@@ -86,7 +88,7 @@ export async function setSessionGoal(
   const now = nowIso();
   const goal: SparkSessionGoal = {
     version: 1,
-    goalId: existing ? existing.goalId : randomUUID(),
+    goalId: existing ? existing.goalId : input.goalId?.trim() || randomUUID(),
     sessionKey: sparkSessionOwnerKey(ctx),
     originalObjective: objective,
     objective,

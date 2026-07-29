@@ -4,7 +4,7 @@ import type {
   SessionActivityQueuedTurn,
   SessionActivityReport,
 } from "@zendev-lab/spark-cockpit-coordination/session-activity";
-import type { SparkModelControlSnapshot } from "@zendev-lab/spark-protocol";
+import type { SparkModelControlSnapshot, SparkSessionRelation } from "@zendev-lab/spark-protocol";
 import type { CockpitMessages } from "@zendev-lab/spark-cockpit-i18n";
 
 /** Canonical session activity projection; UI previously re-declared a near-isomorphic subset. */
@@ -20,6 +20,7 @@ export type SessionRecord = {
   title?: string;
   status: string;
   role?: string;
+  relation?: SparkSessionRelation;
   bindings?: Array<{
     kind: string;
     adapter?: string;

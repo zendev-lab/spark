@@ -2,6 +2,8 @@ import { createRawSnippet } from "svelte";
 import { page } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { cockpitDictionaries } from "@zendev-lab/spark-cockpit-i18n";
+import SessionDetailsPanel from "./SessionDetailsPanel.svelte";
 import SessionStageHeader from "./SessionStageHeader.svelte";
 import type { SessionConversationHost } from "./conversation-host";
 import { connectionLabel } from "./presentation";
@@ -30,6 +32,49 @@ describe("SessionsWorkspace browser smoke", () => {
         offline: "Offline",
       }),
     ).toBe("Connected");
+  });
+
+  it("projects the daemon-owned managed Task execution chain", async () => {
+    const screen = await render(SessionDetailsPanel, {
+      selected: {
+        sessionId: "sess_task",
+        status: "running",
+        role: "role:builtin-explorer",
+        createdAt: "2026-07-29T00:00:00.000Z",
+        updatedAt: "2026-07-29T00:00:01.000Z",
+        relation: {
+          kind: "task_execution",
+          ownerSessionId: "sess_owner",
+          projectRef: "proj:repro",
+          taskRef: "task:trace-reference",
+          subgoalRef: "subgoal:trace-reference",
+          runRef: "run:trace-reference-1",
+          sessionGoalId: "goal-trace-reference-1",
+          roleRef: "role:builtin-explorer",
+          jobId: "job-trace-reference",
+          attempt: 2,
+        },
+      },
+      messages: cockpitDictionaries.en.sessions,
+      statusLabel: (status: string) => status,
+      sessionScopeLabel: "Workspace",
+      selectedWorkspaceHref: null,
+      selectedIsChannelSession: false,
+      selectedChannelBindings: [],
+      selectedChannelsSettingsHref: null,
+      workbenchView: null,
+      inspectorLabels: {} as never,
+      instanceId: "task-execution-test",
+    });
+
+    const binding = screen.container.querySelector("[data-task-execution-binding]");
+    expect(binding).not.toBeNull();
+    expect(binding?.textContent).toContain("proj:repro");
+    expect(binding?.textContent).toContain("task:trace-reference");
+    expect(binding?.textContent).toContain("subgoal:trace-reference");
+    expect(binding?.textContent).toContain("goal-trace-reference-1");
+    expect(binding?.textContent).toContain("run:trace-reference-1");
+    expect(binding?.textContent).toContain("2");
   });
 
   it("switches the activity affordance at the compact breakpoint with disclosure semantics", async () => {

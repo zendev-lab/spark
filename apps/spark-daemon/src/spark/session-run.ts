@@ -99,6 +99,7 @@ export interface SparkDaemonTaskExecutorOptions {
       input: { delayMs?: number; dueAt?: string; reason?: string; prompt?: string },
     ): unknown;
     stop(task: SparkDaemonDriverTickTask, input?: { reason?: string }): unknown;
+    wakeOwner?(ownerSessionId: string, input: { kind: "repro"; reason: string }): unknown;
   };
   interact?: (
     request: SparkInteractionRequest,
@@ -174,6 +175,7 @@ export function createSparkDaemonTaskExecutor(
           result,
           options.sessionRegistry,
         );
+        await wakeTaskExecutionOwner(effectiveTask.sessionId, options);
         if (completed.indexed) {
           // Naming is a detached post-commit projection, so it must not keep a
           // successful invocation open. It still observes cancellation/drain
@@ -186,6 +188,7 @@ export function createSparkDaemonTaskExecutor(
           await emitSessionFailure(sessionTask, trackedContext, error);
         }
         await settleFailedSessionRun(sessionTask.sessionId, options.sessionRegistry);
+        await wakeTaskExecutionOwner(sessionTask.sessionId, options);
         throw error;
       }
     }
@@ -1221,7 +1224,7 @@ function emitHeadlessEvent(
 }
 
 function daemonTaskRouteMetadata(task: SparkDaemonTask | undefined): SparkJsonObject {
-  return (task?.workspaceBindingId ? { workspaceBindingId: task.workspaceBindingId } : {});
+  return task?.workspaceBindingId ? { workspaceBindingId: task.workspaceBindingId } : {};
 }
 
 function daemonEventFromHeadlessEvent(
@@ -1440,6 +1443,23 @@ async function settleSessionRun(
     console.error(
       `[spark-daemon] failed to settle session ${sessionId} after ${reason}: ${errorMessage(error)}`,
     );
+  }
+}
+
+async function wakeTaskExecutionOwner(
+  sessionId: string,
+  options: SparkDaemonTaskExecutorOptions,
+): Promise<void> {
+  if (!options.sessionRegistry?.get || !options.driverControl?.wakeOwner) return;
+  try {
+    const session = await options.sessionRegistry.get(sessionId);
+    if (session?.relation?.kind !== "task_execution") return;
+    await options.driverControl.wakeOwner(session.relation.ownerSessionId, {
+      kind: "repro",
+      reason: `managed Task Session ${sessionId} settled; reconcile ${session.relation.taskRef}`,
+    });
+  } catch (error) {
+    console.error(`[spark-daemon] failed to wake Task Session owner for ${sessionId}`, error);
   }
 }
 
