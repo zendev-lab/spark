@@ -50,9 +50,8 @@ export interface SparkCompactionCandidatePipelineOptions {
   reviewCandidate?: (candidate: SparkCompactionMemoryCandidate) => Promise<"accept" | "reject">;
 }
 
-const EVIDENCE_REF_PATTERN =
-  /\b(?:artifact|evidence):[A-Za-z0-9][A-Za-z0-9._-]*(?![:A-Za-z0-9._-])/gu;
-const VALID_EVIDENCE_REF_PATTERN = /^(?:artifact|evidence):[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+const EVIDENCE_REF_PATTERN = /\bevidence:[A-Za-z0-9][A-Za-z0-9._-]*(?![:A-Za-z0-9._-])/gu;
+const VALID_EVIDENCE_REF_PATTERN = /^evidence:[A-Za-z0-9][A-Za-z0-9._-]*$/u;
 
 /**
  * Extract only the durable portions of the structured Smart summary. Open work
@@ -127,7 +126,7 @@ export function extractSparkCompactionCandidates(
 /**
  * Run candidate persistence and evidence-gated Memory promotion independently
  * of the foreground compact request. Each candidate is isolated so one bad
- * artifact, reviewer, or store cannot prevent the remaining candidates.
+ * Evidence record, reviewer, or store cannot prevent the remaining candidates.
  */
 export async function runSparkCompactionCandidatePipeline(
   options: SparkCompactionCandidatePipelineOptions,
@@ -246,7 +245,7 @@ async function resolveValidEvidenceRefs(
     try {
       if (await store.tryGet(ref as EvidenceRef)) valid.push(ref);
     } catch {
-      // A malformed or unreadable evidence artifact fails closed for this candidate.
+      // A malformed or unreadable Evidence record fails closed for this candidate.
     }
   }
   return valid;

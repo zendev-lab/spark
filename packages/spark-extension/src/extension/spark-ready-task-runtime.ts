@@ -19,7 +19,7 @@ export interface SparkRuntimeReadyTaskRunnerOptions {
   registry: RoleRegistry;
   /** Role assigned when a ready task has no task-level role hint. Defaults by task kind, then worker. */
   defaultRoleRef?: RoleRef;
-  artifactStore?: EvidenceStore;
+  evidenceStore?: EvidenceStore;
   cwd?: string;
   sessionDir?: string;
   launch?: RoleLaunchMode;
@@ -40,7 +40,7 @@ export function createSparkRuntimeReadyTaskRunner(
         taskRef: input.taskRef,
         registry: options.registry,
         defaultRoleRef: options.defaultRoleRef,
-        artifactStore: options.artifactStore,
+        evidenceStore: options.evidenceStore,
         cwd: options.cwd,
         dryRun: input.dryRun,
         timeoutMs: input.timeoutMs,

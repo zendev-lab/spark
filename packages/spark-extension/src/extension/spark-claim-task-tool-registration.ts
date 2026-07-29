@@ -37,7 +37,7 @@ import { NO_SPARK_PROJECT_FOUND_HINT } from "./spark-project-guidance.ts";
 import { activeSparkRoleRunProcessesForCwd } from "./background-runs.ts";
 import {
   evaluateSparkTaskClaimRecovery,
-  recordSparkTaskClaimRecoveryArtifact,
+  recordSparkTaskClaimRecoveryEvidence,
   type SparkTaskClaimRecoveryDecision,
 } from "./task-claim-recovery.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
@@ -208,7 +208,7 @@ export function registerSparkClaimTaskTool(
                 claimRecovery,
               };
             recoveredClaimEvidenceRef = (
-              await recordSparkTaskClaimRecoveryArtifact({
+              await recordSparkTaskClaimRecoveryEvidence({
                 cwd,
                 task: existing,
                 projectRef: project.ref,

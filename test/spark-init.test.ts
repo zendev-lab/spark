@@ -127,7 +127,7 @@ test("Spark prompt preserves base prompt and stays a single-line phase marker", 
   assert.match(prompt, /Tools:/);
   assert.match(
     prompt,
-    /task_read, task_write, assign, artifact, ask, role, learning, context, recall, workflow, spark-cue/,
+    /task_read, task_write, assign, artifact, evidence, ask, role, memory, context, workflow, and spark-cue/,
   );
   assert.doesNotMatch(prompt, /spark-graft/);
   assert.doesNotMatch(prompt, /workflow, patch/);
@@ -352,11 +352,11 @@ test("initializeSparkIdea preserves clarified title and trace evidence refs", as
         deliveryMode: "document_and_execute",
         nextAction: "continue_tasking",
       },
-      askArtifactRefs: ["evidence:ask-test"],
+      askEvidenceRefs: ["evidence:ask-test"],
       askRefs: ["ask:ask-test"],
     });
     assert.equal(result.projectTitle, "Hypha v0: VS Code-first IDE experience for Spore");
-    assert.deepEqual(result.askArtifactRefs, ["evidence:ask-test"]);
+    assert.deepEqual(result.askEvidenceRefs, ["evidence:ask-test"]);
     const graph = await defaultTaskGraphStore(dir).load();
     const projectJson = JSON.stringify(graph?.snapshot(), null, 2);
     assert.match(projectJson, /Hypha v0: VS Code-first IDE experience for Spore/);

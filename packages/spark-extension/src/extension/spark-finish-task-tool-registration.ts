@@ -265,7 +265,7 @@ export function registerSparkFinishTaskTool(
       let reviewEvidence: EvidenceRecord<JsonValue> | undefined;
       let reviewResult: ReviewerRunResult | undefined;
       let finishEvidenceRefs = input.evidenceRefs;
-      let generatedEvidenceArtifact: (EvidenceRecord<JsonValue> & { ref: EvidenceRef }) | undefined;
+      let generatedEvidence: (EvidenceRecord<JsonValue> & { ref: EvidenceRef }) | undefined;
       if (input.status === "done") {
         let candidate = await resolveFinishReviewCandidate(store, cwd, ctx, input);
         if (isFinishTaskErrorResult(candidate)) {
@@ -323,16 +323,16 @@ export function registerSparkFinishTaskTool(
           };
         }
         if (input.evidence) {
-          generatedEvidenceArtifact = await recordTaskFinishEvidenceArtifact(
+          generatedEvidence = await recordTaskFinishEvidence(
             cwd,
             candidate.projectRef,
             candidate.persistedTask,
             input,
           );
-          finishEvidenceRefs = [...finishEvidenceRefs, generatedEvidenceArtifact.ref];
+          finishEvidenceRefs = [...finishEvidenceRefs, generatedEvidence.ref];
           candidate = {
             ...candidate,
-            task: taskWithFinishEvidenceRefs(candidate.task, [generatedEvidenceArtifact.ref]),
+            task: taskWithFinishEvidenceRefs(candidate.task, [generatedEvidence.ref]),
           };
         }
         const reviewInput: TaskReviewInput = {
@@ -367,7 +367,7 @@ export function registerSparkFinishTaskTool(
           reviewResult = failedTaskReviewerRunResult(reviewInput, unknownErrorMessage(error));
         }
         const verdict = reviewResult.verdict as TaskReviewVerdict;
-        reviewEvidence = await recordTaskReviewArtifact(
+        reviewEvidence = await recordTaskReviewEvidence(
           cwd,
           candidate.projectRef,
           candidate.task,
@@ -398,7 +398,7 @@ export function registerSparkFinishTaskTool(
               reviewRequired: true,
               review: verdict,
               reviewEvidenceRef: reviewEvidence.ref,
-              generatedEvidenceEvidenceRef: generatedEvidenceArtifact?.ref,
+              generatedEvidenceRef: generatedEvidence?.ref,
               remainingReadyTasks: progress.remainingReadyTasks,
               projectCompletionCandidate: progress.projectCompletionCandidate,
             }),
@@ -453,10 +453,10 @@ export function registerSparkFinishTaskTool(
               .join("; ")}`
           : "";
       const candidateSuffix = learningCandidate
-        ? `\nLearning candidate: ${learningCandidate.artifact.ref} — ${learningCandidate.artifact.body.title}`
+        ? `\nLearning candidate: ${learningCandidate.evidence.ref} — ${learningCandidate.evidence.body.title}`
         : "";
-      const generatedEvidenceSuffix = generatedEvidenceArtifact
-        ? `\nGenerated evidence: ${generatedEvidenceArtifact.ref}`
+      const generatedEvidenceSuffix = generatedEvidence
+        ? `\nEvidence recorded: ${generatedEvidence.ref}`
         : "";
       const executionSuffix = renderFinishNextStepSuffix(finishedResult.nextReady, input.status);
       return {
@@ -479,7 +479,7 @@ export function registerSparkFinishTaskTool(
           reviewRequired: input.status === "done",
           review: reviewResult?.verdict as TaskReviewVerdict | undefined,
           reviewEvidenceRef: reviewEvidence?.ref,
-          generatedEvidenceEvidenceRef: generatedEvidenceArtifact?.ref,
+          generatedEvidenceRef: generatedEvidence?.ref,
           remainingReadyTasks: finishedResult.remainingReadyTasks,
           projectCompletionCandidate: finishedResult.projectCompletionCandidate,
           nextReadyTask: finishedResult.nextReady,
@@ -510,7 +510,7 @@ async function checkResearchFollowUpDisposition(
     try {
       sources.push({ source: evidenceRef, text: await evidenceStore.getBody(evidenceRef) });
     } catch {
-      // Missing/unreadable artifacts are handled by the existing completion evidence warning path.
+      // Missing/unreadable evidence is handled by the existing completion warning path.
       // This gate only inspects available research/review output text for orphan follow-ups.
     }
   }
@@ -776,18 +776,18 @@ interface FinishTransitionDetailsInput {
   reviewRequired: boolean;
   review?: TaskReviewVerdict;
   reviewEvidenceRef?: EvidenceRef;
-  generatedEvidenceEvidenceRef?: EvidenceRef;
+  generatedEvidenceRef?: EvidenceRef;
   remainingReadyTasks: Task[];
   projectCompletionCandidate: FinishProjectCompletionCandidate;
   nextReadyTask?: Task;
-  learningCandidate?: { artifact: EvidenceRecord<LearningRecord>; location: LearningLocation };
+  learningCandidate?: { evidence: EvidenceRecord<LearningRecord>; location: LearningLocation };
 }
 
 function renderFinishTransitionDetails(
   input: FinishTransitionDetailsInput,
 ): Record<string, unknown> {
   const learningCandidate = input.learningCandidate
-    ? compactLearningDetail(input.learningCandidate.artifact, input.learningCandidate.location)
+    ? compactLearningDetail(input.learningCandidate.evidence, input.learningCandidate.location)
     : undefined;
   return {
     found: true,
@@ -807,7 +807,7 @@ function renderFinishTransitionDetails(
     evidenceRefs: input.task.outputEvidenceRefs,
     inputEvidenceRefs: input.inputEvidenceRefs,
     reviewEvidenceRefs: input.reviewEvidenceRefs,
-    generatedEvidenceArtifact: input.generatedEvidenceEvidenceRef,
+    generatedEvidenceRef: input.generatedEvidenceRef,
     completionReadiness: input.completionReadiness,
     nextReadyTask: input.nextReadyTask ? compactTaskDetail(input.nextReadyTask) : undefined,
     remainingReadyTasks: input.remainingReadyTasks.map(compactTaskDetail),
@@ -825,7 +825,7 @@ function renderFinishTransitionDetails(
       blockers: input.review?.blockers,
       confidence: input.review?.confidence,
       evidenceRef: input.reviewEvidenceRef,
-      generatedEvidenceEvidenceRef: input.generatedEvidenceEvidenceRef,
+      generatedEvidenceEvidenceRef: input.generatedEvidenceRef,
     },
   };
 }
@@ -883,7 +883,7 @@ function emptyFinishProjectProgress(projectRef: ProjectRef): {
   };
 }
 
-async function recordTaskFinishEvidenceArtifact(
+async function recordTaskFinishEvidence(
   cwd: string,
   projectRef: ProjectRef,
   task: Task,
@@ -932,7 +932,7 @@ function appendEvidenceList(lines: string[], title: string, items: string[]): vo
   if (items.length > 40) lines.push(`- … ${items.length - 40} more item(s) omitted`);
 }
 
-async function recordTaskReviewArtifact(
+async function recordTaskReviewEvidence(
   cwd: string,
   projectRef: ProjectRef,
   task: Task,
@@ -953,7 +953,7 @@ async function recordTaskReviewArtifact(
       ? { stderrPreview: truncateReviewRunOutput(review.record.stderr, 4_000) }
       : {}),
   };
-  const artifact = await defaultEvidenceStore(cwd).put({
+  const evidence = await defaultEvidenceStore(cwd).put({
     kind: "record",
     title: `Task finish review for @${task.name}: ${task.title}`,
     format: "json",
@@ -973,8 +973,8 @@ async function recordTaskReviewArtifact(
     },
     links: [{ to: task.ref, relation: "review-of" }],
   });
-  await recordTaskSubjectReview(cwd, projectRef, task, artifact, review);
-  return artifact;
+  await recordTaskSubjectReview(cwd, projectRef, task, evidence, review);
+  return evidence;
 }
 
 function truncateReviewRunOutput(value: string, maxChars: number): string {
@@ -993,7 +993,7 @@ function renderTaskReviewRejectedMessage(
   const blockers = verdict.blockers.length
     ? `\nBlockers: ${formatReviewerList(verdict.blockers)}`
     : "";
-  return `Task finish blocked by reviewer: @${task.name}: ${task.title}\nReview outcome: ${verdict.outcome}\nReview summary: ${verdict.summary}${findings}${blockers}\nReview artifact: ${evidenceRef}\nThe task was not marked done. Address the reviewer feedback, keep or update evidence, then call task_write({ action: "finish" }) again.`;
+  return `Task finish blocked by reviewer: @${task.name}: ${task.title}\nReview outcome: ${verdict.outcome}\nReview summary: ${verdict.summary}${findings}${blockers}\nReview evidence: ${evidenceRef}\nThe task was not marked done. Address the reviewer feedback, keep or update evidence, then call task_write({ action: "finish" }) again.`;
 }
 
 function formatReviewerList(items: readonly string[]): string {
@@ -1029,9 +1029,9 @@ async function recordTaskLearningCandidate(
   cwd: string,
   task: Task,
   summary: string,
-): Promise<{ artifact: EvidenceRecord<LearningRecord>; location: LearningLocation }> {
+): Promise<{ evidence: EvidenceRecord<LearningRecord>; location: LearningLocation }> {
   const store = defaultLearningStore(cwd);
-  const artifact = await store.record({
+  const evidence = await store.record({
     title: `Candidate from @${task.name}: ${task.title}`,
     statement: summary,
     category: "workflow",
@@ -1049,7 +1049,7 @@ async function recordTaskLearningCandidate(
       `Completion summary: ${summary}`,
     ].join("\n"),
   });
-  return { artifact, location: store.location };
+  return { evidence, location: store.location };
 }
 
 async function buildTaskEvidencePreviews(
@@ -1061,20 +1061,20 @@ async function buildTaskEvidencePreviews(
   return Promise.all(
     evidenceRefs.slice(-10).map(async (ref) => {
       try {
-        const artifact = await store.get(ref);
+        const evidence = await store.get(ref);
         const bodyText =
-          typeof artifact.body === "string"
-            ? artifact.body
-            : JSON.stringify(artifact.body, null, 2);
+          typeof evidence.body === "string"
+            ? evidence.body
+            : JSON.stringify(evidence.body, null, 2);
         const bodyPreview =
-          artifact.bodyPreview ??
+          evidence.bodyPreview ??
           (bodyText.length > 2000 ? bodyText.slice(0, 2000) + "…" : bodyText);
         return {
           ref,
-          title: artifact.title,
-          kind: artifact.kind,
-          format: artifact.format,
-          provenance: artifact.provenance as unknown as Record<string, unknown>,
+          title: evidence.title,
+          kind: evidence.kind,
+          format: evidence.format,
+          provenance: evidence.provenance as unknown as Record<string, unknown>,
           bodyPreview,
         };
       } catch (error) {

@@ -32,7 +32,7 @@ function executionReadyPlan(objective: string): TaskPlan {
     nonGoals: [],
     successCriteria: [`Validation command for ${objective} passes with exit code 0.`],
     evidenceRequired: [
-      `Validation artifact records command output, exit code, and changed-file summary for ${objective}.`,
+      `Validation evidence records command output, exit code, and changed-file summary for ${objective}.`,
     ],
     steps: [objective],
     riskLevel: "normal",
@@ -113,7 +113,7 @@ test("artifact contract validates persisted metadata shape", () => {
   );
 });
 
-test("artifact store defaults and filters curation lifecycle", async () => {
+test("Evidence store defaults and filters curation lifecycle", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-artifact-curation-"));
   try {
     const store = new EvidenceStore({ rootDir: dir });

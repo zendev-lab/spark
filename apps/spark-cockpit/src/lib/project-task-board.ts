@@ -7,7 +7,7 @@ export interface ProjectTaskBoardTask {
   inputArtifactIds?: readonly string[];
 }
 
-export interface ProjectTaskBoardArtifact {
+export interface ProjectTaskBoardProductArtifact {
   id: string;
   title: string;
   kind: string;
@@ -16,7 +16,7 @@ export interface ProjectTaskBoardArtifact {
 
 export interface ProjectTaskBoardCard {
   task: ProjectTaskBoardTask;
-  evidenceArtifacts: ProjectTaskBoardArtifact[];
+  productArtifacts: ProjectTaskBoardProductArtifact[];
   assignable: boolean;
 }
 
@@ -38,7 +38,7 @@ const PRODUCT_ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
 
 export function buildProjectTaskBoard(input: {
   tasks: readonly ProjectTaskBoardTask[];
-  artifacts: readonly ProjectTaskBoardArtifact[];
+  artifacts: readonly ProjectTaskBoardProductArtifact[];
   canAssign: boolean;
 }): ProjectTaskBoardColumn[] {
   const artifactById = new Map(input.artifacts.map((artifact) => [artifact.id, artifact]));
@@ -48,14 +48,14 @@ export function buildProjectTaskBoard(input: {
       ? task.statusGroup
       : "other";
     // Only product artifacts (issue/pr/preview) are user-visible; internal evidence stays off the board.
-    const evidenceArtifacts = [...(task.outputArtifactIds ?? []), ...(task.inputArtifactIds ?? [])]
+    const productArtifacts = [...(task.outputArtifactIds ?? []), ...(task.inputArtifactIds ?? [])]
       .flatMap((artifactId) => artifactById.get(artifactId) ?? [])
       .filter((artifact) => PRODUCT_ARTIFACT_KINDS.has(artifact.kind))
       .slice(0, 3);
     const cards = grouped.get(columnId) ?? [];
     cards.push({
       task,
-      evidenceArtifacts,
+      productArtifacts: productArtifacts,
       assignable: input.canAssign && task.readyFrontier,
     });
     grouped.set(columnId, cards);

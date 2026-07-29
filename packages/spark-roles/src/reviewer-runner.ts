@@ -518,7 +518,7 @@ export function buildReadOnlyReviewerSystemPrompt(basePrompt: string): string {
     "",
     "Spark reviewer gate constraints:",
     "- Read-only verdict role: inspect the provided state/evidence only.",
-    "- Do not mutate tasks, goals, files, artifacts, recall, learning, asks, or project state.",
+    "- Do not mutate tasks, goals, files, Evidence, Product Artifacts, memory, asks, or project state.",
     "- Do not call task_write, goal update, assign, role, workflow, file edit, write, memory, recall, ask, or learning mutation tools.",
     "- Never ask interactively. If a question is required, return outcome=needs_changes or outcome=blocked and put the concrete question in findings/blockers.",
     "- Return verdict JSON only; the Spark tool that invoked you will apply any state transition.",
@@ -603,9 +603,9 @@ function renderTaskOrGoalReviewerInstruction(input: TaskReviewInput | GoalReview
           "Reject a task finish when the selected task's own plan items, scope, or evidence remain incomplete, or when the evidence defers work that belongs to the selected task rather than to an explicitly separate downstream task.",
         ]
       : [
-          "For targetKind=goal, review semantic satisfaction of the immutable original user goal, not only whether evidence supports a task description, intermediate artifact, or latest completion wording.",
+          "For targetKind=goal, review semantic satisfaction of the immutable original user goal, not only whether Evidence supports a task description, intermediate output, or latest completion wording.",
           "Completion success criteria (all required): every requirements[].status is verified and has mapped evidenceRefs; unresolved is empty; evidence_valid=true; objective_satisfied=true; and cited evidence directly and reproducibly tests originalObjective without scope drift. validationRuns are supplemental and do not replace per-requirement evidence.",
-          "Reject intermediate artifacts, simulations, summaries, manifests, wrappers, deterministic packaging, snapshots, mocks, or fixed-point-looking substitutes when they do not prove the original outcome. State what works, what remains, and any native/trusted dependency.",
+          "Reject intermediate outputs, simulations, summaries, manifests, wrappers, deterministic packaging, snapshots, mocks, or fixed-point-looking substitutes when they do not prove the original outcome. State what works, what remains, and any native/trusted dependency.",
           "For compiler, self-hosting, bootstrap, interpreter, VM, or execution-engine goals, require core execution path proof: the acceptance command/call trace, code that executed core logic, native/trusted boundaries, and behavior when host helpers are disabled.",
           'For requestedStatus=complete, a goal may complete without a current project only when evidenceRefs/projectStatus directly cover originalObjective. Otherwise, currentProjectSelected=false or projectEvidenceSource=project_evidence_fallback means the next step is research/plan: create/select a project with task_write({ action: "project_use", title, description }) and plan concrete tasks with task_write({ action: "plan" }); never use "no current project", "project cleared", or "all historical tasks are done" as the completion rationale.',
           "If projectStatus.taskCounts.unfinished > 0, default to needs_changes unless originalObjective is planning-only/readiness-only, or explicit requirements plus direct evidence demonstrate to the reviewer that the unfinished tasks are outside this narrower goal.",

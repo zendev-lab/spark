@@ -45,12 +45,12 @@ type EvidenceAction =
   | "promote"
   | "archive"
   | "supersede";
-type ArtifactListView = "ref-only" | "summary";
+type EvidenceListView = "ref-only" | "summary";
 
-const DEFAULT_ARTIFACT_READ_PREVIEW_CHARS = 800;
-const ARTIFACT_PRODUCER_DESCRIPTION =
+const DEFAULT_EVIDENCE_READ_PREVIEW_CHARS = 800;
+const EVIDENCE_PRODUCER_DESCRIPTION =
   "producer: spark | role | task | review | ask | cue | user. Prefer producer=task (+ runRef/taskRef) for execution notes; ask/review/cue when that capability owns the write.";
-const ARTIFACT_KIND_DESCRIPTION =
+const EVIDENCE_KIND_DESCRIPTION =
   "Internal ledger kinds only: record (default; one JSON fact/decision/result), trace (prunable raw output), knowledge (learning capability), document (rare long prose). Not user-facing; product ISSUE/PR/preview use artifact.";
 
 class ToolCallText implements ToolRenderComponent {
@@ -79,8 +79,8 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
       "Prefer format=json and kind=record with a compact body: { summary: string, data?: object }. Use kind=trace for raw/prunable tool dumps.",
       "Keep titles short; keep bodies small. Do not write long markdown essays into evidence.",
       "Use list/read to recover prior notes; use record to append. promote/archive/supersede only when curating durable ask/learning contracts.",
-      ARTIFACT_KIND_DESCRIPTION,
-      ARTIFACT_PRODUCER_DESCRIPTION,
+      EVIDENCE_KIND_DESCRIPTION,
+      EVIDENCE_PRODUCER_DESCRIPTION,
     ],
     parameters: Type.Object({
       action: Type.String({
@@ -98,7 +98,7 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
         Type.String({
           description:
             "record | trace | knowledge | document. Default for new writes: record. " +
-            ARTIFACT_KIND_DESCRIPTION,
+            EVIDENCE_KIND_DESCRIPTION,
         }),
       ),
       title: Type.Optional(Type.String({ description: "Short title for action=record." })),
@@ -119,13 +119,13 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
         Type.Any({
           description:
             "Required for record. Must include provenance.producer. " +
-            ARTIFACT_PRODUCER_DESCRIPTION,
+            EVIDENCE_PRODUCER_DESCRIPTION,
         }),
       ),
       links: Type.Optional(Type.Array(Type.Any({ description: "Typed links for action=record." }))),
       producer: Type.Optional(
         Type.String({
-          description: "Filter for list. " + ARTIFACT_PRODUCER_DESCRIPTION,
+          description: "Filter for list. " + EVIDENCE_PRODUCER_DESCRIPTION,
         }),
       ),
       projectRef: Type.Optional(
@@ -193,9 +193,9 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
 
       if (action === "list") {
         const limit = normalizeLimit(params.limit, 20, "limit");
-        const view = normalizeArtifactListView(params.view ?? "ref-only");
-        const artifacts = await store.list({
-          kind: normalizeOptionalArtifactKind(params.kind, "kind"),
+        const view = normalizeEvidenceListView(params.view ?? "ref-only");
+        const evidence = await store.list({
+          kind: normalizeOptionalEvidenceKind(params.kind, "kind"),
           producer: normalizeOptionalProducer(params.producer, "producer"),
           projectRef: normalizeOptionalRefOfKind(params.projectRef, "proj", "projectRef"),
           taskRef: normalizeOptionalRefOfKind(params.taskRef, "task", "taskRef"),
@@ -206,37 +206,37 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
           includeRaw: normalizeBoolean(params.includeRaw, false, "includeRaw"),
           includeArchived: normalizeBoolean(params.includeArchived, false, "includeArchived"),
         });
-        const newest = artifacts.slice().reverse();
+        const newest = evidence.slice().reverse();
         const visible = newest.slice(0, limit);
         const lines = [
-          `Evidence ledger: ${artifacts.length}${visible.length < artifacts.length ? ` (showing ${visible.length})` : ""}`,
-          ...visible.map((artifact) => renderArtifactListLine(artifact, view)),
+          `Evidence ledger: ${evidence.length}${visible.length < evidence.length ? ` (showing ${visible.length})` : ""}`,
+          ...visible.map((record) => renderEvidenceListLine(record, view)),
         ];
         if (visible.length === 0) lines.push("- (empty)");
-        if (visible.length < artifacts.length)
-          lines.push(`- … ${artifacts.length - visible.length} more`);
+        if (visible.length < evidence.length)
+          lines.push(`- … ${evidence.length - visible.length} more`);
         return toolResult("evidence", action, lines.join("\n"), {
-          count: artifacts.length,
+          count: evidence.length,
           shown: visible.length,
           view,
-          entries: visible.map((artifact) => compactArtifactSummaryDetail(artifact)),
+          entries: visible.map((record) => compactEvidenceSummaryDetail(record)),
         });
       }
 
       if (action === "read") {
         const evidenceRef = normalizeEvidenceRef(params.evidenceRef, "evidenceRef");
-        const artifact = await store.get(evidenceRef);
+        const evidence = await store.get(evidenceRef);
         const body = await store.getBody(evidenceRef);
         const maxChars = normalizeLimit(
           params.maxChars,
-          DEFAULT_ARTIFACT_READ_PREVIEW_CHARS,
+          DEFAULT_EVIDENCE_READ_PREVIEW_CHARS,
           "maxChars",
         );
         const renderedBody = truncateBlock(body, maxChars);
         const truncated = renderedBody.length < body.length;
         const lines = [
-          `${artifact.ref} [${artifact.kind}] ${artifact.title}`,
-          `producer=${artifact.provenance.producer} updated=${artifact.updatedAt}`,
+          `${evidence.ref} [${evidence.kind}] ${evidence.title}`,
+          `producer=${evidence.provenance.producer} updated=${evidence.updatedAt}`,
           "",
           renderedBody,
         ];
@@ -244,7 +244,7 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
           lines.push("", `… truncated ${body.length - renderedBody.length} char(s)`);
         }
         return toolResult("evidence", action, lines.join("\n"), {
-          evidence: compactArtifactDetail(artifact),
+          evidence: compactEvidenceDetail(evidence),
           bodyChars: body.length,
           shownChars: renderedBody.length,
           truncated,
@@ -252,14 +252,14 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
       }
 
       if (action === "record") {
-        const kind = normalizeArtifactKind(params.kind ?? "record", "kind");
+        const kind = normalizeEvidenceKind(params.kind ?? "record", "kind");
         const title = normalizeRequiredString(params.title, "title");
-        const format = normalizeArtifactFormat(params.format ?? "json", "format");
-        const body = normalizeArtifactBody(params.body, format);
+        const format = normalizeEvidenceFormat(params.format ?? "json", "format");
+        const body = normalizeEvidenceBody(params.body, format);
         const provenance = normalizeRecordProvenance(params);
-        const links = normalizeArtifactLinks(params.links);
+        const links = normalizeEvidenceLinks(params.links);
         const curation = normalizeOptionalCuration(params.curation, "curation");
-        const artifact = await store.put({
+        const evidence = await store.put({
           kind,
           title,
           format,
@@ -271,11 +271,11 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
         return toolResult(
           "evidence",
           action,
-          `Recorded ${artifact.ref} [${artifact.kind}] ${artifact.title}`,
+          `Recorded ${evidence.ref} [${evidence.kind}] ${evidence.title}`,
           {
             changed: true,
-            refs: { evidenceRef: artifact.ref },
-            evidence: compactArtifactSummaryDetail(artifact),
+            refs: { evidenceRef: evidence.ref },
+            evidence: compactEvidenceSummaryDetail(evidence),
           },
         );
       }
@@ -283,14 +283,14 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
       if (action === "link") {
         const from = normalizeEvidenceRef(params.from ?? params.evidenceRef, "from");
         const to = normalizeRequiredRef(params.to, "to") as EvidenceLink["to"];
-        const relation = normalizeArtifactRelation(params.relation, "relation");
+        const relation = normalizeEvidenceRelation(params.relation, "relation");
         const existing = await store.get(from);
         const links = [...existing.links.map(({ from: _from, ...link }) => link), { to, relation }];
-        const artifact = await store.update(from, { links });
+        const evidence = await store.update(from, { links });
         return toolResult("evidence", action, `Linked ${from} -> ${to} (${relation})`, {
           changed: true,
-          refs: { evidenceRef: artifact.ref, targetRef: to },
-          evidence: compactArtifactDetail(artifact),
+          refs: { evidenceRef: evidence.ref, targetRef: to },
+          evidence: compactEvidenceDetail(evidence),
         });
       }
 
@@ -311,11 +311,11 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
             (status === "curated" ? "durable" : "project"),
           reason: normalizeRequiredString(params.reason, "reason"),
         };
-        const artifact = await store.update(evidenceRef, { curation });
-        return toolResult("evidence", action, `Promoted ${artifact.ref} to ${status}`, {
+        const evidence = await store.update(evidenceRef, { curation });
+        return toolResult("evidence", action, `Promoted ${evidence.ref} to ${status}`, {
           changed: true,
-          refs: { evidenceRef: artifact.ref },
-          evidence: compactArtifactDetail(artifact),
+          refs: { evidenceRef: evidence.ref },
+          evidence: compactEvidenceDetail(evidence),
         });
       }
 
@@ -331,11 +331,11 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
             "ephemeral",
           reason: normalizeRequiredString(params.reason, "reason"),
         };
-        const artifact = await store.update(evidenceRef, { curation });
-        return toolResult("evidence", action, `Archived ${artifact.ref}`, {
+        const evidence = await store.update(evidenceRef, { curation });
+        return toolResult("evidence", action, `Archived ${evidence.ref}`, {
           changed: true,
-          refs: { evidenceRef: artifact.ref },
-          evidence: compactArtifactDetail(artifact),
+          refs: { evidenceRef: evidence.ref },
+          evidence: compactEvidenceDetail(evidence),
         });
       }
 
@@ -352,14 +352,14 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
           reason: normalizeRequiredString(params.reason, "reason"),
           supersededBy,
         };
-        const artifact = await store.update(evidenceRef, { curation });
-        return toolResult("evidence", action, `Superseded ${artifact.ref} by ${replacementRef}`, {
+        const evidence = await store.update(evidenceRef, { curation });
+        return toolResult("evidence", action, `Superseded ${evidence.ref} by ${replacementRef}`, {
           changed: true,
           refs: {
-            evidenceRef: artifact.ref,
+            evidenceRef: evidence.ref,
             supersededBy: replacementRef,
           },
-          evidence: compactArtifactDetail(artifact),
+          evidence: compactEvidenceDetail(evidence),
         });
       }
 
@@ -396,14 +396,14 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
 
 export { registerProductArtifactTool } from "./product/extension.ts";
 
-export function registerSparkArtifactTool(pi: SparkArtifactsHostApi): void {
+export function registerSparkEvidenceTool(pi: SparkArtifactsHostApi): void {
   registerEvidenceTool(pi);
   registerProductArtifactTool(pi);
 }
 
 export default function sparkArtifactsExtension(pi: SparkHostAPI): void {
   if (!pi.registerTool) throw new Error("spark-artifacts extension requires registerTool support");
-  registerSparkArtifactTool({ registerTool: (config) => pi.registerTool?.(config) });
+  registerSparkEvidenceTool({ registerTool: (config) => pi.registerTool?.(config) });
 }
 
 function renderEvidenceCall(
@@ -434,44 +434,44 @@ function toolResult(
 }
 
 /** Lean agent-ledger detail (no blob paths / hashes — those are store internals). */
-function compactArtifactDetail(artifact: EvidenceRecord): Record<string, unknown> {
+function compactEvidenceDetail(evidence: EvidenceRecord): Record<string, unknown> {
   return {
-    ref: artifact.ref,
-    kind: artifact.kind,
-    title: artifact.title,
-    format: artifact.format,
-    producer: artifact.provenance.producer,
-    projectRef: artifact.provenance.projectRef,
-    taskRef: artifact.provenance.taskRef,
-    roleRef: artifact.provenance.roleRef,
-    runRef: artifact.provenance.runRef,
-    curation: artifact.curation?.status ?? "raw",
-    bodySize: artifact.bodySize,
-    updatedAt: artifact.updatedAt,
+    ref: evidence.ref,
+    kind: evidence.kind,
+    title: evidence.title,
+    format: evidence.format,
+    producer: evidence.provenance.producer,
+    projectRef: evidence.provenance.projectRef,
+    taskRef: evidence.provenance.taskRef,
+    roleRef: evidence.provenance.roleRef,
+    runRef: evidence.provenance.runRef,
+    curation: evidence.curation?.status ?? "raw",
+    bodySize: evidence.bodySize,
+    updatedAt: evidence.updatedAt,
   };
 }
 
-function compactArtifactSummaryDetail(artifact: EvidenceRecord): Record<string, unknown> {
+function compactEvidenceSummaryDetail(evidence: EvidenceRecord): Record<string, unknown> {
   return {
-    ref: artifact.ref,
-    kind: artifact.kind,
-    title: artifact.title,
-    producer: artifact.provenance.producer,
-    projectRef: artifact.provenance.projectRef,
-    taskRef: artifact.provenance.taskRef,
-    curation: artifact.curation?.status ?? "raw",
-    updatedAt: artifact.updatedAt,
+    ref: evidence.ref,
+    kind: evidence.kind,
+    title: evidence.title,
+    producer: evidence.provenance.producer,
+    projectRef: evidence.provenance.projectRef,
+    taskRef: evidence.provenance.taskRef,
+    curation: evidence.curation?.status ?? "raw",
+    updatedAt: evidence.updatedAt,
   };
 }
 
-function renderArtifactListLine(artifact: EvidenceRecord, view: ArtifactListView): string {
-  if (view === "ref-only") return `- ${artifact.ref}`;
-  return `- [${artifact.kind}] ${artifact.ref}: ${artifact.title} curation=${renderCurationLabel(artifact)}`;
+function renderEvidenceListLine(evidence: EvidenceRecord, view: EvidenceListView): string {
+  if (view === "ref-only") return `- ${evidence.ref}`;
+  return `- [${evidence.kind}] ${evidence.ref}: ${evidence.title} curation=${renderCurationLabel(evidence)}`;
 }
 
-function renderCurationLabel(artifact: EvidenceRecord): string {
-  const status = artifact.curation?.status ?? "uncurated";
-  const retention = artifact.curation?.retention;
+function renderCurationLabel(evidence: EvidenceRecord): string {
+  const status = evidence.curation?.status ?? "uncurated";
+  const retention = evidence.curation?.retention;
   return retention ? `${status}/${retention}` : status;
 }
 
@@ -506,16 +506,16 @@ function normalizeAction(value: unknown): EvidenceAction {
   );
 }
 
-function normalizeArtifactListView(value: unknown): ArtifactListView {
+function normalizeEvidenceListView(value: unknown): EvidenceListView {
   if (value === undefined || value === null) return "ref-only";
   if (value === "ref-only" || value === "summary") return value;
   throw new Error("view must be ref-only or summary");
 }
 
-function normalizeArtifactKind(value: unknown, field: string): EvidenceKind {
+function normalizeEvidenceKind(value: unknown, field: string): EvidenceKind {
   if (!isEvidenceKind(value)) {
     throw new Error(
-      formatValidValuesError(field, value, "a valid artifact kind", EVIDENCE_KINDS, {
+      formatValidValuesError(field, value, "a valid Evidence kind", EVIDENCE_KINDS, {
         research: "Use kind=document for analysis/research write-ups.",
         plan: "Use kind=document for plans and breakdowns.",
         "plan-draft": "Use kind=document for plan drafts and finalized plans.",
@@ -530,27 +530,27 @@ function normalizeArtifactKind(value: unknown, field: string): EvidenceKind {
   return value;
 }
 
-function normalizeOptionalArtifactKind(value: unknown, field: string): EvidenceKind | undefined {
+function normalizeOptionalEvidenceKind(value: unknown, field: string): EvidenceKind | undefined {
   if (value === undefined || value === null) return undefined;
-  return normalizeArtifactKind(value, field);
+  return normalizeEvidenceKind(value, field);
 }
 
-function normalizeArtifactFormat(value: unknown, field: string): EvidenceFormat {
+function normalizeEvidenceFormat(value: unknown, field: string): EvidenceFormat {
   if (!isEvidenceFormat(value)) {
     throw new Error(
-      formatValidValuesError(field, value, "a valid artifact format", EVIDENCE_FORMATS),
+      formatValidValuesError(field, value, "a valid Evidence format", EVIDENCE_FORMATS),
     );
   }
   return value;
 }
 
-function normalizeArtifactRelation(value: unknown, field: string): EvidenceLink["relation"] {
+function normalizeEvidenceRelation(value: unknown, field: string): EvidenceLink["relation"] {
   if (!isEvidenceLinkRelation(value)) {
     throw new Error(
       formatValidValuesError(
         field,
         value,
-        "a valid artifact link relation",
+        "a valid Evidence link relation",
         EVIDENCE_LINK_RELATIONS,
       ),
     );
@@ -565,7 +565,7 @@ function normalizeOptionalProducer(
   if (value === undefined || value === null) return undefined;
   if (!isEvidenceProducer(value)) {
     throw new Error(
-      formatValidValuesError(field, value, "a valid artifact producer", EVIDENCE_PRODUCERS, {
+      formatValidValuesError(field, value, "a valid Evidence producer", EVIDENCE_PRODUCERS, {
         agent:
           "Use producer=task for execution evidence, with runRef/taskRef when available, or producer=user for user-provided material.",
         assistant:
@@ -586,7 +586,7 @@ function normalizeOptionalCurationStatus(
       formatValidValuesError(
         field,
         value,
-        "a valid artifact curation status",
+        "a valid Evidence curation status",
         EVIDENCE_CURATION_STATUSES,
       ),
     );
@@ -598,7 +598,7 @@ function normalizeOptionalRetention(value: unknown, field: string): EvidenceRete
   if (value === undefined || value === null) return undefined;
   if (!isEvidenceRetention(value)) {
     throw new Error(
-      formatValidValuesError(field, value, "a valid artifact retention", EVIDENCE_RETENTIONS),
+      formatValidValuesError(field, value, "a valid Evidence retention", EVIDENCE_RETENTIONS),
     );
   }
   return value;
@@ -612,15 +612,15 @@ function normalizeOptionalCuration(value: unknown, field: string): EvidenceCurat
   const curation: EvidenceCuration = { status };
   const retention = normalizeOptionalRetention(value.retention, `${field}.retention`);
   const reason = normalizeOptionalString(value.reason, `${field}.reason`);
-  const promotedFrom = normalizeOptionalArtifactRefArray(
+  const promotedFrom = normalizeOptionalEvidenceRefArray(
     value.promotedFrom,
     `${field}.promotedFrom`,
   );
-  const supersededBy = normalizeOptionalArtifactRefArray(
+  const supersededBy = normalizeOptionalEvidenceRefArray(
     value.supersededBy,
     `${field}.supersededBy`,
   );
-  const compactedInto = normalizeOptionalArtifactRef(value.compactedInto, `${field}.compactedInto`);
+  const compactedInto = normalizeOptionalEvidenceRef(value.compactedInto, `${field}.compactedInto`);
   const expiresAt = normalizeOptionalString(value.expiresAt, `${field}.expiresAt`);
   if (retention) curation.retention = retention;
   if (reason) curation.reason = reason;
@@ -631,12 +631,13 @@ function normalizeOptionalCuration(value: unknown, field: string): EvidenceCurat
   return curation;
 }
 
-function normalizeArtifactBody(value: unknown, format: EvidenceFormat): JsonValue | string {
+function normalizeEvidenceBody(value: unknown, format: EvidenceFormat): JsonValue | string {
   if (format === "markdown" || format === "text") {
-    if (typeof value !== "string") throw new Error(`body must be a string for ${format} artifacts`);
+    if (typeof value !== "string")
+      throw new Error(`body must be a string for ${format} Evidence records`);
     return value;
   }
-  if (!isJsonValue(value)) throw new Error("body must be a JSON value for json artifacts");
+  if (!isJsonValue(value)) throw new Error("body must be a JSON value for json Evidence records");
   return value;
 }
 
@@ -705,14 +706,14 @@ function normalizeProvenance(value: unknown): EvidenceProvenance {
   return provenance;
 }
 
-function normalizeArtifactLinks(value: unknown): Omit<EvidenceLink, "from">[] | undefined {
+function normalizeEvidenceLinks(value: unknown): Omit<EvidenceLink, "from">[] | undefined {
   if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value)) throw new Error("links must be an array");
   return value.map((entry, index) => {
     if (!isRecord(entry)) throw new Error(`links[${index}] must be an object`);
     return {
       to: normalizeRequiredRef(entry.to, `links[${index}].to`) as EvidenceLink["to"],
-      relation: normalizeArtifactRelation(entry.relation, `links[${index}].relation`),
+      relation: normalizeEvidenceRelation(entry.relation, `links[${index}].relation`),
     };
   });
 }
@@ -725,12 +726,12 @@ function normalizeEvidenceRef(value: unknown, field: string): EvidenceRef {
   return ref as EvidenceRef;
 }
 
-function normalizeOptionalArtifactRef(value: unknown, field: string): EvidenceRef | undefined {
+function normalizeOptionalEvidenceRef(value: unknown, field: string): EvidenceRef | undefined {
   if (value === undefined || value === null) return undefined;
   return normalizeEvidenceRef(value, field);
 }
 
-function normalizeOptionalArtifactRefArray(
+function normalizeOptionalEvidenceRefArray(
   value: unknown,
   field: string,
 ): EvidenceRef[] | undefined {

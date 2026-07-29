@@ -4,7 +4,7 @@ import { Type } from "typebox";
 import type { SparkDriverView } from "@zendev-lab/spark-protocol";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
-import { verifyCanonicalAskEvidenceArtifact } from "@zendev-lab/spark-ask";
+import { verifyCanonicalAskEvidence } from "@zendev-lab/spark-ask";
 import { isRef, type EvidenceRef, type TaskRef } from "@zendev-lab/spark-core";
 import { sparkStateCwd, updateSubgoalStatus } from "@zendev-lab/spark-loop";
 import { clearSessionGoal } from "./spark-session-goals.ts";
@@ -879,7 +879,7 @@ async function validateReproProofEvidence(
   }
   if (proof.kind !== "decision") return proof;
   const entry = evidence[0]!;
-  const verified = await verifyCanonicalAskEvidenceArtifact(cwd, entry);
+  const verified = await verifyCanonicalAskEvidence(cwd, entry);
   if (!verified) {
     throw new Error(
       "decision proof must reference canonical ask evidence with a valid receipt created by recordAsEvidence=true",
@@ -933,7 +933,7 @@ async function verifyReproStepEvidence(
       return {
         verdict: "Repair",
         stepId: step.id,
-        reasons: ["safe_local Step requires a spark.repro.step-proof/v1 evidence artifact"],
+        reasons: ["safe_local Step requires a spark.repro.step-proof/v1 Evidence record"],
       };
     }
     if (
@@ -959,7 +959,7 @@ async function verifyReproStepEvidence(
   }
 
   for (const entry of presentEntries) {
-    const verified = await verifyCanonicalAskEvidenceArtifact(cwd, entry);
+    const verified = await verifyCanonicalAskEvidence(cwd, entry);
     if (!verified) continue;
     const binding = decodeReproStepAskBinding(verified.request.context);
     const expectedBinding = createReproStepAskBinding(repro, step);
@@ -1018,7 +1018,7 @@ async function validateReproStepEvidence(cwd: string, step: SparkReproStep): Pro
   }
   if (step.status !== "done" || step.authority === "safe_local") return;
   for (const entry of evidence) {
-    if (entry && (await verifyCanonicalAskEvidenceArtifact(cwd, entry))) return;
+    if (entry && (await verifyCanonicalAskEvidence(cwd, entry))) return;
   }
   throw new Error(
     `${step.authority} step ${step.id} requires canonical ask evidence with a valid receipt`,

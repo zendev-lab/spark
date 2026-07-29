@@ -85,7 +85,7 @@ const SPARK_GOAL_DECISION_RULE = `Goal objectives should normally describe the s
 function renderGoalAction(hasExplicitGoal: boolean): string {
   const goalSource = hasExplicitGoal
     ? "Use the explicit goal focus as the target objective."
-    : "Infer the target objective from the current project purpose, description, title, task plans, required evidence, recent artifacts, and blockers.";
+    : "Infer the target objective from the current project purpose, description, title, task plans, required evidence, recent Evidence records, and blockers.";
   return (
     'Run the Spark goal drive from durable task/project state: read the current project/task plan and inspect ready tasks with task_read({ action: "project_status" }). ' +
     goalSource +

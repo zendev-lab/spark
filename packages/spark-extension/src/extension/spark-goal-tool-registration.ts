@@ -484,7 +484,7 @@ async function reviewedEditCurrentSessionGoal(
   };
   const review = await runGoalReviewer(cwd, ctx, reviewerRunner, reviewInput, signal);
   const verdict = review.verdict as GoalReviewVerdict;
-  const artifact = await recordGoalTransitionReviewArtifact(
+  const evidence = await recordGoalTransitionReviewEvidence(
     cwd,
     existingGoal,
     review,
@@ -496,10 +496,10 @@ async function reviewedEditCurrentSessionGoal(
     },
   );
   if (verdict.outcome !== "approved")
-    return { goal: existingGoal, approved: false, review, reviewEvidenceRef: artifact.ref };
+    return { goal: existingGoal, approved: false, review, reviewEvidenceRef: evidence.ref };
   const edited = await editSessionGoalObjective(cwd, ctx, proposedObjective);
   await refreshGoalRuntimeState(cwd, ctx, deps);
-  return { goal: edited, approved: true, review, reviewEvidenceRef: artifact.ref };
+  return { goal: edited, approved: true, review, reviewEvidenceRef: evidence.ref };
 }
 
 export async function reviewedPauseCurrentSessionGoal(
@@ -528,7 +528,7 @@ export async function reviewedPauseCurrentSessionGoal(
   };
   const review = await runGoalReviewer(cwd, ctx, reviewerRunner, reviewInput, signal);
   const verdict = review.verdict as GoalReviewVerdict;
-  const artifact = await recordGoalTransitionReviewArtifact(
+  const evidence = await recordGoalTransitionReviewEvidence(
     cwd,
     existingGoal,
     review,
@@ -543,7 +543,7 @@ export async function reviewedPauseCurrentSessionGoal(
       goal: existingGoal,
       approved: false,
       review,
-      reviewEvidenceRef: artifact.ref,
+      reviewEvidenceRef: evidence.ref,
     };
   const goal = await updateSessionGoalStatus(cwd, ctx, "paused", {
     reason,
@@ -553,12 +553,12 @@ export async function reviewedPauseCurrentSessionGoal(
       reason: verdict.summary,
       remainingWork: verdict.remainingWork,
       blockers: verdict.blockers,
-      evidenceRef: artifact.ref,
+      evidenceRef: evidence.ref,
       reviewedAt: review.record.finishedAt || nowIso(),
     },
   });
   await refreshGoalRuntimeState(cwd, ctx, deps);
-  return { goal, approved: true, review, reviewEvidenceRef: artifact.ref };
+  return { goal, approved: true, review, reviewEvidenceRef: evidence.ref };
 }
 
 async function refreshGoalRuntimeState(
@@ -621,7 +621,7 @@ function failedGoalPauseReviewerRunResult(
   };
 }
 
-async function recordGoalTransitionReviewArtifact(
+async function recordGoalTransitionReviewEvidence(
   cwd: string,
   goal: SparkSessionGoal,
   review: ReviewerRunResult,
@@ -636,7 +636,7 @@ async function recordGoalTransitionReviewArtifact(
     finishedAt: review.record.finishedAt,
     ...(review.record.thinking ? { thinking: review.record.thinking } : {}),
   };
-  const artifact = await defaultEvidenceStore(cwd).put({
+  const evidence = await defaultEvidenceStore(cwd).put({
     kind: "record",
     title: `Goal ${request.requestedStatus} review for session goal: ${oneLine(goal.objective)}`,
     format: "json",
@@ -657,8 +657,8 @@ async function recordGoalTransitionReviewArtifact(
       runRef: review.record.runRef,
     },
   });
-  await recordGoalSubjectReview(cwd, goal, artifact, review, input);
-  return artifact;
+  await recordGoalSubjectReview(cwd, goal, evidence, review, input);
+  return evidence;
 }
 
 function forbiddenAutonomousPauseResult(
@@ -704,8 +704,10 @@ function renderGoalEditRejectedMessage(
   const blockers = verdict?.blockers?.length
     ? `\nBlockers: ${formatGoalReviewList(verdict.blockers)}`
     : "";
-  const artifact = result.reviewEvidenceRef ? `\nReview evidence: ${result.reviewEvidenceRef}` : "";
-  return `Goal edit blocked by reviewer for session goal: ${oneLine(goal.objective)}\nReview outcome: ${verdict?.outcome ?? "blocked"}\nReview summary: ${summary}${findings}${blockers}${artifact}`;
+  const reviewEvidenceSuffix = result.reviewEvidenceRef
+    ? `\nReview evidence: ${result.reviewEvidenceRef}`
+    : "";
+  return `Goal edit blocked by reviewer for session goal: ${oneLine(goal.objective)}\nReview outcome: ${verdict?.outcome ?? "blocked"}\nReview summary: ${summary}${findings}${blockers}${reviewEvidenceSuffix}`;
 }
 
 function renderGoalPauseRejectedMessage(
@@ -717,8 +719,10 @@ function renderGoalPauseRejectedMessage(
   const blockers = verdict?.blockers?.length
     ? `\nBlockers: ${formatGoalReviewList(verdict.blockers)}`
     : "";
-  const artifact = result.reviewEvidenceRef ? `\nReview evidence: ${result.reviewEvidenceRef}` : "";
-  return `Goal pause blocked by reviewer for session goal: ${oneLine(goal.objective)}\nReview outcome: ${verdict?.outcome ?? "blocked"}\nReview summary: ${summary}${blockers}${artifact}`;
+  const reviewEvidenceSuffix = result.reviewEvidenceRef
+    ? `\nReview evidence: ${result.reviewEvidenceRef}`
+    : "";
+  return `Goal pause blocked by reviewer for session goal: ${oneLine(goal.objective)}\nReview outcome: ${verdict?.outcome ?? "blocked"}\nReview summary: ${summary}${blockers}${reviewEvidenceSuffix}`;
 }
 
 function formatGoalReviewList(items: readonly string[]): string {
@@ -756,12 +760,14 @@ function goalCompletionResult(
       ? `\nBlockers: ${formatGoalReviewList(result.blockers)}`
       : "";
     const remainingWork = result.remainingWork ? `\nRemaining work: ${result.remainingWork}` : "";
-    const artifact = result.evidenceRef ? `\nReview evidence: ${result.evidenceRef}` : "";
+    const reviewEvidenceSuffix = result.evidenceRef
+      ? `\nReview evidence: ${result.evidenceRef}`
+      : "";
     return {
       content: [
         {
           type: "text" as const,
-          text: `Goal completion request needs changes for session goal: ${oneLine(originalGoal.objective)}\nReason: ${result.reason}${remainingWork}${blockers}${artifact}`,
+          text: `Goal completion request needs changes for session goal: ${oneLine(originalGoal.objective)}\nReason: ${result.reason}${remainingWork}${blockers}${reviewEvidenceSuffix}`,
         },
       ],
       details: {

@@ -164,10 +164,10 @@ describe("Spark daemon bridge", () => {
       };
       const evidenceStore = {
         async get() {
-          throw new Error("unexpected artifact lookup for stream-only run");
+          throw new Error("unexpected Evidence lookup for stream-only run");
         },
         async getBody() {
-          throw new Error("unexpected artifact body lookup");
+          throw new Error("unexpected Evidence body lookup");
         },
       };
 
@@ -237,10 +237,10 @@ describe("Spark daemon bridge", () => {
       };
       const evidenceStore = {
         async get() {
-          throw new Error("unexpected artifact lookup for final-only run");
+          throw new Error("unexpected Evidence lookup for final-only run");
         },
         async getBody() {
-          throw new Error("unexpected artifact body lookup");
+          throw new Error("unexpected Evidence body lookup");
         },
       };
 
@@ -377,10 +377,10 @@ describe("Spark daemon bridge", () => {
       };
       const evidenceStore = {
         async get() {
-          throw new Error("unexpected artifact lookup for thrown failure");
+          throw new Error("unexpected Evidence lookup for thrown failure");
         },
         async getBody() {
-          throw new Error("unexpected artifact body lookup");
+          throw new Error("unexpected Evidence body lookup");
         },
       };
 
@@ -440,10 +440,10 @@ describe("Spark daemon bridge", () => {
       };
       const evidenceStore = {
         async get() {
-          throw new Error("unexpected artifact lookup for cancelled run");
+          throw new Error("unexpected Evidence lookup for cancelled run");
         },
         async getBody() {
-          throw new Error("unexpected artifact body lookup");
+          throw new Error("unexpected Evidence body lookup");
         },
       };
 
@@ -515,10 +515,10 @@ describe("Spark daemon bridge", () => {
       };
       const evidenceStore = {
         async get() {
-          throw new Error("unexpected artifact lookup for merge-only run");
+          throw new Error("unexpected Evidence lookup for merge-only run");
         },
         async getBody() {
-          throw new Error("unexpected artifact body lookup");
+          throw new Error("unexpected Evidence body lookup");
         },
       };
 
@@ -578,10 +578,10 @@ describe("Spark daemon bridge", () => {
       };
       const evidenceStore = {
         async get() {
-          throw new Error("unexpected artifact lookup for failed run without outputs");
+          throw new Error("unexpected Evidence lookup for failed run without outputs");
         },
         async getBody() {
-          throw new Error("unexpected artifact body lookup");
+          throw new Error("unexpected Evidence body lookup");
         },
       };
 

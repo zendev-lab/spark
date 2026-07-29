@@ -116,28 +116,28 @@ export function normalizeLearningInput(params: Record<string, unknown>): Learnin
 }
 
 export function compactLearningDetail(
-  artifact: EvidenceRecord<LearningRecord>,
-  location = inferLearningArtifactLocation(artifact),
+  evidence: EvidenceRecord<LearningRecord>,
+  location = inferLearningEvidenceLocation(evidence),
 ) {
   return {
-    ref: artifact.ref,
-    kind: artifact.kind,
-    title: artifact.body.title,
-    status: artifact.body.status,
-    category: artifact.body.category,
+    ref: evidence.ref,
+    kind: evidence.kind,
+    title: evidence.body.title,
+    status: evidence.body.status,
+    category: evidence.body.category,
     location,
-    tags: artifact.body.tags,
-    evidenceRefs: artifact.body.evidenceRefs,
-    dependsOn: artifact.body.dependsOn,
-    supersedes: artifact.body.supersedes,
-    supersededBy: artifact.body.supersededBy,
-    createdAt: artifact.createdAt,
-    updatedAt: artifact.updatedAt,
+    tags: evidence.body.tags,
+    evidenceRefs: evidence.body.evidenceRefs,
+    dependsOn: evidence.body.dependsOn,
+    supersedes: evidence.body.supersedes,
+    supersededBy: evidence.body.supersededBy,
+    createdAt: evidence.createdAt,
+    updatedAt: evidence.updatedAt,
   };
 }
 
-function inferLearningArtifactLocation(artifact: EvidenceRecord<LearningRecord>): LearningLocation {
-  const note = artifact.provenance.note ?? "";
+function inferLearningEvidenceLocation(evidence: EvidenceRecord<LearningRecord>): LearningLocation {
+  const note = evidence.provenance.note ?? "";
   if (note.includes("location=user")) return "user";
   if (note.includes("location=repo")) return "repo";
   if (note.includes("location=workspace")) return "workspace";

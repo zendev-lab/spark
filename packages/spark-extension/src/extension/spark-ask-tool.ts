@@ -4,16 +4,16 @@
  * Source content was previously routed through `spark-ask` (a thin facade over
  * `spark-ask`); now lives directly in `spark/extension` and consumes spark-ask
  * primitives by their original names. Spark-prefixed type names are kept
- * because these wrappers are spark-specific (artifact persistence + replay
- * through Spark artifact store + the `ask` tool name).
+ * because these wrappers are Spark-specific (Evidence persistence + replay
+ * through the Spark Evidence store + the `ask` tool name).
  */
 
 import {
   SparkAskFlowController,
-  createAskArtifactBody,
+  createAskEvidenceBody,
   createSparkAskFlowRequest,
   createSparkAskFlowResult,
-  isSparkAskFlowArtifactBody,
+  isSparkAskFlowEvidenceBody,
   isSparkAskFlowGateBlocked,
   isSparkAskFlowResultLike,
   normalizeSparkAskFlowResult,
@@ -108,41 +108,41 @@ export async function replaySparkAskTool(input: {
   details: Record<string, unknown>;
 }> {
   const store = defaultEvidenceStore(input.cwd);
-  const artifact = input.evidenceRef
+  const evidence = input.evidenceRef
     ? await store.get(input.evidenceRef)
     : (await store.list({ producer: "ask" })).slice(-1)[0];
-  if (!artifact) {
+  if (!evidence) {
     return {
-      content: [{ type: "text", text: "No replayable ask artifact found." }],
+      content: [{ type: "text", text: "No replayable ask Evidence found." }],
       details: { found: false },
     };
   }
-  if (!isSparkAskFlowArtifactBody(artifact.body)) {
+  if (!isSparkAskFlowEvidenceBody(evidence.body)) {
     return {
       content: [
         {
           type: "text",
-          text: `EvidenceRecord ${artifact.ref} is not a Spark ask artifact.`,
+          text: `EvidenceRecord ${evidence.ref} is not a Spark ask Evidence record.`,
         },
       ],
       details: { found: true, replayable: false },
     };
   }
 
-  const request = artifact.body.request;
-  const prior = artifact.body.result;
+  const request = evidence.body.request;
+  const prior = evidence.body.result;
   const result = normalizeSparkAskFlowResult(
     await replaySparkAskFlow(request, prior, input.ui),
     request,
   );
   const blocked = isSparkAskFlowGateBlocked(result, request);
-  const body = createAskArtifactBody(request, result, { blocked });
-  const replayArtifact = await store.put({
+  const body = createAskEvidenceBody(request, result, { blocked });
+  const replayEvidence = await store.put({
     kind: "record",
     title: `Replay ask: ${request.title ?? request.flow}`,
     format: "json",
     body: body as unknown as JsonValue,
-    provenance: { producer: "ask", parentEvidenceRefs: [artifact.ref] },
+    provenance: { producer: "ask", parentEvidenceRefs: [evidence.ref] },
   });
   const summary = summarizeAskResult(request, result, { blocked });
   return {
@@ -150,12 +150,12 @@ export async function replaySparkAskTool(input: {
       {
         type: "text",
         text: blocked
-          ? `Replay blocked (${result.status}): no decision/approval selection (${replayArtifact.ref})`
-          : `Replayed ask ${result.status} saved to ${replayArtifact.ref}`,
+          ? `Replay blocked (${result.status}): no decision/approval selection (${replayEvidence.ref})`
+          : `Replayed ask ${result.status} saved to ${replayEvidence.ref}`,
       },
     ],
     details: sparkAskToolDetails({
-      evidenceRef: replayArtifact.ref,
+      evidenceRef: replayEvidence.ref,
       result,
       blocked,
       summary,
@@ -180,8 +180,8 @@ async function runAndPersistSparkAskRequest(
     request,
   );
   const blocked = isSparkAskFlowGateBlocked(result, request);
-  const body = createAskArtifactBody(request, result, { blocked });
-  const artifact = await defaultEvidenceStore(input.cwd).put({
+  const body = createAskEvidenceBody(request, result, { blocked });
+  const evidence = await defaultEvidenceStore(input.cwd).put({
     kind: "record",
     title: input.title,
     format: "json",
@@ -193,11 +193,11 @@ async function runAndPersistSparkAskRequest(
     content: [
       {
         type: "text",
-        text: input.contentText({ summary, evidenceRef: artifact.ref }),
+        text: input.contentText({ summary, evidenceRef: evidence.ref }),
       },
     ],
     details: sparkAskToolDetails({
-      evidenceRef: artifact.ref,
+      evidenceRef: evidence.ref,
       result,
       blocked,
       summary,

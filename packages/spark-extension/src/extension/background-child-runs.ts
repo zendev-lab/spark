@@ -1,7 +1,7 @@
 import type { RunRef, TaskRef, ProjectRef } from "@zendev-lab/spark-core";
 import type { WorkflowRunRecord } from "@zendev-lab/spark-workflows";
 import {
-  readRoleRunArtifactPreview,
+  readRoleRunEvidencePreview,
   type ActiveSparkRoleRunProcess,
 } from "@zendev-lab/spark-runtime";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
@@ -125,18 +125,18 @@ export function collectBackgroundChildRuns(input: {
   });
 }
 
-export async function enrichBackgroundChildRunsWithRoleRunArtifacts(input: {
+export async function enrichBackgroundChildRunsWithRoleRunEvidence(input: {
   cwd: string;
   childRuns: SparkBackgroundChildRunView[];
 }): Promise<SparkBackgroundChildRunView[]> {
   return Promise.all(
     input.childRuns.map(async (child) => {
       if (child.evidenceRefs.length === 0) return child;
-      const roleRunArtifacts = await Promise.all(
-        child.evidenceRefs.map((evidenceRef) => readRoleRunArtifactPreview(input.cwd, evidenceRef)),
+      const roleRunEvidence = await Promise.all(
+        child.evidenceRefs.map((evidenceRef) => readRoleRunEvidencePreview(input.cwd, evidenceRef)),
       );
-      const compact = roleRunArtifacts.find(
-        (artifact) => artifact.summary || artifact.transcriptRef,
+      const compact = roleRunEvidence.find(
+        (evidence) => evidence.summary || evidence.transcriptRef,
       );
       return {
         ...child,
@@ -145,7 +145,7 @@ export async function enrichBackgroundChildRunsWithRoleRunArtifacts(input: {
         stdoutTail: compact?.stdout,
         stderrTail: compact?.stderr,
         jsonEventsTail: compact?.jsonEvents,
-        roleRunArtifacts,
+        roleRunEvidence,
       };
     }),
   );

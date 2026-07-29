@@ -132,7 +132,7 @@ export function formatHiddenRoleRunInbox(input: HiddenRoleRunInbox): string {
   if (input.remaining > 0)
     lines.push(`- ${input.remaining} more unread result(s) remain for a later turn.`);
   lines.push(
-    'Use artifact refs or task_read({ action: "run_status", runAction: "inspect" }) for bounded details if needed.',
+    'Use Evidence refs or task_read({ action: "run_status", runAction: "inspect" }) for bounded details if needed.',
   );
   return lines.join("\n");
 }
@@ -187,7 +187,7 @@ function hiddenRoleRunNextAction(summary: TaskRunCompletionSummary): string {
   if (summary.status === "cancelled") {
     return `inspect with task_read({ action: "run_status", runAction: "inspect", runRef: "${summary.runRef}" }); decide whether to requeue, supersede, or acknowledge cancellation`;
   }
-  return "continue parent task using this compact summary and artifact refs";
+  return "continue parent task using this compact summary and Evidence refs";
 }
 
 function cloneTaskRunCompletionSummary(

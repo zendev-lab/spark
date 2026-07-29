@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Negative fixtures proving Evidence/Product Artifact namespace, kind, and field-name ratchets fail closed.",
+  "fixtures": {
+    "invalid-evidence-ref.ts.txt": "Product Artifact namespace must not type-check as EvidenceRef",
+    "invalid-product-artifact-ref.ts.txt": "Evidence namespace must not type-check as ProductArtifactRef",
+    "invalid-evidence-kind.ts.txt": "Product Artifact kinds must not type-check as EvidenceKind",
+    "invalid-old-evidence-field.json": "retired artifact-named Evidence fields remain detectable only in controlled fixtures",
+    "negative-values.json": "runtime negative values for wrong namespace, wrong kind, and old-field rejection tests"
+  }
+}

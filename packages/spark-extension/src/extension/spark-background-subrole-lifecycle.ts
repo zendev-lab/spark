@@ -84,7 +84,7 @@ export async function resumeOwnedBackgroundSubroles(
   const resumable = findResumableBackgroundRoleRunTasks(graph, ownerSessionId);
   if (resumable.length === 0) return 0;
   const registry = await createSparkRoleRegistry(cwd);
-  const artifactStore = defaultEvidenceStore(cwd);
+  const evidenceStore = defaultEvidenceStore(cwd);
   let resumed = 0;
   for (const task of resumable) {
     const runName = task.claim?.runName;
@@ -96,7 +96,7 @@ export async function resumeOwnedBackgroundSubroles(
         graph,
         taskRef: task.ref,
         registry,
-        artifactStore,
+        evidenceStore,
         cwd,
         dryRun: false,
         claim: {

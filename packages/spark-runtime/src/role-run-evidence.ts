@@ -17,7 +17,7 @@ import {
   writeJsonFileAtomic,
 } from "@zendev-lab/spark-core";
 
-export const SPARK_ROLE_RUN_ARTIFACT_PREVIEW_METADATA_MAX_BYTES = 256 * 1024;
+export const SPARK_ROLE_RUN_EVIDENCE_PREVIEW_METADATA_MAX_BYTES = 256 * 1024;
 
 export interface RoleRunTextTail {
   bytes: number;
@@ -33,7 +33,7 @@ export interface RoleRunJsonEventsTail {
   truncated: boolean;
 }
 
-export interface RoleRunArtifactBody {
+export interface RoleRunEvidenceBody {
   schemaVersion: 1;
   runRef: RunRef;
   taskRef: TaskRef;
@@ -51,7 +51,7 @@ export interface RoleRunArtifactBody {
   diagnostic?: unknown;
 }
 
-export interface RoleRunArtifactPreview {
+export interface RoleRunEvidencePreview {
   evidenceRef: EvidenceRef;
   status?: string;
   summary?: string;
@@ -64,7 +64,7 @@ export interface RoleRunArtifactPreview {
   skippedReason?: string;
 }
 
-export function isRoleRunArtifactBody(value: unknown): value is RoleRunArtifactBody {
+export function isRoleRunEvidenceBody(value: unknown): value is RoleRunEvidenceBody {
   const record = roleRunRetentionRecord(value);
   if (!record) return false;
   return (
@@ -105,11 +105,11 @@ export function isRoleRunJsonEventsTail(value: unknown): value is RoleRunJsonEve
 
 export const SPARK_ROLE_RUN_RETENTION_TAIL_BYTES = 12 * 1024;
 
-export async function readRoleRunArtifactPreview(
+export async function readRoleRunEvidencePreview(
   cwd: string,
   evidenceRef: EvidenceRef,
   options: { maxMetadataBytes?: number } = {},
-): Promise<RoleRunArtifactPreview> {
+): Promise<RoleRunEvidencePreview> {
   const metadataPath = join(cwd, ".spark", "evidence", `${refId(evidenceRef)}.json`);
   const metadataStat = await stat(metadataPath).catch((error: NodeJS.ErrnoException) => {
     if (isFileNotFoundError(error)) return undefined;
@@ -122,12 +122,12 @@ export async function readRoleRunArtifactPreview(
     };
   }
   const maxMetadataBytes =
-    options.maxMetadataBytes ?? SPARK_ROLE_RUN_ARTIFACT_PREVIEW_METADATA_MAX_BYTES;
+    options.maxMetadataBytes ?? SPARK_ROLE_RUN_EVIDENCE_PREVIEW_METADATA_MAX_BYTES;
   if (metadataStat.size > maxMetadataBytes) {
     return {
       evidenceRef,
       bodySize: metadataStat.size,
-      skippedReason: `metadata_too_large: ${metadataStat.size} bytes; artifact body not loaded`,
+      skippedReason: `metadata_too_large: ${metadataStat.size} bytes; evidence body not loaded`,
     };
   }
   const rawMetadata = await readFile(metadataPath, "utf8").catch((error: NodeJS.ErrnoException) => {
@@ -141,9 +141,9 @@ export async function readRoleRunArtifactPreview(
     };
   }
 
-  let artifact: EvidenceRecord;
+  let evidence: EvidenceRecord;
   try {
-    artifact = JSON.parse(rawMetadata) as EvidenceRecord;
+    evidence = JSON.parse(rawMetadata) as EvidenceRecord;
   } catch (error) {
     return {
       evidenceRef,
@@ -151,37 +151,37 @@ export async function readRoleRunArtifactPreview(
       skippedReason: `metadata_parse_failed: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
-  if (artifact.kind !== "trace") {
+  if (evidence.kind !== "trace") {
     return {
       evidenceRef,
-      bodySize: artifact.bodySize,
-      bodyTruncated: artifact.bodyTruncated,
-      skippedReason: `not_role_run_artifact: ${artifact.kind}`,
+      bodySize: evidence.bodySize,
+      bodyTruncated: evidence.bodyTruncated,
+      skippedReason: `not_role_run_evidence: ${evidence.kind}`,
     };
   }
-  if (!isRoleRunArtifactBody(artifact.body)) {
+  if (!isRoleRunEvidenceBody(evidence.body)) {
     return {
       evidenceRef,
-      bodySize: artifact.bodySize,
-      bodyTruncated: artifact.bodyTruncated,
-      skippedReason: "unsupported_role_run_body: artifact body not loaded",
+      bodySize: evidence.bodySize,
+      bodyTruncated: evidence.bodyTruncated,
+      skippedReason: "unsupported_role_run_body: evidence body not loaded",
     };
   }
   return {
     evidenceRef,
-    status: artifact.body.status,
-    summary: artifact.body.summary,
-    transcriptRef: artifact.body.transcriptRef,
-    stdout: artifact.body.stdout,
-    stderr: artifact.body.stderr,
-    jsonEvents: artifact.body.jsonEvents,
-    bodySize: artifact.bodySize,
-    bodyTruncated: artifact.bodyTruncated,
+    status: evidence.body.status,
+    summary: evidence.body.summary,
+    transcriptRef: evidence.body.transcriptRef,
+    stdout: evidence.body.stdout,
+    stderr: evidence.body.stderr,
+    jsonEvents: evidence.body.jsonEvents,
+    bodySize: evidence.bodySize,
+    bodyTruncated: evidence.bodyTruncated,
   };
 }
 
-export type RoleRunArtifactRetentionSkipReason =
-  | "not_role_run_artifact"
+export type RoleRunEvidenceRetentionSkipReason =
+  | "not_role_run_evidence"
   | "below_threshold"
   | "missing_blob_path"
   | "invalid_blob_path"
@@ -189,7 +189,7 @@ export type RoleRunArtifactRetentionSkipReason =
   | "invalid_json"
   | "already_retained";
 
-export interface RoleRunArtifactRetentionCandidate {
+export interface RoleRunEvidenceRetentionCandidate {
   ref: EvidenceRef;
   kind: string;
   title?: string;
@@ -208,54 +208,54 @@ export interface RoleRunArtifactRetentionCandidate {
   deleted?: boolean;
 }
 
-export interface RoleRunArtifactRetentionSkipped {
+export interface RoleRunEvidenceRetentionSkipped {
   ref?: string;
   path: string;
   kind?: string;
   bytes?: number;
-  reason: RoleRunArtifactRetentionSkipReason;
+  reason: RoleRunEvidenceRetentionSkipReason;
   message?: string;
 }
 
-export interface RoleRunArtifactRetentionPlan {
+export interface RoleRunEvidenceRetentionPlan {
   root: string;
   generatedAt: string;
   dryRun: boolean;
   thresholdBytes: number;
   tailBytes: number;
   scanned: number;
-  candidates: RoleRunArtifactRetentionCandidate[];
-  skipped: RoleRunArtifactRetentionSkipped[];
-  deleted: RoleRunArtifactRetentionCandidate[];
+  candidates: RoleRunEvidenceRetentionCandidate[];
+  skipped: RoleRunEvidenceRetentionSkipped[];
+  deleted: RoleRunEvidenceRetentionCandidate[];
   exportDir?: string;
 }
 
-interface RoleRunArtifactMetadataFile {
+interface RoleRunEvidenceMetadataFile {
   path: string;
   name: string;
   bytes: number;
 }
 
-type RoleRunArtifactMetadataReadResult =
+type RoleRunEvidenceMetadataReadResult =
   | { status: "ok"; value: Record<string, unknown> }
   | { status: "missing" }
   | { status: "invalid"; message: string };
 
-class RoleRunArtifactMetadataFormatError extends Error {
+class RoleRunEvidenceMetadataFormatError extends Error {
   constructor(filePath: string, message: string) {
     super(`${filePath}: ${message}`);
-    this.name = "RoleRunArtifactMetadataFormatError";
+    this.name = "RoleRunEvidenceMetadataFormatError";
   }
 }
 
-export async function collectRoleRunArtifactRetentionPlan(
+export async function collectRoleRunEvidenceRetentionPlan(
   cwd: string,
   options: { dryRun: boolean; thresholdBytes: number; tailBytes: number; exportDir?: string },
-): Promise<RoleRunArtifactRetentionPlan> {
-  const artifactRoot = join(cwd, ".spark", "evidence");
-  const metadataFiles = await listRoleRunArtifactMetadataFiles(artifactRoot);
-  const plan: RoleRunArtifactRetentionPlan = {
-    root: relative(cwd, artifactRoot) || ".spark/evidence",
+): Promise<RoleRunEvidenceRetentionPlan> {
+  const evidenceRoot = join(cwd, ".spark", "evidence");
+  const metadataFiles = await listRoleRunEvidenceMetadataFiles(evidenceRoot);
+  const plan: RoleRunEvidenceRetentionPlan = {
+    root: relative(cwd, evidenceRoot) || ".spark/evidence",
     generatedAt: nowIso(),
     dryRun: options.dryRun,
     thresholdBytes: options.thresholdBytes,
@@ -270,7 +270,7 @@ export async function collectRoleRunArtifactRetentionPlan(
   };
 
   for (const file of metadataFiles) {
-    const readResult = await readRoleRunArtifactMetadataFile(file.path);
+    const readResult = await readRoleRunEvidenceMetadataFile(file.path);
     if (readResult.status === "missing") continue;
     if (readResult.status === "invalid") {
       plan.skipped.push({
@@ -284,12 +284,12 @@ export async function collectRoleRunArtifactRetentionPlan(
     const ref = roleRunEvidenceRefFromMetadata(file, raw);
     const kind = typeof raw.kind === "string" ? raw.kind : undefined;
     const retention = roleRunRetentionRecord(raw.transcriptRetention);
-    if (!isHistoricalRoleRunArtifactKind(kind)) {
+    if (!isHistoricalRoleRunEvidenceKind(kind)) {
       plan.skipped.push({
         ref,
         path: relative(cwd, file.path),
         kind,
-        reason: "not_role_run_artifact",
+        reason: "not_role_run_evidence",
       });
       continue;
     }
@@ -302,7 +302,7 @@ export async function collectRoleRunArtifactRetentionPlan(
       plan.skipped.push({ ref, path: relative(cwd, file.path), kind, reason: "missing_blob_path" });
       continue;
     }
-    const blobAbsolutePath = resolveEvidenceBlobPath(artifactRoot, blobPath);
+    const blobAbsolutePath = resolveEvidenceBlobPath(evidenceRoot, blobPath);
     if (!blobAbsolutePath) {
       plan.skipped.push({
         ref,
@@ -320,7 +320,7 @@ export async function collectRoleRunArtifactRetentionPlan(
       plan.skipped.push({ ref, path: relative(cwd, file.path), kind, reason: "missing_blob" });
       continue;
     }
-    const bytes = roleRunArtifactBodyBytes(raw, blobInfo.size);
+    const bytes = roleRunEvidenceBodyBytes(raw, blobInfo.size);
     if (bytes < options.thresholdBytes) {
       plan.skipped.push({
         ref,
@@ -331,8 +331,8 @@ export async function collectRoleRunArtifactRetentionPlan(
       });
       continue;
     }
-    const bodyInfo = extractRoleRunArtifactBodyInfo(raw);
-    const candidate: RoleRunArtifactRetentionCandidate = {
+    const bodyInfo = extractRoleRunEvidenceBodyInfo(raw);
+    const candidate: RoleRunEvidenceRetentionCandidate = {
       ref,
       kind: kind ?? "trace",
       title: typeof raw.title === "string" ? raw.title : undefined,
@@ -360,7 +360,7 @@ export async function collectRoleRunArtifactRetentionPlan(
     };
     plan.candidates.push(candidate);
     if (!options.dryRun) {
-      await applyRoleRunArtifactRetention(cwd, file, raw, candidate);
+      await applyRoleRunEvidenceRetention(cwd, file, raw, candidate);
       candidate.deleted = true;
       plan.deleted.push(candidate);
     }
@@ -371,11 +371,11 @@ export async function collectRoleRunArtifactRetentionPlan(
   return plan;
 }
 
-async function applyRoleRunArtifactRetention(
+async function applyRoleRunEvidenceRetention(
   cwd: string,
-  file: RoleRunArtifactMetadataFile,
+  file: RoleRunEvidenceMetadataFile,
   raw: Record<string, unknown>,
-  candidate: RoleRunArtifactRetentionCandidate,
+  candidate: RoleRunEvidenceRetentionCandidate,
 ): Promise<void> {
   const now = nowIso();
   const exportPath = candidate.exportPath ? resolve(cwd, candidate.exportPath) : undefined;
@@ -417,8 +417,8 @@ async function applyRoleRunArtifactRetention(
 
 function compactRoleRunRetentionBody(
   raw: Record<string, unknown>,
-  candidate: RoleRunArtifactRetentionCandidate,
-): RoleRunArtifactBody & { transcriptRetention: EvidenceTranscriptRetention } {
+  candidate: RoleRunEvidenceRetentionCandidate,
+): RoleRunEvidenceBody & { transcriptRetention: EvidenceTranscriptRetention } {
   const now = nowIso();
   const provenance = roleRunRetentionRecord(raw.provenance);
   const runRef = (candidate.runRef ??
@@ -436,13 +436,13 @@ function compactRoleRunRetentionBody(
     taskRef,
     roleRef,
     runName: candidate.runName,
-    status: (candidate.status ?? "unknown") as RoleRunArtifactBody["status"],
+    status: (candidate.status ?? "unknown") as RoleRunEvidenceBody["status"],
     summary: candidate.replacementSummary,
     record: {
       ref: runRef,
       roleRef,
       runName: candidate.runName,
-      status: (candidate.status ?? "unknown") as RoleRunArtifactBody["status"],
+      status: (candidate.status ?? "unknown") as RoleRunEvidenceBody["status"],
       startedAt: roleRunDateFromRaw(raw, "startedAt"),
       finishedAt: roleRunDateFromRaw(raw, "finishedAt"),
     },
@@ -491,11 +491,11 @@ async function readSerializedTranscriptTail(
     tail,
     tailBytes: Buffer.byteLength(tail, "utf8"),
     truncated: start > 0,
-    source: "serialized-artifact-body-tail",
+    source: "serialized-evidence-body-tail",
   };
 }
 
-function extractRoleRunArtifactBodyInfo(raw: Record<string, unknown>): {
+function extractRoleRunEvidenceBodyInfo(raw: Record<string, unknown>): {
   runRef?: string;
   taskRef?: string;
   roleRef?: string;
@@ -522,7 +522,7 @@ function extractRoleRunArtifactBodyInfo(raw: Record<string, unknown>): {
         roleRunRetentionString(bodyRecord.status) ?? roleRunRetentionString(nestedRecord?.status),
     };
   }
-  const preview = roleRunArtifactPreviewText(raw);
+  const preview = roleRunEvidencePreviewText(raw);
   return {
     runRef: extractJsonStringField(preview, "ref"),
     taskRef: roleRunRetentionProvenanceString(provenance, "taskRef"),
@@ -534,7 +534,7 @@ function extractRoleRunArtifactBodyInfo(raw: Record<string, unknown>): {
   };
 }
 
-function roleRunArtifactPreviewText(raw: Record<string, unknown>): string {
+function roleRunEvidencePreviewText(raw: Record<string, unknown>): string {
   if (typeof raw.bodyPreview === "string") return raw.bodyPreview;
   if (typeof raw.body === "string") return raw.body;
   if (roleRunRetentionRecord(raw.body)) return JSON.stringify(raw.body);
@@ -543,15 +543,15 @@ function roleRunArtifactPreviewText(raw: Record<string, unknown>): string {
 
 function roleRunReplacementSummary(
   ref: EvidenceRef,
-  info: ReturnType<typeof extractRoleRunArtifactBodyInfo>,
+  info: ReturnType<typeof extractRoleRunEvidenceBodyInfo>,
   bytes: number,
 ): string {
   const identity = info.runName ?? info.runRef ?? ref;
   const status = info.status ? ` with status ${info.status}` : "";
-  return `Historical role-run transcript ${identity}${status} compacted from ${formatRoleRunRetentionByteSize(bytes)} transcript blob; compact summary, serialized tail, and optional export path are retained in artifact metadata.`;
+  return `Historical role-run transcript ${identity}${status} compacted from ${formatRoleRunRetentionByteSize(bytes)} transcript blob; compact summary, serialized tail, and optional export path are retained in evidence metadata.`;
 }
 
-function roleRunArtifactBodyBytes(raw: Record<string, unknown>, blobBytes: number): number {
+function roleRunEvidenceBodyBytes(raw: Record<string, unknown>, blobBytes: number): number {
   const bodySize = raw.bodySize;
   return typeof bodySize === "number" && Number.isFinite(bodySize) ? bodySize : blobBytes;
 }
@@ -576,35 +576,35 @@ function roleRunDateFromRaw(
   return (
     roleRunRetentionString(body?.[key]) ??
     roleRunRetentionString(record?.[key]) ??
-    extractJsonStringField(roleRunArtifactPreviewText(raw), key)
+    extractJsonStringField(roleRunEvidencePreviewText(raw), key)
   );
 }
 
 function roleRunEvidenceRefFromMetadata(
-  file: RoleRunArtifactMetadataFile,
+  file: RoleRunEvidenceMetadataFile,
   raw: Record<string, unknown>,
 ): EvidenceRef {
   const ref = typeof raw.ref === "string" ? raw.ref : `evidence:${basename(file.name, ".json")}`;
   return ref.startsWith("evidence:") ? (ref as EvidenceRef) : (`evidence:${ref}` as EvidenceRef);
 }
 
-function isHistoricalRoleRunArtifactKind(kind: string | undefined): boolean {
+function isHistoricalRoleRunEvidenceKind(kind: string | undefined): boolean {
   return kind === "trace";
 }
 
-async function listRoleRunArtifactMetadataFiles(
-  artifactRoot: string,
-): Promise<RoleRunArtifactMetadataFile[]> {
-  const rootInfo = await stat(artifactRoot).catch((error: NodeJS.ErrnoException) => {
+async function listRoleRunEvidenceMetadataFiles(
+  evidenceRoot: string,
+): Promise<RoleRunEvidenceMetadataFile[]> {
+  const rootInfo = await stat(evidenceRoot).catch((error: NodeJS.ErrnoException) => {
     if (isFileNotFoundError(error)) return undefined;
     throw error;
   });
   if (!rootInfo?.isDirectory()) return [];
-  const entries = await readdir(artifactRoot, { withFileTypes: true });
-  const files: RoleRunArtifactMetadataFile[] = [];
+  const entries = await readdir(evidenceRoot, { withFileTypes: true });
+  const files: RoleRunEvidenceMetadataFile[] = [];
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const path = join(artifactRoot, entry.name);
+    const path = join(evidenceRoot, entry.name);
     const info = await stat(path).catch((error: NodeJS.ErrnoException) => {
       if (isFileNotFoundError(error)) return undefined;
       throw error;
@@ -614,17 +614,17 @@ async function listRoleRunArtifactMetadataFiles(
   return files;
 }
 
-async function readRoleRunArtifactMetadataFile(
+async function readRoleRunEvidenceMetadataFile(
   path: string,
-): Promise<RoleRunArtifactMetadataReadResult> {
+): Promise<RoleRunEvidenceMetadataReadResult> {
   let raw: unknown;
   try {
     raw = await readJsonFileOptional(
       path,
-      (filePath, message) => new RoleRunArtifactMetadataFormatError(filePath, message),
+      (filePath, message) => new RoleRunEvidenceMetadataFormatError(filePath, message),
     );
   } catch (error) {
-    if (error instanceof RoleRunArtifactMetadataFormatError)
+    if (error instanceof RoleRunEvidenceMetadataFormatError)
       return { status: "invalid", message: error.message };
     throw error;
   }

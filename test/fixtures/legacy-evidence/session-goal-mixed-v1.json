@@ -1,0 +1,22 @@
+{
+  "legacyFieldNames": ["lastReviewArtifactRef", "artifactRef"],
+  "cases": [
+    {
+      "name": "top-level",
+      "fields": {
+        "lastReviewEvidenceRef": "evidence:same-review",
+        "lastReviewArtifactRef": "evidence:same-review"
+      }
+    },
+    {
+      "name": "nested",
+      "fields": {
+        "lastReviewEvidenceRef": "evidence:same-review",
+        "lastReview": {
+          "artifactRef": "evidence:same-review",
+          "reviewedAt": "2026-07-01T00:00:00.000Z"
+        }
+      }
+    }
+  ]
+}

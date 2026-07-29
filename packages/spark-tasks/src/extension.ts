@@ -293,7 +293,7 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
       evidence: Type.Optional(
         Type.Any({
           description:
-            "Optional structured finish evidence. Spark can turn validationCommands, changedFiles, sourceRefs, and notes into a bounded task evidence artifact automatically.",
+            "Optional structured finish evidence. Spark can turn validationCommands, changedFiles, sourceRefs, and notes into a bounded task Evidence record automatically.",
         }),
       ),
       dryRun: Type.Optional(

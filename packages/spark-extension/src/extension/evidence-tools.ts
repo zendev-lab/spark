@@ -1,7 +1,7 @@
 import { type EvidenceRecord } from "@zendev-lab/spark-artifacts";
 import { isRef, type EvidenceRef } from "@zendev-lab/spark-core";
 
-export function normalizeArtifactLimit(value: unknown, fallback: number, field = "limit"): number {
+export function normalizeEvidenceLimit(value: unknown, fallback: number, field = "limit"): number {
   if (value === undefined || value === null) return fallback;
   if (typeof value !== "number" || !Number.isFinite(value))
     throw new Error(`${field} must be a finite number`);
@@ -18,7 +18,7 @@ export function normalizePositiveInteger(value: unknown, fallback: number, field
   return value;
 }
 
-export function normalizeArtifactBoolean(
+export function normalizeEvidenceBoolean(
   value: unknown,
   fallback: boolean,
   field: string,
@@ -34,20 +34,20 @@ export function normalizeEvidenceRef(value: unknown): EvidenceRef {
   return value;
 }
 
-export function compactArtifactDetail(artifact: EvidenceRecord) {
+export function compactEvidenceDetail(evidence: EvidenceRecord) {
   return {
-    ref: artifact.ref,
-    kind: artifact.kind,
-    title: artifact.title,
-    format: artifact.format,
-    producer: artifact.provenance.producer,
-    projectRef: artifact.provenance.projectRef,
-    taskRef: artifact.provenance.taskRef,
-    roleRef: artifact.provenance.roleRef,
-    bodySize: artifact.bodySize,
-    bodyTruncated: artifact.bodyTruncated,
-    createdAt: artifact.createdAt,
-    updatedAt: artifact.updatedAt,
+    ref: evidence.ref,
+    kind: evidence.kind,
+    title: evidence.title,
+    format: evidence.format,
+    producer: evidence.provenance.producer,
+    projectRef: evidence.provenance.projectRef,
+    taskRef: evidence.provenance.taskRef,
+    roleRef: evidence.provenance.roleRef,
+    bodySize: evidence.bodySize,
+    bodyTruncated: evidence.bodyTruncated,
+    createdAt: evidence.createdAt,
+    updatedAt: evidence.updatedAt,
   };
 }
 

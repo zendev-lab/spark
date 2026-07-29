@@ -470,7 +470,7 @@ async function ensureSparkTaskBinding(input: {
           successCriteria: [
             "Spark role-run reaches a terminal status and emits cockpit projections.",
           ],
-          evidenceRequired: ["Spark role-run artifact and Spark daemon invocation projection."],
+          evidenceRequired: ["Spark role-run Evidence and Spark daemon invocation projection."],
           items: [
             { title: "Run the requested task through Spark runtime." },
             { title: "Report terminal status and evidence." },

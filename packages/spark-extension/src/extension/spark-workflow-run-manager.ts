@@ -83,7 +83,7 @@ export class SparkWorkflowRunManagerController {
     const graph = await loadSparkGraph(cwd, ctx);
     if (!graph) return { continuePolling: false };
     const registry = await createSparkRoleRegistry(cwd);
-    const artifactStore = defaultEvidenceStore(cwd);
+    const evidenceStore = defaultEvidenceStore(cwd);
     const touched = new Set<TaskRef>();
     const runStore = defaultSparkWorkflowRunStore(cwd);
     const currentProject = await currentSparkProject(cwd, ctx, graph);
@@ -132,7 +132,7 @@ export class SparkWorkflowRunManagerController {
     const timeoutMs = control?.policy.timeoutMs ?? DEFAULT_READY_TASK_TIMEOUT_MS;
     const runtimeRunner = createSparkRuntimeReadyTaskRunner({
       registry,
-      artifactStore,
+      evidenceStore,
       cwd,
       sessionModel: sessionModelName(ctx.model),
       roleExecutor: ctx.runRole,

@@ -80,6 +80,24 @@ after(async () => {
   await killActiveSparkRoleRunProcesses({ forceAfterMs: 0, waitMs: 1_000 });
 });
 
+type LegacyTaskRunEvidenceFixture = {
+  legacyFieldNames: string[];
+  taskFields: Record<string, unknown>;
+  runFields: Record<string, unknown>;
+  completionSummaryFields: Record<string, unknown>;
+};
+
+async function loadLegacyTaskRunEvidenceFixture(): Promise<LegacyTaskRunEvidenceFixture> {
+  const path = join(
+    process.cwd(),
+    "test",
+    "fixtures",
+    "legacy-evidence",
+    "task-run-v1-fields.json",
+  );
+  return JSON.parse(await readFile(path, "utf8")) as LegacyTaskRunEvidenceFixture;
+}
+
 function executionReadyPlan(objective: string): TaskPlan {
   return {
     objective,
@@ -88,7 +106,7 @@ function executionReadyPlan(objective: string): TaskPlan {
     nonGoals: [],
     successCriteria: [`Validation command for ${objective} passes with exit code 0.`],
     evidenceRequired: [
-      `Validation artifact records command output, exit code, and changed-file summary for ${objective}.`,
+      `Validation evidence records command output, exit code, and changed-file summary for ${objective}.`,
     ],
     steps: [objective],
     riskLevel: "normal",
@@ -240,14 +258,14 @@ async function assertRunSparkTaskSucceedsWithChildOutput(
       roleRef: builtinRoleRef("worker"),
       plan: executionReadyPlan(testCase.planObjective),
     });
-    const artifactStore = new EvidenceStore({
+    const evidenceStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
     const run = await runSparkTask({
       graph,
       taskRef: task.ref,
       registry: new RoleRegistry(),
-      artifactStore,
+      evidenceStore: evidenceStore,
       cwd: dir,
       dryRun: false,
       roleExecutor: async (input) =>
@@ -449,6 +467,7 @@ test("default task graph store writes V2 project/task file tree without legacy p
 test("task graph store migrates v1 evidence fields once without losing record data", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-task-evidence-v2-migration-"));
   try {
+    const legacyFixture = await loadLegacyTaskRunEvidenceFixture();
     const store = defaultTaskGraphStore(dir);
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Migration project", description: "schema v2" });
@@ -506,8 +525,7 @@ test("task graph store migrates v1 evidence fields once without losing record da
         {
           ...taskRest,
           version: 1,
-          inputArtifacts: ["artifact:legacy-input", "evidence:already-input"],
-          outputArtifacts: ["artifact:legacy-output"],
+          ...legacyFixture.taskFields,
         },
         null,
         2,
@@ -519,10 +537,10 @@ test("task graph store migrates v1 evidence fields once without losing record da
         {
           ...runRest,
           version: 1,
-          outputArtifacts: ["artifact:legacy-run", "evidence:already-output"],
+          ...legacyFixture.runFields,
           completionSummary: {
             ...summaryRest,
-            artifactRefs: ["artifact:legacy-summary", "evidence:already-summary"],
+            ...legacyFixture.completionSummaryFields,
           },
         },
         null,
@@ -558,8 +576,12 @@ test("task graph store migrates v1 evidence fields once without losing record da
     const runAfterFirstSave = await readFile(runPath, "utf8");
     assert.match(taskAfterFirstSave, /"version": 2/);
     assert.match(runAfterFirstSave, /"version": 2/);
-    assert.doesNotMatch(taskAfterFirstSave, /inputArtifacts|outputArtifacts/);
-    assert.doesNotMatch(runAfterFirstSave, /outputArtifacts|artifactRefs/);
+    for (const legacyField of legacyFixture.legacyFieldNames) {
+      assert.doesNotMatch(
+        `${taskAfterFirstSave}\n${runAfterFirstSave}`,
+        new RegExp(`"${legacyField}"`),
+      );
+    }
     assert.match(taskAfterFirstSave, /"inputEvidenceRefs"/);
     assert.match(runAfterFirstSave, /"evidenceRefs"/);
 
@@ -987,7 +1009,7 @@ test("task plan readiness distinguishes minimal and execution-ready plans", () =
       ["missing_success_criteria", "Add at least one observable entry to plan.successCriteria."],
       [
         "missing_evidence_required",
-        "Add at least one concrete validation artifact or command to plan.evidenceRequired.",
+        "Add at least one concrete validation Evidence record or command to plan.evidenceRequired.",
       ],
       [
         "weak_objective",
@@ -1017,7 +1039,7 @@ test("task plan readiness distinguishes minimal and execution-ready plans", () =
       successCriteria: [
         "Decision artifact records the selected direction and rejected alternatives.",
       ],
-      evidenceRequired: ["Decision artifact ref is attached to the task plan."],
+      evidenceRequired: ["Decision Evidence ref is attached to the task plan."],
       steps: ["Record the decision artifact for the selected direction"],
       riskLevel: "normal",
       openQuestions: ["Which direction should we take?"],
@@ -1278,7 +1300,7 @@ test("task plan readiness provides remediation for every issue kind", () => {
       ["missing_success_criteria", "Add at least one observable entry to plan.successCriteria."],
       [
         "missing_evidence_required",
-        "Add at least one concrete validation artifact or command to plan.evidenceRequired.",
+        "Add at least one concrete validation Evidence record or command to plan.evidenceRequired.",
       ],
       ["missing_steps", "Add at least one concrete plan item to plan.items."],
       [
@@ -4314,7 +4336,7 @@ test("runSparkTask does not complete real tasks when the role run never starts",
       roleRef: builtinRoleRef("worker"),
       plan: executionReadyPlan("Plan"),
     });
-    const artifactStore = new EvidenceStore({
+    const evidenceStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
 
@@ -4322,7 +4344,7 @@ test("runSparkTask does not complete real tasks when the role run never starts",
       graph,
       taskRef: task.ref,
       registry: new RoleRegistry(),
-      artifactStore,
+      evidenceStore: evidenceStore,
       cwd: dir,
       dryRun: false,
       roleExecutor: async (input) => testRoleRunResult(input, { status: "not_started" }),
@@ -4334,9 +4356,9 @@ test("runSparkTask does not complete real tasks when the role run never starts",
     assert.match(run.errorMessage ?? "", /did not start and produced no output/);
     assert.equal(graph.getTask(task.ref).status, "failed");
     assert.equal(graph.getTask(task.ref).claim, undefined);
-    const [artifact] = await artifactStore.list({ kind: "trace" });
-    assert.ok(artifact);
-    const body = artifact.body as {
+    const [evidence] = await evidenceStore.list({ kind: "trace" });
+    assert.ok(evidence);
+    const body = evidence.body as {
       schemaVersion?: number;
       runRef?: string;
       taskRef?: string;
@@ -4436,14 +4458,14 @@ test("runSparkTask summarizes final assistant text instead of raw Pi control JSO
       roleRef: builtinRoleRef("worker"),
       plan: executionReadyPlan("Summary output task"),
     });
-    const artifactStore = new EvidenceStore({
+    const evidenceStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
     const run = await runSparkTask({
       graph,
       taskRef: task.ref,
       registry: new RoleRegistry(),
-      artifactStore,
+      evidenceStore: evidenceStore,
       cwd: dir,
       dryRun: false,
       roleExecutor: async (input) =>
@@ -4455,7 +4477,7 @@ test("runSparkTask summarizes final assistant text instead of raw Pi control JSO
               type: "message_end",
               message: {
                 role: "assistant",
-                content: [{ type: "text", text: "Final scout report: use a mailbox artifact." }],
+                content: [{ type: "text", text: "Final scout report: use mailbox evidence." }],
               },
             },
           ],
@@ -4466,9 +4488,9 @@ test("runSparkTask summarizes final assistant text instead of raw Pi control JSO
     assert.equal(run.status, "succeeded");
     assert.match(run.completionSummary?.summary ?? "", /Final scout report/);
     assert.doesNotMatch(run.completionSummary?.summary ?? "", /agent_start/);
-    const [artifact] = await artifactStore.list({ kind: "trace" });
+    const [evidence] = await evidenceStore.list({ kind: "trace" });
     assert.match(
-      (artifact?.body as { summary?: string } | undefined)?.summary ?? "",
+      (evidence?.body as { summary?: string } | undefined)?.summary ?? "",
       /Final scout report/,
     );
   } finally {
@@ -4476,8 +4498,8 @@ test("runSparkTask summarizes final assistant text instead of raw Pi control JSO
   }
 });
 
-test("runSparkTask writes compact role-run artifacts for large output", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-large-role-artifact-"));
+test("runSparkTask writes compact role-run Evidence for large output", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-large-role-evidence-"));
   try {
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Demo", description: "demo" });
@@ -4488,7 +4510,7 @@ test("runSparkTask writes compact role-run artifacts for large output", async ()
       roleRef: builtinRoleRef("worker"),
       plan: executionReadyPlan("Large output task"),
     });
-    const artifactStore = new EvidenceStore({
+    const evidenceStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
     const payload = "P".repeat(100_000);
@@ -4497,7 +4519,7 @@ test("runSparkTask writes compact role-run artifacts for large output", async ()
       graph,
       taskRef: task.ref,
       registry: new RoleRegistry(),
-      artifactStore,
+      evidenceStore: evidenceStore,
       cwd: dir,
       dryRun: false,
       roleExecutor: async (input) =>
@@ -4510,22 +4532,22 @@ test("runSparkTask writes compact role-run artifacts for large output", async ()
     });
 
     assert.equal(run.status, "succeeded");
-    const [artifact] = await artifactStore.list({ kind: "trace" });
-    assert.ok(artifact);
-    const artifactPath = artifactStore.pathFor(artifact.ref);
-    const metadata = await readFile(artifactPath, "utf8");
-    const metadataStats = await stat(artifactPath);
-    const artifactBodyText = await artifactStore.getBody(artifact.ref);
-    assert.ok(metadataStats.size < 60_000, `artifact metadata is too large: ${metadataStats.size}`);
+    const [evidence] = await evidenceStore.list({ kind: "trace" });
+    assert.ok(evidence);
+    const evidencePath = evidenceStore.pathFor(evidence.ref);
+    const metadata = await readFile(evidencePath, "utf8");
+    const metadataStats = await stat(evidencePath);
+    const evidenceBodyText = await evidenceStore.getBody(evidence.ref);
+    assert.ok(metadataStats.size < 60_000, `Evidence metadata is too large: ${metadataStats.size}`);
     assert.ok(
-      Buffer.byteLength(artifactBodyText, "utf8") < 60_000,
-      `artifact body is too large: ${Buffer.byteLength(artifactBodyText, "utf8")}`,
+      Buffer.byteLength(evidenceBodyText, "utf8") < 60_000,
+      `Evidence body is too large: ${Buffer.byteLength(evidenceBodyText, "utf8")}`,
     );
     assert.equal(metadata.includes("A".repeat(50_000)), false);
     assert.equal(metadata.includes("P".repeat(50_000)), false);
     assert.equal(metadata.includes("E".repeat(50_000)), false);
 
-    const body = artifact.body as {
+    const body = evidence.body as {
       schemaVersion?: number;
       runRef?: string;
       taskRef?: string;
@@ -4573,14 +4595,14 @@ test("runSparkTask dry-run records validation without completing the task", asyn
       description: "plan",
       kind: "plan",
     });
-    const artifactStore = new EvidenceStore({
+    const evidenceStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
     const run = await runSparkTask({
       graph,
       taskRef: task.ref,
       registry: new RoleRegistry(),
-      artifactStore,
+      evidenceStore: evidenceStore,
       cwd: dir,
       dryRun: true,
     });
@@ -4591,7 +4613,7 @@ test("runSparkTask dry-run records validation without completing the task", asyn
     assert.equal(graph.getTask(task.ref).claim, undefined);
     assert.equal(graph.getTask(task.ref).outputEvidenceRefs.length, 1);
     assert.deepEqual(run.outputEvidenceRefs, graph.getTask(task.ref).outputEvidenceRefs);
-    const [artifact] = await artifactStore.list({ kind: "trace" });
+    const [artifact] = await evidenceStore.list({ kind: "trace" });
     assert.ok(artifact);
     assert.equal(artifact.ref, run.outputEvidenceRefs[0]);
     assert.match(artifact.title, /^Role run worker-/);

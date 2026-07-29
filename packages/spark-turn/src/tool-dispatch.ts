@@ -80,7 +80,7 @@ export function appendRawRecoveryHint(
   );
 }
 
-export function rawToolResultArtifactBody(
+export function rawToolResultEvidenceBody(
   content: Array<{ type: string; text?: string; [key: string]: unknown }>,
 ): { format: "text" | "json"; body: string | Record<string, unknown>; bodyChars: number } {
   if (content.length === 1 && content[0]?.type === "text" && typeof content[0].text === "string") {

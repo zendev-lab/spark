@@ -231,17 +231,17 @@ function taskPlanInput(definition: ReproTaskBlueprint, roadmapItem: RoadmapItem)
         contextRefs: [roadmapItem.ref],
         constraints: [
           "Stay within the bound Subgoal and do not mutate another Project Task",
-          "Preserve commands, exit codes, source refs, configs, and immutable artifact refs",
+          "Preserve commands, exit codes, source refs, configs, and immutable Evidence refs",
         ],
         nonGoals: [
           "Treating agent narration as evidence",
           "Advancing the Subgoal without its configured verifier",
         ],
         successCriteria: definition.doneWhen.map(
-          (criterion) => `Evidence artifact and checker output verify: ${criterion}`,
+          (criterion) => `Evidence record and checker output verify: ${criterion}`,
         ),
         evidenceRequired: definition.evidenceRequired.map(
-          (evidence) => `Evidence artifact containing: ${evidence}`,
+          (evidence) => `Evidence record containing: ${evidence}`,
         ),
         steps: [
           `Execute ${definition.title} against the frozen Stage inputs and record the observable result.`,

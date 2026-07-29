@@ -93,19 +93,19 @@ export const EVIDENCE_RETENTIONS = [
 ] as const satisfies readonly EvidenceRetention[];
 
 export interface EvidenceCuration {
-  /** Lifecycle for keeping only the useful artifact essence visible by default. */
+  /** Lifecycle for keeping only the useful Evidence essence visible by default. */
   status: EvidenceCurationStatus;
   /** Intended retention horizon; storage owners may use it for sweeps. */
   retention?: EvidenceRetention;
   /** Human-readable justification for promotion, archive, or supersession. */
   reason?: string;
-  /** Raw/candidate artifacts folded into this curated artifact. */
+  /** Raw/candidate Evidence records folded into this curated record. */
   promotedFrom?: EvidenceRef[];
-  /** Better artifact(s) that replace this one. */
+  /** Better Evidence records that replace this one. */
   supersededBy?: EvidenceRef[];
-  /** Essence/summary artifact that compacted this artifact. */
+  /** Essence/summary Evidence record that compacted this record. */
   compactedInto?: EvidenceRef;
-  /** Optional expiry for raw/ephemeral artifacts. */
+  /** Optional expiry for raw/ephemeral Evidence. */
   expiresAt?: string;
 }
 
@@ -122,7 +122,7 @@ export interface EvidenceTranscriptRetention {
     bytes: number;
     tailBytes: number;
     truncated: boolean;
-    source: "serialized-artifact-body-tail";
+    source: "serialized-evidence-body-tail";
     tail: string;
   };
   exportPath?: string;
@@ -196,9 +196,9 @@ export interface EvidenceQuery {
   linkedTo?: string;
   curationStatus?: EvidenceCurationStatus | EvidenceCurationStatus[];
   retention?: EvidenceRetention;
-  /** Defaults are caller-owned; when false, artifacts explicitly marked raw are hidden. */
+  /** Defaults are caller-owned; when false, Evidence explicitly marked raw is hidden. */
   includeRaw?: boolean;
-  /** Defaults are caller-owned; when false, archived/superseded artifacts are hidden. */
+  /** Defaults are caller-owned; when false, archived/superseded Evidence is hidden. */
   includeArchived?: boolean;
 }
 
@@ -251,7 +251,7 @@ export interface EvidenceListDiagnostic {
 }
 
 export interface EvidenceListWithDiagnosticsResult {
-  artifacts: EvidenceRecord[];
+  evidence: EvidenceRecord[];
   diagnostics: EvidenceListDiagnostic[];
 }
 
@@ -283,7 +283,7 @@ export class EvidenceStoreFormatError extends Error {
 const DEFAULT_INLINE_BODY_THRESHOLD_BYTES = 64 * 1024;
 const DEFAULT_BODY_PREVIEW_CHARS = 4_000;
 
-const LEGACY_ARTIFACT_KIND_MAP: Readonly<Record<string, EvidenceKind>> = {
+const LEGACY_EVIDENCE_KIND_MAP: Readonly<Record<string, EvidenceKind>> = {
   "agent-plan": "document",
   "ask-answer": "record",
   "cue-output": "trace",
@@ -298,7 +298,7 @@ const LEGACY_ARTIFACT_KIND_MAP: Readonly<Record<string, EvidenceKind>> = {
 export function canonicalEvidenceKindForPersistedKind(value: unknown): EvidenceKind | undefined {
   if (typeof value !== "string") return undefined;
   if (isEvidenceKind(value)) return value;
-  return LEGACY_ARTIFACT_KIND_MAP[value];
+  return LEGACY_EVIDENCE_KIND_MAP[value];
 }
 
 export class EvidenceStore {
@@ -329,7 +329,7 @@ export class EvidenceStore {
         relation: "parent",
       }),
     );
-    const artifact: EvidenceRecord<T> = {
+    const evidence: EvidenceRecord<T> = {
       ref,
       kind: input.kind,
       title: input.title,
@@ -344,13 +344,13 @@ export class EvidenceStore {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
-    validateEvidenceRecord(artifact);
+    validateEvidenceRecord(evidence);
 
-    const serializedBody = serializeArtifactBody(input.format, input.body);
+    const serializedBody = serializeEvidenceBody(input.format, input.body);
     const hash = contentHash(serializedBody);
     const blobPath = join("blobs", `${hash}.${extensionForFormat(input.format)}`);
-    const storedArtifact: EvidenceRecord<T> = {
-      ...artifact,
+    const storedEvidence: EvidenceRecord<T> = {
+      ...evidence,
       body: metadataBodyFor(input.body, serializedBody, {
         thresholdBytes: this.inlineBodyThresholdBytes,
         previewChars: this.bodyPreviewChars,
@@ -358,14 +358,14 @@ export class EvidenceStore {
       hash,
       blobPath,
     };
-    addBodyCompactionMetadata(storedArtifact, serializedBody, {
+    addBodyCompactionMetadata(storedEvidence, serializedBody, {
       thresholdBytes: this.inlineBodyThresholdBytes,
       previewChars: this.bodyPreviewChars,
     });
-    validateEvidenceRecord(storedArtifact);
+    validateEvidenceRecord(storedEvidence);
     await writeTextFileAtomic(join(this.rootDir, blobPath), serializedBody);
-    await writeJsonFileAtomic(this.pathFor(ref), storedArtifact);
-    return { ...storedArtifact, body: input.body };
+    await writeJsonFileAtomic(this.pathFor(ref), storedEvidence);
+    return { ...storedEvidence, body: input.body };
   }
 
   async update<T extends JsonValue | string>(
@@ -390,22 +390,22 @@ export class EvidenceStore {
     ref: EvidenceRef,
   ): Promise<EvidenceRecord<T>> {
     this.assertEvidenceRef(ref, "ref");
-    const artifact = await this.readMetadata<T>(ref);
-    if (artifact.bodyTruncated && artifact.blobPath) {
+    const evidence = await this.readMetadata<T>(ref);
+    if (evidence.bodyTruncated && evidence.blobPath) {
       const body = await this.getBody(ref);
       return {
-        ...artifact,
-        body: parseArtifactBody(artifact.format, body) as T,
+        ...evidence,
+        body: parseEvidenceBody(evidence.format, body) as T,
       };
     }
-    return artifact;
+    return evidence;
   }
 
   async getBody(ref: EvidenceRef): Promise<string> {
     this.assertEvidenceRef(ref, "ref");
-    const artifact = await this.readMetadata(ref);
-    if (artifact.blobPath) {
-      const blobPath = resolveEvidenceBlobPath(this.rootDir, artifact.blobPath);
+    const evidence = await this.readMetadata(ref);
+    if (evidence.blobPath) {
+      const blobPath = resolveEvidenceBlobPath(this.rootDir, evidence.blobPath);
       if (blobPath) {
         try {
           return await readFile(blobPath, "utf8");
@@ -413,9 +413,9 @@ export class EvidenceStore {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
       }
-      throw new Error(`evidence blob path is unavailable in evidence store: ${artifact.ref}`);
+      throw new Error(`evidence blob path is unavailable in evidence store: ${evidence.ref}`);
     }
-    return serializeArtifactBody(artifact.format, artifact.body);
+    return serializeEvidenceBody(evidence.format, evidence.body);
   }
 
   async tryGet<T extends JsonValue | string = JsonValue | string>(
@@ -430,7 +430,7 @@ export class EvidenceStore {
   }
 
   async list(filter: EvidenceQuery = {}): Promise<EvidenceRecord[]> {
-    const { artifacts, diagnostics } = await this.listWithDiagnostics(filter);
+    const { evidence, diagnostics } = await this.listWithDiagnostics(filter);
     const fatal = diagnostics.find((diagnostic) => diagnostic.reason !== undefined);
     if (fatal) {
       throw new EvidenceStoreFormatError(
@@ -446,64 +446,66 @@ export class EvidenceStore {
         "invalid_metadata",
       );
     }
-    return artifacts;
+    return evidence;
   }
 
   async listWithDiagnostics(
     filter: EvidenceQuery = {},
   ): Promise<EvidenceListWithDiagnosticsResult> {
     await mkdir(this.rootDir, { recursive: true });
-    const artifacts: EvidenceRecord[] = [];
+    const evidence: EvidenceRecord[] = [];
     const diagnostics: EvidenceListDiagnostic[] = [];
     let entries;
     try {
       entries = await readdir(this.rootDir, { withFileTypes: true });
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { artifacts, diagnostics };
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { evidence, diagnostics };
       throw error;
     }
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       const filePath = join(this.rootDir, entry.name);
-      let artifact: EvidenceRecord;
+      let evidenceRecord: EvidenceRecord;
       try {
-        artifact = await readEvidenceMetadataFile(filePath);
+        evidenceRecord = await readEvidenceMetadataFile(filePath);
       } catch (error) {
-        diagnostics.push(artifactListDiagnostic(filePath, error));
+        diagnostics.push(evidenceListDiagnostic(filePath, error));
         continue;
       }
-      if (!this.acceptsRef(artifact.ref)) {
+      if (!this.acceptsRef(evidenceRecord.ref)) {
         diagnostics.push({
           filePath,
           reason: "invalid_metadata",
-          message: `${filePath}: evidence store cannot read ${artifact.ref}`,
+          message: `${filePath}: evidence store cannot read ${evidenceRecord.ref}`,
         });
         continue;
       }
-      if (!matchesQuery(artifact, filter)) continue;
-      artifacts.push(artifact);
+      if (!matchesQuery(evidenceRecord, filter)) continue;
+      evidence.push(evidenceRecord);
     }
     return {
-      artifacts: artifacts.sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+      evidence: evidence.sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
       diagnostics,
     };
   }
 
   async linksTo(targetRef: string): Promise<EvidenceLink[]> {
-    const artifacts = await this.list({ linkedTo: targetRef });
-    return artifacts.flatMap((artifact) => artifact.links.filter((link) => link.to === targetRef));
+    const evidenceRecords = await this.list({ linkedTo: targetRef });
+    return evidenceRecords.flatMap((evidence) =>
+      evidence.links.filter((link) => link.to === targetRef),
+    );
   }
 
   async diff(
     left: EvidenceRef,
     right: EvidenceRef,
   ): Promise<{ same: boolean; leftHash?: string; rightHash?: string }> {
-    const leftArtifact = await this.get(left);
-    const rightArtifact = await this.get(right);
+    const leftEvidence = await this.get(left);
+    const rightEvidence = await this.get(right);
     return {
-      same: leftArtifact.hash === rightArtifact.hash,
-      leftHash: leftArtifact.hash,
-      rightHash: rightArtifact.hash,
+      same: leftEvidence.hash === rightEvidence.hash,
+      leftHash: leftEvidence.hash,
+      rightHash: rightEvidence.hash,
     };
   }
 
@@ -539,7 +541,7 @@ export class EvidenceStore {
   }
 }
 
-function artifactListDiagnostic(filePath: string, error: unknown): EvidenceListDiagnostic {
+function evidenceListDiagnostic(filePath: string, error: unknown): EvidenceListDiagnostic {
   if (error instanceof EvidenceStoreFormatError) {
     return { filePath: error.filePath, reason: error.reason, message: error.message };
   }
@@ -570,11 +572,11 @@ export async function readEvidenceMetadataFile(filePath: string): Promise<Eviden
   if (isRecord(raw) && isProductArtifactKind(raw.kind)) {
     throw new EvidenceStoreFormatError(
       filePath,
-      `kind must be a valid artifact kind (product ${String(raw.kind)} skipped)`,
+      `kind must be a valid Evidence kind (Product Artifact kind ${String(raw.kind)} skipped)`,
       "invalid_metadata",
     );
   }
-  const metadata = normalizePersistedArtifactMetadata(raw);
+  const metadata = normalizePersistedEvidenceMetadata(raw);
   try {
     validateEvidenceRecord(metadata);
   } catch (error) {
@@ -583,7 +585,7 @@ export async function readEvidenceMetadataFile(filePath: string): Promise<Eviden
   return metadata;
 }
 
-function normalizePersistedArtifactMetadata(raw: unknown): unknown {
+function normalizePersistedEvidenceMetadata(raw: unknown): unknown {
   if (!isRecord(raw)) return raw;
   const canonicalKind = canonicalEvidenceKindForPersistedKind(raw.kind);
   if (!canonicalKind || canonicalKind === raw.kind) return raw;
@@ -629,9 +631,9 @@ export async function compactEvidenceMetadata(
     result.scanned += 1;
     const metadataBytesBefore = await fileSize(path);
     result.metadataBytesBefore += metadataBytesBefore;
-    let artifact: EvidenceRecord;
+    let evidence: EvidenceRecord;
     try {
-      artifact = await readEvidenceMetadataFile(path);
+      evidence = await readEvidenceMetadataFile(path);
     } catch (error) {
       if (error instanceof EvidenceStoreFormatError) {
         result.skipped.push({
@@ -649,17 +651,17 @@ export async function compactEvidenceMetadata(
       result.metadataBytesAfter += metadataBytesBefore;
       continue;
     }
-    if (artifact.bodyTruncated) {
+    if (evidence.bodyTruncated) {
       result.skipped.push({ path, reason: "already_compacted" });
       result.metadataBytesAfter += metadataBytesBefore;
       continue;
     }
-    if (!artifact.blobPath) {
+    if (!evidence.blobPath) {
       result.skipped.push({ path, reason: "missing_blob_path" });
       result.metadataBytesAfter += metadataBytesBefore;
       continue;
     }
-    const blobPath = resolveEvidenceBlobPath(rootDir, artifact.blobPath);
+    const blobPath = resolveEvidenceBlobPath(rootDir, evidence.blobPath);
     if (!blobPath) {
       result.skipped.push({ path, reason: "invalid_blob_path" });
       result.metadataBytesAfter += metadataBytesBefore;
@@ -676,7 +678,7 @@ export async function compactEvidenceMetadata(
       }
       throw error;
     }
-    if (artifact.hash && contentHash(blobText) !== artifact.hash) {
+    if (evidence.hash && contentHash(blobText) !== evidence.hash) {
       result.skipped.push({ path, reason: "hash_mismatch" });
       result.metadataBytesAfter += metadataBytesBefore;
       continue;
@@ -686,16 +688,16 @@ export async function compactEvidenceMetadata(
       result.metadataBytesAfter += metadataBytesBefore;
       continue;
     }
-    const compactedArtifact = compactStoredArtifact(artifact, blobText, {
+    const compactedEvidence = compactStoredEvidence(evidence, blobText, {
       thresholdBytes,
       previewChars,
     });
-    const compactedText = `${JSON.stringify(compactedArtifact, null, 2)}\n`;
+    const compactedText = `${JSON.stringify(compactedEvidence, null, 2)}\n`;
     const metadataBytesAfter = Buffer.byteLength(compactedText, "utf8");
     const candidate: EvidenceMetadataCompactionCandidate = {
-      ref: artifact.ref,
+      ref: evidence.ref,
       path,
-      blobPath: artifact.blobPath,
+      blobPath: evidence.blobPath,
       metadataBytesBefore,
       metadataBytesAfter,
       bodyBytes: Buffer.byteLength(blobText, "utf8"),
@@ -712,38 +714,38 @@ export async function compactEvidenceMetadata(
   return result;
 }
 
-export function validateEvidenceRecord(artifact: unknown): asserts artifact is EvidenceRecord {
-  if (!isRecord(artifact)) throw new EvidenceValidationError("evidence metadata must be an object");
-  assertEvidenceRefValue(artifact.ref, "evidence ref");
-  if (!isEvidenceKind(artifact.kind)) {
-    throw new EvidenceValidationError("kind must be a valid artifact kind");
+export function validateEvidenceRecord(evidence: unknown): asserts evidence is EvidenceRecord {
+  if (!isRecord(evidence)) throw new EvidenceValidationError("evidence metadata must be an object");
+  assertEvidenceRefValue(evidence.ref, "evidence ref");
+  if (!isEvidenceKind(evidence.kind)) {
+    throw new EvidenceValidationError("kind must be a valid Evidence kind");
   }
-  assertNonEmpty(artifact.title, "artifact title");
-  if (!isEvidenceFormat(artifact.format)) {
-    throw new EvidenceValidationError(`invalid artifact format: ${String(artifact.format)}`);
+  assertNonEmpty(evidence.title, "Evidence title");
+  if (!isEvidenceFormat(evidence.format)) {
+    throw new EvidenceValidationError(`invalid Evidence format: ${String(evidence.format)}`);
   }
-  if (!isJsonValue(artifact.body)) {
+  if (!isJsonValue(evidence.body)) {
     throw new EvidenceValidationError("body must be a JSON value");
   }
-  assertOptionalNonEmptyString(artifact.bodyPreview, "bodyPreview");
-  assertOptionalPositiveNumber(artifact.bodySize, "bodySize");
-  assertOptionalBoolean(artifact.bodyTruncated, "bodyTruncated");
-  assertOptionalNonEmptyString(artifact.hash, "hash");
-  assertOptionalNonEmptyString(artifact.blobPath, "blobPath");
-  if (artifact.bodyTruncated === true) {
-    assertNonEmpty(artifact.bodyPreview, "bodyPreview");
-    assertPositiveNumber(artifact.bodySize, "bodySize");
-    assertNonEmpty(artifact.blobPath, "blobPath");
+  assertOptionalNonEmptyString(evidence.bodyPreview, "bodyPreview");
+  assertOptionalPositiveNumber(evidence.bodySize, "bodySize");
+  assertOptionalBoolean(evidence.bodyTruncated, "bodyTruncated");
+  assertOptionalNonEmptyString(evidence.hash, "hash");
+  assertOptionalNonEmptyString(evidence.blobPath, "blobPath");
+  if (evidence.bodyTruncated === true) {
+    assertNonEmpty(evidence.bodyPreview, "bodyPreview");
+    assertPositiveNumber(evidence.bodySize, "bodySize");
+    assertNonEmpty(evidence.blobPath, "blobPath");
   }
-  if (artifact.curation !== undefined) validateEvidenceCuration(artifact.curation);
-  if (artifact.transcriptRetention !== undefined) {
-    validateArtifactTranscriptRetention(artifact.transcriptRetention);
+  if (evidence.curation !== undefined) validateEvidenceCuration(evidence.curation);
+  if (evidence.transcriptRetention !== undefined) {
+    validateEvidenceTranscriptRetention(evidence.transcriptRetention);
   }
-  if (!Array.isArray(artifact.links)) throw new EvidenceValidationError("links must be an array");
-  artifact.links.forEach((link, index) => validateEvidenceLink(link, index));
-  validateEvidenceProvenance(artifact.provenance);
-  assertNonEmpty(artifact.createdAt, "createdAt");
-  assertNonEmpty(artifact.updatedAt, "updatedAt");
+  if (!Array.isArray(evidence.links)) throw new EvidenceValidationError("links must be an array");
+  evidence.links.forEach((link, index) => validateEvidenceLink(link, index));
+  validateEvidenceProvenance(evidence.provenance);
+  assertNonEmpty(evidence.createdAt, "createdAt");
+  assertNonEmpty(evidence.updatedAt, "updatedAt");
 }
 
 export function isEvidenceKind(value: unknown): value is EvidenceKind {
@@ -853,7 +855,7 @@ function validateEvidenceCuration(curation: unknown): void {
   assertOptionalNonEmptyString(curation.expiresAt, "curation.expiresAt");
 }
 
-function validateArtifactTranscriptRetention(retention: unknown): void {
+function validateEvidenceTranscriptRetention(retention: unknown): void {
   if (!isRecord(retention))
     throw new EvidenceValidationError("transcriptRetention must be an object");
   if (retention.schemaVersion !== 1) {
@@ -892,45 +894,45 @@ function validateTranscriptTail(tail: unknown): void {
       "transcriptRetention.transcriptTail.truncated must be a boolean",
     );
   }
-  if (tail.source !== "serialized-artifact-body-tail") {
+  if (tail.source !== "serialized-evidence-body-tail") {
     throw new EvidenceValidationError(
-      "transcriptRetention.transcriptTail.source must be serialized-artifact-body-tail",
+      "transcriptRetention.transcriptTail.source must be serialized-evidence-body-tail",
     );
   }
   assertString(tail.tail, "transcriptRetention.transcriptTail.tail");
 }
 
-function matchesQuery(artifact: EvidenceRecord, query: EvidenceQuery): boolean {
-  if (query.kind && artifact.kind !== query.kind) return false;
-  if (query.producer && artifact.provenance.producer !== query.producer) return false;
-  if (query.projectRef && artifact.provenance.projectRef !== query.projectRef) return false;
-  if (query.taskRef && artifact.provenance.taskRef !== query.taskRef) return false;
-  if (query.roleRef && artifact.provenance.roleRef !== query.roleRef) return false;
-  if (query.linkedTo && !artifact.links.some((link) => link.to === query.linkedTo)) return false;
-  if (query.retention && artifact.curation?.retention !== query.retention) return false;
+function matchesQuery(evidence: EvidenceRecord, query: EvidenceQuery): boolean {
+  if (query.kind && evidence.kind !== query.kind) return false;
+  if (query.producer && evidence.provenance.producer !== query.producer) return false;
+  if (query.projectRef && evidence.provenance.projectRef !== query.projectRef) return false;
+  if (query.taskRef && evidence.provenance.taskRef !== query.taskRef) return false;
+  if (query.roleRef && evidence.provenance.roleRef !== query.roleRef) return false;
+  if (query.linkedTo && !evidence.links.some((link) => link.to === query.linkedTo)) return false;
+  if (query.retention && evidence.curation?.retention !== query.retention) return false;
   if (query.curationStatus) {
     const statuses = Array.isArray(query.curationStatus)
       ? query.curationStatus
       : [query.curationStatus];
-    if (!artifact.curation || !statuses.includes(artifact.curation.status)) return false;
+    if (!evidence.curation || !statuses.includes(evidence.curation.status)) return false;
   }
-  if (query.includeRaw === false && artifact.curation?.status === "raw") return false;
+  if (query.includeRaw === false && evidence.curation?.status === "raw") return false;
   if (
     query.includeArchived === false &&
-    (artifact.curation?.status === "archived" || artifact.curation?.status === "superseded")
+    (evidence.curation?.status === "archived" || evidence.curation?.status === "superseded")
   ) {
     return false;
   }
   return true;
 }
 
-function compactStoredArtifact(
-  artifact: EvidenceRecord,
+function compactStoredEvidence(
+  evidence: EvidenceRecord,
   serializedBody: string,
   options: { thresholdBytes: number; previewChars: number },
 ): EvidenceRecord {
   const compacted: EvidenceRecord = {
-    ...artifact,
+    ...evidence,
     body: previewBody(serializedBody, options.previewChars),
   };
   addBodyCompactionMetadata(compacted, serializedBody, options);
@@ -947,15 +949,15 @@ function metadataBodyFor<T extends JsonValue | string>(
 }
 
 function addBodyCompactionMetadata(
-  artifact: EvidenceRecord,
+  evidence: EvidenceRecord,
   serializedBody: string,
   options: { thresholdBytes: number; previewChars: number },
 ): void {
   const bodySize = Buffer.byteLength(serializedBody, "utf8");
   if (bodySize <= options.thresholdBytes) return;
-  artifact.bodyPreview = previewBody(serializedBody, options.previewChars);
-  artifact.bodySize = bodySize;
-  artifact.bodyTruncated = true;
+  evidence.bodyPreview = previewBody(serializedBody, options.previewChars);
+  evidence.bodySize = bodySize;
+  evidence.bodyTruncated = true;
 }
 
 function previewBody(serializedBody: string, previewChars: number): string {
@@ -964,19 +966,19 @@ function previewBody(serializedBody: string, previewChars: number): string {
     : serializedBody;
 }
 
-function serializeArtifactBody(format: EvidenceFormat, body: JsonValue | string): string {
+function serializeEvidenceBody(format: EvidenceFormat, body: JsonValue | string): string {
   if (typeof body === "string") return body;
   if (format === "json") return JSON.stringify(body, null, 2);
   return JSON.stringify(body, null, 2);
 }
 
-function parseArtifactBody(format: EvidenceFormat, body: string): JsonValue | string {
+function parseEvidenceBody(format: EvidenceFormat, body: string): JsonValue | string {
   if (format !== "json") return body;
   try {
     return JSON.parse(body) as JsonValue;
   } catch (error) {
     throw new EvidenceValidationError(
-      `stored JSON artifact body is invalid: ${error instanceof Error ? error.message : String(error)}`,
+      `stored JSON Evidence body is invalid: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }

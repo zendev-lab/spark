@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { chmod } from "node:fs/promises";
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -46,7 +46,7 @@ import {
   TaskGraph,
   TaskGraphStore,
 } from "@zendev-lab/spark-tasks";
-import { registerSparkArtifactTool } from "@zendev-lab/spark-artifacts/extension";
+import { registerSparkEvidenceTool } from "@zendev-lab/spark-artifacts/extension";
 import type { SparkDaemonDriverTickTask } from "../apps/spark-daemon/src/core/types.ts";
 import { SparkDriverStore } from "../apps/spark-daemon/src/store/drivers.ts";
 import { SparkInvocationStore } from "../apps/spark-daemon/src/store/invocations.ts";
@@ -106,11 +106,11 @@ import {
 } from "../packages/spark-extension/src/extension/subject-review-store.ts";
 import { normalizeSparkTodoOps } from "../packages/spark-extension/src/extension/spark-todo-tool-registration.ts";
 import {
-  normalizeArtifactBoolean,
-  normalizeArtifactLimit,
+  normalizeEvidenceBoolean,
+  normalizeEvidenceLimit,
   normalizeEvidenceRef,
   normalizePositiveInteger,
-} from "../packages/spark-extension/src/extension/artifact-tools.ts";
+} from "../packages/spark-extension/src/extension/evidence-tools.ts";
 import {
   normalizeLearningBoolean,
   normalizeLearningCategory,
@@ -173,7 +173,33 @@ import type {
 type SparkHostApiForTest = Parameters<typeof sparkExtension>[0];
 type SparkToolConfig = Parameters<NonNullable<SparkHostApiForTest["registerTool"]>>[0];
 type SparkToolResult = Awaited<ReturnType<SparkToolConfig["execute"]>>;
+const evidenceSurfaceNegativeValues = JSON.parse(
+  readFileSync(
+    join(process.cwd(), "test", "fixtures", "evidence-surface", "negative-values.json"),
+    "utf8",
+  ),
+) as { wrongNamespaceRef: string; wrongKind: string };
+type LegacyEvidenceFixture<T> = {
+  legacyFieldNames: string[];
+  value: T;
+};
 type TestNotification = { message: string; level?: "info" | "warning" | "error" | "success" };
+
+async function loadLegacyEvidenceFixture<T>(
+  name: string,
+  replacements: Record<string, string> = {},
+): Promise<T> {
+  const fixturePath = join(process.cwd(), "test", "fixtures", "legacy-evidence", name);
+  let source = await readFile(fixturePath, "utf8");
+  for (const [key, value] of Object.entries(replacements)) {
+    source = source.replaceAll(`__${key}__`, value);
+  }
+  return JSON.parse(source) as T;
+}
+
+function quotedJsonField(field: string): RegExp {
+  return new RegExp(`"${field.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`);
+}
 type TestSparkDaemonDriverControl = SparkDaemonDriverControl & {
   drivers: Map<string, Awaited<ReturnType<SparkDaemonDriverControl["start"]>>["driver"]>;
   ensuredOwners: Array<{ sessionId: string; cwd: string }>;
@@ -188,7 +214,7 @@ function executionReadyPlan(objective: string): TaskPlan {
     nonGoals: [],
     successCriteria: [`Validation command for ${objective} passes with exit code 0.`],
     evidenceRequired: [
-      `Validation artifact records command output, exit code, and changed-file summary for ${objective}.`,
+      `Validation evidence records command output, exit code, and changed-file summary for ${objective}.`,
     ],
     steps: [objective],
     riskLevel: "normal",
@@ -325,27 +351,30 @@ test("Spark tool normalizer groups reject invalid explicit parameters instead of
   );
 
   runNormalizerGroup(
-    "artifacts",
+    "evidence",
     [
-      [() => normalizeArtifactLimit(undefined, 20), 20],
-      [() => normalizeArtifactLimit(0, 20), 0],
-      [() => normalizeArtifactLimit(12, 20), 12],
+      [() => normalizeEvidenceLimit(undefined, 20), 20],
+      [() => normalizeEvidenceLimit(0, 20), 0],
+      [() => normalizeEvidenceLimit(12, 20), 12],
       [() => normalizePositiveInteger(undefined, 1, "thresholdBytes"), 1],
       [() => normalizePositiveInteger(8, 1, "thresholdBytes"), 8],
-      [() => normalizeArtifactBoolean(undefined, false, "dryRun"), false],
-      [() => normalizeArtifactBoolean(true, false, "dryRun"), true],
+      [() => normalizeEvidenceBoolean(undefined, false, "dryRun"), false],
+      [() => normalizeEvidenceBoolean(true, false, "dryRun"), true],
       [() => normalizeEvidenceRef("evidence:one"), "evidence:one"],
     ],
     [
-      [() => normalizeArtifactLimit("12", 20), /limit must be a finite number/],
-      [() => normalizeArtifactLimit(1.5, 20), /limit must be a non-negative integer/],
-      [() => normalizeArtifactLimit(-1, 20), /limit must be a non-negative integer/],
+      [() => normalizeEvidenceLimit("12", 20), /limit must be a finite number/],
+      [() => normalizeEvidenceLimit(1.5, 20), /limit must be a non-negative integer/],
+      [() => normalizeEvidenceLimit(-1, 20), /limit must be a non-negative integer/],
       [
         () => normalizePositiveInteger(0, 1, "thresholdBytes"),
         /thresholdBytes must be a positive integer/,
       ],
-      [() => normalizeArtifactBoolean("true", false, "dryRun"), /dryRun must be a boolean/],
-      [() => normalizeEvidenceRef("artifact:one"), /evidenceRef must be an evidence: ref/],
+      [() => normalizeEvidenceBoolean("true", false, "dryRun"), /dryRun must be a boolean/],
+      [
+        () => normalizeEvidenceRef(evidenceSurfaceNegativeValues.wrongNamespaceRef),
+        /evidenceRef must be an evidence: ref/,
+      ],
     ],
   );
 
@@ -390,7 +419,7 @@ test("Spark tool normalizer groups reject invalid explicit parameters instead of
     "state",
     [
       [() => normalizeSparkStateAction(undefined), "state_status"],
-      [() => normalizeSparkStateAction("role_run_artifact_compact"), "role_run_artifact_compact"],
+      [() => normalizeSparkStateAction("role_run_evidence_compact"), "role_run_evidence_compact"],
       [() => normalizeSparkStateOptionalString(undefined, "exportDir"), undefined],
       [() => normalizeSparkStateOptionalString("exports", "exportDir"), "exports"],
     ],
@@ -670,7 +699,7 @@ test("Spark tool normalizer groups reject invalid explicit parameters instead of
         /evidence\.changedFiles must be an array of strings/,
       ],
       [() => normalizeSparkStateAction("status"), /action must be state_status/],
-      [() => normalizeSparkStateAction("compact-role-run-artifacts"), /role_run_artifact_compact/],
+      [() => normalizeSparkStateAction("compact-role-run-evidence"), /role_run_evidence_compact/],
       [() => normalizeSparkTodoOps({}), /ops must be a non-empty array/],
       [() => normalizeSparkTodoOps([{ op: "pause", item: "One" }]), /ops\[0\]\.op must be init/],
       [
@@ -3479,7 +3508,7 @@ test("impl_finish_task completes this session's claimed task", async () => {
     assert.match(toolText(completed), /Finished Spark task: \[done\] @finish-me: Finish me/);
     assert.match(
       toolText(completed),
-      /Completion evidence warning: Task completion needs evidence artifacts/,
+      /Completion evidence warning: Task completion needs Evidence records/,
     );
     assert.match(
       toolText(completed),
@@ -3683,7 +3712,7 @@ test("impl_finish_task attaches evidenceRefs before reviewer gate", async () => 
   }
 });
 
-test("impl_finish_task can create bounded task evidence artifact before reviewer gate", async () => {
+test("impl_finish_task can create bounded task Evidence before reviewer gate", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-generated-evidence-"));
   try {
     await writeEmptySparkProject(dir);
@@ -3702,7 +3731,7 @@ test("impl_finish_task can create bounded task evidence artifact before reviewer
     const claim = await planAndClaimTask(tools, ctx, {
       name: "finish-generated-evidence",
       title: "Finish with generated evidence",
-      description: "Finish should create a bounded task evidence artifact.",
+      description: "Finish should create a bounded task Evidence record.",
       plan: executionReadyPlan("Finish with generated evidence"),
       todos: ["Generate evidence and finish task"],
     });
@@ -3729,11 +3758,11 @@ test("impl_finish_task can create bounded task evidence artifact before reviewer
       },
     });
 
-    assert.match(toolText(finished), /Generated evidence: evidence:/);
-    const generatedRef = (finished.details as { generatedEvidenceArtifact?: EvidenceRef })
-      .generatedEvidenceArtifact;
+    assert.match(toolText(finished), /Evidence recorded: evidence:/);
+    const generatedRef = (finished.details as { generatedEvidenceRef?: EvidenceRef })
+      .generatedEvidenceRef;
     assert.ok(generatedRef?.startsWith("evidence:"));
-    if (!generatedRef) throw new Error("missing generated evidence artifact ref");
+    if (!generatedRef) throw new Error("missing generated evidence ref");
     assert.deepEqual(reviewerEvidenceRefs, [generatedRef]);
     assert.deepEqual((finished.details as { evidenceRefs?: string[] }).evidenceRefs, [
       generatedRef,
@@ -3741,12 +3770,12 @@ test("impl_finish_task can create bounded task evidence artifact before reviewer
     const loaded = await defaultTaskGraphStore(dir).load();
     assert.ok(loaded);
     assert.deepEqual(loaded.getTask(taskRef).outputEvidenceRefs, [generatedRef]);
-    const artifact = await defaultEvidenceStore(dir).get(generatedRef);
-    assert.equal(artifact.provenance.producer, "task");
-    assert.equal(artifact.provenance.taskRef, taskRef);
-    assert.equal(artifact.curation?.status, "candidate");
-    assert.equal(artifact.curation?.retention, "task");
-    const body = artifact.body;
+    const evidence = await defaultEvidenceStore(dir).get(generatedRef);
+    assert.equal(evidence.provenance.producer, "task");
+    assert.equal(evidence.provenance.taskRef, taskRef);
+    assert.equal(evidence.curation?.status, "candidate");
+    assert.equal(evidence.curation?.retention, "task");
+    const body = evidence.body;
     assert.equal(typeof body, "string");
     if (typeof body !== "string") throw new Error("generated evidence body must be markdown");
     assert.match(body, /Generated finish evidence/);
@@ -4024,8 +4053,8 @@ test("impl_finish_task blocks research follow-ups without explicit disposition",
   }
 });
 
-test("impl_finish_task accepts summary disposition for artifact follow-ups", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-artifact-followup-disposition-"));
+test("impl_finish_task accepts summary disposition for Evidence follow-ups", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-evidence-followup-disposition-"));
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
@@ -4048,25 +4077,25 @@ test("impl_finish_task accepts summary disposition for artifact follow-ups", asy
     });
 
     const claim = await planAndClaimTask(tools, ctx, {
-      name: "finish-artifact-followup-disposition",
-      title: "Finish artifact follow-up disposition",
-      description: "Summary disposition may explicitly cover artifact follow-up signals.",
+      name: "finish-evidence-followup-disposition",
+      title: "Finish Evidence follow-up disposition",
+      description: "Summary disposition may explicitly cover Evidence follow-up signals.",
       kind: "research",
-      plan: executionReadyPlan("Finish artifact follow-up disposition"),
-      todos: ["Validate artifact follow-up disposition"],
+      plan: executionReadyPlan("Finish Evidence follow-up disposition"),
+      todos: ["Validate Evidence follow-up disposition"],
     });
     const taskRef = (claim.details?.task as { ref?: TaskRef } | undefined)?.ref;
     assert.ok(taskRef);
 
     await executeSparkTool(tools, "impl_update_task_plan_items", ctx, {
       ops: [
-        { op: "init", items: ["Validate artifact follow-up disposition"] },
-        { op: "done", item: "Validate artifact follow-up disposition" },
+        { op: "init", items: ["Validate Evidence follow-up disposition"] },
+        { op: "done", item: "Validate Evidence follow-up disposition" },
       ],
     });
 
     const finished = await executeSparkTool(tools, "impl_finish_task", ctx, {
-      summary: `Research conclusion: artifact disposition is explicit.\nFollow-ups:\n- already_covered: ${evidence.ref} is covered by an existing task.`,
+      summary: `Research conclusion: Evidence disposition is explicit.\nFollow-ups:\n- already_covered: ${evidence.ref} is covered by an existing task.`,
       evidenceRefs: [evidence.ref],
     });
 
@@ -4681,10 +4710,7 @@ test("evidence tool lists and reads evidence through the canonical facade", asyn
       evidenceRef: evidence.ref,
     });
     assert.match(toolText(read), /Facade research note/);
-    assert.match(
-      toolText(read),
-      /Recorded evidence|evidence body|Facade research note|artifact body/,
-    );
+    assert.match(toolText(read), /Recorded evidence|evidence body|Facade research note/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -4706,11 +4732,11 @@ test("evidence tool rejects invalid filters and non-evidence refs", async () => 
 
     await assert.rejects(
       () => executeSparkTool(tools, "evidence", ctx, { action: "list", kind: "note" }),
-      /kind must be a valid artifact kind; valid values: document, record, trace, knowledge; received: note/,
+      /kind must be a valid Evidence kind; valid values: document, record, trace, knowledge; received: note/,
     );
     await assert.rejects(
       () => executeSparkTool(tools, "evidence", ctx, { action: "list", producer: "agent" }),
-      /producer must be a valid artifact producer; valid values: spark, role, task, review, ask, cue, user; received: agent.*producer=task.*runRef\/taskRef/,
+      /producer must be a valid Evidence producer; valid values: spark, role, task, review, ask, cue, user; received: agent.*producer=task.*runRef\/taskRef/,
     );
     await assert.rejects(
       () =>
@@ -4722,7 +4748,7 @@ test("evidence tool rejects invalid filters and non-evidence refs", async () => 
           body: "draft",
           provenance: { producer: "task" },
         }),
-      /kind must be a valid artifact kind; valid values: document, record, trace, knowledge; received: plan-draft.*kind=document/,
+      /kind must be a valid Evidence kind; valid values: document, record, trace, knowledge; received: plan-draft.*kind=document/,
     );
     await assert.rejects(
       () =>
@@ -4732,7 +4758,7 @@ test("evidence tool rejects invalid filters and non-evidence refs", async () => 
           to: "task:demo",
           relation: "review",
         }),
-      /relation must be a valid artifact link relation; valid values: parent, input, output, review-of, answer-to, trace-of, derived-from; received: review/,
+      /relation must be a valid Evidence link relation; valid values: parent, input, output, review-of, answer-to, trace-of, derived-from; received: review/,
     );
     await assert.rejects(
       () => executeSparkTool(tools, "evidence", ctx, { action: "list", projectRef: "project:one" }),
@@ -4751,7 +4777,7 @@ test("evidence tool rejects invalid filters and non-evidence refs", async () => 
       () =>
         executeSparkTool(tools, "evidence", ctx, {
           action: "read",
-          evidenceRef: "artifact:product",
+          evidenceRef: evidenceSurfaceNegativeValues.wrongNamespaceRef,
         }),
       /evidenceRef must be an evidence: ref/,
     );
@@ -4790,7 +4816,7 @@ test("memory kind=learning routes record, list, search, read, export, and import
         {
           ref: "evidence:invalid-kind-learning",
           kind: "not-a-valid-kind",
-          title: "Invalid learning artifact metadata",
+          title: "Invalid learning Evidence metadata",
           format: "json",
           body: {},
           links: [],
@@ -4810,7 +4836,7 @@ test("memory kind=learning routes record, list, search, read, export, and import
       location: "workspace",
     });
     assert.match(toolText(listed), /Export shared learnings explicitly/);
-    assert.match(toolText(listed), /warning:.*kind must be a valid artifact kind/);
+    assert.match(toolText(listed), /warning:.*kind must be a valid Evidence kind/);
     assert.equal((listed.details as { warnings?: unknown[] }).warnings?.length, 1);
 
     const search = await executeSparkTool(tools, "memory", ctx, {
@@ -4820,7 +4846,7 @@ test("memory kind=learning routes record, list, search, read, export, and import
       location: "workspace",
     });
     assert.match(toolText(search), /Export shared learnings explicitly/);
-    assert.match(toolText(search), /warning:.*kind must be a valid artifact kind/);
+    assert.match(toolText(search), /warning:.*kind must be a valid Evidence kind/);
     assert.equal((search.details as { warnings?: unknown[] }).warnings?.length, 1);
 
     const read = await executeSparkTool(tools, "memory", ctx, {
@@ -4966,7 +4992,10 @@ test("impl_ask_replay rejects non-evidence refs", async () => {
       /evidenceRef must be a string/,
     );
     await assert.rejects(
-      () => executeSparkTool(tools, "impl_ask_replay", ctx, { evidenceRef: "artifact:one" }),
+      () =>
+        executeSparkTool(tools, "impl_ask_replay", ctx, {
+          evidenceRef: evidenceSurfaceNegativeValues.wrongNamespaceRef,
+        }),
       /evidenceRef must be an evidence: ref/,
     );
   } finally {
@@ -5177,119 +5206,78 @@ test("impl_use_project reports selected existing projects", async () => {
   }
 });
 
-test("subject review rebuild reads v1 artifactRef and writes evidenceRef-only indexes", async () => {
+test("subject review rebuild reads a controlled v1 Evidence fixture and writes canonical indexes", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-subject-review-legacy-"));
   try {
+    const fixture =
+      await loadLegacyEvidenceFixture<LegacyEvidenceFixture<Record<string, unknown>>>(
+        "subject-review-v1.json",
+      );
     const reviewDir = join(dir, "reviews");
     await mkdir(reviewDir, { recursive: true });
-    await writeFile(
-      join(reviewDir, "legacy.json"),
-      JSON.stringify({
-        version: 1,
-        subjectKind: "task",
-        subjectRef: "task:legacy",
-        artifactRef: "evidence:legacy-review",
-        status: "resolved",
-        outcome: "approved",
-        reviewedAt: "2026-07-01T00:00:00.000Z",
-      }),
-    );
+    await writeFile(join(reviewDir, "legacy.json"), JSON.stringify(fixture.value));
 
     const index = await rebuildSubjectReviewIndex(reviewDir);
     assert.equal(index.reviews[0]?.evidenceRef, "evidence:legacy-review");
     const persisted = await readFile(join(reviewDir, "index.json"), "utf8");
     assert.match(persisted, /"evidenceRef": "evidence:legacy-review"/);
-    assert.doesNotMatch(persisted, /"artifactRef"/);
+    for (const legacyField of fixture.legacyFieldNames) {
+      assert.doesNotMatch(persisted, quotedJsonField(legacyField));
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("subject review rebuild rejects records with canonical and legacy evidence fields", async () => {
+test("subject review rebuild rejects controlled mixed canonical and legacy Evidence", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-subject-review-mixed-evidence-"));
   try {
+    const fixture = await loadLegacyEvidenceFixture<LegacyEvidenceFixture<Record<string, unknown>>>(
+      "subject-review-mixed-v1.json",
+    );
     const reviewDir = join(dir, "reviews");
     await mkdir(reviewDir, { recursive: true });
-    await writeFile(
-      join(reviewDir, "mixed.json"),
-      JSON.stringify({
-        version: 1,
-        subjectKind: "task",
-        subjectRef: "task:mixed",
-        evidenceRef: "evidence:canonical",
-        artifactRef: "evidence:legacy",
-        outcome: "approved",
-        reviewedAt: "2026-07-01T00:00:00.000Z",
-      }),
-    );
+    await writeFile(join(reviewDir, "mixed.json"), JSON.stringify(fixture.value));
     await assert.rejects(
       () => rebuildSubjectReviewIndex(reviewDir),
-      /must not contain both evidenceRef and legacy artifactRef/,
+      /must not contain both evidenceRef and legacy/,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("session goal reads legacy review evidence fields and writes only Evidence names", async () => {
+test("session goal reads a controlled legacy review fixture and writes only Evidence names", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-session-goal-legacy-evidence-"));
   try {
     const ctx = testSparkContext(dir, "main");
+    const fixture = await loadLegacyEvidenceFixture<LegacyEvidenceFixture<Record<string, unknown>>>(
+      "session-goal-v1.json",
+      { SESSION_ID: ctx.sessionId },
+    );
     const path = sessionGoalStorePath(dir, ctx);
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(
-      path,
-      JSON.stringify({
-        version: 1,
-        goal: {
-          version: 1,
-          goalId: "legacy-goal",
-          sessionKey: ctx.sessionId,
-          originalObjective: "Preserve persisted compatibility",
-          objective: "Preserve persisted compatibility",
-          status: "active",
-          source: "explicit",
-          lastReviewRef: "review:legacy",
-          lastReviewArtifactRef: "evidence:legacy-review",
-          lastReviewedAt: "2026-07-01T00:00:00.000Z",
-          createdAt: "2026-07-01T00:00:00.000Z",
-          updatedAt: "2026-07-01T00:00:00.000Z",
-        },
-      }),
-    );
+    await writeFile(path, JSON.stringify(fixture.value));
 
     const loaded = await loadSessionGoal(dir, ctx);
     assert.equal(loaded?.lastReviewEvidenceRef, "evidence:legacy-review");
     await updateSessionGoalStatus(dir, ctx, "active", { reason: "rewrite canonical schema" });
     const persisted = await readFile(path, "utf8");
     assert.match(persisted, /"lastReviewEvidenceRef": "evidence:legacy-review"/);
-    assert.doesNotMatch(persisted, /"lastReviewArtifactRef"/);
+    for (const legacyField of fixture.legacyFieldNames) {
+      assert.doesNotMatch(persisted, quotedJsonField(legacyField));
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("session goal rejects canonical and legacy review evidence fields together", async () => {
-  const cases = [
-    {
-      name: "top-level",
-      fields: {
-        lastReviewEvidenceRef: "evidence:same-review",
-        lastReviewArtifactRef: "evidence:same-review",
-      },
-    },
-    {
-      name: "nested",
-      fields: {
-        lastReviewEvidenceRef: "evidence:same-review",
-        lastReview: {
-          artifactRef: "evidence:same-review",
-          reviewedAt: "2026-07-01T00:00:00.000Z",
-        },
-      },
-    },
-  ] as const;
-  for (const testCase of cases) {
+test("session goal rejects controlled mixed canonical and legacy review Evidence", async () => {
+  const fixture = await loadLegacyEvidenceFixture<{
+    legacyFieldNames: string[];
+    cases: Array<{ name: string; fields: Record<string, unknown> }>;
+  }>("session-goal-mixed-v1.json");
+  for (const testCase of fixture.cases) {
     const dir = await mkdtemp(join(tmpdir(), `spark-session-goal-mixed-${testCase.name}-`));
     try {
       const ctx = testSparkContext(dir, "main");
@@ -8998,8 +8986,8 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
   }
 });
 
-test("impl_workflow_runs inspect keeps legacy large role-run artifacts behind refs", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-background-runs-large-role-artifact-"));
+test("impl_workflow_runs inspect keeps legacy large role-run Evidence behind refs", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-background-runs-large-role-evidence-"));
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
@@ -9015,15 +9003,15 @@ test("impl_workflow_runs inspect keeps legacy large role-run artifacts behind re
       projectRef: project.ref,
       name: "legacy-large-background-role-run",
       title: "Legacy large background role-run task",
-      description: "Represents an old background role-run with a large artifact body.",
+      description: "Represents an old background role-run with a large Evidence body.",
       kind: "implement",
       status: "done",
       plan: executionReadyPlan("Legacy large background role-run task"),
     });
     const legacyBodyMarker = "BACKGROUND_LEGACY_ROLE_RUN_FULL_BODY_SENTINEL";
-    const artifact = await defaultEvidenceStore(dir).put({
+    const evidence = await defaultEvidenceStore(dir).put({
       kind: "trace",
-      title: "Legacy large background role-run artifact",
+      title: "Legacy large background role-run Evidence",
       format: "text",
       body: legacyBodyMarker.repeat(4_000),
       provenance: { producer: "task", projectRef: project.ref, taskRef: task.ref },
@@ -9040,7 +9028,7 @@ test("impl_workflow_runs inspect keeps legacy large role-run artifacts behind re
       status: "succeeded",
       startedAt: now,
       finishedAt: now,
-      outputEvidenceRefs: [artifact.ref],
+      outputEvidenceRefs: [evidence.ref],
     });
     await store.save(graph);
 
@@ -9050,8 +9038,8 @@ test("impl_workflow_runs inspect keeps legacy large role-run artifacts behind re
     });
     const text = toolText(inspect);
     assert.match(text, /Background child run: run:legacy-large-background-role-run succeeded/);
-    assert.match(text, new RegExp(artifact.ref));
-    assert.match(text, /unsupported_role_run_body: artifact body not loaded/);
+    assert.match(text, new RegExp(evidence.ref));
+    assert.match(text, /unsupported_role_run_body: evidence body not loaded/);
     assert.doesNotMatch(text, new RegExp(legacyBodyMarker));
     assert.doesNotMatch(JSON.stringify(inspect.details), new RegExp(legacyBodyMarker));
   } finally {
@@ -9205,8 +9193,8 @@ test("workflow-run manager preflights role models with configured Pi command", a
   }
 });
 
-test("impl_status renders legacy large role-run artifacts by refs without artifact body", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-status-large-role-run-artifact-"));
+test("impl_status renders legacy large role-run Evidence by refs without loading its body", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-status-large-role-run-evidence-"));
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
@@ -9222,15 +9210,15 @@ test("impl_status renders legacy large role-run artifacts by refs without artifa
       projectRef: project.ref,
       name: "legacy-large-role-run",
       title: "Legacy large role-run task",
-      description: "Represents an old role-run with a large artifact body.",
+      description: "Represents an old role-run with a large Evidence body.",
       kind: "implement",
       status: "done",
       plan: executionReadyPlan("Legacy large role-run task"),
     });
     const legacyBodyMarker = "LEGACY_ROLE_RUN_FULL_BODY_SENTINEL";
-    const artifact = await defaultEvidenceStore(dir).put({
+    const evidence = await defaultEvidenceStore(dir).put({
       kind: "trace",
-      title: "Legacy large role-run artifact",
+      title: "Legacy large role-run Evidence",
       format: "text",
       body: legacyBodyMarker.repeat(3_000),
       provenance: { producer: "spark", projectRef: project.ref, taskRef: task.ref },
@@ -9247,7 +9235,7 @@ test("impl_status renders legacy large role-run artifacts by refs without artifa
       status: "succeeded",
       startedAt: now,
       finishedAt: now,
-      outputEvidenceRefs: [artifact.ref],
+      outputEvidenceRefs: [evidence.ref],
       completionSummary: {
         runRef,
         taskRef: task.ref,
@@ -9255,7 +9243,7 @@ test("impl_status renders legacy large role-run artifacts by refs without artifa
         runName: "worker-legacy-large",
         status: "succeeded",
         summary: "Legacy compact summary only",
-        evidenceRefs: [artifact.ref],
+        evidenceRefs: [evidence.ref],
         createdAt: now,
       },
     });
@@ -9265,7 +9253,7 @@ test("impl_status renders legacy large role-run artifacts by refs without artifa
     const text = toolText(status);
     assert.match(text, /Recent role-run completions:/);
     assert.match(text, /Legacy compact summary only/);
-    assert.match(text, new RegExp(artifact.ref));
+    assert.match(text, new RegExp(evidence.ref));
     assert.doesNotMatch(text, new RegExp(legacyBodyMarker));
     assert.doesNotMatch(JSON.stringify(status.details), new RegExp(legacyBodyMarker));
   } finally {
@@ -9822,7 +9810,7 @@ test("impl_state state_doctor reports protected-store candidates without deletin
       ],
     });
 
-    const artifact = await defaultEvidenceStore(dir).put({
+    const evidence = await defaultEvidenceStore(dir).put({
       kind: "trace",
       title: "Large diagnostics evidence",
       format: "text",
@@ -9855,7 +9843,7 @@ test("impl_state state_doctor reports protected-store candidates without deletin
     assert.match(text, /Inactive workflow runs: 1/);
     assert.match(text, /run:inactive-diagnostics/);
     assert.match(text, /Large evidence: 1/);
-    assert.match(text, new RegExp(artifact.ref));
+    assert.match(text, new RegExp(evidence.ref));
     assert.match(text, /Orphan evidence blobs: 1/);
     assert.match(text, /orphan-diagnostics\.txt/);
     assert.match(text, /notes: 1/);
@@ -9866,13 +9854,13 @@ test("impl_state state_doctor reports protected-store candidates without deletin
 
     const details = diagnostics.details as {
       diagnostics?: {
-        largeArtifacts: { candidates: Array<Record<string, unknown>> };
+        largeEvidence: { candidates: Array<Record<string, unknown>> };
         orphanBlobs: { candidates: Array<Record<string, unknown>> };
         terminalProjects: { candidates: Array<Record<string, unknown>> };
       };
     };
-    assert.equal(details.diagnostics?.largeArtifacts.candidates[0]?.ref, artifact.ref);
-    assert.equal("body" in (details.diagnostics?.largeArtifacts.candidates[0] ?? {}), false);
+    assert.equal(details.diagnostics?.largeEvidence.candidates[0]?.ref, evidence.ref);
+    assert.equal("body" in (details.diagnostics?.largeEvidence.candidates[0] ?? {}), false);
     assert.equal(
       details.diagnostics?.orphanBlobs.candidates[0]?.path,
       ".spark/evidence/blobs/orphan-diagnostics.txt",
@@ -9880,7 +9868,7 @@ test("impl_state state_doctor reports protected-store candidates without deletin
     assert.equal(details.diagnostics?.terminalProjects.candidates[0]?.ref, terminalProject.ref);
 
     assert.equal(existsSync(projectTreeIndexPath(dir)), true);
-    assert.equal(existsSync(defaultEvidenceStore(dir).pathFor(artifact.ref)), true);
+    assert.equal(existsSync(defaultEvidenceStore(dir).pathFor(evidence.ref)), true);
     assert.equal(existsSync(orphanBlob), true);
     assert.equal(existsSync(noteFile), true);
     assert.equal(existsSync(roleReportFile), true);
@@ -9927,21 +9915,12 @@ test("impl_state state_doctor reports store-v2 migration diagnostics with stable
       "reviews",
     );
     await mkdir(reviewDir, { recursive: true });
+    const legacyReviewFixture = await loadLegacyEvidenceFixture<
+      LegacyEvidenceFixture<Record<string, unknown>>
+    >("subject-review-dangling-product-v1.json");
     await writeFile(
-      join(reviewDir, "artifact-dangling-review.json"),
-      `${JSON.stringify({
-        version: 1,
-        subjectKind: "task",
-        subjectRef: "task:missing",
-        artifactRef: "artifact:dangling-review",
-        outcome: "approved",
-        summary: "dangling review",
-        reviewedAt: "2026-06-18T00:00:00.000Z",
-        recordedAt: "2026-06-18T00:00:00.000Z",
-        reviewerRun: {},
-        verdict: {},
-        legacyImportOnly: [".spark/review-gate.json"],
-      })}\n`,
+      join(reviewDir, "legacy-dangling-review.json"),
+      `${JSON.stringify(legacyReviewFixture.value)}\n`,
       "utf8",
     );
 
@@ -10137,7 +10116,7 @@ test("impl_state rejects invalid explicit action and path parameters", async () 
 
     await assert.rejects(
       () => executeSparkTool(tools, "impl_state", ctx, { action: "repair" }),
-      /action must be state_status, state_doctor, store_v2_migrate, cache_cleanup, workflow_run_prune, or role_run_artifact_compact/,
+      /action must be state_status, state_doctor, store_v2_migrate, cache_cleanup, workflow_run_prune, or role_run_evidence_compact/,
     );
     for (const oldAction of [
       "status",
@@ -10146,17 +10125,17 @@ test("impl_state rejects invalid explicit action and path parameters", async () 
       "migrate-v2",
       "cleanup",
       "prune",
-      "compact-role-run-artifacts",
+      "compact-role-run-evidence",
     ]) {
       await assert.rejects(
         () => executeSparkTool(tools, "impl_state", ctx, { action: oldAction }),
-        /action must be state_status, state_doctor, store_v2_migrate, cache_cleanup, workflow_run_prune, or role_run_artifact_compact/,
+        /action must be state_status, state_doctor, store_v2_migrate, cache_cleanup, workflow_run_prune, or role_run_evidence_compact/,
       );
     }
     await assert.rejects(
       () =>
         executeSparkTool(tools, "impl_state", ctx, {
-          action: "role_run_artifact_compact",
+          action: "role_run_evidence_compact",
           exportDir: 42,
         }),
       /exportDir must be a string/,
@@ -10164,7 +10143,7 @@ test("impl_state rejects invalid explicit action and path parameters", async () 
     await assert.rejects(
       () =>
         executeSparkTool(tools, "impl_state", ctx, {
-          action: "role_run_artifact_compact",
+          action: "role_run_evidence_compact",
           exportDir: "",
         }),
       /exportDir must be a non-empty string/,
@@ -10184,7 +10163,7 @@ test("impl_state rejects invalid numeric parameters instead of using defaults", 
     await assert.rejects(
       () =>
         executeSparkTool(tools, "impl_state", ctx, {
-          action: "role_run_artifact_compact",
+          action: "role_run_evidence_compact",
           thresholdBytes: "1024",
         }),
       /thresholdBytes must be a finite number/,
@@ -10192,7 +10171,7 @@ test("impl_state rejects invalid numeric parameters instead of using defaults", 
     await assert.rejects(
       () =>
         executeSparkTool(tools, "impl_state", ctx, {
-          action: "role_run_artifact_compact",
+          action: "role_run_evidence_compact",
           tailBytes: 0,
         }),
       /tailBytes must be a positive integer/,
@@ -10235,7 +10214,7 @@ test("impl_state rejects invalid boolean parameters instead of using defaults", 
   }
 });
 
-test("impl_state role_run_artifact_compact dry-run lists large role-run candidates and keeps non-role artifacts", async () => {
+test("impl_state role_run_evidence_compact dry-run lists large role-run candidates and keeps non-role Evidence", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-role-run-retention-dry-run-"));
   try {
     await writeEmptySparkProject(dir);
@@ -10271,7 +10250,7 @@ test("impl_state role_run_artifact_compact dry-run lists large role-run candidat
     const ctx = testSparkContext(dir, "main");
     const { tools } = registerSparkToolsForTest();
     const result = await executeSparkTool(tools, "impl_state", ctx, {
-      action: "role_run_artifact_compact",
+      action: "role_run_evidence_compact",
       thresholdBytes: 1024,
       tailBytes: 80,
     });
@@ -10313,7 +10292,7 @@ test("impl_state role_run_artifact_compact dry-run lists large role-run candidat
     assert.match(details.retention?.candidates[0]?.transcriptTail?.tail ?? "", /tail-marker/);
     assert.equal(
       details.retention?.skipped.some(
-        (entry) => entry.ref === research.ref && entry.reason === "not_role_run_artifact",
+        (entry) => entry.ref === research.ref && entry.reason === "not_role_run_evidence",
       ),
       true,
     );
@@ -10322,7 +10301,7 @@ test("impl_state role_run_artifact_compact dry-run lists large role-run candidat
   }
 });
 
-test("impl_state role_run_artifact_compact skips blob paths outside artifact root", async () => {
+test("impl_state role_run_evidence_compact skips blob paths outside Evidence root", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-role-run-retention-boundary-"));
   const outsidePath = `${dir}-outside-role-run.json`;
   try {
@@ -10349,7 +10328,7 @@ test("impl_state role_run_artifact_compact skips blob paths outside artifact roo
     const ctx = testSparkContext(dir, "main");
     const { tools } = registerSparkToolsForTest();
     const result = await executeSparkTool(tools, "impl_state", ctx, {
-      action: "role_run_artifact_compact",
+      action: "role_run_evidence_compact",
       thresholdBytes: 1,
       tailBytes: 80,
     });
@@ -10375,7 +10354,7 @@ test("impl_state role_run_artifact_compact skips blob paths outside artifact roo
   }
 });
 
-test("impl_state role_run_artifact_compact reports invalid artifact metadata", async () => {
+test("impl_state role_run_evidence_compact reports invalid Evidence metadata", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-role-run-retention-invalid-json-"));
   try {
     await writeEmptySparkProject(dir);
@@ -10386,7 +10365,7 @@ test("impl_state role_run_artifact_compact reports invalid artifact metadata", a
     const ctx = testSparkContext(dir, "main");
     const { tools } = registerSparkToolsForTest();
     const result = await executeSparkTool(tools, "impl_state", ctx, {
-      action: "role_run_artifact_compact",
+      action: "role_run_evidence_compact",
       thresholdBytes: 1,
       tailBytes: 80,
     });
@@ -10408,7 +10387,7 @@ test("impl_state role_run_artifact_compact reports invalid artifact metadata", a
   }
 });
 
-test("impl_state role_run_artifact_compact apply writes replacement summary before deleting blob", async () => {
+test("impl_state role_run_evidence_compact apply writes replacement summary before deleting blob", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-role-run-retention-apply-"));
   try {
     await writeEmptySparkProject(dir);
@@ -10434,7 +10413,7 @@ test("impl_state role_run_artifact_compact apply writes replacement summary befo
     const ctx = testSparkContext(dir, "main");
     const { tools } = registerSparkToolsForTest();
     const applied = await executeSparkTool(tools, "impl_state", ctx, {
-      action: "role_run_artifact_compact",
+      action: "role_run_evidence_compact",
       dryRun: false,
       thresholdBytes: 1024,
       tailBytes: 80,
@@ -11310,7 +11289,7 @@ function registerSparkToolsForTest(
     tools.set(config.name, config);
     activeToolNames.add(config.name);
   };
-  registerSparkArtifactTool({
+  registerSparkEvidenceTool({
     registerTool: (config) => registerExternalTool(config as SparkToolConfig),
   });
   registerSparkMemoryTool({

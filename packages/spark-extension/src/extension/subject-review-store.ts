@@ -94,7 +94,7 @@ export async function recordTaskSubjectReview(
   cwd: string,
   projectRef: ProjectRef,
   task: Task,
-  artifact: EvidenceRecord<JsonValue>,
+  evidence: EvidenceRecord<JsonValue>,
   review: ReviewerRunResult,
 ): Promise<SubjectReviewRecord> {
   const verdict = review.verdict as TaskReviewVerdict;
@@ -102,7 +102,7 @@ export async function recordTaskSubjectReview(
     version: 1,
     subjectKind: "task",
     subjectRef: task.ref,
-    evidenceRef: artifact.ref,
+    evidenceRef: evidence.ref,
     projectRef,
     transition: { requestedStatus: "done", policy: "required" },
     status: "resolved",
@@ -120,7 +120,7 @@ export async function recordTaskSubjectReview(
   await writeSubjectReviewRecord(
     cwd,
     taskReviewDirectory(cwd, projectRef, task.ref),
-    artifact.ref,
+    evidence.ref,
     record,
   );
   return record;
@@ -129,7 +129,7 @@ export async function recordTaskSubjectReview(
 export async function recordGoalSubjectReview(
   cwd: string,
   goal: SparkSessionGoal,
-  artifact: EvidenceRecord<JsonValue>,
+  evidence: EvidenceRecord<JsonValue>,
   review: ReviewerRunResult,
   input: GoalReviewInput,
 ): Promise<SubjectReviewRecord> {
@@ -138,7 +138,7 @@ export async function recordGoalSubjectReview(
     version: 1,
     subjectKind: "goal",
     subjectRef: goal.goalId,
-    evidenceRef: artifact.ref,
+    evidenceRef: evidence.ref,
     ...(input.projectRef ? { projectRef: input.projectRef } : {}),
     sessionKey: goal.sessionKey,
     transition: { requestedStatus: input.requestedStatus, policy: "required" },
@@ -168,7 +168,7 @@ export async function recordGoalSubjectReview(
     } as unknown as JsonValue,
     legacyImportOnly: LEGACY_REVIEW_IMPORT_ONLY,
   };
-  await writeSubjectReviewRecord(cwd, goalReviewDirectory(cwd, goal), artifact.ref, record);
+  await writeSubjectReviewRecord(cwd, goalReviewDirectory(cwd, goal), evidence.ref, record);
   return record;
 }
 

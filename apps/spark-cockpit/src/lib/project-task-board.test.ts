@@ -51,7 +51,7 @@ describe("project task board", () => {
     ]);
     expect(board[0]?.cards[0]).toMatchObject({
       assignable: true,
-      evidenceArtifacts: [
+      productArtifacts: [
         { id: "artifact-build", title: "Build PR" },
         { id: "artifact-issue", title: "Tracking issue" },
       ],

@@ -254,12 +254,18 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
             : {}),
         })),
       };
+      const negativeValues = JSON.parse(
+        await readFile(
+          join(process.cwd(), "test", "fixtures", "evidence-surface", "negative-values.json"),
+          "utf8",
+        ),
+      ) as { wrongNamespaceRef: string };
       legacy.stages[0]!.acceptance = [
         {
           description: "Problem statement documented",
           phase: "research",
           satisfied: true,
-          evidenceRef: "artifact:legacy-problem",
+          evidenceRef: negativeValues.wrongNamespaceRef,
         },
         {
           description: "Reproduction strategy planned",

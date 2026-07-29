@@ -273,7 +273,7 @@ export function registerSparkWorkflowRunTool(
           agent,
           runWorkflow: deps.runWorkflow ?? runWorkflowScript,
           evidenceRecord: (record: WorkflowEvidenceRecordInput) =>
-            recordWorkflowArtifact(cwd, record, deps),
+            recordWorkflowEvidence(cwd, record, deps),
           webSearch: (request: WorkflowWebSearchInput) => webSearchAdapter({ cwd, request }),
           fetchContent: (request: WorkflowFetchContentInput) =>
             fetchContentAdapter({ cwd, request }),
@@ -498,13 +498,13 @@ async function buildWorkflowApprovalSummary(input: {
     reasons.push(`agent tool policy includes shell-like tool(s): ${shellTools.join(", ")}`);
   }
   const writeTools = allowedTools.filter(isWorkflowWriteTool);
-  const writesArtifacts = /\bevidenceRecord\s*\(/u.test(input.script);
-  if (writeTools.length > 0 || writesArtifacts) {
+  const writesEvidence = /\bevidenceRecord\s*\(/u.test(input.script);
+  if (writeTools.length > 0 || writesEvidence) {
     riskFlags.push("write_tools");
     reasons.push(
       writeTools.length > 0
         ? `agent tool policy includes write-capable tool(s): ${writeTools.join(", ")}`
-        : "script can write workflow artifacts",
+        : "script can write workflow evidence",
     );
   }
   const longTimeouts = timeoutMs.filter((value) => value > 300_000);
@@ -932,24 +932,24 @@ function workflowGraftBaseRef(
   return base.baseRef?.trim() || undefined;
 }
 
-async function recordWorkflowArtifact(
+async function recordWorkflowEvidence(
   cwd: string,
   record: WorkflowEvidenceRecordInput,
   deps: SparkWorkflowRunToolDeps,
 ): Promise<{ ref: EvidenceRef }> {
   if (deps.evidenceRecord) return deps.evidenceRecord({ cwd, record });
-  const artifact = await defaultEvidenceStore(cwd).put({
+  const evidence = await defaultEvidenceStore(cwd).put({
     kind:
       record.kind === "record" || record.kind === "trace" || record.kind === "knowledge"
         ? record.kind
         : "document",
     title: record.title,
-    format: normalizeWorkflowArtifactFormat(record.format),
+    format: normalizeWorkflowEvidenceFormat(record.format),
     body: record.body as unknown as JsonValue,
     curation: { status: "raw", retention: "task" },
     provenance: { producer: "task", note: "workflow_run evidenceRecord" },
   });
-  return { ref: artifact.ref };
+  return { ref: evidence.ref };
 }
 
 async function refreshSparkWorkflowWidgetSafely(
@@ -1272,7 +1272,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function normalizeWorkflowArtifactFormat(value: string | undefined): EvidenceFormat {
+function normalizeWorkflowEvidenceFormat(value: string | undefined): EvidenceFormat {
   if (value === "markdown" || value === "json" || value === "text") return value;
   return "markdown";
 }

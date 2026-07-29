@@ -17,14 +17,14 @@ import { newRef } from "@zendev-lab/spark-core";
 test("learning store records active learnings and searches by content", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-"));
   try {
-    const store = new LearningStore({ artifactStore: new EvidenceStore({ rootDir: dir }) });
+    const store = new LearningStore({ evidenceStore: new EvidenceStore({ rootDir: dir }) });
     const evidenceRef = newRef("evidence", "evidence-plan");
     const recorded = await store.record({
       title: "Prefer explicit export for shared knowledge",
       statement:
         "Spark learnings live in .spark/memory/learnings locally and can be shared through explicit exports.",
       category: "decision",
-      applicability: "When persisting Spark learning artifacts for a repository.",
+      applicability: "When persisting Spark learning evidence for a repository.",
       evidenceRefs: [evidenceRef],
       tags: ["nyakore", "spark"],
       confidence: 0.9,
@@ -49,11 +49,11 @@ test("learning store records active learnings and searches by content", async ()
   }
 });
 
-test("learning store hydrates compacted artifact metadata for list and search", async () => {
+test("learning store hydrates compacted Evidence metadata for list and search", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-compacted-"));
   try {
     const store = new LearningStore({
-      artifactStore: new EvidenceStore({ rootDir: dir, inlineBodyThresholdBytes: 64 }),
+      evidenceStore: new EvidenceStore({ rootDir: dir, inlineBodyThresholdBytes: 64 }),
     });
     const recorded = await store.record({
       title: "Hydrate compacted learning metadata",
@@ -72,19 +72,19 @@ test("learning store hydrates compacted artifact metadata for list and search", 
   }
 });
 
-test("learning store skips malformed persisted learning artifacts with diagnostics", async () => {
+test("learning store skips malformed persisted learning evidence with diagnostics", async () => {
   const malformedDir = await mkdtemp(join(tmpdir(), "spark-memory-learning-malformed-"));
   const mismatchDir = await mkdtemp(join(tmpdir(), "spark-memory-learning-kind-mismatch-"));
   try {
-    const malformedArtifactStore = new EvidenceStore({ rootDir: malformedDir });
-    const malformedStore = new LearningStore({ artifactStore: malformedArtifactStore });
+    const malformedEvidenceStore = new EvidenceStore({ rootDir: malformedDir });
+    const malformedStore = new LearningStore({ evidenceStore: malformedEvidenceStore });
     const valid = await malformedStore.record({
       id: "valid-learning-survives",
       title: "Valid learning survives",
       statement: "Learning list and search should keep valid records when neighbors are bad.",
       tags: ["resilient"],
     });
-    await malformedArtifactStore.put({
+    await malformedEvidenceStore.put({
       ref: newRef("evidence", "malformed-learning"),
       kind: "knowledge",
       title: "Malformed learning",
@@ -94,12 +94,12 @@ test("learning store skips malformed persisted learning artifacts with diagnosti
     });
     const invalidKindRef = newRef("evidence", "invalid-kind-learning");
     await writeFile(
-      malformedArtifactStore.pathFor(invalidKindRef),
+      malformedEvidenceStore.pathFor(invalidKindRef),
       JSON.stringify(
         {
           ref: invalidKindRef,
           kind: "not-a-valid-kind",
-          title: "Invalid artifact kind",
+          title: "Invalid Evidence kind",
           format: "json",
           body: {},
           links: [],
@@ -114,7 +114,7 @@ test("learning store skips malformed persisted learning artifacts with diagnosti
 
     const listed = await malformedStore.listDetailed();
     assert.deepEqual(
-      listed.artifacts.map((artifact) => artifact.ref),
+      listed.evidence.map((evidence) => evidence.ref),
       [valid.ref],
     );
     assert.equal(listed.diagnostics.length, 2);
@@ -124,7 +124,7 @@ test("learning store skips malformed persisted learning artifacts with diagnosti
     );
     assert.match(
       listed.diagnostics.map((diagnostic) => diagnostic.message).join("\n"),
-      /kind must be a valid artifact kind/,
+      /kind must be a valid Evidence kind/,
     );
 
     const searched = await malformedStore.searchDetailed({ query: "valid records" });
@@ -134,17 +134,17 @@ test("learning store skips malformed persisted learning artifacts with diagnosti
     );
     assert.equal(searched.diagnostics.length, 2);
 
-    const mismatchArtifactStore = new EvidenceStore({ rootDir: mismatchDir });
-    const mismatchStore = new LearningStore({ artifactStore: mismatchArtifactStore });
+    const mismatchEvidenceStore = new EvidenceStore({ rootDir: mismatchDir });
+    const mismatchStore = new LearningStore({ evidenceStore: mismatchEvidenceStore });
     const candidate = await mismatchStore.record({
       id: "candidate-kind-contract",
       title: "Candidate kind contract",
-      statement: "Learning artifacts must stay in knowledge artifacts.",
+      statement: "Learning records must stay in knowledge Evidence records.",
       status: "candidate",
     });
-    // A non-knowledge artifact in the same store is not a learning artifact: the
+    // A non-knowledge Evidence record in the same store is not a learning record: the
     // learning store filters by kind=knowledge and must ignore it, not warn or choke on it.
-    await mismatchArtifactStore.put({
+    await mismatchEvidenceStore.put({
       ref: newRef("evidence", "unrelated-document"),
       kind: "document",
       title: "Unrelated document",
@@ -154,7 +154,7 @@ test("learning store skips malformed persisted learning artifacts with diagnosti
     });
     const listedCandidates = await mismatchStore.listDetailed({ includeCandidates: true });
     assert.deepEqual(
-      listedCandidates.artifacts.map((artifact) => artifact.ref),
+      listedCandidates.evidence.map((evidence) => evidence.ref),
       [candidate.ref],
     );
     assert.deepEqual(listedCandidates.diagnostics, []);
@@ -167,7 +167,7 @@ test("learning store skips malformed persisted learning artifacts with diagnosti
 test("learning export markdown round-trips and rejects malformed blocks", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-export-format-"));
   try {
-    const store = new LearningStore({ artifactStore: new EvidenceStore({ rootDir: dir }) });
+    const store = new LearningStore({ evidenceStore: new EvidenceStore({ rootDir: dir }) });
     const recorded = await store.record({
       id: "learning-export-format",
       title: "Learning export format is package-owned",
@@ -228,7 +228,7 @@ test("learning export markdown round-trips and rejects malformed blocks", async 
 test("learning store keeps candidates out of default active recall", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-candidate-"));
   try {
-    const store = new LearningStore({ artifactStore: new EvidenceStore({ rootDir: dir }) });
+    const store = new LearningStore({ evidenceStore: new EvidenceStore({ rootDir: dir }) });
     const candidate = await store.record({
       title: "Candidate task lesson",
       statement: "Only promote task-derived lessons after review.",
@@ -399,7 +399,7 @@ test("learning store supports stale, rejected, and superseded lifecycle states",
     assert.equal(rejectedUpdate.body.rejectedReason, "Contradicts the decision gate.");
 
     assert.deepEqual(
-      (await store.list({ includeInactive: true })).map((artifact) => artifact.body.status).sort(),
+      (await store.list({ includeInactive: true })).map((evidence) => evidence.body.status).sort(),
       ["rejected", "stale", "superseded"],
     );
   } finally {

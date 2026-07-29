@@ -98,7 +98,7 @@ const tasks: TaskPlanInput[] = [
       ],
       evidenceRequired: [
         "Node/vitest command output with exit code 0 for Chinese/code/JSON metering fixtures.",
-        "git diff or test artifact showing tokenSource labeled for estimated compact feedback/status output.",
+        "git diff or test Evidence record showing tokenSource labeled for estimated compact feedback/status output.",
       ],
       items: [
         "Inspect existing token/usage helpers used by compact and session status rendering.",
@@ -142,29 +142,29 @@ const tasks: TaskPlanInput[] = [
     }),
   },
   {
-    name: "compact-artifact-recovery",
-    title: "Offload long recoverable tool results to Artifacts",
+    name: "compact-evidence-recovery",
+    title: "Offload long recoverable tool results to Evidence",
     description:
-      "For oversized recoverable tool results, store original text as an EvidenceRecord and keep only status, key conclusions, path, and artifact ref in context while preserving failure diagnostics and call/result pairing.",
+      "For oversized recoverable tool results, store original text in EvidenceStore and keep only status, key conclusions, path, and evidenceRef in context while preserving failure diagnostics and call/result pairing.",
     kind: "implement",
     dependsOn: ["compact-v2-contract", "compact-isomorphic-micro"],
     rationale:
       "EvidenceRecord offload is required for large tool outputs without losing recoverability.",
     plan: readyPlan({
       objective:
-        "Persist oversized recoverable tool-result bodies as Artifacts and leave compact context stubs that keep status, key conclusions, path, artifact refs, failure exit codes, and protocol pairing intact.",
+        "Persist oversized recoverable tool-result bodies in EvidenceStore and leave compact context stubs that keep status, key conclusions, path, evidenceRef, failure exit codes, and protocol pairing intact.",
       successCriteria: [
-        "Fixture test with a long recoverable tool result creates an artifact:* ref and the in-context stub retains status plus artifact ref, with exit code 0.",
+        "Fixture test with a long recoverable tool result creates an evidence:* ref and the in-context stub retains status plus evidenceRef, with exit code 0.",
         "Failed tool-result fixture keeps exit code and key diagnostic text in-context after offload, asserted by tests with exit code 0.",
         "Tests assert tool-call and tool-result protocol pairing remains valid after EvidenceRecord offload, with exit code 0.",
       ],
       evidenceRequired: [
         "Node/vitest command output with exit code 0 for long-result offload, failure-diagnostic retention, and pairing integrity.",
-        "Sample artifact JSON file path under .spark/artifacts proving original body storage for the long tool result fixture.",
+        "Evidence read assertion proving the original long-result body is recoverable from the stub evidenceRef under .spark/evidence.",
       ],
       items: [
-        "Implement recoverability and length gates for EvidenceRecord offload candidates in tool-result compaction.",
-        "Implement EvidenceRecord write plus in-context stub generation that keeps status and artifact refs.",
+        "Implement recoverability and length gates for EvidenceStore offload candidates in tool-result compaction.",
+        "Implement EvidenceStore write plus in-context stub generation that keeps status and evidenceRef.",
         "Update stubs to preserve failure status, exit-code, and diagnostic fields.",
         "Add pairing and recovery regression tests for long and failed tool results.",
       ],
@@ -193,7 +193,7 @@ const tasks: TaskPlanInput[] = [
       ],
       evidenceRequired: [
         "Node/vitest command output with exit code 0 covering schema accept, model-failure fallback, and schema-invalid fallback paths.",
-        "Test artifact or fixture JSON recording fallbackReason when deterministic fallback is used.",
+        "Test Evidence record or fixture JSON recording fallbackReason when deterministic fallback is used.",
       ],
       items: [
         "Implement Smart summary schema sections and validators for required fixed fields.",
@@ -207,21 +207,21 @@ const tasks: TaskPlanInput[] = [
     name: "compact-runtime-wiring",
     title: "Unify automatic, manual, daemon, and recovery compact entrypoints",
     description:
-      "Wire one Compact V2 policy across auto threshold triggers, /compact, daemon/headless turns, session recovery, and branch summary reuse; micro-then-full escalation must avoid reprocessing already artifactized or compacted content.",
+      "Wire one Compact V2 policy across auto threshold triggers, /compact, daemon/headless turns, session recovery, and branch summary reuse; micro-then-full escalation must avoid reprocessing already evidence-backed or compacted content.",
     kind: "implement",
-    dependsOn: ["compact-isomorphic-micro", "compact-artifact-recovery", "compact-smart-summary"],
+    dependsOn: ["compact-isomorphic-micro", "compact-evidence-recovery", "compact-smart-summary"],
     rationale: "Entrypoint parity prevents TUI/daemon/recovery drift after algorithm work lands.",
     plan: readyPlan({
       objective:
-        "Connect Compact V2 scheduling so auto, /compact, daemon/headless, recovery, and branch-summary paths share one policy: micro once on micro-threshold, escalate to full when still above full safety threshold, and skip already compacted/artifactized content.",
+        "Connect Compact V2 scheduling so auto, /compact, daemon/headless, recovery, and branch-summary paths share one policy: micro once on micro-threshold, escalate to full when still above full safety threshold, and skip already compacted/evidence-backed content.",
       successCriteria: [
         "Harness/integration tests cover auto trigger, manual /compact feedback fields, and daemon/headless entry with the same policy decisions, with suite exit code 0.",
         "After micro-compaction still above full threshold, tests assert an immediate full compaction runs once, with exit code 0.",
-        "Follow-up compact-pass tests assert already artifactized or compacted segments are not selected again, with exit code 0.",
+        "Follow-up compact-pass tests assert already evidence-backed or compacted segments are not selected again, with exit code 0.",
       ],
       evidenceRequired: [
         "Node/vitest command output with exit code 0 for auto, manual /compact, and daemon/headless compact entry fixtures.",
-        "Captured /compact feedback log artifact showing compact type, tokenSource, measuredReductionRatio, and fallback fields.",
+        "Captured /compact feedback Evidence record showing compact type, tokenSource, measuredReductionRatio, and fallback fields.",
       ],
       items: [
         "Inspect existing auto, /compact, daemon, recovery, and branch-summary compact entrypoints.",
@@ -248,13 +248,13 @@ const tasks: TaskPlanInput[] = [
         "Candidates without valid evidence refs must not enter long-term Memory.",
       ],
       successCriteria: [
-        "Tests assert session_before_compact checkpoint artifact/content still exists after full compact, with exit code 0.",
+        "Tests assert session_before_compact checkpoint record/content still exists after full compact, with exit code 0.",
         "Write-gate tests reject candidates lacking evidence refs and accept candidates with valid evidence refs, with exit code 0.",
         "Injected Memory write/review failure fixtures leave Compact marked succeeded and do not throw into the compact caller, with exit code 0.",
       ],
       evidenceRequired: [
         "Node/vitest command output with exit code 0 for checkpoint retention, evidence gate accept/reject, and non-blocking failure fixtures.",
-        "Test log artifact proving Memory candidate work completes asynchronously relative to compact success status.",
+        "Test log Evidence record proving Memory candidate work completes asynchronously relative to compact success status.",
       ],
       items: [
         "Inspect session_before_compact checkpoint path and verify it remains intact after full compact.",
@@ -289,7 +289,7 @@ const tasks: TaskPlanInput[] = [
         "Run Compact, spark-turn, spark-memory, and spark-session focused tests and record exit codes.",
         "Run typecheck and Compact-related package builds and record exit codes.",
         "Document Compact V2 config knobs and tokenSource UI semantics under docs/.",
-        "Record acceptance evidence checklist against the eight Compact V2 tasks in the docs or review artifact.",
+        "Record acceptance evidence checklist against the eight Compact V2 tasks in the docs or review evidence.",
       ],
     }),
   },

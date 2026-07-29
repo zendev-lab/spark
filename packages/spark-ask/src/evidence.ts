@@ -10,7 +10,7 @@ import {
 
 import type { SparkAskAutoAnswerRequest } from "./action-tool.ts";
 
-export interface SparkAskEvidenceArtifactBody {
+export interface SparkAskEvidenceBody {
   schema: "spark.ask.evidence/v1";
   request: SparkAskAutoAnswerRequest;
   result: unknown;
@@ -40,9 +40,7 @@ interface CanonicalAskEvidenceReceipt {
   recordedAt: string;
 }
 
-export function isUserAnsweredAskEvidenceArtifactBody(
-  value: unknown,
-): value is SparkAskEvidenceArtifactBody {
+export function isUserAnsweredAskEvidenceBody(value: unknown): value is SparkAskEvidenceBody {
   return normalizeUserAnsweredAskEvidence(value) !== undefined;
 }
 
@@ -70,7 +68,7 @@ export async function recordCanonicalAskEvidenceReceipt(
   await writeJsonFileAtomic(canonicalAskEvidenceReceiptPath(cwd, evidenceRef), receipt);
 }
 
-export async function verifyCanonicalAskEvidenceArtifact(
+export async function verifyCanonicalAskEvidence(
   cwd: string,
   evidence: EvidenceRecord,
 ): Promise<VerifiedCanonicalAskEvidence | undefined> {

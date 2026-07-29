@@ -1280,9 +1280,15 @@ return await agent('do the work', { label: 'worker', evidenceRef: 'evidence:brie
   assert.equal(run.result, "done");
 });
 
-test("spark-workflows rejects artifact refs at the evidence boundaries", async () => {
+test("spark-workflows rejects Product Artifact refs at Evidence boundaries", async () => {
+  const negativeValues = JSON.parse(
+    await readFile(
+      join(process.cwd(), "test", "fixtures", "evidence-surface", "negative-values.json"),
+      "utf8",
+    ),
+  ) as { wrongNamespaceRef: string };
   const invalidAgentScript = `export const meta = { name: 'invalid ref', description: 'reject product ref' }
-return await agent('do the work', { evidenceRef: 'artifact:brief-123' })`;
+return await agent('do the work', { evidenceRef: '${negativeValues.wrongNamespaceRef}' })`;
   await assert.rejects(
     () => runWorkflowScript(invalidAgentScript, { agent: async () => "unused" }),
     /evidenceRef must be an evidence: ref/,
@@ -1294,7 +1300,7 @@ return await evidenceRecord({ title: 'Brief', body: 'Body' })`;
     () =>
       runWorkflowScript(invalidRecorderScript, {
         agent: async () => "unused",
-        evidenceRecord: async () => ({ ref: "artifact:not-evidence" as never }),
+        evidenceRecord: async () => ({ ref: negativeValues.wrongNamespaceRef as never }),
       }),
     /must return an evidence: ref/,
   );

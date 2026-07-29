@@ -56,9 +56,9 @@ function appendBackgroundChildSummaryLines(
     lines.push(`${indent}Stderr tail: ${roleRunTailMetadata(child.stderrTail)}`);
   if (child.jsonEventsTail)
     lines.push(`${indent}JSON events tail: ${jsonEventsTailMetadata(child.jsonEventsTail)}`);
-  for (const artifact of child.roleRunArtifacts ?? []) {
-    if (artifact.skippedReason)
-      lines.push(`${indent}EvidenceRecord ${artifact.evidenceRef}: ${artifact.skippedReason}`);
+  for (const evidence of child.roleRunEvidence ?? []) {
+    if (evidence.skippedReason)
+      lines.push(`${indent}EvidenceRecord ${evidence.evidenceRef}: ${evidence.skippedReason}`);
   }
 }
 

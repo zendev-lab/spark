@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import { registerSparkArtifactTool } from "@zendev-lab/spark-artifacts/extension";
+import { registerSparkEvidenceTool } from "@zendev-lab/spark-artifacts/extension";
 import { evaluateSparkBehavior } from "@zendev-lab/spark-turn/behavior-eval";
 import {
   SparkAgentLoop,
@@ -1961,7 +1961,7 @@ test("SparkAgentLoop records raw trace artifact for large lossy compacted tool o
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-loop-raw-recovery-"));
   try {
     const host = new SparkHostRuntime({ cwd: dir });
-    registerSparkArtifactTool({
+    registerSparkEvidenceTool({
       registerTool: (config) =>
         host.registerTool(config as Parameters<typeof host.registerTool>[0]),
     });
@@ -2080,7 +2080,7 @@ test("SparkAgentLoop offloads failed long output while preserving diagnostics an
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-loop-error-recovery-"));
   try {
     const host = new SparkHostRuntime({ cwd: dir });
-    registerSparkArtifactTool({
+    registerSparkEvidenceTool({
       registerTool: (config) =>
         host.registerTool(config as Parameters<typeof host.registerTool>[0]),
     });

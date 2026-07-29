@@ -1,0 +1,16 @@
+{
+  "legacyFieldNames": ["artifactRef"],
+  "value": {
+    "version": 1,
+    "subjectKind": "task",
+    "subjectRef": "task:missing",
+    "artifactRef": "artifact:dangling-review",
+    "outcome": "approved",
+    "summary": "dangling review",
+    "reviewedAt": "2026-06-18T00:00:00.000Z",
+    "recordedAt": "2026-06-18T00:00:00.000Z",
+    "reviewerRun": {},
+    "verdict": {},
+    "legacyImportOnly": [".spark/review-gate.json"]
+  }
+}

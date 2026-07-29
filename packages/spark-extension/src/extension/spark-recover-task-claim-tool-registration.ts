@@ -8,7 +8,7 @@ import { taskClaimSummary } from "./task-display.ts";
 import { compactTaskDetail, normalizeOptionalToolString } from "./task-plan-tool.ts";
 import {
   evaluateSparkTaskClaimRecovery,
-  recordSparkTaskClaimRecoveryArtifact,
+  recordSparkTaskClaimRecoveryEvidence,
   type SparkTaskClaimRecoveryDecision,
 } from "./task-claim-recovery.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
@@ -65,7 +65,7 @@ export function registerSparkRecoverTaskClaimTool(
             activeRoleRunProcesses,
           });
           if (!decision.recoverable) return { error: "not_recoverable" as const, task, decision };
-          const artifact = await recordSparkTaskClaimRecoveryArtifact({
+          const evidence = await recordSparkTaskClaimRecoveryEvidence({
             cwd,
             task,
             projectRef: project.ref,
@@ -73,7 +73,7 @@ export function registerSparkRecoverTaskClaimTool(
             recoveredBy: sessionKey,
           });
           graph.releaseTaskClaim(task.ref);
-          return { task: graph.getTask(task.ref), decision, evidenceRef: artifact.ref };
+          return { task: graph.getTask(task.ref), decision, evidenceRef: evidence.ref };
         },
         { createIfMissing: false },
       );

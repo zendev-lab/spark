@@ -22,9 +22,9 @@ export interface SparkInitResult {
   };
   sparkMdPath?: string;
   sparkMdEvidenceRef: string;
-  rolePlanArtifactRef: string;
+  rolePlanEvidenceRef: string;
   traceRef: string;
-  askArtifactRefs: EvidenceRef[];
+  askEvidenceRefs: EvidenceRef[];
 }
 
 export function renderSparkInitFollowUp(result: SparkInitResult): string {
@@ -59,10 +59,10 @@ export function renderSparkInitSummary(result: SparkInitResult): string {
         : "- 当前 task：无",
       `- 当前 TODO：${result.todoSummary.total} total / ${result.todoSummary.inProgress} in_progress / ${result.todoSummary.pending} pending / ${result.todoSummary.done} done`,
       `- Intent record：${result.sparkMdEvidenceRef}`,
-      `- Plan record：${result.rolePlanArtifactRef}`,
+      `- Plan record：${result.rolePlanEvidenceRef}`,
       `- Trace：${result.traceRef}`,
     ];
-    for (const askRef of result.askArtifactRefs) lines.push(`- Clarification ask：${askRef}`);
+    for (const askRef of result.askEvidenceRefs) lines.push(`- Clarification ask：${askRef}`);
     return lines.join("\n");
   }
 
@@ -80,10 +80,10 @@ export function renderSparkInitSummary(result: SparkInitResult): string {
       : "- Current task: none",
     `- Current TODOs: ${result.todoSummary.total} total / ${result.todoSummary.inProgress} in_progress / ${result.todoSummary.pending} pending / ${result.todoSummary.done} done`,
     `- Intent record: ${result.sparkMdEvidenceRef}`,
-    `- Plan record: ${result.rolePlanArtifactRef}`,
+    `- Plan record: ${result.rolePlanEvidenceRef}`,
     `- Trace: ${result.traceRef}`,
   ];
-  for (const askRef of result.askArtifactRefs) lines.push(`- Clarification ask: ${askRef}`);
+  for (const askRef of result.askEvidenceRefs) lines.push(`- Clarification ask: ${askRef}`);
   return lines.join("\n");
 }
 

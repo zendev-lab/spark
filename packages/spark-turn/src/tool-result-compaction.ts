@@ -208,7 +208,7 @@ export function compactToolResultContent(
   };
 }
 
-export function shouldRecordRawToolResultArtifact(
+export function shouldRecordRawToolResultEvidence(
   input: SparkToolResultRawRecoveryDecisionInput,
 ): SparkToolResultRawRecoveryDecision {
   if (!input.compaction) return { record: false };

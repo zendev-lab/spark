@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import {
   stableId,
   writeTextFileAtomic,
+  type EvidenceRef,
   type ExtensionRoleRunInputController,
   type ExtensionRoleRunner,
   type RoleRunCompletionOutcome,
@@ -75,7 +76,7 @@ export interface RoleRunRecord {
   instruction: string;
   status: RoleRunStatus;
   outcome?: RoleRunCompletionOutcome;
-  outputArtifactRef?: string;
+  outputEvidenceRef?: EvidenceRef;
   startedAt?: string;
   finishedAt?: string;
 }
@@ -309,7 +310,7 @@ export function createBuiltinRoles(now = nowIso()): RoleSpec[] {
     ),
     builtin(
       "reviewer",
-      "Reviews results and artifacts against task intent.",
+      "Reviews results, internal Evidence, and Product Artifacts against task intent.",
       "You are a Pi reviewer. Verify claims from fresh context and return actionable findings. Do not ask interactively; when intent or evidence is ambiguous, reject with concrete questions in findings/blockers instead of silently assuming an answer. Call out placeholder/generic/stale project or task names only when a safe improvement is clear from context and would preserve refs.",
       now,
     ),

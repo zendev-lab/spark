@@ -677,7 +677,7 @@ export function registerSparkWorkflowRunsTool(
             createdAt: now,
           }),
         ) as JsonValue;
-        const artifact = await defaultEvidenceStore(cwd).put({
+        const evidence = await defaultEvidenceStore(cwd).put({
           kind: "record",
           title: `Spark role-run ${action} control for ${target.runRef}`,
           format: "json",
@@ -697,7 +697,7 @@ export function registerSparkWorkflowRunsTool(
               at: now,
               message: "main session delivered a reply to this visible role-run",
               messageRole: "system",
-              evidenceRefs: [artifact.ref],
+              evidenceRefs: [evidence.ref],
             });
           }
           await appendRoleRunActivityEvent(cwd, {
@@ -706,7 +706,7 @@ export function registerSparkWorkflowRunsTool(
             at: now,
             message,
             messageRole: "user",
-            evidenceRefs: [artifact.ref],
+            evidenceRefs: [evidence.ref],
           });
         }
         await deps.refreshSparkWidget?.(cwd, ctx);
@@ -727,13 +727,13 @@ export function registerSparkWorkflowRunsTool(
         );
         const text = [
           `Spark background role-run ${action}: ${delivered ? "sent" : "not delivered"} to ${target.runRef}`,
-          `Control evidence: ${artifact.ref}`,
+          `Control evidence: ${evidence.ref}`,
           ...sendErrors.map((error) => `Error: ${error}`),
           renderSparkBackgroundRunsText(background, { detailed: false }),
         ].join("\n");
         return {
           content: [{ type: "text", text }],
-          details: { background, controlEvidenceRef: artifact.ref, sent },
+          details: { background, controlEvidenceRef: evidence.ref, sent },
         };
       }
       if (action === "ack") {

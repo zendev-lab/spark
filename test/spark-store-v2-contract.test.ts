@@ -352,7 +352,7 @@ test("Spark store V2 review fixture is subject-owned and keeps global review ind
   assert.equal(subject.kind, "task");
   assert.equal(
     subject.ownerPath,
-    "projects/proj-demo/tasks/task-demo/reviews/artifact-review-demo.json",
+    "projects/proj-demo/tasks/task-demo/reviews/evidence-review-demo.json",
   );
   assert.doesNotMatch(String(subject.ownerPath), /reviews\/gate\.json/);
 
