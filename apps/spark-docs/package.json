@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "astro dev --port 4322",
     "build": "astro build",
+    "build:cloudflare": "pnpm run check:deploy && pnpm run check",
     "preview": "astro preview --port 4322",
     "check:content": "node ../../scripts/check-user-docs.mjs",
     "check:deploy": "node ../../scripts/require-docs-deploy-env.mjs",
     "check:dist": "node ../../scripts/check-user-docs.mjs --dist",
     "check": "pnpm run check:content && astro check && astro build && pnpm run check:dist",
-    "deploy": "pnpm run check:deploy && astro build && wrangler deploy"
+    "deploy": "pnpm run build:cloudflare && pnpm run deploy:cloudflare",
+    "deploy:cloudflare": "wrangler deploy"
   },
   "dependencies": {
     "@astrojs/starlight": "0.41.4",

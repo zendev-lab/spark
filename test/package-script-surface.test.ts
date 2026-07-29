@@ -169,10 +169,20 @@ test("workspace scripts contain package-local behavior instead of root boilerpla
   }
 });
 
-test("CI, CD, and prek consume the canonical package scripts", async () => {
-  const [verifyWorkflow, docsCdWorkflow, hygieneWorkflow, prek] = await Promise.all([
+test("docs production scripts separate Workers Builds build and deploy phases", async () => {
+  const manifest = JSON.parse(await readFile(resolve("apps/spark-docs/package.json"), "utf8")) as {
+    scripts?: Record<string, string>;
+  };
+  const scripts = manifest.scripts ?? {};
+
+  assert.equal(scripts["build:cloudflare"], "pnpm run check:deploy && pnpm run check");
+  assert.equal(scripts["deploy:cloudflare"], "wrangler deploy");
+  assert.equal(scripts.deploy, "pnpm run build:cloudflare && pnpm run deploy:cloudflare");
+});
+
+test("CI and prek consume the canonical package scripts", async () => {
+  const [verifyWorkflow, hygieneWorkflow, prek] = await Promise.all([
     readFile(resolve(".github/workflows/ci-verify.yml"), "utf8"),
-    readFile(resolve(".github/workflows/cd-docs.yml"), "utf8"),
     readFile(resolve(".github/workflows/ce-hygiene.yml"), "utf8"),
     readFile(resolve("prek.toml"), "utf8"),
   ]);
@@ -188,14 +198,6 @@ test("CI, CD, and prek consume the canonical package scripts", async () => {
   assert.match(verifyWorkflow, /pnpm run test:browser:cockpit/u);
   assert.match(verifyWorkflow, /name: verify/u);
   assert.doesNotMatch(verifyWorkflow, /test:npm-product/u);
-  assert.match(docsCdWorkflow, /name: "CD - Docs"/u);
-  assert.match(
-    docsCdWorkflow,
-    /cloudflare\/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0/u,
-  );
-  assert.match(docsCdWorkflow, /workingDirectory: apps\/spark-docs/u);
-  assert.match(docsCdWorkflow, /command: deploy/u);
-  assert.doesNotMatch(docsCdWorkflow, /run:\s*\|\s*$/mu);
   assert.match(hygieneWorkflow, /pnpm run report:hygiene/u);
   assert.doesNotMatch(hygieneWorkflow, /pnpm exec (?:knip|jscpd)/u);
   assert.match(prek, /id = "spark-check-fix"/u);
