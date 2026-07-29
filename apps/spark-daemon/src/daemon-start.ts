@@ -97,13 +97,13 @@ import {
   resolveWebSocketUrl,
   runtimeEnvelopeForInvocationEvent,
   sendHeartbeat,
-  sendJson,
   serverUrlForConfig,
   sparkDaemonSupportedFeatures,
   sparkDaemonVersion,
   workspaceSummary,
-  type StartSparkDaemonOptions,
 } from "./daemon.ts";
+import { sendJson } from "./daemon-command-runtime.ts";
+import type { StartSparkDaemonOptions } from "./daemon-runtime-contract.ts";
 import { createRepeatedErrorReporter } from "./repeated-error-reporter.ts";
 import { artifactProjected } from "./protocol/outbound.ts";
 import {

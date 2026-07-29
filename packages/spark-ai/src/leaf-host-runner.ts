@@ -6,16 +6,13 @@ import type {
 } from "@zendev-lab/spark-core";
 
 import {
-  normalizeProviderStream,
-  retagAssistantMessageStream,
-  runSparkLeaf,
   SparkModelRegistry,
   SparkRouteResolver,
+  retagAssistantMessageStream,
   type ResolvedSparkModelIdentity,
-  type SparkLeafModelBinding,
-  type SparkLeafRequest,
-  type SparkProviderStreamFunction,
-} from "./index.ts";
+} from "./model-routing.ts";
+import { runSparkLeaf, type SparkLeafModelBinding, type SparkLeafRequest } from "./leaf-runner.ts";
+import { normalizeProviderStream, type SparkProviderStreamFunction } from "./provider-runner.ts";
 import type {
   ProviderConfig,
   SparkActiveSelection,

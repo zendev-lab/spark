@@ -25,7 +25,6 @@
     "apps/spark-cockpit/src/lib/workbench-home.test.ts": 16,
     "apps/spark-cockpit/src/lib/WorkbenchSessionRail.test.ts": 27,
     "apps/spark-daemon/src/command-transport-contract.test.ts": 3,
-    "test/check-boundaries.test.ts": 3,
     "test/spark-extension-loader.test.ts": 5
   }
 }

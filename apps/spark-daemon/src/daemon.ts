@@ -9,7 +9,6 @@ import {
   runtimeEphemeralSecretResultEnvelopeSchema,
   serverEphemeralSecretRequestEnvelopeSchema,
   runtimeProtocolVersion,
-  sparkProtocolJsonObjectSchema,
   runtimeReconcileRequestEnvelopeSchema,
   serverCommandEnvelopeSchema,
   serverHeartbeatAckEnvelopeSchema,
@@ -19,18 +18,8 @@ import {
   type RuntimeFeature,
   type RuntimeWorkspaceBindingSummary,
 } from "@zendev-lab/spark-protocol";
-import { SparkSessionMailStore } from "@zendev-lab/spark-session";
-import type { SparkPaths } from "@zendev-lab/spark-system";
 import { readSparkBuildInfo } from "@zendev-lab/spark-update";
 import { type SparkDaemonConfig } from "./config.js";
-import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
-import {
-  SparkDaemonInvocationRegistry,
-  type SparkDaemonDrainProgress,
-  type SparkDaemonEventSink,
-  type SparkDaemonHumanInteractionResponder,
-  type SparkDaemonTaskExecutor,
-} from "./core/index.ts";
 import {
   SparkDaemonHumanWaitRegistry,
   type SparkDaemonHumanWaitDeliveryResult,
@@ -38,9 +27,7 @@ import {
   type SparkDaemonHumanWaitRecord,
   type SparkDaemonHumanWaitRegistration,
 } from "./core/human-waits.ts";
-import type { SparkDaemonModelControl } from "./model-control.ts";
 import { executeSparkDaemonEphemeralSecretControl } from "./model-channel-control.ts";
-import type { DaemonSessionRegistry } from "./session-registry.ts";
 import {
   artifactProjected,
   commandReject,
@@ -60,7 +47,6 @@ import {
   recordRuntimeCommandTerminal,
 } from "./runtime-command-receipts.ts";
 import { runtimeCommandFailure } from "./runtime-command-error.ts";
-import { SparkChannelDeliveryStore } from "./store/channel-deliveries.ts";
 import {
   SparkInvocationStore,
   type SparkInvocationEvent,
@@ -69,16 +55,35 @@ import {
 import {
   applyCockpitWorkspaceBindingAssignments,
   getWorkspaceById,
-  isMutationBlockingBorrowedWorkspace,
-  listWorkspaces,
   reconcileWorkspaces,
   reconcileWorkspacesForServer,
-  sparkDaemonServerStatusSummaries,
   workspaceBindingBelongsToServer,
 } from "./store/workspaces.js";
-import type { RunSparkCommandFn, CancelSparkInvocationFn } from "./spark/bridge.js";
 import { executeClaimedCommand } from "./claimed-command.ts";
-export { startSparkDaemon } from "./daemon-start.ts";
+import {
+  commandRoute,
+  daemonStatusProjection,
+  daemonWorkspaceRouteMatches,
+  sendJson,
+  workspaceSnapshotPayloadForDaemon,
+} from "./daemon-command-runtime.ts";
+import {
+  createSparkDaemonUplinkControl,
+  type MessageContext,
+  type ServerSocket,
+  type SparkDaemonUplinkControl,
+  type StartSparkDaemonOptions,
+} from "./daemon-runtime-contract.ts";
+
+export {
+  commandRoute,
+  createSparkDaemonUplinkControl,
+  daemonStatusProjection,
+  daemonWorkspaceRouteMatches,
+  sendJson,
+  workspaceSnapshotPayloadForDaemon,
+};
+export type { MessageContext, ServerSocket, SparkDaemonUplinkControl, StartSparkDaemonOptions };
 
 export function resolveSparkDaemonVersion(
   options: Parameters<typeof readSparkBuildInfo>[0] = {},
@@ -101,109 +106,6 @@ export const sparkDaemonSupportedFeatures: RuntimeFeature[] = [
   "reconcile-v1",
   "ephemeral-secret-v1",
 ];
-
-/**
- * Minimal WebSocket-like surface used by command handlers. Production wires the
- * real `ws` library; tests pass a tiny stub that just records `send` calls.
- */
-export interface ServerSocket {
-  send(data: string): void;
-}
-
-export interface SparkDaemonUplinkControl {
-  requestReconfigure(serverUrl?: string): void;
-  subscribe(listener: (serverUrl?: string) => void): () => void;
-}
-
-export function createSparkDaemonUplinkControl(): SparkDaemonUplinkControl {
-  const listeners = new Set<(serverUrl?: string) => void>();
-  return {
-    requestReconfigure(serverUrl) {
-      for (const listener of listeners) listener(serverUrl);
-    },
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-  };
-}
-
-export interface StartSparkDaemonOptions {
-  paths: SparkPaths;
-  /** Global Spark provider/auth control root. */
-  sparkHome?: string;
-  modelControl?: SparkDaemonModelControl;
-  sessionRegistry?: DaemonSessionRegistry;
-  config: SparkDaemonConfig;
-  db: DatabaseSync;
-  once?: boolean;
-  signal?: AbortSignal;
-  /** Immediate restart admission gate: stop accepting/claiming new work. */
-  drainSignal?: AbortSignal;
-  /** Graceful restart exit gate: exit after already-active work settles. */
-  restartSignal?: AbortSignal;
-  drainTimeoutMs?: number;
-  /**
-   * Optional override for Spark-backed command execution. Production callers can
-   * leave this unset to use the real Spark runtime bridge; tests inject a fake
-   * to assert the streamed envelope sequence without spawning a real role-run.
-   */
-  runSparkCommand?: RunSparkCommandFn;
-  cancelSparkInvocation?: CancelSparkInvocationFn;
-  executeInvocation?: SparkDaemonTaskExecutor;
-  runScheduler?: boolean;
-  schedulerPollIntervalMs?: number;
-  schedulerConcurrency?: number;
-  invocationTimeoutMs?: number;
-  /** Retry delay for the optional Cockpit projection connection. */
-  serverReconnectDelayMs?: number;
-  /** Uplink-only reconfiguration signal; never stops local execution loops. */
-  uplinkControl?: SparkDaemonUplinkControl;
-  invocationRegistry?: SparkDaemonInvocationRegistry;
-  humanWaits?: SparkDaemonHumanWaitRegistry;
-  localEventSink?: SparkDaemonEventSink;
-  channelIngress?: DaemonChannelIngressRuntime;
-  mailStore?: SparkSessionMailStore;
-  notificationReconcileIntervalMs?: number;
-  channelDeliveryReconcileIntervalMs?: number;
-  /** Testable clock for daemon-owned main task claim reconciliation. */
-  taskClaimNow?: () => string;
-  taskClaimReconcileIntervalMs?: number;
-  /** Bind readiness transport while externally observable work admission is still closed. */
-  onReady?: (runtime: {
-    channelIngress: DaemonChannelIngressRuntime | null;
-    respondHumanInteraction: SparkDaemonHumanInteractionResponder;
-    flushHumanRequestOutbox: () => void;
-  }) => void | Promise<void>;
-  /** Publish process-local execution fences while a restart is draining. */
-  onDrainProgress?: (progress: SparkDaemonDrainProgress) => void;
-  /** Commit the serving/restart fence after all synchronous admission gates and loops are ready. */
-  onServing?: () => void;
-  /** Production CLI owns pid publication through lock release. */
-  managePidFile?: boolean;
-}
-
-export interface MessageContext {
-  paths: SparkPaths;
-  config: SparkDaemonConfig;
-  db: DatabaseSync;
-  runtimeId: string;
-  serverUrl?: string;
-  sparkHome?: string;
-  controlSparkHome?: string;
-  runtimeSessionId: string | undefined;
-  setRuntimeSessionId(value: string): void;
-  ensureHeartbeat(intervalMs: number): void;
-  runSparkCommand: RunSparkCommandFn;
-  cancelSparkInvocation: CancelSparkInvocationFn;
-  invocationRegistry?: SparkDaemonInvocationRegistry;
-  humanWaits?: SparkDaemonHumanWaitRegistry;
-  modelControl?: SparkDaemonModelControl;
-  channelIngress?: DaemonChannelIngressRuntime;
-  sessionRegistry?: DaemonSessionRegistry;
-  onRuntimeReady?(): void;
-  onIngestAck?(ackOf: string): void;
-}
 
 export function createDaemonHumanWait(
   ws: ServerSocket,
@@ -454,27 +356,6 @@ async function handleEphemeralSecretRequest(
   );
 }
 
-export function daemonWorkspaceRouteMatches(
-  db: DatabaseSync,
-  localWorkspaceId: string,
-  serverWorkspaceId: string | undefined,
-  serverBindingId: string | undefined,
-): boolean {
-  if (!serverWorkspaceId || !serverBindingId) return false;
-  return Boolean(
-    db
-      .prepare(
-        `SELECT 1
-         FROM daemon_workspaces
-         WHERE (id = ? OR server_binding_id = ?)
-           AND server_workspace_id = ?
-           AND server_binding_id = ?
-         LIMIT 1`,
-      )
-      .get(localWorkspaceId, localWorkspaceId, serverWorkspaceId, serverBindingId),
-  );
-}
-
 function sendEphemeralSecretFailure(
   ws: ServerSocket,
   request: ReturnType<typeof serverEphemeralSecretRequestEnvelopeSchema.parse>,
@@ -591,31 +472,6 @@ export async function handleCommand(
     );
     durableSocket.send(JSON.stringify(failed));
   }
-}
-
-export function workspaceSnapshotPayloadForDaemon(
-  db: DatabaseSync,
-  workspace: NonNullable<ReturnType<typeof getWorkspaceById>>,
-) {
-  const mutationBlocked = isMutationBlockingBorrowedWorkspace(db, workspace.id);
-  return {
-    displayName: workspace.displayName,
-    status: workspace.status,
-    projects: [],
-    unresolvedInboxCount: 0,
-    activeInvocationCount: workspace.executor?.activeInvocationCount ?? 0,
-    activeAgentCount: workspace.executor?.activeAgentCount ?? 0,
-    ...(workspace.borrowed ? { borrowed: workspace.borrowed } : {}),
-    workspaceClients: workspace.workspaceClients ?? [],
-    ...(workspace.executor ? { executor: workspace.executor } : {}),
-    control: {
-      mode: mutationBlocked ? ("snapshot_only" as const) : ("full" as const),
-      ...(mutationBlocked ? { reason: "borrowed" } : {}),
-      serverMutationAllowed: !mutationBlocked,
-    },
-    latestArtifactIds: [],
-    resources: [],
-  };
 }
 
 export function runtimeEnvelopeForInvocationEvent(
@@ -940,21 +796,6 @@ function markCommandResultReplayed(value: unknown): unknown {
   };
 }
 
-export function commandRoute(
-  runtimeId: string,
-  command: ReturnType<typeof serverCommandEnvelopeSchema.parse>,
-): RouteContext {
-  return {
-    runtimeId,
-    workspaceBindingId: command.workspaceBindingId,
-    workspaceId: command.workspaceId,
-    projectId: command.projectId,
-    commandId: command.commandId,
-    sessionId: command.sessionId,
-    ackOf: command.messageId,
-  };
-}
-
 function commandRouteFromUnknown(value: unknown): RouteContext {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Runtime command result route is missing.");
@@ -975,19 +816,6 @@ function commandRouteFromUnknown(value: unknown): RouteContext {
     ...(typeof route.sessionId === "string" ? { sessionId: route.sessionId } : {}),
     ...(typeof route.ackOf === "string" ? { ackOf: route.ackOf } : {}),
   };
-}
-
-export function daemonStatusProjection(context: MessageContext) {
-  const store = new SparkInvocationStore(context.db);
-  return sparkProtocolJsonObjectSchema.parse({
-    runtimeId: context.runtimeId,
-    servers: sparkDaemonServerStatusSummaries(context.db),
-    invocations: store.counts(),
-    invocationHealth: store.oldestActive(),
-    channelDeliveries: new SparkChannelDeliveryStore(context.db).summary(),
-    workspaceCount: listWorkspaces(context.db).length,
-    observedAt: new Date().toISOString(),
-  });
 }
 
 export function sendHeartbeat(
@@ -1113,10 +941,6 @@ export function rawDataToText(data: RawData): string {
     return Buffer.concat(data).toString("utf8");
   }
   return Buffer.from(data).toString("utf8");
-}
-
-export function sendJson(ws: ServerSocket, value: unknown): void {
-  ws.send(JSON.stringify(value));
 }
 
 export function logDaemonError(runtimeId: string, error: unknown): void {

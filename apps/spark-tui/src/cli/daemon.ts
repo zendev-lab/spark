@@ -353,28 +353,12 @@ export interface LocalDaemonEventsWatchResult {
   observedAt: string;
 }
 
-export interface SparkDaemonWorkspace {
-  id: string;
-  serverWorkspaceId?: string;
-  serverUrl: string;
-  localWorkspaceKey: string;
-  displayName: string;
-  localPath: string;
-  status: string;
-  workspaceClients?: SparkWorkspaceClientProjection[];
-  updatedAt?: string;
-}
-
-export interface SparkWorkspaceClientProjection {
-  clientId: string;
-  kind: SparkWorkspaceClientKind;
-  status: "connected" | "disconnected";
-  displayName?: string;
-  attachedAt?: string;
-  lastSeenAt?: string;
-}
-
-export type SparkWorkspaceClientKind = "interactive" | "headless" | "executor";
+import type { SparkDaemonWorkspace, SparkWorkspaceClientKind } from "./daemon-contracts.ts";
+export type {
+  SparkDaemonWorkspace,
+  SparkWorkspaceClientKind,
+  SparkWorkspaceClientProjection,
+} from "./daemon-contracts.ts";
 
 export interface LocalWorkspaceEnsureLocalInput {
   localPath: string;

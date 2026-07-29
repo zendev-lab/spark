@@ -20,7 +20,8 @@ import {
   readSparkDaemonConfig,
   writeSparkDaemonConfig,
 } from "./config.js";
-import { createSparkDaemonUplinkControl, startSparkDaemon } from "./daemon.js";
+import { createSparkDaemonUplinkControl } from "./daemon.js";
+import { startSparkDaemon } from "./daemon-start.js";
 import { getSparkDaemonServerProfile } from "./server-profiles.js";
 import { createSparkDaemonModelControl } from "./model-control.ts";
 import { unifyDaemonSessionTranscripts } from "./session-transcript-unification.ts";

@@ -1,5 +1,11 @@
 import type { RoleRunJsonEventsTail, RoleRunTextTail } from "@zendev-lab/spark-runtime";
-import type { SparkBackgroundChildRunView, SparkBackgroundRunsDetails } from "./background-runs.ts";
+import type {
+  SparkBackgroundChildRunView,
+  SparkBackgroundChildStatus,
+  SparkBackgroundRunsDetails,
+  SparkBackgroundRunView,
+  SparkBackgroundSummaryState,
+} from "./background-runs.ts";
 import { shortRoleLabel } from "./task-ownership.ts";
 
 const BACKGROUND_ACTIVE_CHILD_LIMIT = 5;
@@ -62,6 +68,18 @@ function appendBackgroundChildSummaryLines(
   }
 }
 
+function backgroundChildStatusLabel(status: SparkBackgroundChildStatus): string {
+  return status;
+}
+
+function backgroundSummaryStateLabel(state: SparkBackgroundSummaryState): string {
+  return state.replace("_", " ");
+}
+
+function isBackgroundProblemRun(run: SparkBackgroundRunView): boolean {
+  return run.status === "failed" || run.status === "stale" || run.status === "timed_out";
+}
+
 function renderBackgroundChildListLine(child: SparkBackgroundChildRunView): string {
   const taskLabel = child.taskName
     ? ` task=@${child.taskName}`
@@ -79,11 +97,7 @@ export function renderSparkBackgroundRunsText(
 ): string {
   const lines: string[] = [];
   const activeRunRef = details.summary.activeRunRef;
-  const problem = details.runs.find(
-    (run) =>
-      (run.status === "failed" || run.status === "stale" || run.status === "timed_out") &&
-      !run.acknowledgedAt,
-  );
+  const problem = details.runs.find((run) => isBackgroundProblemRun(run) && !run.acknowledgedAt);
   if (details.action === "kill") {
     lines.push(`Stopped background child runs: ${details.killed?.length ?? 0}`);
     for (const killed of details.killed ?? []) {
@@ -137,7 +151,7 @@ export function renderSparkBackgroundRunsText(
     );
     lines.push(`  Progress: ${problem.completed}/${problem.scheduled} tasks observed finished`);
   } else if (problem) {
-    lines.push(`Background work: ${details.summary.state.replace("_", " ")}`);
+    lines.push(`Background work: ${backgroundSummaryStateLabel(details.summary.state)}`);
     lines.push(
       `  Last problem: ${problem.status} ${problem.runRef}, ${problem.completed}/${problem.scheduled} tasks finished`,
     );

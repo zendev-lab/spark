@@ -9,7 +9,7 @@ import {
   type RoleRegistry,
   type RoleRunResult,
   type RoleThinkingLevel,
-} from "./index.ts";
+} from "./role-runtime.ts";
 import {
   newRef,
   nowIso,

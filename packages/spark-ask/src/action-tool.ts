@@ -28,14 +28,7 @@ export interface SparkAskActionToolOptions {
   autoAnswer?: SparkAskAutoAnswerResolver;
 }
 
-export interface SparkAskAutoAnswerRequest {
-  title?: string;
-  mode?: string;
-  context?: string;
-  flow?: string;
-  questions: SparkAskAutoAnswerQuestion[];
-}
-
+import type { SparkAskAutoAnswerRequest } from "./action-contracts.ts";
 export interface SparkAskAutoAnswerQuestion {
   id: string;
   prompt: string;

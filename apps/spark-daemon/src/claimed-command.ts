@@ -13,9 +13,8 @@ import {
   daemonWorkspaceRouteMatches,
   sendJson,
   workspaceSnapshotPayloadForDaemon,
-  type MessageContext,
-  type ServerSocket,
-} from "./daemon.ts";
+} from "./daemon-command-runtime.ts";
+import type { MessageContext, ServerSocket } from "./daemon-runtime-contract.ts";
 import {
   executeSparkDaemonModelChannelPublicControl,
   isSparkDaemonModelChannelPublicKind,

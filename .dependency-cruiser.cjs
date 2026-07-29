@@ -172,11 +172,11 @@ module.exports = {
       },
     },
     {
-      name: "fusion-repro-no-circular",
-      comment: "Fusion and reproduction capability packages must remain acyclic.",
+      name: "production-no-circular",
+      comment: "Production application and package modules must remain acyclic.",
       severity: "error",
       from: {
-        path: "^packages/spark-(fusion|repro)/",
+        path: "^(apps|packages)/",
       },
       to: {
         circular: true,

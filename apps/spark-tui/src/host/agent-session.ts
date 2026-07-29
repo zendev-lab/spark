@@ -20,7 +20,7 @@ import {
   type SparkRunOutcome,
 } from "@zendev-lab/spark-turn";
 
-import type { SparkCliHostServices } from "./bootstrap.ts";
+import type { SparkCliHostServices } from "./contracts.ts";
 import {
   CURRENT_SPARK_COMPACTION_SUMMARY_VERSION,
   DEFAULT_SPARK_COMPACTION_SETTINGS,

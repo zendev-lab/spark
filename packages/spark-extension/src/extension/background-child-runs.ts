@@ -5,7 +5,9 @@ import {
   type ActiveSparkRoleRunProcess,
 } from "@zendev-lab/spark-runtime";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
-import type { SparkBackgroundChildRunView, SparkBackgroundChildStatus } from "./background-runs.ts";
+import type { SparkBackgroundChildRunView } from "./background-run-contracts.ts";
+
+type SparkBackgroundChildStatus = SparkBackgroundChildRunView["status"];
 
 export function resolveBackgroundTaskRef(
   graph: TaskGraph,

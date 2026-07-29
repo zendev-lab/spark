@@ -17,10 +17,10 @@ import {
   createDaemonHumanWait,
   handleCommand,
   handleServerMessage,
-  startSparkDaemon,
   type MessageContext,
   type ServerSocket,
 } from "./daemon.js";
+import { startSparkDaemon } from "./daemon-start.ts";
 import { SparkDaemonInvocationRegistry, SparkDaemonLifecycle } from "./core/index.ts";
 import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";

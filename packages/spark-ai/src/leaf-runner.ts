@@ -1,7 +1,11 @@
 import type { Context } from "@earendil-works/pi-ai";
 import type { LeafDegradeReason } from "@zendev-lab/spark-core";
 
-import { SparkRouteExecutionError, type SparkModelId, type SparkRouteResolver } from "./index.ts";
+import {
+  SparkRouteExecutionError,
+  type SparkModelId,
+  type SparkRouteResolver,
+} from "./model-routing.ts";
 import { assistantMessageToText, type SparkProviderStreamFunction } from "./provider-runner.ts";
 
 /**
