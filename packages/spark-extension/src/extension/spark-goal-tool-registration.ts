@@ -268,7 +268,7 @@ export function registerSparkGoalTool(
               goal: existingGoal,
               proposedObjective: objective,
               review: editResult.review?.verdict,
-              reviewArtifact: editResult.reviewArtifactRef,
+              reviewEvidence: editResult.reviewEvidenceRef,
             },
           };
         const relationship = describeGoalProjectRelationship(
@@ -306,7 +306,7 @@ export function registerSparkGoalTool(
             error: "goal_pause_review_failed",
             goal: pauseResult.goal,
             review: pauseResult.review?.verdict,
-            reviewArtifact: pauseResult.reviewArtifactRef,
+            reviewEvidence: pauseResult.reviewEvidenceRef,
           },
         };
       const relationship = describeGoalProjectRelationship(pauseResult.goal, graph, project);
@@ -446,14 +446,14 @@ interface ReviewedGoalPauseResult {
   goal?: SparkSessionGoal;
   approved: boolean;
   review?: ReviewerRunResult;
-  reviewArtifactRef?: string;
+  reviewEvidenceRef?: string;
 }
 
 interface ReviewedGoalEditResult {
   goal?: SparkSessionGoal;
   approved: boolean;
   review?: ReviewerRunResult;
-  reviewArtifactRef?: string;
+  reviewEvidenceRef?: string;
 }
 
 async function reviewedEditCurrentSessionGoal(
@@ -496,10 +496,10 @@ async function reviewedEditCurrentSessionGoal(
     },
   );
   if (verdict.outcome !== "approved")
-    return { goal: existingGoal, approved: false, review, reviewArtifactRef: artifact.ref };
+    return { goal: existingGoal, approved: false, review, reviewEvidenceRef: artifact.ref };
   const edited = await editSessionGoalObjective(cwd, ctx, proposedObjective);
   await refreshGoalRuntimeState(cwd, ctx, deps);
-  return { goal: edited, approved: true, review, reviewArtifactRef: artifact.ref };
+  return { goal: edited, approved: true, review, reviewEvidenceRef: artifact.ref };
 }
 
 export async function reviewedPauseCurrentSessionGoal(
@@ -543,7 +543,7 @@ export async function reviewedPauseCurrentSessionGoal(
       goal: existingGoal,
       approved: false,
       review,
-      reviewArtifactRef: artifact.ref,
+      reviewEvidenceRef: artifact.ref,
     };
   const goal = await updateSessionGoalStatus(cwd, ctx, "paused", {
     reason,
@@ -558,7 +558,7 @@ export async function reviewedPauseCurrentSessionGoal(
     },
   });
   await refreshGoalRuntimeState(cwd, ctx, deps);
-  return { goal, approved: true, review, reviewArtifactRef: artifact.ref };
+  return { goal, approved: true, review, reviewEvidenceRef: artifact.ref };
 }
 
 async function refreshGoalRuntimeState(
@@ -704,7 +704,7 @@ function renderGoalEditRejectedMessage(
   const blockers = verdict?.blockers?.length
     ? `\nBlockers: ${formatGoalReviewList(verdict.blockers)}`
     : "";
-  const artifact = result.reviewArtifactRef ? `\nReview evidence: ${result.reviewArtifactRef}` : "";
+  const artifact = result.reviewEvidenceRef ? `\nReview evidence: ${result.reviewEvidenceRef}` : "";
   return `Goal edit blocked by reviewer for session goal: ${oneLine(goal.objective)}\nReview outcome: ${verdict?.outcome ?? "blocked"}\nReview summary: ${summary}${findings}${blockers}${artifact}`;
 }
 
@@ -717,7 +717,7 @@ function renderGoalPauseRejectedMessage(
   const blockers = verdict?.blockers?.length
     ? `\nBlockers: ${formatGoalReviewList(verdict.blockers)}`
     : "";
-  const artifact = result.reviewArtifactRef ? `\nReview evidence: ${result.reviewArtifactRef}` : "";
+  const artifact = result.reviewEvidenceRef ? `\nReview evidence: ${result.reviewEvidenceRef}` : "";
   return `Goal pause blocked by reviewer for session goal: ${oneLine(goal.objective)}\nReview outcome: ${verdict?.outcome ?? "blocked"}\nReview summary: ${summary}${blockers}${artifact}`;
 }
 
@@ -747,7 +747,7 @@ function goalCompletionResult(
         goal,
         outcome: result.outcome,
         review: result.review.verdict,
-        reviewArtifact: result.evidenceRef,
+        reviewEvidence: result.evidenceRef,
       },
     };
   }
@@ -773,7 +773,7 @@ function goalCompletionResult(
         blockers: result.blockers,
         remainingWork: result.remainingWork,
         review: result.review?.verdict,
-        reviewArtifact: result.evidenceRef,
+        reviewEvidence: result.evidenceRef,
       },
     };
   }

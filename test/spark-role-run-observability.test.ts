@@ -48,8 +48,8 @@ function graphWithRuns(runs: TaskRun[]): TaskGraph {
     status: "running",
     roleRef,
     supersededBy: [],
-    inputArtifacts: [],
-    outputArtifacts: [],
+    inputEvidenceRefs: [],
+    outputEvidenceRefs: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -67,7 +67,7 @@ function taskRun(input: Partial<TaskRun> & { ref: RunRef }): TaskRun {
     ownerSessionId: "session:test",
     status: "running",
     startedAt: "2026-06-17T00:00:01.000Z",
-    outputArtifacts: [],
+    outputEvidenceRefs: [],
     ...overrides,
   };
 }
@@ -77,7 +77,7 @@ test("Spark role-run registry reconstructs ordered lifecycle events from task ru
     ref: "run:finished" as RunRef,
     status: "succeeded",
     finishedAt: "2026-06-17T00:00:05.000Z",
-    outputArtifacts: ["evidence:trace"],
+    outputEvidenceRefs: ["evidence:trace"],
   });
   const snapshot = buildSparkRoleRunRegistry({ graph: graphWithRuns([run]) });
   const entry = findSparkRoleRunRegistryEntry(snapshot, run.ref);
@@ -92,7 +92,7 @@ test("Spark role-run registry reconstructs ordered lifecycle events from task ru
     entry?.events.map((event) => event.status),
     ["running", "done"],
   );
-  assert.deepEqual(entry?.events.at(-1)?.artifactRefs, ["evidence:trace"]);
+  assert.deepEqual(entry?.events.at(-1)?.evidenceRefs, ["evidence:trace"]);
   assert.equal(entry?.events.at(-1)?.provenance.source, "task-graph");
   assert.equal(snapshot.counts.done, 1);
 });
@@ -152,7 +152,7 @@ test("Spark role-run protocol carries parent links, usage, activity, and stopped
     ref: "run:child" as RunRef,
     status: "cancelled",
     finishedAt: "2026-06-17T00:00:12.000Z",
-    outputArtifacts: ["evidence:trace"],
+    outputEvidenceRefs: ["evidence:trace"],
   });
   const snapshot = buildSparkRoleRunRegistry({
     graph: graphWithRuns([run]),

@@ -73,7 +73,7 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get(ref: `evidence:${string}`) {
           return {
             ref,
@@ -107,7 +107,7 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async (input) => {
           expect(new SparkInvocationStore(h.db).sessionActivity("sess_bridge")).toMatchObject({
             active: true,
@@ -117,7 +117,7 @@ describe("Spark daemon bridge", () => {
           return {
             ref: "run:bridge",
             status: "succeeded",
-            outputArtifacts: ["evidence:bridge-output"],
+            outputEvidenceRefs: ["evidence:bridge-output"],
           };
         },
       });
@@ -162,7 +162,7 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get() {
           throw new Error("unexpected artifact lookup for stream-only run");
         },
@@ -186,7 +186,7 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async (input) => {
           const onRoleEvent = input.onRoleEvent as ((event: unknown) => void) | undefined;
           onRoleEvent?.({ type: "stream_event", event: { type: "text_delta", delta: "Hel" } });
@@ -195,7 +195,7 @@ describe("Spark daemon bridge", () => {
           return {
             ref: "run:streaming",
             status: "succeeded",
-            outputArtifacts: [],
+            outputEvidenceRefs: [],
           };
         },
       });
@@ -235,7 +235,7 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get() {
           throw new Error("unexpected artifact lookup for final-only run");
         },
@@ -259,7 +259,7 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async (input) => {
           const onRoleEvent = input.onRoleEvent as ((event: unknown) => void) | undefined;
           onRoleEvent?.({
@@ -272,7 +272,7 @@ describe("Spark daemon bridge", () => {
           return {
             ref: "run:final-only",
             status: "succeeded",
-            outputArtifacts: [],
+            outputEvidenceRefs: [],
           };
         },
       });
@@ -300,7 +300,7 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get(ref: `evidence:${string}`) {
           return {
             ref,
@@ -336,11 +336,11 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async () => ({
           ref: "run:artifact",
           status: "succeeded",
-          outputArtifacts: ["evidence:bridge-output"],
+          outputEvidenceRefs: ["evidence:bridge-output"],
         }),
       });
 
@@ -375,7 +375,7 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get() {
           throw new Error("unexpected artifact lookup for thrown failure");
         },
@@ -399,7 +399,7 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async (input) => {
           const onRoleEvent = input.onRoleEvent as ((event: unknown) => void) | undefined;
           onRoleEvent?.({ type: "stream_event", event: { type: "text_delta", delta: "partial" } });
@@ -438,7 +438,7 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get() {
           throw new Error("unexpected artifact lookup for cancelled run");
         },
@@ -462,7 +462,7 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async (input) => {
           const onRoleEvent = input.onRoleEvent as ((event: unknown) => void) | undefined;
           onRoleEvent?.({
@@ -473,7 +473,7 @@ describe("Spark daemon bridge", () => {
             ref: "run:cancelled",
             status: "cancelled",
             errorMessage: "cancelled by user",
-            outputArtifacts: [],
+            outputEvidenceRefs: [],
           };
         },
       });
@@ -513,7 +513,7 @@ describe("Spark daemon bridge", () => {
           throw new Error("stale full-graph save should not be used");
         },
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get() {
           throw new Error("unexpected artifact lookup for merge-only run");
         },
@@ -537,7 +537,7 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async (input) => {
           currentGraph = fakeGraph((refs) => mergedTaskRefs.push(refs));
           const onHeartbeat = input.onHeartbeat as ((graph: unknown) => Promise<void>) | undefined;
@@ -545,7 +545,7 @@ describe("Spark daemon bridge", () => {
           return {
             ref: "run:merged",
             status: "succeeded",
-            outputArtifacts: [],
+            outputEvidenceRefs: [],
           };
         },
       });
@@ -576,7 +576,7 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get() {
           throw new Error("unexpected artifact lookup for failed run without outputs");
         },
@@ -601,12 +601,12 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async () => ({
           ref: "run:failed-retry",
           status: "failed",
           errorMessage: "Spark role failed",
-          outputArtifacts: [],
+          outputEvidenceRefs: [],
         }),
       });
 

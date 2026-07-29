@@ -1,3 +1,4 @@
+import type { ProductArtifactRef } from "@zendev-lab/spark-artifacts";
 import { type TaskGraph } from "@zendev-lab/spark-tasks";
 import type { Project, ProjectRef, Task, TaskRef } from "@zendev-lab/spark-core";
 import { createId, parseSparkAssignment } from "@zendev-lab/spark-protocol";
@@ -93,7 +94,7 @@ export interface SparkCockpitGoalSummary {
 }
 
 export interface SparkCockpitArtifactSummary {
-  artifactRef: string;
+  productArtifactRef: ProductArtifactRef;
   title?: string;
   kind?: string;
   status?: string;
@@ -634,7 +635,7 @@ function cockpitTask(
     resource: "task",
     task: taskRow(graph, task),
     projectRef: task.projectRef,
-    evidenceRefs: [...(task.inputArtifacts ?? []), ...(task.outputArtifacts ?? [])],
+    evidenceRefs: [...(task.inputEvidenceRefs ?? []), ...(task.outputEvidenceRefs ?? [])],
     text: `${task.status} ${task.ref} ${task.title}\n`,
   };
 }
@@ -654,11 +655,21 @@ function cockpitArtifacts(
   command: SparkCockpitCliCommand,
 ): SparkCockpitArtifactListResult {
   const artifacts = state.artifacts.slice(0, command.limit ?? 50);
+  for (const artifact of artifacts) {
+    if (
+      !artifact.productArtifactRef.startsWith("artifact:") ||
+      artifact.productArtifactRef.length === "artifact:".length
+    ) {
+      throw new Error("Cockpit Product Artifact summary requires an artifact: ref");
+    }
+  }
   return {
     plane: "cockpit",
     resource: "artifact",
     artifacts,
-    text: artifacts.map((artifact) => `${artifact.artifactRef} ${artifact.title ?? ""}\n`).join(""),
+    text: artifacts
+      .map((artifact) => `${artifact.productArtifactRef} ${artifact.title ?? ""}\n`)
+      .join(""),
   };
 }
 

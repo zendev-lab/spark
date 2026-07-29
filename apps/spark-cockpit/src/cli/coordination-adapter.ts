@@ -70,7 +70,7 @@ async function readArtifactSummaries(cwd: string): Promise<SparkCockpitArtifactS
   try {
     const artifacts = await defaultProductArtifactStore(cwd).list();
     return artifacts.map((artifact) => ({
-      artifactRef: artifact.ref,
+      productArtifactRef: artifact.ref,
       title: artifact.title,
       kind: artifact.kind,
     }));

@@ -73,7 +73,7 @@ export function registerSparkRecoverTaskClaimTool(
             recoveredBy: sessionKey,
           });
           graph.releaseTaskClaim(task.ref);
-          return { task: graph.getTask(task.ref), decision, artifactRef: artifact.ref };
+          return { task: graph.getTask(task.ref), decision, evidenceRef: artifact.ref };
         },
         { createIfMissing: false },
       );
@@ -98,14 +98,14 @@ export function registerSparkRecoverTaskClaimTool(
             text:
               `Recovered Spark task claim: @${recovered.result.task.name}: ${recovered.result.task.title} (${recovered.result.task.ref})\n` +
               `Reason: ${recovered.result.decision.reason}\n` +
-              `Recovery evidence: ${recovered.result.artifactRef}\n` +
+              `Recovery evidence: ${recovered.result.evidenceRef}\n` +
               "Task is now unclaimed and can re-enter the ready frontier; it was not marked done.",
           },
         ],
         details: {
           task: recovered.result.task as unknown as Record<string, unknown>,
           claimRecovery: recovered.result.decision,
-          recoveredClaimArtifactRef: recovered.result.artifactRef,
+          recoveredClaimEvidenceRef: recovered.result.evidenceRef,
         },
       };
     },

@@ -122,7 +122,7 @@ export async function resumeOwnedBackgroundSubroles(
         errorMessage,
         startedAt: finishedAt,
         finishedAt,
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
         completionSummary: {
           runRef,
           taskRef: task.ref,
@@ -130,7 +130,7 @@ export async function resumeOwnedBackgroundSubroles(
           runName,
           status: "failed",
           summary: errorMessage,
-          artifactRefs: [],
+          evidenceRefs: [],
           createdAt: finishedAt,
         },
       });

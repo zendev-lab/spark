@@ -367,7 +367,7 @@ test("task role labels prefer active claim, finished attribution, then latest ru
         taskRef: legacy.ref,
         runName: "reviewer-9999",
         status: "succeeded",
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
       },
     }),
     "me/reviewer-9999",

@@ -1297,8 +1297,8 @@ export interface Task {
   /** Replacement task refs that supersede this task, matching learning supersededBy shape. */
   supersededBy: TaskRef[];
   claim?: TaskClaim;
-  inputArtifacts: EvidenceRef[];
-  outputArtifacts: EvidenceRef[];
+  inputEvidenceRefs: EvidenceRef[];
+  outputEvidenceRefs: EvidenceRef[];
   plan?: TaskPlan;
   createdAt: string;
   updatedAt: string;
@@ -1335,7 +1335,7 @@ export interface TaskRunCompletionSummary {
   runName?: string;
   status: TaskRunStatus;
   summary: string;
-  artifactRefs: EvidenceRef[];
+  evidenceRefs: EvidenceRef[];
   outcome?: RoleRunCompletionOutcome;
   createdAt: string;
 }
@@ -1376,7 +1376,7 @@ export interface TaskRun {
   outcome?: RoleRunCompletionOutcome;
   startedAt?: string;
   finishedAt?: string;
-  outputArtifacts: EvidenceRef[];
+  outputEvidenceRefs: EvidenceRef[];
   completionSummary?: TaskRunCompletionSummary;
 }
 
@@ -1390,7 +1390,7 @@ export interface ReviewGate {
   policy: GatePolicy;
   outcome: ReviewOutcome;
   summary: string;
-  artifactRef?: EvidenceRef;
+  evidenceRef?: EvidenceRef;
   createdAt: string;
 }
 
@@ -1398,7 +1398,7 @@ export interface SparkRunTrace {
   ref: SparkRef;
   idea: string;
   projectRef?: ProjectRef;
-  sparkMdArtifactRef?: EvidenceRef;
+  sparkMdEvidenceRef?: EvidenceRef;
   taskRefs: TaskRef[];
   reviewRefs: ReviewRef[];
   askRefs: AskRef[];

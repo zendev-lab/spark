@@ -52,7 +52,7 @@ export interface CreateTaskInput {
   cancellation?: TaskCancellation;
   supersededBy?: TaskRef[];
   claim?: TaskClaim;
-  inputArtifacts?: EvidenceRef[];
+  inputEvidenceRefs?: EvidenceRef[];
   plan?: TaskPlan;
   /**
    * Legacy/import seed rows for task plan items. TaskGraphStore projects these

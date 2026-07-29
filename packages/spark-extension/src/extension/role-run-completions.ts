@@ -164,13 +164,13 @@ export function appendRecentRoleRunCompletionLines(
 function formatRoleRunCompletionLine(summary: TaskRunCompletionSummary): string {
   const role = summary.roleRef ? ` role=${shortRoleLabel(summary.roleRef)}` : "";
   const runName = summary.runName ? ` name=${summary.runName}` : "";
-  const visibleArtifactRefs = summary.artifactRefs.slice(0, 5);
-  const hiddenArtifactRefs = summary.artifactRefs.length - visibleArtifactRefs.length;
-  const artifacts =
-    summary.artifactRefs.length > 0
-      ? ` artifacts=${visibleArtifactRefs.join(",")}${hiddenArtifactRefs > 0 ? `,…+${hiddenArtifactRefs}` : ""}`
-      : " artifacts=none";
-  return `- [${summary.status}] task=${summary.taskRef} run=${summary.runRef}${role}${runName} — ${truncateInline(summary.summary, 180)}${artifacts}`;
+  const visibleEvidenceRefs = summary.evidenceRefs.slice(0, 5);
+  const hiddenEvidenceRefs = summary.evidenceRefs.length - visibleEvidenceRefs.length;
+  const evidence =
+    summary.evidenceRefs.length > 0
+      ? ` evidence=${visibleEvidenceRefs.join(",")}${hiddenEvidenceRefs > 0 ? `,…+${hiddenEvidenceRefs}` : ""}`
+      : " evidence=none";
+  return `- [${summary.status}] task=${summary.taskRef} run=${summary.runRef}${role}${runName} — ${truncateInline(summary.summary, 180)}${evidence}`;
 }
 
 function hiddenRoleRunNextAction(summary: TaskRunCompletionSummary): string {
@@ -195,7 +195,7 @@ function cloneTaskRunCompletionSummary(
 ): TaskRunCompletionSummary {
   return {
     ...summary,
-    artifactRefs: [...summary.artifactRefs],
+    evidenceRefs: [...summary.evidenceRefs],
     outcome: summary.outcome ? { ...summary.outcome } : undefined,
   };
 }

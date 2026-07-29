@@ -934,7 +934,7 @@ function compactTaskForReview(task: Task): Record<string, unknown> {
     status: task.status,
     kind: task.kind,
     plan: task.plan,
-    outputArtifacts: task.outputArtifacts,
+    outputEvidenceRefs: task.outputEvidenceRefs,
   };
 }
 

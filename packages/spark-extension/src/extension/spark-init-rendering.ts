@@ -21,7 +21,7 @@ export interface SparkInitResult {
     cancelled: number;
   };
   sparkMdPath?: string;
-  sparkMdArtifactRef: string;
+  sparkMdEvidenceRef: string;
   rolePlanArtifactRef: string;
   traceRef: string;
   askArtifactRefs: EvidenceRef[];
@@ -58,7 +58,7 @@ export function renderSparkInitSummary(result: SparkInitResult): string {
         ? `- 当前 task：${result.currentTaskTitle} (${result.currentTaskRef})`
         : "- 当前 task：无",
       `- 当前 TODO：${result.todoSummary.total} total / ${result.todoSummary.inProgress} in_progress / ${result.todoSummary.pending} pending / ${result.todoSummary.done} done`,
-      `- Intent record：${result.sparkMdArtifactRef}`,
+      `- Intent record：${result.sparkMdEvidenceRef}`,
       `- Plan record：${result.rolePlanArtifactRef}`,
       `- Trace：${result.traceRef}`,
     ];
@@ -79,7 +79,7 @@ export function renderSparkInitSummary(result: SparkInitResult): string {
       ? `- Current task: ${result.currentTaskTitle} (${result.currentTaskRef})`
       : "- Current task: none",
     `- Current TODOs: ${result.todoSummary.total} total / ${result.todoSummary.inProgress} in_progress / ${result.todoSummary.pending} pending / ${result.todoSummary.done} done`,
-    `- Intent record: ${result.sparkMdArtifactRef}`,
+    `- Intent record: ${result.sparkMdEvidenceRef}`,
     `- Plan record: ${result.rolePlanArtifactRef}`,
     `- Trace: ${result.traceRef}`,
   ];

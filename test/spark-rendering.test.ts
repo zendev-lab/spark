@@ -3,6 +3,8 @@ import { test } from "vitest";
 
 import { SPARK_PROTOCOL_VERSION, type SparkTurnSubmitResult } from "@zendev-lab/spark-protocol";
 
+import { taskViewFromCandidate } from "../packages/spark-turn/src/view-projection.ts";
+
 import type { Component, Focusable, TUI } from "../apps/spark-tui/src/tui/pi-tui-adapter.ts";
 
 import { SparkKeybindings } from "../apps/spark-tui/src/host/keybindings.ts";
@@ -18,6 +20,33 @@ import {
   type SparkNativeResponder,
   type SparkNativeResponderContext,
 } from "../apps/spark-tui/src/native-tui.ts";
+
+test("task view projection rejects mixed evidence and Product Artifact prefixes", () => {
+  assert.equal(
+    taskViewFromCandidate(
+      {
+        ref: "task:mixed-evidence",
+        title: "Mixed evidence",
+        status: "running",
+        evidenceRefs: ["evidence:ok", "artifact:wrong-lane"],
+      },
+      {},
+    ),
+    undefined,
+  );
+  assert.equal(
+    taskViewFromCandidate(
+      {
+        ref: "task:mixed-product",
+        title: "Mixed product",
+        status: "running",
+        productArtifactRefs: ["artifact:ok", "evidence:wrong-lane"],
+      },
+      {},
+    ),
+    undefined,
+  );
+});
 
 const ESC = String.fromCharCode(27);
 const ANSI_PATTERN = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, "gu");
@@ -432,7 +461,8 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
           title: "reviewer audit",
           status: "running",
           progress: 0.5,
-          artifactRefs: ["evidence:review-verdict"],
+          evidenceRefs: ["evidence:review-verdict"],
+          productArtifactRefs: [],
           metadata: { reviewer: "reviewer", outcome: "pending" },
         },
         {
@@ -441,7 +471,8 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
           kind: "workflow",
           title: "release readiness workflow",
           status: "queued",
-          artifactRefs: [],
+          evidenceRefs: [],
+          productArtifactRefs: [],
           metadata: { selector: "builtin:release-readiness" },
         },
       ],
@@ -456,7 +487,8 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
             { id: "todo-2", content: "wire evidence panel", status: "in_progress", notes: [] },
           ],
           runRefs: ["role-run-reviewer"],
-          artifactRefs: ["evidence:evidence"],
+          evidenceRefs: ["evidence:evidence"],
+          productArtifactRefs: [],
           metadata: {},
         },
       ],
@@ -544,7 +576,7 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
   assert.equal(await app.submitInput("/inspect runs"), "command");
   rendered = app.render(120).join("\n");
   assert.match(rendered, /Session inspector: role\/run board/);
-  assert.match(rendered, /role role-run-reviewer \[running\] 50% artifacts=1 reviewer audit/);
+  assert.match(rendered, /role role-run-reviewer \[running\] 50% evidence=1 reviewer audit/);
 
   assert.equal(await app.submitInput("/tasks"), "command");
   rendered = app.render(120).join("\n");
@@ -1152,7 +1184,8 @@ test("native UI transport consumes view model events without concrete TUI protoc
       kind: "daemon",
       status: "running",
       summary: "cache read=64 write=16",
-      artifactRefs: [],
+      evidenceRefs: [],
+      productArtifactRefs: [],
       metadata: {
         usageTotals: {
           inputTokens: 19_000_000,
@@ -1217,7 +1250,8 @@ test("native UI transport prints task completion evidence summaries", () => {
       status: "done",
       todos: [],
       runRefs: [],
-      artifactRefs: ["evidence:review", "evidence:trace"],
+      evidenceRefs: ["evidence:review", "evidence:trace"],
+      productArtifactRefs: [],
       metadata: {},
     },
   });
@@ -1225,7 +1259,7 @@ test("native UI transport prints task completion evidence summaries", () => {
   const rendered = stripAnsi(app.render(120).join("\n"));
   assert.match(
     rendered,
-    /✔ task done · 2 artifacts · review passed · inspect locally with \/inspect tasks \(task:visible\)/,
+    /✔ task done · 2 evidence · review passed · inspect locally with \/inspect tasks \(task:visible\)/,
   );
 });
 

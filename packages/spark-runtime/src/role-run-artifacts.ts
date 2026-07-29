@@ -52,7 +52,7 @@ export interface RoleRunArtifactBody {
 }
 
 export interface RoleRunArtifactPreview {
-  artifactRef: EvidenceRef;
+  evidenceRef: EvidenceRef;
   status?: string;
   summary?: string;
   transcriptRef?: EvidenceRef;
@@ -107,17 +107,17 @@ export const SPARK_ROLE_RUN_RETENTION_TAIL_BYTES = 12 * 1024;
 
 export async function readRoleRunArtifactPreview(
   cwd: string,
-  artifactRef: EvidenceRef,
+  evidenceRef: EvidenceRef,
   options: { maxMetadataBytes?: number } = {},
 ): Promise<RoleRunArtifactPreview> {
-  const metadataPath = join(cwd, ".spark", "evidence", `${refId(artifactRef)}.json`);
+  const metadataPath = join(cwd, ".spark", "evidence", `${refId(evidenceRef)}.json`);
   const metadataStat = await stat(metadataPath).catch((error: NodeJS.ErrnoException) => {
     if (isFileNotFoundError(error)) return undefined;
     throw error;
   });
   if (!metadataStat) {
     return {
-      artifactRef,
+      evidenceRef,
       skippedReason: `metadata_unavailable: ${metadataPath} not found`,
     };
   }
@@ -125,7 +125,7 @@ export async function readRoleRunArtifactPreview(
     options.maxMetadataBytes ?? SPARK_ROLE_RUN_ARTIFACT_PREVIEW_METADATA_MAX_BYTES;
   if (metadataStat.size > maxMetadataBytes) {
     return {
-      artifactRef,
+      evidenceRef,
       bodySize: metadataStat.size,
       skippedReason: `metadata_too_large: ${metadataStat.size} bytes; artifact body not loaded`,
     };
@@ -136,7 +136,7 @@ export async function readRoleRunArtifactPreview(
   });
   if (rawMetadata === undefined) {
     return {
-      artifactRef,
+      evidenceRef,
       skippedReason: `metadata_unavailable: ${metadataPath} not found`,
     };
   }
@@ -146,14 +146,14 @@ export async function readRoleRunArtifactPreview(
     artifact = JSON.parse(rawMetadata) as EvidenceRecord;
   } catch (error) {
     return {
-      artifactRef,
+      evidenceRef,
       bodySize: metadataStat.size,
       skippedReason: `metadata_parse_failed: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
   if (artifact.kind !== "trace") {
     return {
-      artifactRef,
+      evidenceRef,
       bodySize: artifact.bodySize,
       bodyTruncated: artifact.bodyTruncated,
       skippedReason: `not_role_run_artifact: ${artifact.kind}`,
@@ -161,14 +161,14 @@ export async function readRoleRunArtifactPreview(
   }
   if (!isRoleRunArtifactBody(artifact.body)) {
     return {
-      artifactRef,
+      evidenceRef,
       bodySize: artifact.bodySize,
       bodyTruncated: artifact.bodyTruncated,
       skippedReason: "unsupported_role_run_body: artifact body not loaded",
     };
   }
   return {
-    artifactRef,
+    evidenceRef,
     status: artifact.body.status,
     summary: artifact.body.summary,
     transcriptRef: artifact.body.transcriptRef,
@@ -281,7 +281,7 @@ export async function collectRoleRunArtifactRetentionPlan(
       continue;
     }
     const raw = readResult.value;
-    const ref = roleRunArtifactRefFromMetadata(file, raw);
+    const ref = roleRunEvidenceRefFromMetadata(file, raw);
     const kind = typeof raw.kind === "string" ? raw.kind : undefined;
     const retention = roleRunRetentionRecord(raw.transcriptRetention);
     if (!isHistoricalRoleRunArtifactKind(kind)) {
@@ -580,7 +580,7 @@ function roleRunDateFromRaw(
   );
 }
 
-function roleRunArtifactRefFromMetadata(
+function roleRunEvidenceRefFromMetadata(
   file: RoleRunArtifactMetadataFile,
   raw: Record<string, unknown>,
 ): EvidenceRef {

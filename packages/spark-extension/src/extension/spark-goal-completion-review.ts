@@ -471,7 +471,9 @@ function boundedEvidenceBodyPreview(
 }
 
 function projectTaskEvidenceRefs(graph: TaskGraph, projectRef: ProjectRef): EvidenceRef[] {
-  return [...new Set(graph.tasks(projectRef).flatMap((task) => task.outputArtifacts))].slice(-20);
+  return [...new Set(graph.tasks(projectRef).flatMap((task) => task.outputEvidenceRefs))].slice(
+    -20,
+  );
 }
 
 function projectGoalReviewStatus(

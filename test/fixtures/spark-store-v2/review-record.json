@@ -11,7 +11,7 @@
   "status": "resolved",
   "outcome": "approved",
   "summary": "Reviewer approved the task completion evidence.",
-  "artifactRefs": ["evidence:review-demo"],
+  "evidenceRefs": ["evidence:review-demo"],
   "reviewer": {
     "producer": "review",
     "roleRef": "role:builtin-reviewer",

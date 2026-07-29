@@ -230,6 +230,9 @@ export const sparkToolCallViewSchema = z.object({
   metadata: sparkJsonObjectSchema.default({}),
 });
 
+const evidenceRefSchema = z.string().regex(/^evidence:.+$/u, "must be an evidence: ref");
+const productArtifactRefSchema = z.string().regex(/^artifact:.+$/u, "must be an artifact: ref");
+
 export const sparkRunViewSchema = z.object({
   version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),
   id: z.string().min(1),
@@ -240,7 +243,8 @@ export const sparkRunViewSchema = z.object({
   summary: z.string().optional(),
   startedAt: sparkIsoDateTimeSchema.optional(),
   completedAt: sparkIsoDateTimeSchema.optional(),
-  artifactRefs: z.array(sparkRefSchema).default([]),
+  evidenceRefs: z.array(evidenceRefSchema).default([]),
+  productArtifactRefs: z.array(productArtifactRefSchema).default([]),
   metadata: sparkJsonObjectSchema.default({}),
 });
 
@@ -263,7 +267,8 @@ export const sparkTaskViewSchema = z.object({
   projectRef: sparkRefSchema.optional(),
   todos: z.array(sparkTaskTodoViewSchema).default([]),
   runRefs: z.array(sparkRefSchema).default([]),
-  artifactRefs: z.array(sparkRefSchema).default([]),
+  evidenceRefs: z.array(evidenceRefSchema).default([]),
+  productArtifactRefs: z.array(productArtifactRefSchema).default([]),
   metadata: sparkJsonObjectSchema.default({}),
 });
 
@@ -284,14 +289,14 @@ const sparkArtifactProjectionProgressSchema = z
 
 const sparkArtifactProjectionJsonContentRefSchema = z
   .object({
-    productArtifactRef: sparkRefSchema,
+    productArtifactRef: productArtifactRefSchema,
     inlineJson: sparkJsonObjectSchema.optional(),
   })
   .strict();
 
 const sparkArtifactProjectionPreviewContentRefSchema = z
   .object({
-    productArtifactRef: sparkRefSchema,
+    productArtifactRef: productArtifactRefSchema,
     previewFormat: z.enum(["md", "mdx", "html", "a2ui", "spark-ui"]),
     version: z.number().int().positive(),
     progress: sparkArtifactProjectionProgressSchema.nullable(),

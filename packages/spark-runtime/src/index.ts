@@ -570,7 +570,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
     resourceAllocation: input.resourceAllocation,
     status: "running",
     startedAt: nowIso(),
-    outputArtifacts: [],
+    outputEvidenceRefs: [],
   };
   input.graph.recordRun(run);
   const heartbeatAbort = dryRun ? undefined : new AbortController();
@@ -603,7 +603,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
       {
         roleRef: taskRoleRef,
         instruction: buildSparkTaskRoleInstruction(task, input.graph),
-        inputs: task.inputArtifacts,
+        inputs: task.inputEvidenceRefs,
       },
       {
         cwd: input.cwd ?? process.cwd(),
@@ -647,7 +647,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
         },
       });
       outputArtifactRef = artifact.ref;
-      input.graph.attachOutputArtifact(task.ref, artifact.ref);
+      input.graph.attachOutputEvidence(task.ref, artifact.ref);
     }
 
     const outcome = result.outcome ?? result.record.outcome;
@@ -671,7 +671,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
       );
     const succeeded = !completionFailure;
     const finishedAt = nowIso();
-    const outputArtifacts = outputArtifactRef ? [outputArtifactRef] : [];
+    const outputEvidenceRefs = outputArtifactRef ? [outputArtifactRef] : [];
     const status = taskRunStatusForOutcome(succeeded, outcome);
     const finished: TaskRun = {
       ...run,
@@ -680,7 +680,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
       failureKind: completionFailure ? taskRunFailureKindForOutcome(outcome) : undefined,
       errorMessage: completionFailure,
       finishedAt,
-      outputArtifacts,
+      outputEvidenceRefs,
       completionSummary: dryRun
         ? undefined
         : createTaskRunCompletionSummary({
@@ -688,7 +688,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
             status,
             finishedAt,
             outcome,
-            outputArtifacts,
+            outputEvidenceRefs,
             summary: completionFailure ?? summarizeRoleRunResult(result),
           }),
     };
@@ -706,12 +706,12 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
         failureKind: "runtime_timeout",
         errorMessage,
         finishedAt,
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
         completionSummary: createTaskRunCompletionSummary({
           run,
           status: "failed",
           finishedAt,
-          outputArtifacts: [],
+          outputEvidenceRefs: [],
           summary: errorMessage,
         }),
       };
@@ -737,7 +737,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
         errorMessage,
         outcome,
         finishedAt,
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
         completionSummary: dryRun
           ? undefined
           : createTaskRunCompletionSummary({
@@ -745,7 +745,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
               status: "cancelled",
               finishedAt,
               outcome,
-              outputArtifacts: [],
+              outputEvidenceRefs: [],
               summary: errorMessage,
             }),
       };
@@ -761,14 +761,14 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
       failureKind: error instanceof PiRoleRunTimeoutError ? "runtime_timeout" : "runtime_error",
       errorMessage,
       finishedAt,
-      outputArtifacts: [],
+      outputEvidenceRefs: [],
       completionSummary: dryRun
         ? undefined
         : createTaskRunCompletionSummary({
             run,
             status: "failed",
             finishedAt,
-            outputArtifacts: [],
+            outputEvidenceRefs: [],
             summary: errorMessage,
           }),
     };
@@ -951,7 +951,7 @@ function createTaskRunCompletionSummary(input: {
   run: TaskRun;
   status: TaskRunCompletionSummary["status"];
   finishedAt: string;
-  outputArtifacts: EvidenceRef[];
+  outputEvidenceRefs: EvidenceRef[];
   outcome?: RoleRunCompletionOutcome;
   summary: string;
 }): TaskRunCompletionSummary {
@@ -962,7 +962,7 @@ function createTaskRunCompletionSummary(input: {
     runName: input.run.runName,
     status: input.status,
     summary: boundCompletionSummary(input.summary),
-    artifactRefs: [...input.outputArtifacts],
+    evidenceRefs: [...input.outputEvidenceRefs],
     outcome: input.outcome ? { ...input.outcome } : undefined,
     createdAt: input.finishedAt,
   };

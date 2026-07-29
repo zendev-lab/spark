@@ -200,22 +200,22 @@ function normalizeFinishEvidenceStringArray(value: unknown, path: string): strin
 
 function taskWithFinishEvidenceRefs(task: Task, evidenceRefs: EvidenceRef[]): Task {
   if (evidenceRefs.length === 0) return task;
-  const outputArtifacts = [...task.outputArtifacts];
+  const outputEvidenceRefs = [...task.outputEvidenceRefs];
   for (const evidenceRef of evidenceRefs) {
-    if (!outputArtifacts.includes(evidenceRef)) outputArtifacts.push(evidenceRef);
+    if (!outputEvidenceRefs.includes(evidenceRef)) outputEvidenceRefs.push(evidenceRef);
   }
-  if (outputArtifacts.length === task.outputArtifacts.length) return task;
-  return { ...task, outputArtifacts };
+  if (outputEvidenceRefs.length === task.outputEvidenceRefs.length) return task;
+  return { ...task, outputEvidenceRefs };
 }
 
 function attachFinishEvidenceRefs(
-  graph: { attachOutputArtifact(taskRef: Task["ref"], artifactRef: EvidenceRef): Task },
+  graph: { attachOutputEvidence(taskRef: Task["ref"], evidenceRef: EvidenceRef): Task },
   task: Task,
   evidenceRefs: EvidenceRef[],
 ): Task {
   let updated = task;
   for (const evidenceRef of evidenceRefs)
-    updated = graph.attachOutputArtifact(updated.ref, evidenceRef);
+    updated = graph.attachOutputEvidence(updated.ref, evidenceRef);
   return updated;
 }
 
@@ -262,7 +262,7 @@ export function registerSparkFinishTaskTool(
       const cwd = ctx.cwd;
       const input = normalizeSparkFinishTaskInput(params);
       const store = defaultTaskGraphStore(cwd);
-      let reviewArtifact: EvidenceRecord<JsonValue> | undefined;
+      let reviewEvidence: EvidenceRecord<JsonValue> | undefined;
       let reviewResult: ReviewerRunResult | undefined;
       let finishEvidenceRefs = input.evidenceRefs;
       let generatedEvidenceArtifact: (EvidenceRecord<JsonValue> & { ref: EvidenceRef }) | undefined;
@@ -342,8 +342,8 @@ export function registerSparkFinishTaskTool(
           task: candidate.task,
           requestedStatus: "done",
           summary: input.summary,
-          evidenceRefs: candidate.task.outputArtifacts,
-          evidencePreviews: await buildTaskEvidencePreviews(cwd, candidate.task.outputArtifacts),
+          evidenceRefs: candidate.task.outputEvidenceRefs,
+          evidencePreviews: await buildTaskEvidencePreviews(cwd, candidate.task.outputEvidenceRefs),
           sessionKey: sparkSessionKey(ctx),
           forkFromSession: ctx.sessionManager?.getSessionFile?.(),
         };
@@ -367,7 +367,7 @@ export function registerSparkFinishTaskTool(
           reviewResult = failedTaskReviewerRunResult(reviewInput, unknownErrorMessage(error));
         }
         const verdict = reviewResult.verdict as TaskReviewVerdict;
-        reviewArtifact = await recordTaskReviewArtifact(
+        reviewEvidence = await recordTaskReviewArtifact(
           cwd,
           candidate.projectRef,
           candidate.task,
@@ -380,7 +380,7 @@ export function registerSparkFinishTaskTool(
             content: [
               {
                 type: "text",
-                text: renderTaskReviewRejectedMessage(candidate.task, verdict, reviewArtifact.ref),
+                text: renderTaskReviewRejectedMessage(candidate.task, verdict, reviewEvidence.ref),
               },
             ],
             details: renderFinishTransitionDetails({
@@ -394,11 +394,11 @@ export function registerSparkFinishTaskTool(
               transitionBlocker: "task_review_failed",
               completionReadiness: undefined,
               inputEvidenceRefs: finishEvidenceRefs,
-              reviewEvidenceRefs: candidate.task.outputArtifacts,
+              reviewEvidenceRefs: candidate.task.outputEvidenceRefs,
               reviewRequired: true,
               review: verdict,
-              reviewArtifactRef: reviewArtifact.ref,
-              generatedEvidenceArtifactRef: generatedEvidenceArtifact?.ref,
+              reviewEvidenceRef: reviewEvidence.ref,
+              generatedEvidenceEvidenceRef: generatedEvidenceArtifact?.ref,
               remainingReadyTasks: progress.remainingReadyTasks,
               projectCompletionCandidate: progress.projectCompletionCandidate,
             }),
@@ -475,11 +475,11 @@ export function registerSparkFinishTaskTool(
           committed: true,
           completionReadiness: finishedResult.completionReadiness,
           inputEvidenceRefs: finishEvidenceRefs,
-          reviewEvidenceRefs: finishedResult.task.outputArtifacts,
+          reviewEvidenceRefs: finishedResult.task.outputEvidenceRefs,
           reviewRequired: input.status === "done",
           review: reviewResult?.verdict as TaskReviewVerdict | undefined,
-          reviewArtifactRef: reviewArtifact?.ref,
-          generatedEvidenceArtifactRef: generatedEvidenceArtifact?.ref,
+          reviewEvidenceRef: reviewEvidence?.ref,
+          generatedEvidenceEvidenceRef: generatedEvidenceArtifact?.ref,
           remainingReadyTasks: finishedResult.remainingReadyTasks,
           projectCompletionCandidate: finishedResult.projectCompletionCandidate,
           nextReadyTask: finishedResult.nextReady,
@@ -505,10 +505,10 @@ async function checkResearchFollowUpDisposition(
 
   const sources: Array<{ source: string; text: string }> = [];
   if (summary) sources.push({ source: "finish summary", text: summary });
-  const artifactStore = defaultEvidenceStore(cwd);
-  for (const artifactRef of task.outputArtifacts) {
+  const evidenceStore = defaultEvidenceStore(cwd);
+  for (const evidenceRef of task.outputEvidenceRefs) {
     try {
-      sources.push({ source: artifactRef, text: await artifactStore.getBody(artifactRef) });
+      sources.push({ source: evidenceRef, text: await evidenceStore.getBody(evidenceRef) });
     } catch {
       // Missing/unreadable artifacts are handled by the existing completion evidence warning path.
       // This gate only inspects available research/review output text for orphan follow-ups.
@@ -775,8 +775,8 @@ interface FinishTransitionDetailsInput {
   reviewEvidenceRefs: EvidenceRef[];
   reviewRequired: boolean;
   review?: TaskReviewVerdict;
-  reviewArtifactRef?: EvidenceRef;
-  generatedEvidenceArtifactRef?: EvidenceRef;
+  reviewEvidenceRef?: EvidenceRef;
+  generatedEvidenceEvidenceRef?: EvidenceRef;
   remainingReadyTasks: Task[];
   projectCompletionCandidate: FinishProjectCompletionCandidate;
   nextReadyTask?: Task;
@@ -804,10 +804,10 @@ function renderFinishTransitionDetails(
       ...(input.transitionBlocker ? { blocker: input.transitionBlocker } : {}),
     },
     task: compactTaskDetail(input.task),
-    evidenceRefs: input.task.outputArtifacts,
+    evidenceRefs: input.task.outputEvidenceRefs,
     inputEvidenceRefs: input.inputEvidenceRefs,
     reviewEvidenceRefs: input.reviewEvidenceRefs,
-    generatedEvidenceArtifact: input.generatedEvidenceArtifactRef,
+    generatedEvidenceArtifact: input.generatedEvidenceEvidenceRef,
     completionReadiness: input.completionReadiness,
     nextReadyTask: input.nextReadyTask ? compactTaskDetail(input.nextReadyTask) : undefined,
     remainingReadyTasks: input.remainingReadyTasks.map(compactTaskDetail),
@@ -815,7 +815,7 @@ function renderFinishTransitionDetails(
     learningCandidate,
     reviewRequired: input.reviewRequired,
     review: input.review,
-    reviewArtifact: input.reviewArtifactRef,
+    reviewEvidence: input.reviewEvidenceRef,
     reviewer: {
       required: input.reviewRequired,
       approved: input.review?.approved,
@@ -824,8 +824,8 @@ function renderFinishTransitionDetails(
       findings: input.review?.findings,
       blockers: input.review?.blockers,
       confidence: input.review?.confidence,
-      artifactRef: input.reviewArtifactRef,
-      generatedEvidenceArtifactRef: input.generatedEvidenceArtifactRef,
+      evidenceRef: input.reviewEvidenceRef,
+      generatedEvidenceEvidenceRef: input.generatedEvidenceEvidenceRef,
     },
   };
 }
@@ -985,7 +985,7 @@ function truncateReviewRunOutput(value: string, maxChars: number): string {
 function renderTaskReviewRejectedMessage(
   task: Task,
   verdict: TaskReviewVerdict,
-  artifactRef: EvidenceRef,
+  evidenceRef: EvidenceRef,
 ): string {
   const findings = verdict.findings.length
     ? `\nFindings: ${formatReviewerList(verdict.findings)}`
@@ -993,7 +993,7 @@ function renderTaskReviewRejectedMessage(
   const blockers = verdict.blockers.length
     ? `\nBlockers: ${formatReviewerList(verdict.blockers)}`
     : "";
-  return `Task finish blocked by reviewer: @${task.name}: ${task.title}\nReview outcome: ${verdict.outcome}\nReview summary: ${verdict.summary}${findings}${blockers}\nReview artifact: ${artifactRef}\nThe task was not marked done. Address the reviewer feedback, keep or update evidence, then call task_write({ action: "finish" }) again.`;
+  return `Task finish blocked by reviewer: @${task.name}: ${task.title}\nReview outcome: ${verdict.outcome}\nReview summary: ${verdict.summary}${findings}${blockers}\nReview artifact: ${evidenceRef}\nThe task was not marked done. Address the reviewer feedback, keep or update evidence, then call task_write({ action: "finish" }) again.`;
 }
 
 function formatReviewerList(items: readonly string[]): string {
@@ -1054,12 +1054,12 @@ async function recordTaskLearningCandidate(
 
 async function buildTaskEvidencePreviews(
   cwd: string,
-  artifactRefs: EvidenceRef[],
+  evidenceRefs: EvidenceRef[],
 ): Promise<GoalReviewEvidencePreview[]> {
-  if (!artifactRefs.length) return [];
+  if (!evidenceRefs.length) return [];
   const store = defaultEvidenceStore(cwd);
   return Promise.all(
-    artifactRefs.slice(-10).map(async (ref) => {
+    evidenceRefs.slice(-10).map(async (ref) => {
       try {
         const artifact = await store.get(ref);
         const bodyText =

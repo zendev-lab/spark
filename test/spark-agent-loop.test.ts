@@ -1202,7 +1202,7 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
             title: "Echo task",
             status: "running",
             projectRef: "proj:echo",
-            outputArtifacts: ["evidence:echo-1"],
+            outputEvidenceRefs: ["evidence:echo-1"],
           },
           artifact: {
             ref: "evidence:echo-1",
@@ -1305,7 +1305,7 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
         event.type === "task.update" &&
         event.task.ref === "task:echo-1" &&
         event.task.status === "running" &&
-        event.task.artifactRefs.includes("evidence:echo-1") &&
+        event.task.evidenceRefs.includes("evidence:echo-1") &&
         event.task.metadata.sourceTool === "echo",
     ),
     true,
@@ -2070,7 +2070,7 @@ test("SparkAgentLoop records raw trace artifact for large lossy compacted tool o
     const explicitRawListText = explicitRawList.content
       .map((part: { text?: string }) => part.text ?? "")
       .join("\n");
-    assert.match(explicitRawListText, new RegExp(recovery.artifactRef));
+    assert.match(explicitRawListText, new RegExp(recovery.evidenceRef));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

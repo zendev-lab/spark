@@ -698,8 +698,8 @@ function summarizeEvidence(evidenceRefs: string[]): string {
 }
 
 function relationLinks(record: LearningRecord): Omit<EvidenceLink, "from">[] {
-  return evidenceArtifactRefs(record.evidenceRefs).map((artifactRef) => ({
-    to: artifactRef,
+  return evidenceArtifactRefs(record.evidenceRefs).map((evidenceRef) => ({
+    to: evidenceRef,
     relation: "derived-from" as const,
   }));
 }

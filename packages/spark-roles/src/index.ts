@@ -41,7 +41,7 @@ export interface RoleSpec {
 }
 
 export interface RoleSpecProposal {
-  artifactRef?: string;
+  evidenceRef?: string;
   id: string;
   source?: WritableRoleSource;
   description: string;

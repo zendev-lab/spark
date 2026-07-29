@@ -75,7 +75,7 @@ export interface SparkRoleRunLifecycleEvent {
   toolName?: string;
   messageRole?: SparkRoleRunMessageRole;
   usage?: SparkRoleRunUsage;
-  artifactRefs?: EvidenceRef[];
+  evidenceRefs?: EvidenceRef[];
 }
 
 export interface SparkRoleRunActivityEventInput {
@@ -89,7 +89,7 @@ export interface SparkRoleRunActivityEventInput {
   toolName?: string;
   messageRole?: SparkRoleRunMessageRole;
   usage?: SparkRoleRunUsage;
-  artifactRefs?: EvidenceRef[];
+  evidenceRefs?: EvidenceRef[];
 }
 
 export interface SparkRoleRunParentChildLink {
@@ -114,7 +114,7 @@ export interface SparkRoleRunRegistryEntry {
   updatedAt: string;
   finishedAt?: string;
   lastActivityAt?: string;
-  outputArtifacts: EvidenceRef[];
+  outputEvidenceRefs: EvidenceRef[];
   usage?: SparkRoleRunUsage;
   failureKind?: TaskRunFailureKind;
   errorMessage?: string;
@@ -196,7 +196,7 @@ export function serializeSparkRoleRunRegistry(
       ...entry,
       parentRunRefs: [...entry.parentRunRefs],
       childRunRefs: [...entry.childRunRefs],
-      outputArtifacts: [...entry.outputArtifacts],
+      outputEvidenceRefs: [...entry.outputEvidenceRefs],
       outcome: entry.outcome ? { ...entry.outcome } : undefined,
       usage: entry.usage ? { ...entry.usage } : undefined,
       events: entry.events.map((event) => ({
@@ -208,7 +208,7 @@ export function serializeSparkRoleRunRegistry(
             : undefined,
         },
         usage: event.usage ? { ...event.usage } : undefined,
-        artifactRefs: event.artifactRefs ? [...event.artifactRefs] : undefined,
+        evidenceRefs: event.evidenceRefs ? [...event.evidenceRefs] : undefined,
       })),
     })),
   }) as SparkRoleRunRegistrySnapshot;
@@ -277,7 +277,7 @@ function roleRunRegistryEntry(input: {
     updatedAt: input.run.finishedAt ?? lastEventAt(events) ?? input.run.startedAt ?? input.now,
     finishedAt: input.run.finishedAt,
     lastActivityAt: lastEventAt(events),
-    outputArtifacts: [...input.run.outputArtifacts],
+    outputEvidenceRefs: [...input.run.outputEvidenceRefs],
     usage: input.usage ? { ...input.usage } : undefined,
     failureKind: input.run.failureKind,
     errorMessage: input.run.errorMessage,
@@ -354,7 +354,7 @@ function roleRunLifecycleEvents(input: {
       toolName: activityEvent.toolName,
       messageRole: activityEvent.messageRole,
       usage: activityEvent.usage ? { ...activityEvent.usage } : undefined,
-      artifactRefs: activityEvent.artifactRefs ? [...activityEvent.artifactRefs] : undefined,
+      evidenceRefs: activityEvent.evidenceRefs ? [...activityEvent.evidenceRefs] : undefined,
     });
   }
   if (input.run.finishedAt) {
@@ -365,7 +365,7 @@ function roleRunLifecycleEvents(input: {
       provenance: provenance("task-graph"),
       failureKind: input.run.failureKind,
       message: input.run.errorMessage,
-      artifactRefs: [...input.run.outputArtifacts],
+      evidenceRefs: [...input.run.outputEvidenceRefs],
     });
   }
   if (input.recoveryStatus?.status === "waiting") {

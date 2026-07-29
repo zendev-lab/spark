@@ -697,7 +697,7 @@ export function registerSparkWorkflowRunsTool(
               at: now,
               message: "main session delivered a reply to this visible role-run",
               messageRole: "system",
-              artifactRefs: [artifact.ref],
+              evidenceRefs: [artifact.ref],
             });
           }
           await appendRoleRunActivityEvent(cwd, {
@@ -706,7 +706,7 @@ export function registerSparkWorkflowRunsTool(
             at: now,
             message,
             messageRole: "user",
-            artifactRefs: [artifact.ref],
+            evidenceRefs: [artifact.ref],
           });
         }
         await deps.refreshSparkWidget?.(cwd, ctx);
@@ -733,7 +733,7 @@ export function registerSparkWorkflowRunsTool(
         ].join("\n");
         return {
           content: [{ type: "text", text }],
-          details: { background, controlArtifactRef: artifact.ref, sent },
+          details: { background, controlEvidenceRef: artifact.ref, sent },
         };
       }
       if (action === "ack") {

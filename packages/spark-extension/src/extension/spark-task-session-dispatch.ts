@@ -240,7 +240,7 @@ export async function reconcileManagedTaskSessions(input: {
           const message =
             "superseded: the bound Subgoal revision or definition changed before reconciliation";
           graph.recordRun(
-            terminalManagedRun(run, "cancelled", message, task.outputArtifacts, {
+            terminalManagedRun(run, "cancelled", message, task.outputEvidenceRefs, {
               failureKind: "runtime_cancelled",
             }),
           );
@@ -256,7 +256,7 @@ export async function reconcileManagedTaskSessions(input: {
               run,
               "succeeded",
               `Task ${task.ref} finished; Subgoal still requires verifier promotion.`,
-              task.outputArtifacts,
+              task.outputEvidenceRefs,
             ),
           );
           result.terminal += 1;
@@ -270,7 +270,7 @@ export async function reconcileManagedTaskSessions(input: {
               run,
               status,
               `Task ${task.ref} finished with status ${task.status}.`,
-              task.outputArtifacts,
+              task.outputEvidenceRefs,
               {
                 failureKind: task.status === "failed" ? "runtime_error" : "runtime_cancelled",
               },
@@ -289,7 +289,7 @@ export async function reconcileManagedTaskSessions(input: {
               { ...run, timeoutRequestedAt },
               "failed",
               `Managed Session exceeded the Task execution timeout requested at ${timeoutRequestedAt}.`,
-              task.outputArtifacts,
+              task.outputEvidenceRefs,
               { failureKind: "runtime_timeout" },
             ),
           );
@@ -304,7 +304,7 @@ export async function reconcileManagedTaskSessions(input: {
               run,
               "blocked",
               `Managed Session settled without finishing bound Task ${task.ref}.`,
-              task.outputArtifacts,
+              task.outputEvidenceRefs,
               { failureKind: "blocked" },
             ),
           );
@@ -320,7 +320,7 @@ export async function reconcileManagedTaskSessions(input: {
               run,
               status,
               `Managed Session invocation ${run.execution.invocationId} ${invocationStatus}.`,
-              task.outputArtifacts,
+              task.outputEvidenceRefs,
               {
                 failureKind: invocationStatus === "failed" ? "runtime_error" : "runtime_cancelled",
               },
@@ -427,7 +427,7 @@ function reserveTaskSessionRuns(
       resourceAllocation: input.resourceAllocations?.[taskRef],
       status: "queued",
       startedAt: nowIso(),
-      outputArtifacts: [],
+      outputEvidenceRefs: [],
     };
     graph.recordRun(run);
     reservations.push({
@@ -557,7 +557,7 @@ function taskSessionJobId(input: {
       roleRef: input.roleRef,
       plan: input.task.plan,
       executionPolicy: input.task.executionPolicy,
-      inputArtifacts: input.task.inputArtifacts,
+      inputEvidenceRefs: input.task.inputEvidenceRefs,
       subgoalRef: input.subgoalRef,
       planRevision: input.planRevision,
       definitionDigest: input.definitionDigest,
@@ -601,7 +601,7 @@ function terminalManagedRun(
   run: TaskRun,
   status: "succeeded" | "blocked" | "failed" | "cancelled",
   summary: string,
-  artifactRefs: TaskRun["outputArtifacts"],
+  evidenceRefs: TaskRun["outputEvidenceRefs"],
   extra: Pick<TaskRun, "failureKind"> = {},
 ): TaskRun {
   const timestamp = nowIso();
@@ -611,7 +611,7 @@ function terminalManagedRun(
     status,
     errorMessage: status === "succeeded" ? undefined : summary,
     finishedAt: timestamp,
-    outputArtifacts: [...artifactRefs],
+    outputEvidenceRefs: [...evidenceRefs],
     completionSummary: {
       runRef: run.ref,
       taskRef: run.taskRef,
@@ -619,7 +619,7 @@ function terminalManagedRun(
       runName: run.runName,
       status,
       summary,
-      artifactRefs: [...artifactRefs],
+      evidenceRefs: [...evidenceRefs],
       createdAt: timestamp,
     },
   };

@@ -108,10 +108,10 @@ export function collectBackgroundChildRuns(input: {
       summary: taskRun?.completionSummary?.summary,
       errorMessage: taskRun?.errorMessage,
       outcome: taskRun?.outcome ? { ...taskRun.outcome } : undefined,
-      artifactRefs: [
-        ...(taskRun?.completionSummary?.artifactRefs ?? []),
-        ...(taskRun?.outputArtifacts ?? []).filter(
-          (artifactRef) => !(taskRun?.completionSummary?.artifactRefs ?? []).includes(artifactRef),
+      evidenceRefs: [
+        ...(taskRun?.completionSummary?.evidenceRefs ?? []),
+        ...(taskRun?.outputEvidenceRefs ?? []).filter(
+          (evidenceRef) => !(taskRun?.completionSummary?.evidenceRefs ?? []).includes(evidenceRef),
         ),
       ],
     };
@@ -131,9 +131,9 @@ export async function enrichBackgroundChildRunsWithRoleRunArtifacts(input: {
 }): Promise<SparkBackgroundChildRunView[]> {
   return Promise.all(
     input.childRuns.map(async (child) => {
-      if (child.artifactRefs.length === 0) return child;
+      if (child.evidenceRefs.length === 0) return child;
       const roleRunArtifacts = await Promise.all(
-        child.artifactRefs.map((artifactRef) => readRoleRunArtifactPreview(input.cwd, artifactRef)),
+        child.evidenceRefs.map((evidenceRef) => readRoleRunArtifactPreview(input.cwd, evidenceRef)),
       );
       const compact = roleRunArtifacts.find(
         (artifact) => artifact.summary || artifact.transcriptRef,

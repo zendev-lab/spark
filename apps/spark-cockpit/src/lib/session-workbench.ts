@@ -63,7 +63,8 @@ export interface SessionWorkbenchRun {
   runtimeName: string | null;
   runtimeStatus: string | null;
   latestOutput: string | null;
-  artifactRefs: string[];
+  evidenceRefs: string[];
+  productArtifactRefs: string[];
 }
 
 export interface SessionWorkbenchTask {
@@ -79,7 +80,8 @@ export interface SessionWorkbenchTask {
   todoTotal: number;
   todos: SessionWorkbenchTodo[];
   runRefs: string[];
-  artifactRefs: string[];
+  evidenceRefs: string[];
+  productArtifactRefs: string[];
 }
 
 export interface SessionWorkbenchTodo {
@@ -288,7 +290,8 @@ function sessionRun(run: SparkSessionView["runs"][number]): SessionWorkbenchRun 
     runtimeName: null,
     runtimeStatus: null,
     latestOutput: null,
-    artifactRefs: [...run.artifactRefs],
+    evidenceRefs: [...run.evidenceRefs],
+    productArtifactRefs: [...run.productArtifactRefs],
   };
 }
 
@@ -329,7 +332,8 @@ function mergeActivityCommands(
       runtimeName: command.runtimeName,
       runtimeStatus: command.runtimeStatus,
       latestOutput: boundedText(command.latestLog, MAX_OUTPUT_CHARS),
-      artifactRefs: [],
+      evidenceRefs: [],
+      productArtifactRefs: [],
     });
   }
 }
@@ -377,7 +381,8 @@ function appendRunReports(
       runtimeName: null,
       runtimeStatus: null,
       latestOutput: null,
-      artifactRefs: [],
+      evidenceRefs: [],
+      productArtifactRefs: [],
     });
   }
 }
@@ -397,7 +402,8 @@ function sessionTask(task: SparkSessionView["tasks"][number]): SessionWorkbenchT
     todoTotal: task.todos.length,
     todos: task.todos.map((todo) => ({ ...todo, notes: [...todo.notes] })),
     runRefs: [...task.runRefs],
-    artifactRefs: [...task.artifactRefs],
+    evidenceRefs: [...task.evidenceRefs],
+    productArtifactRefs: [...task.productArtifactRefs],
   };
 }
 
@@ -415,7 +421,8 @@ function activityTask(report: SessionWorkbenchActivityReport): SessionWorkbenchT
     todoTotal: 0,
     todos: [],
     runRefs: [],
-    artifactRefs: [],
+    evidenceRefs: [],
+    productArtifactRefs: [],
   };
 }
 
@@ -480,14 +487,14 @@ function activityArtifact(report: SessionWorkbenchActivityReport): SessionWorkbe
 }
 
 function activityEvidence(report: SessionWorkbenchActivityReport): SessionWorkbenchArtifact {
+  if (report.id.startsWith("artifact:") || report.id === "evidence:") {
+    throw new Error("evidence activity requires a non-empty evidence: ref");
+  }
   const kind =
     report.kind === "evidence.update" ? "evidence" : report.kind.slice("evidence.".length);
   return {
     id: artifactId(report.id),
-    ref:
-      report.id.startsWith("evidence:") || report.id.startsWith("artifact:")
-        ? report.id
-        : `evidence:${report.id}`,
+    ref: report.id.startsWith("evidence:") ? report.id : `evidence:${report.id}`,
     source: "activity",
     title: report.title || report.id,
     kind,

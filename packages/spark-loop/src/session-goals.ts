@@ -290,19 +290,30 @@ function normalizeGoalReviewPointer(
   filePath: string,
 ): Pick<SparkSessionGoal, "lastReviewRef" | "lastReviewEvidenceRef" | "lastReviewedAt"> {
   const legacyReview = value.lastReview;
-  const legacyArtifactRef = isRecord(legacyReview)
-    ? optionalString(legacyReview.artifactRef, filePath, "goal.lastReview.artifactRef")
-    : undefined;
+  const hasCanonicalEvidenceRef = Object.hasOwn(value, "lastReviewEvidenceRef");
+  const hasLegacyTopLevelEvidenceRef = Object.hasOwn(value, "lastReviewArtifactRef");
+  const hasLegacyNestedEvidenceRef =
+    isRecord(legacyReview) && Object.hasOwn(legacyReview, "artifactRef");
+  if (
+    Number(hasCanonicalEvidenceRef) +
+      Number(hasLegacyTopLevelEvidenceRef) +
+      Number(hasLegacyNestedEvidenceRef) >
+    1
+  ) {
+    throw new JsonStoreFormatError(
+      filePath,
+      "goal must not contain multiple canonical or legacy review evidence fields",
+    );
+  }
+  const legacyArtifactRef = legacyGoalReviewArtifactRef(legacyReview, filePath);
   const legacyReviewedAt = isRecord(legacyReview)
     ? optionalString(legacyReview.reviewedAt, filePath, "goal.lastReview.reviewedAt")
     : undefined;
   const lastReviewRef = optionalString(value.lastReviewRef, filePath, "goal.lastReviewRef");
-  const lastReviewEvidenceRef = optionalEvidenceRef(
-    value.lastReviewEvidenceRef ?? value.lastReviewArtifactRef,
+  const topLevelReviewEvidenceRef = optionalEvidenceRef(
+    hasCanonicalEvidenceRef ? value.lastReviewEvidenceRef : value.lastReviewArtifactRef,
     filePath,
-    value.lastReviewEvidenceRef === undefined
-      ? "goal.lastReviewArtifactRef"
-      : "goal.lastReviewEvidenceRef",
+    hasCanonicalEvidenceRef ? "goal.lastReviewEvidenceRef" : "goal.lastReviewArtifactRef",
   );
   const lastReviewedAt = optionalString(value.lastReviewedAt, filePath, "goal.lastReviewedAt");
   const legacyEvidenceRef =
@@ -313,13 +324,19 @@ function normalizeGoalReviewPointer(
     ...(lastReviewRef || legacyArtifactRef
       ? { lastReviewRef: lastReviewRef ?? legacyArtifactRef }
       : {}),
-    ...(lastReviewEvidenceRef || legacyEvidenceRef
-      ? { lastReviewEvidenceRef: lastReviewEvidenceRef ?? legacyEvidenceRef }
+    ...(topLevelReviewEvidenceRef || legacyEvidenceRef
+      ? { lastReviewEvidenceRef: topLevelReviewEvidenceRef ?? legacyEvidenceRef }
       : {}),
     ...(lastReviewedAt || legacyReviewedAt
       ? { lastReviewedAt: lastReviewedAt ?? legacyReviewedAt }
       : {}),
   };
+}
+
+function legacyGoalReviewArtifactRef(legacyReview: unknown, filePath: string): string | undefined {
+  return isRecord(legacyReview)
+    ? optionalString(legacyReview.artifactRef, filePath, "goal.lastReview.artifactRef")
+    : undefined;
 }
 
 function optionalEvidenceRef(

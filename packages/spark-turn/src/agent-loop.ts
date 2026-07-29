@@ -1421,7 +1421,8 @@ export class SparkAgentLoop {
         status: "running",
         summary,
         startedAt: new Date().toISOString(),
-        artifactRefs: [],
+        evidenceRefs: [],
+        productArtifactRefs: [],
         metadata: { source: "SparkAgentLoop" },
       },
     });
@@ -1657,7 +1658,8 @@ export class SparkAgentLoop {
         summary,
         completedAt:
           status === "running" || status === "queued" ? undefined : new Date().toISOString(),
-        artifactRefs: [],
+        evidenceRefs: [],
+        productArtifactRefs: [],
         metadata: jsonMetadata({
           source: "SparkAgentLoop",
           ...(this.currentViewRunUsage ? { usageTotals: this.currentViewRunUsage } : {}),

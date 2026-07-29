@@ -1050,14 +1050,14 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   private taskCompletionEvidenceSummary(task: SparkTaskView): string | undefined {
     if (!isDoneTaskStatus(task.status)) return undefined;
-    const key = `${task.ref}:${task.status}:${task.artifactRefs.join(",")}`;
+    const key = `${task.ref}:${task.status}:${task.evidenceRefs.join(",")}`;
     if (this.completedTaskSummaryKeys.has(key)) return undefined;
     this.completedTaskSummaryKeys.add(key);
-    const artifactCount = task.artifactRefs.length;
+    const evidenceCount = task.evidenceRefs.length;
     const reviewStatus = this.taskReviewStatus(task);
     return [
       "✔ task done",
-      `${artifactCount} artifact${artifactCount === 1 ? "" : "s"}`,
+      `${evidenceCount} evidence`,
       reviewStatus ? `review ${reviewStatus}` : "review not recorded",
       `inspect locally with /inspect tasks (${task.ref})`,
     ].join(" · ");
@@ -1071,7 +1071,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
       stringFromRecord(task.metadata, "verdict") ??
       stringFromRecord(task.metadata, "outcome");
     if (metadataStatus) return metadataStatus;
-    for (const ref of task.artifactRefs) {
+    for (const ref of task.evidenceRefs) {
       const artifact =
         this.cockpit.artifacts.get(ref) ?? this.cockpit.evidence.get(ref) ?? undefined;
       if (!artifact || !isReviewArtifact(artifact)) continue;
@@ -1587,11 +1587,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
     const runs = [...this.cockpit.runs.values()].sort(compareRunsForCockpit);
     for (const run of runs.slice(0, MAX_COCKPIT_PANEL_ROWS)) {
       const progress = run.progress === undefined ? "" : ` ${(run.progress * 100).toFixed(0)}%`;
-      const artifacts = run.artifactRefs.length > 0 ? ` artifacts=${run.artifactRefs.length}` : "";
+      const evidence = run.evidenceRefs.length > 0 ? ` evidence=${run.evidenceRefs.length}` : "";
       const marker = run.kind === "workflow" && run.id === selected?.id ? "▸" : "├";
       const status = run.kind === "workflow" ? workflowRunDisplayStatus(run) : run.status;
       lines.push(
-        `${marker}─ ${run.kind} ${run.id} [${status}]${progress}${artifacts} ${run.title ?? run.summary ?? ""}`.trimEnd(),
+        `${marker}─ ${run.kind} ${run.id} [${status}]${progress}${evidence} ${run.title ?? run.summary ?? ""}`.trimEnd(),
       );
       if (run.kind === "workflow" && run.id === selected?.id) {
         for (const hint of workflowRunControlHints(run)) lines.push(`│  ${hint}`);
@@ -1609,7 +1609,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
     for (const task of [...this.cockpit.tasks.values()].slice(0, MAX_COCKPIT_PANEL_ROWS)) {
       const doneTodos = task.todos.filter((todo) => todo.status === "done").length;
       const todoSummary = task.todos.length > 0 ? ` todos=${doneTodos}/${task.todos.length}` : "";
-      const artifacts = task.artifactRefs.length > 0 ? ` evidence=${task.artifactRefs.length}` : "";
+      const artifacts = task.evidenceRefs.length > 0 ? ` evidence=${task.evidenceRefs.length}` : "";
       lines.push(`├─ ${task.ref} [${task.status}]${todoSummary}${artifacts} ${task.title}`);
     }
     if (lines.length === (this.cockpit.sessionTitle ? 2 : 1))

@@ -1871,7 +1871,8 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
           title: "Release readiness workflow",
           status: "running",
           progress: 0.5,
-          artifactRefs: [],
+          evidenceRefs: [],
+          productArtifactRefs: [],
           metadata: { selector: "builtin:review" },
         },
         {
@@ -1881,7 +1882,8 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
           title: "Reviewer pass",
           status: "running",
           progress: 0.4,
-          artifactRefs: ["evidence:review-ok"],
+          evidenceRefs: ["evidence:review-ok"],
+          productArtifactRefs: [],
           metadata: { reviewer: "goal", outcome: "approved" },
         },
         {
@@ -1890,7 +1892,8 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
           kind: "task",
           title: "Apply Graft patch",
           status: "succeeded",
-          artifactRefs: ["evidence:graft-patch"],
+          evidenceRefs: ["evidence:graft-patch"],
+          productArtifactRefs: [],
           metadata: { patchRef: "patch:abc", graftStatus: "admitted" },
         },
       ],
@@ -1908,7 +1911,8 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
             { id: "render", content: "Render cockpit panels", status: "in_progress", notes: [] },
           ],
           runRefs: ["run:release-readiness"],
-          artifactRefs: ["evidence:review-ok"],
+          evidenceRefs: ["evidence:review-ok"],
+          productArtifactRefs: [],
           metadata: {},
         },
       ],
@@ -1971,7 +1975,7 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
   assert.equal(harness.app.cockpitSnapshot().activePanel, "runs");
   assert.match(
     stripAnsi(harness.render()),
-    /role role:reviewer \[running\] 40% artifacts=1 Reviewer pass/,
+    /role role:reviewer \[running\] 40% evidence=1 Reviewer pass/,
   );
   assert.match(
     stripAnsi(harness.render()),
@@ -2051,7 +2055,8 @@ test("Spark cockpit supports selectable workflow run keyboard controls", async (
           title: "First workflow",
           status: "running",
           progress: 0.25,
-          artifactRefs: [],
+          evidenceRefs: [],
+          productArtifactRefs: [],
           metadata: { dynamicStatus: "running" },
         },
         {
@@ -2061,7 +2066,8 @@ test("Spark cockpit supports selectable workflow run keyboard controls", async (
           title: "Second workflow",
           status: "running",
           progress: 0.75,
-          artifactRefs: [],
+          evidenceRefs: [],
+          productArtifactRefs: [],
           metadata: { dynamicStatus: "paused" },
         },
       ],

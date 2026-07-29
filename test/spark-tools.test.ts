@@ -2548,17 +2548,17 @@ test("impl_claim_task recovers an expired foreign claim when background work is 
     assert.match(toolText(claimed), /Recovered previous task claim: claim_expired/);
     assert.match(toolText(claimed), /Recovery evidence: evidence:/);
     const details = claimed.details as {
-      recoveredClaimArtifactRef?: string;
+      recoveredClaimEvidenceRef?: string;
       claimRecovery?: { recoverable?: boolean; reason?: string };
     };
     assert.equal(details.claimRecovery?.recoverable, true);
     assert.equal(details.claimRecovery?.reason, "claim_expired");
-    assert.match(details.recoveredClaimArtifactRef ?? "", /^evidence:/);
+    assert.match(details.recoveredClaimEvidenceRef ?? "", /^evidence:/);
     const recovered = (await store.load())?.getTask(task.ref);
     assert.equal(recovered?.claim?.sessionId, ctxSessionKey(ctx));
     assert.equal(recovered?.status, "running");
     const artifact = await defaultEvidenceStore(dir).get(
-      details.recoveredClaimArtifactRef as EvidenceRef,
+      details.recoveredClaimEvidenceRef as EvidenceRef,
     );
     const body = artifact.body as {
       previousClaim?: { claimedBy?: string };
@@ -2606,7 +2606,7 @@ test("task_write recover requeues needs_changes inactive-owner claim without mar
       body: "# Evidence\n\nThe work has evidence but still received needs_changes.",
       provenance: { producer: "task", projectRef: project.ref, taskRef: task.ref },
     });
-    graph.attachOutputArtifact(task.ref, evidence.ref);
+    graph.attachOutputEvidence(task.ref, evidence.ref);
     await store.save(graph);
     await defaultEvidenceStore(dir).put({
       kind: "record",
@@ -2636,10 +2636,10 @@ test("task_write recover requeues needs_changes inactive-owner claim without mar
       /Task is now unclaimed and can re-enter the ready frontier; it was not marked done/,
     );
     const recoveredDetails = recovered.details as {
-      recoveredClaimArtifactRef?: string;
+      recoveredClaimEvidenceRef?: string;
       claimRecovery?: { recoverable?: boolean; reason?: string };
     };
-    assert.match(recoveredDetails.recoveredClaimArtifactRef ?? "", /^evidence:/);
+    assert.match(recoveredDetails.recoveredClaimEvidenceRef ?? "", /^evidence:/);
     assert.equal(recoveredDetails.claimRecovery?.recoverable, true);
     assert.equal(recoveredDetails.claimRecovery?.reason, "review_needs_changes_owner_inactive");
 
@@ -2653,7 +2653,7 @@ test("task_write recover requeues needs_changes inactive-owner claim without mar
     const reloaded = (await store.load())?.getTask(task.ref);
     assert.equal(reloaded?.status, "pending");
     assert.equal(reloaded?.claim, undefined);
-    assert.equal(reloaded?.outputArtifacts.includes(evidence.ref), true);
+    assert.equal(reloaded?.outputEvidenceRefs.includes(evidence.ref), true);
     assert.notEqual(reloaded?.status, "done");
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -3501,7 +3501,7 @@ test("impl_finish_task completes this session's claimed task", async () => {
     assert.equal((completed.details as { reviewRequired?: boolean }).reviewRequired, true);
     assert.equal((completed.details?.review as { approved?: boolean } | undefined)?.approved, true);
     assert.ok(
-      (completed.details as { reviewArtifact?: string }).reviewArtifact?.startsWith("evidence:"),
+      (completed.details as { reviewEvidence?: string }).reviewEvidence?.startsWith("evidence:"),
     );
     assert.equal(
       (completed.details as { reviewer?: { required?: boolean; approved?: boolean } }).reviewer
@@ -3538,17 +3538,17 @@ test("impl_finish_task completes this session's claimed task", async () => {
     assert.ok(loaded);
     assert.equal(loaded.getTask(taskRef).status, "done");
     assert.equal(loaded.getTask(taskRef).claim, undefined);
-    const reviewArtifacts = await defaultEvidenceStore(dir).list({ kind: "record" });
-    assert.equal(reviewArtifacts.length, 1);
+    const reviewEvidences = await defaultEvidenceStore(dir).list({ kind: "record" });
+    assert.equal(reviewEvidences.length, 1);
     const reviewDir = taskReviewDirectory(dir, loaded.getTask(taskRef).projectRef, taskRef);
     const reviewIndex = JSON.parse(await readFile(join(reviewDir, "index.json"), "utf8")) as {
       reviews: Array<{ subjectKind?: string; subjectRef?: string; evidenceRef?: string }>;
     };
     assert.equal(reviewIndex.reviews[0]?.subjectKind, "task");
     assert.equal(reviewIndex.reviews[0]?.subjectRef, taskRef);
-    assert.equal(reviewIndex.reviews[0]?.evidenceRef, reviewArtifacts[0]?.ref);
+    assert.equal(reviewIndex.reviews[0]?.evidenceRef, reviewEvidences[0]?.ref);
     const subjectReview = JSON.parse(
-      await readFile(subjectReviewRecordPath(reviewDir, reviewArtifacts[0]!.ref), "utf8"),
+      await readFile(subjectReviewRecordPath(reviewDir, reviewEvidences[0]!.ref), "utf8"),
     ) as { subjectKind?: string; subjectRef?: string; outcome?: string };
     assert.equal(subjectReview.subjectKind, "task");
     assert.equal(subjectReview.subjectRef, taskRef);
@@ -3677,7 +3677,7 @@ test("impl_finish_task attaches evidenceRefs before reviewer gate", async () => 
     );
     const loaded = await defaultTaskGraphStore(dir).load();
     assert.ok(loaded);
-    assert.deepEqual(loaded.getTask(taskRef).outputArtifacts, [evidence.ref]);
+    assert.deepEqual(loaded.getTask(taskRef).outputEvidenceRefs, [evidence.ref]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -3740,7 +3740,7 @@ test("impl_finish_task can create bounded task evidence artifact before reviewer
     ]);
     const loaded = await defaultTaskGraphStore(dir).load();
     assert.ok(loaded);
-    assert.deepEqual(loaded.getTask(taskRef).outputArtifacts, [generatedRef]);
+    assert.deepEqual(loaded.getTask(taskRef).outputEvidenceRefs, [generatedRef]);
     const artifact = await defaultEvidenceStore(dir).get(generatedRef);
     assert.equal(artifact.provenance.producer, "task");
     assert.equal(artifact.provenance.taskRef, taskRef);
@@ -3811,7 +3811,7 @@ test("impl_finish_task does not persist evidenceRefs when follow-up gate blocks"
     const loaded = await defaultTaskGraphStore(dir).load();
     assert.ok(loaded);
     assert.equal(loaded.getTask(taskRef).status, "running");
-    assert.deepEqual(loaded.getTask(taskRef).outputArtifacts, []);
+    assert.deepEqual(loaded.getTask(taskRef).outputEvidenceRefs, []);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -3879,7 +3879,7 @@ test("impl_finish_task keeps task unfinished when reviewer rejects done transiti
       false,
     );
     assert.ok(
-      (rejected.details as { reviewArtifact?: string }).reviewArtifact?.startsWith("evidence:"),
+      (rejected.details as { reviewEvidence?: string }).reviewEvidence?.startsWith("evidence:"),
     );
     assert.equal((await defaultLearningStore(dir).list({ includeCandidates: true })).length, 0);
 
@@ -3887,13 +3887,13 @@ test("impl_finish_task keeps task unfinished when reviewer rejects done transiti
     assert.ok(loaded);
     assert.equal(loaded.getTask(taskRef).status, "running");
     assert.ok(loaded.getTask(taskRef).claim);
-    const reviewArtifacts = await defaultEvidenceStore(dir).list({ kind: "record" });
-    assert.equal(reviewArtifacts.length, 1);
-    assert.equal(reviewArtifacts[0]?.provenance.producer, "review");
-    assert.equal(reviewArtifacts[0]?.provenance.taskRef, taskRef);
-    const reviewArtifact = await defaultEvidenceStore(dir).get(reviewArtifacts[0]!.ref);
+    const reviewEvidences = await defaultEvidenceStore(dir).list({ kind: "record" });
+    assert.equal(reviewEvidences.length, 1);
+    assert.equal(reviewEvidences[0]?.provenance.producer, "review");
+    assert.equal(reviewEvidences[0]?.provenance.taskRef, taskRef);
+    const reviewEvidence = await defaultEvidenceStore(dir).get(reviewEvidences[0]!.ref);
     const reviewerRun = (
-      reviewArtifact?.body as { reviewerRun?: { stdoutPreview?: string } } | undefined
+      reviewEvidence?.body as { reviewerRun?: { stdoutPreview?: string } } | undefined
     )?.reviewerRun;
     assert.match(reviewerRun?.stdoutPreview ?? "", /test reviewer raw stdout/);
     const reviewDir = taskReviewDirectory(dir, loaded.getTask(taskRef).projectRef, taskRef);
@@ -3902,9 +3902,9 @@ test("impl_finish_task keeps task unfinished when reviewer rejects done transiti
     };
     assert.equal(reviewIndex.reviews[0]?.subjectKind, "task");
     assert.equal(reviewIndex.reviews[0]?.subjectRef, taskRef);
-    assert.equal(reviewIndex.reviews[0]?.evidenceRef, reviewArtifacts[0]?.ref);
+    assert.equal(reviewIndex.reviews[0]?.evidenceRef, reviewEvidences[0]?.ref);
     const subjectReview = JSON.parse(
-      await readFile(subjectReviewRecordPath(reviewDir, reviewArtifacts[0]!.ref), "utf8"),
+      await readFile(subjectReviewRecordPath(reviewDir, reviewEvidences[0]!.ref), "utf8"),
     ) as { subjectKind?: string; subjectRef?: string; outcome?: string };
     assert.equal(subjectReview.subjectKind, "task");
     assert.equal(subjectReview.subjectRef, taskRef);
@@ -3964,10 +3964,10 @@ test("impl_finish_task treats malformed reviewer verdict as blocking feedback", 
     assert.ok(loaded);
     assert.equal(loaded.getTask(taskRef).status, "running");
     assert.ok(loaded.getTask(taskRef).claim);
-    const reviewArtifacts = await defaultEvidenceStore(dir).list({ kind: "record" });
-    assert.equal(reviewArtifacts.length, 1);
-    assert.equal(reviewArtifacts[0]?.provenance.producer, "review");
-    assert.equal(reviewArtifacts[0]?.provenance.taskRef, taskRef);
+    const reviewEvidences = await defaultEvidenceStore(dir).list({ kind: "record" });
+    assert.equal(reviewEvidences.length, 1);
+    assert.equal(reviewEvidences[0]?.provenance.producer, "review");
+    assert.equal(reviewEvidences[0]?.provenance.taskRef, taskRef);
     assert.equal((await defaultLearningStore(dir).list({ includeCandidates: true })).length, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -4075,7 +4075,7 @@ test("impl_finish_task accepts summary disposition for artifact follow-ups", asy
     const loaded = await defaultTaskGraphStore(dir).load();
     assert.ok(loaded);
     assert.equal(loaded.getTask(taskRef).status, "done");
-    assert.deepEqual(loaded.getTask(taskRef).outputArtifacts, [evidence.ref]);
+    assert.deepEqual(loaded.getTask(taskRef).outputEvidenceRefs, [evidence.ref]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -5205,6 +5205,32 @@ test("subject review rebuild reads v1 artifactRef and writes evidenceRef-only in
   }
 });
 
+test("subject review rebuild rejects records with canonical and legacy evidence fields", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-subject-review-mixed-evidence-"));
+  try {
+    const reviewDir = join(dir, "reviews");
+    await mkdir(reviewDir, { recursive: true });
+    await writeFile(
+      join(reviewDir, "mixed.json"),
+      JSON.stringify({
+        version: 1,
+        subjectKind: "task",
+        subjectRef: "task:mixed",
+        evidenceRef: "evidence:canonical",
+        artifactRef: "evidence:legacy",
+        outcome: "approved",
+        reviewedAt: "2026-07-01T00:00:00.000Z",
+      }),
+    );
+    await assert.rejects(
+      () => rebuildSubjectReviewIndex(reviewDir),
+      /must not contain both evidenceRef and legacy artifactRef/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("session goal reads legacy review evidence fields and writes only Evidence names", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-session-goal-legacy-evidence-"));
   try {
@@ -5240,6 +5266,60 @@ test("session goal reads legacy review evidence fields and writes only Evidence 
     assert.doesNotMatch(persisted, /"lastReviewArtifactRef"/);
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("session goal rejects canonical and legacy review evidence fields together", async () => {
+  const cases = [
+    {
+      name: "top-level",
+      fields: {
+        lastReviewEvidenceRef: "evidence:same-review",
+        lastReviewArtifactRef: "evidence:same-review",
+      },
+    },
+    {
+      name: "nested",
+      fields: {
+        lastReviewEvidenceRef: "evidence:same-review",
+        lastReview: {
+          artifactRef: "evidence:same-review",
+          reviewedAt: "2026-07-01T00:00:00.000Z",
+        },
+      },
+    },
+  ] as const;
+  for (const testCase of cases) {
+    const dir = await mkdtemp(join(tmpdir(), `spark-session-goal-mixed-${testCase.name}-`));
+    try {
+      const ctx = testSparkContext(dir, "main");
+      const path = sessionGoalStorePath(dir, ctx);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          version: 1,
+          goal: {
+            version: 1,
+            goalId: `mixed-${testCase.name}`,
+            sessionKey: ctx.sessionId,
+            originalObjective: "Reject ambiguous persisted evidence",
+            objective: "Reject ambiguous persisted evidence",
+            status: "active",
+            source: "explicit",
+            ...testCase.fields,
+            createdAt: "2026-07-01T00:00:00.000Z",
+            updatedAt: "2026-07-01T00:00:00.000Z",
+          },
+        }),
+      );
+      await assert.rejects(
+        () => loadSessionGoal(dir, ctx),
+        /must not contain multiple canonical or legacy review evidence fields/,
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 });
 
@@ -5524,7 +5604,7 @@ test("spark_goal complete uses deterministic blocker before reviewer when work r
         body: "One completed task has evidence, but the project still has unfinished work.",
         provenance: { producer: "task", projectRef: project.ref, taskRef: doneTask.ref },
       });
-      graph.attachOutputArtifact(doneTask.ref, evidence.ref);
+      graph.attachOutputEvidence(doneTask.ref, evidence.ref);
       graph.createTask({
         projectRef: project.ref,
         name: "unfinished-complete-blocker",
@@ -5665,7 +5745,7 @@ test("spark_goal complete allows an explicitly evidenced narrow goal after revie
         provenance: { producer: "task", projectRef: project.ref, taskRef: doneTask.ref },
       });
       completionEvidenceRef = evidence.ref;
-      graph.attachOutputArtifact(doneTask.ref, evidence.ref);
+      graph.attachOutputEvidence(doneTask.ref, evidence.ref);
       graph.createTask({
         projectRef: project.ref,
         name: "role-tui-observability-backlog",
@@ -8174,7 +8254,7 @@ test("impl_workflow_runs reply and steer require one active visible role-run", a
         ownerSessionId: "session:parent",
         status: "running",
         startedAt: new Date().toISOString(),
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
       });
     });
     const { tools } = registerSparkToolsForTest();
@@ -8372,7 +8452,7 @@ test("impl_workflow_runs reply records failed delivery without successful activi
     );
     assert.match(toolText(replied), /Control evidence: evidence:/);
     const details = replied.details as {
-      controlArtifactRef?: string;
+      controlEvidenceRef?: string;
       sent?: Array<{ delivered?: boolean; runRef?: string; inputControl?: string }>;
       background?: {
         roleRunRegistry?: {
@@ -8380,15 +8460,15 @@ test("impl_workflow_runs reply records failed delivery without successful activi
         };
       };
     };
-    assert.match(details.controlArtifactRef ?? "", /^evidence:/);
+    assert.match(details.controlEvidenceRef ?? "", /^evidence:/);
     assert.equal(details.sent?.[0]?.runRef, active.runRef);
     assert.equal(details.sent?.[0]?.delivered, false);
     assert.equal(details.sent?.[0]?.inputControl, "none");
-    const controlArtifact = await defaultEvidenceStore(dir).get(
-      details.controlArtifactRef as EvidenceRef,
+    const controlEvidence = await defaultEvidenceStore(dir).get(
+      details.controlEvidenceRef as EvidenceRef,
     );
-    assert.equal(controlArtifact.provenance.runRef, active.runRef);
-    const controlBody = controlArtifact.body as {
+    assert.equal(controlEvidence.provenance.runRef, active.runRef);
+    const controlBody = controlEvidence.body as {
       sent?: Array<{
         delivered?: boolean;
         runRef?: string;
@@ -8498,18 +8578,18 @@ test("impl_workflow_runs reply delivers through native role-run input control", 
     );
     assert.match(toolText(replied), /Control evidence: evidence:/);
     const details = replied.details as {
-      controlArtifactRef?: string;
+      controlEvidenceRef?: string;
       sent?: Array<{ delivered?: boolean; runRef?: string; inputControl?: string }>;
       background?: {
         roleRunRegistry?: {
           entries?: Array<{
             runRef?: string;
-            events?: Array<{ type?: string; message?: string; artifactRefs?: string[] }>;
+            events?: Array<{ type?: string; message?: string; evidenceRefs?: string[] }>;
           }>;
         };
       };
     };
-    assert.match(details.controlArtifactRef ?? "", /^evidence:/);
+    assert.match(details.controlEvidenceRef ?? "", /^evidence:/);
     assert.equal(details.sent?.[0]?.runRef, active.runRef);
     assert.equal(details.sent?.[0]?.delivered, true);
     assert.equal(details.sent?.[0]?.inputControl, "native");
@@ -8531,7 +8611,7 @@ test("impl_workflow_runs reply delivers through native role-run input control", 
     assert.match(
       (entry?.events ?? [])
         .filter((event) => event.type === "replied")
-        .flatMap((event) => event.artifactRefs ?? [])
+        .flatMap((event) => event.evidenceRefs ?? [])
         .at(0) ?? "",
       /^evidence:/,
     );
@@ -8602,7 +8682,7 @@ test("impl_workflow_runs reports failed workflow run with stuck child as attenti
       errorMessage: "role run failed while the child process was still active",
       startedAt: activeProcess.startedAt,
       finishedAt,
-      outputArtifacts: [],
+      outputEvidenceRefs: [],
       completionSummary: {
         runRef: activeProcess.runRef,
         taskRef: task.ref,
@@ -8610,7 +8690,7 @@ test("impl_workflow_runs reports failed workflow run with stuck child as attenti
         runName: activeProcess.runName,
         status: "failed" as const,
         summary: "role run failed while the child process was still active",
-        artifactRefs: [],
+        evidenceRefs: [],
         createdAt: finishedAt,
       },
     };
@@ -8810,7 +8890,7 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
       errorMessage: "missing required evidence",
       startedAt: now,
       finishedAt: now,
-      outputArtifacts: [failedArtifact.ref],
+      outputEvidenceRefs: [failedArtifact.ref],
       completionSummary: {
         runRef: failedRunRef,
         taskRef: failedTask.ref,
@@ -8818,7 +8898,7 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
         runName: "worker-compact-failed",
         status: "failed",
         summary: "Failed compact summary: missing required evidence",
-        artifactRefs: [failedArtifact.ref],
+        evidenceRefs: [failedArtifact.ref],
         createdAt: now,
       },
     });
@@ -8831,7 +8911,7 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
       status: "succeeded",
       startedAt: now,
       finishedAt: now,
-      outputArtifacts: [succeededArtifact.ref],
+      outputEvidenceRefs: [succeededArtifact.ref],
       completionSummary: {
         runRef: succeededRunRef,
         taskRef: succeededTask.ref,
@@ -8839,7 +8919,7 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
         runName: "worker-compact-succeeded",
         status: "succeeded",
         summary: "Succeeded compact summary: docs updated",
-        artifactRefs: [succeededArtifact.ref],
+        evidenceRefs: [succeededArtifact.ref],
         createdAt: now,
       },
     });
@@ -8960,7 +9040,7 @@ test("impl_workflow_runs inspect keeps legacy large role-run artifacts behind re
       status: "succeeded",
       startedAt: now,
       finishedAt: now,
-      outputArtifacts: [artifact.ref],
+      outputEvidenceRefs: [artifact.ref],
     });
     await store.save(graph);
 
@@ -9167,7 +9247,7 @@ test("impl_status renders legacy large role-run artifacts by refs without artifa
       status: "succeeded",
       startedAt: now,
       finishedAt: now,
-      outputArtifacts: [artifact.ref],
+      outputEvidenceRefs: [artifact.ref],
       completionSummary: {
         runRef,
         taskRef: task.ref,
@@ -9175,7 +9255,7 @@ test("impl_status renders legacy large role-run artifacts by refs without artifa
         runName: "worker-legacy-large",
         status: "succeeded",
         summary: "Legacy compact summary only",
-        artifactRefs: [artifact.ref],
+        evidenceRefs: [artifact.ref],
         createdAt: now,
       },
     });
@@ -9266,7 +9346,7 @@ test("task status projects managed Session Goal and TaskRun evidence bindings", 
       status: "running",
       plan: executionReadyPlan("Expose managed execution projection"),
     });
-    const evidenceRef = "artifact:managed-execution-evidence" as EvidenceRef;
+    const evidenceRef = "evidence:managed-execution-evidence" as EvidenceRef;
     const runRef = "run:managed-execution" as RunRef;
     graph.recordRun({
       ref: runRef,
@@ -9287,7 +9367,7 @@ test("task status projects managed Session Goal and TaskRun evidence bindings", 
         invocationId: "inv_managed_projection",
       },
       startedAt: "2026-07-29T00:00:00.000Z",
-      outputArtifacts: [evidenceRef],
+      outputEvidenceRefs: [evidenceRef],
     });
     await store.save(graph);
 
@@ -12182,7 +12262,7 @@ test("repro settle keeps a ten second cadence when any safe task run is active",
         taskRef: safeTaskRef,
         status: "running",
         startedAt: "2026-07-28T00:00:00.000Z",
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
       });
       graph.recordRun({
         ref: "run:repro-safe-later-success" as RunRef,
@@ -12191,7 +12271,7 @@ test("repro settle keeps a ten second cadence when any safe task run is active",
         status: "succeeded",
         startedAt: "2026-07-28T00:00:01.000Z",
         finishedAt: "2026-07-28T00:00:02.000Z",
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
       });
     });
     const graph = await defaultTaskGraphStore(dir).load();

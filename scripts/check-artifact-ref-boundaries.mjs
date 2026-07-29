@@ -52,6 +52,15 @@ const rules = [
     pattern: /refKind\s*:\s*["']artifact["']\s*\|\s*["']evidence["']/gu,
   },
   { id: "product-evidence-record", pattern: /Product EvidenceRecord/gu },
+  {
+    id: "legacy-task-evidence-fields",
+    pattern: /\b(?:inputArtifacts|outputArtifacts|artifactRefs)\b/gu,
+  },
+  {
+    id: "legacy-review-control-fields",
+    pattern:
+      /\b(?:reviewArtifactRef|reviewArtifact|controlArtifactRef|controlArtifact|sparkMdArtifactRef)\b/gu,
+  },
   { id: "legacy-session-review-field", pattern: /\blastReviewArtifactRef\b/gu },
 ];
 const workflowBoundaryPaths = [
@@ -66,6 +75,7 @@ const allow = new Map([
       /^(?!packages\/spark-workflows\/src\/)(?!packages\/spark-runtime\/src\/workflow-role-run-adapter\.ts$)(?!packages\/spark-extension\/src\/extension\/spark-workflow-run-tool-registration\.ts$)/u,
     ],
   ],
+  ["legacy-task-evidence-fields", [/^packages\/spark-tasks\/src\/graph-store\.ts$/u]],
   ["legacy-session-review-field", [/^packages\/spark-loop\/src\/session-goals\.ts$/u]],
 ]);
 const violations = [];
@@ -79,7 +89,21 @@ for (const file of productionFiles) {
     ) {
       continue;
     }
-    if ((allow.get(rule.id) ?? []).some((pattern) => pattern.test(path))) continue;
+    if ((allow.get(rule.id) ?? []).some((pattern) => pattern.test(path))) {
+      if (rule.id === "legacy-session-review-field") {
+        for (const match of text.matchAll(rule.pattern)) {
+          const line = text.slice(0, match.index).split("\n").length;
+          const context = text.slice(
+            Math.max(0, match.index - 1_500),
+            match.index + match[0].length + 1_500,
+          );
+          if (!/function normalizeGoalReviewPointer/u.test(context)) {
+            violations.push({ rule: rule.id, path, line, match: match[0] });
+          }
+        }
+      }
+      continue;
+    }
     for (const match of text.matchAll(rule.pattern)) {
       const line = text.slice(0, match.index).split("\n").length;
       violations.push({ rule: rule.id, path, line, match: match[0] });

@@ -262,8 +262,8 @@ export function normalizeTask(task: Task): Task {
         : undefined,
     supersededBy: normalizeTaskRefs(task.supersededBy),
     claim,
-    inputArtifacts: task.inputArtifacts,
-    outputArtifacts: task.outputArtifacts,
+    inputEvidenceRefs: task.inputEvidenceRefs,
+    outputEvidenceRefs: task.outputEvidenceRefs,
     plan: normalizeTaskPlan(task.plan, task.description, task.title),
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
@@ -866,12 +866,12 @@ export function taskPlanIssue(kind: TaskPlanIssueKind, message?: string): TaskPl
 }
 
 export function taskCompletionReadiness(
-  task: Pick<Task, "plan" | "outputArtifacts" | "status">,
+  task: Pick<Task, "plan" | "outputEvidenceRefs" | "status">,
 ): TaskCompletionReadiness {
   if (task.status === "cancelled") return { ready: true, issues: [] };
   const issues: TaskCompletionIssue[] = [];
   const evidenceRequired = task.plan?.evidenceRequired ?? [];
-  if (evidenceRequired.length > 0 && task.outputArtifacts.length === 0) {
+  if (evidenceRequired.length > 0 && task.outputEvidenceRefs.length === 0) {
     issues.push({
       kind: "missing_completion_evidence",
       severity: "blocking",
@@ -1338,8 +1338,8 @@ export function cloneTask(task: Task): Task {
         }
       : undefined,
     supersededBy: [...task.supersededBy],
-    inputArtifacts: [...task.inputArtifacts],
-    outputArtifacts: [...task.outputArtifacts],
+    inputEvidenceRefs: [...task.inputEvidenceRefs],
+    outputEvidenceRefs: [...task.outputEvidenceRefs],
     plan: task.plan ? cloneTaskPlan(task.plan) : undefined,
   };
 }
@@ -1362,11 +1362,11 @@ export function normalizeTaskRun(run: TaskRun): TaskRun {
           concurrencyKeys: [...run.resourceAllocation.concurrencyKeys],
         }
       : undefined,
-    outputArtifacts: [...run.outputArtifacts],
+    outputEvidenceRefs: [...run.outputEvidenceRefs],
     completionSummary: run.completionSummary
       ? {
           ...run.completionSummary,
-          artifactRefs: [...run.completionSummary.artifactRefs],
+          evidenceRefs: [...run.completionSummary.evidenceRefs],
           outcome: run.completionSummary.outcome ? { ...run.completionSummary.outcome } : undefined,
         }
       : undefined,

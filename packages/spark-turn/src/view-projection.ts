@@ -308,6 +308,18 @@ export function taskViewFromCandidate(
   const title = stringField(candidate, "title") ?? stringField(candidate, "name") ?? ref;
   const rawStatus = stringField(candidate, "status");
   const status = isTaskStatus(rawStatus) ? rawStatus : "pending";
+  const evidenceRefs = strictPrefixedRefs(
+    [
+      ...stringArrayField(candidate, "evidenceRefs"),
+      ...stringArrayField(candidate, "outputEvidenceRefs"),
+    ],
+    "evidence:",
+  );
+  const productArtifactRefs = strictPrefixedRefs(
+    stringArrayField(candidate, "productArtifactRefs"),
+    "artifact:",
+  );
+  if (!evidenceRefs || !productArtifactRefs) return undefined;
   return {
     version: SPARK_PROTOCOL_VERSION,
     ref,
@@ -324,15 +336,8 @@ export function taskViewFromCandidate(
       : {}),
     todos: taskTodosFromCandidate(candidate),
     runRefs: stringArrayField(candidate, "runRefs"),
-    artifactRefs: [
-      ...stringArrayField(candidate, "artifactRefs"),
-      ...stringArrayField(candidate, "outputArtifacts"),
-      ...stringArrayField(candidate, "evidenceRefs"),
-    ].filter(
-      (value, index, array) =>
-        (value.startsWith("artifact:") || value.startsWith("evidence:")) &&
-        array.indexOf(value) === index,
-    ),
+    evidenceRefs,
+    productArtifactRefs,
     metadata: jsonMetadata(metadata),
   };
 }
@@ -429,6 +434,16 @@ export function stringField(
 export function isoStringField(record: Record<string, unknown>, key: string): string | undefined {
   const value = stringField(record, key);
   return value && !Number.isNaN(Date.parse(value)) ? value : undefined;
+}
+
+export function strictPrefixedRefs(
+  values: string[],
+  prefix: "evidence:" | "artifact:",
+): string[] | undefined {
+  if (values.some((value) => !value.startsWith(prefix) || value.length === prefix.length)) {
+    return undefined;
+  }
+  return values.filter((value, index) => values.indexOf(value) === index);
 }
 
 export function stringArrayField(record: Record<string, unknown>, key: string): string[] {

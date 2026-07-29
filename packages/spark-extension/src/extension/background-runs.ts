@@ -137,7 +137,7 @@ export interface SparkBackgroundChildRunView {
   summary?: string;
   errorMessage?: string;
   outcome?: RoleRunCompletionOutcome;
-  artifactRefs: EvidenceRef[];
+  evidenceRefs: EvidenceRef[];
   transcriptRef?: EvidenceRef;
   stdoutTail?: RoleRunTextTail;
   stderrTail?: RoleRunTextTail;

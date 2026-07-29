@@ -15,7 +15,7 @@ function summary(status: TaskRunCompletionSummary["status"]): TaskRunCompletionS
     runName: "worker-14d81710",
     status,
     summary: "role run finished with status failed",
-    artifactRefs: ["evidence:ba6fa906-bf0a-4b21-acaa-77142a753451"],
+    evidenceRefs: ["evidence:ba6fa906-bf0a-4b21-acaa-77142a753451"],
     createdAt: now,
   };
 }
@@ -31,7 +31,7 @@ function run(ownerSessionId = "session:current"): TaskRun {
     status: "failed",
     startedAt: now,
     finishedAt: now,
-    outputArtifacts: ["evidence:ba6fa906-bf0a-4b21-acaa-77142a753451"],
+    outputEvidenceRefs: ["evidence:ba6fa906-bf0a-4b21-acaa-77142a753451"],
     completionSummary: summary("failed"),
   };
 }
@@ -98,7 +98,7 @@ test("run_status includeHistory preserves acknowledged historical failures", () 
   });
 
   assert.equal(projection.summary.runRef, "run:14d81710-fce7-4c1a-a261-b9d598b32043");
-  assert.deepEqual(projection.summary.artifactRefs, [
+  assert.deepEqual(projection.summary.evidenceRefs, [
     "evidence:ba6fa906-bf0a-4b21-acaa-77142a753451",
   ]);
   assert.equal(projection.taskStatus, "cancelled");

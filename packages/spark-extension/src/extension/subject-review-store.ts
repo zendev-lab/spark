@@ -328,7 +328,7 @@ function subjectReviewIndexEntry(
   return {
     subjectKind: subjectReviewKind(value.subjectKind),
     subjectRef: stringField(value.subjectRef, "subjectRef"),
-    evidenceRef: subjectReviewEvidenceRef(value),
+    evidenceRef: subjectReviewEvidenceRefWithLegacyFallback(value),
     path: fileName,
     status: "resolved",
     outcome: stringField(value.outcome, "outcome"),
@@ -338,7 +338,12 @@ function subjectReviewIndexEntry(
   };
 }
 
-function subjectReviewEvidenceRef(value: Record<string, unknown>): EvidenceRef {
+function subjectReviewEvidenceRefWithLegacyFallback(value: Record<string, unknown>): EvidenceRef {
+  if (value.evidenceRef !== undefined && value.artifactRef !== undefined) {
+    throw new Error(
+      "subject review record must not contain both evidenceRef and legacy artifactRef",
+    );
+  }
   const field = value.evidenceRef === undefined ? "artifactRef" : "evidenceRef";
   const ref = stringField(value.evidenceRef ?? value.artifactRef, field);
   if (!ref.startsWith("evidence:") || ref.length === "evidence:".length) {

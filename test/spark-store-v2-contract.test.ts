@@ -334,7 +334,7 @@ test("Spark store V2 project/task tree fixture splits graph state and keeps TODO
   const taskValue = objectField(task, "value");
   assert.equal(taskValue.todoOwnerRef, "task:demo");
   assert.equal("todos" in taskValue, false, "task.json must not embed TODO bodies");
-  assert.deepEqual(taskValue.outputArtifacts, ["evidence:curated-demo"]);
+  assert.deepEqual(taskValue.outputEvidenceRefs, ["evidence:curated-demo"]);
 
   const [run] = objectArrayField(tree, "runs");
   assert.ok(run);
@@ -362,6 +362,6 @@ test("Spark store V2 review fixture is subject-owned and keeps global review ind
   const entry = objectField(indexProjection, "entry");
   assert.equal(entry.ownerPath, subject.ownerPath);
 
-  assert.deepEqual(review.artifactRefs, ["evidence:review-demo"]);
+  assert.deepEqual(review.evidenceRefs, ["evidence:review-demo"]);
   assert.ok(stringArrayField(review, "legacyImportOnly").includes(".spark/review-gate.json"));
 });

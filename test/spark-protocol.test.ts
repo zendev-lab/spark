@@ -8,6 +8,9 @@ import {
   parseSparkInteractionRequest,
   parseSparkInteractionResponse,
   parseSparkSessionView,
+  sparkArtifactProjectionContentRefSchema,
+  sparkRunViewSchema,
+  sparkTaskViewSchema,
   parseSparkViewModelEvent,
   invocationLogChunkPayloadSchema,
   sparkInteractionRequestSchema,
@@ -32,6 +35,46 @@ test("spark protocol validates core session/message/tool/run/task/artifact view 
   assert.equal(session.messages[1]?.status, "streaming");
   assert.equal(session.tools[0]?.input && typeof session.tools[0].input, "object");
   assert.equal(session.runs[0]?.progress, 0.5);
+});
+
+test("run and task views keep product attachments separate from internal evidence", () => {
+  assert.doesNotThrow(() =>
+    sparkRunViewSchema.parse({
+      id: "run:separated",
+      kind: "task",
+      status: "succeeded",
+      evidenceRefs: ["evidence:proof"],
+      productArtifactRefs: ["artifact:preview"],
+    }),
+  );
+  assert.throws(
+    () =>
+      sparkRunViewSchema.parse({
+        id: "run:mixed",
+        kind: "task",
+        status: "succeeded",
+        evidenceRefs: ["artifact:not-evidence"],
+      }),
+    /must be an evidence: ref/,
+  );
+  assert.throws(
+    () =>
+      sparkTaskViewSchema.parse({
+        ref: "task:mixed",
+        title: "Mixed",
+        status: "running",
+        productArtifactRefs: ["evidence:not-product"],
+      }),
+    /must be an artifact: ref/,
+  );
+  assert.throws(
+    () =>
+      sparkArtifactProjectionContentRefSchema.parse({
+        productArtifactRef: "evidence:not-product",
+        inlineJson: {},
+      }),
+    /must be an artifact: ref/,
+  );
 });
 
 test("spark protocol validates interaction requests and typed responses", () => {
