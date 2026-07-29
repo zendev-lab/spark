@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Model Reproduction
 
-Use this core only inside an active Spark repro drive. It is loaded explicitly for the first daemon tick of a new `reproId`; do not reload it on later ticks unless the user asks.
+Use this core inside an active Spark repro drive or when a sandboxed reproduction bench explicitly binds this skill by path. Daemon repro loads it for the first tick of a new `reproId`; do not reload it on later daemon ticks unless the user asks. A bench executor may invoke `/skill:model-reproduction` on each independent process resume because it does not own the daemon checkpoint.
 
 ## Authority
 
