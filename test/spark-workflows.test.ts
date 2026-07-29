@@ -161,11 +161,35 @@ test("spark-workflows lists and reads builtin workflows without frontmatter mode
   assert.deepEqual(listing.errors, []);
   assert.deepEqual(
     listing.workflows.map((workflow) => workflow.selector),
-    ["builtin:research", "builtin:review"],
+    [
+      "builtin:research",
+      "builtin:review",
+      "builtin:repro-stage-orchestrate",
+      "builtin:repro-module-sweep",
+      "builtin:repro-first-divergence",
+      "builtin:repro-change-loop",
+      "builtin:repro-long-horizon",
+      "builtin:repro-axis-qualify",
+      "builtin:repro-topology-compose",
+      "builtin:repro-evidence-review",
+      "builtin:repro-delivery-sync",
+    ],
   );
   assert.deepEqual(
     listing.workflows.map((workflow) => workflow.mode),
-    ["plan", "plan"],
+    [
+      "plan",
+      "plan",
+      "implement",
+      "implement",
+      "implement",
+      "implement",
+      "implement",
+      "implement",
+      "implement",
+      "plan",
+      "implement",
+    ],
   );
 
   const { descriptor, script } = await readSavedWorkflow({
@@ -782,6 +806,25 @@ test("spark-workflows role-run adapter sends model agents through model runner h
   assert.equal(request.metadata.index, 1);
   assert.equal(request.metadata.timeoutMs, 250);
   assert.equal(request.metadata.artifactRef, "artifact:brief-456");
+});
+
+test("spark-workflows role-run adapter honors an explicit reusable roleRef", async () => {
+  let selectedRoleRef: string | undefined;
+  const agent = createSparkWorkflowRoleRunAdapter({
+    roleRef: "role:builtin-worker",
+    async runRoleInstruction(request) {
+      selectedRoleRef = request.roleRef;
+      return { text: "specialist result" };
+    },
+  });
+
+  const result = await agent("Audit numerical evidence", {
+    index: 0,
+    roleRef: "role:extension-repro-numerical-auditor",
+  });
+
+  assert.equal(result, "specialist result");
+  assert.equal(selectedRoleRef, "role:extension-repro-numerical-auditor");
 });
 
 test("spark-workflows role-run adapter forwards child usage telemetry", async () => {
@@ -2480,6 +2523,66 @@ return await webSearch({ query: 'approval smoke' })`;
     assert.equal(ranWorkflow, false);
     const persisted = await defaultSparkDynamicWorkflowEventStore(dir).load();
     assert.equal(persisted.runs.length, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("Spark workflow_run approval resolves selected role tool policies", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-workflow-role-approval-"));
+  try {
+    type TestWorkflowRunTool = {
+      execute: (
+        toolCallId: string,
+        params: Record<string, unknown>,
+        signal: AbortSignal,
+        onUpdate: () => void,
+        ctx: { cwd: string },
+      ) => Promise<unknown>;
+    };
+    const tools = new Map<string, TestWorkflowRunTool>();
+    let observed:
+      | {
+          riskFlags: string[];
+          tools: string[];
+          roles: string[];
+        }
+      | undefined;
+    registerSparkWorkflowRunTool(
+      (config) => tools.set(config.name, config as unknown as TestWorkflowRunTool),
+      {
+        approveRun: ({ summary }) => {
+          observed = {
+            riskFlags: summary.riskFlags,
+            tools: summary.tools,
+            roles: summary.roles,
+          };
+          return { approved: false, reason: "test inspected role policy" };
+        },
+        createAgentRunner: () => async () => "should not run",
+      },
+    );
+    const tool = tools.get("workflow_run");
+    assert.ok(tool, "missing workflow_run tool");
+
+    await assert.rejects(
+      () =>
+        tool.execute(
+          "tool-call",
+          {
+            script: `export const meta = { name: 'role approval', description: 'role policy smoke' }
+return await agent('bounded work', { roleRef: 'role:builtin-worker' })`,
+          },
+          new AbortController().signal,
+          () => undefined,
+          { cwd: dir },
+        ),
+      /workflow_run approval denied: test inspected role policy/,
+    );
+    assert.deepEqual(observed?.roles, ["role:builtin-worker"]);
+    assert.ok(observed?.tools.includes("cue_exec"));
+    assert.ok(observed?.tools.includes("write"));
+    assert.deepEqual(observed?.riskFlags, ["role_policies", "shell_tools", "write_tools"]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

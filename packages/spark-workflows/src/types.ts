@@ -45,6 +45,8 @@ export type WorkflowPhaseRun = WorkflowStageRun;
 
 export interface WorkflowAgentOptions {
   label?: string;
+  /** Explicit reusable Spark Role for this workflow child; the host validates the ref. */
+  roleRef?: string;
   stage?: string;
   /** @deprecated Use stage. */
   phase?: string;

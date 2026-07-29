@@ -70,6 +70,7 @@ import {
   sparkDaemonDriverControl,
   type SparkDaemonDriverControl,
 } from "./spark-daemon-driver-client.ts";
+import { registerSparkReproRoles } from "./spark-repro-roles.ts";
 
 interface SparkProductFacadeApi extends SparkCommandApi {
   /** Host/test override; production defaults to the daemon local RPC client. */
@@ -102,6 +103,7 @@ interface SparkProductFacadeApi extends SparkCommandApi {
 }
 
 export default function sparkExtension(pi: SparkProductFacadeApi) {
+  registerSparkReproRoles();
   const driverControl = pi.driverControl ?? sparkDaemonDriverControl;
   const widgetController = new SparkWidgetController();
   const roleRunTuiController = new SparkRoleRunTuiController(pi);

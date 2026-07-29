@@ -48,6 +48,18 @@ TUI and Cockpit use the same daemon-owned Side Thread contract; presentation sta
   `SPARK_TASK_RESOURCE_INVENTORY`; otherwise Spark uses
   `CUDA_VISIBLE_DEVICES`, then a bounded `nvidia-smi` probe. Topology-qualified
   Tasks remain deferred until the inventory declares the requested class.
+- Repro-specific saved workflows are available as
+  `builtin:repro-stage-orchestrate`, `repro-module-sweep`,
+  `repro-first-divergence`, `repro-change-loop`, `repro-long-horizon`,
+  `repro-axis-qualify`, `repro-topology-compose`, `repro-evidence-review`, and
+  `repro-delivery-sync`. They coordinate bounded work inside one Project Task;
+  durable Project Task dispatch and promotion still belong to `assign` and the
+  owner Repro Session.
+- Repro extension roles cover distributed running, first-divergence
+  localization, confirmed precision fixes, exclusive performance benchmarks,
+  and independent numerical audits. Workflow agents may select a loaded Role
+  with `roleRef`; Role specs still cannot ask, spawn, dispatch Tasks, or promote
+  gates.
 - `todo` mutates the session-bound standalone checklist; its current state is projected automatically rather than fetched in normal agent flow.
 - `goal`, `loop`, `drive`, `phase`, and `repro` own their named foreground state machines. Spark native hosts expose the plan/implement switch as `phase({ action })` (`spark-modes` remains the host-neutral lens mechanism that defaults its descriptor name to `mode`).
 - `workflow` lists/reads controlled selectors; `workflow_run` executes a saved selector or trusted metadata-first script.
