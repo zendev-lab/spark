@@ -1,0 +1,3 @@
+import type { ProductArtifactRef } from "../types.ts";
+
+export const invalidProductArtifactRef: ProductArtifactRef = "evidence:not-product";

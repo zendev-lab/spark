@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { nowIso, type ArtifactRef } from "@zendev-lab/spark-core";
+import { nowIso, type EvidenceRef } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import { JsonStoreFormatError, readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 import {
@@ -20,7 +20,7 @@ export interface SparkSessionGoalReviewSummary {
   remainingWork?: string;
   blockers: string[];
   reviewRef?: string;
-  artifactRef?: string;
+  evidenceRef?: EvidenceRef;
   reviewedAt: string;
 }
 
@@ -36,7 +36,7 @@ export interface SparkSessionGoal {
   pauseReason?: string;
   completedReason?: string;
   lastReviewRef?: string;
-  lastReviewArtifactRef?: ArtifactRef;
+  lastReviewEvidenceRef?: EvidenceRef;
   lastReviewedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -121,7 +121,7 @@ export async function editSessionGoalObjective(
     objective: normalizeGoalObjective(objective),
     source: "explicit",
     lastReviewRef: undefined,
-    lastReviewArtifactRef: undefined,
+    lastReviewEvidenceRef: undefined,
     lastReviewedAt: undefined,
     updatedAt: nowIso(),
   };
@@ -277,11 +277,10 @@ function withoutGoalRuntimeState(goal: SparkSessionGoal): SparkSessionGoal {
 
 function goalReviewPointerFields(
   review: SparkSessionGoalReviewSummary,
-): Pick<SparkSessionGoal, "lastReviewRef" | "lastReviewArtifactRef" | "lastReviewedAt"> {
-  const artifactRef = review.artifactRef as ArtifactRef | undefined;
+): Pick<SparkSessionGoal, "lastReviewRef" | "lastReviewEvidenceRef" | "lastReviewedAt"> {
   return {
-    lastReviewRef: review.reviewRef ?? artifactRef,
-    lastReviewArtifactRef: artifactRef,
+    lastReviewRef: review.reviewRef ?? review.evidenceRef,
+    lastReviewEvidenceRef: review.evidenceRef,
     lastReviewedAt: review.reviewedAt,
   };
 }
@@ -289,7 +288,7 @@ function goalReviewPointerFields(
 function normalizeGoalReviewPointer(
   value: Record<string, unknown>,
   filePath: string,
-): Pick<SparkSessionGoal, "lastReviewRef" | "lastReviewArtifactRef" | "lastReviewedAt"> {
+): Pick<SparkSessionGoal, "lastReviewRef" | "lastReviewEvidenceRef" | "lastReviewedAt"> {
   const legacyReview = value.lastReview;
   const legacyArtifactRef = isRecord(legacyReview)
     ? optionalString(legacyReview.artifactRef, filePath, "goal.lastReview.artifactRef")
@@ -298,23 +297,45 @@ function normalizeGoalReviewPointer(
     ? optionalString(legacyReview.reviewedAt, filePath, "goal.lastReview.reviewedAt")
     : undefined;
   const lastReviewRef = optionalString(value.lastReviewRef, filePath, "goal.lastReviewRef");
-  const lastReviewArtifactRef = optionalString(
-    value.lastReviewArtifactRef,
+  const lastReviewEvidenceRef = optionalEvidenceRef(
+    value.lastReviewEvidenceRef ?? value.lastReviewArtifactRef,
     filePath,
-    "goal.lastReviewArtifactRef",
+    value.lastReviewEvidenceRef === undefined
+      ? "goal.lastReviewArtifactRef"
+      : "goal.lastReviewEvidenceRef",
   );
   const lastReviewedAt = optionalString(value.lastReviewedAt, filePath, "goal.lastReviewedAt");
+  const legacyEvidenceRef =
+    legacyArtifactRef === undefined
+      ? undefined
+      : requireEvidenceRef(legacyArtifactRef, filePath, "goal.lastReview.artifactRef");
   return {
     ...(lastReviewRef || legacyArtifactRef
       ? { lastReviewRef: lastReviewRef ?? legacyArtifactRef }
       : {}),
-    ...(lastReviewArtifactRef || legacyArtifactRef
-      ? { lastReviewArtifactRef: (lastReviewArtifactRef ?? legacyArtifactRef) as ArtifactRef }
+    ...(lastReviewEvidenceRef || legacyEvidenceRef
+      ? { lastReviewEvidenceRef: lastReviewEvidenceRef ?? legacyEvidenceRef }
       : {}),
     ...(lastReviewedAt || legacyReviewedAt
       ? { lastReviewedAt: lastReviewedAt ?? legacyReviewedAt }
       : {}),
   };
+}
+
+function optionalEvidenceRef(
+  value: unknown,
+  filePath: string,
+  field: string,
+): EvidenceRef | undefined {
+  const ref = optionalString(value, filePath, field);
+  return ref === undefined ? undefined : requireEvidenceRef(ref, filePath, field);
+}
+
+function requireEvidenceRef(value: string, filePath: string, field: string): EvidenceRef {
+  if (!value.startsWith("evidence:") || value.length === "evidence:".length) {
+    throw new JsonStoreFormatError(filePath, `${field} must be an evidence: ref`);
+  }
+  return value as EvidenceRef;
 }
 
 function normalizeGoalStatus(value: unknown, filePath: string): SparkSessionGoalStatus {

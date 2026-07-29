@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import {
-  ArtifactStore,
-  ArtifactStoreFormatError,
+  EvidenceStore,
+  EvidenceStoreFormatError,
   defaultEvidenceStore,
 } from "@zendev-lab/spark-artifacts";
 import { registerSparkArtifactTool } from "@zendev-lab/spark-artifacts/extension";
@@ -62,7 +62,7 @@ test("evidence store creates canonical evidence refs in the evidence root", asyn
 test("artifact store writes hashes, blobs, and lineage links", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-core-artifacts-"));
   try {
-    const store = new ArtifactStore({ rootDir: dir });
+    const store = new EvidenceStore({ rootDir: dir });
     const projectRef = newRef("proj", "demo-project");
     const first = await store.put({
       kind: "document",
@@ -79,7 +79,7 @@ test("artifact store writes hashes, blobs, and lineage links", async () => {
       provenance: {
         producer: "review",
         projectRef,
-        parentArtifactRefs: [first.ref],
+        parentEvidenceRefs: [first.ref],
       },
     });
 
@@ -122,6 +122,28 @@ test("evidence tool describes valid provenance producers", () => {
     assert.match(text, /producer=task/);
   }
   assert.match(parameters, /Role ref filter|role ref/i);
+});
+
+test("evidence tool rejects the retired artifactRef parameter", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-evidence-artifact-ref-"));
+  try {
+    const tools = new Map<string, { execute: Function }>();
+    registerSparkArtifactTool({ registerTool: (config) => tools.set(config.name, config) });
+    const tool = tools.get("evidence");
+    assert.ok(tool);
+    await assert.rejects(
+      tool.execute(
+        "evidence-artifact-ref",
+        { action: "read", artifactRef: "artifact:retired" },
+        new AbortController().signal,
+        () => undefined,
+        { cwd: dir },
+      ),
+      /artifactRef is not accepted by evidence; use evidenceRef/u,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("evidence record stores validation evidence as a producer-tagged record", async () => {
@@ -196,8 +218,8 @@ test("evidence record rejects retired verification kind with a directed hint", a
 test("artifact store maps known legacy artifact kinds when reading metadata", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-artifact-legacy-kind-"));
   try {
-    const store = new ArtifactStore({ rootDir: dir });
-    const ref = newRef("artifact", "legacy-cue-output");
+    const store = new EvidenceStore({ rootDir: dir });
+    const ref = newRef("evidence", "legacy-cue-output");
     const metadata = {
       ref,
       kind: "cue-output",
@@ -232,7 +254,7 @@ test("artifact store maps known legacy artifact kinds when reading metadata", as
 test("artifact store rejects unknown non-canonical artifact kinds when reading metadata", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-artifact-noncanonical-kind-"));
   try {
-    const ref = newRef("artifact", "noncanonical-unknown-kind");
+    const ref = newRef("evidence", "noncanonical-unknown-kind");
     const metadata = {
       ref,
       kind: "unknown-artifact-kind",
@@ -250,7 +272,7 @@ test("artifact store rejects unknown non-canonical artifact kinds when reading m
       "utf8",
     );
 
-    const store = new ArtifactStore({ rootDir: dir });
+    const store = new EvidenceStore({ rootDir: dir });
     await assert.rejects(() => store.get(ref), /kind must be a valid artifact kind/);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -338,7 +360,7 @@ test("evidence record rejects conflicting top-level provenance shortcuts", async
 test("artifact store compacts large metadata while hydrating full bodies", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-core-artifacts-compact-"));
   try {
-    const store = new ArtifactStore({
+    const store = new EvidenceStore({
       rootDir: dir,
       inlineBodyThresholdBytes: 64,
       bodyPreviewChars: 16,
@@ -371,17 +393,17 @@ test("artifact store compacts large metadata while hydrating full bodies", async
 test("artifact store rejects malformed persisted metadata with file context", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-core-artifacts-malformed-metadata-"));
   try {
-    const store = new ArtifactStore({ rootDir: dir });
+    const store = new EvidenceStore({ rootDir: dir });
     const invalidPath = join(dir, "not-an-artifact.json");
     await writeFile(invalidPath, "[]\n", "utf8");
 
     await assert.rejects(
       () => store.list(),
       (error) =>
-        error instanceof ArtifactStoreFormatError &&
+        error instanceof EvidenceStoreFormatError &&
         error.filePath === invalidPath &&
         error.reason === "invalid_metadata" &&
-        /artifact metadata must be an object/.test(error.message),
+        /evidence metadata must be an object/.test(error.message),
     );
     const compacted = await store.compactMetadata();
     assert.equal(compacted.skipped[0]?.reason, "invalid_metadata");
@@ -402,7 +424,7 @@ test("artifact store rejects malformed persisted metadata with file context", as
     await assert.rejects(
       () => store.get(artifact.ref),
       (error) =>
-        error instanceof ArtifactStoreFormatError &&
+        error instanceof EvidenceStoreFormatError &&
         error.filePath === metadataPath &&
         /provenance must be an object/.test(error.message),
     );
@@ -414,8 +436,8 @@ test("artifact store rejects malformed persisted metadata with file context", as
 test("artifact store rejects invalid bodies before writing blobs or metadata", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-core-artifacts-invalid-body-"));
   try {
-    const store = new ArtifactStore({ rootDir: dir });
-    const ref = newRef("artifact", "invalid-body");
+    const store = new EvidenceStore({ rootDir: dir });
+    const ref = newRef("evidence", "invalid-body");
     await assert.rejects(
       () =>
         store.put({
@@ -439,11 +461,11 @@ test("artifact store rejects invalid bodies before writing blobs or metadata", a
 test("artifact metadata compaction dry-runs and rewrites legacy inline bodies", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-core-artifacts-legacy-compact-"));
   try {
-    const legacyStore = new ArtifactStore({
+    const legacyStore = new EvidenceStore({
       rootDir: dir,
       inlineBodyThresholdBytes: Number.MAX_SAFE_INTEGER,
     });
-    const compactingStore = new ArtifactStore({
+    const compactingStore = new EvidenceStore({
       rootDir: dir,
       inlineBodyThresholdBytes: 64,
       bodyPreviewChars: 12,
@@ -486,11 +508,11 @@ test("artifact metadata compaction dry-runs and rewrites legacy inline bodies", 
 test("artifact store refuses metadata blob paths outside the artifact root", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-core-artifacts-blob-boundary-"));
   try {
-    const legacyStore = new ArtifactStore({
+    const legacyStore = new EvidenceStore({
       rootDir: dir,
       inlineBodyThresholdBytes: Number.MAX_SAFE_INTEGER,
     });
-    const compactingStore = new ArtifactStore({
+    const compactingStore = new EvidenceStore({
       rootDir: dir,
       inlineBodyThresholdBytes: 64,
     });
@@ -510,7 +532,7 @@ test("artifact store refuses metadata blob paths outside the artifact root", asy
 
     await assert.rejects(
       () => legacyStore.getBody(artifact.ref),
-      /artifact blob path escapes artifact store/,
+      /evidence blob path is unavailable in evidence store/,
     );
     const executed = await compactingStore.compactMetadata({ dryRun: false });
 

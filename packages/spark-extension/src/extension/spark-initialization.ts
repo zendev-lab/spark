@@ -8,7 +8,7 @@ import { builtinRoleRef } from "@zendev-lab/spark-roles";
 import {
   newRef,
   nowIso,
-  type ArtifactRef,
+  type EvidenceRef,
   type AskRef,
   type JsonValue,
   type SparkRunTrace,
@@ -30,7 +30,7 @@ export interface SparkInitOptions {
   outputLanguage?: CopyLanguage;
   clarification?: SparkInitClarificationData;
   sparkMd?: string;
-  askArtifactRefs?: ArtifactRef[];
+  askArtifactRefs?: EvidenceRef[];
   askRefs?: AskRef[];
   materializeSparkMd?: boolean;
 }
@@ -87,7 +87,7 @@ export async function initializeSparkIdea(
     provenance: {
       producer: "task",
       projectRef: project.ref,
-      parentArtifactRefs: [sparkMdArtifact.ref],
+      parentEvidenceRefs: [sparkMdArtifact.ref],
     },
   });
 
@@ -111,7 +111,7 @@ export async function initializeSparkIdea(
     provenance: {
       producer: "task",
       projectRef: project.ref,
-      parentArtifactRefs: [sparkMdArtifact.ref, rolePlanArtifact.ref],
+      parentEvidenceRefs: [sparkMdArtifact.ref, rolePlanArtifact.ref],
     },
   });
   await saveSparkGraphAndTodos(cwd, graph, undefined, defaultTaskGraphStore(cwd));
@@ -236,8 +236,8 @@ async function sparkInitResultFromExisting(
     currentTaskTitle: currentTask?.title,
     todoSummary: compactTodoSummary(todoSummary),
     sparkMdPath,
-    sparkMdArtifactRef: "evidence:existing" as ArtifactRef,
-    rolePlanArtifactRef: "evidence:existing" as ArtifactRef,
+    sparkMdArtifactRef: "evidence:existing" as EvidenceRef,
+    rolePlanArtifactRef: "evidence:existing" as EvidenceRef,
     traceRef: "spark:existing",
     askArtifactRefs: options.askArtifactRefs ?? [],
   };

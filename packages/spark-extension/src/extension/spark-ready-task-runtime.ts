@@ -1,5 +1,5 @@
 import type { RoleRegistry } from "@zendev-lab/spark-roles";
-import type { ArtifactStore } from "@zendev-lab/spark-artifacts";
+import type { EvidenceStore } from "@zendev-lab/spark-artifacts";
 import type { RoleRef } from "@zendev-lab/spark-core";
 import {
   killActiveSparkRoleRunProcesses,
@@ -19,7 +19,7 @@ export interface SparkRuntimeReadyTaskRunnerOptions {
   registry: RoleRegistry;
   /** Role assigned when a ready task has no task-level role hint. Defaults by task kind, then worker. */
   defaultRoleRef?: RoleRef;
-  artifactStore?: ArtifactStore;
+  artifactStore?: EvidenceStore;
   cwd?: string;
   sessionDir?: string;
   launch?: RoleLaunchMode;

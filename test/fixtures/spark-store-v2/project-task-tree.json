@@ -77,7 +77,7 @@
         "kind": "implement",
         "status": "ready",
         "inputArtifacts": [],
-        "outputArtifacts": ["artifact:curated-demo"],
+        "outputArtifacts": ["evidence:curated-demo"],
         "todoOwnerRef": "task:demo",
         "runsPath": "runs",
         "reviewsPath": "reviews",
@@ -95,7 +95,7 @@
         "projectRef": "proj:demo",
         "taskRef": "task:demo",
         "status": "succeeded",
-        "outputArtifacts": ["artifact:curated-demo"],
+        "outputArtifacts": ["evidence:curated-demo"],
         "startedAt": "2026-06-17T00:00:00.000Z",
         "finishedAt": "2026-06-17T00:01:00.000Z"
       }

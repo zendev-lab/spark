@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
-import { nowIso, type ArtifactRef, type JsonValue, type RoleRef } from "@zendev-lab/spark-core";
+import { nowIso, type EvidenceRef, type JsonValue, type RoleRef } from "@zendev-lab/spark-core";
 import { currentSparkProject, loadSparkGraph, sparkSessionKey } from "./session-state.ts";
 import {
   requestGoalCompletionReview,
@@ -94,7 +94,7 @@ export function registerSparkGoalTool(
                 Type.Literal("blocked"),
               ]),
               evidenceRefs: Type.Array(
-                Type.String({ description: "Artifact refs supporting this requirement." }),
+                Type.String({ description: "EvidenceRecord refs supporting this requirement." }),
               ),
               note: Type.Optional(Type.String()),
             },
@@ -391,7 +391,7 @@ function normalizeGoalCompletionRequirements(value: unknown): GoalReviewRequirem
     const evidenceRefs = rawEvidenceRefs.map((ref) => {
       if (!ref.startsWith("evidence:") || ref.length === "evidence:".length)
         throw new Error(`goal requirements[${index}].evidenceRefs must contain evidence: refs`);
-      return ref as ArtifactRef;
+      return ref as EvidenceRef;
     });
     const note =
       requirement.note === undefined
@@ -478,7 +478,7 @@ async function reviewedEditCurrentSessionGoal(
     requestedStatus: "edited",
     proposedObjective,
     reason,
-    evidenceRefs: existingGoal.lastReviewArtifactRef ? [existingGoal.lastReviewArtifactRef] : [],
+    evidenceRefs: existingGoal.lastReviewEvidenceRef ? [existingGoal.lastReviewEvidenceRef] : [],
     sessionKey: sparkSessionKey(ctx),
     forkFromSession: ctx.sessionManager?.getSessionFile?.(),
   };
@@ -522,7 +522,7 @@ export async function reviewedPauseCurrentSessionGoal(
     status: existingGoal.status,
     requestedStatus: "paused",
     reason,
-    evidenceRefs: existingGoal.lastReviewArtifactRef ? [existingGoal.lastReviewArtifactRef] : [],
+    evidenceRefs: existingGoal.lastReviewEvidenceRef ? [existingGoal.lastReviewEvidenceRef] : [],
     sessionKey: sparkSessionKey(ctx),
     forkFromSession: ctx.sessionManager?.getSessionFile?.(),
   };
@@ -553,7 +553,7 @@ export async function reviewedPauseCurrentSessionGoal(
       reason: verdict.summary,
       remainingWork: verdict.remainingWork,
       blockers: verdict.blockers,
-      artifactRef: artifact.ref,
+      evidenceRef: artifact.ref,
       reviewedAt: review.record.finishedAt || nowIso(),
     },
   });
@@ -738,7 +738,7 @@ function goalCompletionResult(
       content: [
         {
           type: "text" as const,
-          text: `Goal completion approved by reviewer for session goal: ${oneLine(originalGoal.objective)}\nReview summary: ${oneLine(result.reason)}\nReview evidence: ${result.artifactRef}`,
+          text: `Goal completion approved by reviewer for session goal: ${oneLine(originalGoal.objective)}\nReview summary: ${oneLine(result.reason)}\nReview evidence: ${result.evidenceRef}`,
         },
       ],
       details: {
@@ -747,7 +747,7 @@ function goalCompletionResult(
         goal,
         outcome: result.outcome,
         review: result.review.verdict,
-        reviewArtifact: result.artifactRef,
+        reviewArtifact: result.evidenceRef,
       },
     };
   }
@@ -756,7 +756,7 @@ function goalCompletionResult(
       ? `\nBlockers: ${formatGoalReviewList(result.blockers)}`
       : "";
     const remainingWork = result.remainingWork ? `\nRemaining work: ${result.remainingWork}` : "";
-    const artifact = result.artifactRef ? `\nReview evidence: ${result.artifactRef}` : "";
+    const artifact = result.evidenceRef ? `\nReview evidence: ${result.evidenceRef}` : "";
     return {
       content: [
         {
@@ -773,7 +773,7 @@ function goalCompletionResult(
         blockers: result.blockers,
         remainingWork: result.remainingWork,
         review: result.review?.verdict,
-        reviewArtifact: result.artifactRef,
+        reviewArtifact: result.evidenceRef,
       },
     };
   }
@@ -925,9 +925,9 @@ function renderGoalStatus(
   const lines = [`Spark session goal ${goal.status}`, `Goal: ${oneLine(goal.objective)}`];
   const reason = goal.pauseReason ?? goal.completedReason;
   if (reason) lines.push(`Reason: ${reason}`);
-  if (goal.lastReviewRef || goal.lastReviewArtifactRef || goal.lastReviewedAt)
+  if (goal.lastReviewRef || goal.lastReviewEvidenceRef || goal.lastReviewedAt)
     lines.push(
-      `Last review: ${goal.lastReviewRef ?? "unrecorded"}${goal.lastReviewArtifactRef ? ` artifact=${goal.lastReviewArtifactRef}` : ""}${goal.lastReviewedAt ? ` at ${goal.lastReviewedAt}` : ""}`,
+      `Last review: ${goal.lastReviewRef ?? "unrecorded"}${goal.lastReviewEvidenceRef ? ` evidence=${goal.lastReviewEvidenceRef}` : ""}${goal.lastReviewedAt ? ` at ${goal.lastReviewedAt}` : ""}`,
     );
   if (goal.status === "active")
     lines.push("Cadence and retry state are owned by the Spark daemon driver.");

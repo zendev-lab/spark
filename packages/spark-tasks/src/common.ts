@@ -1,5 +1,5 @@
 import type {
-  ArtifactRef,
+  EvidenceRef,
   JsonValue,
   Project,
   ProjectRef,
@@ -52,7 +52,7 @@ export interface CreateTaskInput {
   cancellation?: TaskCancellation;
   supersededBy?: TaskRef[];
   claim?: TaskClaim;
-  inputArtifacts?: ArtifactRef[];
+  inputArtifacts?: EvidenceRef[];
   plan?: TaskPlan;
   /**
    * Legacy/import seed rows for task plan items. TaskGraphStore projects these

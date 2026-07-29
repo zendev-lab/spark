@@ -3,7 +3,7 @@ import type { RoleRegistry } from "@zendev-lab/spark-roles";
 import {
   nowIso,
   stableId,
-  type ArtifactRef,
+  type EvidenceRef,
   type RoleRef,
   type Task,
   type TaskPlan,
@@ -189,7 +189,7 @@ export function registerSparkClaimTaskTool(
             tasks.find((task) => Boolean(input.name) && task.name === input.name) ??
             tasks.find((task) => Boolean(input.title) && task.title === input.title) ??
             resolveObviousTaskRenameCandidate(graph, project.ref, tasks);
-          let recoveredClaimArtifactRef: ArtifactRef | undefined;
+          let recoveredClaimArtifactRef: EvidenceRef | undefined;
           let claimRecovery: SparkTaskClaimRecoveryDecision | undefined;
           if (existing && taskClaimedBy(existing) && !isClaimOwnedBySession(existing, sessionKey)) {
             claimRecovery = await evaluateSparkTaskClaimRecovery({
@@ -414,7 +414,7 @@ function renderClaimedTaskText(
   task: Task,
   hasActiveTodos: boolean,
   recovery?: {
-    recoveredClaimArtifactRef?: ArtifactRef;
+    recoveredClaimArtifactRef?: EvidenceRef;
     claimRecovery?: SparkTaskClaimRecoveryDecision;
   },
 ): string {

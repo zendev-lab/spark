@@ -1,11 +1,11 @@
 import { readdir } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 
-import { resolveArtifactBlobPath } from "@zendev-lab/spark-artifacts";
-import type { ArtifactKind } from "@zendev-lab/spark-artifacts";
+import { resolveEvidenceBlobPath } from "@zendev-lab/spark-artifacts";
+import type { EvidenceKind } from "@zendev-lab/spark-artifacts";
 import {
   nowIso,
-  type ArtifactRef,
+  type EvidenceRef,
   type RunRef,
   type ProjectRef,
   type TaskRef,
@@ -37,8 +37,8 @@ export interface SparkStateInactiveWorkflowRunCandidate {
 }
 
 export interface SparkStateLargeArtifactCandidate {
-  ref: ArtifactRef;
-  kind: ArtifactKind;
+  ref: EvidenceRef;
+  kind: EvidenceKind;
   title?: string;
   format?: string;
   bytes: number;
@@ -345,7 +345,7 @@ async function collectSparkArtifactDiagnostics(
     const raw = await readJsonObject(file.path);
     if (!raw) continue;
     const blobPath = typeof raw.blobPath === "string" ? raw.blobPath : undefined;
-    const resolvedBlobPath = blobPath ? resolveArtifactBlobPath(artifactRoot, blobPath) : undefined;
+    const resolvedBlobPath = blobPath ? resolveEvidenceBlobPath(artifactRoot, blobPath) : undefined;
     if (resolvedBlobPath) referencedBlobPaths.add(resolvedBlobPath);
     const bodySize =
       typeof raw.bodySize === "number" && Number.isFinite(raw.bodySize) ? raw.bodySize : undefined;
@@ -361,8 +361,8 @@ async function collectSparkArtifactDiagnostics(
         ? (raw.provenance as Record<string, unknown>)
         : undefined;
     largeArtifacts.push({
-      ref: (typeof raw.ref === "string" ? raw.ref : basename(file.name, ".json")) as ArtifactRef,
-      kind: (typeof raw.kind === "string" ? raw.kind : "document") as ArtifactKind,
+      ref: (typeof raw.ref === "string" ? raw.ref : basename(file.name, ".json")) as EvidenceRef,
+      kind: (typeof raw.kind === "string" ? raw.kind : "document") as EvidenceKind,
       title: typeof raw.title === "string" ? raw.title : undefined,
       format: typeof raw.format === "string" ? raw.format : undefined,
       bytes,

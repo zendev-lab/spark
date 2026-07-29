@@ -1,5 +1,5 @@
 import type { CopyLanguage } from "@zendev-lab/spark-core";
-import type { ArtifactRef } from "@zendev-lab/spark-core";
+import type { EvidenceRef } from "@zendev-lab/spark-core";
 
 export interface SparkInitResult {
   cwd: string;
@@ -24,7 +24,7 @@ export interface SparkInitResult {
   sparkMdArtifactRef: string;
   rolePlanArtifactRef: string;
   traceRef: string;
-  askArtifactRefs: ArtifactRef[];
+  askArtifactRefs: EvidenceRef[];
 }
 
 export function renderSparkInitFollowUp(result: SparkInitResult): string {

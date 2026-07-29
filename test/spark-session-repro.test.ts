@@ -259,7 +259,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
           description: "Problem statement documented",
           phase: "research",
           satisfied: true,
-          evidenceRef: "artifact:legacy-problem",
+          evidenceRef: "evidence:legacy-problem",
         },
         {
           description: "Reproduction strategy planned",
@@ -310,13 +310,13 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       setup.acceptance[0] = {
         ...setup.acceptance[0]!,
         kind: "evidence",
-        evidenceRefs: ["artifact:legacy-contract" as unknown as EvidenceRef],
+        evidenceRefs: ["evidence:legacy-contract" as unknown as EvidenceRef],
       };
       const reproduce = repro.stages[2]!;
       reproduce.gate!.evaluation = {
         passed: true,
         blockers: [],
-        evidenceRefs: ["artifact:legacy-validation" as unknown as EvidenceRef],
+        evidenceRefs: ["evidence:legacy-validation" as unknown as EvidenceRef],
         evaluatedAt: new Date().toISOString(),
       };
       const path = sessionReproStorePath(dir);
@@ -348,7 +348,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-repro-v4-evidence-sanitize-"));
     try {
       const repro = toV4(makeRepro());
-      const invalidRef = "artifact:legacy-contract" as unknown as EvidenceRef;
+      const invalidRef = "evidence:legacy-contract" as unknown as EvidenceRef;
       repro.stages[0]!.acceptance[0] = {
         ...repro.stages[0]!.acceptance[0]!,
         kind: "evidence",

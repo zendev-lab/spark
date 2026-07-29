@@ -122,7 +122,7 @@ export function renderSparkUltracodeWorkflowPrompt(
     'If an existing saved workflow clearly satisfies the request, run it with workflow_run({ selector, args }) after reading/previewing it through workflow({ action: "read" }).',
     "If no saved workflow fits, generate one metadata-first JavaScript workflow script and execute it with workflow_run({ script, args, concurrency, maxAgents, tokenBudget }). Do not run ad hoc shell/filesystem steps outside workflow_run.",
     "Use bounded defaults unless the user explicitly asks otherwise: concurrency <= 4, maxAgents <= 12, clear stages, and a visible tokenBudget when the workflow may fan out.",
-    "Generated scripts should use quality helpers such as verify, judgePanel, completenessCheck, retry, gate, and artifactRecord where they improve confidence, and should synthesize a compact final result.",
+    "Generated scripts should use quality helpers such as verify, judgePanel, completenessCheck, retry, gate, and evidenceRecord where they improve confidence, and should synthesize a compact final result.",
     "Reuse workflow_run approval, persistence, resume, and telemetry paths; do not duplicate approval or run-manager state.",
     "Keep workflow output standalone unless the user explicitly asks to attach results to Spark project/task state.",
     renderSparkUltracodeWorkflowGuidance(focus, savedWorkflows),

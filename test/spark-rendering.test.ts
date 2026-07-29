@@ -432,7 +432,7 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
           title: "reviewer audit",
           status: "running",
           progress: 0.5,
-          artifactRefs: ["artifact:review-verdict"],
+          artifactRefs: ["evidence:review-verdict"],
           metadata: { reviewer: "reviewer", outcome: "pending" },
         },
         {
@@ -456,14 +456,14 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
             { id: "todo-2", content: "wire evidence panel", status: "in_progress", notes: [] },
           ],
           runRefs: ["role-run-reviewer"],
-          artifactRefs: ["artifact:evidence"],
+          artifactRefs: ["evidence:evidence"],
           metadata: {},
         },
       ],
       artifacts: [
         {
           version: SPARK_PROTOCOL_VERSION,
-          ref: "artifact:review-verdict",
+          ref: "evidence:review-verdict",
           title: "Reviewer verdict",
           kind: "record",
           format: "json",
@@ -474,7 +474,7 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
         },
         {
           version: SPARK_PROTOCOL_VERSION,
-          ref: "artifact:graft-patch",
+          ref: "evidence:graft-patch",
           title: "Graft patch status",
           kind: "record",
           format: "json",
@@ -1198,7 +1198,7 @@ test("native UI transport prints task completion evidence summaries", () => {
     type: "evidence.update",
     evidence: {
       version: SPARK_PROTOCOL_VERSION,
-      ref: "artifact:review",
+      ref: "evidence:review",
       title: "Review verdict",
       kind: "record",
       format: "json",
@@ -1217,7 +1217,7 @@ test("native UI transport prints task completion evidence summaries", () => {
       status: "done",
       todos: [],
       runRefs: [],
-      artifactRefs: ["artifact:review", "artifact:trace"],
+      artifactRefs: ["evidence:review", "evidence:trace"],
       metadata: {},
     },
   });

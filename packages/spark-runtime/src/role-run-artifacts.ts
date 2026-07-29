@@ -2,11 +2,11 @@ import { copyFile, mkdir, open, readFile, readdir, rm, stat } from "node:fs/prom
 import { basename, dirname, join, relative, resolve } from "node:path";
 
 import type { RoleRunRecord, RoleRunStatus } from "@zendev-lab/spark-roles";
-import { resolveArtifactBlobPath } from "@zendev-lab/spark-artifacts";
-import type { ArtifactTranscriptRetention, Artifact } from "@zendev-lab/spark-artifacts";
+import { resolveEvidenceBlobPath } from "@zendev-lab/spark-artifacts";
+import type { EvidenceTranscriptRetention, EvidenceRecord } from "@zendev-lab/spark-artifacts";
 import {
   contentHash,
-  type ArtifactRef,
+  type EvidenceRef,
   isFileNotFoundError,
   nowIso,
   readJsonFileOptional,
@@ -43,7 +43,7 @@ export interface RoleRunArtifactBody {
   startedAt?: string;
   finishedAt?: string;
   summary: string;
-  transcriptRef?: ArtifactRef;
+  transcriptRef?: EvidenceRef;
   record: Omit<RoleRunRecord, "instruction">;
   stdout: RoleRunTextTail;
   stderr: RoleRunTextTail;
@@ -52,10 +52,10 @@ export interface RoleRunArtifactBody {
 }
 
 export interface RoleRunArtifactPreview {
-  artifactRef: ArtifactRef;
+  artifactRef: EvidenceRef;
   status?: string;
   summary?: string;
-  transcriptRef?: ArtifactRef;
+  transcriptRef?: EvidenceRef;
   stdout?: RoleRunTextTail;
   stderr?: RoleRunTextTail;
   jsonEvents?: RoleRunJsonEventsTail;
@@ -107,7 +107,7 @@ export const SPARK_ROLE_RUN_RETENTION_TAIL_BYTES = 12 * 1024;
 
 export async function readRoleRunArtifactPreview(
   cwd: string,
-  artifactRef: ArtifactRef,
+  artifactRef: EvidenceRef,
   options: { maxMetadataBytes?: number } = {},
 ): Promise<RoleRunArtifactPreview> {
   const metadataPath = join(cwd, ".spark", "evidence", `${refId(artifactRef)}.json`);
@@ -141,9 +141,9 @@ export async function readRoleRunArtifactPreview(
     };
   }
 
-  let artifact: Artifact;
+  let artifact: EvidenceRecord;
   try {
-    artifact = JSON.parse(rawMetadata) as Artifact;
+    artifact = JSON.parse(rawMetadata) as EvidenceRecord;
   } catch (error) {
     return {
       artifactRef,
@@ -190,7 +190,7 @@ export type RoleRunArtifactRetentionSkipReason =
   | "already_retained";
 
 export interface RoleRunArtifactRetentionCandidate {
-  ref: ArtifactRef;
+  ref: EvidenceRef;
   kind: string;
   title?: string;
   taskRef?: string;
@@ -203,7 +203,7 @@ export interface RoleRunArtifactRetentionCandidate {
   blobPath: string;
   candidateReason: string;
   replacementSummary: string;
-  transcriptTail: ArtifactTranscriptRetention["transcriptTail"];
+  transcriptTail: EvidenceTranscriptRetention["transcriptTail"];
   exportPath?: string;
   deleted?: boolean;
 }
@@ -302,7 +302,7 @@ export async function collectRoleRunArtifactRetentionPlan(
       plan.skipped.push({ ref, path: relative(cwd, file.path), kind, reason: "missing_blob_path" });
       continue;
     }
-    const blobAbsolutePath = resolveArtifactBlobPath(artifactRoot, blobPath);
+    const blobAbsolutePath = resolveEvidenceBlobPath(artifactRoot, blobPath);
     if (!blobAbsolutePath) {
       plan.skipped.push({
         ref,
@@ -386,7 +386,7 @@ async function applyRoleRunArtifactRetention(
   }
   const compactBody = compactRoleRunRetentionBody(raw, candidate);
   const serializedBody = JSON.stringify(compactBody, null, 2);
-  const retention: ArtifactTranscriptRetention = {
+  const retention: EvidenceTranscriptRetention = {
     schemaVersion: 1,
     strategy: "role-run-compact-summary-tail",
     candidateReason: candidate.candidateReason,
@@ -418,7 +418,7 @@ async function applyRoleRunArtifactRetention(
 function compactRoleRunRetentionBody(
   raw: Record<string, unknown>,
   candidate: RoleRunArtifactRetentionCandidate,
-): RoleRunArtifactBody & { transcriptRetention: ArtifactTranscriptRetention } {
+): RoleRunArtifactBody & { transcriptRetention: EvidenceTranscriptRetention } {
   const now = nowIso();
   const provenance = roleRunRetentionRecord(raw.provenance);
   const runRef = (candidate.runRef ??
@@ -475,7 +475,7 @@ async function readSerializedTranscriptTail(
   path: string,
   bytes: number,
   tailBytes: number,
-): Promise<ArtifactTranscriptRetention["transcriptTail"]> {
+): Promise<EvidenceTranscriptRetention["transcriptTail"]> {
   const start = Math.max(0, bytes - tailBytes);
   const length = bytes - start;
   const buffer = Buffer.alloc(length);
@@ -542,7 +542,7 @@ function roleRunArtifactPreviewText(raw: Record<string, unknown>): string {
 }
 
 function roleRunReplacementSummary(
-  ref: ArtifactRef,
+  ref: EvidenceRef,
   info: ReturnType<typeof extractRoleRunArtifactBodyInfo>,
   bytes: number,
 ): string {
@@ -559,7 +559,7 @@ function roleRunArtifactBodyBytes(raw: Record<string, unknown>, blobBytes: numbe
 function roleRunTranscriptExportPath(
   cwd: string,
   exportDir: string,
-  ref: ArtifactRef,
+  ref: EvidenceRef,
   raw: Record<string, unknown>,
 ): string {
   const absoluteDir = resolve(cwd, exportDir);
@@ -583,9 +583,9 @@ function roleRunDateFromRaw(
 function roleRunArtifactRefFromMetadata(
   file: RoleRunArtifactMetadataFile,
   raw: Record<string, unknown>,
-): ArtifactRef {
+): EvidenceRef {
   const ref = typeof raw.ref === "string" ? raw.ref : `evidence:${basename(file.name, ".json")}`;
-  return ref.startsWith("evidence:") ? (ref as ArtifactRef) : (`evidence:${ref}` as ArtifactRef);
+  return ref.startsWith("evidence:") ? (ref as EvidenceRef) : (`evidence:${ref}` as EvidenceRef);
 }
 
 function isHistoricalRoleRunArtifactKind(kind: string | undefined): boolean {

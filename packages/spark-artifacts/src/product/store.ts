@@ -98,6 +98,7 @@ export class ProductArtifactStore {
   async get<T extends ProductArtifactBody = ProductArtifactBody>(
     ref: ProductArtifactRef,
   ): Promise<ProductArtifact<T>> {
+    assertProductArtifactRef(ref);
     const raw = await readJson(this.pathFor(ref));
     const artifact = normalizeProductArtifact<T>(raw);
     if (artifact.blobPath) {
@@ -142,7 +143,14 @@ export class ProductArtifactStore {
   }
 
   pathFor(ref: ProductArtifactRef): string {
+    assertProductArtifactRef(ref);
     return join(this.rootDir, `${refId(ref)}.json`);
+  }
+}
+
+function assertProductArtifactRef(ref: string): asserts ref is ProductArtifactRef {
+  if (!ref.startsWith("artifact:") || ref.length === "artifact:".length) {
+    throw new ProductArtifactValidationError("product artifact ref must be artifact:…");
   }
 }
 

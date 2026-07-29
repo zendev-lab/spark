@@ -9,10 +9,6 @@ export { writeJsonFileAtomic, writeTextFileAtomic };
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
-export type ArtifactRef = (`artifact:${string}` | `evidence:${string}`) & {
-  readonly __kind?: "artifact" | "evidence";
-};
-/** Prefer `evidence:` for new evidence writes; legacy evidence may still use `artifact:`. */
 export type EvidenceRef = `evidence:${string}` & { readonly __kind?: "evidence" };
 export type ProjectRef = `proj:${string}` & { readonly __kind?: "proj" };
 export type TaskRef = `task:${string}` & { readonly __kind?: "task" };
@@ -22,7 +18,6 @@ export type ReviewRef = `review:${string}` & { readonly __kind?: "review" };
 export type AskRef = `ask:${string}` & { readonly __kind?: "ask" };
 export type CueJobRef = `cue-job:${string}` & { readonly __kind?: "cue-job" };
 export type LinkableRef =
-  | ArtifactRef
   | EvidenceRef
   | ProjectRef
   | TaskRef
@@ -32,9 +27,9 @@ export type LinkableRef =
   | AskRef
   | CueJobRef;
 
-export type ArtifactProducer = "spark" | "role" | "task" | "review" | "ask" | "cue" | "user";
+export type EvidenceProducer = "spark" | "role" | "task" | "review" | "ask" | "cue" | "user";
 
-export const ARTIFACT_PRODUCERS = [
+export const EVIDENCE_PRODUCERS = [
   "spark",
   "role",
   "task",
@@ -42,15 +37,15 @@ export const ARTIFACT_PRODUCERS = [
   "ask",
   "cue",
   "user",
-] as const satisfies readonly ArtifactProducer[];
+] as const satisfies readonly EvidenceProducer[];
 
-export interface Provenance {
-  producer: ArtifactProducer;
+export interface EvidenceProvenance {
+  producer: EvidenceProducer;
   runRef?: RunRef;
   projectRef?: ProjectRef;
   taskRef?: TaskRef;
   roleRef?: RoleRef;
-  parentArtifactRefs?: ArtifactRef[];
+  parentEvidenceRefs?: EvidenceRef[];
   note?: string;
 }
 
@@ -61,62 +56,60 @@ export interface Provenance {
  * Prefer compact JSON `record` notes. Keep `trace` for prunable raw output.
  * `knowledge` is owned by the learning capability; `document` is rare long prose.
  */
-export type ArtifactKind = "document" | "record" | "trace" | "knowledge";
-/** @deprecated Prefer EvidenceKind — ArtifactKind remains for compatibility. */
-export type EvidenceKind = ArtifactKind;
+export type EvidenceKind = "document" | "record" | "trace" | "knowledge";
 
-export const ARTIFACT_KINDS = [
+export const EVIDENCE_KINDS = [
   "document",
   "record",
   "trace",
   "knowledge",
-] as const satisfies readonly ArtifactKind[];
+] as const satisfies readonly EvidenceKind[];
 
-export type ArtifactFormat = "markdown" | "json" | "text";
+export type EvidenceFormat = "markdown" | "json" | "text";
 
-export const ARTIFACT_FORMATS = [
+export const EVIDENCE_FORMATS = [
   "markdown",
   "json",
   "text",
-] as const satisfies readonly ArtifactFormat[];
+] as const satisfies readonly EvidenceFormat[];
 
-export type ArtifactCurationStatus = "raw" | "candidate" | "curated" | "archived" | "superseded";
+export type EvidenceCurationStatus = "raw" | "candidate" | "curated" | "archived" | "superseded";
 
-export const ARTIFACT_CURATION_STATUSES = [
+export const EVIDENCE_CURATION_STATUSES = [
   "raw",
   "candidate",
   "curated",
   "archived",
   "superseded",
-] as const satisfies readonly ArtifactCurationStatus[];
+] as const satisfies readonly EvidenceCurationStatus[];
 
-export type ArtifactRetention = "ephemeral" | "task" | "project" | "durable";
+export type EvidenceRetention = "ephemeral" | "task" | "project" | "durable";
 
-export const ARTIFACT_RETENTIONS = [
+export const EVIDENCE_RETENTIONS = [
   "ephemeral",
   "task",
   "project",
   "durable",
-] as const satisfies readonly ArtifactRetention[];
+] as const satisfies readonly EvidenceRetention[];
 
-export interface ArtifactCuration {
+export interface EvidenceCuration {
   /** Lifecycle for keeping only the useful artifact essence visible by default. */
-  status: ArtifactCurationStatus;
+  status: EvidenceCurationStatus;
   /** Intended retention horizon; storage owners may use it for sweeps. */
-  retention?: ArtifactRetention;
+  retention?: EvidenceRetention;
   /** Human-readable justification for promotion, archive, or supersession. */
   reason?: string;
   /** Raw/candidate artifacts folded into this curated artifact. */
-  promotedFrom?: ArtifactRef[];
+  promotedFrom?: EvidenceRef[];
   /** Better artifact(s) that replace this one. */
-  supersededBy?: ArtifactRef[];
+  supersededBy?: EvidenceRef[];
   /** Essence/summary artifact that compacted this artifact. */
-  compactedInto?: ArtifactRef;
+  compactedInto?: EvidenceRef;
   /** Optional expiry for raw/ephemeral artifacts. */
   expiresAt?: string;
 }
 
-export interface ArtifactTranscriptRetention {
+export interface EvidenceTranscriptRetention {
   schemaVersion: 1;
   strategy: "role-run-compact-summary-tail";
   candidateReason: string;
@@ -137,11 +130,11 @@ export interface ArtifactTranscriptRetention {
   fullTranscriptDeletedAt?: string;
 }
 
-export interface Artifact<T extends JsonValue | string = JsonValue | string> {
-  ref: ArtifactRef;
-  kind: ArtifactKind;
+export interface EvidenceRecord<T extends JsonValue | string = JsonValue | string> {
+  ref: EvidenceRef;
+  kind: EvidenceKind;
   title: string;
-  format: ArtifactFormat;
+  format: EvidenceFormat;
   body: T;
   /** Bounded serialized body preview when metadata body is stored out-of-line. */
   bodyPreview?: string;
@@ -150,24 +143,24 @@ export interface Artifact<T extends JsonValue | string = JsonValue | string> {
   /** True when `body` contains only a preview and `blobPath` is the body source. */
   bodyTruncated?: boolean;
   /** Curation lifecycle used to keep raw evidence from overwhelming default views/search. */
-  curation?: ArtifactCuration;
+  curation?: EvidenceCuration;
   /** Audit metadata for historical transcript blob replacement. */
-  transcriptRetention?: ArtifactTranscriptRetention;
+  transcriptRetention?: EvidenceTranscriptRetention;
   hash?: string;
   blobPath?: string;
-  links: ArtifactLink[];
-  provenance: Provenance;
+  links: EvidenceLink[];
+  provenance: EvidenceProvenance;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface ArtifactLink {
-  from: ArtifactRef;
+export interface EvidenceLink {
+  from: EvidenceRef;
   to: LinkableRef;
   relation: "parent" | "input" | "output" | "review-of" | "answer-to" | "trace-of" | "derived-from";
 }
 
-export const ARTIFACT_LINK_RELATIONS = [
+export const EVIDENCE_LINK_RELATIONS = [
   "parent",
   "input",
   "output",
@@ -175,53 +168,49 @@ export const ARTIFACT_LINK_RELATIONS = [
   "answer-to",
   "trace-of",
   "derived-from",
-] as const satisfies readonly ArtifactLink["relation"][];
+] as const satisfies readonly EvidenceLink["relation"][];
 
-export interface PutArtifactInput<T extends JsonValue | string = JsonValue | string> {
-  kind: ArtifactKind;
+export interface PutEvidenceInput<T extends JsonValue | string = JsonValue | string> {
+  kind: EvidenceKind;
   title: string;
-  format: ArtifactFormat;
+  format: EvidenceFormat;
   body: T;
-  provenance: Provenance;
-  links?: Omit<ArtifactLink, "from">[];
-  curation?: ArtifactCuration;
-  ref?: ArtifactRef;
+  provenance: EvidenceProvenance;
+  links?: Omit<EvidenceLink, "from">[];
+  curation?: EvidenceCuration;
+  ref?: EvidenceRef;
 }
 
-export interface ArtifactStoreOptions {
+export interface EvidenceStoreOptions {
   rootDir: string;
-  /** Optional legacy evidence root (typically `.spark/artifacts`) read as fallback. */
-  legacyRootDir?: string;
-  /** Identity namespace generated for new writes. */
-  refKind?: "artifact" | "evidence";
   inlineBodyThresholdBytes?: number;
   bodyPreviewChars?: number;
 }
 
-export interface ArtifactQuery {
-  kind?: ArtifactKind;
+export interface EvidenceQuery {
+  kind?: EvidenceKind;
   projectRef?: string;
   taskRef?: string;
   roleRef?: string;
-  producer?: Provenance["producer"];
+  producer?: EvidenceProvenance["producer"];
   linkedTo?: string;
-  curationStatus?: ArtifactCurationStatus | ArtifactCurationStatus[];
-  retention?: ArtifactRetention;
+  curationStatus?: EvidenceCurationStatus | EvidenceCurationStatus[];
+  retention?: EvidenceRetention;
   /** Defaults are caller-owned; when false, artifacts explicitly marked raw are hidden. */
   includeRaw?: boolean;
   /** Defaults are caller-owned; when false, archived/superseded artifacts are hidden. */
   includeArchived?: boolean;
 }
 
-export interface ArtifactMetadataCompactionOptions {
+export interface EvidenceMetadataCompactionOptions {
   /** Defaults to true so callers must opt in before rewriting metadata files. */
   dryRun?: boolean;
   inlineBodyThresholdBytes?: number;
   bodyPreviewChars?: number;
 }
 
-export interface ArtifactMetadataCompactionCandidate {
-  ref: ArtifactRef;
+export interface EvidenceMetadataCompactionCandidate {
+  ref: EvidenceRef;
   path: string;
   blobPath: string;
   metadataBytesBefore: number;
@@ -230,7 +219,7 @@ export interface ArtifactMetadataCompactionCandidate {
   reclaimableBytes: number;
 }
 
-export interface ArtifactMetadataCompactionSkipped {
+export interface EvidenceMetadataCompactionSkipped {
   path: string;
   reason:
     | "already_compacted"
@@ -244,48 +233,48 @@ export interface ArtifactMetadataCompactionSkipped {
   message?: string;
 }
 
-export interface ArtifactMetadataCompactionResult {
+export interface EvidenceMetadataCompactionResult {
   dryRun: boolean;
   scanned: number;
   compacted: number;
-  skipped: ArtifactMetadataCompactionSkipped[];
-  candidates: ArtifactMetadataCompactionCandidate[];
+  skipped: EvidenceMetadataCompactionSkipped[];
+  candidates: EvidenceMetadataCompactionCandidate[];
   metadataBytesBefore: number;
   metadataBytesAfter: number;
   reclaimableBytes: number;
 }
 
-export interface ArtifactListDiagnostic {
+export interface EvidenceListDiagnostic {
   filePath: string;
   message: string;
   reason?: string;
 }
 
-export interface ArtifactListWithDiagnosticsResult {
-  artifacts: Artifact[];
-  diagnostics: ArtifactListDiagnostic[];
+export interface EvidenceListWithDiagnosticsResult {
+  artifacts: EvidenceRecord[];
+  diagnostics: EvidenceListDiagnostic[];
 }
 
-type ArtifactStoreFormatReason = "invalid_json" | "invalid_metadata";
+type EvidenceStoreFormatReason = "invalid_json" | "invalid_metadata";
 
-export class ArtifactValidationError extends Error {
+export class EvidenceValidationError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "ArtifactValidationError";
+    this.name = "EvidenceValidationError";
   }
 }
 
-export class ArtifactStoreFormatError extends Error {
+export class EvidenceStoreFormatError extends Error {
   readonly filePath: string;
-  readonly reason: ArtifactStoreFormatReason;
+  readonly reason: EvidenceStoreFormatReason;
 
   constructor(
     filePath: string,
     message: string,
-    reason: ArtifactStoreFormatReason = "invalid_metadata",
+    reason: EvidenceStoreFormatReason = "invalid_metadata",
   ) {
     super(`${filePath}: ${message}`);
-    this.name = "ArtifactStoreFormatError";
+    this.name = "EvidenceStoreFormatError";
     this.filePath = filePath;
     this.reason = reason;
   }
@@ -294,7 +283,7 @@ export class ArtifactStoreFormatError extends Error {
 const DEFAULT_INLINE_BODY_THRESHOLD_BYTES = 64 * 1024;
 const DEFAULT_BODY_PREVIEW_CHARS = 4_000;
 
-const LEGACY_ARTIFACT_KIND_MAP: Readonly<Record<string, ArtifactKind>> = {
+const LEGACY_ARTIFACT_KIND_MAP: Readonly<Record<string, EvidenceKind>> = {
   "agent-plan": "document",
   "ask-answer": "record",
   "cue-output": "trace",
@@ -306,45 +295,41 @@ const LEGACY_ARTIFACT_KIND_MAP: Readonly<Record<string, ArtifactKind>> = {
   verification: "record",
 };
 
-export function canonicalArtifactKindForPersistedKind(value: unknown): ArtifactKind | undefined {
+export function canonicalEvidenceKindForPersistedKind(value: unknown): EvidenceKind | undefined {
   if (typeof value !== "string") return undefined;
-  if (isArtifactKind(value)) return value;
+  if (isEvidenceKind(value)) return value;
   return LEGACY_ARTIFACT_KIND_MAP[value];
 }
 
-export class ArtifactStore {
+export class EvidenceStore {
   readonly rootDir: string;
-  readonly legacyRootDir?: string;
-  readonly refKind: "artifact" | "evidence";
   readonly blobDir: string;
   readonly inlineBodyThresholdBytes: number;
   readonly bodyPreviewChars: number;
 
-  constructor(options: ArtifactStoreOptions) {
+  constructor(options: EvidenceStoreOptions) {
     this.rootDir = options.rootDir;
-    this.legacyRootDir = options.legacyRootDir;
-    this.refKind = options.refKind ?? "artifact";
     this.blobDir = join(options.rootDir, "blobs");
     this.inlineBodyThresholdBytes =
       options.inlineBodyThresholdBytes ?? DEFAULT_INLINE_BODY_THRESHOLD_BYTES;
     this.bodyPreviewChars = options.bodyPreviewChars ?? DEFAULT_BODY_PREVIEW_CHARS;
   }
 
-  async put<T extends JsonValue | string>(input: PutArtifactInput<T>): Promise<Artifact<T>> {
+  async put<T extends JsonValue | string>(input: PutEvidenceInput<T>): Promise<EvidenceRecord<T>> {
     await mkdir(this.rootDir, { recursive: true });
     await mkdir(this.blobDir, { recursive: true });
     const now = nowIso();
-    const ref = input.ref ?? (this.refKind === "evidence" ? newEvidenceRef() : newArtifactRef());
-    this.assertRefKind(ref, "ref");
+    const ref = input.ref ?? newEvidenceRef();
+    this.assertEvidenceRef(ref, "ref");
     const existing = input.ref ? await this.tryGet<T>(input.ref) : null;
-    const parentLinks: ArtifactLink[] = (input.provenance.parentArtifactRefs ?? []).map(
+    const parentLinks: EvidenceLink[] = (input.provenance.parentEvidenceRefs ?? []).map(
       (parent) => ({
         from: ref,
         to: parent,
         relation: "parent",
       }),
     );
-    const artifact: Artifact<T> = {
+    const artifact: EvidenceRecord<T> = {
       ref,
       kind: input.kind,
       title: input.title,
@@ -355,16 +340,16 @@ export class ArtifactStore {
       curation:
         input.curation ??
         existing?.curation ??
-        defaultArtifactCuration(input.kind, input.provenance),
+        defaultEvidenceCuration(input.kind, input.provenance),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
-    validateArtifact(artifact, this.refKind);
+    validateEvidenceRecord(artifact);
 
     const serializedBody = serializeArtifactBody(input.format, input.body);
     const hash = contentHash(serializedBody);
     const blobPath = join("blobs", `${hash}.${extensionForFormat(input.format)}`);
-    const storedArtifact: Artifact<T> = {
+    const storedArtifact: EvidenceRecord<T> = {
       ...artifact,
       body: metadataBodyFor(input.body, serializedBody, {
         thresholdBytes: this.inlineBodyThresholdBytes,
@@ -377,20 +362,20 @@ export class ArtifactStore {
       thresholdBytes: this.inlineBodyThresholdBytes,
       previewChars: this.bodyPreviewChars,
     });
-    validateArtifact(storedArtifact, this.refKind);
+    validateEvidenceRecord(storedArtifact);
     await writeTextFileAtomic(join(this.rootDir, blobPath), serializedBody);
     await writeJsonFileAtomic(this.pathFor(ref), storedArtifact);
     return { ...storedArtifact, body: input.body };
   }
 
   async update<T extends JsonValue | string>(
-    ref: ArtifactRef | EvidenceRef,
-    patch: Partial<Omit<PutArtifactInput<T>, "ref">>,
-  ): Promise<Artifact<T>> {
-    this.assertRefKind(ref, "ref");
+    ref: EvidenceRef,
+    patch: Partial<Omit<PutEvidenceInput<T>, "ref">>,
+  ): Promise<EvidenceRecord<T>> {
+    this.assertEvidenceRef(ref, "ref");
     const existing = await this.get<T>(ref);
     return this.put<T>({
-      ref: asArtifactRef(ref),
+      ref,
       kind: patch.kind ?? existing.kind,
       title: patch.title ?? existing.title,
       format: patch.format ?? existing.format,
@@ -402,9 +387,9 @@ export class ArtifactStore {
   }
 
   async get<T extends JsonValue | string = JsonValue | string>(
-    ref: ArtifactRef | EvidenceRef,
-  ): Promise<Artifact<T>> {
-    this.assertRefKind(ref, "ref");
+    ref: EvidenceRef,
+  ): Promise<EvidenceRecord<T>> {
+    this.assertEvidenceRef(ref, "ref");
     const artifact = await this.readMetadata<T>(ref);
     if (artifact.bodyTruncated && artifact.blobPath) {
       const body = await this.getBody(ref);
@@ -416,28 +401,26 @@ export class ArtifactStore {
     return artifact;
   }
 
-  async getBody(ref: ArtifactRef | EvidenceRef): Promise<string> {
-    this.assertRefKind(ref, "ref");
+  async getBody(ref: EvidenceRef): Promise<string> {
+    this.assertEvidenceRef(ref, "ref");
     const artifact = await this.readMetadata(ref);
     if (artifact.blobPath) {
-      for (const root of this.evidenceRoots()) {
-        const blobPath = resolveArtifactBlobPath(root, artifact.blobPath);
-        if (!blobPath) continue;
+      const blobPath = resolveEvidenceBlobPath(this.rootDir, artifact.blobPath);
+      if (blobPath) {
         try {
           return await readFile(blobPath, "utf8");
         } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-          throw error;
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
       }
-      throw new Error(`artifact blob path escapes artifact store: ${artifact.ref}`);
+      throw new Error(`evidence blob path is unavailable in evidence store: ${artifact.ref}`);
     }
     return serializeArtifactBody(artifact.format, artifact.body);
   }
 
   async tryGet<T extends JsonValue | string = JsonValue | string>(
-    ref: ArtifactRef | EvidenceRef,
-  ): Promise<Artifact<T> | null> {
+    ref: EvidenceRef,
+  ): Promise<EvidenceRecord<T> | null> {
     try {
       return await this.get<T>(ref);
     } catch (error) {
@@ -446,18 +429,18 @@ export class ArtifactStore {
     }
   }
 
-  async list(filter: ArtifactQuery = {}): Promise<Artifact[]> {
+  async list(filter: EvidenceQuery = {}): Promise<EvidenceRecord[]> {
     const { artifacts, diagnostics } = await this.listWithDiagnostics(filter);
     const fatal = diagnostics.find((diagnostic) => diagnostic.reason !== undefined);
     if (fatal) {
-      throw new ArtifactStoreFormatError(
+      throw new EvidenceStoreFormatError(
         fatal.filePath,
         fatal.message.replace(`${fatal.filePath}: `, ""),
         (fatal.reason as "invalid_json" | "invalid_metadata") ?? "invalid_metadata",
       );
     }
     if (diagnostics.length > 0) {
-      throw new ArtifactStoreFormatError(
+      throw new EvidenceStoreFormatError(
         diagnostics[0]!.filePath,
         diagnostics[0]!.message.replace(`${diagnostics[0]!.filePath}: `, ""),
         "invalid_metadata",
@@ -467,46 +450,38 @@ export class ArtifactStore {
   }
 
   async listWithDiagnostics(
-    filter: ArtifactQuery = {},
-  ): Promise<ArtifactListWithDiagnosticsResult> {
+    filter: EvidenceQuery = {},
+  ): Promise<EvidenceListWithDiagnosticsResult> {
     await mkdir(this.rootDir, { recursive: true });
-    const roots = this.evidenceRoots();
-    const artifacts: Artifact[] = [];
-    const diagnostics: ArtifactListDiagnostic[] = [];
-    const seen = new Set<string>();
-    for (const root of roots) {
-      let entries;
+    const artifacts: EvidenceRecord[] = [];
+    const diagnostics: EvidenceListDiagnostic[] = [];
+    let entries;
+    try {
+      entries = await readdir(this.rootDir, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { artifacts, diagnostics };
+      throw error;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+      const filePath = join(this.rootDir, entry.name);
+      let artifact: EvidenceRecord;
       try {
-        entries = await readdir(root, { withFileTypes: true });
+        artifact = await readEvidenceMetadataFile(filePath);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-        throw error;
+        diagnostics.push(artifactListDiagnostic(filePath, error));
+        continue;
       }
-      for (const entry of entries) {
-        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-        const filePath = join(root, entry.name);
-        let artifact: Artifact;
-        try {
-          artifact = await readArtifactMetadataFile(filePath, this.refKind);
-        } catch (error) {
-          // Product issue/pr/preview files may share a legacy root; skip quietly.
-          if (isSkippableNonEvidenceMetadata(error)) continue;
-          diagnostics.push(artifactListDiagnostic(filePath, error));
-          continue;
-        }
-        if (!this.acceptsRef(artifact.ref)) {
-          diagnostics.push({
-            filePath,
-            reason: "invalid_metadata",
-            message: `${filePath}: ${this.refKind} store cannot read ${artifact.ref}`,
-          });
-          continue;
-        }
-        if (seen.has(artifact.ref)) continue;
-        seen.add(artifact.ref);
-        if (!matchesQuery(artifact, filter)) continue;
-        artifacts.push(artifact);
+      if (!this.acceptsRef(artifact.ref)) {
+        diagnostics.push({
+          filePath,
+          reason: "invalid_metadata",
+          message: `${filePath}: evidence store cannot read ${artifact.ref}`,
+        });
+        continue;
       }
+      if (!matchesQuery(artifact, filter)) continue;
+      artifacts.push(artifact);
     }
     return {
       artifacts: artifacts.sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
@@ -514,22 +489,14 @@ export class ArtifactStore {
     };
   }
 
-  private evidenceRoots(): string[] {
-    const roots = [this.rootDir];
-    if (this.legacyRootDir && this.legacyRootDir !== this.rootDir) {
-      roots.push(this.legacyRootDir);
-    }
-    return roots;
-  }
-
-  async linksTo(targetRef: string): Promise<ArtifactLink[]> {
+  async linksTo(targetRef: string): Promise<EvidenceLink[]> {
     const artifacts = await this.list({ linkedTo: targetRef });
     return artifacts.flatMap((artifact) => artifact.links.filter((link) => link.to === targetRef));
   }
 
   async diff(
-    left: ArtifactRef,
-    right: ArtifactRef,
+    left: EvidenceRef,
+    right: EvidenceRef,
   ): Promise<{ same: boolean; leftHash?: string; rightHash?: string }> {
     const leftArtifact = await this.get(left);
     const rightArtifact = await this.get(right);
@@ -541,56 +508,39 @@ export class ArtifactStore {
   }
 
   async compactMetadata(
-    options: ArtifactMetadataCompactionOptions = {},
-  ): Promise<ArtifactMetadataCompactionResult> {
-    return compactArtifactMetadata(
-      this.rootDir,
-      {
-        inlineBodyThresholdBytes: options.inlineBodyThresholdBytes ?? this.inlineBodyThresholdBytes,
-        bodyPreviewChars: options.bodyPreviewChars ?? this.bodyPreviewChars,
-        dryRun: options.dryRun,
-      },
-      this.refKind,
-    );
+    options: EvidenceMetadataCompactionOptions = {},
+  ): Promise<EvidenceMetadataCompactionResult> {
+    return compactEvidenceMetadata(this.rootDir, {
+      inlineBodyThresholdBytes: options.inlineBodyThresholdBytes ?? this.inlineBodyThresholdBytes,
+      bodyPreviewChars: options.bodyPreviewChars ?? this.bodyPreviewChars,
+      dryRun: options.dryRun,
+    });
   }
 
-  pathFor(ref: ArtifactRef | EvidenceRef): string {
-    this.assertRefKind(ref, "ref");
+  pathFor(ref: EvidenceRef): string {
+    this.assertEvidenceRef(ref, "ref");
     return join(this.rootDir, `${refId(ref)}.json`);
   }
 
   private acceptsRef(ref: string): boolean {
-    return ref.startsWith(`${this.refKind}:`) && ref.length > this.refKind.length + 1;
+    return ref.startsWith("evidence:") && ref.length > "evidence:".length;
   }
 
-  private assertRefKind(ref: string, label: string): void {
+  private assertEvidenceRef(ref: string, label: string): void {
     if (!this.acceptsRef(ref)) {
-      throw new ArtifactValidationError(
-        `${label} must be an ${this.refKind}: ref for this ${this.refKind} store`,
-      );
+      throw new EvidenceValidationError(`${label} must be an evidence: ref for the evidence store`);
     }
   }
 
   private async readMetadata<T extends JsonValue | string = JsonValue | string>(
-    ref: ArtifactRef | EvidenceRef,
-  ): Promise<Artifact<T>> {
-    try {
-      return (await readArtifactMetadataFile(this.pathFor(ref), this.refKind)) as Artifact<T>;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || !this.legacyRootDir) throw error;
-      const legacyPath = join(this.legacyRootDir, `${refId(ref)}.json`);
-      return (await readArtifactMetadataFile(legacyPath, this.refKind)) as Artifact<T>;
-    }
+    ref: EvidenceRef,
+  ): Promise<EvidenceRecord<T>> {
+    return (await readEvidenceMetadataFile(this.pathFor(ref))) as EvidenceRecord<T>;
   }
 }
 
-function isSkippableNonEvidenceMetadata(error: unknown): boolean {
-  if (!(error instanceof ArtifactStoreFormatError)) return false;
-  return /product (?:issue|pr|preview) skipped/u.test(error.message);
-}
-
-function artifactListDiagnostic(filePath: string, error: unknown): ArtifactListDiagnostic {
-  if (error instanceof ArtifactStoreFormatError) {
+function artifactListDiagnostic(filePath: string, error: unknown): EvidenceListDiagnostic {
+  if (error instanceof EvidenceStoreFormatError) {
     return { filePath: error.filePath, reason: error.reason, message: error.message };
   }
   return { filePath, message: unknownErrorMessage(error) };
@@ -601,33 +551,24 @@ function artifactListDiagnostic(filePath: string, error: unknown): ArtifactListD
  * `.spark/evidence`. Product issue/pr/preview live under `.spark/artifacts`
  * and are never scanned by this store.
  */
-export function defaultEvidenceStore(cwd: string): ArtifactStore {
-  return new ArtifactStore({
-    rootDir: join(cwd, ".spark", "evidence"),
-    refKind: "evidence",
-  });
+export function defaultEvidenceStore(cwd: string): EvidenceStore {
+  return new EvidenceStore({ rootDir: join(cwd, ".spark", "evidence") });
 }
 
-/** @deprecated Alias for ArtifactStore (internal evidence). */
-export type EvidenceStore = ArtifactStore;
-
-export async function readArtifactMetadataFile(
-  filePath: string,
-  refKind: "artifact" | "evidence" = "evidence",
-): Promise<Artifact> {
+export async function readEvidenceMetadataFile(filePath: string): Promise<EvidenceRecord> {
   const text = await readFile(filePath, "utf8");
   let raw: unknown;
   try {
     raw = JSON.parse(text);
   } catch (error) {
-    throw new ArtifactStoreFormatError(
+    throw new EvidenceStoreFormatError(
       filePath,
       `invalid JSON: ${unknownErrorMessage(error)}`,
       "invalid_json",
     );
   }
   if (isRecord(raw) && isProductArtifactKind(raw.kind)) {
-    throw new ArtifactStoreFormatError(
+    throw new EvidenceStoreFormatError(
       filePath,
       `kind must be a valid artifact kind (product ${String(raw.kind)} skipped)`,
       "invalid_metadata",
@@ -635,16 +576,16 @@ export async function readArtifactMetadataFile(
   }
   const metadata = normalizePersistedArtifactMetadata(raw);
   try {
-    validateArtifact(metadata, refKind);
+    validateEvidenceRecord(metadata);
   } catch (error) {
-    throw new ArtifactStoreFormatError(filePath, unknownErrorMessage(error));
+    throw new EvidenceStoreFormatError(filePath, unknownErrorMessage(error));
   }
   return metadata;
 }
 
 function normalizePersistedArtifactMetadata(raw: unknown): unknown {
   if (!isRecord(raw)) return raw;
-  const canonicalKind = canonicalArtifactKindForPersistedKind(raw.kind);
+  const canonicalKind = canonicalEvidenceKindForPersistedKind(raw.kind);
   if (!canonicalKind || canonicalKind === raw.kind) return raw;
   return {
     ...raw,
@@ -653,7 +594,7 @@ function normalizePersistedArtifactMetadata(raw: unknown): unknown {
   };
 }
 
-export function resolveArtifactBlobPath(rootDir: string, blobPath: string): string | undefined {
+export function resolveEvidenceBlobPath(rootDir: string, blobPath: string): string | undefined {
   if (!blobPath.trim() || blobPath.includes("\0") || isAbsolute(blobPath)) return undefined;
   const root = resolve(rootDir);
   const blobRoot = resolve(root, "blobs");
@@ -663,17 +604,16 @@ export function resolveArtifactBlobPath(rootDir: string, blobPath: string): stri
   return resolved;
 }
 
-export async function compactArtifactMetadata(
+export async function compactEvidenceMetadata(
   rootDir: string,
-  options: ArtifactMetadataCompactionOptions = {},
-  refKind: "artifact" | "evidence" = "evidence",
-): Promise<ArtifactMetadataCompactionResult> {
+  options: EvidenceMetadataCompactionOptions = {},
+): Promise<EvidenceMetadataCompactionResult> {
   await mkdir(rootDir, { recursive: true });
   const dryRun = options.dryRun ?? true;
   const thresholdBytes = options.inlineBodyThresholdBytes ?? DEFAULT_INLINE_BODY_THRESHOLD_BYTES;
   const previewChars = options.bodyPreviewChars ?? DEFAULT_BODY_PREVIEW_CHARS;
   const entries = await readdir(rootDir, { withFileTypes: true });
-  const result: ArtifactMetadataCompactionResult = {
+  const result: EvidenceMetadataCompactionResult = {
     dryRun,
     scanned: 0,
     compacted: 0,
@@ -689,11 +629,11 @@ export async function compactArtifactMetadata(
     result.scanned += 1;
     const metadataBytesBefore = await fileSize(path);
     result.metadataBytesBefore += metadataBytesBefore;
-    let artifact: Artifact;
+    let artifact: EvidenceRecord;
     try {
-      artifact = await readArtifactMetadataFile(path, refKind);
+      artifact = await readEvidenceMetadataFile(path);
     } catch (error) {
-      if (error instanceof ArtifactStoreFormatError) {
+      if (error instanceof EvidenceStoreFormatError) {
         result.skipped.push({
           path,
           reason: error.reason,
@@ -719,7 +659,7 @@ export async function compactArtifactMetadata(
       result.metadataBytesAfter += metadataBytesBefore;
       continue;
     }
-    const blobPath = resolveArtifactBlobPath(rootDir, artifact.blobPath);
+    const blobPath = resolveEvidenceBlobPath(rootDir, artifact.blobPath);
     if (!blobPath) {
       result.skipped.push({ path, reason: "invalid_blob_path" });
       result.metadataBytesAfter += metadataBytesBefore;
@@ -752,7 +692,7 @@ export async function compactArtifactMetadata(
     });
     const compactedText = `${JSON.stringify(compactedArtifact, null, 2)}\n`;
     const metadataBytesAfter = Buffer.byteLength(compactedText, "utf8");
-    const candidate: ArtifactMetadataCompactionCandidate = {
+    const candidate: EvidenceMetadataCompactionCandidate = {
       ref: artifact.ref,
       path,
       blobPath: artifact.blobPath,
@@ -772,21 +712,18 @@ export async function compactArtifactMetadata(
   return result;
 }
 
-export function validateArtifact(
-  artifact: unknown,
-  refKind: "artifact" | "evidence" = "evidence",
-): asserts artifact is Artifact {
-  if (!isRecord(artifact)) throw new ArtifactValidationError("artifact metadata must be an object");
-  assertInternalRecordRefValue(artifact.ref, refKind, `${refKind} ref`);
-  if (!isArtifactKind(artifact.kind)) {
-    throw new ArtifactValidationError("kind must be a valid artifact kind");
+export function validateEvidenceRecord(artifact: unknown): asserts artifact is EvidenceRecord {
+  if (!isRecord(artifact)) throw new EvidenceValidationError("evidence metadata must be an object");
+  assertEvidenceRefValue(artifact.ref, "evidence ref");
+  if (!isEvidenceKind(artifact.kind)) {
+    throw new EvidenceValidationError("kind must be a valid artifact kind");
   }
   assertNonEmpty(artifact.title, "artifact title");
-  if (!isArtifactFormat(artifact.format)) {
-    throw new ArtifactValidationError(`invalid artifact format: ${String(artifact.format)}`);
+  if (!isEvidenceFormat(artifact.format)) {
+    throw new EvidenceValidationError(`invalid artifact format: ${String(artifact.format)}`);
   }
   if (!isJsonValue(artifact.body)) {
-    throw new ArtifactValidationError("body must be a JSON value");
+    throw new EvidenceValidationError("body must be a JSON value");
   }
   assertOptionalNonEmptyString(artifact.bodyPreview, "bodyPreview");
   assertOptionalPositiveNumber(artifact.bodySize, "bodySize");
@@ -798,67 +735,53 @@ export function validateArtifact(
     assertPositiveNumber(artifact.bodySize, "bodySize");
     assertNonEmpty(artifact.blobPath, "blobPath");
   }
-  if (artifact.curation !== undefined) validateArtifactCuration(artifact.curation, refKind);
+  if (artifact.curation !== undefined) validateEvidenceCuration(artifact.curation);
   if (artifact.transcriptRetention !== undefined) {
     validateArtifactTranscriptRetention(artifact.transcriptRetention);
   }
-  if (!Array.isArray(artifact.links)) throw new ArtifactValidationError("links must be an array");
-  artifact.links.forEach((link, index) => validateArtifactLink(link, index, refKind));
-  validateProvenance(artifact.provenance, refKind);
+  if (!Array.isArray(artifact.links)) throw new EvidenceValidationError("links must be an array");
+  artifact.links.forEach((link, index) => validateEvidenceLink(link, index));
+  validateEvidenceProvenance(artifact.provenance);
   assertNonEmpty(artifact.createdAt, "createdAt");
   assertNonEmpty(artifact.updatedAt, "updatedAt");
 }
 
-export function isArtifactKind(value: unknown): value is ArtifactKind {
-  return ARTIFACT_KINDS.includes(value as ArtifactKind);
+export function isEvidenceKind(value: unknown): value is EvidenceKind {
+  return EVIDENCE_KINDS.includes(value as EvidenceKind);
 }
 
-export function isArtifactFormat(value: unknown): value is ArtifactFormat {
-  return ARTIFACT_FORMATS.includes(value as ArtifactFormat);
+export function isEvidenceFormat(value: unknown): value is EvidenceFormat {
+  return EVIDENCE_FORMATS.includes(value as EvidenceFormat);
 }
 
-export function isArtifactCurationStatus(value: unknown): value is ArtifactCurationStatus {
-  return ARTIFACT_CURATION_STATUSES.includes(value as ArtifactCurationStatus);
+export function isEvidenceCurationStatus(value: unknown): value is EvidenceCurationStatus {
+  return EVIDENCE_CURATION_STATUSES.includes(value as EvidenceCurationStatus);
 }
 
-export function isArtifactRetention(value: unknown): value is ArtifactRetention {
-  return ARTIFACT_RETENTIONS.includes(value as ArtifactRetention);
+export function isEvidenceRetention(value: unknown): value is EvidenceRetention {
+  return EVIDENCE_RETENTIONS.includes(value as EvidenceRetention);
 }
 
-export function isArtifactLinkRelation(value: unknown): value is ArtifactLink["relation"] {
-  return ARTIFACT_LINK_RELATIONS.includes(value as ArtifactLink["relation"]);
+export function isEvidenceLinkRelation(value: unknown): value is EvidenceLink["relation"] {
+  return EVIDENCE_LINK_RELATIONS.includes(value as EvidenceLink["relation"]);
 }
 
-export function isArtifactProducer(value: unknown): value is ArtifactProducer {
-  return ARTIFACT_PRODUCERS.includes(value as ArtifactProducer);
+export function isEvidenceProducer(value: unknown): value is EvidenceProducer {
+  return EVIDENCE_PRODUCERS.includes(value as EvidenceProducer);
 }
 
-export function newArtifactRef(id: string = randomUUID()): ArtifactRef {
-  if (!id || id.includes(":")) throw new ArtifactValidationError(`invalid artifact id: ${id}`);
-  return `artifact:${id}` as ArtifactRef;
-}
-
-/** Prefer for new evidence writes. Legacy callers may still use newArtifactRef. */
 export function newEvidenceRef(id: string = randomUUID()): EvidenceRef {
-  if (!id || id.includes(":")) throw new ArtifactValidationError(`invalid evidence id: ${id}`);
+  if (!id || id.includes(":")) throw new EvidenceValidationError(`invalid evidence id: ${id}`);
   return `evidence:${id}` as EvidenceRef;
 }
 
-export function asArtifactRef(ref: ArtifactRef | EvidenceRef): ArtifactRef {
-  return ref as ArtifactRef;
-}
-
-function assertInternalRecordRefValue(
-  value: unknown,
-  refKind: "artifact" | "evidence",
-  label: string,
-): void {
-  assertRefValue(value, refKind, label);
+function assertEvidenceRefValue(value: unknown, label: string): void {
+  assertRefValue(value, "evidence", label);
 }
 
 export function refId(ref: string): string {
   const index = ref.indexOf(":");
-  if (index < 0) throw new ArtifactValidationError(`invalid ref: ${ref}`);
+  if (index < 0) throw new EvidenceValidationError(`invalid ref: ${ref}`);
   return ref.slice(index + 1);
 }
 
@@ -870,10 +793,10 @@ export function nowIso(): string {
   return new Date().toISOString();
 }
 
-export function defaultArtifactCuration(
-  kind: ArtifactKind,
-  provenance: Provenance,
-): ArtifactCuration {
+export function defaultEvidenceCuration(
+  kind: EvidenceKind,
+  provenance: EvidenceProvenance,
+): EvidenceCuration {
   if (kind === "knowledge") return { status: "curated", retention: "durable" };
   if (kind === "trace") return { status: "raw", retention: "ephemeral" };
   if (provenance.producer === "review") return { status: "raw", retention: "task" };
@@ -882,66 +805,62 @@ export function defaultArtifactCuration(
   return { status: "raw", retention: "task" };
 }
 
-function validateArtifactLink(
-  link: unknown,
-  index: number,
-  refKind: "artifact" | "evidence",
-): void {
-  if (!isRecord(link)) throw new ArtifactValidationError(`links[${index}] must be an object`);
-  assertInternalRecordRefValue(link.from, refKind, `links[${index}].from`);
+function validateEvidenceLink(link: unknown, index: number): void {
+  if (!isRecord(link)) throw new EvidenceValidationError(`links[${index}] must be an object`);
+  assertEvidenceRefValue(link.from, `links[${index}].from`);
   if (typeof link.to !== "string" || !isRef(link.to)) {
-    throw new ArtifactValidationError(`links[${index}].to must be a valid ref`);
+    throw new EvidenceValidationError(`links[${index}].to must be a valid ref`);
   }
-  if (!isArtifactLinkRelation(link.relation)) {
-    throw new ArtifactValidationError(`links[${index}].relation must be valid`);
+  if (!isEvidenceLinkRelation(link.relation)) {
+    throw new EvidenceValidationError(`links[${index}].relation must be valid`);
   }
 }
 
-function validateProvenance(provenance: unknown, refKind: "artifact" | "evidence"): void {
-  if (!isRecord(provenance)) throw new ArtifactValidationError("provenance must be an object");
-  if (!isArtifactProducer(provenance.producer)) {
-    throw new ArtifactValidationError("provenance.producer must be valid");
+function validateEvidenceProvenance(provenance: unknown): void {
+  if (!isRecord(provenance)) throw new EvidenceValidationError("provenance must be an object");
+  if (!isEvidenceProducer(provenance.producer)) {
+    throw new EvidenceValidationError("provenance.producer must be valid");
   }
   assertOptionalRefValue(provenance.runRef, "run", "provenance.runRef");
   assertOptionalRefValue(provenance.projectRef, "proj", "provenance.projectRef");
   assertOptionalRefValue(provenance.taskRef, "task", "provenance.taskRef");
   assertOptionalRefValue(provenance.roleRef, "role", "provenance.roleRef");
   assertOptionalNonEmptyString(provenance.note, "provenance.note");
-  if (provenance.parentArtifactRefs !== undefined) {
-    if (!Array.isArray(provenance.parentArtifactRefs)) {
-      throw new ArtifactValidationError("provenance.parentArtifactRefs must be an array");
+  if (provenance.parentEvidenceRefs !== undefined) {
+    if (!Array.isArray(provenance.parentEvidenceRefs)) {
+      throw new EvidenceValidationError("provenance.parentEvidenceRefs must be an array");
     }
-    provenance.parentArtifactRefs.forEach((ref, index) =>
-      assertInternalRecordRefValue(ref, refKind, `provenance.parentArtifactRefs[${index}]`),
+    provenance.parentEvidenceRefs.forEach((ref, index) =>
+      assertEvidenceRefValue(ref, `provenance.parentEvidenceRefs[${index}]`),
     );
   }
 }
 
-function validateArtifactCuration(curation: unknown, refKind: "artifact" | "evidence"): void {
-  if (!isRecord(curation)) throw new ArtifactValidationError("curation must be an object");
-  if (!isArtifactCurationStatus(curation.status)) {
-    throw new ArtifactValidationError("curation.status must be valid");
+function validateEvidenceCuration(curation: unknown): void {
+  if (!isRecord(curation)) throw new EvidenceValidationError("curation must be an object");
+  if (!isEvidenceCurationStatus(curation.status)) {
+    throw new EvidenceValidationError("curation.status must be valid");
   }
-  if (curation.retention !== undefined && !isArtifactRetention(curation.retention)) {
-    throw new ArtifactValidationError("curation.retention must be valid");
+  if (curation.retention !== undefined && !isEvidenceRetention(curation.retention)) {
+    throw new EvidenceValidationError("curation.retention must be valid");
   }
   assertOptionalNonEmptyString(curation.reason, "curation.reason");
-  assertOptionalInternalRecordRefArray(curation.promotedFrom, "curation.promotedFrom", refKind);
-  assertOptionalInternalRecordRefArray(curation.supersededBy, "curation.supersededBy", refKind);
+  assertOptionalEvidenceRefArray(curation.promotedFrom, "curation.promotedFrom");
+  assertOptionalEvidenceRefArray(curation.supersededBy, "curation.supersededBy");
   if (curation.compactedInto !== undefined) {
-    assertInternalRecordRefValue(curation.compactedInto, refKind, "curation.compactedInto");
+    assertEvidenceRefValue(curation.compactedInto, "curation.compactedInto");
   }
   assertOptionalNonEmptyString(curation.expiresAt, "curation.expiresAt");
 }
 
 function validateArtifactTranscriptRetention(retention: unknown): void {
   if (!isRecord(retention))
-    throw new ArtifactValidationError("transcriptRetention must be an object");
+    throw new EvidenceValidationError("transcriptRetention must be an object");
   if (retention.schemaVersion !== 1) {
-    throw new ArtifactValidationError("transcriptRetention.schemaVersion must be 1");
+    throw new EvidenceValidationError("transcriptRetention.schemaVersion must be 1");
   }
   if (retention.strategy !== "role-run-compact-summary-tail") {
-    throw new ArtifactValidationError(
+    throw new EvidenceValidationError(
       "transcriptRetention.strategy must be role-run-compact-summary-tail",
     );
   }
@@ -965,23 +884,23 @@ function validateArtifactTranscriptRetention(retention: unknown): void {
 
 function validateTranscriptTail(tail: unknown): void {
   if (!isRecord(tail))
-    throw new ArtifactValidationError("transcriptRetention.transcriptTail must be an object");
+    throw new EvidenceValidationError("transcriptRetention.transcriptTail must be an object");
   assertPositiveNumber(tail.bytes, "transcriptRetention.transcriptTail.bytes");
   assertPositiveNumber(tail.tailBytes, "transcriptRetention.transcriptTail.tailBytes");
   if (typeof tail.truncated !== "boolean") {
-    throw new ArtifactValidationError(
+    throw new EvidenceValidationError(
       "transcriptRetention.transcriptTail.truncated must be a boolean",
     );
   }
   if (tail.source !== "serialized-artifact-body-tail") {
-    throw new ArtifactValidationError(
+    throw new EvidenceValidationError(
       "transcriptRetention.transcriptTail.source must be serialized-artifact-body-tail",
     );
   }
   assertString(tail.tail, "transcriptRetention.transcriptTail.tail");
 }
 
-function matchesQuery(artifact: Artifact, query: ArtifactQuery): boolean {
+function matchesQuery(artifact: EvidenceRecord, query: EvidenceQuery): boolean {
   if (query.kind && artifact.kind !== query.kind) return false;
   if (query.producer && artifact.provenance.producer !== query.producer) return false;
   if (query.projectRef && artifact.provenance.projectRef !== query.projectRef) return false;
@@ -1006,11 +925,11 @@ function matchesQuery(artifact: Artifact, query: ArtifactQuery): boolean {
 }
 
 function compactStoredArtifact(
-  artifact: Artifact,
+  artifact: EvidenceRecord,
   serializedBody: string,
   options: { thresholdBytes: number; previewChars: number },
-): Artifact {
-  const compacted: Artifact = {
+): EvidenceRecord {
+  const compacted: EvidenceRecord = {
     ...artifact,
     body: previewBody(serializedBody, options.previewChars),
   };
@@ -1028,7 +947,7 @@ function metadataBodyFor<T extends JsonValue | string>(
 }
 
 function addBodyCompactionMetadata(
-  artifact: Artifact,
+  artifact: EvidenceRecord,
   serializedBody: string,
   options: { thresholdBytes: number; previewChars: number },
 ): void {
@@ -1045,24 +964,24 @@ function previewBody(serializedBody: string, previewChars: number): string {
     : serializedBody;
 }
 
-function serializeArtifactBody(format: ArtifactFormat, body: JsonValue | string): string {
+function serializeArtifactBody(format: EvidenceFormat, body: JsonValue | string): string {
   if (typeof body === "string") return body;
   if (format === "json") return JSON.stringify(body, null, 2);
   return JSON.stringify(body, null, 2);
 }
 
-function parseArtifactBody(format: ArtifactFormat, body: string): JsonValue | string {
+function parseArtifactBody(format: EvidenceFormat, body: string): JsonValue | string {
   if (format !== "json") return body;
   try {
     return JSON.parse(body) as JsonValue;
   } catch (error) {
-    throw new ArtifactValidationError(
+    throw new EvidenceValidationError(
       `stored JSON artifact body is invalid: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
 
-function extensionForFormat(format: ArtifactFormat): string {
+function extensionForFormat(format: EvidenceFormat): string {
   if (format === "markdown") return "md";
   if (format === "json") return "json";
   return "txt";
@@ -1093,7 +1012,7 @@ function isRef(value: string): boolean {
 
 function assertRefValue(value: unknown, kind: string, label: string): void {
   if (typeof value !== "string" || !value.startsWith(`${kind}:`) || !isRef(value)) {
-    throw new ArtifactValidationError(`${label} must be a valid ${kind} ref`);
+    throw new EvidenceValidationError(`${label} must be a valid ${kind} ref`);
   }
 }
 
@@ -1102,25 +1021,19 @@ function assertOptionalRefValue(value: unknown, kind: string, label: string): vo
   assertRefValue(value, kind, label);
 }
 
-function assertOptionalInternalRecordRefArray(
-  value: unknown,
-  label: string,
-  refKind: "artifact" | "evidence",
-): void {
+function assertOptionalEvidenceRefArray(value: unknown, label: string): void {
   if (value === undefined) return;
-  if (!Array.isArray(value)) throw new ArtifactValidationError(`${label} must be an array`);
-  value.forEach((entry, index) =>
-    assertInternalRecordRefValue(entry, refKind, `${label}[${index}]`),
-  );
+  if (!Array.isArray(value)) throw new EvidenceValidationError(`${label} must be an array`);
+  value.forEach((entry, index) => assertEvidenceRefValue(entry, `${label}[${index}]`));
 }
 
 function assertString(value: unknown, label: string): void {
-  if (typeof value !== "string") throw new ArtifactValidationError(`${label} must be a string`);
+  if (typeof value !== "string") throw new EvidenceValidationError(`${label} must be a string`);
 }
 
 function assertNonEmpty(value: unknown, label: string): void {
-  if (typeof value !== "string") throw new ArtifactValidationError(`${label} must be a string`);
-  if (!value.trim()) throw new ArtifactValidationError(`${label} is required`);
+  if (typeof value !== "string") throw new EvidenceValidationError(`${label} must be a string`);
+  if (!value.trim()) throw new EvidenceValidationError(`${label} is required`);
 }
 
 function assertOptionalNonEmptyString(value: unknown, label: string): void {
@@ -1130,7 +1043,7 @@ function assertOptionalNonEmptyString(value: unknown, label: string): void {
 
 function assertPositiveNumber(value: unknown, label: string): void {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new ArtifactValidationError(`${label} must be a positive number`);
+    throw new EvidenceValidationError(`${label} must be a positive number`);
   }
 }
 
@@ -1141,7 +1054,7 @@ function assertOptionalPositiveNumber(value: unknown, label: string): void {
 
 function assertOptionalBoolean(value: unknown, label: string): void {
   if (value !== undefined && typeof value !== "boolean") {
-    throw new ArtifactValidationError(`${label} must be a boolean`);
+    throw new EvidenceValidationError(`${label} must be a boolean`);
   }
 }
 

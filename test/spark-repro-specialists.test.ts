@@ -128,7 +128,7 @@ test("delivery sync records deterministic managed sections without forge mutatio
       updates: [{ id: "profile-qualified", evidenceRefs: ["evidence:profile"] }],
     },
     agent: async () => ({ verdict: "pass" }),
-    artifactRecord: async (record) => {
+    evidenceRecord: async (record) => {
       records.push({
         title: record.title,
         projectRef: record.projectRef,

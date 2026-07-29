@@ -26,7 +26,7 @@ import {
   type SparkAskFlowResult,
 } from "@zendev-lab/spark-ask";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import type { ArtifactRef, JsonValue } from "@zendev-lab/spark-core";
+import type { EvidenceRef, JsonValue } from "@zendev-lab/spark-core";
 
 export const MIN_SPARK_ASK_OPTION_DESCRIPTION_LENGTH = 12;
 
@@ -95,21 +95,21 @@ export async function runSparkAskTool(
     cwd: input.cwd,
     ui: input.ui,
     title: `Ask answer: ${request.title ?? "custom ask"}`,
-    contentText: ({ summary, artifactRef }) => `${summary} (${artifactRef})`,
+    contentText: ({ summary, evidenceRef }) => `${summary} (${evidenceRef})`,
   });
 }
 
 export async function replaySparkAskTool(input: {
   cwd: string;
-  artifactRef?: ArtifactRef;
+  evidenceRef?: EvidenceRef;
   ui?: SparkAskToolUi;
 }): Promise<{
   content: Array<{ type: "text"; text: string }>;
   details: Record<string, unknown>;
 }> {
   const store = defaultEvidenceStore(input.cwd);
-  const artifact = input.artifactRef
-    ? await store.get(input.artifactRef)
+  const artifact = input.evidenceRef
+    ? await store.get(input.evidenceRef)
     : (await store.list({ producer: "ask" })).slice(-1)[0];
   if (!artifact) {
     return {
@@ -122,7 +122,7 @@ export async function replaySparkAskTool(input: {
       content: [
         {
           type: "text",
-          text: `Artifact ${artifact.ref} is not a Spark ask artifact.`,
+          text: `EvidenceRecord ${artifact.ref} is not a Spark ask artifact.`,
         },
       ],
       details: { found: true, replayable: false },
@@ -142,7 +142,7 @@ export async function replaySparkAskTool(input: {
     title: `Replay ask: ${request.title ?? request.flow}`,
     format: "json",
     body: body as unknown as JsonValue,
-    provenance: { producer: "ask", parentArtifactRefs: [artifact.ref] },
+    provenance: { producer: "ask", parentEvidenceRefs: [artifact.ref] },
   });
   const summary = summarizeAskResult(request, result, { blocked });
   return {
@@ -155,7 +155,7 @@ export async function replaySparkAskTool(input: {
       },
     ],
     details: sparkAskToolDetails({
-      artifactRef: replayArtifact.ref,
+      evidenceRef: replayArtifact.ref,
       result,
       blocked,
       summary,
@@ -169,7 +169,7 @@ async function runAndPersistSparkAskRequest(
     cwd: string;
     ui?: SparkAskToolUi;
     title: string;
-    contentText: (input: { summary: string; artifactRef: ArtifactRef }) => string;
+    contentText: (input: { summary: string; evidenceRef: EvidenceRef }) => string;
   },
 ): Promise<{
   content: Array<{ type: "text"; text: string }>;
@@ -193,11 +193,11 @@ async function runAndPersistSparkAskRequest(
     content: [
       {
         type: "text",
-        text: input.contentText({ summary, artifactRef: artifact.ref }),
+        text: input.contentText({ summary, evidenceRef: artifact.ref }),
       },
     ],
     details: sparkAskToolDetails({
-      artifactRef: artifact.ref,
+      evidenceRef: artifact.ref,
       result,
       blocked,
       summary,
@@ -206,13 +206,13 @@ async function runAndPersistSparkAskRequest(
 }
 
 function sparkAskToolDetails(input: {
-  artifactRef: ArtifactRef;
+  evidenceRef: EvidenceRef;
   result: SparkAskFlowResult;
   blocked: boolean;
   summary: string;
 }): Record<string, unknown> {
   return {
-    artifactRef: input.artifactRef,
+    evidenceRef: input.evidenceRef,
     status: input.result.status,
     blocked: input.blocked,
     summary: input.summary,

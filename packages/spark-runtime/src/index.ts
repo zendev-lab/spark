@@ -17,10 +17,10 @@ import {
   type RoleRegistry,
   type RoleLaunchMode,
 } from "@zendev-lab/spark-roles";
-import type { ArtifactStore } from "@zendev-lab/spark-artifacts";
+import type { EvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
   DependencyError,
-  type ArtifactRef,
+  type EvidenceRef,
   type JsonValue,
   newRef,
   nowIso,
@@ -453,7 +453,7 @@ export interface SparkTaskRunOptions {
   assignedRoleRef?: RoleRef;
   /** Fallback role used only when assignedRoleRef and task.roleRef are both absent. */
   defaultRoleRef?: RoleRef;
-  artifactStore?: ArtifactStore;
+  artifactStore?: EvidenceStore;
   cwd?: string;
   dryRun?: boolean;
   timeoutMs?: number;
@@ -626,7 +626,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
     );
     if (runSignal?.aborted) throw abortSignalReason(runSignal);
 
-    let outputArtifactRef: ArtifactRef | undefined;
+    let outputArtifactRef: EvidenceRef | undefined;
     if (input.artifactStore) {
       const artifact = await input.artifactStore.put({
         kind: "trace",
@@ -951,7 +951,7 @@ function createTaskRunCompletionSummary(input: {
   run: TaskRun;
   status: TaskRunCompletionSummary["status"];
   finishedAt: string;
-  outputArtifacts: ArtifactRef[];
+  outputArtifacts: EvidenceRef[];
   outcome?: RoleRunCompletionOutcome;
   summary: string;
 }): TaskRunCompletionSummary {

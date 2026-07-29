@@ -1,5 +1,5 @@
 import type {
-  ArtifactRef,
+  EvidenceRef,
   RoleRunCompletionOutcome,
   RoleRef,
   RunRef,
@@ -137,8 +137,8 @@ export interface SparkBackgroundChildRunView {
   summary?: string;
   errorMessage?: string;
   outcome?: RoleRunCompletionOutcome;
-  artifactRefs: ArtifactRef[];
-  transcriptRef?: ArtifactRef;
+  artifactRefs: EvidenceRef[];
+  transcriptRef?: EvidenceRef;
   stdoutTail?: RoleRunTextTail;
   stderrTail?: RoleRunTextTail;
   jsonEventsTail?: RoleRunJsonEventsTail;

@@ -4,12 +4,11 @@ import {
   type LearningLocation,
   type LearningRecord,
 } from "@zendev-lab/spark-memory";
-import { defaultEvidenceStore, type Artifact } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore, type EvidenceRecord } from "@zendev-lab/spark-artifacts";
 import {
   DependencyError,
   isRef,
   nowIso,
-  type ArtifactRef,
   type EvidenceRef,
   type JsonValue,
   type ProjectRef,
@@ -199,7 +198,7 @@ function normalizeFinishEvidenceStringArray(value: unknown, path: string): strin
   return value.map((item) => item.trim()).filter(Boolean);
 }
 
-function taskWithFinishEvidenceRefs(task: Task, evidenceRefs: ArtifactRef[]): Task {
+function taskWithFinishEvidenceRefs(task: Task, evidenceRefs: EvidenceRef[]): Task {
   if (evidenceRefs.length === 0) return task;
   const outputArtifacts = [...task.outputArtifacts];
   for (const evidenceRef of evidenceRefs) {
@@ -210,9 +209,9 @@ function taskWithFinishEvidenceRefs(task: Task, evidenceRefs: ArtifactRef[]): Ta
 }
 
 function attachFinishEvidenceRefs(
-  graph: { attachOutputArtifact(taskRef: Task["ref"], artifactRef: ArtifactRef): Task },
+  graph: { attachOutputArtifact(taskRef: Task["ref"], artifactRef: EvidenceRef): Task },
   task: Task,
-  evidenceRefs: ArtifactRef[],
+  evidenceRefs: EvidenceRef[],
 ): Task {
   let updated = task;
   for (const evidenceRef of evidenceRefs)
@@ -263,10 +262,10 @@ export function registerSparkFinishTaskTool(
       const cwd = ctx.cwd;
       const input = normalizeSparkFinishTaskInput(params);
       const store = defaultTaskGraphStore(cwd);
-      let reviewArtifact: Artifact<JsonValue> | undefined;
+      let reviewArtifact: EvidenceRecord<JsonValue> | undefined;
       let reviewResult: ReviewerRunResult | undefined;
       let finishEvidenceRefs = input.evidenceRefs;
-      let generatedEvidenceArtifact: (Artifact<JsonValue> & { ref: EvidenceRef }) | undefined;
+      let generatedEvidenceArtifact: (EvidenceRecord<JsonValue> & { ref: EvidenceRef }) | undefined;
       if (input.status === "done") {
         let candidate = await resolveFinishReviewCandidate(store, cwd, ctx, input);
         if (isFinishTaskErrorResult(candidate)) {
@@ -772,16 +771,16 @@ interface FinishTransitionDetailsInput {
   committed: boolean;
   transitionBlocker?: string;
   completionReadiness?: TaskCompletionReadiness;
-  inputEvidenceRefs: ArtifactRef[];
-  reviewEvidenceRefs: ArtifactRef[];
+  inputEvidenceRefs: EvidenceRef[];
+  reviewEvidenceRefs: EvidenceRef[];
   reviewRequired: boolean;
   review?: TaskReviewVerdict;
-  reviewArtifactRef?: ArtifactRef;
-  generatedEvidenceArtifactRef?: ArtifactRef;
+  reviewArtifactRef?: EvidenceRef;
+  generatedEvidenceArtifactRef?: EvidenceRef;
   remainingReadyTasks: Task[];
   projectCompletionCandidate: FinishProjectCompletionCandidate;
   nextReadyTask?: Task;
-  learningCandidate?: { artifact: Artifact<LearningRecord>; location: LearningLocation };
+  learningCandidate?: { artifact: EvidenceRecord<LearningRecord>; location: LearningLocation };
 }
 
 function renderFinishTransitionDetails(
@@ -889,7 +888,7 @@ async function recordTaskFinishEvidenceArtifact(
   projectRef: ProjectRef,
   task: Task,
   input: NormalizedSparkFinishTaskInput,
-): Promise<Artifact<JsonValue> & { ref: EvidenceRef }> {
+): Promise<EvidenceRecord<JsonValue> & { ref: EvidenceRef }> {
   const title = input.evidence?.title ?? `Task evidence for @${task.name}: ${task.title}`;
   const body = renderTaskFinishEvidenceMarkdown(task, input);
   return (await defaultEvidenceStore(cwd).put({
@@ -904,7 +903,7 @@ async function recordTaskFinishEvidenceArtifact(
     },
     links: [{ to: task.ref, relation: "output" }],
     curation: { status: "candidate", retention: "task" },
-  })) as Artifact<JsonValue> & { ref: EvidenceRef };
+  })) as EvidenceRecord<JsonValue> & { ref: EvidenceRef };
 }
 
 function renderTaskFinishEvidenceMarkdown(
@@ -938,7 +937,7 @@ async function recordTaskReviewArtifact(
   projectRef: ProjectRef,
   task: Task,
   review: ReviewerRunResult,
-): Promise<Artifact<JsonValue>> {
+): Promise<EvidenceRecord<JsonValue>> {
   const verdict = review.verdict as TaskReviewVerdict;
   const reviewerRun = {
     ...(review.record.runRef ? { runRef: review.record.runRef } : {}),
@@ -986,7 +985,7 @@ function truncateReviewRunOutput(value: string, maxChars: number): string {
 function renderTaskReviewRejectedMessage(
   task: Task,
   verdict: TaskReviewVerdict,
-  artifactRef: ArtifactRef,
+  artifactRef: EvidenceRef,
 ): string {
   const findings = verdict.findings.length
     ? `\nFindings: ${formatReviewerList(verdict.findings)}`
@@ -1030,7 +1029,7 @@ async function recordTaskLearningCandidate(
   cwd: string,
   task: Task,
   summary: string,
-): Promise<{ artifact: Artifact<LearningRecord>; location: LearningLocation }> {
+): Promise<{ artifact: EvidenceRecord<LearningRecord>; location: LearningLocation }> {
   const store = defaultLearningStore(cwd);
   const artifact = await store.record({
     title: `Candidate from @${task.name}: ${task.title}`,
@@ -1055,7 +1054,7 @@ async function recordTaskLearningCandidate(
 
 async function buildTaskEvidencePreviews(
   cwd: string,
-  artifactRefs: ArtifactRef[],
+  artifactRefs: EvidenceRef[],
 ): Promise<GoalReviewEvidencePreview[]> {
   if (!artifactRefs.length) return [];
   const store = defaultEvidenceStore(cwd);

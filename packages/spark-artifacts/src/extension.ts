@@ -6,30 +6,29 @@ import type {
   ToolRenderTheme,
 } from "@zendev-lab/spark-core";
 import {
-  ARTIFACT_CURATION_STATUSES,
-  ARTIFACT_FORMATS,
-  ARTIFACT_KINDS,
-  ARTIFACT_LINK_RELATIONS,
-  ARTIFACT_PRODUCERS,
-  ARTIFACT_RETENTIONS,
+  EVIDENCE_CURATION_STATUSES,
+  EVIDENCE_FORMATS,
+  EVIDENCE_KINDS,
+  EVIDENCE_LINK_RELATIONS,
+  EVIDENCE_PRODUCERS,
+  EVIDENCE_RETENTIONS,
   defaultEvidenceStore,
-  isArtifactCurationStatus,
-  isArtifactFormat,
-  isArtifactKind,
-  isArtifactLinkRelation,
-  isArtifactProducer,
-  isArtifactRetention,
-  type Artifact,
-  type ArtifactCuration,
-  type ArtifactCurationStatus,
-  type ArtifactFormat,
-  type ArtifactKind,
-  type ArtifactLink,
-  type ArtifactRef,
-  type ArtifactRetention,
+  isEvidenceCurationStatus,
+  isEvidenceFormat,
+  isEvidenceKind,
+  isEvidenceLinkRelation,
+  isEvidenceProducer,
+  isEvidenceRetention,
+  type EvidenceRecord,
+  type EvidenceCuration,
+  type EvidenceCurationStatus,
+  type EvidenceFormat,
+  type EvidenceKind,
+  type EvidenceLink,
   type EvidenceRef,
+  type EvidenceRetention,
   type JsonValue,
-  type Provenance,
+  type EvidenceProvenance,
 } from "./index.ts";
 import { registerProductArtifactTool } from "./product/extension.ts";
 
@@ -185,6 +184,9 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
       return renderEvidenceCall(args, theme);
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      if (params.artifactRef !== undefined) {
+        throw new Error("artifactRef is not accepted by evidence; use evidenceRef");
+      }
       const cwd = requireCwd(ctx, "evidence");
       const store = defaultEvidenceStore(cwd);
       const action = normalizeAction(params.action);
@@ -280,7 +282,7 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
 
       if (action === "link") {
         const from = normalizeEvidenceRef(params.from ?? params.evidenceRef, "from");
-        const to = normalizeRequiredRef(params.to, "to") as ArtifactLink["to"];
+        const to = normalizeRequiredRef(params.to, "to") as EvidenceLink["to"];
         const relation = normalizeArtifactRelation(params.relation, "relation");
         const existing = await store.get(from);
         const links = [...existing.links.map(({ from: _from, ...link }) => link), { to, relation }];
@@ -300,7 +302,7 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
         if (status !== "candidate" && status !== "curated") {
           throw new Error("promote curationStatus must be candidate or curated");
         }
-        const curation: ArtifactCuration = {
+        const curation: EvidenceCuration = {
           ...(existing.curation ?? {}),
           status,
           retention:
@@ -320,7 +322,7 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
       if (action === "archive") {
         const evidenceRef = normalizeEvidenceRef(params.evidenceRef, "evidenceRef");
         const existing = await store.get(evidenceRef);
-        const curation: ArtifactCuration = {
+        const curation: EvidenceCuration = {
           ...(existing.curation ?? {}),
           status: "archived",
           retention:
@@ -343,7 +345,7 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
         const existing = await store.get(evidenceRef);
         const supersededBy = [...(existing.curation?.supersededBy ?? [])];
         if (!supersededBy.includes(replacementRef)) supersededBy.push(replacementRef);
-        const curation: ArtifactCuration = {
+        const curation: EvidenceCuration = {
           ...(existing.curation ?? {}),
           status: "superseded",
           retention: existing.curation?.retention ?? "task",
@@ -432,7 +434,7 @@ function toolResult(
 }
 
 /** Lean agent-ledger detail (no blob paths / hashes — those are store internals). */
-function compactArtifactDetail(artifact: Artifact): Record<string, unknown> {
+function compactArtifactDetail(artifact: EvidenceRecord): Record<string, unknown> {
   return {
     ref: artifact.ref,
     kind: artifact.kind,
@@ -449,7 +451,7 @@ function compactArtifactDetail(artifact: Artifact): Record<string, unknown> {
   };
 }
 
-function compactArtifactSummaryDetail(artifact: Artifact): Record<string, unknown> {
+function compactArtifactSummaryDetail(artifact: EvidenceRecord): Record<string, unknown> {
   return {
     ref: artifact.ref,
     kind: artifact.kind,
@@ -462,12 +464,12 @@ function compactArtifactSummaryDetail(artifact: Artifact): Record<string, unknow
   };
 }
 
-function renderArtifactListLine(artifact: Artifact, view: ArtifactListView): string {
+function renderArtifactListLine(artifact: EvidenceRecord, view: ArtifactListView): string {
   if (view === "ref-only") return `- ${artifact.ref}`;
   return `- [${artifact.kind}] ${artifact.ref}: ${artifact.title} curation=${renderCurationLabel(artifact)}`;
 }
 
-function renderCurationLabel(artifact: Artifact): string {
+function renderCurationLabel(artifact: EvidenceRecord): string {
   const status = artifact.curation?.status ?? "uncurated";
   const retention = artifact.curation?.retention;
   return retention ? `${status}/${retention}` : status;
@@ -510,10 +512,10 @@ function normalizeArtifactListView(value: unknown): ArtifactListView {
   throw new Error("view must be ref-only or summary");
 }
 
-function normalizeArtifactKind(value: unknown, field: string): ArtifactKind {
-  if (!isArtifactKind(value)) {
+function normalizeArtifactKind(value: unknown, field: string): EvidenceKind {
+  if (!isEvidenceKind(value)) {
     throw new Error(
-      formatValidValuesError(field, value, "a valid artifact kind", ARTIFACT_KINDS, {
+      formatValidValuesError(field, value, "a valid artifact kind", EVIDENCE_KINDS, {
         research: "Use kind=document for analysis/research write-ups.",
         plan: "Use kind=document for plans and breakdowns.",
         "plan-draft": "Use kind=document for plan drafts and finalized plans.",
@@ -528,28 +530,28 @@ function normalizeArtifactKind(value: unknown, field: string): ArtifactKind {
   return value;
 }
 
-function normalizeOptionalArtifactKind(value: unknown, field: string): ArtifactKind | undefined {
+function normalizeOptionalArtifactKind(value: unknown, field: string): EvidenceKind | undefined {
   if (value === undefined || value === null) return undefined;
   return normalizeArtifactKind(value, field);
 }
 
-function normalizeArtifactFormat(value: unknown, field: string): ArtifactFormat {
-  if (!isArtifactFormat(value)) {
+function normalizeArtifactFormat(value: unknown, field: string): EvidenceFormat {
+  if (!isEvidenceFormat(value)) {
     throw new Error(
-      formatValidValuesError(field, value, "a valid artifact format", ARTIFACT_FORMATS),
+      formatValidValuesError(field, value, "a valid artifact format", EVIDENCE_FORMATS),
     );
   }
   return value;
 }
 
-function normalizeArtifactRelation(value: unknown, field: string): ArtifactLink["relation"] {
-  if (!isArtifactLinkRelation(value)) {
+function normalizeArtifactRelation(value: unknown, field: string): EvidenceLink["relation"] {
+  if (!isEvidenceLinkRelation(value)) {
     throw new Error(
       formatValidValuesError(
         field,
         value,
         "a valid artifact link relation",
-        ARTIFACT_LINK_RELATIONS,
+        EVIDENCE_LINK_RELATIONS,
       ),
     );
   }
@@ -559,11 +561,11 @@ function normalizeArtifactRelation(value: unknown, field: string): ArtifactLink[
 function normalizeOptionalProducer(
   value: unknown,
   field: string,
-): Provenance["producer"] | undefined {
+): EvidenceProvenance["producer"] | undefined {
   if (value === undefined || value === null) return undefined;
-  if (!isArtifactProducer(value)) {
+  if (!isEvidenceProducer(value)) {
     throw new Error(
-      formatValidValuesError(field, value, "a valid artifact producer", ARTIFACT_PRODUCERS, {
+      formatValidValuesError(field, value, "a valid artifact producer", EVIDENCE_PRODUCERS, {
         agent:
           "Use producer=task for execution evidence, with runRef/taskRef when available, or producer=user for user-provided material.",
         assistant:
@@ -577,37 +579,37 @@ function normalizeOptionalProducer(
 function normalizeOptionalCurationStatus(
   value: unknown,
   field: string,
-): ArtifactCurationStatus | undefined {
+): EvidenceCurationStatus | undefined {
   if (value === undefined || value === null) return undefined;
-  if (!isArtifactCurationStatus(value)) {
+  if (!isEvidenceCurationStatus(value)) {
     throw new Error(
       formatValidValuesError(
         field,
         value,
         "a valid artifact curation status",
-        ARTIFACT_CURATION_STATUSES,
+        EVIDENCE_CURATION_STATUSES,
       ),
     );
   }
   return value;
 }
 
-function normalizeOptionalRetention(value: unknown, field: string): ArtifactRetention | undefined {
+function normalizeOptionalRetention(value: unknown, field: string): EvidenceRetention | undefined {
   if (value === undefined || value === null) return undefined;
-  if (!isArtifactRetention(value)) {
+  if (!isEvidenceRetention(value)) {
     throw new Error(
-      formatValidValuesError(field, value, "a valid artifact retention", ARTIFACT_RETENTIONS),
+      formatValidValuesError(field, value, "a valid artifact retention", EVIDENCE_RETENTIONS),
     );
   }
   return value;
 }
 
-function normalizeOptionalCuration(value: unknown, field: string): ArtifactCuration | undefined {
+function normalizeOptionalCuration(value: unknown, field: string): EvidenceCuration | undefined {
   if (value === undefined || value === null) return undefined;
   if (!isRecord(value)) throw new Error(`${field} must be an object`);
   const status = normalizeOptionalCurationStatus(value.status, `${field}.status`);
   if (!status) throw new Error(`${field}.status is required`);
-  const curation: ArtifactCuration = { status };
+  const curation: EvidenceCuration = { status };
   const retention = normalizeOptionalRetention(value.retention, `${field}.retention`);
   const reason = normalizeOptionalString(value.reason, `${field}.reason`);
   const promotedFrom = normalizeOptionalArtifactRefArray(
@@ -629,7 +631,7 @@ function normalizeOptionalCuration(value: unknown, field: string): ArtifactCurat
   return curation;
 }
 
-function normalizeArtifactBody(value: unknown, format: ArtifactFormat): JsonValue | string {
+function normalizeArtifactBody(value: unknown, format: EvidenceFormat): JsonValue | string {
   if (format === "markdown" || format === "text") {
     if (typeof value !== "string") throw new Error(`body must be a string for ${format} artifacts`);
     return value;
@@ -638,7 +640,7 @@ function normalizeArtifactBody(value: unknown, format: ArtifactFormat): JsonValu
   return value;
 }
 
-function normalizeRecordProvenance(params: Record<string, unknown>): Provenance {
+function normalizeRecordProvenance(params: Record<string, unknown>): EvidenceProvenance {
   const provenance = normalizeProvenance(params.provenance);
   const projectRef = normalizeOptionalRefOfKind(params.projectRef, "proj", "projectRef");
   const taskRef = normalizeOptionalRefOfKind(params.taskRef, "task", "taskRef");
@@ -651,7 +653,7 @@ function normalizeRecordProvenance(params: Record<string, unknown>): Provenance 
             provenance.projectRef,
             projectRef,
             "projectRef",
-          ) as Provenance["projectRef"],
+          ) as EvidenceProvenance["projectRef"],
         }
       : {}),
     ...(taskRef
@@ -660,7 +662,7 @@ function normalizeRecordProvenance(params: Record<string, unknown>): Provenance 
             provenance.taskRef,
             taskRef,
             "taskRef",
-          ) as Provenance["taskRef"],
+          ) as EvidenceProvenance["taskRef"],
         }
       : {}),
     ...(roleRef
@@ -669,7 +671,7 @@ function normalizeRecordProvenance(params: Record<string, unknown>): Provenance 
             provenance.roleRef,
             roleRef,
             "roleRef",
-          ) as Provenance["roleRef"],
+          ) as EvidenceProvenance["roleRef"],
         }
       : {}),
   };
@@ -680,36 +682,36 @@ function mergeProvenanceRef(existing: string | undefined, shortcut: string, fiel
   throw new Error(`${field} conflicts with provenance.${field}`);
 }
 
-function normalizeProvenance(value: unknown): Provenance {
+function normalizeProvenance(value: unknown): EvidenceProvenance {
   if (!isRecord(value)) throw new Error("provenance must be an object");
   const producer = normalizeOptionalProducer(value.producer, "provenance.producer");
   if (!producer) throw new Error("provenance.producer is required");
-  const provenance: Provenance = { producer };
+  const provenance: EvidenceProvenance = { producer };
   const runRef = normalizeOptionalRefOfKind(value.runRef, "run", "provenance.runRef");
   const projectRef = normalizeOptionalRefOfKind(value.projectRef, "proj", "provenance.projectRef");
   const taskRef = normalizeOptionalRefOfKind(value.taskRef, "task", "provenance.taskRef");
   const roleRef = normalizeOptionalRefOfKind(value.roleRef, "role", "provenance.roleRef");
   const note = normalizeOptionalString(value.note, "provenance.note");
-  const parentArtifactRefs = normalizeOptionalStringArray(
-    value.parentArtifactRefs,
-    "provenance.parentArtifactRefs",
-  ) as ArtifactRef[] | undefined;
-  if (runRef) provenance.runRef = runRef as Provenance["runRef"];
-  if (projectRef) provenance.projectRef = projectRef as Provenance["projectRef"];
-  if (taskRef) provenance.taskRef = taskRef as Provenance["taskRef"];
-  if (roleRef) provenance.roleRef = roleRef as Provenance["roleRef"];
+  const parentEvidenceRefs = normalizeOptionalStringArray(
+    value.parentEvidenceRefs,
+    "provenance.parentEvidenceRefs",
+  ) as EvidenceRef[] | undefined;
+  if (runRef) provenance.runRef = runRef as EvidenceProvenance["runRef"];
+  if (projectRef) provenance.projectRef = projectRef as EvidenceProvenance["projectRef"];
+  if (taskRef) provenance.taskRef = taskRef as EvidenceProvenance["taskRef"];
+  if (roleRef) provenance.roleRef = roleRef as EvidenceProvenance["roleRef"];
   if (note) provenance.note = note;
-  if (parentArtifactRefs) provenance.parentArtifactRefs = parentArtifactRefs;
+  if (parentEvidenceRefs) provenance.parentEvidenceRefs = parentEvidenceRefs;
   return provenance;
 }
 
-function normalizeArtifactLinks(value: unknown): Omit<ArtifactLink, "from">[] | undefined {
+function normalizeArtifactLinks(value: unknown): Omit<EvidenceLink, "from">[] | undefined {
   if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value)) throw new Error("links must be an array");
   return value.map((entry, index) => {
     if (!isRecord(entry)) throw new Error(`links[${index}] must be an object`);
     return {
-      to: normalizeRequiredRef(entry.to, `links[${index}].to`) as ArtifactLink["to"],
+      to: normalizeRequiredRef(entry.to, `links[${index}].to`) as EvidenceLink["to"],
       relation: normalizeArtifactRelation(entry.relation, `links[${index}].relation`),
     };
   });
@@ -723,7 +725,7 @@ function normalizeEvidenceRef(value: unknown, field: string): EvidenceRef {
   return ref as EvidenceRef;
 }
 
-function normalizeOptionalArtifactRef(value: unknown, field: string): ArtifactRef | undefined {
+function normalizeOptionalArtifactRef(value: unknown, field: string): EvidenceRef | undefined {
   if (value === undefined || value === null) return undefined;
   return normalizeEvidenceRef(value, field);
 }
@@ -731,7 +733,7 @@ function normalizeOptionalArtifactRef(value: unknown, field: string): ArtifactRe
 function normalizeOptionalArtifactRefArray(
   value: unknown,
   field: string,
-): ArtifactRef[] | undefined {
+): EvidenceRef[] | undefined {
   if (value === undefined || value === null) return undefined;
   if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
   return value.map((entry, index) => normalizeEvidenceRef(entry, `${field}[${index}]`));

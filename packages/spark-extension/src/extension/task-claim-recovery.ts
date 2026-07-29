@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { nowIso, type ProjectRef, type Task } from "@zendev-lab/spark-core";
 import {
   defaultEvidenceStore,
-  type Artifact,
-  type ArtifactRef,
+  type EvidenceRecord,
+  type EvidenceRef,
   type JsonValue,
 } from "@zendev-lab/spark-artifacts";
 import type { WorkflowRunStatusSummary } from "@zendev-lab/spark-workflows";
@@ -39,7 +39,7 @@ export interface SparkTaskClaimRecoveryArtifactInput {
 }
 
 interface LatestNeedsChangesReview {
-  artifactRef: ArtifactRef;
+  evidenceRef: EvidenceRef;
   updatedAt: string;
   outcome: "needs_changes";
   summary?: string;
@@ -144,7 +144,7 @@ export async function evaluateSparkTaskClaimRecovery(input: {
 
 export async function recordSparkTaskClaimRecoveryArtifact(
   input: SparkTaskClaimRecoveryArtifactInput,
-): Promise<{ ref: ArtifactRef }> {
+): Promise<{ ref: EvidenceRef }> {
   const now = input.now ?? nowIso();
   const body = toJsonValue({
     action: "recover_task_claim",
@@ -252,7 +252,7 @@ async function latestNeedsChangesReview(
       if (outcome !== "needs_changes") return [];
       return [
         {
-          artifactRef: artifact.ref,
+          evidenceRef: artifact.ref,
           updatedAt: artifact.updatedAt,
           outcome,
           summary: reviewSummary(artifact),
@@ -262,7 +262,7 @@ async function latestNeedsChangesReview(
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
 }
 
-function reviewOutcome(artifact: Artifact): "needs_changes" | undefined {
+function reviewOutcome(artifact: EvidenceRecord): "needs_changes" | undefined {
   const body = artifact.body;
   if (typeof body === "object" && body !== null && !Array.isArray(body)) {
     const verdict = (body as { verdict?: unknown }).verdict;
@@ -275,7 +275,7 @@ function reviewOutcome(artifact: Artifact): "needs_changes" | undefined {
   return undefined;
 }
 
-function reviewSummary(artifact: Artifact): string | undefined {
+function reviewSummary(artifact: EvidenceRecord): string | undefined {
   const body = artifact.body;
   if (typeof body === "object" && body !== null && !Array.isArray(body)) {
     const verdict = (body as { verdict?: unknown }).verdict;

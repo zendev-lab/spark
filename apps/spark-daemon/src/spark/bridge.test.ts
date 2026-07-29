@@ -314,7 +314,7 @@ describe("Spark daemon bridge", () => {
         async getBody() {
           return JSON.stringify({
             schemaVersion: 1,
-            stdout: { tail: "Artifact-backed answer" },
+            stdout: { tail: "EvidenceRecord-backed answer" },
             stderr: { tail: "" },
             jsonEvents: { count: 0, tail: [] },
           });
@@ -358,7 +358,7 @@ describe("Spark daemon bridge", () => {
           (value as { type: string }).type === "invocation.log_chunk" &&
           (value as { payload: { stream: string } }).payload.stream === "assistant",
       ) as { payload: { content: string } };
-      expect(assistantChunk.payload.content).toBe("Artifact-backed answer");
+      expect(assistantChunk.payload.content).toBe("EvidenceRecord-backed answer");
     } finally {
       h.cleanup();
     }

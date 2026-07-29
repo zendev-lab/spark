@@ -1202,10 +1202,10 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
             title: "Echo task",
             status: "running",
             projectRef: "proj:echo",
-            outputArtifacts: ["artifact:echo-1"],
+            outputArtifacts: ["evidence:echo-1"],
           },
           artifact: {
-            ref: "artifact:echo-1",
+            ref: "evidence:echo-1",
             title: "Echo artifact",
             kind: "record",
             format: "json",
@@ -1305,7 +1305,7 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
         event.type === "task.update" &&
         event.task.ref === "task:echo-1" &&
         event.task.status === "running" &&
-        event.task.artifactRefs.includes("artifact:echo-1") &&
+        event.task.artifactRefs.includes("evidence:echo-1") &&
         event.task.metadata.sourceTool === "echo",
     ),
     true,
@@ -1314,7 +1314,7 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
     viewEvents.some(
       (event: any) =>
         event.type === "evidence.update" &&
-        event.evidence.ref === "artifact:echo-1" &&
+        event.evidence.ref === "evidence:echo-1" &&
         event.evidence.kind === "record" &&
         event.evidence.metadata.sourceTool === "echo",
     ),

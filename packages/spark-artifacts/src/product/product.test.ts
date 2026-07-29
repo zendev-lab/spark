@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { ToolConfig } from "@zendev-lab/spark-core";
 import { describe, expect, it } from "vitest";
-import { defaultEvidenceStore } from "../index.ts";
+import { defaultEvidenceStore, type EvidenceRef } from "../index.ts";
 import { registerProductArtifactTool } from "./extension.ts";
 import {
   PRODUCT_ARTIFACT_PROJECTION_MAX_INLINE_BYTES,
@@ -17,6 +17,7 @@ import {
   projectProductArtifact,
   attachPrWorktree,
   removePrWorktree,
+  type ProductArtifactRef,
 } from "./index.ts";
 
 describe("product artifact kinds", () => {
@@ -371,8 +372,23 @@ describe("product artifact kinds", () => {
 
     expect(product.ref).toMatch(/^artifact:/u);
     expect(evidence.ref).toMatch(/^evidence:/u);
+    expect(productStore.rootDir).toBe(join(dir, ".spark", "artifacts"));
+    expect(evidenceStore.rootDir).toBe(join(dir, ".spark", "evidence"));
+    await expect(stat(productStore.pathFor(product.ref))).resolves.toBeDefined();
+    await expect(stat(evidenceStore.pathFor(evidence.ref))).resolves.toBeDefined();
+    await expect(
+      stat(join(dir, ".spark", "artifacts", `${evidence.ref.slice("evidence:".length)}.json`)),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      stat(join(dir, ".spark", "evidence", `${product.ref.slice("artifact:".length)}.json`)),
+    ).rejects.toMatchObject({ code: "ENOENT" });
     expect((await productStore.list()).map((item) => item.ref)).toEqual([product.ref]);
     expect((await evidenceStore.list()).map((item) => item.ref)).toEqual([evidence.ref]);
-    await expect(evidenceStore.get(product.ref)).rejects.toThrow(/must be an evidence: ref/u);
+    await expect(evidenceStore.get(product.ref as unknown as EvidenceRef)).rejects.toThrow(
+      /must be an evidence: ref/u,
+    );
+    await expect(productStore.get(evidence.ref as unknown as ProductArtifactRef)).rejects.toThrow(
+      /product artifact ref must be artifact/u,
+    );
   });
 });

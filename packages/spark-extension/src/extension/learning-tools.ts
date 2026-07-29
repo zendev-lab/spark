@@ -5,7 +5,7 @@ import {
   type LearningRecordInput,
   type LearningStatus,
 } from "@zendev-lab/spark-memory";
-import type { Artifact } from "@zendev-lab/spark-artifacts";
+import type { EvidenceRecord } from "@zendev-lab/spark-artifacts";
 
 const LEARNING_STATUSES = ["candidate", "active", "stale", "superseded", "rejected"] as const;
 const LEARNING_LOCATIONS = ["user", "workspace", "repo"] as const;
@@ -116,7 +116,7 @@ export function normalizeLearningInput(params: Record<string, unknown>): Learnin
 }
 
 export function compactLearningDetail(
-  artifact: Artifact<LearningRecord>,
+  artifact: EvidenceRecord<LearningRecord>,
   location = inferLearningArtifactLocation(artifact),
 ) {
   return {
@@ -136,7 +136,7 @@ export function compactLearningDetail(
   };
 }
 
-function inferLearningArtifactLocation(artifact: Artifact<LearningRecord>): LearningLocation {
+function inferLearningArtifactLocation(artifact: EvidenceRecord<LearningRecord>): LearningLocation {
   const note = artifact.provenance.note ?? "";
   if (note.includes("location=user")) return "user";
   if (note.includes("location=repo")) return "repo";

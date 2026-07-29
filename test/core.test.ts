@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { ArtifactStore, validateArtifact } from "@zendev-lab/spark-artifacts";
+import { EvidenceStore, validateEvidenceRecord } from "@zendev-lab/spark-artifacts";
 import {
   formatJsonFile,
   newRef,
@@ -66,12 +66,12 @@ test("refs carry kind and id", () => {
   assert.equal(evidenceRef, "evidence:proof");
   assert.equal(isRef(evidenceRef), true);
   assert.equal(isRef(evidenceRef, "evidence"), true);
-  assert.equal(isRef("evidence:proof", "artifact"), false);
+  assert.equal(isRef("evidence:proof", "evidence"), true);
   assert.equal(refKind(evidenceRef), "evidence");
 });
 
 test("artifact contract validates persisted metadata shape", () => {
-  const ref = newRef("artifact", "contract");
+  const ref = newRef("evidence", "contract");
   const projectRef = newRef("proj", "contract-project");
   const artifact = {
     ref,
@@ -94,18 +94,21 @@ test("artifact contract validates persisted metadata shape", () => {
     updatedAt: "2026-05-28T00:00:00.000Z",
   };
 
-  assert.doesNotThrow(() => validateArtifact(artifact, "artifact"));
+  assert.doesNotThrow(() => validateEvidenceRecord(artifact));
   assert.throws(
-    () => validateArtifact({ ...artifact, provenance: undefined }, "artifact"),
+    () => validateEvidenceRecord({ ...artifact, ref: "artifact:not-evidence" }),
+    /evidence ref must be a valid evidence ref/,
+  );
+  assert.throws(
+    () => validateEvidenceRecord({ ...artifact, provenance: undefined }),
     /provenance must be an object/,
   );
   assert.throws(
-    () =>
-      validateArtifact({ ...artifact, bodyTruncated: true, bodyPreview: "preview" }, "artifact"),
+    () => validateEvidenceRecord({ ...artifact, bodyTruncated: true, bodyPreview: "preview" }),
     /bodySize must be a positive number/,
   );
   assert.throws(
-    () => validateArtifact({ ...artifact, curation: { status: "kept" } }, "artifact"),
+    () => validateEvidenceRecord({ ...artifact, curation: { status: "kept" } }),
     /curation.status must be valid/,
   );
 });
@@ -113,7 +116,7 @@ test("artifact contract validates persisted metadata shape", () => {
 test("artifact store defaults and filters curation lifecycle", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-artifact-curation-"));
   try {
-    const store = new ArtifactStore({ rootDir: dir });
+    const store = new EvidenceStore({ rootDir: dir });
     const trace = await store.put({
       kind: "trace",
       title: "Noisy run trace",

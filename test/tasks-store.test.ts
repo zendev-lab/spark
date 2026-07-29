@@ -10,7 +10,7 @@ import {
   cancelRoleRun,
   listActiveRoleRuns,
 } from "@zendev-lab/spark-roles";
-import { ArtifactStore } from "@zendev-lab/spark-artifacts";
+import { EvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
   DependencyError,
   newRef,
@@ -240,7 +240,7 @@ async function assertRunSparkTaskSucceedsWithChildOutput(
       roleRef: builtinRoleRef("worker"),
       plan: executionReadyPlan(testCase.planObjective),
     });
-    const artifactStore = new ArtifactStore({
+    const artifactStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
     const run = await runSparkTask({
@@ -1181,7 +1181,7 @@ test("task completion readiness requires output artifacts for declared evidence"
     taskCompletionReadiness(doneItems).issues.map((issue) => issue.kind),
     ["missing_completion_evidence"],
   );
-  const withArtifact = graph.attachOutputArtifact(task.ref, "artifact:evidence" as const);
+  const withArtifact = graph.attachOutputArtifact(task.ref, "evidence:evidence" as const);
   assert.deepEqual(taskCompletionReadiness(withArtifact), { ready: true, issues: [] });
 });
 
@@ -4155,7 +4155,7 @@ test("runSparkTask does not complete real tasks when the role run never starts",
       roleRef: builtinRoleRef("worker"),
       plan: executionReadyPlan("Plan"),
     });
-    const artifactStore = new ArtifactStore({
+    const artifactStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
 
@@ -4277,7 +4277,7 @@ test("runSparkTask summarizes final assistant text instead of raw Pi control JSO
       roleRef: builtinRoleRef("worker"),
       plan: executionReadyPlan("Summary output task"),
     });
-    const artifactStore = new ArtifactStore({
+    const artifactStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
     const run = await runSparkTask({
@@ -4329,7 +4329,7 @@ test("runSparkTask writes compact role-run artifacts for large output", async ()
       roleRef: builtinRoleRef("worker"),
       plan: executionReadyPlan("Large output task"),
     });
-    const artifactStore = new ArtifactStore({
+    const artifactStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
     const payload = "P".repeat(100_000);
@@ -4414,7 +4414,7 @@ test("runSparkTask dry-run records validation without completing the task", asyn
       description: "plan",
       kind: "plan",
     });
-    const artifactStore = new ArtifactStore({
+    const artifactStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
     const run = await runSparkTask({

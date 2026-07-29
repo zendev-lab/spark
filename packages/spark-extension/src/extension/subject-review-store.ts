@@ -3,13 +3,13 @@ import { join, relative, sep } from "node:path";
 
 import {
   nowIso,
-  type ArtifactRef,
+  type EvidenceRef,
   type JsonValue,
   type ProjectRef,
   type RoleRef,
   type Task,
 } from "@zendev-lab/spark-core";
-import type { Artifact } from "@zendev-lab/spark-artifacts";
+import type { EvidenceRecord } from "@zendev-lab/spark-artifacts";
 import { readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 import { sessionDirectoryNameForKey } from "@zendev-lab/spark-loop";
 import type { SparkSessionGoal } from "./spark-session-goals.ts";
@@ -26,7 +26,7 @@ export interface SubjectReviewRecord {
   version: 1;
   subjectKind: SubjectReviewKind;
   subjectRef: string;
-  artifactRef: ArtifactRef;
+  evidenceRef: EvidenceRef;
   projectRef?: ProjectRef;
   sessionKey?: string;
   transition: {
@@ -57,7 +57,7 @@ export interface SubjectReviewRecord {
 export interface SubjectReviewIndexEntry {
   subjectKind: SubjectReviewKind;
   subjectRef: string;
-  artifactRef: ArtifactRef;
+  evidenceRef: EvidenceRef;
   path: string;
   status: "resolved";
   outcome: string;
@@ -94,7 +94,7 @@ export async function recordTaskSubjectReview(
   cwd: string,
   projectRef: ProjectRef,
   task: Task,
-  artifact: Artifact<JsonValue>,
+  artifact: EvidenceRecord<JsonValue>,
   review: ReviewerRunResult,
 ): Promise<SubjectReviewRecord> {
   const verdict = review.verdict as TaskReviewVerdict;
@@ -102,7 +102,7 @@ export async function recordTaskSubjectReview(
     version: 1,
     subjectKind: "task",
     subjectRef: task.ref,
-    artifactRef: artifact.ref,
+    evidenceRef: artifact.ref,
     projectRef,
     transition: { requestedStatus: "done", policy: "required" },
     status: "resolved",
@@ -129,7 +129,7 @@ export async function recordTaskSubjectReview(
 export async function recordGoalSubjectReview(
   cwd: string,
   goal: SparkSessionGoal,
-  artifact: Artifact<JsonValue>,
+  artifact: EvidenceRecord<JsonValue>,
   review: ReviewerRunResult,
   input: GoalReviewInput,
 ): Promise<SubjectReviewRecord> {
@@ -138,7 +138,7 @@ export async function recordGoalSubjectReview(
     version: 1,
     subjectKind: "goal",
     subjectRef: goal.goalId,
-    artifactRef: artifact.ref,
+    evidenceRef: artifact.ref,
     ...(input.projectRef ? { projectRef: input.projectRef } : {}),
     sessionKey: goal.sessionKey,
     transition: { requestedStatus: input.requestedStatus, policy: "required" },
@@ -198,8 +198,8 @@ export function goalReviewDirectory(
   );
 }
 
-export function subjectReviewRecordPath(reviewDirectory: string, artifactRef: ArtifactRef): string {
-  return join(reviewDirectory, `${storeDirName(artifactRef)}.json`);
+export function subjectReviewRecordPath(reviewDirectory: string, evidenceRef: EvidenceRef): string {
+  return join(reviewDirectory, `${storeDirName(evidenceRef)}.json`);
 }
 
 export async function rebuildSubjectReviewIndex(
@@ -258,10 +258,10 @@ export async function rebuildWorkspaceReviewIndex(
 async function writeSubjectReviewRecord(
   cwd: string,
   reviewDirectory: string,
-  artifactRef: ArtifactRef,
+  evidenceRef: EvidenceRef,
   record: SubjectReviewRecord,
 ): Promise<void> {
-  await writeJsonFileAtomic(subjectReviewRecordPath(reviewDirectory, artifactRef), record);
+  await writeJsonFileAtomic(subjectReviewRecordPath(reviewDirectory, evidenceRef), record);
   await rebuildSubjectReviewIndex(reviewDirectory);
   await rebuildWorkspaceReviewIndex(cwd);
 }
@@ -328,7 +328,7 @@ function subjectReviewIndexEntry(
   return {
     subjectKind: subjectReviewKind(value.subjectKind),
     subjectRef: stringField(value.subjectRef, "subjectRef"),
-    artifactRef: stringField(value.artifactRef, "artifactRef") as ArtifactRef,
+    evidenceRef: subjectReviewEvidenceRef(value),
     path: fileName,
     status: "resolved",
     outcome: stringField(value.outcome, "outcome"),
@@ -336,6 +336,15 @@ function subjectReviewIndexEntry(
     ...(typeof value.projectRef === "string" ? { projectRef: value.projectRef as ProjectRef } : {}),
     ...(typeof value.sessionKey === "string" ? { sessionKey: value.sessionKey } : {}),
   };
+}
+
+function subjectReviewEvidenceRef(value: Record<string, unknown>): EvidenceRef {
+  const field = value.evidenceRef === undefined ? "artifactRef" : "evidenceRef";
+  const ref = stringField(value.evidenceRef ?? value.artifactRef, field);
+  if (!ref.startsWith("evidence:") || ref.length === "evidence:".length) {
+    throw new Error("subject review record evidence ref must be an evidence: ref");
+  }
+  return ref as EvidenceRef;
 }
 
 function subjectReviewKind(value: unknown): SubjectReviewKind {

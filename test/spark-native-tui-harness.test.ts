@@ -1881,7 +1881,7 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
           title: "Reviewer pass",
           status: "running",
           progress: 0.4,
-          artifactRefs: ["artifact:review-ok"],
+          artifactRefs: ["evidence:review-ok"],
           metadata: { reviewer: "goal", outcome: "approved" },
         },
         {
@@ -1890,7 +1890,7 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
           kind: "task",
           title: "Apply Graft patch",
           status: "succeeded",
-          artifactRefs: ["artifact:graft-patch"],
+          artifactRefs: ["evidence:graft-patch"],
           metadata: { patchRef: "patch:abc", graftStatus: "admitted" },
         },
       ],
@@ -1908,14 +1908,14 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
             { id: "render", content: "Render cockpit panels", status: "in_progress", notes: [] },
           ],
           runRefs: ["run:release-readiness"],
-          artifactRefs: ["artifact:review-ok"],
+          artifactRefs: ["evidence:review-ok"],
           metadata: {},
         },
       ],
       artifacts: [
         {
           version: SPARK_PROTOCOL_VERSION,
-          ref: "artifact:review-ok",
+          ref: "evidence:review-ok",
           title: "Reviewer verdict for cockpit task",
           kind: "record",
           format: "json",
@@ -1926,7 +1926,7 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
         },
         {
           version: SPARK_PROTOCOL_VERSION,
-          ref: "artifact:graft-patch",
+          ref: "evidence:graft-patch",
           title: "Graft patch provenance",
           kind: "record",
           format: "json",

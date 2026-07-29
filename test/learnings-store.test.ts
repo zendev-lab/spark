@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { ArtifactStore } from "@zendev-lab/spark-artifacts";
+import { EvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
   defaultLearningStore,
   LearningExportFormatError,
@@ -17,8 +17,8 @@ import { newRef } from "@zendev-lab/spark-core";
 test("learning store records active learnings and searches by content", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-"));
   try {
-    const store = new LearningStore({ artifactStore: new ArtifactStore({ rootDir: dir }) });
-    const evidenceRef = newRef("artifact", "evidence-plan");
+    const store = new LearningStore({ artifactStore: new EvidenceStore({ rootDir: dir }) });
+    const evidenceRef = newRef("evidence", "evidence-plan");
     const recorded = await store.record({
       title: "Prefer explicit export for shared knowledge",
       statement:
@@ -53,7 +53,7 @@ test("learning store hydrates compacted artifact metadata for list and search", 
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-compacted-"));
   try {
     const store = new LearningStore({
-      artifactStore: new ArtifactStore({ rootDir: dir, inlineBodyThresholdBytes: 64 }),
+      artifactStore: new EvidenceStore({ rootDir: dir, inlineBodyThresholdBytes: 64 }),
     });
     const recorded = await store.record({
       title: "Hydrate compacted learning metadata",
@@ -76,7 +76,7 @@ test("learning store skips malformed persisted learning artifacts with diagnosti
   const malformedDir = await mkdtemp(join(tmpdir(), "spark-memory-learning-malformed-"));
   const mismatchDir = await mkdtemp(join(tmpdir(), "spark-memory-learning-kind-mismatch-"));
   try {
-    const malformedArtifactStore = new ArtifactStore({ rootDir: malformedDir });
+    const malformedArtifactStore = new EvidenceStore({ rootDir: malformedDir });
     const malformedStore = new LearningStore({ artifactStore: malformedArtifactStore });
     const valid = await malformedStore.record({
       id: "valid-learning-survives",
@@ -85,14 +85,14 @@ test("learning store skips malformed persisted learning artifacts with diagnosti
       tags: ["resilient"],
     });
     await malformedArtifactStore.put({
-      ref: newRef("artifact", "malformed-learning"),
+      ref: newRef("evidence", "malformed-learning"),
       kind: "knowledge",
       title: "Malformed learning",
       format: "json",
       body: { status: "active" },
       provenance: { producer: "task" },
     });
-    const invalidKindRef = newRef("artifact", "invalid-kind-learning");
+    const invalidKindRef = newRef("evidence", "invalid-kind-learning");
     await writeFile(
       malformedArtifactStore.pathFor(invalidKindRef),
       JSON.stringify(
@@ -134,7 +134,7 @@ test("learning store skips malformed persisted learning artifacts with diagnosti
     );
     assert.equal(searched.diagnostics.length, 2);
 
-    const mismatchArtifactStore = new ArtifactStore({ rootDir: mismatchDir });
+    const mismatchArtifactStore = new EvidenceStore({ rootDir: mismatchDir });
     const mismatchStore = new LearningStore({ artifactStore: mismatchArtifactStore });
     const candidate = await mismatchStore.record({
       id: "candidate-kind-contract",
@@ -145,7 +145,7 @@ test("learning store skips malformed persisted learning artifacts with diagnosti
     // A non-knowledge artifact in the same store is not a learning artifact: the
     // learning store filters by kind=knowledge and must ignore it, not warn or choke on it.
     await mismatchArtifactStore.put({
-      ref: newRef("artifact", "unrelated-document"),
+      ref: newRef("evidence", "unrelated-document"),
       kind: "document",
       title: "Unrelated document",
       format: "json",
@@ -167,7 +167,7 @@ test("learning store skips malformed persisted learning artifacts with diagnosti
 test("learning export markdown round-trips and rejects malformed blocks", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-export-format-"));
   try {
-    const store = new LearningStore({ artifactStore: new ArtifactStore({ rootDir: dir }) });
+    const store = new LearningStore({ artifactStore: new EvidenceStore({ rootDir: dir }) });
     const recorded = await store.record({
       id: "learning-export-format",
       title: "Learning export format is package-owned",
@@ -228,7 +228,7 @@ test("learning export markdown round-trips and rejects malformed blocks", async 
 test("learning store keeps candidates out of default active recall", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-candidate-"));
   try {
-    const store = new LearningStore({ artifactStore: new ArtifactStore({ rootDir: dir }) });
+    const store = new LearningStore({ artifactStore: new EvidenceStore({ rootDir: dir }) });
     const candidate = await store.record({
       title: "Candidate task lesson",
       statement: "Only promote task-derived lessons after review.",

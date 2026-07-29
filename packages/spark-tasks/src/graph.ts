@@ -3,7 +3,7 @@ import {
   NotFoundError,
   newRef,
   nowIso,
-  type ArtifactRef,
+  type EvidenceRef,
   type Project,
   type ProjectRef,
   type ProjectRoadmap,
@@ -492,7 +492,7 @@ export class TaskGraph {
     return updated;
   }
 
-  attachOutputArtifact(taskRef: TaskRef, artifactRef: ArtifactRef): Task {
+  attachOutputArtifact(taskRef: TaskRef, artifactRef: EvidenceRef): Task {
     const task = this.getTask(taskRef);
     const outputArtifacts = task.outputArtifacts.includes(artifactRef)
       ? task.outputArtifacts

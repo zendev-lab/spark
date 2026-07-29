@@ -90,7 +90,7 @@ export function registerSparkAskTools(registerSparkTool: SparkToolRegistrar): vo
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return replaySparkAskTool({
         cwd: ctx.cwd,
-        artifactRef: normalizeSparkAskReplayEvidenceRef(params.evidenceRef),
+        evidenceRef: normalizeSparkAskReplayEvidenceRef(params.evidenceRef),
         ui: sparkAskUi(ctx),
       });
     },

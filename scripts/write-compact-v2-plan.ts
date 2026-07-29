@@ -145,25 +145,26 @@ const tasks: TaskPlanInput[] = [
     name: "compact-artifact-recovery",
     title: "Offload long recoverable tool results to Artifacts",
     description:
-      "For oversized recoverable tool results, store original text as an Artifact and keep only status, key conclusions, path, and artifact ref in context while preserving failure diagnostics and call/result pairing.",
+      "For oversized recoverable tool results, store original text as an EvidenceRecord and keep only status, key conclusions, path, and artifact ref in context while preserving failure diagnostics and call/result pairing.",
     kind: "implement",
     dependsOn: ["compact-v2-contract", "compact-isomorphic-micro"],
-    rationale: "Artifact offload is required for large tool outputs without losing recoverability.",
+    rationale:
+      "EvidenceRecord offload is required for large tool outputs without losing recoverability.",
     plan: readyPlan({
       objective:
         "Persist oversized recoverable tool-result bodies as Artifacts and leave compact context stubs that keep status, key conclusions, path, artifact refs, failure exit codes, and protocol pairing intact.",
       successCriteria: [
         "Fixture test with a long recoverable tool result creates an artifact:* ref and the in-context stub retains status plus artifact ref, with exit code 0.",
         "Failed tool-result fixture keeps exit code and key diagnostic text in-context after offload, asserted by tests with exit code 0.",
-        "Tests assert tool-call and tool-result protocol pairing remains valid after Artifact offload, with exit code 0.",
+        "Tests assert tool-call and tool-result protocol pairing remains valid after EvidenceRecord offload, with exit code 0.",
       ],
       evidenceRequired: [
         "Node/vitest command output with exit code 0 for long-result offload, failure-diagnostic retention, and pairing integrity.",
         "Sample artifact JSON file path under .spark/artifacts proving original body storage for the long tool result fixture.",
       ],
       items: [
-        "Implement recoverability and length gates for Artifact offload candidates in tool-result compaction.",
-        "Implement Artifact write plus in-context stub generation that keeps status and artifact refs.",
+        "Implement recoverability and length gates for EvidenceRecord offload candidates in tool-result compaction.",
+        "Implement EvidenceRecord write plus in-context stub generation that keeps status and artifact refs.",
         "Update stubs to preserve failure status, exit-code, and diagnostic fields.",
         "Add pairing and recovery regression tests for long and failed tool results.",
       ],

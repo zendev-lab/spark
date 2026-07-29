@@ -58,7 +58,7 @@ function appendBackgroundChildSummaryLines(
     lines.push(`${indent}JSON events tail: ${jsonEventsTailMetadata(child.jsonEventsTail)}`);
   for (const artifact of child.roleRunArtifacts ?? []) {
     if (artifact.skippedReason)
-      lines.push(`${indent}Artifact ${artifact.artifactRef}: ${artifact.skippedReason}`);
+      lines.push(`${indent}EvidenceRecord ${artifact.artifactRef}: ${artifact.skippedReason}`);
   }
 }
 

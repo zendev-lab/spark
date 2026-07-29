@@ -1,8 +1,7 @@
 import {
   defaultEvidenceStore,
-  type ArtifactRef,
-  type ArtifactStore,
   type EvidenceRef,
+  type EvidenceStore,
 } from "@zendev-lab/spark-artifacts";
 
 import { defaultSparkMemoryStore, type SparkMemoryEntry, type SparkMemoryStore } from "./index.ts";
@@ -47,7 +46,7 @@ export interface SparkCompactionCandidatePipelineOptions {
   details?: unknown;
   candidateStore?: Pick<RecallStore, "list" | "record">;
   memoryStore?: Pick<SparkMemoryStore, "list" | "remember">;
-  evidenceStore?: Pick<ArtifactStore, "tryGet">;
+  evidenceStore?: Pick<EvidenceStore, "tryGet">;
   reviewCandidate?: (candidate: SparkCompactionMemoryCandidate) => Promise<"accept" | "reject">;
 }
 
@@ -238,14 +237,14 @@ function refsInText(text: string): string[] {
 }
 
 async function resolveValidEvidenceRefs(
-  store: Pick<ArtifactStore, "tryGet">,
+  store: Pick<EvidenceStore, "tryGet">,
   refs: readonly string[],
 ): Promise<string[]> {
   const valid: string[] = [];
   for (const ref of uniqueNonEmpty([...refs])) {
     if (!VALID_EVIDENCE_REF_PATTERN.test(ref)) continue;
     try {
-      if (await store.tryGet(ref as ArtifactRef | EvidenceRef)) valid.push(ref);
+      if (await store.tryGet(ref as EvidenceRef)) valid.push(ref);
     } catch {
       // A malformed or unreadable evidence artifact fails closed for this candidate.
     }

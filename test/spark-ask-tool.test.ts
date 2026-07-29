@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import type { ArtifactRef } from "@zendev-lab/spark-core";
+import type { EvidenceRef } from "@zendev-lab/spark-core";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
   createElaborationResult,
@@ -29,7 +29,7 @@ type AskArtifactBodyForTest = {
 type SparkToolDetailsForTest = {
   status: string;
   blocked: boolean;
-  artifactRef: string;
+  evidenceRef: string;
   summary: string;
   nextAction?: string;
   answers: Record<string, { values: string[]; labels?: string[]; customText?: string }>;
@@ -39,7 +39,7 @@ function assertSparkToolDetails(details: unknown): asserts details is SparkToolD
   assert.ok(details && typeof details === "object");
   assert.equal(typeof (details as { status?: unknown }).status, "string");
   assert.equal(typeof (details as { blocked?: unknown }).blocked, "boolean");
-  assert.equal(typeof (details as { artifactRef?: unknown }).artifactRef, "string");
+  assert.equal(typeof (details as { evidenceRef?: unknown }).evidenceRef, "string");
   assert.equal(typeof (details as { summary?: unknown }).summary, "string");
   assert.ok(
     (details as { answers?: unknown }).answers &&
@@ -461,7 +461,7 @@ test("impl_ask tool persists multi-question answers in one artifact", async () =
     );
 
     const artifact = await defaultEvidenceStore(dir).get<AskArtifactBodyForTest>(
-      response.details.artifactRef as ArtifactRef,
+      response.details.evidenceRef as EvidenceRef,
     );
     assert.equal(
       artifact.body.summary,
@@ -549,7 +549,7 @@ test("impl_ask tool persists decision no-selection as a blocked artifact", async
     assert.match(response.content[0]!.text, /Dispatch roles\? blocked: no_selection; no selection/);
 
     const artifact = await defaultEvidenceStore(dir).get<AskArtifactBodyForTest>(
-      response.details.artifactRef as ArtifactRef,
+      response.details.evidenceRef as EvidenceRef,
     );
     assert.match(
       artifact.body.summary ?? "",
@@ -596,7 +596,7 @@ test("impl_ask tool preserves custom decision text instead of reporting no-selec
     );
 
     const artifact = await defaultEvidenceStore(dir).get<AskArtifactBodyForTest>(
-      response.details.artifactRef as ArtifactRef,
+      response.details.evidenceRef as EvidenceRef,
     );
     assert.match(
       artifact.body.summary ?? "",
@@ -645,7 +645,7 @@ test("impl_ask tool multi-select decision persists explicit selections", async (
     assert.doesNotMatch(response.content[0]!.text, /docs, tests/);
 
     const artifact = await defaultEvidenceStore(dir).get<AskArtifactBodyForTest>(
-      response.details.artifactRef as ArtifactRef,
+      response.details.evidenceRef as EvidenceRef,
     );
     assert.deepEqual(artifact.body.result.answers.workstreams!.values, ["docs", "tests"]);
   } finally {

@@ -1,4 +1,4 @@
-import { type Artifact } from "@zendev-lab/spark-artifacts";
+import { type EvidenceRecord } from "@zendev-lab/spark-artifacts";
 import { isRef, type EvidenceRef } from "@zendev-lab/spark-core";
 
 export function normalizeArtifactLimit(value: unknown, fallback: number, field = "limit"): number {
@@ -34,7 +34,7 @@ export function normalizeEvidenceRef(value: unknown): EvidenceRef {
   return value;
 }
 
-export function compactArtifactDetail(artifact: Artifact) {
+export function compactArtifactDetail(artifact: EvidenceRecord) {
   return {
     ref: artifact.ref,
     kind: artifact.kind,

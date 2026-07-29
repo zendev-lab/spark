@@ -1,5 +1,5 @@
 import type {
-  ArtifactRef,
+  EvidenceRef,
   ProjectRef,
   RoleRef,
   RoleRunCompletionOutcome,
@@ -75,7 +75,7 @@ export interface SparkRoleRunLifecycleEvent {
   toolName?: string;
   messageRole?: SparkRoleRunMessageRole;
   usage?: SparkRoleRunUsage;
-  artifactRefs?: ArtifactRef[];
+  artifactRefs?: EvidenceRef[];
 }
 
 export interface SparkRoleRunActivityEventInput {
@@ -89,7 +89,7 @@ export interface SparkRoleRunActivityEventInput {
   toolName?: string;
   messageRole?: SparkRoleRunMessageRole;
   usage?: SparkRoleRunUsage;
-  artifactRefs?: ArtifactRef[];
+  artifactRefs?: EvidenceRef[];
 }
 
 export interface SparkRoleRunParentChildLink {
@@ -114,7 +114,7 @@ export interface SparkRoleRunRegistryEntry {
   updatedAt: string;
   finishedAt?: string;
   lastActivityAt?: string;
-  outputArtifacts: ArtifactRef[];
+  outputArtifacts: EvidenceRef[];
   usage?: SparkRoleRunUsage;
   failureKind?: TaskRunFailureKind;
   errorMessage?: string;

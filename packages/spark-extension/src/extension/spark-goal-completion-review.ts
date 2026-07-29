@@ -2,7 +2,7 @@ import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   nowIso,
-  type ArtifactRef,
+  type EvidenceRef,
   type JsonValue,
   type ProjectRef,
   type RoleRef,
@@ -45,7 +45,7 @@ export type GoalCompletionReviewOutcome =
       outcome: "completed";
       goal?: SparkSessionGoal;
       review: ReviewerRunResult;
-      artifactRef: ArtifactRef;
+      evidenceRef: EvidenceRef;
       reason: string;
     }
   | {
@@ -55,7 +55,7 @@ export type GoalCompletionReviewOutcome =
       remainingWork?: string;
       blockers: string[];
       review?: ReviewerRunResult;
-      artifactRef?: ArtifactRef;
+      evidenceRef?: EvidenceRef;
     }
   | {
       outcome: "deferred";
@@ -252,7 +252,7 @@ export async function requestGoalCompletionReview(
     reason: postReviewBlocker?.reason ?? verdict.summary,
     remainingWork: postReviewBlocker?.remainingWork ?? verdict.remainingWork,
     blockers: postReviewBlocker?.blockers ?? verdict.blockers,
-    artifactRef: artifact.ref,
+    evidenceRef: artifact.ref,
     reviewedAt,
   };
   if (effectiveAchieved) {
@@ -266,7 +266,7 @@ export async function requestGoalCompletionReview(
       outcome: "completed",
       goal: updated,
       review,
-      artifactRef: artifact.ref,
+      evidenceRef: artifact.ref,
       reason: reviewSummary.reason,
     };
   }
@@ -282,14 +282,14 @@ export async function requestGoalCompletionReview(
     remainingWork: reviewSummary.remainingWork,
     blockers: reviewSummary.blockers,
     review,
-    artifactRef: artifact.ref,
+    evidenceRef: artifact.ref,
   };
 }
 
 function goalCompletionDeterministicBlocker(
   objective: string,
   projectStatus: GoalReviewInput["projectStatus"] | undefined,
-  evidenceRefs: readonly ArtifactRef[],
+  evidenceRefs: readonly EvidenceRef[],
   options: { allowEvidencedReviewerAudit?: boolean } = {},
 ): { reason: string; remainingWork: string; blockers: string[] } | undefined {
   const unfinishedTasks = projectStatus?.unfinishedTasks ?? [];
@@ -366,7 +366,7 @@ async function goalReviewContext(
   currentProjectSelected: boolean;
   projectEvidenceSource: NonNullable<GoalReviewInput["projectEvidenceSource"]>;
   projectStatus?: GoalReviewInput["projectStatus"];
-  evidenceRefs: ArtifactRef[];
+  evidenceRefs: EvidenceRef[];
   evidencePreviews: GoalReviewEvidencePreview[];
 }> {
   const project = goalReviewEvidenceProject(active);
@@ -425,7 +425,7 @@ async function projectGoalEvidenceRefs(
   cwd: string,
   graph: TaskGraph,
   projectRef: ProjectRef,
-): Promise<ArtifactRef[]> {
+): Promise<EvidenceRef[]> {
   const taskEvidenceRefs = projectTaskEvidenceRefs(graph, projectRef);
   const projectReviewRefs = (
     await defaultEvidenceStore(cwd).list({ producer: "review", projectRef })
@@ -435,7 +435,7 @@ async function projectGoalEvidenceRefs(
 
 async function goalReviewEvidencePreviews(
   cwd: string,
-  evidenceRefs: ArtifactRef[],
+  evidenceRefs: EvidenceRef[],
 ): Promise<GoalReviewEvidencePreview[]> {
   const store = defaultEvidenceStore(cwd);
   return Promise.all(
@@ -470,7 +470,7 @@ function boundedEvidenceBodyPreview(
   return normalized.length > 1_500 ? `${normalized.slice(0, 1_497)}...` : normalized;
 }
 
-function projectTaskEvidenceRefs(graph: TaskGraph, projectRef: ProjectRef): ArtifactRef[] {
+function projectTaskEvidenceRefs(graph: TaskGraph, projectRef: ProjectRef): EvidenceRef[] {
   return [...new Set(graph.tasks(projectRef).flatMap((task) => task.outputArtifacts))].slice(-20);
 }
 
@@ -569,8 +569,8 @@ async function recordGoalReviewArtifact(
   return artifact;
 }
 
-function goalReviewArtifactRef(goalId: string): ArtifactRef {
-  return `evidence:goal-review-${goalId.replace(/[^a-zA-Z0-9_-]/gu, "-")}` as ArtifactRef;
+function goalReviewArtifactRef(goalId: string): EvidenceRef {
+  return `evidence:goal-review-${goalId.replace(/[^a-zA-Z0-9_-]/gu, "-")}` as EvidenceRef;
 }
 
 function goalReviewHistoryEntries(value: unknown): JsonValue[] {
