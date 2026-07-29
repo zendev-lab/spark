@@ -159,7 +159,7 @@ function createInitialSparkTasks(
         "Check the workspace context and surface only blockers that change this confirmed scope.",
       ]),
       kind: "research",
-      roleRef: builtinRoleRef("scout"),
+      roleRef: builtinRoleRef("researcher"),
     });
     const slice = graph.createTask({
       projectRef,

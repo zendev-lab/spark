@@ -176,14 +176,30 @@ export async function executeSparkDaemonSessionControl(
       const parsed = sparkSessionCreateRequestSchema.parse(request.payload);
       if (
         options.actor === "spark-daemon-runtime-ws" &&
-        (parsed.cwd !== undefined || parsed.sessionPath !== undefined)
+        (parsed.cwd !== undefined ||
+          parsed.sessionPath !== undefined ||
+          parsed.taskExecution !== undefined)
       ) {
         throw new SparkSessionRegistryError(
           "session_local_path_forbidden",
-          "Remote session creation cannot select daemon-local cwd or sessionPath.",
+          "Remote session creation cannot select daemon-local cwd, sessionPath, or task execution.",
         );
       }
       assertScopeInput(request, parsed.scope);
+      if (parsed.taskExecution) {
+        const owner = await requireSession(options, parsed.taskExecution.ownerSessionId, request);
+        if (
+          owner.scope.kind !== parsed.scope.kind ||
+          (owner.scope.kind === "workspace" &&
+            parsed.scope.kind === "workspace" &&
+            owner.scope.workspaceId !== parsed.scope.workspaceId)
+        ) {
+          throw new SparkSessionRegistryError(
+            "session_scope_mismatch",
+            "task execution session must use the owner session scope",
+          );
+        }
+      }
       const session = parseSparkSessionRegistryRecord(
         projectSessionForRequest(
           options.db,

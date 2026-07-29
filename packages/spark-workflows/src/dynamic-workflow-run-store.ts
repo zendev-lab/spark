@@ -94,6 +94,7 @@ export interface SparkDynamicWorkflowRunApproval {
       timeoutMs: number[];
     };
     tools: string[];
+    roles: string[];
     isolation: string[];
     base?: SparkDynamicWorkflowRunBaseMetadata;
   };
@@ -681,6 +682,7 @@ function normalizeWorkflowApproval(value: unknown): SparkDynamicWorkflowRunAppro
           }
         : { stageCount: 0, phaseCount: 0, agentCallSites: 0, timeoutMs: [] },
       tools: stringArray(summary.tools),
+      roles: stringArray(summary.roles),
       isolation: stringArray(summary.isolation),
       ...(isRecord(summary.base)
         ? { base: summary.base as unknown as SparkDynamicWorkflowRunBaseMetadata }

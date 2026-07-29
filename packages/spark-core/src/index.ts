@@ -799,44 +799,6 @@ export type SubgoalRef = Ref<"subgoal">;
 export type SparkSubgoalStatus = "pending" | "in_progress" | "done" | "blocked" | "cancelled";
 export type SparkSubgoalAuthority = "safe_local" | "ask_decision" | "ask_approval";
 
-export interface SparkSubgoalDelegation {
-  sessionId: string;
-  planRevision: number;
-  definitionDigest: string;
-  delegatedAt: string;
-}
-
-export const SPARK_SUBGOAL_ASSIGNMENT_SCHEMA = "spark.subgoal.assignment/v1" as const;
-export const SPARK_SUBGOAL_RECEIPT_SCHEMA = "spark.subgoal.receipt/v1" as const;
-
-export type SparkSubgoalReceiptStatus = "accepted" | "done" | "repair";
-
-export interface SparkSubgoalAssignment {
-  schema: typeof SPARK_SUBGOAL_ASSIGNMENT_SCHEMA;
-  subgoalRef: SubgoalRef;
-  goalId: string;
-  planRevision: number;
-  definitionDigest: string;
-  definition: SparkSubgoalDefinition;
-  ownerSessionId: string;
-  evidenceRequired: string[];
-  assignedAt: string;
-}
-
-export interface SparkSubgoalReceipt {
-  schema: typeof SPARK_SUBGOAL_RECEIPT_SCHEMA;
-  subgoalRef: SubgoalRef;
-  status: SparkSubgoalReceiptStatus;
-  planRevision: number;
-  definitionDigest: string;
-  evidenceRefs: EvidenceRef[];
-  reason?: string;
-}
-
-export type SparkSubgoalDelegationOutcome =
-  | { status: "accepted"; delegation: SparkSubgoalDelegation; receipt: SparkSubgoalReceipt }
-  | { status: "repair"; receipt: SparkSubgoalReceipt };
-
 export interface SparkSubgoalDefinition {
   goal: string;
   doneWhen: string[];
@@ -863,13 +825,10 @@ export type SparkSubgoalVerificationResult =
 
 export interface SparkSubgoal extends SparkSubgoalDefinition {
   ref: SubgoalRef;
-  goalId: string;
-  roleRef: RoleRef;
   planRevision: number;
   status: SparkSubgoalStatus;
-  taskRefs: TaskRef[];
+  taskRef?: TaskRef;
   evidenceRefs: EvidenceRef[];
-  delegation?: SparkSubgoalDelegation;
   verification?: Extract<SparkSubgoalVerificationResult, { verdict: "Pass" }>;
   blocker?: string;
   createdAt: string;
@@ -1237,6 +1196,55 @@ export interface TaskPlan {
   askRefs: Array<AskRef | ArtifactRef>;
 }
 
+export type TaskExecutionContinuity = "reuse_within_revision" | "fresh";
+export type TaskExecutionIsolation = "readonly" | "isolated_worktree" | "isolated_results";
+export type TaskExecutionComparison = "single_side" | "reference" | "target" | "paired";
+
+export interface TaskResourceRequest {
+  /** GPUs requested per side. Paired comparisons reserve twice this count. */
+  gpuCount: number;
+  minGpuMemoryGiB?: number;
+  topologyClass?: string;
+  exclusiveNode?: boolean;
+}
+
+export interface TaskExecutionPolicy {
+  continuity: TaskExecutionContinuity;
+  isolation: TaskExecutionIsolation;
+  comparison: TaskExecutionComparison;
+  resources?: TaskResourceRequest;
+  concurrencyKeys: string[];
+  timeoutMs?: number;
+  maxAttempts: number;
+}
+
+export interface TaskGpuResource {
+  id: string;
+  memoryGiB?: number;
+  topologyClasses: string[];
+}
+
+export interface TaskResourceInventory {
+  nodeId: string;
+  gpus: TaskGpuResource[];
+}
+
+export interface TaskResourceAllocationGroup {
+  side: TaskExecutionComparison;
+  gpuIds: string[];
+}
+
+export interface TaskResourceAllocation {
+  leaseId: string;
+  nodeId: string;
+  groups: TaskResourceAllocationGroup[];
+  gpuIds: string[];
+  concurrencyKeys: string[];
+  topologyClass?: string;
+  exclusiveNode: boolean;
+  allocatedAt: string;
+}
+
 export type TaskPlanIssueKind =
   | "missing_plan"
   | "missing_objective"
@@ -1287,6 +1295,7 @@ export interface Task {
   kind: TaskKind;
   status: TaskStatus;
   roleRef?: RoleRef;
+  executionPolicy?: TaskExecutionPolicy;
   /** Last actor that finished this task after active claims are cleared. */
   finishedBy?: TaskAttribution;
   /** Cancellation metadata when status is cancelled. */
@@ -1337,15 +1346,36 @@ export interface TaskRunCompletionSummary {
   createdAt: string;
 }
 
+export interface TaskRunExecutionBinding {
+  ownerSessionId: string;
+  executionSessionId: string;
+  sessionGoalId: string;
+  subgoalRef?: SubgoalRef;
+  planRevision?: number;
+  definitionDigest?: string;
+  jobId: string;
+  attempt: number;
+  /** Daemon invocation accepted for this attempt; used for restart-safe reconciliation. */
+  invocationId?: string;
+}
+
 export interface TaskRun {
   ref: RunRef;
   projectRef: ProjectRef;
   taskRef: TaskRef;
+  /** Preview-only runs never consume bounded execution attempts. */
+  dryRun?: boolean;
   roleRef?: RoleRef;
   /** Human-readable name for this concrete child run. */
   runName?: string;
   /** Session that owns this concrete child run, used for post-completion attribution. */
   ownerSessionId?: string;
+  /** Durable daemon-managed execution identity for Task-to-Session runs. */
+  execution?: TaskRunExecutionBinding;
+  /** Resource lease reconstructed from active TaskRuns after restart. */
+  resourceAllocation?: TaskResourceAllocation;
+  /** Daemon cancellation was requested after the Task policy timeout elapsed. */
+  timeoutRequestedAt?: string;
   status: TaskRunStatus;
   failureKind?: TaskRunFailureKind;
   errorMessage?: string;

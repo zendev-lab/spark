@@ -10,6 +10,7 @@ import {
   type WorkflowRunCompletionFollowUp,
   type WorkflowRunControlStatus,
   type WorkflowRunStatus,
+  discoverTaskResourceInventory,
   runReadyTasks,
 } from "@zendev-lab/spark-workflows";
 import {
@@ -136,6 +137,7 @@ export class SparkWorkflowRunManagerController {
       sessionModel: sessionModelName(ctx.model),
       roleExecutor: ctx.runRole,
     });
+    const resourceInventory = await discoverTaskResourceInventory();
     const workflowRun = await runStore.startRun({
       projectRef: currentProject.ref,
       dryRun: false,
@@ -152,6 +154,7 @@ export class SparkWorkflowRunManagerController {
         maxConcurrency,
         timeoutMs,
         projectRef: currentProject.ref,
+        resourceInventory,
         claim: { sessionId: ownerSessionId },
         onSchedule: async (progress) => {
           touched.add(progress.taskRef);

@@ -260,12 +260,15 @@ export async function executeSparkDaemonSideThreadControl(
           },
         });
         const acceptedAt = requiredString(submitted.result.acceptedAt, "acceptedAt");
+        if (child.relation?.kind !== "side_thread") {
+          throw sideThreadError("side_thread_not_found", `not a side thread: ${child.sessionId}`);
+        }
         child = await resetSideThreadGeneration(
           options,
           parent,
           child,
           parsed.expectedGeneration,
-          child.relation!.mode,
+          child.relation.mode,
         );
         return result(
           sparkSideThreadHandoffResultSchema.parse({

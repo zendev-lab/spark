@@ -132,7 +132,7 @@ export function createSparkWorkflowRoleRunAdapter(
     }
     const stage = effectiveOptions.stage ?? effectiveOptions.phase;
     const request: SparkWorkflowRoleRunRequest = {
-      roleRef: deps.roleRef,
+      roleRef: (effectiveOptions.roleRef?.trim() as RoleRef | undefined) ?? deps.roleRef,
       instruction: renderSparkWorkflowAgentInstruction(prompt, effectiveOptions, label),
       label,
       stage,
@@ -184,6 +184,7 @@ export function renderSparkWorkflowAgentInstruction(
   const stage = options.stage ?? options.phase;
   if (stage) lines.push("- Stage: " + stage);
   if (options.model) lines.push("- Requested model: " + options.model);
+  if (options.roleRef) lines.push("- Requested role: " + options.roleRef);
   if (options.agentType) lines.push("- Agent type: " + options.agentType);
   if (options.isolation) lines.push("- Isolation: " + options.isolation);
   if (options.timeoutMs) lines.push("- Timeout ms: " + options.timeoutMs);

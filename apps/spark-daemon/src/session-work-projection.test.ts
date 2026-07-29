@@ -75,7 +75,10 @@ describe("session work projection", () => {
       evidenceRefs,
       verifier,
     })!;
-    await writeJson(sessionReproStorePathV2(cwd, context), { version: 5, repro });
+    await writeJson(sessionReproStorePathV2(cwd, context), {
+      version: 5,
+      repro: { ...repro, version: 5 },
+    });
 
     const work = await projectSparkSessionWork({
       cwd,
@@ -86,22 +89,8 @@ describe("session work projection", () => {
     expect(work).toMatchObject({
       primary: { kind: "repro", driverId: "driver-repro" },
       goal: { goalId: "goal-1", status: "active" },
-      repro: {
-        reproId: repro.reproId,
-        objective: "Reproduce target logits",
-        latestVerification: {
-          stepId: step.id,
-          evidenceRefs,
-        },
-      },
     });
-    expect(work?.repro).not.toHaveProperty("stages");
-    expect(work?.repro).not.toHaveProperty("goalContract");
-    expect(work?.repro?.stopGuard).toEqual({
-      decision: repro.stopGuard.decision,
-      stagnationCount: repro.stopGuard.stagnationCount,
-      limit: repro.stopGuard.limit,
-    });
+    expect(work?.repro).toBeUndefined();
   });
 
   it("keeps the driver snapshot when durable state is corrupt", async () => {

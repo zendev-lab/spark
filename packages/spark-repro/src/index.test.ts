@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { EvidenceRef } from "@zendev-lab/spark-core";
+import type { EvidenceRef, RoleRef, TaskRef } from "@zendev-lab/spark-core";
 import {
   advanceReproStage,
   createSparkSessionRepro,
@@ -8,6 +8,7 @@ import {
   isPhaseComplete,
   isReproRequirementSatisfied,
   isStageComplete,
+  migrateSparkSessionReproV5,
   nextReproStagePlanningBlocker,
   nextReproStep,
   recordReproRequirementProof,
@@ -20,6 +21,7 @@ import {
   type SparkReproStepDefinition,
   type SparkReproRequirementProof,
   type SparkSessionRepro,
+  type SparkSessionReproV5,
 } from "./index.ts";
 
 const ref = (id: string) => `evidence:${id}` as EvidenceRef;
@@ -51,7 +53,7 @@ describe("spark-repro", () => {
       objective: "Reproduce target logits",
     });
 
-    expect(repro.version).toBe(5);
+    expect(repro.version).toBe(6);
     expect(repro.projectRef).toBeUndefined();
     expect(repro.subgoals).toHaveLength(
       repro.plan.steps.filter((step) => step.stage === "setup").length,
@@ -79,6 +81,53 @@ describe("spark-repro", () => {
     expect(
       repro.plan.steps.find((step) => step.id === "implementation-strategy-approved"),
     ).toMatchObject({ authority: "ask_decision" });
+  });
+
+  it("migrates v5 evidence while invalidating delegation and ambiguous task bindings", () => {
+    const completed = completeStep(
+      createSparkSessionRepro("session:migrate-v5"),
+      "repro-contract-frozen",
+    );
+    const sharedTaskRef = "task:legacy-shared" as TaskRef;
+    const uniqueTaskRef = "task:legacy-unique" as TaskRef;
+    const legacy: SparkSessionReproV5 = {
+      ...completed,
+      version: 5,
+      subgoals: completed.subgoals.map((subgoal, index) => {
+        const { taskRef: _taskRef, ...definition } = subgoal;
+        return {
+          ...definition,
+          goalId: completed.reproId,
+          roleRef: "role:builtin-scout" as RoleRef,
+          taskRefs: index < 2 ? [sharedTaskRef] : index === 2 ? [uniqueTaskRef] : [],
+          ...(index === 2
+            ? {
+                status: "in_progress" as const,
+                delegation: {
+                  sessionId: "session:legacy",
+                  planRevision: subgoal.planRevision,
+                  definitionDigest: "legacy",
+                  delegatedAt: subgoal.updatedAt,
+                },
+              }
+            : {}),
+        };
+      }),
+    };
+
+    const migrated = migrateSparkSessionReproV5(legacy);
+    expect(migrated.version).toBe(6);
+    expect(migrated.subgoals[0]?.status).toBe("done");
+    expect(migrated.subgoals[0]?.evidenceRefs).toEqual(completed.subgoals[0]?.evidenceRefs);
+    expect(migrated.subgoals[0]?.taskRef).toBeUndefined();
+    expect(migrated.subgoals[1]?.taskRef).toBeUndefined();
+    expect(migrated.subgoals[2]).toMatchObject({
+      status: "pending",
+      taskRef: uniqueTaskRef,
+    });
+    expect(migrated.subgoals[2]).not.toHaveProperty("delegation");
+    expect(migrated.subgoals[2]).not.toHaveProperty("goalId");
+    expect(migrated.subgoals[2]).not.toHaveProperty("roleRef");
   });
 
   it("requires research, explicit decisions, and a passing probe during setup", () => {
@@ -240,14 +289,12 @@ describe("spark-repro", () => {
   });
 
   it("includes bound task status changes in the repro progress digest", () => {
-    const taskRef = "task:digest-safe-local";
+    const taskRef = "task:digest-safe-local" as TaskRef;
     const initial = createSparkSessionRepro("session:digest");
     const repro: SparkSessionRepro = {
       ...initial,
       subgoals: initial.subgoals.map((subgoal, index) =>
-        index === 0 && subgoal.authority === "safe_local"
-          ? { ...subgoal, taskRefs: [...subgoal.taskRefs, taskRef] }
-          : subgoal,
+        index === 0 && subgoal.authority === "safe_local" ? { ...subgoal, taskRef } : subgoal,
       ),
     };
 

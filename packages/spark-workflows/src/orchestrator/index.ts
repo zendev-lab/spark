@@ -62,6 +62,13 @@ export {
   type ReadyTaskRunnerResult,
   type ReadyTaskRunnerSchedule,
 } from "./ready-task-runner.ts";
+export {
+  packTaskResourceFrontier,
+  type DeferredTaskResource,
+  type PackedTaskResource,
+  type TaskResourceDeferralReason,
+  type TaskResourcePackingResult,
+} from "./task-resource-scheduler.ts";
 
 export type WorkflowRunManagerStatus = "idle" | "running" | "failed";
 export type WorkflowRunStatus = "running" | "succeeded" | "failed" | "timed_out" | "stale";

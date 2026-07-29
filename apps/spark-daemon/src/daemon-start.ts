@@ -664,6 +664,17 @@ function createDaemonScheduler(input: {
             emitDriverUpdate(input, driver, driver.lastInvocationId);
             return input.driverStore.mutationResult(driver);
           },
+          wakeOwner: (ownerSessionId, wake) => {
+            const drivers = input.driverStore
+              .list({ ownerSessionId })
+              .filter((driver) => driver.kind === wake.kind && driver.status !== "running");
+            for (const candidate of drivers) {
+              const driver = input.driverStore.wake(candidate.driverId, {
+                reason: wake.reason,
+              });
+              emitDriverUpdate(input, driver, driver.lastInvocationId);
+            }
+          },
         },
         channelIngress: {
           openReplyStream: async (workspaceId, adapterId, target, streamOptions) =>
