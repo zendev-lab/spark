@@ -166,6 +166,9 @@ importers:
       esbuild:
         specifier: ^0.28.0
         version: 0.28.1
+      jiti:
+        specifier: 2.7.0
+        version: 2.7.0
       jscpd:
         specifier: ^5.0.12
         version: 5.0.12
@@ -817,6 +820,9 @@ importers:
       '@zendev-lab/spark-runtime':
         specifier: workspace:^
         version: link:../spark-runtime
+      '@zendev-lab/spark-session':
+        specifier: workspace:^
+        version: link:../spark-session
       '@zendev-lab/spark-tasks':
         specifier: workspace:^
         version: link:../spark-tasks
@@ -942,6 +948,13 @@ importers:
       '@zendev-lab/spark-tasks':
         specifier: workspace:^
         version: link:../spark-tasks
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.1)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.6(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0)
 
   packages/spark-mcp-spike:
     dependencies:
@@ -1013,6 +1026,9 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-loop':
+        specifier: workspace:^
+        version: link:../spark-loop
     devDependencies:
       '@stryker-mutator/core':
         specifier: 'catalog:'

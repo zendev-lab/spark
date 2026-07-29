@@ -75,7 +75,7 @@ describe("session work projection", () => {
       evidenceRefs,
       verifier,
     })!;
-    await writeJson(sessionReproStorePathV2(cwd, context), { version: 4, repro });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 5, repro });
 
     const work = await projectSparkSessionWork({
       cwd,

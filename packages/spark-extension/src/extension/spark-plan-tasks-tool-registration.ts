@@ -33,6 +33,8 @@ import {
   taskPlanSchema,
 } from "./task-plan-tool.ts";
 import { syncTaskPlanItemsFromPlan } from "./task-plan-items.ts";
+import { collectReproExperimentIssues } from "./spark-repro-experiment-lint.ts";
+import { currentReproStage, readSessionRepro } from "./spark-session-repro.ts";
 
 const DEFAULT_SPARK_PLAN_TASK_OUTPUT_LIMIT = 5;
 const SPARK_PLAN_TASKS_READINESS_RULES = [
@@ -169,6 +171,46 @@ export function registerSparkPlanTasksTool(
           content: [{ type: "text", text: renderNonConcreteTaskIssues(concreteIssues) }],
           details: { found: true, error: "task_not_concrete", issues: concreteIssues },
         };
+      }
+      const repro = await readSessionRepro(cwd, ctx);
+      if (repro?.status === "active" && repro.projectRef === project.ref) {
+        const stage = currentReproStage(repro);
+        if (stage.name === "reproduce" || stage.name === "scale") {
+          const experimentIssues = collectReproExperimentIssues(tasks);
+          if (experimentIssues.length > 0) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: [
+                    "repro_experiment_not_concrete: " +
+                      stage.name +
+                      " task plan items require an executable command and observable expected result.",
+                    ...experimentIssues.map(
+                      (issue) =>
+                        "- " +
+                        issue.task +
+                        " item[" +
+                        issue.itemIndex +
+                        "]#" +
+                        issue.itemId +
+                        " " +
+                        issue.field +
+                        ": " +
+                        issue.message,
+                    ),
+                  ].join("\n"),
+                },
+              ],
+              details: {
+                found: true,
+                error: "repro_experiment_not_concrete",
+                stage: stage.name,
+                issues: experimentIssues,
+              },
+            };
+          }
+        }
       }
       let result: ReturnType<TaskGraph["planTasks"]>;
       try {

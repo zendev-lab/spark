@@ -1,8 +1,15 @@
 Spark repro drive tick — Stage 1/5: Setup (setup), phase=plan.
 Goal Contract (draft): Reproduce the target behavior with inspectable evidence
-Plan revision: 1. Difficulty: 8/10; 16/11 minimum steps. Stop Guard: 0/3 unchanged settlements.
+Plan revision: 1. Difficulty: 8/10; 8 materialized subgoals. Stop Guard: 0/3 unchanged settlements.
 
-Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver); execute one typed plan step per tick.
+Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver) and each stage is advanced through explicit orchestration.
+
+Orchestration loop:
+- Plan stage-scoped subgoals and concrete task plans.
+- Compute the dependency-ready safe_local task frontier.
+- Use assign to dispatch independent ready tasks in parallel.
+- Never dispatch ask_decision or ask_approval authority tasks; they remain owner-only.
+- Reconcile child run and task status, then validate evidence and receipts before the owner settles.
 
 Current typed plan steps:
   [ ] [safe_local] repro-contract-frozen — Reproduction claim and acceptance contract frozen; done when: Reproduction claim and acceptance contract frozen; evidence: At least one inspectable evidence ref
@@ -28,7 +35,7 @@ Next: make the Goal Contract concrete. Use repro({ action: "plan", reason: "..."
 
 Repro drive requirements:
 - Operate in the selected phase (plan); use its tool policy for plan or implement work.
-- Prefer the main session for scheduling and every concrete step. Do not default to role({ action: "call" }), session({ action: "call"|"send" }), assign, or workflow_run during repro ticks; use those only when the user explicitly requests multi-agent/workflow fan-out.
+- The main session owns planning and reconciliation; use assign only for the independent safe_local ready frontier, while ask_decision and ask_approval remain owner-only.
 - When blocked by a missing user decision, ambiguous requirement, unclear baseline/source, conflicting evidence, failing validation whose next step is unclear, or any problem the user can unblock, call ask immediately with a concrete question. Do not guess, invent substitutes, or end the turn with only a prose blocker report when ask can resolve it.
 - Advance milestones with repro record/evaluate/advance. Never treat prose, an unverified ref, or a bare boolean as proof.
 - Before ending every repro turn, leave a verifiable checkpoint. If the turn produced a coherent set of repository changes and committing is authorized and safe, create a small git commit promptly. Never include unrelated pre-existing changes.
@@ -38,7 +45,7 @@ Repro drive requirements:
 - If settle returns Recover Ask, call canonical ask immediately with one concrete unblock question. Do not schedule around the Ask gate.
 
 Plan-phase research-first guidance:
-- Reassess difficulty when scope or uncertainty changes. Use repro action=plan with difficulty 1-10 and a complete revised step list; higher difficulty must produce more independently verifiable steps.
+- Reassess difficulty when scope or uncertainty changes. At each stage entrance, use repro action=plan to append concrete subgoals and task refs, splitting work by the stage objective, experiment risk, dependencies, and required evidence rather than a numeric quota.
 - Classify each unknown as fact, reversible choice, material user decision, or validation uncertainty.
 - Research facts from the workspace, dependencies, environment, and primary upstream sources before asking the user.
 - Prioritize whether a runnable competitor/reference baseline already exists (typically a Megatron implementation). Prove availability with concrete paths, entrypoints, or failed-lookup evidence; do not assume a paper or announcement means the baseline is runnable.

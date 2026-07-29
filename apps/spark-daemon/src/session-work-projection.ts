@@ -201,7 +201,7 @@ async function readRepro(
       return new Error(`invalid JSON at ${filePath}: ${message}`);
     });
     if (raw === undefined) return undefined;
-    if (!isRecord(raw) || raw.version !== 4) {
+    if (!isRecord(raw) || raw.version !== 5) {
       recordDiagnostic({ sessionId, onDiagnostic }, "repro_state_unavailable", "repro");
       return undefined;
     }

@@ -18,6 +18,7 @@ import {
   passStageGate,
   readSessionRepro,
   recordReproRequirementProof,
+  reviseReproPlan,
   satisfyAcceptanceCondition,
   sessionReproStorePath,
   stepDefinitionDigest,
@@ -26,6 +27,7 @@ import {
   type SparkReproRequirementProof,
   type SparkSessionRepro,
   type SparkSessionReproV3,
+  type SparkSessionReproV4,
 } from "../packages/spark-extension/src/extension/spark-session-repro.ts";
 
 const artifactRef = (id: string) => `evidence:${id}` as EvidenceRef;
@@ -35,11 +37,18 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     return createSparkSessionRepro("test-session");
   }
 
-  it("starts a v4 research-first setup with a typed Goal Contract and plan", () => {
+  it("starts a v5 research-first setup with typed Goal Contract, plan, and subgoals", () => {
     const repro = makeRepro();
     const setup = currentReproStage(repro);
 
-    assert.equal(repro.version, 4);
+    assert.equal(repro.version, 5);
+    assert.equal(repro.projectRef, undefined);
+    assert.equal(
+      repro.subgoals.length,
+      repro.plan.steps.filter((step) => step.stage === "setup").length,
+    );
+    assert.deepEqual([...new Set(repro.subgoals.map((subgoal) => subgoal.stage))], ["setup"]);
+    assert.equal(repro.subgoals[0]?.id, "repro-contract-frozen");
     assert.equal(repro.status, "active");
     assert.equal(repro.goalContract.status, "draft");
     assert.equal(repro.plan.currentRevision, 1);
@@ -145,6 +154,20 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     }
     assert.equal(isPhaseComplete(repro), true);
     assert.equal(isStageComplete(repro), true);
+    assert.equal(advanceReproStage(repro), undefined);
+    repro = reviseReproPlan(repro, {
+      reason: "Plan scaffold work before advancing",
+      subgoals: [
+        {
+          id: "scaffold-build-layout",
+          stage: "scaffold",
+          goal: "Build the target project layout",
+          doneWhen: ["The project tree matches the recorded layout"],
+          evidenceRequired: ["Project tree command output"],
+          authority: "safe_local",
+        },
+      ],
+    });
     const scaffold = advanceReproStage(repro);
     assert.equal(scaffold?.currentStageIndex, 1);
     assert.equal(scaffold?.currentPhase, "implement");
@@ -249,7 +272,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       await writeFile(path, `${JSON.stringify({ version: 1, repro: legacy })}\n`, "utf8");
 
       const migrated = await readSessionRepro(dir);
-      assert.equal(migrated?.version, 4);
+      assert.equal(migrated?.version, 5);
       assert.equal(migrated?.currentPhase, "plan");
       assert.deepEqual(migrated?.stages[0]?.phases, ["plan"]);
       assert.deepEqual(migrated?.stages[0]?.acceptance[0], {
@@ -271,7 +294,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       assert.equal(migrated?.stages[2]?.gate?.evaluation, undefined);
 
       const persisted = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
-      assert.equal(persisted.version, 4);
+      assert.equal(persisted.version, 5);
       assert.doesNotMatch(JSON.stringify(persisted), /"research"/u);
       assert.doesNotMatch(JSON.stringify(persisted), /"satisfied"/u);
     } finally {
@@ -301,7 +324,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       await writeFile(path, `${JSON.stringify({ version: 3, repro })}\n`, "utf8");
 
       const sanitized = await readSessionRepro(dir);
-      assert.equal(sanitized?.version, 4);
+      assert.equal(sanitized?.version, 5);
       assert.equal(sanitized?.goalContract.status, "draft");
       assert.equal(
         sanitized?.plan.steps.find((step) => step.id === "repro-contract-frozen")?.status,
@@ -324,7 +347,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
   it("reopens v4 contracts and steps whose stored evidence refs are invalid", async () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-repro-v4-evidence-sanitize-"));
     try {
-      const repro = makeRepro();
+      const repro = toV4(makeRepro());
       const invalidRef = "artifact:legacy-contract" as unknown as EvidenceRef;
       repro.stages[0]!.acceptance[0] = {
         ...repro.stages[0]!.acceptance[0]!,
@@ -404,7 +427,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
         await writeFile(path, `${JSON.stringify({ version, repro: legacy })}\n`, "utf8");
 
         const migrated = await readSessionRepro(dir);
-        assert.equal(migrated?.version, 4);
+        assert.equal(migrated?.version, 5);
         assert.equal(migrated?.status, "active");
         assert.equal(migrated?.completedAt, undefined);
         assert.equal(migrated?.currentStageIndex, 0);
@@ -416,7 +439,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
             )!,
           ),
           false,
-          "legacy satisfied booleans and evidence refs cannot forge a v4 user decision",
+          "legacy satisfied booleans and evidence refs cannot forge a v5 user decision",
         );
         assert.equal(
           isReproRequirementSatisfied(
@@ -425,7 +448,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
             )!,
           ),
           false,
-          "a legacy evidence ref cannot certify a v4 validation command and pass result",
+          "a legacy evidence ref cannot certify a v5 validation command and pass result",
         );
         assert.equal(migrated?.stages[2]?.gate?.evaluation, undefined);
 
@@ -433,7 +456,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
           version: number;
           repro?: Record<string, unknown>;
         };
-        assert.equal(persisted.version, 4);
+        assert.equal(persisted.version, 5);
         assert.equal(persisted.repro?.status, "active");
         assert.equal(Object.hasOwn(persisted.repro ?? {}, "completedAt"), false);
       } finally {
@@ -441,6 +464,53 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       }
     });
   }
+
+  it("migrates valid v4 requirement proofs, gate evaluations, and frozen contract losslessly", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-repro-v4-proof-preservation-"));
+    try {
+      let repro = makeRepro();
+      repro = record(repro, "repro-contract-frozen", {
+        kind: "evidence",
+        evidenceRefs: [artifactRef("contract")],
+      });
+      repro = record(repro, "competitor-baseline-availability-researched", {
+        kind: "evidence",
+        evidenceRefs: [artifactRef("baseline")],
+      });
+      repro = record(repro, "baseline-construction-strategy-approved", {
+        kind: "decision",
+        decisionRef: artifactRef("baseline-decision"),
+        selectedValue: "reuse-existing",
+        rationale: "The baseline command and outputs are available.",
+      });
+      repro = {
+        ...repro,
+        currentStageIndex: 2,
+        currentPhase: "implement",
+      };
+      repro = record(repro, "bitwise-pass-20", validation("bitwise-pass-20", true));
+      repro = evaluateStageGate(repro).repro;
+      const v4 = toV4(repro);
+      const path = sessionReproStorePath(dir);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, `${JSON.stringify({ version: 4, repro: v4 })}\n`, "utf8");
+
+      const migrated = await readSessionRepro(dir);
+      assert.equal(migrated?.version, 5);
+      assert.equal(migrated?.projectRef, undefined);
+      assert.deepEqual(migrated?.stages, v4.stages);
+      assert.deepEqual(migrated?.goalContract, v4.goalContract);
+      assert.deepEqual(migrated?.plan.steps, v4.plan.steps);
+      assert.deepEqual(
+        migrated?.plan.revisions,
+        v4.plan.revisions.map(({ minimumStepCount: _minimumStepCount, ...revision }) => revision),
+      );
+      assert.equal(migrated?.subgoals.length, v4.plan.steps.length);
+      assert.equal(migrated?.goalContract.frozenAt, v4.goalContract.frozenAt);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 
   it("keeps the five-stage gate topology", () => {
     assert.equal(DEFAULT_REPRO_STAGES.length, 5);
@@ -470,9 +540,27 @@ function validation(id: string, passed: boolean): SparkReproRequirementProof {
   };
 }
 
+function toV4(repro: SparkSessionRepro): SparkSessionReproV4 {
+  const { version: _version, projectRef: _projectRef, subgoals: _subgoals, plan, ...v4 } = repro;
+  return {
+    ...v4,
+    version: 4,
+    plan: {
+      ...plan,
+      minimumStepCount: plan.steps.length,
+      revisions: plan.revisions.map((revision) => ({
+        ...revision,
+        minimumStepCount: revision.steps.length,
+      })),
+    },
+  };
+}
+
 function toV3(repro: SparkSessionRepro): SparkSessionReproV3 {
   const {
     version: _version,
+    projectRef: _projectRef,
+    subgoals: _subgoals,
     goalContract: _goalContract,
     plan: _plan,
     stopGuard: _stopGuard,
