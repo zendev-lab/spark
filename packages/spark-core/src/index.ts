@@ -29,6 +29,11 @@ import { basename, dirname, join } from "node:path";
 export interface SparkHostAPI {
   registerCommand?(name: string, config: CommandConfig): void;
   registerTool?(config: ToolConfig): void;
+  /**
+   * Register a tool without advertising it in ordinary turns. A host may
+   * activate an internal tool only through an explicit tool allowlist.
+   */
+  registerInternalTool?(config: ToolConfig): void;
   registerShortcut?(shortcut: string, options: ShortcutConfig): void;
   on?(
     event: string,

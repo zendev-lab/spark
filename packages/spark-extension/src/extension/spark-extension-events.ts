@@ -249,7 +249,7 @@ export async function syncSparkGoalAskAutoAnswerPolicy(
     return;
   }
   if (activeGoal) {
-    ctx.askAutoAnswer = "reviewer";
+    ctx.askAutoAnswer = true;
     ctx.askAutoAnswerResolver = await deps.createAskAutoAnswerResolver?.(ctx);
     return;
   }

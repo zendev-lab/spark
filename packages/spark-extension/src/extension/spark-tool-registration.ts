@@ -58,7 +58,7 @@ export interface SparkToolContext {
     getLeafId?: () => string | undefined;
   };
   hasUI?: boolean;
-  askAutoAnswer?: "reviewer";
+  askAutoAnswer?: boolean;
   askAutoAnswerResolver?: (request: unknown, ctx: any) => Promise<unknown>;
   /** Internal host policy; models cannot set the human-wait deadline. */
   askWaitTimeoutMs?: number;

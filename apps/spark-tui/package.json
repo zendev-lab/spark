@@ -16,6 +16,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./executable": "./bin/spark-tui",
     "./headless-role-executor": "./src/headless-role-executor.ts"
   },
   "dependencies": {

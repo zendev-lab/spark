@@ -14,7 +14,7 @@ import {
 } from "./evidence.ts";
 
 export type SparkAskAction = "ask" | "flow";
-export type SparkAskAutoAnswerMode = "reviewer";
+export type SparkAskAutoAnswerMode = boolean;
 export const DEFAULT_ASK_WAIT_TIMEOUT_MS = 60 * 60_000;
 const MAX_ASK_WAIT_TIMEOUT_MS = 24 * 60 * 60_000;
 
@@ -120,7 +120,7 @@ export function registerSparkAskActionTool(
     name: "ask",
     label: "Ask",
     description:
-      "Canonical ask capability. Use action=ask for a structured user ask; action=flow forces the fullscreen multi-question ask_flow renderer. autoAnswer=reviewer waits for the user first and lets the host reviewer take over only after that wait times out; ordinary asks do not auto-answer.",
+      "Canonical ask capability. Use action=ask for a structured user ask; action=flow forces the fullscreen multi-question ask_flow renderer. autoAnswer=true waits for the user first and lets the host reviewer take over only after that wait times out; ordinary asks do not auto-answer.",
     promptGuidelines: [
       "Use ask as the canonical user-question tool instead of choosing between ask_user and ask_flow directly.",
       "Use delivery=blocking when this turn cannot continue without the answer; use delivery=async to create an Inbox request and continue immediately.",
@@ -132,9 +132,9 @@ export function registerSparkAskActionTool(
     parameters: Type.Object({
       action: Type.Optional(Type.String({ description: "ask | flow. Defaults to ask." })),
       autoAnswer: Type.Optional(
-        Type.String({
+        Type.Boolean({
           description:
-            "Optional host policy. reviewer asks the user first, then uses the injected reviewer resolver only after the human wait times out.",
+            "When true, ask the user first, then use the injected reviewer resolver only after the human wait times out.",
         }),
       ),
       recordAsEvidence: Type.Optional(
@@ -242,8 +242,8 @@ function normalizeAskAction(value: unknown): SparkAskAction {
 
 function normalizeAskAutoAnswerMode(value: unknown): SparkAskAutoAnswerMode | undefined {
   if (value === undefined || value === null || value === false) return undefined;
-  if (value === "reviewer") return "reviewer";
-  throw new Error("ask.autoAnswer must be reviewer when provided");
+  if (value === true) return true;
+  throw new Error("ask.autoAnswer must be a boolean when provided");
 }
 
 function contextAutoAnswerMode(ctx: SparkHostContext): unknown {
@@ -522,9 +522,9 @@ function labelsForValues(question: SparkAskAutoAnswerQuestion, values: string[])
 
 function missingAutoAnswerResolverReason(): string {
   return [
-    "ask autoAnswer=reviewer cannot run because this tool call did not receive a host-provided reviewer auto-answer resolver.",
+    "ask autoAnswer=true cannot run because this tool call did not receive a host-provided reviewer auto-answer resolver.",
     "Spark injects that resolver only for active goal turns and deliberately clears it for /implement or ordinary manual asks.",
-    "Start or resume a goal and run the goal turn, or omit autoAnswer=reviewer for a normal user-facing ask.",
+    "Start or resume a goal and run the goal turn, or omit autoAnswer for a normal user-facing ask.",
     "If a session goal is already active and this still appears, the Spark goal ask-auto-answer policy did not attach its resolver to the current tool context.",
   ].join(" ");
 }
@@ -583,7 +583,7 @@ function renderAskCall(args: Record<string, unknown>, theme: ToolRenderTheme): T
   const action = typeof args.action === "string" ? args.action : "ask";
   const title = typeof args.title === "string" ? args.title : undefined;
   const questionCount = Array.isArray(args.questions) ? `${args.questions.length}q` : undefined;
-  const autoAnswer = args.autoAnswer === "reviewer" ? "auto=reviewer" : undefined;
+  const autoAnswer = args.autoAnswer === true ? "auto=true" : undefined;
   const text = ["ask", `action=${action}`, autoAnswer, title, questionCount]
     .filter(Boolean)
     .join(" ");

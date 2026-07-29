@@ -7,6 +7,9 @@
     "spark-cockpit": "./bin/spark-cockpit"
   },
   "type": "module",
+  "exports": {
+    "./executable": "./bin/spark-cockpit"
+  },
   "scripts": {
     "dev": "vp dev --host 127.0.0.1",
     "build": "vp build",

@@ -209,6 +209,19 @@ function sessionRunTaskFromDriverTick(task: SparkDaemonDriverTickTask): SparkDae
     projectId: task.projectId,
     reset: task.reset,
     resumeFromInterrupt: task.resumeFromInterrupt,
+    messageMetadata: {
+      origin: {
+        kind: "runtime",
+        host: "daemon",
+        surface: "local",
+      },
+      runtimeControl: {
+        kind: "driver.tick",
+        driverId: task.driverId,
+        driverKind: task.kind,
+        generation: task.generation,
+      },
+    },
     actor: "spark-daemon-driver",
     note: `${task.kind}:${task.driverId}:${task.generation}`,
   };
@@ -711,6 +724,69 @@ function channelReplyOwnedFromResult(result: unknown): boolean {
   return value.channelReplyDelivered === true || value.channelReplyDeliveryPending === true;
 }
 
+function interactionForSessionRun(
+  options: SparkDaemonTaskExecutorOptions,
+  task: SparkDaemonSessionRunTask,
+  context: SparkDaemonTaskExecutionContext,
+) {
+  if (!options.interact) return undefined;
+  return (request: unknown) => {
+    const operation = () => options.interact!(parseSparkInteractionRequest(request), task, context);
+    return context.withPausedTimeout ? context.withPausedTimeout(operation) : operation();
+  };
+}
+
+function sessionExecutionIdentity(
+  task: SparkDaemonSessionRunTask,
+  options: SparkDaemonTaskExecutorOptions,
+  sessionContext: Awaited<ReturnType<typeof sessionContextForTask>>,
+) {
+  return {
+    cwd: task.cwd ?? options.cwd ?? process.cwd(),
+    sparkHome: options.paths.piAgentDir,
+    sessionId: task.executionSessionId ?? task.sessionId,
+    ...(!task.hiddenExecution && sessionContext.sessionPath
+      ? { sessionPath: sessionContext.sessionPath }
+      : {}),
+    ...(task.model ? { model: task.model } : {}),
+    ...(task.thinkingLevel ? { thinkingLevel: task.thinkingLevel } : {}),
+    reset: task.reset,
+    ...(task.hiddenExecution
+      ? {
+          sessionVisibility: "internal" as const,
+          sessionPurpose: "driver_tick" as const,
+        }
+      : {}),
+    ...(task.resumeFromInterrupt ? { resumeFromInterrupt: true } : {}),
+  };
+}
+
+function sessionExecutionPolicy(
+  task: SparkDaemonSessionRunTask,
+  sessionContext: Awaited<ReturnType<typeof sessionContextForTask>>,
+  binding: ReturnType<typeof completeChannelBinding>,
+  driver: SparkHostDriverContext | undefined,
+) {
+  return {
+    ...(sessionContext.surface ? { sessionSurface: sessionContext.surface } : {}),
+    sessionSource: sessionSourceForTask(task),
+    ...(binding ? { channelBinding: binding } : {}),
+    ...(task.stateOwnerSessionId ? { stateOwnerSessionId: task.stateOwnerSessionId } : {}),
+    ...(driver ? { driver } : {}),
+    ...(sessionQuestionChainForTask(task)
+      ? { sessionQuestionChain: sessionQuestionChainForTask(task) }
+      : {}),
+    ...(sessionContext.surface === "channel"
+      ? {
+          allowedTools: SPARK_CHANNEL_ALLOWED_TOOLS,
+          approvalMethod: "auto" as const,
+        }
+      : {}),
+    ...(sessionContext.sideThread ? { allowedToolEffects: ["read"] as const } : {}),
+    ...(driver?.kind === "workflow" ? { allowedTools: ["workflow_driver"] } : {}),
+  };
+}
+
 export async function executeSparkDaemonSessionRunTask(
   task: SparkDaemonSessionRunTask,
   context: SparkDaemonTaskExecutionContext,
@@ -737,24 +813,10 @@ export async function executeSparkDaemonSessionRunTask(
   );
   const messageMetadata = sessionRunMessageMetadata(task, context.invocationId, reproSkillId);
   const binding = completeChannelBinding(task);
+  const interaction = interactionForSessionRun(options, task, context);
   return await options.executeSession({
-    cwd: task.cwd ?? options.cwd ?? process.cwd(),
-    sparkHome: options.paths.piAgentDir,
-    sessionId: task.executionSessionId ?? task.sessionId,
-    ...(!task.hiddenExecution && sessionContext.sessionPath
-      ? { sessionPath: sessionContext.sessionPath }
-      : {}),
+    ...sessionExecutionIdentity(task, options, sessionContext),
     prompt: await sessionRunPrompt(task, options.paths, context.invocationId, reproSkillId),
-    ...(task.model ? { model: task.model } : {}),
-    ...(task.thinkingLevel ? { thinkingLevel: task.thinkingLevel } : {}),
-    reset: task.reset,
-    ...(task.hiddenExecution
-      ? {
-          sessionVisibility: "internal" as const,
-          sessionPurpose: "driver_tick" as const,
-        }
-      : {}),
-    ...(task.resumeFromInterrupt ? { resumeFromInterrupt: true } : {}),
     signal: context.signal,
     // The daemon scheduler is the single execution-time budget owner. It can
     // pause that budget while awaiting a human response; adding the headless
@@ -762,35 +824,9 @@ export async function executeSparkDaemonSessionRunTask(
     // scheduler budget is paused.
     ...(systemPrompt ? { systemPrompt } : {}),
     ...(messageMetadata ? { messageMetadata } : {}),
-    ...(sessionContext.surface ? { sessionSurface: sessionContext.surface } : {}),
-    sessionSource: sessionSourceForTask(task),
-    ...(binding
-      ? {
-          channelBinding: binding,
-        }
-      : {}),
+    ...sessionExecutionPolicy(task, sessionContext, binding, driver),
     invocationId: context.invocationId,
-    ...(task.stateOwnerSessionId ? { stateOwnerSessionId: task.stateOwnerSessionId } : {}),
-    ...(driver ? { driver } : {}),
-    ...(sessionQuestionChainForTask(task)
-      ? { sessionQuestionChain: sessionQuestionChainForTask(task) }
-      : {}),
-    ...(sessionContext.surface === "channel"
-      ? {
-          allowedTools: SPARK_CHANNEL_ALLOWED_TOOLS,
-          approvalMethod: "auto" as const,
-        }
-      : {}),
-    ...(sessionContext.sideThread ? { allowedToolEffects: ["read"] as const } : {}),
-    ...(options.interact
-      ? {
-          interaction: (request) => {
-            const operation = () =>
-              options.interact!(parseSparkInteractionRequest(request), task, context);
-            return context.withPausedTimeout ? context.withPausedTimeout(operation) : operation();
-          },
-        }
-      : {}),
+    ...(interaction ? { interaction } : {}),
     onEvent: (event) => emitHeadlessEvent(event, task, context),
   });
 }
@@ -930,8 +966,8 @@ function sessionRunMessageMetadata(
     : undefined;
   return {
     ...baseMetadata,
-    ...(task.messageMetadata ?? {}),
-    ...(channelMetadata ?? {}),
+    ...task.messageMetadata,
+    ...channelMetadata,
     // The headless loop emits a temporary live message ID before the native
     // transcript assigns its durable entry ID. Persist the invocation
     // correlation so projections can reconcile those two identities without
@@ -1185,9 +1221,7 @@ function emitHeadlessEvent(
 }
 
 function daemonTaskRouteMetadata(task: SparkDaemonTask | undefined): SparkJsonObject {
-  return {
-    ...(task?.workspaceBindingId ? { workspaceBindingId: task.workspaceBindingId } : {}),
-  };
+  return (task?.workspaceBindingId ? { workspaceBindingId: task.workspaceBindingId } : {});
 }
 
 function daemonEventFromHeadlessEvent(

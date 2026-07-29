@@ -707,7 +707,7 @@ type TestSparkContext = {
   selected?: string;
   inputValue?: string;
   editorText?: string;
-  askAutoAnswer?: "reviewer";
+  askAutoAnswer?: boolean;
   askAutoAnswerResolver?: (request: unknown, ctx: SparkToolContext) => Promise<unknown>;
   askWaitTimeoutMs?: number;
   askReviewerFallbackAfterMs?: number;
@@ -5777,7 +5777,7 @@ test("/implement canonical ask does not inherit active goal reviewer auto-answer
       objective: "Keep a goal active before manual implement mode",
     });
     for (const handler of run.eventHandlers.get("before_agent_start") ?? []) await handler({}, ctx);
-    assert.equal(ctx.askAutoAnswer, "reviewer");
+    assert.equal(ctx.askAutoAnswer, true);
     assert.equal(ctx.askWaitTimeoutMs, 15 * 60_000);
 
     const implementCommand = run.commands.get("implement");
@@ -5842,7 +5842,7 @@ test("goal start enables same-turn reviewer auto-answer for canonical ask", asyn
       objective: "Use same-turn reviewer backed asks",
     });
 
-    assert.equal(ctx.askAutoAnswer, "reviewer");
+    assert.equal(ctx.askAutoAnswer, true);
     assert.equal(typeof ctx.askAutoAnswerResolver, "function");
 
     delete ctx.askAutoAnswer;
@@ -5852,7 +5852,7 @@ test("goal start enables same-turn reviewer auto-answer for canonical ask", asyn
 
     const asked = await executeSparkTool(run.tools, "ask", ctx, {
       action: "ask",
-      autoAnswer: "reviewer",
+      autoAnswer: true,
       title: "Choose path",
       mode: "decision",
       questions: [
@@ -6011,7 +6011,7 @@ test("active session goal keeps canonical ask but disables raw ask tools before 
     }
 
     assert.ok(run.getActiveToolNames().includes("ask"));
-    assert.equal((ctx as SparkToolContext).askAutoAnswer, "reviewer");
+    assert.equal((ctx as SparkToolContext).askAutoAnswer, true);
     assert.equal(ctx.askWaitTimeoutMs, 15 * 60_000);
     assert.ok(!run.getActiveToolNames().includes("ask_user"));
     assert.ok(!run.getActiveToolNames().includes("ask_flow"));

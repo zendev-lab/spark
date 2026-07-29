@@ -11,9 +11,10 @@
  * `tool-and-thinking-rendering`); this skeleton intentionally keeps those
  * surfaces minimal:
  *
- *   - `registerTool` / `getAllTools` / `getActiveTools` / `setActiveTools` keep
- *     an in-memory tool registry. Active state defaults to `true` for newly
- *     registered tools; registered and active queries remain distinct.
+ *   - `registerTool` / `registerInternalTool` / `getAllTools` /
+ *     `getActiveTools` / `setActiveTools` keep an in-memory tool registry.
+ *     Public tools default active; internal tools activate only when an
+ *     explicit allowlist names them.
  *   - `registerCommand` keeps an in-memory command registry. The agent turn
  *     loop will read it later; here we only persist the registration.
  *   - `on(event, handler)` keeps a per-event listener list. `emit(event)` is
@@ -214,13 +215,29 @@ export class SparkHostRuntime implements SparkHostAPI {
   // ── SparkHostAPI surface ────────────────────────────────────────────────
 
   registerTool = (config: ToolConfig): void => {
-    if (!config.name) throw new Error("SparkHostRuntime.registerTool requires a tool name");
+    this.registerToolWithDefault(config, true, "registerTool");
+  };
+
+  registerInternalTool = (config: ToolConfig): void => {
+    this.registerToolWithDefault(
+      config,
+      this.allowedTools?.has(config.name) === true,
+      "registerInternalTool",
+    );
+  };
+
+  private registerToolWithDefault(
+    config: ToolConfig,
+    activeByDefault: boolean,
+    method: "registerTool" | "registerInternalTool",
+  ): void {
+    if (!config.name) throw new Error(`SparkHostRuntime.${method} requires a tool name`);
     const existing = this.tools.get(config.name);
     const policy = resolveToolPolicy(config);
     const entry: RegisteredTool = {
       config,
       policy,
-      active: this.isToolAllowed(config.name, policy) && (existing?.active ?? true),
+      active: this.isToolAllowed(config.name, policy) && (existing?.active ?? activeByDefault),
     };
     this.tools.set(config.name, entry);
     for (const listener of Array.from(this.toolRegistrationListeners)) {
@@ -230,7 +247,7 @@ export class SparkHostRuntime implements SparkHostAPI {
         // Tool-registration listeners are best-effort host instrumentation.
       }
     }
-  };
+  }
 
   registerCommand = (name: string, config: CommandConfig): void => {
     if (!name) throw new Error("SparkHostRuntime.registerCommand requires a command name");

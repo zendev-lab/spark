@@ -205,7 +205,6 @@ try {
     ...process.env,
     PATH: cleanPath(),
     SPARK_HOME: resolve(temporary, "spark-home"),
-    SPARK_REPO_ROOT: resolve(temporary, "not-the-repository"),
   };
   console.log("Probing installed dispatcher, TUI, and daemon...");
   await run(spark, [...sparkArgvPrefix, "--help"], { cwd: installRoot, env: environment });

@@ -1824,6 +1824,16 @@ describe("daemon native session execution", () => {
         reset: true,
         sessionVisibility: "internal",
         sessionPurpose: "driver_tick",
+        messageMetadata: {
+          invocationId: "invocation-1",
+          origin: { kind: "runtime", host: "daemon", surface: "local" },
+          runtimeControl: {
+            kind: "driver.tick",
+            driverId: "fresh-loop",
+            driverKind: "loop",
+            generation: 4,
+          },
+        },
       }),
     );
     expect(executeSession).toHaveBeenCalledWith(
@@ -1846,6 +1856,48 @@ describe("daemon native session execution", () => {
         }),
       }),
     ]);
+  });
+
+  it("allows only workflow_driver for a daemon-owned workflow tick", async () => {
+    const task: SparkDaemonDriverTickTask = {
+      type: "driver.tick",
+      sessionId: "owner-session",
+      driverId: "workflow:active",
+      kind: "workflow",
+      ownerSessionId: "owner-session",
+      stateOwnerSessionId: "owner-session",
+      generation: 2,
+      continuity: "session",
+      prompt: "workflow tick",
+      cwd: "/workspace/workflow",
+    };
+    const executeSession = vi.fn(async () => ({ assistantText: "advanced" }));
+    const executor = createSparkDaemonTaskExecutor({
+      paths,
+      driverControl: {
+        schedule: vi.fn(),
+        stop: vi.fn(),
+      },
+      createSparkHeadlessSessionExecutor: () => executeSession,
+    });
+
+    await executor(task, context(task));
+
+    expect(executeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allowedTools: ["workflow_driver"],
+        messageMetadata: {
+          invocationId: "invocation-1",
+          origin: { kind: "runtime", host: "daemon", surface: "local" },
+          runtimeControl: {
+            kind: "driver.tick",
+            driverId: "workflow:active",
+            driverKind: "workflow",
+            generation: 2,
+          },
+        },
+      }),
+    );
   });
 
   it("assigns a user session role only after its completed transcript is indexed", async () => {

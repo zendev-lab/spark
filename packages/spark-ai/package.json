@@ -14,6 +14,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./control": "./src/control/index.ts",
+    "./baidu-oneapi-compat-extension": "./src/baidu-oneapi-compat-extension.ts",
     "./baidu-oneapi-provider": "./src/baidu-oneapi-provider.ts",
     "./openai-codex-provider": "./src/openai-codex-provider.ts",
     "./cursor-provider": "./src/cursor-provider.ts",

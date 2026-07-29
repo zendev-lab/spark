@@ -8,6 +8,7 @@
   import MessageActions from "./MessageActions.svelte";
   import NoticePart from "./NoticePart.svelte";
   import ReasoningPart from "./ReasoningPart.svelte";
+  import RuntimeControlPart from "./RuntimeControlPart.svelte";
   import SessionRetryAction from "./SessionRetryAction.svelte";
   import TaskRunPart from "./TaskRunPart.svelte";
   import ThinkingChainPart from "./ThinkingChainPart.svelte";
@@ -63,27 +64,40 @@
         : (item.senderLabel ?? userLabel),
   );
   let visibleParts = $derived(visibleConversationParts(item.parts));
+  let runtimeOnly = $derived(
+    visibleParts.length > 0 && visibleParts.every((part) => part.type === "runtime"),
+  );
   let copyableText = $derived(visibleConversationPartText(item.parts));
   let hasCopyableText = $derived(copyableText.length > 0);
 </script>
 
 {#if visibleParts.length > 0}
-  <article id={item.id} class="conversation-message {item.actor}" data-message-id={item.id}>
-    <span class="actor-mark" aria-hidden="true">
-      {#if item.actor === "spark"}
-        <Icon name="spark" size={16} />
-      {:else}
-        {actorLabel.slice(0, 1)}
-      {/if}
-    </span>
-    <div class="message-column">
-      <header class="message-meta">
-        <strong>{actorLabel}</strong>
-        <time datetime={item.timestamp}>{relativeTime(item.timestamp)}</time>
-        {#if item.status}
-          <span class="message-status {item.status}">{statusLabel(item.status)}</span>
+  <article
+    id={item.id}
+    class:runtime-only={runtimeOnly}
+    class="conversation-message {item.actor}"
+    data-message-id={item.id}
+    data-runtime-summary={runtimeOnly ? "true" : undefined}
+  >
+    {#if !runtimeOnly}
+      <span class="actor-mark" aria-hidden="true">
+        {#if item.actor === "spark"}
+          <Icon name="spark" size={16} />
+        {:else}
+          {actorLabel.slice(0, 1)}
         {/if}
-      </header>
+      </span>
+    {/if}
+    <div class="message-column">
+      {#if !runtimeOnly}
+        <header class="message-meta">
+          <strong>{actorLabel}</strong>
+          <time datetime={item.timestamp}>{relativeTime(item.timestamp)}</time>
+          {#if item.status}
+            <span class="message-status {item.status}">{statusLabel(item.status)}</span>
+          {/if}
+        </header>
+      {/if}
 
       <div class="message-content">
         {#if item.title && item.title !== item.body}<h2>{item.title}</h2>{/if}
@@ -177,6 +191,15 @@
               title={partLabels.budgetExhausted}
               message={partLabels.budgetExhaustedHint}
             />
+          {:else if part.type === "runtime"}
+            <RuntimeControlPart
+              driverKind={part.driverKind}
+              state={part.state}
+              request={part.request}
+              result={part.result}
+              labels={partLabels}
+              {statusLabel}
+            />
           {:else}
             <p class="unknown-part">{partLabels.unknown}: {part.label}</p>
           {/if}
@@ -204,6 +227,15 @@
 
   .conversation-message.user {
     grid-template-columns: minmax(0, 1fr) 30px;
+  }
+
+  .conversation-message.runtime-only {
+    display: block;
+    margin-left: 41px;
+  }
+
+  .conversation-message.runtime-only .message-column {
+    width: 100%;
   }
 
   .actor-mark {
@@ -378,6 +410,10 @@
 
     .conversation-message.user {
       grid-template-columns: minmax(0, 1fr) 26px;
+    }
+
+    .conversation-message.runtime-only {
+      margin-left: 34px;
     }
 
     .conversation-message.user .message-column {

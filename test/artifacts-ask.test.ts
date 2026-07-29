@@ -1170,6 +1170,10 @@ test("ask action tool rejects non-terminal evidence recording combinations", asy
   );
   await assert.rejects(
     () => execute({ ...request, autoAnswer: "reviewer" }),
+    /autoAnswer must be a boolean/u,
+  );
+  await assert.rejects(
+    () => execute({ ...request, autoAnswer: true }),
     /recordAsEvidence requires a direct user answer/u,
   );
 });
@@ -1256,7 +1260,7 @@ test("ask action tool returns a human answer before reviewer fallback", async ()
     "ask-auto-answer-test",
     {
       action: "ask",
-      autoAnswer: "reviewer",
+      autoAnswer: true,
       title: "Choose mode",
       mode: "decision",
       questions: [
@@ -1326,7 +1330,7 @@ test("ask action tool does not treat an explicit user cancel as reviewer timeout
     "ask-user-cancel-test",
     {
       action: "ask",
-      autoAnswer: "reviewer",
+      autoAnswer: true,
       mode: "decision",
       questions: [
         {
@@ -1361,6 +1365,62 @@ test("ask action tool does not treat an explicit user cancel as reviewer timeout
   assert.notEqual(result.details.autoAnswered, true);
 });
 
+test("ask action tool lets false disable host auto-answer", async () => {
+  const tools = new Map<string, { execute: Function }>();
+  const registerTool = (config: { name: string; execute: Function }) =>
+    tools.set(config.name, config);
+  registerSparkAskTools({ registerTool });
+  let reviewerCalls = 0;
+  registerSparkAskActionTool(
+    { registerTool },
+    {
+      resolveTool: (name) => tools.get(name) as never,
+      autoAnswer: async () => {
+        reviewerCalls += 1;
+        return { answers: { mode: { values: ["safe_mode"] } } };
+      },
+    },
+  );
+  const tool = tools.get("ask");
+  assert.ok(tool);
+
+  const result = await tool.execute(
+    "ask-disable-auto-answer-test",
+    {
+      action: "ask",
+      autoAnswer: false,
+      mode: "decision",
+      questions: [
+        {
+          id: "mode",
+          prompt: "Which mode?",
+          type: "single",
+          required: true,
+          options: [{ value: "safe_mode", label: "Safe path" }],
+        },
+      ],
+    },
+    new AbortController().signal,
+    () => undefined,
+    {
+      askAutoAnswer: true,
+      askReviewerFallbackAfterMs: 25,
+      ui: {
+        interaction: async (request: Record<string, unknown>) => ({
+          kind: "askFlow",
+          requestId: request.requestId,
+          status: "cancelled",
+          metadata: { timedOut: true },
+        }),
+      },
+    },
+  );
+
+  assert.equal(reviewerCalls, 0);
+  assert.equal(result.details.result.status, "cancelled");
+  assert.notEqual(result.details.autoAnswered, true);
+});
+
 test("ask action tool lets reviewer take over only after the human wait times out", async () => {
   const tools = new Map<string, { execute: Function }>();
   const registerTool = (config: { name: string; execute: Function }) =>
@@ -1384,7 +1444,7 @@ test("ask action tool lets reviewer take over only after the human wait times ou
     "ask-timeout-reviewer-test",
     {
       action: "ask",
-      autoAnswer: "reviewer",
+      autoAnswer: true,
       title: "Choose mode",
       mode: "decision",
       questions: [
@@ -1438,7 +1498,7 @@ test("ask action tool reports missing reviewer resolver as a tool error with gui
     "ask-missing-auto-answer-resolver-test",
     {
       action: "ask",
-      autoAnswer: "reviewer",
+      autoAnswer: true,
       title: "Choose mode",
       mode: "decision",
       questions: [
@@ -1462,7 +1522,7 @@ test("ask action tool reports missing reviewer resolver as a tool error with gui
   assert.equal(result.details.result.nextAction, "block");
   assert.match(result.details.reason, /host-provided reviewer auto-answer resolver/);
   assert.match(result.details.reason, /active goal turns/);
-  assert.match(result.details.reason, /omit autoAnswer=reviewer/);
+  assert.match(result.details.reason, /omit autoAnswer/);
   assert.match(result.content.map((part: { text: string }) => part.text).join("\n"), /blocked/i);
 });
 
@@ -1485,7 +1545,7 @@ test("ask action tool blocks empty reviewer answers for required questions", asy
     "ask-auto-answer-empty-required-test",
     {
       action: "ask",
-      autoAnswer: "reviewer",
+      autoAnswer: true,
       title: "Choose mode",
       mode: "decision",
       questions: [
@@ -1528,7 +1588,7 @@ test("ask action tool can auto-answer through a registered provider", async () =
       "ask-auto-answer-provider-test",
       {
         action: "ask",
-        autoAnswer: "reviewer",
+        autoAnswer: true,
         title: "Choose mode",
         mode: "decision",
         questions: [
@@ -1590,7 +1650,7 @@ test("ask action tool blocks invalid reviewer auto-answer output", async () => {
     "ask-auto-answer-invalid-test",
     {
       action: "ask",
-      autoAnswer: "reviewer",
+      autoAnswer: true,
       title: "Choose mode",
       mode: "decision",
       questions: [

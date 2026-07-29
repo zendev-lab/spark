@@ -386,17 +386,16 @@ function targetLabel(target: SparkDispatcherTarget): string {
 }
 
 function localTargetCommand(target: SparkDispatcherTarget): string | undefined {
-  switch (target) {
-    case "tui":
-      return fileURLToPath(new URL("../../spark-tui/bin/spark-tui", import.meta.url));
-    case "daemon":
-      return fileURLToPath(new URL("../../spark-tui/bin/spark-tui", import.meta.url));
-    case "cockpit":
-      return fileURLToPath(new URL("../../spark-cockpit/bin/spark-cockpit", import.meta.url));
-    case "acp":
-      return fileURLToPath(
-        new URL("../../../packages/spark-acp/scripts/stdio.ts", import.meta.url),
-      );
+  const specifierByTarget: Record<SparkDispatcherTarget, string> = {
+    tui: "@zendev-lab/spark-tui-app/executable",
+    daemon: "@zendev-lab/spark-tui-app/executable",
+    cockpit: "@zendev-lab/spark-cockpit/executable",
+    acp: "@zendev-lab/spark-acp/executable",
+  };
+  try {
+    return realpathSync(fileURLToPath(import.meta.resolve(specifierByTarget[target])));
+  } catch {
+    return undefined;
   }
 }
 

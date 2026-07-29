@@ -89,6 +89,15 @@ export type ConversationPart =
       kind: "budget_exhausted";
     }
   | {
+      /** Daemon-authored scheduler/control turn, never a human chat message. */
+      type: "runtime";
+      kind: "driver.tick";
+      driverKind?: string;
+      state: "running" | "completed" | "failed";
+      request: string;
+      result?: string;
+    }
+  | {
       /** Channel quote/reply preview shown above the user body. */
       type: "quote";
       text: string;
@@ -153,6 +162,10 @@ export type ConversationPartLabels = {
   expand: string;
   budgetExhausted: string;
   budgetExhaustedHint: string;
+  runtimeControl: string;
+  runtimeTick: string;
+  runtimeRequest: string;
+  runtimeResult: string;
 };
 
 /** Result of a scroll-driven "load earlier history" request. */

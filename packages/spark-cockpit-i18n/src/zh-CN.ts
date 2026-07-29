@@ -709,6 +709,10 @@ const messages = {
       expand: "展开",
       budgetExhausted: "本轮执行已暂停",
       budgetExhaustedHint: "已达到单轮执行步数上限，任务可能尚未完成。发送后续消息即可继续。",
+      runtimeControl: "后台调度",
+      runtimeTick: "tick",
+      runtimeRequest: "内部指令",
+      runtimeResult: "执行结果",
       slashActions: {
         fallbackTitle: "Spark 控制",
         fallbackAction: "暂不可用的操作",
