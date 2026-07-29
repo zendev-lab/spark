@@ -930,7 +930,19 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
       (await workflowCommand.getArgumentCompletions?.("run builtin:re"))?.map(
         (entry) => entry.value,
       ),
-      ["run builtin:research", "run builtin:review"],
+      [
+        "run builtin:research",
+        "run builtin:review",
+        "run builtin:repro-stage-orchestrate",
+        "run builtin:repro-module-sweep",
+        "run builtin:repro-first-divergence",
+        "run builtin:repro-change-loop",
+        "run builtin:repro-long-horizon",
+        "run builtin:repro-axis-qualify",
+        "run builtin:repro-topology-compose",
+        "run builtin:repro-evidence-review",
+        "run builtin:repro-delivery-sync",
+      ],
     );
     const workflowsCommand = initializedRun.commands.get("workflows");
     assert.ok(workflowsCommand, "missing /workflows command");
@@ -12004,11 +12016,17 @@ test("repro stage blueprints materialize a complete dependency-valid task graph"
     ]);
     assert.equal(taskById.get("qualify-tp")?.executionPolicy.resources?.gpuCount, 2);
     assert.equal(taskById.get("qualify-ep")?.executionPolicy.resources?.gpuCount, 2);
+    assert.equal(taskById.get("qualify-tp")?.roleRef, "role:extension-repro-distributed-runner");
+    assert.equal(taskById.get("qualify-ep")?.roleRef, "role:extension-repro-distributed-runner");
     assert.equal(taskById.get("compose-tp-ep")?.executionPolicy.resources?.gpuCount, 4);
     assert.equal(taskById.get("compose-tp-ep-pp")?.executionPolicy.resources?.gpuCount, 8);
     assert.equal(
       taskById.get("performance-budget")?.executionPolicy.resources?.exclusiveNode,
       true,
+    );
+    assert.equal(
+      taskById.get("performance-budget")?.roleRef,
+      "role:extension-repro-performance-benchmarker",
     );
     assert.equal(
       blueprintTasks.every((task) => task.executionPolicy.maxAttempts === 2),

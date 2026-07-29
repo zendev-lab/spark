@@ -1,0 +1,23 @@
+{
+  "skill_name": "model-reproduction",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Plan S0/S2 bitwise alignment for a MoE model on eight GPUs, including TP/EP/PP order and asynchronous experiment packing.",
+      "expected_output": "Defines immutable profiles and gates, chooses Pfit from measured constraints, qualifies one topology axis per parent, and gives correct paired GPU lane counts.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "The first mismatch appears at step 37 after optimizer update. Design the smallest evidence-backed localization and repair loop.",
+      "expected_output": "Freezes the failing run, identifies first bad step/layer/boundary, uses single-variable hypotheses, separates fixer and auditor, and preserves rejected evidence.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "We have a buildable structure patch but exactness is incomplete. Decide when to open and update Draft PRs and what Finalize still owns.",
+      "expected_output": "Creates Draft PR after build and smoke, updates report and PR event-by-event, prevents narration-based claims, and reserves Finalize for clean replay and closure.",
+      "files": []
+    }
+  ]
+}

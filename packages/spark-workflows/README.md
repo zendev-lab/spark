@@ -24,3 +24,10 @@ the node inventory. `SPARK_TASK_RESOURCE_INVENTORY` accepts JSON in this shape:
 Queued/running TaskRuns are the durable lease source; reconstruction after a
 daemon restart prevents duplicate allocation, while terminal runs release the
 lease without a second resource-state store.
+
+Spark also bundles stage-local Repro workflows for module sweeps, first
+divergence, change loops, long horizons, topology-axis qualification and
+composition, evidence review, and managed delivery sections. These workflows
+fan out bounded child RoleRuns inside one Task. They deliberately do not claim,
+finish, or promote Project Tasks; the generic `assign` scheduler and owner
+Repro Session remain authoritative.

@@ -36,6 +36,11 @@ const explorer = "role:builtin-explorer" as RoleRef;
 const researcher = "role:builtin-researcher" as RoleRef;
 const worker = "role:builtin-worker" as RoleRef;
 const reviewer = "role:builtin-reviewer" as RoleRef;
+const distributedRunner = "role:extension-repro-distributed-runner" as RoleRef;
+const divergenceLocalizer = "role:extension-repro-first-divergence-localizer" as RoleRef;
+const precisionFixer = "role:extension-repro-precision-fixer" as RoleRef;
+const performanceBenchmarker = "role:extension-repro-performance-benchmarker" as RoleRef;
+const numericalAuditor = "role:extension-repro-numerical-auditor" as RoleRef;
 
 function task(
   id: string,
@@ -63,15 +68,7 @@ function task(
       input.description ??
       `${title}. Execute the bounded stage work and preserve inspectable commands, outputs, and source references.`,
     kind,
-    roleRef:
-      input.roleRef ??
-      (authority === "safe_local"
-        ? kind === "implement"
-          ? worker
-          : kind === "review"
-            ? reviewer
-            : explorer
-        : reviewer),
+    roleRef: input.roleRef ?? defaultReproRoleRef(id, kind, authority),
     executionPolicy:
       input.executionPolicy ?? defaultReproExecutionPolicy(id, roadmapKey, kind, authority),
     authority,
@@ -80,6 +77,34 @@ function task(
     doneWhen: input.doneWhen,
     evidenceRequired: input.evidenceRequired,
   };
+}
+
+function defaultReproRoleRef(
+  id: string,
+  kind: TaskKind,
+  authority: SparkReproStepAuthority,
+): RoleRef {
+  if (authority !== "safe_local") return reviewer;
+  if (/(?:first-bad|boundary-classification|localiz)/u.test(id)) return divergenceLocalizer;
+  if (/(?:precision-fix|incident-fix|apply-fix)/u.test(id)) return precisionFixer;
+  if (/(?:performance-budget|benchmark)/u.test(id)) return performanceBenchmarker;
+  if (
+    /(?:audit|independent-review|final-checker|review-.*(?:evidence|topology|acceptance|claim))/u.test(
+      id,
+    )
+  ) {
+    return numericalAuditor;
+  }
+  if (
+    /(?:determinism|entrypoint|full-transaction|trace-export|checkpoint-export|resource-measurement|^align-|^validate-|^run-s[0-3]-|^qualify-|^compose-|replay$|ablation)/u.test(
+      id,
+    )
+  ) {
+    return distributedRunner;
+  }
+  if (kind === "implement") return worker;
+  if (kind === "review") return reviewer;
+  return explorer;
 }
 
 function defaultReproExecutionPolicy(
