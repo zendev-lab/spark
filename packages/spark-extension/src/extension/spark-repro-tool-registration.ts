@@ -11,6 +11,7 @@ import { clearSessionGoal } from "./spark-session-goals.ts";
 import { clearSessionLoop } from "./spark-session-loops.ts";
 import { createProjectBackedSessionRepro } from "./spark-repro-project.ts";
 import { collectReproOrchestrationSnapshot } from "./spark-repro-orchestration.ts";
+import { reconcileManagedTaskSessions } from "./spark-task-session-dispatch.ts";
 import { sparkActiveLens } from "./spark-drive-state.ts";
 import {
   advanceReproPhase,
@@ -384,6 +385,14 @@ export function registerSparkReproTool(
             isError: true,
           };
         }
+        const taskSessionReconciliation = repro.projectRef
+          ? await reconcileManagedTaskSessions({
+              cwd,
+              ctx,
+              projectRef: repro.projectRef,
+              subgoals: repro.subgoals,
+            })
+          : undefined;
         const graph = repro.projectRef
           ? ((await defaultTaskGraphStore(sparkStateCwd(cwd, ctx)).load()) ?? undefined)
           : undefined;
@@ -407,6 +416,7 @@ export function registerSparkReproTool(
             details: {
               ...reproDetails(settled.repro),
               ...orchestration,
+              ...(taskSessionReconciliation ? { taskSessionReconciliation } : {}),
               scheduleDelayMs: settled.scheduleDelayMs,
             },
           };

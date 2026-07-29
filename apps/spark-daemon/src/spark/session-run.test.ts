@@ -60,6 +60,54 @@ function driverContext(
 }
 
 describe("daemon native session execution", () => {
+  it("wakes the owner Repro driver after a managed Task Session settles", async () => {
+    const wakeOwner = vi.fn();
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_task_execution",
+      prompt: "execute the bound task",
+    };
+    const executor = createSparkDaemonTaskExecutor({
+      paths,
+      createSparkHeadlessSessionExecutor: () => async () => ({
+        assistantText: "done",
+        sessionPath: "/tmp/sess_task_execution.jsonl",
+      }),
+      sessionRegistry: {
+        get: vi.fn(
+          async () =>
+            ({
+              bindings: [],
+              relation: {
+                kind: "task_execution",
+                ownerSessionId: "sess_owner",
+                projectRef: "proj:repro",
+                taskRef: "task:probe",
+                roleRef: "role:builtin-explorer",
+                jobId: "task-job:probe",
+                attempt: 1,
+              },
+            }) as never,
+        ),
+        recordRun: vi.fn(async () => ({}) as never),
+        recordTurnQueued: vi.fn(async () => ({}) as never),
+        recordTurnSettled: vi.fn(async () => ({}) as never),
+      },
+      driverControl: {
+        schedule: vi.fn(),
+        stop: vi.fn(),
+        wakeOwner,
+      },
+    });
+
+    await executor(task, context(task));
+
+    expect(wakeOwner).toHaveBeenCalledWith("sess_owner", {
+      kind: "repro",
+      reason: expect.stringContaining("task:probe"),
+    });
+  });
+
   it("autoloads the built-in repro skill only on generation one until its checkpoint persists", async () => {
     const calls: unknown[] = [];
     const executeSession = vi.fn(async (input: unknown) => {

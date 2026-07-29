@@ -36,6 +36,8 @@ export interface ReadyTaskRunnerOptions {
   runTask: ReadyTaskRun;
   killRuns?: ReadyTaskRunKiller;
   projectRef?: ProjectRef;
+  /** Optional fail-closed frontier selected by the caller. */
+  taskRefs?: readonly TaskRef[];
   dryRun?: boolean;
   /** Maximum number of child runs running at the same time. Default: 4. */
   maxConcurrency?: number;
@@ -91,6 +93,7 @@ export async function runReadyTasks(input: ReadyTaskRunnerOptions): Promise<Read
   const runs: TaskRun[] = [];
   const running = new Set<Promise<TaskRun>>();
   const scheduled = new Set<TaskRef>();
+  const allowedTaskRefs = input.taskRefs ? new Set(input.taskRefs) : undefined;
   const promiseRunRefs = new Map<Promise<TaskRun>, RunRef>();
   const schedulerAbort = new AbortController();
   let foregroundTimedOut = false;
@@ -150,6 +153,7 @@ export async function runReadyTasks(input: ReadyTaskRunnerOptions): Promise<Read
 
       const ready = input.graph
         .readyTasks(input.projectRef)
+        .filter((task) => !allowedTaskRefs || allowedTaskRefs.has(task.ref))
         .filter((task) => !scheduled.has(task.ref))
         .slice(0, Math.max(0, maxConcurrency - running.size));
       for (const task of ready) await schedule(task);
@@ -157,6 +161,7 @@ export async function runReadyTasks(input: ReadyTaskRunnerOptions): Promise<Read
       if (running.size === 0) {
         const hasMoreReady = input.graph
           .readyTasks(input.projectRef)
+          .filter((task) => !allowedTaskRefs || allowedTaskRefs.has(task.ref))
           .some((task) => !scheduled.has(task.ref));
         if (!hasMoreReady) break;
         continue;

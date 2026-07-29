@@ -270,6 +270,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkRunReadyTasksTool(registerSparkImplementationTool, {
     ensureWorkflowRunManager: (cwd, ctx) => workflowRunManagerController.ensure(cwd, ctx),
     piCommand: () => pi.getPiCommand?.(),
+    refreshSparkWidget,
   });
 
   registerSparkWorkflowRunsTool(registerSparkImplementationTool, { refreshSparkWidget });

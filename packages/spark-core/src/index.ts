@@ -1293,6 +1293,19 @@ export interface TaskRunCompletionSummary {
   createdAt: string;
 }
 
+export interface TaskRunExecutionBinding {
+  ownerSessionId: string;
+  executionSessionId: string;
+  sessionGoalId: string;
+  subgoalRef?: SubgoalRef;
+  planRevision?: number;
+  definitionDigest?: string;
+  jobId: string;
+  attempt: number;
+  /** Daemon invocation accepted for this attempt; used for restart-safe reconciliation. */
+  invocationId?: string;
+}
+
 export interface TaskRun {
   ref: RunRef;
   projectRef: ProjectRef;
@@ -1302,6 +1315,8 @@ export interface TaskRun {
   runName?: string;
   /** Session that owns this concrete child run, used for post-completion attribution. */
   ownerSessionId?: string;
+  /** Durable daemon-managed execution identity for Task-to-Session runs. */
+  execution?: TaskRunExecutionBinding;
   status: TaskRunStatus;
   failureKind?: TaskRunFailureKind;
   errorMessage?: string;

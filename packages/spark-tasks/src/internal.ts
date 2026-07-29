@@ -1212,6 +1212,7 @@ export function normalizeTaskRun(run: TaskRun): TaskRun {
     ...run,
     roleRef: normalizeRoleRef(run.roleRef),
     runName: run.runName?.trim() || undefined,
+    execution: run.execution ? { ...run.execution } : undefined,
     outputArtifacts: [...run.outputArtifacts],
     completionSummary: run.completionSummary
       ? {

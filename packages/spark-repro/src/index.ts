@@ -1032,7 +1032,11 @@ export function settleReproTick(
     return { repro: settled, decision: "complete" };
   }
   const stagnationCount =
-    digest === repro.stopGuard.lastProgressDigest ? repro.stopGuard.stagnationCount + 1 : 0;
+    (orchestration.activeChildRunCount ?? 0) > 0
+      ? 0
+      : digest === repro.stopGuard.lastProgressDigest
+        ? repro.stopGuard.stagnationCount + 1
+        : 0;
   const decision: SparkReproStopDecision =
     stagnationCount >= repro.stopGuard.limit ? "ask" : "continue";
   const settled = {

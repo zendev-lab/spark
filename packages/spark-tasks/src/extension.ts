@@ -321,11 +321,12 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
     name: "assign",
     label: "Assign",
     description:
-      "Explicit Spark assignment/spawn capability. Schedule the ready task frontier through the workflow runtime; dry-run by default.",
+      "Explicit Spark assignment/spawn capability. Schedule an allowlisted ready-task frontier through daemon-managed Task Sessions; dry-run by default.",
     promptGuidelines: [
       "Use assign only when ready Spark work should be dispatched to role runs.",
       "Prefer workflow runtime for parallel/scripted execution; assign is the explicit spawn surface for Spark ready-task frontiers.",
       "Use task_read for inspection and task_write for graph mutations before assigning work.",
+      "When a planner supplies taskRefs, only those ready tasks may be dispatched; non-ready or out-of-scope refs fail closed.",
     ],
     parameters: Type.Object({
       dryRun: Type.Optional(
@@ -335,6 +336,13 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
       ),
       maxConcurrency: Type.Optional(Type.Number({ description: "Assignment concurrency limit." })),
       timeoutMs: Type.Optional(Type.Number({ description: "Foreground wait budget." })),
+      taskRefs: Type.Optional(
+        Type.Array(
+          Type.String({
+            description: "Optional explicit ready-task allowlist. Required by active Repro drives.",
+          }),
+        ),
+      ),
     }),
     renderCall(args, theme) {
       const dryRun = args.dryRun === false ? "spawn" : "dry-run";

@@ -145,6 +145,40 @@ describe("session ownership protocol", () => {
     );
   });
 
+  it("accepts an internal task-execution binding and preserves only daemon-emitted relation", () => {
+    const taskExecution = {
+      ownerSessionId: "sess_owner",
+      projectRef: "proj:model-repro",
+      taskRef: "task:trace-reference",
+      subgoalRef: "subgoal:trace-reference",
+      roleRef: "role:builtin-explorer",
+      planRevision: 6,
+      definitionDigest: "abc123",
+      jobId: "task-job:abc123",
+      attempt: 1,
+    };
+    expect(
+      sparkSessionCreateRequestSchema.parse({
+        scope: { kind: "workspace", workspaceId: "ws_repro" },
+        taskExecution,
+      }),
+    ).toMatchObject({ taskExecution });
+    expect(
+      parseSparkSessionRegistryRecord({
+        sessionId: "sess_task",
+        scope: { kind: "workspace", workspaceId: "ws_repro" },
+        relation: { kind: "task_execution", ...taskExecution },
+        ...timestamps,
+      }),
+    ).toMatchObject({ relation: { kind: "task_execution", ...taskExecution } });
+    expect(
+      sparkSessionCreateRequestSchema.parse({
+        scope: { kind: "workspace", workspaceId: "ws_repro" },
+        relation: { kind: "task_execution", ...taskExecution },
+      }),
+    ).not.toHaveProperty("relation");
+  });
+
   it("rejects mismatched workspace ids and normalizes list legacy workspaceId", () => {
     expect(() =>
       parseSparkSessionRegistryRecord({
