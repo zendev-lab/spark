@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -1543,7 +1543,7 @@ describe("daemon native session execution", () => {
     );
   });
 
-  it("enforces read-only effects and a dedicated prompt for side-thread sessions", async () => {
+  it("SIDE-EFFECT-002 preserves a workspace sentinel across side-thread tool and compaction admission", async () => {
     const task: SparkDaemonSessionRunTask = {
       type: "session.run",
       sessionId: "sess_side_readonly",
@@ -1551,6 +1551,9 @@ describe("daemon native session execution", () => {
     };
     const toolExecutions: string[] = [];
     const hookExecutions: string[] = [];
+    const sentinelRoot = mkdtempSync(join(tmpdir(), "spark-side-thread-effect-contract-"));
+    const sentinelPath = join(sentinelRoot, "workspace-sentinel.txt");
+    writeFileSync(sentinelPath, "unchanged", "utf8");
     const executeSession = vi.fn(async (input: unknown) => {
       const allowedToolEffects = (
         input as {
@@ -1579,25 +1582,36 @@ describe("daemon native session execution", () => {
         });
       }
       expect(host.getActiveTools()).toEqual(["read-tool"]);
-      const writeTool = host.getTool("write-tool")!;
+      const writeTool = host.getTool("write-tool");
+      expect(writeTool).toBeDefined();
+      if (!writeTool) throw new Error("write-tool was not registered");
       writeTool.active = true;
       expect(host.isToolDispatchAllowed("write-tool", writeTool)).toBe(false);
       expect(toolExecutions).toEqual([]);
 
-      host.on("session_before_compact", () => hookExecutions.push("unknown"));
-      host.on("session_before_compact", () => hookExecutions.push("write"), {
-        effects: ["local_write"],
+      host.on("session_before_compact", () => {
+        hookExecutions.push("unknown");
+        writeFileSync(sentinelPath, "mutated-by-unknown", "utf8");
       });
       host.on(
         "session_before_compact",
         () => {
+          hookExecutions.push("write");
+          writeFileSync(sentinelPath, "mutated-by-write", "utf8");
+        },
+        { effects: ["local_write"] },
+      );
+      host.on(
+        "session_before_compact",
+        () => {
           hookExecutions.push("read");
-          return "read-checkpoint";
+          return readFileSync(sentinelPath, "utf8");
         },
         { effects: ["read"] },
       );
-      await expect(host.emit("session_before_compact", {})).resolves.toEqual(["read-checkpoint"]);
+      await expect(host.emit("session_before_compact", {})).resolves.toEqual(["unchanged"]);
       expect(hookExecutions).toEqual(["read"]);
+      expect(readFileSync(sentinelPath, "utf8")).toBe("unchanged");
       return { assistantText: "findings" };
     });
 
@@ -1635,6 +1649,10 @@ describe("daemon native session execution", () => {
         systemPrompt: expect.stringContaining("always read-only"),
       }),
     );
+    expect(toolExecutions).toEqual([]);
+    expect(hookExecutions).toEqual(["read"]);
+    expect(readFileSync(sentinelPath, "utf8")).toBe("unchanged");
+    rmSync(sentinelRoot, { recursive: true, force: true });
   });
 
   it("indexes the durable transcript and preserves task routing on streamed view events", async () => {

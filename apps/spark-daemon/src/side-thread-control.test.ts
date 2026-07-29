@@ -125,7 +125,7 @@ describe("daemon Side Thread control", () => {
     }
   });
 
-  it("admits child turns only through the generation-aware idempotent control surface", async () => {
+  it("SIDE-EFFECT-001 admits child turns only through the generation-aware idempotent control surface", async () => {
     const fixture = await createFixture();
     try {
       const ensured = await ensure(fixture);
