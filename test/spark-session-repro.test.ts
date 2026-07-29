@@ -37,11 +37,11 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     return createSparkSessionRepro("test-session");
   }
 
-  it("starts a v5 research-first setup with typed Goal Contract, plan, and subgoals", () => {
+  it("starts a v6 research-first setup with typed Goal Contract, plan, and subgoals", () => {
     const repro = makeRepro();
     const setup = currentReproStage(repro);
 
-    assert.equal(repro.version, 5);
+    assert.equal(repro.version, 6);
     assert.equal(repro.projectRef, undefined);
     assert.equal(
       repro.subgoals.length,
@@ -272,7 +272,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       await writeFile(path, `${JSON.stringify({ version: 1, repro: legacy })}\n`, "utf8");
 
       const migrated = await readSessionRepro(dir);
-      assert.equal(migrated?.version, 5);
+      assert.equal(migrated?.version, 6);
       assert.equal(migrated?.currentPhase, "plan");
       assert.deepEqual(migrated?.stages[0]?.phases, ["plan"]);
       assert.deepEqual(migrated?.stages[0]?.acceptance[0], {
@@ -294,7 +294,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       assert.equal(migrated?.stages[2]?.gate?.evaluation, undefined);
 
       const persisted = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
-      assert.equal(persisted.version, 5);
+      assert.equal(persisted.version, 6);
       assert.doesNotMatch(JSON.stringify(persisted), /"research"/u);
       assert.doesNotMatch(JSON.stringify(persisted), /"satisfied"/u);
     } finally {
@@ -324,7 +324,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       await writeFile(path, `${JSON.stringify({ version: 3, repro })}\n`, "utf8");
 
       const sanitized = await readSessionRepro(dir);
-      assert.equal(sanitized?.version, 5);
+      assert.equal(sanitized?.version, 6);
       assert.equal(sanitized?.goalContract.status, "draft");
       assert.equal(
         sanitized?.plan.steps.find((step) => step.id === "repro-contract-frozen")?.status,
@@ -427,7 +427,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
         await writeFile(path, `${JSON.stringify({ version, repro: legacy })}\n`, "utf8");
 
         const migrated = await readSessionRepro(dir);
-        assert.equal(migrated?.version, 5);
+        assert.equal(migrated?.version, 6);
         assert.equal(migrated?.status, "active");
         assert.equal(migrated?.completedAt, undefined);
         assert.equal(migrated?.currentStageIndex, 0);
@@ -439,7 +439,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
             )!,
           ),
           false,
-          "legacy satisfied booleans and evidence refs cannot forge a v5 user decision",
+          "legacy satisfied booleans and evidence refs cannot forge a v6 user decision",
         );
         assert.equal(
           isReproRequirementSatisfied(
@@ -448,7 +448,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
             )!,
           ),
           false,
-          "a legacy evidence ref cannot certify a v5 validation command and pass result",
+          "a legacy evidence ref cannot certify a v6 validation command and pass result",
         );
         assert.equal(migrated?.stages[2]?.gate?.evaluation, undefined);
 
@@ -456,7 +456,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
           version: number;
           repro?: Record<string, unknown>;
         };
-        assert.equal(persisted.version, 5);
+        assert.equal(persisted.version, 6);
         assert.equal(persisted.repro?.status, "active");
         assert.equal(Object.hasOwn(persisted.repro ?? {}, "completedAt"), false);
       } finally {
@@ -496,7 +496,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       await writeFile(path, `${JSON.stringify({ version: 4, repro: v4 })}\n`, "utf8");
 
       const migrated = await readSessionRepro(dir);
-      assert.equal(migrated?.version, 5);
+      assert.equal(migrated?.version, 6);
       assert.equal(migrated?.projectRef, undefined);
       assert.deepEqual(migrated?.stages, v4.stages);
       assert.deepEqual(migrated?.goalContract, v4.goalContract);
