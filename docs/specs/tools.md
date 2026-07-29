@@ -34,7 +34,20 @@ TUI and Cockpit use the same daemon-owned Side Thread contract; presentation sta
 
 - `task_read` inspects task, project, workspace, project-list, and run state.
 - `task_write` selects projects and plans, claims, finishes, recovers, or updates tasks. New and claimed tasks require an objectively verifiable plan.
-- `assign` dispatches the ready frontier and dry-runs by default.
+- `assign` dispatches the ready frontier and dry-runs by default. Callers may
+  pass an explicit `taskRefs` allowlist; an active Repro requires the verified
+  safe frontier and fails closed without it.
+- Each Task may carry an `executionPolicy` with continuity, isolation,
+  comparison side, per-side GPU count, minimum GPU memory, topology class,
+  node exclusivity, concurrency keys, timeout, and bounded attempts. Paired
+  comparisons reserve the requested GPU count independently for Reference and
+  Target.
+- The scheduler reconstructs active leases from queued/running TaskRuns after
+  restart. Terminal TaskRuns release their GPU and concurrency-key leases.
+  Operators can provide a precise node inventory through
+  `SPARK_TASK_RESOURCE_INVENTORY`; otherwise Spark uses
+  `CUDA_VISIBLE_DEVICES`, then a bounded `nvidia-smi` probe. Topology-qualified
+  Tasks remain deferred until the inventory declares the requested class.
 - `todo` mutates the session-bound standalone checklist; its current state is projected automatically rather than fetched in normal agent flow.
 - `goal`, `loop`, `drive`, `phase`, and `repro` own their named foreground state machines. Spark native hosts expose the plan/implement switch as `phase({ action })` (`spark-modes` remains the host-neutral lens mechanism that defaults its descriptor name to `mode`).
 - `workflow` lists/reads controlled selectors; `workflow_run` executes a saved selector or trusted metadata-first script.

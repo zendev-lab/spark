@@ -10,6 +10,8 @@ import {
   type RunRef,
   type SubgoalRef,
   type TaskRef,
+  type TaskExecutionPolicy,
+  type TaskResourceAllocation,
   type TaskRun,
   type TaskRunExecutionBinding,
 } from "@zendev-lab/spark-core";
@@ -32,6 +34,7 @@ export interface ManagedTaskSessionDispatchInput {
   taskRefs: TaskRef[];
   registry: RoleRegistry;
   subgoals?: readonly SparkReproSubgoal[];
+  resourceAllocations?: Partial<Record<TaskRef, TaskResourceAllocation>>;
   daemonRequest?: typeof requestSparkDaemon;
 }
 
@@ -61,6 +64,7 @@ interface ReservedTaskSessionRun {
   roleRef: RoleRef;
   goal: string;
   evidenceRequired: string[];
+  executionPolicy: TaskExecutionPolicy;
   relation: {
     subgoalRef?: SubgoalRef;
     planRevision?: number;
@@ -179,6 +183,7 @@ export async function reconcileManagedTaskSessions(input: {
 
   const daemonRequest = input.daemonRequest ?? requestSparkDaemon;
   const invocationStatuses = new Map<string, string>();
+  const timeoutRequests = new Map<RunRef, string>();
   await Promise.all(
     active.map(async (run) => {
       const invocationId = run.execution?.invocationId;
@@ -186,6 +191,21 @@ export async function reconcileManagedTaskSessions(input: {
       try {
         const status = await daemonRequest("turn.status", { invocationId });
         invocationStatuses.set(run.ref, status.status);
+        const task = snapshot?.getTask(run.taskRef);
+        const timeoutMs = task?.executionPolicy?.timeoutMs;
+        if (
+          (status.status === "queued" || status.status === "running") &&
+          timeoutMs !== undefined &&
+          taskRunTimedOut(run, timeoutMs)
+        ) {
+          if (!run.timeoutRequestedAt) {
+            const cancelled = await daemonRequest("turn.cancel", {
+              invocationId,
+              reason: `Task ${run.taskRef} exceeded executionPolicy.timeoutMs=${timeoutMs}.`,
+            });
+            if (cancelled.cancelRequested) timeoutRequests.set(run.ref, nowIso());
+          }
+        }
       } catch {
         // The task graph remains authoritative for a child that already wrote
         // its terminal outcome. Missing daemon state fails closed otherwise.
@@ -203,6 +223,10 @@ export async function reconcileManagedTaskSessions(input: {
         if (!run?.execution || (run.status !== "queued" && run.status !== "running")) continue;
         result.inspected += 1;
         const task = graph.getTask(run.taskRef);
+        const timeoutRequestedAt = run.timeoutRequestedAt ?? timeoutRequests.get(run.ref);
+        if (timeoutRequestedAt && !run.timeoutRequestedAt) {
+          graph.recordRun({ ...run, timeoutRequestedAt });
+        }
         const currentSubgoal = run.execution.subgoalRef
           ? input.subgoals?.find((candidate) => candidate.ref === run.execution?.subgoalRef)
           : undefined;
@@ -259,6 +283,21 @@ export async function reconcileManagedTaskSessions(input: {
 
         const invocationStatus = invocationStatuses.get(run.ref);
         if (invocationStatus === "queued" || invocationStatus === "running") continue;
+        if (invocationStatus === "cancelled" && timeoutRequestedAt) {
+          graph.recordRun(
+            terminalManagedRun(
+              { ...run, timeoutRequestedAt },
+              "failed",
+              `Managed Session exceeded the Task execution timeout requested at ${timeoutRequestedAt}.`,
+              task.outputArtifacts,
+              { failureKind: "runtime_timeout" },
+            ),
+          );
+          graph.setTaskStatus(task.ref, "failed");
+          result.terminal += 1;
+          result.failed += 1;
+          continue;
+        }
         if (invocationStatus === "succeeded") {
           graph.recordRun(
             terminalManagedRun(
@@ -343,10 +382,20 @@ function reserveTaskSessionRuns(
       .sort((left, right) => (left.execution?.attempt ?? 0) - (right.execution?.attempt ?? 0))
       .at(-1);
     const attempt = (prior?.execution?.attempt ?? 0) + 1;
+    const executionPolicy = task.executionPolicy;
+    if (attempt > (executionPolicy?.maxAttempts ?? 2)) {
+      throw new Error(
+        `task ${taskRef} reached maxAttempts=${executionPolicy?.maxAttempts ?? 2} for ${jobId}`,
+      );
+    }
+    const reuseSession = executionPolicy?.continuity !== "fresh";
     const executionSessionId =
-      prior?.execution?.executionSessionId ??
-      `sess_task_${stableId(`${input.projectRef}:${taskRef}:${jobId}`)}`;
-    const sessionGoalId = prior?.execution?.sessionGoalId ?? randomUUID();
+      (reuseSession ? prior?.execution?.executionSessionId : undefined) ??
+      `sess_task_${stableId(
+        `${input.projectRef}:${taskRef}:${jobId}:${reuseSession ? "stable" : attempt}`,
+      )}`;
+    const sessionGoalId =
+      (reuseSession ? prior?.execution?.sessionGoalId : undefined) ?? randomUUID();
     const execution: TaskRunExecutionBinding = {
       ownerSessionId: input.ownerSessionId,
       executionSessionId,
@@ -375,6 +424,7 @@ function reserveTaskSessionRuns(
       runName,
       ownerSessionId: input.ownerSessionId,
       execution,
+      resourceAllocation: input.resourceAllocations?.[taskRef],
       status: "queued",
       startedAt: nowIso(),
       outputArtifacts: [],
@@ -385,6 +435,7 @@ function reserveTaskSessionRuns(
       roleRef,
       goal: subgoal?.goal ?? task.plan?.objective ?? task.description,
       evidenceRequired: subgoal?.evidenceRequired ?? task.plan?.evidenceRequired ?? [],
+      executionPolicy: task.executionPolicy!,
       relation: {
         ...(subgoal
           ? {
@@ -448,7 +499,6 @@ async function ensureTaskExecutionSession(input: {
       existing.relation?.kind !== "task_execution" ||
       existing.relation.jobId !== input.execution.jobId ||
       existing.relation.taskRef !== input.taskRef ||
-      existing.relation.runRef !== input.runRef ||
       existing.relation.sessionGoalId !== input.execution.sessionGoalId
     ) {
       throw new Error(
@@ -506,6 +556,7 @@ function taskSessionJobId(input: {
       kind: input.task.kind,
       roleRef: input.roleRef,
       plan: input.task.plan,
+      executionPolicy: input.task.executionPolicy,
       inputArtifacts: input.task.inputArtifacts,
       subgoalRef: input.subgoalRef,
       planRevision: input.planRevision,
@@ -521,6 +572,23 @@ function renderTaskExecutionPrompt(reservation: ReservedTaskSessionRun): string 
     `Execute the Project Task ${reservation.run.taskRef}.`,
     `Your Session Goal is exactly: ${reservation.goal}`,
     `TaskRun: ${reservation.run.ref}; jobId=${execution.jobId}; attempt=${execution.attempt}.`,
+    `Execution policy: continuity=${reservation.executionPolicy.continuity}; isolation=${reservation.executionPolicy.isolation}; comparison=${reservation.executionPolicy.comparison}; maxAttempts=${reservation.executionPolicy.maxAttempts}.`,
+    reservation.executionPolicy.isolation === "readonly"
+      ? "Do not modify repository source or external state."
+      : reservation.executionPolicy.isolation === "isolated_worktree"
+        ? "Modify source only inside the Task-owned isolated worktree supplied by the owner workflow."
+        : `Write experiment outputs only under .spark/task-results/${execution.jobId}/.`,
+    ...(reservation.run.resourceAllocation
+      ? [
+          `Resource lease: ${reservation.run.resourceAllocation.leaseId} on ${reservation.run.resourceAllocation.nodeId}.`,
+          reservation.run.resourceAllocation.gpuIds.length > 0
+            ? `Use only allocated GPUs: CUDA_VISIBLE_DEVICES=${reservation.run.resourceAllocation.gpuIds.join(",")}.`
+            : "This Task has no GPU allocation.",
+          reservation.run.resourceAllocation.concurrencyKeys.length > 0
+            ? `Held concurrency keys: ${reservation.run.resourceAllocation.concurrencyKeys.join(", ")}.`
+            : "No concurrency keys are held.",
+        ]
+      : []),
     reservation.evidenceRequired.length > 0
       ? `Required evidence: ${reservation.evidenceRequired.join("; ")}`
       : "Record inspectable evidence appropriate to the Task.",
@@ -567,6 +635,12 @@ function emptyReconcileResult(): ManagedTaskSessionReconcileResult {
     cancelled: 0,
     superseded: 0,
   };
+}
+
+function taskRunTimedOut(run: TaskRun, timeoutMs: number): boolean {
+  if (run.timeoutRequestedAt) return true;
+  const startedAt = Date.parse(run.startedAt ?? "");
+  return Number.isFinite(startedAt) && Date.now() - startedAt >= timeoutMs;
 }
 
 function isSessionAlreadyExists(error: unknown): boolean {

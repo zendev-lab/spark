@@ -6,8 +6,13 @@ import {
   isRef,
   type ProjectRef,
   type TaskRef,
+  type TaskResourceAllocation,
 } from "@zendev-lab/spark-core";
-import { runReadyTasks } from "@zendev-lab/spark-workflows";
+import {
+  discoverTaskResourceInventory,
+  packTaskResourceFrontier,
+  runReadyTasks,
+} from "@zendev-lab/spark-workflows";
 import { defaultTaskGraphStore, type TaskGraph } from "@zendev-lab/spark-tasks";
 import { ensureRoleModelSettingsForProject } from "./role-model-settings.ts";
 import {
@@ -163,13 +168,44 @@ export function registerSparkRunReadyTasksTool(
             );
           }
           const dispatch = deps.dispatchManagedTaskSessions ?? dispatchManagedTaskSessions;
+          const resourceInventory = await discoverTaskResourceInventory();
+          const packing = packTaskResourceFrontier({
+            tasks: taskRefs.map((taskRef) => graph.getTask(taskRef)),
+            runs: graph.runs(),
+            inventory: resourceInventory,
+            maxConcurrency,
+          });
+          if (packing.scheduled.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Accepted 0 managed Task Session runs for “${project.title}”; ${packing.deferred.length} task(s) are waiting for resources or retry authority.`,
+                },
+              ],
+              details: {
+                accepted: true,
+                dryRun: false,
+                projectRef: project.ref,
+                taskRefs: [],
+                bindings: [],
+                resourceInventory,
+                resourceDeferred: packing.deferred,
+                policy: { maxConcurrency, timeoutMs },
+              },
+            };
+          }
+          const resourceAllocations = Object.fromEntries(
+            packing.scheduled.map((packed) => [packed.taskRef, packed.allocation]),
+          ) as Partial<Record<TaskRef, TaskResourceAllocation>>;
           const records = await dispatch({
             cwd,
             ctx,
             ownerSessionId,
             projectRef: project.ref,
-            taskRefs: taskRefs.slice(0, maxConcurrency),
+            taskRefs: packing.scheduled.map((packed) => packed.taskRef),
             registry,
+            resourceAllocations,
             ...(orchestration && repro ? { subgoals: repro.subgoals } : {}),
           } satisfies ManagedTaskSessionDispatchInput);
           await deps.refreshSparkWidget?.(cwd, ctx);
@@ -186,6 +222,8 @@ export function registerSparkRunReadyTasksTool(
               projectRef: project.ref,
               taskRefs: records.map((record) => record.taskRef),
               bindings: records,
+              resourceInventory,
+              resourceDeferred: packing.deferred,
               policy: { maxConcurrency, timeoutMs },
             },
           };
@@ -225,6 +263,7 @@ export function registerSparkRunReadyTasksTool(
       }
 
       const artifactStore = defaultArtifactStore(cwd);
+      const resourceInventory = await discoverTaskResourceInventory();
       const runtimeRunner = createSparkRuntimeReadyTaskRunner({
         registry,
         artifactStore,
@@ -239,6 +278,7 @@ export function registerSparkRunReadyTasksTool(
         dryRun: true,
         maxConcurrency,
         timeoutMs,
+        resourceInventory,
       });
       const runLabels = result.runs.map((run) => run.runName ?? run.roleRef ?? run.ref);
       const visibleRunLabels = runLabels.slice(0, 8);

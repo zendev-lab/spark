@@ -1,4 +1,4 @@
-import type { RoleRef, TaskKind } from "@zendev-lab/spark-core";
+import type { RoleRef, TaskExecutionPolicy, TaskKind } from "@zendev-lab/spark-core";
 import type { SparkReproStageName, SparkReproStepAuthority } from "./spark-session-repro.ts";
 
 export interface ReproRoadmapBlueprint {
@@ -17,6 +17,7 @@ export interface ReproTaskBlueprint {
   description: string;
   kind: TaskKind;
   roleRef: RoleRef;
+  executionPolicy: TaskExecutionPolicy;
   authority: SparkReproStepAuthority;
   dependsOn: string[];
   goal: string;
@@ -44,6 +45,7 @@ function task(
     description?: string;
     kind?: TaskKind;
     roleRef?: RoleRef;
+    executionPolicy?: TaskExecutionPolicy;
     authority?: SparkReproStepAuthority;
     dependsOn?: string[];
     goal?: string;
@@ -70,11 +72,73 @@ function task(
             ? reviewer
             : explorer
         : reviewer),
+    executionPolicy:
+      input.executionPolicy ?? defaultReproExecutionPolicy(id, roadmapKey, kind, authority),
     authority,
     dependsOn: input.dependsOn ?? [],
     goal: input.goal ?? title,
     doneWhen: input.doneWhen,
     evidenceRequired: input.evidenceRequired,
+  };
+}
+
+function defaultReproExecutionPolicy(
+  id: string,
+  roadmapKey: string,
+  kind: TaskKind,
+  authority: SparkReproStepAuthority,
+): TaskExecutionPolicy {
+  const isAsk = authority !== "safe_local";
+  const isImplementation = kind === "implement";
+  const isExperiment =
+    /(?:probe|entrypoint|transaction|determinism|align|validate|run-|bitwise|qualify|compose|replay|ablation|benchmark|checker)/u.test(
+      id,
+    );
+  const axisGpuCount = /qualify-(?:tp|ep|pp)/u.test(id)
+    ? 2
+    : id === "compose-tp-ep"
+      ? 4
+      : /(?:compose-tp-ep-pp|ptarget|s3-)/u.test(id)
+        ? 8
+        : isExperiment
+          ? 1
+          : 0;
+  const paired =
+    axisGpuCount <= 2 &&
+    /(?:determinism|align-s0|validate-s0|final-checker|accuracy-mode|ablation)/u.test(id);
+  const exclusiveNode = /(?:benchmark|performance-budget|target-scale-convergence)/u.test(id);
+  const topologyClass =
+    axisGpuCount === 2 ? "gpu-pair" : axisGpuCount === 4 ? "gpu-island-4" : undefined;
+  const isolation = isImplementation
+    ? "isolated_worktree"
+    : isExperiment
+      ? "isolated_results"
+      : "readonly";
+  return {
+    continuity:
+      kind === "research" || kind === "review" || kind === "plan" || isAsk
+        ? "fresh"
+        : "reuse_within_revision",
+    isolation,
+    comparison: paired ? "paired" : "single_side",
+    ...(axisGpuCount > 0 || exclusiveNode
+      ? {
+          resources: {
+            gpuCount: axisGpuCount,
+            ...(topologyClass ? { topologyClass } : {}),
+            ...(exclusiveNode ? { exclusiveNode: true } : {}),
+          },
+        }
+      : {}),
+    concurrencyKeys: [
+      isolation === "isolated_worktree"
+        ? `worktree:repro:${roadmapKey}:${id}`
+        : isolation === "isolated_results"
+          ? `results:repro:${id}`
+          : `readonly:repro:${id}`,
+    ],
+    ...(isExperiment ? { timeoutMs: 6 * 60 * 60 * 1_000 } : {}),
+    maxAttempts: 2,
   };
 }
 

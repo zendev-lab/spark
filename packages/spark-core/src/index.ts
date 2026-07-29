@@ -1193,6 +1193,55 @@ export interface TaskPlan {
   askRefs: Array<AskRef | ArtifactRef>;
 }
 
+export type TaskExecutionContinuity = "reuse_within_revision" | "fresh";
+export type TaskExecutionIsolation = "readonly" | "isolated_worktree" | "isolated_results";
+export type TaskExecutionComparison = "single_side" | "reference" | "target" | "paired";
+
+export interface TaskResourceRequest {
+  /** GPUs requested per side. Paired comparisons reserve twice this count. */
+  gpuCount: number;
+  minGpuMemoryGiB?: number;
+  topologyClass?: string;
+  exclusiveNode?: boolean;
+}
+
+export interface TaskExecutionPolicy {
+  continuity: TaskExecutionContinuity;
+  isolation: TaskExecutionIsolation;
+  comparison: TaskExecutionComparison;
+  resources?: TaskResourceRequest;
+  concurrencyKeys: string[];
+  timeoutMs?: number;
+  maxAttempts: number;
+}
+
+export interface TaskGpuResource {
+  id: string;
+  memoryGiB?: number;
+  topologyClasses: string[];
+}
+
+export interface TaskResourceInventory {
+  nodeId: string;
+  gpus: TaskGpuResource[];
+}
+
+export interface TaskResourceAllocationGroup {
+  side: TaskExecutionComparison;
+  gpuIds: string[];
+}
+
+export interface TaskResourceAllocation {
+  leaseId: string;
+  nodeId: string;
+  groups: TaskResourceAllocationGroup[];
+  gpuIds: string[];
+  concurrencyKeys: string[];
+  topologyClass?: string;
+  exclusiveNode: boolean;
+  allocatedAt: string;
+}
+
 export type TaskPlanIssueKind =
   | "missing_plan"
   | "missing_objective"
@@ -1243,6 +1292,7 @@ export interface Task {
   kind: TaskKind;
   status: TaskStatus;
   roleRef?: RoleRef;
+  executionPolicy?: TaskExecutionPolicy;
   /** Last actor that finished this task after active claims are cleared. */
   finishedBy?: TaskAttribution;
   /** Cancellation metadata when status is cancelled. */
@@ -1310,6 +1360,8 @@ export interface TaskRun {
   ref: RunRef;
   projectRef: ProjectRef;
   taskRef: TaskRef;
+  /** Preview-only runs never consume bounded execution attempts. */
+  dryRun?: boolean;
   roleRef?: RoleRef;
   /** Human-readable name for this concrete child run. */
   runName?: string;
@@ -1317,6 +1369,10 @@ export interface TaskRun {
   ownerSessionId?: string;
   /** Durable daemon-managed execution identity for Task-to-Session runs. */
   execution?: TaskRunExecutionBinding;
+  /** Resource lease reconstructed from active TaskRuns after restart. */
+  resourceAllocation?: TaskResourceAllocation;
+  /** Daemon cancellation was requested after the Task policy timeout elapsed. */
+  timeoutRequestedAt?: string;
   status: TaskRunStatus;
   failureKind?: TaskRunFailureKind;
   errorMessage?: string;

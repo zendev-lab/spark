@@ -45,6 +45,11 @@ export function createSparkRuntimeReadyTaskRunner(
         dryRun: input.dryRun,
         timeoutMs: input.timeoutMs,
         signal: input.signal,
+        resourceAllocation: input.resourceAllocation,
+        env:
+          input.resourceAllocation && input.resourceAllocation.gpuIds.length > 0
+            ? { CUDA_VISIBLE_DEVICES: input.resourceAllocation.gpuIds.join(",") }
+            : undefined,
         sessionDir: options.sessionDir,
         launch: options.launch,
         forkFromSession: options.forkFromSession,

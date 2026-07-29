@@ -825,6 +825,7 @@ function compactManagedTaskExecution(
     jobId: run.execution.jobId,
     attempt: run.execution.attempt,
     invocationId: run.execution.invocationId,
+    ...(run.resourceAllocation ? { resourceAllocation: run.resourceAllocation } : {}),
     evidenceRefs: run.outputArtifacts,
     failureKind: run.failureKind,
     errorMessage: run.errorMessage,
@@ -841,6 +842,9 @@ function formatManagedTaskExecution(run: TaskRun): string {
     `Goal=${execution.sessionGoalId}`,
     execution.subgoalRef ? `Subgoal=${execution.subgoalRef}` : undefined,
     `attempt=${execution.attempt}`,
+    run.resourceAllocation
+      ? `lease=${run.resourceAllocation.leaseId} GPUs=${run.resourceAllocation.gpuIds.join(",") || "none"}`
+      : undefined,
     `evidence=${run.outputArtifacts.length}`,
   ]
     .filter((value): value is string => !!value)
