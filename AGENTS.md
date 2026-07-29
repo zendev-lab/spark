@@ -55,7 +55,7 @@ Target package topology follows type-first names:
 ## CI
 
 - `.github/workflows/ci-static-checks.yml` — prek + `setup-vp` + prek pass with `vp-check` skipped (avoids duplicating `vp check` already covered by ci-verify).
-- `.github/workflows/ci-verify.yml` — parallel static, unit/integration, source-process, npm-product-process, and headless-Chromium Cockpit lanes with one aggregate `verify` result.
+- `.github/workflows/ci-verify.yml` — parallel grouped checks (static + docs), tests (unit/integration + source process), and smoke (packed npm product + headless-Chromium Cockpit), with one aggregate `required` result.
 - `.github/workflows/ce-mutation.yml` — weekly/manual leaf-package mutation CE (non-blocking).
 - `.github/workflows/ci-pr-checks.yml` — PR title validation (zendev).
 - `.github/workflows/cd-publish.yml` — protected, version-tag-only npm and GitHub Release publication.

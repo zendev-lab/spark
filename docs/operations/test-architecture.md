@@ -24,15 +24,14 @@ startup and drain checks remain in the daemon integration lane rather than being
 store contract.
 
 Keep Node SSR tests for deterministic rendered states and browser tests for behavior that requires
-focus, events, layout, or browser APIs. Browser tests run in their own CI job so Chromium setup does
-not slow down package unit tests or hide browser-specific failures inside the default suite.
+focus, events, layout, or browser APIs. Browser tests remain outside the default and unit suites so
+Chromium setup does not slow down package tests; CI labels them as a dedicated smoke step.
 
-Real process tests stay out of the root Vitest suite. Source and packed-product lanes share the same
+Real process tests stay out of the root Vitest suite. Source and packed-product checks share the same
 daemon lifecycle harness, but invoke different executable targets. This prevents the source launcher
-and generated npm product from drifting while keeping their failures independently attributable.
-`pnpm run check` remains the serial local gate; CI runs static, unit/integration, source-process,
-product-process, and Cockpit-browser lanes in parallel, then requires a single aggregate `verify`
-job.
+and generated npm product from drifting while keeping failures attributable to distinct named steps.
+`pnpm run check` remains the serial local gate; CI runs grouped checks, tests, and smoke jobs in
+parallel, then requires a single aggregate `required` job.
 
 ## Assertion hierarchy
 
