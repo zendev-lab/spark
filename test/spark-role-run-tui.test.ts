@@ -181,7 +181,7 @@ test("Spark role-run completion message renderer supports compact and expanded d
 
   const compact = renderSparkRoleRunCompletionMessageLines(entry, { width: 120 }, theme).join("\n");
   assert.match(compact, /worker completed run:cccccccc/);
-  assert.match(compact, /artifacts: artifact:trace/);
+  assert.match(compact, /artifacts: evidence:trace/);
 
   const expanded = renderSparkRoleRunCompletionMessageLines(
     entry,
@@ -389,7 +389,7 @@ test("Spark extension publishes role-run footer status, below-editor widget, and
     )
       ?.render(120)
       .join("\n");
-    assert.match(rendered ?? "", /artifact:trace/);
+    assert.match(rendered ?? "", /evidence:trace/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

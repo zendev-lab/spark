@@ -556,14 +556,14 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
   assert.match(rendered, /Session inspector: artifacts/);
   assert.match(
     rendered,
-    /artifact:review-verdict \[record\/json\] producer=review status=approved/,
+    /evidence:review-verdict \[record\/json\] producer=review status=approved/,
   );
-  assert.match(rendered, /artifact:graft-patch \[record\/json\] producer=task status=candidate/);
+  assert.match(rendered, /evidence:graft-patch \[record\/json\] producer=task status=candidate/);
 
   assert.equal(await app.submitInput("/reviews"), "command");
   rendered = app.render(120).join("\n");
   assert.match(rendered, /Session inspector: reviewer verdicts/);
-  assert.match(rendered, /artifact:review-verdict \[approved\] Reviewer verdict/);
+  assert.match(rendered, /evidence:review-verdict \[approved\] Reviewer verdict/);
 
   assert.equal(await app.submitInput("/graft"), "command");
   rendered = app.render(120).join("\n");

@@ -1991,24 +1991,24 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
   assert.equal(await harness.submit("/artifacts"), "command");
   assert.match(
     stripAnsi(harness.render()),
-    /artifact:review-ok \[record\/json\] producer=review status=approved Reviewer verdict/,
+    /evidence:review-ok \[record\/json\] producer=review status=approved Reviewer verdict/,
   );
   assert.match(
     stripAnsi(harness.render()),
-    /artifact:graft-patch \[record\/json\] producer=task status=admitted Graft patch provenance/,
+    /evidence:graft-patch \[record\/json\] producer=task status=admitted Graft patch provenance/,
   );
 
   assert.equal(await harness.submit("/reviews"), "command");
   assert.match(
     stripAnsi(harness.render()),
-    /artifact:review-ok \[approved\] Reviewer verdict for cockpit task/,
+    /evidence:review-ok \[approved\] Reviewer verdict for cockpit task/,
   );
   assert.match(stripAnsi(harness.render()), /role:role:reviewer \[approved\] Reviewer pass/);
 
   assert.equal(await harness.submit("/graft"), "command");
   assert.match(
     stripAnsi(harness.render()),
-    /artifact:graft-patch patch=patch:abc candidate=candidate:abc status=admitted/,
+    /evidence:graft-patch patch=patch:abc candidate=candidate:abc status=admitted/,
   );
   assert.match(
     stripAnsi(harness.render()),

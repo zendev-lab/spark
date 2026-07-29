@@ -8,6 +8,7 @@ const canonicalRootScripts = [
   "build",
   "build:docs",
   "check",
+  "check:artifact-ref-boundaries",
   "check:boundaries",
   "check:docs",
   "check:static",
@@ -64,6 +65,10 @@ test("root package exposes one compact validation and release surface", async ()
   assert.equal(scripts["build:docs"], "pnpm --filter @zendev-lab/spark-docs run build");
   assert.equal(scripts["check:docs"], "pnpm --filter @zendev-lab/spark-docs run check");
   assert.equal(
+    scripts["check:artifact-ref-boundaries"],
+    "node scripts/check-artifact-ref-boundaries.mjs",
+  );
+  assert.equal(
     scripts["check:boundaries"],
     "depcruise --config .dependency-cruiser.cjs apps packages test",
   );
@@ -79,6 +84,7 @@ test("root package exposes one compact validation and release surface", async ()
     "pnpm --filter @zendev-lab/spark-docs exec astro sync",
     "node scripts/check-architecture-ratchets.mjs",
     "node scripts/check-npm-product.mjs",
+    "pnpm run check:artifact-ref-boundaries",
     "pnpm run check:boundaries",
     "pnpm run check:test-quality",
     "node scripts/check-doc-terminology.mjs",
