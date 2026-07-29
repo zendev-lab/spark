@@ -55,6 +55,7 @@ import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
 import { recoverInterruptedRuntimeCommandReceipts } from "./runtime-command-receipts.ts";
+import { SessionRequestCompletionDeliveryStore } from "./store/session-request-completion-deliveries.ts";
 import { migrateLegacyQueueHistory } from "./store/legacy-queue-migration.ts";
 import { SparkChannelDeliveryStore } from "./store/channel-deliveries.ts";
 import {
@@ -80,7 +81,10 @@ import {
 import { runSparkCommandBridge, cancelSparkBridgeInvocation } from "./spark/bridge.js";
 import { createChannelAwareTaskExecutor, sessionSourceForTask } from "./spark/session-run.js";
 import { reconcileSessionNotificationDeliveries } from "./session-notification-delivery.ts";
-import { notifySessionRequestCompletion } from "./session-request-completion-notify.ts";
+import {
+  reconcileSessionRequestCompletions,
+  sessionRequestCompletionRequested,
+} from "./session-request-completion-notify.ts";
 import {
   nextSparkDaemonTokenRefreshDelayMs,
   refreshSparkDaemonCredentials,
@@ -140,6 +144,7 @@ interface DaemonServingLoops {
   channelDelivery?: Promise<void>;
   channelReply?: Promise<void>;
   notification?: Promise<void>;
+  sessionCompletion?: Promise<void>;
 }
 
 interface RestartDrainController {
@@ -170,6 +175,7 @@ interface PreparedDaemonRuntime {
   channelReplyDeliveryStore: ChannelReplyDeliveryStore;
   scheduler: SparkInvocationScheduler | null;
   mailStore: SparkSessionMailStore;
+  sessionCompletionDeliveryStore: SessionRequestCompletionDeliveryStore;
   servingGate: ServingLoopGate;
   loops: DaemonServingLoops;
   restartDrain: RestartDrainController;
@@ -242,6 +248,19 @@ async function createPreparedDaemonRuntime(
   const corruptMailboxReporter = createRepeatedErrorReporter(
     "[spark-daemon] corrupt session mailbox skipped",
   );
+  const mailStore =
+    options.mailStore ??
+    new SparkSessionMailStore({
+      sparkHome: userPaths.dataRoot,
+      onCorruptMailbox: ({ path, error }) => {
+        corruptMailboxReporter.report(
+          new Error(`Unable to read mailbox ${path}`, {
+            cause: error,
+          }),
+        );
+      },
+    });
+  const sessionCompletionDeliveryStore = new SessionRequestCompletionDeliveryStore(options.db);
   const scheduler = createDaemonScheduler({
     options,
     runtimeSignal,
@@ -255,6 +274,8 @@ async function createPreparedDaemonRuntime(
     eventHub,
     controlSparkHome: userPaths.configRoot,
     channelsSparkHome: userPaths.dataRoot,
+    mailStore,
+    sessionCompletionDeliveryStore,
   });
   const closeRestartAdmission = () => {
     admission.open = false;
@@ -299,18 +320,8 @@ async function createPreparedDaemonRuntime(
     nextDriverGcAtMs: Date.now() + 60_000,
     channelReplyDeliveryStore,
     scheduler,
-    mailStore:
-      options.mailStore ??
-      new SparkSessionMailStore({
-        sparkHome: userPaths.dataRoot,
-        onCorruptMailbox: ({ path, error }) => {
-          corruptMailboxReporter.report(
-            new Error(`Unable to read mailbox ${path}`, {
-              cause: error,
-            }),
-          );
-        },
-      }),
+    mailStore,
+    sessionCompletionDeliveryStore,
     servingGate,
     loops: {},
     restartDrain,
@@ -495,6 +506,12 @@ function startDaemonServingLoops(runtime: PreparedDaemonRuntime): void {
       );
     });
   }
+  if (options.sessionRegistry && !options.once) {
+    loops.sessionCompletion = servingGate.promise.then(async (committed) => {
+      if (!committed || runtimeSignal.aborted) return;
+      await runSessionCompletionReconcileLoop(runtime);
+    });
+  }
   if (channelIngress && options.sessionRegistry && !options.once) {
     loops.notification = servingGate.promise.then(async (committed) => {
       if (!committed || runtimeSignal.aborted) return;
@@ -549,6 +566,7 @@ async function runDaemonOnce(runtime: PreparedDaemonRuntime): Promise<void> {
     scheduler.processBatch();
     await scheduler.wait();
   }
+  await reconcileSessionRequestCompletionBatch(runtime);
   if (channelIngress && !runtimeSignal.aborted) {
     await reconcileDaemonChannelDeliveries(
       {
@@ -560,6 +578,29 @@ async function runDaemonOnce(runtime: PreparedDaemonRuntime): Promise<void> {
     );
   }
   await runSparkDaemonServerConnectionsOnce(daemonServerConnectionOptions(runtime));
+}
+
+async function runSessionCompletionReconcileLoop(runtime: PreparedDaemonRuntime): Promise<void> {
+  while (!runtime.runtimeSignal.aborted) {
+    await reconcileSessionRequestCompletionBatch(runtime);
+    await delayUnlessAborted(500, runtime.runtimeSignal);
+  }
+}
+
+async function reconcileSessionRequestCompletionBatch(
+  runtime: PreparedDaemonRuntime,
+): Promise<void> {
+  if (!runtime.options.sessionRegistry || !runtime.admission.open) return;
+  await reconcileSessionRequestCompletions({
+    invocationStore: runtime.invocationStore,
+    deliveryStore: runtime.sessionCompletionDeliveryStore,
+    mailStore: runtime.mailStore,
+    sessionRegistry: runtime.options.sessionRegistry,
+    ...(runtime.options.modelControl ? { modelControl: runtime.options.modelControl } : {}),
+    resolveWorkspaceCwd: (workspaceId) =>
+      resolveWorkspaceLocalPath(runtime.options.db, workspaceId),
+    canAdmit: () => runtime.admission.open && !runtime.runtimeSignal.aborted,
+  });
 }
 
 async function reconcileDriverHiddenSessionGc(
@@ -611,6 +652,7 @@ async function cleanupPreparedDaemonRuntime(runtime: PreparedDaemonRuntime): Pro
   await runtime.loops.scheduler;
   await runtime.loops.channelDelivery;
   await runtime.loops.notification;
+  await runtime.loops.sessionCompletion;
   await runtime.loops.channelReply;
   if (options.managePidFile !== false && existsSync(options.paths.pidFile)) {
     rmSync(options.paths.pidFile, { force: true });
@@ -630,6 +672,8 @@ function createDaemonScheduler(input: {
   eventHub: InvocationEventHub;
   controlSparkHome: string;
   channelsSparkHome: string;
+  mailStore: SparkSessionMailStore;
+  sessionCompletionDeliveryStore: SessionRequestCompletionDeliveryStore;
 }): SparkInvocationScheduler | null {
   if (input.options.runScheduler === false) return null;
   const { options } = input;
@@ -730,22 +774,30 @@ function completeScheduledInvocation(
       db: input.options.db,
       invocations: input.invocationStore,
       deliveries: input.channelDeliveryStore,
+      afterComplete: () => {
+        if (sessionRequestCompletionRequested(task)) {
+          input.sessionCompletionDeliveryStore.enqueue(invocation.invocationId);
+        }
+      },
     },
     invocation,
     task,
     completion,
   );
-  if (input.options.sessionRegistry) {
-    void notifySessionRequestCompletion(
+  if (input.options.sessionRegistry && sessionRequestCompletionRequested(task)) {
+    void reconcileSessionRequestCompletions(
       {
         invocationStore: input.invocationStore,
+        deliveryStore: input.sessionCompletionDeliveryStore,
+        mailStore: input.mailStore,
         sessionRegistry: input.options.sessionRegistry,
         ...(input.options.modelControl ? { modelControl: input.options.modelControl } : {}),
         resolveWorkspaceCwd: (workspaceId) =>
           resolveWorkspaceLocalPath(input.options.db, workspaceId),
         canAdmit: () => input.admission.open && !input.runtimeSignal.aborted,
       },
-      { invocation, task, completion },
+      1,
+      invocation.invocationId,
     ).catch((error) => {
       console.error("[spark-daemon] session request completion notify failed", error);
     });

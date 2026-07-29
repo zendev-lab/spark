@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { WebSocketServer } from "ws";
 import { describe, expect, it, vi } from "vitest";
 import {
+  type SparkSessionRegistryRecord,
   SPARK_PROTOCOL_VERSION,
   createId,
   runtimeProtocolVersion,
@@ -27,6 +28,8 @@ import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { CancelSparkInvocationFn, RunSparkCommandFn } from "./spark/bridge.js";
 import { SparkDriverStore } from "./store/drivers.ts";
+import { createDaemonSessionRegistry } from "./session-registry.ts";
+import { SessionRequestCompletionDeliveryStore } from "./store/session-request-completion-deliveries.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
 import {
@@ -705,6 +708,103 @@ describe("Spark daemon handleCommand task.start.request", () => {
       });
       expect(existsSync(harness.paths.pidFile)).toBe(false);
     } finally {
+      harness.cleanup();
+    }
+  });
+
+  it("reconciles a restarted daemon-local completion without channel ingress", async () => {
+    const harness = makeHarness();
+    const store = new SparkInvocationStore(harness.db);
+    const deliveries = new SessionRequestCompletionDeliveryStore(harness.db);
+    const source = store.submit({
+      sessionId: "target-session-restart",
+      prompt: "delegated request",
+      task: {
+        type: "session.run",
+        sessionId: "target-session-restart",
+        prompt: "delegated request",
+        cwd: harness.workspace.localPath,
+        messageMetadata: {
+          sessionMail: {
+            messageId: "mail:daemon-restart",
+            kind: "request",
+            fromSessionId: "sender-session-restart",
+            toSessionId: "target-session-restart",
+            notifyOnCompletion: true,
+          },
+        },
+      },
+    });
+    store.claimNext("target-executor");
+    store.complete(source.invocationId, {
+      status: "succeeded",
+      result: { assistantText: "recovered result" },
+    });
+    deliveries.enqueue(source.invocationId);
+    const sender: SparkSessionRegistryRecord = {
+      sessionId: "sender-session-restart",
+      scope: { kind: "workspace", workspaceId: harness.workspace.id },
+      workspaceId: harness.workspace.id,
+      cwd: harness.workspace.localPath,
+      status: "ready",
+      bindings: [],
+      createdAt: "2026-07-29T00:00:00.000Z",
+      updatedAt: "2026-07-29T00:00:00.000Z",
+    };
+    const sessionRegistry = createDaemonSessionRegistry(harness.sparkHome, {
+      daemonId: "install-test",
+      daemonCwd: harness.workspace.localPath,
+    });
+    const firstShutdown = new AbortController();
+    const first = startSparkDaemon({
+      paths: harness.paths,
+      sparkHome: harness.sparkHome,
+      db: harness.db,
+      config: { installationId: "install-test", displayName: "Test daemon" },
+      signal: firstShutdown.signal,
+      runScheduler: false,
+      sessionRegistry,
+      notificationReconcileIntervalMs: 5,
+    });
+
+    try {
+      await vi.waitFor(() =>
+        expect(deliveries.require(source.invocationId).attemptCount).toBeGreaterThan(0),
+      );
+      firstShutdown.abort();
+      await first;
+      expect(store.listPendingForSession(sender.sessionId)).toHaveLength(0);
+
+      await sessionRegistry.create({
+        sessionId: sender.sessionId,
+        scope: sender.scope,
+        workspaceId: sender.workspaceId,
+        cwd: sender.cwd,
+      });
+      const recordTurnQueued = vi.spyOn(sessionRegistry, "recordTurnQueued");
+      const successorShutdown = new AbortController();
+      const successor = startSparkDaemon({
+        paths: harness.paths,
+        sparkHome: harness.sparkHome,
+        db: harness.db,
+        config: { installationId: "install-test", displayName: "Test daemon" },
+        signal: successorShutdown.signal,
+        runScheduler: false,
+        sessionRegistry,
+        notificationReconcileIntervalMs: 5,
+      });
+      await vi.waitFor(() =>
+        expect(deliveries.require(source.invocationId).status).toBe("delivered"),
+      );
+      successorShutdown.abort();
+      await successor;
+
+      expect(store.listPendingForSession(sender.sessionId)).toHaveLength(1);
+      expect(recordTurnQueued).toHaveBeenCalledOnce();
+      expect(store.require(source.invocationId).status).toBe("succeeded");
+    } finally {
+      firstShutdown.abort();
+      await first.catch(() => undefined);
       harness.cleanup();
     }
   });
