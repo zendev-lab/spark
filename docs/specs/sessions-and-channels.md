@@ -42,16 +42,16 @@ All side-thread mutations use the dedicated daemon controller. Submit, reset, co
 
 Every side-thread model run receives the read-only prompt and `allowedToolEffects=["read"]`. The host enforces the effect policy immediately before tool dispatch, independently of model instructions; unknown, malformed, write, execution, policy-changing, or external side effects are denied. Restricted hosts also suppress lifecycle listeners whose effects are missing, malformed, or outside that allowlist; automatic transcript compaction may still update the child transcript, but post-compact Memory/candidate hooks cannot mutate workspace state. A side-thread answer can describe a possible change, but it cannot claim that the change was performed.
 
-The executable contract is layered rather than inferred from prompt text:
+The executable contract is layered rather than inferred from prompt text. Exact test anchors are stable so a review can audit every boundary mechanically:
 
-- `packages/spark-host/src/runtime.test.ts` owns `HOST-EFFECT-001` through
-  `HOST-EFFECT-003` for tool admission, stale active-bit rechecks, lifecycle
-  effects, and ordinary-session compatibility;
-- `apps/spark-daemon/src/spark/session-run.test.ts` proves a Side Thread run
-  installs the read-only allowlist before host construction and that write or
-  unclassified compaction hooks remain suppressed;
-- `test/spark-agent-loop.test.ts` proves the agent loop rechecks host policy at
-  final dispatch.
+| ID | Exact Vitest name | Repository path | Boundary proved |
+| --- | --- | --- | --- |
+| `HOST-EFFECT-001` | `SparkHostRuntime effect contract > HOST-EFFECT-001 admits read and denies write, destructive, and unknown effects` | `packages/spark-host/src/runtime.test.ts` | Read-only registration plus stale active-bit dispatch admission. |
+| `HOST-EFFECT-002` | `SparkHostRuntime effect contract > HOST-EFFECT-002 suppresses unclassified and write lifecycle listeners` | `packages/spark-host/src/runtime.test.ts` | Compaction/lifecycle hooks fail closed by effect. |
+| `HOST-EFFECT-003` | `SparkHostRuntime effect contract > HOST-EFFECT-003 preserves unrestricted ordinary-session behavior` | `packages/spark-host/src/runtime.test.ts` | Ordinary sessions retain existing hook behavior without an effect allowlist. |
+| `SIDE-EFFECT-001` | `daemon Side Thread control > SIDE-EFFECT-001 admits child turns only through the generation-aware idempotent control surface` | `apps/spark-daemon/src/side-thread-control.test.ts` | `side-thread.submit` creates the canonical generation-pinned invocation and rejects bypass/replay races. |
+| `SIDE-EFFECT-002` | `daemon native session execution > SIDE-EFFECT-002 preserves a workspace sentinel across side-thread tool and compaction admission` | `apps/spark-daemon/src/spark/session-run.test.ts` | The daemon injects `allowedToolEffects=["read"]`; unknown/write hooks stay at zero while a read hook observes an unchanged sentinel. |
+| `SIDE-EFFECT-003` | `SIDE-EFFECT-003 SparkAgentLoop rechecks host effect policy immediately before dispatch` | `test/spark-agent-loop.test.ts` | A model-selected read tool executes, while a stale-active write tool returns explicit host-policy denial and never executes. |
 
 Snapshots are display projections capped below the runtime command envelope: oversized prompts and answers are UTF-8-safely shortened with explicit truncation metadata, and older exchanges are paged out before transport. The native transcript remains intact. `handoff full` admits the complete visible side-thread exchanges from that transcript to the parent subject to its separate 48 KiB admission cap; `handoff summary` admits a compact bounded rendering. Both treat the material as untrusted analysis that the parent must verify. The daemon admits the parent invocation before it resets the child generation, and an idempotent replay completes any still-pending reset without submitting a second parent turn.
 
