@@ -6402,9 +6402,14 @@ test("repro record accepts only receipt-backed ask decisions with matching value
       title: "Reviewer decision is not user evidence",
       format: "json",
       body: {
-        schema: "spark.ask.evidence/v1",
+        schema: "spark.ask.evidence/v2",
         request: { questions: [{ id: "strategy", prompt: "Choose strategy" }] },
-        result: { status: "answered", answers: { strategy: { values: ["reuse"] } } },
+        result: {
+          status: "answered",
+          answerSource: "reviewer",
+          answers: { strategy: { values: ["reuse"] } },
+        },
+        answerSource: "reviewer",
         autoAnswered: true,
         recordedAt: new Date().toISOString(),
       },

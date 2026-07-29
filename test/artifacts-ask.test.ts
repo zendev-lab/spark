@@ -624,6 +624,22 @@ test("ask flow payload store rejects malformed persisted payloads", async () => 
 
     await writeFile(
       filePath,
+      `${JSON.stringify({
+        ...validAskFlowPayload(),
+        result: { ...validAskFlowPayload().result, answerSource: "automation" },
+      })}\n`,
+      "utf8",
+    );
+    await assert.rejects(
+      () => store.load(dir),
+      (error) =>
+        error instanceof SparkAskFlowPayloadStoreFormatError &&
+        error.filePath === filePath &&
+        /result\.answerSource must be user or reviewer/.test(error.message),
+    );
+
+    await writeFile(
+      filePath,
       `${JSON.stringify({ ...validAskFlowPayload(), timestamp: "now" })}\n`,
       "utf8",
     );
@@ -849,10 +865,12 @@ test("ask_user and ask_flow share result summary and artifact body semantics", (
   };
   const askUserResult = createAskUserResult({
     cancelled: false,
+    answerSource: "user",
     answers: { mode: { values: ["safe"], labels: ["Safe"] } },
   });
   const flowResult = {
     status: "answered" as const,
+    answerSource: "user" as const,
     answers: {
       mode: { questionId: "mode", kind: "option" as const, values: ["safe"], labels: ["Safe"] },
     },
@@ -862,11 +880,17 @@ test("ask_user and ask_flow share result summary and artifact body semantics", (
     nextAction: "resume" as const,
   };
 
-  assert.equal(summarizeAskResult(request, askUserResult), "Choose mode: answered; mode=Safe");
-  assert.equal(summarizeAskResult(request, flowResult), "Choose mode: answered; mode=Safe");
+  assert.equal(
+    summarizeAskResult(request, askUserResult),
+    "Choose mode: answered; mode=Safe; source=user",
+  );
+  assert.equal(
+    summarizeAskResult(request, flowResult),
+    "Choose mode: answered; mode=Safe; source=user",
+  );
   assert.deepEqual(
     createSparkAskFlowArtifactBody(request, flowResult).summary,
-    "Choose mode: answered; mode=Safe",
+    "Choose mode: answered; mode=Safe; source=user",
   );
   const artifactBody = createAskArtifactBody(
     { ...request, context: undefined },
@@ -1102,12 +1126,28 @@ test("ask action tool can persist receipt-backed user decision evidence", async 
       { cwd: dir, ui: { select: async () => "Reuse" } },
     );
 
+    assert.equal(result.details.answerSource, "user");
+    assert.equal(result.details.result.answerSource, "user");
     const evidenceRef = result.details.askEvidenceRef;
     assert.equal(typeof evidenceRef, "string");
     assert.match(evidenceRef, /^evidence:/u);
     const evidence = await defaultEvidenceStore(dir).get(evidenceRef);
     assert.equal(evidence.provenance.producer, "ask");
     assert.equal(isUserAnsweredAskEvidenceArtifactBody(evidence.body), true);
+    assert.equal(
+      isUserAnsweredAskEvidenceArtifactBody({
+        schema: "spark.ask.evidence/v2",
+        request: (evidence.body as { request: unknown }).request,
+        result: {
+          ...(evidence.body as { result: Record<string, unknown> }).result,
+          answerSource: "reviewer",
+        },
+        answerSource: "reviewer",
+        autoAnswered: false,
+        recordedAt: new Date().toISOString(),
+      }),
+      false,
+    );
     assert.deepEqual((await verifyCanonicalAskEvidenceArtifact(dir, evidence))?.selectedValues, [
       "reuse",
     ]);
@@ -1298,6 +1338,8 @@ test("ask action tool returns a human answer before reviewer fallback", async ()
   assert.equal(uiInvoked, true);
   assert.equal(reviewerInvoked, false);
   assert.notEqual(result.details.autoAnswered, true);
+  assert.equal(result.details.answerSource, "user");
+  assert.equal(result.details.result.answerSource, "user");
   assert.equal(result.details.result.status, "answered");
   assert.equal(result.details.result.nextAction, "resume");
   assert.deepEqual(result.details.result.answers.mode.values, ["fast_mode"]);
@@ -1479,10 +1521,103 @@ test("ask action tool lets reviewer take over only after the human wait times ou
   );
 
   assert.equal(observedTimeoutMs, 25);
+  assert.equal(result.details.answerSource, "reviewer");
+  assert.equal(result.details.result.answerSource, "reviewer");
   assert.equal(result.details.autoAnswered, true);
   assert.equal(result.details.autoAnswer.takeover, "human_timeout");
   assert.equal(result.details.autoAnswer.humanTimeoutMs, 25);
   assert.deepEqual(result.details.result.answers.mode.values, ["safe_mode"]);
+});
+
+test("ask action tool persists reviewer provenance for multi-question flows", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-ask-reviewer-flow-"));
+  try {
+    const tools = new Map<string, { execute: Function }>();
+    const registerTool = (config: { name: string; execute: Function }) =>
+      tools.set(config.name, config);
+    registerSparkAskTools({ registerTool });
+    registerSparkAskFlowTool({ registerTool });
+    registerSparkAskActionTool(
+      { registerTool },
+      {
+        resolveTool: (name) => tools.get(name) as never,
+        autoAnswer: async () => ({
+          reason: "reviewer completed the flow after timeout",
+          answers: {
+            mode: { values: ["safe_mode"] },
+            rollout: { values: ["staged"] },
+          },
+        }),
+      },
+    );
+    const tool = tools.get("ask");
+    assert.ok(tool);
+    let customInvoked = false;
+
+    const result = await tool.execute(
+      "ask-reviewer-flow-test",
+      {
+        action: "flow",
+        autoAnswer: "reviewer",
+        flow: "reviewer-provenance",
+        title: "Choose rollout",
+        mode: "decision",
+        questions: [
+          {
+            id: "mode",
+            prompt: "Which mode?",
+            type: "single",
+            required: true,
+            options: [
+              { value: "fast_mode", label: "Fast path" },
+              { value: "safe_mode", label: "Safe path" },
+            ],
+          },
+          {
+            id: "rollout",
+            prompt: "Which rollout?",
+            type: "single",
+            required: true,
+            options: [
+              { value: "direct", label: "Direct" },
+              { value: "staged", label: "Staged" },
+            ],
+          },
+        ],
+      },
+      new AbortController().signal,
+      () => undefined,
+      {
+        cwd: dir,
+        askReviewerFallbackAfterMs: 5,
+        ui: {
+          interaction: async (request: Record<string, unknown>) => ({
+            kind: "askFlow",
+            requestId: request.requestId,
+            status: "cancelled",
+            metadata: { timedOut: true },
+          }),
+          custom: async () => {
+            customInvoked = true;
+          },
+        },
+      },
+    );
+
+    assert.equal(customInvoked, false);
+    assert.equal(result.details.answerSource, "reviewer");
+    assert.equal(result.details.result.answerSource, "reviewer");
+    assert.match(
+      result.content.map((part: { text: string }) => part.text).join("\n"),
+      /source=reviewer/u,
+    );
+    const stored = await new SparkAskFlowPayloadStore().load(dir);
+    assert.equal(stored?.result.answerSource, "reviewer");
+    assert.deepEqual(stored?.result.answers.mode.values, ["safe_mode"]);
+    assert.deepEqual(stored?.result.answers.rollout.values, ["staged"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("ask action tool reports missing reviewer resolver as a tool error with guidance", async () => {
@@ -2126,6 +2261,7 @@ function validAskFlowPayload(): StoredAskPayload {
     result: {
       flow: "release-check",
       status: "answered",
+      answerSource: "user",
       mode: "submit",
       cancelled: false,
       nextAction: "resume",

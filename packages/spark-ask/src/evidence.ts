@@ -11,9 +11,11 @@ import {
 import type { SparkAskAutoAnswerRequest } from "./action-tool.ts";
 
 export interface SparkAskEvidenceArtifactBody {
-  schema: "spark.ask.evidence/v1";
+  schema: "spark.ask.evidence/v1" | "spark.ask.evidence/v2";
   request: SparkAskAutoAnswerRequest;
   result: unknown;
+  /** Explicit for v2; absent from historical v1 receipts. */
+  answerSource?: "user";
   autoAnswered: boolean;
   recordedAt: string;
 }
@@ -107,7 +109,11 @@ export async function verifyCanonicalAskEvidenceArtifact(
 }
 
 function normalizeCanonicalAskRequest(value: unknown): SparkAskAutoAnswerRequest | undefined {
-  if (!isRecord(value) || value.schema !== "spark.ask.evidence/v1" || !isRecord(value.request)) {
+  if (
+    !isRecord(value) ||
+    (value.schema !== "spark.ask.evidence/v1" && value.schema !== "spark.ask.evidence/v2") ||
+    !isRecord(value.request)
+  ) {
     return undefined;
   }
   const request = value.request;
@@ -118,8 +124,24 @@ function normalizeCanonicalAskRequest(value: unknown): SparkAskAutoAnswerRequest
 function normalizeUserAnsweredAskEvidence(
   value: unknown,
 ): CanonicalAskEvidenceAnswer[] | undefined {
-  if (!isRecord(value) || value.schema !== "spark.ask.evidence/v1") return undefined;
-  if (value.autoAnswered !== false || !isRecord(value.request) || !isRecord(value.result)) {
+  if (
+    !isRecord(value) ||
+    (value.schema !== "spark.ask.evidence/v1" && value.schema !== "spark.ask.evidence/v2")
+  ) {
+    return undefined;
+  }
+  if (
+    value.autoAnswered !== false ||
+    (value.schema === "spark.ask.evidence/v2" && value.answerSource !== "user") ||
+    !isRecord(value.request) ||
+    !isRecord(value.result)
+  ) {
+    return undefined;
+  }
+  if (
+    value.schema === "spark.ask.evidence/v2" &&
+    (value.result.answerSource !== "user" || value.result.status !== "answered")
+  ) {
     return undefined;
   }
   if (value.result.status !== "answered" || !isRecord(value.result.answers)) return undefined;
