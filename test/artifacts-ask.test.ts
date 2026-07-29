@@ -1558,7 +1558,7 @@ test("ask action tool persists reviewer provenance for multi-question flows", as
       "ask-reviewer-flow-test",
       {
         action: "flow",
-        autoAnswer: "reviewer",
+        autoAnswer: true,
         flow: "reviewer-provenance",
         title: "Choose rollout",
         mode: "decision",
