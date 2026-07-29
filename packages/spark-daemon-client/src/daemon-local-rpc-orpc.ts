@@ -533,6 +533,27 @@ const modelProviderHumanInvokers = {
   | "human.interaction.respond"
 >;
 
+const taskClaimInvokers = {
+  "task.claim.acquire": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["task.claim.acquire"].output,
+      client.task.claim.acquire(input, options),
+    ),
+  "task.claim.release": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["task.claim.release"].output,
+      client.task.claim.release(input, options),
+    ),
+  "task.claim.recover": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["task.claim.recover"].output,
+      client.task.claim.recover(input, options),
+    ),
+} satisfies Pick<
+  SparkDaemonOrpcProcedureInvokerMap,
+  "task.claim.acquire" | "task.claim.release" | "task.claim.recover"
+>;
+
 const sparkDaemonOrpcProcedureInvokers = {
   ...daemonChannelTurnInvokers,
   ...invocationDriverInvokers,
@@ -540,6 +561,7 @@ const sparkDaemonOrpcProcedureInvokers = {
   ...uplinkInvokers,
   ...sessionInvokers,
   ...sideThreadInvokers,
+  ...taskClaimInvokers,
   ...modelProviderHumanInvokers,
 } satisfies SparkDaemonOrpcProcedureInvokerMap;
 

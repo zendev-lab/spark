@@ -64,6 +64,7 @@ export interface CreateTaskInput {
 export interface ClaimTaskInput {
   kind: TaskClaimKind;
   claimedBy: string;
+  status?: "pending" | "ready" | "running" | "blocked";
   roleRef?: RoleRef;
   runName?: string;
   sessionId?: string;

@@ -16,6 +16,7 @@ import {
   sparkLocalRpcReadinessOrpcErrors,
   sparkLocalRpcSessionOrpcErrors,
   sparkLocalRpcSideThreadOrpcErrors,
+  sparkLocalRpcTaskClaimOrpcErrors,
   sparkLocalRpcUplinkOrpcErrors,
   sparkLocalRpcWorkspaceOrpcErrors,
   type SparkLocalRpcOrpcMethod,
@@ -27,6 +28,7 @@ import {
   sparkHumanRpcErrorCodeOptions,
   sparkInvocationRpcErrorCodeOptions,
   sparkModelRpcErrorCodeOptions,
+  sparkTaskClaimRpcErrorCodeOptions,
   sparkUplinkRpcErrorCodeOptions,
   sparkWorkspaceRpcErrorCodeOptions,
 } from "./daemon-rpc-errors.ts";
@@ -85,7 +87,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     const commandMethods = Object.keys(localRpcMethodToSparkCommandKind).sort();
     const contractMethods = Object.keys(sparkLocalRpcOrpcMethodPaths).sort();
     expect(contractMethods).toEqual(commandMethods);
-    expect(Object.keys(sparkLocalRpcProcedureSchemas)).toHaveLength(67);
+    expect(Object.keys(sparkLocalRpcProcedureSchemas)).toHaveLength(69);
   });
 
   it("nests contracts under domain routers matching method path map", () => {
@@ -186,6 +188,57 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     }
   });
 
+  it("requires fenced session leases for daemon-owned task claim mutations", () => {
+    const acquire = sparkLocalRpcOrpcContract.task.claim.acquire["~orpc"];
+    const release = sparkLocalRpcOrpcContract.task.claim.release["~orpc"];
+    const recover = sparkLocalRpcOrpcContract.task.claim.recover["~orpc"];
+    const identity = {
+      workspaceId: "workspace-1",
+      clientId: "client-1",
+      leaseFence: "fence-1",
+      sessionId: "session:one",
+    };
+
+    expect(
+      requireSchema(acquire.inputSchema).parse({
+        ...identity,
+        taskRef: "task:one",
+        status: "blocked",
+      }),
+    ).toMatchObject({ ...identity, status: "blocked" });
+    expect(
+      requireSchema(release.inputSchema).parse({
+        ...identity,
+        taskRef: "task:one",
+        disposition: "release",
+      }),
+    ).toMatchObject(identity);
+    expect(
+      requireSchema(recover.inputSchema).parse({
+        ...identity,
+        taskRef: "task:one",
+        previousSessionId: "session:old",
+        reason: "claim_expired",
+        evidenceRef: "evidence:recovery",
+      }),
+    ).toMatchObject(identity);
+    expect(() =>
+      requireSchema(acquire.inputSchema).parse({
+        ...identity,
+        taskRef: "task:one",
+        status: "done",
+      }),
+    ).toThrow();
+    expect(() =>
+      requireSchema(acquire.inputSchema).parse({
+        workspaceId: identity.workspaceId,
+        clientId: identity.clientId,
+        sessionId: identity.sessionId,
+        taskRef: "task:one",
+      }),
+    ).toThrow();
+  });
+
   it("declares only readiness and protocol-approved Side Thread domain errors", () => {
     expect(Object.keys(sparkLocalRpcSideThreadOrpcErrors).sort()).toEqual(
       [...sparkSideThreadErrorCodeOptions].sort(),
@@ -243,6 +296,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       [sparkLocalRpcDriverOrpcErrors, sparkDriverRpcErrorCodeOptions],
       [sparkLocalRpcInvocationOrpcErrors, sparkInvocationRpcErrorCodeOptions],
       [sparkLocalRpcModelOrpcErrors, sparkModelRpcErrorCodeOptions],
+      [sparkLocalRpcTaskClaimOrpcErrors, sparkTaskClaimRpcErrorCodeOptions],
       [sparkLocalRpcUplinkOrpcErrors, sparkUplinkRpcErrorCodeOptions],
       [sparkLocalRpcWorkspaceOrpcErrors, sparkWorkspaceRpcErrorCodeOptions],
       [sparkLocalRpcHumanOrpcErrors, sparkHumanRpcErrorCodeOptions],
@@ -264,6 +318,9 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["provider.auth.login.respond", "provider_oauth_prompt_conflict"],
       ["workspace.transfer.respond", "workspace_transfer_not_found"],
       ["workspace.relocate", "relocation_target_invalid"],
+      ["task.claim.acquire", "task_claim_lease_invalid"],
+      ["task.claim.release", "task_claim_conflict"],
+      ["task.claim.recover", "task_claim_recovery_refused"],
       ["uplink.prefer", "uplink_transfer_rejected"],
       ["human.interaction.respond", "human_wait_registry_unavailable"],
       ["session.notification.deliver", "channel_delivery_not_sent"],

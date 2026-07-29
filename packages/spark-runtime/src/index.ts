@@ -518,7 +518,13 @@ export async function sweepExpiredTaskClaims(
   return store.withLock(async () => {
     const graph = await store.load();
     if (!graph) return { graph: null, expired: [], saved: false };
-    const expired = graph.expireTaskClaims(now);
+    const expired = graph
+      .tasks()
+      .filter((task) => task.claim?.kind === "role-run")
+      .flatMap((task) => {
+        const updated = graph.expireTaskClaim(task.ref, now);
+        return updated ? [updated] : [];
+      });
     if (expired.length === 0) return { graph, expired, saved: false };
     await store.save(graph);
     return { graph, expired, saved: true };

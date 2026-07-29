@@ -35,6 +35,7 @@ import {
   type SparkHostAPI,
   type SparkHostContext,
   type SparkHostDriverContext,
+  type SparkSessionLeaseIdentity,
   type SparkHostRuntimeMessage,
   type SparkHostHookOptions,
   type ExtensionUi,
@@ -180,6 +181,7 @@ export class SparkHostRuntime implements SparkHostAPI {
   private modelRegistry: SparkHostModelRegistryLike | undefined;
   private leafRunner: LeafCapabilityRunner | undefined;
   private roleRunner: ExtensionRoleRunner | undefined;
+  private sessionLeaseProvider: (() => SparkSessionLeaseIdentity | undefined) | undefined;
   private sessionId: string | undefined;
   private idle = true;
   private readonly keybindings: SparkKeybindings;
@@ -387,6 +389,12 @@ export class SparkHostRuntime implements SparkHostAPI {
     this.roleRunner = roleRunner;
   }
 
+  setSessionLeaseProvider(
+    provider: (() => SparkSessionLeaseIdentity | undefined) | undefined,
+  ): void {
+    this.sessionLeaseProvider = provider;
+  }
+
   /**
    * Final host-owned admission check used by the shared turn loop immediately
    * before calling a tool. Keep this separate from `active`: callers may hold
@@ -547,6 +555,7 @@ export class SparkHostRuntime implements SparkHostAPI {
       ...(this.sparkStateRoot ? { sparkStateRoot: this.sparkStateRoot } : {}),
       ...(this.sessionSurface ? { sessionSurface: this.sessionSurface } : {}),
       ...(this.sessionSource ? { sessionSource: this.sessionSource } : {}),
+      ...(this.sessionLeaseProvider ? { sessionLease: this.sessionLeaseProvider } : {}),
       ...(this.channelBinding ? { channelBinding: this.channelBinding } : {}),
       ...(this.invocationId ? { invocationId: this.invocationId } : {}),
       ...(this.driver ? { driver: this.driver } : {}),

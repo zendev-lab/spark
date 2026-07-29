@@ -5,6 +5,7 @@ import {
   type SparkDaemonSessionHeartbeatEvent,
   type SparkDaemonSessionHeartbeatHandle,
 } from "@zendev-lab/spark-daemon-client";
+import type { SparkSessionLeaseIdentity } from "@zendev-lab/spark-core";
 import { sparkSessionKey } from "@zendev-lab/spark-loop";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 
@@ -15,6 +16,7 @@ export interface SparkSessionHeartbeatControllerOptions {
 }
 
 export interface SparkSessionHeartbeatController {
+  lease(): SparkSessionLeaseIdentity | undefined;
   start(ctx: SparkToolContext): Promise<void>;
   stop(ctx: SparkToolContext): Promise<void>;
 }
@@ -32,6 +34,16 @@ export function createSparkSessionHeartbeatController(
     | undefined;
 
   return {
+    lease() {
+      const lease = active?.handle.lease;
+      if (!lease) return undefined;
+      return {
+        workspaceId: lease.workspaceId,
+        clientId: lease.clientId,
+        leaseFence: lease.leaseFence,
+        sessionId: lease.sessionId,
+      };
+    },
     async start(ctx) {
       if (!isPiCompatibilityPersistentSession(ctx)) return;
       const sessionId = sparkSessionKey(ctx);

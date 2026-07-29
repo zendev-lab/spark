@@ -110,6 +110,11 @@ import {
   ARTIFACT_PROJECTION_RECONCILE_INTERVAL_MS,
   ArtifactProjectionReconciler,
 } from "./artifact-projection.ts";
+import {
+  MAIN_TASK_CLAIM_RECONCILE_INTERVAL_MS,
+  MAIN_TASK_CLAIM_STARTUP_RECOVERY_WINDOW_MS,
+} from "./task-claims/policy.ts";
+import { reconcileMainTaskClaims } from "./task-claims/reconciler.ts";
 
 export async function startSparkDaemon(options: StartSparkDaemonOptions): Promise<void> {
   const runtime = await createPreparedDaemonRuntime(options);
@@ -140,6 +145,7 @@ interface DaemonServingLoops {
   channelDelivery?: Promise<void>;
   channelReply?: Promise<void>;
   notification?: Promise<void>;
+  taskClaims?: Promise<void>;
 }
 
 interface RestartDrainController {
@@ -173,6 +179,7 @@ interface PreparedDaemonRuntime {
   servingGate: ServingLoopGate;
   loops: DaemonServingLoops;
   restartDrain: RestartDrainController;
+  taskClaimStartupRecoveryUntil: string;
   stopScheduler: () => void;
   stopDirectInvocations: () => void;
   stopChannelIngress: () => void;
@@ -271,6 +278,10 @@ async function createPreparedDaemonRuntime(
     closeRestartAdmission,
   });
   const servingGate = createServingLoopGate();
+  const taskClaimStartupRecoveryUntil = new Date(
+    Date.parse(options.taskClaimNow?.() ?? new Date().toISOString()) +
+      MAIN_TASK_CLAIM_STARTUP_RECOVERY_WINDOW_MS,
+  ).toISOString();
   const stopScheduler = () => scheduler?.stop();
   const stopDirectInvocations = () => invocationRegistry.stop();
   const stopChannelIngress = () => void shutdownChannelIngress("runtime-abort");
@@ -314,6 +325,7 @@ async function createPreparedDaemonRuntime(
     servingGate,
     loops: {},
     restartDrain,
+    taskClaimStartupRecoveryUntil,
     stopScheduler,
     stopDirectInvocations,
     stopChannelIngress,
@@ -441,6 +453,7 @@ function createServingLoopGate(): ServingLoopGate {
 
 async function prepareDaemonServing(runtime: PreparedDaemonRuntime): Promise<void> {
   const { options, runtimeSignal, channelIngress } = runtime;
+  await reconcileMainTaskClaimsBeforeAdmission(runtime);
   if (!runtimeSignal.aborted) {
     await options.onReady?.({
       channelIngress,
@@ -454,6 +467,40 @@ async function prepareDaemonServing(runtime: PreparedDaemonRuntime): Promise<voi
   if (canOpenDaemonAdmission(runtime)) await activateDaemonAdmission(runtime);
   startDaemonServingLoops(runtime);
   commitDaemonServingFence(runtime);
+}
+
+async function reconcileMainTaskClaimsBeforeAdmission(
+  runtime: PreparedDaemonRuntime,
+): Promise<void> {
+  const result = await reconcileMainTaskClaims(runtime.options.db, {
+    now: runtime.options.taskClaimNow?.(),
+    startupRecoveryUntil: runtime.taskClaimStartupRecoveryUntil,
+  });
+  if (result.degraded.length > 0) {
+    throw new Error(
+      `Task claim startup reconciliation failed: ${result.degraded
+        .map((entry) => `${entry.workspaceId}: ${entry.error}`)
+        .join("; ")}`,
+    );
+  }
+}
+
+async function runMainTaskClaimReconcileLoop(runtime: PreparedDaemonRuntime): Promise<void> {
+  const intervalMs =
+    runtime.options.taskClaimReconcileIntervalMs ?? MAIN_TASK_CLAIM_RECONCILE_INTERVAL_MS;
+  while (!runtime.runtimeSignal.aborted) {
+    await delayUnlessAborted(intervalMs, runtime.runtimeSignal);
+    if (runtime.runtimeSignal.aborted) return;
+    const result = await reconcileMainTaskClaims(runtime.options.db, {
+      now: runtime.options.taskClaimNow?.(),
+      startupRecoveryUntil: runtime.taskClaimStartupRecoveryUntil,
+    });
+    for (const degraded of result.degraded) {
+      console.error(
+        `[spark-daemon] task claim reconcile degraded for ${degraded.workspaceId}: ${degraded.error}`,
+      );
+    }
+  }
 }
 
 function canOpenDaemonAdmission(runtime: PreparedDaemonRuntime): boolean {
@@ -470,6 +517,12 @@ async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<
 
 function startDaemonServingLoops(runtime: PreparedDaemonRuntime): void {
   const { scheduler, channelIngress, options, runtimeSignal, servingGate, loops } = runtime;
+  if (!options.once) {
+    loops.taskClaims = servingGate.promise.then(async (committed) => {
+      if (!committed || runtimeSignal.aborted) return;
+      await runMainTaskClaimReconcileLoop(runtime);
+    });
+  }
   if (scheduler && !options.once) {
     loops.scheduler = servingGate.promise.then(async (committed) => {
       if (committed && !runtimeSignal.aborted) await runSchedulerLoop(runtime);
@@ -612,6 +665,7 @@ async function cleanupPreparedDaemonRuntime(runtime: PreparedDaemonRuntime): Pro
   await runtime.loops.channelDelivery;
   await runtime.loops.notification;
   await runtime.loops.channelReply;
+  await runtime.loops.taskClaims;
   if (options.managePidFile !== false && existsSync(options.paths.pidFile)) {
     rmSync(options.paths.pidFile, { force: true });
   }

@@ -2,7 +2,17 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { existsSync, readFileSync } from "node:fs";
 import { chmod } from "node:fs/promises";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "vitest";
@@ -62,11 +72,13 @@ import { collectReproOrchestrationSnapshot } from "../packages/spark-extension/s
 import { JsonStoreFormatError } from "../packages/spark-extension/src/extension/json-store.ts";
 import type { SparkToolContext } from "../packages/spark-extension/src/extension/spark-tool-registration.ts";
 import type { SparkDaemonDriverControl } from "../packages/spark-extension/src/extension/spark-daemon-driver-client.ts";
+import type { SparkTaskClaimDaemonClient } from "../packages/spark-extension/src/extension/spark-task-claim-daemon-client.ts";
 import {
   loadCurrentProjectState,
   loadHiddenRoleRunInboxState,
   loadSparkPhase,
   saveCurrentProjectRef,
+  sparkSessionKey,
 } from "../packages/spark-extension/src/extension/session-state.ts";
 import {
   assignTodoDisplayNumber,
@@ -1773,6 +1785,116 @@ test("/implement continues through the agent-end hook without auto-answering or 
   }
 });
 
+test("claim reports committed partial success when local metadata projection disappears", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-claim-partial-success-"));
+  const projectsPath = join(dir, ".spark", "projects");
+  const hiddenPath = join(dir, ".spark", "projects-hidden");
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "claim-partial");
+    const run = registerSparkToolsForTest({
+      taskClaimDaemonClient: createTestTaskClaimDaemonClient({
+        afterAcquire: async () => rename(projectsPath, hiddenPath),
+      }),
+    });
+    await useOnlySparkProject(run.tools, ctx);
+    await executeSparkTool(run.tools, "impl_plan_tasks", ctx, {
+      tasks: [
+        {
+          name: "partial-claim",
+          title: "Partial claim",
+          description: "Report daemon authority after metadata projection failure.",
+          kind: "implement",
+          plan: executionReadyPlan("Report daemon authority after metadata projection failure."),
+        },
+      ],
+    });
+
+    const claimed = await executeSparkTool(run.tools, "impl_claim_task", ctx, {
+      task: "partial-claim",
+      status: "blocked",
+    });
+    const details = claimed.details as {
+      committed?: boolean;
+      partial?: boolean;
+      postCommitWarnings?: string[];
+      task?: { status?: string; claim?: { sessionId?: string } };
+    };
+    assert.equal(claimed.isError, undefined);
+    assert.equal(details.committed, true);
+    assert.equal(details.partial, true);
+    assert.equal(details.task?.status, "blocked");
+    assert.match(details.postCommitWarnings?.join("\n") ?? "", /metadata/i);
+
+    await rm(projectsPath, { recursive: true, force: true });
+    await rename(hiddenPath, projectsPath);
+    const task = (await defaultTaskGraphStore(dir).load())
+      ?.tasks()
+      .find((entry) => entry.name === "partial-claim");
+    assert.equal(task?.status, "blocked");
+    assert.equal(task?.claim?.sessionId, ctxSessionKey(ctx));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("finish reports committed success when post-daemon graph reload disappears", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-finish-partial-success-"));
+  const projectsPath = join(dir, ".spark", "projects");
+  const hiddenPath = join(dir, ".spark", "projects-hidden");
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "finish-partial");
+    const run = registerSparkToolsForTest({
+      taskClaimDaemonClient: createTestTaskClaimDaemonClient({
+        afterRelease: async () => rename(projectsPath, hiddenPath),
+      }),
+    });
+    await useOnlySparkProject(run.tools, ctx);
+    await executeSparkTool(run.tools, "impl_plan_tasks", ctx, {
+      tasks: [
+        {
+          name: "partial-finish",
+          title: "Partial finish",
+          description: "Return committed terminal status after projection failure.",
+          kind: "implement",
+          plan: executionReadyPlan("Return committed terminal status after projection failure."),
+        },
+      ],
+    });
+    await executeSparkTool(run.tools, "impl_claim_task", ctx, { task: "partial-finish" });
+    await executeSparkTool(run.tools, "impl_update_task_plan_items", ctx, {
+      ops: [
+        { op: "upsert_done", item: "Return committed terminal status after projection failure." },
+      ],
+    });
+
+    const finished = await executeSparkTool(run.tools, "impl_finish_task", ctx, {
+      task: "partial-finish",
+      summary: "Daemon terminal mutation committed before projection failure.",
+    });
+    const details = finished.details as {
+      transition?: { committed?: boolean };
+      statusAfter?: string;
+      postCommitWarnings?: string[];
+    };
+    assert.equal(finished.isError, undefined);
+    assert.equal(details.transition?.committed, true);
+    assert.equal(details.statusAfter, "done");
+    assert.match(details.postCommitWarnings?.join("\n") ?? "", /reload returned no graph/i);
+
+    await rm(projectsPath, { recursive: true, force: true });
+    await rename(hiddenPath, projectsPath);
+    const task = (await defaultTaskGraphStore(dir).load())
+      ?.tasks()
+      .find((entry) => entry.name === "partial-finish");
+    assert.equal(task?.status, "done");
+    assert.equal(task?.claim, undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("/goal sets a durable session goal instead of execute-mode continuation", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-run-foreground-continue-"));
   try {
@@ -2969,6 +3091,43 @@ test("canonical task claim can claim an existing planned task by taskRef", async
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("canonical task claim preserves every explicit unfinished status", async () => {
+  for (const status of ["pending", "ready", "running", "blocked"] as const) {
+    const dir = await mkdtemp(join(tmpdir(), `task-write-claim-status-${status}-`));
+    try {
+      await writeEmptySparkProject(dir);
+      const ctx = testSparkContext(dir, `status-${status}`);
+      const { tools } = registerSparkToolsForTest();
+      await useOnlySparkProject(tools, ctx);
+      const graph = await defaultTaskGraphStore(dir).load();
+      const project = graph?.projects()[0];
+      assert.ok(project);
+      const task = graph.createTask({
+        projectRef: project.ref,
+        name: `claim-status-${status}`,
+        title: `Claim status ${status}`,
+        description: `Explicit ${status} must survive daemon-owned claim acquisition.`,
+        kind: "implement",
+        status: "ready",
+        plan: executionReadyPlan(`Preserve explicit ${status} during claim acquisition.`),
+      });
+      await defaultTaskGraphStore(dir).save(graph);
+
+      await executeSparkTool(tools, "task_write", ctx, {
+        action: "claim",
+        taskRef: task.ref,
+        status,
+      });
+
+      const claimedTask = (await defaultTaskGraphStore(dir).load())?.getTask(task.ref);
+      assert.equal(claimedTask?.status, status);
+      assert.equal(claimedTask?.claim?.sessionId, ctxSessionKey(ctx));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 });
 
@@ -11449,8 +11608,88 @@ function createRejectingReviewerRunner(
   };
 }
 
+function createTestTaskClaimDaemonClient(
+  options: {
+    afterAcquire?: (ctx: SparkToolContext) => void | Promise<void>;
+    afterRelease?: (ctx: SparkToolContext) => void | Promise<void>;
+  } = {},
+): SparkTaskClaimDaemonClient {
+  return {
+    async acquire(ctx, input) {
+      const sessionKey = sparkSessionKey(ctx);
+      const updated = await defaultTaskGraphStore(ctx.cwd).update((graph) => {
+        const task = graph.getTask(input.taskRef as TaskRef);
+        if (task.claim && task.claim.sessionId !== sessionKey) {
+          if (!input.recovery) throw new Error(`task is already claimed: ${task.ref}`);
+          graph.releaseTaskClaim(task.ref, task.claim.claimedBy);
+        }
+        return graph.claimTask(task.ref, {
+          kind: "main",
+          claimedBy: sessionKey,
+          sessionId: sessionKey,
+          status: input.status,
+          roleRef: input.roleRef as RoleRef | undefined,
+          leaseMs: 3 * 60 * 1_000,
+        });
+      });
+      const task = updated.result;
+      await options.afterAcquire?.(ctx);
+      return {
+        taskRef: task.ref,
+        projectRef: task.projectRef,
+        sessionId: sessionKey,
+        outcome: "acquired",
+        changed: true,
+        observedAt: task.claim!.heartbeatAt,
+        claim: {
+          claimedAt: task.claim!.claimedAt,
+          heartbeatAt: task.claim!.heartbeatAt,
+          expiresAt: task.claim!.expiresAt,
+        },
+      };
+    },
+    async recover(ctx, input) {
+      const sessionKey = sparkSessionKey(ctx);
+      const updated = await defaultTaskGraphStore(ctx.cwd).update((graph) => {
+        const task = graph.getTask(input.taskRef as TaskRef);
+        return graph.releaseTaskClaim(task.ref, task.claim?.claimedBy);
+      });
+      return {
+        taskRef: updated.result.ref,
+        projectRef: updated.result.projectRef,
+        sessionId: sessionKey,
+        outcome: "recovered",
+        changed: true,
+        observedAt: updated.result.updatedAt,
+      };
+    },
+    async release(ctx, input) {
+      const sessionKey = sparkSessionKey(ctx);
+      const updated = await defaultTaskGraphStore(ctx.cwd).update((graph) => {
+        const task = graph.getTask(input.taskRef as TaskRef);
+        return input.disposition === "release"
+          ? graph.releaseTaskClaim(task.ref, task.claim?.claimedBy)
+          : graph.setTaskStatus(task.ref, input.disposition);
+      });
+      await options.afterRelease?.(ctx);
+      return {
+        taskRef: updated.result.ref,
+        projectRef: updated.result.projectRef,
+        sessionId: sessionKey,
+        outcome: "released",
+        changed: true,
+        observedAt: updated.result.updatedAt,
+      };
+    },
+  };
+}
+
 function registerSparkToolsForTest(
-  options: { reviewerRunner?: ReviewerRunner; piCommand?: string } = {},
+  options: {
+    reviewerRunner?: ReviewerRunner;
+    piCommand?: string;
+    taskClaimDaemonClient?: SparkTaskClaimDaemonClient;
+  } = {},
 ): {
   tools: Map<string, SparkToolConfig>;
   messages: string[];
@@ -11491,6 +11730,7 @@ function registerSparkToolsForTest(
   const driverControl = createTestDriverControl();
   const pi: SparkHostApiForTest & {
     driverControl: TestSparkDaemonDriverControl;
+    taskClaimDaemonClient: SparkTaskClaimDaemonClient;
     getActiveTools: () => string[];
     getAllTools: () => Array<{ name: string }>;
     setActiveTools: (names: string[]) => void;
@@ -11498,6 +11738,7 @@ function registerSparkToolsForTest(
     getPiCommand?: () => string | undefined;
   } = {
     driverControl,
+    taskClaimDaemonClient: options.taskClaimDaemonClient ?? createTestTaskClaimDaemonClient(),
     registerCommand: (name, config) => {
       commands.set(name, config);
     },

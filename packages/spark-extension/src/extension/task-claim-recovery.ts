@@ -147,7 +147,7 @@ export async function recordSparkTaskClaimRecoveryEvidence(
 ): Promise<{ ref: EvidenceRef }> {
   const now = input.now ?? nowIso();
   const body = toJsonValue({
-    action: "recover_task_claim",
+    action: "authorize_task_claim_recovery",
     taskRef: input.task.ref,
     taskName: input.task.name,
     taskTitle: input.task.title,
@@ -155,11 +155,11 @@ export async function recordSparkTaskClaimRecoveryEvidence(
     recoveredBy: input.recoveredBy,
     previousClaim: input.task.claim,
     decision: input.decision,
-    recoveredAt: now,
+    authorizedAt: now,
   });
   const evidence = await defaultEvidenceStore(input.cwd).put({
     kind: "record",
-    title: `Recovered Spark task claim for @${input.task.name}`,
+    title: `Authorized Spark task claim recovery for @${input.task.name}`,
     format: "json",
     body,
     provenance: {

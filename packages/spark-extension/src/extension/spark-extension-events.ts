@@ -8,7 +8,6 @@ import {
   cleanupOwnedBackgroundSubroles,
   resumeOwnedBackgroundSubroles,
 } from "./spark-background-subrole-lifecycle.ts";
-import { ensureSparkClaimReaper, sweepExpiredSparkClaims } from "./spark-claim-reaper.ts";
 import { ensureSparkGraphInvariants } from "./spark-graph-invariants.ts";
 import { ensureLocalSparkDirectory } from "./spark-activation.ts";
 import { loadSparkGraph, saveSparkGraphAndTodos, sparkSessionOwnerKey } from "./session-state.ts";
@@ -171,10 +170,8 @@ export function registerSparkExtensionEvents(
     deps.turnContextController?.reset(ctx);
     await deps.sessionHeartbeatController?.start(ctx);
     await ensureLocalSparkDirectory(ctx.cwd);
-    ensureSparkClaimReaper(ctx.cwd);
-    await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx, { skipSweep: true });
+    await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await resumeOwnedBackgroundSubroles(ctx.cwd, ctx);
-    await sweepExpiredSparkClaims(ctx.cwd, ctx);
     await deps.ensureActiveReproDriver?.(ctx);
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
@@ -204,10 +201,8 @@ export function registerSparkExtensionEvents(
     agentEndReconciliation.reset(ctx);
     deps.turnContextController?.reset(ctx);
     await ensureLocalSparkDirectory(ctx.cwd);
-    ensureSparkClaimReaper(ctx.cwd);
-    await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx, { skipSweep: true });
+    await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await resumeOwnedBackgroundSubroles(ctx.cwd, ctx);
-    await sweepExpiredSparkClaims(ctx.cwd, ctx);
     const store = defaultTaskGraphStore(ctx.cwd);
     const graph = await loadSparkGraph(ctx.cwd, ctx);
     if (!graph) return;

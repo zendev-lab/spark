@@ -166,6 +166,9 @@ export interface StartSparkDaemonOptions {
   mailStore?: SparkSessionMailStore;
   notificationReconcileIntervalMs?: number;
   channelDeliveryReconcileIntervalMs?: number;
+  /** Testable clock for daemon-owned main task claim reconciliation. */
+  taskClaimNow?: () => string;
+  taskClaimReconcileIntervalMs?: number;
   /** Bind readiness transport while externally observable work admission is still closed. */
   onReady?: (runtime: {
     channelIngress: DaemonChannelIngressRuntime | null;

@@ -340,7 +340,7 @@ export class TaskGraph {
     const updated: Task = {
       ...task,
       roleRef: task.roleRef,
-      status: isUnfinishedTaskStatus(task.status) ? "running" : task.status,
+      status: input.status ?? "running",
       claim,
       updatedAt: now,
     };
@@ -380,30 +380,36 @@ export class TaskGraph {
     return updated;
   }
 
+  expireTaskClaim(taskRef: TaskRef, now = nowIso()): Task | undefined {
+    const task = this.getTask(taskRef);
+    if (!task.claim || !isExpiredClaim(task.claim, now)) return undefined;
+    if (task.claim.runRef) {
+      const run = this.#runs.get(task.claim.runRef);
+      if (run?.status === "running" || run?.status === "queued") {
+        this.#runs.set(task.claim.runRef, {
+          ...run,
+          status: "cancelled",
+          failureKind: "claim_stale",
+          errorMessage: `task claim expired at ${task.claim.expiresAt}`,
+          finishedAt: now,
+        });
+      }
+    }
+    const updated: Task = {
+      ...task,
+      claim: undefined,
+      status: task.status === "running" ? "pending" : task.status,
+      updatedAt: now,
+    };
+    this.#tasks.set(task.ref, updated);
+    return updated;
+  }
+
   expireTaskClaims(now = nowIso()): Task[] {
     const expired: Task[] = [];
     for (const task of this.#tasks.values()) {
-      if (!task.claim || !isExpiredClaim(task.claim, now)) continue;
-      if (task.claim.runRef) {
-        const run = this.#runs.get(task.claim.runRef);
-        if (run?.status === "running" || run?.status === "queued") {
-          this.#runs.set(task.claim.runRef, {
-            ...run,
-            status: "cancelled",
-            failureKind: "claim_stale",
-            errorMessage: `task claim expired at ${task.claim.expiresAt}`,
-            finishedAt: now,
-          });
-        }
-      }
-      const updated: Task = {
-        ...task,
-        claim: undefined,
-        status: task.status === "running" ? "pending" : task.status,
-        updatedAt: now,
-      };
-      this.#tasks.set(task.ref, updated);
-      expired.push(updated);
+      const updated = this.expireTaskClaim(task.ref, now);
+      if (updated) expired.push(updated);
     }
     return expired;
   }

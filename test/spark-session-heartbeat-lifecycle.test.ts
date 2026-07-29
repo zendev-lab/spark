@@ -105,6 +105,7 @@ test("Spark extension starts and stops heartbeat only at session lifecycle bound
       refreshSparkWidget: async () => undefined,
       ensureWorkflowRunManager: async () => undefined,
       sessionHeartbeatController: {
+        lease: () => undefined,
         async start() {
           lifecycle.push("start");
         },

@@ -14,6 +14,7 @@ import {
   type WorkspaceOccupancySession,
   type WorkspaceSessionSurface,
 } from "@zendev-lab/spark-protocol";
+import type { SparkTaskClaimLeaseIdentity } from "@zendev-lab/spark-protocol/task-claim";
 import { asciiSlug } from "@zendev-lab/spark-system";
 import { SparkDaemonControlError } from "../control-error.ts";
 
@@ -694,6 +695,30 @@ export function workspaceKeyForPath(localPath: string): string {
   return workspaceKeyForName(basename(normalizeLocalPath(localPath)));
 }
 
+export interface SparkDaemonWorkspaceClaimTarget {
+  id: string;
+  localPath: string;
+}
+
+export function listWorkspaceClaimTargets(db: DatabaseSync): SparkDaemonWorkspaceClaimTarget[] {
+  return db
+    .prepare("SELECT id, local_path AS localPath FROM daemon_workspaces ORDER BY id")
+    .all() as unknown as SparkDaemonWorkspaceClaimTarget[];
+}
+
+export function requireWorkspaceClaimTarget(
+  db: DatabaseSync,
+  workspaceId: string,
+): SparkDaemonWorkspaceClaimTarget {
+  const target = db
+    .prepare("SELECT id, local_path AS localPath FROM daemon_workspaces WHERE id = ? LIMIT 1")
+    .get(workspaceId) as SparkDaemonWorkspaceClaimTarget | undefined;
+  if (!target) {
+    throw new SparkDaemonControlError("workspace_not_found", `Unknown workspace: ${workspaceId}`);
+  }
+  return target;
+}
+
 export function listWorkspaces(db: DatabaseSync): SparkDaemonWorkspace[] {
   const rows = db
     .prepare(
@@ -1175,6 +1200,34 @@ export function expireWorkspaceClientLeases(
     )
     .run(now, now);
   return Number(result.changes ?? 0);
+}
+
+export function requireFencedSessionWorkspaceClient(
+  db: DatabaseSync,
+  identity: SparkTaskClaimLeaseIdentity,
+  now = new Date().toISOString(),
+): SparkDaemonWorkspaceClient {
+  const client = getWorkspaceClientById(db, identity.clientId);
+  if (
+    !client ||
+    client.workspaceId !== identity.workspaceId ||
+    client.sessionId !== identity.sessionId ||
+    client.kind !== "interactive"
+  ) {
+    throw new SparkDaemonControlError(
+      "task_claim_lease_invalid",
+      `Workspace client ${identity.clientId} is not the active interactive lease for ${identity.sessionId}.`,
+    );
+  }
+  try {
+    assertWorkspaceClientLease(client, identity.leaseFence, now);
+  } catch (error) {
+    throw new SparkDaemonControlError(
+      "task_claim_lease_invalid",
+      error instanceof Error ? error.message : `Invalid task claim lease: ${identity.clientId}`,
+    );
+  }
+  return client;
 }
 
 export function listWorkspaceClients(

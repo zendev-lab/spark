@@ -91,6 +91,14 @@ export const sparkWorkspaceRpcErrorCodeOptions = [
   "workspace_transfer_not_found",
 ] as const;
 
+export const sparkTaskClaimRpcErrorCodeOptions = [
+  "task_claim_lease_invalid",
+  "task_claim_not_found",
+  "task_claim_conflict",
+  "task_claim_store_busy",
+  "task_claim_recovery_refused",
+] as const;
+
 export const sparkHumanRpcErrorCodeOptions = [
   "human_interaction_not_found",
   "human_interaction_ambiguous",
@@ -106,6 +114,7 @@ export const sparkDaemonRpcDomainErrorCodeOptions = [
   ...sparkModelRpcErrorCodeOptions,
   ...sparkUplinkRpcErrorCodeOptions,
   ...sparkWorkspaceRpcErrorCodeOptions,
+  ...sparkTaskClaimRpcErrorCodeOptions,
   ...sparkHumanRpcErrorCodeOptions,
 ] as const;
 
@@ -119,6 +128,7 @@ export type SparkInvocationRpcErrorCode = (typeof sparkInvocationRpcErrorCodeOpt
 export type SparkModelRpcErrorCode = (typeof sparkModelRpcErrorCodeOptions)[number];
 export type SparkUplinkRpcErrorCode = (typeof sparkUplinkRpcErrorCodeOptions)[number];
 export type SparkWorkspaceRpcErrorCode = (typeof sparkWorkspaceRpcErrorCodeOptions)[number];
+export type SparkTaskClaimRpcErrorCode = (typeof sparkTaskClaimRpcErrorCodeOptions)[number];
 export type SparkHumanRpcErrorCode = (typeof sparkHumanRpcErrorCodeOptions)[number];
 export type SparkDaemonRpcDomainErrorCode = z.infer<typeof sparkDaemonRpcDomainErrorCodeSchema>;
 
