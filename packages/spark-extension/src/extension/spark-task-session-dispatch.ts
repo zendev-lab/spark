@@ -92,6 +92,7 @@ export async function dispatchManagedTaskSessions(
         ctx: input.ctx,
         projectRef: input.projectRef,
         taskRef: reservation.run.taskRef,
+        runRef: reservation.run.ref,
         roleRef: reservation.roleRef,
         goal: reservation.goal,
         evidenceRequired: reservation.evidenceRequired,
@@ -403,6 +404,7 @@ async function ensureTaskExecutionSession(input: {
   ctx: SparkSessionContext;
   projectRef: ProjectRef;
   taskRef: TaskRef;
+  runRef: RunRef;
   roleRef: RoleRef;
   goal: string;
   evidenceRequired: string[];
@@ -425,6 +427,8 @@ async function ensureTaskExecutionSession(input: {
         ownerSessionId: input.execution.ownerSessionId,
         projectRef: input.projectRef,
         taskRef: input.taskRef,
+        runRef: input.runRef,
+        sessionGoalId: input.execution.sessionGoalId,
         ...(input.execution.subgoalRef ? { subgoalRef: input.execution.subgoalRef } : {}),
         roleRef: input.roleRef,
         ...(input.execution.planRevision ? { planRevision: input.execution.planRevision } : {}),
@@ -443,7 +447,9 @@ async function ensureTaskExecutionSession(input: {
     if (
       existing.relation?.kind !== "task_execution" ||
       existing.relation.jobId !== input.execution.jobId ||
-      existing.relation.taskRef !== input.taskRef
+      existing.relation.taskRef !== input.taskRef ||
+      existing.relation.runRef !== input.runRef ||
+      existing.relation.sessionGoalId !== input.execution.sessionGoalId
     ) {
       throw new Error(
         `managed session ${input.execution.executionSessionId} has a conflicting relation`,

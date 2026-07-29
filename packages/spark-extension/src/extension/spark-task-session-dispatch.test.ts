@@ -146,6 +146,18 @@ describe("managed Task Session dispatch", () => {
       });
     }
     expect(calls.filter((call) => call.method === "session.create")).toHaveLength(2);
+    for (const [index, call] of calls
+      .filter((candidate) => candidate.method === "session.create")
+      .entries()) {
+      expect(call.input.taskExecution).toMatchObject({
+        projectRef: project.ref,
+        taskRef: tasks[index]!.ref,
+        runRef: records[index]!.runRef,
+        sessionGoalId: records[index]!.goalId,
+        subgoalRef: safeSubgoals[index]!.ref,
+        attempt: 1,
+      });
+    }
     expect(calls.filter((call) => call.method === "turn.submit")).toHaveLength(2);
 
     const afterDispatch = await defaultTaskGraphStore(cwd).load();

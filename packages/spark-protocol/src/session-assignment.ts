@@ -55,6 +55,8 @@ export const sparkTaskExecutionSessionRelationSchema = z.object({
   ownerSessionId: z.string().min(1),
   projectRef: z.string().regex(/^proj:.+/u),
   taskRef: z.string().regex(/^task:.+/u),
+  runRef: z.string().regex(/^run:.+/u),
+  sessionGoalId: z.string().min(1),
   subgoalRef: z
     .string()
     .regex(/^subgoal:.+/u)

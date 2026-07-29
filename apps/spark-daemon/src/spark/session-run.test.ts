@@ -83,6 +83,8 @@ describe("daemon native session execution", () => {
                 ownerSessionId: "sess_owner",
                 projectRef: "proj:repro",
                 taskRef: "task:probe",
+                runRef: "run:probe-1",
+                sessionGoalId: "goal-probe-1",
                 roleRef: "role:builtin-explorer",
                 jobId: "task-job:probe",
                 attempt: 1,
