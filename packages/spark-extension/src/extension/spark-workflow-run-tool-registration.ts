@@ -534,7 +534,7 @@ async function requestWorkflowRunApproval(input: {
     });
     return { method: "dependency", ...decision };
   }
-  if (input.ctx.askAutoAnswer === "reviewer" && input.ctx.askAutoAnswerResolver) {
+  if (input.ctx.askAutoAnswer === true && input.ctx.askAutoAnswerResolver) {
     const answered = await input.ctx.askAutoAnswerResolver(
       workflowApprovalAskRequest(input.summary),
       input.ctx,

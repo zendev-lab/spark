@@ -159,10 +159,16 @@ test("spark paths reports one SPARK_HOME without dispatching or writing", async 
   }
 });
 
-test("dispatcher resolves daemon and ACP adapters", () => {
+test("dispatcher resolves source targets through package executable exports", () => {
+  const tui = resolveTargetCommand("tui");
+  assert.match(tui.command, /apps\/spark-tui\/bin\/spark-tui$/u);
+  assert.deepEqual(tui.args, []);
   const daemon = resolveTargetCommand("daemon");
-  assert.match(daemon.command, /spark-tui(?:$|\/bin\/spark-tui$)/u);
+  assert.match(daemon.command, /apps\/spark-tui\/bin\/spark-tui$/u);
   assert.deepEqual(daemon.args, ["daemon"]);
+  const cockpit = resolveTargetCommand("cockpit");
+  assert.match(cockpit.command, /apps\/spark-cockpit\/bin\/spark-cockpit$/u);
+  assert.deepEqual(cockpit.args, []);
   const acp = resolveTargetCommand("acp");
   assert.match(acp.command, /packages\/spark-acp\/scripts\/stdio\.ts$/u);
   assert.deepEqual(acp.args, []);

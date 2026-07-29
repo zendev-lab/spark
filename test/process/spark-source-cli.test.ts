@@ -20,7 +20,6 @@ test("source-distributed spark bin starts, reports, and stops the daemon", async
       env: {
         ...process.env,
         SPARK_HOME: resolve(temporary, "spark-home"),
-        SPARK_REPO_ROOT: root,
       },
     });
   } finally {

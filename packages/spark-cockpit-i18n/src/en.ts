@@ -759,6 +759,10 @@ const messages = {
       budgetExhausted: "This run is paused",
       budgetExhaustedHint:
         "The turn reached its execution-step limit before finishing. Send a follow-up to continue.",
+      runtimeControl: "Background scheduler",
+      runtimeTick: "tick",
+      runtimeRequest: "Internal instruction",
+      runtimeResult: "Result",
       slashActions: {
         fallbackTitle: "Spark controls",
         fallbackAction: "Unavailable action",

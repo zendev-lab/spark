@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error The executable architecture script intentionally has no declaration surface.
 import * as architectureRatchets from "../scripts/check-architecture-ratchets.mjs";
 
-const { findLegacyDaemonClientViolations, isLegacyDaemonClientBoundaryExempt } =
-  architectureRatchets;
+const {
+  findLegacyDaemonClientViolations,
+  findUnsafePiCompatibilityImports,
+  isLegacyDaemonClientBoundaryExempt,
+} = architectureRatchets;
 
 describe("legacy daemon client architecture ratchet", () => {
   it("rejects the compatibility subpath and legacy request symbols", () => {
@@ -54,6 +57,32 @@ describe("legacy daemon client architecture ratchet", () => {
         export function handleLocalRpcLine(line: string) {
           return dispatchLegacyEnvelope(JSON.parse(line));
         }
+      `),
+    ).toEqual([]);
+  });
+});
+
+describe("Pi compatibility extension architecture ratchet", () => {
+  it("rejects static imports that the compatibility loader rewrites as root-prefixed paths", () => {
+    expect(
+      findUnsafePiCompatibilityImports(`
+        import * as piAi from "@earendil-works/pi-ai";
+        import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
+        export { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
+      `),
+    ).toEqual([
+      "@earendil-works/pi-ai/api/anthropic-messages.lazy",
+      "@earendil-works/pi-ai/providers/openai-codex",
+    ]);
+  });
+
+  it("allows virtualized static entries and deferred modern public subpaths", () => {
+    expect(
+      findUnsafePiCompatibilityImports(`
+        import * as piAi from "@earendil-works/pi-ai";
+        import { getModels } from "@earendil-works/pi-ai/compat";
+        import type { OAuthProviderInterface } from "@earendil-works/pi-ai/oauth";
+        piAi.lazyApi(() => import("@earendil-works/pi-ai/api/openai-responses"));
       `),
     ).toEqual([]);
   });

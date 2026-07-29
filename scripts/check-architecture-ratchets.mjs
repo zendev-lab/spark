@@ -17,7 +17,7 @@ const frozenCompatibilityExtensions = new Set([
   "./packages/spark-memory/src/extension-entry.ts",
   "./packages/spark-web/src/extension-entry.ts",
   "./packages/spark-workflows/src/extension-entry.ts",
-  "./packages/spark-ai/src/baidu-oneapi-provider.ts",
+  "./packages/spark-ai/src/baidu-oneapi-compat-extension.ts",
   "./packages/spark-extension/src/extension/index.ts",
 ]);
 const validLayers = new Set([
@@ -173,6 +173,17 @@ function runArchitectureRatchets() {
         `Compatibility loader extension surface grew: ${extension}. New capabilities must target Spark-native hosts.`,
       );
     }
+    const extensionPath = join(root, extension);
+    if (!isFile(extensionPath)) continue;
+    const unsafePiImports = findUnsafePiCompatibilityImports(
+      readFileSync(extensionPath, "utf8"),
+      extension,
+    );
+    if (unsafePiImports.length > 0) {
+      failures.push(
+        `${extension} statically imports Pi subpaths unsupported by the compatibility loader (${unsafePiImports.join(", ")}). Use the virtualized package root and defer modern public subpaths behind a Spark-owned compatibility adapter.`,
+      );
+    }
   }
 
   const tsconfig = readJson(join(root, "tsconfig.base.json"));
@@ -211,9 +222,42 @@ function runArchitectureRatchets() {
     process.exitCode = 1;
   } else {
     console.log(
-      `Architecture ratchet passed (${workspacePackages.length}/${architecture.maxWorkspacePackages} workspaces classified; production imports declared; daemon RPC facade enforced; production files <= ${maxProductionFileLines} lines; compatibility surface frozen).`,
+      `Architecture ratchet passed (${workspacePackages.length}/${architecture.maxWorkspacePackages} workspaces classified; production imports declared; daemon RPC facade enforced; production files <= ${maxProductionFileLines} lines; compatibility surface frozen with safe Pi imports).`,
     );
   }
+}
+
+export function findUnsafePiCompatibilityImports(source, fileName = "source.ts") {
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const safeSpecifiers = new Set([
+    "@earendil-works/pi-ai",
+    "@earendil-works/pi-ai/compat",
+    "@earendil-works/pi-ai/oauth",
+    "@earendil-works/pi-ai/providers/all",
+  ]);
+  const unsafe = new Set();
+
+  function inspect(node) {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteralLike(node.moduleSpecifier)
+    ) {
+      const specifier = node.moduleSpecifier.text;
+      if (specifier.startsWith("@earendil-works/pi-ai/") && !safeSpecifiers.has(specifier)) {
+        unsafe.add(specifier);
+      }
+    }
+    ts.forEachChild(node, inspect);
+  }
+  inspect(sourceFile);
+  return [...unsafe].sort((left, right) => left.localeCompare(right));
 }
 
 export function findLegacyDaemonClientViolations(source, fileName = "source.ts") {

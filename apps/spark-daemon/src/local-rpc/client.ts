@@ -1,14 +1,6 @@
 import type { SparkPaths } from "@zendev-lab/spark-system";
-import {
-  requestSparkDaemon,
-  SparkDaemonRemoteError,
-  SparkDaemonRpcError,
-  SparkDaemonUnavailableError,
-} from "@zendev-lab/spark-daemon-client";
 import type { ChannelNotifyInput, ChannelsConfig } from "@zendev-lab/spark-channels";
 import {
-  type SparkLocalRpcInput,
-  type SparkLocalRpcMethod,
   type SparkLocalRpcOutput,
   type SparkSessionView,
   type SparkDriverListResult,
@@ -20,7 +12,6 @@ import {
   type SparkDriverWakeRequest,
 } from "@zendev-lab/spark-protocol";
 import {
-  LocalRpcUnavailableError,
   type LocalDaemonRestartResult,
   type LocalDaemonStatusResult,
   type LocalDaemonStopResult,
@@ -44,7 +35,6 @@ import {
   daemonRestart,
   daemonStatus,
   daemonStop,
-  localRpcResponseError,
   localWorkspaceClientResult,
   sparkDaemonWorkspace,
   turnSubmit,
@@ -63,6 +53,9 @@ import {
 import type { LocalTurnSubmitParams } from "./types.ts";
 import type { DaemonChannelIngressStatus } from "../channels/ingress.ts";
 import type { SparkDaemonWorkspace } from "../store/workspaces.js";
+import { localRpcRequest } from "./client-transport.ts";
+
+export { localRpcRequest } from "./client-transport.ts";
 
 export async function requestWorkspaceList(paths: SparkPaths): Promise<WorkspaceListResult> {
   return workspaceList(await localRpcRequest(paths, "workspace.list", {}));
@@ -300,25 +293,4 @@ export async function requestSessionSnapshot(
   sessionId: string,
 ): Promise<SparkSessionView> {
   return localRpcRequest(paths, "session.snapshot", { sessionId });
-}
-
-export async function localRpcRequest<M extends SparkLocalRpcMethod>(
-  paths: SparkPaths,
-  method: M,
-  params: SparkLocalRpcInput<M>,
-): Promise<SparkLocalRpcOutput<M>> {
-  try {
-    return await requestSparkDaemon(method, params, { paths });
-  } catch (error) {
-    if (error instanceof SparkDaemonUnavailableError) {
-      throw new LocalRpcUnavailableError(error.message);
-    }
-    if (error instanceof SparkDaemonRemoteError) {
-      throw localRpcResponseError(error.payload);
-    }
-    if (error instanceof SparkDaemonRpcError) {
-      throw new Error(error.message);
-    }
-    throw error;
-  }
 }

@@ -15,7 +15,7 @@ import { SparkInvocationStore } from "./invocations.ts";
 import { migrateSparkDaemonDatabase } from "./schema.ts";
 
 describe("legacy autonomous driver migration", () => {
-  it("imports legacy cadence once, strips frontend runtime fields, and repairs a missing wake", async () => {
+  it("DRV-STARTUP-004 imports legacy cadence once, strips frontend runtime fields, and repairs a missing wake", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "spark-driver-migration-"));
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);

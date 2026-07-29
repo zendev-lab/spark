@@ -169,7 +169,9 @@ export function visibleConversationParts(parts: readonly ConversationPart[]): Co
 
 /** Copy and live-region text intentionally excludes internal execution detail. */
 export function visibleConversationPartText(parts: readonly ConversationPart[]) {
-  return conversationPartText(parts.filter((part) => part.type !== "chain"));
+  return conversationPartText(
+    parts.filter((part) => part.type !== "chain" && part.type !== "runtime"),
+  );
 }
 
 export function conversationPartText(parts: readonly ConversationPart[]) {
@@ -189,6 +191,7 @@ export function conversationPartText(parts: readonly ConversationPart[]) {
       if (part.type === "task" || part.type === "approval") return [part.summary || part.title];
       if (part.type === "artifact") return [part.summary || part.title];
       if (part.type === "error") return [part.message || part.title];
+      if (part.type === "runtime") return [];
       return [];
     })
     .filter(Boolean)

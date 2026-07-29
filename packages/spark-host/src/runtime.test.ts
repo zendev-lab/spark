@@ -20,6 +20,37 @@ function registerTool(
 }
 
 describe("SparkHostRuntime effect contract", () => {
+  it("keeps internal tools inactive unless an explicit allowlist selects them", () => {
+    const ordinary = new SparkHostRuntime({
+      cwd: "/tmp/spark-host-runtime-internal-ordinary",
+    });
+    ordinary.registerInternalTool({
+      name: "workflow_driver",
+      description: "workflow tick",
+      parameters: {},
+      async execute() {
+        return { content: [{ type: "text" as const, text: "done" }] };
+      },
+    });
+
+    const scheduled = new SparkHostRuntime({
+      cwd: "/tmp/spark-host-runtime-internal-scheduled",
+      allowedTools: ["workflow_driver"],
+    });
+    scheduled.registerInternalTool({
+      name: "workflow_driver",
+      description: "workflow tick",
+      parameters: {},
+      async execute() {
+        return { content: [{ type: "text" as const, text: "done" }] };
+      },
+    });
+
+    expect(ordinary.getAllTools()).toEqual([expect.objectContaining({ name: "workflow_driver" })]);
+    expect(ordinary.getActiveTools()).toEqual([]);
+    expect(scheduled.getActiveTools()).toEqual(["workflow_driver"]);
+  });
+
   it("HOST-EFFECT-001 admits read and denies write, destructive, and unknown effects", () => {
     const host = new SparkHostRuntime({
       cwd: "/tmp/spark-host-runtime-read-only-test",

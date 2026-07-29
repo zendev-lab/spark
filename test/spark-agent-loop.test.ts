@@ -3408,7 +3408,7 @@ test("SparkAgentLoop refuses concurrent submit while in flight", async () => {
   assert.equal(loop.getState(), "idle");
 });
 
-test("SparkAgentLoop rechecks host effect policy immediately before dispatch", async () => {
+test("SIDE-EFFECT-003 SparkAgentLoop rechecks host effect policy immediately before dispatch", async () => {
   const host = new SparkHostRuntime({
     cwd: "/tmp/spark-agent-loop-read-only-dispatch-test",
     allowedToolEffects: ["read"],
@@ -3438,7 +3438,9 @@ test("SparkAgentLoop rechecks host effect policy immediately before dispatch", a
 
   // The model may emit a stale schema. Even if a caller corrupts the public
   // active bit, the host guard is consulted directly before execute().
-  host.getTool("mutate")!.active = true;
+  const mutateTool = host.getTool("mutate");
+  assert.ok(mutateTool);
+  mutateTool.active = true;
   const loop = new SparkAgentLoop({
     host,
     streamFunction: makeFakeStream({

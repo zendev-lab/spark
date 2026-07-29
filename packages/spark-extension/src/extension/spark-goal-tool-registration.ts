@@ -673,7 +673,7 @@ function forbiddenAutonomousPauseResult(
         type: "text" as const,
         text:
           `Autonomous goal pause is not allowed for session goal: ${oneLine(goal.objective)}\n` +
-          'If progress is blocked, resolve the blocker first: inspect tasks, create or revise concrete blocking work with task_write({ action: "plan" }), claim/finish the blocking task, or use ask({ autoAnswer: "reviewer" }) only for a material decision after research; the user answers first and the host reviewer takes over only after timeout. Do not reduce the goal or pause it to avoid hard work.',
+          'If progress is blocked, resolve the blocker first: inspect tasks, create or revise concrete blocking work with task_write({ action: "plan" }), claim/finish the blocking task, or use ask({ autoAnswer: true }) only for a material decision after research; the user answers first and the host reviewer takes over only after timeout. Do not reduce the goal or pause it to avoid hard work.',
       },
     ],
     details: {

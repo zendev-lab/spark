@@ -212,6 +212,12 @@ importers:
 
   apps/spark-cli:
     dependencies:
+      '@zendev-lab/spark-acp':
+        specifier: workspace:^
+        version: link:../../packages/spark-acp
+      '@zendev-lab/spark-cockpit':
+        specifier: workspace:^
+        version: link:../spark-cockpit
       '@zendev-lab/spark-daemon':
         specifier: workspace:^
         version: link:../spark-daemon

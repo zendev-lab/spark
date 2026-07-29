@@ -15,6 +15,10 @@ export const thinkingChainLabels: ConversationPartLabels = {
   expand: "EXPAND",
   budgetExhausted: "BUDGET_EXHAUSTED",
   budgetExhaustedHint: "BUDGET_EXHAUSTED_HINT",
+  runtimeControl: "RUNTIME_CONTROL",
+  runtimeTick: "RUNTIME_TICK",
+  runtimeRequest: "RUNTIME_REQUEST",
+  runtimeResult: "RUNTIME_RESULT",
 };
 
 export const activeThinkingChainSteps: ConversationChainStep[] = [

@@ -18,7 +18,8 @@ The single `@zendev-lab/spark-extension` composition root exposes the canonical 
 
 User documentation is maintained in the
 [`apps/spark-docs`](./apps/spark-docs/README.md) workspace and deployed as a
-bilingual static site through the `CD - Docs` Cloudflare Workers workflow.
+bilingual static site through Cloudflare Workers Builds and its GitHub
+integration.
 
 ## Common commands
 

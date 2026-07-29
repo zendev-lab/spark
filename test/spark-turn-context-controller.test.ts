@@ -130,6 +130,7 @@ test("extension lifecycle merges turn context and resets it after compact or swi
   const cwd = await mkdtemp(join(tmpdir(), "spark-turn-context-events-"));
   const handlers = new Map<string, (event: unknown, ctx: SparkToolContext) => unknown>();
   let resetCount = 0;
+  let projected = false;
   const message = {
     customType: "spark-context-snapshot" as const,
     content: "current test state",
@@ -150,10 +151,13 @@ test("extension lifecycle merges turn context and resets it after compact or swi
       ensureWorkflowRunManager: async () => undefined,
       turnContextController: {
         async collect() {
+          if (projected) return [];
+          projected = true;
           return [message];
         },
         reset() {
           resetCount += 1;
+          projected = false;
         },
       },
     },
@@ -165,12 +169,22 @@ test("extension lifecycle merges turn context and resets it after compact or swi
       messages?: unknown[];
     };
     assert.deepEqual(injected.messages, [message]);
+    assert.equal(await handlers.get("before_agent_start")?.({}, ctx), undefined);
 
     await handlers.get("session_compact")?.({}, ctx);
     assert.equal(resetCount, 1);
+    const replayedAfterCompact = (await handlers.get("before_agent_start")?.({}, ctx)) as {
+      messages?: unknown[];
+    };
+    assert.deepEqual(replayedAfterCompact.messages, [message]);
+    assert.equal(await handlers.get("before_agent_start")?.({}, ctx), undefined);
 
     await handlers.get("session_switch")?.({}, ctx);
     assert.equal(resetCount, 2);
+    const replayedAfterSwitch = (await handlers.get("before_agent_start")?.({}, ctx)) as {
+      messages?: unknown[];
+    };
+    assert.deepEqual(replayedAfterSwitch.messages, [message]);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
