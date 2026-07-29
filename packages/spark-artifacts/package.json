@@ -13,6 +13,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./evidence-migration": "./src/evidence-migration.ts",
     "./extension": "./src/extension.ts",
     "./generative-ui": "./src/generative-ui.ts",
     "./preview-renderer": "./src/product/preview-renderer.ts",

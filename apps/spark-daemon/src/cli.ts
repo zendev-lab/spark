@@ -58,6 +58,7 @@ import {
   workspaceNameForPath,
   WorkspacePathConflictError,
 } from "./store/workspaces.js";
+import { migrateEvidenceWorkspaceCommand } from "./evidence-migration-cli.js";
 import { readRunningPid } from "./service.js";
 import {
   type CliIo,
@@ -462,7 +463,13 @@ async function workspace(
     return await relocateWorkspaceCommand(paths, args, io);
   }
 
-  throw new Error("Usage: spark daemon workspace <register|relocate|ls|show|stop>");
+  if (subcommand === "migrate-evidence") {
+    return await migrateEvidenceWorkspaceCommand(paths, args, io);
+  }
+
+  throw new Error(
+    "Usage: spark daemon workspace <register|relocate|migrate-evidence|ls|show|stop>",
+  );
 }
 
 async function registerWorkspaceCommand(

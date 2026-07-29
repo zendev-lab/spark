@@ -68,6 +68,8 @@ const workflowBoundaryPaths = [
   /^packages\/spark-runtime\/src\/workflow-role-run-adapter\.ts$/u,
   /^packages\/spark-extension\/src\/extension\/spark-workflow-run-tool-registration\.ts$/u,
 ];
+const evidenceMigrationPaths =
+  /^packages\/spark-artifacts\/src\/evidence-migration(?:-[^/]+|\.test)?\.ts$/u;
 const allow = new Map([
   [
     "workflow-artifact-ref",
@@ -75,8 +77,15 @@ const allow = new Map([
       /^(?!packages\/spark-workflows\/src\/)(?!packages\/spark-runtime\/src\/workflow-role-run-adapter\.ts$)(?!packages\/spark-extension\/src\/extension\/spark-workflow-run-tool-registration\.ts$)/u,
     ],
   ],
-  ["legacy-task-evidence-fields", [/^packages\/spark-tasks\/src\/graph-store\.ts$/u]],
-  ["legacy-session-review-field", [/^packages\/spark-loop\/src\/session-goals\.ts$/u]],
+  [
+    "legacy-task-evidence-fields",
+    [/^packages\/spark-tasks\/src\/graph-store\.ts$/u, evidenceMigrationPaths],
+  ],
+  ["legacy-review-control-fields", [evidenceMigrationPaths]],
+  [
+    "legacy-session-review-field",
+    [/^packages\/spark-loop\/src\/session-goals\.ts$/u, evidenceMigrationPaths],
+  ],
 ]);
 const violations = [];
 for (const file of productionFiles) {
@@ -90,7 +99,10 @@ for (const file of productionFiles) {
       continue;
     }
     if ((allow.get(rule.id) ?? []).some((pattern) => pattern.test(path))) {
-      if (rule.id === "legacy-session-review-field") {
+      if (
+        rule.id === "legacy-session-review-field" &&
+        path === "packages/spark-loop/src/session-goals.ts"
+      ) {
         for (const match of text.matchAll(rule.pattern)) {
           const line = text.slice(0, match.index).split("\n").length;
           const context = text.slice(
