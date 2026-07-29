@@ -580,7 +580,7 @@ describe("blocking session requests", () => {
     });
   });
 
-  it("continues a timed-out request by invocation id without mail or resubmission", async () => {
+  it("continues wait=completed by invocation id without resubmission", async () => {
     const continuationInvocationId = "inv_continueonly";
     let terminalStatus = false;
     let terminalReads = 0;
