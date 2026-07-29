@@ -9,7 +9,10 @@ import { isRef, type EvidenceRef, type TaskRef } from "@zendev-lab/spark-core";
 import { sparkStateCwd, updateSubgoalStatus } from "@zendev-lab/spark-loop";
 import { clearSessionGoal } from "./spark-session-goals.ts";
 import { clearSessionLoop } from "./spark-session-loops.ts";
-import { createProjectBackedSessionRepro } from "./spark-repro-project.ts";
+import {
+  createProjectBackedSessionRepro,
+  materializeReproStagePlan,
+} from "./spark-repro-project.ts";
 import { collectReproOrchestrationSnapshot } from "./spark-repro-orchestration.ts";
 import { reconcileManagedTaskSessions } from "./spark-task-session-dispatch.ts";
 import { sparkActiveLens } from "./spark-drive-state.ts";
@@ -497,7 +500,14 @@ export function registerSparkReproTool(
             details: reproDetails(phaseAdvanced),
           };
         }
-        const stageAdvanced = advanceReproStage(repro);
+        const nextStageName = repro.stages[repro.currentStageIndex + 1]?.name;
+        const advanceCandidate =
+          isStageComplete(repro) &&
+          nextStageName &&
+          !repro.subgoals.some((subgoal) => subgoal.stage === nextStageName)
+            ? (await materializeReproStagePlan(cwd, ctx, repro, nextStageName)).repro
+            : repro;
+        const stageAdvanced = advanceReproStage(advanceCandidate);
         if (stageAdvanced) {
           await writeSessionRepro(cwd, stageAdvanced, ctx);
           if (stageAdvanced.status === "complete") {
@@ -1186,7 +1196,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     "Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver) and each stage is advanced through explicit orchestration.",
     "",
     "Orchestration loop:",
-    "- Plan stage-scoped subgoals and concrete task plans.",
+    "- Inspect the materialized Stage blueprint and revise it only when evidence changes the contract.",
     "- Compute the dependency-ready safe_local task frontier.",
     "- Use assign to dispatch independent ready tasks in parallel.",
     "- Never dispatch ask_decision or ask_approval authority tasks; they remain owner-only.",
@@ -1248,7 +1258,8 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     lines.push(
       "",
       "Plan-phase research-first guidance:",
-      "- Reassess difficulty when scope or uncertainty changes. At each stage entrance, use repro action=plan to append concrete subgoals and task refs, splitting work by the stage objective, experiment risk, dependencies, and required evidence rather than a numeric quota.",
+      "- Each Stage entrance materializes its detailed Roadmap and Subgoal/Task DAG automatically. Use repro action=plan only for evidence-backed revisions or dynamic incidents, not to recreate the Stage skeleton.",
+      "- Reassess difficulty when scope or uncertainty changes, and split dynamic incident work by experiment risk, dependencies, and required evidence rather than a numeric quota.",
       "- Classify each unknown as fact, reversible choice, material user decision, or validation uncertainty.",
       "- Research facts from the workspace, dependencies, environment, and primary upstream sources before asking the user.",
       "- Prioritize whether a runnable competitor/reference baseline already exists (typically a Megatron implementation). Prove availability with concrete paths, entrypoints, or failed-lookup evidence; do not assume a paper or announcement means the baseline is runnable.",

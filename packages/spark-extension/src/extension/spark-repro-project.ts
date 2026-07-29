@@ -15,17 +15,19 @@ import {
   decideTaskPlanBeforeCreate,
   defaultTaskGraphStore,
   normalizeTaskPlan,
+  type TaskGraph,
   type TaskPlanInput,
 } from "@zendev-lab/spark-tasks";
-import { applyRoadmapHintsToTaskPlanInput } from "../flows/roadmap-flow.ts";
 import {
   createSparkSessionRepro,
   reproProgressDigest,
+  reviseReproPlan,
   writeSessionRepro,
+  type SparkReproStageName,
   type SparkSessionRepro,
 } from "./spark-session-repro.ts";
 import { saveCurrentProjectRef } from "./session-state.ts";
-import { initialReproProjectTasks, reproProjectTitle } from "./spark-repro-project-tasks.ts";
+import { reproStageBlueprint, type ReproTaskBlueprint } from "./spark-repro-stage-blueprints.ts";
 
 interface ReproProjectBindingResult {
   repro: SparkSessionRepro;
@@ -34,14 +36,10 @@ interface ReproProjectBindingResult {
   readyTaskRefs: TaskRef[];
 }
 
-const SETUP_TASK_NAME_BY_SUBGOAL = new Map<string, string>([
-  ["competitor-baseline-availability-researched", "baseline-availability"],
-  ["baseline-construction-strategy-approved", "baseline-strategy"],
-  ["implementation-landscape-researched", "implementation-landscape"],
-  ["alignment-paths-researched", "alignment-paths"],
-  ["implementation-strategy-approved", "implementation-strategy"],
-  ["alignment-strategy-approved", "alignment-strategy"],
-]);
+function reproProjectTitle(objective: string): string {
+  const compact = objective.replace(/\s+/g, " ").trim();
+  return `Repro: ${compact.length > 72 ? `${compact.slice(0, 69)}...` : compact}`;
+}
 
 export async function createProjectBackedSessionRepro(
   cwd: string,
@@ -74,104 +72,196 @@ export async function createProjectBackedSessionRepro(
         "Research the reference baseline, resolve implementation and alignment decisions, run typed experiments, and deliver inspectable reproduction evidence.",
       outputLanguage: "zh",
     });
-    const roadmapItem = createSetupRoadmapItem(repro, project.ref);
-    graph.replaceProjectRoadmap(project.ref, {
-      ...project.roadmap,
-      activeItemRef: roadmapItem.ref,
-      items: [roadmapItem],
-      updatedAt: roadmapItem.updatedAt!,
-    });
-
-    const taskDefinitions = initialReproProjectTasks(repro, roadmapItem);
-    const taskInputs: TaskPlanInput[] = taskDefinitions.map((task) =>
-      applyRoadmapHintsToTaskPlanInput(
-        {
-          name: task.name,
-          title: task.title,
-          description: task.description,
-          kind: task.kind,
-          roleRef: task.roleRef,
-          dependsOn: task.dependsOn,
-          plan: normalizeTaskPlan(task.plan, task.description, task.title),
-        },
-        roadmapItem,
-      ),
-    );
-    const concreteIssues = collectNonConcreteTaskIssues(taskInputs);
-    if (concreteIssues.length > 0) {
-      throw new Error(
-        `repro initial tasks are not concrete: ${concreteIssues.map((issue) => `@${issue.name}: ${issue.message}`).join("; ")}`,
-      );
-    }
-    const planned = graph.planTasks(project.ref, taskInputs);
-    const decisions = planned.created.map((task) => decideTaskPlanBeforeCreate(task));
-    const rejectedIndex = decisions.findIndex((decision) => !decision.accepted);
-    if (rejectedIndex >= 0) {
-      const task = planned.created[rejectedIndex]!;
-      const decision = decisions[rejectedIndex]!;
-      throw new Error(`repro initial task plan not ready: @${task.name}: ${decision.summary}`);
-    }
-    const taskRefs = planned.created.map((task) => task.ref);
-    graph.attachRoadmapItemTaskRefs(project.ref, roadmapItem.ref, taskRefs);
+    const materialized = materializeStageInGraph(graph, repro, project.ref, "setup");
+    const taskRefs = materialized.taskRefs;
     const readyTaskRefs = graph.readyTasks(project.ref).map((task) => task.ref);
     if (readyTaskRefs.length === 0) {
       throw new Error("repro start requires a non-empty ready frontier");
     }
-    const refsByName = new Map(planned.created.map((task) => [task.name, task.ref]));
-    const boundRepro = bindProjectAndTasks(repro, project.ref, refsByName);
-    return { repro: boundRepro, projectRef: project.ref, taskRefs, readyTaskRefs };
+    return { repro: materialized.repro, projectRef: project.ref, taskRefs, readyTaskRefs };
   });
   await writeSessionRepro(cwd, result.repro, ctx);
   await saveCurrentProjectRef(cwd, ctx, result.projectRef);
   return result;
 }
 
-function bindProjectAndTasks(
+export async function materializeReproStagePlan(
+  cwd: string,
+  ctx: SparkSessionContext | undefined,
+  repro: SparkSessionRepro,
+  stage: SparkReproStageName,
+): Promise<ReproProjectBindingResult> {
+  if (!repro.projectRef) throw new Error("Repro Stage planning requires a bound Project");
+  const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
+  const { result } = await store.update(
+    (graph): ReproProjectBindingResult => {
+      const materialized = materializeStageInGraph(graph, repro, repro.projectRef!, stage);
+      const readyTaskRefs = graph.readyTasks(repro.projectRef).map((task) => task.ref);
+      return {
+        repro: materialized.repro,
+        projectRef: repro.projectRef!,
+        taskRefs: materialized.taskRefs,
+        readyTaskRefs,
+      };
+    },
+    { createIfMissing: false },
+  );
+  await writeSessionRepro(cwd, result.repro, ctx);
+  return result;
+}
+
+function materializeStageInGraph(
+  graph: TaskGraph,
   repro: SparkSessionRepro,
   projectRef: ProjectRef,
-  refsByName: ReadonlyMap<string, TaskRef>,
-): SparkSessionRepro {
+  stage: SparkReproStageName,
+): { repro: SparkSessionRepro; taskRefs: TaskRef[] } {
+  const blueprint = reproStageBlueprint(stage);
   const timestamp = nowIso();
-  const bound: SparkSessionRepro = {
-    ...repro,
-    projectRef,
-    subgoals: repro.subgoals.map((subgoal) => {
-      const taskName = SETUP_TASK_NAME_BY_SUBGOAL.get(subgoal.id);
-      const taskRef = taskName ? refsByName.get(taskName) : undefined;
-      return taskRef ? { ...subgoal, taskRef, updatedAt: timestamp } : subgoal;
+  const project = graph.getProject(projectRef);
+  const roadmapItems = blueprint.roadmaps.map(
+    (item, index): RoadmapItem => ({
+      ref: `roadmap-item:repro-${stage}-${stableId(`${projectRef}:${repro.reproId}:${item.key}`)}`,
+      title: item.title,
+      status: index === 0 ? "active" : "pending",
+      objective: `${item.objective} Target: ${repro.goalContract.objective}`,
+      scope: item.scope,
+      constraints: [
+        "Treat only inspectable evidence as completion proof",
+        "Keep external writes and material owner decisions behind canonical Ask authority",
+      ],
+      successCriteria: item.successCriteria,
+      evidenceRequired: item.evidenceRequired,
+      evidenceRefs: [],
+      openQuestions: [],
+      askRefs: [],
+      taskRefs: [],
+      createdAt: timestamp,
+      updatedAt: timestamp,
     }),
+  );
+  const newRefs = new Set(roadmapItems.map((item) => item.ref));
+  const priorItems = project.roadmap.items
+    .filter((item) => !newRefs.has(item.ref))
+    .map((item) =>
+      item.status === "active" ? { ...item, status: "done" as const, updatedAt: timestamp } : item,
+    );
+  graph.replaceProjectRoadmap(projectRef, {
+    ...project.roadmap,
+    title: `Repro Stage Roadmap: ${blueprint.displayTitle}`,
+    status: "active",
+    activeItemRef: roadmapItems[0]?.ref,
+    items: [...priorItems, ...roadmapItems],
+    updatedAt: timestamp,
+  });
+  const roadmapByKey = new Map(
+    blueprint.roadmaps.map((item, index) => [item.key, roadmapItems[index]!]),
+  );
+  const taskInputs = blueprint.tasks.map((definition) =>
+    taskPlanInput(definition, roadmapByKey.get(definition.roadmapKey)!),
+  );
+  assertConcreteStageTasks(taskInputs, stage);
+  const planned = graph.planTasks(projectRef, taskInputs);
+  const decisions = [...planned.created, ...planned.updated].map((plannedTask) =>
+    decideTaskPlanBeforeCreate(plannedTask),
+  );
+  const rejectedIndex = decisions.findIndex((decision) => !decision.accepted);
+  if (rejectedIndex >= 0) {
+    const plannedTask = [...planned.created, ...planned.updated][rejectedIndex]!;
+    throw new Error(
+      `repro ${stage} task plan not ready: @${plannedTask.name}: ${decisions[rejectedIndex]!.summary}`,
+    );
+  }
+  const refsByName = new Map(
+    graph.tasks(projectRef).map((plannedTask) => [plannedTask.name, plannedTask.ref]),
+  );
+  for (const [roadmapKey, roadmapItem] of roadmapByKey) {
+    graph.attachRoadmapItemTaskRefs(
+      projectRef,
+      roadmapItem.ref,
+      blueprint.tasks
+        .filter((definition) => definition.roadmapKey === roadmapKey)
+        .map((definition) => refsByName.get(definition.id)!)
+        .filter((ref): ref is TaskRef => !!ref),
+    );
+  }
+  const revised = reviseReproPlan(
+    { ...repro, projectRef },
+    {
+      reason: `Materialize deterministic ${stage} Stage blueprint`,
+      subgoals: blueprint.tasks.map((definition) => ({
+        id: definition.id,
+        stage,
+        goal: definition.goal,
+        doneWhen: definition.doneWhen,
+        evidenceRequired: definition.evidenceRequired,
+        authority: definition.authority,
+        ...(definition.dependsOn.length > 0 ? { dependsOn: definition.dependsOn } : {}),
+        taskRef: refsByName.get(definition.id)!,
+      })),
+    },
+  );
+  const bound: SparkSessionRepro = {
+    ...revised,
     updatedAt: timestamp,
   };
   return {
-    ...bound,
-    stopGuard: { ...bound.stopGuard, lastProgressDigest: reproProgressDigest(bound) },
+    repro: {
+      ...bound,
+      stopGuard: { ...bound.stopGuard, lastProgressDigest: reproProgressDigest(bound) },
+    },
+    taskRefs: blueprint.tasks
+      .map((definition) => refsByName.get(definition.id)!)
+      .filter((ref): ref is TaskRef => !!ref),
   };
 }
 
-function createSetupRoadmapItem(repro: SparkSessionRepro, projectRef: ProjectRef): RoadmapItem {
-  const timestamp = nowIso();
+function taskPlanInput(definition: ReproTaskBlueprint, roadmapItem: RoadmapItem): TaskPlanInput {
   return {
-    ref: `roadmap-item:repro-setup-${stableId(`${projectRef}:${repro.reproId}`)}`,
-    title: "Setup research and strategy",
-    status: "active",
-    objective: `Establish a runnable baseline and approved implementation/alignment path for ${repro.goalContract.objective}`,
-    scope: ["setup stage", "reference baseline", "implementation reuse", "alignment strategy"],
-    constraints: [
-      "Do not invent a baseline when the repository or environment cannot provide one",
-      "Owner session retains canonical decision authority",
-    ],
-    successCriteria: [
-      "Artifact report records 3 independent research task refs for baseline, implementation, and alignment findings",
-      "Reviewer artifact records 2 strategy decision matrices with explicit ready/not-ready verdicts",
-    ],
-    evidenceRequired: [
-      "Artifact report containing source file paths, command output with exit codes, and explicit decision options",
-    ],
-    evidenceRefs: [],
-    openQuestions: [],
-    askRefs: [],
-    taskRefs: [],
-    createdAt: timestamp,
-    updatedAt: timestamp,
+    name: definition.id,
+    title: definition.title,
+    description: definition.description,
+    kind: definition.kind,
+    roleRef: definition.roleRef,
+    dependsOn: definition.dependsOn,
+    plan: normalizeTaskPlan(
+      {
+        objective: definition.goal,
+        contextRefs: [roadmapItem.ref],
+        constraints: [
+          "Stay within the bound Subgoal and do not mutate another Project Task",
+          "Preserve commands, exit codes, source refs, configs, and immutable artifact refs",
+        ],
+        nonGoals: [
+          "Treating agent narration as evidence",
+          "Advancing the Subgoal without its configured verifier",
+        ],
+        successCriteria: definition.doneWhen.map(
+          (criterion) => `Evidence artifact and checker output verify: ${criterion}`,
+        ),
+        evidenceRequired: definition.evidenceRequired.map(
+          (evidence) => `Evidence artifact containing: ${evidence}`,
+        ),
+        steps: [
+          `Execute ${definition.title} against the frozen Stage inputs and record the observable result.`,
+          "Store the required evidence and report the bounded Task outcome without promoting the Subgoal.",
+        ],
+        openQuestions: [],
+        askRefs: [],
+        riskLevel: definition.authority === "safe_local" ? "normal" : "high",
+      },
+      definition.description,
+      definition.title,
+    ),
   };
+}
+
+function assertConcreteStageTasks(inputs: TaskPlanInput[], stage: SparkReproStageName): void {
+  const concreteIssues = collectNonConcreteTaskIssues(inputs);
+  if (concreteIssues.length === 0) return;
+  throw new Error(
+    `repro ${stage} tasks are not concrete: ${concreteIssues
+      .map((issue) => `@${issue.name}: ${issue.message}`)
+      .join("; ")}`,
+  );
 }

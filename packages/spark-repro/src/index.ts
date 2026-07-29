@@ -370,7 +370,7 @@ export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
   },
   {
     name: "deliver",
-    title: "Deliver",
+    title: "Finalize",
     phases: ["implement"],
     acceptance: [
       evidenceRequirement("pr-submitted", "PR submitted", "implement"),
@@ -1518,9 +1518,11 @@ function upsertStepDefinitions(
   existing: readonly SparkReproStepDefinition[],
   updates: readonly SparkReproSubgoalPlanInput[],
 ): SparkReproStepDefinition[] {
-  const byId = new Map(existing.map((definition) => [definition.id, definition]));
-  for (const { taskRef: _taskRef, ...definition } of updates) byId.set(definition.id, definition);
-  return [...byId.values()];
+  const updatedIds = new Set(updates.map((definition) => definition.id));
+  return [
+    ...existing.filter((definition) => !updatedIds.has(definition.id)),
+    ...updates.map(({ taskRef: _taskRef, ...definition }) => definition),
+  ];
 }
 
 function validateAndNormalizeStepDefinitions(
