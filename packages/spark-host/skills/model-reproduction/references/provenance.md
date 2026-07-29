@@ -9,6 +9,7 @@ This Spark skill is an independent snapshot. Runtime behavior does not read or d
 - repository: `https://github.com/zrr1999/model-repro-bench.git`
 - local source revision: `3680b9fa45c2a4ea5efce1506ddec406013f1b61`
 - note: source worktree contained uncommitted user edits; each inspected file is therefore bound by content SHA-256 in addition to the repository revision.
+- retirement: on `2026-07-29`, `model-repro-bench` switched its sandbox executor to the Spark skill and removed the runtime `template/PLAYBOOK.md`, `template/playbook/*.md`, and duplicate workspace skills. The hashes below remain historical provenance for this independent snapshot; Spark does not read the retired source paths.
 
 | Source file | SHA-256 | Vendored use |
 |---|---|---|
