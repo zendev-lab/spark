@@ -29,6 +29,7 @@ import {
   type RoleRunCompletionOutcome,
   type RunRef,
   type Task,
+  type TaskResourceAllocation,
   type TaskRef,
   type TaskRun,
   type TaskRunCompletionSummary,
@@ -462,6 +463,7 @@ export interface SparkTaskRunOptions {
   forkFromSession?: string;
   sessionModel?: string;
   env?: NodeJS.ProcessEnv;
+  resourceAllocation?: TaskResourceAllocation;
   allowedTools?: string[];
   roleExecutor?: SparkRoleInstructionExecutor;
   onRoleEvent?: (event: unknown) => void | Promise<void>;
@@ -561,9 +563,11 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
     ref: runRef,
     projectRef: task.projectRef,
     taskRef: task.ref,
+    ...(dryRun ? { dryRun: true } : {}),
     roleRef: taskRoleRef,
     runName,
     ownerSessionId,
+    resourceAllocation: input.resourceAllocation,
     status: "running",
     startedAt: nowIso(),
     outputArtifacts: [],

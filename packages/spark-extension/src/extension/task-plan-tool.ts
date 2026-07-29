@@ -1,7 +1,105 @@
 import { Type } from "typebox";
 
-import type { Task, TaskKind, TaskPlan, TaskPlanItem, TaskStatus } from "@zendev-lab/spark-core";
-import { type TaskPlanResult } from "@zendev-lab/spark-tasks";
+import type {
+  Task,
+  TaskExecutionPolicy,
+  TaskKind,
+  TaskPlan,
+  TaskPlanItem,
+  TaskStatus,
+} from "@zendev-lab/spark-core";
+import { normalizeTaskExecutionPolicy, type TaskPlanResult } from "@zendev-lab/spark-tasks";
+
+export function taskExecutionPolicySchema() {
+  return Type.Object({
+    continuity: Type.Optional(Type.String({ description: "reuse_within_revision | fresh" })),
+    isolation: Type.Optional(
+      Type.String({ description: "readonly | isolated_worktree | isolated_results" }),
+    ),
+    comparison: Type.Optional(
+      Type.String({ description: "single_side | reference | target | paired" }),
+    ),
+    resources: Type.Optional(
+      Type.Object({
+        gpuCount: Type.Optional(
+          Type.Number({
+            description: "GPU count per side; paired comparisons reserve twice this.",
+          }),
+        ),
+        minGpuMemoryGiB: Type.Optional(Type.Number()),
+        topologyClass: Type.Optional(Type.String()),
+        exclusiveNode: Type.Optional(Type.Boolean()),
+      }),
+    ),
+    concurrencyKeys: Type.Optional(Type.Array(Type.String())),
+    timeoutMs: Type.Optional(Type.Number()),
+    maxAttempts: Type.Optional(Type.Number()),
+  });
+}
+
+export function normalizeTaskExecutionPolicyPatch(
+  value: unknown,
+  path: string,
+  kind: TaskKind,
+): TaskExecutionPolicy | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isRecord(value)) throw new Error(`${path} must be an object`);
+  if (value.resources !== undefined && !isRecord(value.resources)) {
+    throw new Error(`${path}.resources must be an object`);
+  }
+  const resources = value.resources as Record<string, unknown> | undefined;
+  const continuity = optionalChoice(value.continuity, `${path}.continuity`, [
+    "reuse_within_revision",
+    "fresh",
+  ] as const);
+  const isolation = optionalChoice(value.isolation, `${path}.isolation`, [
+    "readonly",
+    "isolated_worktree",
+    "isolated_results",
+  ] as const);
+  const comparison = optionalChoice(value.comparison, `${path}.comparison`, [
+    "single_side",
+    "reference",
+    "target",
+    "paired",
+  ] as const);
+  const gpuCount = optionalNonNegativeInteger(resources?.gpuCount, `${path}.resources.gpuCount`);
+  const minGpuMemoryGiB = optionalPositiveNumber(
+    resources?.minGpuMemoryGiB,
+    `${path}.resources.minGpuMemoryGiB`,
+  );
+  const topologyClass = normalizeOptionalToolString(
+    resources?.topologyClass,
+    `${path}.resources.topologyClass`,
+  );
+  const exclusiveNode = optionalBoolean(
+    resources?.exclusiveNode,
+    `${path}.resources.exclusiveNode`,
+  );
+  const timeoutMs = optionalPositiveInteger(value.timeoutMs, `${path}.timeoutMs`);
+  const maxAttempts = optionalPositiveInteger(value.maxAttempts, `${path}.maxAttempts`);
+  return normalizeTaskExecutionPolicy(
+    {
+      continuity,
+      isolation,
+      comparison,
+      ...(resources
+        ? {
+            resources: {
+              gpuCount: gpuCount ?? 0,
+              ...(minGpuMemoryGiB !== undefined ? { minGpuMemoryGiB } : {}),
+              ...(topologyClass ? { topologyClass } : {}),
+              ...(exclusiveNode !== undefined ? { exclusiveNode } : {}),
+            },
+          }
+        : {}),
+      concurrencyKeys: normalizeToolStringArray(value.concurrencyKeys, `${path}.concurrencyKeys`),
+      timeoutMs,
+      maxAttempts,
+    },
+    kind,
+  );
+}
 
 export function taskPlanSchema() {
   return Type.Object({
@@ -242,10 +340,51 @@ export function compactTaskDetail(task: Task) {
     status: task.status,
     kind: task.kind,
     roleRef: task.roleRef,
+    executionPolicy: task.executionPolicy,
     projectRef: task.projectRef,
     cancellation: task.cancellation,
     supersededBy: task.supersededBy,
   };
+}
+
+function optionalPositiveNumber(value: unknown, path: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
+    throw new Error(`${path} must be a positive number`);
+  return value;
+}
+
+function optionalPositiveInteger(value: unknown, path: string): number | undefined {
+  const number = optionalPositiveNumber(value, path);
+  if (number !== undefined && !Number.isInteger(number))
+    throw new Error(`${path} must be a positive integer`);
+  return number;
+}
+
+function optionalNonNegativeInteger(value: unknown, path: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0)
+    throw new Error(`${path} must be a non-negative integer`);
+  return value;
+}
+
+function optionalBoolean(value: unknown, path: string): boolean | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "boolean") throw new Error(`${path} must be a boolean`);
+  return value;
+}
+
+function optionalChoice<const T extends readonly string[]>(
+  value: unknown,
+  path: string,
+  choices: T,
+): T[number] | undefined {
+  const normalized = normalizeOptionalToolString(value, path);
+  if (normalized === undefined) return undefined;
+  if (!choices.includes(normalized)) {
+    throw new Error(`${path} must be one of: ${choices.join(", ")}`);
+  }
+  return normalized;
 }
 
 export function compactTaskPlanResult(result: TaskPlanResult) {

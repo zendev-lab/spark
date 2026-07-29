@@ -4267,11 +4267,48 @@ test("split task tools dispatch read, write, and assign actions", async () => {
           title: "Canonical task tool",
           description: "Exercise task action routing.",
           status: "ready",
+          executionPolicy: {
+            continuity: "fresh",
+            isolation: "isolated_results",
+            comparison: "paired",
+            resources: { gpuCount: 0 },
+            concurrencyKeys: ["results:canonical-task-tool"],
+            timeoutMs: 60_000,
+            maxAttempts: 3,
+          },
           plan: executionReadyPlan("Exercise task action routing"),
         },
       ],
     });
     assert.match(toolText(planned), /Planned tasks: created=1/);
+    const plannedGraph = await defaultTaskGraphStore(dir).load();
+    assert.deepEqual(
+      plannedGraph?.tasks().find((task) => task.name === "canonical-task-tool")?.executionPolicy,
+      {
+        continuity: "fresh",
+        isolation: "isolated_results",
+        comparison: "paired",
+        concurrencyKeys: ["results:canonical-task-tool"],
+        timeoutMs: 60_000,
+        maxAttempts: 3,
+      },
+    );
+    await assert.rejects(
+      () =>
+        executeSparkTool(tools, "task_write", ctx, {
+          action: "plan",
+          tasks: [
+            {
+              name: "invalid-resource-policy",
+              title: "Invalid resource policy",
+              description: "Must fail closed.",
+              executionPolicy: { resources: { gpuCount: -1 } },
+              plan: executionReadyPlan("Reject invalid resource policy"),
+            },
+          ],
+        }),
+      /resources\.gpuCount must be a non-negative integer/u,
+    );
 
     const status = await executeSparkTool(tools, "task_read", ctx, {
       action: "project_status",
@@ -11965,6 +12002,18 @@ test("repro stage blueprints materialize a complete dependency-valid task graph"
       "run-s0-p0-htarget",
       "bitwise-pass-20",
     ]);
+    assert.equal(taskById.get("qualify-tp")?.executionPolicy.resources?.gpuCount, 2);
+    assert.equal(taskById.get("qualify-ep")?.executionPolicy.resources?.gpuCount, 2);
+    assert.equal(taskById.get("compose-tp-ep")?.executionPolicy.resources?.gpuCount, 4);
+    assert.equal(taskById.get("compose-tp-ep-pp")?.executionPolicy.resources?.gpuCount, 8);
+    assert.equal(
+      taskById.get("performance-budget")?.executionPolicy.resources?.exclusiveNode,
+      true,
+    );
+    assert.equal(
+      blueprintTasks.every((task) => task.executionPolicy.maxAttempts === 2),
+      true,
+    );
 
     const graph = await defaultTaskGraphStore(dir).load();
     assert.ok(graph);
@@ -11972,6 +12021,10 @@ test("repro stage blueprints materialize a complete dependency-valid task graph"
     assert.equal(tasks.length, blueprintTasks.length);
     assert.equal(
       tasks.every((task) => decideTaskPlanBeforeCreate(task).accepted),
+      true,
+    );
+    assert.equal(
+      tasks.every((task) => task.executionPolicy?.concurrencyKeys.length === 1),
       true,
     );
     assert.equal(repro.subgoals.length, blueprintTasks.length);

@@ -223,6 +223,7 @@ function taskPlanInput(definition: ReproTaskBlueprint, roadmapItem: RoadmapItem)
     description: definition.description,
     kind: definition.kind,
     roleRef: definition.roleRef,
+    executionPolicy: definition.executionPolicy,
     dependsOn: definition.dependsOn,
     plan: normalizeTaskPlan(
       {
