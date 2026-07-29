@@ -51,28 +51,16 @@ const structuredSummary = {
   },
 };
 
-test("Smart compact extraction separates stable facts from open items and preserves direct evidence links", () => {
+test("Smart compact extraction keeps only evidence-linked durable claims", () => {
   const candidates = extractSparkCompactionCandidates(structuredSummary, {
     sessionId: "session:compact",
   });
 
-  assert.equal(candidates.filter((candidate) => candidate.kind === "stable_fact").length, 4);
-  assert.equal(candidates.filter((candidate) => candidate.kind === "open_item").length, 3);
-  assert.deepEqual(
-    candidates.find((candidate) => candidate.text === "Package manager is pnpm.")?.evidenceRefs,
-    [],
-  );
-  assert.deepEqual(
-    candidates.find((candidate) => candidate.text.includes("Validated durable delivery"))
-      ?.evidenceRefs,
-    ["evidence:delivery-proof"],
-  );
-  assert.deepEqual(
-    candidates.find((candidate) => candidate.text.startsWith("packages/spark-memory"))
-      ?.evidenceRefs,
-    ["artifact:changed-file-proof"],
-  );
-  assert.ok(candidates.every((candidate) => candidate.sourceSessionId === "session:compact"));
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0]?.kind, "stable_fact");
+  assert.equal(candidates[0]?.text, "Validated durable delivery (evidence:delivery-proof).");
+  assert.deepEqual(candidates[0]?.evidenceRefs, ["evidence:delivery-proof"]);
+  assert.equal(candidates[0]?.sourceSessionId, "session:compact");
 });
 
 test("post-compact extraction fails closed for malformed or non-Smart details", () => {
@@ -91,7 +79,7 @@ test("post-compact extraction fails closed for malformed or non-Smart details", 
       preservedFacts: ["Malformed evidence evidence:delivery-proof:extra must not be truncated."],
     },
   };
-  assert.deepEqual(extractSparkCompactionCandidates(malformedRefDetails)[0]?.evidenceRefs, []);
+  assert.deepEqual(extractSparkCompactionCandidates(malformedRefDetails), []);
 });
 
 test("post-compact pipeline persists candidates but writes Memory only with resolvable evidence", async () => {
@@ -147,9 +135,9 @@ test("post-compact pipeline persists candidates but writes Memory only with reso
       },
     });
 
-    assert.equal(result.candidates.length, 7);
+    assert.equal(result.candidates.length, 1);
     assert.equal(result.writtenMemory.length, 1);
-    assert.equal(result.rejectedForEvidence, 3);
+    assert.equal(result.rejectedForEvidence, 0);
     assert.deepEqual(written, [
       {
         text: "Validated durable delivery (evidence:delivery-proof).",
@@ -162,10 +150,10 @@ test("post-compact pipeline persists candidates but writes Memory only with reso
       summary: "rendered summary",
       details: structuredSummary,
     });
-    assert.equal(replay.candidates.length, 7);
+    assert.equal(replay.candidates.length, 1);
     const stored = await defaultRecallStore(dir, "workspace").list();
-    assert.equal(stored.length, 7);
-    assert.equal(stored.filter((candidate) => candidate.kind === "open_item").length, 3);
+    assert.equal(stored.length, 1);
+    assert.equal(stored[0]?.kind, "stable_fact");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -182,12 +170,12 @@ test("candidate review and Memory write failures are isolated from remaining can
         version: 1,
         objective: "Verify failure isolation",
         completed: [],
-        preservedFacts: [],
-        decisions: [],
-        changedFiles: [
-          { path: "a.ts", change: "first", evidenceRefs: ["evidence:first"] },
-          { path: "b.ts", change: "second", evidenceRefs: ["evidence:second"] },
+        preservedFacts: [
+          "First evidence-backed fact (evidence:first).",
+          "Second evidence-backed fact (evidence:second).",
         ],
+        decisions: [],
+        changedFiles: [],
         commands: [],
         unresolved: [],
         inProgress: [],

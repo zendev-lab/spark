@@ -187,7 +187,7 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
     parameters: Type.Object({
       action: Type.String({
         description:
-          "entry: remember|recall|search|status|forget|import_legacy; learning: record|list|read|search|mark_stale|supersede|reject|export_markdown|import_markdown; candidate: record|list|search|reject",
+          "entry: remember|recall|search|status|forget|import_legacy; learning: record|list|read|search|mark_stale|supersede|reject|export_markdown|import_markdown; candidate: record|list|search|audit|gc|promote|restore|reject",
       }),
       kind: Type.Optional(Type.String({ description: "entry (default) | learning | candidate" })),
       scope: Type.Optional(Type.String({ description: "user | workspace | repo" })),
@@ -214,7 +214,17 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
         Type.String({ description: "Keyword query for search/recall filtering." }),
       ),
       id: Type.Optional(Type.String({ description: "Entry/candidate/learning id." })),
-      ref: Type.Optional(Type.String({ description: "Learning artifact ref." })),
+      ids: Type.Optional(
+        Type.Array(Type.String(), { description: "Candidate ids for bulk restore." }),
+      ),
+      ref: Type.Optional(
+        Type.String({ description: "Learning artifact ref or candidate promotion target." }),
+      ),
+      promotedTo: Type.Optional(
+        Type.String({
+          description: "Canonical memory/learning ref created from a promoted candidate.",
+        }),
+      ),
       includeForgotten: Type.Optional(Type.Boolean()),
       includeRejected: Type.Optional(Type.Boolean()),
       includeCandidates: Type.Optional(Type.Boolean()),
@@ -241,8 +251,15 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
       ),
       apply: Type.Optional(
         Type.Boolean({
-          description: "For import_legacy/import_markdown: false previews, true imports.",
+          description:
+            "For import_legacy/import_markdown or candidate gc: false previews, true applies the digest-bound plan.",
         }),
+      ),
+      olderThanDays: Type.Optional(
+        Type.Number({ description: "Candidate GC eligibility age in days. Defaults to 7." }),
+      ),
+      planDigest: Type.Optional(
+        Type.String({ description: "Exact digest returned by candidate audit/gc dry-run." }),
       ),
     }),
     renderCall(args, theme) {
