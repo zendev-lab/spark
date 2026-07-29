@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import type { ArtifactRef } from "@zendev-lab/spark-core";
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
   createElaborationResult,
   createSparkAskFlowRequest,
@@ -460,7 +460,7 @@ test("impl_ask tool persists multi-question answers in one artifact", async () =
       /Plan next ask work: answered; scope=Tool schema; notes=Keep specialized wrappers as compat only\./,
     );
 
-    const artifact = await defaultArtifactStore(dir).get<AskArtifactBodyForTest>(
+    const artifact = await defaultEvidenceStore(dir).get<AskArtifactBodyForTest>(
       response.details.artifactRef as ArtifactRef,
     );
     assert.equal(
@@ -548,7 +548,7 @@ test("impl_ask tool persists decision no-selection as a blocked artifact", async
     assert.equal(response.details.nextAction, "block");
     assert.match(response.content[0]!.text, /Dispatch roles\? blocked: no_selection; no selection/);
 
-    const artifact = await defaultArtifactStore(dir).get<AskArtifactBodyForTest>(
+    const artifact = await defaultEvidenceStore(dir).get<AskArtifactBodyForTest>(
       response.details.artifactRef as ArtifactRef,
     );
     assert.match(
@@ -595,7 +595,7 @@ test("impl_ask tool preserves custom decision text instead of reporting no-selec
       /Dispatch roles\? blocked: answered; dispatch=先修 widget; next=block/,
     );
 
-    const artifact = await defaultArtifactStore(dir).get<AskArtifactBodyForTest>(
+    const artifact = await defaultEvidenceStore(dir).get<AskArtifactBodyForTest>(
       response.details.artifactRef as ArtifactRef,
     );
     assert.match(
@@ -644,7 +644,7 @@ test("impl_ask tool multi-select decision persists explicit selections", async (
     );
     assert.doesNotMatch(response.content[0]!.text, /docs, tests/);
 
-    const artifact = await defaultArtifactStore(dir).get<AskArtifactBodyForTest>(
+    const artifact = await defaultEvidenceStore(dir).get<AskArtifactBodyForTest>(
       response.details.artifactRef as ArtifactRef,
     );
     assert.deepEqual(artifact.body.result.answers.workstreams!.values, ["docs", "tests"]);

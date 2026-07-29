@@ -23,7 +23,7 @@ Stage gate (gate-A): 20+100 step BITWISE_PASS achieved — evaluation is derived
 
 Repro drive requirements:
 - Operate in the selected phase (implement); use its tool policy for plan or implement work.
-- Prefer the main session for scheduling and every concrete step. Do not default to role({ action: "call" }), session({ action: "call"|"send" }), assign, or workflow_run during repro ticks; use those only when the user explicitly requests multi-agent/workflow fan-out.
+- The main session owns planning and reconciliation; use assign only for the independent safe_local ready frontier, while ask_decision and ask_approval remain owner-only.
 - When blocked by a missing user decision, ambiguous requirement, unclear baseline/source, conflicting evidence, failing validation whose next step is unclear, or any problem the user can unblock, call ask immediately with a concrete question. Do not guess, invent substitutes, or end the turn with only a prose blocker report when ask can resolve it.
 - Advance milestones with repro record/evaluate/advance. Never treat prose, an unverified ref, or a bare boolean as proof.
 - Before ending every repro turn, leave a verifiable checkpoint. If the turn produced a coherent set of repository changes and committing is authorized and safe, create a small git commit promptly. Never include unrelated pre-existing changes.

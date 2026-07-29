@@ -1,4 +1,4 @@
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   nowIso,
@@ -428,7 +428,7 @@ async function projectGoalEvidenceRefs(
 ): Promise<ArtifactRef[]> {
   const taskEvidenceRefs = projectTaskEvidenceRefs(graph, projectRef);
   const projectReviewRefs = (
-    await defaultArtifactStore(cwd).list({ producer: "review", projectRef })
+    await defaultEvidenceStore(cwd).list({ producer: "review", projectRef })
   ).map((artifact) => artifact.ref);
   return [...new Set([...taskEvidenceRefs, ...projectReviewRefs])].slice(-20);
 }
@@ -437,7 +437,7 @@ async function goalReviewEvidencePreviews(
   cwd: string,
   evidenceRefs: ArtifactRef[],
 ): Promise<GoalReviewEvidencePreview[]> {
-  const store = defaultArtifactStore(cwd);
+  const store = defaultEvidenceStore(cwd);
   return Promise.all(
     evidenceRefs.map(async (ref) => {
       try {
@@ -521,7 +521,7 @@ async function recordGoalReviewArtifact(
     finishedAt: review.record.finishedAt,
     ...(review.record.thinking ? { thinking: review.record.thinking } : {}),
   };
-  const store = defaultArtifactStore(cwd);
+  const store = defaultEvidenceStore(cwd);
   const ref = goalReviewArtifactRef(active.goal.goalId);
   const recordedAt = nowIso();
   const reviewPacket = {
@@ -570,7 +570,7 @@ async function recordGoalReviewArtifact(
 }
 
 function goalReviewArtifactRef(goalId: string): ArtifactRef {
-  return `artifact:goal-review-${goalId.replace(/[^a-zA-Z0-9_-]/gu, "-")}` as ArtifactRef;
+  return `evidence:goal-review-${goalId.replace(/[^a-zA-Z0-9_-]/gu, "-")}` as ArtifactRef;
 }
 
 function goalReviewHistoryEntries(value: unknown): JsonValue[] {

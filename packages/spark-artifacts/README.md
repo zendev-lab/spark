@@ -7,7 +7,7 @@ Product artifacts (`issue` / `pr` / `preview`) for users, plus an **agent-intern
 | Surface | Tool | Kinds | User-visible? | On-disk |
 |---|---|---|---|---|
 | **Product artifacts** | `artifact` | `issue`, `pr`, `preview` | Yes (Cockpit `/artifacts`) | `.spark/artifacts/` |
-| **Internal evidence** | `evidence` | `record` (default), `trace`, `knowledge`, `document` | No | `.spark/artifacts/` (compat); `defaultEvidenceStore` can use `.spark/evidence/` |
+| **Internal evidence** | `evidence` | `record` (default), `trace`, `knowledge`, `document` | No | `.spark/evidence/` |
 
 - ISSUE/PR sync from GitHub (`gh`) or GitLab (`glab`).
 - PR create prefers a git worktree under `.spark/worktrees/pr-…`.
@@ -32,5 +32,9 @@ Import Generative UI from `@zendev-lab/spark-artifacts/generative-ui`.
 Import product helpers from `@zendev-lab/spark-artifacts/product` or the package root.
 
 - `defaultProductArtifactStore(cwd)` → `.spark/artifacts/` (product kinds only)
-- `defaultEvidenceStore(cwd)` → `.spark/evidence/` (+ legacy `.spark/artifacts/` reads)
-- `defaultArtifactStore(cwd)` / `evidence` tool → historical evidence root `.spark/artifacts/` (compat with ask/runtime)
+- `defaultEvidenceStore(cwd)` → `.spark/evidence/` and `evidence:…` refs only
+
+The two surfaces are not aliases. The `evidence` tool never scans
+`.spark/artifacts/`, never accepts an `artifact:…` ref, and never publishes
+ledger entries as Product Artifacts. Legacy evidence under `.spark/artifacts/`
+requires an explicit migration/import path.

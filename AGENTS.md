@@ -74,6 +74,12 @@ Target package topology follows type-first names:
 ## Notes for agents
 
 - Public/default repo-owned tools should use canonical `tool({ action })` surfaces when operations share one domain/state/permission/render/result contract; do not keep fragmented duplicate aliases public, and render action tools as `tool action=<value> ...`.
+- Daemon state is execution truth. Cockpit may project `work` and `drivers`, but must not infer execution state from prompts, transcript text, elapsed time, or browser timers.
+- Sessions with daemon-owned Goal/Repro work or autonomous drivers are Work-first; keep Transcript as a mounted audit view.
+- Ask stays inline in its owning session. Do not add a global Ask modal.
+- Never collapse `scheduled`, `running`, `retry_wait`, `dormant`, `blocked`, and `stopped`; every reachable driver state requires a rendered test.
+- Product Artifacts remain exactly `issue | pr | preview`. Verification receipts may show bounded proof summaries and references, not internal evidence-ledger bodies.
+- Product Artifacts (`artifact:…`, `.spark/artifacts/`) and internal evidence (`evidence:…`, `.spark/evidence/`) are separate stores and ref namespaces; never use one as a compatibility alias for the other.
 - Prefer `pnpm run fix` before committing when touching TS/Markdown; pre-commit runs the same command.
 - Do not commit secrets or `.env` files.
 - **State directories** — Workspace agent runtime lives under `.spark/` (durable memory under `.spark/memory/`, including `learnings/`, `reflections/`, and `recall-candidates.json`). User-level Spark paths use explicit `SPARK_HOME` when set, otherwise the standard XDG config/data/cache/state/runtime roots via `resolveSparkUserPaths()` and `resolveSparkPaths()`. Public role, skill, and workflow definitions remain under `$HOME/.agents/`; project roles, skills, and workflows use `.agents/{roles,skills,workflows}`. Learning / recall / reflection capability code lives in `@zendev-lab/spark-memory` (not separate `spark-learnings` / `spark-recall` packages). Legacy `.learnings/` and `.spark/reflections/` are migrated into `.spark/memory/` when needed.

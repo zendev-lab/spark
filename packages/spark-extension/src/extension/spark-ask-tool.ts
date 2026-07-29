@@ -25,7 +25,7 @@ import {
   type SparkAskFlowRequest,
   type SparkAskFlowResult,
 } from "@zendev-lab/spark-ask";
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import type { ArtifactRef, JsonValue } from "@zendev-lab/spark-core";
 
 export const MIN_SPARK_ASK_OPTION_DESCRIPTION_LENGTH = 12;
@@ -107,7 +107,7 @@ export async function replaySparkAskTool(input: {
   content: Array<{ type: "text"; text: string }>;
   details: Record<string, unknown>;
 }> {
-  const store = defaultArtifactStore(input.cwd);
+  const store = defaultEvidenceStore(input.cwd);
   const artifact = input.artifactRef
     ? await store.get(input.artifactRef)
     : (await store.list({ producer: "ask" })).slice(-1)[0];
@@ -181,7 +181,7 @@ async function runAndPersistSparkAskRequest(
   );
   const blocked = isSparkAskFlowGateBlocked(result, request);
   const body = createAskArtifactBody(request, result, { blocked });
-  const artifact = await defaultArtifactStore(input.cwd).put({
+  const artifact = await defaultEvidenceStore(input.cwd).put({
     kind: "record",
     title: input.title,
     format: "json",

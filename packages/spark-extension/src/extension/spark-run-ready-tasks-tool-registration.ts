@@ -1,5 +1,5 @@
 import { Type } from "typebox";
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
   DEFAULT_READY_TASK_MAX_CONCURRENCY,
   DEFAULT_READY_TASK_TIMEOUT_MS,
@@ -262,7 +262,7 @@ export function registerSparkRunReadyTasksTool(
         };
       }
 
-      const artifactStore = defaultArtifactStore(cwd);
+      const artifactStore = defaultEvidenceStore(cwd);
       const resourceInventory = await discoverTaskResourceInventory();
       const runtimeRunner = createSparkRuntimeReadyTaskRunner({
         registry,

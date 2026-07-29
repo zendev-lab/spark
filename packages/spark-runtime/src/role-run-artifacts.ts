@@ -110,7 +110,7 @@ export async function readRoleRunArtifactPreview(
   artifactRef: ArtifactRef,
   options: { maxMetadataBytes?: number } = {},
 ): Promise<RoleRunArtifactPreview> {
-  const metadataPath = join(cwd, ".spark", "artifacts", `${refId(artifactRef)}.json`);
+  const metadataPath = join(cwd, ".spark", "evidence", `${refId(artifactRef)}.json`);
   const metadataStat = await stat(metadataPath).catch((error: NodeJS.ErrnoException) => {
     if (isFileNotFoundError(error)) return undefined;
     throw error;
@@ -252,10 +252,10 @@ export async function collectRoleRunArtifactRetentionPlan(
   cwd: string,
   options: { dryRun: boolean; thresholdBytes: number; tailBytes: number; exportDir?: string },
 ): Promise<RoleRunArtifactRetentionPlan> {
-  const artifactRoot = join(cwd, ".spark", "artifacts");
+  const artifactRoot = join(cwd, ".spark", "evidence");
   const metadataFiles = await listRoleRunArtifactMetadataFiles(artifactRoot);
   const plan: RoleRunArtifactRetentionPlan = {
-    root: relative(cwd, artifactRoot) || ".spark/artifacts",
+    root: relative(cwd, artifactRoot) || ".spark/evidence",
     generatedAt: nowIso(),
     dryRun: options.dryRun,
     thresholdBytes: options.thresholdBytes,
@@ -584,8 +584,8 @@ function roleRunArtifactRefFromMetadata(
   file: RoleRunArtifactMetadataFile,
   raw: Record<string, unknown>,
 ): ArtifactRef {
-  const ref = typeof raw.ref === "string" ? raw.ref : `artifact:${basename(file.name, ".json")}`;
-  return ref.startsWith("artifact:") ? (ref as ArtifactRef) : (`artifact:${ref}` as ArtifactRef);
+  const ref = typeof raw.ref === "string" ? raw.ref : `evidence:${basename(file.name, ".json")}`;
+  return ref.startsWith("evidence:") ? (ref as ArtifactRef) : (`evidence:${ref}` as ArtifactRef);
 }
 
 function isHistoricalRoleRunArtifactKind(kind: string | undefined): boolean {

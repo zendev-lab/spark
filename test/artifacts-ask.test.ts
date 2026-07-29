@@ -7,7 +7,6 @@ import { test } from "vitest";
 import {
   ArtifactStore,
   ArtifactStoreFormatError,
-  defaultArtifactStore,
   defaultEvidenceStore,
 } from "@zendev-lab/spark-artifacts";
 import { registerSparkArtifactTool } from "@zendev-lab/spark-artifacts/extension";
@@ -104,7 +103,7 @@ test("artifact store writes hashes, blobs, and lineage links", async () => {
   }
 });
 
-test("artifact tool describes valid provenance producers", () => {
+test("evidence tool describes valid provenance producers", () => {
   const tools = new Map<string, { promptGuidelines?: string[]; parameters?: unknown }>();
   registerSparkArtifactTool({ registerTool: (config) => tools.set(config.name, config) });
   const tool = tools.get("evidence");
@@ -125,7 +124,7 @@ test("artifact tool describes valid provenance producers", () => {
   assert.match(parameters, /Role ref filter|role ref/i);
 });
 
-test("artifact record stores validation evidence as a producer-tagged record", async () => {
+test("evidence record stores validation evidence as a producer-tagged record", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-artifact-record-kind-"));
   try {
     const tools = new Map<
@@ -154,18 +153,18 @@ test("artifact record stores validation evidence as a producer-tagged record", a
       { cwd: dir },
     );
 
-    assert.equal(recorded.details.artifact.kind, "record");
-    const listed = await defaultArtifactStore(dir).list({ producer: "task" });
+    assert.equal(recorded.details.evidence.kind, "record");
+    const listed = await defaultEvidenceStore(dir).list({ producer: "task" });
     assert.deepEqual(
       listed.map((artifact) => artifact.ref),
-      [recorded.details.refs.artifactRef],
+      [recorded.details.refs.evidenceRef],
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("artifact record rejects retired verification kind with a directed hint", async () => {
+test("evidence record rejects retired verification kind with a directed hint", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-artifact-retired-kind-"));
   try {
     const tools = new Map<string, { execute: Function }>();
@@ -285,10 +284,10 @@ test("artifact record tool stores top-level refs as provenance shortcuts", async
       { cwd: dir },
     );
 
-    const recordedArtifactRef = recorded.details.refs.artifactRef as `artifact:${string}`;
-    const recordedArtifact = await defaultArtifactStore(dir).get(recordedArtifactRef);
-    assert.equal(recordedArtifact.provenance.projectRef, projectRef);
-    assert.equal(recordedArtifact.provenance.taskRef, taskRef);
+    const recordedEvidenceRef = recorded.details.refs.evidenceRef as `evidence:${string}`;
+    const recordedEvidence = await defaultEvidenceStore(dir).get(recordedEvidenceRef);
+    assert.equal(recordedEvidence.provenance.projectRef, projectRef);
+    assert.equal(recordedEvidence.provenance.taskRef, taskRef);
 
     const listed = await tool.execute(
       "artifact-list-shortcuts",
@@ -298,13 +297,13 @@ test("artifact record tool stores top-level refs as provenance shortcuts", async
       { cwd: dir },
     );
     assert.equal(listed.details.count, 1);
-    assert.equal(listed.details.artifacts[0]?.projectRef, projectRef);
+    assert.equal(listed.details.entries[0]?.projectRef, projectRef);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("artifact record rejects conflicting top-level provenance shortcuts", async () => {
+test("evidence record rejects conflicting top-level provenance shortcuts", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-artifact-record-shortcut-conflict-"));
   try {
     const tools = new Map<string, { execute: Function }>();

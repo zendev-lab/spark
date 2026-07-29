@@ -62,7 +62,7 @@ function command(
 }
 
 describe("Spark daemon bridge", () => {
-  it("executes through the injected Spark task executor and projects Spark artifacts", async () => {
+  it("uses internal evidence for the assistant fallback without projecting a Product Artifact", async () => {
     const h = setup();
     try {
       const emitted: unknown[] = [];
@@ -74,18 +74,18 @@ describe("Spark daemon bridge", () => {
         async save() {},
       };
       const artifactStore = {
-        async get(ref: `artifact:${string}`) {
+        async get(ref: `evidence:${string}`) {
           return {
             ref,
             kind: "trace",
             title: "Spark role run",
-            format: "json",
+            format: "text",
             hash: "hash123",
             provenance: { runRef: "run_1", taskRef: "task_1" },
           };
         },
         async getBody() {
-          return JSON.stringify({ ok: true });
+          return "Bridge role result";
         },
       };
 
@@ -117,7 +117,7 @@ describe("Spark daemon bridge", () => {
           return {
             ref: "run:bridge",
             status: "succeeded",
-            outputArtifacts: ["artifact:bridge-output"],
+            outputArtifacts: ["evidence:bridge-output"],
           };
         },
       });
@@ -129,16 +129,14 @@ describe("Spark daemon bridge", () => {
         "invocation.updated",
         "task_graph.snapshot",
         "invocation.log_chunk",
-        "artifact.projected",
+        "invocation.log_chunk",
         "task_graph.snapshot",
         "invocation.updated",
       ]);
-      const artifact = emitted.find(
-        (value) => (value as { type: string }).type === "artifact.projected",
-      ) as {
-        payload: { contentRef: { sparkArtifactRef?: string } };
-      };
-      expect(artifact.payload.contentRef.sparkArtifactRef).toBe("artifact:bridge-output");
+      expect(
+        emitted.some((value) => (value as { type: string }).type === "artifact.projected"),
+      ).toBe(false);
+      expect(result.outputArtifactIds).toEqual([]);
       expect(
         h.db.prepare("SELECT session_id AS sessionId, status FROM invocations").get(),
       ).toMatchObject({
@@ -291,7 +289,7 @@ describe("Spark daemon bridge", () => {
     }
   });
 
-  it("uses role-run trace artifacts as assistant output when no live chunks were captured", async () => {
+  it("uses role-run evidence as assistant output without publishing it as a Product Artifact", async () => {
     const h = setup();
     try {
       const emitted: unknown[] = [];
@@ -303,7 +301,7 @@ describe("Spark daemon bridge", () => {
         async save() {},
       };
       const artifactStore = {
-        async get(ref: `artifact:${string}`) {
+        async get(ref: `evidence:${string}`) {
           return {
             ref,
             kind: "trace",
@@ -342,7 +340,7 @@ describe("Spark daemon bridge", () => {
         executeSparkTask: async () => ({
           ref: "run:artifact",
           status: "succeeded",
-          outputArtifacts: ["artifact:bridge-output"],
+          outputArtifacts: ["evidence:bridge-output"],
         }),
       });
 
@@ -351,7 +349,6 @@ describe("Spark daemon bridge", () => {
         "invocation.updated",
         "task_graph.snapshot",
         "invocation.log_chunk",
-        "artifact.projected",
         "invocation.log_chunk",
         "task_graph.snapshot",
         "invocation.updated",

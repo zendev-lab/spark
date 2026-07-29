@@ -67,6 +67,7 @@ test("Spark store V2 manifest codifies hard cutover and import-only legacy paths
       ".spark/sessions/<session>/",
       ".spark/projects/<project>/",
       ".spark/artifacts/",
+      ".spark/evidence/",
     ],
   );
   assert.equal(

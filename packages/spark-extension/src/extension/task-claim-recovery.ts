@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { nowIso, type ProjectRef, type Task } from "@zendev-lab/spark-core";
 import {
-  defaultArtifactStore,
+  defaultEvidenceStore,
   type Artifact,
   type ArtifactRef,
   type JsonValue,
@@ -157,7 +157,7 @@ export async function recordSparkTaskClaimRecoveryArtifact(
     decision: input.decision,
     recoveredAt: now,
   });
-  const artifact = await defaultArtifactStore(input.cwd).put({
+  const artifact = await defaultEvidenceStore(input.cwd).put({
     kind: "record",
     title: `Recovered Spark task claim for @${input.task.name}`,
     format: "json",
@@ -245,7 +245,7 @@ async function latestNeedsChangesReview(
   cwd: string,
   task: Task,
 ): Promise<LatestNeedsChangesReview | undefined> {
-  const reviews = await defaultArtifactStore(cwd).list({ taskRef: task.ref, producer: "review" });
+  const reviews = await defaultEvidenceStore(cwd).list({ taskRef: task.ref, producer: "review" });
   return reviews
     .flatMap((artifact) => {
       const outcome = reviewOutcome(artifact);

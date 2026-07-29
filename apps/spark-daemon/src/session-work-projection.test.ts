@@ -1,0 +1,191 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+
+import type { EvidenceRef } from "@zendev-lab/spark-core";
+import { sessionGoalStorePathV2, sessionReproStorePathV2 } from "@zendev-lab/spark-loop";
+import type { SparkDriverView } from "@zendev-lab/spark-protocol";
+import {
+  createSparkSessionRepro,
+  stepDefinitionDigest,
+  updateReproStep,
+  verifyReproStepPass,
+} from "@zendev-lab/spark-repro";
+import { afterEach, describe, expect, it } from "vitest";
+
+import {
+  projectSparkSessionWork,
+  selectPrimarySessionDriver,
+  type SparkSessionWorkProjectionDiagnostic,
+} from "./session-work-projection.ts";
+
+const roots: string[] = [];
+const sessionId = "sess-work";
+const context = { sessionId };
+
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+describe("session work projection", () => {
+  it("selects the primary driver by semantic status, kind, and stable id", () => {
+    const drivers = [
+      driver("z-repro", "repro", "blocked"),
+      driver("a-goal", "goal", "running"),
+      driver("b-repro", "repro", "running"),
+      driver("a-repro", "repro", "running"),
+    ];
+
+    expect(selectPrimarySessionDriver(drivers)?.driverId).toBe("a-repro");
+  });
+
+  it("joins durable Goal/Repro state into a bounded display projection", async () => {
+    const cwd = await tempCwd();
+    const timestamp = "2026-07-28T00:00:00.000Z";
+    await writeJson(sessionGoalStorePathV2(cwd, context), {
+      version: 1,
+      goal: {
+        version: 1,
+        goalId: "goal-1",
+        sessionKey: `session:${sessionId}`,
+        originalObjective: "Reproduce target logits",
+        objective: "Reproduce target logits",
+        status: "active",
+        source: "explicit",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    });
+
+    let repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
+      objective: "Reproduce target logits",
+    });
+    const step = repro.plan.steps[0]!;
+    const evidenceRefs = ["evidence:contract"] as EvidenceRef[];
+    const verifier = verifyReproStepPass(repro, step.id, {
+      verdict: "Pass",
+      planRevision: repro.plan.currentRevision,
+      definitionDigest: stepDefinitionDigest(step),
+      proofKind: "evidence",
+      evidenceRefs,
+      verifiedDoneWhen: [...step.doneWhen],
+    });
+    repro = updateReproStep(repro, step.id, {
+      status: "done",
+      evidenceRefs,
+      verifier,
+    })!;
+    await writeJson(sessionReproStorePathV2(cwd, context), {
+      version: 5,
+      repro: { ...repro, version: 5 },
+    });
+
+    const work = await projectSparkSessionWork({
+      cwd,
+      sessionId,
+      drivers: [driver("driver-repro", "repro", "running")],
+    });
+
+    expect(work).toMatchObject({
+      primary: { kind: "repro", driverId: "driver-repro" },
+      goal: { goalId: "goal-1", status: "active" },
+    });
+    expect(work?.repro).toBeUndefined();
+  });
+
+  it("keeps the driver snapshot when durable state is corrupt", async () => {
+    const cwd = await tempCwd();
+    const diagnostics: SparkSessionWorkProjectionDiagnostic[] = [];
+    const reproPath = sessionReproStorePathV2(cwd, context);
+    await mkdir(dirname(reproPath), { recursive: true });
+    await writeFile(reproPath, "{not-json", "utf8");
+
+    const work = await projectSparkSessionWork({
+      cwd,
+      sessionId,
+      drivers: [driver("driver-repro", "repro", "blocked")],
+      onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    });
+
+    expect(work).toEqual({ primary: { kind: "repro", driverId: "driver-repro" } });
+    expect(diagnostics).toEqual([
+      {
+        code: "repro_state_unavailable",
+        domain: "repro",
+        sessionId,
+      },
+    ]);
+  });
+
+  it("keeps a valid Goal projection when Repro state is corrupt", async () => {
+    const cwd = await tempCwd();
+    const timestamp = "2026-07-28T00:00:00.000Z";
+    const diagnostics: SparkSessionWorkProjectionDiagnostic[] = [];
+    await writeJson(sessionGoalStorePathV2(cwd, context), {
+      version: 1,
+      goal: {
+        version: 1,
+        goalId: "goal-independent",
+        sessionKey: `session:${sessionId}`,
+        originalObjective: "Keep the valid domain",
+        objective: "Keep the valid domain",
+        status: "active",
+        source: "explicit",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    });
+    await writeJson(sessionReproStorePathV2(cwd, context), {
+      version: 4,
+      repro: { objective: "Incomplete persisted state" },
+    });
+
+    const work = await projectSparkSessionWork({
+      cwd,
+      sessionId,
+      drivers: [driver("driver-goal", "goal", "running")],
+      onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    });
+
+    expect(work).toMatchObject({
+      primary: { kind: "goal", driverId: "driver-goal" },
+      goal: {
+        goalId: "goal-independent",
+        objective: "Keep the valid domain",
+        status: "active",
+      },
+    });
+    expect(work).not.toHaveProperty("repro");
+    expect(diagnostics).toContainEqual({
+      code: "repro_state_unavailable",
+      domain: "repro",
+      sessionId,
+    });
+  });
+});
+
+function driver(
+  driverId: string,
+  kind: SparkDriverView["kind"],
+  status: SparkDriverView["status"],
+): SparkDriverView {
+  return {
+    driverId,
+    kind,
+    ownerSessionId: sessionId,
+    status,
+    continuity: "session",
+    attempt: 0,
+  };
+}
+
+async function tempCwd(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "spark-work-projection-"));
+  roots.push(root);
+  return root;
+}
+
+async function writeJson(path: string, value: unknown): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}

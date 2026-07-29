@@ -278,7 +278,7 @@ export function registerSparkStateTool(
           exportDir,
         });
         const lines = [
-          `Spark role-run artifact retention ${dryRun ? "dry-run" : "apply"}: ${dryRun ? "would replace" : "replaced"} ${retention.candidates.length} large transcript blob(s).`,
+          `Spark role-run evidence retention ${dryRun ? "dry-run" : "apply"}: ${dryRun ? "would replace" : "replaced"} ${retention.candidates.length} large transcript blob(s).`,
         ];
         appendRoleRunArtifactRetentionLines(lines, retention, limit);
         return {

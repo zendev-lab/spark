@@ -11,6 +11,7 @@ import {
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 import { executeSparkDaemonSessionControl } from "../../session-control.ts";
 import { SparkDriverStore } from "../../store/drivers.ts";
+import { projectSparkSessionWork } from "../../session-work-projection.ts";
 import {
   deliverSessionNotificationFromLocalRpc,
   projectSessionMailbox,
@@ -92,22 +93,29 @@ export async function handleSessionRequest(
         },
       );
       const snapshot = parseSparkSessionView(executed.result.snapshot);
+      const drivers = new SparkDriverStore(db)
+        .list({ ownerSessionId: request.params.sessionId })
+        .map((driver) => ({
+          driverId: driver.driverId,
+          kind: driver.kind,
+          ownerSessionId: driver.ownerSessionId,
+          status: driver.status,
+          continuity: driver.continuity,
+          dueAt: driver.dueAt,
+          attempt: driver.attempt,
+          lastInvocationId: driver.lastInvocationId,
+          reason: driver.reason,
+          error: driver.error,
+        }));
+      const work = await projectSparkSessionWork({
+        cwd: snapshot.cwd,
+        sessionId: request.params.sessionId,
+        drivers,
+      });
       const withDrivers = parseSparkSessionView({
         ...snapshot,
-        drivers: new SparkDriverStore(db)
-          .list({ ownerSessionId: request.params.sessionId })
-          .map((driver) => ({
-            driverId: driver.driverId,
-            kind: driver.kind,
-            ownerSessionId: driver.ownerSessionId,
-            status: driver.status,
-            continuity: driver.continuity,
-            dueAt: driver.dueAt,
-            attempt: driver.attempt,
-            lastInvocationId: driver.lastInvocationId,
-            reason: driver.reason,
-            error: driver.error,
-          })),
+        drivers,
+        ...(work ? { work } : {}),
       });
       return await projectSessionMailbox(options, withDrivers);
     }

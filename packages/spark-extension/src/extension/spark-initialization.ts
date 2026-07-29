@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { detectCopyLanguage } from "@zendev-lab/spark-core";
 import type { CopyLanguage } from "@zendev-lab/spark-core";
 import { builtinRoleRef } from "@zendev-lab/spark-roles";
@@ -62,7 +62,7 @@ export async function initializeSparkIdea(
 
   createInitialSparkTasks(graph, project.ref, idea, options.clarification);
 
-  const store = defaultArtifactStore(cwd);
+  const store = defaultEvidenceStore(cwd);
   const sparkMd =
     options.sparkMd ??
     renderSparkMd({ idea, workingTitle: projectTitle, clarification: options.clarification });
@@ -236,8 +236,8 @@ async function sparkInitResultFromExisting(
     currentTaskTitle: currentTask?.title,
     todoSummary: compactTodoSummary(todoSummary),
     sparkMdPath,
-    sparkMdArtifactRef: "artifact:existing" as ArtifactRef,
-    rolePlanArtifactRef: "artifact:existing" as ArtifactRef,
+    sparkMdArtifactRef: "evidence:existing" as ArtifactRef,
+    rolePlanArtifactRef: "evidence:existing" as ArtifactRef,
     traceRef: "spark:existing",
     askArtifactRefs: options.askArtifactRefs ?? [],
   };

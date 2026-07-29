@@ -122,7 +122,7 @@ export async function collectSparkStateDiagnostics(
   graph: TaskGraph,
 ): Promise<SparkStateDiagnosticsSummary> {
   const root = join(cwd, ".spark");
-  const artifactRoot = join(root, "artifacts");
+  const artifactRoot = join(root, "evidence");
   const allTerminalProjects = graph
     .projects()
     .map((project) => {

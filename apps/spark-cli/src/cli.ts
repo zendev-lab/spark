@@ -1,6 +1,6 @@
 import { spawn, type SpawnOptions } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { sparkCliDispatcherStrings } from "@zendev-lab/spark-i18n/cli";
@@ -395,8 +395,22 @@ function localTargetCommand(target: SparkDispatcherTarget): string | undefined {
   try {
     return realpathSync(fileURLToPath(import.meta.resolve(specifierByTarget[target])));
   } catch {
-    return undefined;
+    const sourceExecutable = sourceCheckoutTargetCommand(target);
+    return sourceExecutable && existsSync(sourceExecutable)
+      ? realpathSync(sourceExecutable)
+      : undefined;
   }
+}
+
+function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | undefined {
+  const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  const entryByTarget: Record<SparkDispatcherTarget, string> = {
+    tui: "../spark-tui/bin/spark-tui",
+    daemon: "../spark-tui/bin/spark-tui",
+    cockpit: "../spark-cockpit/bin/spark-cockpit",
+    acp: "../../packages/spark-acp/scripts/stdio.ts",
+  };
+  return resolve(cliRoot, entryByTarget[target]);
 }
 
 function productTargetCommand(target: SparkDispatcherTarget): string | undefined {

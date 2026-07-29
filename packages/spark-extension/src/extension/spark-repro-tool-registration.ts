@@ -30,6 +30,7 @@ import {
   isReproRequirementSatisfied,
   isStageComplete,
   nextReproStagePlanningBlocker,
+  nextReproStep,
   recordReproRequirementProof,
   readSessionRepro,
   reproRequirementBlockers,
@@ -1175,18 +1176,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
   const unsatisfied = requirements.filter(
     (requirement) => !isReproRequirementSatisfied(requirement),
   );
-  const incompleteSteps = steps.filter(
-    (step) => step.status !== "done" && step.status !== "cancelled",
-  );
-  const completedStepIds = new Set(
-    repro.plan.steps
-      .filter((step) => step.status === "done" || step.status === "cancelled")
-      .map((step) => step.id),
-  );
-  const nextStep =
-    incompleteSteps.find((step) =>
-      (step.dependsOn ?? []).every((dependency) => completedStepIds.has(dependency)),
-    ) ?? incompleteSteps[0];
+  const nextStep = nextReproStep(repro);
   const gateBlocking = stage.gate && stage.gate.evaluation?.passed !== true;
   const lines = [
     `Spark repro drive tick — Stage ${repro.currentStageIndex + 1}/${repro.stages.length}: ${stage.title} (${stage.name}), phase=${repro.currentPhase}.`,
@@ -1244,7 +1234,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     "",
     "Repro drive requirements:",
     `- Operate in the selected phase (${repro.currentPhase}); use its tool policy for plan or implement work.`,
-    '- Prefer the main session for scheduling and every concrete step. Do not default to role({ action: "call" }), session({ action: "call"|"send" }), assign, or workflow_run during repro ticks; use those only when the user explicitly requests multi-agent/workflow fan-out.',
+    "- The main session owns planning and reconciliation; use assign only for the independent safe_local ready frontier, while ask_decision and ask_approval remain owner-only.",
     "- When blocked by a missing user decision, ambiguous requirement, unclear baseline/source, conflicting evidence, failing validation whose next step is unclear, or any problem the user can unblock, call ask immediately with a concrete question. Do not guess, invent substitutes, or end the turn with only a prose blocker report when ask can resolve it.",
     "- Advance milestones with repro record/evaluate/advance. Never treat prose, an unverified ref, or a bare boolean as proof.",
     "- Before ending every repro turn, leave a verifiable checkpoint. If the turn produced a coherent set of repository changes and committing is authorized and safe, create a small git commit promptly. Never include unrelated pre-existing changes.",

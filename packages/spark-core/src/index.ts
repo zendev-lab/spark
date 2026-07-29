@@ -784,7 +784,10 @@ export type SparkRef = Ref<"spark">;
 export type ProjectRef = Ref<"proj">;
 export type TaskRef = Ref<"task">;
 export type RoleRef = Ref<"role">;
-/** Stable artifact identity; evidence writes may use `evidence:` while remaining artifact-shaped. */
+/**
+ * Compatibility union for domain links that predate the Product Artifact split.
+ * Storage and tool boundaries must use their narrower Artifact/Evidence ref type.
+ */
 export type ArtifactRef = Ref<"artifact"> | Ref<"evidence">;
 export type EvidenceRef = Ref<"evidence">;
 export type RunRef = Ref<"run">;

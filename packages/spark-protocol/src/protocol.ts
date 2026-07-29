@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
 import { sparkSessionPendingTurnSchema } from "./session-assignment.ts";
-import { sparkDriverViewSchema } from "./driver.ts";
+import { sparkDriverKindSchema, sparkDriverViewSchema } from "./driver.ts";
 
 export * from "./action-bars.ts";
 export * from "./ask-semantics.ts";
@@ -474,6 +474,72 @@ export const sparkSessionUsageSchema = z.object({
   contextWindow: z.number().positive().optional(),
 });
 
+export const sparkSessionPrimaryWorkViewSchema = z.object({
+  kind: sparkDriverKindSchema,
+  driverId: z.string().min(1),
+});
+
+export const sparkSessionGoalWorkViewSchema = z.object({
+  goalId: z.string().min(1),
+  objective: z.string().min(1),
+  status: z.enum(["active", "paused", "complete"]),
+  reason: z.string().min(1).optional(),
+  updatedAt: sparkIsoDateTimeSchema,
+});
+
+export const sparkSessionReproCurrentStepViewSchema = z.object({
+  id: z.string().min(1),
+  stage: z.enum(["setup", "scaffold", "reproduce", "scale", "deliver"]),
+  goal: z.string().min(1),
+  status: z.enum(["pending", "in_progress", "done", "blocked", "cancelled"]),
+  authority: z.enum(["safe_local", "ask_decision", "ask_approval"]),
+  doneWhen: z.array(z.string().min(1)),
+  evidenceRequired: z.array(z.string().min(1)),
+  blocker: z.string().min(1).optional(),
+});
+
+export const sparkSessionVerificationReceiptViewSchema = z.object({
+  stepId: z.string().min(1),
+  proofKind: z.enum(["evidence", "decision", "approval"]),
+  verifiedDoneWhen: z.array(z.string().min(1)),
+  evidenceRefs: z.array(z.string().min(1)),
+});
+
+export const sparkSessionReproWorkViewSchema = z.object({
+  reproId: z.string().min(1),
+  status: z.enum(["active", "complete"]),
+  contractStatus: z.enum(["draft", "frozen"]),
+  objective: z.string().min(1),
+  successCriteria: z.array(z.string().min(1)),
+  evidenceRequired: z.array(z.string().min(1)),
+  stage: z.object({
+    name: z.enum(["setup", "scaffold", "reproduce", "scale", "deliver"]),
+    title: z.string().min(1),
+    index: z.number().int().nonnegative(),
+    total: z.number().int().positive(),
+    phase: z.enum(["plan", "implement"]),
+  }),
+  plan: z.object({
+    revision: z.number().int().positive(),
+    completedSteps: z.number().int().nonnegative(),
+    totalSteps: z.number().int().nonnegative(),
+    currentStep: sparkSessionReproCurrentStepViewSchema.optional(),
+  }),
+  stopGuard: z.object({
+    decision: z.enum(["continue", "ask", "complete"]),
+    stagnationCount: z.number().int().nonnegative(),
+    limit: z.number().int().positive(),
+  }),
+  latestVerification: sparkSessionVerificationReceiptViewSchema.optional(),
+  updatedAt: sparkIsoDateTimeSchema,
+});
+
+export const sparkSessionWorkViewSchema = z.object({
+  primary: sparkSessionPrimaryWorkViewSchema.optional(),
+  goal: sparkSessionGoalWorkViewSchema.optional(),
+  repro: sparkSessionReproWorkViewSchema.optional(),
+});
+
 export const sparkSessionViewSchema = z.object({
   version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),
   sessionId: z.string().min(1),
@@ -490,6 +556,8 @@ export const sparkSessionViewSchema = z.object({
   tools: z.array(sparkToolCallViewSchema).default([]),
   runs: z.array(sparkRunViewSchema).default([]),
   drivers: z.array(sparkDriverViewSchema).optional(),
+  /** Daemon-owned, display-safe projection of durable Goal/Repro work state. */
+  work: sparkSessionWorkViewSchema.optional(),
   tasks: z.array(sparkTaskViewSchema).default([]),
   artifacts: z.array(sparkArtifactViewSchema).default([]),
   /** Agent-internal evidence ledger projections; product deliverables stay in `artifacts`. */
@@ -867,6 +935,16 @@ export type SparkSessionMailChannelDeliveryView = z.infer<
 >;
 export type SparkSessionMailMessageView = z.infer<typeof sparkSessionMailMessageViewSchema>;
 export type SparkSessionUsage = z.infer<typeof sparkSessionUsageSchema>;
+export type SparkSessionPrimaryWorkView = z.infer<typeof sparkSessionPrimaryWorkViewSchema>;
+export type SparkSessionGoalWorkView = z.infer<typeof sparkSessionGoalWorkViewSchema>;
+export type SparkSessionReproCurrentStepView = z.infer<
+  typeof sparkSessionReproCurrentStepViewSchema
+>;
+export type SparkSessionVerificationReceiptView = z.infer<
+  typeof sparkSessionVerificationReceiptViewSchema
+>;
+export type SparkSessionReproWorkView = z.infer<typeof sparkSessionReproWorkViewSchema>;
+export type SparkSessionWorkView = z.infer<typeof sparkSessionWorkViewSchema>;
 export type SparkSessionView = z.infer<typeof sparkSessionViewSchema>;
 export type SparkSessionSnapshotHistory = z.infer<typeof sparkSessionSnapshotHistorySchema>;
 export type SparkSessionSnapshotPage = z.infer<typeof sparkSessionSnapshotPageSchema>;
