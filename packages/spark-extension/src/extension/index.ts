@@ -26,7 +26,6 @@ import {
   ensureActiveReproDriver,
   registerSparkReproTool,
 } from "./spark-repro-tool-registration.ts";
-import { requestSparkSubgoalReceipt } from "./spark-subgoal-session-request.ts";
 import { registerSparkDriveTool } from "./spark-drive-tool-registration.ts";
 import { registerSparkDriverTool } from "./spark-driver-tool-registration.ts";
 import { registerSparkWorkflowDriverTool } from "./spark-workflow-driver-tool-registration.ts";
@@ -254,7 +253,6 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkReproTool(registerSparkTool, {
     driverControl,
     refreshSparkWidget,
-    sendSessionRequest: requestSparkSubgoalReceipt,
   });
 
   registerSparkDriveTool(registerSparkTool, {

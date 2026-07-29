@@ -17,10 +17,8 @@ function subgoalAwaitsOwnerAsk(
 ): boolean {
   if (subgoal.status === "done" || subgoal.status === "cancelled") return false;
   // Unbound ask authority fails closed. Bound missing or terminal tasks need owner reconciliation, not dormancy.
-  if (subgoal.taskRefs.length === 0) return true;
-  return subgoal.taskRefs.some((taskRef) =>
-    OWNER_ASK_WAITING_TASK_STATUSES.has(taskStatusByRef[taskRef] ?? ""),
-  );
+  if (!subgoal.taskRef) return true;
+  return OWNER_ASK_WAITING_TASK_STATUSES.has(taskStatusByRef[subgoal.taskRef] ?? "");
 }
 
 export function collectReproOrchestrationSnapshot(
@@ -33,13 +31,15 @@ export function collectReproOrchestrationSnapshot(
       .filter(
         (subgoal) => subgoal.authority === "ask_decision" || subgoal.authority === "ask_approval",
       )
-      .flatMap((subgoal) => subgoal.taskRefs),
+      .map((subgoal) => subgoal.taskRef)
+      .filter((ref): ref is TaskRef => !!ref),
   );
   const safeTaskRefs = [
     ...new Set(
       repro.subgoals
         .filter((subgoal) => subgoal.authority === "safe_local")
-        .flatMap((subgoal) => subgoal.taskRefs)
+        .map((subgoal) => subgoal.taskRef)
+        .filter((ref): ref is TaskRef => !!ref)
         .filter((taskRef) => !askTaskRefs.has(taskRef)),
     ),
   ].sort();

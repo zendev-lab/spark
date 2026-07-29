@@ -104,25 +104,46 @@ export function initialReproProjectTasks(
       }),
     },
     {
-      name: "implementation-alignment-strategy",
-      title: "Review implementation and alignment strategy",
-      description:
-        "Synthesize implementation and alignment findings into two explicit owner decision packages.",
+      name: "implementation-strategy",
+      title: "Review implementation strategy",
+      description: "Synthesize implementation findings into an explicit owner decision package.",
       kind: "review",
       roleRef: "role:builtin-reviewer",
-      dependsOn: ["implementation-landscape", "alignment-paths"],
+      dependsOn: ["implementation-landscape"],
       plan: taskPlan(roadmapItem, {
         objective:
-          "Review implementation and alignment research artifacts and produce separate owner-ready decision packages without selecting either strategy.",
+          "Review implementation research and produce an owner-ready reuse, adapt, or new implementation decision package without selecting the strategy.",
         successCriteria: [
-          "Reviewer artifact contains two decision matrices with source refs, probe evidence, constraints, and ready/not-ready verdicts.",
+          "Reviewer artifact contains an implementation decision matrix with source refs, constraints, and a ready/not-ready verdict.",
         ],
         evidenceRequired: [
-          "Reviewer artifact with implementation and alignment matrices, cited source/evidence refs, and two explicit verdicts.",
+          "Reviewer artifact with implementation options, cited source refs, and an explicit verdict.",
         ],
         items: [
-          "Verify implementation and alignment research artifacts against their cited source paths, commands, and outputs",
-          "Render separate implementation and alignment decision matrices and record owner readiness verdicts",
+          "Verify the implementation research artifact against its cited source paths and APIs",
+          "Render reuse, adapt, and new implementation options and record owner readiness",
+        ],
+      }),
+    },
+    {
+      name: "alignment-strategy",
+      title: "Review alignment strategy",
+      description: "Synthesize alignment probe findings into an explicit owner decision package.",
+      kind: "review",
+      roleRef: "role:builtin-reviewer",
+      dependsOn: ["alignment-paths"],
+      plan: taskPlan(roadmapItem, {
+        objective:
+          "Review alignment evidence and produce an owner-ready real-module versus eager alignment decision package without selecting the strategy.",
+        successCriteria: [
+          "Reviewer artifact contains an alignment decision matrix with probe evidence, observability constraints, and a ready/not-ready verdict.",
+        ],
+        evidenceRequired: [
+          "Reviewer artifact with alignment options, cited command evidence, and an explicit verdict.",
+        ],
+        items: [
+          "Verify the alignment research artifact against its cited commands and outputs",
+          "Render real-module and eager alignment options and record owner readiness",
         ],
       }),
     },

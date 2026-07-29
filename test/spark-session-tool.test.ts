@@ -4,12 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import type { RoleRef, ToolConfig } from "@zendev-lab/spark-core";
-import {
-  createSubgoal,
-  encodeSubgoalAssignment,
-  subgoalDefinitionDigest,
-} from "@zendev-lab/spark-loop";
+import type { ToolConfig } from "@zendev-lab/spark-core";
 import { SparkSessionMailStore, sanitizeSessionMailScope } from "@zendev-lab/spark-session";
 import type {
   SparkSessionRegistryRecord,
@@ -18,7 +13,6 @@ import type {
 } from "@zendev-lab/spark-protocol";
 import { registerSparkSessionTool } from "../packages/spark-session/src/extension.ts";
 import type { SparkSessionToolContext } from "../packages/spark-session/src/action-tool.ts";
-import { requestSparkSubgoalReceipt } from "../packages/spark-extension/src/extension/spark-subgoal-session-request.ts";
 
 const NOW = "2026-07-13T00:00:00.000Z";
 
@@ -85,61 +79,6 @@ test("session tool exposes persistent lifecycle, calls, classification, and mail
   assert.match(prompt, /Cockpit workspace conversations/u);
   assert.match(prompt, /separate projection/u);
   assert.doesNotMatch(prompt, /runtime-ops|verifier/u);
-});
-
-test("subgoal delegation uses canonical completed session requests with a typed envelope", async () => {
-  const subgoal = createSubgoal({
-    goalId: "goal-delegation",
-    roleRef: "role:executor" as RoleRef,
-    planRevision: 3,
-    goal: "Collect delegated evidence",
-    doneWhen: ["Evidence is recorded"],
-    evidenceRequired: ["A validation artifact"],
-    authority: "safe_local",
-    now: NOW,
-  });
-  const assignment = encodeSubgoalAssignment({
-    subgoal,
-    ownerSessionId: "session-owner",
-    now: NOW,
-  });
-  const receipt = {
-    schema: "spark.subgoal.receipt/v1" as const,
-    subgoalRef: subgoal.ref,
-    status: "done" as const,
-    planRevision: subgoal.planRevision,
-    definitionDigest: subgoalDefinitionDigest(subgoal),
-    evidenceRefs: ["evidence:delegated-proof" as const],
-  };
-  let call: { action: string; params: Record<string, unknown>; toolCallId: string } | undefined;
-  const returned = await requestSparkSubgoalReceipt(
-    {
-      assignment,
-      toSessionId: "session-executor",
-      ownerSessionId: "session-owner",
-      toolCallId: "tool-delegate-1",
-      signal: new AbortController().signal,
-      ctx: { cwd: "/tmp/workspace", sessionId: "session-owner" },
-    },
-    {
-      executeSessionAction: async (input) => {
-        call = { action: input.action, params: input.params, toolCallId: input.toolCallId };
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(receipt) }],
-          details: { answer: JSON.stringify(receipt) },
-        };
-      },
-    },
-  );
-
-  assert.deepEqual(returned, receipt);
-  assert.equal(call?.action, "send");
-  assert.equal(call?.toolCallId, "tool-delegate-1");
-  assert.equal(call?.params.kind, "request");
-  assert.equal(call?.params.wait, "completed");
-  assert.ok(call);
-  assert.equal((call.params.payload as { schema?: string }).schema, "spark.subgoal.assignment/v1");
-  assert.match(String(call?.params.message), /Return exactly one JSON object/u);
 });
 
 test("session tool routes managed actions through daemon RPC and classifies surfaces", async () => {

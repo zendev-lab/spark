@@ -153,13 +153,11 @@ import {
   updateReproStep,
 } from "@zendev-lab/spark-repro";
 import {
-  encodeSubgoalReceipt,
   inferSessionGoalObjective,
   loadSessionGoal,
   loadSessionLoop,
   setSessionGoal,
   setSessionLoop,
-  subgoalDefinitionDigest,
   updateSessionGoalStatus,
 } from "../packages/spark-loop/src/index.ts";
 import type {
@@ -11745,7 +11743,7 @@ test("repro entry surfaces start the driver with the canonical rendered prompt",
   assert.equal(prompts[1], prompts[2]);
 });
 
-test("repro start creates a generic project with five ready plans and three-task frontier", async () => {
+test("repro start creates a generic project with one task per bound subgoal", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-project-binding-"));
   try {
     await writeEmptySparkProject(dir);
@@ -11757,7 +11755,7 @@ test("repro start creates a generic project with five ready plans and three-task
     });
 
     const repro = await readSessionRepro(dir, ctx);
-    assert.equal(repro?.version, 5);
+    assert.equal(repro?.version, 6);
     assert.ok(repro?.projectRef);
     const graph = await defaultTaskGraphStore(dir).load();
     assert.ok(graph);
@@ -11765,7 +11763,7 @@ test("repro start creates a generic project with five ready plans and three-task
     assert.equal(project.kind, "generic");
     assert.equal(project.kindState, undefined);
     const tasks = graph.tasks(project.ref);
-    assert.equal(tasks.length, 5);
+    assert.equal(tasks.length, 6);
     assert.equal(
       tasks.every((task) => decideTaskPlanBeforeCreate(task).accepted),
       true,
@@ -11778,16 +11776,22 @@ test("repro start creates a generic project with five ready plans and three-task
       ["alignment-paths", "baseline-availability", "implementation-landscape"],
     );
     assert.equal(project.roadmap.items.length, 1);
-    assert.equal(project.roadmap.items[0]?.taskRefs?.length, 5);
+    assert.equal(project.roadmap.items[0]?.taskRefs?.length, 6);
     assert.deepEqual(
-      [...new Set(repro.subgoals.flatMap((subgoal) => subgoal.taskRefs))].sort(),
+      [
+        ...new Set(
+          repro.subgoals
+            .map((subgoal) => subgoal.taskRef)
+            .filter((taskRef): taskRef is TaskRef => !!taskRef),
+        ),
+      ].sort((left, right) => left.localeCompare(right)),
       tasks.map((task) => task.ref).sort(),
     );
     const persisted = JSON.parse(await readFile(sessionReproStorePath(dir, ctx), "utf8")) as {
       version: number;
       repro?: { projectRef?: string };
     };
-    assert.equal(persisted.version, 5);
+    assert.equal(persisted.version, 6);
     assert.equal(persisted.repro?.projectRef, project.ref);
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
@@ -11832,8 +11836,8 @@ test("repro settle keeps a ten second cadence when any safe task run is active",
     const repro = await readSessionRepro(dir, ctx);
     assert.ok(repro?.projectRef);
     const safeTaskRef = repro.subgoals.find(
-      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRefs.length > 0,
-    )?.taskRefs[0];
+      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRef,
+    )?.taskRef;
     assert.ok(safeTaskRef);
     await defaultTaskGraphStore(dir).update((graph) => {
       graph.recordRun({
@@ -11884,9 +11888,11 @@ test("repro settle leaves the driver dormant while awaiting owner ask authority"
       dir,
       {
         ...repro,
-        subgoals: repro.subgoals.map((subgoal) =>
-          subgoal.authority === "safe_local" ? { ...subgoal, taskRefs: [] } : subgoal,
-        ),
+        subgoals: repro.subgoals.map((subgoal) => {
+          if (subgoal.authority !== "safe_local") return subgoal;
+          const { taskRef: _taskRef, ...unbound } = subgoal;
+          return unbound;
+        }),
       },
       ctx,
     );
@@ -11915,10 +11921,10 @@ test("repro settle schedules a thirty second repair tick when bound ask tasks ar
     const repro = await readSessionRepro(dir, ctx);
     assert.ok(repro?.projectRef);
     const safeSubgoal = repro.subgoals.find(
-      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRefs.length > 0,
+      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRef,
     );
     assert.ok(safeSubgoal);
-    const taskRef = safeSubgoal.taskRefs[0]!;
+    const taskRef = safeSubgoal.taskRef!;
     const askRepro = {
       ...repro,
       subgoals: repro.subgoals.map((subgoal) =>
@@ -11952,10 +11958,10 @@ test("repro orchestration excludes ask authority tasks from the dispatchable fro
     const repro = await readSessionRepro(dir, ctx);
     assert.ok(repro?.projectRef);
     const safeSubgoal = repro.subgoals.find(
-      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRefs.length > 0,
+      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRef,
     );
     assert.ok(safeSubgoal);
-    const askTaskRef = safeSubgoal.taskRefs[0]!;
+    const askTaskRef = safeSubgoal.taskRef!;
     const withAskAuthority = {
       ...repro,
       subgoals: repro.subgoals.map((subgoal) =>
@@ -11975,6 +11981,26 @@ test("repro orchestration excludes ask authority tasks from the dispatchable fro
   }
 });
 
+test("repro tool exposes Task-bound planning without a delegate action", () => {
+  const tools = new Map<string, SparkToolConfig>();
+  registerSparkReproTool(
+    (config) => {
+      tools.set(config.name, config as SparkToolConfig);
+    },
+    { driverControl: createTestDriverControl() },
+  );
+  const tool = tools.get("repro");
+  assert.ok(tool);
+  const publicContract = JSON.stringify({
+    description: tool.description,
+    promptGuidelines: tool.promptGuidelines,
+    parameters: tool.parameters,
+  });
+  assert.doesNotMatch(publicContract, /subgoal\.assignment|subgoal\.receipt|action=delegate/u);
+  assert.match(publicContract, /taskRef/u);
+});
+
+/* Historical delegate/receipt integration tests retired with the protocol.
 test("repro delegation persists the assignment before dispatch and completes only a matching receipt", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-subgoal-delegation-"));
   try {
@@ -12299,6 +12325,7 @@ test("repro delegation turns malformed receipts and corrupt evidence reads into 
     }
   }
 });
+*/
 
 test("repro advance reports the target stage when its planned subgoals are missing", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-advance-planning-blocker-"));

@@ -34,13 +34,13 @@ interface ReproProjectBindingResult {
   readyTaskRefs: TaskRef[];
 }
 
-const SETUP_TASK_REFS_BY_SUBGOAL = new Map<string, string[]>([
-  ["competitor-baseline-availability-researched", ["baseline-availability"]],
-  ["baseline-construction-strategy-approved", ["baseline-strategy"]],
-  ["implementation-landscape-researched", ["implementation-landscape"]],
-  ["alignment-paths-researched", ["alignment-paths"]],
-  ["implementation-strategy-approved", ["implementation-alignment-strategy"]],
-  ["alignment-strategy-approved", ["implementation-alignment-strategy"]],
+const SETUP_TASK_NAME_BY_SUBGOAL = new Map<string, string>([
+  ["competitor-baseline-availability-researched", "baseline-availability"],
+  ["baseline-construction-strategy-approved", "baseline-strategy"],
+  ["implementation-landscape-researched", "implementation-landscape"],
+  ["alignment-paths-researched", "alignment-paths"],
+  ["implementation-strategy-approved", "implementation-strategy"],
+  ["alignment-strategy-approved", "alignment-strategy"],
 ]);
 
 export async function createProjectBackedSessionRepro(
@@ -53,7 +53,13 @@ export async function createProjectBackedSessionRepro(
     return {
       repro: existing,
       projectRef: existing.projectRef,
-      taskRefs: [...new Set(existing.subgoals.flatMap((subgoal) => subgoal.taskRefs))],
+      taskRefs: [
+        ...new Set(
+          existing.subgoals
+            .map((subgoal) => subgoal.taskRef)
+            .filter((ref): ref is TaskRef => !!ref),
+        ),
+      ],
       readyTaskRefs: [],
     };
   }
@@ -105,16 +111,11 @@ export async function createProjectBackedSessionRepro(
       const decision = decisions[rejectedIndex]!;
       throw new Error(`repro initial task plan not ready: @${task.name}: ${decision.summary}`);
     }
-    if (planned.created.length !== 5 || decisions.length !== 5) {
-      throw new Error(
-        `repro start must create 5 readiness-checked tasks; created ${planned.created.length}`,
-      );
-    }
     const taskRefs = planned.created.map((task) => task.ref);
     graph.attachRoadmapItemTaskRefs(project.ref, roadmapItem.ref, taskRefs);
     const readyTaskRefs = graph.readyTasks(project.ref).map((task) => task.ref);
-    if (readyTaskRefs.length !== 3) {
-      throw new Error(`repro start requires 3 ready frontier tasks; found ${readyTaskRefs.length}`);
+    if (readyTaskRefs.length === 0) {
+      throw new Error("repro start requires a non-empty ready frontier");
     }
     const refsByName = new Map(planned.created.map((task) => [task.name, task.ref]));
     const boundRepro = bindProjectAndTasks(repro, project.ref, refsByName);
@@ -135,11 +136,9 @@ function bindProjectAndTasks(
     ...repro,
     projectRef,
     subgoals: repro.subgoals.map((subgoal) => {
-      const names = SETUP_TASK_REFS_BY_SUBGOAL.get(subgoal.id) ?? [];
-      const taskRefs = names
-        .map((name) => refsByName.get(name))
-        .filter((ref): ref is TaskRef => !!ref);
-      return taskRefs.length > 0 ? { ...subgoal, taskRefs, updatedAt: timestamp } : subgoal;
+      const taskName = SETUP_TASK_NAME_BY_SUBGOAL.get(subgoal.id);
+      const taskRef = taskName ? refsByName.get(taskName) : undefined;
+      return taskRef ? { ...subgoal, taskRef, updatedAt: timestamp } : subgoal;
     }),
     updatedAt: timestamp,
   };

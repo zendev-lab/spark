@@ -5,20 +5,8 @@ import type { SparkDriverView } from "@zendev-lab/spark-protocol";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { verifyCanonicalAskEvidenceArtifact } from "@zendev-lab/spark-ask";
-import {
-  isRef,
-  type EvidenceRef,
-  type SparkSubgoalAssignment,
-  type SparkSubgoalReceipt,
-  type TaskRef,
-} from "@zendev-lab/spark-core";
-import {
-  decodeSubgoalReceipt,
-  encodeSubgoalAssignment,
-  sparkStateCwd,
-  updateSubgoalStatus,
-  verifySubgoalReceipt,
-} from "@zendev-lab/spark-loop";
+import { isRef, type EvidenceRef, type TaskRef } from "@zendev-lab/spark-core";
+import { sparkStateCwd, updateSubgoalStatus } from "@zendev-lab/spark-loop";
 import { clearSessionGoal } from "./spark-session-goals.ts";
 import { clearSessionLoop } from "./spark-session-loops.ts";
 import { createProjectBackedSessionRepro } from "./spark-repro-project.ts";
@@ -83,7 +71,7 @@ function reproSubgoalPlanSchema() {
   return Type.Intersect([
     reproStepPlanSchema(),
     Type.Object({
-      taskRefs: Type.Optional(Type.Array(Type.String({ pattern: "^task:.+", minLength: 6 }))),
+      taskRef: Type.Optional(Type.String({ pattern: "^task:.+", minLength: 6 })),
     }),
   ]);
 }
@@ -91,14 +79,6 @@ function reproSubgoalPlanSchema() {
 interface SparkReproToolDeps {
   driverControl: SparkDaemonDriverControl;
   refreshSparkWidget?: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
-  sendSessionRequest?: (input: {
-    toSessionId: string;
-    assignment: SparkSubgoalAssignment;
-    ownerSessionId: string;
-    toolCallId: string;
-    signal: AbortSignal;
-    ctx: SparkToolContext;
-  }) => Promise<unknown>;
 }
 
 type SparkReproToolAction =
@@ -112,7 +92,6 @@ type SparkReproToolAction =
   | "satisfy"
   | "gate"
   | "advance"
-  | "delegate"
   | "stop";
 
 export function registerSparkReproTool(
@@ -129,7 +108,6 @@ export function registerSparkReproTool(
       "Use repro action=start to begin the repro drive (clears goal/loop); pass objective for user-supplied reproduction focus.",
       "Use repro action=plan to set difficulty (1-10), revise the Goal Contract, or append/update stage-scoped subgoals. Split each stage by its objective, experiment risk, dependencies, and required evidence; every subgoal needs a stable id, explicit doneWhen/evidenceRequired, and authority.",
       "Use repro action=step to update one step. A done step requires existing evidence that passes a typed StepVerifier; safe_local steps require spark.repro.step-proof/v1, while ask_decision/ask_approval steps require a current bound canonical Ask receipt.",
-      "Use repro action=delegate only for safe_local subgoals. It sends a spark.subgoal.assignment/v1 request to a persistent local session and the owner writes done only after a matching spark.subgoal.receipt/v1 passes revision, digest, and evidence checks.",
       "In setup, first verify whether a runnable competitor/reference baseline exists (typically Megatron). If missing, ask how to construct it before any baseline probe; do not invent a substitute.",
       "The main session owns repro planning and reconciliation; use canonical assign to dispatch the independent safe_local ready task frontier in parallel, while ask_decision and ask_approval tasks stay with the owner and are never dispatched.",
       "When blocked by a missing decision, ambiguity, or a problem the user can unblock, call ask immediately; do not guess or end with only a prose blocker.",
@@ -145,7 +123,7 @@ export function registerSparkReproTool(
         Type.String({
           default: "status",
           description:
-            "status | start | plan | step | delegate | record | evaluate | advance | settle | stop; satisfy and gate are compatibility aliases",
+            "status | start | plan | step | record | evaluate | advance | settle | stop; satisfy and gate are compatibility aliases",
         }),
       ),
       requirementId: Type.Optional(
@@ -195,18 +173,10 @@ export function registerSparkReproTool(
         }),
       ),
       steps: Type.Optional(Type.Array(reproStepPlanSchema())),
-      subgoals: Type.Optional(
-        Type.Array(
-          Type.Intersect([
-            reproSubgoalPlanSchema(),
-            Type.Object({ taskRefs: Type.Optional(Type.Array(Type.String())) }),
-          ]),
-        ),
-      ),
+      subgoals: Type.Optional(Type.Array(reproSubgoalPlanSchema())),
       stepId: Type.Optional(Type.String()),
       stepStatus: Type.Optional(Type.String()),
       stepEvidenceRefs: Type.Optional(Type.Array(Type.String())),
-      targetSessionId: Type.Optional(Type.String()),
       blocker: Type.Optional(Type.String()),
     }),
     async execute(
@@ -218,161 +188,6 @@ export function registerSparkReproTool(
     ) {
       const cwd = ctx.cwd;
       const action = normalizeReproAction(params.action);
-
-      if (action === "delegate") {
-        const repro = await activeRepro(cwd, ctx);
-        if (!repro) return noActiveReproResult();
-        const subgoalId = normalizeRequiredString(params.stepId, "stepId");
-        const subgoal = repro.subgoals.find(
-          (candidate) => candidate.ref === subgoalId || candidate.id === subgoalId,
-        );
-        if (!subgoal) throw new Error(`unknown subgoal: ${subgoalId}`);
-        if (subgoal.authority !== "safe_local") {
-          throw new Error(
-            `subgoal ${subgoal.ref} with authority ${subgoal.authority} must be completed in the owner 主会话 and cannot be delegated`,
-          );
-        }
-        const targetSessionId = normalizeRequiredString(params.targetSessionId, "targetSessionId");
-        const ownerSessionId = ctx.sessionId;
-        if (!ownerSessionId || !deps.sendSessionRequest) {
-          return {
-            content: [
-              { type: "text" as const, text: "Repair: session request dispatch is unavailable." },
-            ],
-            details: { verdict: "Repair" },
-          };
-        }
-        const assignment = encodeSubgoalAssignment({ subgoal, ownerSessionId });
-        const delegatedStatus = updateSubgoalStatus(subgoal, {
-          status: "in_progress",
-          now: assignment.assignedAt,
-        });
-        const delegatedSubgoal: SparkReproSubgoal = {
-          ...subgoal,
-          ...delegatedStatus,
-          delegation: {
-            sessionId: targetSessionId,
-            planRevision: assignment.planRevision,
-            definitionDigest: assignment.definitionDigest,
-            delegatedAt: assignment.assignedAt,
-          },
-        };
-        const delegatedRepro = {
-          ...repro,
-          subgoals: repro.subgoals.map((candidate) =>
-            candidate.ref === delegatedSubgoal.ref ? delegatedSubgoal : candidate,
-          ),
-          updatedAt: assignment.assignedAt,
-        };
-        await writeSessionRepro(cwd, delegatedRepro, ctx);
-        await deps.refreshSparkWidget?.(cwd, ctx);
-        let rawReceipt: unknown;
-        try {
-          rawReceipt = await deps.sendSessionRequest({
-            toSessionId: targetSessionId,
-            ownerSessionId,
-            assignment,
-            toolCallId,
-            signal,
-            ctx,
-          });
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
-          return {
-            content: [{ type: "text" as const, text: `Repair: ${reason}` }],
-            details: {
-              verdict: "Repair",
-              subgoalRef: subgoal.ref,
-              reasons: [reason],
-              delegation: delegatedSubgoal.delegation,
-            },
-          };
-        }
-        let receipt: SparkSubgoalReceipt;
-        try {
-          receipt = decodeSubgoalReceipt(rawReceipt);
-        } catch (error) {
-          const reason = `invalid delegated receipt: ${error instanceof Error ? error.message : String(error)}`;
-          return {
-            content: [{ type: "text" as const, text: `Repair: ${reason}` }],
-            details: {
-              verdict: "Repair",
-              subgoalRef: subgoal.ref,
-              reasons: [reason],
-              delegation: delegatedSubgoal.delegation,
-            },
-          };
-        }
-        const verification = verifySubgoalReceipt(delegatedSubgoal, receipt);
-        if (verification.verdict !== "Pass") {
-          return {
-            content: [
-              { type: "text" as const, text: `Repair: ${verification.reasons.join("; ")}` },
-            ],
-            details: { ...verification, delegation: delegatedSubgoal.delegation },
-          };
-        }
-        const evidenceStore = defaultEvidenceStore(cwd);
-        let resolvedEvidence: Array<object | null>;
-        try {
-          resolvedEvidence = await Promise.all(
-            receipt.evidenceRefs.map((ref) => evidenceStore.tryGet(ref)),
-          );
-        } catch (error) {
-          const reason = `delegated evidence validation failed: ${error instanceof Error ? error.message : String(error)}`;
-          return {
-            content: [{ type: "text" as const, text: `Repair: ${reason}` }],
-            details: {
-              verdict: "Repair",
-              subgoalRef: subgoal.ref,
-              reasons: [reason],
-              delegation: delegatedSubgoal.delegation,
-            },
-          };
-        }
-        const missingEvidenceRefs = receipt.evidenceRefs.filter(
-          (_ref, index) => resolvedEvidence[index] === null,
-        );
-        if (missingEvidenceRefs.length > 0) {
-          const reasons = missingEvidenceRefs.map((ref) => `delegated evidence not found: ${ref}`);
-          return {
-            content: [{ type: "text" as const, text: `Repair: ${reasons.join("; ")}` }],
-            details: {
-              verdict: "Repair",
-              subgoalRef: subgoal.ref,
-              reasons,
-              delegation: delegatedSubgoal.delegation,
-            },
-          };
-        }
-        const completedSubgoal = {
-          ...delegatedSubgoal,
-          ...updateSubgoalStatus(delegatedSubgoal, {
-            status: "done",
-            evidenceRefs: receipt.evidenceRefs,
-            verifier: verification,
-          }),
-        };
-        const completedRepro = {
-          ...delegatedRepro,
-          subgoals: delegatedRepro.subgoals.map((candidate) =>
-            candidate.ref === completedSubgoal.ref ? completedSubgoal : candidate,
-          ),
-          updatedAt: completedSubgoal.updatedAt,
-        };
-        await writeSessionRepro(cwd, completedRepro, ctx);
-        await deps.refreshSparkWidget?.(cwd, ctx);
-        return {
-          content: [
-            { type: "text" as const, text: "Subgoal delegation receipt verified and completed." },
-          ],
-          details: {
-            ...verification,
-            status: completedSubgoal.status,
-            delegation: completedSubgoal.delegation,
-          },
-        };
-      }
 
       if (action === "status") {
         const repro = await readSessionRepro(cwd, ctx);
@@ -811,13 +626,12 @@ function normalizeReproAction(value: unknown): SparkReproToolAction {
     value === "satisfy" ||
     value === "gate" ||
     value === "advance" ||
-    value === "delegate" ||
     value === "stop"
   ) {
     return value;
   }
   throw new Error(
-    "repro action must be status, start, plan, step, delegate, record, evaluate, satisfy, gate, advance, settle, or stop",
+    "repro action must be status, start, plan, step, record, evaluate, satisfy, gate, advance, settle, or stop",
   );
 }
 
@@ -866,7 +680,7 @@ function normalizeReproPlanRevision(params: Record<string, unknown>): {
   const subgoals = Array.isArray(params.subgoals)
     ? params.subgoals.map((value, index) => ({
         ...normalizeReproStepDefinition(value, index, "subgoals"),
-        taskRefs: normalizeTaskRefs(value, index),
+        ...normalizeTaskRef(value, index),
       }))
     : undefined;
   if (!goalContract && !steps && !subgoals && difficulty === undefined) {
@@ -881,16 +695,13 @@ function normalizeReproPlanRevision(params: Record<string, unknown>): {
   };
 }
 
-function normalizeTaskRefs(value: unknown, index: number): TaskRef[] {
-  const refs = isRecord(value)
-    ? normalizeStringArray(value.taskRefs, `subgoals[${index}].taskRefs`, true)
-    : [];
-  return refs.map((ref, refIndex) => {
-    if (!isRef(ref, "task")) {
-      throw new Error(`subgoals[${index}].taskRefs[${refIndex}] must be a task: ref`);
-    }
-    return ref;
-  });
+function normalizeTaskRef(value: unknown, index: number): { taskRef?: TaskRef } {
+  if (!isRecord(value) || value.taskRef === undefined || value.taskRef === null) return {};
+  const ref = normalizeRequiredString(value.taskRef, `subgoals[${index}].taskRef`);
+  if (!isRef(ref, "task")) {
+    throw new Error(`subgoals[${index}].taskRef must be a task: ref`);
+  }
+  return { taskRef: ref };
 }
 
 function normalizeReproDifficulty(value: unknown): number {
