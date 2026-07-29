@@ -1221,7 +1221,7 @@ function emitHeadlessEvent(
 }
 
 function daemonTaskRouteMetadata(task: SparkDaemonTask | undefined): SparkJsonObject {
-  return (task?.workspaceBindingId ? { workspaceBindingId: task.workspaceBindingId } : {});
+  return task?.workspaceBindingId ? { workspaceBindingId: task.workspaceBindingId } : {};
 }
 
 function daemonEventFromHeadlessEvent(
