@@ -14,6 +14,14 @@ Role Markdown loads from project `.agents/roles/**/*.md`, user `~/.agents/roles/
 
 Persistent identity, lifecycle, bindings, continuity, calls, and mail belong to canonical `session`. `role` must not accept `resource=session`, session lifecycle, mail, or `sessionId`.
 
-Builtin role capability profiles are `scout = read + net`, `reviewer = read + net`, and `worker = read + net + exec + write`. They do not receive interactive or orchestration tools and report blockers upward.
+Builtin role capability profiles are:
+
+- `explorer = read + exec` for non-mutating local repository and environment probes;
+- `researcher = read + net` for source, documentation, issue, PR, and prior-art research;
+- `reviewer = read + net` for independent verification;
+- `worker = read + net + exec + write` for approved implementation;
+- `scout = read + net` as a compatibility role for existing tasks.
+
+New research tasks default to `researcher`; tasks that need executable local probes select `explorer` explicitly. Builtin roles do not receive interactive or orchestration tools and report blockers upward.
 
 Managed task execution remains the task/workflow scheduler's responsibility; direct role calls do not claim tasks or create task evidence.

@@ -2232,7 +2232,7 @@ test("Spark runtime exposes one executor role assignment contract", () => {
     roleRef: builtinRoleRef("reviewer"),
   });
 
-  assert.equal(sparkTaskExecutorRoleRef(research), builtinRoleRef("scout"));
+  assert.equal(sparkTaskExecutorRoleRef(research), builtinRoleRef("researcher"));
   assert.equal(sparkTaskExecutorRoleRef(plan), builtinRoleRef("worker"));
   assert.equal(sparkTaskExecutorRoleRef(review), builtinRoleRef("reviewer"));
   assert.equal(sparkTaskExecutorRoleRef(implementation), builtinRoleRef("worker"));
@@ -3852,6 +3852,37 @@ test("runReadyTasks limits ready frontier to the requested project", async () =>
   assert.equal(result.runs.length, 1);
   assert.equal(result.runs[0]?.taskRef, selectedTask.ref);
   assert.equal(graph.getTask(otherTask.ref).status, "pending");
+});
+
+test("runReadyTasks enforces an explicit task allowlist", async () => {
+  const graph = new TaskGraph();
+  const project = graph.createProject({ title: "Allowlist", description: "allowlist" });
+  const allowed = graph.createTask({
+    projectRef: project.ref,
+    title: "Allowed task",
+    description: "allowed",
+    plan: executionReadyPlan("Allowed task"),
+  });
+  const excluded = graph.createTask({
+    projectRef: project.ref,
+    title: "Excluded task",
+    description: "excluded",
+    plan: executionReadyPlan("Excluded task"),
+  });
+
+  const result = await runReadyTasks({
+    graph,
+    ...createSparkRuntimeReadyTaskRunner({ registry: new RoleRegistry() }),
+    dryRun: true,
+    projectRef: project.ref,
+    taskRefs: [allowed.ref],
+  });
+
+  assert.deepEqual(
+    result.runs.map((run) => run.taskRef),
+    [allowed.ref],
+  );
+  assert.equal(graph.getTask(excluded.ref).status, "ready");
 });
 
 test("runReadyTasks reports failed child runs in aggregate result", async () => {

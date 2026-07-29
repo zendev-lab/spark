@@ -5,7 +5,7 @@ Plan revision: 1. Difficulty: 8/10; 8 materialized subgoals. Stop Guard: 0/3 unc
 Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver) and each stage is advanced through explicit orchestration.
 
 Orchestration loop:
-- Plan stage-scoped subgoals and concrete task plans.
+- Inspect the materialized Stage blueprint and revise it only when evidence changes the contract.
 - Compute the dependency-ready safe_local task frontier.
 - Use assign to dispatch independent ready tasks in parallel.
 - Never dispatch ask_decision or ask_approval authority tasks; they remain owner-only.
@@ -45,7 +45,8 @@ Repro drive requirements:
 - If settle returns Recover Ask, call canonical ask immediately with one concrete unblock question. Do not schedule around the Ask gate.
 
 Plan-phase research-first guidance:
-- Reassess difficulty when scope or uncertainty changes. At each stage entrance, use repro action=plan to append concrete subgoals and task refs, splitting work by the stage objective, experiment risk, dependencies, and required evidence rather than a numeric quota.
+- Each Stage entrance materializes its detailed Roadmap and Subgoal/Task DAG automatically. Use repro action=plan only for evidence-backed revisions or dynamic incidents, not to recreate the Stage skeleton.
+- Reassess difficulty when scope or uncertainty changes, and split dynamic incident work by experiment risk, dependencies, and required evidence rather than a numeric quota.
 - Classify each unknown as fact, reversible choice, material user decision, or validation uncertainty.
 - Research facts from the workspace, dependencies, environment, and primary upstream sources before asking the user.
 - Prioritize whether a runnable competitor/reference baseline already exists (typically a Megatron implementation). Prove availability with concrete paths, entrypoints, or failed-lookup evidence; do not assume a paper or announcement means the baseline is runnable.

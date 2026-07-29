@@ -36,6 +36,9 @@
   }: Props = $props();
 
   let displayedSessionStatus = $derived(visibleSessionStatus(selected.status));
+  let taskExecution = $derived(
+    selected.relation?.kind === "task_execution" ? selected.relation : null,
+  );
 </script>
 
 <div
@@ -67,6 +70,45 @@
       <div>
         <dt>{messages.roleLabel}</dt>
         <dd>{selected.role}</dd>
+      </div>
+    {/if}
+    {#if taskExecution}
+      <div class="task-execution-card" data-task-execution-binding>
+        <dt>{messages.taskExecutionTitle}</dt>
+        <dd>
+          <dl class="task-execution-grid">
+            <div>
+              <dt>{messages.projectLabel}</dt>
+              <dd><code>{taskExecution.projectRef}</code></dd>
+            </div>
+            <div>
+              <dt>{messages.taskLabel}</dt>
+              <dd><code>{taskExecution.taskRef}</code></dd>
+            </div>
+            {#if taskExecution.subgoalRef}
+              <div>
+                <dt>{messages.subgoalLabel}</dt>
+                <dd><code>{taskExecution.subgoalRef}</code></dd>
+              </div>
+            {/if}
+            <div>
+              <dt>{messages.sessionGoalLabel}</dt>
+              <dd><code>{taskExecution.sessionGoalId}</code></dd>
+            </div>
+            <div>
+              <dt>{messages.taskRunLabel}</dt>
+              <dd><code>{taskExecution.runRef}</code></dd>
+            </div>
+            <div>
+              <dt>{messages.attemptLabel}</dt>
+              <dd>{taskExecution.attempt}</dd>
+            </div>
+            <div class="task-execution-evidence">
+              <dt>{messages.taskEvidenceLabel}</dt>
+              <dd>{messages.evidenceInWorkbench}</dd>
+            </div>
+          </dl>
+        </dd>
       </div>
     {/if}
     {#if selectedIsChannelSession}
@@ -133,6 +175,34 @@
     font-size: 13px;
     margin: 0;
     min-width: 0;
+  }
+
+  .task-execution-card {
+    background: var(--color-surface-soft);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--rounded-md, 8px);
+    padding: 12px;
+  }
+
+  .task-execution-grid {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+  }
+
+  .task-execution-grid > div {
+    gap: 3px;
+  }
+
+  .task-execution-grid code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+
+  .task-execution-evidence {
+    border-top: 1px solid var(--color-border-subtle);
+    padding-top: 9px;
   }
 
   .details-grid a {

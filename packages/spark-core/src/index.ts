@@ -796,44 +796,6 @@ export type SubgoalRef = Ref<"subgoal">;
 export type SparkSubgoalStatus = "pending" | "in_progress" | "done" | "blocked" | "cancelled";
 export type SparkSubgoalAuthority = "safe_local" | "ask_decision" | "ask_approval";
 
-export interface SparkSubgoalDelegation {
-  sessionId: string;
-  planRevision: number;
-  definitionDigest: string;
-  delegatedAt: string;
-}
-
-export const SPARK_SUBGOAL_ASSIGNMENT_SCHEMA = "spark.subgoal.assignment/v1" as const;
-export const SPARK_SUBGOAL_RECEIPT_SCHEMA = "spark.subgoal.receipt/v1" as const;
-
-export type SparkSubgoalReceiptStatus = "accepted" | "done" | "repair";
-
-export interface SparkSubgoalAssignment {
-  schema: typeof SPARK_SUBGOAL_ASSIGNMENT_SCHEMA;
-  subgoalRef: SubgoalRef;
-  goalId: string;
-  planRevision: number;
-  definitionDigest: string;
-  definition: SparkSubgoalDefinition;
-  ownerSessionId: string;
-  evidenceRequired: string[];
-  assignedAt: string;
-}
-
-export interface SparkSubgoalReceipt {
-  schema: typeof SPARK_SUBGOAL_RECEIPT_SCHEMA;
-  subgoalRef: SubgoalRef;
-  status: SparkSubgoalReceiptStatus;
-  planRevision: number;
-  definitionDigest: string;
-  evidenceRefs: EvidenceRef[];
-  reason?: string;
-}
-
-export type SparkSubgoalDelegationOutcome =
-  | { status: "accepted"; delegation: SparkSubgoalDelegation; receipt: SparkSubgoalReceipt }
-  | { status: "repair"; receipt: SparkSubgoalReceipt };
-
 export interface SparkSubgoalDefinition {
   goal: string;
   doneWhen: string[];
@@ -860,13 +822,10 @@ export type SparkSubgoalVerificationResult =
 
 export interface SparkSubgoal extends SparkSubgoalDefinition {
   ref: SubgoalRef;
-  goalId: string;
-  roleRef: RoleRef;
   planRevision: number;
   status: SparkSubgoalStatus;
-  taskRefs: TaskRef[];
+  taskRef?: TaskRef;
   evidenceRefs: EvidenceRef[];
-  delegation?: SparkSubgoalDelegation;
   verification?: Extract<SparkSubgoalVerificationResult, { verdict: "Pass" }>;
   blocker?: string;
   createdAt: string;
@@ -1334,6 +1293,19 @@ export interface TaskRunCompletionSummary {
   createdAt: string;
 }
 
+export interface TaskRunExecutionBinding {
+  ownerSessionId: string;
+  executionSessionId: string;
+  sessionGoalId: string;
+  subgoalRef?: SubgoalRef;
+  planRevision?: number;
+  definitionDigest?: string;
+  jobId: string;
+  attempt: number;
+  /** Daemon invocation accepted for this attempt; used for restart-safe reconciliation. */
+  invocationId?: string;
+}
+
 export interface TaskRun {
   ref: RunRef;
   projectRef: ProjectRef;
@@ -1343,6 +1315,8 @@ export interface TaskRun {
   runName?: string;
   /** Session that owns this concrete child run, used for post-completion attribution. */
   ownerSessionId?: string;
+  /** Durable daemon-managed execution identity for Task-to-Session runs. */
+  execution?: TaskRunExecutionBinding;
   status: TaskRunStatus;
   failureKind?: TaskRunFailureKind;
   errorMessage?: string;

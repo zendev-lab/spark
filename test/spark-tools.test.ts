@@ -24,6 +24,7 @@ import {
   type ExtensionInteractionResponse,
   type RoleRef,
   type RunRef,
+  type SubgoalRef,
   type TaskPlan,
   type TaskRef,
   type ProjectRef,
@@ -56,6 +57,8 @@ import piAskExtension from "../packages/spark-ask/src/extension.ts";
 import sparkExtension from "../packages/spark-extension/src/extension/index.ts";
 import { SparkWorkflowRunManagerController } from "../packages/spark-extension/src/extension/spark-workflow-run-manager.ts";
 import { registerSparkReproTool } from "../packages/spark-extension/src/extension/spark-repro-tool-registration.ts";
+import { materializeReproStagePlan } from "../packages/spark-extension/src/extension/spark-repro-project.ts";
+import { REPRO_STAGE_BLUEPRINTS } from "../packages/spark-extension/src/extension/spark-repro-stage-blueprints.ts";
 import { collectReproOrchestrationSnapshot } from "../packages/spark-extension/src/extension/spark-repro-orchestration.ts";
 import { JsonStoreFormatError } from "../packages/spark-extension/src/extension/json-store.ts";
 import type { SparkToolContext } from "../packages/spark-extension/src/extension/spark-tool-registration.ts";
@@ -153,13 +156,11 @@ import {
   updateReproStep,
 } from "@zendev-lab/spark-repro";
 import {
-  encodeSubgoalReceipt,
   inferSessionGoalObjective,
   loadSessionGoal,
   loadSessionLoop,
   setSessionGoal,
   setSessionLoop,
-  subgoalDefinitionDigest,
   updateSessionGoalStatus,
 } from "../packages/spark-loop/src/index.ts";
 import type {
@@ -6437,7 +6438,7 @@ test("repro approval Steps require a current bound approving Ask receipt", async
     await executeSparkTool(tools, "repro", ctx, { action: "start" });
     const initial = await readSessionRepro(dir, ctx);
     if (!initial) throw new Error("missing active repro");
-    const stepId = "repro-contract-frozen";
+    const stepId = "freeze-source-model-weight-data-contract";
     await executeSparkTool(tools, "repro", ctx, {
       action: "plan",
       reason: "Require explicit contract approval",
@@ -6730,7 +6731,7 @@ test("repro plan, step, and settle enforce the typed protocol and bounded contin
 
     const reproBeforeStep = await readSessionRepro(dir, ctx);
     const contractStep = reproBeforeStep?.plan.steps.find(
-      (step) => step.id === "repro-contract-frozen",
+      (step) => step.id === "freeze-source-model-weight-data-contract",
     );
     if (!reproBeforeStep || !contractStep) throw new Error("missing seeded repro contract step");
     const evidence = await defaultEvidenceStore(dir).put({
@@ -6750,7 +6751,7 @@ test("repro plan, step, and settle enforce the typed protocol and bounded contin
     });
     const stepped = await executeSparkTool(tools, "repro", ctx, {
       action: "step",
-      stepId: "repro-contract-frozen",
+      stepId: "freeze-source-model-weight-data-contract",
       stepStatus: "done",
       stepEvidenceRefs: [evidence.ref],
     });
@@ -9121,6 +9122,96 @@ test("impl_status reports derived ready frontier for pending execution-ready tas
       activeText,
       /\[pending\] @pending-derived-ready: Pending derived ready task .*ready_frontier=yes/,
     );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("task status projects managed Session Goal and TaskRun evidence bindings", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-task-managed-execution-status-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "owner");
+    const store = defaultTaskGraphStore(dir);
+    const graph = await store.load();
+    assert.ok(graph);
+    const [project] = graph.projects();
+    assert.ok(project);
+    const task = graph.createTask({
+      projectRef: project.ref,
+      name: "managed-execution",
+      title: "Managed execution projection",
+      description: "Expose the daemon-owned Task to Session Goal execution binding.",
+      kind: "research",
+      roleRef: "role:builtin-researcher" as RoleRef,
+      status: "running",
+      plan: executionReadyPlan("Expose managed execution projection"),
+    });
+    const evidenceRef = "artifact:managed-execution-evidence" as ArtifactRef;
+    const runRef = "run:managed-execution" as RunRef;
+    graph.recordRun({
+      ref: runRef,
+      projectRef: project.ref,
+      taskRef: task.ref,
+      roleRef: "role:builtin-researcher" as RoleRef,
+      runName: "managed-execution-attempt-2",
+      status: "running",
+      execution: {
+        ownerSessionId: "owner",
+        executionSessionId: "sess_task_projection",
+        sessionGoalId: "goal-managed-projection",
+        subgoalRef: "subgoal:managed-projection" as SubgoalRef,
+        planRevision: 6,
+        definitionDigest: "definition-digest",
+        jobId: "job-managed-projection",
+        attempt: 2,
+        invocationId: "inv_managed_projection",
+      },
+      startedAt: "2026-07-29T00:00:00.000Z",
+      outputArtifacts: [evidenceRef],
+    });
+    await store.save(graph);
+
+    const { tools } = registerSparkToolsForTest();
+    await useOnlySparkProject(tools, ctx);
+    const status = await executeSparkTool(tools, "task_read", ctx, {
+      action: "task_status",
+      taskRef: task.ref,
+    });
+    assert.match(
+      toolText(status),
+      /TaskRun=run:managed-execution \| status=running \| Session=sess_task_projection \| Goal=goal-managed-projection/u,
+    );
+    const taskRun = (
+      status.details as {
+        selectedTask?: {
+          taskRun?: {
+            runRef?: string;
+            executionSessionId?: string;
+            sessionGoalId?: string;
+            subgoalRef?: string;
+            attempt?: number;
+            evidenceRefs?: string[];
+          };
+        };
+      }
+    ).selectedTask?.taskRun;
+    assert.deepEqual(taskRun, {
+      runRef,
+      status: "running",
+      roleRef: "role:builtin-researcher",
+      executionSessionId: "sess_task_projection",
+      sessionGoalId: "goal-managed-projection",
+      subgoalRef: "subgoal:managed-projection",
+      planRevision: 6,
+      definitionDigest: "definition-digest",
+      jobId: "job-managed-projection",
+      attempt: 2,
+      invocationId: "inv_managed_projection",
+      evidenceRefs: [evidenceRef],
+      failureKind: undefined,
+      errorMessage: undefined,
+    });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -11586,7 +11677,18 @@ test("impl_plan_tasks enforces concrete experiments for the bound reproduce proj
     assert.ok(initial?.projectRef);
     const reproduceIndex = initial.stages.findIndex((stage) => stage.name === "reproduce");
     assert.notEqual(reproduceIndex, -1);
-    await writeSessionRepro(dir, { ...initial, currentStageIndex: reproduceIndex }, ctx);
+    const materializedScaffold = await materializeReproStagePlan(dir, ctx, initial, "scaffold");
+    const materializedReproduce = await materializeReproStagePlan(
+      dir,
+      ctx,
+      { ...materializedScaffold.repro, currentStageIndex: reproduceIndex },
+      "reproduce",
+    );
+    await writeSessionRepro(
+      dir,
+      { ...materializedReproduce.repro, currentStageIndex: reproduceIndex },
+      ctx,
+    );
 
     const taskInput = (name: string, item: string) => ({
       name,
@@ -11745,7 +11847,7 @@ test("repro entry surfaces start the driver with the canonical rendered prompt",
   assert.equal(prompts[1], prompts[2]);
 });
 
-test("repro start creates a generic project with five ready plans and three-task frontier", async () => {
+test("repro start creates a generic project with one task per bound subgoal", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-project-binding-"));
   try {
     await writeEmptySparkProject(dir);
@@ -11757,7 +11859,7 @@ test("repro start creates a generic project with five ready plans and three-task
     });
 
     const repro = await readSessionRepro(dir, ctx);
-    assert.equal(repro?.version, 5);
+    assert.equal(repro?.version, 6);
     assert.ok(repro?.projectRef);
     const graph = await defaultTaskGraphStore(dir).load();
     assert.ok(graph);
@@ -11765,7 +11867,7 @@ test("repro start creates a generic project with five ready plans and three-task
     assert.equal(project.kind, "generic");
     assert.equal(project.kindState, undefined);
     const tasks = graph.tasks(project.ref);
-    assert.equal(tasks.length, 5);
+    assert.equal(tasks.length, 26);
     assert.equal(
       tasks.every((task) => decideTaskPlanBeforeCreate(task).accepted),
       true,
@@ -11775,20 +11877,112 @@ test("repro start creates a generic project with five ready plans and three-task
         .readyTasks(project.ref)
         .map((task) => task.name)
         .sort(),
-      ["alignment-paths", "baseline-availability", "implementation-landscape"],
+      [
+        "competitor-baseline-availability-researched",
+        "freeze-source-model-weight-data-contract",
+        "trace-target-existing-path",
+      ],
     );
-    assert.equal(project.roadmap.items.length, 1);
-    assert.equal(project.roadmap.items[0]?.taskRefs?.length, 5);
+    assert.equal(project.roadmap.items.length, 5);
+    assert.equal(
+      project.roadmap.items.reduce((count, item) => count + (item.taskRefs?.length ?? 0), 0),
+      26,
+    );
     assert.deepEqual(
-      [...new Set(repro.subgoals.flatMap((subgoal) => subgoal.taskRefs))].sort(),
+      [
+        ...new Set(
+          repro.subgoals
+            .map((subgoal) => subgoal.taskRef)
+            .filter((taskRef): taskRef is TaskRef => !!taskRef),
+        ),
+      ].sort((left, right) => left.localeCompare(right)),
       tasks.map((task) => task.ref).sort(),
     );
     const persisted = JSON.parse(await readFile(sessionReproStorePath(dir, ctx), "utf8")) as {
       version: number;
       repro?: { projectRef?: string };
     };
-    assert.equal(persisted.version, 5);
+    assert.equal(persisted.version, 6);
     assert.equal(persisted.repro?.projectRef, project.ref);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro stage blueprints materialize a complete dependency-valid task graph", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-stage-blueprints-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "start",
+      objective: "Qualify a model reproduction through target scale",
+    });
+    let repro = await readSessionRepro(dir, ctx);
+    if (!repro?.projectRef) throw new Error("missing project-backed repro");
+    for (const stage of ["scaffold", "reproduce", "scale", "deliver"] as const) {
+      repro = (await materializeReproStagePlan(dir, ctx, repro, stage)).repro;
+    }
+
+    const blueprints = Object.values(REPRO_STAGE_BLUEPRINTS);
+    assert.deepEqual(
+      blueprints.map((blueprint) => blueprint.stage),
+      ["setup", "scaffold", "reproduce", "scale", "deliver"],
+    );
+    assert.equal(REPRO_STAGE_BLUEPRINTS.deliver.displayTitle, "Finalize");
+    const blueprintTasks = blueprints.flatMap((blueprint) => blueprint.tasks);
+    assert.equal(new Set(blueprintTasks.map((task) => task.id)).size, blueprintTasks.length);
+    assert.equal(
+      blueprints.every((blueprint) =>
+        blueprint.tasks.every((task) =>
+          blueprint.roadmaps.some((roadmap) => roadmap.key === task.roadmapKey),
+        ),
+      ),
+      true,
+    );
+
+    const taskById = new Map(blueprintTasks.map((task) => [task.id, task]));
+    for (const task of blueprintTasks) {
+      assert.equal(
+        task.dependsOn.every((dependency) => taskById.has(dependency)),
+        true,
+        `unknown dependency for ${task.id}`,
+      );
+    }
+    assert.deepEqual(taskById.get("qualify-tp")?.dependsOn, [
+      "revalidate-parent-determinism-and-checkpoint",
+    ]);
+    assert.deepEqual(taskById.get("qualify-ep")?.dependsOn, [
+      "revalidate-parent-determinism-and-checkpoint",
+    ]);
+    assert.deepEqual(taskById.get("compose-tp-ep")?.dependsOn, ["qualify-tp", "qualify-ep"]);
+    assert.deepEqual(taskById.get("compose-tp-ep-pp")?.dependsOn, [
+      "compose-tp-ep",
+      "qualify-pp-delta",
+    ]);
+    assert.deepEqual(taskById.get("join-s0-time-and-s2-structure")?.dependsOn, [
+      "run-s0-p0-htarget",
+      "bitwise-pass-20",
+    ]);
+
+    const graph = await defaultTaskGraphStore(dir).load();
+    assert.ok(graph);
+    const tasks = graph.tasks(repro.projectRef);
+    assert.equal(tasks.length, blueprintTasks.length);
+    assert.equal(
+      tasks.every((task) => decideTaskPlanBeforeCreate(task).accepted),
+      true,
+    );
+    assert.equal(repro.subgoals.length, blueprintTasks.length);
+    assert.equal(
+      repro.subgoals.every((subgoal) => typeof subgoal.taskRef === "string"),
+      true,
+    );
+    assert.equal(
+      new Set(repro.subgoals.map((subgoal) => subgoal.taskRef)).size,
+      blueprintTasks.length,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
@@ -11832,8 +12026,8 @@ test("repro settle keeps a ten second cadence when any safe task run is active",
     const repro = await readSessionRepro(dir, ctx);
     assert.ok(repro?.projectRef);
     const safeTaskRef = repro.subgoals.find(
-      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRefs.length > 0,
-    )?.taskRefs[0];
+      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRef,
+    )?.taskRef;
     assert.ok(safeTaskRef);
     await defaultTaskGraphStore(dir).update((graph) => {
       graph.recordRun({
@@ -11884,9 +12078,11 @@ test("repro settle leaves the driver dormant while awaiting owner ask authority"
       dir,
       {
         ...repro,
-        subgoals: repro.subgoals.map((subgoal) =>
-          subgoal.authority === "safe_local" ? { ...subgoal, taskRefs: [] } : subgoal,
-        ),
+        subgoals: repro.subgoals.map((subgoal) => {
+          if (subgoal.authority !== "safe_local") return subgoal;
+          const { taskRef: _taskRef, ...unbound } = subgoal;
+          return unbound;
+        }),
       },
       ctx,
     );
@@ -11915,10 +12111,10 @@ test("repro settle schedules a thirty second repair tick when bound ask tasks ar
     const repro = await readSessionRepro(dir, ctx);
     assert.ok(repro?.projectRef);
     const safeSubgoal = repro.subgoals.find(
-      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRefs.length > 0,
+      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRef,
     );
     assert.ok(safeSubgoal);
-    const taskRef = safeSubgoal.taskRefs[0]!;
+    const taskRef = safeSubgoal.taskRef!;
     const askRepro = {
       ...repro,
       subgoals: repro.subgoals.map((subgoal) =>
@@ -11952,10 +12148,10 @@ test("repro orchestration excludes ask authority tasks from the dispatchable fro
     const repro = await readSessionRepro(dir, ctx);
     assert.ok(repro?.projectRef);
     const safeSubgoal = repro.subgoals.find(
-      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRefs.length > 0,
+      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRef,
     );
     assert.ok(safeSubgoal);
-    const askTaskRef = safeSubgoal.taskRefs[0]!;
+    const askTaskRef = safeSubgoal.taskRef!;
     const withAskAuthority = {
       ...repro,
       subgoals: repro.subgoals.map((subgoal) =>
@@ -11975,6 +12171,26 @@ test("repro orchestration excludes ask authority tasks from the dispatchable fro
   }
 });
 
+test("repro tool exposes Task-bound planning without a delegate action", () => {
+  const tools = new Map<string, SparkToolConfig>();
+  registerSparkReproTool(
+    (config) => {
+      tools.set(config.name, config as SparkToolConfig);
+    },
+    { driverControl: createTestDriverControl() },
+  );
+  const tool = tools.get("repro");
+  assert.ok(tool);
+  const publicContract = JSON.stringify({
+    description: tool.description,
+    promptGuidelines: tool.promptGuidelines,
+    parameters: tool.parameters,
+  });
+  assert.doesNotMatch(publicContract, /subgoal\.assignment|subgoal\.receipt|action=delegate/u);
+  assert.match(publicContract, /taskRef/u);
+});
+
+/* Historical delegate/receipt integration tests retired with the protocol.
 test("repro delegation persists the assignment before dispatch and completes only a matching receipt", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-subgoal-delegation-"));
   try {
@@ -12299,8 +12515,9 @@ test("repro delegation turns malformed receipts and corrupt evidence reads into 
     }
   }
 });
+*/
 
-test("repro advance reports the target stage when its planned subgoals are missing", async () => {
+test("repro advance materializes the target stage blueprint before advancing", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-advance-planning-blocker-"));
   try {
     await writeEmptySparkProject(dir);
@@ -12372,11 +12589,17 @@ test("repro advance reports the target stage when its planned subgoals are missi
     );
 
     const advanced = await executeSparkTool(tools, "repro", ctx, { action: "advance" });
-    const blocker =
-      "Stage scaffold has no planned subgoals. Plan concrete subgoals and task experiments before advancing.";
-    assert.match(toolText(advanced), /Stage scaffold has no planned subgoals/u);
-    assert.ok(Array.isArray(advanced.details?.blockingReasons));
-    assert.ok(advanced.details.blockingReasons.includes(blocker));
+    assert.match(toolText(advanced), /Stage advanced to: Scaffold/u);
+    const afterAdvance = await readSessionRepro(dir, ctx);
+    assert.equal(afterAdvance?.stages[afterAdvance.currentStageIndex]?.name, "scaffold");
+    const scaffoldSubgoals = afterAdvance?.subgoals.filter(
+      (subgoal) => subgoal.stage === "scaffold",
+    );
+    assert.ok(scaffoldSubgoals && scaffoldSubgoals.length > 8);
+    assert.equal(
+      scaffoldSubgoals.every((subgoal) => typeof subgoal.taskRef === "string"),
+      true,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
