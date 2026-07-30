@@ -2984,6 +2984,32 @@ test("workflow run store persists manager lifecycle and task progress", async ()
   }
 });
 
+test("workflow run store normalizes legacy completion digests without inventing evidence", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-dag-run-store-legacy-digest-"));
+  try {
+    const store = defaultWorkflowRunStore(dir);
+    const fixturePath = join(
+      process.cwd(),
+      "test",
+      "fixtures",
+      "legacy-evidence",
+      "workflow-run-v1-completion-digest.json",
+    );
+    const fixture = await readFile(fixturePath, "utf8");
+    await mkdir(join(dir, ".spark"), { recursive: true });
+    await writeFile(store.filePath, fixture, "utf8");
+
+    const snapshot = await store.load();
+    const [record] = snapshot.runs;
+    assert.ok(record);
+    assert.deepEqual(record.completionDigest[0]?.evidenceRefs, []);
+    assert.deepEqual(record.completionFollowUp?.completionDigest[0]?.evidenceRefs, []);
+    assert.equal(await readFile(store.filePath, "utf8"), fixture);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("Spark DAG run store serializes concurrent task progress updates", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-dag-run-rmw-lock-"));
   try {

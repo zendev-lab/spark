@@ -88,7 +88,7 @@ function cloneTaskRunCompletionSummary(
 ): TaskRunCompletionSummary {
   return {
     ...summary,
-    evidenceRefs: [...summary.evidenceRefs],
+    evidenceRefs: Array.isArray(summary.evidenceRefs) ? [...summary.evidenceRefs] : [],
     outcome: summary.outcome ? { ...summary.outcome } : undefined,
   };
 }

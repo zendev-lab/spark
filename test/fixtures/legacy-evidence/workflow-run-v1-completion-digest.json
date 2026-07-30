@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "manager": {
+    "status": "idle",
+    "lastRunRef": "run:legacy-workflow",
+    "updatedAt": "2026-07-14T13:22:14.799Z"
+  },
+  "runs": [
+    {
+      "ref": "run:legacy-workflow",
+      "status": "failed",
+      "startedAt": "2026-07-14T13:22:14.799Z",
+      "updatedAt": "2026-07-14T13:22:14.799Z",
+      "completionDigest": [
+        {
+          "runRef": "run:legacy-child",
+          "taskRef": "task:legacy-child",
+          "status": "failed",
+          "summary": "legacy workflow child failed",
+          "artifactRefs": ["artifact:legacy-product-artifact"],
+          "createdAt": "2026-07-14T13:22:14.799Z"
+        }
+      ],
+      "completionFollowUp": {
+        "createdAt": "2026-07-14T13:22:14.799Z",
+        "runRef": "run:legacy-workflow",
+        "status": "failed",
+        "summary": "legacy workflow failed",
+        "completionDigest": [
+          {
+            "runRef": "run:legacy-child",
+            "taskRef": "task:legacy-child",
+            "status": "failed",
+            "summary": "legacy workflow child failed",
+            "artifactRefs": ["artifact:legacy-product-artifact"],
+            "createdAt": "2026-07-14T13:22:14.799Z"
+          }
+        ]
+      }
+    }
+  ]
+}
