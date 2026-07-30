@@ -72,7 +72,7 @@ export { compactToolResultContent } from "./tool-result-compaction.ts";
 
 import {
   compactToolResultContent,
-  shouldRecordRawToolResultArtifact,
+  shouldRecordRawToolResultEvidence,
   type SparkToolResultRawRecoveryDecision,
 } from "./tool-result-compaction.ts";
 import {
@@ -126,7 +126,7 @@ import {
 
 import {
   appendRawRecoveryHint,
-  artifactRefFromToolResult,
+  evidenceRefFromToolResult,
   collectToolCalls,
   errorToolResult,
   isPlainRecord,
@@ -134,7 +134,7 @@ import {
   normalizeApprovalMethod,
   normalizeApprovalRejectAction,
   rawToolOutputProducer,
-  rawToolResultArtifactBody,
+  rawToolResultEvidenceBody,
   rawToolResultRecoveryPath,
   resolvedRegisteredToolPolicy,
   safeSelectedSkills,
@@ -1042,13 +1042,13 @@ export class SparkAgentLoop {
           args: toolCall.arguments,
           content: result.content,
         });
-        const recoveryDecision = shouldRecordRawToolResultArtifact({
+        const recoveryDecision = shouldRecordRawToolResultEvidence({
           toolName: toolCall.name,
           isError: result.isError ?? false,
           compaction: compacted.details,
         });
         const rawRecovery = recoveryDecision.record
-          ? await this.recordRawToolResultArtifact({
+          ? await this.recordRawToolResultEvidence({
               toolCall,
               result,
               ctx,
@@ -1076,7 +1076,7 @@ export class SparkAgentLoop {
     }
   }
 
-  private async recordRawToolResultArtifact(input: {
+  private async recordRawToolResultEvidence(input: {
     toolCall: ToolCall;
     result: {
       content: Array<{ type: string; text?: string; [key: string]: unknown }>;
@@ -1088,18 +1088,18 @@ export class SparkAgentLoop {
     signal: AbortSignal;
   }): Promise<ToolResultRawRecoveryRecord | undefined> {
     if (input.toolCall.name === "artifact" || input.toolCall.name === "evidence") return undefined;
-    const evidenceTool = this.host.getTool("evidence") ?? this.host.getTool("artifact");
+    const evidenceTool = this.host.getTool("evidence");
     if (
       !evidenceTool ||
       !this.isToolAvailable(evidenceTool) ||
       !this.isToolDispatchAllowed(evidenceTool.config.name, evidenceTool)
     )
       return undefined;
-    const rawBody = rawToolResultArtifactBody(input.result.content);
-    const artifactAbort = new AbortController();
-    const cleanupAbort = relayAbort(input.signal, artifactAbort);
+    const rawBody = rawToolResultEvidenceBody(input.result.content);
+    const evidenceAbort = new AbortController();
+    const cleanupAbort = relayAbort(input.signal, evidenceAbort);
     try {
-      throwIfSignalAborted(artifactAbort.signal);
+      throwIfSignalAborted(evidenceAbort.signal);
       const recorded = await runWithTimeout(
         runWithAbort(
           evidenceTool.config.execute(
@@ -1116,33 +1116,30 @@ export class SparkAgentLoop {
                 note: `Raw recoverable tool result for ${input.toolCall.name} (${input.decision.reason ?? "compaction"})`,
               },
             },
-            artifactAbort.signal,
+            evidenceAbort.signal,
             () => undefined,
             input.ctx,
           ),
-          artifactAbort.signal,
+          evidenceAbort.signal,
         ),
         this.toolTimeoutMs,
-        `Spark raw tool-result artifact persistence timed out after ${this.toolTimeoutMs}ms`,
-        (error) => artifactAbort.abort(error),
+        `Spark raw tool-result evidence persistence timed out after ${this.toolTimeoutMs}ms`,
+        (error) => evidenceAbort.abort(error),
       );
-      const recoveryRef = artifactRefFromToolResult(recorded);
-      if (!recoveryRef) return undefined;
-      const recoveryPath = rawToolResultRecoveryPath(recoveryRef);
-      const evidenceRef = recoveryRef.startsWith("evidence:") ? recoveryRef : undefined;
-      const readRefArg = evidenceRef ? "evidenceRef" : "artifactRef";
+      const evidenceRef = evidenceRefFromToolResult(recorded);
+      if (!evidenceRef) return undefined;
+      const recoveryPath = rawToolResultRecoveryPath(evidenceRef);
       return {
-        ...(evidenceRef ? { evidenceRef } : {}),
-        artifactRef: recoveryRef,
+        evidenceRef,
         reason: input.decision.reason ?? "lossy_compaction",
         omittedChars: input.decision.omittedChars ?? 0,
         bodyChars: rawBody.bodyChars,
         recoveryPath,
-        readHint: `Full raw tool output saved as ${recoveryRef}; recover with evidence({ action: "read", ${readRefArg}: "${recoveryRef}", maxChars: 20000 })`,
+        readHint: `Full raw tool output saved as ${evidenceRef}; recover with evidence({ action: "read", evidenceRef: "${evidenceRef}", maxChars: 20000 })`,
       };
     } catch {
       // Raw recovery must never make the original tool call fail. The compacted
-      // result remains useful even if artifact persistence is unavailable.
+      // result remains useful even if evidence persistence is unavailable.
       return undefined;
     } finally {
       cleanupAbort();
@@ -1424,6 +1421,7 @@ export class SparkAgentLoop {
         status: "running",
         summary,
         startedAt: new Date().toISOString(),
+        evidenceRefs: [],
         artifactRefs: [],
         metadata: { source: "SparkAgentLoop" },
       },
@@ -1660,6 +1658,7 @@ export class SparkAgentLoop {
         summary,
         completedAt:
           status === "running" || status === "queued" ? undefined : new Date().toISOString(),
+        evidenceRefs: [],
         artifactRefs: [],
         metadata: jsonMetadata({
           source: "SparkAgentLoop",

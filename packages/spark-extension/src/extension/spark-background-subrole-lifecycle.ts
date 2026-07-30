@@ -1,4 +1,4 @@
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { newRef, nowIso } from "@zendev-lab/spark-core";
 import {
   createRoleRunClaimId,
@@ -84,7 +84,7 @@ export async function resumeOwnedBackgroundSubroles(
   const resumable = findResumableBackgroundRoleRunTasks(graph, ownerSessionId);
   if (resumable.length === 0) return 0;
   const registry = await createSparkRoleRegistry(cwd);
-  const artifactStore = defaultArtifactStore(cwd);
+  const evidenceStore = defaultEvidenceStore(cwd);
   let resumed = 0;
   for (const task of resumable) {
     const runName = task.claim?.runName;
@@ -96,7 +96,7 @@ export async function resumeOwnedBackgroundSubroles(
         graph,
         taskRef: task.ref,
         registry,
-        artifactStore,
+        evidenceStore,
         cwd,
         dryRun: false,
         claim: {
@@ -122,7 +122,7 @@ export async function resumeOwnedBackgroundSubroles(
         errorMessage,
         startedAt: finishedAt,
         finishedAt,
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
         completionSummary: {
           runRef,
           taskRef: task.ref,
@@ -130,7 +130,7 @@ export async function resumeOwnedBackgroundSubroles(
           runName,
           status: "failed",
           summary: errorMessage,
-          artifactRefs: [],
+          evidenceRefs: [],
           createdAt: finishedAt,
         },
       });

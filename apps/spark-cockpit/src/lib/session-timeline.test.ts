@@ -28,6 +28,96 @@ describe("session timeline", () => {
     ]);
   });
 
+  it("folds daemon driver ticks and their replies into one runtime summary", () => {
+    const prompt = [
+      "Advance the active Spark workflow scheduler by exactly one daemon-owned tick.",
+      'Call workflow_driver({ action: "tick" }) exactly once.',
+    ].join("\n");
+    const messages = [
+      message("runtime-prompt", "user", prompt, "2026-07-10T00:00:01.000Z", {
+        invocationId: "inv_runtime",
+        origin: { kind: "runtime", host: "daemon", surface: "local" },
+        runtimeControl: {
+          kind: "driver.tick",
+          driverId: "workflow:active",
+          driverKind: "workflow",
+          generation: 2,
+        },
+      }),
+      message(
+        "runtime-result",
+        "assistant",
+        "Workflow scheduler advanced.",
+        "2026-07-10T00:00:02.000Z",
+      ),
+    ];
+
+    const timeline = buildCanonicalSessionTimeline({
+      fallbackTimestamp: "2026-07-10T00:00:00.000Z",
+      messages,
+    });
+
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toMatchObject({
+      id: "message:runtime-prompt",
+      actor: "spark",
+      body: "workflow tick",
+      status: null,
+      parts: [
+        {
+          type: "runtime",
+          kind: "driver.tick",
+          driverKind: "workflow",
+          state: "completed",
+          request: prompt,
+          result: "Workflow scheduler advanced.",
+        },
+      ],
+    });
+    expect(latestSessionRetryCandidate(messages)).toBeNull();
+  });
+
+  it("folds legacy daemon driver prompts without reclassifying generic daemon turns", () => {
+    const legacyPrompt = [
+      "Advance the active Spark workflow scheduler by exactly one daemon-owned tick.",
+      'Call workflow_driver({ action: "tick" }) exactly once.',
+    ].join("\n");
+    const timeline = buildCanonicalSessionTimeline({
+      fallbackTimestamp: "2026-07-10T00:00:00.000Z",
+      messages: [
+        message("legacy-runtime", "user", legacyPrompt, "2026-07-10T00:00:01.000Z", {
+          origin: { kind: "user", host: "daemon", surface: "local" },
+        }),
+        message(
+          "legacy-result",
+          "assistant",
+          "workflow_driver is unavailable.",
+          "2026-07-10T00:00:02.000Z",
+        ),
+        message("generic-daemon", "user", "Inspect the queue.", "2026-07-10T00:00:03.000Z", {
+          origin: { kind: "user", host: "daemon", surface: "local" },
+        }),
+      ],
+    });
+
+    expect(timeline).toHaveLength(2);
+    expect(timeline[0]).toMatchObject({
+      actor: "spark",
+      parts: [
+        expect.objectContaining({
+          type: "runtime",
+          driverKind: "workflow",
+          result: "workflow_driver is unavailable.",
+        }),
+      ],
+    });
+    expect(timeline[1]).toMatchObject({
+      id: "message:generic-daemon",
+      actor: "user",
+      body: "Inspect the queue.",
+    });
+  });
+
   it("windows historical rendering without splitting a user and assistant turn", () => {
     const items = [
       timelineItem("u1", "user"),

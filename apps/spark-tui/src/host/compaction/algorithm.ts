@@ -195,7 +195,7 @@ export function renderSparkSmartCompactionPrompt(
     "Return exactly one JSON object and no Markdown fences or prose.",
     "Use this complete schema; every field is required:",
     '{"version":1,"objective":"","completed":[],"inProgress":[],"decisions":[],"changedFiles":[{"path":"","change":"","evidenceRefs":[]}],"commands":[{"command":"","result":"passed|failed|blocked|unknown","detail":""}],"failures":[{"summary":"","cause":"","nextStep":"","evidenceRefs":[]}],"preservedFacts":[],"unresolved":[],"memoryRefs":[]}',
-    "Only include artifact: or evidence: references that occur verbatim in the payload. Do not invent evidence.",
+    "Only include evidence: references that occur verbatim in the payload. Artifact refs must not be placed in evidenceRefs. Do not invent evidence.",
     "Preserve concrete decisions, validated outcomes, changed files, failures, and unresolved work needed to continue.",
     ...(userFocus ? [userFocus] : []),
     `Transcript payload:\n${JSON.stringify(payload)}`,
@@ -990,7 +990,7 @@ function microCandidate(
   const failed =
     message.isError === true || message.status === "failed" || message.status === "error";
   const age = total <= 1 ? 1 : 1 - index / (total - 1);
-  const recoverable = typeof message.artifactRef === "string" ? 1 : 0;
+  const recoverable = typeof message.evidenceRef === "string" ? 1 : 0;
   const profileWeight =
     compacted.details.profile === "log"
       ? 1

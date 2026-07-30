@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { nowIso, type Project } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
-import { currentSparkProject, loadSparkGraph, sparkSessionOwnerKey } from "./session-state.ts";
+import { currentSparkProject, loadSparkGraph } from "./session-state.ts";
 import {
   deriveSparkDriveMode,
   normalizeSparkDriveMode,
@@ -15,12 +15,9 @@ import {
   setSessionGoal,
 } from "./spark-session-goals.ts";
 import { clearSessionLoop, loadSessionLoop, setSessionLoop } from "./spark-session-loops.ts";
-import {
-  clearSessionRepro,
-  createSparkSessionRepro,
-  readSessionRepro,
-  writeSessionRepro,
-} from "./spark-session-repro.ts";
+import { clearSessionRepro, readSessionRepro, writeSessionRepro } from "./spark-session-repro.ts";
+import { createProjectBackedSessionRepro } from "./spark-repro-project.ts";
+import { renderReproTickInstruction } from "./spark-repro-tool-registration.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 import {
   prepareSparkDaemonDriverOwner,
@@ -127,13 +124,14 @@ export function registerSparkDriveTool(
         await clearSessionLoop(cwd, ctx);
         const existingRepro = await readSessionRepro(cwd, ctx);
         if (!existingRepro || existingRepro.status !== "active") {
-          await writeSessionRepro(
-            cwd,
-            createSparkSessionRepro(sparkSessionOwnerKey(ctx), undefined, { objective }),
-            ctx,
-          );
-        } else if (objective && existingRepro.objective !== objective) {
-          await writeSessionRepro(cwd, { ...existingRepro, objective, updatedAt: nowIso() }, ctx);
+          await createProjectBackedSessionRepro(cwd, ctx, { objective });
+        } else {
+          const activeRepro = existingRepro.projectRef
+            ? existingRepro
+            : (await createProjectBackedSessionRepro(cwd, ctx, { existing: existingRepro })).repro;
+          if (objective && activeRepro.objective !== objective) {
+            await writeSessionRepro(cwd, { ...activeRepro, objective, updatedAt: nowIso() }, ctx);
+          }
         }
       } else if (requestedDrive === "goal") {
         const objective = resolveDriveObjective(params.objective, graph, project, "goal");
@@ -239,13 +237,7 @@ async function startSelectedDriver(
       ownerSessionId,
       continuity: "session",
       cwd,
-      prompt: [
-        "Advance the daemon-owned Spark reproduction contract by one evidence-backed turn.",
-        snapshot.repro.objective ? `Objective: ${snapshot.repro.objective}` : undefined,
-        'Use repro({ action: "status" }) and persist proof before advancing.',
-      ]
-        .filter((line): line is string => Boolean(line))
-        .join("\n"),
+      prompt: renderReproTickInstruction(snapshot.repro),
       reason: "repro drive selected",
     });
   }

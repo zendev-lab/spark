@@ -14,6 +14,8 @@ import {
   type TaskCompletionIssue,
   type TaskCompletionReadiness,
   type TaskDependency,
+  type TaskExecutionPolicy,
+  type TaskKind,
   type TaskPlan,
   type TaskPlanIssue,
   type TaskPlanIssueKind,
@@ -250,6 +252,7 @@ export function normalizeTask(task: Task): Task {
     kind: task.kind,
     status: task.status,
     roleRef: normalizeRoleRef(task.roleRef),
+    executionPolicy: normalizeTaskExecutionPolicy(task.executionPolicy, task.kind),
     finishedBy: normalizeTaskAttribution(task.finishedBy),
     cancellation:
       task.status === "cancelled"
@@ -259,8 +262,8 @@ export function normalizeTask(task: Task): Task {
         : undefined,
     supersededBy: normalizeTaskRefs(task.supersededBy),
     claim,
-    inputArtifacts: task.inputArtifacts,
-    outputArtifacts: task.outputArtifacts,
+    inputEvidenceRefs: task.inputEvidenceRefs,
+    outputEvidenceRefs: task.outputEvidenceRefs,
     plan: normalizeTaskPlan(task.plan, task.description, task.title),
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
@@ -300,6 +303,132 @@ export function normalizeTaskPlan(
     openQuestions: normalizeStringList(plan?.openQuestions),
     askRefs: normalizeStringList(plan?.askRefs) as TaskPlan["askRefs"],
   };
+}
+
+export function normalizeTaskExecutionPolicy(
+  policy: Partial<TaskExecutionPolicy> | undefined,
+  kind: TaskKind = "generic",
+): TaskExecutionPolicy {
+  if (policy !== undefined && (!policy || typeof policy !== "object" || Array.isArray(policy))) {
+    throw new Error("task executionPolicy must be an object");
+  }
+  if (
+    policy?.continuity !== undefined &&
+    policy.continuity !== "fresh" &&
+    policy.continuity !== "reuse_within_revision"
+  ) {
+    throw new Error("task executionPolicy.continuity is invalid");
+  }
+  if (
+    policy?.isolation !== undefined &&
+    policy.isolation !== "isolated_worktree" &&
+    policy.isolation !== "isolated_results" &&
+    policy.isolation !== "readonly"
+  ) {
+    throw new Error("task executionPolicy.isolation is invalid");
+  }
+  if (
+    policy?.comparison !== undefined &&
+    policy.comparison !== "reference" &&
+    policy.comparison !== "target" &&
+    policy.comparison !== "paired" &&
+    policy.comparison !== "single_side"
+  ) {
+    throw new Error("task executionPolicy.comparison is invalid");
+  }
+  if (
+    policy?.concurrencyKeys !== undefined &&
+    (!Array.isArray(policy.concurrencyKeys) ||
+      policy.concurrencyKeys.some((key) => typeof key !== "string"))
+  ) {
+    throw new Error("task executionPolicy.concurrencyKeys must be strings");
+  }
+  if (
+    policy?.maxAttempts !== undefined &&
+    (!Number.isInteger(policy.maxAttempts) || policy.maxAttempts < 1)
+  ) {
+    throw new Error("task executionPolicy.maxAttempts must be a positive integer");
+  }
+  if (
+    policy?.timeoutMs !== undefined &&
+    (!Number.isInteger(policy.timeoutMs) || policy.timeoutMs < 1)
+  ) {
+    throw new Error("task executionPolicy.timeoutMs must be a positive integer");
+  }
+  if (
+    policy?.resources !== undefined &&
+    (!policy.resources || typeof policy.resources !== "object" || Array.isArray(policy.resources))
+  ) {
+    throw new Error("task executionPolicy.resources must be an object");
+  }
+  if (
+    policy?.resources?.gpuCount !== undefined &&
+    (!Number.isInteger(policy.resources.gpuCount) || policy.resources.gpuCount < 0)
+  ) {
+    throw new Error("task executionPolicy.resources.gpuCount must be a non-negative integer");
+  }
+  if (
+    policy?.resources?.minGpuMemoryGiB !== undefined &&
+    (!Number.isFinite(policy.resources.minGpuMemoryGiB) || policy.resources.minGpuMemoryGiB <= 0)
+  ) {
+    throw new Error("task executionPolicy.resources.minGpuMemoryGiB must be positive");
+  }
+  const continuity = policy?.continuity ?? "reuse_within_revision";
+  const isolation =
+    policy?.isolation === "isolated_worktree" ||
+    policy?.isolation === "isolated_results" ||
+    policy?.isolation === "readonly"
+      ? policy.isolation
+      : kind === "implement"
+        ? "isolated_worktree"
+        : kind === "research" || kind === "review" || kind === "plan"
+          ? "readonly"
+          : "isolated_results";
+  const comparison =
+    policy?.comparison === "reference" ||
+    policy?.comparison === "target" ||
+    policy?.comparison === "paired" ||
+    policy?.comparison === "single_side"
+      ? policy.comparison
+      : "single_side";
+  const gpuCount = policy?.resources?.gpuCount ?? 0;
+  const minGpuMemoryGiB = normalizeOptionalPositiveNumber(policy?.resources?.minGpuMemoryGiB);
+  const topologyClass = normalizeOptionalString(policy?.resources?.topologyClass);
+  const resources =
+    gpuCount > 0 ||
+    minGpuMemoryGiB !== undefined ||
+    topologyClass ||
+    policy?.resources?.exclusiveNode
+      ? {
+          gpuCount,
+          ...(minGpuMemoryGiB !== undefined ? { minGpuMemoryGiB } : {}),
+          ...(topologyClass ? { topologyClass } : {}),
+          ...(policy?.resources?.exclusiveNode ? { exclusiveNode: true } : {}),
+        }
+      : undefined;
+  return {
+    continuity,
+    isolation,
+    comparison,
+    ...(resources ? { resources } : {}),
+    concurrencyKeys: [...new Set(normalizeStringList(policy?.concurrencyKeys))],
+    ...(normalizeOptionalPositiveInteger(policy?.timeoutMs) !== undefined
+      ? { timeoutMs: normalizeOptionalPositiveInteger(policy?.timeoutMs) }
+      : {}),
+    maxAttempts: policy?.maxAttempts ?? 2,
+  };
+}
+
+function normalizeOptionalPositiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function normalizeOptionalPositiveNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function normalizeTaskPlanItems(
@@ -421,7 +550,7 @@ export const TASK_PLAN_READINESS_RULES: readonly TaskPlanReadinessRule[] = [
     severity: "blocking",
     message: "Task plan needs evidence requirements.",
     remediation:
-      "Add at least one concrete validation artifact or command to plan.evidenceRequired.",
+      "Add at least one concrete validation Evidence record or command to plan.evidenceRequired.",
     description:
       "plan.evidenceRequired must include at least one concrete evidence item required before completion.",
   },
@@ -446,7 +575,7 @@ export const TASK_PLAN_READINESS_RULES: readonly TaskPlanReadinessRule[] = [
     severity: "blocking",
     message: "Task plan has success criteria that are not objectively verifiable.",
     remediation:
-      "Rewrite every plan.successCriteria entry so it can be checked by a command, artifact, state transition, file/path diff, reviewer verdict, or explicit metric.",
+      "Rewrite every plan.successCriteria entry so it can be checked by a command, Evidence record, state transition, file/path diff, reviewer verdict, or explicit metric.",
     description:
       "every plan.successCriteria entry must be objectively verifiable by explicit evidence, state, commands, paths, reviewer verdicts, or metrics.",
   },
@@ -455,7 +584,7 @@ export const TASK_PLAN_READINESS_RULES: readonly TaskPlanReadinessRule[] = [
     severity: "blocking",
     message: "Task plan has evidence requirements that are too vague.",
     remediation:
-      "Require concrete evidence such as command output with exit codes, test names, artifact refs, changed files, screenshots, benchmark values, or reviewer decision artifacts.",
+      "Require concrete evidence such as command output with exit codes, test names, Evidence refs, changed files, screenshots, benchmark values, or reviewer decisions.",
     description:
       "every plan.evidenceRequired entry must name concrete evidence required before completion.",
   },
@@ -511,7 +640,7 @@ interface WeakPlanEntry {
 const VERIFIABLE_TEXT_PATTERN =
   /\b(command|test|tests|check|checks|lint|typecheck|build|run|output|artifact|evidence|refs?|file|path|diff|snapshot|log|report|screenshot|benchmark|metric|coverage|exit code|reviewer|review|verdict|status|schema|migration|api|endpoint|assertion|assertions|passes|fails|matched|recorded|attached|validated|verified)\b|命令|测试|检查|验证|输出|证据|文件|路径|差异|日志|报告|截图|基准|指标|覆盖率|退出码|审查|审核|状态|断言|通过|失败/iu;
 const CONCRETE_EVIDENCE_PATTERN =
-  /\b(command|test|tests|assertion|assertions|output|artifact|refs?|file|path|diff|snapshot|log|report|screenshot|benchmark|metric|coverage|exit code|reviewer|review|verdict|status|schema|migration|api|endpoint|changed files?|source refs?|attached|returned|rendered)\b|命令|测试|检查|验证|输出|证据|文件|路径|差异|日志|报告|截图|基准|指标|覆盖率|退出码|审查|审核|状态|断言|通过|失败/iu;
+  /\b(command|test|tests|assertion|assertions|output|artifact|evidence|refs?|file|path|diff|snapshot|log|report|screenshot|benchmark|metric|coverage|exit code|reviewer|review|verdict|status|schema|migration|api|endpoint|changed files?|source refs?|attached|returned|rendered)\b|命令|测试|检查|验证|输出|证据|文件|路径|差异|日志|报告|截图|基准|指标|覆盖率|退出码|审查|审核|状态|断言|通过|失败/iu;
 const COMMAND_OR_PATH_PATTERN =
   /\b(pnpm|npm|node|uvx?|cargo|pytest|ruff|ty|go test|git diff|vp|prek|tsc|vitest|playwright|eslint|biome)\b|(?:^|\s)[\w./-]+\.(?:ts|tsx|js|jsx|mts|cts|json|md|yml|yaml|toml|rs|py|go|sh|sql)(?=$|\s|[,:;.])/iu;
 const EXPLICIT_METRIC_PATTERN =
@@ -737,17 +866,17 @@ export function taskPlanIssue(kind: TaskPlanIssueKind, message?: string): TaskPl
 }
 
 export function taskCompletionReadiness(
-  task: Pick<Task, "plan" | "outputArtifacts" | "status">,
+  task: Pick<Task, "plan" | "outputEvidenceRefs" | "status">,
 ): TaskCompletionReadiness {
   if (task.status === "cancelled") return { ready: true, issues: [] };
   const issues: TaskCompletionIssue[] = [];
   const evidenceRequired = task.plan?.evidenceRequired ?? [];
-  if (evidenceRequired.length > 0 && task.outputArtifacts.length === 0) {
+  if (evidenceRequired.length > 0 && task.outputEvidenceRefs.length === 0) {
     issues.push({
       kind: "missing_completion_evidence",
       severity: "blocking",
       evidenceRequired,
-      message: `Task completion needs evidence artifacts: ${evidenceRequired.join("; ")}`,
+      message: `Task completion needs Evidence records: ${evidenceRequired.join("; ")}`,
     });
   }
   const openItems = (task.plan?.items ?? []).filter(
@@ -1199,9 +1328,18 @@ export function cloneTask(task: Task): Task {
     claim: task.claim ? { ...task.claim } : undefined,
     finishedBy: task.finishedBy ? { ...task.finishedBy } : undefined,
     cancellation: task.cancellation ? { ...task.cancellation } : undefined,
+    executionPolicy: task.executionPolicy
+      ? {
+          ...task.executionPolicy,
+          resources: task.executionPolicy.resources
+            ? { ...task.executionPolicy.resources }
+            : undefined,
+          concurrencyKeys: [...task.executionPolicy.concurrencyKeys],
+        }
+      : undefined,
     supersededBy: [...task.supersededBy],
-    inputArtifacts: [...task.inputArtifacts],
-    outputArtifacts: [...task.outputArtifacts],
+    inputEvidenceRefs: [...task.inputEvidenceRefs],
+    outputEvidenceRefs: [...task.outputEvidenceRefs],
     plan: task.plan ? cloneTaskPlan(task.plan) : undefined,
   };
 }
@@ -1212,11 +1350,23 @@ export function normalizeTaskRun(run: TaskRun): TaskRun {
     ...run,
     roleRef: normalizeRoleRef(run.roleRef),
     runName: run.runName?.trim() || undefined,
-    outputArtifacts: [...run.outputArtifacts],
+    execution: run.execution ? { ...run.execution } : undefined,
+    resourceAllocation: run.resourceAllocation
+      ? {
+          ...run.resourceAllocation,
+          groups: run.resourceAllocation.groups.map((group) => ({
+            ...group,
+            gpuIds: [...group.gpuIds],
+          })),
+          gpuIds: [...run.resourceAllocation.gpuIds],
+          concurrencyKeys: [...run.resourceAllocation.concurrencyKeys],
+        }
+      : undefined,
+    outputEvidenceRefs: [...run.outputEvidenceRefs],
     completionSummary: run.completionSummary
       ? {
           ...run.completionSummary,
-          artifactRefs: [...run.completionSummary.artifactRefs],
+          evidenceRefs: [...run.completionSummary.evidenceRefs],
           outcome: run.completionSummary.outcome ? { ...run.completionSummary.outcome } : undefined,
         }
       : undefined,

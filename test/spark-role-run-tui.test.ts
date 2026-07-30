@@ -105,8 +105,8 @@ function graphWithRuns(runs: TaskRun[]): TaskGraph {
     status: "running",
     roleRef,
     supersededBy: [],
-    inputArtifacts: [],
-    outputArtifacts: [],
+    inputEvidenceRefs: [],
+    outputEvidenceRefs: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -124,7 +124,7 @@ function taskRun(input: Partial<TaskRun> & { ref: RunRef }): TaskRun {
     ownerSessionId: "session:test",
     status: "running",
     startedAt: "2026-06-17T00:00:01.000Z",
-    outputArtifacts: [],
+    outputEvidenceRefs: [],
     ...overrides,
   };
 }
@@ -174,14 +174,14 @@ test("Spark role-run completion message renderer supports compact and expanded d
     ref: "run:cccccccc33333333" as RunRef,
     status: "succeeded",
     finishedAt: "2026-06-17T00:00:12.000Z",
-    outputArtifacts: ["artifact:trace"],
+    outputEvidenceRefs: ["evidence:trace"],
   });
   const snapshot = buildSparkRoleRunRegistry({ graph: graphWithRuns([run]) });
   const entry = snapshot.entries[0] as SparkRoleRunRegistryEntry;
 
   const compact = renderSparkRoleRunCompletionMessageLines(entry, { width: 120 }, theme).join("\n");
   assert.match(compact, /worker completed run:cccccccc/);
-  assert.match(compact, /artifacts: artifact:trace/);
+  assert.match(compact, /artifacts: evidence:trace/);
 
   const expanded = renderSparkRoleRunCompletionMessageLines(
     entry,
@@ -230,7 +230,7 @@ test("Spark extension role-run surfaces are no-op safe without UI", async () => 
       ref: "run:eeeeeeee55555555" as RunRef,
       status: "succeeded",
       finishedAt: "2026-06-17T00:00:12.000Z",
-      outputArtifacts: ["artifact:trace"],
+      outputEvidenceRefs: ["evidence:trace"],
     });
     const graph = graphWithRuns([run]);
     await defaultTaskGraphStore(dir).save(graph);
@@ -371,7 +371,7 @@ test("Spark extension publishes role-run footer status, below-editor widget, and
         ...running,
         status: "succeeded",
         finishedAt: "2026-06-17T00:00:12.000Z",
-        outputArtifacts: ["artifact:trace"],
+        outputEvidenceRefs: ["evidence:trace"],
       });
     });
     for (const handler of handlers.get("session_tree") ?? []) await handler({}, ctx);
@@ -389,7 +389,7 @@ test("Spark extension publishes role-run footer status, below-editor widget, and
     )
       ?.render(120)
       .join("\n");
-    assert.match(rendered ?? "", /artifact:trace/);
+    assert.match(rendered ?? "", /evidence:trace/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

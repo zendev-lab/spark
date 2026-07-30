@@ -142,6 +142,15 @@ test("root Pi extension list and native builtins both expose self-extension tool
     rootPackage.pi?.extensions?.includes("./packages/spark-session/src/extension-entry.ts"),
   );
   assert.ok(rootPackage.pi?.extensions?.includes("./packages/spark-web/src/extension-entry.ts"));
+  assert.ok(
+    rootPackage.pi?.extensions?.includes(
+      "./packages/spark-ai/src/baidu-oneapi-compat-extension.ts",
+    ),
+  );
+  assert.equal(
+    rootPackage.pi?.extensions?.includes("./packages/spark-ai/src/baidu-oneapi-provider.ts"),
+    false,
+  );
   assert.equal(
     rootPackage.pi?.extensions?.includes("./packages/spark-graft/src/extension-entry.ts"),
     false,
@@ -279,6 +288,24 @@ test("SparkExtensionLoader loads builtin factories through explicit imports", as
   assert.ok(!commands.includes("research"));
   assert.ok(commands.includes("workflow:research"));
   assert.ok(!commands.some((command) => command.startsWith("graft-")));
+});
+
+test("workflow driver ticks activate the internal workflow tool through the host allowlist", async () => {
+  const host = new SparkHostRuntime({
+    cwd: "/tmp/spark-extension-loader-workflow-driver",
+    allowedTools: ["workflow_driver"],
+  });
+  const result = await new SparkExtensionLoader({
+    api: host,
+    extensions: ["@zendev-lab/spark-extension/extension"],
+  }).load();
+
+  assert.equal(
+    result.outcomes.every((outcome) => outcome.ok),
+    true,
+  );
+  assert.deepEqual(host.getActiveTools(), ["workflow_driver"]);
+  assert.ok(host.getAllTools().some((tool) => tool.name === "workflow_driver"));
 });
 
 test("channel host keeps only explicitly allowed tools active after extension handlers", async () => {

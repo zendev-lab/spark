@@ -102,6 +102,7 @@ export function latestSessionRetryCandidate(
   const promptsByInvocation = new Map<string, string>();
   let latestUserPrompt: string | null = null;
   let candidate: SessionRetryCandidate | null = null;
+  let runtimeControlTurn = false;
 
   for (const message of messages) {
     if (
@@ -111,14 +112,33 @@ export function latestSessionRetryCandidate(
       continue;
     }
 
+    if (runtimeControlPartFromMessage(message)) {
+      runtimeControlTurn = true;
+      candidate = null;
+      continue;
+    }
+
     const invocationId = nonEmptyString(message.metadata.invocationId);
     if (message.role === "user") {
+      runtimeControlTurn = false;
       const prompt = displayUserMessage(message.text).trim();
       if (prompt) {
         latestUserPrompt = prompt;
         if (invocationId) promptsByInvocation.set(invocationId, prompt);
       }
       candidate = null;
+      continue;
+    }
+
+    if (runtimeControlTurn) {
+      if (
+        message.role === "assistant" &&
+        conversationPartsFromMessage(message).some(
+          (part) => part.type === "text" && part.text.trim(),
+        )
+      ) {
+        runtimeControlTurn = false;
+      }
       continue;
     }
 
@@ -185,9 +205,12 @@ export function buildSessionTimeline(input: {
     ) {
       continue;
     }
-    const actor = messageActor(message);
+    const runtimePart = runtimeControlPartFromMessage(message);
+    const actor = runtimePart ? "spark" : messageActor(message);
     const displayText = actor === "spark" ? message.text : displayUserMessage(message.text);
-    const parts = conversationPartsFromMessage(message, displayText);
+    const parts = runtimePart
+      ? ([runtimePart] satisfies ConversationPart[])
+      : conversationPartsFromMessage(message, displayText);
     if (parts.length === 0) continue;
     canonicalMessageIds.add(message.id);
     const invocationId = userMessageInvocationId(message);
@@ -316,7 +339,7 @@ export function buildSessionTimeline(input: {
   });
   return mergeTimelineThinkingChains(
     mergeConsecutiveSparkMessages(
-      mergeTimelineInteractionParts(mergeTimelineToolParts(sortedItems)),
+      foldRuntimeControlTurns(mergeTimelineInteractionParts(mergeTimelineToolParts(sortedItems))),
     ),
   );
 }
@@ -330,7 +353,7 @@ function isInternalExecutionFailureReport(report: SessionTimelineReport): boolea
 /**
  * Tool results emit `evidence.update` (and product-only `artifact.update`) as
  * side-channel views. Those belong in the session inspector / evidence lanes,
- * not as standalone chat bubbles — product artifacts already live under 产物.
+ * not as standalone chat bubbles — artifacts already live under 产物.
  */
 function isArtifactActivityReport(report: SessionTimelineReport): boolean {
   return (
@@ -388,6 +411,57 @@ function messageActor(message: SparkMessageView): ConversationMessageView["actor
   return origin?.kind === "session" ? "session" : "user";
 }
 
+function runtimeControlPartFromMessage(
+  message: SparkMessageView,
+): Extract<ConversationPart, { type: "runtime" }> | null {
+  if (message.role !== "user") return null;
+  const runtimeControl = isRecord(message.metadata.runtimeControl)
+    ? message.metadata.runtimeControl
+    : undefined;
+  if (runtimeControl?.kind === "driver.tick") {
+    return {
+      type: "runtime",
+      kind: "driver.tick",
+      driverKind: nonEmptyString(runtimeControl.driverKind) ?? undefined,
+      state: "running",
+      request: message.text,
+    };
+  }
+
+  // Compatibility for driver prompts persisted before runtimeControl metadata
+  // existed. Keep this strict so ordinary daemon-submitted user turns remain
+  // ordinary conversation messages.
+  const origin = isRecord(message.metadata.origin) ? message.metadata.origin : undefined;
+  if (origin?.host !== "daemon") return null;
+  const driverKind = legacyDriverPromptKind(message.text);
+  if (!driverKind) return null;
+  return {
+    type: "runtime",
+    kind: "driver.tick",
+    driverKind,
+    state: "running",
+    request: message.text,
+  };
+}
+
+function legacyDriverPromptKind(text: string): string | null {
+  const firstLine = text.trimStart().split("\n", 1)[0]?.trim();
+  if (
+    firstLine === "Advance the active Spark workflow scheduler by exactly one daemon-owned tick."
+  ) {
+    return "workflow";
+  }
+  if (firstLine === "Continue the daemon-owned Spark goal by one concrete turn.") return "goal";
+  if (firstLine === "Continue the daemon-owned Spark loop by one concrete turn.") return "loop";
+  if (
+    firstLine ===
+    "Advance the daemon-owned Spark reproduction contract by one evidence-backed turn."
+  ) {
+    return "repro";
+  }
+  return null;
+}
+
 function sessionSenderLabel(metadata: SparkMessageView["metadata"]): string | null {
   const mail = isRecord(metadata.sessionMail) ? metadata.sessionMail : undefined;
   const origin = isRecord(metadata.origin) ? metadata.origin : undefined;
@@ -439,6 +513,82 @@ function mergeTimelineToolParts(items: SessionTimelineItem[]) {
   }
 
   return result.filter((item) => item.parts.length > 0);
+}
+
+function foldRuntimeControlTurns(items: SessionTimelineItem[]): SessionTimelineItem[] {
+  const result: SessionTimelineItem[] = [];
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index]!;
+    const runtimePart = item.parts.find(
+      (part): part is Extract<ConversationPart, { type: "runtime" }> => part.type === "runtime",
+    );
+    if (!runtimePart) {
+      result.push(item);
+      continue;
+    }
+
+    const executionParts: ConversationPart[] = item.parts.filter((part) => part.type !== "runtime");
+    let status = item.status;
+    let timestamp = item.timestamp;
+    while (index + 1 < items.length) {
+      const next = items[index + 1]!;
+      if (next.actor !== "spark" || next.parts.some((part) => part.type === "runtime")) break;
+      executionParts.push(...next.parts);
+      status = laterMessageStatus(status, next.status);
+      timestamp = next.timestamp || timestamp;
+      index += 1;
+    }
+
+    const executionText = conversationPartText(executionParts);
+    const foldedRuntimePart: Extract<ConversationPart, { type: "runtime" }> = {
+      ...runtimePart,
+      state: runtimeControlState(executionParts, status),
+      ...(executionText ? { result: executionText } : {}),
+    };
+    result.push({
+      ...item,
+      body: `${runtimePart.driverKind ?? "driver"} tick`,
+      status: null,
+      timestamp,
+      meta: null,
+      senderLabel: null,
+      parts: [foldedRuntimePart],
+    });
+  }
+  return result;
+}
+
+function runtimeControlState(
+  parts: readonly ConversationPart[],
+  status: string | null,
+): Extract<ConversationPart, { type: "runtime" }>["state"] {
+  const normalized = status?.trim().toLocaleLowerCase();
+  if (
+    ["failed", "error", "errored"].includes(normalized ?? "") ||
+    parts.some(
+      (part) =>
+        part.type === "error" ||
+        (part.type === "tool" && part.state === "failed") ||
+        (part.type === "chain" &&
+          part.steps.some((step) => step.type === "tool" && step.state === "failed")),
+    )
+  ) {
+    return "failed";
+  }
+  if (
+    parts.length === 0 ||
+    ["running", "streaming", "pending", "queued"].includes(normalized ?? "") ||
+    parts.some(
+      (part) =>
+        (part.type === "tool" &&
+          ["pending", "running", "awaiting-approval"].includes(part.state)) ||
+        ((part.type === "reasoning" || part.type === "commentary") && part.state === "streaming") ||
+        (part.type === "chain" && part.state === "streaming"),
+    )
+  ) {
+    return "running";
+  }
+  return "completed";
 }
 
 /**

@@ -12,7 +12,7 @@ Structured human-input primitives for Spark extension hosts. The package is host
 - Custom input is stored as `customText`. Callers must not add business options named `Other` or `Type your own`.
 - Result status is explicit: `answered`, `cancelled`, or `no_selection`.
 - Decision and approval gates block on `cancelled` and `no_selection`. Custom text without a required option ID also blocks those gates.
-- `summarizeAskResult()`, `summarizeAskAnswers()`, and `createAskArtifactBody()` provide shared human summaries and persistence data.
+- `summarizeAskResult()`, `summarizeAskAnswers()`, and `createAskEvidenceBody()` provide shared human summaries and persistence data.
 - Freeform-only flows may submit optional blank answers as `kind: "skipped"`.
 - `defaultValues` is valid only for `single` and `multi`, references business option values, and is a recommendation rather than an answer.
 

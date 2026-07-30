@@ -197,6 +197,7 @@ Commands:
   login --server-url <url> [--no-open] [--allow-insecure-http]
   workspace register [path] --server-url <url> --token <workspace-registration-token|-> --name <name> [--profile <path-or-git-url>] [--allow-insecure-http]
   workspace relocate --to-server-url <https-origin> [--from-server-url <origin>] [--yes] [--json]
+  workspace migrate-evidence [--workspace <id-or-path>] [--apply] [--json]
   workspace ls [--json] [--all] [--full]
   workspace show [id] [--workspace <id>] [--json]
   workspace stop <id> [--workspace <id>] [--yes]
@@ -230,6 +231,7 @@ export function printWorkspaceHelp(io: CliIo): void {
 Commands:
   register [path] --server-url <url> --token <workspace-registration-token|-> --name <name> [--profile <path-or-git-url>] [--allow-insecure-http]
   relocate --to-server-url <https-origin> [--from-server-url <origin>] [--yes] [--json]
+  migrate-evidence [--workspace <id-or-path>] [--apply] [--json]
   ls [--json] [--all] [--full]
   show [id] [--workspace <id>] [--json]
   stop <id> [--workspace <id>] [--yes]

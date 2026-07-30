@@ -70,6 +70,7 @@ import {
   sparkDaemonDriverControl,
   type SparkDaemonDriverControl,
 } from "./spark-daemon-driver-client.ts";
+import { registerSparkReproRoles } from "./spark-repro-roles.ts";
 
 interface SparkProductFacadeApi extends SparkCommandApi {
   /** Host/test override; production defaults to the daemon local RPC client. */
@@ -102,6 +103,7 @@ interface SparkProductFacadeApi extends SparkCommandApi {
 }
 
 export default function sparkExtension(pi: SparkProductFacadeApi) {
+  registerSparkReproRoles();
   const driverControl = pi.driverControl ?? sparkDaemonDriverControl;
   const widgetController = new SparkWidgetController();
   const roleRunTuiController = new SparkRoleRunTuiController(pi);
@@ -250,7 +252,10 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
 
   registerSparkLoopTool(registerSparkTool, { driverControl, refreshSparkWidget });
 
-  registerSparkReproTool(registerSparkTool, { driverControl, refreshSparkWidget });
+  registerSparkReproTool(registerSparkTool, {
+    driverControl,
+    refreshSparkWidget,
+  });
 
   registerSparkDriveTool(registerSparkTool, {
     driverControl,
@@ -267,6 +272,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkRunReadyTasksTool(registerSparkImplementationTool, {
     ensureWorkflowRunManager: (cwd, ctx) => workflowRunManagerController.ensure(cwd, ctx),
     piCommand: () => pi.getPiCommand?.(),
+    refreshSparkWidget,
   });
 
   registerSparkWorkflowRunsTool(registerSparkImplementationTool, { refreshSparkWidget });

@@ -313,14 +313,14 @@ interface DependencyFileSnapshot {
 }
 
 interface TaskFileSnapshot extends Task {
-  version: 1;
+  version: 2;
   todoOwnerRef: TaskRef;
   runsPath: "runs";
   reviewsPath: "reviews";
 }
 
 interface RunFileSnapshot extends TaskRun {
-  version: 1;
+  version: 2;
 }
 
 async function writeProjectTreeSnapshot(
@@ -391,7 +391,7 @@ async function writeProjectTreeSnapshot(
         }
         for (const run of taskRuns) {
           await writeJsonFileIfChanged(join(runsRoot, `${storeDirName(run.ref)}.json`), {
-            version: 1,
+            version: 2,
             ...run,
           } satisfies RunFileSnapshot);
         }
@@ -458,14 +458,12 @@ async function readProjectTreeSnapshot(root: string): Promise<LoadedTaskGraphSto
     dependencies.push(...(dependencyFile.dependencies ?? []));
     for (const taskDirName of await listChildDirs(join(projectDir, "tasks"))) {
       const taskDir = join(projectDir, "tasks", taskDirName);
-      const taskFile = (await readProjectTreeJson(
-        join(taskDir, "task.json"),
-      )) as unknown as TaskFileSnapshot;
+      const taskPath = join(taskDir, "task.json");
+      const taskFile = migrateTaskFileSnapshot(await readProjectTreeJson(taskPath), taskPath);
       tasks.push(taskFile);
       for (const runFileName of await listJsonFiles(join(taskDir, "runs"))) {
-        const run = (await readProjectTreeJson(
-          join(taskDir, "runs", runFileName),
-        )) as unknown as RunFileSnapshot;
+        const runPath = join(taskDir, "runs", runFileName);
+        const run = migrateRunFileSnapshot(await readProjectTreeJson(runPath), runPath);
         runs.push(run);
       }
     }
@@ -494,12 +492,132 @@ function projectFileSnapshot(project: PersistedProject): ProjectFileSnapshot {
 
 function taskFileSnapshot(task: Task): TaskFileSnapshot {
   return {
-    version: 1,
+    version: 2,
     ...task,
     todoOwnerRef: task.ref,
     runsPath: "runs",
     reviewsPath: "reviews",
   };
+}
+
+function migrateTaskFileSnapshot(raw: Record<string, unknown>, filePath: string): TaskFileSnapshot {
+  if (raw.version === 2) {
+    rejectLegacyEvidenceFields(raw, filePath, ["inputArtifacts", "outputArtifacts"]);
+    return {
+      ...(raw as unknown as TaskFileSnapshot),
+      inputEvidenceRefs: persistedEvidenceRefs(
+        raw.inputEvidenceRefs,
+        filePath,
+        "inputEvidenceRefs",
+        false,
+      ),
+      outputEvidenceRefs: persistedEvidenceRefs(
+        raw.outputEvidenceRefs,
+        filePath,
+        "outputEvidenceRefs",
+        false,
+      ),
+    };
+  }
+  if (raw.version !== 1) throw new TaskGraphStoreFormatError(filePath, "version must be 1 or 2");
+  const { inputArtifacts, outputArtifacts, ...rest } = raw;
+  return {
+    ...(rest as unknown as Omit<
+      TaskFileSnapshot,
+      "version" | "inputEvidenceRefs" | "outputEvidenceRefs"
+    >),
+    version: 2,
+    inputEvidenceRefs: persistedEvidenceRefs(inputArtifacts, filePath, "inputArtifacts", true),
+    outputEvidenceRefs: persistedEvidenceRefs(outputArtifacts, filePath, "outputArtifacts", true),
+  };
+}
+
+function migrateRunFileSnapshot(raw: Record<string, unknown>, filePath: string): RunFileSnapshot {
+  if (raw.version === 2) {
+    rejectLegacyEvidenceFields(raw, filePath, ["outputArtifacts"]);
+    return {
+      ...(raw as unknown as RunFileSnapshot),
+      outputEvidenceRefs: persistedEvidenceRefs(
+        raw.outputEvidenceRefs,
+        filePath,
+        "outputEvidenceRefs",
+        false,
+      ),
+      completionSummary: migrateCompletionSummary(raw.completionSummary, filePath, false),
+    };
+  }
+  if (raw.version !== 1) throw new TaskGraphStoreFormatError(filePath, "version must be 1 or 2");
+  const { outputArtifacts, ...rest } = raw;
+  return {
+    ...(rest as unknown as Omit<
+      RunFileSnapshot,
+      "version" | "outputEvidenceRefs" | "completionSummary"
+    >),
+    version: 2,
+    outputEvidenceRefs: persistedEvidenceRefs(outputArtifacts, filePath, "outputArtifacts", true),
+    completionSummary: migrateCompletionSummary(raw.completionSummary, filePath, true),
+  };
+}
+
+function migrateCompletionSummary(
+  value: unknown,
+  filePath: string,
+  legacy: boolean,
+): TaskRun["completionSummary"] {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TaskGraphStoreFormatError(filePath, "completionSummary must be an object");
+  }
+  const summary = value as Record<string, unknown>;
+  if (!legacy && "artifactRefs" in summary) {
+    throw new TaskGraphStoreFormatError(filePath, "completionSummary.artifactRefs is legacy-only");
+  }
+  const { artifactRefs, ...rest } = summary;
+  return {
+    ...(rest as unknown as Omit<NonNullable<TaskRun["completionSummary"]>, "evidenceRefs">),
+    evidenceRefs: persistedEvidenceRefs(
+      legacy ? artifactRefs : summary.evidenceRefs,
+      filePath,
+      legacy ? "completionSummary.artifactRefs" : "completionSummary.evidenceRefs",
+      legacy,
+    ),
+  };
+}
+
+function persistedEvidenceRefs(
+  value: unknown,
+  filePath: string,
+  field: string,
+  migrateArtifactPrefix: boolean,
+): import("@zendev-lab/spark-core").EvidenceRef[] {
+  if (!Array.isArray(value))
+    throw new TaskGraphStoreFormatError(filePath, `${field} must be an array`);
+  return value.map((entry, index) => {
+    if (typeof entry !== "string" || !entry.includes(":")) {
+      throw new TaskGraphStoreFormatError(filePath, `${field}[${index}] must be a ref`);
+    }
+    if (entry.startsWith("evidence:") && entry.length > "evidence:".length) {
+      return entry as import("@zendev-lab/spark-core").EvidenceRef;
+    }
+    if (
+      migrateArtifactPrefix &&
+      entry.startsWith("artifact:") &&
+      entry.length > "artifact:".length
+    ) {
+      return `evidence:${entry.slice("artifact:".length)}` as import("@zendev-lab/spark-core").EvidenceRef;
+    }
+    throw new TaskGraphStoreFormatError(filePath, `${field}[${index}] must be an evidence: ref`);
+  });
+}
+
+function rejectLegacyEvidenceFields(
+  raw: Record<string, unknown>,
+  filePath: string,
+  fields: string[],
+): void {
+  for (const field of fields) {
+    if (field in raw) throw new TaskGraphStoreFormatError(filePath, `${field} is legacy-only`);
+  }
 }
 
 async function writeJsonFileIfChanged(filePath: string, value: unknown): Promise<void> {

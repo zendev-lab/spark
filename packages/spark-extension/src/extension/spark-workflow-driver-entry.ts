@@ -221,7 +221,7 @@ export function publishDynamicWorkflowRunViews(
         status: toSparkRunViewStatus(status),
         progress: workflowRunProgress(run.snapshot),
         summary: run.metadata.source.label,
-        artifactRefs: [],
+        evidenceRefs: [],
         metadata: {
           dynamicStatus: status,
           source: run.metadata.source.kind,

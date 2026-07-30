@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -6,7 +6,9 @@ import {
   CHANNEL_DELIVERY_OUTCOME_UNKNOWN_ERROR_CODE,
   channelDeliveryNotSent,
 } from "@zendev-lab/spark-channels";
+import type { SparkHostDriverContext } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
+import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
 import { SPARK_PROTOCOL_VERSION, type SparkDaemonEvent } from "@zendev-lab/spark-protocol";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import type {
@@ -41,7 +43,204 @@ function context(
   };
 }
 
+function driverContext(
+  kind: SparkHostDriverContext["kind"],
+  generation: number,
+  driverId = `${kind}-driver`,
+): SparkHostDriverContext {
+  return {
+    driverId,
+    kind,
+    generation,
+    ownerSessionId: "owner-session",
+    stateOwnerSessionId: "owner-session",
+    schedule: vi.fn(async () => undefined),
+    stop: vi.fn(async () => undefined),
+  };
+}
+
 describe("daemon native session execution", () => {
+  it("wakes the owner Repro driver after a managed Task Session settles", async () => {
+    const wakeOwner = vi.fn();
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_task_execution",
+      prompt: "execute the bound task",
+    };
+    const executor = createSparkDaemonTaskExecutor({
+      paths,
+      createSparkHeadlessSessionExecutor: () => async () => ({
+        assistantText: "done",
+        sessionPath: "/tmp/sess_task_execution.jsonl",
+      }),
+      sessionRegistry: {
+        get: vi.fn(
+          async () =>
+            ({
+              bindings: [],
+              relation: {
+                kind: "task_execution",
+                ownerSessionId: "sess_owner",
+                projectRef: "proj:repro",
+                taskRef: "task:probe",
+                runRef: "run:probe-1",
+                sessionGoalId: "goal-probe-1",
+                roleRef: "role:builtin-explorer",
+                jobId: "task-job:probe",
+                attempt: 1,
+              },
+            }) as never,
+        ),
+        recordRun: vi.fn(async () => ({}) as never),
+        recordTurnQueued: vi.fn(async () => ({}) as never),
+        recordTurnSettled: vi.fn(async () => ({}) as never),
+      },
+      driverControl: {
+        schedule: vi.fn(),
+        stop: vi.fn(),
+        wakeOwner,
+      },
+    });
+
+    await executor(task, context(task));
+
+    expect(wakeOwner).toHaveBeenCalledWith("sess_owner", {
+      kind: "repro",
+      reason: expect.stringContaining("task:probe"),
+    });
+  });
+
+  it("autoloads the built-in repro skill only on generation one until its checkpoint persists", async () => {
+    const calls: unknown[] = [];
+    const executeSession = vi.fn(async (input: unknown) => {
+      calls.push(input);
+      return { assistantText: "done" };
+    });
+    const task = (sessionId: string): SparkDaemonSessionRunTask => ({
+      type: "session.run",
+      sessionId,
+      prompt: "continue",
+    });
+
+    await executeSparkDaemonSessionRunTask(
+      task("sess_repro_first"),
+      context(task("sess_repro_first")),
+      { paths, executeSession },
+      driverContext("repro", 1, "repro-123"),
+    );
+    await executeSparkDaemonSessionRunTask(
+      task("sess_repro_later"),
+      context(task("sess_repro_later")),
+      { paths, executeSession },
+      driverContext("repro", 2, "repro-123"),
+    );
+    await executeSparkDaemonSessionRunTask(
+      { ...task("sess_repro_resumed"), resumeFromInterrupt: true },
+      context(task("sess_repro_resumed")),
+      { paths, executeSession },
+      driverContext("repro", 1, "repro-123"),
+    );
+    await executeSparkDaemonSessionRunTask(
+      task("sess_goal_first"),
+      context(task("sess_goal_first")),
+      { paths, executeSession },
+      driverContext("goal", 1),
+    );
+    await executeSparkDaemonSessionRunTask(task("sess_direct"), context(task("sess_direct")), {
+      paths,
+      executeSession,
+    });
+
+    expect(calls[0]).toEqual(
+      expect.objectContaining({
+        prompt: expect.stringContaining("load once for reproId=repro-123"),
+        messageMetadata: expect.objectContaining({
+          sparkReproSkillCheckpoint: {
+            skillName: "model-reproduction",
+            reproId: "repro-123",
+          },
+        }),
+      }),
+    );
+    expect(JSON.stringify(calls[0])).toContain("Known Diff Procedure");
+    expect(calls[2]).toEqual(
+      expect.objectContaining({
+        prompt: expect.stringContaining("load once for reproId=repro-123"),
+        resumeFromInterrupt: true,
+      }),
+    );
+    expect(JSON.stringify(calls[2])).toContain("Known Diff Procedure");
+    for (const index of [1, 3, 4]) {
+      expect(calls[index]).toEqual(expect.objectContaining({ prompt: "continue" }));
+      expect(JSON.stringify(calls[index])).not.toContain("Known Diff Procedure");
+    }
+  });
+
+  it("does not duplicate a persisted repro skill checkpoint when generation one resumes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-repro-skill-checkpoint-"));
+    const cwd = join(root, "workspace");
+    const sparkHome = join(root, "pi-agent");
+    const sessionId = "sess_repro_checkpointed";
+    const store = new SparkSessionStore({ cwd, sparkHome });
+    const record = store.createCanonicalSession({ id: sessionId });
+    store.appendMessage(record, {
+      role: "user",
+      content: "first repro tick",
+      metadata: {
+        sparkReproSkillCheckpoint: {
+          skillName: "model-reproduction",
+          reproId: "repro-123",
+        },
+      },
+    });
+    await store.save(record);
+    const executeSession = vi.fn(async (_input: unknown) => ({ assistantText: "done" }));
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId,
+      prompt: "continue",
+      cwd,
+      resumeFromInterrupt: true,
+    };
+
+    try {
+      await executeSparkDaemonSessionRunTask(
+        task,
+        context(task),
+        {
+          paths: { ...paths, piAgentDir: sparkHome },
+          executeSession,
+          sessionRegistry: {
+            get: vi.fn(
+              async () =>
+                ({
+                  sessionId,
+                  cwd,
+                  sessionPath: record.path,
+                  bindings: [],
+                }) as never,
+            ),
+            recordRun: vi.fn(async () => ({}) as never),
+            recordTurnQueued: vi.fn(async () => ({}) as never),
+            recordTurnSettled: vi.fn(async () => ({}) as never),
+          },
+        },
+        driverContext("repro", 1, "repro-123"),
+      );
+
+      expect(executeSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: "continue",
+          resumeFromInterrupt: true,
+          sessionPath: record.path,
+        }),
+      );
+      expect(JSON.stringify(executeSession.mock.calls[0])).not.toContain("Known Diff Procedure");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("leaves daemon execution timeout ownership with the pausable scheduler", async () => {
     const executeSession = vi.fn(async (_input: unknown) => ({ assistantText: "done" }));
     const task: SparkDaemonSessionRunTask = {
@@ -1394,7 +1593,7 @@ describe("daemon native session execution", () => {
     );
   });
 
-  it("enforces read-only effects and a dedicated prompt for side-thread sessions", async () => {
+  it("SIDE-EFFECT-002 preserves a workspace sentinel across side-thread tool and compaction admission", async () => {
     const task: SparkDaemonSessionRunTask = {
       type: "session.run",
       sessionId: "sess_side_readonly",
@@ -1402,6 +1601,9 @@ describe("daemon native session execution", () => {
     };
     const toolExecutions: string[] = [];
     const hookExecutions: string[] = [];
+    const sentinelRoot = mkdtempSync(join(tmpdir(), "spark-side-thread-effect-contract-"));
+    const sentinelPath = join(sentinelRoot, "workspace-sentinel.txt");
+    writeFileSync(sentinelPath, "unchanged", "utf8");
     const executeSession = vi.fn(async (input: unknown) => {
       const allowedToolEffects = (
         input as {
@@ -1430,25 +1632,36 @@ describe("daemon native session execution", () => {
         });
       }
       expect(host.getActiveTools()).toEqual(["read-tool"]);
-      const writeTool = host.getTool("write-tool")!;
+      const writeTool = host.getTool("write-tool");
+      expect(writeTool).toBeDefined();
+      if (!writeTool) throw new Error("write-tool was not registered");
       writeTool.active = true;
       expect(host.isToolDispatchAllowed("write-tool", writeTool)).toBe(false);
       expect(toolExecutions).toEqual([]);
 
-      host.on("session_before_compact", () => hookExecutions.push("unknown"));
-      host.on("session_before_compact", () => hookExecutions.push("write"), {
-        effects: ["local_write"],
+      host.on("session_before_compact", () => {
+        hookExecutions.push("unknown");
+        writeFileSync(sentinelPath, "mutated-by-unknown", "utf8");
       });
       host.on(
         "session_before_compact",
         () => {
+          hookExecutions.push("write");
+          writeFileSync(sentinelPath, "mutated-by-write", "utf8");
+        },
+        { effects: ["local_write"] },
+      );
+      host.on(
+        "session_before_compact",
+        () => {
           hookExecutions.push("read");
-          return "read-checkpoint";
+          return readFileSync(sentinelPath, "utf8");
         },
         { effects: ["read"] },
       );
-      await expect(host.emit("session_before_compact", {})).resolves.toEqual(["read-checkpoint"]);
+      await expect(host.emit("session_before_compact", {})).resolves.toEqual(["unchanged"]);
       expect(hookExecutions).toEqual(["read"]);
+      expect(readFileSync(sentinelPath, "utf8")).toBe("unchanged");
       return { assistantText: "findings" };
     });
 
@@ -1486,6 +1699,10 @@ describe("daemon native session execution", () => {
         systemPrompt: expect.stringContaining("always read-only"),
       }),
     );
+    expect(toolExecutions).toEqual([]);
+    expect(hookExecutions).toEqual(["read"]);
+    expect(readFileSync(sentinelPath, "utf8")).toBe("unchanged");
+    rmSync(sentinelRoot, { recursive: true, force: true });
   });
 
   it("indexes the durable transcript and preserves task routing on streamed view events", async () => {
@@ -1657,6 +1874,16 @@ describe("daemon native session execution", () => {
         reset: true,
         sessionVisibility: "internal",
         sessionPurpose: "driver_tick",
+        messageMetadata: {
+          invocationId: "invocation-1",
+          origin: { kind: "runtime", host: "daemon", surface: "local" },
+          runtimeControl: {
+            kind: "driver.tick",
+            driverId: "fresh-loop",
+            driverKind: "loop",
+            generation: 4,
+          },
+        },
       }),
     );
     expect(executeSession).toHaveBeenCalledWith(
@@ -1679,6 +1906,48 @@ describe("daemon native session execution", () => {
         }),
       }),
     ]);
+  });
+
+  it("allows only workflow_driver for a daemon-owned workflow tick", async () => {
+    const task: SparkDaemonDriverTickTask = {
+      type: "driver.tick",
+      sessionId: "owner-session",
+      driverId: "workflow:active",
+      kind: "workflow",
+      ownerSessionId: "owner-session",
+      stateOwnerSessionId: "owner-session",
+      generation: 2,
+      continuity: "session",
+      prompt: "workflow tick",
+      cwd: "/workspace/workflow",
+    };
+    const executeSession = vi.fn(async () => ({ assistantText: "advanced" }));
+    const executor = createSparkDaemonTaskExecutor({
+      paths,
+      driverControl: {
+        schedule: vi.fn(),
+        stop: vi.fn(),
+      },
+      createSparkHeadlessSessionExecutor: () => executeSession,
+    });
+
+    await executor(task, context(task));
+
+    expect(executeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allowedTools: ["workflow_driver"],
+        messageMetadata: {
+          invocationId: "invocation-1",
+          origin: { kind: "runtime", host: "daemon", surface: "local" },
+          runtimeControl: {
+            kind: "driver.tick",
+            driverId: "workflow:active",
+            driverKind: "workflow",
+            generation: 2,
+          },
+        },
+      }),
+    );
   });
 
   it("assigns a user session role only after its completed transcript is indexed", async () => {

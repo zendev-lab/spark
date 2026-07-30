@@ -424,22 +424,15 @@ test("spark widget renders active loop progress in the foreground slot", () => {
   );
   assert.match(active[0] ?? "", /◆ Loop\(●\): Continue loop progress/);
 
-  const scheduled = renderSparkWidgetLines(
+  const pulsed = renderSparkWidgetLines(
     widgetState({
-      loop: {
-        status: "active",
-        objective: "Echo periodically.",
-        schedule: {
-          label: "30m",
-          scheduledAtMs: 0,
-          nextRunAtMs: 1,
-        },
-      },
+      loop: { status: "active", objective: "Continue loop progress." },
+      animationFrame: 2,
     }),
     tui,
     theme,
   );
-  assert.match(scheduled[0] ?? "", /◆ Loop\(▰▰▰▰▰ 30m\): Echo periodically/);
+  assert.match(pulsed[0] ?? "", /◆ Loop\(◉\): Continue loop progress/);
 });
 
 test("spark widget renders active repro drive in the foreground slot above goal and loop", () => {

@@ -15,6 +15,10 @@
     "./extension": "./src/extension/index.ts",
     "./host-support": "./src/host-support.ts"
   },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test": "vp test run"
+  },
   "dependencies": {
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-ask": "workspace:^",
@@ -29,10 +33,14 @@
     "@zendev-lab/spark-repro": "workspace:^",
     "@zendev-lab/spark-roles": "workspace:^",
     "@zendev-lab/spark-runtime": "workspace:^",
+    "@zendev-lab/spark-session": "workspace:^",
     "@zendev-lab/spark-tasks": "workspace:^",
     "@zendev-lab/spark-text": "workspace:^",
     "@zendev-lab/spark-workflows": "workspace:^",
     "es-toolkit": "catalog:",
     "typebox": "catalog:"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
   }
 }

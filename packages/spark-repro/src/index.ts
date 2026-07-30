@@ -1,6 +1,20 @@
 import { createHash } from "node:crypto";
 
-import { nowIso, stableId, type EvidenceRef } from "@zendev-lab/spark-core";
+import {
+  isRef,
+  nowIso,
+  stableId,
+  type EvidenceRef,
+  type ProjectRef,
+  type RoleRef,
+  type SparkSubgoal,
+  type SparkSubgoalDefinition,
+  type SparkSubgoalStatus,
+  type SparkSubgoalVerificationResult,
+  type SubgoalRef,
+  type TaskRef,
+} from "@zendev-lab/spark-core";
+import { createSubgoal, subgoalDefinitionDigest } from "@zendev-lab/spark-loop";
 export * from "./driver-policy.ts";
 
 export type SparkSessionPhase = "plan" | "implement";
@@ -164,7 +178,6 @@ export interface SparkReproPlanRevision {
   revision: number;
   reason: string;
   difficulty: number;
-  minimumStepCount: number;
   steps: SparkReproStepDefinition[];
   createdAt: string;
 }
@@ -172,12 +185,27 @@ export interface SparkReproPlanRevision {
 export interface SparkReproPlan {
   currentRevision: number;
   difficulty: number;
-  minimumStepCount: number;
   revisions: SparkReproPlanRevision[];
   steps: SparkReproStep[];
 }
 
+export interface SparkReproPlanRevisionV4 extends SparkReproPlanRevision {
+  minimumStepCount: number;
+}
+
+export interface SparkReproPlanV4 extends Omit<SparkReproPlan, "revisions"> {
+  minimumStepCount: number;
+  revisions: SparkReproPlanRevisionV4[];
+}
+
 export type SparkReproStopDecision = "continue" | "ask" | "complete";
+
+export interface SparkReproOrchestrationInput {
+  taskStatusByRef?: Readonly<Record<string, string | undefined>>;
+  activeChildRunCount?: number;
+  dispatchableFrontierCount?: number;
+  awaitingAsk?: boolean;
+}
 
 export interface SparkReproStopGuard {
   lastProgressDigest: string;
@@ -187,7 +215,7 @@ export interface SparkReproStopGuard {
   lastSettledAt?: string;
 }
 
-export interface SparkSessionRepro {
+export interface SparkSessionReproV4 {
   version: 4;
   reproId: string;
   sessionKey: string;
@@ -195,7 +223,7 @@ export interface SparkSessionRepro {
   /** Compatibility projection of goalContract.objective. */
   objective?: string;
   goalContract: SparkReproGoalContract;
-  plan: SparkReproPlan;
+  plan: SparkReproPlanV4;
   stopGuard: SparkReproStopGuard;
   currentStageIndex: number;
   currentPhase: SparkSessionPhase;
@@ -203,6 +231,46 @@ export interface SparkSessionRepro {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+}
+
+export interface SparkReproSubgoal extends SparkSubgoal {
+  id: string;
+  stage: SparkReproStageName;
+}
+
+export interface SparkReproSubgoalV5 extends SparkSubgoalDefinition {
+  ref: SubgoalRef;
+  id: string;
+  stage: SparkReproStageName;
+  goalId: string;
+  roleRef: RoleRef;
+  planRevision: number;
+  status: SparkSubgoalStatus;
+  taskRefs: TaskRef[];
+  evidenceRefs: EvidenceRef[];
+  delegation?: {
+    sessionId: string;
+    planRevision: number;
+    definitionDigest: string;
+    delegatedAt: string;
+  };
+  verification?: Extract<SparkSubgoalVerificationResult, { verdict: "Pass" }>;
+  blocker?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SparkSessionReproV5 extends Omit<SparkSessionReproV4, "version" | "plan"> {
+  version: 5;
+  /** Missing only while a legacy v4 snapshot awaits project backfill. */
+  projectRef?: ProjectRef;
+  plan: SparkReproPlan;
+  subgoals: SparkReproSubgoalV5[];
+}
+
+export interface SparkSessionRepro extends Omit<SparkSessionReproV5, "version" | "subgoals"> {
+  version: 6;
+  subgoals: SparkReproSubgoal[];
 }
 
 export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
@@ -302,7 +370,7 @@ export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
   },
   {
     name: "deliver",
-    title: "Deliver",
+    title: "Finalize",
     phases: ["implement"],
     acceptance: [
       evidenceRequirement("pr-submitted", "PR submitted", "implement"),
@@ -380,11 +448,10 @@ export function isStageGatePassed(repro: SparkSessionRepro): boolean {
 }
 
 export function isStageComplete(repro: SparkSessionRepro): boolean {
-  const stageName = currentReproStage(repro).name;
-  const stageSteps = repro.plan.steps.filter((step) => step.stage === stageName);
+  const subgoals = currentReproSubgoals(repro);
   const planComplete =
-    stageSteps.length > 0 &&
-    stageSteps.every((step) => step.status === "done" || step.status === "cancelled");
+    subgoals.length > 0 &&
+    subgoals.every((subgoal) => subgoal.status === "done" || subgoal.status === "cancelled");
   return isStageAcceptanceMet(repro) && isStageGatePassed(repro) && planComplete;
 }
 
@@ -504,6 +571,7 @@ export function advanceReproStage(repro: SparkSessionRepro): SparkSessionRepro |
     const completedAt = nowIso();
     return { ...repro, status: "complete", completedAt, updatedAt: completedAt };
   }
+  if (!repro.subgoals.some((subgoal) => subgoal.stage === nextStage.name)) return undefined;
   return {
     ...repro,
     currentStageIndex: repro.currentStageIndex + 1,
@@ -522,14 +590,17 @@ export function createSparkSessionRepro(
   if (!firstPhase) throw new Error("repro requires at least one stage with one phase");
   const objective = options.objective?.trim();
   const timestamp = nowIso();
+  const reproId = crypto.randomUUID?.() ?? `repro-${Date.now()}`;
+  const plan = createInitialReproPlan(resolvedStages, timestamp);
   const reproWithoutDigest: SparkSessionRepro = {
-    version: 4,
-    reproId: crypto.randomUUID?.() ?? `repro-${Date.now()}`,
+    version: 6,
+    reproId,
     sessionKey,
     status: "active",
     ...(objective ? { objective } : {}),
     goalContract: createGoalContract(objective, timestamp),
-    plan: createInitialReproPlan(resolvedStages, timestamp),
+    plan,
+    subgoals: createInitialReproSubgoals(reproId, plan, timestamp, new Set(["setup"])),
     stopGuard: {
       lastProgressDigest: "",
       stagnationCount: 0,
@@ -578,11 +649,17 @@ export interface SparkReproGoalContractInput {
   evidenceRequired: string[];
 }
 
+export interface SparkReproSubgoalPlanInput extends SparkReproStepDefinition {
+  taskRef?: TaskRef;
+}
+
 export interface ReviseReproPlanInput {
   reason: string;
   difficulty?: number;
   goalContract?: SparkReproGoalContractInput;
+  /** @deprecated Complete-list compatibility input. Prefer subgoals for stage-scoped append/update. */
   steps?: SparkReproStepDefinition[];
+  subgoals?: SparkReproSubgoalPlanInput[];
 }
 
 export function reviseReproPlan(
@@ -590,8 +667,13 @@ export function reviseReproPlan(
   input: ReviseReproPlanInput,
 ): SparkSessionRepro {
   const reason = nonEmpty(input.reason, "reason");
-  if (!input.goalContract && !input.steps && input.difficulty === undefined) {
-    throw new Error("plan revision requires goalContract, difficulty, or steps");
+  if (!input.goalContract && !input.steps && !input.subgoals && input.difficulty === undefined) {
+    throw new Error("plan revision requires goalContract, difficulty, steps, or subgoals");
+  }
+  if (input.steps && input.subgoals) {
+    throw new Error(
+      "plan revision accepts either complete steps or stage-scoped subgoals, not both",
+    );
   }
   const timestamp = nowIso();
   const normalizedGoal = input.goalContract
@@ -612,44 +694,32 @@ export function reviseReproPlan(
       }
     : repro.goalContract;
   const difficulty = normalizeDifficulty(input.difficulty ?? repro.plan.difficulty);
-  const minimumStepCount = reproStepBudget(difficulty);
-  const normalizedSteps = input.steps
-    ? validateAndNormalizeStepDefinitions(repro, input.steps, difficulty)
+  const normalizedSubgoals = input.subgoals
+    ? normalizeSubgoalPlanInputs(input.subgoals)
     : undefined;
-  if (!normalizedSteps && repro.plan.steps.length < minimumStepCount) {
-    throw new Error(
-      `difficulty ${difficulty} requires at least ${minimumStepCount} plan steps; revise the steps in the same action`,
-    );
-  }
-  const planChanged =
-    normalizedSteps !== undefined ||
-    difficulty !== repro.plan.difficulty ||
-    minimumStepCount !== repro.plan.minimumStepCount;
+  const candidateDefinitions = input.steps
+    ? input.steps
+    : normalizedSubgoals
+      ? upsertStepDefinitions(repro.plan.steps.map(stepDefinition), normalizedSubgoals)
+      : repro.plan.steps.map(stepDefinition);
+  const normalizedSteps = validateAndNormalizeStepDefinitions(repro, candidateDefinitions);
+  const definitionsChanged =
+    JSON.stringify(normalizedSteps) !== JSON.stringify(repro.plan.steps.map(stepDefinition));
+  const planChanged = definitionsChanged || difficulty !== repro.plan.difficulty;
   const nextRevision = repro.plan.currentRevision + (planChanged ? 1 : 0);
-  const revisedSteps = normalizedSteps
-    ? normalizedSteps.map((definition) => {
-        const prior = repro.plan.steps.find((step) => step.id === definition.id);
-        if (prior && sameStepDefinition(prior, definition)) {
-          return { ...prior, ...definition };
-        }
-        return {
-          ...definition,
-          status: "pending" as const,
-          evidenceRefs: [],
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        };
-      })
-    : repro.plan.steps;
-  const steps = revisedSteps.map((step) => {
-    const shouldReopen = planChanged && step.status === "done";
-    const shouldClearContract = goalChanged && step.id === "repro-contract-frozen";
-    if (!shouldReopen && !shouldClearContract) return step;
-    const { blocker: _blocker, verification: _verification, ...stepWithoutRuntimeProof } = step;
+  const steps = normalizedSteps.map((definition): SparkReproStep => {
+    const prior = repro.plan.steps.find((step) => step.id === definition.id);
+    const definitionChanged = !prior || !sameStepDefinition(prior, definition);
+    if (!definitionChanged) {
+      if (!(goalChanged && definition.id === "repro-contract-frozen")) return prior;
+      const { blocker: _blocker, verification: _verification, ...withoutProof } = prior;
+      return { ...withoutProof, status: "pending", evidenceRefs: [], updatedAt: timestamp };
+    }
     return {
-      ...stepWithoutRuntimeProof,
-      status: "pending" as const,
-      evidenceRefs: shouldClearContract ? [] : step.evidenceRefs,
+      ...definition,
+      status: "pending",
+      evidenceRefs: [],
+      createdAt: prior?.createdAt ?? timestamp,
       updatedAt: timestamp,
     };
   });
@@ -660,26 +730,28 @@ export function reviseReproPlan(
           revision: nextRevision,
           reason,
           difficulty,
-          minimumStepCount,
-          steps: structuredClone(normalizedSteps ?? repro.plan.steps.map(stepDefinition)),
+          steps: structuredClone(normalizedSteps),
           createdAt: timestamp,
         },
       ]
     : repro.plan.revisions;
   const stages = goalChanged ? clearGoalContractProof(repro.stages) : repro.stages;
-  return {
+  const revised: SparkSessionRepro = {
     ...repro,
     ...(normalizedGoal ? { objective: normalizedGoal.objective } : {}),
     goalContract: nextGoalContract,
     plan: {
       currentRevision: nextRevision,
       difficulty,
-      minimumStepCount,
       revisions,
       steps,
     },
     stages,
     updatedAt: timestamp,
+  };
+  return {
+    ...revised,
+    subgoals: reconcileReproSubgoals(repro, revised, normalizedSubgoals, goalChanged, timestamp),
   };
 }
 
@@ -752,10 +824,14 @@ export function updateReproStep(
     ...(input.status === "blocked" ? { blocker: blocker! } : {}),
     updatedAt: timestamp,
   };
-  return {
+  const updated: SparkSessionRepro = {
     ...repro,
     plan: { ...repro.plan, steps },
     updatedAt: timestamp,
+  };
+  return {
+    ...updated,
+    subgoals: synchronizeReproSubgoals(updated, repro.subgoals, timestamp),
   };
 }
 
@@ -774,7 +850,7 @@ export function createReproStepAskBinding(
   }
   return {
     schema: "spark.repro.step-ask/v1",
-    planRevision: repro.plan.currentRevision,
+    planRevision: reproStepPlanRevision(repro, step.id),
     stepId: step.id,
     definitionDigest: stepDefinitionDigest(step),
     doneWhen: [...step.doneWhen],
@@ -839,12 +915,107 @@ export function verifyReproStepPass(
   return actual;
 }
 
-export function currentReproSteps(repro: SparkSessionRepro): SparkReproStep[] {
-  const stageName = currentReproStage(repro).name;
-  return repro.plan.steps.filter((step) => step.stage === stageName);
+export function reproStepPlanRevision(
+  repro: SparkSessionRepro | SparkSessionReproV5,
+  stepId: string,
+): number {
+  return (
+    repro.subgoals.find((subgoal) => subgoal.id === stepId)?.planRevision ??
+    repro.plan.currentRevision
+  );
 }
 
-export function reproProgressDigest(repro: SparkSessionRepro): string {
+/**
+ * Select the next executable step from durable repro state.
+ *
+ * A blocked dependency does not make a later step executable. If corrupt or
+ * legacy state leaves every incomplete step dependency-blocked, return the
+ * first incomplete step so callers can surface the blocker without inventing
+ * progress.
+ */
+export function nextReproStep(repro: SparkSessionRepro): SparkReproStep | undefined {
+  const incomplete = currentReproSteps(repro).filter(
+    (step) => step.status !== "done" && step.status !== "cancelled",
+  );
+  const completedIds = new Set(
+    repro.plan.steps
+      .filter((step) => step.status === "done" || step.status === "cancelled")
+      .map((step) => step.id),
+  );
+  return (
+    incomplete.find((step) =>
+      (step.dependsOn ?? []).every((dependency) => completedIds.has(dependency)),
+    ) ?? incomplete[0]
+  );
+}
+
+export function normalizeStoredSparkSessionRepro(value: unknown): SparkSessionRepro | undefined {
+  if (!isStoredSparkSessionRepro(value)) return undefined;
+  try {
+    const repro = value;
+    const stages = normalizeStoredReproStages(repro.stages);
+    const steps = repro.plan.steps.map((step) => {
+      const evidenceRefs = step.evidenceRefs.filter(isStoredEvidenceRef);
+      const mustReopen =
+        step.status === "done" && !isStoredStepVerificationValid(repro, step, evidenceRefs);
+      const { blocker: _blocker, verification: _verification, ...stepWithoutRuntimeProof } = step;
+      return {
+        ...(mustReopen ? stepWithoutRuntimeProof : step),
+        status: mustReopen ? ("pending" as const) : step.status,
+        evidenceRefs,
+      };
+    });
+    const normalized: SparkSessionRepro = {
+      ...repro,
+      stages,
+      plan: { ...repro.plan, steps },
+      stopGuard: {
+        ...repro.stopGuard,
+        limit:
+          Number.isInteger(repro.stopGuard.limit) && repro.stopGuard.limit > 0
+            ? repro.stopGuard.limit
+            : 3,
+        stagnationCount:
+          Number.isInteger(repro.stopGuard.stagnationCount) && repro.stopGuard.stagnationCount >= 0
+            ? repro.stopGuard.stagnationCount
+            : 0,
+      },
+    };
+    if (normalized.stopGuard.lastProgressDigest.trim()) return normalized;
+    return {
+      ...normalized,
+      stopGuard: {
+        ...normalized.stopGuard,
+        lastProgressDigest: reproProgressDigest(normalized),
+      },
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function currentReproSubgoals(repro: SparkSessionRepro): SparkReproSubgoal[] {
+  const stageName = currentReproStage(repro).name;
+  return repro.subgoals.filter((subgoal) => subgoal.stage === stageName);
+}
+
+export function nextReproStagePlanningBlocker(repro: SparkSessionRepro): string | undefined {
+  if (!isStageComplete(repro)) return undefined;
+  const nextStage = repro.stages[repro.currentStageIndex + 1];
+  if (!nextStage || repro.subgoals.some((subgoal) => subgoal.stage === nextStage.name))
+    return undefined;
+  return `Stage ${nextStage.name} has no planned subgoals. Plan concrete subgoals and task experiments before advancing.`;
+}
+
+export function currentReproSteps(repro: SparkSessionRepro): SparkReproStep[] {
+  const subgoalIds = new Set(currentReproSubgoals(repro).map((subgoal) => subgoal.id));
+  return repro.plan.steps.filter((step) => subgoalIds.has(step.id));
+}
+
+export function reproProgressDigest(
+  repro: SparkSessionRepro | SparkSessionReproV4,
+  orchestration: SparkReproOrchestrationInput = {},
+): string {
   const progress = {
     status: repro.status,
     currentStageIndex: repro.currentStageIndex,
@@ -871,7 +1042,6 @@ export function reproProgressDigest(repro: SparkSessionRepro): string {
       evidenceRefs: stage.gate?.evaluation?.evidenceRefs ?? [],
     })),
     difficulty: repro.plan.difficulty,
-    minimumStepCount: repro.plan.minimumStepCount,
     steps: repro.plan.steps.map((step) => ({
       id: step.id,
       stage: step.stage,
@@ -884,18 +1054,367 @@ export function reproProgressDigest(repro: SparkSessionRepro): string {
       evidenceRefs: step.evidenceRefs,
       blocker: step.blocker,
     })),
+    ...(repro.version === 6
+      ? {
+          subgoalTasks: [...repro.subgoals]
+            .sort((left, right) => left.id.localeCompare(right.id))
+            .map((subgoal) => ({
+              id: subgoal.id,
+              ...(subgoal.taskRef
+                ? {
+                    taskRef: subgoal.taskRef,
+                    taskStatus: orchestration.taskStatusByRef?.[subgoal.taskRef],
+                  }
+                : {}),
+            })),
+        }
+      : {}),
   };
   return `repro-progress:${stableId(JSON.stringify(progress))}`;
+}
+
+function isStoredStepVerificationValid(
+  repro: SparkSessionRepro,
+  step: SparkReproStep,
+  evidenceRefs: EvidenceRef[],
+): boolean {
+  const verification = step.verification;
+  if (!verification || verification.verdict !== "Pass") return false;
+  const expectedProofKind =
+    step.authority === "ask_approval"
+      ? "approval"
+      : step.authority === "ask_decision"
+        ? "decision"
+        : "evidence";
+  return (
+    verification.planRevision === reproStepPlanRevision(repro, step.id) &&
+    verification.stepId === step.id &&
+    verification.definitionDigest === stepDefinitionDigest(step) &&
+    verification.proofKind === expectedProofKind &&
+    JSON.stringify(verification.evidenceRefs) === JSON.stringify(evidenceRefs) &&
+    JSON.stringify(verification.verifiedDoneWhen) === JSON.stringify(step.doneWhen) &&
+    (expectedProofKind !== "approval" ||
+      (verification.approvalResult === "approved" &&
+        JSON.stringify(verification.selectedValues) === JSON.stringify(["approve"]))) &&
+    (expectedProofKind === "evidence" ||
+      (typeof verification.askRequestHash === "string" &&
+        typeof verification.acceptedAnswerHash === "string" &&
+        Array.isArray(verification.selectedValues) &&
+        verification.selectedValues.length > 0))
+  );
+}
+
+function normalizeStoredReproStages(stages: readonly SparkReproStage[]): SparkReproStage[] {
+  return stages.map((stage) => {
+    let invalidProofRemoved = false;
+    const acceptance = stage.acceptance.map((requirement): SparkReproRequirement => {
+      if (requirement.kind === "evidence") {
+        const evidenceRefs = requirement.evidenceRefs.filter(isStoredEvidenceRef);
+        invalidProofRemoved ||= evidenceRefs.length !== requirement.evidenceRefs.length;
+        return { ...requirement, evidenceRefs };
+      }
+      if (
+        requirement.kind === "decision" &&
+        requirement.decisionRef &&
+        !isStoredEvidenceRef(requirement.decisionRef)
+      ) {
+        invalidProofRemoved = true;
+        const {
+          decisionRef: _decisionRef,
+          selectedValue: _selectedValue,
+          rationale: _rationale,
+          ...pending
+        } = requirement;
+        return pending;
+      }
+      if (
+        requirement.kind === "validation" &&
+        requirement.resultRef &&
+        !isStoredEvidenceRef(requirement.resultRef)
+      ) {
+        invalidProofRemoved = true;
+        const { resultRef: _resultRef, passed: _passed, ...pending } = requirement;
+        return pending;
+      }
+      return requirement;
+    });
+    if (!stage.gate) return { ...stage, acceptance };
+    const gateHasInvalidRefs = stage.gate.evaluation?.evidenceRefs.some(
+      (ref) => !isStoredEvidenceRef(ref),
+    );
+    if (!invalidProofRemoved && !gateHasInvalidRefs) return { ...stage, acceptance };
+    const { evaluation: _evaluation, ...gate } = stage.gate;
+    return { ...stage, acceptance, gate };
+  });
+}
+
+function isStoredSparkSessionRepro(value: unknown): value is SparkSessionRepro {
+  if (!isRecord(value) || value.version !== 5) return false;
+  if (
+    typeof value.reproId !== "string" ||
+    typeof value.sessionKey !== "string" ||
+    (value.status !== "active" && value.status !== "complete") ||
+    typeof value.createdAt !== "string" ||
+    typeof value.updatedAt !== "string" ||
+    (value.completedAt !== undefined && typeof value.completedAt !== "string") ||
+    !Number.isInteger(value.currentStageIndex) ||
+    (value.currentPhase !== "plan" && value.currentPhase !== "implement") ||
+    !Array.isArray(value.stages) ||
+    value.stages.length === 0 ||
+    !value.stages.every(isStoredReproStage)
+  ) {
+    return false;
+  }
+  if (!isRecord(value.goalContract) || !isStoredGoalContract(value.goalContract)) return false;
+  if (!isRecord(value.plan) || !isStoredReproPlan(value.plan)) return false;
+  if (!Array.isArray(value.subgoals) || !value.subgoals.every(isStoredReproSubgoal)) return false;
+  if (
+    value.projectRef !== undefined &&
+    (typeof value.projectRef !== "string" || !isRef(value.projectRef, "proj"))
+  )
+    return false;
+  if (!isRecord(value.stopGuard) || !isStoredStopGuard(value.stopGuard)) return false;
+  const currentStageIndex = Number(value.currentStageIndex);
+  return currentStageIndex >= 0 && currentStageIndex < value.stages.length;
+}
+
+function isStoredGoalContract(value: Record<string, unknown>): boolean {
+  return (
+    (value.status === "draft" || value.status === "frozen") &&
+    typeof value.objective === "string" &&
+    value.objective.trim().length > 0 &&
+    isStringArray(value.constraints) &&
+    isStringArray(value.nonGoals) &&
+    isStringArray(value.successCriteria) &&
+    isStringArray(value.evidenceRequired) &&
+    Array.isArray(value.evidenceRefs) &&
+    isStoredGoalAuthority(value.authority) &&
+    typeof value.createdAt === "string" &&
+    typeof value.updatedAt === "string" &&
+    (value.frozenAt === undefined || typeof value.frozenAt === "string")
+  );
+}
+
+function isStoredGoalAuthority(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    value.safeLocal === "auto" &&
+    value.externalWrites === "ask" &&
+    value.destructiveActions === "ask" &&
+    value.scopeExpansion === "ask"
+  );
+}
+
+function isStoredReproPlan(value: Record<string, unknown>): boolean {
+  return (
+    Number.isInteger(value.currentRevision) &&
+    Number(value.currentRevision) > 0 &&
+    Number.isInteger(value.difficulty) &&
+    Array.isArray(value.revisions) &&
+    value.revisions.every(isStoredReproPlanRevision) &&
+    Array.isArray(value.steps) &&
+    value.steps.every(isStoredReproStep)
+  );
+}
+
+function isStoredReproPlanRevision(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Number.isInteger(value.revision) &&
+    typeof value.reason === "string" &&
+    Number.isInteger(value.difficulty) &&
+    Array.isArray(value.steps) &&
+    value.steps.every(isStoredReproStepDefinition) &&
+    typeof value.createdAt === "string"
+  );
+}
+
+function isStoredReproSubgoal(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    isReproStageName(value.stage) &&
+    typeof value.ref === "string" &&
+    isRef(value.ref, "subgoal") &&
+    typeof value.goalId === "string" &&
+    typeof value.roleRef === "string" &&
+    isRef(value.roleRef, "role") &&
+    Number.isInteger(value.planRevision) &&
+    typeof value.goal === "string" &&
+    isStringArray(value.doneWhen) &&
+    isStringArray(value.evidenceRequired) &&
+    (value.authority === "safe_local" ||
+      value.authority === "ask_decision" ||
+      value.authority === "ask_approval") &&
+    (value.dependsOn === undefined ||
+      (Array.isArray(value.dependsOn) &&
+        value.dependsOn.every((ref) => typeof ref === "string" && isRef(ref, "subgoal")))) &&
+    (value.status === "pending" ||
+      value.status === "in_progress" ||
+      value.status === "done" ||
+      value.status === "blocked" ||
+      value.status === "cancelled") &&
+    Array.isArray(value.taskRefs) &&
+    value.taskRefs.every((ref) => typeof ref === "string" && isRef(ref, "task")) &&
+    Array.isArray(value.evidenceRefs) &&
+    value.evidenceRefs.every(isStoredEvidenceRef) &&
+    typeof value.createdAt === "string" &&
+    typeof value.updatedAt === "string"
+  );
+}
+
+function isStoredReproStep(value: unknown): value is SparkReproStep {
+  if (!isRecord(value)) return false;
+  return (
+    isStoredReproStepDefinition(value) &&
+    (value.status === "pending" ||
+      value.status === "in_progress" ||
+      value.status === "done" ||
+      value.status === "blocked" ||
+      value.status === "cancelled") &&
+    Array.isArray(value.evidenceRefs) &&
+    (value.verification === undefined || isStoredStepVerification(value.verification)) &&
+    (value.blocker === undefined || typeof value.blocker === "string") &&
+    typeof value.createdAt === "string" &&
+    typeof value.updatedAt === "string"
+  );
+}
+
+function isStoredReproStepDefinition(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    isReproStageName(value.stage) &&
+    typeof value.goal === "string" &&
+    isStringArray(value.doneWhen) &&
+    isStringArray(value.evidenceRequired) &&
+    (value.authority === "safe_local" ||
+      value.authority === "ask_decision" ||
+      value.authority === "ask_approval") &&
+    (value.dependsOn === undefined || isStringArray(value.dependsOn))
+  );
+}
+
+function isStoredStepVerification(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    value.verdict === "Pass" &&
+    Number.isInteger(value.planRevision) &&
+    typeof value.stepId === "string" &&
+    typeof value.definitionDigest === "string" &&
+    (value.proofKind === "evidence" ||
+      value.proofKind === "decision" ||
+      value.proofKind === "approval") &&
+    Array.isArray(value.evidenceRefs) &&
+    isStringArray(value.verifiedDoneWhen) &&
+    (value.askRequestHash === undefined || typeof value.askRequestHash === "string") &&
+    (value.acceptedAnswerHash === undefined || typeof value.acceptedAnswerHash === "string") &&
+    (value.selectedValues === undefined || isStringArray(value.selectedValues)) &&
+    (value.approvalResult === undefined || value.approvalResult === "approved")
+  );
+}
+
+function isStoredReproStage(value: unknown): value is SparkReproStage {
+  if (!isRecord(value)) return false;
+  return (
+    isReproStageName(value.name) &&
+    typeof value.title === "string" &&
+    Array.isArray(value.phases) &&
+    value.phases.every((phase) => phase === "plan" || phase === "implement") &&
+    Array.isArray(value.acceptance) &&
+    value.acceptance.every(isStoredReproRequirement) &&
+    (value.gate === undefined || isStoredReproGate(value.gate))
+  );
+}
+
+function isStoredReproGate(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.description === "string" &&
+    (value.evaluation === undefined ||
+      (isRecord(value.evaluation) &&
+        typeof value.evaluation.passed === "boolean" &&
+        isStringArray(value.evaluation.blockers) &&
+        Array.isArray(value.evaluation.evidenceRefs) &&
+        typeof value.evaluation.evaluatedAt === "string"))
+  );
+}
+
+function isStoredReproRequirement(value: unknown): value is SparkReproRequirement {
+  if (!isRecord(value)) return false;
+  if (
+    typeof value.id !== "string" ||
+    typeof value.description !== "string" ||
+    (value.phase !== "plan" && value.phase !== "implement")
+  ) {
+    return false;
+  }
+  if (value.kind === "evidence") return Array.isArray(value.evidenceRefs);
+  if (value.kind === "decision") {
+    return (
+      (value.decisionRef === undefined || typeof value.decisionRef === "string") &&
+      (value.selectedValue === undefined || typeof value.selectedValue === "string") &&
+      (value.rationale === undefined || typeof value.rationale === "string")
+    );
+  }
+  if (value.kind === "validation") {
+    return (
+      (value.command === undefined || typeof value.command === "string") &&
+      (value.resultRef === undefined || typeof value.resultRef === "string") &&
+      (value.passed === undefined || typeof value.passed === "boolean")
+    );
+  }
+  return false;
+}
+
+function isStoredStopGuard(value: Record<string, unknown>): boolean {
+  return (
+    typeof value.lastProgressDigest === "string" &&
+    typeof value.stagnationCount === "number" &&
+    typeof value.limit === "number" &&
+    (value.decision === "continue" || value.decision === "ask" || value.decision === "complete") &&
+    (value.lastSettledAt === undefined || typeof value.lastSettledAt === "string")
+  );
+}
+
+function isStoredEvidenceRef(value: unknown): value is EvidenceRef {
+  return (
+    typeof value === "string" && value.startsWith("evidence:") && value.length > "evidence:".length
+  );
+}
+
+function isReproStageName(value: unknown): value is SparkReproStageName {
+  return (
+    value === "setup" ||
+    value === "scaffold" ||
+    value === "reproduce" ||
+    value === "scale" ||
+    value === "deliver"
+  );
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export interface SparkReproSettleResult {
   repro: SparkSessionRepro;
   decision: SparkReproStopDecision;
+  scheduleDelayMs?: 10_000 | 30_000;
+  dormantReason?: "awaiting_ask";
 }
 
-export function settleReproTick(repro: SparkSessionRepro): SparkReproSettleResult {
+export function settleReproTick(
+  repro: SparkSessionRepro,
+  orchestration: SparkReproOrchestrationInput = {},
+): SparkReproSettleResult {
   const timestamp = nowIso();
-  const digest = reproProgressDigest(repro);
+  const digest = reproProgressDigest(repro, orchestration);
   if (isReproComplete(repro)) {
     const settled = {
       ...repro,
@@ -911,7 +1430,11 @@ export function settleReproTick(repro: SparkSessionRepro): SparkReproSettleResul
     return { repro: settled, decision: "complete" };
   }
   const stagnationCount =
-    digest === repro.stopGuard.lastProgressDigest ? repro.stopGuard.stagnationCount + 1 : 0;
+    (orchestration.activeChildRunCount ?? 0) > 0
+      ? 0
+      : digest === repro.stopGuard.lastProgressDigest
+        ? repro.stopGuard.stagnationCount + 1
+        : 0;
   const decision: SparkReproStopDecision =
     stagnationCount >= repro.stopGuard.limit ? "ask" : "continue";
   const settled = {
@@ -925,17 +1448,29 @@ export function settleReproTick(repro: SparkSessionRepro): SparkReproSettleResul
     },
     updatedAt: timestamp,
   };
-  return { repro: settled, decision };
+  if (decision !== "continue") return { repro: settled, decision };
+  if (
+    orchestration.awaitingAsk &&
+    (orchestration.activeChildRunCount ?? 0) === 0 &&
+    (orchestration.dispatchableFrontierCount ?? 0) === 0
+  ) {
+    return { repro: settled, decision, dormantReason: "awaiting_ask" };
+  }
+  return {
+    repro: settled,
+    decision,
+    scheduleDelayMs: (orchestration.activeChildRunCount ?? 0) > 0 ? 10_000 : 30_000,
+  };
 }
 
-export function migrateSparkSessionReproV3(repro: SparkSessionReproV3): SparkSessionRepro {
+export function migrateSparkSessionReproV3(repro: SparkSessionReproV3): SparkSessionReproV4 {
   const timestamp = repro.updatedAt || nowIso();
   const contractProof = repro.stages
     .flatMap((stage) => stage.acceptance)
     .find((requirement) => requirement.id === "repro-contract-frozen");
   const contractRefs = contractProof ? reproRequirementEvidenceRefs(contractProof) : [];
   const goalContract = createGoalContract(repro.objective?.trim(), repro.createdAt);
-  const migratedWithoutDigest: SparkSessionRepro = {
+  const migratedWithoutDigest: SparkSessionReproV4 = {
     ...repro,
     version: 4,
     goalContract: {
@@ -949,7 +1484,7 @@ export function migrateSparkSessionReproV3(repro: SparkSessionReproV3): SparkSes
         : {}),
       updatedAt: timestamp,
     },
-    plan: createInitialReproPlan(repro.stages, timestamp),
+    plan: createLegacyReproPlanV4(repro.stages, timestamp),
     stopGuard: {
       lastProgressDigest: "",
       stagnationCount: 0,
@@ -963,6 +1498,191 @@ export function migrateSparkSessionReproV3(repro: SparkSessionReproV3): SparkSes
       ...migratedWithoutDigest.stopGuard,
       lastProgressDigest: reproProgressDigest(migratedWithoutDigest),
     },
+  };
+}
+
+export function migrateSparkSessionReproV4(repro: SparkSessionReproV4): SparkSessionRepro {
+  const plan = migrateReproPlanV4(repro.plan);
+  const migratedWithoutDigest: SparkSessionRepro = {
+    ...repro,
+    version: 6,
+    plan,
+    subgoals: createInitialReproSubgoals(repro.reproId, plan, repro.updatedAt || nowIso()),
+  };
+  return {
+    ...migratedWithoutDigest,
+    stopGuard: {
+      ...migratedWithoutDigest.stopGuard,
+      lastProgressDigest: reproProgressDigest(migratedWithoutDigest),
+    },
+  };
+}
+
+export function migrateSparkSessionReproV5(repro: SparkSessionReproV5): SparkSessionRepro {
+  const taskUseCount = new Map<TaskRef, number>();
+  for (const subgoal of repro.subgoals) {
+    for (const taskRef of new Set(subgoal.taskRefs)) {
+      taskUseCount.set(taskRef, (taskUseCount.get(taskRef) ?? 0) + 1);
+    }
+  }
+  const migratedWithoutDigest: SparkSessionRepro = {
+    ...repro,
+    version: 6,
+    subgoals: repro.subgoals.map((legacy): SparkReproSubgoal => {
+      const uniqueTaskRefs = [...new Set(legacy.taskRefs)];
+      const taskRef =
+        uniqueTaskRefs.length === 1 && taskUseCount.get(uniqueTaskRefs[0]!) === 1
+          ? uniqueTaskRefs[0]
+          : undefined;
+      return {
+        ref: legacy.ref,
+        id: legacy.id,
+        stage: legacy.stage,
+        goal: legacy.goal,
+        doneWhen: [...legacy.doneWhen],
+        evidenceRequired: [...legacy.evidenceRequired],
+        authority: legacy.authority,
+        ...(legacy.dependsOn ? { dependsOn: [...legacy.dependsOn] } : {}),
+        planRevision: legacy.planRevision,
+        status:
+          legacy.delegation && legacy.status !== "done" && legacy.status !== "cancelled"
+            ? "pending"
+            : legacy.status,
+        ...(taskRef ? { taskRef } : {}),
+        evidenceRefs: [...legacy.evidenceRefs],
+        ...(legacy.verification ? { verification: legacy.verification } : {}),
+        ...(legacy.blocker ? { blocker: legacy.blocker } : {}),
+        createdAt: legacy.createdAt,
+        updatedAt: legacy.updatedAt,
+      };
+    }),
+  };
+  return {
+    ...migratedWithoutDigest,
+    stopGuard: {
+      ...migratedWithoutDigest.stopGuard,
+      lastProgressDigest: reproProgressDigest(migratedWithoutDigest),
+    },
+  };
+}
+
+function reconcileReproSubgoals(
+  before: SparkSessionRepro,
+  after: SparkSessionRepro,
+  inputs: SparkReproSubgoalPlanInput[] | undefined,
+  goalChanged: boolean,
+  timestamp: string,
+): SparkReproSubgoal[] {
+  const inputById = new Map((inputs ?? []).map((input) => [input.id, input]));
+  const targetIds = new Set([...before.subgoals.map((subgoal) => subgoal.id), ...inputById.keys()]);
+  return [...targetIds].map((id) => {
+    const prior = before.subgoals.find((subgoal) => subgoal.id === id);
+    const step = after.plan.steps.find((candidate) => candidate.id === id);
+    if (!step) throw new Error(`subgoal ${id} has no compatibility plan step`);
+    const taskRef = inputById.get(id)?.taskRef ?? prior?.taskRef;
+    const definitionChanged =
+      !prior ||
+      subgoalDefinitionDigest(prior) !==
+        subgoalDefinitionDigest(subgoalDefinitionFromStep(after.reproId, step));
+    const clearGoalProof = goalChanged && id === "repro-contract-frozen";
+    if (prior && !definitionChanged && !clearGoalProof) {
+      const { taskRef: _priorTaskRef, ...withoutTaskRef } = prior;
+      return taskRef ? { ...withoutTaskRef, taskRef } : withoutTaskRef;
+    }
+    return subgoalFromStep(
+      after.reproId,
+      step,
+      definitionChanged ? after.plan.currentRevision : prior!.planRevision,
+      timestamp,
+      taskRef,
+      clearGoalProof,
+    );
+  });
+}
+
+function synchronizeReproSubgoals(
+  repro: SparkSessionRepro,
+  priorSubgoals: readonly SparkReproSubgoal[],
+  timestamp: string,
+): SparkReproSubgoal[] {
+  return priorSubgoals.map((prior) => {
+    const step = repro.plan.steps.find((candidate) => candidate.id === prior.id);
+    return step
+      ? subgoalFromStep(repro.reproId, step, prior.planRevision, timestamp, prior.taskRef)
+      : prior;
+  });
+}
+
+function createInitialReproSubgoals(
+  reproId: string,
+  plan: SparkReproPlan,
+  timestamp: string,
+  stages?: ReadonlySet<SparkReproStageName>,
+): SparkReproSubgoal[] {
+  return plan.steps
+    .filter((step) => !stages || stages.has(step.stage))
+    .map((step) => subgoalFromStep(reproId, step, plan.currentRevision, timestamp));
+}
+
+function subgoalFromStep(
+  reproId: string,
+  step: SparkReproStep,
+  planRevision: number,
+  timestamp: string,
+  taskRef?: TaskRef,
+  clearProof = false,
+): SparkReproSubgoal {
+  const subgoal = createSubgoal({
+    ref: `subgoal:${stableId(`${reproId}:${step.id}`)}` as SubgoalRef,
+    planRevision,
+    ...subgoalDefinitionFromStep(reproId, step),
+    ...(taskRef ? { taskRef } : {}),
+    evidenceRefs: clearProof ? [] : step.evidenceRefs,
+    now: step.createdAt || timestamp,
+  });
+  const verification =
+    !clearProof && step.status === "done" && step.verification?.verdict === "Pass"
+      ? {
+          verdict: "Pass" as const,
+          subgoalRef: subgoal.ref,
+          planRevision,
+          definitionDigest: subgoalDefinitionDigest(subgoal),
+          evidenceRefs: [...step.evidenceRefs],
+          verifiedDoneWhen: [...step.doneWhen],
+          ...(step.authority === "safe_local" || !step.evidenceRefs[0]
+            ? {}
+            : { canonicalAskEvidenceRef: step.evidenceRefs[0] }),
+        }
+      : undefined;
+  return {
+    ...subgoal,
+    id: step.id,
+    stage: step.stage,
+    status: verification ? "done" : clearProof || step.status === "done" ? "pending" : step.status,
+    evidenceRefs: clearProof ? [] : [...step.evidenceRefs],
+    ...(verification ? { verification } : {}),
+    ...(!clearProof && step.blocker ? { blocker: step.blocker } : {}),
+    createdAt: step.createdAt,
+    updatedAt: step.updatedAt || timestamp,
+  };
+}
+
+function subgoalDefinitionFromStep(
+  reproId: string,
+  step: SparkReproStepDefinition,
+): SparkSubgoalDefinition {
+  return {
+    goal: step.goal,
+    doneWhen: [...step.doneWhen],
+    evidenceRequired: [...step.evidenceRequired],
+    authority: step.authority,
+    ...(step.dependsOn
+      ? {
+          dependsOn: step.dependsOn.map(
+            (stepId) => `subgoal:${stableId(`${reproId}:${stepId}`)}` as SubgoalRef,
+          ),
+        }
+      : {}),
   };
 }
 
@@ -999,7 +1719,6 @@ function createInitialReproPlan(
   timestamp: string,
 ): SparkReproPlan {
   const difficulty = 8;
-  const minimumStepCount = reproStepBudget(difficulty);
   const steps = stages.flatMap((stage) =>
     stage.acceptance.map((requirement): SparkReproStep => {
       const definition = stepDefinitionForRequirement(stage.name, requirement);
@@ -1015,18 +1734,42 @@ function createInitialReproPlan(
   return {
     currentRevision: 1,
     difficulty,
-    minimumStepCount,
     revisions: [
       {
         revision: 1,
         reason: "Seed plan from fixed repro evidence gates",
         difficulty,
-        minimumStepCount,
         steps: steps.map(stepDefinition),
         createdAt: timestamp,
       },
     ],
     steps,
+  };
+}
+
+function createLegacyReproPlanV4(
+  stages: readonly SparkReproStage[],
+  timestamp: string,
+): SparkReproPlanV4 {
+  const plan = createInitialReproPlan(stages, timestamp);
+  return {
+    ...plan,
+    minimumStepCount: plan.steps.length,
+    revisions: plan.revisions.map((revision) => ({
+      ...revision,
+      minimumStepCount: revision.steps.length,
+    })),
+  };
+}
+
+function migrateReproPlanV4(plan: SparkReproPlanV4): SparkReproPlan {
+  return {
+    currentRevision: plan.currentRevision,
+    difficulty: plan.difficulty,
+    revisions: plan.revisions.map(
+      ({ minimumStepCount: _minimumStepCount, ...revision }) => revision,
+    ),
+    steps: plan.steps,
   };
 }
 
@@ -1092,7 +1835,7 @@ function expectedStepPass(
 ): Extract<SparkReproStepVerifierResult, { verdict: "Pass" }> {
   return {
     verdict: "Pass",
-    planRevision: repro.plan.currentRevision,
+    planRevision: reproStepPlanRevision(repro, step.id),
     stepId: step.id,
     definitionDigest: stepDefinitionDigest(step),
     proofKind:
@@ -1155,23 +1898,74 @@ function goalContractDefinition(
   };
 }
 
+function normalizeSubgoalPlanInputs(
+  inputs: readonly SparkReproSubgoalPlanInput[],
+): SparkReproSubgoalPlanInput[] {
+  const definitions = inputs.map(({ taskRef: _taskRef, ...definition }) => definition);
+  const normalizedDefinitions = normalizeStepDefinitions(definitions);
+  return normalizedDefinitions.map((definition, index) => {
+    const taskRef = inputs[index]?.taskRef;
+    if (taskRef && !isRef(taskRef, "task")) {
+      throw new Error(`subgoals[${index}].taskRef must be a task: ref`);
+    }
+    return { ...definition, ...(taskRef ? { taskRef } : {}) };
+  });
+}
+
+function upsertStepDefinitions(
+  existing: readonly SparkReproStepDefinition[],
+  updates: readonly SparkReproSubgoalPlanInput[],
+): SparkReproStepDefinition[] {
+  const updatedIds = new Set(updates.map((definition) => definition.id));
+  return [
+    ...existing.filter((definition) => !updatedIds.has(definition.id)),
+    ...updates.map(({ taskRef: _taskRef, ...definition }) => definition),
+  ];
+}
+
 function validateAndNormalizeStepDefinitions(
   repro: SparkSessionRepro,
   definitions: readonly SparkReproStepDefinition[],
-  difficulty: number,
 ): SparkReproStepDefinition[] {
-  const minimumStepCount = reproStepBudget(difficulty);
-  if (definitions.length === 0) throw new Error("plan steps must not be empty");
+  const normalized = normalizeStepDefinitions(definitions);
   const stageNames = new Set(repro.stages.map((stage) => stage.name));
+  for (const [index, definition] of normalized.entries()) {
+    if (!stageNames.has(definition.stage)) {
+      throw new Error(`steps[${index}].stage is not a configured repro stage: ${definition.stage}`);
+    }
+  }
+  const ids = new Set(normalized.map((definition) => definition.id));
+  for (const step of normalized) {
+    for (const dependency of step.dependsOn ?? []) {
+      if (dependency === step.id) throw new Error(`repro step ${step.id} cannot depend on itself`);
+      if (!ids.has(dependency))
+        throw new Error(`repro step ${step.id} depends on unknown step ${dependency}`);
+    }
+  }
+  const stageIndexes = new Map(repro.stages.map((stage, index) => [stage.name, index]));
+  const stepsById = new Map(normalized.map((step) => [step.id, step]));
+  for (const step of normalized) {
+    for (const dependency of step.dependsOn ?? []) {
+      const dependencyStep = stepsById.get(dependency)!;
+      if (stageIndexes.get(dependencyStep.stage)! > stageIndexes.get(step.stage)!) {
+        throw new Error(`repro step ${step.id} cannot depend on later-stage step ${dependency}`);
+      }
+    }
+  }
+  assertAcyclicSteps(normalized);
+  return normalized;
+}
+
+function normalizeStepDefinitions(
+  definitions: readonly SparkReproStepDefinition[],
+): SparkReproStepDefinition[] {
+  if (definitions.length === 0) throw new Error("plan steps must not be empty");
   const ids = new Set<string>();
   const normalized = definitions.map((definition, index): SparkReproStepDefinition => {
     const prefix = `steps[${index}]`;
     const id = nonEmpty(definition.id, `${prefix}.id`);
     if (ids.has(id)) throw new Error(`duplicate repro step id: ${id}`);
     ids.add(id);
-    if (!stageNames.has(definition.stage)) {
-      throw new Error(`${prefix}.stage is not a configured repro stage: ${definition.stage}`);
-    }
     if (
       definition.authority !== "safe_local" &&
       definition.authority !== "ask_decision" &&
@@ -1193,35 +1987,6 @@ function validateAndNormalizeStepDefinitions(
         : {}),
     };
   });
-  for (const step of normalized) {
-    for (const dependency of step.dependsOn ?? []) {
-      if (dependency === step.id) {
-        throw new Error(`repro step ${step.id} cannot depend on itself`);
-      }
-      if (!ids.has(dependency)) {
-        throw new Error(`repro step ${step.id} depends on unknown step ${dependency}`);
-      }
-    }
-  }
-  for (const stageName of stageNames) {
-    if (!normalized.some((step) => step.stage === stageName)) {
-      throw new Error(`repro plan requires at least one step for stage ${stageName}`);
-    }
-  }
-  if (normalized.length < minimumStepCount) {
-    throw new Error(`difficulty ${difficulty} requires at least ${minimumStepCount} plan steps`);
-  }
-  const stageIndexes = new Map(repro.stages.map((stage, index) => [stage.name, index]));
-  const stepsById = new Map(normalized.map((step) => [step.id, step]));
-  for (const step of normalized) {
-    for (const dependency of step.dependsOn ?? []) {
-      const dependencyStep = stepsById.get(dependency)!;
-      if (stageIndexes.get(dependencyStep.stage)! > stageIndexes.get(step.stage)!) {
-        throw new Error(`repro step ${step.id} cannot depend on later-stage step ${dependency}`);
-      }
-    }
-  }
-  assertAcyclicSteps(normalized);
   return normalized;
 }
 
@@ -1267,15 +2032,6 @@ function nonEmptyStrings(values: readonly string[], field: string): string[] {
 
 function normalizeStrings(values: readonly string[], field: string): string[] {
   return [...new Set(values.map((value, index) => nonEmpty(value, `${field}[${index}]`)))];
-}
-
-export function reproStepBudget(difficulty: number): number {
-  const normalized = normalizeDifficulty(difficulty);
-  if (normalized <= 2) return 4;
-  if (normalized <= 4) return 6;
-  if (normalized <= 6) return 8;
-  if (normalized <= 8) return 11;
-  return 13;
 }
 
 function normalizeDifficulty(value: number): number {

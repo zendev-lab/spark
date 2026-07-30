@@ -1,6 +1,6 @@
 import { spawn, type SpawnOptions } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { sparkCliDispatcherStrings } from "@zendev-lab/spark-i18n/cli";
@@ -386,18 +386,31 @@ function targetLabel(target: SparkDispatcherTarget): string {
 }
 
 function localTargetCommand(target: SparkDispatcherTarget): string | undefined {
-  switch (target) {
-    case "tui":
-      return fileURLToPath(new URL("../../spark-tui/bin/spark-tui", import.meta.url));
-    case "daemon":
-      return fileURLToPath(new URL("../../spark-tui/bin/spark-tui", import.meta.url));
-    case "cockpit":
-      return fileURLToPath(new URL("../../spark-cockpit/bin/spark-cockpit", import.meta.url));
-    case "acp":
-      return fileURLToPath(
-        new URL("../../../packages/spark-acp/scripts/stdio.ts", import.meta.url),
-      );
+  const specifierByTarget: Record<SparkDispatcherTarget, string> = {
+    tui: "@zendev-lab/spark-tui-app/executable",
+    daemon: "@zendev-lab/spark-tui-app/executable",
+    cockpit: "@zendev-lab/spark-cockpit/executable",
+    acp: "@zendev-lab/spark-acp/executable",
+  };
+  try {
+    return realpathSync(fileURLToPath(import.meta.resolve(specifierByTarget[target])));
+  } catch {
+    const sourceExecutable = sourceCheckoutTargetCommand(target);
+    return sourceExecutable && existsSync(sourceExecutable)
+      ? realpathSync(sourceExecutable)
+      : undefined;
   }
+}
+
+function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | undefined {
+  const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  const entryByTarget: Record<SparkDispatcherTarget, string> = {
+    tui: "../spark-tui/bin/spark-tui",
+    daemon: "../spark-tui/bin/spark-tui",
+    cockpit: "../spark-cockpit/bin/spark-cockpit",
+    acp: "../../packages/spark-acp/scripts/stdio.ts",
+  };
+  return resolve(cliRoot, entryByTarget[target]);
 }
 
 function productTargetCommand(target: SparkDispatcherTarget): string | undefined {

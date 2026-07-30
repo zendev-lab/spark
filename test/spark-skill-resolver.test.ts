@@ -13,8 +13,12 @@ import {
 } from "../apps/spark-tui/src/host/index.ts";
 import { splitSparkSystemPrompt } from "../packages/spark-turn/src/agent-loop.ts";
 import {
+  MODEL_REPRODUCTION_SKILL_NAME,
+  defaultModelReproductionSkillPath,
   loadBuiltinSkills,
+  loadModelReproductionSkill,
   renderBuiltinSkillsForPrompt,
+  renderModelReproductionSkillAutoloadPrompt,
 } from "../packages/spark-host/src/builtin-skills.ts";
 
 async function writeSkill(
@@ -72,6 +76,81 @@ test("loadBuiltinSkills and renderBuiltinSkillsForPrompt expose full base prompt
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("built-in model reproduction skill keeps the core short and references progressively disclosed", async () => {
+  const skill = await loadModelReproductionSkill();
+  assert.equal(skill.name, MODEL_REPRODUCTION_SKILL_NAME);
+  assert.equal(skill.filePath, defaultModelReproductionSkillPath());
+  assert.equal(skill.disableModelInvocation, true);
+  assert.match(skill.body, /Known Diff Procedure/u);
+  assert.match(skill.body, /references\/known-diffs\/catalog\.md/u);
+  for (const reference of [
+    "first-divergence",
+    "distributed-observability",
+    "experiment-contract",
+    "topology-planning",
+    "parallel-qualification",
+    "resource-scheduling",
+    "continuous-delivery",
+  ]) {
+    assert.match(skill.body, new RegExp(`references/${reference}\\.md`, "u"));
+  }
+  assert.doesNotMatch(skill.body, /ATTN-BADDBMM-BWD-001/u);
+
+  const references = join(skill.baseDir, "references");
+  const catalog = await readFile(join(references, "known-diffs", "catalog.md"), "utf8");
+  const sourceNotes = await readFile(join(references, "known-diffs", "source-notes.md"), "utf8");
+  const provenance = await readFile(join(references, "provenance.md"), "utf8");
+  const resourceScheduling = await readFile(join(references, "resource-scheduling.md"), "utf8");
+  const continuousDelivery = await readFile(join(references, "continuous-delivery.md"), "utf8");
+  const evals = JSON.parse(await readFile(join(skill.baseDir, "evals", "evals.json"), "utf8")) as {
+    skill_name?: string;
+    evals?: unknown[];
+  };
+  for (const id of [
+    "ATTN-BADDBMM-BWD-001",
+    "MOE-UNPERMUTE-ACCUM-001",
+    "OPT-ADAMW-IMPL-001",
+    "MOE-WGRAD-FP32-001",
+  ]) {
+    assert.match(catalog, new RegExp(id, "u"));
+    assert.match(sourceNotes, new RegExp(id, "u"));
+  }
+  assert.match(provenance, /model-repro-bench/u);
+  assert.match(provenance, /3680b9fa45c2a4ea5efce1506ddec406013f1b61/u);
+  assert.match(resourceScheduling, /8 GPUs -> 4 paired 1\+1 lanes/u);
+  assert.match(continuousDelivery, /first Draft PR/u);
+  assert.equal(evals.skill_name, MODEL_REPRODUCTION_SKILL_NAME);
+  assert.equal(evals.evals?.length, 3);
+
+  const autoload = await renderModelReproductionSkillAutoloadPrompt("repro-123");
+  assert.match(autoload, /load once for reproId=repro-123/u);
+  assert.match(autoload, /<repro_skill>/u);
+  assert.match(autoload, /Known Diff Procedure/u);
+});
+
+test("ordinary skill discovery catalogs but never keyword-autoloads model reproduction", async () => {
+  const resolver = new SparkSkillResolver({
+    cwd: process.cwd(),
+    userDir: join(process.cwd(), ".missing-user-skills"),
+    userAgentsDir: join(process.cwd(), ".missing-user-agent-skills"),
+    workspaceAgentsDirs: [],
+  });
+  const { skills } = await resolver.resolve();
+  const repro = skills.find((skill) => skill.name === MODEL_REPRODUCTION_SKILL_NAME);
+  assert.ok(repro);
+  assert.equal(repro.disableModelInvocation, true);
+  assert.doesNotMatch(formatSparkSkillsForPrompt(skills), /model-reproduction/u);
+  const matches = await loadMatchingSparkSkillsForPrompt(
+    skills,
+    "reproduce GLM in Paddle and Torch",
+    3,
+  );
+  assert.equal(
+    matches.some((match) => match.skill.name === MODEL_REPRODUCTION_SKILL_NAME),
+    false,
+  );
 });
 
 test("SparkSkillResolver discovers builtin, workspace, and user skills with user override precedence", async () => {

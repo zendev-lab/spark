@@ -26,8 +26,16 @@ function instructionForStage(stageName: SparkReproStageName): string {
 test.each(stageNames)(
   "repro %s tick matches the reviewed user-visible instruction golden",
   async (stageName) => {
+    const instruction = instructionForStage(stageName);
+    expect(instruction).toContain("Orchestration loop:");
+    expect(instruction).toContain("Use assign to dispatch independent ready tasks in parallel.");
+    expect(instruction).toContain(
+      "Never dispatch ask_decision or ask_approval authority tasks; they remain owner-only.",
+    );
+    expect(instruction).not.toContain("execute one typed plan step per tick");
+
     // Runtime instructions omit the final newline; repository text files retain it.
-    await expect(`${instructionForStage(stageName)}\n`).toMatchFileSnapshot(
+    await expect(instruction + "\n").toMatchFileSnapshot(
       join(snapshotDir, `spark-repro-tick-${stageName}.md`),
     );
   },

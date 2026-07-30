@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { realpathSync } from "node:fs";
+import { join } from "node:path";
+import { createJiti } from "jiti";
 import { test } from "vitest";
 
 import {
@@ -454,6 +457,62 @@ test("Baidu OneAPI stream wrapper normalizes done error and result paths for bot
   }
 });
 
+test("Baidu OneAPI lazy adapters load through the Pi compatibility Jiti graph", async () => {
+  const piAiRoot = realpathSync(
+    join(process.cwd(), "packages/spark-ai/node_modules/@earendil-works/pi-ai"),
+  );
+  const jiti = createJiti(import.meta.url, {
+    moduleCache: false,
+    alias: {
+      "@earendil-works/pi-ai": join(piAiRoot, "dist/compat.js"),
+      "@earendil-works/pi-ai/api/anthropic-messages.lazy": join(
+        piAiRoot,
+        "dist/api/anthropic-messages.lazy.js",
+      ),
+      "@earendil-works/pi-ai/api/openai-responses.lazy": join(
+        piAiRoot,
+        "dist/api/openai-responses.lazy.js",
+      ),
+    },
+  });
+  const provider = (await jiti.import(
+    join(process.cwd(), "packages/spark-ai/src/baidu-oneapi-provider.ts"),
+  )) as typeof import("../packages/spark-ai/src/baidu-oneapi-provider.ts");
+  const context = { messages: [], tools: [] };
+  const baseModel = {
+    name: "Jiti compatibility adapter",
+    api: "baidu-oneapi",
+    provider: "baidu-oneapi",
+    baseUrl: "https://oneapi-comate.baidu-int.com",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 1000,
+    maxTokens: 1000,
+  };
+  const streams = [
+    provider.streamBaiduOneApiAnthropic(
+      { ...baseModel, id: "claude-opus-4.8" } as never,
+      context as never,
+      { apiKey: "" },
+    ),
+    provider.streamBaiduOneApiOpenAIResponses(
+      { ...baseModel, id: "gpt-5.6-luna", baseUrl: baseModel.baseUrl + "/v1" } as never,
+      context as never,
+      { apiKey: "" },
+    ),
+  ];
+  for (const stream of streams) {
+    for await (const _event of stream) void _event;
+    const result = await stream.result();
+    assert.equal(result.api, "baidu-oneapi");
+    assert.equal(result.provider, "baidu-oneapi");
+    assert.equal(result.stopReason, "error");
+    assert.match(result.errorMessage ?? "", /No API key for provider: baidu-oneapi/);
+    assert.doesNotMatch(result.errorMessage ?? "", /Mismatched api/);
+  }
+});
+
 test("Baidu OneAPI adapters use upstream transport APIs but report baidu-oneapi", async () => {
   const context = { messages: [], tools: [] };
   const baseModel = {
@@ -518,7 +577,7 @@ function responsesSse(body: string): Response {
   });
 }
 
-test("Baidu OneAPI direct Responses stream retries malformed wire envelopes without SDK logs", async () => {
+test("Baidu OneAPI direct Responses stream retries malformed wire envelopes with bounded parser diagnostics", async () => {
   const originalFetch = globalThis.fetch;
   const originalError = console.error;
   const previousOpenAiLog = process.env.OPENAI_LOG;
@@ -545,7 +604,10 @@ test("Baidu OneAPI direct Responses stream retries malformed wire envelopes with
     assert.equal(fetchCalls, 2);
     assert.deepEqual(eventTypes, ["start", "done"]);
     assert.equal((await stream.result()).stopReason, "stop");
-    assert.deepEqual(sdkErrors, []);
+    assert.equal(sdkErrors.length, 2);
+    assert.match(String(sdkErrors[0]?.[0]), /Could not parse message into JSON/u);
+    assert.match(String(sdkErrors[1]?.[0]), /From chunk/u);
+    assert.doesNotMatch(JSON.stringify(sdkErrors), /test-key/u);
     assert.equal(process.env.OPENAI_LOG, "debug");
   } finally {
     if (previousOpenAiLog === undefined) delete process.env.OPENAI_LOG;
@@ -572,7 +634,7 @@ test("Baidu OneAPI direct Responses stream exhausts its bounded default retry bu
     const eventTypes: string[] = [];
     for await (const event of stream) eventTypes.push(event.type);
 
-    assert.equal(fetchCalls, 2);
+    assert.equal(fetchCalls, 4);
     assert.deepEqual(eventTypes, ["start", "error"]);
     assert.equal((await stream.result()).stopReason, "error");
   } finally {

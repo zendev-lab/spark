@@ -35,9 +35,9 @@ export interface SessionActivityReport {
   role: string | null;
   status: string | null;
   createdAt: string;
-  /** Product Artifact kind retained across daemon-event persistence/reload. */
+  /** Artifact kind retained across daemon-event persistence/reload. */
   artifactKind?: "issue" | "pr" | "preview";
-  /** Product Artifact display format retained across daemon-event persistence/reload. */
+  /** Artifact display format retained across daemon-event persistence/reload. */
   artifactFormat?: string;
   /** Structured run category; top-level session runs stay out of the chat transcript. */
   runKind?: string;
@@ -542,7 +542,7 @@ function stableReportKey(report: SessionActivityReport) {
   return `${report.kind}:${report.id}`;
 }
 
-const PRODUCT_ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
+const ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
 
 function loadArtifactReportsByCommand(
   db: DatabaseSync,
@@ -570,7 +570,7 @@ function loadArtifactReportsByCommand(
     const contentRef = parseJson(row.contentRefJson);
     const text = stringValue(contentRef, "assistantTextPreview");
     if (!text) return [];
-    const kindPrefix = PRODUCT_ARTIFACT_KINDS.has(row.kind) ? "artifact" : "evidence";
+    const kindPrefix = ARTIFACT_KINDS.has(row.kind) ? "artifact" : "evidence";
     return [
       {
         id: row.id,
@@ -686,7 +686,7 @@ function reportFromDaemonPayload(
       const artifactKind = stringValue(artifact, "kind");
       const artifactFormat = stringValue(artifact, "format");
       // Legacy tool side-channels used artifact.update for evidence kinds.
-      if (!PRODUCT_ARTIFACT_KINDS.has(artifactKind ?? "")) {
+      if (!ARTIFACT_KINDS.has(artifactKind ?? "")) {
         return {
           id: artifactRef || row.id,
           kind: "evidence.update",

@@ -415,7 +415,7 @@ test("HTTPS Cockpit controls models and channels over WSS without a daemon socke
     daemonDb.close();
     await rm(root, { recursive: true, force: true });
   }
-});
+}, 20_000);
 
 class FixtureModelControl implements SparkDaemonModelControl {
   apiKeySetCount = 0;

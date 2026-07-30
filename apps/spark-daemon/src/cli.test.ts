@@ -14,6 +14,7 @@ import { RegistrationGrantRefusedError } from "./registration.js";
 import { getSparkDaemonServerProfile, upsertSparkDaemonServerProfile } from "./server-profiles.js";
 import { openSparkDaemonDatabase } from "./store/schema.js";
 import {
+  addWorkspace,
   attachWorkspace,
   listWorkspaces,
   registerWorkspace,
@@ -821,6 +822,45 @@ describe("Spark daemon CLI", () => {
         status: "offline:service-stopped",
         offlineReason: "service-stopped",
       });
+    });
+  });
+
+  it("dry-runs registered Evidence migration without creating workspace state", async () => {
+    await withTempSparkEnv(async (root) => {
+      const workspacePath = join(root, "migration-workspace");
+      mkdirSync(workspacePath, { recursive: true });
+      const paths = resolveSparkPaths({ app: "daemon" });
+      const db = openSparkDaemonDatabase(paths);
+      const workspace = addWorkspace(db, {
+        id: "workspace:evidence-migration",
+        localWorkspaceKey: "evidence-migration",
+        displayName: "Evidence Migration",
+        localPath: workspacePath,
+      });
+      db.close();
+      const capture = createCliIo();
+
+      await expect(
+        main(["ws", "migrate-evidence", "--workspace", workspace.id, "--json"], capture.io),
+      ).resolves.toBe(0);
+      const result = JSON.parse(capture.stdout()) as {
+        registry: { selected: number; skipped: unknown[] };
+        migration: {
+          dryRun: boolean;
+          blocked: boolean;
+          totals: { discovered: number; migrated: number; changedFiles: number };
+        };
+      };
+      expect(result).toMatchObject({
+        registry: { selected: 1, skipped: [] },
+        migration: {
+          dryRun: true,
+          blocked: false,
+          totals: { discovered: 0, migrated: 0, changedFiles: 0 },
+        },
+      });
+      expect(existsSync(join(workspacePath, ".spark"))).toBe(false);
+      expect(capture.stderr()).toBe("");
     });
   });
 
@@ -2655,7 +2695,7 @@ describe("Spark daemon CLI", () => {
     await withTempSparkEnv(async () => {
       await expect(main(["ws", "reconcile"], capture.io)).resolves.toBe(1);
       expect(capture.stderr()).toContain(
-        "Usage: spark daemon workspace <register|relocate|ls|show|stop>",
+        "Usage: spark daemon workspace <register|relocate|migrate-evidence|ls|show|stop>",
       );
     });
   });

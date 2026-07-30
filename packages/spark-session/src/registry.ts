@@ -40,6 +40,8 @@ export interface CreateSparkSessionInput {
   cwd?: string;
   sessionPath?: string;
   status?: SparkSessionStatus;
+  /** Daemon-authored managed relation; never accepted as a raw public relation field. */
+  relation?: SparkSessionRelation;
   now?: Date;
 }
 export interface EnsureSparkSideThreadInput {
@@ -143,6 +145,7 @@ export class SparkSessionRegistry {
       ...(role ? { title: role, role } : legacyTitle ? { title: legacyTitle } : {}),
       ...(input.cwd ? { cwd: input.cwd } : {}),
       ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
+      ...(input.relation ? { relation: input.relation } : {}),
     };
     file.sessions.push(record);
     await this.saveFile(file);

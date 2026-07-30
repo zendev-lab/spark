@@ -46,19 +46,16 @@ export interface SparkToolResultRawRecoveryDecision {
   omittedChars?: number;
 }
 
-export type SparkToolResultRawRecoveryPath =
-  | {
-      kind: "evidence";
-      evidenceRef: string;
-      readTool: "evidence";
-      readArgs: { action: "read"; evidenceRef: string; maxChars: number };
-    }
-  | {
-      kind: "artifact";
-      artifactRef: string;
-      readTool: "artifact" | "evidence";
-      readArgs: { action: "read"; artifactRef: string; maxChars: number };
-    };
+export interface SparkToolResultRawRecoveryPath {
+  kind: "evidence";
+  evidenceRef: string;
+  readTool: "evidence";
+  readArgs: {
+    action: "read";
+    evidenceRef: string;
+    maxChars: number;
+  };
+}
 
 export interface SparkToolResultCompactionResult {
   content: ToolResultTextPart[];
@@ -211,7 +208,7 @@ export function compactToolResultContent(
   };
 }
 
-export function shouldRecordRawToolResultArtifact(
+export function shouldRecordRawToolResultEvidence(
   input: SparkToolResultRawRecoveryDecisionInput,
 ): SparkToolResultRawRecoveryDecision {
   if (!input.compaction) return { record: false };

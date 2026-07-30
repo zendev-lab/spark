@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import type { EvidenceRef } from "@zendev-lab/spark-core";
+import type { EvidenceRef, RoleRef, TaskRef } from "@zendev-lab/spark-core";
 import {
+  advanceReproStage,
   createSparkSessionRepro,
   evaluateStageGate,
   isPhaseComplete,
   isReproRequirementSatisfied,
+  isStageComplete,
+  migrateSparkSessionReproV5,
+  nextReproStagePlanningBlocker,
+  nextReproStep,
   recordReproRequirementProof,
+  reproProgressDigest,
   reviseReproPlan,
   settleReproTick,
   stepDefinitionDigest,
@@ -15,23 +21,57 @@ import {
   type SparkReproStepDefinition,
   type SparkReproRequirementProof,
   type SparkSessionRepro,
+  type SparkSessionReproV5,
 } from "./index.ts";
 
 const ref = (id: string) => `evidence:${id}` as EvidenceRef;
 
 describe("spark-repro", () => {
+  it("selects the first dependency-ready step in the current stage", () => {
+    const base = createSparkSessionRepro("session:test");
+    const first = base.plan.steps[0]!;
+    const second = base.plan.steps[1]!;
+    const repro: SparkSessionRepro = {
+      ...base,
+      plan: {
+        ...base.plan,
+        steps: base.plan.steps.map((step) =>
+          step.id === first.id
+            ? { ...step, status: "blocked" }
+            : step.id === second.id
+              ? { ...step, dependsOn: [first.id] }
+              : step,
+        ),
+      },
+    };
+
+    expect(nextReproStep(repro)?.id).toBe(first.id);
+  });
+
   it("starts with a draft Goal Contract and a typed plan seeded from fixed gates", () => {
     const repro = createSparkSessionRepro("session:test", undefined, {
       objective: "Reproduce target logits",
     });
 
-    expect(repro.version).toBe(4);
+    expect(repro.version).toBe(6);
+    expect(repro.projectRef).toBeUndefined();
+    expect(repro.subgoals).toHaveLength(
+      repro.plan.steps.filter((step) => step.stage === "setup").length,
+    );
+    expect(new Set(repro.subgoals.map((subgoal) => subgoal.stage))).toEqual(new Set(["setup"]));
+    expect(repro.subgoals[0]).toMatchObject({
+      id: "repro-contract-frozen",
+      stage: "setup",
+      authority: "safe_local",
+      status: "pending",
+    });
     expect(repro.goalContract).toMatchObject({
       status: "draft",
       objective: "Reproduce target logits",
     });
     expect(repro.plan.currentRevision).toBe(1);
-    expect(repro.plan).toMatchObject({ difficulty: 8, minimumStepCount: 11 });
+    expect(repro.plan).toMatchObject({ difficulty: 8 });
+    expect(repro.plan).not.toHaveProperty("minimumStepCount");
     expect(repro.plan.steps[0]).toMatchObject({
       id: "repro-contract-frozen",
       stage: "setup",
@@ -41,6 +81,53 @@ describe("spark-repro", () => {
     expect(
       repro.plan.steps.find((step) => step.id === "implementation-strategy-approved"),
     ).toMatchObject({ authority: "ask_decision" });
+  });
+
+  it("migrates v5 evidence while invalidating delegation and ambiguous task bindings", () => {
+    const completed = completeStep(
+      createSparkSessionRepro("session:migrate-v5"),
+      "repro-contract-frozen",
+    );
+    const sharedTaskRef = "task:legacy-shared" as TaskRef;
+    const uniqueTaskRef = "task:legacy-unique" as TaskRef;
+    const legacy: SparkSessionReproV5 = {
+      ...completed,
+      version: 5,
+      subgoals: completed.subgoals.map((subgoal, index) => {
+        const { taskRef: _taskRef, ...definition } = subgoal;
+        return {
+          ...definition,
+          goalId: completed.reproId,
+          roleRef: "role:builtin-scout" as RoleRef,
+          taskRefs: index < 2 ? [sharedTaskRef] : index === 2 ? [uniqueTaskRef] : [],
+          ...(index === 2
+            ? {
+                status: "in_progress" as const,
+                delegation: {
+                  sessionId: "session:legacy",
+                  planRevision: subgoal.planRevision,
+                  definitionDigest: "legacy",
+                  delegatedAt: subgoal.updatedAt,
+                },
+              }
+            : {}),
+        };
+      }),
+    };
+
+    const migrated = migrateSparkSessionReproV5(legacy);
+    expect(migrated.version).toBe(6);
+    expect(migrated.subgoals[0]?.status).toBe("done");
+    expect(migrated.subgoals[0]?.evidenceRefs).toEqual(completed.subgoals[0]?.evidenceRefs);
+    expect(migrated.subgoals[0]?.taskRef).toBeUndefined();
+    expect(migrated.subgoals[1]?.taskRef).toBeUndefined();
+    expect(migrated.subgoals[2]).toMatchObject({
+      status: "pending",
+      taskRef: uniqueTaskRef,
+    });
+    expect(migrated.subgoals[2]).not.toHaveProperty("delegation");
+    expect(migrated.subgoals[2]).not.toHaveProperty("goalId");
+    expect(migrated.subgoals[2]).not.toHaveProperty("roleRef");
   });
 
   it("requires research, explicit decisions, and a passing probe during setup", () => {
@@ -109,50 +196,70 @@ describe("spark-repro", () => {
     expect(repro.stages[2]?.gate?.evaluation).toBeUndefined();
   });
 
-  it("appends plan revisions, preserves unchanged progress, and reopens a changed contract", () => {
-    let repro = createSparkSessionRepro("session:test", undefined, {
-      objective: "Original objective",
-    });
-    repro = recordReproRequirementProof(repro, "repro-contract-frozen", {
-      kind: "evidence",
-      evidenceRefs: [ref("contract")],
-    })!;
-    repro = recordReproRequirementProof(repro, "competitor-baseline-availability-researched", {
-      kind: "evidence",
-      evidenceRefs: [ref("baseline")],
-    })!;
-    const steps = repro.plan.steps.map(stepDefinition);
+  it("appends a stage subgoal without reopening unchanged completed proof", () => {
+    let repro = completeStep(createSparkSessionRepro("session:test"), "repro-contract-frozen");
+    const completedBefore = structuredClone(
+      repro.subgoals.find((subgoal) => subgoal.id === "repro-contract-frozen")!,
+    );
 
     repro = reviseReproPlan(repro, {
-      reason: "Clarify the reproduction target",
-      goalContract: {
-        objective: "Revised objective",
-        constraints: ["Use official weights"],
-        nonGoals: ["Performance tuning"],
-        successCriteria: ["20-step bitwise parity"],
-        evidenceRequired: ["Command output"],
-      },
-      steps,
+      reason: "Plan scaffold build work",
+      subgoals: [
+        {
+          id: "scaffold-build-layout",
+          stage: "scaffold",
+          goal: "Build the target project layout",
+          doneWhen: ["The project tree matches the recorded layout"],
+          evidenceRequired: ["Project tree command output"],
+          authority: "safe_local",
+        },
+      ],
     });
 
     expect(repro.plan.currentRevision).toBe(2);
     expect(repro.plan.revisions).toHaveLength(2);
-    expect(repro.goalContract.status).toBe("draft");
-    expect(repro.goalContract.evidenceRefs).toEqual([]);
-    expect(
-      isReproRequirementSatisfied(
-        repro.stages[0]!.acceptance.find(
-          (requirement) => requirement.id === "repro-contract-frozen",
-        )!,
-      ),
-    ).toBe(false);
-    expect(repro.plan.steps.find((step) => step.id === "repro-contract-frozen")).toMatchObject({
+    expect(repro.subgoals.find((subgoal) => subgoal.id === "repro-contract-frozen")).toEqual(
+      completedBefore,
+    );
+    expect(repro.subgoals.find((subgoal) => subgoal.id === "scaffold-build-layout")).toMatchObject({
+      stage: "scaffold",
       status: "pending",
-      evidenceRefs: [],
+      planRevision: 2,
     });
-    expect(
-      repro.plan.steps.find((step) => step.id === "competitor-baseline-availability-researched"),
-    ).toMatchObject({ status: "pending", evidenceRefs: [] });
+  });
+
+  it("reopens only the subgoal whose definition digest changed", () => {
+    let repro = completeStep(createSparkSessionRepro("session:test"), "repro-contract-frozen");
+    repro = completeStep(repro, "competitor-baseline-availability-researched");
+    const before = structuredClone(repro.subgoals);
+    const baseline = repro.plan.steps.find(
+      (step) => step.id === "competitor-baseline-availability-researched",
+    )!;
+
+    repro = reviseReproPlan(repro, {
+      reason: "Require an executable baseline command",
+      subgoals: [
+        {
+          ...stepDefinition(baseline),
+          doneWhen: ["A baseline command exits with code 0 and records output"],
+        },
+      ],
+    });
+
+    const changedStatusIds = repro.subgoals
+      .filter(
+        (subgoal) => before.find((prior) => prior.id === subgoal.id)?.status !== subgoal.status,
+      )
+      .map((subgoal) => subgoal.id);
+    expect(changedStatusIds).toEqual(["competitor-baseline-availability-researched"]);
+    const reopened = repro.subgoals.find(
+      (subgoal) => subgoal.id === "competitor-baseline-availability-researched",
+    );
+    expect(reopened).toMatchObject({ status: "pending", evidenceRefs: [], planRevision: 2 });
+    expect(reopened?.verification).toBeUndefined();
+    expect(repro.subgoals.find((subgoal) => subgoal.id === "repro-contract-frozen")).toEqual(
+      before.find((subgoal) => subgoal.id === "repro-contract-frozen"),
+    );
   });
 
   it("rejects incomplete or cyclic plan revisions", () => {
@@ -173,33 +280,69 @@ describe("spark-repro", () => {
     ).toThrow(/dependency cycle/u);
     expect(() =>
       reviseReproPlan(repro, {
-        reason: "Drop a stage",
-        steps: steps.filter((step) => step.stage !== "deliver"),
-      }),
-    ).toThrow(/requires at least one step for stage deliver/u);
-    expect(() =>
-      reviseReproPlan(repro, {
-        reason: "Under-split a hard task",
-        difficulty: 10,
-        steps: steps.filter(
-          (step) =>
-            ![
-              "competitor-baseline-availability-researched",
-              "implementation-landscape-researched",
-              "alignment-paths-researched",
-              "alignment-strategy-approved",
-            ].includes(step.id),
-        ),
-      }),
-    ).toThrow(/difficulty 10 requires at least 13 plan steps/u);
-    expect(() =>
-      reviseReproPlan(repro, {
         reason: "Depend on future-stage work",
         steps: steps.map((step) =>
           step.id === "repro-contract-frozen" ? { ...step, dependsOn: ["pr-submitted"] } : step,
         ),
       }),
     ).toThrow(/cannot depend on later-stage step/u);
+  });
+
+  it("includes bound task status changes in the repro progress digest", () => {
+    const taskRef = "task:digest-safe-local" as TaskRef;
+    const initial = createSparkSessionRepro("session:digest");
+    const repro: SparkSessionRepro = {
+      ...initial,
+      subgoals: initial.subgoals.map((subgoal, index) =>
+        index === 0 && subgoal.authority === "safe_local" ? { ...subgoal, taskRef } : subgoal,
+      ),
+    };
+
+    const pending = reproProgressDigest(repro, {
+      taskStatusByRef: { [taskRef]: "pending" },
+    });
+    const running = reproProgressDigest(repro, {
+      taskStatusByRef: { [taskRef]: "running" },
+    });
+
+    expect(pending).not.toBe(running);
+  });
+
+  it("selects repro settle cadence from fresh orchestration snapshots", () => {
+    const active = settleReproTick(createSparkSessionRepro("session:active"), {
+      activeChildRunCount: 1,
+    });
+    expect(active.scheduleDelayMs).toBe(10_000);
+
+    const awaitingAsk = settleReproTick(createSparkSessionRepro("session:awaiting-ask"), {
+      awaitingAsk: true,
+      activeChildRunCount: 0,
+      dispatchableFrontierCount: 0,
+    });
+    expect(awaitingAsk.scheduleDelayMs).toBeUndefined();
+    expect(awaitingAsk.dormantReason).toBe("awaiting_ask");
+
+    const idle = settleReproTick(createSparkSessionRepro("session:idle"));
+    expect(idle.scheduleDelayMs).toBe(30_000);
+
+    const dispatchable = settleReproTick(createSparkSessionRepro("session:dispatchable"), {
+      activeChildRunCount: 0,
+      dispatchableFrontierCount: 1,
+    });
+    expect(dispatchable.scheduleDelayMs).toBe(30_000);
+
+    const complete = createSparkSessionRepro("session:complete");
+    const completed = { ...complete, status: "complete" as const };
+    const completedResult = settleReproTick(completed);
+    expect(completedResult.decision).toBe("complete");
+    expect(completedResult.scheduleDelayMs).toBeUndefined();
+
+    let stagnant = createSparkSessionRepro("session:recover-ask");
+    stagnant = settleReproTick(stagnant).repro;
+    stagnant = settleReproTick(stagnant).repro;
+    const recoverAsk = settleReproTick(stagnant);
+    expect(recoverAsk.decision).toBe("ask");
+    expect(recoverAsk.scheduleDelayMs).toBeUndefined();
   });
 
   it("requires a current passing StepVerifier result and asks after three unchanged settlements", () => {
@@ -237,6 +380,11 @@ describe("spark-repro", () => {
       status: "done",
       verification: { verdict: "Pass", planRevision: 1 },
     });
+    expect(repro.subgoals.find((candidate) => candidate.id === step.id)).toMatchObject({
+      status: "done",
+      evidenceRefs,
+      verification: { verdict: "Pass", planRevision: 1 },
+    });
 
     expect(settleReproTick(repro).decision).toBe("continue");
     repro = settleReproTick(repro).repro;
@@ -266,6 +414,11 @@ describe("spark-repro", () => {
       ),
     });
     const step = repro.plan.steps.find((candidate) => candidate.id === approvalStepId)!;
+    expect(repro.subgoals.find((candidate) => candidate.id === approvalStepId)).toMatchObject({
+      authority: "ask_approval",
+      status: "pending",
+      planRevision: 2,
+    });
     const evidenceRefs = [ref("approval")];
     const rejected = verifyReproStepPass(repro, step.id, {
       verdict: "Pass",
@@ -298,6 +451,38 @@ describe("spark-repro", () => {
     expect(repro.plan.steps.find((candidate) => candidate.id === step.id)?.status).toBe("done");
   });
 
+  it("blocks stage advance until the target stage has planned subgoals", () => {
+    let repro = satisfySetupRequirements(createSparkSessionRepro("session:test"));
+    repro = {
+      ...repro,
+      subgoals: repro.subgoals.map((subgoal) => ({ ...subgoal, status: "done" as const })),
+    };
+
+    expect(isStageComplete(repro)).toBe(true);
+    expect(advanceReproStage(repro)).toBeUndefined();
+    expect(nextReproStagePlanningBlocker(repro)).toBe(
+      "Stage scaffold has no planned subgoals. Plan concrete subgoals and task experiments before advancing.",
+    );
+
+    repro = reviseReproPlan(repro, {
+      reason: "Plan scaffold stage",
+      subgoals: [
+        {
+          id: "scaffold-build-layout",
+          stage: "scaffold",
+          goal: "Build the target project layout",
+          doneWhen: ["The project tree command matches the recorded layout"],
+          evidenceRequired: ["Project tree command output"],
+          authority: "safe_local",
+        },
+      ],
+    });
+    expect(advanceReproStage(repro)).toMatchObject({
+      currentStageIndex: 1,
+      currentPhase: "implement",
+    });
+  });
+
   it("does not start a step before its dependencies finish", () => {
     let repro = createSparkSessionRepro("session:test");
     repro = reviseReproPlan(repro, {
@@ -317,6 +502,59 @@ describe("spark-repro", () => {
     ).toThrow(/incomplete dependencies: repro-contract-frozen/u);
   });
 });
+
+function completeStep(repro: SparkSessionRepro, stepId: string): SparkSessionRepro {
+  const step = repro.plan.steps.find((candidate) => candidate.id === stepId)!;
+  const subgoal = repro.subgoals.find((candidate) => candidate.id === stepId)!;
+  const evidenceRefs = [ref(`proof-${stepId}`)];
+  const proofKind =
+    step.authority === "ask_approval"
+      ? ("approval" as const)
+      : step.authority === "ask_decision"
+        ? ("decision" as const)
+        : ("evidence" as const);
+  const verifier = verifyReproStepPass(repro, stepId, {
+    verdict: "Pass",
+    planRevision: subgoal.planRevision,
+    definitionDigest: stepDefinitionDigest(step),
+    proofKind,
+    evidenceRefs,
+    verifiedDoneWhen: step.doneWhen,
+    ...(proofKind === "evidence"
+      ? {}
+      : {
+          askRequestHash: "request-hash",
+          acceptedAnswerHash: "answer-hash",
+          selectedValues: proofKind === "approval" ? ["approve"] : ["selected"],
+        }),
+    ...(proofKind === "approval" ? { approvalResult: "approved" as const } : {}),
+  });
+  expect(verifier.verdict).toBe("Pass");
+  return updateReproStep(repro, stepId, { status: "done", evidenceRefs, verifier })!;
+}
+
+function satisfySetupRequirements(repro: SparkSessionRepro): SparkSessionRepro {
+  let updated = repro;
+  for (const requirement of repro.stages[0]!.acceptance) {
+    const proof: SparkReproRequirementProof =
+      requirement.kind === "evidence"
+        ? { kind: "evidence", evidenceRefs: [ref(requirement.id)] }
+        : requirement.kind === "decision"
+          ? {
+              kind: "decision",
+              decisionRef: ref(requirement.id),
+              selectedValue: "selected",
+            }
+          : {
+              kind: "validation",
+              command: `run ${requirement.id}`,
+              resultRef: ref(requirement.id),
+              passed: true,
+            };
+    updated = recordReproRequirementProof(updated, requirement.id, proof)!;
+  }
+  return updated;
+}
 
 function stepDefinition(
   step: SparkSessionRepro["plan"]["steps"][number],

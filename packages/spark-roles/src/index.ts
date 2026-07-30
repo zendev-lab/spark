@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import {
   stableId,
   writeTextFileAtomic,
+  type EvidenceRef,
   type ExtensionRoleRunInputController,
   type ExtensionRoleRunner,
   type RoleRunCompletionOutcome,
@@ -41,7 +42,7 @@ export interface RoleSpec {
 }
 
 export interface RoleSpecProposal {
-  artifactRef?: string;
+  evidenceRef?: string;
   id: string;
   source?: WritableRoleSource;
   description: string;
@@ -75,7 +76,7 @@ export interface RoleRunRecord {
   instruction: string;
   status: RoleRunStatus;
   outcome?: RoleRunCompletionOutcome;
-  outputArtifactRef?: string;
+  outputEvidenceRef?: EvidenceRef;
   startedAt?: string;
   finishedAt?: string;
 }
@@ -178,7 +179,7 @@ export interface RoleRunInputDeliveryResult {
   errorMessage?: string;
 }
 
-export const builtinRoleIds = ["scout", "worker", "reviewer"] as const;
+export const builtinRoleIds = ["scout", "explorer", "researcher", "worker", "reviewer"] as const;
 export type BuiltinRoleId = (typeof builtinRoleIds)[number];
 
 export const ROLE_CAPABILITY_VOCAB = ["read", "write", "exec", "net", "interact", "spawn"] as const;
@@ -186,6 +187,8 @@ export type RoleCapability = (typeof ROLE_CAPABILITY_VOCAB)[number];
 
 export const BUILTIN_ROLE_CAPABILITY_PROFILES = {
   scout: ["read", "net"],
+  explorer: ["read", "exec"],
+  researcher: ["read", "net"],
   reviewer: ["read", "net"],
   worker: ["read", "net", "exec", "write"],
 } as const satisfies Record<BuiltinRoleId, readonly RoleCapability[]>;
@@ -283,8 +286,20 @@ export function createBuiltinRoles(now = nowIso()): RoleSpec[] {
   const roles = [
     builtin(
       "scout",
-      "Fast repo and context reconnaissance.",
-      "You are a Pi scout. Gather context, identify relevant files and risks, and do not edit files. When a blocker, missing user decision, or ambiguity cannot be resolved from available context, report the blocker and the exact question needed upward in your final response instead of asking interactively. Flag clearly placeholder/generic/stale project or task names so the host can safely improve them without changing refs.",
+      "Legacy fast repo and context reconnaissance; prefer explorer or researcher for new tasks.",
+      "You are a Pi scout retained for compatibility with existing tasks. Gather context, identify relevant files and risks, and do not edit files. New local executable investigations should use explorer, while source and prior-art investigations should use researcher. When a blocker, missing user decision, or ambiguity cannot be resolved from available context, report the blocker and the exact question needed upward in your final response instead of asking interactively. Flag clearly placeholder/generic/stale project or task names so the host can safely improve them without changing refs.",
+      now,
+    ),
+    builtin(
+      "explorer",
+      "Inspects local repositories and environments with non-mutating executable probes.",
+      "You are a Pi explorer. Establish local facts from the actual repository and environment. Read relevant source, configuration, manifests, and logs, and run only non-mutating probes needed to verify entry points, builds, runtime availability, resource use, or observed behavior. Never edit files, change repository state, install dependencies, start persistent services, or mutate external systems. Report concrete paths and symbols, every executed command with its exit status and bounded output, and classify conclusions as observed, inferred, or unverified. When a blocker, missing user decision, or ambiguity cannot be resolved locally, report it and the exact question needed upward instead of asking interactively.",
+      now,
+    ),
+    builtin(
+      "researcher",
+      "Researches source, documentation, issues, pull requests, and prior art.",
+      "You are a Pi researcher. Investigate the assigned topic from repository source and authoritative external material without executing commands or editing files. Confirm the target and keywords, search broadly, then deeply inspect the three to five most relevant sources when available. Cite only sources you actually inspected. Separate direct reuse, reusable patterns, and background context; distinguish observed facts, reasoned inferences, and unresolved gaps. Return a compact source table, mechanism-focused deep dives, extracted implementation patterns, and a recommended route with limitations. If no relevant result exists, report the search coverage and exact gap. Do not ask interactively or spawn other roles; report blockers and the exact question needed upward.",
       now,
     ),
     builtin(
@@ -295,7 +310,7 @@ export function createBuiltinRoles(now = nowIso()): RoleSpec[] {
     ),
     builtin(
       "reviewer",
-      "Reviews results and artifacts against task intent.",
+      "Reviews results, internal Evidence, and Artifacts against task intent.",
       "You are a Pi reviewer. Verify claims from fresh context and return actionable findings. Do not ask interactively; when intent or evidence is ambiguous, reject with concrete questions in findings/blockers instead of silently assuming an answer. Call out placeholder/generic/stale project or task names only when a safe improvement is clear from context and would preserve refs.",
       now,
     ),
@@ -373,7 +388,9 @@ export function validateBuiltinRoleProfiles(roles: readonly RoleSpec[]): void {
     if (profileCapabilities.includes("interact") || profileCapabilities.includes("spawn"))
       throw new Error(`builtin role ${id} must not include interact or spawn capability`);
   }
-  assertCapabilitySubset("scout", "reviewer");
+  assertCapabilitySubset("scout", "researcher");
+  assertCapabilitySubset("researcher", "reviewer");
+  assertCapabilitySubset("explorer", "worker");
   assertCapabilitySubset("reviewer", "worker");
 
   const rolesById = new Map(roles.map((role) => [role.id, role]));

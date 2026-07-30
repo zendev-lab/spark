@@ -479,10 +479,7 @@ export function handleMvpRuntimeMessage(
       invocationId: routed.invocationId || null,
       humanRequestId: routed.humanRequestId || null,
       payload: artifactProjection.data.payload,
-      preserveAssociations: isContextFreeProductArtifactReconcile(
-        artifactProjection.data.payload,
-        routed,
-      ),
+      preserveAssociations: isContextFreeArtifactReconcile(artifactProjection.data.payload, routed),
     });
     rememberProcessedRuntimeMessage(context, artifactProjection.data);
     sendIngestAck(
@@ -497,7 +494,7 @@ export function handleMvpRuntimeMessage(
   return false;
 }
 
-function isContextFreeProductArtifactReconcile(
+function isContextFreeArtifactReconcile(
   payload: ArtifactProjectionPayload,
   route: {
     projectId?: string;
@@ -508,7 +505,7 @@ function isContextFreeProductArtifactReconcile(
 ): boolean {
   return (
     payload.scope === "workspace" &&
-    payload.provenance.producer === "spark-product-artifact" &&
+    payload.provenance.producer === "spark-artifact" &&
     !route.projectId &&
     !route.invocationId &&
     !route.sessionId &&

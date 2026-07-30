@@ -1,0 +1,3 @@
+import type { EvidenceKind } from "@zendev-lab/spark-artifacts";
+
+export const invalidEvidenceKind: EvidenceKind = "issue";

@@ -68,7 +68,7 @@
     {
       "path": "projects/proj-demo/tasks/task-demo/task.json",
       "value": {
-        "version": 1,
+        "version": 2,
         "ref": "task:demo",
         "projectRef": "proj:demo",
         "name": "demo-task",
@@ -76,8 +76,8 @@
         "description": "Task fixture without embedded TODO bodies.",
         "kind": "implement",
         "status": "ready",
-        "inputArtifacts": [],
-        "outputArtifacts": ["artifact:curated-demo"],
+        "inputEvidenceRefs": [],
+        "outputEvidenceRefs": ["evidence:curated-demo"],
         "todoOwnerRef": "task:demo",
         "runsPath": "runs",
         "reviewsPath": "reviews",
@@ -90,12 +90,12 @@
     {
       "path": "projects/proj-demo/tasks/task-demo/runs/run-demo.json",
       "value": {
-        "version": 1,
+        "version": 2,
         "ref": "run:demo",
         "projectRef": "proj:demo",
         "taskRef": "task:demo",
         "status": "succeeded",
-        "outputArtifacts": ["artifact:curated-demo"],
+        "outputEvidenceRefs": ["evidence:curated-demo"],
         "startedAt": "2026-06-17T00:00:00.000Z",
         "finishedAt": "2026-06-17T00:01:00.000Z"
       }

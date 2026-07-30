@@ -49,8 +49,28 @@ export const sparkSideThreadSessionRelationSchema = z.object({
   mode: sparkSideThreadModeSchema,
 });
 
+/** Daemon-authored relation between one Project Task attempt and its execution Session. */
+export const sparkTaskExecutionSessionRelationSchema = z.object({
+  kind: z.literal("task_execution"),
+  ownerSessionId: z.string().min(1),
+  projectRef: z.string().regex(/^proj:.+/u),
+  taskRef: z.string().regex(/^task:.+/u),
+  runRef: z.string().regex(/^run:.+/u),
+  sessionGoalId: z.string().min(1),
+  subgoalRef: z
+    .string()
+    .regex(/^subgoal:.+/u)
+    .optional(),
+  roleRef: z.string().regex(/^role:.+/u),
+  planRevision: z.number().int().positive().optional(),
+  definitionDigest: z.string().min(1).optional(),
+  jobId: z.string().min(1),
+  attempt: z.number().int().positive(),
+});
+
 export const sparkSessionRelationSchema = z.discriminatedUnion("kind", [
   sparkSideThreadSessionRelationSchema,
+  sparkTaskExecutionSessionRelationSchema,
 ]);
 
 const sparkSessionRegistryRecordBaseSchema = z.object({
@@ -112,6 +132,8 @@ const sparkSessionCreateRequestBaseSchema = z.object({
   cwd: z.string().trim().min(1).optional(),
   sessionPath: z.string().trim().min(1).optional(),
   status: sparkSessionStatusSchema.optional(),
+  /** Internal Task scheduler binding; the daemon authors relation.kind=task_execution. */
+  taskExecution: sparkTaskExecutionSessionRelationSchema.omit({ kind: true }).optional(),
 });
 
 const sparkWorkspaceSessionCreateRequestSchema = sparkSessionCreateRequestBaseSchema
@@ -308,6 +330,9 @@ export type SparkSessionChannelBinding = z.infer<typeof sparkSessionChannelBindi
 export type SparkSessionScope = z.infer<typeof sparkSessionScopeSchema>;
 export type SparkSideThreadMode = z.infer<typeof sparkSideThreadModeSchema>;
 export type SparkSideThreadSessionRelation = z.infer<typeof sparkSideThreadSessionRelationSchema>;
+export type SparkTaskExecutionSessionRelation = z.infer<
+  typeof sparkTaskExecutionSessionRelationSchema
+>;
 export type SparkSessionRelation = z.infer<typeof sparkSessionRelationSchema>;
 export type SparkSessionRegistryRecord = z.infer<typeof sparkSessionRegistryRecordSchema>;
 /** Public input keeps the v1 workspaceId-only shape during migration. */

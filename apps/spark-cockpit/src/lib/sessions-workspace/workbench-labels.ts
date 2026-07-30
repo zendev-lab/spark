@@ -58,5 +58,9 @@ export function buildConversationPartLabels(copy: SessionsWorkbenchCopy): Conver
     expand: copy.expand,
     budgetExhausted: copy.budgetExhausted,
     budgetExhaustedHint: copy.budgetExhaustedHint,
+    runtimeControl: copy.runtimeControl,
+    runtimeTick: copy.runtimeTick,
+    runtimeRequest: copy.runtimeRequest,
+    runtimeResult: copy.runtimeResult,
   };
 }

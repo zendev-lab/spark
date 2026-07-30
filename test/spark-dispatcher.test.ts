@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "vitest";
 
 import {
@@ -159,13 +162,36 @@ test("spark paths reports one SPARK_HOME without dispatching or writing", async 
   }
 });
 
-test("dispatcher resolves daemon and ACP adapters", () => {
+test("dispatcher resolves source targets through package executable exports", () => {
+  const tui = resolveTargetCommand("tui");
+  assert.match(tui.command, /apps\/spark-tui\/bin\/spark-tui$/u);
+  assert.deepEqual(tui.args, []);
   const daemon = resolveTargetCommand("daemon");
-  assert.match(daemon.command, /spark-tui(?:$|\/bin\/spark-tui$)/u);
+  assert.match(daemon.command, /apps\/spark-tui\/bin\/spark-tui$/u);
   assert.deepEqual(daemon.args, ["daemon"]);
+  const cockpit = resolveTargetCommand("cockpit");
+  assert.match(cockpit.command, /apps\/spark-cockpit\/bin\/spark-cockpit$/u);
+  assert.deepEqual(cockpit.args, []);
   const acp = resolveTargetCommand("acp");
   assert.match(acp.command, /packages\/spark-acp\/scripts\/stdio\.ts$/u);
   assert.deepEqual(acp.args, []);
+});
+
+test("dispatcher keeps packaged product entries ahead of source checkout executables", () => {
+  const productDist = mkdtempSync(join(tmpdir(), "spark-dispatcher-product-"));
+  const productCockpit = join(productDist, "spark-cockpit.js");
+  const previousProductDist = process.env.SPARK_PRODUCT_DIST;
+  writeFileSync(productCockpit, "", "utf8");
+  process.env.SPARK_PRODUCT_DIST = productDist;
+  try {
+    const cockpit = resolveTargetCommand("cockpit");
+    assert.equal(cockpit.command, process.execPath);
+    assert.deepEqual(cockpit.args, [productCockpit]);
+  } finally {
+    if (previousProductDist === undefined) delete process.env.SPARK_PRODUCT_DIST;
+    else process.env.SPARK_PRODUCT_DIST = previousProductDist;
+    rmSync(productDist, { recursive: true, force: true });
+  }
 });
 
 test("runSparkDispatcher invokes injected launcher with the selected target", async () => {

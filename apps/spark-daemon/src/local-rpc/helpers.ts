@@ -31,10 +31,6 @@ import {
 import type { SparkDaemonHumanInteractionResponder } from "../core/index.ts";
 import { SparkDaemonRelocationError } from "../relocation.ts";
 import { SparkDaemonControlError } from "../control-error.ts";
-import {
-  deliverSessionNotification,
-  type SessionNotificationDeliveryResult,
-} from "../session-notification-delivery.ts";
 import { isRecord } from "./is-record.ts";
 import {
   SparkDaemonStillStartingError,
@@ -44,6 +40,12 @@ import {
   type LocalTurnResult,
   type LocalWorkspaceClientResult,
 } from "./types.ts";
+
+export {
+  deliverSessionNotificationFromLocalRpc,
+  requireChannelIngress,
+  requireSessionRegistry,
+} from "./session-notification-helpers.ts";
 
 export function isLocalRpcSafeWhileAdmissionClosed(method: string): boolean {
   return (
@@ -123,16 +125,6 @@ export function localRpcError(error: unknown): LocalRpcErrorPayload {
     return { message: error.message, code: error.code.toLowerCase() };
   }
   return { message: error instanceof Error ? error.message : String(error) };
-}
-
-export function requireSessionRegistry(options: LocalRpcHandlerOptions): DaemonSessionRegistry {
-  if (!options.sessionRegistry) {
-    throw new SparkDaemonControlError(
-      "session_registry_unavailable",
-      "Spark daemon session registry is not available.",
-    );
-  }
-  return options.sessionRegistry;
 }
 
 export function requireModelControl(options: LocalRpcHandlerOptions): SparkDaemonModelControl {
@@ -286,39 +278,4 @@ export async function settleManagedSessionTurn(
   } catch (error) {
     console.error(`[spark-daemon] failed to settle session turn ${sessionId}`, error);
   }
-}
-
-export async function deliverSessionNotificationFromLocalRpc(
-  options: LocalRpcHandlerOptions,
-  input: { sessionId: string; messageId: string },
-): Promise<SessionNotificationDeliveryResult> {
-  const mailStore = options.mailStore;
-  if (!mailStore?.get || !mailStore.recordChannelDelivery) {
-    throw new SparkDaemonControlError(
-      "session_mail_store_unavailable",
-      "Spark daemon session mail delivery store is unavailable.",
-    );
-  }
-  return await deliverSessionNotification(input, {
-    mailStore: {
-      get: mailStore.get.bind(mailStore),
-      recordChannelDelivery: mailStore.recordChannelDelivery.bind(mailStore),
-    },
-    sessionRegistry: requireSessionRegistry(options),
-    channelIngress: requireChannelIngress(options),
-    ...(options.notificationDeliveryQueue
-      ? { deliveryQueue: options.notificationDeliveryQueue }
-      : {}),
-  });
-}
-export function requireChannelIngress(
-  options: LocalRpcHandlerOptions,
-): NonNullable<LocalRpcHandlerOptions["channelIngress"]> {
-  if (!options.channelIngress) {
-    throw new SparkDaemonControlError(
-      "channel_runtime_unavailable",
-      "Spark daemon channel runtime is not available.",
-    );
-  }
-  return options.channelIngress;
 }

@@ -246,7 +246,17 @@ describe("migrateSparkDaemonDatabase", () => {
           "invocations_session_updated_idx",
         ]),
       );
-      expect(indexNames(db, "invocation_events")).toContain("invocation_events_cursor_idx");
+      expect(indexNames(db, "invocation_events")).toEqual(
+        expect.arrayContaining([
+          "invocation_events_cursor_idx",
+          "invocation_events_delivery_order_idx",
+        ]),
+      );
+      expect(indexColumns(db, "invocation_events_delivery_order_idx")).toEqual([
+        "created_at",
+        "invocation_id",
+        "sequence",
+      ]);
       expect(indexNames(db, "invocation_event_deliveries")).toContain(
         "invocation_event_deliveries_cursor_idx",
       );
@@ -375,6 +385,12 @@ function columnNames(db: DatabaseSync, table: string): string[] {
 function indexNames(db: DatabaseSync, table: string): string[] {
   return (db.prepare(`PRAGMA index_list(${table})`).all() as Array<{ name: string }>).map(
     (index) => index.name,
+  );
+}
+
+function indexColumns(db: DatabaseSync, index: string): string[] {
+  return (db.prepare("PRAGMA index_info(" + index + ")").all() as Array<{ name: string }>).map(
+    (column) => column.name,
   );
 }
 

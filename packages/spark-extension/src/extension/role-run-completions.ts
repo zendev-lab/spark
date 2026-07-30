@@ -132,7 +132,7 @@ export function formatHiddenRoleRunInbox(input: HiddenRoleRunInbox): string {
   if (input.remaining > 0)
     lines.push(`- ${input.remaining} more unread result(s) remain for a later turn.`);
   lines.push(
-    'Use artifact refs or task_read({ action: "run_status", runAction: "inspect" }) for bounded details if needed.',
+    'Use Evidence refs or task_read({ action: "run_status", runAction: "inspect" }) for bounded details if needed.',
   );
   return lines.join("\n");
 }
@@ -164,13 +164,13 @@ export function appendRecentRoleRunCompletionLines(
 function formatRoleRunCompletionLine(summary: TaskRunCompletionSummary): string {
   const role = summary.roleRef ? ` role=${shortRoleLabel(summary.roleRef)}` : "";
   const runName = summary.runName ? ` name=${summary.runName}` : "";
-  const visibleArtifactRefs = summary.artifactRefs.slice(0, 5);
-  const hiddenArtifactRefs = summary.artifactRefs.length - visibleArtifactRefs.length;
-  const artifacts =
-    summary.artifactRefs.length > 0
-      ? ` artifacts=${visibleArtifactRefs.join(",")}${hiddenArtifactRefs > 0 ? `,…+${hiddenArtifactRefs}` : ""}`
-      : " artifacts=none";
-  return `- [${summary.status}] task=${summary.taskRef} run=${summary.runRef}${role}${runName} — ${truncateInline(summary.summary, 180)}${artifacts}`;
+  const visibleEvidenceRefs = summary.evidenceRefs.slice(0, 5);
+  const hiddenEvidenceRefs = summary.evidenceRefs.length - visibleEvidenceRefs.length;
+  const evidence =
+    summary.evidenceRefs.length > 0
+      ? ` evidence=${visibleEvidenceRefs.join(",")}${hiddenEvidenceRefs > 0 ? `,…+${hiddenEvidenceRefs}` : ""}`
+      : " evidence=none";
+  return `- [${summary.status}] task=${summary.taskRef} run=${summary.runRef}${role}${runName} — ${truncateInline(summary.summary, 180)}${evidence}`;
 }
 
 function hiddenRoleRunNextAction(summary: TaskRunCompletionSummary): string {
@@ -187,7 +187,7 @@ function hiddenRoleRunNextAction(summary: TaskRunCompletionSummary): string {
   if (summary.status === "cancelled") {
     return `inspect with task_read({ action: "run_status", runAction: "inspect", runRef: "${summary.runRef}" }); decide whether to requeue, supersede, or acknowledge cancellation`;
   }
-  return "continue parent task using this compact summary and artifact refs";
+  return "continue parent task using this compact summary and Evidence refs";
 }
 
 function cloneTaskRunCompletionSummary(
@@ -195,7 +195,7 @@ function cloneTaskRunCompletionSummary(
 ): TaskRunCompletionSummary {
   return {
     ...summary,
-    artifactRefs: [...summary.artifactRefs],
+    evidenceRefs: [...summary.evidenceRefs],
     outcome: summary.outcome ? { ...summary.outcome } : undefined,
   };
 }

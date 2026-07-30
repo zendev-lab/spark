@@ -24,9 +24,51 @@ export interface SparkBuiltinSkill {
   body: string;
 }
 
+export const MODEL_REPRODUCTION_SKILL_NAME = "model-reproduction" as const;
+
 export function defaultBuiltinSkillsDir(): string {
   const hostDir = dirname(fileURLToPath(import.meta.url));
-  return resolve(hostDir, "../skills");
+  const adjacent = resolve(hostDir, "../skills");
+  if (existsSync(adjacent)) return adjacent;
+  try {
+    const sourcePath = fileURLToPath(import.meta.resolve("@zendev-lab/spark-host/builtin-skills"));
+    const fromPackage = resolve(dirname(sourcePath), "../skills");
+    if (existsSync(fromPackage)) return fromPackage;
+  } catch {
+    // Fall through to the source-tree default below.
+  }
+  return resolve(process.cwd(), "packages", "spark-host", "skills");
+}
+
+export function defaultModelReproductionSkillPath(): string {
+  return resolve(defaultBuiltinSkillsDir(), MODEL_REPRODUCTION_SKILL_NAME, "SKILL.md");
+}
+
+export async function loadModelReproductionSkill(): Promise<SparkBuiltinSkill> {
+  const filePath = defaultModelReproductionSkillPath();
+  const skill = await loadBuiltinSkillFromFile(filePath);
+  if (!skill) throw new Error(`Built-in repro skill is missing valid frontmatter: ${filePath}`);
+  return skill;
+}
+
+export async function renderModelReproductionSkillAutoloadPrompt(reproId: string): Promise<string> {
+  const skill = await loadModelReproductionSkill();
+  return [
+    `Repro skill checkpoint: load once for reproId=${reproId}.`,
+    "The following built-in skill is loaded in full for this repro. Follow it and resolve relative references from its directory.",
+    "Do not reload the core skill on later ticks unless the user explicitly asks.",
+    "",
+    "<repro_skill>",
+    `  <name>${escapeXml(skill.name)}</name>`,
+    `  <location>${escapeXml(skill.filePath)}</location>`,
+    "  <content>",
+    ...skill.body
+      .trimEnd()
+      .split(/\r?\n/u)
+      .map((line) => `    ${line}`),
+    "  </content>",
+    "</repro_skill>",
+  ].join("\n");
 }
 
 export function defaultSparkCueSkillsDir(): string {

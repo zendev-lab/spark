@@ -48,6 +48,12 @@ model ids (`Claude Opus 4.6`, `Opus 5`, `Claude Opus 4.8`,
 `Claude Sonnet 5`, `Fable 5`, `gpt-5.6-sol`, `gpt-5.6-luna`,
 `gpt-5.6-terra`).
 
+The root Pi compatibility profile loads the separate
+`@zendev-lab/spark-ai/baidu-oneapi-compat-extension` adapter. Only that entrypoint
+imports Pi's temporary `compat` API factories; the native provider uses modern
+public `pi-ai` API subpaths. Both adapters share the model catalog, payload
+rewrites, normalization, and bounded retry behavior from `baidu-oneapi.ts`.
+
 Authentication:
 
 - `BAIDU_ONEAPI_API_KEY` is supported as an environment variable.

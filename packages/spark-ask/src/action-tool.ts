@@ -7,14 +7,15 @@ import type {
   ToolRenderComponent,
   ToolRenderTheme,
 } from "@zendev-lab/spark-core";
+import { truncateToWidth } from "@zendev-lab/spark-text";
 import {
-  isUserAnsweredAskEvidenceArtifactBody,
+  isUserAnsweredAskEvidenceBody,
   recordCanonicalAskEvidenceReceipt,
-  type SparkAskEvidenceArtifactBody,
+  type SparkAskEvidenceBody,
 } from "./evidence.ts";
 
 export type SparkAskAction = "ask" | "flow";
-export type SparkAskAutoAnswerMode = "reviewer";
+export type SparkAskAutoAnswerMode = boolean;
 export const DEFAULT_ASK_WAIT_TIMEOUT_MS = 60 * 60_000;
 const MAX_ASK_WAIT_TIMEOUT_MS = 24 * 60 * 60_000;
 
@@ -106,9 +107,7 @@ class ToolCallText implements ToolRenderComponent {
   }
 
   render(width: number): string[] {
-    return [
-      this.text.length > width ? `${this.text.slice(0, Math.max(0, width - 1))}…` : this.text,
-    ];
+    return [truncateToWidth(this.text, Math.max(1, width), "…")];
   }
 }
 
@@ -120,7 +119,7 @@ export function registerSparkAskActionTool(
     name: "ask",
     label: "Ask",
     description:
-      "Canonical ask capability. Use action=ask for a structured user ask; action=flow forces the fullscreen multi-question ask_flow renderer. autoAnswer=reviewer waits for the user first and lets the host reviewer take over only after that wait times out; ordinary asks do not auto-answer.",
+      "Canonical ask capability. Use action=ask for a structured user ask; action=flow forces the fullscreen multi-question ask_flow renderer. autoAnswer=true waits for the user first and lets the host reviewer take over only after that wait times out; ordinary asks do not auto-answer.",
     promptGuidelines: [
       "Use ask as the canonical user-question tool instead of choosing between ask_user and ask_flow directly.",
       "Use delivery=blocking when this turn cannot continue without the answer; use delivery=async to create an Inbox request and continue immediately.",
@@ -132,9 +131,9 @@ export function registerSparkAskActionTool(
     parameters: Type.Object({
       action: Type.Optional(Type.String({ description: "ask | flow. Defaults to ask." })),
       autoAnswer: Type.Optional(
-        Type.String({
+        Type.Boolean({
           description:
-            "Optional host policy. reviewer asks the user first, then uses the injected reviewer resolver only after the human wait times out.",
+            "When true, ask the user first, then use the injected reviewer resolver only after the human wait times out.",
         }),
       ),
       recordAsEvidence: Type.Optional(
@@ -242,8 +241,8 @@ function normalizeAskAction(value: unknown): SparkAskAction {
 
 function normalizeAskAutoAnswerMode(value: unknown): SparkAskAutoAnswerMode | undefined {
   if (value === undefined || value === null || value === false) return undefined;
-  if (value === "reviewer") return "reviewer";
-  throw new Error("ask.autoAnswer must be reviewer when provided");
+  if (value === true) return true;
+  throw new Error("ask.autoAnswer must be a boolean when provided");
 }
 
 function contextAutoAnswerMode(ctx: SparkHostContext): unknown {
@@ -362,14 +361,15 @@ async function maybeRecordAskEvidence(
   if (params.recordAsEvidence !== true) return result;
   const cwd = typeof ctx.cwd === "string" ? ctx.cwd : undefined;
   if (!cwd) throw new Error("ask recordAsEvidence requires a workspace cwd");
-  const body: SparkAskEvidenceArtifactBody = {
-    schema: "spark.ask.evidence/v1",
+  const body: SparkAskEvidenceBody = {
+    schema: "spark.ask.evidence/v2",
     request: decodeAutoAnswerRequest(params),
     result: isRecord(result.details) ? (result.details.result ?? null) : null,
+    answerSource: "user",
     autoAnswered: false,
     recordedAt: new Date().toISOString(),
   };
-  if (!isUserAnsweredAskEvidenceArtifactBody(body)) {
+  if (!isUserAnsweredAskEvidenceBody(body)) {
     if (didHumanAskTimeOut(result)) return result;
     throw new Error(
       `ask.recordAsEvidence requires a completed user-answered result (observed ${describeAskResultStatus(result)}). ` +
@@ -477,70 +477,35 @@ function validateAutoAnswerResult(
 
 function withSyntheticAutoAnswerUi(
   ctx: SparkHostContext,
-  request: SparkAskAutoAnswerRequest,
+  _request: SparkAskAutoAnswerRequest,
   answers: Record<string, SparkAskAutoAnswerEntry>,
 ): SparkHostContext {
-  let index = 0;
-  const nextQuestion = () => request.questions[index++];
-  const ui = {
-    // Reviewer owns the answer only after the host has closed the human interaction.
-    // Do not reopen that interaction while converting reviewer output through the raw adapter.
-    interaction: undefined,
-    select: async () => labelChoice(nextQuestion(), answers),
-    selectWithCustom: async () => selectionChoice(nextQuestion(), answers),
-    input: async () => freeformChoice(nextQuestion(), answers),
-  };
-  return {
-    ...(isRecord(ctx) ? ctx : {}),
-    ui: { ...(isRecord(ctx) && isRecord(ctx.ui) ? ctx.ui : {}), ...ui },
-  };
-}
-
-function selectionChoice(
-  question: SparkAskAutoAnswerQuestion | undefined,
-  answers: Record<string, SparkAskAutoAnswerEntry>,
-): { value?: string; customText?: string } | undefined {
-  if (!question) return undefined;
-  const answer = answers[question.id];
-  if (!answer) return undefined;
-  if (answer.customText !== undefined) return { customText: answer.customText };
-  const labels = labelsForValues(question, answer.values ?? []);
-  return labels.length > 0 ? { value: labels.join(", ") } : undefined;
-}
-
-function labelChoice(
-  question: SparkAskAutoAnswerQuestion | undefined,
-  answers: Record<string, SparkAskAutoAnswerEntry>,
-): string | undefined {
-  if (!question) return undefined;
-  const answer = answers[question.id];
-  if (!answer) return undefined;
-  if (answer.customText !== undefined) return answer.customText;
-  return labelsForValues(question, answer.values ?? []).join(", ") || undefined;
-}
-
-function freeformChoice(
-  question: SparkAskAutoAnswerQuestion | undefined,
-  answers: Record<string, SparkAskAutoAnswerEntry>,
-): string | undefined {
-  if (!question) return undefined;
-  const answer = answers[question.id];
-  return answer?.customText ?? answer?.notes ?? answer?.comment;
-}
-
-function labelsForValues(question: SparkAskAutoAnswerQuestion, values: string[]): string[] {
-  const byValue = new Map((question.options ?? []).map((option) => [option.value, option.label]));
-  return values.flatMap((value) => {
-    const label = byValue.get(value);
-    return label ? [label] : [];
+  const interaction = async (interactionRequest: { requestId?: unknown }) => ({
+    kind: "askFlow" as const,
+    requestId:
+      typeof interactionRequest.requestId === "string"
+        ? interactionRequest.requestId
+        : `ask-reviewer:${Date.now().toString(36)}`,
+    status: "answered" as const,
+    answers,
   });
+  const syntheticContext: SparkHostContext & { askAnswerSource: "reviewer" } = {
+    ...(isRecord(ctx) ? ctx : {}),
+    askAnswerSource: "reviewer",
+    ui: {
+      ...(isRecord(ctx) && isRecord(ctx.ui) ? ctx.ui : {}),
+      interaction,
+      custom: undefined,
+    },
+  };
+  return syntheticContext;
 }
 
 function missingAutoAnswerResolverReason(): string {
   return [
-    "ask autoAnswer=reviewer cannot run because this tool call did not receive a host-provided reviewer auto-answer resolver.",
+    "ask autoAnswer=true cannot run because this tool call did not receive a host-provided reviewer auto-answer resolver.",
     "Spark injects that resolver only for active goal turns and deliberately clears it for /implement or ordinary manual asks.",
-    "Start or resume a goal and run the goal turn, or omit autoAnswer=reviewer for a normal user-facing ask.",
+    "Start or resume a goal and run the goal turn, or omit autoAnswer for a normal user-facing ask.",
     "If a session goal is already active and this still appears, the Spark goal ask-auto-answer policy did not attach its resolver to the current tool context.",
   ].join(" ");
 }
@@ -570,6 +535,10 @@ function annotateAutoAnswerResult(
     ...result,
     details: {
       ...(isRecord(result.details) ? result.details : {}),
+      answerSource: "reviewer",
+      result: isRecord(result.details?.result)
+        ? { ...result.details.result, answerSource: "reviewer" }
+        : result.details?.result,
       autoAnswered: true,
       autoAnswer: {
         mode: "reviewer",
@@ -599,7 +568,7 @@ function renderAskCall(args: Record<string, unknown>, theme: ToolRenderTheme): T
   const action = typeof args.action === "string" ? args.action : "ask";
   const title = typeof args.title === "string" ? args.title : undefined;
   const questionCount = Array.isArray(args.questions) ? `${args.questions.length}q` : undefined;
-  const autoAnswer = args.autoAnswer === "reviewer" ? "auto=reviewer" : undefined;
+  const autoAnswer = args.autoAnswer === true ? "auto=true" : undefined;
   const text = ["ask", `action=${action}`, autoAnswer, title, questionCount]
     .filter(Boolean)
     .join(" ");

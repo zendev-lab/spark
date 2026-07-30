@@ -2,10 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import type { ExtensionRoleRunner } from "@zendev-lab/spark-core";
-import {
-  createRoleNativeExecutorResolver,
-  resolveSparkSourceHeadlessExecutorSpecifier,
-} from "../packages/spark-roles/src/native-executor.ts";
+import { createRoleNativeExecutorResolver } from "../packages/spark-roles/src/native-executor.ts";
 
 function fakeRequest() {
   return {
@@ -28,14 +25,6 @@ function fakeRequest() {
     timeoutMs: 1_000,
   };
 }
-
-test("role native executor source fallback bypasses extension-loader package aliases", async () => {
-  const specifier = resolveSparkSourceHeadlessExecutorSpecifier();
-
-  assert.match(specifier, /\/apps\/spark-tui\/src\/headless-role-executor\.ts$/u);
-  const module = await import(specifier);
-  assert.equal(typeof module.createSparkHeadlessRoleExecutor, "function");
-});
 
 test("role native executor resolver prefers host-provided ctx.runRole", async () => {
   let loadCalls = 0;
@@ -63,10 +52,10 @@ test("role native executor resolver creates a cached headless fallback", async (
   let loadCalls = 0;
   let factoryCalls = 0;
   let executorCalls = 0;
-  let loadedSpecifier: string | undefined;
+  let loadedOptions: { moduleSpecifier?: string } | undefined;
   const resolve = createRoleNativeExecutorResolver({
     loadHeadlessModule: async (options) => {
-      loadedSpecifier = options?.moduleSpecifier;
+      loadedOptions = options;
       loadCalls += 1;
       return {
         createSparkHeadlessSessionExecutor: () => async () => ({}),
@@ -93,9 +82,33 @@ test("role native executor resolver creates a cached headless fallback", async (
   const result = await first(fakeRequest());
   assert.equal(result.stdout, "fallback");
   assert.equal(loadCalls, 1);
-  assert.match(loadedSpecifier ?? "", /\/apps\/spark-tui\/src\/headless-role-executor\.ts$/u);
+  assert.equal(loadedOptions, undefined);
   assert.equal(factoryCalls, 1);
   assert.equal(executorCalls, 1);
+});
+
+test("role native executor forwards an explicit packaged executor override", async () => {
+  let loadedSpecifier: string | undefined;
+  const resolve = createRoleNativeExecutorResolver({
+    moduleSpecifier: "/opt/spark/spark-headless-role-executor.js",
+    loadHeadlessModule: async (options) => {
+      loadedSpecifier = options?.moduleSpecifier;
+      return {
+        createSparkHeadlessSessionExecutor: () => async () => ({}),
+        createSparkHeadlessRoleExecutor:
+          () => async (request: Parameters<ExtensionRoleRunner>[0]) => ({
+            record: { ...request.record, status: "succeeded" as const },
+            stdout: "packaged",
+            stderr: "",
+            jsonEvents: [],
+          }),
+      };
+    },
+  });
+
+  const executor = await resolve({});
+  assert.equal((await executor(fakeRequest())).stdout, "packaged");
+  assert.equal(loadedSpecifier, "/opt/spark/spark-headless-role-executor.js");
 });
 
 test("role native executor resolver reports headless fallback load failures", async () => {

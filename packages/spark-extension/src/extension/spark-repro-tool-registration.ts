@@ -1,18 +1,25 @@
 /** Spark repro tool adapter for the host-neutral reproduction contract. */
 
 import { Type } from "typebox";
-import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import { verifyCanonicalAskEvidenceArtifact } from "@zendev-lab/spark-ask";
-import type { EvidenceRef } from "@zendev-lab/spark-core";
 import type { SparkDriverView } from "@zendev-lab/spark-protocol";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
+import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+import { verifyCanonicalAskEvidence } from "@zendev-lab/spark-ask";
+import { isRef, type EvidenceRef, type TaskRef } from "@zendev-lab/spark-core";
+import { sparkStateCwd, updateSubgoalStatus } from "@zendev-lab/spark-loop";
 import { clearSessionGoal } from "./spark-session-goals.ts";
 import { clearSessionLoop } from "./spark-session-loops.ts";
+import {
+  createProjectBackedSessionRepro,
+  materializeReproStagePlan,
+} from "./spark-repro-project.ts";
+import { collectReproOrchestrationSnapshot } from "./spark-repro-orchestration.ts";
+import { reconcileManagedTaskSessions } from "./spark-task-session-dispatch.ts";
 import { sparkActiveLens } from "./spark-drive-state.ts";
 import {
   advanceReproPhase,
   advanceReproStage,
   createReproStepAskBinding,
-  createSparkSessionRepro,
   encodeReproStepAskBinding,
   currentPhaseAcceptance,
   currentReproStage,
@@ -22,9 +29,12 @@ import {
   isPhaseComplete,
   isReproRequirementSatisfied,
   isStageComplete,
+  nextReproStagePlanningBlocker,
+  nextReproStep,
   recordReproRequirementProof,
   readSessionRepro,
   reproRequirementBlockers,
+  reproStepPlanRevision,
   reviseReproPlan,
   settleReproTick,
   stepDefinitionDigest,
@@ -35,6 +45,8 @@ import {
   type SparkReproRequirement,
   type SparkReproRequirementProof,
   type SparkReproStageName,
+  type SparkReproSubgoal,
+  type SparkReproSubgoalPlanInput,
   type SparkReproStep,
   type SparkReproStepAuthority,
   type SparkReproStepDefinition,
@@ -43,11 +55,31 @@ import {
   type SparkSessionRepro,
 } from "./spark-session-repro.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
-import { sparkSessionOwnerKey } from "@zendev-lab/spark-loop";
 import {
   prepareSparkDaemonDriverOwner,
   type SparkDaemonDriverControl,
 } from "./spark-daemon-driver-client.ts";
+
+function reproStepPlanSchema() {
+  return Type.Object({
+    id: Type.String(),
+    stage: Type.String(),
+    goal: Type.String(),
+    doneWhen: Type.Array(Type.String()),
+    evidenceRequired: Type.Array(Type.String()),
+    authority: Type.String(),
+    dependsOn: Type.Optional(Type.Array(Type.String())),
+  });
+}
+
+function reproSubgoalPlanSchema() {
+  return Type.Intersect([
+    reproStepPlanSchema(),
+    Type.Object({
+      taskRef: Type.Optional(Type.String({ pattern: "^task:.+", minLength: 6 })),
+    }),
+  ]);
+}
 
 interface SparkReproToolDeps {
   driverControl: SparkDaemonDriverControl;
@@ -79,10 +111,10 @@ export function registerSparkReproTool(
     promptGuidelines: [
       "Use repro action=status to inspect the goal contract, current plan revision, typed steps, stable requirement ids, and blockers.",
       "Use repro action=start to begin the repro drive (clears goal/loop); pass objective for user-supplied reproduction focus.",
-      "Use repro action=plan to set difficulty (1-10), revise the Goal Contract, or append a complete typed plan revision. Higher difficulty increases the enforced minimum step budget. Every step needs one goal, explicit doneWhen/evidenceRequired, authority, and stable id.",
+      "Use repro action=plan to set difficulty (1-10), revise the Goal Contract, or append/update stage-scoped subgoals. Split each stage by its objective, experiment risk, dependencies, and required evidence; every subgoal needs a stable id, explicit doneWhen/evidenceRequired, and authority.",
       "Use repro action=step to update one step. A done step requires existing evidence that passes a typed StepVerifier; safe_local steps require spark.repro.step-proof/v1, while ask_decision/ask_approval steps require a current bound canonical Ask receipt.",
       "In setup, first verify whether a runnable competitor/reference baseline exists (typically Megatron). If missing, ask how to construct it before any baseline probe; do not invent a substitute.",
-      "Prefer the main session for repro scheduling and execution; do not default to role/session/assign/workflow fan-out.",
+      "The main session owns repro planning and reconciliation; use canonical assign to dispatch the independent safe_local ready task frontier in parallel, while ask_decision and ask_approval tasks stay with the owner and are never dispatched.",
       "When blocked by a missing decision, ambiguity, or a problem the user can unblock, call ask immediately; do not guess or end with only a prose blocker.",
       "Use repro action=record with requirementId and a matching evidence, decision, or validation proof.",
       "Evidence and validation refs must name existing evidence entries. Decision refs must name user-answered canonical ask evidence created with recordAsEvidence=true.",
@@ -133,7 +165,7 @@ export function registerSparkReproTool(
           minimum: 1,
           maximum: 10,
           description:
-            "Task difficulty for action=plan. Enforces adaptive step budgets: 4/6/8/11/13.",
+            "Task difficulty for action=plan. Guides qualitative stage decomposition without enforcing a numeric subgoal count.",
         }),
       ),
       goalContract: Type.Optional(
@@ -145,28 +177,17 @@ export function registerSparkReproTool(
           evidenceRequired: Type.Array(Type.String()),
         }),
       ),
-      steps: Type.Optional(
-        Type.Array(
-          Type.Object({
-            id: Type.String(),
-            stage: Type.String(),
-            goal: Type.String(),
-            doneWhen: Type.Array(Type.String()),
-            evidenceRequired: Type.Array(Type.String()),
-            authority: Type.String(),
-            dependsOn: Type.Optional(Type.Array(Type.String())),
-          }),
-        ),
-      ),
+      steps: Type.Optional(Type.Array(reproStepPlanSchema())),
+      subgoals: Type.Optional(Type.Array(reproSubgoalPlanSchema())),
       stepId: Type.Optional(Type.String()),
       stepStatus: Type.Optional(Type.String()),
       stepEvidenceRefs: Type.Optional(Type.Array(Type.String())),
       blocker: Type.Optional(Type.String()),
     }),
     async execute(
-      _toolCallId: string,
+      toolCallId: string,
       params: Record<string, unknown>,
-      _signal: AbortSignal,
+      signal: AbortSignal,
       _onUpdate: (update: { content: { type: "text"; text: string }[] }) => void,
       ctx: SparkToolContext,
     ) {
@@ -195,8 +216,11 @@ export function registerSparkReproTool(
       if (action === "start") {
         const ownerSessionId = await prepareSparkDaemonDriverOwner(ctx, deps.driverControl);
         const objective = normalizeOptionalReproObjective(params.objective);
-        const existing = await readSessionRepro(cwd, ctx);
-        if (existing?.status === "active") {
+        const stored = await readSessionRepro(cwd, ctx);
+        if (stored?.status === "active") {
+          const existing = stored.projectRef
+            ? stored
+            : (await createProjectBackedSessionRepro(cwd, ctx, { existing: stored })).repro;
           const repro =
             objective && existing.objective !== objective
               ? reviseReproPlan(existing, {
@@ -223,7 +247,7 @@ export function registerSparkReproTool(
                 type: "text" as const,
                 text:
                   repro === existing
-                    ? `Repro drive is already active; driver ${driverHealth.status}.`
+                    ? "Repro drive is already active."
                     : `Repro drive objective updated: ${objective}`,
               },
             ],
@@ -232,8 +256,7 @@ export function registerSparkReproTool(
         }
         await clearSessionGoal(cwd, ctx);
         await clearSessionLoop(cwd, ctx);
-        const repro = createSparkSessionRepro(sparkSessionOwnerKey(ctx), undefined, { objective });
-        await writeSessionRepro(cwd, repro, ctx);
+        const { repro } = await createProjectBackedSessionRepro(cwd, ctx, { objective });
         const driverHealth = await ensureActiveReproDriver(ctx, deps.driverControl, repro, {
           ownerSessionId,
           forceSchedule: true,
@@ -263,7 +286,7 @@ export function registerSparkReproTool(
           content: [
             {
               type: "text" as const,
-              text: `Repro protocol revised. Goal Contract: ${updated.goalContract.status}; plan revision: ${updated.plan.currentRevision}; difficulty: ${updated.plan.difficulty}/10; steps: ${updated.plan.steps.length}/${updated.plan.minimumStepCount} minimum.`,
+              text: `Repro protocol revised. Goal Contract: ${updated.goalContract.status}; plan revision: ${updated.plan.currentRevision}; difficulty: ${updated.plan.difficulty}/10; materialized subgoals: ${updated.subgoals.length}.`,
             },
           ],
           details: reproDetails(updated),
@@ -373,12 +396,24 @@ export function registerSparkReproTool(
             isError: true,
           };
         }
-        const settled = settleReproTick(repro);
+        const taskSessionReconciliation = repro.projectRef
+          ? await reconcileManagedTaskSessions({
+              cwd,
+              ctx,
+              projectRef: repro.projectRef,
+              subgoals: repro.subgoals,
+            })
+          : undefined;
+        const graph = repro.projectRef
+          ? ((await defaultTaskGraphStore(sparkStateCwd(cwd, ctx)).load()) ?? undefined)
+          : undefined;
+        const orchestration = collectReproOrchestrationSnapshot(repro, graph);
+        const settled = settleReproTick(repro, orchestration);
         await writeSessionRepro(cwd, settled.repro, ctx);
         await deps.refreshSparkWidget?.(cwd, ctx);
-        if (settled.decision === "continue") {
+        if (settled.decision === "continue" && settled.scheduleDelayMs !== undefined) {
           await ctx.driver.schedule({
-            delayMs: 30_000,
+            delayMs: settled.scheduleDelayMs,
             prompt: renderReproTickInstruction(settled.repro),
             reason: normalizeOptionalString(params.reason) ?? "repro semantic progress settled",
           });
@@ -386,10 +421,30 @@ export function registerSparkReproTool(
             content: [
               {
                 type: "text" as const,
-                text: `Repro tick settled with progress; next tick scheduled in 30s. Stagnation: ${settled.repro.stopGuard.stagnationCount}/${settled.repro.stopGuard.limit}.`,
+                text: `Repro tick settled with progress; next tick scheduled in ${settled.scheduleDelayMs / 1000}s. Stagnation: ${settled.repro.stopGuard.stagnationCount}/${settled.repro.stopGuard.limit}.`,
               },
             ],
-            details: reproDetails(settled.repro),
+            details: {
+              ...reproDetails(settled.repro),
+              ...orchestration,
+              ...(taskSessionReconciliation ? { taskSessionReconciliation } : {}),
+              scheduleDelayMs: settled.scheduleDelayMs,
+            },
+          };
+        }
+        if (settled.decision === "continue" && settled.dormantReason === "awaiting_ask") {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: "Repro tick is awaiting a canonical ask response; the driver remains dormant.",
+              },
+            ],
+            details: {
+              ...reproDetails(settled.repro),
+              ...orchestration,
+              dormantReason: settled.dormantReason,
+            },
           };
         }
         if (settled.decision === "complete") {
@@ -453,7 +508,14 @@ export function registerSparkReproTool(
             details: reproDetails(phaseAdvanced),
           };
         }
-        const stageAdvanced = advanceReproStage(repro);
+        const nextStageName = repro.stages[repro.currentStageIndex + 1]?.name;
+        const advanceCandidate =
+          isStageComplete(repro) &&
+          nextStageName &&
+          !repro.subgoals.some((subgoal) => subgoal.stage === nextStageName)
+            ? (await materializeReproStagePlan(cwd, ctx, repro, nextStageName)).repro
+            : repro;
+        const stageAdvanced = advanceReproStage(advanceCandidate);
         if (stageAdvanced) {
           await writeSessionRepro(cwd, stageAdvanced, ctx);
           if (stageAdvanced.status === "complete") {
@@ -487,6 +549,8 @@ export function registerSparkReproTool(
         }
         const stage = currentReproStage(repro);
         const reasons = stage.acceptance.flatMap(reproRequirementBlockers);
+        const planningBlocker = nextReproStagePlanningBlocker(repro);
+        if (planningBlocker) reasons.push(planningBlocker);
         if (stage.gate && stage.gate.evaluation?.passed !== true) {
           reasons.push(`gate not passed: ${stage.gate.description}`);
         }
@@ -614,6 +678,7 @@ function normalizeReproPlanRevision(params: Record<string, unknown>): {
   difficulty?: number;
   goalContract?: SparkReproGoalContractInput;
   steps?: SparkReproStepDefinition[];
+  subgoals?: SparkReproSubgoalPlanInput[];
 } {
   const reason = normalizeRequiredString(params.reason, "reason");
   const difficulty =
@@ -638,17 +703,33 @@ function normalizeReproPlanRevision(params: Record<string, unknown>): {
       }
     : undefined;
   const steps = Array.isArray(params.steps)
-    ? params.steps.map((value, index) => normalizeReproStepDefinition(value, index))
+    ? params.steps.map((value, index) => normalizeReproStepDefinition(value, index, "steps"))
     : undefined;
-  if (!goalContract && !steps && difficulty === undefined) {
-    throw new Error("action=plan requires difficulty, goalContract, or steps");
+  const subgoals = Array.isArray(params.subgoals)
+    ? params.subgoals.map((value, index) => ({
+        ...normalizeReproStepDefinition(value, index, "subgoals"),
+        ...normalizeTaskRef(value, index),
+      }))
+    : undefined;
+  if (!goalContract && !steps && !subgoals && difficulty === undefined) {
+    throw new Error("action=plan requires difficulty, goalContract, steps, or subgoals");
   }
   return {
     reason,
     ...(difficulty !== undefined ? { difficulty } : {}),
     ...(goalContract ? { goalContract } : {}),
     ...(steps ? { steps } : {}),
+    ...(subgoals ? { subgoals } : {}),
   };
+}
+
+function normalizeTaskRef(value: unknown, index: number): { taskRef?: TaskRef } {
+  if (!isRecord(value) || value.taskRef === undefined || value.taskRef === null) return {};
+  const ref = normalizeRequiredString(value.taskRef, `subgoals[${index}].taskRef`);
+  if (!isRef(ref, "task")) {
+    throw new Error(`subgoals[${index}].taskRef must be a task: ref`);
+  }
+  return { taskRef: ref };
 }
 
 function normalizeReproDifficulty(value: unknown): number {
@@ -658,9 +739,13 @@ function normalizeReproDifficulty(value: unknown): number {
   return value;
 }
 
-function normalizeReproStepDefinition(value: unknown, index: number): SparkReproStepDefinition {
-  if (!isRecord(value)) throw new Error(`steps[${index}] must be an object`);
-  const stage = normalizeRequiredString(value.stage, `steps[${index}].stage`);
+function normalizeReproStepDefinition(
+  value: unknown,
+  index: number,
+  field: "steps" | "subgoals",
+): SparkReproStepDefinition {
+  if (!isRecord(value)) throw new Error(`${field}[${index}] must be an object`);
+  const stage = normalizeRequiredString(value.stage, `${field}[${index}].stage`);
   if (
     stage !== "setup" &&
     stage !== "scaffold" &&
@@ -668,25 +753,25 @@ function normalizeReproStepDefinition(value: unknown, index: number): SparkRepro
     stage !== "scale" &&
     stage !== "deliver"
   ) {
-    throw new Error(`steps[${index}].stage is invalid`);
+    throw new Error(`${field}[${index}].stage is invalid`);
   }
-  const authority = normalizeRequiredString(value.authority, `steps[${index}].authority`);
+  const authority = normalizeRequiredString(value.authority, `${field}[${index}].authority`);
   if (authority !== "safe_local" && authority !== "ask_decision" && authority !== "ask_approval") {
-    throw new Error(`steps[${index}].authority is invalid`);
+    throw new Error(`${field}[${index}].authority is invalid`);
   }
   return {
-    id: normalizeRequiredString(value.id, `steps[${index}].id`),
+    id: normalizeRequiredString(value.id, `${field}[${index}].id`),
     stage: stage as SparkReproStageName,
-    goal: normalizeRequiredString(value.goal, `steps[${index}].goal`),
-    doneWhen: normalizeStringArray(value.doneWhen, `steps[${index}].doneWhen`),
+    goal: normalizeRequiredString(value.goal, `${field}[${index}].goal`),
+    doneWhen: normalizeStringArray(value.doneWhen, `${field}[${index}].doneWhen`),
     evidenceRequired: normalizeStringArray(
       value.evidenceRequired,
-      `steps[${index}].evidenceRequired`,
+      `${field}[${index}].evidenceRequired`,
     ),
     authority: authority as SparkReproStepAuthority,
     ...(value.dependsOn !== undefined
       ? {
-          dependsOn: normalizeStringArray(value.dependsOn, `steps[${index}].dependsOn`, true),
+          dependsOn: normalizeStringArray(value.dependsOn, `${field}[${index}].dependsOn`, true),
         }
       : {}),
   };
@@ -801,7 +886,7 @@ async function validateReproProofEvidence(
   }
   if (proof.kind !== "decision") return proof;
   const entry = evidence[0]!;
-  const verified = await verifyCanonicalAskEvidenceArtifact(cwd, entry);
+  const verified = await verifyCanonicalAskEvidence(cwd, entry);
   if (!verified) {
     throw new Error(
       "decision proof must reference canonical ask evidence with a valid receipt created by recordAsEvidence=true",
@@ -855,11 +940,11 @@ async function verifyReproStepEvidence(
       return {
         verdict: "Repair",
         stepId: step.id,
-        reasons: ["safe_local Step requires a spark.repro.step-proof/v1 evidence artifact"],
+        reasons: ["safe_local Step requires a spark.repro.step-proof/v1 Evidence record"],
       };
     }
     if (
-      proof.body.planRevision !== repro.plan.currentRevision ||
+      proof.body.planRevision !== reproStepPlanRevision(repro, step.id) ||
       proof.body.stepId !== step.id ||
       proof.body.definitionDigest !== expectedDigest ||
       JSON.stringify(proof.body.doneWhen) !== JSON.stringify(step.doneWhen)
@@ -872,7 +957,7 @@ async function verifyReproStepEvidence(
     }
     return verifyReproStepPass(repro, step.id, {
       verdict: "Pass",
-      planRevision: repro.plan.currentRevision,
+      planRevision: reproStepPlanRevision(repro, step.id),
       definitionDigest: expectedDigest,
       proofKind: "evidence",
       evidenceRefs,
@@ -881,7 +966,7 @@ async function verifyReproStepEvidence(
   }
 
   for (const entry of presentEntries) {
-    const verified = await verifyCanonicalAskEvidenceArtifact(cwd, entry);
+    const verified = await verifyCanonicalAskEvidence(cwd, entry);
     if (!verified) continue;
     const binding = decodeReproStepAskBinding(verified.request.context);
     const expectedBinding = createReproStepAskBinding(repro, step);
@@ -892,7 +977,7 @@ async function verifyReproStepEvidence(
     if (step.authority === "ask_approval" && verified.selectedValues[0] !== "approve") continue;
     return verifyReproStepPass(repro, step.id, {
       verdict: "Pass",
-      planRevision: repro.plan.currentRevision,
+      planRevision: reproStepPlanRevision(repro, step.id),
       definitionDigest: expectedBinding.definitionDigest,
       proofKind: step.authority === "ask_approval" ? "approval" : "decision",
       evidenceRefs,
@@ -940,7 +1025,7 @@ async function validateReproStepEvidence(cwd: string, step: SparkReproStep): Pro
   }
   if (step.status !== "done" || step.authority === "safe_local") return;
   for (const entry of evidence) {
-    if (entry && (await verifyCanonicalAskEvidenceArtifact(cwd, entry))) return;
+    if (entry && (await verifyCanonicalAskEvidence(cwd, entry))) return;
   }
   throw new Error(
     `${step.authority} step ${step.id} requires canonical ask evidence with a valid receipt`,
@@ -993,15 +1078,19 @@ function noActiveReproResult() {
   };
 }
 
-function reproStatusResult(repro: SparkSessionRepro, driverHealth: SparkReproDriverHealth) {
+function reproStatusResult(repro: SparkSessionRepro, driverHealth?: SparkReproDriverHealth) {
   const stage = currentReproStage(repro);
   const steps = currentReproSteps(repro);
   const lines = [
     `Repro drive: ${repro.status}`,
-    `Driver: ${driverHealth.status}${driverHealth.recovered ? " (recovered)" : ""}${driverHealth.error ? ` — ${driverHealth.error}` : ""}`,
+    ...(driverHealth
+      ? [
+          `Driver: ${driverHealth.status}${driverHealth.recovered ? " (recovered)" : ""}${driverHealth.error ? ` — ${driverHealth.error}` : ""}`,
+        ]
+      : []),
     `Goal Contract: ${repro.goalContract.status}`,
     `Objective: ${repro.goalContract.objective}`,
-    `Plan revision: ${repro.plan.currentRevision}; difficulty: ${repro.plan.difficulty}/10; steps: ${repro.plan.steps.length}/${repro.plan.minimumStepCount} minimum`,
+    `Plan revision: ${repro.plan.currentRevision}; difficulty: ${repro.plan.difficulty}/10; materialized subgoals: ${repro.subgoals.length}`,
     `Stage: ${stage.title} (${stage.name}) [${repro.currentStageIndex + 1}/${repro.stages.length}]`,
     `Phase: ${repro.currentPhase}`,
     "",
@@ -1031,7 +1120,7 @@ function reproStatusResult(repro: SparkSessionRepro, driverHealth: SparkReproDri
   );
   return {
     content: [{ type: "text" as const, text: lines.filter(Boolean).join("\n") }],
-    details: { ...reproDetails(repro), driver: driverHealth },
+    details: reproDetails(repro),
   };
 }
 
@@ -1040,12 +1129,13 @@ function reproDetails(repro: SparkSessionRepro): Record<string, unknown> {
   return {
     status: repro.status,
     reproId: repro.reproId,
+    projectRef: repro.projectRef,
     objective: repro.goalContract.objective,
+    subgoals: repro.subgoals,
     goalContract: repro.goalContract,
     plan: {
       currentRevision: repro.plan.currentRevision,
       difficulty: repro.plan.difficulty,
-      minimumStepCount: repro.plan.minimumStepCount,
       revisionCount: repro.plan.revisions.length,
       steps: currentReproSteps(repro),
     },
@@ -1100,25 +1190,21 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
   const unsatisfied = requirements.filter(
     (requirement) => !isReproRequirementSatisfied(requirement),
   );
-  const incompleteSteps = steps.filter(
-    (step) => step.status !== "done" && step.status !== "cancelled",
-  );
-  const completedStepIds = new Set(
-    repro.plan.steps
-      .filter((step) => step.status === "done" || step.status === "cancelled")
-      .map((step) => step.id),
-  );
-  const nextStep =
-    incompleteSteps.find((step) =>
-      (step.dependsOn ?? []).every((dependency) => completedStepIds.has(dependency)),
-    ) ?? incompleteSteps[0];
+  const nextStep = nextReproStep(repro);
   const gateBlocking = stage.gate && stage.gate.evaluation?.passed !== true;
   const lines = [
     `Spark repro drive tick — Stage ${repro.currentStageIndex + 1}/${repro.stages.length}: ${stage.title} (${stage.name}), phase=${repro.currentPhase}.`,
     `Goal Contract (${repro.goalContract.status}): ${repro.goalContract.objective}`,
-    `Plan revision: ${repro.plan.currentRevision}. Difficulty: ${repro.plan.difficulty}/10; ${repro.plan.steps.length}/${repro.plan.minimumStepCount} minimum steps. Stop Guard: ${repro.stopGuard.stagnationCount}/${repro.stopGuard.limit} unchanged settlements.`,
+    `Plan revision: ${repro.plan.currentRevision}. Difficulty: ${repro.plan.difficulty}/10; ${repro.subgoals.length} materialized subgoals. Stop Guard: ${repro.stopGuard.stagnationCount}/${repro.stopGuard.limit} unchanged settlements.`,
     "",
-    "Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver); execute one typed plan step per tick.",
+    "Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver) and each stage is advanced through explicit orchestration.",
+    "",
+    "Orchestration loop:",
+    "- Inspect the materialized Stage blueprint and revise it only when evidence changes the contract.",
+    "- Compute the dependency-ready safe_local task frontier.",
+    "- Use assign to dispatch independent ready tasks in parallel.",
+    "- Never dispatch ask_decision or ask_approval authority tasks; they remain owner-only.",
+    "- Reconcile child run and task status, then validate evidence and receipts before the owner settles.",
     "",
     "Current typed plan steps:",
     ...steps.map(
@@ -1162,7 +1248,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     "",
     "Repro drive requirements:",
     `- Operate in the selected phase (${repro.currentPhase}); use its tool policy for plan or implement work.`,
-    '- Prefer the main session for scheduling and every concrete step. Do not default to role({ action: "call" }), session({ action: "call"|"send" }), assign, or workflow_run during repro ticks; use those only when the user explicitly requests multi-agent/workflow fan-out.',
+    "- The main session owns planning and reconciliation; use assign only for the independent safe_local ready frontier, while ask_decision and ask_approval remain owner-only.",
     "- When blocked by a missing user decision, ambiguous requirement, unclear baseline/source, conflicting evidence, failing validation whose next step is unclear, or any problem the user can unblock, call ask immediately with a concrete question. Do not guess, invent substitutes, or end the turn with only a prose blocker report when ask can resolve it.",
     "- Advance milestones with repro record/evaluate/advance. Never treat prose, an unverified ref, or a bare boolean as proof.",
     "- Keep the deliverable report a live dashboard, not an append-only log: current status and one blocker card first, quantified gates next, long history behind progressive disclosure. Fold or rewrite stale sections instead of only appending, so low-signal detail cannot crowd out the current frontier.",
@@ -1178,7 +1264,8 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     lines.push(
       "",
       "Plan-phase research-first guidance:",
-      "- Reassess difficulty when scope or uncertainty changes. Use repro action=plan with difficulty 1-10 and a complete revised step list; higher difficulty must produce more independently verifiable steps.",
+      "- Each Stage entrance materializes its detailed Roadmap and Subgoal/Task DAG automatically. Use repro action=plan only for evidence-backed revisions or dynamic incidents, not to recreate the Stage skeleton.",
+      "- Reassess difficulty when scope or uncertainty changes, and split dynamic incident work by experiment risk, dependencies, and required evidence rather than a numeric quota.",
       "- Classify each unknown as fact, reversible choice, material user decision, or validation uncertainty.",
       "- Research facts from the workspace, dependencies, environment, and primary upstream sources before asking the user.",
       "- Prioritize whether a runnable competitor/reference baseline already exists (typically a Megatron implementation). Prove availability with concrete paths, entrypoints, or failed-lookup evidence; do not assume a paper or announcement means the baseline is runnable.",
@@ -1209,8 +1296,8 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
         "- Do not repeat a Fusion consultation unless the evidence or active hypotheses materially changed.",
         "- If Fusion is unavailable, partial, or failed, continue SOLO; consultation must never block reproduction.",
         "- Ask Fusion only to recommend the cheapest single-variable experiment that discriminates the active hypotheses. The main repro session remains the sole writer and executor: it must run the experiment and derive runtime_verdict=confirmed | rejected | inconclusive from new runtime evidence.",
-        "- Fusion is advisory: it must not write code, execute experiments, confirm or reject hypotheses or causality, emit a runtime verdict, satisfy repro proof or a gate, or create/register a Product Artifact.",
-        "- A Fusion call or result is neither internal evidence nor a Product Artifact. Product Artifact kinds remain exactly issue, pr, and preview.",
+        "- Fusion is advisory: it must not write code, execute experiments, confirm or reject hypotheses or causality, emit a runtime verdict, satisfy repro proof or a gate, or create/register an Artifact.",
+        "- A Fusion call or result is neither internal evidence nor an Artifact. Artifact kinds remain exactly issue, pr, and preview.",
       );
     }
   }

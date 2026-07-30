@@ -1,7 +1,7 @@
 import { Type } from "typebox";
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
-import { nowIso, type ArtifactRef, type JsonValue, type RoleRef } from "@zendev-lab/spark-core";
+import { nowIso, type EvidenceRef, type JsonValue, type RoleRef } from "@zendev-lab/spark-core";
 import { currentSparkProject, loadSparkGraph, sparkSessionKey } from "./session-state.ts";
 import {
   requestGoalCompletionReview,
@@ -94,7 +94,7 @@ export function registerSparkGoalTool(
                 Type.Literal("blocked"),
               ]),
               evidenceRefs: Type.Array(
-                Type.String({ description: "Artifact refs supporting this requirement." }),
+                Type.String({ description: "EvidenceRecord refs supporting this requirement." }),
               ),
               note: Type.Optional(Type.String()),
             },
@@ -268,7 +268,7 @@ export function registerSparkGoalTool(
               goal: existingGoal,
               proposedObjective: objective,
               review: editResult.review?.verdict,
-              reviewArtifact: editResult.reviewArtifactRef,
+              reviewEvidence: editResult.reviewEvidenceRef,
             },
           };
         const relationship = describeGoalProjectRelationship(
@@ -306,7 +306,7 @@ export function registerSparkGoalTool(
             error: "goal_pause_review_failed",
             goal: pauseResult.goal,
             review: pauseResult.review?.verdict,
-            reviewArtifact: pauseResult.reviewArtifactRef,
+            reviewEvidence: pauseResult.reviewEvidenceRef,
           },
         };
       const relationship = describeGoalProjectRelationship(pauseResult.goal, graph, project);
@@ -389,9 +389,9 @@ function normalizeGoalCompletionRequirements(value: unknown): GoalReviewRequirem
     if (!rawEvidenceRefs)
       throw new Error(`goal requirements[${index}].evidenceRefs must be an array`);
     const evidenceRefs = rawEvidenceRefs.map((ref) => {
-      if (!ref.startsWith("artifact:") || ref.length === "artifact:".length)
-        throw new Error(`goal requirements[${index}].evidenceRefs must contain artifact: refs`);
-      return ref as ArtifactRef;
+      if (!ref.startsWith("evidence:") || ref.length === "evidence:".length)
+        throw new Error(`goal requirements[${index}].evidenceRefs must contain evidence: refs`);
+      return ref as EvidenceRef;
     });
     const note =
       requirement.note === undefined
@@ -446,14 +446,14 @@ interface ReviewedGoalPauseResult {
   goal?: SparkSessionGoal;
   approved: boolean;
   review?: ReviewerRunResult;
-  reviewArtifactRef?: string;
+  reviewEvidenceRef?: string;
 }
 
 interface ReviewedGoalEditResult {
   goal?: SparkSessionGoal;
   approved: boolean;
   review?: ReviewerRunResult;
-  reviewArtifactRef?: string;
+  reviewEvidenceRef?: string;
 }
 
 async function reviewedEditCurrentSessionGoal(
@@ -478,13 +478,13 @@ async function reviewedEditCurrentSessionGoal(
     requestedStatus: "edited",
     proposedObjective,
     reason,
-    evidenceRefs: existingGoal.lastReviewArtifactRef ? [existingGoal.lastReviewArtifactRef] : [],
+    evidenceRefs: existingGoal.lastReviewEvidenceRef ? [existingGoal.lastReviewEvidenceRef] : [],
     sessionKey: sparkSessionKey(ctx),
     forkFromSession: ctx.sessionManager?.getSessionFile?.(),
   };
   const review = await runGoalReviewer(cwd, ctx, reviewerRunner, reviewInput, signal);
   const verdict = review.verdict as GoalReviewVerdict;
-  const artifact = await recordGoalTransitionReviewArtifact(
+  const evidence = await recordGoalTransitionReviewEvidence(
     cwd,
     existingGoal,
     review,
@@ -496,10 +496,10 @@ async function reviewedEditCurrentSessionGoal(
     },
   );
   if (verdict.outcome !== "approved")
-    return { goal: existingGoal, approved: false, review, reviewArtifactRef: artifact.ref };
+    return { goal: existingGoal, approved: false, review, reviewEvidenceRef: evidence.ref };
   const edited = await editSessionGoalObjective(cwd, ctx, proposedObjective);
   await refreshGoalRuntimeState(cwd, ctx, deps);
-  return { goal: edited, approved: true, review, reviewArtifactRef: artifact.ref };
+  return { goal: edited, approved: true, review, reviewEvidenceRef: evidence.ref };
 }
 
 export async function reviewedPauseCurrentSessionGoal(
@@ -522,13 +522,13 @@ export async function reviewedPauseCurrentSessionGoal(
     status: existingGoal.status,
     requestedStatus: "paused",
     reason,
-    evidenceRefs: existingGoal.lastReviewArtifactRef ? [existingGoal.lastReviewArtifactRef] : [],
+    evidenceRefs: existingGoal.lastReviewEvidenceRef ? [existingGoal.lastReviewEvidenceRef] : [],
     sessionKey: sparkSessionKey(ctx),
     forkFromSession: ctx.sessionManager?.getSessionFile?.(),
   };
   const review = await runGoalReviewer(cwd, ctx, reviewerRunner, reviewInput, signal);
   const verdict = review.verdict as GoalReviewVerdict;
-  const artifact = await recordGoalTransitionReviewArtifact(
+  const evidence = await recordGoalTransitionReviewEvidence(
     cwd,
     existingGoal,
     review,
@@ -543,7 +543,7 @@ export async function reviewedPauseCurrentSessionGoal(
       goal: existingGoal,
       approved: false,
       review,
-      reviewArtifactRef: artifact.ref,
+      reviewEvidenceRef: evidence.ref,
     };
   const goal = await updateSessionGoalStatus(cwd, ctx, "paused", {
     reason,
@@ -553,12 +553,12 @@ export async function reviewedPauseCurrentSessionGoal(
       reason: verdict.summary,
       remainingWork: verdict.remainingWork,
       blockers: verdict.blockers,
-      artifactRef: artifact.ref,
+      evidenceRef: evidence.ref,
       reviewedAt: review.record.finishedAt || nowIso(),
     },
   });
   await refreshGoalRuntimeState(cwd, ctx, deps);
-  return { goal, approved: true, review, reviewArtifactRef: artifact.ref };
+  return { goal, approved: true, review, reviewEvidenceRef: evidence.ref };
 }
 
 async function refreshGoalRuntimeState(
@@ -621,7 +621,7 @@ function failedGoalPauseReviewerRunResult(
   };
 }
 
-async function recordGoalTransitionReviewArtifact(
+async function recordGoalTransitionReviewEvidence(
   cwd: string,
   goal: SparkSessionGoal,
   review: ReviewerRunResult,
@@ -636,7 +636,7 @@ async function recordGoalTransitionReviewArtifact(
     finishedAt: review.record.finishedAt,
     ...(review.record.thinking ? { thinking: review.record.thinking } : {}),
   };
-  const artifact = await defaultArtifactStore(cwd).put({
+  const evidence = await defaultEvidenceStore(cwd).put({
     kind: "record",
     title: `Goal ${request.requestedStatus} review for session goal: ${oneLine(goal.objective)}`,
     format: "json",
@@ -657,8 +657,8 @@ async function recordGoalTransitionReviewArtifact(
       runRef: review.record.runRef,
     },
   });
-  await recordGoalSubjectReview(cwd, goal, artifact, review, input);
-  return artifact;
+  await recordGoalSubjectReview(cwd, goal, evidence, review, input);
+  return evidence;
 }
 
 function forbiddenAutonomousPauseResult(
@@ -673,7 +673,7 @@ function forbiddenAutonomousPauseResult(
         type: "text" as const,
         text:
           `Autonomous goal pause is not allowed for session goal: ${oneLine(goal.objective)}\n` +
-          'If progress is blocked, resolve the blocker first: inspect tasks, create or revise concrete blocking work with task_write({ action: "plan" }), claim/finish the blocking task, or use ask({ autoAnswer: "reviewer" }) only for a material decision after research; the user answers first and the host reviewer takes over only after timeout. Do not reduce the goal or pause it to avoid hard work.',
+          'If progress is blocked, resolve the blocker first: inspect tasks, create or revise concrete blocking work with task_write({ action: "plan" }), claim/finish the blocking task, or use ask({ autoAnswer: true }) only for a material decision after research; the user answers first and the host reviewer takes over only after timeout. Do not reduce the goal or pause it to avoid hard work.',
       },
     ],
     details: {
@@ -704,8 +704,10 @@ function renderGoalEditRejectedMessage(
   const blockers = verdict?.blockers?.length
     ? `\nBlockers: ${formatGoalReviewList(verdict.blockers)}`
     : "";
-  const artifact = result.reviewArtifactRef ? `\nReview artifact: ${result.reviewArtifactRef}` : "";
-  return `Goal edit blocked by reviewer for session goal: ${oneLine(goal.objective)}\nReview outcome: ${verdict?.outcome ?? "blocked"}\nReview summary: ${summary}${findings}${blockers}${artifact}`;
+  const reviewEvidenceSuffix = result.reviewEvidenceRef
+    ? `\nReview evidence: ${result.reviewEvidenceRef}`
+    : "";
+  return `Goal edit blocked by reviewer for session goal: ${oneLine(goal.objective)}\nReview outcome: ${verdict?.outcome ?? "blocked"}\nReview summary: ${summary}${findings}${blockers}${reviewEvidenceSuffix}`;
 }
 
 function renderGoalPauseRejectedMessage(
@@ -717,8 +719,10 @@ function renderGoalPauseRejectedMessage(
   const blockers = verdict?.blockers?.length
     ? `\nBlockers: ${formatGoalReviewList(verdict.blockers)}`
     : "";
-  const artifact = result.reviewArtifactRef ? `\nReview artifact: ${result.reviewArtifactRef}` : "";
-  return `Goal pause blocked by reviewer for session goal: ${oneLine(goal.objective)}\nReview outcome: ${verdict?.outcome ?? "blocked"}\nReview summary: ${summary}${blockers}${artifact}`;
+  const reviewEvidenceSuffix = result.reviewEvidenceRef
+    ? `\nReview evidence: ${result.reviewEvidenceRef}`
+    : "";
+  return `Goal pause blocked by reviewer for session goal: ${oneLine(goal.objective)}\nReview outcome: ${verdict?.outcome ?? "blocked"}\nReview summary: ${summary}${blockers}${reviewEvidenceSuffix}`;
 }
 
 function formatGoalReviewList(items: readonly string[]): string {
@@ -738,7 +742,7 @@ function goalCompletionResult(
       content: [
         {
           type: "text" as const,
-          text: `Goal completion approved by reviewer for session goal: ${oneLine(originalGoal.objective)}\nReview summary: ${oneLine(result.reason)}\nReview artifact: ${result.artifactRef}`,
+          text: `Goal completion approved by reviewer for session goal: ${oneLine(originalGoal.objective)}\nReview summary: ${oneLine(result.reason)}\nReview evidence: ${result.evidenceRef}`,
         },
       ],
       details: {
@@ -747,7 +751,7 @@ function goalCompletionResult(
         goal,
         outcome: result.outcome,
         review: result.review.verdict,
-        reviewArtifact: result.artifactRef,
+        reviewEvidence: result.evidenceRef,
       },
     };
   }
@@ -756,12 +760,14 @@ function goalCompletionResult(
       ? `\nBlockers: ${formatGoalReviewList(result.blockers)}`
       : "";
     const remainingWork = result.remainingWork ? `\nRemaining work: ${result.remainingWork}` : "";
-    const artifact = result.artifactRef ? `\nReview artifact: ${result.artifactRef}` : "";
+    const reviewEvidenceSuffix = result.evidenceRef
+      ? `\nReview evidence: ${result.evidenceRef}`
+      : "";
     return {
       content: [
         {
           type: "text" as const,
-          text: `Goal completion request needs changes for session goal: ${oneLine(originalGoal.objective)}\nReason: ${result.reason}${remainingWork}${blockers}${artifact}`,
+          text: `Goal completion request needs changes for session goal: ${oneLine(originalGoal.objective)}\nReason: ${result.reason}${remainingWork}${blockers}${reviewEvidenceSuffix}`,
         },
       ],
       details: {
@@ -773,7 +779,7 @@ function goalCompletionResult(
         blockers: result.blockers,
         remainingWork: result.remainingWork,
         review: result.review?.verdict,
-        reviewArtifact: result.artifactRef,
+        reviewEvidence: result.evidenceRef,
       },
     };
   }
@@ -925,9 +931,9 @@ function renderGoalStatus(
   const lines = [`Spark session goal ${goal.status}`, `Goal: ${oneLine(goal.objective)}`];
   const reason = goal.pauseReason ?? goal.completedReason;
   if (reason) lines.push(`Reason: ${reason}`);
-  if (goal.lastReviewRef || goal.lastReviewArtifactRef || goal.lastReviewedAt)
+  if (goal.lastReviewRef || goal.lastReviewEvidenceRef || goal.lastReviewedAt)
     lines.push(
-      `Last review: ${goal.lastReviewRef ?? "unrecorded"}${goal.lastReviewArtifactRef ? ` artifact=${goal.lastReviewArtifactRef}` : ""}${goal.lastReviewedAt ? ` at ${goal.lastReviewedAt}` : ""}`,
+      `Last review: ${goal.lastReviewRef ?? "unrecorded"}${goal.lastReviewEvidenceRef ? ` evidence=${goal.lastReviewEvidenceRef}` : ""}${goal.lastReviewedAt ? ` at ${goal.lastReviewedAt}` : ""}`,
     );
   if (goal.status === "active")
     lines.push("Cadence and retry state are owned by the Spark daemon driver.");

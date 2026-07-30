@@ -49,8 +49,8 @@ function graphWithRun(run: TaskRun): TaskGraph {
     status: "running",
     roleRef,
     supersededBy: [],
-    inputArtifacts: [],
-    outputArtifacts: [],
+    inputEvidenceRefs: [],
+    outputEvidenceRefs: [],
     createdAt: now,
     updatedAt: now,
   };
@@ -74,7 +74,7 @@ test("Spark role-run TUI ages failed and cancelled runs out of the active board"
       status,
       startedAt: "2026-06-17T00:00:01.000Z",
       finishedAt: "2026-06-17T00:00:02.000Z",
-      outputArtifacts: [],
+      outputEvidenceRefs: [],
       errorMessage: status === "failed" ? "historical loader failure" : undefined,
     };
     const snapshot = buildSparkRoleRunRegistry({

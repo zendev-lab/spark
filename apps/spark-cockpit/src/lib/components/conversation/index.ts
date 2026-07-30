@@ -42,6 +42,7 @@ export { default as ErrorPart } from "./ErrorPart.svelte";
 export { default as Message } from "./Message.svelte";
 export { default as MessageActions } from "./MessageActions.svelte";
 export { default as ReasoningPart } from "./ReasoningPart.svelte";
+export { default as RuntimeControlPart } from "./RuntimeControlPart.svelte";
 export { default as SessionQueue } from "./SessionQueue.svelte";
 export { default as SessionRetryAction } from "./SessionRetryAction.svelte";
 export { default as SessionStatusBar } from "./SessionStatusBar.svelte";

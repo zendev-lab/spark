@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DatabaseSync } from "node:sqlite";
 
@@ -9,20 +9,14 @@ export interface Migration {
   sql: string;
 }
 
-const sourceMigrationsDir = join(dirname(fileURLToPath(import.meta.url)), "migrations");
-const repoMigrationsDir = resolve(
-  process.env.SPARK_REPO_ROOT ?? findRepoRoot(process.cwd()),
-  "packages/spark-cockpit-db/src/migrations",
-);
+const migrationsDirectory = join(dirname(fileURLToPath(import.meta.url)), "migrations");
 
 export function loadMigrations(): Migration[] {
-  const migrationsDir = existsSync(sourceMigrationsDir) ? sourceMigrationsDir : repoMigrationsDir;
-
-  if (!existsSync(migrationsDir)) {
-    throw new Error(`Spark migrations directory not found: ${migrationsDir}`);
+  if (!existsSync(migrationsDirectory)) {
+    throw new Error(`Spark migrations directory not found: ${migrationsDirectory}`);
   }
 
-  return readdirSync(migrationsDir)
+  return readdirSync(migrationsDirectory)
     .filter((file) => file.endsWith(".sql"))
     .sort()
     .map((file) => {
@@ -34,7 +28,7 @@ export function loadMigrations(): Migration[] {
       return {
         version: versionPart,
         name: nameParts.join("_"),
-        sql: readFileSync(join(migrationsDir, file), "utf8"),
+        sql: readFileSync(join(migrationsDirectory, file), "utf8"),
       };
     });
 }
@@ -61,26 +55,6 @@ function repairLegacyWorkspaceSchema(db: DatabaseSync): void {
         status = CASE WHEN status = 'archived' THEN 'archived' ELSE 'active' END,
         updated_at = COALESCE(updated_at, created_at);
   `);
-}
-
-function findRepoRoot(start: string): string {
-  let current = resolve(start);
-
-  while (true) {
-    if (
-      existsSync(join(current, "pnpm-workspace.yaml")) &&
-      existsSync(join(current, "packages/spark-cockpit-db/src/migrations"))
-    ) {
-      return current;
-    }
-
-    const parent = dirname(current);
-    if (parent === current) {
-      return start;
-    }
-
-    current = parent;
-  }
 }
 
 export function migrate(db: DatabaseSync, migrations = loadMigrations()): void {

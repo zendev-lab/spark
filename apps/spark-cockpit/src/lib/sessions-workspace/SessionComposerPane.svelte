@@ -14,6 +14,7 @@
   } from "@zendev-lab/spark-protocol";
   import type { SubmitFunction } from "@sveltejs/kit";
   import { onDestroy } from "svelte";
+  import { sessionHasProjectedWork } from "$lib/session-work-view";
   import type { SessionConversationHost } from "./conversation-host";
 
   let { host }: { host: SessionConversationHost } = $props();
@@ -189,7 +190,11 @@
           Boolean(host.sessionSlashActionBar) ||
           host.sessionSlashSuggestions.length > 0}
         submitting={host.sendState === "submitting"}
-        submitLabel={host.conversationBusy ? host.copy.queueSubmit : host.copy.sendSubmit}
+        submitLabel={host.conversationBusy
+          ? host.copy.queueInstructionSubmit
+          : sessionHasProjectedWork(host.liveSessionView)
+            ? host.copy.continueSubmit
+            : host.copy.sendSubmit}
         submittingLabel={host.copy.sending}
         ariaLabel={host.copy.messageLabel}
         multilineHint={host.copy.multilineHint}

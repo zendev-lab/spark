@@ -4,6 +4,12 @@
   import { Button } from "$lib/ui";
   import { enhance } from "$app/forms";
   import { visibleSessionStatus } from "$lib/conversation-status";
+  import {
+    primarySessionDriver,
+    sessionWorkObjective,
+    sessionWorkStatus,
+  } from "$lib/session-work-view";
+  import type { IconName } from "$lib/icons";
   import type { Snippet } from "svelte";
   import type { SessionConversationHost } from "./conversation-host";
 
@@ -23,12 +29,31 @@
 
   let displayedSessionStatus = $derived(visibleSessionStatus(host.selected.status));
   let selectedPresentation = $derived(host.sessionPresentation(host.selected));
+  let objective = $derived(sessionWorkObjective(host.liveSessionView));
+  let primaryDriver = $derived(primarySessionDriver(host.liveSessionView));
+  let semanticStatus = $derived(sessionWorkStatus(host.liveSessionView));
+  let currentStep = $derived(host.liveSessionView?.work?.repro?.plan.currentStep?.goal);
+  let modeLabel = $derived(
+    host.liveSessionView?.work?.repro
+      ? host.copy.reproMode
+      : host.liveSessionView?.work?.goal
+        ? host.copy.goalMode
+        : primaryDriver
+          ? host.copy.driverMode
+          : host.copy.timelineTitle,
+  );
+  let semanticIcon = $derived.by((): IconName => {
+    if (semanticStatus === "blocked" || semanticStatus === "retry_wait") return "warning";
+    if (semanticStatus === "complete" || semanticStatus === "stopped") return "check";
+    if (semanticStatus === "running") return "play";
+    return "activity";
+  });
 </script>
 
 
     <header class="stage-header">
       <div class="stage-title">
-        <p class="kicker">{host.copy.timelineTitle}</p>
+        <p class="kicker">{modeLabel}</p>
         <h1>
           {#if selectedPresentation.channel}
             <ChannelSessionIcon
@@ -37,9 +62,9 @@
               label={selectedPresentation.channel.label}
             />
           {/if}
-          <span class="session-heading-title">{selectedPresentation.title}</span>
+          <span class="session-heading-title">{objective ?? selectedPresentation.title}</span>
         </h1>
-        <p>{host.sessionScopeLabel(host.selected)}</p>
+        <p>{currentStep ?? (objective ? selectedPresentation.title : host.sessionScopeLabel(host.selected))}</p>
       </div>
       <div class="stage-actions">
         {#if host.selected.role}<span class="context-chip">{host.selected.role}</span>{/if}
@@ -70,7 +95,16 @@
             {/if}
           </Button>
         </span>
-        {#if host.conversationBusy}
+        {#if semanticStatus}
+          <span
+            class="semantic-status {semanticStatus}"
+            role="status"
+            aria-label={`${host.copy.semanticStatus}: ${host.statusLabel(semanticStatus)}`}
+          >
+            <Icon name={semanticIcon} size={13} stroke={2.1} />
+            {host.statusLabel(semanticStatus)}
+          </span>
+        {:else if host.conversationBusy}
           <span
             class="session-working-indicator"
             role="status"
@@ -79,6 +113,12 @@
           >
             <span class="session-working-spinner" aria-hidden="true"></span>
             {host.copy.working}
+          </span>
+        {/if}
+        {#if host.sessionPendingAsk}
+          <span class="attention-indicator" role="status">
+            <Icon name="warning" size={13} />
+            {host.copy.approval}
           </span>
         {/if}
         <span class="connection-state {host.liveConnection}" title={host.connectionLabel()}>
@@ -105,7 +145,7 @@
             </Button>
           </form>
         {/if}
-        {#if displayedSessionStatus && displayedSessionStatus !== "running"}
+        {#if !semanticStatus && displayedSessionStatus && displayedSessionStatus !== "running"}
           <span class="status-pill {displayedSessionStatus}">{host.statusLabel(displayedSessionStatus)}</span>
         {/if}
       </div>
@@ -171,6 +211,44 @@
 
   .connection-state.offline > span {
     background: var(--color-danger);
+  }
+
+  .semantic-status,
+  .attention-indicator {
+    align-items: center;
+    background: var(--color-surface-soft);
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-full);
+    color: var(--color-ink-muted);
+    display: inline-flex;
+    font-size: 11px;
+    font-weight: 650;
+    gap: 6px;
+    min-height: var(--control-height-compact);
+    padding: 0 9px;
+    white-space: nowrap;
+  }
+
+  .semantic-status.running,
+  .semantic-status.scheduled,
+  .semantic-status.active {
+    background: var(--color-primary-weak);
+    border-color: var(--color-primary-soft);
+    color: var(--color-primary);
+  }
+
+  .semantic-status.blocked,
+  .semantic-status.retry_wait,
+  .attention-indicator {
+    background: var(--color-warning-weak);
+    border-color: var(--color-warning-soft);
+    color: var(--color-warning-strong);
+  }
+
+  .semantic-status.complete {
+    background: var(--color-success-weak);
+    border-color: var(--color-success-soft);
+    color: var(--color-success-strong);
   }
 
   .session-working-indicator {
@@ -392,6 +470,15 @@
   @media (max-width: 640px) {
     .mobile-details :global(.details-grid) {
       grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  @media (pointer: coarse), (max-width: 640px) {
+    .semantic-status,
+    .attention-indicator,
+    .connection-state,
+    .mobile-details summary {
+      min-height: var(--control-height-touch);
     }
   }
 
