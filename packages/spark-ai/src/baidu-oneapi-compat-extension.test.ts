@@ -10,7 +10,11 @@ import { expect, test } from "vitest";
 
 import registerBaiduOneApiCompatibilityExtension from "./baidu-oneapi-compat-extension.ts";
 import registerBaiduOneApiProvider from "./baidu-oneapi-provider.ts";
-import { type BaiduOneApiStream, createBaiduOneApiProviderAdapter } from "./baidu-oneapi.ts";
+import {
+  type BaiduOneApiStream,
+  createBaiduOneApiProviderAdapter,
+  silenceOpenAiSdkTransportLogs,
+} from "./baidu-oneapi.ts";
 import { SparkProviderRegistry } from "./provider-registry.ts";
 
 const BAIDU_MODEL_IDS = [
@@ -94,6 +98,62 @@ test("Pi compatibility and Spark-native adapters expose the same Baidu model cat
   expect(piProvider?.baseUrl).toBe(nativeProvider?.baseUrl);
   expect(piProvider?.api).toBe("baidu-oneapi");
 });
+
+test("OpenAI SDK log suppression spans lazy setup and concurrent streams", async () => {
+  const previousOpenAiLog = process.env.OPENAI_LOG;
+  process.env.OPENAI_LOG = "debug";
+  const first = Promise.withResolvers<AssistantMessage>();
+  const second = Promise.withResolvers<AssistantMessage>();
+  const third = Promise.withResolvers<AssistantMessage>();
+  const pending = [first.promise, second.promise, third.promise];
+  const transport: ProviderStreams = {
+    stream: (model) => deferredResultStream(model, pending.shift()!),
+    streamSimple: (model) => deferredResultStream(model, pending.shift()!),
+  };
+  const silenced = silenceOpenAiSdkTransportLogs(transport);
+  const model = testModel("gpt-5.6-sol");
+
+  try {
+    const firstStream = silenced.streamSimple(model, { messages: [], tools: [] });
+    const secondStream = silenced.streamSimple(model, { messages: [], tools: [] });
+    expect(process.env.OPENAI_LOG).toBe("off");
+
+    first.resolve(terminalMessage(model));
+    await firstStream.result();
+    await Promise.resolve();
+    expect(process.env.OPENAI_LOG).toBe("off");
+
+    second.resolve(terminalMessage(model));
+    await secondStream.result();
+    await Promise.resolve();
+    expect(process.env.OPENAI_LOG).toBe("debug");
+
+    const thirdStream = silenced.streamSimple(model, { messages: [], tools: [] });
+    process.env.OPENAI_LOG = "info";
+    third.resolve(terminalMessage(model));
+    await thirdStream.result();
+    await Promise.resolve();
+    expect(process.env.OPENAI_LOG).toBe("info");
+  } finally {
+    const terminal = terminalMessage(model);
+    first.resolve(terminal);
+    second.resolve(terminal);
+    third.resolve(terminal);
+    await Promise.allSettled([first.promise, second.promise, third.promise]);
+    if (previousOpenAiLog === undefined) delete process.env.OPENAI_LOG;
+    else process.env.OPENAI_LOG = previousOpenAiLog;
+  }
+});
+
+function deferredResultStream(
+  model: Model<Api>,
+  result: Promise<AssistantMessage>,
+): ReturnType<ProviderStreams["stream"]> {
+  return {
+    async *[Symbol.asyncIterator]() {},
+    result: () => result,
+  } as unknown as ReturnType<ProviderStreams["stream"]>;
+}
 
 test("Baidu Responses uses one top-level instructions value and leaves caller overrides intact", async () => {
   const contexts: Context[] = [];
