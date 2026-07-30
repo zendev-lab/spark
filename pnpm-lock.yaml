@@ -564,6 +564,9 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
+      '@zendev-lab/spark-text':
+        specifier: workspace:^
+        version: link:../spark-text
       typebox:
         specifier: 'catalog:'
         version: 1.3.6
@@ -580,6 +583,9 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-text':
+        specifier: workspace:^
+        version: link:../spark-text
       marked:
         specifier: ^18.0.7
         version: 18.0.7
@@ -623,6 +629,9 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
+      '@zendev-lab/spark-text':
+        specifier: workspace:^
+        version: link:../spark-text
       '@zendev-lab/spark-tui':
         specifier: workspace:^
         version: link:../spark-tui
@@ -996,6 +1005,9 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
+      '@zendev-lab/spark-text':
+        specifier: workspace:^
+        version: link:../spark-text
       typebox:
         specifier: 'catalog:'
         version: 1.3.6
@@ -1121,6 +1133,9 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
+      '@zendev-lab/spark-text':
+        specifier: workspace:^
+        version: link:../spark-text
       typebox:
         specifier: 'catalog:'
         version: 1.3.6
@@ -1170,6 +1185,9 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-text':
+        specifier: workspace:^
+        version: link:../spark-text
       es-toolkit:
         specifier: 'catalog:'
         version: 1.49.0
@@ -1238,6 +1256,9 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-text':
+        specifier: workspace:^
+        version: link:../spark-text
       typebox:
         specifier: 'catalog:'
         version: 1.3.6
@@ -1253,6 +1274,9 @@ importers:
       '@zendev-lab/spark-tasks':
         specifier: workspace:^
         version: link:../spark-tasks
+      '@zendev-lab/spark-text':
+        specifier: workspace:^
+        version: link:../spark-text
       es-toolkit:
         specifier: 'catalog:'
         version: 1.49.0

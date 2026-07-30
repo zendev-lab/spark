@@ -24,6 +24,7 @@
     "@zendev-lab/spark-daemon-client": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
+    "@zendev-lab/spark-text": "workspace:^",
     "typebox": "catalog:"
   },
   "devDependencies": {
