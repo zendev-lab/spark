@@ -7,6 +7,7 @@ import {
   createProviderRegistryStreamFunction,
   registerBaiduOneApiProvider,
   registerOpenAICodexProvider,
+  type AssistantMessageEvent,
   type ProviderConfig,
 } from "../packages/spark-ai/src/index.ts";
 
@@ -178,6 +179,171 @@ test("createProviderRegistryStreamFunction normalizes bare async provider stream
   };
   assert.deepEqual(events, [{ type: "done", reason: "stop", message: retaggedAssistant }]);
   assert.deepEqual(await stream.result(), retaggedAssistant);
+});
+
+test("createProviderRegistryStreamFunction retries one raw transient stream throw before output", async () => {
+  const registry = new SparkProviderRegistry();
+  const transient = new Error(
+    "Unexpected non-whitespace character after JSON at position 73800 (line 1 column 73801)",
+  );
+  const message = { role: "assistant", content: [], stopReason: "stop" } as const;
+  let calls = 0;
+  registry.registerProvider("fake", {
+    ...fakeProvider,
+    streamSimple: () => {
+      calls += 1;
+      const attempt = calls;
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield { type: "start", partial: message } as unknown as AssistantMessageEvent;
+          if (attempt === 1) throw transient;
+          yield {
+            type: "done",
+            reason: "stop",
+            message,
+          } as unknown as AssistantMessageEvent;
+        },
+        result: async () => message as never,
+      };
+    },
+  });
+  registry.setActive({ providerName: "fake", modelId: "model-a" });
+
+  const stream = createProviderRegistryStreamFunction(registry)(
+    registry.buildActiveModel() as never,
+    { messages: [], tools: [] } as never,
+  );
+  const events: AssistantMessageEvent[] = [];
+  for await (const event of stream) events.push(event);
+
+  assert.equal(calls, 2);
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["start", "done"],
+  );
+});
+
+test("createProviderRegistryStreamFunction retries one raw transient result rejection", async () => {
+  const registry = new SparkProviderRegistry();
+  const transient = new Error(
+    "Unexpected non-whitespace character after JSON at position 73800 (line 1 column 73801)",
+  );
+  const message = { role: "assistant", content: [], stopReason: "stop" } as const;
+  let calls = 0;
+  registry.registerProvider("fake", {
+    ...fakeProvider,
+    streamSimple: () => {
+      calls += 1;
+      const attempt = calls;
+      return {
+        async *[Symbol.asyncIterator]() {},
+        result: async () => {
+          if (attempt === 1) throw transient;
+          return message as never;
+        },
+      };
+    },
+  });
+  registry.setActive({ providerName: "fake", modelId: "model-a" });
+
+  const stream = createProviderRegistryStreamFunction(registry)(
+    registry.buildActiveModel() as never,
+    { messages: [], tools: [] } as never,
+  );
+
+  assert.equal((await stream.result()).stopReason, "stop");
+  assert.equal(calls, 2);
+});
+
+test("createProviderRegistryStreamFunction does not retry raw throws after visible output", async () => {
+  const registry = new SparkProviderRegistry();
+  const transient = new Error(
+    "Unexpected non-whitespace character after JSON at position 73800 (line 1 column 73801)",
+  );
+  const message = {
+    role: "assistant",
+    content: [{ type: "text", text: "partial" }],
+    stopReason: "error",
+    errorMessage: transient.message,
+  } as const;
+  let calls = 0;
+  registry.registerProvider("fake", {
+    ...fakeProvider,
+    streamSimple: () => {
+      calls += 1;
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield { type: "start", partial: message } as unknown as AssistantMessageEvent;
+          yield {
+            type: "text_delta",
+            contentIndex: 0,
+            delta: "partial",
+            partial: message,
+          } as unknown as AssistantMessageEvent;
+          throw transient;
+        },
+        result: async () => {
+          throw transient;
+        },
+      };
+    },
+  });
+  registry.setActive({ providerName: "fake", modelId: "model-a" });
+
+  const stream = createProviderRegistryStreamFunction(registry)(
+    registry.buildActiveModel() as never,
+    { messages: [], tools: [] } as never,
+  );
+  const events: AssistantMessageEvent[] = [];
+  await assert.rejects(async () => {
+    for await (const event of stream) events.push(event);
+  }, transient);
+
+  assert.equal(calls, 1);
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["start", "text_delta"],
+  );
+});
+
+test("createProviderRegistryStreamFunction stops after one repeated raw transient failure", async () => {
+  const registry = new SparkProviderRegistry();
+  const transient = new Error(
+    "Unexpected non-whitespace character after JSON at position 73800 (line 1 column 73801)",
+  );
+  const message = { role: "assistant", content: [], stopReason: "error" } as const;
+  let calls = 0;
+  registry.registerProvider("fake", {
+    ...fakeProvider,
+    streamSimple: () => {
+      calls += 1;
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield { type: "start", partial: message } as unknown as AssistantMessageEvent;
+          throw transient;
+        },
+        result: async () => {
+          throw transient;
+        },
+      };
+    },
+  });
+  registry.setActive({ providerName: "fake", modelId: "model-a" });
+
+  const stream = createProviderRegistryStreamFunction(registry)(
+    registry.buildActiveModel() as never,
+    { messages: [], tools: [] } as never,
+  );
+  const events: AssistantMessageEvent[] = [];
+  await assert.rejects(async () => {
+    for await (const event of stream) events.push(event);
+  }, transient);
+
+  assert.equal(calls, 2);
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["start"],
+  );
 });
 
 test("createProviderRegistryStreamFunction awaits hot-reloaded provider auth", async () => {

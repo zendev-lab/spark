@@ -46,7 +46,7 @@ export interface LocalRpcServiceOptions {
 export const localRpcServiceHandlerMethodGroups = {
   daemon: ["daemon.status", "daemon.stop", "daemon.restart"],
   channel: ["channel.status", "channel.configure", "channel.reload", "channel.notify"],
-  human: ["human.interaction.respond"],
+  human: ["human.interaction.list", "human.interaction.respond"],
   turn: [
     "turn.submit",
     "turn.status",

@@ -9,7 +9,7 @@ import { gitCommand, resolveSparkPaths } from "@zendev-lab/spark-system";
 import { main, sparkDaemonServiceExitCode, type CliIo } from "./cli.js";
 import { sparkDaemonEntrypointFingerprint } from "./build-reload.ts";
 import { readSparkDaemonConfig, writeSparkDaemonConfig } from "./config.js";
-import { LocalRpcUnavailableError } from "./local-rpc.js";
+import { LocalRpcUnavailableError, type LocalHumanInteractionListResult } from "./local-rpc.js";
 import { RegistrationGrantRefusedError } from "./registration.js";
 import { getSparkDaemonServerProfile, upsertSparkDaemonServerProfile } from "./server-profiles.js";
 import { openSparkDaemonDatabase } from "./store/schema.js";
@@ -30,6 +30,8 @@ function createCliIo(
     daemonStopFromService?: CliIo["daemonStopFromService"];
     daemonRestartFromService?: CliIo["daemonRestartFromService"];
     turnSubmitToService?: CliIo["turnSubmitToService"];
+    humanInteractionListFromService?: CliIo["humanInteractionListFromService"];
+    humanInteractionRespondFromService?: CliIo["humanInteractionRespondFromService"];
     listWorkspacesFromService?: CliIo["listWorkspacesFromService"];
     registerWorkspaceInService?: CliIo["registerWorkspaceInService"];
     relocateWorkspaceInService?: CliIo["relocateWorkspaceInService"];
@@ -60,6 +62,12 @@ function createCliIo(
       ? { deviceAuthorizationSleep: options.deviceAuthorizationSleep }
       : {}),
     ...(options.turnSubmitToService ? { turnSubmitToService: options.turnSubmitToService } : {}),
+    ...(options.humanInteractionListFromService
+      ? { humanInteractionListFromService: options.humanInteractionListFromService }
+      : {}),
+    ...(options.humanInteractionRespondFromService
+      ? { humanInteractionRespondFromService: options.humanInteractionRespondFromService }
+      : {}),
     startService:
       options.startService ??
       (() => ({
@@ -202,6 +210,86 @@ describe("Spark daemon CLI", () => {
     expect(capture.stdout()).toContain("Usage: spark daemon <command>");
     expect(capture.stdout()).toContain("workspace register");
     expect(capture.stderr()).toBe("");
+  });
+
+  it("lists pending daemon human interactions through the public CLI", async () => {
+    const humanInteractionListFromService = vi.fn(
+      async (
+        _paths: ReturnType<typeof resolveSparkPaths>,
+        _params?: { sessionId?: string },
+      ): Promise<LocalHumanInteractionListResult> => ({
+        waits: [
+          {
+            humanRequestId: "hreq_cli",
+            interactionRequestId: "interaction_cli",
+            sessionId: "session_cli",
+            invocationId: "invocation_cli",
+            workspaceBindingId: "binding_cli",
+            workspaceId: "workspace_cli",
+            projectId: "project_cli",
+            toolCallId: "tool_cli",
+            kind: "ask_user" as const,
+            delivery: "blocking" as const,
+            title: "Choose strategy",
+            prompt: "Select a strategy.",
+            questions: [
+              { id: "strategy", type: "single" as const, prompt: "Strategy?", required: true },
+            ],
+            context: {},
+            contextArtifactRefs: [],
+            status: "pending" as const,
+            createdAt: "2026-07-27T00:00:00.000Z",
+            updatedAt: "2026-07-27T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const capture = createCliIo({ humanInteractionListFromService });
+
+    await expect(main(["ask", "list", "--session", "session_cli"], capture.io)).resolves.toBe(0);
+    expect(humanInteractionListFromService).toHaveBeenCalledWith(expect.anything(), {
+      sessionId: "session_cli",
+    });
+    expect(capture.stdout()).toContain("interaction_cli human=hreq_cli session=session_cli");
+    expect(capture.stdout()).toContain('questions=[{"id":"strategy"');
+  });
+
+  it("answers a pending daemon human interaction with an object JSON payload", async () => {
+    const humanInteractionRespondFromService = vi.fn(async (_paths, params) => ({
+      outcome: "accepted" as const,
+      retryable: false,
+      returnedToTool: true,
+      message: "Human interaction answered.",
+      received: params,
+    }));
+    const capture = createCliIo({ humanInteractionRespondFromService });
+
+    await expect(
+      main(
+        [
+          "ask",
+          "answer",
+          "interaction_cli",
+          "--answers",
+          '{"strategy":"reuse-existing-megatron"}',
+          "--session",
+          "session_cli",
+          "--invocation",
+          "invocation_cli",
+          "--json",
+        ],
+        capture.io,
+      ),
+    ).resolves.toBe(0);
+    expect(humanInteractionRespondFromService).toHaveBeenCalledWith(expect.anything(), {
+      interactionRequestId: "interaction_cli",
+      sessionId: "session_cli",
+      invocationId: "invocation_cli",
+      status: "answered",
+      answers: { strategy: "reuse-existing-megatron" },
+      responseArtifactRefs: [],
+    });
+    expect(JSON.parse(capture.stdout())).toMatchObject({ outcome: "accepted" });
   });
 
   it("prints workspace help without protocol vocabulary", async () => {

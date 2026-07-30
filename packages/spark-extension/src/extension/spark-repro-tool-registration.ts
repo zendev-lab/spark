@@ -198,8 +198,15 @@ export function registerSparkReproTool(
         const repro = await readSessionRepro(cwd, ctx);
         if (!repro) {
           return {
-            content: [{ type: "text" as const, text: "No repro drive is active." }],
-            details: { active: false },
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  'No repro drive is active. Use repro({ action: "start" }) to (re)activate the ' +
+                  "reproduction contract before recording proof; previously recorded evidence: refs remain valid.",
+              },
+            ],
+            details: { active: false, recovery: 'repro({ action: "start" })' },
           };
         }
         const driverHealth = await ensureActiveReproDriver(ctx, deps.driverControl, repro);
@@ -1059,8 +1066,15 @@ async function activeRepro(
 
 function noActiveReproResult() {
   return {
-    content: [{ type: "text" as const, text: "No active repro drive." }],
-    details: {},
+    content: [
+      {
+        type: "text" as const,
+        text:
+          'No active repro drive. Recorded proof needs an active drive: call repro({ action: "start" }) ' +
+          "(existing evidence refs stay valid and are re-bound after start), then retry this record/evaluate/advance call.",
+      },
+    ],
+    details: { active: false, recovery: 'repro({ action: "start" })' },
   };
 }
 
@@ -1237,6 +1251,8 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     "- The main session owns planning and reconciliation; use assign only for the independent safe_local ready frontier, while ask_decision and ask_approval remain owner-only.",
     "- When blocked by a missing user decision, ambiguous requirement, unclear baseline/source, conflicting evidence, failing validation whose next step is unclear, or any problem the user can unblock, call ask immediately with a concrete question. Do not guess, invent substitutes, or end the turn with only a prose blocker report when ask can resolve it.",
     "- Advance milestones with repro record/evaluate/advance. Never treat prose, an unverified ref, or a bare boolean as proof.",
+    "- Keep the deliverable report a live dashboard, not an append-only log: current status and one blocker card first, quantified gates next, long history behind progressive disclosure. Fold or rewrite stale sections instead of only appending, so low-signal detail cannot crowd out the current frontier.",
+    "- Treat a local commit as incomplete delivery. When a stage lands, push the branch and create or update its PR in the same turn, then record that PR state in the report. Do not batch PR work until the end.",
     "- Before ending every repro turn, leave a verifiable checkpoint. If the turn produced a coherent set of repository changes and committing is authorized and safe, create a small git commit promptly. Never include unrelated pre-existing changes.",
     "- If a safe commit is not appropriate yet, show the work completed in the turn: cite concrete evidence refs or file paths, summarize the relevant diff, report commands/tests and their results, or ask about the exact blocker. Do not end with only a progress claim.",
     "- If blocked on an external dependency the user cannot resolve, report that blocker; otherwise prefer ask over /repro stop.",

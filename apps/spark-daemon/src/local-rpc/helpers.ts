@@ -56,6 +56,7 @@ export function isLocalRpcSafeWhileAdmissionClosed(method: string): boolean {
     method === "turn.stream" ||
     method === "turn.cancel" ||
     method === "invocation.list" ||
+    method === "human.interaction.list" ||
     method === "human.interaction.respond"
   );
 }

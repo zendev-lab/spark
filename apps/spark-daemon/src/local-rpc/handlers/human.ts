@@ -7,7 +7,10 @@ import {
   type LocalRpcServiceRequest,
 } from "../types.ts";
 
-type HumanRequest = Extract<LocalRpcServiceRequest, { method: "human.interaction.respond" }>;
+type HumanRequest = Extract<
+  LocalRpcServiceRequest,
+  { method: "human.interaction.list" | "human.interaction.respond" }
+>;
 
 export async function handleHumanRequest(
   ctx: LocalRpcDispatchContext,
@@ -15,6 +18,12 @@ export async function handleHumanRequest(
 ): Promise<LocalRpcServiceOutput<HumanRequest>> {
   const { options } = ctx;
   switch (request.method) {
+    case "human.interaction.list": {
+      const waits = requireHumanWaitRegistry(options)
+        .listPending()
+        .filter((wait) => !request.params.sessionId || wait.sessionId === request.params.sessionId);
+      return parseLocalRpcServiceOutput(request.method, { waits });
+    }
     case "human.interaction.respond": {
       const waits = requireHumanWaitRegistry(options);
       let wait;

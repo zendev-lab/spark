@@ -14,6 +14,7 @@ export interface RetryProviderStreamOptions {
   maxRetryDelayMs?: number;
   signal?: AbortSignal;
   shouldRetry(message: AssistantMessage): boolean;
+  shouldRetryThrown?: (error: unknown) => boolean;
 }
 
 export function retryProviderStreamBeforeOutput(
@@ -23,6 +24,7 @@ export function retryProviderStreamBeforeOutput(
 ): ProviderStream {
   let consumed = false;
   let final: AssistantMessage | undefined;
+  let activeStream = initialStream;
   const maxRetries = normalizeRetryCount(options.maxRetries);
   const retryingStream: ProviderStream = {
     async *[Symbol.asyncIterator]() {
@@ -34,40 +36,49 @@ export function retryProviderStreamBeforeOutput(
       let retries = 0;
       let exposedOutput = false;
       let started = false;
-      let stream = initialStream;
 
       while (true) {
         let retry = false;
 
-        for await (const event of stream) {
-          if (event.type === "start") {
-            if (!started) {
-              started = true;
+        try {
+          for await (const event of activeStream) {
+            if (event.type === "start") {
+              if (!started) {
+                started = true;
+                yield event;
+              }
+              continue;
+            }
+            if (event.type === "error") {
+              const retriable =
+                !exposedOutput &&
+                retries < maxRetries &&
+                options.signal?.aborted !== true &&
+                options.shouldRetry(event.error);
+              if (retriable) {
+                retry = true;
+                break;
+              }
+              final = event.error;
               yield event;
+              return;
             }
-            continue;
-          }
-          if (event.type === "error") {
-            const retriable =
-              !exposedOutput &&
-              retries < maxRetries &&
-              options.signal?.aborted !== true &&
-              options.shouldRetry(event.error);
-            if (retriable) {
-              retry = true;
-              break;
+            if (event.type === "done") {
+              final = event.message;
+              yield event;
+              return;
             }
-            final = event.error;
+            exposedOutput = true;
             yield event;
-            return;
           }
-          if (event.type === "done") {
-            final = event.message;
-            yield event;
-            return;
-          }
-          exposedOutput = true;
-          yield event;
+        } catch (error) {
+          const retriable =
+            !exposedOutput &&
+            retries < maxRetries &&
+            options.signal?.aborted !== true &&
+            options.shouldRetryThrown?.(error) === true;
+          if (!retriable) throw error;
+          retry = true;
         }
 
         if (!retry) {
@@ -80,19 +91,44 @@ export function retryProviderStreamBeforeOutput(
           providerStreamRetryDelayMs(retries, options),
           options.signal,
         );
-        stream = createStream();
+        activeStream = createStream();
       }
     },
     async result() {
       if (final) return final;
-      for await (const event of retryingStream) {
-        if (event.type === "done") final = event.message;
-        if (event.type === "error") final = event.error;
+      if (consumed) {
+        throw new Error(
+          `Provider "${options.providerName}" stream ended without a final assistant message`,
+        );
       }
-      if (final) return final;
-      throw new Error(
-        `Provider "${options.providerName}" stream ended without a final assistant message`,
-      );
+      consumed = true;
+      let retries = 0;
+      while (true) {
+        try {
+          const message = await activeStream.result();
+          const retriable =
+            !assistantMessageHasOutput(message) &&
+            retries < maxRetries &&
+            options.signal?.aborted !== true &&
+            options.shouldRetry(message);
+          if (!retriable) {
+            final = message;
+            return message;
+          }
+        } catch (error) {
+          const retriable =
+            retries < maxRetries &&
+            options.signal?.aborted !== true &&
+            options.shouldRetryThrown?.(error) === true;
+          if (!retriable) throw error;
+        }
+        retries += 1;
+        await sleepProviderStreamRetry(
+          providerStreamRetryDelayMs(retries, options),
+          options.signal,
+        );
+        activeStream = createStream();
+      }
     },
   };
   return retryingStream;
@@ -115,6 +151,10 @@ export function isMalformedProviderJsonErrorText(text: string): boolean {
     /unterminated string in json(?: at position \d+)?/iu.test(text) ||
     /expected .+ in json at position \d+(?: \(line \d+ column \d+\))?/iu.test(text)
   );
+}
+
+function assistantMessageHasOutput(message: AssistantMessage): boolean {
+  return Array.isArray(message.content) && message.content.length > 0;
 }
 
 function normalizeRetryCount(value: number): number {

@@ -10,6 +10,8 @@ import {
   requestDaemonRestart,
   requestDaemonStop,
   requestDaemonStatus,
+  requestHumanInteractionList,
+  requestHumanInteractionRespond,
   requestTurnSubmit,
   requestWorkspaceAttach,
   requestWorkspaceList,
@@ -30,6 +32,8 @@ export interface CliIo {
   daemonStopFromService?: typeof requestDaemonStop;
   daemonRestartFromService?: typeof requestDaemonRestart;
   turnSubmitToService?: typeof requestTurnSubmit;
+  humanInteractionListFromService?: typeof requestHumanInteractionList;
+  humanInteractionRespondFromService?: typeof requestHumanInteractionRespond;
   listWorkspacesFromService?: typeof requestWorkspaceList;
   registerWorkspaceInService?: typeof requestWorkspaceRegister;
   relocateWorkspaceInService?: typeof requestWorkspaceRelocate;
@@ -175,6 +179,9 @@ Commands:
   sync [--wait]
   logs [--follow] [--lines <n>]
   submit --session <id> --prompt <text> [--idempotency-key <key>] [--json]
+  ask list [--session <id>] [--json]
+  ask answer <interaction-request-id> --answers <json> [--session <id>] [--invocation <id>] [--json]
+  ask cancel <interaction-request-id> [--session <id>] [--invocation <id>] [--json]
 
 Example:
   spark daemon status --json

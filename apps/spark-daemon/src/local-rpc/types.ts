@@ -23,10 +23,7 @@ import type {
   SparkDaemonLifecycleSnapshot,
   SparkDaemonRestartRequestResult,
 } from "../core/index.ts";
-import type {
-  SparkDaemonHumanWaitDeliveryResult,
-  SparkDaemonHumanWaitRegistry,
-} from "../core/human-waits.ts";
+import type { SparkDaemonHumanWaitRegistry } from "../core/human-waits.ts";
 import type { SparkDaemonLeaseTransferBroker } from "../core/lease-transfer.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";
 import type { SparkDaemonRelocationRequest, SparkDaemonRelocationResult } from "../relocation.ts";
@@ -220,6 +217,9 @@ export type LocalRpcRequest = { id: string } & LocalRpcServiceRequest;
 
 export type LocalTurnCancelParams = LocalTurnCancelRequest;
 
+export type LocalHumanInteractionListParams = SparkLocalRpcParsedInput<"human.interaction.list">;
+export type LocalHumanInteractionListResult = SparkLocalRpcOutput<"human.interaction.list">;
+
 export interface LocalHumanInteractionRespondParams {
   interactionRequestId: string;
   sessionId?: string;
@@ -230,7 +230,7 @@ export interface LocalHumanInteractionRespondParams {
   responseArtifactRefs: string[];
 }
 
-export type LocalHumanInteractionRespondResult = SparkDaemonHumanWaitDeliveryResult;
+export type LocalHumanInteractionRespondResult = SparkLocalRpcOutput<"human.interaction.respond">;
 
 export type LocalRpcErrorPayload = {
   message: string;

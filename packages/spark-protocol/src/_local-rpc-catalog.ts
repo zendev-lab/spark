@@ -1073,6 +1073,10 @@ export const sparkLocalRpcSessionNotificationDeliverResultSchema = z.object({
   ),
 });
 
+export const sparkLocalRpcHumanInteractionListRequestSchema = z.object({
+  sessionId: z.string().trim().min(1).optional(),
+});
+
 export const sparkLocalRpcHumanInteractionRespondRequestSchema = z.object({
   interactionRequestId: z.string().trim().min(1),
   sessionId: z.string().trim().min(1).optional(),
@@ -1111,6 +1115,10 @@ const sparkLocalRpcHumanWaitResponseSchema = z.object({
   answers: sparkProtocolJsonObjectSchema,
   responseArtifactRefs: z.array(z.string()),
   deliveredAt: isoDateTimeSchema,
+});
+
+export const sparkLocalRpcHumanInteractionListResultSchema = z.object({
+  waits: z.array(sparkLocalRpcHumanWaitSchema),
 });
 
 export const sparkLocalRpcHumanInteractionRespondResultSchema = z.object({
@@ -1374,6 +1382,10 @@ export const sparkLocalRpcProcedureSchemas = {
     output: sparkAuthFlowSchema,
   },
   "provider.auth.login.cancel": { input: flowIdInputSchema, output: sparkAuthFlowSchema },
+  "human.interaction.list": {
+    input: sparkLocalRpcHumanInteractionListRequestSchema,
+    output: sparkLocalRpcHumanInteractionListResultSchema,
+  },
   "human.interaction.respond": {
     input: sparkLocalRpcHumanInteractionRespondRequestSchema,
     output: sparkLocalRpcHumanInteractionRespondResultSchema,
@@ -1777,6 +1789,12 @@ export const sparkLocalRpcOrpcContract = {
   },
   human: {
     interaction: {
+      list: procedure(
+        "GET",
+        "/human/interaction/list",
+        p["human.interaction.list"],
+        sparkLocalRpcHumanOrpcErrors,
+      ),
       respond: procedure(
         "POST",
         "/human/interaction/respond",

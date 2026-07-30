@@ -108,12 +108,11 @@ function createResolverBackedProviderStream(
       );
     const stream = retryProviderStreamBeforeOutput(createStream(), createStream, {
       providerName: selection.providerName,
-      maxRetries: streamOptions?.maxRetries ?? 0,
-      ...(streamOptions?.maxRetryDelayMs !== undefined
-        ? { maxRetryDelayMs: streamOptions.maxRetryDelayMs }
-        : {}),
+      maxRetries: selection.providerName === "baidu-oneapi" ? 0 : 1,
+      maxRetryDelayMs: 1,
       ...(streamOptions?.signal !== undefined ? { signal: streamOptions.signal } : {}),
       shouldRetry: (message) => classifyProviderFailure(message).failureClass === "transient",
+      shouldRetryThrown: (error) => classifyProviderFailure(error).failureClass === "transient",
     });
     return retagAssistantMessageStream(stream, resolveSparkModelMessageIdentity(profile));
   });

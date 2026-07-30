@@ -509,6 +509,11 @@ const modelProviderHumanInvokers = {
       sparkLocalRpcProcedureSchemas["provider.auth.login.cancel"].output,
       client.provider.auth.login.cancel(input, options),
     ),
+  "human.interaction.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["human.interaction.list"].output,
+      client.human.interaction.list(input, options),
+    ),
   "human.interaction.respond": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["human.interaction.respond"].output,
@@ -524,6 +529,7 @@ const modelProviderHumanInvokers = {
   | "provider.auth.login.status"
   | "provider.auth.login.respond"
   | "provider.auth.login.cancel"
+  | "human.interaction.list"
   | "human.interaction.respond"
 >;
 

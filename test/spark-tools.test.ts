@@ -6678,6 +6678,33 @@ test("/repro command treats non-action text as the repro objective", async () =>
   }
 });
 
+test("repro record without an active drive returns an actionable recovery hint", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-inactive-recovery-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+
+    const status = await executeSparkTool(tools, "repro", ctx, { action: "status" });
+    assert.match(toolText(status), /No repro drive is active\./);
+    assert.match(toolText(status), /repro\(\{ action: "start" \}\)/);
+    assert.equal((status.details as { active?: boolean }).active, false);
+    assert.equal((status.details as { recovery?: string }).recovery, 'repro({ action: "start" })');
+
+    const record = await executeSparkTool(tools, "repro", ctx, {
+      action: "record",
+      requirementId: "repro-contract-frozen",
+      proof: { kind: "evidence", evidenceRefs: ["evidence:00000000-0000-4000-8000-000000000000"] },
+    });
+    assert.match(toolText(record), /No active repro drive\./);
+    assert.match(toolText(record), /repro\(\{ action: "start" \}\)/);
+    assert.match(toolText(record), /evidence refs stay valid/);
+    assert.equal((record.details as { active?: boolean }).active, false);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
 test("repro record accepts only receipt-backed ask decisions with matching values", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-proof-validation-"));
   try {

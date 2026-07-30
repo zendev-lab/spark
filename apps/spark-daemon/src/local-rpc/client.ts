@@ -15,6 +15,10 @@ import {
   type LocalDaemonRestartResult,
   type LocalDaemonStatusResult,
   type LocalDaemonStopResult,
+  type LocalHumanInteractionListParams,
+  type LocalHumanInteractionListResult,
+  type LocalHumanInteractionRespondParams,
+  type LocalHumanInteractionRespondResult,
   type LocalTurnCancelParams,
   type LocalTurnCancelResult,
   type LocalTurnStatusResult,
@@ -71,6 +75,20 @@ export async function requestDaemonStop(paths: SparkPaths): Promise<LocalDaemonS
 
 export async function requestDaemonRestart(paths: SparkPaths): Promise<LocalDaemonRestartResult> {
   return daemonRestart(await localRpcRequest(paths, "daemon.restart", {}));
+}
+
+export async function requestHumanInteractionList(
+  paths: SparkPaths,
+  params: LocalHumanInteractionListParams = {},
+): Promise<LocalHumanInteractionListResult> {
+  return localRpcRequest(paths, "human.interaction.list", params);
+}
+
+export async function requestHumanInteractionRespond(
+  paths: SparkPaths,
+  params: LocalHumanInteractionRespondParams,
+): Promise<LocalHumanInteractionRespondResult> {
+  return localRpcRequest(paths, "human.interaction.respond", params);
 }
 
 export async function requestDriverStart(
