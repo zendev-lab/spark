@@ -54,8 +54,9 @@ const EVIDENCE_REF_PATTERN = /\bevidence:[A-Za-z0-9][A-Za-z0-9._-]*(?![:A-Za-z0-
 const VALID_EVIDENCE_REF_PATTERN = /^evidence:[A-Za-z0-9][A-Za-z0-9._-]*$/u;
 
 /**
- * Extract only the durable portions of the structured Smart summary. Open work
- * remains a candidate forever; it is never promoted to durable Memory here.
+ * Extract only evidence-linked durable claims from the structured Smart summary.
+ * Changed files, validation traces, failures, and open work belong in task evidence
+ * or TODO state and must not enter durable recall.
  */
 export function extractSparkCompactionCandidates(
   summary: unknown,
@@ -66,57 +67,24 @@ export function extractSparkCompactionCandidates(
   const candidates: SparkCompactionMemoryCandidate[] = [];
 
   for (const text of uniqueNonEmpty(structured.preservedFacts ?? [])) {
+    const evidenceRefs = refsInText(text);
+    if (evidenceRefs.length === 0) continue;
     candidates.push({
       kind: "stable_fact",
       text,
-      reason: "Preserved fact emitted by the completed Smart compaction summary.",
-      evidenceRefs: refsInText(text),
+      reason: "Evidence-linked preserved fact emitted by the completed Smart compaction summary.",
+      evidenceRefs,
       ...(options.sessionId ? { sourceSessionId: options.sessionId } : {}),
     });
   }
   for (const text of uniqueNonEmpty(structured.decisions ?? [])) {
+    const evidenceRefs = refsInText(text);
+    if (evidenceRefs.length === 0) continue;
     candidates.push({
       kind: "stable_fact",
       text,
-      reason: "Decision emitted by the completed Smart compaction summary.",
-      evidenceRefs: refsInText(text),
-      ...(options.sessionId ? { sourceSessionId: options.sessionId } : {}),
-    });
-  }
-  for (const changedFile of structured.changedFiles ?? []) {
-    const text = [changedFile.path, changedFile.change].filter(Boolean).join(": ").trim();
-    if (!text) continue;
-    candidates.push({
-      kind: "stable_fact",
-      text,
-      reason: "Changed file emitted by the completed Smart compaction summary.",
-      evidenceRefs: uniqueNonEmpty(changedFile.evidenceRefs ?? []),
-      ...(options.sessionId ? { sourceSessionId: options.sessionId } : {}),
-    });
-  }
-  for (const text of uniqueNonEmpty([
-    ...(structured.unresolved ?? []),
-    ...(structured.inProgress ?? []),
-  ])) {
-    candidates.push({
-      kind: "open_item",
-      text,
-      reason: "Open work emitted by the completed Smart compaction summary.",
-      evidenceRefs: refsInText(text),
-      ...(options.sessionId ? { sourceSessionId: options.sessionId } : {}),
-    });
-  }
-  for (const failure of structured.failures ?? []) {
-    const text = [failure.summary, failure.cause, failure.nextStep]
-      .filter(Boolean)
-      .join("; ")
-      .trim();
-    if (!text) continue;
-    candidates.push({
-      kind: "open_item",
-      text,
-      reason: "Failure follow-up emitted by the completed Smart compaction summary.",
-      evidenceRefs: uniqueNonEmpty(failure.evidenceRefs ?? []),
+      reason: "Evidence-linked decision emitted by the completed Smart compaction summary.",
+      evidenceRefs,
       ...(options.sessionId ? { sourceSessionId: options.sessionId } : {}),
     });
   }
@@ -149,8 +117,7 @@ export async function runSparkCompactionCandidatePipeline(
         (item) =>
           item.status === "candidate" &&
           item.kind === candidate.kind &&
-          item.text === candidate.text &&
-          item.sourceSessionId === candidate.sourceSessionId,
+          item.text === candidate.text,
       );
       stored =
         existing ??

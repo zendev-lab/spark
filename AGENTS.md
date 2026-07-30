@@ -55,7 +55,7 @@ Target package topology follows type-first names:
 ## CI
 
 - `.github/workflows/ci-static-checks.yml` — prek + `setup-vp` + prek pass with `vp-check` skipped (avoids duplicating `vp check` already covered by ci-verify).
-- `.github/workflows/ci-verify.yml` — parallel static, unit/integration, source-process, npm-product-process, and headless-Chromium Cockpit lanes with one aggregate `verify` result.
+- `.github/workflows/ci-verify.yml` — parallel grouped checks (static + docs), tests (unit/integration + source process), and smoke (packed npm product + headless-Chromium Cockpit), with one aggregate `required` result.
 - `.github/workflows/ce-mutation.yml` — weekly/manual leaf-package mutation CE (non-blocking).
 - `.github/workflows/ci-pr-checks.yml` — PR title validation (zendev).
 - `.github/workflows/cd-publish.yml` — protected, version-tag-only npm and GitHub Release publication.
@@ -81,6 +81,8 @@ Target package topology follows type-first names:
 - Artifacts remain exactly `issue | pr | preview`. Verification receipts may show bounded proof summaries and references, not internal evidence-ledger bodies.
 - Artifacts (`artifact:…`, `.spark/artifacts/`) and internal evidence (`evidence:…`, `.spark/evidence/`) are separate stores and ref namespaces; never use one as a compatibility alias for the other.
 - Prefer `pnpm run fix` before committing when touching TS/Markdown; pre-commit runs the same command.
+- Root `.yamllint` disables YAML line-length checks; keep Renovate `# v...` comments on the same
+  line as each SHA-pinned GitHub Action digest.
 - Do not commit secrets or `.env` files.
 - **State directories** — Workspace agent runtime lives under `.spark/` (durable memory under `.spark/memory/`, including `learnings/`, `reflections/`, and `recall-candidates.json`). User-level Spark paths use explicit `SPARK_HOME` when set, otherwise the standard XDG config/data/cache/state/runtime roots via `resolveSparkUserPaths()` and `resolveSparkPaths()`. Public role, skill, and workflow definitions remain under `$HOME/.agents/`; project roles, skills, and workflows use `.agents/{roles,skills,workflows}`. Learning / recall / reflection capability code lives in `@zendev-lab/spark-memory` (not separate `spark-learnings` / `spark-recall` packages). Legacy `.learnings/` and `.spark/reflections/` are migrated into `.spark/memory/` when needed.
 - Boundary checks should keep retained `pi-*` kernel adapters independent from Spark product/Cockpit packages, keep Spark shared packages independent from the `spark-extension` composition root, and keep both independent from Cockpit/daemon adapter packages.
