@@ -68,15 +68,11 @@ async function readGoalSummary(cwd: string): Promise<SparkCockpitGoalSummary | n
 
 async function readArtifactSummaries(cwd: string): Promise<SparkCockpitArtifactSummary[]> {
   try {
-    const { artifacts } = await defaultArtifactStore(cwd).listWithDiagnostics({
-      includeRaw: true,
-      includeArchived: true,
-    });
+    const artifacts = await defaultArtifactStore(cwd).list();
     return artifacts.map((artifact) => ({
       artifactRef: artifact.ref,
       title: artifact.title,
       kind: artifact.kind,
-      status: artifact.curation?.status,
     }));
   } catch {
     return [];

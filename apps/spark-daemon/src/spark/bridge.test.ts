@@ -62,7 +62,7 @@ function command(
 }
 
 describe("Spark daemon bridge", () => {
-  it("executes through the injected Spark task executor and projects Spark artifacts", async () => {
+  it("uses internal evidence for the assistant fallback without projecting an Artifact", async () => {
     const h = setup();
     try {
       const emitted: unknown[] = [];
@@ -73,19 +73,19 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
-        async get(ref: `artifact:${string}`) {
+      const evidenceStore = {
+        async get(ref: `evidence:${string}`) {
           return {
             ref,
             kind: "trace",
             title: "Spark role run",
-            format: "json",
+            format: "text",
             hash: "hash123",
             provenance: { runRef: "run_1", taskRef: "task_1" },
           };
         },
         async getBody() {
-          return JSON.stringify({ ok: true });
+          return "Bridge role result";
         },
       };
 
@@ -107,7 +107,7 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async (input) => {
           expect(new SparkInvocationStore(h.db).sessionActivity("sess_bridge")).toMatchObject({
             active: true,
@@ -117,7 +117,7 @@ describe("Spark daemon bridge", () => {
           return {
             ref: "run:bridge",
             status: "succeeded",
-            outputArtifacts: ["artifact:bridge-output"],
+            outputEvidenceRefs: ["evidence:bridge-output"],
           };
         },
       });
@@ -129,16 +129,14 @@ describe("Spark daemon bridge", () => {
         "invocation.updated",
         "task_graph.snapshot",
         "invocation.log_chunk",
-        "artifact.projected",
+        "invocation.log_chunk",
         "task_graph.snapshot",
         "invocation.updated",
       ]);
-      const artifact = emitted.find(
-        (value) => (value as { type: string }).type === "artifact.projected",
-      ) as {
-        payload: { contentRef: { sparkArtifactRef?: string } };
-      };
-      expect(artifact.payload.contentRef.sparkArtifactRef).toBe("artifact:bridge-output");
+      expect(
+        emitted.some((value) => (value as { type: string }).type === "artifact.projected"),
+      ).toBe(false);
+      expect(result.outputArtifactIds).toEqual([]);
       expect(
         h.db.prepare("SELECT session_id AS sessionId, status FROM invocations").get(),
       ).toMatchObject({
@@ -164,12 +162,12 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get() {
-          throw new Error("unexpected artifact lookup for stream-only run");
+          throw new Error("unexpected Evidence lookup for stream-only run");
         },
         async getBody() {
-          throw new Error("unexpected artifact body lookup");
+          throw new Error("unexpected Evidence body lookup");
         },
       };
 
@@ -188,7 +186,7 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async (input) => {
           const onRoleEvent = input.onRoleEvent as ((event: unknown) => void) | undefined;
           onRoleEvent?.({ type: "stream_event", event: { type: "text_delta", delta: "Hel" } });
@@ -197,7 +195,7 @@ describe("Spark daemon bridge", () => {
           return {
             ref: "run:streaming",
             status: "succeeded",
-            outputArtifacts: [],
+            outputEvidenceRefs: [],
           };
         },
       });
@@ -237,12 +235,12 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get() {
-          throw new Error("unexpected artifact lookup for final-only run");
+          throw new Error("unexpected Evidence lookup for final-only run");
         },
         async getBody() {
-          throw new Error("unexpected artifact body lookup");
+          throw new Error("unexpected Evidence body lookup");
         },
       };
 
@@ -261,7 +259,7 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async (input) => {
           const onRoleEvent = input.onRoleEvent as ((event: unknown) => void) | undefined;
           onRoleEvent?.({
@@ -274,7 +272,7 @@ describe("Spark daemon bridge", () => {
           return {
             ref: "run:final-only",
             status: "succeeded",
-            outputArtifacts: [],
+            outputEvidenceRefs: [],
           };
         },
       });
@@ -291,7 +289,7 @@ describe("Spark daemon bridge", () => {
     }
   });
 
-  it("uses role-run trace artifacts as assistant output when no live chunks were captured", async () => {
+  it("uses role-run evidence as assistant output without publishing it as an Artifact", async () => {
     const h = setup();
     try {
       const emitted: unknown[] = [];
@@ -302,8 +300,8 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
-        async get(ref: `artifact:${string}`) {
+      const evidenceStore = {
+        async get(ref: `evidence:${string}`) {
           return {
             ref,
             kind: "trace",
@@ -316,7 +314,7 @@ describe("Spark daemon bridge", () => {
         async getBody() {
           return JSON.stringify({
             schemaVersion: 1,
-            stdout: { tail: "Artifact-backed answer" },
+            stdout: { tail: "EvidenceRecord-backed answer" },
             stderr: { tail: "" },
             jsonEvents: { count: 0, tail: [] },
           });
@@ -338,11 +336,11 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async () => ({
           ref: "run:artifact",
           status: "succeeded",
-          outputArtifacts: ["artifact:bridge-output"],
+          outputEvidenceRefs: ["evidence:bridge-output"],
         }),
       });
 
@@ -351,7 +349,6 @@ describe("Spark daemon bridge", () => {
         "invocation.updated",
         "task_graph.snapshot",
         "invocation.log_chunk",
-        "artifact.projected",
         "invocation.log_chunk",
         "task_graph.snapshot",
         "invocation.updated",
@@ -361,7 +358,7 @@ describe("Spark daemon bridge", () => {
           (value as { type: string }).type === "invocation.log_chunk" &&
           (value as { payload: { stream: string } }).payload.stream === "assistant",
       ) as { payload: { content: string } };
-      expect(assistantChunk.payload.content).toBe("Artifact-backed answer");
+      expect(assistantChunk.payload.content).toBe("EvidenceRecord-backed answer");
     } finally {
       h.cleanup();
     }
@@ -378,12 +375,12 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get() {
-          throw new Error("unexpected artifact lookup for thrown failure");
+          throw new Error("unexpected Evidence lookup for thrown failure");
         },
         async getBody() {
-          throw new Error("unexpected artifact body lookup");
+          throw new Error("unexpected Evidence body lookup");
         },
       };
 
@@ -402,7 +399,7 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async (input) => {
           const onRoleEvent = input.onRoleEvent as ((event: unknown) => void) | undefined;
           onRoleEvent?.({ type: "stream_event", event: { type: "text_delta", delta: "partial" } });
@@ -441,12 +438,12 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get() {
-          throw new Error("unexpected artifact lookup for cancelled run");
+          throw new Error("unexpected Evidence lookup for cancelled run");
         },
         async getBody() {
-          throw new Error("unexpected artifact body lookup");
+          throw new Error("unexpected Evidence body lookup");
         },
       };
 
@@ -465,7 +462,7 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async (input) => {
           const onRoleEvent = input.onRoleEvent as ((event: unknown) => void) | undefined;
           onRoleEvent?.({
@@ -476,7 +473,7 @@ describe("Spark daemon bridge", () => {
             ref: "run:cancelled",
             status: "cancelled",
             errorMessage: "cancelled by user",
-            outputArtifacts: [],
+            outputEvidenceRefs: [],
           };
         },
       });
@@ -516,12 +513,12 @@ describe("Spark daemon bridge", () => {
           throw new Error("stale full-graph save should not be used");
         },
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get() {
-          throw new Error("unexpected artifact lookup for merge-only run");
+          throw new Error("unexpected Evidence lookup for merge-only run");
         },
         async getBody() {
-          throw new Error("unexpected artifact body lookup");
+          throw new Error("unexpected Evidence body lookup");
         },
       };
 
@@ -540,7 +537,7 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async (input) => {
           currentGraph = fakeGraph((refs) => mergedTaskRefs.push(refs));
           const onHeartbeat = input.onHeartbeat as ((graph: unknown) => Promise<void>) | undefined;
@@ -548,7 +545,7 @@ describe("Spark daemon bridge", () => {
           return {
             ref: "run:merged",
             status: "succeeded",
-            outputArtifacts: [],
+            outputEvidenceRefs: [],
           };
         },
       });
@@ -579,12 +576,12 @@ describe("Spark daemon bridge", () => {
         },
         async save() {},
       };
-      const artifactStore = {
+      const evidenceStore = {
         async get() {
-          throw new Error("unexpected artifact lookup for failed run without outputs");
+          throw new Error("unexpected Evidence lookup for failed run without outputs");
         },
         async getBody() {
-          throw new Error("unexpected artifact body lookup");
+          throw new Error("unexpected Evidence body lookup");
         },
       };
 
@@ -604,12 +601,12 @@ describe("Spark daemon bridge", () => {
         db: h.db,
         emit: (message) => emitted.push(message),
         taskGraphStore: store,
-        artifactStore,
+        evidenceStore,
         executeSparkTask: async () => ({
           ref: "run:failed-retry",
           status: "failed",
           errorMessage: "Spark role failed",
-          outputArtifacts: [],
+          outputEvidenceRefs: [],
         }),
       });
 

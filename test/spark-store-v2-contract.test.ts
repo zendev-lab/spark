@@ -67,6 +67,7 @@ test("Spark store V2 manifest codifies hard cutover and import-only legacy paths
       ".spark/sessions/<session>/",
       ".spark/projects/<project>/",
       ".spark/artifacts/",
+      ".spark/evidence/",
     ],
   );
   assert.equal(
@@ -333,7 +334,7 @@ test("Spark store V2 project/task tree fixture splits graph state and keeps TODO
   const taskValue = objectField(task, "value");
   assert.equal(taskValue.todoOwnerRef, "task:demo");
   assert.equal("todos" in taskValue, false, "task.json must not embed TODO bodies");
-  assert.deepEqual(taskValue.outputArtifacts, ["artifact:curated-demo"]);
+  assert.deepEqual(taskValue.outputEvidenceRefs, ["evidence:curated-demo"]);
 
   const [run] = objectArrayField(tree, "runs");
   assert.ok(run);
@@ -351,7 +352,7 @@ test("Spark store V2 review fixture is subject-owned and keeps global review ind
   assert.equal(subject.kind, "task");
   assert.equal(
     subject.ownerPath,
-    "projects/proj-demo/tasks/task-demo/reviews/artifact-review-demo.json",
+    "projects/proj-demo/tasks/task-demo/reviews/evidence-review-demo.json",
   );
   assert.doesNotMatch(String(subject.ownerPath), /reviews\/gate\.json/);
 
@@ -361,6 +362,6 @@ test("Spark store V2 review fixture is subject-owned and keeps global review ind
   const entry = objectField(indexProjection, "entry");
   assert.equal(entry.ownerPath, subject.ownerPath);
 
-  assert.deepEqual(review.artifactRefs, ["artifact:review-demo"]);
+  assert.deepEqual(review.evidenceRefs, ["evidence:review-demo"]);
   assert.ok(stringArrayField(review, "legacyImportOnly").includes(".spark/review-gate.json"));
 });

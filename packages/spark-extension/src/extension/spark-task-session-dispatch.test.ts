@@ -40,8 +40,8 @@ describe("managed Task Session dispatch", () => {
             contextRefs: [],
             constraints: [],
             nonGoals: [],
-            successCriteria: [`Evidence artifact records ${title} result and command output.`],
-            evidenceRequired: [`Evidence artifact containing ${title} command and result.`],
+            successCriteria: [`Evidence record captures ${title} result and command output.`],
+            evidenceRequired: [`Evidence record containing ${title} command and result.`],
             steps: [`Run ${title} probe and record its observable result.`],
             openQuestions: [],
             askRefs: [],
@@ -217,7 +217,7 @@ describe("managed Task Session dispatch", () => {
           {
             objective: "Retry task",
             successCriteria: ["A bounded retry records inspectable evidence."],
-            evidenceRequired: ["Evidence artifact from the retry."],
+            evidenceRequired: ["Evidence record from the retry."],
             steps: ["Run the bounded retry and report the outcome."],
           },
           "Retry task",
@@ -350,8 +350,8 @@ describe("managed Task Session dispatch", () => {
       plan: normalizeTaskPlan(
         {
           objective: "Timeout task",
-          successCriteria: ["Evidence artifact records Timeout task result and command output."],
-          evidenceRequired: ["Evidence artifact containing timeout command and result."],
+          successCriteria: ["Evidence record captures Timeout task result and command output."],
+          evidenceRequired: ["Evidence record containing timeout command and result."],
           steps: ["Run Timeout task probe and record its observable result."],
         },
         "Timeout task",

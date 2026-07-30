@@ -65,7 +65,7 @@ test("spark-loop tick continues, waits, blocks, and never emits goal completion 
   const waiting = evaluateLoopTick({ loop: failed, now: 120, reason: "retry" });
   assert.equal(waiting.decision, "wait");
 
-  const blockedLoop = blockLoop(first.loop!, "needs user decision", ["artifact:blocker"], 130);
+  const blockedLoop = blockLoop(first.loop!, "needs user decision", ["evidence:blocker"], 130);
   const blocked = evaluateLoopTick({ loop: blockedLoop, now: 131 });
   assert.equal(blocked.decision, "blocked");
   assert.match(blocked.message, /needs user decision/);

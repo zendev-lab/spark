@@ -26,7 +26,7 @@ output is never accepted as a successful panel or judge result.
 This package depends only on `spark-core` and receives model execution through
 the injected leaf runner. It does not own provider selection, credentials,
 workflow policy, role execution, persistence, or product-specific integration.
-Its advisory result is neither runtime evidence nor a Product Artifact, and it
+Its advisory result is neither runtime evidence nor an Artifact, and it
 cannot satisfy a workflow proof or gate.
 
 Import `@zendev-lab/spark-fusion/extension` from a Spark-native host to register

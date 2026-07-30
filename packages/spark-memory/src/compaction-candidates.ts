@@ -1,8 +1,7 @@
 import {
   defaultEvidenceStore,
-  type ArtifactRef,
-  type ArtifactStore,
   type EvidenceRef,
+  type EvidenceStore,
 } from "@zendev-lab/spark-artifacts";
 
 import { defaultSparkMemoryStore, type SparkMemoryEntry, type SparkMemoryStore } from "./index.ts";
@@ -47,13 +46,12 @@ export interface SparkCompactionCandidatePipelineOptions {
   details?: unknown;
   candidateStore?: Pick<RecallStore, "list" | "record">;
   memoryStore?: Pick<SparkMemoryStore, "list" | "remember">;
-  evidenceStore?: Pick<ArtifactStore, "tryGet">;
+  evidenceStore?: Pick<EvidenceStore, "tryGet">;
   reviewCandidate?: (candidate: SparkCompactionMemoryCandidate) => Promise<"accept" | "reject">;
 }
 
-const EVIDENCE_REF_PATTERN =
-  /\b(?:artifact|evidence):[A-Za-z0-9][A-Za-z0-9._-]*(?![:A-Za-z0-9._-])/gu;
-const VALID_EVIDENCE_REF_PATTERN = /^(?:artifact|evidence):[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+const EVIDENCE_REF_PATTERN = /\bevidence:[A-Za-z0-9][A-Za-z0-9._-]*(?![:A-Za-z0-9._-])/gu;
+const VALID_EVIDENCE_REF_PATTERN = /^evidence:[A-Za-z0-9][A-Za-z0-9._-]*$/u;
 
 /**
  * Extract only evidence-linked durable claims from the structured Smart summary.
@@ -96,7 +94,7 @@ export function extractSparkCompactionCandidates(
 /**
  * Run candidate persistence and evidence-gated Memory promotion independently
  * of the foreground compact request. Each candidate is isolated so one bad
- * artifact, reviewer, or store cannot prevent the remaining candidates.
+ * Evidence record, reviewer, or store cannot prevent the remaining candidates.
  */
 export async function runSparkCompactionCandidatePipeline(
   options: SparkCompactionCandidatePipelineOptions,
@@ -205,16 +203,16 @@ function refsInText(text: string): string[] {
 }
 
 async function resolveValidEvidenceRefs(
-  store: Pick<ArtifactStore, "tryGet">,
+  store: Pick<EvidenceStore, "tryGet">,
   refs: readonly string[],
 ): Promise<string[]> {
   const valid: string[] = [];
   for (const ref of uniqueNonEmpty([...refs])) {
     if (!VALID_EVIDENCE_REF_PATTERN.test(ref)) continue;
     try {
-      if (await store.tryGet(ref as ArtifactRef | EvidenceRef)) valid.push(ref);
+      if (await store.tryGet(ref as EvidenceRef)) valid.push(ref);
     } catch {
-      // A malformed or unreadable evidence artifact fails closed for this candidate.
+      // A malformed or unreadable Evidence record fails closed for this candidate.
     }
   }
   return valid;

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { defaultEvidenceStore, type ArtifactRef } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore, type EvidenceRef } from "@zendev-lab/spark-artifacts";
 import {
   extractSparkCompactionCandidates,
   runSparkCompactionCandidatePipeline,
@@ -33,7 +33,7 @@ const structuredSummary = {
       {
         path: "packages/spark-memory/src/extension.ts",
         change: "wired post-compact candidates",
-        evidenceRefs: ["artifact:changed-file-proof"],
+        evidenceRefs: ["evidence:changed-file-proof"],
       },
     ],
     commands: [],
@@ -86,7 +86,7 @@ test("post-compact pipeline persists candidates but writes Memory only with reso
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-compact-candidates-"));
   try {
     await defaultEvidenceStore(dir).put({
-      ref: "evidence:delivery-proof" as ArtifactRef,
+      ref: "evidence:delivery-proof" as EvidenceRef,
       kind: "record",
       title: "Delivery validation",
       format: "json",

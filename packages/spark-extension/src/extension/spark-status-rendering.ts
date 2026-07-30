@@ -826,7 +826,7 @@ function compactManagedTaskExecution(
     attempt: run.execution.attempt,
     invocationId: run.execution.invocationId,
     ...(run.resourceAllocation ? { resourceAllocation: run.resourceAllocation } : {}),
-    evidenceRefs: run.outputArtifacts,
+    evidenceRefs: run.outputEvidenceRefs,
     failureKind: run.failureKind,
     errorMessage: run.errorMessage,
   };
@@ -845,7 +845,7 @@ function formatManagedTaskExecution(run: TaskRun): string {
     run.resourceAllocation
       ? `lease=${run.resourceAllocation.leaseId} GPUs=${run.resourceAllocation.gpuIds.join(",") || "none"}`
       : undefined,
-    `evidence=${run.outputArtifacts.length}`,
+    `evidence=${run.outputEvidenceRefs.length}`,
   ]
     .filter((value): value is string => !!value)
     .join(" | ");

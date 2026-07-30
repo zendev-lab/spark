@@ -481,7 +481,7 @@ export function recordArtifactProjection(db: DatabaseSync, input: RecordArtifact
     const existingProvenance = existing ? parseJsonRecord(existing.provenanceJson) : {};
     const incomingIsStale =
       existing !== undefined &&
-      isStaleProductArtifactProjection(existing, input.payload, existingProvenance);
+      isStaleArtifactProjection(existing, input.payload, existingProvenance);
 
     if (incomingIsStale) {
       const staleProvenance = { ...incomingProvenance, ...existingProvenance };
@@ -580,14 +580,14 @@ interface ExistingArtifactProjectionRow {
   provenanceJson: string;
 }
 
-function isStaleProductArtifactProjection(
+function isStaleArtifactProjection(
   existing: ExistingArtifactProjectionRow,
   incoming: ArtifactProjectionPayload,
   existingProvenance: Record<string, unknown>,
 ): boolean {
   const existingContentRef = parseJsonRecord(existing.contentRefJson);
-  const existingRef = stringField(existingProvenance, "productArtifactRef");
-  const incomingRef = stringField(incoming.provenance, "productArtifactRef");
+  const existingRef = stringField(existingProvenance, "artifactRef");
+  const incomingRef = stringField(incoming.provenance, "artifactRef");
   if (!existingRef || !incomingRef || existingRef !== incomingRef) return false;
 
   const existingVersion = positiveIntegerField(existingContentRef, "version");
@@ -602,8 +602,8 @@ function isStaleProductArtifactProjection(
     );
   }
 
-  const existingUpdatedAt = isoTimeField(existingProvenance, "productArtifactUpdatedAt");
-  const incomingUpdatedAt = isoTimeField(incoming.provenance, "productArtifactUpdatedAt");
+  const existingUpdatedAt = isoTimeField(existingProvenance, "artifactUpdatedAt");
+  const incomingUpdatedAt = isoTimeField(incoming.provenance, "artifactUpdatedAt");
   if (existingUpdatedAt === undefined || incomingUpdatedAt === undefined) return false;
   return (
     incomingUpdatedAt < existingUpdatedAt ||

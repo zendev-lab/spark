@@ -6,9 +6,11 @@ import {
   createSparkSessionRepro,
   evaluateStageGate,
   isPhaseComplete,
+  isReproRequirementSatisfied,
   isStageComplete,
   migrateSparkSessionReproV5,
   nextReproStagePlanningBlocker,
+  nextReproStep,
   recordReproRequirementProof,
   reproProgressDigest,
   reviseReproPlan,
@@ -25,6 +27,27 @@ import {
 const ref = (id: string) => `evidence:${id}` as EvidenceRef;
 
 describe("spark-repro", () => {
+  it("selects the first dependency-ready step in the current stage", () => {
+    const base = createSparkSessionRepro("session:test");
+    const first = base.plan.steps[0]!;
+    const second = base.plan.steps[1]!;
+    const repro: SparkSessionRepro = {
+      ...base,
+      plan: {
+        ...base.plan,
+        steps: base.plan.steps.map((step) =>
+          step.id === first.id
+            ? { ...step, status: "blocked" }
+            : step.id === second.id
+              ? { ...step, dependsOn: [first.id] }
+              : step,
+        ),
+      },
+    };
+
+    expect(nextReproStep(repro)?.id).toBe(first.id);
+  });
+
   it("starts with a draft Goal Contract and a typed plan seeded from fixed gates", () => {
     const repro = createSparkSessionRepro("session:test", undefined, {
       objective: "Reproduce target logits",

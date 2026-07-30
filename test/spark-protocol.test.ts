@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "vitest";
 
 import {
@@ -8,10 +10,17 @@ import {
   parseSparkInteractionRequest,
   parseSparkInteractionResponse,
   parseSparkSessionView,
+  sparkArtifactProjectionContentRefSchema,
+  sparkRunViewSchema,
+  sparkTaskViewSchema,
   parseSparkViewModelEvent,
   invocationLogChunkPayloadSchema,
   sparkInteractionRequestSchema,
 } from "@zendev-lab/spark-protocol";
+
+const evidenceSurfaceNegativeValues = JSON.parse(
+  readFileSync(join(process.cwd(), "test/fixtures/evidence-surface/negative-values.json"), "utf8"),
+) as { wrongNamespaceRef: string; wrongArtifactNamespaceRef: string };
 
 test("spark protocol validates core session/message/tool/run/task/artifact view models", () => {
   const session = parseSparkSessionView({
@@ -25,13 +34,53 @@ test("spark protocol validates core session/message/tool/run/task/artifact view 
     tools: [{ id: "tc1", name: "read", status: "running", input: { path: "README.md" } }],
     runs: [{ id: "run:1", kind: "task", status: "running", progress: 0.5 }],
     tasks: [{ ref: "task:1", title: "Implement", status: "running" }],
-    artifacts: [{ ref: "artifact:1", title: "Evidence", kind: "record", format: "json" }],
+    artifacts: [{ ref: "evidence:1", title: "Evidence", kind: "record", format: "json" }],
   });
 
   assert.equal(session.version, SPARK_PROTOCOL_VERSION);
   assert.equal(session.messages[1]?.status, "streaming");
   assert.equal(session.tools[0]?.input && typeof session.tools[0].input, "object");
   assert.equal(session.runs[0]?.progress, 0.5);
+});
+
+test("run and task views keep Artifacts separate from internal Evidence", () => {
+  assert.doesNotThrow(() =>
+    sparkRunViewSchema.parse({
+      id: "run:separated",
+      kind: "task",
+      status: "succeeded",
+      evidenceRefs: ["evidence:proof"],
+      artifactRefs: ["artifact:preview"],
+    }),
+  );
+  assert.throws(
+    () =>
+      sparkRunViewSchema.parse({
+        id: "run:mixed",
+        kind: "task",
+        status: "succeeded",
+        evidenceRefs: [evidenceSurfaceNegativeValues.wrongNamespaceRef],
+      }),
+    /must be an evidence: ref/,
+  );
+  assert.throws(
+    () =>
+      sparkTaskViewSchema.parse({
+        ref: "task:mixed",
+        title: "Mixed",
+        status: "running",
+        artifactRefs: [evidenceSurfaceNegativeValues.wrongArtifactNamespaceRef],
+      }),
+    /must be an artifact: ref/,
+  );
+  assert.throws(
+    () =>
+      sparkArtifactProjectionContentRefSchema.parse({
+        artifactRef: evidenceSurfaceNegativeValues.wrongArtifactNamespaceRef,
+        inlineJson: {},
+      }),
+    /must be an artifact: ref/,
+  );
 });
 
 test("spark protocol validates interaction requests and typed responses", () => {

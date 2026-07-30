@@ -5,13 +5,13 @@
     "kind": "task",
     "projectRef": "proj:demo",
     "taskRef": "task:demo",
-    "ownerPath": "projects/proj-demo/tasks/task-demo/reviews/artifact-review-demo.json"
+    "ownerPath": "projects/proj-demo/tasks/task-demo/reviews/evidence-review-demo.json"
   },
   "policy": "required",
   "status": "resolved",
   "outcome": "approved",
   "summary": "Reviewer approved the task completion evidence.",
-  "artifactRefs": ["artifact:review-demo"],
+  "evidenceRefs": ["evidence:review-demo"],
   "reviewer": {
     "producer": "review",
     "roleRef": "role:builtin-reviewer",
@@ -26,7 +26,7 @@
       "reviewRef": "review:demo",
       "subjectKind": "task",
       "subjectRef": "task:demo",
-      "ownerPath": "projects/proj-demo/tasks/task-demo/reviews/artifact-review-demo.json",
+      "ownerPath": "projects/proj-demo/tasks/task-demo/reviews/evidence-review-demo.json",
       "status": "resolved",
       "updatedAt": "2026-06-17T00:02:00.000Z"
     }

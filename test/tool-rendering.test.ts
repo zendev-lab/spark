@@ -33,6 +33,11 @@ const plainTheme: RenderTheme = {
   bold: (text) => text,
 };
 
+const ansiTheme: RenderTheme = {
+  fg: (_color, text) => `\u001b[38;2;138;190;183m${text}\u001b[39m`,
+  bold: (text) => `\u001b[1m${text}\u001b[22m`,
+};
+
 const snapshotDir = join(dirname(fileURLToPath(import.meta.url)), "snapshots");
 
 test("Spark extension canonical facade tools render parameter-aware tool calls", async () => {
@@ -76,6 +81,19 @@ test("Spark extension canonical facade tools render parameter-aware tool calls",
     80,
   );
   assertVisibleWidthAtMost(longTask, 80);
+
+  const crashWidth = 158;
+  const crashTodo = renderCall(
+    tools,
+    "todo",
+    {
+      action: "block",
+      item: "改进 session action=send 工具调用展示：主行显示接收方角色与动作，展开区显示 subject 和发送消息预览，状态显示 accepted/running/completed；session",
+    },
+    crashWidth,
+    ansiTheme,
+  );
+  assertVisibleWidthAtMost(crashTodo, crashWidth);
 });
 
 test("standalone Pi ask, cue, and role tools render parameter-aware tool calls", async () => {
@@ -210,6 +228,13 @@ test("standalone Pi ask, cue, and role tools render parameter-aware tool calls",
     ),
     /session action=send to=session:worker kind=request/u,
   );
+  const longSession = renderCall(
+    sessionTools,
+    "session",
+    { action: "send", toSessionId: `session:${"质量验证".repeat(24)}` },
+    80,
+  );
+  assertVisibleWidthAtMost(longSession, 80);
 
   const graftTools = registerGraftToolsForRendering();
   await expect(
@@ -291,11 +316,12 @@ function renderCall(
   name: string,
   args: Record<string, unknown>,
   width = 200,
+  theme = plainTheme,
 ): string {
   const tool = tools.get(name);
   assert.ok(tool, `missing tool: ${name}`);
   assert.ok(tool.renderCall, `${name} missing renderCall`);
-  return tool.renderCall(args, plainTheme, {}).render(width).join("\n");
+  return tool.renderCall(args, theme, {}).render(width).join("\n");
 }
 
 function assertVisibleWidthAtMost(line: string, width: number): void {

@@ -87,18 +87,18 @@
     gap: var(--spacing-xs);
     justify-content: center;
     line-height: var(--leading-button);
-    min-height: 40px;
+    min-height: var(--control-height-default);
     padding: 8px 14px;
     text-decoration: none;
     transition:
-      background 120ms ease,
-      border-color 120ms ease,
-      color 120ms ease;
+      background var(--motion-fast) ease,
+      border-color var(--motion-fast) ease,
+      color var(--motion-fast) ease;
   }
 
   .ui-button[data-size="compact"] {
     font-size: var(--text-caption);
-    min-height: 32px;
+    min-height: var(--control-height-compact);
     padding: 5px 10px;
   }
 
@@ -155,5 +155,18 @@
     border-color: var(--color-border);
     color: var(--color-ink-disabled);
     cursor: not-allowed;
+  }
+
+  @media (pointer: coarse) {
+    .ui-button,
+    .ui-button[data-size="compact"] {
+      min-height: var(--control-height-touch);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ui-button {
+      transition: none;
+    }
   }
 </style>

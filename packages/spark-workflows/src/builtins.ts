@@ -444,7 +444,7 @@ if (!briefBody.trim()) throw new Error('fan_out_with_brief requires args.briefBo
 if (agents.length === 0) throw new Error('fan_out_with_brief requires args.agents[]')
 
 stage('Brief')
-const brief = await artifactRecord({
+const brief = await evidenceRecord({
   title: args.briefTitle || 'Workflow briefing',
   kind: 'research',
   format: 'markdown',
@@ -462,7 +462,7 @@ const outputs = await parallel(agents.map((item, index) => async () => {
     label: item && item.label ? String(item.label) : name,
     result: await agent(prompt, {
       label: item && item.label ? String(item.label) : name,
-      artifactRef: brief.ref,
+      evidenceRef: brief.ref,
       agentType: item && item.agentType ? String(item.agentType) : undefined,
       model: item && item.model ? String(item.model) : undefined,
     }),

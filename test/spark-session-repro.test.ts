@@ -30,7 +30,7 @@ import {
   type SparkSessionReproV4,
 } from "../packages/spark-extension/src/extension/spark-session-repro.ts";
 
-const artifactRef = (id: string) => `evidence:${id}` as EvidenceRef;
+const evidenceRef = (id: string) => `evidence:${id}` as EvidenceRef;
 
 describe("SparkSessionRepro evidence-backed state machine", () => {
   function makeRepro(): SparkSessionRepro {
@@ -90,33 +90,33 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     let repro = makeRepro();
     repro = record(repro, "repro-contract-frozen", {
       kind: "evidence",
-      evidenceRefs: [artifactRef("contract")],
+      evidenceRefs: [evidenceRef("contract")],
     });
     repro = record(repro, "competitor-baseline-availability-researched", {
       kind: "evidence",
-      evidenceRefs: [artifactRef("baseline-availability")],
+      evidenceRefs: [evidenceRef("baseline-availability")],
     });
     repro = record(repro, "baseline-construction-strategy-approved", {
       kind: "decision",
-      decisionRef: artifactRef("baseline-construction-ask"),
+      decisionRef: evidenceRef("baseline-construction-ask"),
       selectedValue: "reuse-existing",
     });
     repro = record(repro, "implementation-landscape-researched", {
       kind: "evidence",
-      evidenceRefs: [artifactRef("reuse-research")],
+      evidenceRefs: [evidenceRef("reuse-research")],
     });
     repro = record(repro, "alignment-paths-researched", {
       kind: "evidence",
-      evidenceRefs: [artifactRef("alignment-research")],
+      evidenceRefs: [evidenceRef("alignment-research")],
     });
     repro = record(repro, "implementation-strategy-approved", {
       kind: "decision",
-      decisionRef: artifactRef("implementation-ask"),
+      decisionRef: evidenceRef("implementation-ask"),
       selectedValue: "reuse",
     });
     repro = record(repro, "alignment-strategy-approved", {
       kind: "decision",
-      decisionRef: artifactRef("alignment-ask"),
+      decisionRef: evidenceRef("alignment-ask"),
       selectedValue: "real-module",
     });
     assert.equal(isPhaseComplete(repro), false);
@@ -124,12 +124,12 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     repro = record(repro, "baseline-probe-passed", {
       kind: "validation",
       command: "pnpm test baseline",
-      resultRef: artifactRef("baseline-output"),
+      resultRef: evidenceRef("baseline-output"),
       passed: true,
     });
 
     for (const step of repro.plan.steps.filter((candidate) => candidate.stage === "setup")) {
-      const evidenceRefs = [artifactRef(`step-${step.id}`)];
+      const evidenceRefs = [evidenceRef(`step-${step.id}`)];
       const verifier = verifyReproStepPass(repro, step.id, {
         verdict: "Pass",
         planRevision: repro.plan.currentRevision,
@@ -179,7 +179,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       () =>
         recordReproRequirementProof(repro, "implementation-strategy-approved", {
           kind: "evidence",
-          evidenceRefs: [artifactRef("research")],
+          evidenceRefs: [evidenceRef("research")],
         }),
       /expects decision proof, received evidence/u,
     );
@@ -192,14 +192,14 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       satisfyAcceptanceCondition(
         repro,
         "implementation-strategy-approved",
-        artifactRef("decision"),
+        evidenceRef("decision"),
       ),
       undefined,
     );
     const updated = satisfyAcceptanceCondition(
       repro,
       "repro-contract-frozen",
-      artifactRef("contract"),
+      evidenceRef("contract"),
     );
     assert.equal(updated?.stages[0]?.acceptance[0]?.kind, "evidence");
     assert.equal(isReproRequirementSatisfied(updated!.stages[0]!.acceptance[0]!), true);
@@ -221,8 +221,8 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     assert.equal(passed.passed, true);
     assert.equal(passed.repro.stages[2]?.gate?.evaluation?.passed, true);
     assert.deepEqual(passed.repro.stages[2]?.gate?.evaluation?.evidenceRefs, [
-      artifactRef("result-20"),
-      artifactRef("result-100"),
+      evidenceRef("result-20"),
+      evidenceRef("result-100"),
     ]);
   });
 
@@ -254,12 +254,18 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
             : {}),
         })),
       };
+      const negativeValues = JSON.parse(
+        await readFile(
+          join(process.cwd(), "test", "fixtures", "evidence-surface", "negative-values.json"),
+          "utf8",
+        ),
+      ) as { wrongNamespaceRef: string };
       legacy.stages[0]!.acceptance = [
         {
           description: "Problem statement documented",
           phase: "research",
           satisfied: true,
-          evidenceRef: "artifact:legacy-problem",
+          evidenceRef: negativeValues.wrongNamespaceRef,
         },
         {
           description: "Reproduction strategy planned",
@@ -471,15 +477,15 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       let repro = makeRepro();
       repro = record(repro, "repro-contract-frozen", {
         kind: "evidence",
-        evidenceRefs: [artifactRef("contract")],
+        evidenceRefs: [evidenceRef("contract")],
       });
       repro = record(repro, "competitor-baseline-availability-researched", {
         kind: "evidence",
-        evidenceRefs: [artifactRef("baseline")],
+        evidenceRefs: [evidenceRef("baseline")],
       });
       repro = record(repro, "baseline-construction-strategy-approved", {
         kind: "decision",
-        decisionRef: artifactRef("baseline-decision"),
+        decisionRef: evidenceRef("baseline-decision"),
         selectedValue: "reuse-existing",
         rationale: "The baseline command and outputs are available.",
       });
@@ -535,7 +541,7 @@ function validation(id: string, passed: boolean): SparkReproRequirementProof {
   return {
     kind: "validation",
     command: `run ${id}`,
-    resultRef: artifactRef(`result-${id}`),
+    resultRef: evidenceRef(`result-${id}`),
     passed,
   };
 }

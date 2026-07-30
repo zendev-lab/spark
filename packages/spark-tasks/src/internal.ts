@@ -262,8 +262,8 @@ export function normalizeTask(task: Task): Task {
         : undefined,
     supersededBy: normalizeTaskRefs(task.supersededBy),
     claim,
-    inputArtifacts: task.inputArtifacts,
-    outputArtifacts: task.outputArtifacts,
+    inputEvidenceRefs: task.inputEvidenceRefs,
+    outputEvidenceRefs: task.outputEvidenceRefs,
     plan: normalizeTaskPlan(task.plan, task.description, task.title),
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
@@ -550,7 +550,7 @@ export const TASK_PLAN_READINESS_RULES: readonly TaskPlanReadinessRule[] = [
     severity: "blocking",
     message: "Task plan needs evidence requirements.",
     remediation:
-      "Add at least one concrete validation artifact or command to plan.evidenceRequired.",
+      "Add at least one concrete validation Evidence record or command to plan.evidenceRequired.",
     description:
       "plan.evidenceRequired must include at least one concrete evidence item required before completion.",
   },
@@ -575,7 +575,7 @@ export const TASK_PLAN_READINESS_RULES: readonly TaskPlanReadinessRule[] = [
     severity: "blocking",
     message: "Task plan has success criteria that are not objectively verifiable.",
     remediation:
-      "Rewrite every plan.successCriteria entry so it can be checked by a command, artifact, state transition, file/path diff, reviewer verdict, or explicit metric.",
+      "Rewrite every plan.successCriteria entry so it can be checked by a command, Evidence record, state transition, file/path diff, reviewer verdict, or explicit metric.",
     description:
       "every plan.successCriteria entry must be objectively verifiable by explicit evidence, state, commands, paths, reviewer verdicts, or metrics.",
   },
@@ -584,7 +584,7 @@ export const TASK_PLAN_READINESS_RULES: readonly TaskPlanReadinessRule[] = [
     severity: "blocking",
     message: "Task plan has evidence requirements that are too vague.",
     remediation:
-      "Require concrete evidence such as command output with exit codes, test names, artifact refs, changed files, screenshots, benchmark values, or reviewer decision artifacts.",
+      "Require concrete evidence such as command output with exit codes, test names, Evidence refs, changed files, screenshots, benchmark values, or reviewer decisions.",
     description:
       "every plan.evidenceRequired entry must name concrete evidence required before completion.",
   },
@@ -640,7 +640,7 @@ interface WeakPlanEntry {
 const VERIFIABLE_TEXT_PATTERN =
   /\b(command|test|tests|check|checks|lint|typecheck|build|run|output|artifact|evidence|refs?|file|path|diff|snapshot|log|report|screenshot|benchmark|metric|coverage|exit code|reviewer|review|verdict|status|schema|migration|api|endpoint|assertion|assertions|passes|fails|matched|recorded|attached|validated|verified)\b|命令|测试|检查|验证|输出|证据|文件|路径|差异|日志|报告|截图|基准|指标|覆盖率|退出码|审查|审核|状态|断言|通过|失败/iu;
 const CONCRETE_EVIDENCE_PATTERN =
-  /\b(command|test|tests|assertion|assertions|output|artifact|refs?|file|path|diff|snapshot|log|report|screenshot|benchmark|metric|coverage|exit code|reviewer|review|verdict|status|schema|migration|api|endpoint|changed files?|source refs?|attached|returned|rendered)\b|命令|测试|检查|验证|输出|证据|文件|路径|差异|日志|报告|截图|基准|指标|覆盖率|退出码|审查|审核|状态|断言|通过|失败/iu;
+  /\b(command|test|tests|assertion|assertions|output|artifact|evidence|refs?|file|path|diff|snapshot|log|report|screenshot|benchmark|metric|coverage|exit code|reviewer|review|verdict|status|schema|migration|api|endpoint|changed files?|source refs?|attached|returned|rendered)\b|命令|测试|检查|验证|输出|证据|文件|路径|差异|日志|报告|截图|基准|指标|覆盖率|退出码|审查|审核|状态|断言|通过|失败/iu;
 const COMMAND_OR_PATH_PATTERN =
   /\b(pnpm|npm|node|uvx?|cargo|pytest|ruff|ty|go test|git diff|vp|prek|tsc|vitest|playwright|eslint|biome)\b|(?:^|\s)[\w./-]+\.(?:ts|tsx|js|jsx|mts|cts|json|md|yml|yaml|toml|rs|py|go|sh|sql)(?=$|\s|[,:;.])/iu;
 const EXPLICIT_METRIC_PATTERN =
@@ -866,17 +866,17 @@ export function taskPlanIssue(kind: TaskPlanIssueKind, message?: string): TaskPl
 }
 
 export function taskCompletionReadiness(
-  task: Pick<Task, "plan" | "outputArtifacts" | "status">,
+  task: Pick<Task, "plan" | "outputEvidenceRefs" | "status">,
 ): TaskCompletionReadiness {
   if (task.status === "cancelled") return { ready: true, issues: [] };
   const issues: TaskCompletionIssue[] = [];
   const evidenceRequired = task.plan?.evidenceRequired ?? [];
-  if (evidenceRequired.length > 0 && task.outputArtifacts.length === 0) {
+  if (evidenceRequired.length > 0 && task.outputEvidenceRefs.length === 0) {
     issues.push({
       kind: "missing_completion_evidence",
       severity: "blocking",
       evidenceRequired,
-      message: `Task completion needs evidence artifacts: ${evidenceRequired.join("; ")}`,
+      message: `Task completion needs Evidence records: ${evidenceRequired.join("; ")}`,
     });
   }
   const openItems = (task.plan?.items ?? []).filter(
@@ -1338,8 +1338,8 @@ export function cloneTask(task: Task): Task {
         }
       : undefined,
     supersededBy: [...task.supersededBy],
-    inputArtifacts: [...task.inputArtifacts],
-    outputArtifacts: [...task.outputArtifacts],
+    inputEvidenceRefs: [...task.inputEvidenceRefs],
+    outputEvidenceRefs: [...task.outputEvidenceRefs],
     plan: task.plan ? cloneTaskPlan(task.plan) : undefined,
   };
 }
@@ -1362,11 +1362,11 @@ export function normalizeTaskRun(run: TaskRun): TaskRun {
           concurrencyKeys: [...run.resourceAllocation.concurrencyKeys],
         }
       : undefined,
-    outputArtifacts: [...run.outputArtifacts],
+    outputEvidenceRefs: [...run.outputEvidenceRefs],
     completionSummary: run.completionSummary
       ? {
           ...run.completionSummary,
-          artifactRefs: [...run.completionSummary.artifactRefs],
+          evidenceRefs: [...run.completionSummary.evidenceRefs],
           outcome: run.completionSummary.outcome ? { ...run.completionSummary.outcome } : undefined,
         }
       : undefined,

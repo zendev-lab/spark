@@ -179,10 +179,10 @@ function roadmap(
     objective,
     scope: [key.replaceAll("-", " "), "formal evidence", "continuous delivery checkpoint"],
     successCriteria: successCriteria.map(
-      (criterion) => `Evidence artifact and checker output verify: ${criterion}`,
+      (criterion) => `Evidence record and checker output verify: ${criterion}`,
     ),
     evidenceRequired: [
-      "Evidence artifact containing accepted commands, configs, source revisions, outputs, and reviewer verdicts.",
+      "Evidence record containing accepted commands, configs, source revisions, outputs, and reviewer verdicts.",
     ],
   };
 }
@@ -238,7 +238,7 @@ const setup: ReproStageBlueprint = {
       {
         doneWhen: ["Every immutable input has an exact revision or content hash."],
         evidenceRequired: [
-          "Manifest artifact with repository, model, weight, tokenizer, config, and data revisions.",
+          "Manifest Evidence record with repository, model, weight, tokenizer, config, and data revisions.",
         ],
       },
     ),
@@ -248,7 +248,7 @@ const setup: ReproStageBlueprint = {
         "Token IDs, labels, masks, sample order, and cursor state have named comparison projections.",
       ],
       evidenceRequired: [
-        "Data contract artifact with fixtures, hashes, shapes, and cursor semantics.",
+        "Data contract Evidence record with fixtures, hashes, shapes, and cursor semantics.",
       ],
     }),
     task(
@@ -260,7 +260,7 @@ const setup: ReproStageBlueprint = {
           "A real reference entrypoint either runs with a recorded exit code or has an exact absence diagnosis.",
         ],
         evidenceRequired: [
-          "Command artifact with paths, configuration, output, exit code, and missing-input diagnosis when applicable.",
+          "Command Evidence record with paths, configuration, output, exit code, and missing-input diagnosis when applicable.",
         ],
       },
     ),
@@ -274,7 +274,7 @@ const setup: ReproStageBlueprint = {
           "Forward, loss, backward, optimizer, and checkpoint paths identify source files and symbols.",
         ],
         evidenceRequired: [
-          "Reference trace artifact with file and symbol locations plus computation boundaries.",
+          "Reference trace Evidence record with file and symbol locations plus computation boundaries.",
         ],
       },
     ),
@@ -287,7 +287,7 @@ const setup: ReproStageBlueprint = {
           "Existing target entrypoints, builders, kernels, and distributed boundaries are mapped.",
         ],
         evidenceRequired: [
-          "Target trace artifact with source paths, exported APIs, and unsupported assumptions.",
+          "Target trace Evidence record with source paths, exported APIs, and unsupported assumptions.",
         ],
       },
     ),
@@ -296,7 +296,7 @@ const setup: ReproStageBlueprint = {
       dependsOn: ["trace-reference-architecture", "trace-target-existing-path"],
       doneWhen: ["Every model component is classified as reuse, adapt, or new with cited reasons."],
       evidenceRequired: [
-        "Component matrix artifact with primary source and implementation references.",
+        "Component matrix Evidence record with primary source and implementation references.",
       ],
     }),
     task("map-cross-layer-dependencies", "architecture", "Map cross-layer dependencies", {
@@ -318,7 +318,9 @@ const setup: ReproStageBlueprint = {
         doneWhen: [
           "Reusable modules and rejected alternatives cite concrete APIs and constraints.",
         ],
-        evidenceRequired: ["Implementation landscape artifact with reuse, adapt, and new options."],
+        evidenceRequired: [
+          "Implementation landscape Evidence record with reuse, adapt, and new options.",
+        ],
       },
     ),
     task(
@@ -332,7 +334,7 @@ const setup: ReproStageBlueprint = {
           "Three to five highest-relevance primary sources are deeply reviewed and classified.",
         ],
         evidenceRequired: [
-          "Research artifact separating direct reuse, pattern reuse, and background material.",
+          "Research Evidence record separating direct reuse, pattern reuse, and background material.",
         ],
       },
     ),
@@ -344,7 +346,7 @@ const setup: ReproStageBlueprint = {
         dependsOn: ["map-model-novel-components", "map-cross-layer-dependencies"],
         doneWhen: ["S0, S1, S2, and S3 memory estimates state assumptions and dominant terms."],
         evidenceRequired: [
-          "Resource model artifact with parameter, optimizer, activation, and communication estimates.",
+          "Resource model Evidence record with parameter, optimizer, activation, and communication estimates.",
         ],
       },
     ),
@@ -357,14 +359,14 @@ const setup: ReproStageBlueprint = {
         "Observed peak memory and runtime exist for S0 and the smallest feasible S2 attempt.",
       ],
       evidenceRequired: [
-        "Profiler command artifact with device inventory, peak memory, runtime, and exit codes.",
+        "Profiler command Evidence record with device inventory, peak memory, runtime, and exit codes.",
       ],
     }),
     task("derive-pfit-and-ptarget", "resources", "Derive Pfit and Ptarget topology vectors", {
       dependsOn: ["probe-s0-and-s2-resource-envelope"],
       doneWhen: ["P0, Pfit, and Ptarget are explicit topology vectors with fit rationale."],
       evidenceRequired: [
-        "Topology artifact containing tp, pp, ep, cp, dp, sequence parallel, and sharding fields.",
+        "Topology Evidence record containing tp, pp, ep, cp, dp, sequence parallel, and sharding fields.",
       ],
     }),
     task("design-topology-qualification-dag", "resources", "Produce topology qualification DAG", {
@@ -372,7 +374,7 @@ const setup: ReproStageBlueprint = {
       dependsOn: ["derive-pfit-and-ptarget", "research-prior-art-and-known-diffs"],
       doneWhen: ["Every candidate topology changes one axis from an accepted parent."],
       evidenceRequired: [
-        "Topology DAG artifact covering TP, EP, PP, SP, CP, DP, sharding, and performance features.",
+        "Topology DAG Evidence record covering TP, EP, PP, SP, CP, DP, sharding, and performance features.",
       ],
     }),
     task("define-determinism-contract", "observability", "Define same-side determinism contract", {
@@ -396,7 +398,7 @@ const setup: ReproStageBlueprint = {
           "Tensor naming, boundary hashing, checkpoint schema, and first-divergence projections are symmetric.",
         ],
         evidenceRequired: [
-          "Checker schema artifact with hook non-interference acceptance criteria.",
+          "Checker schema Evidence record with hook non-interference acceptance criteria.",
         ],
       },
     ),
@@ -456,7 +458,7 @@ const setup: ReproStageBlueprint = {
           "Both paths have executable probe commands, outputs, and observability tradeoffs.",
         ],
         evidenceRequired: [
-          "Paired probe artifact with commands, exit codes, and comparison table.",
+          "Paired probe Evidence record with commands, exit codes, and comparison table.",
         ],
       },
     ),
@@ -496,7 +498,7 @@ const setup: ReproStageBlueprint = {
         "S0 through S3, H1 through Htarget, formal entrypoint, and exactness claims are frozen.",
       ],
       evidenceRequired: [
-        "Reviewed Goal Contract artifact with explicit claims, non-goals, profiles, and evidence requirements.",
+        "Reviewed Goal Contract Evidence record with explicit claims, non-goals, profiles, and evidence requirements.",
       ],
     }),
     task("baseline-probe-passed", "strategy", "Run approved baseline comparison probe", {
@@ -515,10 +517,10 @@ const setup: ReproStageBlueprint = {
       {
         dependsOn: ["repro-contract-frozen"],
         doneWhen: [
-          "A report skeleton and owner-repository PR dependency map are stored as product artifacts.",
+          "A report skeleton and owner-repository PR dependency map are stored as Artifacts.",
         ],
         evidenceRequired: [
-          "Preview artifact with managed report sections, repository owners, branch plan, and sync events.",
+          "Preview Artifact with managed report sections, repository owners, branch plan, and sync events.",
         ],
       },
     ),
@@ -677,7 +679,7 @@ const scaffold: ReproStageBlueprint = {
         doneWhen: [
           "Checkpoint inventory and contracted boundary traces are exportable and immutable.",
         ],
-        evidenceRequired: ["Checkpoint hashes, tensor inventory, trace schema, and artifact refs."],
+        evidenceRequired: ["Checkpoint hashes, tensor inventory, trace schema, and Evidence refs."],
       },
     ),
     task(
@@ -698,7 +700,7 @@ const scaffold: ReproStageBlueprint = {
       kind: "implement",
       dependsOn: ["design-target-ownership-boundaries"],
       doneWhen: ["Formal configs instantiate S0, S1, and S2 shapes without hidden overrides."],
-      evidenceRequired: ["Changed-file artifact, focused tests, and builder inventory."],
+      evidenceRequired: ["Changed-file Evidence record, focused tests, and builder inventory."],
     }),
     task(
       "implement-attention-rope",
@@ -710,7 +712,7 @@ const scaffold: ReproStageBlueprint = {
         doneWhen: [
           "Real attention and positional paths support contracted shapes, dtypes, and layouts.",
         ],
-        evidenceRequired: ["Changed-file artifact with focused forward and backward tests."],
+        evidenceRequired: ["Changed-file Evidence record with focused forward and backward tests."],
       },
     ),
     task(
@@ -722,7 +724,7 @@ const scaffold: ReproStageBlueprint = {
         dependsOn: ["design-target-ownership-boundaries"],
         doneWhen: ["All dense or MoE variants execute real forward and backward paths."],
         evidenceRequired: [
-          "Changed-file artifact with router, dispatch, expert, and gradient tests.",
+          "Changed-file Evidence record with router, dispatch, expert, and gradient tests.",
         ],
       },
     ),
@@ -736,7 +738,7 @@ const scaffold: ReproStageBlueprint = {
         doneWhen: [
           "Embedding, output projection, tying, and loss inputs match the declared inventory.",
         ],
-        evidenceRequired: ["Changed-file artifact with inventory and boundary tests."],
+        evidenceRequired: ["Changed-file Evidence record with inventory and boundary tests."],
       },
     ),
     task(
@@ -783,7 +785,7 @@ const scaffold: ReproStageBlueprint = {
           "The target formal entrypoint builds S0 and S2 from reviewed production modules.",
         ],
         evidenceRequired: [
-          "Formal command, parameter inventory, module execution trace, and changed-file artifact.",
+          "Formal command, parameter inventory, module execution trace, and changed-file Evidence record.",
         ],
       },
     ),
@@ -797,7 +799,7 @@ const scaffold: ReproStageBlueprint = {
         doneWhen: [
           "Both sides emit the same tensor names, hashes, manifests, and distributed boundaries.",
         ],
-        evidenceRequired: ["Schema fixtures, checker tests, and paired trace artifacts."],
+        evidenceRequired: ["Schema fixtures, checker tests, and paired trace Evidence records."],
       },
     ),
     task(
@@ -825,7 +827,9 @@ const scaffold: ReproStageBlueprint = {
         doneWhen: [
           "Hook on and off results match and no diagnostic path replaces production computation.",
         ],
-        evidenceRequired: ["Independent audit artifact with paired hashes and source findings."],
+        evidenceRequired: [
+          "Independent audit Evidence record with paired hashes and source findings.",
+        ],
       },
     ),
     task(
@@ -840,7 +844,7 @@ const scaffold: ReproStageBlueprint = {
         doneWhen: [
           "Managed report sections cite the accepted structure, environment, and resource evidence.",
         ],
-        evidenceRequired: ["Updated preview artifact with evidence links and current limitations."],
+        evidenceRequired: ["Updated preview Artifact with evidence links and current limitations."],
       },
     ),
     task("create-initial-draft-pr-approved", "delivery", "Create or update initial Draft PR", {
@@ -922,7 +926,9 @@ const reproduce: ReproStageBlueprint = {
         doneWhen: [
           "RNG, data progression, and hook on or off contracts cannot explain a cross-side mismatch.",
         ],
-        evidenceRequired: ["Independent audit artifact with state hashes and hook equivalence."],
+        evidenceRequired: [
+          "Independent audit Evidence record with state hashes and hook equivalence.",
+        ],
       },
     ),
     task("align-s0-input-token-label", "h1", "Align S0 input, token, label, and mask bits", {
@@ -1293,7 +1299,7 @@ const deliver: ReproStageBlueprint = {
         dependsOn: ["sync-scale-report-and-draft-pr"],
         doneWhen: [`An independent reviewer either verifies ${subject} or records exact blockers.`],
         evidenceRequired: [
-          `Independent audit artifact for ${subject} with source and evidence refs.`,
+          `Independent audit Evidence record for ${subject} with source and evidence refs.`,
         ],
       }),
     ),
@@ -1354,7 +1360,7 @@ const deliver: ReproStageBlueprint = {
           "PR scope, commit hygiene, CI, review comments, and dependency order are resolved or blocked externally.",
         ],
         evidenceRequired: [
-          "PR review artifact with URLs, commits, check results, comments, and blockers.",
+          "PR review Evidence record with URLs, commits, check results, comments, and blockers.",
         ],
       },
     ),

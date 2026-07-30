@@ -1,6 +1,6 @@
 import { error as kitError, fail } from "@sveltejs/kit";
 import { getRequestDictionary, localeCookieName } from "$lib/i18n";
-import { renderStoredProductPreview } from "$lib/server/product-artifact-preview";
+import { renderStoredArtifactPreview } from "$lib/server/artifact-preview";
 import {
   loadArtifactDetailPage,
   prepareArtifactPreviewForWorkspace,
@@ -27,7 +27,7 @@ export const load = (({ params }) => {
     lastAccessedAt: page.previewResult.cache.lastAccessedAt,
     error: page.previewResult.cache.error,
     body: previewBody,
-    documentHtml: renderStoredProductPreview({
+    documentHtml: renderStoredArtifactPreview({
       kind: page.artifact.kind,
       title: page.artifact.title,
       contentRef,

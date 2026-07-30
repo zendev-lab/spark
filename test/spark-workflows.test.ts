@@ -495,7 +495,7 @@ stage('Fanout')
 const results = await parallel([
   () => webSearch({ query: 'fanout' }),
   () => fetchContent({ url: 'https://example.test/facts' }),
-  () => artifactRecord({ title: 'Brief', body: 'Body' }),
+  () => evidenceRecord({ title: 'Brief', body: 'Body' }),
   () => workflow('child', { marker: 'nested' }),
 ], { concurrency: 2 })
 stage('Fanout', { status: 'success' })
@@ -505,7 +505,7 @@ return { child: true }`;
   const events: WorkflowRunEvent[] = [];
   const run = await runWorkflowScript(script, {
     agent: async () => assert.fail("zero-agent fanout should not call agent"),
-    artifactRecord: async () => ({ ref: "artifact:fanout-brief" }),
+    evidenceRecord: async () => ({ ref: "evidence:fanout-brief" }),
     webSearch: (request) => ({ searched: request.query }),
     fetchContent: (request) => ({ fetched: request.url }),
     loadWorkflowScript: (name) => (name === "child" ? child : undefined),
@@ -526,7 +526,7 @@ return { child: true }`;
   assert.equal(snapshot.nodesById["tool:0"]?.parentId, "parallel:0:item:0");
   assert.equal(snapshot.nodesById["tool:1"]?.parentId, "parallel:0:item:1");
   assert.equal(snapshot.nodesById["tool:2"]?.parentId, "parallel:0:item:2");
-  assert.equal(snapshot.nodesById["artifact:artifact:fanout-brief"]?.parentId, "tool:2");
+  assert.equal(snapshot.nodesById["artifact:evidence:fanout-brief"]?.parentId, "tool:2");
   assert.equal(snapshot.nodesById["workflow:0"]?.parentId, "parallel:0:item:3");
 
   const dir = await mkdtemp(join(tmpdir(), "spark-zero-agent-fanout-dashboard-"));
@@ -563,7 +563,7 @@ return { child: true }`;
     assert.match(dashboard, /parallel_item parallel item 1 \[succeeded\]/);
     assert.match(dashboard, /tool webSearch \[succeeded\]/);
     assert.match(dashboard, /tool fetchContent \[succeeded\]/);
-    assert.match(dashboard, /artifact artifact:fanout-brief \[succeeded\]/);
+    assert.match(dashboard, /artifact evidence:fanout-brief \[succeeded\]/);
     assert.match(dashboard, /nested_workflow child \[succeeded\]/);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -657,18 +657,18 @@ return 'ok'`,
   const artifactEvents: WorkflowRunEvent[] = [];
   await runWorkflowScript(
     `export const meta = { name: 'artifact events', description: 'artifact event workflow' }
-return await artifactRecord({ title: 'Brief', body: 'Body' })`,
+return await evidenceRecord({ title: 'Brief', body: 'Body' })`,
     {
       agent: async () => "unused",
-      artifactRecord: async () => ({ ref: "artifact:brief" }),
+      evidenceRecord: async () => ({ ref: "evidence:brief" }),
       onEvent: (event) => {
         artifactEvents.push(event);
       },
     },
   );
   const artifactSnapshot = projectWorkflowRunEvents(artifactEvents);
-  assert.equal(artifactSnapshot.nodesById["artifact:artifact:brief"]?.kind, "artifact");
-  assert.equal(artifactSnapshot.nodesById["artifact:artifact:brief"]?.status, "succeeded");
+  assert.equal(artifactSnapshot.nodesById["artifact:evidence:brief"]?.kind, "artifact");
+  assert.equal(artifactSnapshot.nodesById["artifact:evidence:brief"]?.status, "succeeded");
 
   const child = `export const meta = { name: 'child', description: 'child workflow' }
 stage('Child')
@@ -782,7 +782,7 @@ test("spark-workflows role-run adapter sends model agents through model runner h
     model: "provider/model",
     agentType: "model",
     timeoutMs: 250,
-    artifactRef: "artifact:brief-456",
+    evidenceRef: "evidence:brief-456",
   });
 
   assert.equal(result, "model result");
@@ -805,7 +805,7 @@ test("spark-workflows role-run adapter sends model agents through model runner h
   assert.equal(request.metadata.agentType, "model");
   assert.equal(request.metadata.index, 1);
   assert.equal(request.metadata.timeoutMs, 250);
-  assert.equal(request.metadata.artifactRef, "artifact:brief-456");
+  assert.equal(request.metadata.evidenceRef, "evidence:brief-456");
 });
 
 test("spark-workflows role-run adapter honors an explicit reusable roleRef", async () => {
@@ -947,7 +947,7 @@ test("spark-workflows role-run adapter maps workflow agents to Spark dependency 
     agentType: "reviewer",
     isolation: "graft",
     timeoutMs: 123,
-    artifactRef: "artifact:brief-123",
+    evidenceRef: "evidence:brief-123",
     reportTelemetry: (telemetry) => {
       telemetryReports.push(telemetry);
     },
@@ -979,7 +979,7 @@ test("spark-workflows role-run adapter maps workflow agents to Spark dependency 
   assert.equal(request.metadata.workflowAgent, true);
   assert.equal(request.metadata.index, 2);
   assert.equal(request.metadata.isolation, "graft");
-  assert.equal(request.metadata.artifactRef, "artifact:brief-123");
+  assert.equal(request.metadata.evidenceRef, "evidence:brief-123");
   assert.deepEqual(request.metadata.envKeys, ["GRAFT_BASE_REF"]);
   assert.deepEqual(request.metadata.allowedTools, SPARK_WORKFLOW_GRAFT_ISOLATION_TOOLS);
   assert.equal(request.env?.GRAFT_BASE_REF, "tree:isolated");
@@ -991,7 +991,7 @@ test("spark-workflows role-run adapter maps workflow agents to Spark dependency 
   assert.match(request.instruction, /Inspect auth routes/);
   assert.match(request.instruction, /Stage: Review/);
   assert.match(request.instruction, /Isolation: graft/);
-  assert.match(request.instruction, /Briefing artifact: artifact:brief-123/);
+  assert.match(request.instruction, /Briefing evidence: evidence:brief-123/);
   assert.match(request.instruction, /Environment keys: GRAFT_BASE_REF/);
   assert.match(request.instruction, /Allowed tools: graft/);
   assert.match(request.instruction, /Graft isolation is active/);
@@ -1074,7 +1074,7 @@ return result`;
   }
 });
 
-test("spark-workflows fan_out_with_brief records one brief and fans out with artifactRef", async () => {
+test("spark-workflows fan_out_with_brief records one brief and fans out with evidenceRef", async () => {
   const prompts: string[] = [];
   const artifactInputs: Array<{ title: string; body: string; kind?: string; format?: string }> = [];
 
@@ -1088,13 +1088,13 @@ test("spark-workflows fan_out_with_brief records one brief and fans out with art
       ],
       concurrency: 1,
     },
-    artifactRecord: async (input) => {
+    evidenceRecord: async (input) => {
       artifactInputs.push(input);
-      return { ref: "artifact:brief-xyz" };
+      return { ref: "evidence:brief-xyz" };
     },
     agent: async (prompt, options) => {
       prompts.push(prompt);
-      assert.equal(options.artifactRef, "artifact:brief-xyz");
+      assert.equal(options.evidenceRef, "evidence:brief-xyz");
       return "result:" + options.label;
     },
   });
@@ -1112,11 +1112,11 @@ test("spark-workflows fan_out_with_brief records one brief and fans out with art
     run.stages?.map((stage) => `${stage.title}:${stage.status ?? "open"}`),
     ["Brief:success", "Fan out:success", "Fan in:open"],
   );
-  assert.match(prompts[0] ?? "", /CONTEXT_BUNDLE: read artifact ref artifact:brief-xyz/);
+  assert.match(prompts[0] ?? "", /CONTEXT_BUNDLE: read evidence ref evidence:brief-xyz/);
   assert.match(prompts[0] ?? "", /audit task output/);
   assert.match(prompts[1] ?? "", /audit artifact output/);
   assert.deepEqual(JSON.parse(JSON.stringify(run.result)), {
-    briefRef: "artifact:brief-xyz",
+    briefRef: "evidence:brief-xyz",
     outputs: [
       { name: "task", label: "Task auditor", result: "result:Task auditor" },
       { name: "artifact", label: "artifact", result: "result:artifact" },
@@ -1131,7 +1131,7 @@ test("spark-workflows fan_out_with_brief requires artifact recorder", async () =
         args: { briefBody: "brief", agents: [{ name: "one", prompt: "work" }] },
         agent: async () => "unused",
       }),
-    /artifactRecord adapter is required/,
+    /evidenceRecord adapter is required/,
   );
 });
 
@@ -1262,22 +1262,48 @@ return { attempts, retried, collected }`;
   assert.equal(result.collected[1]?.attempts, 2);
 });
 
-test("spark-workflows agent artifactRef prepends context bundle prompt", async () => {
-  const script = `export const meta = { name: 'brief', description: 'artifact ref test' }
-return await agent('do the work', { label: 'worker', artifactRef: 'artifact:brief-123' })`;
+test("spark-workflows agent evidenceRef prepends context bundle prompt", async () => {
+  const script = `export const meta = { name: 'brief', description: 'evidence ref test' }
+return await agent('do the work', { label: 'worker', evidenceRef: 'evidence:brief-123' })`;
   const prompts: string[] = [];
 
   const run = await runWorkflowScript(script, {
     agent: async (prompt, options) => {
       prompts.push(prompt);
-      assert.equal(options.artifactRef, "artifact:brief-123");
+      assert.equal(options.evidenceRef, "evidence:brief-123");
       return "done";
     },
   });
 
-  assert.match(prompts[0] ?? "", /CONTEXT_BUNDLE: read artifact ref artifact:brief-123/);
+  assert.match(prompts[0] ?? "", /CONTEXT_BUNDLE: read evidence ref evidence:brief-123/);
   assert.match(prompts[0] ?? "", /Workflow agent request:\ndo the work/);
   assert.equal(run.result, "done");
+});
+
+test("spark-workflows rejects Artifact refs at Evidence boundaries", async () => {
+  const negativeValues = JSON.parse(
+    await readFile(
+      join(process.cwd(), "test", "fixtures", "evidence-surface", "negative-values.json"),
+      "utf8",
+    ),
+  ) as { wrongNamespaceRef: string };
+  const invalidAgentScript = `export const meta = { name: 'invalid ref', description: 'reject product ref' }
+return await agent('do the work', { evidenceRef: '${negativeValues.wrongNamespaceRef}' })`;
+  await assert.rejects(
+    () => runWorkflowScript(invalidAgentScript, { agent: async () => "unused" }),
+    /evidenceRef must be an evidence: ref/,
+  );
+
+  const invalidRecorderScript = `export const meta = { name: 'invalid recorder', description: 'reject product result' }
+return await evidenceRecord({ title: 'Brief', body: 'Body' })`;
+  await assert.rejects(
+    () =>
+      runWorkflowScript(invalidRecorderScript, {
+        agent: async () => "unused",
+        evidenceRecord: async () => ({ ref: negativeValues.wrongNamespaceRef as never }),
+      }),
+    /must return an evidence: ref/,
+  );
 });
 
 test("spark-workflows rejects empty child delivery instead of journaling success", async () => {

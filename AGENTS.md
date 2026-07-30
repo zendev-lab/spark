@@ -74,6 +74,12 @@ Target package topology follows type-first names:
 ## Notes for agents
 
 - Public/default repo-owned tools should use canonical `tool({ action })` surfaces when operations share one domain/state/permission/render/result contract; do not keep fragmented duplicate aliases public, and render action tools as `tool action=<value> ...`.
+- Daemon state is execution truth. Cockpit may project `work` and `drivers`, but must not infer execution state from prompts, transcript text, elapsed time, or browser timers.
+- Sessions with daemon-owned Goal/Repro work or autonomous drivers are Work-first; keep Transcript as a mounted audit view.
+- Ask stays inline in its owning session. Do not add a global Ask modal.
+- Never collapse `scheduled`, `running`, `retry_wait`, `dormant`, `blocked`, and `stopped`; every reachable driver state requires a rendered test.
+- Artifacts remain exactly `issue | pr | preview`. Verification receipts may show bounded proof summaries and references, not internal evidence-ledger bodies.
+- Artifacts (`artifact:…`, `.spark/artifacts/`) and internal evidence (`evidence:…`, `.spark/evidence/`) are separate stores and ref namespaces; never use one as a compatibility alias for the other.
 - Prefer `pnpm run fix` before committing when touching TS/Markdown; pre-commit runs the same command.
 - Root `.yamllint` disables YAML line-length checks; keep Renovate `# v...` comments on the same
   line as each SHA-pinned GitHub Action digest.

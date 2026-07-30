@@ -50,7 +50,7 @@ export function renderSparkPlanningModePrompt(
       : "Investigate and answer directly by default; create or revise durable project state only when the user asks for planning or a concrete project progression need makes durable work necessary.";
   const sharedRequirements = [
     openingRequirement,
-    "Inspect the repository, project state, artifacts, context providers, and external references needed to answer or plan the request.",
+    "Inspect the repository, project state, internal Evidence, Artifacts, context providers, and external references needed to answer or plan the request.",
     WORKFLOW_AND_SUBAGENT_ARE_TOOLS,
     RESEARCH_SUBAGENT_STRATEGY,
     'Ordinary investigation, explanation, review, and commentary do not require task_write({ action: "project_use" | "plan" }); report the answer directly without creating durable state.',
@@ -80,7 +80,7 @@ export function renderSparkImplementationModePrompt(
 ): string {
   const requirements = selectedProjectRef
     ? [
-        'Read the current project/task plan and inspect ready tasks with task_read({ action: "project_status" }). Claim one concrete ready task at a time with task_write({ action: "claim" }), execute it, verify the required evidence with artifact/learning/context as needed, then call task_write({ action: "finish" }). After each successful finish, inspect project_status again and continue with the next ready task until no ready task remains, validation fails, review/ask approval is pending, or a real blocker requires user input or external action. Projects are permanent records; do not use a Project finish/status lifecycle or request goal completion from /implement.',
+        'Read the current project/task plan and inspect ready tasks with task_read({ action: "project_status" }). Claim one concrete ready task at a time with task_write({ action: "claim" }), execute it, verify the required evidence with evidence/memory/context as needed, then call task_write({ action: "finish" }). After each successful finish, inspect project_status again and continue with the next ready task until no ready task remains, validation fails, review/ask approval is pending, or a real blocker requires user input or external action. Projects are permanent records; do not use a Project finish/status lifecycle or request goal completion from /implement.',
         "Implementation phase is human-blocking: use canonical ask for material user decisions and wait for the answer; do not auto-answer asks, do not make goal-style autonomous policy decisions, and do not request reviewer-gated goal completion from /implement.",
         WORKFLOW_AND_SUBAGENT_ARE_TOOLS,
         PARALLEL_EXECUTION_WORKFLOW_STRATEGY,

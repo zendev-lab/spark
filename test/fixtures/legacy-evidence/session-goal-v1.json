@@ -1,0 +1,20 @@
+{
+  "legacyFieldNames": ["lastReviewArtifactRef"],
+  "value": {
+    "version": 1,
+    "goal": {
+      "version": 1,
+      "goalId": "legacy-goal",
+      "sessionKey": "__SESSION_ID__",
+      "originalObjective": "Preserve persisted compatibility",
+      "objective": "Preserve persisted compatibility",
+      "status": "active",
+      "source": "explicit",
+      "lastReviewRef": "review:legacy",
+      "lastReviewArtifactRef": "evidence:legacy-review",
+      "lastReviewedAt": "2026-07-01T00:00:00.000Z",
+      "createdAt": "2026-07-01T00:00:00.000Z",
+      "updatedAt": "2026-07-01T00:00:00.000Z"
+    }
+  }
+}

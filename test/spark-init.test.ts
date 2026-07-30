@@ -127,7 +127,7 @@ test("Spark prompt preserves base prompt and stays a single-line phase marker", 
   assert.match(prompt, /Tools:/);
   assert.match(
     prompt,
-    /task_read, task_write, assign, artifact, ask, role, learning, context, recall, workflow, spark-cue/,
+    /task_read, task_write, assign, artifact, evidence, ask, role, memory, context, workflow, and spark-cue/,
   );
   assert.doesNotMatch(prompt, /spark-graft/);
   assert.doesNotMatch(prompt, /workflow, patch/);
@@ -335,7 +335,7 @@ test("shouldClarifyBeforeInit disables generic upfront clarification templates",
   );
 });
 
-test("initializeSparkIdea preserves clarified title and trace ask refs", async () => {
+test("initializeSparkIdea preserves clarified title and trace evidence refs", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-clarified-"));
   try {
     await mkdir(join(dir, ".git"));
@@ -352,11 +352,11 @@ test("initializeSparkIdea preserves clarified title and trace ask refs", async (
         deliveryMode: "document_and_execute",
         nextAction: "continue_tasking",
       },
-      askArtifactRefs: ["artifact:ask-test"],
+      askEvidenceRefs: ["evidence:ask-test"],
       askRefs: ["ask:ask-test"],
     });
     assert.equal(result.projectTitle, "Hypha v0: VS Code-first IDE experience for Spore");
-    assert.deepEqual(result.askArtifactRefs, ["artifact:ask-test"]);
+    assert.deepEqual(result.askEvidenceRefs, ["evidence:ask-test"]);
     const graph = await defaultTaskGraphStore(dir).load();
     const projectJson = JSON.stringify(graph?.snapshot(), null, 2);
     assert.match(projectJson, /Hypha v0: VS Code-first IDE experience for Spore/);
@@ -365,13 +365,15 @@ test("initializeSparkIdea preserves clarified title and trace ask refs", async (
     assert.doesNotMatch(projectJson, /Plan targeted clarification/);
     assert.doesNotMatch(projectJson, /Maintain current interaction context/);
     await assert.rejects(() => readFile(join(dir, ".spark", "projects.json"), "utf8"));
-    const artifactFiles = await readdir(join(dir, ".spark", "artifacts"));
+    const evidenceFiles = await readdir(join(dir, ".spark", "evidence"));
     let traceBody: unknown;
     let traceProducer: unknown;
-    for (const file of artifactFiles.filter((entry) => entry.endsWith(".json"))) {
-      const content = JSON.parse(
-        await readFile(join(dir, ".spark", "artifacts", file), "utf8"),
-      ) as { kind?: string; body?: unknown; provenance?: { producer?: unknown } };
+    for (const file of evidenceFiles.filter((entry) => entry.endsWith(".json"))) {
+      const content = JSON.parse(await readFile(join(dir, ".spark", "evidence", file), "utf8")) as {
+        kind?: string;
+        body?: unknown;
+        provenance?: { producer?: unknown };
+      };
       if (content.kind === "trace") {
         traceBody = content.body;
         traceProducer = content.provenance?.producer;

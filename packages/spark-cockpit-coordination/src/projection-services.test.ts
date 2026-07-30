@@ -1359,11 +1359,11 @@ describe("projection services", () => {
     db.close();
   });
 
-  it("keeps Product Artifact revisions monotonic while reconcile preserves rich associations", () => {
+  it("keeps Artifact revisions monotonic while reconcile preserves rich associations", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
     const workspace = createWorkspaceWithLease(db, {
-      slug: "product-artifacts",
-      name: "Product artifacts",
+      slug: "artifacts",
+      name: "Artifacts",
       runtimeWorkspaceBindingId,
       createdAt: now,
     });
@@ -1374,7 +1374,7 @@ describe("projection services", () => {
       createdAt: now,
     });
     const artifactId = createId("art");
-    const productArtifactRef = "artifact:preview:monotonic";
+    const artifactRef = "artifact:preview:monotonic";
     const projection = (
       version: number,
       updatedAt: string,
@@ -1389,16 +1389,16 @@ describe("projection services", () => {
       hash: `hash-v${version}`,
       sizeBytes: Buffer.byteLength(content),
       contentRef: {
-        productArtifactRef,
+        artifactRef,
         previewFormat: "mdx",
         version,
         progress: null,
         inlineText: content,
       },
       provenance: {
-        producer: "spark-product-artifact",
-        productArtifactRef,
-        productArtifactUpdatedAt: updatedAt,
+        producer: "spark-artifact",
+        artifactRef,
+        artifactUpdatedAt: updatedAt,
         runtimeInvocationId: `inv-${version}`,
       },
       links: [
@@ -1434,9 +1434,9 @@ describe("projection services", () => {
         ...revisionOne,
         scope: "workspace",
         provenance: {
-          producer: "spark-product-artifact",
-          productArtifactRef,
-          productArtifactUpdatedAt: "2026-05-22T00:01:00.000Z",
+          producer: "spark-artifact",
+          artifactRef,
+          artifactUpdatedAt: "2026-05-22T00:01:00.000Z",
         },
         links: [],
       },
@@ -1452,9 +1452,9 @@ describe("projection services", () => {
         ...revisionThree,
         scope: "workspace",
         provenance: {
-          producer: "spark-product-artifact",
-          productArtifactRef,
-          productArtifactUpdatedAt: "2026-05-22T00:04:00.000Z",
+          producer: "spark-artifact",
+          artifactRef,
+          artifactUpdatedAt: "2026-05-22T00:04:00.000Z",
         },
         links: [],
       },
@@ -1487,7 +1487,7 @@ describe("projection services", () => {
       inlineText: "version three",
     });
     expect(parseJson(stored.provenanceJson, "provenance")).toMatchObject({
-      productArtifactUpdatedAt: "2026-05-22T00:04:00.000Z",
+      artifactUpdatedAt: "2026-05-22T00:04:00.000Z",
       runtimeInvocationId: "inv-2",
     });
     expect(
