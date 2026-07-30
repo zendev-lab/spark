@@ -98,17 +98,22 @@ export function retryProviderStreamBeforeOutput(
   return retryingStream;
 }
 
-export function isConcatenatedProviderJsonFailure(message: AssistantMessage): boolean {
+export function isMalformedProviderJsonFailure(message: AssistantMessage): boolean {
   return (
     message.stopReason === "error" &&
     typeof message.errorMessage === "string" &&
-    isConcatenatedProviderJsonErrorText(message.errorMessage)
+    isMalformedProviderJsonErrorText(message.errorMessage)
   );
 }
 
-export function isConcatenatedProviderJsonErrorText(text: string): boolean {
-  return /unexpected non-whitespace character after json at position \d+ \(line \d+ column \d+\)/iu.test(
-    text,
+export function isMalformedProviderJsonErrorText(text: string): boolean {
+  return (
+    /unexpected non-whitespace character after json at position \d+(?: \(line \d+ column \d+\))?/iu.test(
+      text,
+    ) ||
+    /unexpected end of json input/iu.test(text) ||
+    /unterminated string in json(?: at position \d+)?/iu.test(text) ||
+    /expected .+ in json at position \d+(?: \(line \d+ column \d+\))?/iu.test(text)
   );
 }
 
