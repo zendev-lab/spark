@@ -262,24 +262,28 @@ test("SparkProviderRegistry exposes routed Claude and GPT models from baidu-onea
   assert.equal(provider.api, "baidu-oneapi");
   assert.equal(provider.baseUrl, "https://oneapi-comate.baidu-int.com");
   const modelIds = provider.models.map((model) => model.id);
+  assert.deepEqual(modelIds, [
+    "claude-opus-4.6",
+    "claude-opus-5",
+    "gpt-5.6-sol",
+    "gpt-5.6-luna",
+    "gpt-5.6-terra",
+  ]);
   assert.equal(new Set(modelIds).size, modelIds.length, "provider model ids must be unique");
-  for (const modelId of ["claude-opus-5", "claude-opus-4.8", "gpt-5.6-luna"]) {
-    assert.equal(modelIds.includes(modelId), true, `missing representative model ${modelId}`);
-  }
 
   const opusModel = registry.buildModel("baidu-oneapi", "claude-opus-5");
   assert.equal(opusModel.provider, "baidu-oneapi");
   assert.equal(opusModel.contextWindow, 300_000);
   assert.equal(opusModel.maxTokens, 32_000);
 
-  const opusProfile = registry.buildProfile("baidu-oneapi", "claude-opus-4.8");
-  assert.equal(opusProfile.identity?.model, "claude-opus-4.8");
+  const opusProfile = registry.buildProfile("baidu-oneapi", "claude-opus-5");
+  assert.equal(opusProfile.identity?.model, "claude-opus-5");
   assert.deepEqual(opusProfile.routes[0], {
-    id: "baidu-oneapi/claude-opus-4.8",
+    id: "baidu-oneapi/claude-opus-5",
     provider: "baidu-oneapi",
     priority: 0,
     transportApi: "anthropic-messages",
-    transportModelId: "Claude Opus 4.8",
+    transportModelId: "Opus 5",
     baseUrl: "https://oneapi-comate.baidu-int.com",
     authPoolId: "baidu-oneapi:auth",
   });
