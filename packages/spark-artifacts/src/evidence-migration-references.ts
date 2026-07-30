@@ -7,6 +7,22 @@ import {
 } from "./evidence-migration-types.ts";
 import { isArtifactRef, isEvidenceRef } from "./evidence-migration-paths.ts";
 
+export type ReviewEvidenceStateFileKind = "global" | "goal" | "task";
+
+export function reviewEvidenceStateFileKind(
+  filePath: string,
+): ReviewEvidenceStateFileKind | undefined {
+  const normalized = filePath.replaceAll("\\", "/");
+  if (/^\.spark\/reviews\/[^/]+\.json$/u.test(normalized)) return "global";
+  if (/^\.spark\/sessions\/[^/]+\/goal-reviews\/[^/]+\/[^/]+\.json$/u.test(normalized)) {
+    return "goal";
+  }
+  if (/^\.spark\/projects\/[^/]+\/tasks\/[^/]+\/reviews\/[^/]+\.json$/u.test(normalized)) {
+    return "task";
+  }
+  return undefined;
+}
+
 export function rewriteStateRefs(
   value: unknown,
   filePath: string,
@@ -16,11 +32,19 @@ export function rewriteStateRefs(
   issues: EvidenceMigrationIssueBuckets,
 ): { value: unknown; changed: number } {
   const stateVersion = isRecord(value) ? value.version : undefined;
+  let collisionDetected = false;
 
   function visit(current: unknown, path: string[]): { value: unknown; changed: number } {
     if (typeof current === "string") {
       const mapped = mapping.get(current);
-      if (mapped) return { value: mapped, changed: 1 };
+      if (
+        mapped &&
+        (isEvidenceFieldPath(path) ||
+          isLegacyArtifactNamedEvidenceFieldPath(path) ||
+          !isArtifactFieldPath(path))
+      ) {
+        return { value: mapped, changed: 1 };
+      }
       if (isLegacyArtifactNamedEvidenceFieldPath(path)) {
         return { value: current, changed: 0 };
       }
@@ -58,6 +82,7 @@ export function rewriteStateRefs(
           stateVersion,
         );
         if (canonicalKey !== key && Object.hasOwn(current, canonicalKey)) {
+          collisionDetected = true;
           issues.artifactMisclassified.push(
             migrationIssue(
               filePath,
@@ -78,7 +103,8 @@ export function rewriteStateRefs(
     }
     return { value: current, changed: 0 };
   }
-  return visit(value, []);
+  const rewritten = visit(value, []);
+  return collisionDetected ? { value, changed: 0 } : rewritten;
 }
 
 export function rewriteExactRefs(
@@ -292,26 +318,35 @@ function canonicalEvidenceKeyForLegacyArtifactField(
   const key = path.at(-1)!;
   const normalizedFilePath = filePath.replaceAll("\\", "/");
   const pathKey = path.join(".");
+  const reviewFile = reviewEvidenceStateFileKind(normalizedFilePath) !== undefined;
+  const askReceipt = /^\.spark\/asks\/evidence-receipts\/[^/]+\.json$/u.test(normalizedFilePath);
   if (
     key === "artifactRef" &&
-    (pathKey === "artifactRef" || pathKey === "reviews.[].artifactRef") &&
-    (normalizedFilePath.startsWith(".spark/reviews/") ||
-      normalizedFilePath.includes("/reviews/") ||
-      normalizedFilePath.includes("/goal-reviews/") ||
-      normalizedFilePath.startsWith(".spark/asks/evidence-receipts/"))
+    ((reviewFile && (pathKey === "artifactRef" || pathKey === "reviews.[].artifactRef")) ||
+      (askReceipt && pathKey === "artifactRef"))
   ) {
     return "evidenceRef";
   }
-  if (key === "artifactRefs") {
-    const keys = path.filter((segment) => segment !== "[]");
-    if (
-      (pathKey === "events.[].artifactRefs" &&
-        normalizedFilePath === ".spark/role-run-activity-events.json") ||
-      keys.includes("completionDigest") ||
-      (keys.includes("completionSummary") && stateVersion === 2)
-    ) {
-      return "evidenceRefs";
-    }
+  if (key !== "artifactRefs") return key;
+  if (
+    normalizedFilePath === ".spark/role-run-activity-events.json" &&
+    pathKey === "events.[].artifactRefs"
+  ) {
+    return "evidenceRefs";
+  }
+  if (
+    normalizedFilePath === ".spark/workflow-runs.json" &&
+    (pathKey === "runs.[].completionDigest.[].artifactRefs" ||
+      pathKey === "runs.[].completionFollowUp.completionDigest.[].artifactRefs")
+  ) {
+    return "evidenceRefs";
+  }
+  if (
+    stateVersion === 2 &&
+    /^\.spark\/projects\/[^/]+\/tasks\/[^/]+\/runs\/[^/]+\.json$/u.test(normalizedFilePath) &&
+    pathKey === "completionSummary.artifactRefs"
+  ) {
+    return "evidenceRefs";
   }
   return key;
 }

@@ -130,10 +130,15 @@ describe("Evidence namespace migration", () => {
       completionSummary: { evidenceRefs: ["evidence:legacy-a"] },
     });
     expect(v2Run.completionSummary).not.toHaveProperty("artifactRefs");
+    expect(JSON.parse(await readFile(fixture.unversionedRunPath, "utf8"))).toMatchObject({
+      completionSummary: { artifactRefs: ["evidence:legacy-a"] },
+    });
     const workflow = JSON.parse(await readFile(fixture.workflowPath, "utf8"));
     expect(workflow).toMatchObject({
       runs: [
         {
+          version: 2,
+          completionSummary: { artifactRefs: ["evidence:legacy-a"] },
           completionDigest: [{ evidenceRefs: ["evidence:legacy-a"] }],
           completionFollowUp: {
             completionDigest: [{ evidenceRefs: ["evidence:legacy-b"] }],
@@ -141,6 +146,7 @@ describe("Evidence namespace migration", () => {
         },
       ],
     });
+    expect(workflow.runs[0].completionSummary).not.toHaveProperty("evidenceRefs");
     expect(workflow.runs[0].completionDigest[0]).not.toHaveProperty("artifactRefs");
     expect(workflow.runs[0].completionFollowUp.completionDigest[0]).not.toHaveProperty(
       "artifactRefs",
@@ -159,7 +165,10 @@ describe("Evidence namespace migration", () => {
       events: [{ evidenceRefs: ["evidence:legacy-a"] }],
     });
     expect(JSON.parse(await readFile(fixture.goalPath, "utf8"))).toMatchObject({
-      goal: { lastReviewArtifactRef: "evidence:legacy-a" },
+      goal: {
+        lastReviewArtifactRef: "evidence:legacy-a",
+        lastReview: { artifactRef: "evidence:legacy-b" },
+      },
     });
     expect(
       JSON.parse(
@@ -373,6 +382,108 @@ describe("Evidence namespace migration", () => {
     );
   });
 
+  it("migrates record-backed ask receipts and role activity without review mappings", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-evidence-migration-isolated-refs-"));
+    roots.push(root);
+    await writeLegacyEvidence(root, {
+      id: "ask-only",
+      kind: "record",
+      body: { summary: "ask" },
+    });
+    await writeLegacyEvidence(root, {
+      id: "activity-only",
+      kind: "trace",
+      body: { summary: "activity" },
+    });
+    const askPath = join(root, ".spark", "asks", "evidence-receipts", "ask.json");
+    const activityPath = join(root, ".spark", "role-run-activity-events.json");
+    await writeJson(askPath, { artifactRef: "artifact:ask-only" });
+    await writeJson(activityPath, {
+      events: [{ artifactRefs: ["artifact:activity-only"] }],
+    });
+
+    const plan = await planEvidenceNamespaceMigration([
+      { workspaceId: "workspace:isolated-refs", rootDir: root },
+    ]);
+    expect(plan.report.blocked).toBe(false);
+    await applyEvidenceNamespaceMigration(plan);
+    expect(JSON.parse(await readFile(askPath, "utf8"))).toEqual({
+      evidenceRef: "evidence:ask-only",
+    });
+    expect(JSON.parse(await readFile(activityPath, "utf8"))).toEqual({
+      events: [{ evidenceRefs: ["evidence:activity-only"] }],
+    });
+    const replay = await planEvidenceNamespaceMigration([
+      { workspaceId: "workspace:isolated-refs", rootDir: root },
+    ]);
+    expect(replay.report.blocked).toBe(false);
+    expect(replay.report.totals.changedFiles).toBe(0);
+  });
+
+  it("fails closed for isolated ask and activity refs without Evidence records", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-evidence-migration-isolated-dangling-"));
+    roots.push(root);
+    await writeJson(join(root, ".spark", "asks", "evidence-receipts", "missing.json"), {
+      artifactRef: "artifact:missing-ask",
+    });
+    await writeJson(join(root, ".spark", "role-run-activity-events.json"), {
+      events: [{ artifactRefs: ["artifact:missing-activity"] }],
+    });
+
+    const plan = await planEvidenceNamespaceMigration([
+      { workspaceId: "workspace:isolated-dangling", rootDir: root },
+    ]);
+    expect(plan.report.blocked).toBe(true);
+    expect(plan.report.totals.dangling).toBe(2);
+    await expect(applyEvidenceNamespaceMigration(plan)).rejects.toBeInstanceOf(
+      EvidenceMigrationBlockedError,
+    );
+  });
+
+  it("does not reinterpret Artifact fields in unrelated review-like directories", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-evidence-migration-review-like-"));
+    roots.push(root);
+    await writeLegacyEvidence(root, {
+      id: "legacy-a",
+      kind: "record",
+      body: { summary: "legacy" },
+    });
+    const product = await defaultArtifactStore(root).put({
+      ref: "artifact:review-like-product" as never,
+      kind: "preview",
+      title: "Review-like product",
+      format: "markdown",
+      body: {
+        schemaVersion: 1,
+        kind: "preview",
+        format: "md",
+        content: "product",
+        version: 1,
+      },
+    });
+    const cachePath = join(root, ".spark", "other", "reviews", "cache.json");
+    const productPath = join(root, ".spark", "other", "reviews", "product.json");
+    await writeJson(cachePath, { artifactRef: "artifact:legacy-a" });
+    await writeJson(productPath, { artifactRef: product.ref });
+
+    const plan = await planEvidenceNamespaceMigration([
+      { workspaceId: "workspace:review-like", rootDir: root },
+    ]);
+    expect(plan.report.blocked).toBe(true);
+    expect(plan.report.workspaces[0]!.artifactMisclassified).toContainEqual(
+      expect.objectContaining({ code: "evidence_in_artifact_field", ref: "artifact:legacy-a" }),
+    );
+    expect(plan.report.workspaces[0]!.artifactMisclassified).not.toContainEqual(
+      expect.objectContaining({ ref: product.ref }),
+    );
+    for (const path of [cachePath, productPath]) {
+      const relativePath = relative(root, path).replaceAll("\\", "/");
+      expect(
+        plan.workspacePlans[0]!.operations.some((entry) => entry.relativePath === relativePath),
+      ).toBe(false);
+    }
+  });
+
   it("fails closed when legacy and canonical Evidence field names collide", async () => {
     const fixture = await workspaceFixture("field-collision");
     await writeJson(fixture.reviewPath, {
@@ -387,6 +498,10 @@ describe("Evidence namespace migration", () => {
     expect(plan.report.workspaces[0]!.artifactMisclassified).toContainEqual(
       expect.objectContaining({ code: "legacy_evidence_field_collision" }),
     );
+    const relativePath = relative(fixture.root, fixture.reviewPath).replaceAll("\\", "/");
+    expect(
+      plan.workspacePlans[0]!.operations.some((entry) => entry.relativePath === relativePath),
+    ).toBe(false);
     await expect(applyEvidenceNamespaceMigration(plan)).rejects.toBeInstanceOf(
       EvidenceMigrationBlockedError,
     );
@@ -402,6 +517,7 @@ interface WorkspaceFixture {
   taskPath: string;
   legacyRunPath: string;
   v2RunPath: string;
+  unversionedRunPath: string;
   workflowPath: string;
   reviewPath: string;
   reviewIndexPath: string;
@@ -515,6 +631,20 @@ async function workspaceFixture(name: string): Promise<WorkspaceFixture> {
     outputEvidenceRefs: ["artifact:legacy-b"],
     completionSummary: { artifactRefs: ["artifact:legacy-a"] },
   });
+  const unversionedRunPath = join(
+    root,
+    ".spark",
+    "projects",
+    "proj-demo",
+    "tasks",
+    "task-demo",
+    "runs",
+    "run-unversioned.json",
+  );
+  await writeJson(unversionedRunPath, {
+    ref: "run:unversioned",
+    completionSummary: { artifactRefs: ["artifact:legacy-a"] },
+  });
   const workflowPath = join(root, ".spark", "workflow-runs.json");
   await writeJson(workflowPath, {
     version: 1,
@@ -522,6 +652,8 @@ async function workspaceFixture(name: string): Promise<WorkspaceFixture> {
     runs: [
       {
         ref: "run:workflow",
+        version: 2,
+        completionSummary: { artifactRefs: ["artifact:legacy-a"] },
         completionDigest: [{ artifactRefs: ["artifact:legacy-a"] }],
         completionFollowUp: {
           completionDigest: [{ artifactRefs: ["artifact:legacy-b"] }],
@@ -557,6 +689,7 @@ async function workspaceFixture(name: string): Promise<WorkspaceFixture> {
     goal: {
       lastReviewRef: "artifact:legacy-a",
       lastReviewArtifactRef: "artifact:legacy-a",
+      lastReview: { artifactRef: "artifact:legacy-b" },
     },
   });
   await writeJson(
@@ -595,6 +728,7 @@ async function workspaceFixture(name: string): Promise<WorkspaceFixture> {
     taskPath,
     legacyRunPath,
     v2RunPath,
+    unversionedRunPath,
     workflowPath,
     reviewPath,
     reviewIndexPath,

@@ -13,7 +13,7 @@ import {
   stateScanPathExcluded,
   workspacePath,
 } from "./evidence-migration-paths.ts";
-import { rewriteStateRefs } from "./evidence-migration-references.ts";
+import { reviewEvidenceStateFileKind, rewriteStateRefs } from "./evidence-migration-references.ts";
 import { addWriteOperation } from "./evidence-migration-operations.ts";
 import type { WorkspaceEvidenceInventory } from "./evidence-migration-scan.ts";
 
@@ -24,10 +24,8 @@ export async function discoverSchemaEvidenceRefs(
 ): Promise<void> {
   for (const relativePath of filesBefore.keys()) {
     const normalized = relativePath.replaceAll("\\", "/");
-    if (
-      !relativePath.endsWith(".json") ||
-      (!normalized.startsWith(".spark/reviews/") && !normalized.includes("/goal-reviews/"))
-    ) {
+    const reviewKind = reviewEvidenceStateFileKind(normalized);
+    if (!relativePath.endsWith(".json") || (reviewKind !== "global" && reviewKind !== "goal")) {
       continue;
     }
     let raw: unknown;
