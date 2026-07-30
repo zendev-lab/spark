@@ -283,8 +283,8 @@ test("handleSparkRpcLine abort reports no target without an invocation", async (
 });
 
 test("Baidu OneAPI payload keeps gateway model spelling", () => {
-  assert.deepEqual(remapBaiduOneApiPayload({ model: "claude-fable-5", x: 1 }, "Fable 5"), {
-    model: "Fable 5",
+  assert.deepEqual(remapBaiduOneApiPayload({ model: "claude-opus-5", x: 1 }, "Opus 5"), {
+    model: "Opus 5",
     x: 1,
   });
 });
@@ -293,14 +293,14 @@ test("Baidu OneAPI payload forces adaptive thinking for gateway Opus models", ()
   assert.deepEqual(
     remapBaiduOneApiPayload(
       {
-        model: "claude-opus-4.8",
+        model: "claude-opus-5",
         thinking: { type: "enabled", budget_tokens: 1024, display: "summarized" },
       },
-      "Opus 4.8 Coding Plan",
+      "Opus 5",
       "xhigh",
     ),
     {
-      model: "Opus 4.8 Coding Plan",
+      model: "Opus 5",
       thinking: { type: "adaptive", display: "summarized" },
       output_config: { effort: "xhigh" },
     },
@@ -469,10 +469,7 @@ test("Baidu OneAPI lazy adapters load through the Pi compatibility Jiti graph", 
         piAiRoot,
         "dist/api/anthropic-messages.lazy.js",
       ),
-      "@earendil-works/pi-ai/api/openai-responses.lazy": join(
-        piAiRoot,
-        "dist/api/openai-responses.lazy.js",
-      ),
+      "@earendil-works/pi-ai/api/openai-responses": join(piAiRoot, "dist/api/openai-responses.js"),
     },
   });
   const provider = (await jiti.import(
@@ -492,7 +489,7 @@ test("Baidu OneAPI lazy adapters load through the Pi compatibility Jiti graph", 
   };
   const streams = [
     provider.streamBaiduOneApiAnthropic(
-      { ...baseModel, id: "claude-opus-4.8" } as never,
+      { ...baseModel, id: "claude-opus-5" } as never,
       context as never,
       { apiKey: "" },
     ),
@@ -528,11 +525,15 @@ test("Baidu OneAPI adapters use upstream transport APIs but report baidu-oneapi"
   };
 
   for (const stream of [
-    streamBaiduOneApiAnthropic({ ...baseModel, id: "claude-opus-4.8" } as never, context as never, {
+    streamBaiduOneApiAnthropic({ ...baseModel, id: "claude-opus-5" } as never, context as never, {
       apiKey: "",
     }),
     streamBaiduOneApiOpenAIResponses(
-      { ...baseModel, id: "gpt-5.5", baseUrl: "https://oneapi-comate.baidu-int.com/v1" } as never,
+      {
+        ...baseModel,
+        id: "gpt-5.6-sol",
+        baseUrl: "https://oneapi-comate.baidu-int.com/v1",
+      } as never,
       context as never,
       { apiKey: "" },
     ),
@@ -554,6 +555,8 @@ const malformedResponsesSse = `data: ${JSON.stringify({
   type: "response.in_progress",
   response: { id: "resp_bad_2", status: "in_progress" },
 })}\n\n`;
+const truncatedResponsesSse =
+  'data: {"type":"response.in_progress","response":{"id":"resp_truncated","status":"in_progress","instructions":"cons\n\n';
 
 const completedResponsesSse = `data: ${JSON.stringify({
   type: "response.completed",
@@ -577,7 +580,34 @@ function responsesSse(body: string): Response {
   });
 }
 
-test("Baidu OneAPI direct Responses stream retries malformed wire envelopes with bounded parser diagnostics", async () => {
+test("Baidu OneAPI sends the system prompt once as top-level Responses instructions", async () => {
+  const originalFetch = globalThis.fetch;
+  const systemPrompt = "SPARK_RESPONSES_INSTRUCTIONS_SENTINEL";
+  let requestPayload: Record<string, unknown> | undefined;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    requestPayload = (await request.clone().json()) as Record<string, unknown>;
+    return responsesSse(completedResponsesSse);
+  }) as typeof fetch;
+
+  try {
+    const stream = streamBaiduOneApiOpenAIResponses(
+      baiduTestModel(),
+      { systemPrompt, messages: [], tools: [] },
+      { apiKey: "test-key", maxRetryDelayMs: 1 },
+    );
+    for await (const _event of stream) void _event;
+
+    assert.equal((await stream.result()).stopReason, "stop");
+    assert.equal(requestPayload?.instructions, systemPrompt);
+    assert.doesNotMatch(JSON.stringify(requestPayload?.input), new RegExp(systemPrompt, "u"));
+    assert.equal(JSON.stringify(requestPayload).split(systemPrompt).length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Baidu OneAPI direct Responses stream retries malformed wire envelopes without SDK parser logs", async () => {
   const originalFetch = globalThis.fetch;
   const originalError = console.error;
   const previousOpenAiLog = process.env.OPENAI_LOG;
@@ -604,15 +634,37 @@ test("Baidu OneAPI direct Responses stream retries malformed wire envelopes with
     assert.equal(fetchCalls, 2);
     assert.deepEqual(eventTypes, ["start", "done"]);
     assert.equal((await stream.result()).stopReason, "stop");
-    assert.equal(sdkErrors.length, 2);
-    assert.match(String(sdkErrors[0]?.[0]), /Could not parse message into JSON/u);
-    assert.match(String(sdkErrors[1]?.[0]), /From chunk/u);
-    assert.doesNotMatch(JSON.stringify(sdkErrors), /test-key/u);
+    assert.deepEqual(sdkErrors, []);
     assert.equal(process.env.OPENAI_LOG, "debug");
   } finally {
     if (previousOpenAiLog === undefined) delete process.env.OPENAI_LOG;
     else process.env.OPENAI_LOG = previousOpenAiLog;
     console.error = originalError;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Baidu OneAPI direct Responses stream retries truncated JSON before visible output", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return responsesSse(fetchCalls === 1 ? truncatedResponsesSse : completedResponsesSse);
+  }) as typeof fetch;
+
+  try {
+    const stream = streamBaiduOneApiOpenAIResponses(
+      baiduTestModel(),
+      { messages: [], tools: [] },
+      { apiKey: "test-key", maxRetryDelayMs: 1 },
+    );
+    const eventTypes: string[] = [];
+    for await (const event of stream) eventTypes.push(event.type);
+
+    assert.equal(fetchCalls, 2);
+    assert.deepEqual(eventTypes, ["start", "done"]);
+    assert.equal((await stream.result()).stopReason, "stop");
+  } finally {
     globalThis.fetch = originalFetch;
   }
 });

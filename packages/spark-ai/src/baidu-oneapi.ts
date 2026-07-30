@@ -11,7 +11,7 @@ import type {
 } from "@earendil-works/pi-ai";
 
 import {
-  isConcatenatedProviderJsonFailure,
+  isMalformedProviderJsonFailure,
   retryProviderStreamBeforeOutput,
 } from "./provider-stream-retry.ts";
 import type { ProviderRegistrationAPI } from "./provider-registry.ts";
@@ -21,13 +21,11 @@ const BAIDU_ONEAPI_API = "baidu-oneapi";
 const BAIDU_ONEAPI_BASE_URL = "https://oneapi-comate.baidu-int.com";
 const BAIDU_ONEAPI_OPENAI_BASE_URL = `${BAIDU_ONEAPI_BASE_URL}/v1`;
 const BAIDU_ONEAPI_STREAM_MAX_RETRIES = 3;
+const OPENAI_RESPONSES_FALLBACK_INSTRUCTIONS = "You are a helpful assistant.";
 
 const GATEWAY_MODEL_BY_ID: Record<string, string> = {
   "claude-opus-4.6": "Claude Opus 4.6",
   "claude-opus-5": "Opus 5",
-  "claude-opus-4.8": "Claude Opus 4.8",
-  "claude-sonnet-5": "Claude Sonnet 5",
-  "claude-fable-5": "Fable 5",
   "gpt-5.6-luna": "gpt-5.6-luna",
   "gpt-5.6-sol": "gpt-5.6-sol",
   "gpt-5.6-terra": "gpt-5.6-terra",
@@ -94,14 +92,12 @@ const GPT_5_6_LUNA_COST = { input: 0.1, output: 0.6, cacheRead: 0.01, cacheWrite
 const GPT_5_6_TERRA_COST = { input: 0.25, output: 1.5, cacheRead: 0.025, cacheWrite: 0.3125 };
 const GPT_5_6_SOL_COST = { input: 0.5, output: 3, cacheRead: 0.05, cacheWrite: 0.625 };
 const GPT_THINKING_LEVEL_MAP = { minimal: "low", xhigh: "xhigh" };
-const CLAUDE_SONNET_5_COST = { input: 1.1, output: 5.5, cacheRead: 0.11, cacheWrite: 1.375 };
 const CLAUDE_OPUS_COST = {
   input: 5.5,
   output: 27.5,
   cacheRead: 0.55,
   cacheWrite: 6.875,
 };
-const CLAUDE_FABLE_COST = CLAUDE_OPUS_COST;
 
 export function silenceOpenAiSdkTransportLogs(transport: ProviderStreams): ProviderStreams {
   return {
@@ -320,16 +316,19 @@ function streamBaiduOneApiOpenAIResponsesWith(
   const gatewayModel = gatewayModelId(model.id);
   const apiKey = resolveBaiduOneApiKey(options?.apiKey);
   const transportModel = withBaiduOneApiTransportApi(model, "openai-responses");
+  const { systemPrompt, ...transportContext } = context;
+  const instructions = systemPrompt || OPENAI_RESPONSES_FALLBACK_INSTRUCTIONS;
   const createStream = () =>
     startBaiduOneApiStream(
       model,
       () =>
-        transports.openAIResponses.streamSimple(transportModel, context, {
+        transports.openAIResponses.streamSimple(transportModel, transportContext, {
           ...options,
           ...(apiKey !== undefined ? { apiKey } : {}),
           async onPayload(payload: unknown) {
             const remapped = remapOpenAIResponsesModel(payload, gatewayModel);
-            return (await options?.onPayload?.(remapped, model)) ?? remapped;
+            const instructed = isRecord(remapped) ? { ...remapped, instructions } : remapped;
+            return (await options?.onPayload?.(instructed, model)) ?? instructed;
           },
         }) as BaiduOneApiStream,
     );
@@ -339,7 +338,7 @@ function streamBaiduOneApiOpenAIResponsesWith(
     maxRetries: options?.maxRetries ?? BAIDU_ONEAPI_STREAM_MAX_RETRIES,
     ...(options?.maxRetryDelayMs !== undefined ? { maxRetryDelayMs: options.maxRetryDelayMs } : {}),
     ...(options?.signal !== undefined ? { signal: options.signal } : {}),
-    shouldRetry: isConcatenatedProviderJsonFailure,
+    shouldRetry: isMalformedProviderJsonFailure,
   });
 }
 
@@ -391,60 +390,6 @@ function registerBaiduOneApiProvider(
         },
         input: ["text", "image"],
         cost: CLAUDE_OPUS_COST,
-        contextWindow: 300000,
-        maxTokens: 32000,
-      },
-      {
-        id: "claude-opus-4.8",
-        name: "Claude Opus 4.8",
-        transportApi: "anthropic-messages",
-        transportModelId: gatewayModelId("claude-opus-4.8"),
-        reasoning: true,
-        thinkingLevelMap: {
-          minimal: null,
-          low: null,
-          medium: null,
-          high: null,
-          xhigh: "xhigh",
-        },
-        input: ["text", "image"],
-        cost: CLAUDE_OPUS_COST,
-        contextWindow: 300000,
-        maxTokens: 32000,
-      },
-      {
-        id: "claude-sonnet-5",
-        name: "Claude Sonnet 5",
-        transportApi: "anthropic-messages",
-        transportModelId: gatewayModelId("claude-sonnet-5"),
-        reasoning: true,
-        thinkingLevelMap: {
-          minimal: "low",
-          low: "low",
-          medium: "medium",
-          high: "high",
-          xhigh: "xhigh",
-        },
-        input: ["text", "image"],
-        cost: CLAUDE_SONNET_5_COST,
-        contextWindow: 200000,
-        maxTokens: 32000,
-      },
-      {
-        id: "claude-fable-5",
-        name: "Claude Fable 5",
-        transportApi: "anthropic-messages",
-        transportModelId: gatewayModelId("claude-fable-5"),
-        reasoning: true,
-        thinkingLevelMap: {
-          minimal: "low",
-          low: "low",
-          medium: "medium",
-          high: "high",
-          xhigh: "xhigh",
-        },
-        input: ["text", "image"],
-        cost: CLAUDE_FABLE_COST,
         contextWindow: 300000,
         maxTokens: 32000,
       },

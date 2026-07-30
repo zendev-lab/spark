@@ -9,7 +9,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import { cappedExponentialCeiling } from "@zendev-lab/spark-retry";
 
-import { isConcatenatedProviderJsonErrorText } from "./provider-stream-retry.ts";
+import { isMalformedProviderJsonErrorText } from "./provider-stream-retry.ts";
 
 export type {
   Api,
@@ -1014,7 +1014,7 @@ function chooseFailureClass(input: NormalizedProviderFailure): FailureClass {
     /econnreset|etimedout|timeout|socket hang up|temporary|temporarily|network error|overloaded|try again later|servers are currently overloaded/u.test(
       text,
     ) ||
-    isConcatenatedProviderJsonErrorText(text)
+    isMalformedProviderJsonErrorText(text)
   ) {
     return "transient";
   }
