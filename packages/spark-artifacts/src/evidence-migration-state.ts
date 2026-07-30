@@ -37,7 +37,12 @@ export async function discoverSchemaEvidenceRefs(
       continue;
     }
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) continue;
-    for (const key of ["artifactRef", "reviewArtifactRef"] as const) {
+    for (const key of [
+      "artifactRef",
+      "reviewArtifactRef",
+      "evidenceRef",
+      "reviewEvidenceRef",
+    ] as const) {
       const sourceRef = (raw as Record<string, unknown>)[key];
       if (typeof sourceRef !== "string") continue;
       if (sourceRef.startsWith("evidence:") && sourceRef.length > "evidence:".length) {

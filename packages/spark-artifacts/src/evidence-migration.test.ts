@@ -121,7 +121,17 @@ describe("Evidence namespace migration", () => {
     expect(task.inputArtifacts).toEqual(["evidence:legacy-a"]);
     expect(task.outputArtifacts).toEqual(["evidence:legacy-b"]);
     expect(JSON.parse(await readFile(fixture.reviewPath, "utf8"))).toMatchObject({
+      evidenceRef: "evidence:legacy-a",
       reviewPacket: { evidenceRefs: ["evidence:legacy-a", "evidence:legacy-b"] },
+    });
+    expect(JSON.parse(await readFile(fixture.reviewIndexPath, "utf8"))).toMatchObject({
+      reviews: [{ evidenceRef: "evidence:legacy-a" }],
+    });
+    expect(JSON.parse(await readFile(fixture.askReceiptPath, "utf8"))).toMatchObject({
+      evidenceRef: "evidence:legacy-a",
+    });
+    expect(JSON.parse(await readFile(fixture.activityEventsPath, "utf8"))).toMatchObject({
+      events: [{ evidenceRefs: ["evidence:legacy-a"] }],
     });
     expect(JSON.parse(await readFile(fixture.goalPath, "utf8"))).toMatchObject({
       goal: { lastReviewArtifactRef: "evidence:legacy-a" },
@@ -142,7 +152,7 @@ describe("Evidence namespace migration", () => {
         ),
       ),
     ).toMatchObject({
-      artifactRef: "evidence:goal-review-demo",
+      evidenceRef: "evidence:goal-review-demo",
       reviewPacket: { evidenceRefs: ["evidence:legacy-a"] },
     });
     expect(
@@ -337,6 +347,25 @@ describe("Evidence namespace migration", () => {
       EvidenceMigrationBlockedError,
     );
   });
+
+  it("fails closed when legacy and canonical Evidence field names collide", async () => {
+    const fixture = await workspaceFixture("field-collision");
+    await writeJson(fixture.reviewPath, {
+      artifactRef: "artifact:legacy-a",
+      evidenceRef: "artifact:legacy-b",
+    });
+    const plan = await planEvidenceNamespaceMigration([
+      { workspaceId: "workspace:field-collision", rootDir: fixture.root },
+    ]);
+
+    expect(plan.report.blocked).toBe(true);
+    expect(plan.report.workspaces[0]!.artifactMisclassified).toContainEqual(
+      expect.objectContaining({ code: "legacy_evidence_field_collision" }),
+    );
+    await expect(applyEvidenceNamespaceMigration(plan)).rejects.toBeInstanceOf(
+      EvidenceMigrationBlockedError,
+    );
+  });
 });
 
 interface WorkspaceFixture {
@@ -347,6 +376,9 @@ interface WorkspaceFixture {
   artifactRef: string;
   taskPath: string;
   reviewPath: string;
+  reviewIndexPath: string;
+  askReceiptPath: string;
+  activityEventsPath: string;
   goalPath: string;
   reproPath: string;
   memoryPath: string;
@@ -440,6 +472,21 @@ async function workspaceFixture(name: string): Promise<WorkspaceFixture> {
       evidencePreviews: [{ ref: "artifact:legacy-a", title: "preview" }],
     },
   });
+  const reviewIndexPath = join(root, ".spark", "reviews", "index.json");
+  await writeJson(reviewIndexPath, {
+    version: 1,
+    reviews: [{ artifactRef: "artifact:legacy-a" }],
+  });
+  const askReceiptPath = join(root, ".spark", "asks", "evidence-receipts", "legacy-a.json");
+  await writeJson(askReceiptPath, {
+    schema: "spark.ask.evidence-receipt/v1",
+    artifactRef: "artifact:legacy-a",
+  });
+  const activityEventsPath = join(root, ".spark", "role-run-activity-events.json");
+  await writeJson(activityEventsPath, {
+    version: 1,
+    events: [{ runRef: "run:demo", artifactRefs: ["artifact:legacy-a"] }],
+  });
   const goalPath = join(root, ".spark", "session-goals", "goal.json");
   await writeJson(goalPath, {
     goal: {
@@ -482,6 +529,9 @@ async function workspaceFixture(name: string): Promise<WorkspaceFixture> {
     artifactRef: artifact.ref,
     taskPath,
     reviewPath,
+    reviewIndexPath,
+    askReceiptPath,
+    activityEventsPath,
     goalPath,
     reproPath,
     memoryPath,
