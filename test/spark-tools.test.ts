@@ -2689,6 +2689,197 @@ test("task_write recover requeues needs_changes inactive-owner claim without mar
   }
 });
 
+test("task_write release gives up the current claim without finishing or dropping task state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-release-current-claim-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await useOnlySparkProject(tools, ctx);
+    const store = defaultTaskGraphStore(dir);
+    const graph = await store.load();
+    assert.ok(graph);
+    const project = graph.projects()[0];
+    assert.ok(project);
+    const evidence = await defaultEvidenceStore(dir).put({
+      kind: "record",
+      title: "Release preservation evidence",
+      format: "json",
+      body: { summary: "Keep this evidence attached after release." },
+      provenance: { producer: "task", projectRef: project.ref },
+    });
+    const task = graph.createTask({
+      projectRef: project.ref,
+      name: "release-current-claim",
+      title: "Release current claim",
+      description: "Release must preserve plan items and evidence without finishing the task.",
+      kind: "implement",
+      status: "ready",
+      plan: executionReadyPlan("Release the current task claim safely."),
+      todos: [
+        {
+          content: "Assert exact task plan and evidence state before and after claim release",
+          status: "done",
+        },
+        {
+          content:
+            "Run pnpm test test/spark-tools.test.ts -t task_write release and record exit code 0",
+          status: "pending",
+        },
+      ],
+    });
+    graph.attachOutputEvidence(task.ref, evidence.ref);
+    const runRef = newRef("run");
+    graph.claimTask(task.ref, {
+      kind: "main",
+      claimedBy: ctxSessionKey(ctx),
+      sessionId: ctxSessionKey(ctx),
+      runRef,
+      leaseMs: 60_000,
+    });
+    const before = graph.getTask(task.ref);
+    const beforePlan = structuredClone(before.plan);
+    const beforeTodos = structuredClone(graph.taskTodos(task.ref));
+    const beforeEvidenceRefs = [...before.outputEvidenceRefs];
+    await store.save(graph);
+    const evidenceCount = (await defaultEvidenceStore(dir).list()).length;
+    const learningCount = (await defaultLearningStore(dir).list({ includeCandidates: true }))
+      .length;
+
+    const released = await executeSparkTool(tools, "task_write", ctx, { action: "release" });
+
+    assert.match(toolText(released), /Released Spark task claim: @release-current-claim/);
+    assert.match(toolText(released), /Task remains unfinished/);
+    const releaseDetails = released.details as {
+      releasedBy?: string;
+      previousClaim?: { runRef?: string; sessionId?: string };
+    };
+    assert.equal(releaseDetails.releasedBy, ctxSessionKey(ctx));
+    assert.equal(releaseDetails.previousClaim?.runRef, runRef);
+    assert.equal(releaseDetails.previousClaim?.sessionId, ctxSessionKey(ctx));
+    const reloaded = await store.load();
+    assert.ok(reloaded);
+    const releasedTask = reloaded.getTask(task.ref);
+    assert.equal(releasedTask.status, "pending");
+    assert.equal(releasedTask.claim, undefined);
+    assert.deepEqual(releasedTask.plan, beforePlan);
+    assert.deepEqual(reloaded.taskTodos(task.ref), beforeTodos);
+    assert.deepEqual(releasedTask.outputEvidenceRefs, beforeEvidenceRefs);
+    assert.equal(
+      reloaded.readyTasks(project.ref).some((candidate) => candidate.ref === task.ref),
+      true,
+    );
+
+    reloaded.claimTask(task.ref, {
+      kind: "main",
+      claimedBy: ctxSessionKey(ctx),
+      sessionId: ctxSessionKey(ctx),
+      leaseMs: 60_000,
+    });
+    await store.save(reloaded);
+    const explicitlyReleased = await executeSparkTool(tools, "task_write", ctx, {
+      action: "release",
+      taskRef: task.ref,
+    });
+    assert.match(toolText(explicitlyReleased), /Released Spark task claim: @release-current-claim/);
+    assert.equal((await store.load())?.getTask(task.ref).claim, undefined);
+    assert.equal((await defaultEvidenceStore(dir).list()).length, evidenceCount);
+    assert.equal(
+      (await defaultLearningStore(dir).list({ includeCandidates: true })).length,
+      learningCount,
+    );
+
+    const status = await executeSparkTool(tools, "task_read", ctx, {
+      action: "project_status",
+      projectRef: project.ref,
+      format: "json",
+    });
+    const statusDetails = status.details as {
+      selectedProject?: { taskCounts?: { claimedByCurrentSession?: number } };
+      currentClaim?: unknown;
+    };
+    assert.equal(statusDetails.selectedProject?.taskCounts?.claimedByCurrentSession, 0);
+    assert.equal(statusDetails.currentClaim, undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("task_write release rejects non-owner, unclaimed, terminal, and unrelated inputs without mutation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-release-refusals-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await useOnlySparkProject(tools, ctx);
+    const store = defaultTaskGraphStore(dir);
+    const graph = await store.load();
+    assert.ok(graph);
+    const project = graph.projects()[0];
+    assert.ok(project);
+    const create = (name: string, status: "ready" | "done" | "failed" | "cancelled") =>
+      graph.createTask({
+        projectRef: project.ref,
+        name,
+        title: name,
+        description: `Release refusal fixture for ${name}.`,
+        kind: "implement",
+        status,
+        plan: executionReadyPlan(`Refuse release for ${name}.`),
+      });
+    const foreign = create("foreign-claim", "ready");
+    graph.claimTask(foreign.ref, {
+      kind: "main",
+      claimedBy: "session:other",
+      sessionId: "session:other",
+      leaseMs: 60_000,
+    });
+    const cases = [
+      { task: foreign, error: "claimed_by_other" },
+      { task: create("unclaimed", "ready"), error: "task_unclaimed" },
+      { task: create("terminal-done", "done"), error: "task_terminal" },
+      { task: create("terminal-failed", "failed"), error: "task_terminal" },
+      { task: create("terminal-cancelled", "cancelled"), error: "task_terminal" },
+    ];
+    await store.save(graph);
+
+    for (const entry of cases) {
+      const taskPath = join(
+        dir,
+        ".spark",
+        "projects",
+        project.ref.replace(":", "-"),
+        "tasks",
+        entry.task.ref.replace(":", "-"),
+        "task.json",
+      );
+      const before = await readFile(taskPath);
+      const refused = await executeSparkTool(tools, "task_write", ctx, {
+        action: "release",
+        taskRef: entry.task.ref,
+      });
+      assert.equal((refused.details as { error?: string }).error, entry.error);
+      assert.deepEqual(await readFile(taskPath), before);
+    }
+
+    const noCurrentClaim = await executeSparkTool(tools, "task_write", ctx, {
+      action: "release",
+    });
+    assert.equal((noCurrentClaim.details as { error?: string }).error, "no_current_claim");
+    await assert.rejects(
+      () =>
+        executeSparkTool(tools, "task_write", ctx, {
+          action: "release",
+          taskRef: cases[1]?.task.ref,
+          status: "done",
+        }),
+      /accepts only project\/projectRef and task\/taskRef; unexpected: status/u,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("impl_claim_task refuses stale-claim recovery while workflow work is active", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-claim-recovery-active-workflow-"));
   try {
@@ -4268,6 +4459,7 @@ test("split task tools dispatch read, write, and assign actions", async () => {
     assert.doesNotMatch(taskParameters, /Preferred role ref/);
     assert.doesNotMatch(taskParameters, /run_ready/);
     assert.doesNotMatch(taskParameters, /run_control/);
+    assert.match(taskParameters, /recover \| release \| plan_update/);
     const taskReadParameters = JSON.stringify(tools.get("task_read")?.parameters);
     assert.match(taskReadParameters, /task_status/);
     assert.match(taskReadParameters, /project_status/);
