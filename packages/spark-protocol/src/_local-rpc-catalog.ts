@@ -977,6 +977,8 @@ export const sparkLocalRpcWorkspaceClientSchema = z.object({
   lastSeenAt: isoDateTimeSchema,
   leaseExpiresAt: isoDateTimeSchema.optional(),
   releasedAt: isoDateTimeSchema.optional(),
+  sessionId: z.string().min(1).optional(),
+  leaseFence: z.string().min(1).optional(),
   metadata: sparkProtocolJsonObjectSchema,
 });
 
@@ -986,12 +988,14 @@ export const sparkLocalRpcWorkspaceClientAttachRequestSchema = z.object({
   kind: workspaceClientKindSchema,
   displayName: z.string().min(1).optional(),
   leaseTtlMs: z.number().int().nonnegative().optional(),
+  sessionId: z.string().min(1).optional(),
   metadata: sparkProtocolJsonObjectSchema.optional(),
 });
 
 export const sparkLocalRpcWorkspaceClientHeartbeatRequestSchema = z.object({
   clientId: z.string().min(1),
   leaseTtlMs: z.number().int().nonnegative().optional(),
+  leaseFence: z.string().min(1).optional(),
 });
 
 export const sparkLocalRpcWorkspaceExecutorEnsureRequestSchema =
@@ -1239,7 +1243,7 @@ export const sparkLocalRpcProcedureSchemas = {
     output: sparkLocalRpcWorkspaceClientResultSchema,
   },
   "workspace.client.release": {
-    input: z.object({ clientId: z.string().min(1) }),
+    input: z.object({ clientId: z.string().min(1), leaseFence: z.string().min(1).optional() }),
     output: sparkLocalRpcWorkspaceClientResultSchema,
   },
   "workspace.executor.ensure": {
