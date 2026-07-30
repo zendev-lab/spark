@@ -5,22 +5,22 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import {
-  ArtifactStore,
-  ArtifactStoreFormatError,
+  EvidenceStore,
+  EvidenceStoreFormatError,
   defaultEvidenceStore,
 } from "@zendev-lab/spark-artifacts";
-import { registerSparkArtifactTool } from "@zendev-lab/spark-artifacts/extension";
+import { registerSparkEvidenceTool } from "@zendev-lab/spark-artifacts/extension";
 import {
   AskConfigStoreFormatError,
   askUser,
-  createAskArtifactBody,
+  createAskEvidenceBody,
   createAskConfigStore,
   createAskUserRequest,
   createAskUserResult,
-  createSparkAskFlowArtifactBody,
+  createSparkAskFlowEvidenceBody,
   defaultAskUserResult,
   getDefaultConfig,
-  isUserAnsweredAskEvidenceArtifactBody,
+  isUserAnsweredAskEvidenceBody,
   SparkAskFlowPayloadStore,
   SparkAskFlowPayloadStoreFormatError,
   registerSparkAskActionTool,
@@ -31,7 +31,7 @@ import {
   summarizeAskResult,
   type SparkAskUi,
   type StoredAskPayload,
-  verifyCanonicalAskEvidenceArtifact,
+  verifyCanonicalAskEvidence,
 } from "@zendev-lab/spark-ask";
 import { newRef, type JsonValue } from "@zendev-lab/spark-core";
 
@@ -59,10 +59,10 @@ test("evidence store creates canonical evidence refs in the evidence root", asyn
   }
 });
 
-test("artifact store writes hashes, blobs, and lineage links", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-core-artifacts-"));
+test("Evidence store writes hashes, blobs, and lineage links", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-core-evidence-"));
   try {
-    const store = new ArtifactStore({ rootDir: dir });
+    const store = new EvidenceStore({ rootDir: dir });
     const projectRef = newRef("proj", "demo-project");
     const first = await store.put({
       kind: "document",
@@ -79,14 +79,14 @@ test("artifact store writes hashes, blobs, and lineage links", async () => {
       provenance: {
         producer: "review",
         projectRef,
-        parentArtifactRefs: [first.ref],
+        parentEvidenceRefs: [first.ref],
       },
     });
 
     assert.ok(first.hash);
     assert.equal(await store.getBody(first.ref), "# Plan\n");
     assert.deepEqual(
-      (await store.list({ linkedTo: first.ref })).map((artifact) => artifact.ref),
+      (await store.list({ linkedTo: first.ref })).map((evidence) => evidence.ref),
       [second.ref],
     );
     assert.equal((await store.diff(first.ref, second.ref)).same, false);
@@ -105,7 +105,7 @@ test("artifact store writes hashes, blobs, and lineage links", async () => {
 
 test("evidence tool describes valid provenance producers", () => {
   const tools = new Map<string, { promptGuidelines?: string[]; parameters?: unknown }>();
-  registerSparkArtifactTool({ registerTool: (config) => tools.set(config.name, config) });
+  registerSparkEvidenceTool({ registerTool: (config) => tools.set(config.name, config) });
   const tool = tools.get("evidence");
   assert.ok(tool);
 
@@ -113,7 +113,7 @@ test("evidence tool describes valid provenance producers", () => {
   const parameters = JSON.stringify(tool.parameters);
   assert.match(promptGuidelines, /agent-private|agent-internal|never treat it as user-visible/i);
   assert.match(promptGuidelines, /Prefer format=json and kind=record/);
-  assert.doesNotMatch(promptGuidelines, /Spark-specific artifact aliases/);
+  assert.doesNotMatch(promptGuidelines, /Spark-specific persistence aliases/);
   for (const text of [promptGuidelines, parameters]) {
     assert.match(
       text,
@@ -124,14 +124,48 @@ test("evidence tool describes valid provenance producers", () => {
   assert.match(parameters, /Role ref filter|role ref/i);
 });
 
+test("evidence tool rejects a retired Evidence parameter from the controlled fixture", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-evidence-retired-param-"));
+  try {
+    const tools = new Map<string, { execute: Function }>();
+    registerSparkEvidenceTool({ registerTool: (config) => tools.set(config.name, config) });
+    const tool = tools.get("evidence");
+    assert.ok(tool);
+    const retiredParams = JSON.parse(
+      await readFile(
+        join(
+          process.cwd(),
+          "test",
+          "fixtures",
+          "evidence-surface",
+          "invalid-old-evidence-field.json",
+        ),
+        "utf8",
+      ),
+    ) as Record<string, unknown>;
+    await assert.rejects(
+      tool.execute(
+        "evidence-retired-param",
+        { action: "read", ...retiredParams },
+        new AbortController().signal,
+        () => undefined,
+        { cwd: dir },
+      ),
+      /is not accepted by evidence; use evidenceRef/u,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("evidence record stores validation evidence as a producer-tagged record", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-artifact-record-kind-"));
+  const dir = await mkdtemp(join(tmpdir(), "spark-evidence-record-kind-"));
   try {
     const tools = new Map<
       string,
       { execute: Function; promptGuidelines?: string[]; parameters?: unknown }
     >();
-    registerSparkArtifactTool({ registerTool: (config) => tools.set(config.name, config) });
+    registerSparkEvidenceTool({ registerTool: (config) => tools.set(config.name, config) });
     const tool = tools.get("evidence");
     assert.ok(tool);
     const promptText = `${tool.promptGuidelines?.join("\n") ?? ""}\n${JSON.stringify(tool.parameters)}`;
@@ -139,7 +173,7 @@ test("evidence record stores validation evidence as a producer-tagged record", a
     assert.match(promptText, /agent-private|agent-internal|never treat it as user-visible/i);
 
     const recorded = await tool.execute(
-      "artifact-record-kind",
+      "evidence-record-kind",
       {
         action: "record",
         kind: "record",
@@ -156,7 +190,7 @@ test("evidence record stores validation evidence as a producer-tagged record", a
     assert.equal(recorded.details.evidence.kind, "record");
     const listed = await defaultEvidenceStore(dir).list({ producer: "task" });
     assert.deepEqual(
-      listed.map((artifact) => artifact.ref),
+      listed.map((evidence) => evidence.ref),
       [recorded.details.refs.evidenceRef],
     );
   } finally {
@@ -165,15 +199,15 @@ test("evidence record stores validation evidence as a producer-tagged record", a
 });
 
 test("evidence record rejects retired verification kind with a directed hint", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-artifact-retired-kind-"));
+  const dir = await mkdtemp(join(tmpdir(), "spark-evidence-retired-kind-"));
   try {
     const tools = new Map<string, { execute: Function }>();
-    registerSparkArtifactTool({ registerTool: (config) => tools.set(config.name, config) });
+    registerSparkEvidenceTool({ registerTool: (config) => tools.set(config.name, config) });
     const tool = tools.get("evidence");
     assert.ok(tool);
     await assert.rejects(
       tool.execute(
-        "artifact-retired-kind",
+        "evidence-retired-kind",
         {
           action: "record",
           kind: "verification",
@@ -193,11 +227,11 @@ test("evidence record rejects retired verification kind with a directed hint", a
   }
 });
 
-test("artifact store maps known legacy artifact kinds when reading metadata", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-artifact-legacy-kind-"));
+test("Evidence store maps known legacy Evidence kinds when reading metadata", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-evidence-legacy-kind-"));
   try {
-    const store = new ArtifactStore({ rootDir: dir });
-    const ref = newRef("artifact", "legacy-cue-output");
+    const store = new EvidenceStore({ rootDir: dir });
+    const ref = newRef("evidence", "legacy-cue-output");
     const metadata = {
       ref,
       kind: "cue-output",
@@ -210,14 +244,14 @@ test("artifact store maps known legacy artifact kinds when reading metadata", as
       updatedAt: "2026-01-01T00:00:00.000Z",
     };
     await writeFile(
-      join(dir, `${ref.slice("artifact:".length)}.json`),
+      join(dir, `${ref.slice("evidence:".length)}.json`),
       `${JSON.stringify(metadata, null, 2)}\n`,
       "utf8",
     );
 
-    const artifact = await store.get(ref);
-    assert.equal(artifact.kind, "trace");
-    assert.equal((artifact as unknown as { legacyKind?: string }).legacyKind, "cue-output");
+    const evidence = await store.get(ref);
+    assert.equal(evidence.kind, "trace");
+    assert.equal((evidence as unknown as { legacyKind?: string }).legacyKind, "cue-output");
     const [listed] = await store.list({ kind: "trace" });
     assert.equal(listed?.ref, ref);
     assert.equal(
@@ -229,13 +263,13 @@ test("artifact store maps known legacy artifact kinds when reading metadata", as
   }
 });
 
-test("artifact store rejects unknown non-canonical artifact kinds when reading metadata", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-artifact-noncanonical-kind-"));
+test("Evidence store rejects unknown non-canonical Evidence kinds when reading metadata", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-evidence-noncanonical-kind-"));
   try {
-    const ref = newRef("artifact", "noncanonical-unknown-kind");
+    const ref = newRef("evidence", "noncanonical-unknown-kind");
     const metadata = {
       ref,
-      kind: "unknown-artifact-kind",
+      kind: "unknown-evidence-kind",
       title: "Unknown kind",
       format: "markdown",
       body: "# Unknown\n",
@@ -245,30 +279,30 @@ test("artifact store rejects unknown non-canonical artifact kinds when reading m
       updatedAt: "2026-01-01T00:00:00.000Z",
     };
     await writeFile(
-      join(dir, `${ref.slice("artifact:".length)}.json`),
+      join(dir, `${ref.slice("evidence:".length)}.json`),
       `${JSON.stringify(metadata, null, 2)}\n`,
       "utf8",
     );
 
-    const store = new ArtifactStore({ rootDir: dir });
-    await assert.rejects(() => store.get(ref), /kind must be a valid artifact kind/);
+    const store = new EvidenceStore({ rootDir: dir });
+    await assert.rejects(() => store.get(ref), /kind must be a valid Evidence kind/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("artifact record tool stores top-level refs as provenance shortcuts", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-artifact-record-shortcuts-"));
+test("Evidence record tool stores top-level refs as provenance shortcuts", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-evidence-record-shortcuts-"));
   try {
     const tools = new Map<string, { execute: Function }>();
-    registerSparkArtifactTool({ registerTool: (config) => tools.set(config.name, config) });
+    registerSparkEvidenceTool({ registerTool: (config) => tools.set(config.name, config) });
     const tool = tools.get("evidence");
     assert.ok(tool);
     const projectRef = newRef("proj", "shortcut-project");
     const taskRef = newRef("task", "shortcut-task");
 
     const recorded = await tool.execute(
-      "artifact-record-shortcuts",
+      "evidence-record-shortcuts",
       {
         action: "record",
         kind: "record",
@@ -290,7 +324,7 @@ test("artifact record tool stores top-level refs as provenance shortcuts", async
     assert.equal(recordedEvidence.provenance.taskRef, taskRef);
 
     const listed = await tool.execute(
-      "artifact-list-shortcuts",
+      "evidence-list-shortcuts",
       { action: "list", projectRef, view: "summary", includeRaw: true },
       new AbortController().signal,
       () => undefined,
@@ -304,17 +338,17 @@ test("artifact record tool stores top-level refs as provenance shortcuts", async
 });
 
 test("evidence record rejects conflicting top-level provenance shortcuts", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-artifact-record-shortcut-conflict-"));
+  const dir = await mkdtemp(join(tmpdir(), "spark-evidence-record-shortcut-conflict-"));
   try {
     const tools = new Map<string, { execute: Function }>();
-    registerSparkArtifactTool({ registerTool: (config) => tools.set(config.name, config) });
+    registerSparkEvidenceTool({ registerTool: (config) => tools.set(config.name, config) });
     const tool = tools.get("evidence");
     assert.ok(tool);
 
     await assert.rejects(
       () =>
         tool.execute(
-          "artifact-record-shortcut-conflict",
+          "evidence-record-shortcut-conflict",
           {
             action: "record",
             kind: "record",
@@ -335,16 +369,16 @@ test("evidence record rejects conflicting top-level provenance shortcuts", async
   }
 });
 
-test("artifact store compacts large metadata while hydrating full bodies", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-core-artifacts-compact-"));
+test("Evidence store compacts large metadata while hydrating full bodies", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-core-evidence-compact-"));
   try {
-    const store = new ArtifactStore({
+    const store = new EvidenceStore({
       rootDir: dir,
       inlineBodyThresholdBytes: 64,
       bodyPreviewChars: 16,
     });
     const body = { text: "abcdef".repeat(100) };
-    const artifact = await store.put({
+    const evidence = await store.put({
       kind: "document",
       title: "Large research",
       format: "json",
@@ -352,11 +386,11 @@ test("artifact store compacts large metadata while hydrating full bodies", async
       provenance: { producer: "spark" },
     });
 
-    const metadata = await readFile(store.pathFor(artifact.ref), "utf8");
+    const metadata = await readFile(store.pathFor(evidence.ref), "utf8");
     assert.match(metadata, /"bodyTruncated": true/);
     assert.doesNotMatch(metadata, /abcdefabcdefabcdefabcdefabcdef/);
-    assert.deepEqual((await store.get<typeof body>(artifact.ref)).body, body);
-    assert.equal(JSON.parse(await store.getBody(artifact.ref)).text, body.text);
+    assert.deepEqual((await store.get<typeof body>(evidence.ref)).body, body);
+    assert.equal(JSON.parse(await store.getBody(evidence.ref)).text, body.text);
     const [listed] = await store.list({ kind: "document" });
     assert.equal((listed as { bodyTruncated?: boolean } | undefined)?.bodyTruncated, true);
 
@@ -368,41 +402,41 @@ test("artifact store compacts large metadata while hydrating full bodies", async
   }
 });
 
-test("artifact store rejects malformed persisted metadata with file context", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-core-artifacts-malformed-metadata-"));
+test("Evidence store rejects malformed persisted metadata with file context", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-core-evidence-malformed-metadata-"));
   try {
-    const store = new ArtifactStore({ rootDir: dir });
-    const invalidPath = join(dir, "not-an-artifact.json");
+    const store = new EvidenceStore({ rootDir: dir });
+    const invalidPath = join(dir, "not-evidence.json");
     await writeFile(invalidPath, "[]\n", "utf8");
 
     await assert.rejects(
       () => store.list(),
       (error) =>
-        error instanceof ArtifactStoreFormatError &&
+        error instanceof EvidenceStoreFormatError &&
         error.filePath === invalidPath &&
         error.reason === "invalid_metadata" &&
-        /artifact metadata must be an object/.test(error.message),
+        /evidence metadata must be an object/.test(error.message),
     );
     const compacted = await store.compactMetadata();
     assert.equal(compacted.skipped[0]?.reason, "invalid_metadata");
     await rm(invalidPath, { force: true });
 
-    const artifact = await store.put({
+    const evidence = await store.put({
       kind: "document",
       title: "Broken metadata provenance",
       format: "json",
       body: { ok: true },
       provenance: { producer: "spark" },
     });
-    const metadataPath = store.pathFor(artifact.ref);
+    const metadataPath = store.pathFor(evidence.ref);
     const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as Record<string, unknown>;
     delete metadata.provenance;
     await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
 
     await assert.rejects(
-      () => store.get(artifact.ref),
+      () => store.get(evidence.ref),
       (error) =>
-        error instanceof ArtifactStoreFormatError &&
+        error instanceof EvidenceStoreFormatError &&
         error.filePath === metadataPath &&
         /provenance must be an object/.test(error.message),
     );
@@ -411,11 +445,11 @@ test("artifact store rejects malformed persisted metadata with file context", as
   }
 });
 
-test("artifact store rejects invalid bodies before writing blobs or metadata", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-core-artifacts-invalid-body-"));
+test("Evidence store rejects invalid bodies before writing blobs or metadata", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-core-evidence-invalid-body-"));
   try {
-    const store = new ArtifactStore({ rootDir: dir });
-    const ref = newRef("artifact", "invalid-body");
+    const store = new EvidenceStore({ rootDir: dir });
+    const ref = newRef("evidence", "invalid-body");
     await assert.rejects(
       () =>
         store.put({
@@ -436,27 +470,27 @@ test("artifact store rejects invalid bodies before writing blobs or metadata", a
   }
 });
 
-test("artifact metadata compaction dry-runs and rewrites legacy inline bodies", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-core-artifacts-legacy-compact-"));
+test("Evidence metadata compaction dry-runs and rewrites legacy inline bodies", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-core-evidence-legacy-compact-"));
   try {
-    const legacyStore = new ArtifactStore({
+    const legacyStore = new EvidenceStore({
       rootDir: dir,
       inlineBodyThresholdBytes: Number.MAX_SAFE_INTEGER,
     });
-    const compactingStore = new ArtifactStore({
+    const compactingStore = new EvidenceStore({
       rootDir: dir,
       inlineBodyThresholdBytes: 64,
       bodyPreviewChars: 12,
     });
     const body = { text: "legacy-body-".repeat(100) };
-    const artifact = await legacyStore.put({
+    const evidence = await legacyStore.put({
       kind: "document",
       title: "Legacy large research",
       format: "json",
       body,
       provenance: { producer: "spark" },
     });
-    const before = await readFile(legacyStore.pathFor(artifact.ref), "utf8");
+    const before = await readFile(legacyStore.pathFor(evidence.ref), "utf8");
     assert.match(before, /legacy-body-legacy-body-/);
 
     const dryRun = await compactingStore.compactMetadata({ dryRun: true });
@@ -464,16 +498,16 @@ test("artifact metadata compaction dry-runs and rewrites legacy inline bodies", 
     assert.equal(dryRun.candidates.length, 1);
     assert.ok(dryRun.reclaimableBytes > 0);
     assert.match(
-      await readFile(legacyStore.pathFor(artifact.ref), "utf8"),
+      await readFile(legacyStore.pathFor(evidence.ref), "utf8"),
       /legacy-body-legacy-body-/,
     );
 
     const executed = await compactingStore.compactMetadata({ dryRun: false });
     assert.equal(executed.compacted, 1);
-    const after = await readFile(legacyStore.pathFor(artifact.ref), "utf8");
+    const after = await readFile(legacyStore.pathFor(evidence.ref), "utf8");
     assert.match(after, /"bodyTruncated": true/);
     assert.doesNotMatch(after, /legacy-body-legacy-body-/);
-    assert.deepEqual((await compactingStore.get<typeof body>(artifact.ref)).body, body);
+    assert.deepEqual((await compactingStore.get<typeof body>(evidence.ref)).body, body);
     assert.deepEqual(
       (await readdir(dir)).filter((entry) => entry.endsWith(".tmp")),
       [],
@@ -483,25 +517,25 @@ test("artifact metadata compaction dry-runs and rewrites legacy inline bodies", 
   }
 });
 
-test("artifact store refuses metadata blob paths outside the artifact root", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-core-artifacts-blob-boundary-"));
+test("Evidence store refuses metadata blob paths outside the Evidence root", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-core-evidence-blob-boundary-"));
   try {
-    const legacyStore = new ArtifactStore({
+    const legacyStore = new EvidenceStore({
       rootDir: dir,
       inlineBodyThresholdBytes: Number.MAX_SAFE_INTEGER,
     });
-    const compactingStore = new ArtifactStore({
+    const compactingStore = new EvidenceStore({
       rootDir: dir,
       inlineBodyThresholdBytes: 64,
     });
-    const artifact = await legacyStore.put({
+    const evidence = await legacyStore.put({
       kind: "document",
       title: "External blob path",
       format: "text",
       body: "outside-boundary".repeat(100),
       provenance: { producer: "spark" },
     });
-    const metadataPath = legacyStore.pathFor(artifact.ref);
+    const metadataPath = legacyStore.pathFor(evidence.ref);
     const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as { blobPath?: string };
     const outsidePath = `${dir}-outside.txt`;
     metadata.blobPath = outsidePath;
@@ -509,8 +543,8 @@ test("artifact store refuses metadata blob paths outside the artifact root", asy
     await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
 
     await assert.rejects(
-      () => legacyStore.getBody(artifact.ref),
-      /artifact blob path escapes artifact store/,
+      () => legacyStore.getBody(evidence.ref),
+      /evidence blob path is unavailable in evidence store/,
     );
     const executed = await compactingStore.compactMetadata({ dryRun: false });
 
@@ -830,7 +864,7 @@ test("ask_user supports explicit selectWithCustom custom input metadata", async 
   });
 });
 
-test("ask_user and ask_flow share result summary and artifact body semantics", () => {
+test("ask_user and ask_flow share result summary and Evidence body semantics", () => {
   const request = {
     title: "Choose mode",
     mode: "decision" as const,
@@ -864,10 +898,10 @@ test("ask_user and ask_flow share result summary and artifact body semantics", (
   assert.equal(summarizeAskResult(request, askUserResult), "Choose mode: answered; mode=Safe");
   assert.equal(summarizeAskResult(request, flowResult), "Choose mode: answered; mode=Safe");
   assert.deepEqual(
-    createSparkAskFlowArtifactBody(request, flowResult).summary,
+    createSparkAskFlowEvidenceBody(request, flowResult).summary,
     "Choose mode: answered; mode=Safe",
   );
-  const artifactBody = createAskArtifactBody(
+  const evidenceBody = createAskEvidenceBody(
     { ...request, context: undefined },
     {
       ...flowResult,
@@ -877,9 +911,9 @@ test("ask_user and ask_flow share result summary and artifact body semantics", (
       },
     },
   );
-  assert.equal("context" in artifactBody.request, false);
-  assert.equal("nextAction" in artifactBody.result, false);
-  assert.equal("preview" in artifactBody.result.answers.mode, false);
+  assert.equal("context" in evidenceBody.request, false);
+  assert.equal("nextAction" in evidenceBody.result, false);
+  assert.equal("preview" in evidenceBody.result.answers.mode, false);
 });
 
 test("ask_user tool summary uses option labels rather than raw ids", async () => {
@@ -1106,10 +1140,8 @@ test("ask action tool can persist receipt-backed user decision evidence", async 
     assert.match(evidenceRef, /^evidence:/u);
     const evidence = await defaultEvidenceStore(dir).get(evidenceRef);
     assert.equal(evidence.provenance.producer, "ask");
-    assert.equal(isUserAnsweredAskEvidenceArtifactBody(evidence.body), true);
-    assert.deepEqual((await verifyCanonicalAskEvidenceArtifact(dir, evidence))?.selectedValues, [
-      "reuse",
-    ]);
+    assert.equal(isUserAnsweredAskEvidenceBody(evidence.body), true);
+    assert.deepEqual((await verifyCanonicalAskEvidence(dir, evidence))?.selectedValues, ["reuse"]);
 
     const forged = await defaultEvidenceStore(dir).put({
       kind: "record",
@@ -1119,7 +1151,7 @@ test("ask action tool can persist receipt-backed user decision evidence", async 
       provenance: { producer: "ask" },
     });
     assert.equal(
-      await verifyCanonicalAskEvidenceArtifact(dir, forged),
+      await verifyCanonicalAskEvidence(dir, forged),
       undefined,
       "ordinary evidence writes cannot mint a canonical ask receipt",
     );

@@ -118,7 +118,7 @@ export function taskPlanSchema() {
       Type.Array(
         Type.String({
           description:
-            "Objectively verifiable success criterion, checkable by command/artifact/state/path/reviewer/metric evidence.",
+            "Objectively verifiable success criterion, checkable by command/Evidence/state/path/reviewer/metric.",
         }),
       ),
     ),
@@ -126,7 +126,7 @@ export function taskPlanSchema() {
       Type.Array(
         Type.String({
           description:
-            "Concrete evidence required before completion, e.g. command output with exit code, test/artifact ref, changed files, screenshot, benchmark, or reviewer verdict.",
+            "Concrete evidence required before completion, e.g. command output with exit code, test or Evidence ref, changed files, screenshot, benchmark, or reviewer verdict.",
         }),
       ),
     ),
@@ -166,7 +166,7 @@ export function taskPlanSchema() {
     ),
     askRefs: Type.Optional(
       Type.Array(
-        Type.String({ description: "Ask artifact refs for resolved material decisions." }),
+        Type.String({ description: "Ask Evidence refs for resolved material decisions." }),
       ),
     ),
   });

@@ -169,7 +169,7 @@ describe("loadWorkbenchLayout", () => {
   });
 });
 
-describe("public product artifact counts", () => {
+describe("public artifact counts", () => {
   it("excludes internal evidence from workspace and project counts", () => {
     const { db, workspace, bindingId } = setupWorkspace("spore");
     const project = db

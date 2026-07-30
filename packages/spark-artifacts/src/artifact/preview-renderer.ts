@@ -9,13 +9,13 @@ import {
 } from "../generative-ui.ts";
 import type { PreviewContentFormat } from "./types.ts";
 
-export interface ProductPreviewDocumentInput {
+export interface ArtifactPreviewDocumentInput {
   title: string;
   format: PreviewContentFormat;
   content: string;
 }
 
-export interface ProductPreviewRenderResult {
+export interface ArtifactPreviewRenderResult {
   html: string;
   diagnostics: string[];
 }
@@ -28,9 +28,9 @@ const supportedA2uiVersions = new Set(["v0.9", "v0.9.1"]);
 const supportedA2uiCatalogPattern =
   /a2ui\.org\/specification\/v0_9(?:_1)?\/catalogs\/basic\/catalog\.json$/u;
 
-export function renderProductPreviewDocument(
-  input: ProductPreviewDocumentInput,
-): ProductPreviewRenderResult {
+export function renderArtifactPreviewDocument(
+  input: ArtifactPreviewDocumentInput,
+): ArtifactPreviewRenderResult {
   const rendered = renderPreviewBody(input.format, input.content);
   const title = escapeHtml(input.title);
   const format = escapeHtml(input.format);
@@ -779,7 +779,7 @@ button { color: #9facc0; width: fit-content; }
 @media (max-width: 640px) { .preview-header { align-items: flex-start; flex-direction: column; gap: 1rem; } .format-stack { align-items: flex-start; justify-items: start; } .preview-card { border-radius: 12px; } }
 `;
 
-export function previewFormatAsProductArtifactFormat(format: PreviewContentFormat) {
+export function previewFormatAsArtifactFormat(format: PreviewContentFormat) {
   if (format === "md") return "markdown" as const;
   if (format === "html") return "html" as const;
   if (format === "a2ui") return "json" as const;

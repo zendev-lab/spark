@@ -213,7 +213,7 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
         Type.String({ description: "Keyword query for search/recall filtering." }),
       ),
       id: Type.Optional(Type.String({ description: "Entry/candidate/learning id." })),
-      ref: Type.Optional(Type.String({ description: "Learning artifact ref." })),
+      ref: Type.Optional(Type.String({ description: "Learning Evidence ref." })),
       includeForgotten: Type.Optional(Type.Boolean()),
       includeRejected: Type.Optional(Type.Boolean()),
       includeCandidates: Type.Optional(Type.Boolean()),

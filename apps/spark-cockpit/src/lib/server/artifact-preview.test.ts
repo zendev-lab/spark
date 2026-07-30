@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  previewFormatFromContentRef,
-  renderStoredProductPreview,
-} from "./product-artifact-preview.ts";
+import { previewFormatFromContentRef, renderStoredArtifactPreview } from "./artifact-preview.ts";
 
-describe("stored Product Artifact preview rendering", () => {
+describe("stored Artifact preview rendering", () => {
   const cases = [
     ["md", "# Markdown"],
     ["mdx", "<Callout>MDX</Callout>"],
@@ -36,17 +33,17 @@ describe("stored Product Artifact preview rendering", () => {
   ] as const;
 
   it.each(cases)("uses contentRef.previewFormat to render %s", (previewFormat, text) => {
-    const html = renderStoredProductPreview({
+    const html = renderStoredArtifactPreview({
       kind: "preview",
       title: "Persisted preview",
-      contentRef: { productArtifactRef: "artifact:preview:test", previewFormat },
+      contentRef: { artifactRef: "artifact:preview:test", previewFormat },
       body: { text, truncated: false },
     });
 
     expect(html).toContain("Content-Security-Policy");
   });
 
-  it("fails closed without a valid, complete Product Artifact preview", () => {
+  it("fails closed without a valid, complete Artifact preview", () => {
     const base = {
       kind: "preview",
       title: "Persisted preview",
@@ -54,15 +51,15 @@ describe("stored Product Artifact preview rendering", () => {
       body: { text: "# Ready", truncated: false },
     };
 
-    expect(renderStoredProductPreview({ ...base, kind: "issue" })).toBeNull();
+    expect(renderStoredArtifactPreview({ ...base, kind: "issue" })).toBeNull();
     expect(
-      renderStoredProductPreview({ ...base, body: { text: null, truncated: false } }),
+      renderStoredArtifactPreview({ ...base, body: { text: null, truncated: false } }),
     ).toBeNull();
     expect(
-      renderStoredProductPreview({ ...base, body: { text: "# Ready", truncated: true } }),
+      renderStoredArtifactPreview({ ...base, body: { text: "# Ready", truncated: true } }),
     ).toBeNull();
     expect(
-      renderStoredProductPreview({
+      renderStoredArtifactPreview({
         ...base,
         contentRef: { previewFormat: "javascript" },
       }),

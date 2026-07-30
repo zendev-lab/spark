@@ -4,64 +4,60 @@ import { join, resolve, relative, isAbsolute } from "node:path";
 import { writeJsonFileAtomic, writeTextFileAtomic } from "@zendev-lab/spark-core";
 import {
   asJsonValue,
-  isProductArtifactBody,
-  isProductArtifactFormat,
-  isProductArtifactKind,
-  type ProductArtifact,
-  type ProductArtifactBody,
-  type ProductArtifactFormat,
-  type ProductArtifactKind,
-  type ProductArtifactQuery,
-  type ProductArtifactRef,
-  type ProductArtifactStoreOptions,
-  type PutProductArtifactInput,
+  isArtifactBody,
+  isArtifactFormat,
+  isArtifactKind,
+  type Artifact,
+  type ArtifactBody,
+  type ArtifactFormat,
+  type ArtifactKind,
+  type ArtifactQuery,
+  type ArtifactRef,
+  type ArtifactStoreOptions,
+  type PutArtifactInput,
 } from "./types.ts";
 
-export class ProductArtifactValidationError extends Error {
+export class ArtifactValidationError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "ProductArtifactValidationError";
+    this.name = "ArtifactValidationError";
   }
 }
 
-export class ProductArtifactStore {
+export class ArtifactStore {
   readonly rootDir: string;
   readonly blobDir: string;
 
-  constructor(options: ProductArtifactStoreOptions) {
+  constructor(options: ArtifactStoreOptions) {
     this.rootDir = options.rootDir;
     this.blobDir = join(options.rootDir, "blobs");
   }
 
-  async put<T extends ProductArtifactBody>(
-    input: PutProductArtifactInput<T>,
-  ): Promise<ProductArtifact<T>> {
+  async put<T extends ArtifactBody>(input: PutArtifactInput<T>): Promise<Artifact<T>> {
     await mkdir(this.rootDir, { recursive: true });
     await mkdir(this.blobDir, { recursive: true });
-    if (!isProductArtifactKind(input.kind)) {
-      throw new ProductArtifactValidationError(
-        `invalid product artifact kind: ${String(input.kind)}`,
-      );
+    if (!isArtifactKind(input.kind)) {
+      throw new ArtifactValidationError(`invalid artifact kind: ${String(input.kind)}`);
     }
     if (input.body.kind !== input.kind) {
-      throw new ProductArtifactValidationError(
+      throw new ArtifactValidationError(
         `body.kind (${input.body.kind}) must match artifact kind (${input.kind})`,
       );
     }
-    if (!isProductArtifactBody(input.body)) {
-      throw new ProductArtifactValidationError("invalid product artifact body");
+    if (!isArtifactBody(input.body)) {
+      throw new ArtifactValidationError("invalid artifact body");
     }
     const format = input.format ?? defaultFormatForKind(input.kind);
-    if (!isProductArtifactFormat(format)) {
-      throw new ProductArtifactValidationError(`invalid format: ${String(format)}`);
+    if (!isArtifactFormat(format)) {
+      throw new ArtifactValidationError(`invalid format: ${String(format)}`);
     }
-    const ref = input.ref ?? newProductArtifactRef();
+    const ref = input.ref ?? newArtifactRef();
     const existing = input.ref ? await this.tryGet<T>(input.ref) : null;
-    const updatedAt = nextProductArtifactTimestamp(existing?.updatedAt);
+    const updatedAt = nextArtifactTimestamp(existing?.updatedAt);
     const serialized = serializeBody(format, input.body);
     const hash = createHash("sha256").update(serialized).digest("hex");
     const blobPath = join("blobs", `${hash}.${extensionForFormat(format)}`);
-    const artifact: ProductArtifact<T> = {
+    const artifact: Artifact<T> = {
       ref,
       kind: input.kind,
       title: input.title.trim(),
@@ -72,7 +68,7 @@ export class ProductArtifactStore {
       createdAt: existing?.createdAt ?? updatedAt,
       updatedAt,
     };
-    if (!artifact.title) throw new ProductArtifactValidationError("title is required");
+    if (!artifact.title) throw new ArtifactValidationError("title is required");
     await writeTextFileAtomic(join(this.rootDir, blobPath), serialized);
     await writeJsonFileAtomic(this.pathFor(ref), {
       ...artifact,
@@ -81,10 +77,10 @@ export class ProductArtifactStore {
     return artifact;
   }
 
-  async update<T extends ProductArtifactBody>(
-    ref: ProductArtifactRef,
-    patch: Partial<Omit<PutProductArtifactInput<T>, "ref">>,
-  ): Promise<ProductArtifact<T>> {
+  async update<T extends ArtifactBody>(
+    ref: ArtifactRef,
+    patch: Partial<Omit<PutArtifactInput<T>, "ref">>,
+  ): Promise<Artifact<T>> {
     const existing = await this.get<T>(ref);
     return this.put<T>({
       ref,
@@ -95,15 +91,14 @@ export class ProductArtifactStore {
     });
   }
 
-  async get<T extends ProductArtifactBody = ProductArtifactBody>(
-    ref: ProductArtifactRef,
-  ): Promise<ProductArtifact<T>> {
+  async get<T extends ArtifactBody = ArtifactBody>(ref: ArtifactRef): Promise<Artifact<T>> {
+    assertArtifactRef(ref);
     const raw = await readJson(this.pathFor(ref));
-    const artifact = normalizeProductArtifact<T>(raw);
+    const artifact = normalizeArtifact<T>(raw);
     if (artifact.blobPath) {
       const blobPath = resolveBlobPath(this.rootDir, artifact.blobPath);
       if (!blobPath) {
-        throw new ProductArtifactValidationError(`blob path escapes store: ${ref}`);
+        throw new ArtifactValidationError(`blob path escapes store: ${ref}`);
       }
       const serialized = await readFile(blobPath, "utf8");
       artifact.body = parseBody(artifact.format, serialized) as T;
@@ -111,9 +106,9 @@ export class ProductArtifactStore {
     return artifact;
   }
 
-  async tryGet<T extends ProductArtifactBody = ProductArtifactBody>(
-    ref: ProductArtifactRef,
-  ): Promise<ProductArtifact<T> | null> {
+  async tryGet<T extends ArtifactBody = ArtifactBody>(
+    ref: ArtifactRef,
+  ): Promise<Artifact<T> | null> {
     try {
       return await this.get<T>(ref);
     } catch (error) {
@@ -122,42 +117,49 @@ export class ProductArtifactStore {
     }
   }
 
-  async list(filter: ProductArtifactQuery = {}): Promise<ProductArtifact[]> {
+  async list(filter: ArtifactQuery = {}): Promise<Artifact[]> {
     await mkdir(this.rootDir, { recursive: true });
     const entries = await readdir(this.rootDir, { withFileTypes: true });
-    const artifacts: ProductArtifact[] = [];
+    const artifacts: Artifact[] = [];
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-      let artifact: ProductArtifact;
+      let artifact: Artifact;
       try {
-        artifact = normalizeProductArtifact(await readJson(join(this.rootDir, entry.name)));
+        artifact = normalizeArtifact(await readJson(join(this.rootDir, entry.name)));
       } catch {
         continue;
       }
-      if (!isProductArtifactKind(artifact.kind)) continue;
+      if (!isArtifactKind(artifact.kind)) continue;
       if (filter.kind && artifact.kind !== filter.kind) continue;
       artifacts.push(artifact);
     }
     return artifacts.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
-  pathFor(ref: ProductArtifactRef): string {
+  pathFor(ref: ArtifactRef): string {
+    assertArtifactRef(ref);
     return join(this.rootDir, `${refId(ref)}.json`);
   }
 }
 
-export function newProductArtifactRef(id: string = randomUUID()): ProductArtifactRef {
-  if (!id || id.includes(":")) {
-    throw new ProductArtifactValidationError(`invalid artifact id: ${id}`);
+function assertArtifactRef(ref: string): asserts ref is ArtifactRef {
+  if (!ref.startsWith("artifact:") || ref.length === "artifact:".length) {
+    throw new ArtifactValidationError("artifact ref must be artifact:…");
   }
-  return `artifact:${id}` as ProductArtifactRef;
 }
 
-export function defaultProductArtifactStore(cwd: string): ProductArtifactStore {
-  return new ProductArtifactStore({ rootDir: join(cwd, ".spark", "artifacts") });
+export function newArtifactRef(id: string = randomUUID()): ArtifactRef {
+  if (!id || id.includes(":")) {
+    throw new ArtifactValidationError(`invalid artifact id: ${id}`);
+  }
+  return `artifact:${id}` as ArtifactRef;
 }
 
-function nextProductArtifactTimestamp(previous?: string): string {
+export function defaultArtifactStore(cwd: string): ArtifactStore {
+  return new ArtifactStore({ rootDir: join(cwd, ".spark", "artifacts") });
+}
+
+function nextArtifactTimestamp(previous?: string): string {
   const currentTime = Date.now();
   const previousTime = previous ? Date.parse(previous) : Number.NaN;
   return new Date(
@@ -165,7 +167,7 @@ function nextProductArtifactTimestamp(previous?: string): string {
   ).toISOString();
 }
 
-function defaultFormatForKind(kind: ProductArtifactKind): ProductArtifactFormat {
+function defaultFormatForKind(kind: ArtifactKind): ArtifactFormat {
   switch (kind) {
     case "preview":
       return "mdx";
@@ -179,7 +181,7 @@ function defaultFormatForKind(kind: ProductArtifactKind): ProductArtifactFormat 
   }
 }
 
-function extensionForFormat(format: ProductArtifactFormat): string {
+function extensionForFormat(format: ArtifactFormat): string {
   switch (format) {
     case "markdown":
     case "mdx":
@@ -197,43 +199,48 @@ function extensionForFormat(format: ProductArtifactFormat): string {
   }
 }
 
-function serializeBody(_format: ProductArtifactFormat, body: ProductArtifactBody): string {
+function serializeBody(_format: ArtifactFormat, body: ArtifactBody): string {
   return JSON.stringify(body, null, 2);
 }
 
-function parseBody(_format: ProductArtifactFormat, serialized: string): ProductArtifactBody {
-  const parsed = JSON.parse(serialized) as unknown;
-  if (!isProductArtifactBody(parsed)) {
-    throw new ProductArtifactValidationError("blob is not a valid product artifact body");
+function parseBody(_format: ArtifactFormat, serialized: string): ArtifactBody {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized) as unknown;
+  } catch {
+    throw new ArtifactValidationError("blob is not valid JSON");
+  }
+  if (!isArtifactBody(parsed)) {
+    throw new ArtifactValidationError("blob is not a valid artifact body");
   }
   return parsed;
 }
 
-function normalizeProductArtifact<T extends ProductArtifactBody>(raw: unknown): ProductArtifact<T> {
+function normalizeArtifact<T extends ArtifactBody>(raw: unknown): Artifact<T> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new ProductArtifactValidationError("product artifact metadata must be an object");
+    throw new ArtifactValidationError("artifact metadata must be an object");
   }
   const record = raw as Record<string, unknown>;
   if (typeof record.ref !== "string" || !record.ref.startsWith("artifact:")) {
-    throw new ProductArtifactValidationError("product artifact ref must be artifact:…");
+    throw new ArtifactValidationError("artifact ref must be artifact:…");
   }
-  if (!isProductArtifactKind(record.kind)) {
-    throw new ProductArtifactValidationError("kind must be issue, pr, or preview");
+  if (!isArtifactKind(record.kind)) {
+    throw new ArtifactValidationError("kind must be issue, pr, or preview");
   }
   if (typeof record.title !== "string" || !record.title.trim()) {
-    throw new ProductArtifactValidationError("title is required");
+    throw new ArtifactValidationError("title is required");
   }
-  if (!isProductArtifactFormat(record.format)) {
-    throw new ProductArtifactValidationError("invalid format");
+  if (!isArtifactFormat(record.format)) {
+    throw new ArtifactValidationError("invalid format");
   }
-  if (!isProductArtifactBody(record.body)) {
-    throw new ProductArtifactValidationError("invalid body");
+  if (!isArtifactBody(record.body)) {
+    throw new ArtifactValidationError("invalid body");
   }
   if (record.body.kind !== record.kind) {
-    throw new ProductArtifactValidationError("body.kind must match kind");
+    throw new ArtifactValidationError("body.kind must match kind");
   }
   return {
-    ref: record.ref as ProductArtifactRef,
+    ref: record.ref as ArtifactRef,
     kind: record.kind,
     title: record.title,
     format: record.format,
@@ -247,7 +254,7 @@ function normalizeProductArtifact<T extends ProductArtifactBody>(raw: unknown): 
 
 function refId(ref: string): string {
   const index = ref.indexOf(":");
-  if (index < 0) throw new ProductArtifactValidationError(`invalid ref: ${ref}`);
+  if (index < 0) throw new ArtifactValidationError(`invalid ref: ${ref}`);
   return ref.slice(index + 1);
 }
 
@@ -262,5 +269,10 @@ function resolveBlobPath(rootDir: string, blobPath: string): string | undefined 
 }
 
 async function readJson(path: string): Promise<unknown> {
-  return JSON.parse(await readFile(path, "utf8")) as unknown;
+  const text = await readFile(path, "utf8");
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new ArtifactValidationError(`invalid artifact JSON: ${path}`);
+  }
 }

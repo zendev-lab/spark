@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
-import { registerSparkArtifactTool } from "@zendev-lab/spark-artifacts/extension";
+import { registerSparkEvidenceTool } from "@zendev-lab/spark-artifacts/extension";
 import { evaluateSparkBehavior } from "@zendev-lab/spark-turn/behavior-eval";
 import {
   SparkAgentLoop,
@@ -1202,10 +1202,10 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
             title: "Echo task",
             status: "running",
             projectRef: "proj:echo",
-            outputArtifacts: ["artifact:echo-1"],
+            outputEvidenceRefs: ["evidence:echo-1"],
           },
           artifact: {
-            ref: "artifact:echo-1",
+            ref: "evidence:echo-1",
             title: "Echo artifact",
             kind: "record",
             format: "json",
@@ -1305,7 +1305,7 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
         event.type === "task.update" &&
         event.task.ref === "task:echo-1" &&
         event.task.status === "running" &&
-        event.task.artifactRefs.includes("artifact:echo-1") &&
+        event.task.evidenceRefs.includes("evidence:echo-1") &&
         event.task.metadata.sourceTool === "echo",
     ),
     true,
@@ -1314,7 +1314,7 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
     viewEvents.some(
       (event: any) =>
         event.type === "evidence.update" &&
-        event.evidence.ref === "artifact:echo-1" &&
+        event.evidence.ref === "evidence:echo-1" &&
         event.evidence.kind === "record" &&
         event.evidence.metadata.sourceTool === "echo",
     ),
@@ -1961,7 +1961,7 @@ test("SparkAgentLoop records raw trace artifact for large lossy compacted tool o
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-loop-raw-recovery-"));
   try {
     const host = new SparkHostRuntime({ cwd: dir });
-    registerSparkArtifactTool({
+    registerSparkEvidenceTool({
       registerTool: (config) =>
         host.registerTool(config as Parameters<typeof host.registerTool>[0]),
     });
@@ -2070,7 +2070,7 @@ test("SparkAgentLoop records raw trace artifact for large lossy compacted tool o
     const explicitRawListText = explicitRawList.content
       .map((part: { text?: string }) => part.text ?? "")
       .join("\n");
-    assert.match(explicitRawListText, new RegExp(recovery.artifactRef));
+    assert.match(explicitRawListText, new RegExp(recovery.evidenceRef));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -2080,7 +2080,7 @@ test("SparkAgentLoop offloads failed long output while preserving diagnostics an
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-loop-error-recovery-"));
   try {
     const host = new SparkHostRuntime({ cwd: dir });
-    registerSparkArtifactTool({
+    registerSparkEvidenceTool({
       registerTool: (config) =>
         host.registerTool(config as Parameters<typeof host.registerTool>[0]),
     });

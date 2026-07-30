@@ -9,9 +9,9 @@ import type {
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import {
-  isUserAnsweredAskEvidenceArtifactBody,
+  isUserAnsweredAskEvidenceBody,
   recordCanonicalAskEvidenceReceipt,
-  type SparkAskEvidenceArtifactBody,
+  type SparkAskEvidenceBody,
 } from "./evidence.ts";
 
 export type SparkAskAction = "ask" | "flow";
@@ -349,14 +349,14 @@ async function maybeRecordAskEvidence(
   if (params.recordAsEvidence !== true) return result;
   const cwd = typeof ctx.cwd === "string" ? ctx.cwd : undefined;
   if (!cwd) throw new Error("ask recordAsEvidence requires a workspace cwd");
-  const body: SparkAskEvidenceArtifactBody = {
+  const body: SparkAskEvidenceBody = {
     schema: "spark.ask.evidence/v1",
     request: decodeAutoAnswerRequest(params),
     result: isRecord(result.details) ? (result.details.result ?? null) : null,
     autoAnswered: false,
     recordedAt: new Date().toISOString(),
   };
-  if (!isUserAnsweredAskEvidenceArtifactBody(body)) {
+  if (!isUserAnsweredAskEvidenceBody(body)) {
     if (didHumanAskTimeOut(result)) return result;
     throw new Error("ask.recordAsEvidence requires a completed user-answered result");
   }

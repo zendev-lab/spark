@@ -3,7 +3,7 @@ import {
   NotFoundError,
   newRef,
   nowIso,
-  type ArtifactRef,
+  type EvidenceRef,
   type Project,
   type ProjectRef,
   type ProjectRoadmap,
@@ -148,8 +148,8 @@ export class TaskGraph {
           : undefined,
       supersededBy,
       claim: isUnfinishedTaskStatus(status) ? input.claim : undefined,
-      inputArtifacts: input.inputArtifacts ?? [],
-      outputArtifacts: [],
+      inputEvidenceRefs: input.inputEvidenceRefs ?? [],
+      outputEvidenceRefs: [],
       plan,
       createdAt: now,
       updatedAt: now,
@@ -492,12 +492,12 @@ export class TaskGraph {
     return updated;
   }
 
-  attachOutputArtifact(taskRef: TaskRef, artifactRef: ArtifactRef): Task {
+  attachOutputEvidence(taskRef: TaskRef, evidenceRef: EvidenceRef): Task {
     const task = this.getTask(taskRef);
-    const outputArtifacts = task.outputArtifacts.includes(artifactRef)
-      ? task.outputArtifacts
-      : [...task.outputArtifacts, artifactRef];
-    const updated = { ...task, outputArtifacts, updatedAt: nowIso() };
+    const outputEvidenceRefs = task.outputEvidenceRefs.includes(evidenceRef)
+      ? task.outputEvidenceRefs
+      : [...task.outputEvidenceRefs, evidenceRef];
+    const updated = { ...task, outputEvidenceRefs, updatedAt: nowIso() };
     this.#tasks.set(taskRef, updated);
     return updated;
   }

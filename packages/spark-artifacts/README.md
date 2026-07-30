@@ -1,12 +1,12 @@
 # spark-artifacts
 
-Product artifacts (`issue` / `pr` / `preview`) for users, plus an **agent-internal evidence ledger** that is not shown in Cockpit.
+Artifacts (`issue` / `pr` / `preview`) for users, plus an **agent-internal evidence ledger** that is not shown in Cockpit.
 
 ## Two surfaces
 
 | Surface | Tool | Kinds | User-visible? | On-disk |
 |---|---|---|---|---|
-| **Product artifacts** | `artifact` | `issue`, `pr`, `preview` | Yes (Cockpit `/artifacts`) | `.spark/artifacts/` |
+| **Artifacts** | `artifact` | `issue`, `pr`, `preview` | Yes (Cockpit `/artifacts`) | `.spark/artifacts/` |
 | **Internal evidence** | `evidence` | `record` (default), `trace`, `knowledge`, `document` | No | `.spark/evidence/` |
 
 - ISSUE/PR sync from GitHub (`gh`) or GitLab (`glab`).
@@ -29,12 +29,12 @@ Prefer compact JSON notes:
 Do not write long markdown essays into evidence. Use `artifact` for anything the user should see.
 
 Import Generative UI from `@zendev-lab/spark-artifacts/generative-ui`.
-Import product helpers from `@zendev-lab/spark-artifacts/product` or the package root.
+Import Artifact helpers from `@zendev-lab/spark-artifacts/artifact` or the package root.
 
-- `defaultProductArtifactStore(cwd)` → `.spark/artifacts/` (product kinds only)
+- `defaultArtifactStore(cwd)` → `.spark/artifacts/` (Artifact kinds only)
 - `defaultEvidenceStore(cwd)` → `.spark/evidence/` and `evidence:…` refs only
 
 The two surfaces are not aliases. The `evidence` tool never scans
 `.spark/artifacts/`, never accepts an `artifact:…` ref, and never publishes
-ledger entries as Product Artifacts. Legacy evidence under `.spark/artifacts/`
+ledger entries as Artifacts. Legacy evidence under `.spark/artifacts/`
 requires an explicit migration/import path.

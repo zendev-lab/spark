@@ -232,7 +232,7 @@ test("spark cockpit status/project/task/goal/artifact/review/workflow expose sta
   assert.equal(taskStatusResult.plane, "cockpit");
   assert.equal(taskStatusResult.resource, "task");
   assert.equal(taskStatusResult.task.taskRef, fixture.ready.ref);
-  assert.deepEqual(taskStatusResult.evidenceRefs, ["artifact:input-a"]);
+  assert.deepEqual(taskStatusResult.evidenceRefs, ["evidence:input-a"]);
 
   const goal = await handleSparkCockpitCliCommand(
     { resource: "goal", verb: "status", json: true },
@@ -657,7 +657,7 @@ function fixtureCockpitOptions() {
     description: "Ready task",
     kind: "implement",
     status: "ready",
-    inputArtifacts: ["artifact:input-a"],
+    inputEvidenceRefs: ["evidence:input-a"],
     plan: PLAN,
   });
   const claimedBase = graph.createTask({
@@ -688,7 +688,13 @@ function fixtureCockpitOptions() {
       sessionKey: "session:fixture",
       projectRef: project.ref,
     },
-    artifacts: [{ artifactRef: "artifact:fixture-a", title: "Fixture artifact", kind: "record" }],
+    artifacts: [
+      {
+        artifactRef: "artifact:fixture-a",
+        title: "Fixture artifact",
+        kind: "preview",
+      },
+    ],
     reviews: [{ reviewRef: "review:fixture-a", outcome: "approved", targetRef: ready.ref }],
     workflows: [{ runRef: "run:workflow-a", status: "running", name: "Fixture workflow" }],
   };

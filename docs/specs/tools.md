@@ -99,7 +99,7 @@ generation, retry, or next-turn continuation. The full runtime contract is in
 - Fusion failure is non-blocking: continue SOLO. Its result may recommend one cheap
   single-variable experiment, but the main repro session remains the sole writer and executor.
   Fusion cannot confirm a runtime claim, emit a verdict, satisfy proof or a gate, or create
-  evidence or a Product Artifact; Product Artifact kinds remain exactly `issue | pr | preview`.
+  evidence or an Artifact; Artifact kinds remain exactly `issue | pr | preview`.
 
 ## Evidence and context
 

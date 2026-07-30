@@ -94,7 +94,7 @@ test("memory kind=candidate records, searches, lists, and rejects scoped candida
         scope: "workspace",
         text: "Prefer explicit candidate recall over automatic memory writes.",
         reason: "User requested controlled recall semantics.",
-        evidenceRefs: ["artifact:test"],
+        evidenceRefs: ["evidence:test"],
       },
       dir,
     );

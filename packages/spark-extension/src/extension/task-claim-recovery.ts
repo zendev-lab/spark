@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { nowIso, type ProjectRef, type Task } from "@zendev-lab/spark-core";
 import {
   defaultEvidenceStore,
-  type Artifact,
-  type ArtifactRef,
+  type EvidenceRecord,
+  type EvidenceRef,
   type JsonValue,
 } from "@zendev-lab/spark-artifacts";
 import type { WorkflowRunStatusSummary } from "@zendev-lab/spark-workflows";
@@ -29,7 +29,7 @@ export interface SparkTaskClaimRecoveryDecision {
   evidence: Record<string, unknown>;
 }
 
-export interface SparkTaskClaimRecoveryArtifactInput {
+export interface SparkTaskClaimRecoveryEvidenceInput {
   cwd: string;
   task: Task;
   projectRef: ProjectRef;
@@ -39,7 +39,7 @@ export interface SparkTaskClaimRecoveryArtifactInput {
 }
 
 interface LatestNeedsChangesReview {
-  artifactRef: ArtifactRef;
+  evidenceRef: EvidenceRef;
   updatedAt: string;
   outcome: "needs_changes";
   summary?: string;
@@ -142,9 +142,9 @@ export async function evaluateSparkTaskClaimRecovery(input: {
   );
 }
 
-export async function recordSparkTaskClaimRecoveryArtifact(
-  input: SparkTaskClaimRecoveryArtifactInput,
-): Promise<{ ref: ArtifactRef }> {
+export async function recordSparkTaskClaimRecoveryEvidence(
+  input: SparkTaskClaimRecoveryEvidenceInput,
+): Promise<{ ref: EvidenceRef }> {
   const now = input.now ?? nowIso();
   const body = toJsonValue({
     action: "recover_task_claim",
@@ -157,7 +157,7 @@ export async function recordSparkTaskClaimRecoveryArtifact(
     decision: input.decision,
     recoveredAt: now,
   });
-  const artifact = await defaultEvidenceStore(input.cwd).put({
+  const evidence = await defaultEvidenceStore(input.cwd).put({
     kind: "record",
     title: `Recovered Spark task claim for @${input.task.name}`,
     format: "json",
@@ -168,7 +168,7 @@ export async function recordSparkTaskClaimRecoveryArtifact(
       taskRef: input.task.ref,
     },
   });
-  return { ref: artifact.ref };
+  return { ref: evidence.ref };
 }
 
 function toJsonValue(value: unknown): JsonValue {
@@ -247,23 +247,23 @@ async function latestNeedsChangesReview(
 ): Promise<LatestNeedsChangesReview | undefined> {
   const reviews = await defaultEvidenceStore(cwd).list({ taskRef: task.ref, producer: "review" });
   return reviews
-    .flatMap((artifact) => {
-      const outcome = reviewOutcome(artifact);
+    .flatMap((evidence) => {
+      const outcome = reviewOutcome(evidence);
       if (outcome !== "needs_changes") return [];
       return [
         {
-          artifactRef: artifact.ref,
-          updatedAt: artifact.updatedAt,
+          evidenceRef: evidence.ref,
+          updatedAt: evidence.updatedAt,
           outcome,
-          summary: reviewSummary(artifact),
+          summary: reviewSummary(evidence),
         } satisfies LatestNeedsChangesReview,
       ];
     })
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
 }
 
-function reviewOutcome(artifact: Artifact): "needs_changes" | undefined {
-  const body = artifact.body;
+function reviewOutcome(evidence: EvidenceRecord): "needs_changes" | undefined {
+  const body = evidence.body;
   if (typeof body === "object" && body !== null && !Array.isArray(body)) {
     const verdict = (body as { verdict?: unknown }).verdict;
     if (typeof verdict === "object" && verdict !== null && !Array.isArray(verdict)) {
@@ -275,8 +275,8 @@ function reviewOutcome(artifact: Artifact): "needs_changes" | undefined {
   return undefined;
 }
 
-function reviewSummary(artifact: Artifact): string | undefined {
-  const body = artifact.body;
+function reviewSummary(evidence: EvidenceRecord): string | undefined {
+  const body = evidence.body;
   if (typeof body === "object" && body !== null && !Array.isArray(body)) {
     const verdict = (body as { verdict?: unknown }).verdict;
     if (typeof verdict === "object" && verdict !== null && !Array.isArray(verdict)) {

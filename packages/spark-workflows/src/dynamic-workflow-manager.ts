@@ -6,7 +6,8 @@ import {
   type WorkflowRunResult,
   type WorkflowRunSnapshot,
   type WorkflowWebSearchInput,
-  type WorkflowArtifactRecordInput,
+  type WorkflowEvidenceRecordInput,
+  type WorkflowEvidenceRecordResult,
 } from "./types.ts";
 import { runWorkflowScript } from "./runtime.ts";
 import type { SparkDynamicWorkflowEventStore } from "./dynamic-workflow-event-store.ts";
@@ -38,9 +39,11 @@ export interface SparkDynamicWorkflowManagerRunInput {
   resumeJournal?: WorkflowJournalEntry[];
   agent: WorkflowAgentRunner;
   runWorkflow?: SparkDynamicWorkflowRunWorkflow;
-  artifactRecord?: (
-    record: WorkflowArtifactRecordInput,
-  ) => Promise<{ ref: string }> | { ref: string };
+  evidenceRecord?: (
+    record: WorkflowEvidenceRecordInput,
+  ) =>
+    | Promise<{ ref: WorkflowEvidenceRecordResult["ref"] }>
+    | { ref: WorkflowEvidenceRecordResult["ref"] };
   webSearch?: (request: WorkflowWebSearchInput) => unknown;
   fetchContent?: (request: WorkflowFetchContentInput) => unknown;
   loadWorkflowScript?: (selector: string) => string | undefined | Promise<string | undefined>;
@@ -206,7 +209,7 @@ export class SparkDynamicWorkflowManager {
     input: SparkDynamicWorkflowManagerRunInput,
   ): Promise<SparkDynamicWorkflowManagerCompletion> {
     const runWorkflow = input.runWorkflow ?? runWorkflowScript;
-    const artifactRecord = input.artifactRecord;
+    const evidenceRecord = input.evidenceRecord;
     const webSearch = input.webSearch;
     const fetchContent = input.fetchContent;
     const loadWorkflowScript = input.loadWorkflowScript;
@@ -225,10 +228,10 @@ export class SparkDynamicWorkflowManager {
         resumeJournal: new Map(
           (input.resumeJournal ?? input.run.journal).map((entry) => [entry.index, entry]),
         ),
-        artifactRecord: artifactRecord
+        evidenceRecord: evidenceRecord
           ? async (record) => {
               await this.checkpoint(input.run.ref);
-              return artifactRecord(record);
+              return evidenceRecord(record);
             }
           : undefined,
         webSearch: webSearch

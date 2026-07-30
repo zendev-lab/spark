@@ -10,8 +10,8 @@ import type {
   WorkflowAgentReportedTelemetry,
   WorkflowAgentTelemetry,
   WorkflowAgentTokenUsage,
-  WorkflowArtifactRecordInput,
-  WorkflowArtifactRecordResult,
+  WorkflowEvidenceRecordInput,
+  WorkflowEvidenceRecordResult,
   WorkflowJournalEntry,
   WorkflowParallelOptions,
   WorkflowParallelSettledResult,
@@ -396,29 +396,35 @@ export async function runWorkflowScript<T = unknown>(
     return result;
   };
 
-  const artifactRecord = async (
-    input: WorkflowArtifactRecordInput,
-  ): Promise<WorkflowArtifactRecordResult> => {
-    const normalized = normalizeWorkflowArtifactRecordInput(input);
-    const nodeId = emitToolStarted("artifactRecord", normalized);
-    if (!options.artifactRecord) {
-      const error = new Error("workflow artifactRecord adapter is required for this workflow");
+  const evidenceRecord = async (
+    input: WorkflowEvidenceRecordInput,
+  ): Promise<WorkflowEvidenceRecordResult> => {
+    const normalized = normalizeWorkflowEvidenceRecordInput(input);
+    const nodeId = emitToolStarted("evidenceRecord", normalized);
+    if (!options.evidenceRecord) {
+      const error = new Error("workflow evidenceRecord adapter is required for this workflow");
       emitWorkflowEvent("tool_failed", {
         nodeId,
         nodeKind: "tool",
-        toolName: "artifactRecord",
+        toolName: "evidenceRecord",
         errorMessage: error.message,
       });
       throw error;
     }
     try {
-      const result = await options.artifactRecord(normalized);
-      if (!result.ref.trim()) throw new Error("workflow artifactRecord adapter returned empty ref");
-      const recorded = { ref: result.ref.trim() };
+      const result = await options.evidenceRecord(normalized);
+      const ref = result.ref.trim();
+      if (!ref) throw new Error("workflow evidenceRecord adapter returned empty ref");
+      if (!ref.startsWith("evidence:") || ref.length === "evidence:".length) {
+        throw new Error("workflow evidenceRecord adapter must return an evidence: ref");
+      }
+      const recorded: WorkflowEvidenceRecordResult = {
+        ref: ref as WorkflowEvidenceRecordResult["ref"],
+      };
       emitWorkflowEvent("tool_succeeded", {
         nodeId,
         nodeKind: "tool",
-        toolName: "artifactRecord",
+        toolName: "evidenceRecord",
         result: recorded,
       });
       emitWorkflowEvent("artifact_recorded", {
@@ -436,7 +442,7 @@ export async function runWorkflowScript<T = unknown>(
       emitWorkflowEvent("tool_failed", {
         nodeId,
         nodeKind: "tool",
-        toolName: "artifactRecord",
+        toolName: "evidenceRecord",
         errorMessage: errorText(error),
       });
       throw error;
@@ -845,7 +851,7 @@ export async function runWorkflowScript<T = unknown>(
   const context = vm.createContext({
     args: options.args,
     agent,
-    artifactRecord,
+    evidenceRecord,
     budget,
     completenessCheck,
     console,
@@ -903,10 +909,13 @@ export function normalizeWorkflowAgentOptions(options: WorkflowAgentOptions): Wo
   if (options.isolation !== undefined && options.isolation !== "graft") {
     throw new Error("workflow agent isolation must be 'graft' when provided");
   }
-  if (options.artifactRef !== undefined) {
-    const artifactRef = options.artifactRef.trim();
-    if (!artifactRef) throw new Error("workflow agent artifactRef must be non-empty");
-    return { ...options, artifactRef };
+  if (options.evidenceRef !== undefined) {
+    const evidenceRef = options.evidenceRef.trim();
+    if (!evidenceRef) throw new Error("workflow agent evidenceRef must be non-empty");
+    if (!evidenceRef.startsWith("evidence:") || evidenceRef.length === "evidence:".length) {
+      throw new Error("workflow agent evidenceRef must be an evidence: ref");
+    }
+    return { ...options, evidenceRef: evidenceRef as WorkflowAgentOptions["evidenceRef"] };
   }
   return options;
 }
@@ -919,15 +928,15 @@ export function applyWorkflowStageModel(
   return { ...options, model: stageModel };
 }
 
-export function normalizeWorkflowArtifactRecordInput(
-  input: WorkflowArtifactRecordInput,
-): WorkflowArtifactRecordInput {
+export function normalizeWorkflowEvidenceRecordInput(
+  input: WorkflowEvidenceRecordInput,
+): WorkflowEvidenceRecordInput {
   if (!input || typeof input !== "object") {
-    throw new Error("workflow artifactRecord input must be an object");
+    throw new Error("workflow evidenceRecord input must be an object");
   }
-  const title = normalizeNonEmptyWorkflowString(input.title, "artifactRecord.title");
-  const body = normalizeNonEmptyWorkflowString(input.body, "artifactRecord.body");
-  const normalized: WorkflowArtifactRecordInput = {
+  const title = normalizeNonEmptyWorkflowString(input.title, "evidenceRecord.title");
+  const body = normalizeNonEmptyWorkflowString(input.body, "evidenceRecord.body");
+  const normalized: WorkflowEvidenceRecordInput = {
     ...input,
     title,
     body,
@@ -1143,10 +1152,10 @@ function removeUndefinedFields<T extends Record<string, unknown>>(value: T): T {
 }
 
 export function renderWorkflowAgentPrompt(prompt: string, options: WorkflowAgentOptions): string {
-  if (!options.artifactRef) return prompt;
+  if (!options.evidenceRef) return prompt;
   return [
-    "CONTEXT_BUNDLE: read artifact ref " +
-      options.artifactRef +
+    "CONTEXT_BUNDLE: read evidence ref " +
+      options.evidenceRef +
       " for shared context before acting.",
     "",
     "Workflow agent request:",

@@ -784,11 +784,6 @@ export type SparkRef = Ref<"spark">;
 export type ProjectRef = Ref<"proj">;
 export type TaskRef = Ref<"task">;
 export type RoleRef = Ref<"role">;
-/**
- * Compatibility union for domain links that predate the Product Artifact split.
- * Storage and tool boundaries must use their narrower Artifact/Evidence ref type.
- */
-export type ArtifactRef = Ref<"artifact"> | Ref<"evidence">;
 export type EvidenceRef = Ref<"evidence">;
 export type RunRef = Ref<"run">;
 export type ReviewRef = Ref<"review">;
@@ -840,7 +835,6 @@ export type AnyRef =
   | ProjectRef
   | TaskRef
   | RoleRef
-  | ArtifactRef
   | EvidenceRef
   | RunRef
   | ReviewRef
@@ -1111,7 +1105,7 @@ export interface RoadmapItem {
   evidenceRequired?: string[];
   evidenceRefs?: string[];
   openQuestions?: string[];
-  askRefs?: Array<AskRef | ArtifactRef | string>;
+  askRefs?: Array<AskRef | EvidenceRef | string>;
   taskRefs?: TaskRef[];
   createdAt?: string;
   updatedAt?: string;
@@ -1173,7 +1167,7 @@ export interface TaskPlanItem {
   status: TaskPlanItemStatus;
   notes?: string[];
   blockedBy?: string[];
-  evidenceRefs?: ArtifactRef[];
+  evidenceRefs?: EvidenceRef[];
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
@@ -1193,7 +1187,7 @@ export interface TaskPlan {
   decompositionRationale?: string;
   riskLevel?: "trivial" | "normal" | "high";
   openQuestions: string[];
-  askRefs: Array<AskRef | ArtifactRef>;
+  askRefs: Array<AskRef | EvidenceRef>;
 }
 
 export type TaskExecutionContinuity = "reuse_within_revision" | "fresh";
@@ -1303,8 +1297,8 @@ export interface Task {
   /** Replacement task refs that supersede this task, matching learning supersededBy shape. */
   supersededBy: TaskRef[];
   claim?: TaskClaim;
-  inputArtifacts: ArtifactRef[];
-  outputArtifacts: ArtifactRef[];
+  inputEvidenceRefs: EvidenceRef[];
+  outputEvidenceRefs: EvidenceRef[];
   plan?: TaskPlan;
   createdAt: string;
   updatedAt: string;
@@ -1341,7 +1335,7 @@ export interface TaskRunCompletionSummary {
   runName?: string;
   status: TaskRunStatus;
   summary: string;
-  artifactRefs: ArtifactRef[];
+  evidenceRefs: EvidenceRef[];
   outcome?: RoleRunCompletionOutcome;
   createdAt: string;
 }
@@ -1382,7 +1376,7 @@ export interface TaskRun {
   outcome?: RoleRunCompletionOutcome;
   startedAt?: string;
   finishedAt?: string;
-  outputArtifacts: ArtifactRef[];
+  outputEvidenceRefs: EvidenceRef[];
   completionSummary?: TaskRunCompletionSummary;
 }
 
@@ -1391,12 +1385,12 @@ export type GatePolicy = "required" | "advisory" | "blocking";
 
 export interface ReviewGate {
   ref: ReviewRef;
-  subject: TaskRef | ArtifactRef | RoleRef;
+  subject: TaskRef | EvidenceRef | RoleRef;
   lens: "task-completion" | "artifact" | "role-spec" | "readiness";
   policy: GatePolicy;
   outcome: ReviewOutcome;
   summary: string;
-  artifactRef?: ArtifactRef;
+  evidenceRef?: EvidenceRef;
   createdAt: string;
 }
 
@@ -1404,7 +1398,7 @@ export interface SparkRunTrace {
   ref: SparkRef;
   idea: string;
   projectRef?: ProjectRef;
-  sparkMdArtifactRef?: ArtifactRef;
+  sparkMdEvidenceRef?: EvidenceRef;
   taskRefs: TaskRef[];
   reviewRefs: ReviewRef[];
   askRefs: AskRef[];

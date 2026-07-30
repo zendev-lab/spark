@@ -19,7 +19,7 @@ type TaskRun = {
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   failureKind?: string;
   errorMessage?: string;
-  outputArtifacts: EvidenceRef[];
+  outputEvidenceRefs: EvidenceRef[];
   completionSummary?: { summary?: string };
 };
 
@@ -40,7 +40,7 @@ type TaskGraphStoreLike = {
   save(graph: TaskGraphLike): Promise<void>;
 };
 
-type ArtifactStoreLike = {
+type EvidenceStoreLike = {
   get(ref: EvidenceRef): Promise<{
     ref: EvidenceRef;
     kind: string;
@@ -64,7 +64,7 @@ type TaskGraphLike = {
 };
 
 type SparkRuntimeModules = {
-  defaultEvidenceStore(cwd: string): ArtifactStoreLike;
+  defaultEvidenceStore(cwd: string): EvidenceStoreLike;
   builtinRoleRef(id: "worker"): RoleRef;
   createDefaultRoleRegistry(): unknown;
   hydrateDefaultRoleRegistry(
@@ -113,7 +113,7 @@ export interface SparkDaemonBridgeInput {
   invocationId?: string;
   signal?: AbortSignal;
   taskGraphStore?: TaskGraphStoreLike;
-  artifactStore?: ArtifactStoreLike;
+  evidenceStore?: EvidenceStoreLike;
   executeSparkTask?: ExecuteSparkTaskFn;
 }
 
@@ -246,8 +246,8 @@ export async function runSparkCommandBridge(
   const spark = input.executeSparkTask ? null : await loadSparkRuntimeModules();
   const taskGraphStore =
     input.taskGraphStore ?? spark!.defaultTaskGraphStore(input.workspace.localPath);
-  const artifactStore =
-    input.artifactStore ?? spark!.defaultEvidenceStore(input.workspace.localPath);
+  const evidenceStore =
+    input.evidenceStore ?? spark!.defaultEvidenceStore(input.workspace.localPath);
 
   let binding: SparkTaskBinding | undefined;
   try {
@@ -269,7 +269,7 @@ export async function runSparkCommandBridge(
       taskRef: binding.taskRef,
       registry,
       defaultRoleRef: spark ? spark.builtinRoleRef("worker") : "role:builtin-worker",
-      artifactStore,
+      evidenceStore,
       cwd: input.workspace.localPath,
       dryRun: false,
       timeoutMs: DEFAULT_SPARK_TIMEOUT_MS,
@@ -310,8 +310,8 @@ export async function runSparkCommandBridge(
 
     const completedAt = new Date().toISOString();
     const projectedEvidence = await readSparkEvidenceOutputs({
-      artifactStore,
-      evidenceRefs: run.outputArtifacts,
+      evidenceStore,
+      evidenceRefs: run.outputEvidenceRefs,
     });
     const outputArtifactIds: string[] = [];
     const fallbackAssistantText = fallbackAssistantTextForCompletedRun({
@@ -470,7 +470,7 @@ async function ensureSparkTaskBinding(input: {
           successCriteria: [
             "Spark role-run reaches a terminal status and emits cockpit projections.",
           ],
-          evidenceRequired: ["Spark role-run artifact and Spark daemon invocation projection."],
+          evidenceRequired: ["Spark role-run Evidence and Spark daemon invocation projection."],
           items: [
             { title: "Run the requested task through Spark runtime." },
             { title: "Report terminal status and evidence." },
@@ -490,13 +490,13 @@ async function ensureSparkTaskBinding(input: {
 }
 
 async function readSparkEvidenceOutputs(input: {
-  artifactStore: ArtifactStoreLike;
+  evidenceStore: EvidenceStoreLike;
   evidenceRefs: EvidenceRef[];
 }): Promise<{ assistantText?: string }> {
   let assistantText: string | undefined;
   for (const evidenceRef of input.evidenceRefs) {
-    const artifact = await input.artifactStore.get(evidenceRef);
-    const serializedPreview = await input.artifactStore.getBody(evidenceRef);
+    const artifact = await input.evidenceStore.get(evidenceRef);
+    const serializedPreview = await input.evidenceStore.getBody(evidenceRef);
     assistantText ??= assistantTextFromProjectedArtifact({
       kind: artifact.kind,
       format: artifact.format,

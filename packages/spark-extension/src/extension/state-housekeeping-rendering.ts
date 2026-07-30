@@ -1,5 +1,5 @@
 import type { WorkflowRunPruneResult } from "@zendev-lab/spark-workflows";
-import type { RoleRunArtifactRetentionPlan } from "@zendev-lab/spark-runtime";
+import type { RoleRunEvidenceRetentionPlan } from "@zendev-lab/spark-runtime";
 import type {
   SparkProtectedStoreReason,
   SparkStateCacheKind,
@@ -53,17 +53,17 @@ export function appendSparkStateDiagnosticsLines(
   diagnostics: SparkStateDiagnosticsSummary,
 ): void {
   lines.push(
-    `Bounded output: showing at most ${diagnostics.boundedLimit} item(s) per category; large evidence threshold=${formatByteSize(diagnostics.largeArtifactThresholdBytes)}.`,
+    `Bounded output: showing at most ${diagnostics.boundedLimit} item(s) per category; large evidence threshold=${formatByteSize(diagnostics.largeEvidenceThresholdBytes)}.`,
   );
   appendTerminalProjectDiagnostics(lines, diagnostics.terminalProjects);
   appendInactiveWorkflowRunDiagnostics(lines, diagnostics.inactiveWorkflowRuns);
-  appendLargeArtifactDiagnostics(lines, diagnostics.largeArtifacts);
+  appendLargeEvidenceDiagnostics(lines, diagnostics.largeEvidence);
   appendOrphanBlobDiagnostics(lines, diagnostics.orphanBlobs);
   appendProtectedFileDiagnostics(lines, "notes", diagnostics.notes);
   appendProtectedFileDiagnostics(lines, "role reports", diagnostics.roleReports);
   appendStoreV2DoctorFindings(lines, diagnostics.doctor);
   lines.push(
-    "Protected-store diagnostics are read-only; no project graph, TODO record, session state, evidence, Product Artifact, note, role-report, workflow-run, or review index files were deleted.",
+    "Protected-store diagnostics are read-only; no project graph, TODO record, session state, evidence, Artifact, note, role-report, workflow-run, or review index files were deleted.",
   );
 }
 
@@ -87,9 +87,9 @@ export function appendSparkStateCleanupPlanLines(
     lines.push(`  - ${formatSparkProtectedStoreReason(store.reason)}: ${store.path}`);
 }
 
-export function appendRoleRunArtifactRetentionLines(
+export function appendRoleRunEvidenceRetentionLines(
   lines: string[],
-  plan: RoleRunArtifactRetentionPlan,
+  plan: RoleRunEvidenceRetentionPlan,
   limit: number,
 ): void {
   lines.push(
@@ -111,7 +111,7 @@ export function appendRoleRunArtifactRetentionLines(
   }
   if (visible.length < plan.candidates.length)
     lines.push(`  - … ${plan.candidates.length - visible.length} more candidate(s)`);
-  const keepCount = plan.skipped.filter((item) => item.reason === "not_role_run_artifact").length;
+  const keepCount = plan.skipped.filter((item) => item.reason === "not_role_run_evidence").length;
   const belowThreshold = plan.skipped.filter((item) => item.reason === "below_threshold").length;
   const alreadyRetained = plan.skipped.filter((item) => item.reason === "already_retained").length;
   const invalidJson = plan.skipped.filter((item) => item.reason === "invalid_json").length;
@@ -184,24 +184,24 @@ export function appendSparkWorkflowRunPruneLines(
     );
 }
 
-function appendLargeArtifactDiagnostics(
+function appendLargeEvidenceDiagnostics(
   lines: string[],
-  summary: SparkStateDiagnosticsSummary["largeArtifacts"],
+  summary: SparkStateDiagnosticsSummary["largeEvidence"],
 ): void {
   lines.push(
     `Large evidence: ${summary.count}${summary.shown < summary.count ? ` (showing ${summary.shown})` : ""}`,
   );
-  for (const artifact of summary.candidates) {
+  for (const evidence of summary.candidates) {
     const provenance = [
-      artifact.producer ? `producer=${artifact.producer}` : undefined,
-      artifact.projectRef ? `project=${artifact.projectRef}` : undefined,
-      artifact.taskRef ? `task=${artifact.taskRef}` : undefined,
-      artifact.roleRef ? `role=${artifact.roleRef}` : undefined,
+      evidence.producer ? `producer=${evidence.producer}` : undefined,
+      evidence.projectRef ? `project=${evidence.projectRef}` : undefined,
+      evidence.taskRef ? `task=${evidence.taskRef}` : undefined,
+      evidence.roleRef ? `role=${evidence.roleRef}` : undefined,
     ]
       .filter(Boolean)
       .join(" ");
     lines.push(
-      `  - ${artifact.ref} [${artifact.kind}] ${formatByteSize(artifact.bytes)} metadata=${formatByteSize(artifact.metadataBytes)} updated=${artifact.updatedAt ?? "unknown"}${provenance ? ` ${provenance}` : ""}`,
+      `  - ${evidence.ref} [${evidence.kind}] ${formatByteSize(evidence.bytes)} metadata=${formatByteSize(evidence.metadataBytes)} updated=${evidence.updatedAt ?? "unknown"}${provenance ? ` ${provenance}` : ""}`,
     );
   }
 }
@@ -261,7 +261,7 @@ export function formatSparkStateCacheKind(kind: SparkStateCacheKind): string {
 export function formatSparkProtectedStoreReason(reason: SparkProtectedStoreReason): string {
   switch (reason) {
     case "artifact-history":
-      return "Product Artifacts";
+      return "Artifacts";
     case "evidence-ledger":
       return "evidence ledger";
     case "task-graph":

@@ -1,0 +1,13 @@
+{
+  "legacyFieldNames": ["inputArtifacts", "outputArtifacts", "artifactRefs"],
+  "taskFields": {
+    "inputArtifacts": ["artifact:legacy-input", "evidence:already-input"],
+    "outputArtifacts": ["artifact:legacy-output"]
+  },
+  "runFields": {
+    "outputArtifacts": ["artifact:legacy-run", "evidence:already-output"]
+  },
+  "completionSummaryFields": {
+    "artifactRefs": ["artifact:legacy-summary", "evidence:already-summary"]
+  }
+}

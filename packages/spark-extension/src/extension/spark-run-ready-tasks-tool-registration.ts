@@ -72,7 +72,7 @@ export function registerSparkRunReadyTasksTool(
     name: "impl_run_ready_tasks",
     label: "Spark Run Ready Tasks",
     description:
-      "Internal implementation for assign: run all currently ready Spark tasks with their bound builtin/extension/project/user Spark role specs and persist task-run artifacts. Dry-run by default. Use assign for Spark-native role/task workflow instead of spawning nested pi CLI sessions.",
+      "Internal implementation for assign: run all currently ready Spark tasks with their bound builtin/extension/project/user Spark role specs and persist task-run Evidence. Dry-run by default. Use assign for Spark-native role/task workflow instead of spawning nested pi CLI sessions.",
     parameters: Type.Object({
       dryRun: Type.Optional(Type.Boolean({ default: true })),
       maxConcurrency: Type.Optional(
@@ -262,11 +262,11 @@ export function registerSparkRunReadyTasksTool(
         };
       }
 
-      const artifactStore = defaultEvidenceStore(cwd);
+      const evidenceStore = defaultEvidenceStore(cwd);
       const resourceInventory = await discoverTaskResourceInventory();
       const runtimeRunner = createSparkRuntimeReadyTaskRunner({
         registry,
-        artifactStore,
+        evidenceStore,
         cwd,
         sessionModel: sessionModelName(ctx.model),
       });

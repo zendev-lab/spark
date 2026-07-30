@@ -29,9 +29,9 @@
   "ignoreStatic": true,
   "mutate": [
     "src/generative-ui.ts",
-    "src/product/forge.ts",
-    "src/product/store.ts",
-    "src/product/types.ts",
-    "src/product/worktree.ts"
+    "src/artifact/forge.ts",
+    "src/artifact/store.ts",
+    "src/artifact/types.ts",
+    "src/artifact/worktree.ts"
   ]
 }

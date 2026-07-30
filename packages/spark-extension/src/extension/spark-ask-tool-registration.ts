@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import { replaySparkAskTool, runSparkAskTool, type SparkAskToolParams } from "./spark-ask-tool.ts";
 import type { EvidenceRef } from "@zendev-lab/spark-core";
-import { normalizeEvidenceRef } from "./artifact-tools.ts";
+import { normalizeEvidenceRef } from "./evidence-tools.ts";
 import { sparkAskUi } from "./spark-ask-ui.ts";
 import type { SparkToolRegistrar } from "./spark-tool-registration.ts";
 
@@ -15,9 +15,9 @@ export function registerSparkAskTools(registerSparkTool: SparkToolRegistrar): vo
     name: "impl_ask",
     label: "Spark Ask",
     description:
-      "Ask the user a structured multi-question clarification, decision, approval, or unblock form and persist the answer as an artifact.",
+      "Ask the user a structured multi-question clarification, decision, approval, or unblock form and persist the answer as Evidence.",
     promptGuidelines: [
-      "Use ask as the canonical ask tool; this implementation persists Spark ask artifacts.",
+      "Use ask as the canonical ask tool; this implementation persists Spark ask Evidence records.",
       "When user-facing open questions or decision points would change task scope, dependencies, priorities, success criteria, evidence, architecture, dependency choices, or implementation order, turn them into context-specific ask questions instead of leaving them as prose.",
       "Each option needs a stable id, short label, and clear description explaining what choosing it means.",
       "Use freeform questions for notes/context instead of creating business options named Other or Type your own.",
@@ -90,7 +90,7 @@ export function registerSparkAskTools(registerSparkTool: SparkToolRegistrar): vo
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return replaySparkAskTool({
         cwd: ctx.cwd,
-        artifactRef: normalizeSparkAskReplayEvidenceRef(params.evidenceRef),
+        evidenceRef: normalizeSparkAskReplayEvidenceRef(params.evidenceRef),
         ui: sparkAskUi(ctx),
       });
     },

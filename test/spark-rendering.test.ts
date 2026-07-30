@@ -3,6 +3,8 @@ import { test } from "vitest";
 
 import { SPARK_PROTOCOL_VERSION, type SparkTurnSubmitResult } from "@zendev-lab/spark-protocol";
 
+import { taskViewFromCandidate } from "../packages/spark-turn/src/view-projection.ts";
+
 import type { Component, Focusable, TUI } from "../apps/spark-tui/src/tui/pi-tui-adapter.ts";
 
 import { SparkKeybindings } from "../apps/spark-tui/src/host/keybindings.ts";
@@ -18,6 +20,33 @@ import {
   type SparkNativeResponder,
   type SparkNativeResponderContext,
 } from "../apps/spark-tui/src/native-tui.ts";
+
+test("task view projection rejects mixed evidence and Artifact prefixes", () => {
+  assert.equal(
+    taskViewFromCandidate(
+      {
+        ref: "task:mixed-evidence",
+        title: "Mixed evidence",
+        status: "running",
+        evidenceRefs: ["evidence:ok", "artifact:wrong-lane"],
+      },
+      {},
+    ),
+    undefined,
+  );
+  assert.equal(
+    taskViewFromCandidate(
+      {
+        ref: "task:mixed-product",
+        title: "Mixed product",
+        status: "running",
+        artifactRefs: ["artifact:ok", "evidence:wrong-lane"],
+      },
+      {},
+    ),
+    undefined,
+  );
+});
 
 const ESC = String.fromCharCode(27);
 const ANSI_PATTERN = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, "gu");
@@ -432,7 +461,8 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
           title: "reviewer audit",
           status: "running",
           progress: 0.5,
-          artifactRefs: ["artifact:review-verdict"],
+          evidenceRefs: ["evidence:review-verdict"],
+          artifactRefs: [],
           metadata: { reviewer: "reviewer", outcome: "pending" },
         },
         {
@@ -441,6 +471,7 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
           kind: "workflow",
           title: "release readiness workflow",
           status: "queued",
+          evidenceRefs: [],
           artifactRefs: [],
           metadata: { selector: "builtin:release-readiness" },
         },
@@ -456,14 +487,15 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
             { id: "todo-2", content: "wire evidence panel", status: "in_progress", notes: [] },
           ],
           runRefs: ["role-run-reviewer"],
-          artifactRefs: ["artifact:evidence"],
+          evidenceRefs: ["evidence:evidence"],
+          artifactRefs: [],
           metadata: {},
         },
       ],
       artifacts: [
         {
           version: SPARK_PROTOCOL_VERSION,
-          ref: "artifact:review-verdict",
+          ref: "evidence:review-verdict",
           title: "Reviewer verdict",
           kind: "record",
           format: "json",
@@ -474,7 +506,7 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
         },
         {
           version: SPARK_PROTOCOL_VERSION,
-          ref: "artifact:graft-patch",
+          ref: "evidence:graft-patch",
           title: "Graft patch status",
           kind: "record",
           format: "json",
@@ -544,7 +576,7 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
   assert.equal(await app.submitInput("/inspect runs"), "command");
   rendered = app.render(120).join("\n");
   assert.match(rendered, /Session inspector: role\/run board/);
-  assert.match(rendered, /role role-run-reviewer \[running\] 50% artifacts=1 reviewer audit/);
+  assert.match(rendered, /role role-run-reviewer \[running\] 50% evidence=1 reviewer audit/);
 
   assert.equal(await app.submitInput("/tasks"), "command");
   rendered = app.render(120).join("\n");
@@ -556,14 +588,14 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
   assert.match(rendered, /Session inspector: artifacts/);
   assert.match(
     rendered,
-    /artifact:review-verdict \[record\/json\] producer=review status=approved/,
+    /evidence:review-verdict \[record\/json\] producer=review status=approved/,
   );
-  assert.match(rendered, /artifact:graft-patch \[record\/json\] producer=task status=candidate/);
+  assert.match(rendered, /evidence:graft-patch \[record\/json\] producer=task status=candidate/);
 
   assert.equal(await app.submitInput("/reviews"), "command");
   rendered = app.render(120).join("\n");
   assert.match(rendered, /Session inspector: reviewer verdicts/);
-  assert.match(rendered, /artifact:review-verdict \[approved\] Reviewer verdict/);
+  assert.match(rendered, /evidence:review-verdict \[approved\] Reviewer verdict/);
 
   assert.equal(await app.submitInput("/graft"), "command");
   rendered = app.render(120).join("\n");
@@ -1152,6 +1184,7 @@ test("native UI transport consumes view model events without concrete TUI protoc
       kind: "daemon",
       status: "running",
       summary: "cache read=64 write=16",
+      evidenceRefs: [],
       artifactRefs: [],
       metadata: {
         usageTotals: {
@@ -1198,7 +1231,7 @@ test("native UI transport prints task completion evidence summaries", () => {
     type: "evidence.update",
     evidence: {
       version: SPARK_PROTOCOL_VERSION,
-      ref: "artifact:review",
+      ref: "evidence:review",
       title: "Review verdict",
       kind: "record",
       format: "json",
@@ -1217,7 +1250,8 @@ test("native UI transport prints task completion evidence summaries", () => {
       status: "done",
       todos: [],
       runRefs: [],
-      artifactRefs: ["artifact:review", "artifact:trace"],
+      evidenceRefs: ["evidence:review", "evidence:trace"],
+      artifactRefs: [],
       metadata: {},
     },
   });
@@ -1225,7 +1259,7 @@ test("native UI transport prints task completion evidence summaries", () => {
   const rendered = stripAnsi(app.render(120).join("\n"));
   assert.match(
     rendered,
-    /✔ task done · 2 artifacts · review passed · inspect locally with \/inspect tasks \(task:visible\)/,
+    /✔ task done · 2 evidence · review passed · inspect locally with \/inspect tasks \(task:visible\)/,
   );
 });
 

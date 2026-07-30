@@ -3,11 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  defaultProductArtifactStore,
-  projectProductArtifact,
-  type ProductArtifact,
-} from "@zendev-lab/spark-artifacts";
+import { defaultArtifactStore, projectArtifact, type Artifact } from "@zendev-lab/spark-artifacts";
 import {
   createId,
   runtimeProtocolVersion,
@@ -15,12 +11,12 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { describe, expect, it } from "vitest";
 
-import { renderStoredProductPreview } from "../apps/spark-cockpit/src/lib/server/product-artifact-preview.ts";
+import { renderStoredArtifactPreview } from "../apps/spark-cockpit/src/lib/server/artifact-preview.ts";
 import { artifactProjected } from "../apps/spark-daemon/src/protocol/outbound.ts";
 import {
-  productArtifactProjectionPayload,
-  type ProductArtifactProjectionSource,
-} from "../apps/spark-daemon/src/product-artifact-projection.ts";
+  artifactProjectionPayload,
+  type ArtifactProjectionSource,
+} from "../apps/spark-daemon/src/artifact-projection.ts";
 import { migrate, openDatabase } from "../packages/spark-cockpit-db/src/index.ts";
 import { readArtifactPreviewContent } from "../packages/spark-cockpit-coordination/src/artifact-cache.ts";
 import {
@@ -45,7 +41,7 @@ class FakeRuntimeSocket extends EventEmitter {
   }
 }
 
-describe("Product Artifact persistent Cockpit preview", () => {
+describe("Artifact persistent Cockpit preview", () => {
   it("survives Cockpit restart and replaces cached content on the next revision", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-product-persistence-"));
     const databasePath = join(root, "cockpit.sqlite");
@@ -83,7 +79,7 @@ describe("Product Artifact persistent Cockpit preview", () => {
         createdAt: now,
       });
       const invocationId = createId("inv");
-      const store = defaultProductArtifactStore(workspacePath);
+      const store = defaultArtifactStore(workspacePath);
       const v1 = await store.put({
         ref: "artifact:preview:persistent",
         kind: "preview",
@@ -116,7 +112,7 @@ describe("Product Artifact persistent Cockpit preview", () => {
            WHERE id = ?`,
         )
         .get(
-          productArtifactProjectionPayload(sourceFromArtifact(v1), {
+          artifactProjectionPayload(sourceFromArtifact(v1), {
             workspaceId: workspace.id,
           }).artifactId,
         ) as {
@@ -137,14 +133,14 @@ describe("Product Artifact persistent Cockpit preview", () => {
       db = openDatabase({ path: databasePath });
       migrate(db);
 
-      const artifactId = productArtifactProjectionPayload(sourceFromArtifact(v1), {
+      const artifactId = artifactProjectionPayload(sourceFromArtifact(v1), {
         workspaceId: workspace.id,
       }).artifactId;
       const persisted = readArtifactPreviewContent(db, artifactId, { cacheRoot });
       expect(persisted.cache.previewStatus).toBe("ready");
       expect(persisted.body?.toString("utf8")).toContain("Version one");
       expect(
-        renderStoredProductPreview({
+        renderStoredArtifactPreview({
           kind: "preview",
           title: "Persistent preview",
           contentRef: JSON.parse(beforeRestart.contentRefJson) as unknown,
@@ -275,7 +271,7 @@ function sendProjection(
     runtimeId: string;
     workspaceBindingId: string;
     workspaceId: string;
-    source: ProductArtifactProjectionSource;
+    source: ArtifactProjectionSource;
     messageId: string;
     projectId?: string;
     invocationId?: string;
@@ -284,7 +280,7 @@ function sendProjection(
 ): void {
   socket.emitMessage(
     artifactProjected(
-      productArtifactProjectionPayload(input.source, {
+      artifactProjectionPayload(input.source, {
         workspaceId: input.workspaceId,
         ...(input.projectId ? { projectId: input.projectId, scope: "project" } : {}),
         ...(input.invocationId ? { invocationId: input.invocationId } : {}),
@@ -303,12 +299,12 @@ function sendProjection(
   );
 }
 
-function sourceFromArtifact(artifact: ProductArtifact): ProductArtifactProjectionSource {
+function sourceFromArtifact(artifact: Artifact): ArtifactProjectionSource {
   return {
     ref: artifact.ref,
     kind: artifact.kind,
     title: artifact.title,
-    projection: sparkArtifactProjectionSchema.parse(projectProductArtifact(artifact)),
+    projection: sparkArtifactProjectionSchema.parse(projectArtifact(artifact)),
     createdAt: artifact.createdAt,
     updatedAt: artifact.updatedAt,
   };
