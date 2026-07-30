@@ -15,6 +15,8 @@ export function rewriteStateRefs(
   evidenceRefs: ReadonlySet<string>,
   issues: EvidenceMigrationIssueBuckets,
 ): { value: unknown; changed: number } {
+  const stateVersion = isRecord(value) ? value.version : undefined;
+
   function visit(current: unknown, path: string[]): { value: unknown; changed: number } {
     if (typeof current === "string") {
       const mapped = mapping.get(current);
@@ -50,7 +52,11 @@ export function rewriteStateRefs(
       let changed = 0;
       const next: Record<string, unknown> = {};
       for (const [key, entry] of Object.entries(current)) {
-        const canonicalKey = canonicalEvidenceKeyForLegacyArtifactField([...path, key], filePath);
+        const canonicalKey = canonicalEvidenceKeyForLegacyArtifactField(
+          [...path, key],
+          filePath,
+          stateVersion,
+        );
         if (canonicalKey !== key && Object.hasOwn(current, canonicalKey)) {
           issues.artifactMisclassified.push(
             migrationIssue(
@@ -281,6 +287,7 @@ function isEvidenceFieldPath(path: readonly string[]): boolean {
 function canonicalEvidenceKeyForLegacyArtifactField(
   path: readonly string[],
   filePath: string,
+  stateVersion: unknown,
 ): string {
   const key = path.at(-1)!;
   const normalizedFilePath = filePath.replaceAll("\\", "/");
@@ -295,12 +302,16 @@ function canonicalEvidenceKeyForLegacyArtifactField(
   ) {
     return "evidenceRef";
   }
-  if (
-    key === "artifactRefs" &&
-    pathKey === "events.[].artifactRefs" &&
-    normalizedFilePath === ".spark/role-run-activity-events.json"
-  ) {
-    return "evidenceRefs";
+  if (key === "artifactRefs") {
+    const keys = path.filter((segment) => segment !== "[]");
+    if (
+      (pathKey === "events.[].artifactRefs" &&
+        normalizedFilePath === ".spark/role-run-activity-events.json") ||
+      keys.includes("completionDigest") ||
+      (keys.includes("completionSummary") && stateVersion === 2)
+    ) {
+      return "evidenceRefs";
+    }
   }
   return key;
 }

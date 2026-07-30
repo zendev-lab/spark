@@ -120,6 +120,31 @@ describe("Evidence namespace migration", () => {
     };
     expect(task.inputArtifacts).toEqual(["evidence:legacy-a"]);
     expect(task.outputArtifacts).toEqual(["evidence:legacy-b"]);
+    expect(JSON.parse(await readFile(fixture.legacyRunPath, "utf8"))).toMatchObject({
+      version: 1,
+      completionSummary: { artifactRefs: ["evidence:legacy-a"] },
+    });
+    const v2Run = JSON.parse(await readFile(fixture.v2RunPath, "utf8"));
+    expect(v2Run).toMatchObject({
+      version: 2,
+      completionSummary: { evidenceRefs: ["evidence:legacy-a"] },
+    });
+    expect(v2Run.completionSummary).not.toHaveProperty("artifactRefs");
+    const workflow = JSON.parse(await readFile(fixture.workflowPath, "utf8"));
+    expect(workflow).toMatchObject({
+      runs: [
+        {
+          completionDigest: [{ evidenceRefs: ["evidence:legacy-a"] }],
+          completionFollowUp: {
+            completionDigest: [{ evidenceRefs: ["evidence:legacy-b"] }],
+          },
+        },
+      ],
+    });
+    expect(workflow.runs[0].completionDigest[0]).not.toHaveProperty("artifactRefs");
+    expect(workflow.runs[0].completionFollowUp.completionDigest[0]).not.toHaveProperty(
+      "artifactRefs",
+    );
     expect(JSON.parse(await readFile(fixture.reviewPath, "utf8"))).toMatchObject({
       evidenceRef: "evidence:legacy-a",
       reviewPacket: { evidenceRefs: ["evidence:legacy-a", "evidence:legacy-b"] },
@@ -375,6 +400,9 @@ interface WorkspaceFixture {
   artifactBlobPath: string;
   artifactRef: string;
   taskPath: string;
+  legacyRunPath: string;
+  v2RunPath: string;
+  workflowPath: string;
   reviewPath: string;
   reviewIndexPath: string;
   askReceiptPath: string;
@@ -455,15 +483,52 @@ async function workspaceFixture(name: string): Promise<WorkspaceFixture> {
     inputArtifacts: ["artifact:legacy-a"],
     outputArtifacts: ["artifact:legacy-b"],
   });
-  await writeJson(
-    join(root, ".spark", "projects", "proj-demo", "tasks", "task-demo", "runs", "run-demo.json"),
-    {
-      version: 1,
-      ref: "run:demo",
-      outputArtifacts: ["artifact:legacy-b"],
-      completionSummary: { artifactRefs: ["artifact:legacy-a"] },
-    },
+  const legacyRunPath = join(
+    root,
+    ".spark",
+    "projects",
+    "proj-demo",
+    "tasks",
+    "task-demo",
+    "runs",
+    "run-demo.json",
   );
+  await writeJson(legacyRunPath, {
+    version: 1,
+    ref: "run:demo",
+    outputArtifacts: ["artifact:legacy-b"],
+    completionSummary: { artifactRefs: ["artifact:legacy-a"] },
+  });
+  const v2RunPath = join(
+    root,
+    ".spark",
+    "projects",
+    "proj-demo",
+    "tasks",
+    "task-demo",
+    "runs",
+    "run-v2.json",
+  );
+  await writeJson(v2RunPath, {
+    version: 2,
+    ref: "run:v2",
+    outputEvidenceRefs: ["artifact:legacy-b"],
+    completionSummary: { artifactRefs: ["artifact:legacy-a"] },
+  });
+  const workflowPath = join(root, ".spark", "workflow-runs.json");
+  await writeJson(workflowPath, {
+    version: 1,
+    manager: { status: "idle" },
+    runs: [
+      {
+        ref: "run:workflow",
+        completionDigest: [{ artifactRefs: ["artifact:legacy-a"] }],
+        completionFollowUp: {
+          completionDigest: [{ artifactRefs: ["artifact:legacy-b"] }],
+        },
+      },
+    ],
+  });
   const reviewPath = join(root, ".spark", "reviews", "review.json");
   await writeJson(reviewPath, {
     artifactRef: "artifact:legacy-a",
@@ -528,6 +593,9 @@ async function workspaceFixture(name: string): Promise<WorkspaceFixture> {
     artifactBlobPath,
     artifactRef: artifact.ref,
     taskPath,
+    legacyRunPath,
+    v2RunPath,
+    workflowPath,
     reviewPath,
     reviewIndexPath,
     askReceiptPath,
