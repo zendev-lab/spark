@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ProductArtifactStore } from "./product/store.ts";
-import { isProductArtifactKind, type ProductArtifactRef } from "./product/types.ts";
+import { ArtifactStore } from "./artifact/store.ts";
+import { isArtifactKind, type ArtifactRef } from "./artifact/types.ts";
 import {
   errorMessage,
   isRecord,
@@ -18,31 +18,27 @@ import {
   stringValue,
 } from "./evidence-migration-paths.ts";
 
-export interface ProductScanInventory {
+export interface ArtifactScanInventory {
   mapping: ReadonlyMap<string, string>;
-  productRefs: Set<string>;
-  productPaths: Set<string>;
+  artifactRefs: Set<string>;
+  artifactPaths: Set<string>;
   invalid: EvidenceMigrationIssue[];
   ambiguous: EvidenceMigrationIssue[];
-  productPreserved: number;
+  artifactPreserved: number;
 }
 
-export async function scanProductArtifactRecord(options: {
+export async function scanArtifactRecord(options: {
   rootDir: string;
   artifactRoot: string;
   filename: string;
   path: string;
   raw: Record<string, unknown>;
-  inventory: ProductScanInventory;
+  inventory: ArtifactScanInventory;
 }): Promise<void> {
   const ref = stringValue(options.raw.ref);
   if (!ref || !isArtifactRef(ref)) {
     options.inventory.invalid.push(
-      migrationIssue(
-        options.path,
-        "invalid_product_ref",
-        "product artifact ref must use artifact:",
-      ),
+      migrationIssue(options.path, "invalid_artifact_ref", "artifact ref must use artifact:"),
     );
     return;
   }
@@ -50,39 +46,39 @@ export async function scanProductArtifactRecord(options: {
     options.inventory.invalid.push(
       migrationIssue(
         options.path,
-        "product_ref_path_mismatch",
-        "product artifact filename does not match ref",
+        "artifact_ref_path_mismatch",
+        "artifact filename does not match ref",
         ref,
       ),
     );
     return;
   }
-  if (options.inventory.mapping.has(ref) || options.inventory.productRefs.has(ref)) {
+  if (options.inventory.mapping.has(ref) || options.inventory.artifactRefs.has(ref)) {
     options.inventory.ambiguous.push(
       migrationIssue(options.path, "duplicate_ref", "duplicate artifact ref", ref),
     );
     return;
   }
   try {
-    const store = new ProductArtifactStore({ rootDir: options.artifactRoot });
-    const product = await store.get(ref as ProductArtifactRef);
-    await verifyDeclaredBlob(options.artifactRoot, options.raw, product.hash, options.path);
-    options.inventory.productRefs.add(ref);
-    options.inventory.productPreserved += 1;
-    options.inventory.productPaths.add(options.path);
+    const store = new ArtifactStore({ rootDir: options.artifactRoot });
+    const artifact = await store.get(ref as ArtifactRef);
+    await verifyDeclaredBlob(options.artifactRoot, options.raw, artifact.hash, options.path);
+    options.inventory.artifactRefs.add(ref);
+    options.inventory.artifactPreserved += 1;
+    options.inventory.artifactPaths.add(options.path);
     if (typeof options.raw.blobPath === "string") {
       const blob = scopedBlobPath(options.artifactRoot, options.raw.blobPath);
-      if (!blob) throw new Error("product blob path escapes artifact store");
-      options.inventory.productPaths.add(relativeWorkspacePath(options.rootDir, blob));
+      if (!blob) throw new Error("Artifact blob path escapes artifact store");
+      options.inventory.artifactPaths.add(relativeWorkspacePath(options.rootDir, blob));
     }
   } catch (error) {
     options.inventory.invalid.push(
-      migrationIssue(options.path, "invalid_product", errorMessage(error), ref),
+      migrationIssue(options.path, "invalid_artifact", errorMessage(error), ref),
     );
   }
 }
 
-export async function productPathsForWorkspace(rootDir: string): Promise<Set<string>> {
+export async function artifactPathsForWorkspace(rootDir: string): Promise<Set<string>> {
   const paths = new Set<string>();
   const artifactRoot = join(rootDir, ".spark", "artifacts");
   for (const entry of await jsonMetadataEntries(artifactRoot)) {
@@ -92,7 +88,7 @@ export async function productPathsForWorkspace(rootDir: string): Promise<Set<str
     } catch {
       continue;
     }
-    if (!isRecord(raw) || !isProductArtifactKind(raw.kind)) continue;
+    if (!isRecord(raw) || !isArtifactKind(raw.kind)) continue;
     paths.add(relativeWorkspacePath(rootDir, entry.path));
     if (typeof raw.blobPath === "string") {
       const blob = scopedBlobPath(artifactRoot, raw.blobPath);
@@ -114,5 +110,5 @@ async function verifyDeclaredBlob(
   const actual = hashBytes(await readFile(path));
   const declared = stringValue(raw.hash) ?? normalizedHash;
   if (declared && declared !== actual)
-    throw new Error(`${relativePath}: product blob hash mismatch`);
+    throw new Error(`${relativePath}: Artifact blob hash mismatch`);
 }

@@ -7,15 +7,11 @@ import {
   type SparkDaemonEvent,
   type SparkJsonObject,
 } from "@zendev-lab/spark-protocol";
-import {
-  defaultProductArtifactStore,
-  projectProductArtifact,
-  type ProductArtifact,
-} from "@zendev-lab/spark-artifacts";
+import { defaultArtifactStore, projectArtifact, type Artifact } from "@zendev-lab/spark-artifacts";
 
-export const PRODUCT_ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
+export const ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
 
-export interface ProductArtifactProjectionSource {
+export interface ArtifactProjectionSource {
   ref: string;
   kind: "issue" | "pr" | "preview";
   title: string;
@@ -24,7 +20,7 @@ export interface ProductArtifactProjectionSource {
   updatedAt?: string;
 }
 
-export interface ProductArtifactProjectionContext {
+export interface ArtifactProjectionContext {
   workspaceId: string;
   scope?: "workspace" | "project";
   invocationId?: string;
@@ -32,7 +28,7 @@ export interface ProductArtifactProjectionContext {
   projectId?: string;
 }
 
-export interface ProductArtifactDaemonEventContext {
+export interface ArtifactDaemonEventContext {
   workspaceId?: string;
   projectId?: string;
   invocationId?: string;
@@ -41,32 +37,32 @@ export interface ProductArtifactDaemonEventContext {
   emittedAt?: string;
 }
 
-export interface ProductArtifactProjectionReconcileTarget {
+export interface ArtifactProjectionReconcileTarget {
   localPath: string;
   workspaceBindingId: string;
   workspaceId: string;
 }
 
-export interface PendingProductArtifactProjection {
+export interface PendingArtifactProjection {
   messageId: string;
   workspaceBindingId: string;
   workspaceId: string;
   payload: ArtifactProjectionPayload;
 }
 
-interface ProductArtifactProjectionReconcileState {
+interface ArtifactProjectionReconcileState {
   digest: string;
   messageId: string;
   acknowledged: boolean;
   lastSentAtMs: number;
 }
 
-export const PRODUCT_ARTIFACT_PROJECTION_RETRY_AFTER_MS = 30_000;
-export const PRODUCT_ARTIFACT_PROJECTION_RECONCILE_INTERVAL_MS = 60_000;
+export const ARTIFACT_PROJECTION_RETRY_AFTER_MS = 30_000;
+export const ARTIFACT_PROJECTION_RECONCILE_INTERVAL_MS = 60_000;
 
 /**
- * Runtime/Cockpit artifact ids use the protocol `art_` namespace. Product
- * Artifact refs remain the canonical workspace identity and are retained in
+ * Runtime/Cockpit Artifact ids use the protocol `art_` namespace. Artifact
+ * refs remain the canonical workspace identity and are retained in
  * contentRef/provenance.
  */
 export function artifactProjectionIdForRef(workspaceId: string, ref: string): `art_${string}` {
@@ -78,9 +74,9 @@ export function artifactProjectionIdForRef(workspaceId: string, ref: string): `a
     .slice(0, 32)}`;
 }
 
-export function productArtifactProjectionPayload(
-  artifact: ProductArtifactProjectionSource,
-  context: ProductArtifactProjectionContext,
+export function artifactProjectionPayload(
+  artifact: ArtifactProjectionSource,
+  context: ArtifactProjectionContext,
 ): ArtifactProjectionPayload {
   const projection = artifact.projection;
   const links = [
@@ -113,11 +109,11 @@ export function productArtifactProjectionPayload(
     mime: projection.mime,
     contentRef: projection.contentRef,
     provenance: {
-      producer: "spark-product-artifact",
-      productArtifactRef: artifact.ref,
+      producer: "spark-artifact",
+      artifactRef: artifact.ref,
       projectionSchemaVersion: projection.schemaVersion,
-      ...(artifact.createdAt ? { productArtifactCreatedAt: artifact.createdAt } : {}),
-      ...(artifact.updatedAt ? { productArtifactUpdatedAt: artifact.updatedAt } : {}),
+      ...(artifact.createdAt ? { artifactCreatedAt: artifact.createdAt } : {}),
+      ...(artifact.updatedAt ? { artifactUpdatedAt: artifact.updatedAt } : {}),
       ...(context.invocationId ? { runtimeInvocationId: context.invocationId } : {}),
       ...(context.sessionId ? { sessionId: context.sessionId } : {}),
     },
@@ -125,9 +121,9 @@ export function productArtifactProjectionPayload(
   };
 }
 
-export function productArtifactProjectionSourceFromToolResult(
+export function artifactProjectionSourceFromToolResult(
   raw: unknown,
-): ProductArtifactProjectionSource | null {
+): ArtifactProjectionSource | null {
   if (!isRecord(raw) || raw.type !== "tool_result") return null;
   const message = isRecord(raw.message) ? raw.message : null;
   if (!message || message.toolName !== "artifact" || message.isError === true) return null;
@@ -142,7 +138,7 @@ export function productArtifactProjectionSourceFromToolResult(
   if (
     !ref?.startsWith("artifact:") ||
     !kind ||
-    !PRODUCT_ARTIFACT_KINDS.has(kind) ||
+    !ARTIFACT_KINDS.has(kind) ||
     !title ||
     !projection.success
   ) {
@@ -152,12 +148,12 @@ export function productArtifactProjectionSourceFromToolResult(
   const updatedAt = isoString(artifact.updatedAt);
   const contentRef = projection.data.contentRef;
   const hasPreviewShape = "previewFormat" in contentRef;
-  if (contentRef.productArtifactRef !== ref || (kind === "preview") !== hasPreviewShape) {
+  if (contentRef.artifactRef !== ref || (kind === "preview") !== hasPreviewShape) {
     return null;
   }
   return {
     ref,
-    kind: kind as ProductArtifactProjectionSource["kind"],
+    kind: kind as ArtifactProjectionSource["kind"],
     title,
     projection: projection.data,
     ...(createdAt ? { createdAt } : {}),
@@ -165,15 +161,15 @@ export function productArtifactProjectionSourceFromToolResult(
   };
 }
 
-export function productArtifactDaemonProjectionEventFromToolResult(
+export function artifactDaemonProjectionEventFromToolResult(
   raw: unknown,
-  context: ProductArtifactDaemonEventContext,
+  context: ArtifactDaemonEventContext,
 ): SparkDaemonEvent | null {
-  const artifact = productArtifactProjectionSourceFromToolResult(raw);
+  const artifact = artifactProjectionSourceFromToolResult(raw);
   if (!artifact) return null;
   return {
     version: SPARK_PROTOCOL_VERSION,
-    type: "daemon.product_artifact.projected",
+    type: "daemon.artifact.projected",
     source: "daemon",
     emittedAt: context.emittedAt ?? new Date().toISOString(),
     ...(context.workspaceId ? { workspaceId: context.workspaceId } : {}),
@@ -185,46 +181,44 @@ export function productArtifactDaemonProjectionEventFromToolResult(
   };
 }
 
-export async function listWorkspaceProductArtifactProjectionSources(
+export async function listWorkspaceArtifactProjectionSources(
   localPath: string,
-): Promise<ProductArtifactProjectionSource[]> {
-  const artifacts = await defaultProductArtifactStore(localPath).list();
-  return artifacts.map((artifact: ProductArtifact) => ({
+): Promise<ArtifactProjectionSource[]> {
+  const artifacts = await defaultArtifactStore(localPath).list();
+  return artifacts.map((artifact: Artifact) => ({
     ref: artifact.ref,
     kind: artifact.kind,
     title: artifact.title,
-    projection: sparkArtifactProjectionSchema.parse(projectProductArtifact(artifact)),
+    projection: sparkArtifactProjectionSchema.parse(projectArtifact(artifact)),
     createdAt: artifact.createdAt,
     updatedAt: artifact.updatedAt,
   }));
 }
 
 /**
- * Connection-scoped change detector for canonical Product Artifacts. The
- * ProductArtifactStore remains the durable owner; this class only tracks wire
+ * Connection-scoped change detector for canonical Artifacts. The
+ * ArtifactStore remains the durable owner; this class only tracks wire
  * delivery and intentionally resets on reconnect so Cockpit can recover after
  * either side restarts.
  */
-export class ProductArtifactProjectionReconciler {
-  readonly #states = new Map<string, ProductArtifactProjectionReconcileState>();
+export class ArtifactProjectionReconciler {
+  readonly #states = new Map<string, ArtifactProjectionReconcileState>();
   readonly #keyByMessageId = new Map<string, string>();
   readonly #now: () => number;
   readonly #retryAfterMs: number;
 
   constructor(options: { now?: () => number; retryAfterMs?: number } = {}) {
     this.#now = options.now ?? Date.now;
-    this.#retryAfterMs = options.retryAfterMs ?? PRODUCT_ARTIFACT_PROJECTION_RETRY_AFTER_MS;
+    this.#retryAfterMs = options.retryAfterMs ?? ARTIFACT_PROJECTION_RETRY_AFTER_MS;
   }
 
-  async collect(
-    target: ProductArtifactProjectionReconcileTarget,
-  ): Promise<PendingProductArtifactProjection[]> {
-    const sources = await listWorkspaceProductArtifactProjectionSources(target.localPath);
+  async collect(target: ArtifactProjectionReconcileTarget): Promise<PendingArtifactProjection[]> {
+    const sources = await listWorkspaceArtifactProjectionSources(target.localPath);
     const now = this.#now();
-    const pending: PendingProductArtifactProjection[] = [];
+    const pending: PendingArtifactProjection[] = [];
 
     for (const source of sources) {
-      const payload = productArtifactProjectionPayload(source, {
+      const payload = artifactProjectionPayload(source, {
         workspaceId: target.workspaceId,
         scope: "workspace",
       });
@@ -274,7 +268,7 @@ export class ProductArtifactProjectionReconciler {
 }
 
 function projectionDeliveryDigest(
-  target: ProductArtifactProjectionReconcileTarget,
+  target: ArtifactProjectionReconcileTarget,
   payload: ArtifactProjectionPayload,
 ): string {
   return createHash("sha256")

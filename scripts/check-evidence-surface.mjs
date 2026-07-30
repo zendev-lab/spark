@@ -9,8 +9,9 @@ const controlledFixtureRoots = [
 ];
 const typeFixtureExpectations = new Map([
   ["invalid-evidence-ref.ts.txt", ['"artifact:not-evidence"', "EvidenceRef"]],
-  ["invalid-product-artifact-ref.ts.txt", ['"evidence:not-product"', "ProductArtifactRef"]],
+  ["invalid-artifact-ref.ts.txt", ['"evidence:not-artifact"', "ArtifactRef"]],
   ["invalid-evidence-kind.ts.txt", ['"issue"', "EvidenceKind"]],
+  ["invalid-artifact-kind.ts.txt", ['"record"', "ArtifactKind"]],
 ]);
 const typeFixtures = [...typeFixtureExpectations.keys()].map((name) =>
   resolve(root, "test/fixtures/evidence-surface", name),
@@ -61,13 +62,16 @@ const evidenceSurfaceFixture = readJsonFixture(
 );
 if (
   evidenceSurfaceFixture.wrongNamespaceRef !== "artifact:not-evidence" ||
+  evidenceSurfaceFixture.wrongArtifactNamespaceRef !== "evidence:not-artifact" ||
   evidenceSurfaceFixture.wrongKind !== "issue" ||
+  evidenceSurfaceFixture.wrongArtifactKind !== "record" ||
   evidenceSurfaceFixture.oldField?.artifactRef !== "evidence:legacy-field"
 ) {
   fixtureViolations.push({
     rule: "negative-runtime-fixture",
     path: "test/fixtures/evidence-surface/negative-values.json",
-    message: "fixture must cover artifact: namespace, wrong Evidence kind, and a retired field",
+    message:
+      "fixture must cover both wrong namespaces, both wrong kind lanes, and a retired Evidence field",
   });
 }
 for (const fixtureDirectory of [
@@ -115,6 +119,7 @@ const rules = [
     id: "retired-internal-artifact-symbol",
     pattern:
       /\b(?:artifactStore|ArtifactStore|RoleRunArtifact\w*|AskArtifact\w*|SparkAsk\w*Artifact\w*|EvidenceArtifact\w*|registerSparkArtifactTool|normalizeArtifact(?:Boolean|Limit)|generatedEvidenceArtifact|evidenceArtifacts)\b/gu,
+    appliesTo: (path) => evidenceOwnedArtifactRefPaths.some((candidate) => candidate.test(path)),
   },
   {
     id: "retired-role-run-artifact-alias",
@@ -130,7 +135,7 @@ const rules = [
   },
   {
     id: "legacy-task-evidence-fields",
-    pattern: /\b(?:inputArtifacts|outputArtifacts|artifactRefs)\b/gu,
+    pattern: /\b(?:inputArtifacts|outputArtifacts)\b/gu,
   },
   {
     id: "legacy-review-control-fields",
@@ -154,14 +159,22 @@ const rules = [
   },
   {
     id: "artifact-ref-on-evidence-surface",
-    pattern: /\bartifactRef\b/gu,
+    pattern: /\bartifactRefs?\b/gu,
     appliesTo: (path) => evidenceOwnedArtifactRefPaths.some((candidate) => candidate.test(path)),
   },
   {
     id: "evidence-helper-ref-kind-alias",
     pattern: /refKind\s*:\s*["']artifact["']\s*\|\s*["']evidence["']/gu,
   },
-  { id: "product-evidence-record", pattern: /Product EvidenceRecord/gu },
+  {
+    id: "retired-product-artifact-surface",
+    pattern: /\b(?:ProductArtifact\w*|productArtifact\w*|Product Artifacts?)\b/gu,
+  },
+  {
+    id: "retired-product-artifact-wire",
+    pattern: /product[-_]artifact/giu,
+  },
+  { id: "artifact-evidence-record", pattern: /Artifact EvidenceRecord/gu },
 ];
 const allow = new Map([
   [
@@ -178,6 +191,7 @@ const allow = new Map([
     "artifact-ref-on-evidence-surface",
     [
       /^packages\/spark-artifacts\/src\/extension\.ts$/u,
+      /^packages\/spark-tasks\/src\/graph-store\.ts$/u,
       /^packages\/spark-extension\/src\/extension\/subject-review-store\.ts$/u,
       /^packages\/spark-loop\/src\/session-goals\.ts$/u,
       evidenceMigrationPaths,
@@ -228,9 +242,14 @@ if (negativeProbe) {
 }
 
 function runNegativeProbe(probe) {
-  if (probe === "artifact-ref" || probe === "wrong-kind") {
-    const fixture =
-      probe === "artifact-ref" ? "invalid-evidence-ref.ts.txt" : "invalid-evidence-kind.ts.txt";
+  const fixtureByProbe = new Map([
+    ["evidence-ref", "invalid-evidence-ref.ts.txt"],
+    ["artifact-ref", "invalid-artifact-ref.ts.txt"],
+    ["evidence-kind", "invalid-evidence-kind.ts.txt"],
+    ["artifact-kind", "invalid-artifact-kind.ts.txt"],
+  ]);
+  const fixture = fixtureByProbe.get(probe);
+  if (fixture) {
     const fixtureDiagnostics = diagnosticsByFixture.get(fixture) ?? [];
     return {
       probe,
@@ -258,7 +277,7 @@ function runNegativeProbe(probe) {
     probe,
     supported: false,
     rejected: false,
-    expected: ["artifact-ref", "wrong-kind", "old-field"],
+    expected: ["evidence-ref", "artifact-ref", "evidence-kind", "artifact-kind", "old-field"],
   };
 }
 

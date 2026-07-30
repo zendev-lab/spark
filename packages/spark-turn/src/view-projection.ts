@@ -315,11 +315,8 @@ export function taskViewFromCandidate(
     ],
     "evidence:",
   );
-  const productArtifactRefs = strictPrefixedRefs(
-    stringArrayField(candidate, "productArtifactRefs"),
-    "artifact:",
-  );
-  if (!evidenceRefs || !productArtifactRefs) return undefined;
+  const artifactRefs = strictPrefixedRefs(stringArrayField(candidate, "artifactRefs"), "artifact:");
+  if (!evidenceRefs || !artifactRefs) return undefined;
   return {
     version: SPARK_PROTOCOL_VERSION,
     ref,
@@ -337,7 +334,7 @@ export function taskViewFromCandidate(
     todos: taskTodosFromCandidate(candidate),
     runRefs: stringArrayField(candidate, "runRefs"),
     evidenceRefs,
-    productArtifactRefs,
+    artifactRefs,
     metadata: jsonMetadata(metadata),
   };
 }
@@ -378,13 +375,13 @@ export function entityViewFromCandidate(
     metadata: jsonMetadata(metadata),
   };
 
-  if (isProductArtifactKind(rawKind) && isArtifactRef) {
+  if (isArtifactKind(rawKind) && isArtifactRef) {
     return {
       type: "artifact",
       artifact: {
         ...common,
         kind: rawKind,
-        format: productArtifactFormat(stringField(candidate, "format")),
+        format: artifactFormat(stringField(candidate, "format")),
       },
     };
   }
@@ -476,9 +473,7 @@ export function taskTodoStatus(value: string | undefined): SparkTaskTodoView["st
   return "pending";
 }
 
-export function isProductArtifactKind(
-  value: string | undefined,
-): value is "issue" | "pr" | "preview" {
+export function isArtifactKind(value: string | undefined): value is "issue" | "pr" | "preview" {
   return value === "issue" || value === "pr" || value === "preview";
 }
 
@@ -496,7 +491,7 @@ export function evidenceFormat(value: string | undefined): SparkEvidenceView["fo
   return "other";
 }
 
-export function productArtifactFormat(value: string | undefined): SparkArtifactView["format"] {
+export function artifactFormat(value: string | undefined): SparkArtifactView["format"] {
   if (
     value === "markdown" ||
     value === "json" ||

@@ -11,7 +11,7 @@ export function rewriteStateRefs(
   value: unknown,
   filePath: string,
   mapping: ReadonlyMap<string, string>,
-  productRefs: ReadonlySet<string>,
+  artifactRefs: ReadonlySet<string>,
   evidenceRefs: ReadonlySet<string>,
   issues: EvidenceMigrationIssueBuckets,
 ): { value: unknown; changed: number } {
@@ -19,18 +19,21 @@ export function rewriteStateRefs(
     if (typeof current === "string") {
       const mapped = mapping.get(current);
       if (mapped) return { value: mapped, changed: 1 };
+      if (isLegacyArtifactNamedEvidenceFieldPath(path, filePath)) {
+        return { value: current, changed: 0 };
+      }
       if (isEvidenceFieldPath(path)) {
         auditTypedEvidenceValue(
           current,
           filePath,
           path.join("."),
           mapping,
-          productRefs,
+          artifactRefs,
           evidenceRefs,
           issues,
         );
-      } else if (isProductFieldPath(path)) {
-        auditTypedProductValue(current, filePath, path.join("."), mapping, productRefs, issues);
+      } else if (isArtifactFieldPath(path)) {
+        auditTypedArtifactValue(current, filePath, path.join("."), mapping, artifactRefs, issues);
       }
       return { value: current, changed: 0 };
     }
@@ -92,7 +95,7 @@ export function auditEvidenceRecordRefs(
   raw: Record<string, unknown>,
   path: string,
   mapping: ReadonlyMap<string, string>,
-  productRefs: ReadonlySet<string>,
+  artifactRefs: ReadonlySet<string>,
   evidenceRefs: ReadonlySet<string>,
   issues: EvidenceMigrationIssueBuckets,
 ): void {
@@ -106,7 +109,7 @@ export function auditEvidenceRecordRefs(
         path,
         `links[${index}].from`,
         mapping,
-        productRefs,
+        artifactRefs,
         evidenceRefs,
         issues,
       );
@@ -117,7 +120,7 @@ export function auditEvidenceRecordRefs(
           path,
           `links[${index}].to`,
           mapping,
-          productRefs,
+          artifactRefs,
           evidenceRefs,
           issues,
         );
@@ -131,7 +134,7 @@ export function auditEvidenceRecordRefs(
         path,
         `provenance.${key}`,
         mapping,
-        productRefs,
+        artifactRefs,
         evidenceRefs,
         issues,
       );
@@ -162,7 +165,7 @@ function auditTypedEvidenceValue(
   filePath: string,
   field: string,
   mapping: ReadonlyMap<string, string>,
-  productRefs: ReadonlySet<string>,
+  artifactRefs: ReadonlySet<string>,
   evidenceRefs: ReadonlySet<string>,
   issues: EvidenceMigrationIssueBuckets,
 ): void {
@@ -173,7 +176,7 @@ function auditTypedEvidenceValue(
         filePath,
         `${field}[${index}]`,
         mapping,
-        productRefs,
+        artifactRefs,
         evidenceRefs,
         issues,
       ),
@@ -182,12 +185,12 @@ function auditTypedEvidenceValue(
   }
   if (typeof value !== "string") return;
   if (mapping.has(value)) return;
-  if (productRefs.has(value)) {
-    issues.productMisclassified.push(
+  if (artifactRefs.has(value)) {
+    issues.artifactMisclassified.push(
       migrationIssue(
         filePath,
-        "product_in_evidence_field",
-        `Product Artifact ref appears in ${field}`,
+        "artifact_in_evidence_field",
+        `Artifact ref appears in ${field}`,
         value,
       ),
     );
@@ -200,17 +203,17 @@ function auditTypedEvidenceValue(
   }
 }
 
-function auditTypedProductValue(
+function auditTypedArtifactValue(
   value: unknown,
   filePath: string,
   field: string,
   mapping: ReadonlyMap<string, string>,
-  productRefs: ReadonlySet<string>,
-  issues: Pick<EvidenceMigrationIssueBuckets, "productMisclassified">,
+  artifactRefs: ReadonlySet<string>,
+  issues: Pick<EvidenceMigrationIssueBuckets, "artifactMisclassified">,
 ): void {
   if (Array.isArray(value)) {
     value.forEach((entry, index) =>
-      auditTypedProductValue(entry, filePath, `${field}[${index}]`, mapping, productRefs, issues),
+      auditTypedArtifactValue(entry, filePath, `${field}[${index}]`, mapping, artifactRefs, issues),
     );
     return;
   }
@@ -218,13 +221,13 @@ function auditTypedProductValue(
   if (
     mapping.has(value) ||
     isEvidenceRef(value) ||
-    (isArtifactRef(value) && !productRefs.has(value))
+    (isArtifactRef(value) && !artifactRefs.has(value))
   ) {
-    issues.productMisclassified.push(
+    issues.artifactMisclassified.push(
       migrationIssue(
         filePath,
-        "evidence_in_product_field",
-        `non-product ref appears in ${field}`,
+        "evidence_in_artifact_field",
+        `non-Artifact ref appears in ${field}`,
         value,
       ),
     );
@@ -241,7 +244,6 @@ function isEvidenceFieldPath(path: readonly string[]): boolean {
     "outputEvidenceRefs",
     "inputArtifacts",
     "outputArtifacts",
-    "artifactRefs",
     "parentEvidenceRefs",
     "parentArtifactRefs",
     "reviewArtifactRef",
@@ -253,9 +255,32 @@ function isEvidenceFieldPath(path: readonly string[]): boolean {
     "knownFailedReviewArtifacts",
     "attemptedFinishArtifacts",
   ]);
-  return keys.some((key) => evidenceKeys.has(key));
+  if (keys.some((key) => evidenceKeys.has(key))) return true;
+  // `artifactRefs` is the canonical Artifact lane at top level. Before schema v2,
+  // completion summaries/digests used the same field for internal Evidence.
+  return (
+    keys.includes("artifactRefs") &&
+    (keys.includes("completionSummary") || keys.includes("completionDigest"))
+  );
 }
 
-function isProductFieldPath(path: readonly string[]): boolean {
-  return path.some((key) => key === "productArtifactRef" || key === "productArtifactRefs");
+function isLegacyArtifactNamedEvidenceFieldPath(
+  path: readonly string[],
+  filePath: string,
+): boolean {
+  const keys = path.filter((segment) => segment !== "[]");
+  if (!keys.includes("artifactRef")) return false;
+  // Subject-review and goal-review v1 records used `artifactRef` for internal Evidence.
+  // Their schema-v2 readers normalize the field in memory. The namespace migration keeps
+  // its original behavior: exact mapped refs are rewritten, while unmatched legacy values
+  // are not reclassified as canonical Artifact refs during dry-run or replay.
+  return (
+    keys.includes("lastReview") ||
+    /^\.spark\/reviews\//u.test(filePath) ||
+    /^\.spark\/sessions\/[^/]+\/goal-reviews\//u.test(filePath)
+  );
+}
+
+function isArtifactFieldPath(path: readonly string[]): boolean {
+  return path.some((key) => key === "artifactRef" || key === "artifactRefs");
 }

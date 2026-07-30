@@ -197,4 +197,4 @@ await Promise.all([
 await removeSourceMaps(resolve(productDirectory, "build"));
 await Promise.all([writeProductManifest(), writeBuildInfo(), writeLauncher()]);
 
-console.log(`Built npm product artifact: ${productDirectory}`);
+console.log(`Built npm artifact: ${productDirectory}`);

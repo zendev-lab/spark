@@ -1,4 +1,4 @@
-import type { ProductArtifactRef } from "@zendev-lab/spark-artifacts";
+import type { ArtifactRef } from "@zendev-lab/spark-artifacts";
 import { type TaskGraph } from "@zendev-lab/spark-tasks";
 import type { Project, ProjectRef, Task, TaskRef } from "@zendev-lab/spark-core";
 import { createId, parseSparkAssignment } from "@zendev-lab/spark-protocol";
@@ -94,7 +94,7 @@ export interface SparkCockpitGoalSummary {
 }
 
 export interface SparkCockpitArtifactSummary {
-  productArtifactRef: ProductArtifactRef;
+  artifactRef: ArtifactRef;
   title?: string;
   kind?: string;
   status?: string;
@@ -657,19 +657,17 @@ function cockpitArtifacts(
   const artifacts = state.artifacts.slice(0, command.limit ?? 50);
   for (const artifact of artifacts) {
     if (
-      !artifact.productArtifactRef.startsWith("artifact:") ||
-      artifact.productArtifactRef.length === "artifact:".length
+      !artifact.artifactRef.startsWith("artifact:") ||
+      artifact.artifactRef.length === "artifact:".length
     ) {
-      throw new Error("Cockpit Product Artifact summary requires an artifact: ref");
+      throw new Error("Cockpit Artifact summary requires an artifact: ref");
     }
   }
   return {
     plane: "cockpit",
     resource: "artifact",
     artifacts,
-    text: artifacts
-      .map((artifact) => `${artifact.productArtifactRef} ${artifact.title ?? ""}\n`)
-      .join(""),
+    text: artifacts.map((artifact) => `${artifact.artifactRef} ${artifact.title ?? ""}\n`).join(""),
   };
 }
 

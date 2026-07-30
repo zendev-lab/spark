@@ -35,8 +35,8 @@ export interface EvidenceWorkspaceMigrationReport {
   workspaceRoot: string;
   discovered: number;
   migrated: number;
-  productPreserved: number;
-  productMisclassified: EvidenceMigrationIssue[];
+  artifactPreserved: number;
+  artifactMisclassified: EvidenceMigrationIssue[];
   dangling: EvidenceMigrationIssue[];
   invalid: EvidenceMigrationIssue[];
   ambiguous: EvidenceMigrationIssue[];
@@ -46,8 +46,8 @@ export interface EvidenceWorkspaceMigrationReport {
   backupPath: string | null;
   beforeHash: string;
   afterHash: string;
-  productHashBefore: string;
-  productHashAfter: string;
+  artifactHashBefore: string;
+  artifactHashAfter: string;
   planHash: string;
   blocked: boolean;
 }
@@ -61,8 +61,8 @@ export interface EvidenceNamespaceMigrationReport {
   totals: {
     discovered: number;
     migrated: number;
-    productPreserved: number;
-    productMisclassified: number;
+    artifactPreserved: number;
+    artifactMisclassified: number;
     dangling: number;
     invalid: number;
     ambiguous: number;
@@ -154,7 +154,7 @@ export interface FileFact {
 
 export interface EvidenceMigrationIssueBuckets {
   dangling: EvidenceMigrationIssue[];
-  productMisclassified: EvidenceMigrationIssue[];
+  artifactMisclassified: EvidenceMigrationIssue[];
 }
 
 export class EvidenceMigrationBlockedError extends Error {

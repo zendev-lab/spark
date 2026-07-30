@@ -6,28 +6,28 @@ import { spawnSync } from "node:child_process";
 import type { ToolConfig } from "@zendev-lab/spark-core";
 import { describe, expect, it } from "vitest";
 import { defaultEvidenceStore, type EvidenceRef } from "../index.ts";
-import { registerProductArtifactTool } from "./extension.ts";
+import { registerArtifactTool } from "./extension.ts";
 import {
-  PRODUCT_ARTIFACT_PROJECTION_MAX_INLINE_BYTES,
-  PRODUCT_ARTIFACT_KINDS,
-  defaultProductArtifactStore,
+  ARTIFACT_PROJECTION_MAX_INLINE_BYTES,
+  ARTIFACT_KINDS,
+  defaultArtifactStore,
   issueBodyFromSnapshot,
   parseForgeUrl,
   prBodyFromSnapshot,
-  projectProductArtifact,
+  projectArtifact,
   attachPrWorktree,
   removePrWorktree,
-  type ProductArtifactRef,
+  type ArtifactRef,
 } from "./index.ts";
 
-describe("product artifact kinds", () => {
+describe("artifact kinds", () => {
   it("keeps the public kind surface limited to issue, pr, and preview", () => {
-    expect(PRODUCT_ARTIFACT_KINDS).toEqual(["issue", "pr", "preview"]);
+    expect(ARTIFACT_KINDS).toEqual(["issue", "pr", "preview"]);
   });
 
   it("stores preview with continuous versioned updates", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "spark-product-preview-"));
-    const store = defaultProductArtifactStore(dir);
+    const dir = await mkdtemp(join(tmpdir(), "spark-artifact-preview-"));
+    const store = defaultArtifactStore(dir);
     const created = await store.put({
       kind: "preview",
       title: "Landing",
@@ -61,8 +61,8 @@ describe("product artifact kinds", () => {
   });
 
   it("projects previews through a bounded coarse transport contract", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "spark-product-projection-"));
-    const store = defaultProductArtifactStore(dir);
+    const dir = await mkdtemp(join(tmpdir(), "spark-artifact-projection-"));
+    const store = defaultArtifactStore(dir);
     const markdown = await store.put({
       kind: "preview",
       title: "Markdown",
@@ -76,14 +76,14 @@ describe("product artifact kinds", () => {
         progress: { stage: "review", percent: 80 },
       },
     });
-    expect(projectProductArtifact(markdown)).toEqual({
+    expect(projectArtifact(markdown)).toEqual({
       schemaVersion: 1,
       format: "markdown",
       mime: "text/markdown; charset=utf-8",
       sizeBytes: Buffer.byteLength("# Durable"),
       hash: createHash("sha256").update("# Durable").digest("hex"),
       contentRef: {
-        productArtifactRef: markdown.ref,
+        artifactRef: markdown.ref,
         previewFormat: "md",
         version: 3,
         progress: { stage: "review", percent: 80 },
@@ -103,11 +103,11 @@ describe("product artifact kinds", () => {
         version: 1,
       },
     });
-    expect(projectProductArtifact(rich)).toMatchObject({
+    expect(projectArtifact(rich)).toMatchObject({
       format: "text",
       mime: "text/plain; charset=utf-8",
       contentRef: {
-        productArtifactRef: rich.ref,
+        artifactRef: rich.ref,
         previewFormat: "html",
         version: 1,
         progress: null,
@@ -123,12 +123,12 @@ describe("product artifact kinds", () => {
         schemaVersion: 1,
         kind: "preview",
         format: "mdx",
-        content: "x".repeat(PRODUCT_ARTIFACT_PROJECTION_MAX_INLINE_BYTES + 1),
+        content: "x".repeat(ARTIFACT_PROJECTION_MAX_INLINE_BYTES + 1),
         version: 1,
       },
     });
-    const projection = projectProductArtifact(oversized);
-    expect(projection.sizeBytes).toBe(PRODUCT_ARTIFACT_PROJECTION_MAX_INLINE_BYTES + 1);
+    const projection = projectArtifact(oversized);
+    expect(projection.sizeBytes).toBe(ARTIFACT_PROJECTION_MAX_INLINE_BYTES + 1);
     expect(projection.contentRef).not.toHaveProperty("inlineText");
     expect(projection.contentRef).not.toHaveProperty("inlineMarkdown");
   });
@@ -165,14 +165,14 @@ describe("product artifact kinds", () => {
       },
     },
   ])("projects $kind bodies as bounded inline JSON", async ({ kind, title, body }) => {
-    const dir = await mkdtemp(join(tmpdir(), `spark-product-${kind}-projection-`));
-    const artifact = await defaultProductArtifactStore(dir).put({
+    const dir = await mkdtemp(join(tmpdir(), `spark-artifact-${kind}-projection-`));
+    const artifact = await defaultArtifactStore(dir).put({
       kind,
       title,
       format: "json",
       body,
     });
-    const projection = projectProductArtifact(artifact);
+    const projection = projectArtifact(artifact);
     expect(projection).toMatchObject({
       schemaVersion: 1,
       format: "json",
@@ -181,7 +181,7 @@ describe("product artifact kinds", () => {
         .update(`${JSON.stringify(body, null, 2)}\n`)
         .digest("hex"),
       contentRef: {
-        productArtifactRef: artifact.ref,
+        artifactRef: artifact.ref,
         inlineJson: { kind },
       },
     });
@@ -189,9 +189,9 @@ describe("product artifact kinds", () => {
   });
 
   it("puts projections on detail results but not list summaries", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "spark-product-projection-tool-"));
+    const cwd = await mkdtemp(join(tmpdir(), "spark-artifact-projection-tool-"));
     let tool: ToolConfig | undefined;
-    registerProductArtifactTool({ registerTool: (config) => (tool = config) });
+    registerArtifactTool({ registerTool: (config) => (tool = config) });
     if (!tool) throw new Error("artifact tool was not registered");
     const signal = new AbortController().signal;
     const created = await tool.execute(
@@ -217,7 +217,7 @@ describe("product artifact kinds", () => {
     expect(artifactRecord.projection).toMatchObject({
       schemaVersion: 1,
       format: "markdown",
-      contentRef: { productArtifactRef: artifactRef, inlineMarkdown: "# Persistent" },
+      contentRef: { artifactRef: artifactRef, inlineMarkdown: "# Persistent" },
     });
 
     const opened = await tool.execute(
@@ -233,7 +233,7 @@ describe("product artifact kinds", () => {
     }
     const openedArtifactRecord = openedArtifact as Record<string, unknown>;
     expect(openedArtifactRecord.projection).toMatchObject({
-      contentRef: { productArtifactRef: artifactRef },
+      contentRef: { artifactRef: artifactRef },
     });
 
     const listed = await tool.execute("list-preview", { action: "list" }, signal, () => undefined, {
@@ -342,13 +342,13 @@ describe("product artifact kinds", () => {
     expect(removed.worktreeStatus).toBe("removed");
   });
 
-  it("keeps Product Artifacts and internal evidence in separate stores and ref namespaces", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "spark-product-isolation-"));
-    const productStore = defaultProductArtifactStore(dir);
+  it("keeps Artifacts and internal evidence in separate stores and ref namespaces", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-artifact-isolation-"));
+    const artifactStore = defaultArtifactStore(dir);
     const evidenceStore = defaultEvidenceStore(dir);
-    const product = await productStore.put({
+    const artifact = await artifactStore.put({
       kind: "preview",
-      title: "Only product",
+      title: "Only Artifact",
       body: {
         schemaVersion: 1,
         kind: "preview",
@@ -370,25 +370,25 @@ describe("product artifact kinds", () => {
       "utf8",
     );
 
-    expect(product.ref).toMatch(/^artifact:/u);
+    expect(artifact.ref).toMatch(/^artifact:/u);
     expect(evidence.ref).toMatch(/^evidence:/u);
-    expect(productStore.rootDir).toBe(join(dir, ".spark", "artifacts"));
+    expect(artifactStore.rootDir).toBe(join(dir, ".spark", "artifacts"));
     expect(evidenceStore.rootDir).toBe(join(dir, ".spark", "evidence"));
-    await expect(stat(productStore.pathFor(product.ref))).resolves.toBeDefined();
+    await expect(stat(artifactStore.pathFor(artifact.ref))).resolves.toBeDefined();
     await expect(stat(evidenceStore.pathFor(evidence.ref))).resolves.toBeDefined();
     await expect(
       stat(join(dir, ".spark", "artifacts", `${evidence.ref.slice("evidence:".length)}.json`)),
     ).rejects.toMatchObject({ code: "ENOENT" });
     await expect(
-      stat(join(dir, ".spark", "evidence", `${product.ref.slice("artifact:".length)}.json`)),
+      stat(join(dir, ".spark", "evidence", `${artifact.ref.slice("artifact:".length)}.json`)),
     ).rejects.toMatchObject({ code: "ENOENT" });
-    expect((await productStore.list()).map((item) => item.ref)).toEqual([product.ref]);
+    expect((await artifactStore.list()).map((item) => item.ref)).toEqual([artifact.ref]);
     expect((await evidenceStore.list()).map((item) => item.ref)).toEqual([evidence.ref]);
-    await expect(evidenceStore.get(product.ref as unknown as EvidenceRef)).rejects.toThrow(
+    await expect(evidenceStore.get(artifact.ref as unknown as EvidenceRef)).rejects.toThrow(
       /must be an evidence: ref/u,
     );
-    await expect(productStore.get(evidence.ref as unknown as ProductArtifactRef)).rejects.toThrow(
-      /product artifact ref must be artifact/u,
+    await expect(artifactStore.get(evidence.ref as unknown as ArtifactRef)).rejects.toThrow(
+      /artifact ref must be artifact/u,
     );
   });
 });

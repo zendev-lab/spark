@@ -30,14 +30,14 @@
       "path": ".spark/artifacts/",
       "owner": "spark-artifacts",
       "kind": "canonical",
-      "notes": "User-facing issue, PR, and preview Product Artifacts only; refs use artifact:."
+      "notes": "User-facing issue, PR, and preview Artifacts only; refs use artifact:."
     },
     {
       "id": "evidence",
       "path": ".spark/evidence/",
       "owner": "spark-artifacts",
       "kind": "canonical",
-      "notes": "Agent-internal evidence ledger only; refs use evidence: and are never projected as Product Artifacts."
+      "notes": "Agent-internal evidence ledger only; refs use evidence: and are never projected as Artifacts."
     }
   ],
   "rebuildableIndexes": [

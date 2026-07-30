@@ -5,8 +5,8 @@ const MAX_PREVIEW_CHARS = 8_000;
 
 export type SessionInspectorTab = "summary" | "artifacts" | "changes" | "tasks";
 
-/** Product-facing artifact kinds shown in the session sidebar. */
-export const SESSION_PRODUCT_ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
+/** User-facing Artifact kinds shown in the session sidebar. */
+export const SESSION_ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
 
 export interface SessionWorkbenchActivityCommand {
   id: string;
@@ -64,7 +64,7 @@ export interface SessionWorkbenchRun {
   runtimeStatus: string | null;
   latestOutput: string | null;
   evidenceRefs: string[];
-  productArtifactRefs: string[];
+  artifactRefs: string[];
 }
 
 export interface SessionWorkbenchTask {
@@ -81,7 +81,7 @@ export interface SessionWorkbenchTask {
   todos: SessionWorkbenchTodo[];
   runRefs: string[];
   evidenceRefs: string[];
-  productArtifactRefs: string[];
+  artifactRefs: string[];
 }
 
 export interface SessionWorkbenchTodo {
@@ -132,7 +132,7 @@ export interface SessionWorkbenchContext {
 export interface SessionWorkbenchView {
   runs: SessionWorkbenchRun[];
   tasks: SessionWorkbenchTask[];
-  /** Product artifacts (issue / pr / preview) bound to this session. */
+  /** Artifacts (issue / pr / preview) bound to this session. */
   artifacts: SessionWorkbenchArtifact[];
   changes: SessionWorkbenchArtifact[];
   /** Agent-internal evidence; not rendered in the session sidebar. */
@@ -204,27 +204,25 @@ export function buildSessionWorkbenchView(input: {
       .map(activityTask),
   ]);
 
-  const artifacts = deduplicateArtifacts([
+  const allArtifacts = deduplicateArtifacts([
     ...input.session.artifacts.map(sessionArtifact),
     ...reports.filter(isArtifactReport).map(activityArtifact),
   ]);
   const evidence = deduplicateArtifacts([
     ...(input.session.evidence ?? []).map(sessionEvidence),
-    ...artifacts.filter(
-      (artifact) => !SESSION_PRODUCT_ARTIFACT_KINDS.has(artifact.kind) && !artifact.canonicalChange,
+    ...allArtifacts.filter(
+      (artifact) => !SESSION_ARTIFACT_KINDS.has(artifact.kind) && !artifact.canonicalChange,
     ),
     ...reports.filter(isEvidenceReport).map(activityEvidence),
   ]);
 
-  const productArtifacts = artifacts.filter((artifact) =>
-    SESSION_PRODUCT_ARTIFACT_KINDS.has(artifact.kind),
-  );
-  const changeArtifacts = artifacts.filter((artifact) => artifact.canonicalChange);
+  const artifacts = allArtifacts.filter((artifact) => SESSION_ARTIFACT_KINDS.has(artifact.kind));
+  const changeArtifacts = allArtifacts.filter((artifact) => artifact.canonicalChange);
 
   return {
     runs: sortByRecency(runs),
     tasks,
-    artifacts: productArtifacts,
+    artifacts: artifacts,
     changes: changeArtifacts,
     evidence,
     sessionTodo: latestSessionTodo(input.session),
@@ -291,7 +289,7 @@ function sessionRun(run: SparkSessionView["runs"][number]): SessionWorkbenchRun 
     runtimeStatus: null,
     latestOutput: null,
     evidenceRefs: [...run.evidenceRefs],
-    productArtifactRefs: [...run.productArtifactRefs],
+    artifactRefs: [...run.artifactRefs],
   };
 }
 
@@ -333,7 +331,7 @@ function mergeActivityCommands(
       runtimeStatus: command.runtimeStatus,
       latestOutput: boundedText(command.latestLog, MAX_OUTPUT_CHARS),
       evidenceRefs: [],
-      productArtifactRefs: [],
+      artifactRefs: [],
     });
   }
 }
@@ -382,7 +380,7 @@ function appendRunReports(
       runtimeStatus: null,
       latestOutput: null,
       evidenceRefs: [],
-      productArtifactRefs: [],
+      artifactRefs: [],
     });
   }
 }
@@ -403,7 +401,7 @@ function sessionTask(task: SparkSessionView["tasks"][number]): SessionWorkbenchT
     todos: task.todos.map((todo) => ({ ...todo, notes: [...todo.notes] })),
     runRefs: [...task.runRefs],
     evidenceRefs: [...task.evidenceRefs],
-    productArtifactRefs: [...task.productArtifactRefs],
+    artifactRefs: [...task.artifactRefs],
   };
 }
 
@@ -422,7 +420,7 @@ function activityTask(report: SessionWorkbenchActivityReport): SessionWorkbenchT
     todos: [],
     runRefs: [],
     evidenceRefs: [],
-    productArtifactRefs: [],
+    artifactRefs: [],
   };
 }
 

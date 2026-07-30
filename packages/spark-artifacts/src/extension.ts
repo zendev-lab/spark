@@ -30,7 +30,7 @@ import {
   type JsonValue,
   type EvidenceProvenance,
 } from "./index.ts";
-import { registerProductArtifactTool } from "./product/extension.ts";
+import { registerArtifactTool } from "./artifact/extension.ts";
 
 export interface SparkArtifactsHostApi {
   registerTool(config: ToolConfig): void;
@@ -51,7 +51,7 @@ const DEFAULT_EVIDENCE_READ_PREVIEW_CHARS = 800;
 const EVIDENCE_PRODUCER_DESCRIPTION =
   "producer: spark | role | task | review | ask | cue | user. Prefer producer=task (+ runRef/taskRef) for execution notes; ask/review/cue when that capability owns the write.";
 const EVIDENCE_KIND_DESCRIPTION =
-  "Internal ledger kinds only: record (default; one JSON fact/decision/result), trace (prunable raw output), knowledge (learning capability), document (rare long prose). Not user-facing; product ISSUE/PR/preview use artifact.";
+  "Internal ledger kinds only: record (default; one JSON fact/decision/result), trace (prunable raw output), knowledge (learning capability), document (rare long prose). Not user-facing; user-facing ISSUE/PR/preview use artifact.";
 
 class ToolCallText implements ToolRenderComponent {
   private readonly text: string;
@@ -73,7 +73,7 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
     name: "evidence",
     label: "Evidence",
     description:
-      "Agent-internal ledger only (not Cockpit/user UI). Compact provenance-backed notes for other tools and later turns. Product ISSUE/PR/preview use artifact.",
+      "Agent-internal ledger only (not Cockpit/user UI). Compact provenance-backed notes for other tools and later turns. User-facing ISSUE/PR/preview use artifact.",
     promptGuidelines: [
       "evidence is agent-private: never treat it as user-visible content; Cockpit shows only artifact (issue/pr/preview).",
       "Prefer format=json and kind=record with a compact body: { summary: string, data?: object }. Use kind=trace for raw/prunable tool dumps.",
@@ -394,11 +394,11 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
   });
 }
 
-export { registerProductArtifactTool } from "./product/extension.ts";
+export { registerArtifactTool } from "./artifact/extension.ts";
 
 export function registerSparkEvidenceTool(pi: SparkArtifactsHostApi): void {
   registerEvidenceTool(pi);
-  registerProductArtifactTool(pi);
+  registerArtifactTool(pi);
 }
 
 export default function sparkArtifactsExtension(pi: SparkHostAPI): void {

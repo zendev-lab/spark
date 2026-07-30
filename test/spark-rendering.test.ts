@@ -21,7 +21,7 @@ import {
   type SparkNativeResponderContext,
 } from "../apps/spark-tui/src/native-tui.ts";
 
-test("task view projection rejects mixed evidence and Product Artifact prefixes", () => {
+test("task view projection rejects mixed evidence and Artifact prefixes", () => {
   assert.equal(
     taskViewFromCandidate(
       {
@@ -40,7 +40,7 @@ test("task view projection rejects mixed evidence and Product Artifact prefixes"
         ref: "task:mixed-product",
         title: "Mixed product",
         status: "running",
-        productArtifactRefs: ["artifact:ok", "evidence:wrong-lane"],
+        artifactRefs: ["artifact:ok", "evidence:wrong-lane"],
       },
       {},
     ),
@@ -462,7 +462,7 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
           status: "running",
           progress: 0.5,
           evidenceRefs: ["evidence:review-verdict"],
-          productArtifactRefs: [],
+          artifactRefs: [],
           metadata: { reviewer: "reviewer", outcome: "pending" },
         },
         {
@@ -472,7 +472,7 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
           title: "release readiness workflow",
           status: "queued",
           evidenceRefs: [],
-          productArtifactRefs: [],
+          artifactRefs: [],
           metadata: { selector: "builtin:release-readiness" },
         },
       ],
@@ -488,7 +488,7 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
           ],
           runRefs: ["role-run-reviewer"],
           evidenceRefs: ["evidence:evidence"],
-          productArtifactRefs: [],
+          artifactRefs: [],
           metadata: {},
         },
       ],
@@ -1185,7 +1185,7 @@ test("native UI transport consumes view model events without concrete TUI protoc
       status: "running",
       summary: "cache read=64 write=16",
       evidenceRefs: [],
-      productArtifactRefs: [],
+      artifactRefs: [],
       metadata: {
         usageTotals: {
           inputTokens: 19_000_000,
@@ -1251,7 +1251,7 @@ test("native UI transport prints task completion evidence summaries", () => {
       todos: [],
       runRefs: [],
       evidenceRefs: ["evidence:review", "evidence:trace"],
-      productArtifactRefs: [],
+      artifactRefs: [],
       metadata: {},
     },
   });

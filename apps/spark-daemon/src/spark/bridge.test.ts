@@ -62,7 +62,7 @@ function command(
 }
 
 describe("Spark daemon bridge", () => {
-  it("uses internal evidence for the assistant fallback without projecting a Product Artifact", async () => {
+  it("uses internal evidence for the assistant fallback without projecting an Artifact", async () => {
     const h = setup();
     try {
       const emitted: unknown[] = [];
@@ -289,7 +289,7 @@ describe("Spark daemon bridge", () => {
     }
   });
 
-  it("uses role-run evidence as assistant output without publishing it as a Product Artifact", async () => {
+  it("uses role-run evidence as assistant output without publishing it as an Artifact", async () => {
     const h = setup();
     try {
       const emitted: unknown[] = [];

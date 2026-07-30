@@ -102,8 +102,8 @@ function namespaceReport(
   const totals = {
     discovered: sum(sorted, (item) => item.discovered),
     migrated: sum(sorted, (item) => item.migrated),
-    productPreserved: sum(sorted, (item) => item.productPreserved),
-    productMisclassified: sum(sorted, (item) => item.productMisclassified.length),
+    artifactPreserved: sum(sorted, (item) => item.artifactPreserved),
+    artifactMisclassified: sum(sorted, (item) => item.artifactMisclassified.length),
     dangling: sum(sorted, (item) => item.dangling.length),
     invalid: sum(sorted, (item) => item.invalid.length),
     ambiguous: sum(sorted, (item) => item.ambiguous.length),

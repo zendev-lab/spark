@@ -1,0 +1,3 @@
+import type { ArtifactKind } from "@zendev-lab/spark-artifacts";
+
+export const invalidArtifactKind: ArtifactKind = "record";

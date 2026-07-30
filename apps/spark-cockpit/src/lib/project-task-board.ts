@@ -7,7 +7,7 @@ export interface ProjectTaskBoardTask {
   inputArtifactIds?: readonly string[];
 }
 
-export interface ProjectTaskBoardProductArtifact {
+export interface ProjectTaskBoardArtifact {
   id: string;
   title: string;
   kind: string;
@@ -16,7 +16,7 @@ export interface ProjectTaskBoardProductArtifact {
 
 export interface ProjectTaskBoardCard {
   task: ProjectTaskBoardTask;
-  productArtifacts: ProjectTaskBoardProductArtifact[];
+  artifacts: ProjectTaskBoardArtifact[];
   assignable: boolean;
 }
 
@@ -34,11 +34,11 @@ const columns = [
   { id: "other", label: "Other" },
 ] as const;
 
-const PRODUCT_ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
+const ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
 
 export function buildProjectTaskBoard(input: {
   tasks: readonly ProjectTaskBoardTask[];
-  artifacts: readonly ProjectTaskBoardProductArtifact[];
+  artifacts: readonly ProjectTaskBoardArtifact[];
   canAssign: boolean;
 }): ProjectTaskBoardColumn[] {
   const artifactById = new Map(input.artifacts.map((artifact) => [artifact.id, artifact]));
@@ -47,15 +47,15 @@ export function buildProjectTaskBoard(input: {
     const columnId = columns.some((column) => column.id === task.statusGroup)
       ? task.statusGroup
       : "other";
-    // Only product artifacts (issue/pr/preview) are user-visible; internal evidence stays off the board.
-    const productArtifacts = [...(task.outputArtifactIds ?? []), ...(task.inputArtifactIds ?? [])]
+    // Only artifacts (issue/pr/preview) are user-visible; internal evidence stays off the board.
+    const artifacts = [...(task.outputArtifactIds ?? []), ...(task.inputArtifactIds ?? [])]
       .flatMap((artifactId) => artifactById.get(artifactId) ?? [])
-      .filter((artifact) => PRODUCT_ARTIFACT_KINDS.has(artifact.kind))
+      .filter((artifact) => ARTIFACT_KINDS.has(artifact.kind))
       .slice(0, 3);
     const cards = grouped.get(columnId) ?? [];
     cards.push({
       task,
-      productArtifacts: productArtifacts,
+      artifacts: artifacts,
       assignable: input.canAssign && task.readyFrontier,
     });
     grouped.set(columnId, cards);

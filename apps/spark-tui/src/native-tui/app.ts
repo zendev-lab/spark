@@ -1528,7 +1528,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
       `├─ Workflow picker/progress: ${snapshot.workflows} option(s), ${snapshot.workflowRuns} workflow run(s)`,
       `├─ Role-run board: ${snapshot.roleRuns} role run(s), ${snapshot.interactions} interaction(s)`,
       `├─ Task/project board: ${snapshot.tasks} tracked task(s)`,
-      `├─ Artifacts panel: ${snapshot.artifacts} product artifact(s), ${snapshot.evidence} evidence item(s), ${snapshot.reviews} review item(s)`,
+      `├─ Artifacts panel: ${snapshot.artifacts} artifact(s), ${snapshot.evidence} evidence item(s), ${snapshot.reviews} review item(s)`,
       `├─ Graft provenance/patch status: ${snapshot.graftItems} item(s)`,
       "└─ Cross-session Cockpit: run spark cockpit in another terminal.",
     ];

@@ -52,7 +52,7 @@ attach, resume, and cancellation.
 - Use the [TUI](/guides/tui/) for fast local conversation, Plan/Implement,
   steering, model selection, and the current session inspector.
 - Use [Cockpit](/guides/cockpit/) for workspace overview, conversations,
-  Inbox, product artifacts, resources, and cross-daemon supervision.
+  Inbox, artifacts, resources, and cross-daemon supervision.
 - Use the CLI when you already know the operation and want a scriptable result.
 
 The TUI's `/inspect` panel is local to the current session. `spark cockpit`
@@ -98,7 +98,7 @@ See [collaboration and channels](/guides/collaboration/) and
 ## 6. Models, context, extensions, and operations
 
 - Providers, model selection, and reasoning effort are shared runtime controls.
-- Memory, bounded context providers, product artifacts, and internal evidence
+- Memory, bounded context providers, artifacts, and internal evidence
   preserve useful results with separate visibility.
 - Saved workflows extend repeatable procedures; Fusion and Graft are explicit
   opt-in capabilities.

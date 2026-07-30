@@ -1,25 +1,21 @@
-/** Product-facing artifact kinds only. Internal evidence uses document|record|trace|knowledge. */
-export type ProductArtifactKind = "issue" | "pr" | "preview";
+/** User-facing Artifact kinds only. Internal evidence uses document|record|trace|knowledge. */
+export type ArtifactKind = "issue" | "pr" | "preview";
 
-export const PRODUCT_ARTIFACT_KINDS = [
-  "issue",
-  "pr",
-  "preview",
-] as const satisfies readonly ProductArtifactKind[];
+export const ARTIFACT_KINDS = ["issue", "pr", "preview"] as const satisfies readonly ArtifactKind[];
 
-export type ProductArtifactRef = `artifact:${string}` & { readonly __product?: "artifact" };
+export type ArtifactRef = `artifact:${string}` & { readonly __artifact?: "artifact" };
 
 export type ForgeHost = "github" | "gitlab";
 
-export type ProductArtifactFormat = "json" | "markdown" | "mdx" | "html" | "text";
+export type ArtifactFormat = "json" | "markdown" | "mdx" | "html" | "text";
 
-export const PRODUCT_ARTIFACT_FORMATS = [
+export const ARTIFACT_FORMATS = [
   "json",
   "markdown",
   "mdx",
   "html",
   "text",
-] as const satisfies readonly ProductArtifactFormat[];
+] as const satisfies readonly ArtifactFormat[];
 
 export type PreviewContentFormat = "md" | "mdx" | "html" | "a2ui" | "spark-ui";
 
@@ -77,13 +73,13 @@ export interface PreviewArtifactBody {
   progress?: PreviewProgress;
 }
 
-export type ProductArtifactBody = IssueArtifactBody | PrArtifactBody | PreviewArtifactBody;
+export type ArtifactBody = IssueArtifactBody | PrArtifactBody | PreviewArtifactBody;
 
-export interface ProductArtifact<T extends ProductArtifactBody = ProductArtifactBody> {
-  ref: ProductArtifactRef;
-  kind: ProductArtifactKind;
+export interface Artifact<T extends ArtifactBody = ArtifactBody> {
+  ref: ArtifactRef;
+  kind: ArtifactKind;
   title: string;
-  format: ProductArtifactFormat;
+  format: ArtifactFormat;
   body: T;
   hash?: string;
   blobPath?: string;
@@ -91,31 +87,31 @@ export interface ProductArtifact<T extends ProductArtifactBody = ProductArtifact
   updatedAt: string;
 }
 
-export interface PutProductArtifactInput<T extends ProductArtifactBody = ProductArtifactBody> {
-  kind: ProductArtifactKind;
+export interface PutArtifactInput<T extends ArtifactBody = ArtifactBody> {
+  kind: ArtifactKind;
   title: string;
-  format?: ProductArtifactFormat;
+  format?: ArtifactFormat;
   body: T;
-  ref?: ProductArtifactRef;
+  ref?: ArtifactRef;
 }
 
-export interface ProductArtifactQuery {
-  kind?: ProductArtifactKind;
+export interface ArtifactQuery {
+  kind?: ArtifactKind;
 }
 
-export interface ProductArtifactStoreOptions {
+export interface ArtifactStoreOptions {
   rootDir: string;
 }
 
-export function isProductArtifactKind(value: unknown): value is ProductArtifactKind {
-  return PRODUCT_ARTIFACT_KINDS.includes(value as ProductArtifactKind);
+export function isArtifactKind(value: unknown): value is ArtifactKind {
+  return ARTIFACT_KINDS.includes(value as ArtifactKind);
 }
 
-export function isProductArtifactFormat(value: unknown): value is ProductArtifactFormat {
-  return PRODUCT_ARTIFACT_FORMATS.includes(value as ProductArtifactFormat);
+export function isArtifactFormat(value: unknown): value is ArtifactFormat {
+  return ARTIFACT_FORMATS.includes(value as ArtifactFormat);
 }
 
-export function isProductArtifactBody(value: unknown): value is ProductArtifactBody {
+export function isArtifactBody(value: unknown): value is ArtifactBody {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   if (record.schemaVersion !== 1) return false;
@@ -145,6 +141,6 @@ export function isProductArtifactBody(value: unknown): value is ProductArtifactB
   return false;
 }
 
-export function asJsonValue(body: ProductArtifactBody): Record<string, unknown> {
+export function asJsonValue(body: ArtifactBody): Record<string, unknown> {
   return body as unknown as Record<string, unknown>;
 }

@@ -518,7 +518,7 @@ export function buildReadOnlyReviewerSystemPrompt(basePrompt: string): string {
     "",
     "Spark reviewer gate constraints:",
     "- Read-only verdict role: inspect the provided state/evidence only.",
-    "- Do not mutate tasks, goals, files, Evidence, Product Artifacts, memory, asks, or project state.",
+    "- Do not mutate tasks, goals, files, Evidence, Artifacts, memory, asks, or project state.",
     "- Do not call task_write, goal update, assign, role, workflow, file edit, write, memory, recall, ask, or learning mutation tools.",
     "- Never ask interactively. If a question is required, return outcome=needs_changes or outcome=blocked and put the concrete question in findings/blockers.",
     "- Return verdict JSON only; the Spark tool that invoked you will apply any state transition.",

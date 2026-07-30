@@ -50,7 +50,7 @@ export function renderSparkPlanningModePrompt(
       : "Investigate and answer directly by default; create or revise durable project state only when the user asks for planning or a concrete project progression need makes durable work necessary.";
   const sharedRequirements = [
     openingRequirement,
-    "Inspect the repository, project state, internal Evidence, Product Artifacts, context providers, and external references needed to answer or plan the request.",
+    "Inspect the repository, project state, internal Evidence, Artifacts, context providers, and external references needed to answer or plan the request.",
     WORKFLOW_AND_SUBAGENT_ARE_TOOLS,
     RESEARCH_SUBAGENT_STRATEGY,
     'Ordinary investigation, explanation, review, and commentary do not require task_write({ action: "project_use" | "plan" }); report the answer directly without creating durable state.',

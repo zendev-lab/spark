@@ -3,26 +3,26 @@ import { createHash } from "node:crypto";
 import type {
   PreviewContentFormat,
   PreviewProgress,
-  ProductArtifact,
-  ProductArtifactBody,
-  ProductArtifactRef,
+  Artifact,
+  ArtifactBody,
+  ArtifactRef,
 } from "./types.ts";
 
-/** Keep Product Artifact projections within Cockpit's inline-preview budget. */
-export const PRODUCT_ARTIFACT_PROJECTION_MAX_INLINE_BYTES = 256 * 1024;
+/** Keep Artifact projections within Cockpit's inline-preview budget. */
+export const ARTIFACT_PROJECTION_MAX_INLINE_BYTES = 256 * 1024;
 
 /** Coarse transport formats accepted by the daemon/Cockpit projection spine. */
-export type ProductArtifactProjectionFormat = "markdown" | "json" | "text" | "blob";
+export type ArtifactProjectionFormat = "markdown" | "json" | "text" | "blob";
 
 /**
- * A content-addressed, bounded pointer to the Product Artifact body.
+ * A content-addressed, bounded pointer to the Artifact body.
  *
- * The canonical body remains in the Product Artifact store. Inline fields are
+ * The canonical body remains in the Artifact store. Inline fields are
  * an optional transport optimization and are omitted once they exceed the
  * projection budget.
  */
-export interface ProductArtifactProjectionContentRef {
-  productArtifactRef: ProductArtifactRef;
+export interface ArtifactProjectionContentRef {
+  artifactRef: ArtifactRef;
   inlineJson?: Record<string, unknown>;
   inlineMarkdown?: string;
   inlineText?: string;
@@ -31,20 +31,20 @@ export interface ProductArtifactProjectionContentRef {
   progress?: PreviewProgress | null;
 }
 
-export interface ProductArtifactProjection {
+export interface ArtifactProjection {
   schemaVersion: 1;
-  format: ProductArtifactProjectionFormat;
+  format: ArtifactProjectionFormat;
   mime: string;
   sizeBytes: number;
   hash: string;
-  contentRef: ProductArtifactProjectionContentRef;
+  contentRef: ArtifactProjectionContentRef;
 }
 
 /**
- * Convert a canonical Product Artifact into the bounded transport contract
+ * Convert a canonical Artifact into the bounded transport contract
  * consumed by daemon and Cockpit projections.
  */
-export function projectProductArtifact(artifact: ProductArtifact): ProductArtifactProjection {
+export function projectArtifact(artifact: Artifact): ArtifactProjection {
   if (artifact.body.kind === "preview") {
     const content = artifact.body.content;
     const sizeBytes = Buffer.byteLength(content, "utf8");
@@ -56,11 +56,11 @@ export function projectProductArtifact(artifact: ProductArtifact): ProductArtifa
       sizeBytes,
       hash: sha256(content),
       contentRef: {
-        productArtifactRef: artifact.ref,
+        artifactRef: artifact.ref,
         previewFormat: artifact.body.format,
         version: artifact.body.version,
         progress: artifact.body.progress ?? null,
-        ...(sizeBytes <= PRODUCT_ARTIFACT_PROJECTION_MAX_INLINE_BYTES
+        ...(sizeBytes <= ARTIFACT_PROJECTION_MAX_INLINE_BYTES
           ? isMarkdown
             ? { inlineMarkdown: content }
             : { inlineText: content }
@@ -82,15 +82,15 @@ export function projectProductArtifact(artifact: ProductArtifact): ProductArtifa
     sizeBytes,
     hash: sha256(previewJson),
     contentRef: {
-      productArtifactRef: artifact.ref,
-      ...(sizeBytes <= PRODUCT_ARTIFACT_PROJECTION_MAX_INLINE_BYTES
+      artifactRef: artifact.ref,
+      ...(sizeBytes <= ARTIFACT_PROJECTION_MAX_INLINE_BYTES
         ? { inlineJson: JSON.parse(canonicalBody) as Record<string, unknown> }
         : {}),
     },
   };
 }
 
-function serializeBody(body: ProductArtifactBody): string {
+function serializeBody(body: ArtifactBody): string {
   return JSON.stringify(body, null, 2);
 }
 

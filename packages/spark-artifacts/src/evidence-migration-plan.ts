@@ -49,10 +49,10 @@ export async function planWorkspaceMigration(
   await discoverSchemaEvidenceRefs(rootDir, inventory, filesBefore);
   const operations = new Map<string, PlannedOperation>();
   const dangling: EvidenceMigrationIssue[] = [];
-  const productMisclassified: EvidenceMigrationIssue[] = [];
+  const artifactMisclassified: EvidenceMigrationIssue[] = [];
   const skipped: EvidenceMigrationSkipped[] = [];
   const mappingRows: EvidenceMigrationMapping[] = [...inventory.schemaMappings];
-  const issues = { dangling, productMisclassified };
+  const issues = { dangling, artifactMisclassified };
 
   for (const record of inventory.legacyRecords) {
     await planLegacyRecord(
@@ -83,14 +83,14 @@ export async function planWorkspaceMigration(
   }
   const beforeHash = hashFileMap(filesBefore);
   const afterHash = hashFileMap(afterFiles);
-  const productHashBefore = hashSelectedFiles(filesBefore, inventory.productPaths);
-  const productHashAfter = hashSelectedFiles(afterFiles, inventory.productPaths);
-  if (productHashBefore !== productHashAfter) {
-    productMisclassified.push(
+  const artifactHashBefore = hashSelectedFiles(filesBefore, inventory.artifactPaths);
+  const artifactHashAfter = hashSelectedFiles(afterFiles, inventory.artifactPaths);
+  if (artifactHashBefore !== artifactHashAfter) {
+    artifactMisclassified.push(
       migrationIssue(
         join(".spark", "artifacts"),
-        "product_hash_changed",
-        "planned operations would change Product Artifact metadata or content",
+        "artifact_hash_changed",
+        "planned operations would change Artifact metadata or content",
       ),
     );
   }
@@ -98,7 +98,7 @@ export async function planWorkspaceMigration(
   const invalid = sortedUniqueIssues(inventory.invalid);
   const ambiguous = sortedUniqueIssues(inventory.ambiguous);
   const normalizedDangling = sortedUniqueIssues(dangling);
-  const normalizedMisclassified = sortedUniqueIssues(productMisclassified);
+  const normalizedMisclassified = sortedUniqueIssues(artifactMisclassified);
   const normalizedSkipped = sortedUniqueSkipped(skipped);
   const mapping = mappingRows.sort((left, right) => left.fromRef.localeCompare(right.fromRef));
   const planHash = hashJson({
@@ -110,7 +110,7 @@ export async function planWorkspaceMigration(
     invalid,
     ambiguous,
     dangling: normalizedDangling,
-    productMisclassified: normalizedMisclassified,
+    artifactMisclassified: normalizedMisclassified,
   });
   const blocked =
     invalid.length > 0 ||
@@ -122,8 +122,8 @@ export async function planWorkspaceMigration(
     workspaceRoot: rootDir,
     discovered: inventory.discovered,
     migrated: mapping.length,
-    productPreserved: inventory.productPreserved,
-    productMisclassified: normalizedMisclassified,
+    artifactPreserved: inventory.artifactPreserved,
+    artifactMisclassified: normalizedMisclassified,
     dangling: normalizedDangling,
     invalid,
     ambiguous,
@@ -133,8 +133,8 @@ export async function planWorkspaceMigration(
     backupPath: null,
     beforeHash,
     afterHash,
-    productHashBefore,
-    productHashAfter,
+    artifactHashBefore,
+    artifactHashAfter,
     planHash,
     blocked,
   };
@@ -148,7 +148,7 @@ async function planLegacyRecord(
   filesBefore: ReadonlyMap<string, FileFact>,
   operations: Map<string, PlannedOperation>,
   mappingRows: EvidenceMigrationMapping[],
-  issues: { dangling: EvidenceMigrationIssue[]; productMisclassified: EvidenceMigrationIssue[] },
+  issues: { dangling: EvidenceMigrationIssue[]; artifactMisclassified: EvidenceMigrationIssue[] },
 ): Promise<void> {
   const sourceRef = record.raw.ref as string;
   const targetRef = inventory.mapping.get(sourceRef)!;
@@ -157,7 +157,7 @@ async function planLegacyRecord(
       record.raw,
       record.path,
       inventory.mapping,
-      inventory.productRefs,
+      inventory.artifactRefs,
       inventory.evidenceRefs,
       issues,
     );
@@ -224,14 +224,14 @@ async function planCanonicalRecord(
   inventory: WorkspaceEvidenceInventory,
   filesBefore: ReadonlyMap<string, FileFact>,
   operations: Map<string, PlannedOperation>,
-  issues: { dangling: EvidenceMigrationIssue[]; productMisclassified: EvidenceMigrationIssue[] },
+  issues: { dangling: EvidenceMigrationIssue[]; artifactMisclassified: EvidenceMigrationIssue[] },
 ): Promise<void> {
   try {
     auditEvidenceRecordRefs(
       record.raw,
       record.path,
       inventory.mapping,
-      inventory.productRefs,
+      inventory.artifactRefs,
       inventory.evidenceRefs,
       issues,
     );

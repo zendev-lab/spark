@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defaultProductArtifactStore, projectProductArtifact } from "@zendev-lab/spark-artifacts";
+import { defaultArtifactStore, projectArtifact } from "@zendev-lab/spark-artifacts";
 import {
   artifactProjectionEnvelopeSchema,
   createId,
@@ -13,15 +13,15 @@ import { describe, expect, it } from "vitest";
 
 import { runtimeEnvelopeForInvocationEvent } from "./daemon.ts";
 import {
-  ProductArtifactProjectionReconciler,
+  ArtifactProjectionReconciler,
   artifactProjectionIdForRef,
-  productArtifactDaemonProjectionEventFromToolResult,
-} from "./product-artifact-projection.ts";
+  artifactDaemonProjectionEventFromToolResult,
+} from "./artifact-projection.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { openSparkDaemonDatabase } from "./store/schema.ts";
 import { registerWorkspace } from "./store/workspaces.ts";
 
-describe("Product Artifact daemon projection", () => {
+describe("Artifact daemon projection", () => {
   it("scopes wire identity by workspace while preserving stable refs", () => {
     const ref = "artifact:preview:shared";
     const firstWorkspace = createId("ws");
@@ -36,14 +36,14 @@ describe("Product Artifact daemon projection", () => {
   });
 
   it("maps a changed artifact tool result through the durable daemon event and wire contract", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "spark-daemon-product-artifact-"));
+    const cwd = await mkdtemp(join(tmpdir(), "spark-daemon-artifact-"));
     try {
       const artifact = await createPreview(cwd, "# Durable");
       const workspaceId = createId("ws");
       const projectId = createId("proj");
       const invocationId = createId("inv");
       const workspaceBindingId = createId("rtwb");
-      const event = productArtifactDaemonProjectionEventFromToolResult(
+      const event = artifactDaemonProjectionEventFromToolResult(
         {
           type: "tool_result",
           message: {
@@ -52,7 +52,7 @@ describe("Product Artifact daemon projection", () => {
             details: {
               tool: "artifact",
               changed: true,
-              artifact: { ...artifact, projection: projectProductArtifact(artifact) },
+              artifact: { ...artifact, projection: projectArtifact(artifact) },
             },
           },
         },
@@ -67,8 +67,8 @@ describe("Product Artifact daemon projection", () => {
 
       expect(event).not.toBeNull();
       const persisted = parseSparkDaemonEvent(event);
-      expect(persisted.type).toBe("daemon.product_artifact.projected");
-      if (persisted.type !== "daemon.product_artifact.projected") return;
+      expect(persisted.type).toBe("daemon.artifact.projected");
+      if (persisted.type !== "daemon.artifact.projected") return;
       const paths = resolveSparkPaths({
         app: "daemon",
         env: { HOME: cwd },
@@ -86,7 +86,7 @@ describe("Product Artifact daemon projection", () => {
           serverUrl: "https://cockpit.example.test/",
           serverWorkspaceId: workspaceId,
           serverBindingId: workspaceBindingId,
-          localWorkspaceKey: "product-artifact-test",
+          localWorkspaceKey: "artifact-test",
           localPath: cwd,
         });
         const store = new SparkInvocationStore(db);
@@ -94,7 +94,7 @@ describe("Product Artifact daemon projection", () => {
           invocationId,
           workspaceBindingId,
           sessionId: "session_demo",
-          prompt: "persist Product Artifact",
+          prompt: "persist Artifact",
         });
         store.appendEvent(
           invocationId,
@@ -121,7 +121,7 @@ describe("Product Artifact daemon projection", () => {
           title: "Preview",
           format: "markdown",
           contentRef: {
-            productArtifactRef: artifact.ref,
+            artifactRef: artifact.ref,
             previewFormat: "md",
             inlineMarkdown: "# Durable",
           },
@@ -153,9 +153,9 @@ describe("Product Artifact daemon projection", () => {
       },
     };
 
-    expect(productArtifactDaemonProjectionEventFromToolResult(raw, context)).toBeNull();
+    expect(artifactDaemonProjectionEventFromToolResult(raw, context)).toBeNull();
     expect(
-      productArtifactDaemonProjectionEventFromToolResult(
+      artifactDaemonProjectionEventFromToolResult(
         {
           ...raw,
           message: {
@@ -168,7 +168,7 @@ describe("Product Artifact daemon projection", () => {
       ),
     ).toBeNull();
     expect(
-      productArtifactDaemonProjectionEventFromToolResult(
+      artifactDaemonProjectionEventFromToolResult(
         {
           ...raw,
           message: {
@@ -187,7 +187,7 @@ describe("Product Artifact daemon projection", () => {
                   sizeBytes: 7,
                   hash: "0".repeat(64),
                   contentRef: {
-                    productArtifactRef: "artifact:preview:other",
+                    artifactRef: "artifact:preview:other",
                     previewFormat: "md",
                     version: 1,
                     progress: null,
@@ -207,9 +207,9 @@ describe("Product Artifact daemon projection", () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-daemon-product-reconcile-"));
     let now = 1_000;
     try {
-      const store = defaultProductArtifactStore(cwd);
+      const store = defaultArtifactStore(cwd);
       const artifact = await createPreview(cwd, "# V1");
-      const reconciler = new ProductArtifactProjectionReconciler({
+      const reconciler = new ArtifactProjectionReconciler({
         now: () => now,
         retryAfterMs: 100,
       });
@@ -247,7 +247,7 @@ describe("Product Artifact daemon projection", () => {
 });
 
 async function createPreview(cwd: string, content: string) {
-  return defaultProductArtifactStore(cwd).put({
+  return defaultArtifactStore(cwd).put({
     ref: "artifact:preview:test",
     kind: "preview",
     title: "Preview",

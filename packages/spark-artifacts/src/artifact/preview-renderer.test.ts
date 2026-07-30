@@ -5,12 +5,12 @@ import { join } from "node:path";
 import type { ToolConfig } from "@zendev-lab/spark-core";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { registerProductArtifactTool } from "./extension.ts";
+import { registerArtifactTool } from "./extension.ts";
 import {
-  closeTemporaryProductPreviews,
-  defaultProductArtifactStore,
-  renderProductPreviewDocument,
-  type ProductArtifactRef,
+  closeTemporaryArtifactPreviews,
+  defaultArtifactStore,
+  renderArtifactPreviewDocument,
+  type ArtifactRef,
 } from "./index.ts";
 
 const simpleA2ui = JSON.stringify({
@@ -35,11 +35,11 @@ const simpleA2ui = JSON.stringify({
   ],
 });
 
-afterEach(() => closeTemporaryProductPreviews());
+afterEach(() => closeTemporaryArtifactPreviews());
 
-describe("product preview rendering", () => {
+describe("Artifact preview rendering", () => {
   it("renders sanitized markdown instead of executable source", () => {
-    const rendered = renderProductPreviewDocument({
+    const rendered = renderArtifactPreviewDocument({
       title: "Report",
       format: "md",
       content: "# Result\n\n**ready**<script>alert(1)</script>![remote](https://example.com/a.png)",
@@ -53,7 +53,7 @@ describe("product preview rendering", () => {
   });
 
   it("renders safe mdx-lite components and keeps expressions inert", () => {
-    const rendered = renderProductPreviewDocument({
+    const rendered = renderArtifactPreviewDocument({
       title: "UI",
       format: "mdx",
       content:
@@ -68,7 +68,7 @@ describe("product preview rendering", () => {
   });
 
   it("omits malformed Spark UI AST blocks instead of trusting stored JSON", () => {
-    const rendered = renderProductPreviewDocument({
+    const rendered = renderArtifactPreviewDocument({
       title: "Spark UI",
       format: "spark-ui",
       content: JSON.stringify({
@@ -88,7 +88,7 @@ describe("product preview rendering", () => {
   });
 
   it("renders the A2UI v0.9.1 basic catalog as read-only UI", () => {
-    const rendered = renderProductPreviewDocument({
+    const rendered = renderArtifactPreviewDocument({
       title: "A2UI",
       format: "a2ui",
       content: simpleA2ui,
@@ -101,7 +101,7 @@ describe("product preview rendering", () => {
   });
 
   it("fails closed for unknown A2UI catalogs", () => {
-    const rendered = renderProductPreviewDocument({
+    const rendered = renderArtifactPreviewDocument({
       title: "Unknown",
       format: "a2ui",
       content: JSON.stringify({
@@ -117,7 +117,7 @@ describe("product preview rendering", () => {
   it("serves Cockpit previews on an expiring loopback URL", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-preview-tool-"));
     let tool: ToolConfig | undefined;
-    registerProductArtifactTool({
+    registerArtifactTool({
       registerTool(config) {
         tool = config;
       },
@@ -164,10 +164,10 @@ describe("product preview rendering", () => {
   it("rejects ambiguous shortened refs", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-preview-prefix-"));
     let tool: ToolConfig | undefined;
-    registerProductArtifactTool({ registerTool: (config) => (tool = config) });
+    registerArtifactTool({ registerTool: (config) => (tool = config) });
     if (!tool) throw new Error("artifact tool was not registered");
 
-    const store = defaultProductArtifactStore(cwd);
+    const store = defaultArtifactStore(cwd);
     const body = {
       schemaVersion: 1 as const,
       kind: "preview" as const,
@@ -176,14 +176,14 @@ describe("product preview rendering", () => {
       version: 1,
     };
     await store.put({
-      ref: "artifact:deadbeef-0000-4000-8000-000000000001" as ProductArtifactRef,
+      ref: "artifact:deadbeef-0000-4000-8000-000000000001" as ArtifactRef,
       kind: "preview",
       title: "First",
       format: "markdown",
       body,
     });
     await store.put({
-      ref: "artifact:deadbeef-0000-4000-8000-000000000002" as ProductArtifactRef,
+      ref: "artifact:deadbeef-0000-4000-8000-000000000002" as ArtifactRef,
       kind: "preview",
       title: "Second",
       format: "markdown",
@@ -204,7 +204,7 @@ describe("product preview rendering", () => {
   it("reports unsupported previews when no local TUI or browser surface is reachable", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-preview-channel-"));
     let tool: ToolConfig | undefined;
-    registerProductArtifactTool({ registerTool: (config) => (tool = config) });
+    registerArtifactTool({ registerTool: (config) => (tool = config) });
     if (!tool) throw new Error("artifact tool was not registered");
     const signal = new AbortController().signal;
     const created = await tool.execute(
@@ -231,7 +231,7 @@ describe("product preview rendering", () => {
   it("returns raw markdown only to an attached TUI preview", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-preview-tui-"));
     let tool: ToolConfig | undefined;
-    registerProductArtifactTool({ registerTool: (config) => (tool = config) });
+    registerArtifactTool({ registerTool: (config) => (tool = config) });
     if (!tool) throw new Error("artifact tool was not registered");
     const signal = new AbortController().signal;
     const created = await tool.execute(

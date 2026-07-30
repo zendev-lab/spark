@@ -1,3 +1,0 @@
-import type { ProductArtifactRef } from "@zendev-lab/spark-artifacts";
-
-export const invalidProductArtifactRef: ProductArtifactRef = "evidence:not-product";

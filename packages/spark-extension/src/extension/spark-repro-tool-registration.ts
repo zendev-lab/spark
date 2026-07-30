@@ -1280,8 +1280,8 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
         "- Do not repeat a Fusion consultation unless the evidence or active hypotheses materially changed.",
         "- If Fusion is unavailable, partial, or failed, continue SOLO; consultation must never block reproduction.",
         "- Ask Fusion only to recommend the cheapest single-variable experiment that discriminates the active hypotheses. The main repro session remains the sole writer and executor: it must run the experiment and derive runtime_verdict=confirmed | rejected | inconclusive from new runtime evidence.",
-        "- Fusion is advisory: it must not write code, execute experiments, confirm or reject hypotheses or causality, emit a runtime verdict, satisfy repro proof or a gate, or create/register a Product Artifact.",
-        "- A Fusion call or result is neither internal evidence nor a Product Artifact. Product Artifact kinds remain exactly issue, pr, and preview.",
+        "- Fusion is advisory: it must not write code, execute experiments, confirm or reject hypotheses or causality, emit a runtime verdict, satisfy repro proof or a gate, or create/register an Artifact.",
+        "- A Fusion call or result is neither internal evidence nor an Artifact. Artifact kinds remain exactly issue, pr, and preview.",
       );
     }
   }

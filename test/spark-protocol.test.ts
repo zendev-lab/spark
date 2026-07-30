@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "vitest";
 
 import {
@@ -15,6 +17,10 @@ import {
   invocationLogChunkPayloadSchema,
   sparkInteractionRequestSchema,
 } from "@zendev-lab/spark-protocol";
+
+const evidenceSurfaceNegativeValues = JSON.parse(
+  readFileSync(join(process.cwd(), "test/fixtures/evidence-surface/negative-values.json"), "utf8"),
+) as { wrongNamespaceRef: string; wrongArtifactNamespaceRef: string };
 
 test("spark protocol validates core session/message/tool/run/task/artifact view models", () => {
   const session = parseSparkSessionView({
@@ -37,14 +43,14 @@ test("spark protocol validates core session/message/tool/run/task/artifact view 
   assert.equal(session.runs[0]?.progress, 0.5);
 });
 
-test("run and task views keep product attachments separate from internal evidence", () => {
+test("run and task views keep Artifacts separate from internal Evidence", () => {
   assert.doesNotThrow(() =>
     sparkRunViewSchema.parse({
       id: "run:separated",
       kind: "task",
       status: "succeeded",
       evidenceRefs: ["evidence:proof"],
-      productArtifactRefs: ["artifact:preview"],
+      artifactRefs: ["artifact:preview"],
     }),
   );
   assert.throws(
@@ -53,7 +59,7 @@ test("run and task views keep product attachments separate from internal evidenc
         id: "run:mixed",
         kind: "task",
         status: "succeeded",
-        evidenceRefs: ["artifact:not-evidence"],
+        evidenceRefs: [evidenceSurfaceNegativeValues.wrongNamespaceRef],
       }),
     /must be an evidence: ref/,
   );
@@ -63,14 +69,14 @@ test("run and task views keep product attachments separate from internal evidenc
         ref: "task:mixed",
         title: "Mixed",
         status: "running",
-        productArtifactRefs: ["evidence:not-product"],
+        artifactRefs: [evidenceSurfaceNegativeValues.wrongArtifactNamespaceRef],
       }),
     /must be an artifact: ref/,
   );
   assert.throws(
     () =>
       sparkArtifactProjectionContentRefSchema.parse({
-        productArtifactRef: "evidence:not-product",
+        artifactRef: evidenceSurfaceNegativeValues.wrongArtifactNamespaceRef,
         inlineJson: {},
       }),
     /must be an artifact: ref/,

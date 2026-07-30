@@ -169,7 +169,7 @@ describe("SessionInspector rendered contract", () => {
             ],
             runRefs: [],
             evidenceRefs: [],
-            productArtifactRefs: [],
+            artifactRefs: [],
           },
           {
             id: "task-unassigned",
@@ -185,7 +185,7 @@ describe("SessionInspector rendered contract", () => {
             todos: [],
             runRefs: [],
             evidenceRefs: [],
-            productArtifactRefs: [],
+            artifactRefs: [],
           },
         ],
       }),
@@ -207,7 +207,7 @@ describe("SessionInspector rendered contract", () => {
     expect(body).toContain("Unassigned task");
   });
 
-  it("keeps product artifacts, canonical changes, and internal evidence on separate surfaces", () => {
+  it("keeps artifacts, canonical changes, and internal evidence on separate surfaces", () => {
     const view = sessionWorkbenchView({
       artifacts: [
         {

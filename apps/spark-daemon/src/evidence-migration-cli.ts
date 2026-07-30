@@ -63,13 +63,13 @@ function renderEvidenceMigrationSummary(
   const mode = report.dryRun ? "dry-run" : "applied";
   const lines = [
     `Evidence migration ${mode}: ${report.workspaces.length} workspace(s), plan ${report.planHash}`,
-    `  discovered=${report.totals.discovered} migrated=${report.totals.migrated} productPreserved=${report.totals.productPreserved}`,
-    `  changedFiles=${report.totals.changedFiles} dangling=${report.totals.dangling} invalid=${report.totals.invalid} ambiguous=${report.totals.ambiguous} productMisclassified=${report.totals.productMisclassified}`,
+    `  discovered=${report.totals.discovered} migrated=${report.totals.migrated} artifactPreserved=${report.totals.artifactPreserved}`,
+    `  changedFiles=${report.totals.changedFiles} dangling=${report.totals.dangling} invalid=${report.totals.invalid} ambiguous=${report.totals.ambiguous} artifactMisclassified=${report.totals.artifactMisclassified}`,
   ];
   if (registrySkipped > 0) lines.push(`  registrySkipped=${registrySkipped}`);
   for (const workspace of report.workspaces) {
     lines.push(
-      `  ${workspace.workspaceId}: migrated=${workspace.migrated} product=${workspace.productPreserved} changed=${workspace.changedFiles} blocked=${String(workspace.blocked)}`,
+      `  ${workspace.workspaceId}: migrated=${workspace.migrated} artifact=${workspace.artifactPreserved} changed=${workspace.changedFiles} blocked=${String(workspace.blocked)}`,
     );
     if (workspace.backupPath) lines.push(`    backup=${workspace.backupPath}`);
   }

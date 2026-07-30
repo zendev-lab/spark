@@ -28,7 +28,7 @@ import {
   workspacePath,
   workspaceTreeHash,
 } from "./evidence-migration-paths.ts";
-import { productPathsForWorkspace } from "./evidence-migration-product.ts";
+import { artifactPathsForWorkspace } from "./evidence-migration-artifact.ts";
 
 export async function applyWorkspaceMigration(
   plan: WorkspaceMigrationPlan,
@@ -39,7 +39,7 @@ export async function applyWorkspaceMigration(
       ...plan.report,
       backupPath: null,
       afterHash: await workspaceTreeHash(plan.rootDir),
-      productHashAfter: plan.report.productHashBefore,
+      artifactHashAfter: plan.report.artifactHashBefore,
     };
   }
 
@@ -70,15 +70,15 @@ export async function applyWorkspaceMigration(
     if (afterHash !== plan.report.afterHash) {
       throw new Error(`after hash mismatch: expected ${plan.report.afterHash}, got ${afterHash}`);
     }
-    const productHashAfter = await selectedWorkspaceFilesHash(
+    const artifactHashAfter = await selectedWorkspaceFilesHash(
       plan.rootDir,
-      await productPathsForWorkspace(plan.rootDir),
+      await artifactPathsForWorkspace(plan.rootDir),
     );
-    if (productHashAfter !== plan.report.productHashBefore) {
-      throw new Error("Product Artifact metadata or content hash changed during migration");
+    if (artifactHashAfter !== plan.report.artifactHashBefore) {
+      throw new Error("Artifact metadata or content hash changed during migration");
     }
     await updateBackupStatus(backupPath, "applied", options.now?.() ?? new Date());
-    return { ...plan.report, backupPath, afterHash, productHashAfter };
+    return { ...plan.report, backupPath, afterHash, artifactHashAfter };
   } catch (error) {
     let rolledBack = false;
     if (backupPath) {

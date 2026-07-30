@@ -157,7 +157,7 @@ export function findDuplicateSparkProjects(input: {
       'Use task_write({ action: "project_use", project: <candidate ref or title> }) to select the existing Project when it is the same work.',
       "Ask the user which existing Project to use when multiple candidates look plausible.",
       "Only retry creation with a clearer differentiated title/description when this is genuinely new work.",
-      "This gate does not merge, move tasks, or relink Evidence/Product Artifacts; selecting an existing Project is the only merge-like action in this slice.",
+      "This gate does not merge, move tasks, or relink Evidence/Artifacts; selecting an existing Project is the only merge-like action in this slice.",
     ],
   };
 }

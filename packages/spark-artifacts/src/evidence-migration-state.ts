@@ -45,12 +45,12 @@ export async function discoverSchemaEvidenceRefs(
         continue;
       }
       if (!isArtifactRef(sourceRef) || inventory.mapping.has(sourceRef)) continue;
-      if (inventory.productRefs.has(sourceRef)) {
+      if (inventory.artifactRefs.has(sourceRef)) {
         inventory.invalid.push(
           migrationIssue(
             relativePath,
-            "product_review_evidence_ref",
-            `${key} resolves to a Product Artifact`,
+            "artifact_review_evidence_ref",
+            `${key} resolves to an Artifact`,
             sourceRef,
           ),
         );
@@ -87,7 +87,7 @@ export async function planStateFileRewrites(
   inventory: WorkspaceEvidenceInventory,
   filesBefore: ReadonlyMap<string, FileFact>,
   operations: Map<string, PlannedOperation>,
-  issues: { dangling: EvidenceMigrationIssue[]; productMisclassified: EvidenceMigrationIssue[] },
+  issues: { dangling: EvidenceMigrationIssue[]; artifactMisclassified: EvidenceMigrationIssue[] },
 ): Promise<void> {
   for (const relativePath of filesBefore.keys()) {
     if (!relativePath.endsWith(".json")) continue;
@@ -109,7 +109,7 @@ export async function planStateFileRewrites(
       raw,
       relativePath,
       inventory.mapping,
-      inventory.productRefs,
+      inventory.artifactRefs,
       inventory.evidenceRefs,
       issues,
     );

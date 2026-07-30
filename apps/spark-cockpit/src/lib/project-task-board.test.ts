@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildProjectTaskBoard } from "./project-task-board";
 
 describe("project task board", () => {
-  it("groups ready/claimed/done/blocked tasks, marks ready-frontier assign actions, and links product artifacts only", () => {
+  it("groups ready/claimed/done/blocked tasks, marks ready-frontier assign actions, and links artifacts only", () => {
     const board = buildProjectTaskBoard({
       canAssign: true,
       artifacts: [
@@ -51,7 +51,7 @@ describe("project task board", () => {
     ]);
     expect(board[0]?.cards[0]).toMatchObject({
       assignable: true,
-      productArtifacts: [
+      artifacts: [
         { id: "artifact-build", title: "Build PR" },
         { id: "artifact-issue", title: "Tracking issue" },
       ],

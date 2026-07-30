@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { canonicalEvidenceKindForPersistedKind } from "./index.ts";
-import { isProductArtifactKind } from "./product/types.ts";
+import { isArtifactKind } from "./artifact/types.ts";
 import { migrationIssue, type EvidenceMigrationIssue } from "./evidence-migration-types.ts";
-import { scanProductArtifactRecord } from "./evidence-migration-product.ts";
+import { scanArtifactRecord } from "./evidence-migration-artifact.ts";
 import {
   evidenceRefForLegacy,
   isArtifactRef,
@@ -33,9 +33,9 @@ export interface CanonicalEvidenceSource {
 
 export interface WorkspaceEvidenceInventory {
   mapping: Map<string, string>;
-  productRefs: Set<string>;
+  artifactRefs: Set<string>;
   evidenceRefs: Set<string>;
-  productPaths: Set<string>;
+  artifactPaths: Set<string>;
   artifactMetadataPaths: Set<string>;
   evidenceMetadataPaths: Set<string>;
   legacyRecords: LegacyEvidenceSource[];
@@ -50,7 +50,7 @@ export interface WorkspaceEvidenceInventory {
   invalid: EvidenceMigrationIssue[];
   ambiguous: EvidenceMigrationIssue[];
   discovered: number;
-  productPreserved: number;
+  artifactPreserved: number;
 }
 
 export async function scanWorkspaceEvidenceStores(
@@ -58,9 +58,9 @@ export async function scanWorkspaceEvidenceStores(
 ): Promise<WorkspaceEvidenceInventory> {
   const inventory: WorkspaceEvidenceInventory = {
     mapping: new Map(),
-    productRefs: new Set(),
+    artifactRefs: new Set(),
     evidenceRefs: new Set(),
-    productPaths: new Set(),
+    artifactPaths: new Set(),
     artifactMetadataPaths: new Set(),
     evidenceMetadataPaths: new Set(),
     legacyRecords: [],
@@ -69,7 +69,7 @@ export async function scanWorkspaceEvidenceStores(
     invalid: [],
     ambiguous: [],
     discovered: 0,
-    productPreserved: 0,
+    artifactPreserved: 0,
   };
   const artifactRoot = join(rootDir, ".spark", "artifacts");
   const evidenceRoot = join(rootDir, ".spark", "evidence");
@@ -93,8 +93,8 @@ async function scanLegacyArtifactStore(
     const raw = await readJsonObject(entry.path, inventory.invalid, path);
     if (!raw) continue;
     const canonicalKind = canonicalEvidenceKindForPersistedKind(raw.kind);
-    if (isProductArtifactKind(raw.kind)) {
-      await scanProductArtifactRecord({
+    if (isArtifactKind(raw.kind)) {
+      await scanArtifactRecord({
         rootDir,
         artifactRoot,
         filename: entry.name,
@@ -109,7 +109,7 @@ async function scanLegacyArtifactStore(
         migrationIssue(
           path,
           "unknown_kind",
-          `metadata kind is not evidence or product: ${String(raw.kind)}`,
+          `metadata kind is not Evidence or Artifact: ${String(raw.kind)}`,
         ),
       );
       continue;
@@ -132,7 +132,7 @@ async function scanLegacyArtifactStore(
       );
       continue;
     }
-    if (inventory.mapping.has(ref) || inventory.productRefs.has(ref)) {
+    if (inventory.mapping.has(ref) || inventory.artifactRefs.has(ref)) {
       inventory.ambiguous.push(
         migrationIssue(path, "duplicate_ref", "duplicate or cross-kind artifact ref", ref),
       );
@@ -165,7 +165,7 @@ async function scanLearningStore(
     const raw = await readJsonObject(entry.path, inventory.invalid, path);
     if (!raw) continue;
     const canonicalKind = canonicalEvidenceKindForPersistedKind(raw.kind);
-    if (!canonicalKind || isProductArtifactKind(raw.kind)) {
+    if (!canonicalKind || isArtifactKind(raw.kind)) {
       inventory.invalid.push(
         migrationIssue(
           path,
@@ -211,7 +211,7 @@ function addLegacyLearning(
   ref: string,
   inventory: WorkspaceEvidenceInventory,
 ): void {
-  if (inventory.mapping.has(ref) || inventory.productRefs.has(ref)) {
+  if (inventory.mapping.has(ref) || inventory.artifactRefs.has(ref)) {
     inventory.ambiguous.push(
       migrationIssue(path, "duplicate_ref", "duplicate or cross-kind artifact ref", ref),
     );

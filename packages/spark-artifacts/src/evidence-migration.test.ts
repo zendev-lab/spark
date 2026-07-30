@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultEvidenceStore } from "./index.ts";
 import {
   EvidenceMigrationApplyError,
@@ -20,7 +20,7 @@ import {
   planEvidenceNamespaceMigration,
   restoreEvidenceNamespaceMigrationBackup,
 } from "./evidence-migration.ts";
-import { defaultProductArtifactStore } from "./product/store.ts";
+import { defaultArtifactStore } from "./artifact/store.ts";
 
 const roots: string[] = [];
 const createdAt = "2026-07-29T00:00:00.000Z";
@@ -53,11 +53,11 @@ describe("Evidence namespace migration", () => {
     expect(left.report.totals).toMatchObject({
       discovered: 10,
       migrated: 8,
-      productPreserved: 2,
+      artifactPreserved: 2,
       dangling: 0,
       invalid: 0,
       ambiguous: 0,
-      productMisclassified: 0,
+      artifactMisclassified: 0,
     });
     expect(await directoryHash(first.root)).toBe(firstHash);
     expect(await directoryHash(second.root)).toBe(secondHash);
@@ -75,10 +75,10 @@ describe("Evidence namespace migration", () => {
     );
   });
 
-  it("applies deterministic refs, preserves Product Artifacts, supports zero-change replay and restore", async () => {
+  it("applies deterministic refs, preserves Artifacts, supports zero-change replay and restore", async () => {
     const fixture = await workspaceFixture("apply");
-    const productMetadataHash = await fileHash(fixture.productMetadataPath);
-    const productBlobHash = await fileHash(fixture.productBlobPath);
+    const artifactMetadataHash = await fileHash(fixture.artifactMetadataPath);
+    const artifactBlobHash = await fileHash(fixture.artifactBlobPath);
     const legacyMetadataHash = await fileHash(fixture.legacyMetadataPath);
     const plan = await planEvidenceNamespaceMigration([
       { workspaceId: "workspace:apply", rootDir: fixture.root },
@@ -90,9 +90,9 @@ describe("Evidence namespace migration", () => {
     });
     const workspace = applied.workspaces[0]!;
     expect(workspace.backupPath).toContain(".spark/backups/evidence-namespace");
-    expect(workspace.productHashAfter).toBe(workspace.productHashBefore);
-    expect(await fileHash(fixture.productMetadataPath)).toBe(productMetadataHash);
-    expect(await fileHash(fixture.productBlobPath)).toBe(productBlobHash);
+    expect(workspace.artifactHashAfter).toBe(workspace.artifactHashBefore);
+    expect(await fileHash(fixture.artifactMetadataPath)).toBe(artifactMetadataHash);
+    expect(await fileHash(fixture.artifactBlobPath)).toBe(artifactBlobHash);
     await expect(missing(fixture.legacyMetadataPath)).resolves.toBe(true);
 
     const migratedMetadataPath = join(fixture.root, ".spark", "evidence", "legacy-a.json");
@@ -188,8 +188,8 @@ describe("Evidence namespace migration", () => {
         appliedHash: workspace.afterHash,
         legacyMetadataHash,
         migratedMetadataHash,
-        productMetadataHash,
-        productBlobHash,
+        artifactMetadataHash,
+        artifactBlobHash,
         backupEntryCount: restored.manifest.entries.length,
         restoredTreeHash: restored.treeHash,
         replayChangedFiles: replay.totals.changedFiles,
@@ -317,14 +317,14 @@ describe("Evidence namespace migration", () => {
     expect(await directoryHash(fixture.root)).toBe(before);
   });
 
-  it("fails closed on invalid legacy metadata and Product Artifact refs in evidence fields", async () => {
+  it("fails closed on invalid legacy metadata and Artifact refs in evidence fields", async () => {
     const fixture = await workspaceFixture("invalid");
     await writeJson(join(fixture.root, ".spark", "artifacts", "invalid.json"), {
       kind: "record",
       title: "missing ref",
     });
-    await writeJson(join(fixture.root, ".spark", "product-in-evidence.json"), {
-      evidenceRefs: [fixture.productRef],
+    await writeJson(join(fixture.root, ".spark", "artifact-in-evidence.json"), {
+      evidenceRefs: [fixture.artifactRef],
     });
     const plan = await planEvidenceNamespaceMigration([
       { workspaceId: "workspace:invalid", rootDir: fixture.root },
@@ -332,7 +332,7 @@ describe("Evidence namespace migration", () => {
 
     expect(plan.report.blocked).toBe(true);
     expect(plan.report.totals.invalid).toBe(1);
-    expect(plan.report.totals.productMisclassified).toBe(1);
+    expect(plan.report.totals.artifactMisclassified).toBe(1);
     await expect(applyEvidenceNamespaceMigration(plan)).rejects.toBeInstanceOf(
       EvidenceMigrationBlockedError,
     );
@@ -342,9 +342,9 @@ describe("Evidence namespace migration", () => {
 interface WorkspaceFixture {
   root: string;
   legacyMetadataPath: string;
-  productMetadataPath: string;
-  productBlobPath: string;
-  productRef: string;
+  artifactMetadataPath: string;
+  artifactBlobPath: string;
+  artifactRef: string;
   taskPath: string;
   reviewPath: string;
   goalPath: string;
@@ -385,21 +385,27 @@ async function workspaceFixture(name: string): Promise<WorkspaceFixture> {
     storeRelative: join(".spark", "memory", "learnings"),
   });
 
-  const product = await defaultProductArtifactStore(root).put({
-    ref: "artifact:product-preview" as never,
-    kind: "preview",
-    title: "Preserved preview",
-    format: "markdown",
-    body: {
-      schemaVersion: 1,
+  const dateNow = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-07-29T17:09:18.138Z"));
+  const artifact = await defaultArtifactStore(root)
+    .put({
+      ref: "artifact:product-preview" as never,
       kind: "preview",
-      format: "md",
-      content: "Product body contains artifact:legacy-a and must remain byte-identical.",
-      version: 1,
-    },
-  });
-  const productMetadataPath = join(artifactsRoot, "product-preview.json");
-  const productBlobPath = join(artifactsRoot, product.blobPath!);
+      title: "Preserved preview",
+      format: "markdown",
+      body: {
+        schemaVersion: 1,
+        kind: "preview",
+        format: "md",
+        content: "Product body contains artifact:legacy-a and must remain byte-identical.",
+        version: 1,
+      },
+    })
+    .finally(() => dateNow.mockRestore());
+  const artifactMetadataPath = join(
+    artifactsRoot,
+    `${artifact.ref.slice("artifact:".length)}.json`,
+  );
+  const artifactBlobPath = join(artifactsRoot, artifact.blobPath!);
 
   await defaultEvidenceStore(root).put({
     ref: "evidence:current" as never,
@@ -471,9 +477,9 @@ async function workspaceFixture(name: string): Promise<WorkspaceFixture> {
   return {
     root,
     legacyMetadataPath,
-    productMetadataPath,
-    productBlobPath,
-    productRef: product.ref,
+    artifactMetadataPath,
+    artifactBlobPath,
+    artifactRef: artifact.ref,
     taskPath,
     reviewPath,
     goalPath,

@@ -248,7 +248,7 @@ test("spark cockpit status/project/task/goal/artifact/review/workflow expose sta
     fixture.options,
   );
   assert.equal(artifacts.action, "artifact");
-  assert.equal(artifacts.result.artifacts[0]?.productArtifactRef, "artifact:fixture-a");
+  assert.equal(artifacts.result.artifacts[0]?.artifactRef, "artifact:fixture-a");
 
   const reviews = await handleSparkCockpitCliCommand(
     { resource: "review", verb: "list", json: true },
@@ -690,7 +690,7 @@ function fixtureCockpitOptions() {
     },
     artifacts: [
       {
-        productArtifactRef: "artifact:fixture-a",
+        artifactRef: "artifact:fixture-a",
         title: "Fixture artifact",
         kind: "preview",
       },

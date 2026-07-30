@@ -7,6 +7,6 @@
     "session-goal-v1.json": "v1 goal review reader normalization",
     "session-goal-mixed-v1.json": "canonical and legacy goal review ambiguity rejection",
     "task-run-v1-fields.json": "v1 task and task-run reader normalization",
-    "subject-review-dangling-product-v1.json": "negative old-field plus Product Artifact ref fixture for state-doctor diagnostics"
+    "subject-review-dangling-product-v1.json": "negative old-field plus Artifact ref fixture for state-doctor diagnostics"
   }
 }

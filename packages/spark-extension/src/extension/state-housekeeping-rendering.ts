@@ -63,7 +63,7 @@ export function appendSparkStateDiagnosticsLines(
   appendProtectedFileDiagnostics(lines, "role reports", diagnostics.roleReports);
   appendStoreV2DoctorFindings(lines, diagnostics.doctor);
   lines.push(
-    "Protected-store diagnostics are read-only; no project graph, TODO record, session state, evidence, Product Artifact, note, role-report, workflow-run, or review index files were deleted.",
+    "Protected-store diagnostics are read-only; no project graph, TODO record, session state, evidence, Artifact, note, role-report, workflow-run, or review index files were deleted.",
   );
 }
 
@@ -261,7 +261,7 @@ export function formatSparkStateCacheKind(kind: SparkStateCacheKind): string {
 export function formatSparkProtectedStoreReason(reason: SparkProtectedStoreReason): string {
   switch (reason) {
     case "artifact-history":
-      return "Product Artifacts";
+      return "Artifacts";
     case "evidence-ledger":
       return "evidence ledger";
     case "task-graph":

@@ -34,7 +34,7 @@ describe("session workbench projection", () => {
             status: "running",
             progress: 0.5,
             evidenceRefs: [],
-            productArtifactRefs: ["artifact:report-1"],
+            artifactRefs: ["artifact:report-1"],
             startedAt: "2026-07-13T08:00:00.000Z",
           },
         ],
@@ -51,7 +51,7 @@ describe("session workbench projection", () => {
             ],
             runRefs: ["run:inv-1"],
             evidenceRefs: [],
-            productArtifactRefs: ["artifact:report-1"],
+            artifactRefs: ["artifact:report-1"],
           },
         ],
         artifacts: [
@@ -280,7 +280,7 @@ describe("session workbench projection", () => {
     expect(view.evidence.map((artifact) => artifact.id)).toEqual(["note-1"]);
   });
 
-  it("rejects Product Artifact refs emitted on the evidence activity lane", () => {
+  it("rejects Artifact refs emitted on the evidence activity lane", () => {
     expect(() =>
       buildSessionWorkbenchView({
         session: session(),
@@ -515,7 +515,7 @@ describe("session workbench projection", () => {
             todos: [],
             runRefs: [],
             evidenceRefs: [],
-            productArtifactRefs: [],
+            artifactRefs: [],
           },
         ],
       }),

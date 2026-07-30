@@ -3,10 +3,10 @@
 import { randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 
-import type { PreviewArtifactBody, ProductArtifact } from "./types.ts";
-import { renderProductPreviewDocument } from "./preview-renderer.ts";
+import type { PreviewArtifactBody, Artifact } from "./types.ts";
+import { renderArtifactPreviewDocument } from "./preview-renderer.ts";
 
-export interface TemporaryProductPreview {
+export interface TemporaryArtifactPreview {
   url: string;
   expiresAt: string;
 }
@@ -24,15 +24,15 @@ const defaultPreviewTtlMs = 30 * 60 * 1_000;
 const minimumPreviewTtlMs = 60_000;
 const maximumPreviewTtlMs = 2 * 60 * 60 * 1_000;
 
-export async function startTemporaryProductPreview(
-  artifact: ProductArtifact<PreviewArtifactBody>,
+export async function startTemporaryArtifactPreview(
+  artifact: Artifact<PreviewArtifactBody>,
   options: { ttlMs?: number } = {},
-): Promise<TemporaryProductPreview> {
+): Promise<TemporaryArtifactPreview> {
   evictOldPreviews();
   const ttlMs = normalizePreviewTtl(options.ttlMs);
   const token = randomBytes(18).toString("base64url");
   const path = `/preview/${token}`;
-  const rendered = renderProductPreviewDocument({
+  const rendered = renderArtifactPreviewDocument({
     title: artifact.title,
     format: artifact.body.format,
     content: artifact.body.content,
@@ -86,7 +86,7 @@ export async function startTemporaryProductPreview(
   };
 }
 
-export function closeTemporaryProductPreviews(): void {
+export function closeTemporaryArtifactPreviews(): void {
   for (const preview of [...activePreviews]) closePreview(preview);
 }
 

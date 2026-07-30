@@ -517,10 +517,10 @@ const setup: ReproStageBlueprint = {
       {
         dependsOn: ["repro-contract-frozen"],
         doneWhen: [
-          "A report skeleton and owner-repository PR dependency map are stored as Product Artifacts.",
+          "A report skeleton and owner-repository PR dependency map are stored as Artifacts.",
         ],
         evidenceRequired: [
-          "Preview Product Artifact with managed report sections, repository owners, branch plan, and sync events.",
+          "Preview Artifact with managed report sections, repository owners, branch plan, and sync events.",
         ],
       },
     ),
@@ -844,9 +844,7 @@ const scaffold: ReproStageBlueprint = {
         doneWhen: [
           "Managed report sections cite the accepted structure, environment, and resource evidence.",
         ],
-        evidenceRequired: [
-          "Updated preview Product Artifact with evidence links and current limitations.",
-        ],
+        evidenceRequired: ["Updated preview Artifact with evidence links and current limitations."],
       },
     ),
     task("create-initial-draft-pr-approved", "delivery", "Create or update initial Draft PR", {

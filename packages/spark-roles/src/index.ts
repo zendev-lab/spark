@@ -310,7 +310,7 @@ export function createBuiltinRoles(now = nowIso()): RoleSpec[] {
     ),
     builtin(
       "reviewer",
-      "Reviews results, internal Evidence, and Product Artifacts against task intent.",
+      "Reviews results, internal Evidence, and Artifacts against task intent.",
       "You are a Pi reviewer. Verify claims from fresh context and return actionable findings. Do not ask interactively; when intent or evidence is ambiguous, reject with concrete questions in findings/blockers instead of silently assuming an answer. Call out placeholder/generic/stale project or task names only when a safe improvement is clear from context and would preserve refs.",
       now,
     ),

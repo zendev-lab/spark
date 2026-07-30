@@ -1280,7 +1280,7 @@ return await agent('do the work', { label: 'worker', evidenceRef: 'evidence:brie
   assert.equal(run.result, "done");
 });
 
-test("spark-workflows rejects Product Artifact refs at Evidence boundaries", async () => {
+test("spark-workflows rejects Artifact refs at Evidence boundaries", async () => {
   const negativeValues = JSON.parse(
     await readFile(
       join(process.cwd(), "test", "fixtures", "evidence-surface", "negative-values.json"),

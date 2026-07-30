@@ -1,7 +1,7 @@
 import type { PreviewContentFormat } from "@zendev-lab/spark-artifacts";
-import { renderProductPreviewDocument } from "@zendev-lab/spark-artifacts/preview-renderer";
+import { renderArtifactPreviewDocument } from "@zendev-lab/spark-artifacts/preview-renderer";
 
-export interface StoredProductPreviewInput {
+export interface StoredArtifactPreviewInput {
   kind: string;
   title: string;
   contentRef: unknown;
@@ -9,17 +9,17 @@ export interface StoredProductPreviewInput {
 }
 
 /**
- * Product Artifact transport formats are intentionally coarse (`markdown` or
+ * Artifact transport formats are intentionally coarse (`markdown` or
  * `text`). The original preview format is carried in contentRef so Cockpit can
- * render the canonical Product Artifact document after durable projection.
+ * render the canonical Artifact document after durable projection.
  */
-export function renderStoredProductPreview(input: StoredProductPreviewInput): string | null {
+export function renderStoredArtifactPreview(input: StoredArtifactPreviewInput): string | null {
   if (input.kind !== "preview" || !input.body || input.body.text === null || input.body.truncated) {
     return null;
   }
   const format = previewFormatFromContentRef(input.contentRef);
   if (!format) return null;
-  return renderProductPreviewDocument({
+  return renderArtifactPreviewDocument({
     title: input.title,
     format,
     content: input.body.text,

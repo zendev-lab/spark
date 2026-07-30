@@ -2,7 +2,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { writeJsonFileAtomic, writeTextFileAtomic } from "@zendev-lab/spark-core";
-import { isProductArtifactKind } from "./product/types.ts";
+import { isArtifactKind } from "./artifact/types.ts";
 
 export { writeJsonFileAtomic, writeTextFileAtomic };
 
@@ -50,8 +50,8 @@ export interface EvidenceProvenance {
 }
 
 /**
- * Agent-internal evidence kinds (not Cockpit/user content). Product artifacts are
- * issue|pr|preview in `./product/`.
+ * Agent-internal evidence kinds (not Cockpit/user content). Artifacts are
+ * issue|pr|preview in `./artifact/`.
  *
  * Prefer compact JSON `record` notes. Keep `trace` for prunable raw output.
  * `knowledge` is owned by the learning capability; `document` is rare long prose.
@@ -550,7 +550,7 @@ function evidenceListDiagnostic(filePath: string, error: unknown): EvidenceListD
 
 /**
  * Internal evidence store used by the `evidence` tool. New writes go to
- * `.spark/evidence`. Product issue/pr/preview live under `.spark/artifacts`
+ * `.spark/evidence`. Artifact issue/pr/preview live under `.spark/artifacts`
  * and are never scanned by this store.
  */
 export function defaultEvidenceStore(cwd: string): EvidenceStore {
@@ -569,10 +569,10 @@ export async function readEvidenceMetadataFile(filePath: string): Promise<Eviden
       "invalid_json",
     );
   }
-  if (isRecord(raw) && isProductArtifactKind(raw.kind)) {
+  if (isRecord(raw) && isArtifactKind(raw.kind)) {
     throw new EvidenceStoreFormatError(
       filePath,
-      `kind must be a valid Evidence kind (Product Artifact kind ${String(raw.kind)} skipped)`,
+      `kind must be a valid Evidence kind (Artifact kind ${String(raw.kind)} skipped)`,
       "invalid_metadata",
     );
   }
@@ -1069,29 +1069,29 @@ async function fileSize(path: string): Promise<number> {
 }
 
 export {
-  PRODUCT_ARTIFACT_KINDS,
-  PRODUCT_ARTIFACT_FORMATS,
-  PRODUCT_ARTIFACT_PROJECTION_MAX_INLINE_BYTES,
-  ProductArtifactStore,
-  ProductArtifactValidationError,
+  ARTIFACT_KINDS,
+  ARTIFACT_FORMATS,
+  ARTIFACT_PROJECTION_MAX_INLINE_BYTES,
+  ArtifactStore,
+  ArtifactValidationError,
   applyWorktreeToPrBody,
   asSparkUiJsonValue,
   attachPrWorktree,
-  defaultProductArtifactStore,
-  isProductArtifactBody,
-  isProductArtifactFormat,
-  isProductArtifactKind,
+  defaultArtifactStore,
+  isArtifactBody,
+  isArtifactFormat,
+  isArtifactKind,
   issueBodyFromSnapshot,
-  newProductArtifactRef,
+  newArtifactRef,
   parseForgeUrl,
   prBodyFromSnapshot,
-  previewFormatAsProductArtifactFormat,
-  projectProductArtifact,
+  previewFormatAsArtifactFormat,
+  projectArtifact,
   prWorktreePath,
   removePrWorktree,
-  renderProductPreviewDocument,
-  startTemporaryProductPreview,
-  closeTemporaryProductPreviews,
+  renderArtifactPreviewDocument,
+  startTemporaryArtifactPreview,
+  closeTemporaryArtifactPreviews,
   syncForgeIssue,
   syncForgePr,
   type AttachPrWorktreeInput,
@@ -1106,20 +1106,20 @@ export {
   type PreviewArtifactBody,
   type PreviewContentFormat,
   type PreviewProgress,
-  type ProductArtifact,
-  type ProductArtifactBody,
-  type ProductArtifactFormat,
-  type ProductArtifactKind,
-  type ProductArtifactProjection,
-  type ProductArtifactProjectionContentRef,
-  type ProductArtifactProjectionFormat,
-  type ProductArtifactQuery,
-  type ProductPreviewDocumentInput,
-  type ProductPreviewRenderResult,
-  type ProductArtifactRef,
-  type ProductArtifactStoreOptions,
-  type PutProductArtifactInput,
-  type TemporaryProductPreview,
+  type Artifact,
+  type ArtifactBody,
+  type ArtifactFormat,
+  type ArtifactKind,
+  type ArtifactProjection,
+  type ArtifactProjectionContentRef,
+  type ArtifactProjectionFormat,
+  type ArtifactQuery,
+  type ArtifactPreviewDocumentInput,
+  type ArtifactPreviewRenderResult,
+  type ArtifactRef,
+  type ArtifactStoreOptions,
+  type PutArtifactInput,
+  type TemporaryArtifactPreview,
   type WorktreeCommandRunner,
   type WorktreeStatus,
-} from "./product/index.ts";
+} from "./artifact/index.ts";

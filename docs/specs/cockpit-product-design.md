@@ -34,10 +34,10 @@ browser timers.
   fallback; there is no global Ask modal.
 - Consequential actions state their effect. Multiline composers use Enter for a
   newline and Command/Control+Enter to submit; IME composition never submits.
-- Product Artifacts remain exactly `issue | pr | preview`. Verification
+- Artifacts remain exactly `issue | pr | preview`. Verification
   receipts may expose proof summaries and evidence references, but never the
   internal evidence ledger body.
-- Product Artifacts use `artifact:…` refs and `.spark/artifacts/`; internal
+- Artifacts use `artifact:…` refs and `.spark/artifacts/`; internal
   evidence uses `evidence:…` refs and `.spark/evidence/`. Neither store scans,
   accepts, or projects records from the other namespace.
 
@@ -45,5 +45,5 @@ browser timers.
 
 Every reachable driver state needs a rendered UI test. Work/Transcript defaults,
 deep links, keyboard tabs, inline Ask placement, composer keyboard behavior,
-coarse-pointer targets, reduced motion, and the Product Artifact boundary are
+coarse-pointer targets, reduced motion, and the Artifact boundary are
 behavioral contracts, not visual suggestions.
