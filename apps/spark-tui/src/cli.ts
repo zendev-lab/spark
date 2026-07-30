@@ -1263,6 +1263,33 @@ export async function runSparkCli(
   }
 }
 
+export function formatSparkCliFailure(error: unknown, argv: readonly string[]): string {
+  const message =
+    error instanceof Error
+      ? error.message || error.name
+      : typeof error === "string"
+        ? error
+        : String(error);
+  if (!jsonFlagRequested(argv)) return message;
+  return JSON.stringify(
+    {
+      action: "error",
+      error: {
+        code: "cli_error",
+        message,
+      },
+    },
+    null,
+    2,
+  );
+}
+
+function jsonFlagRequested(argv: readonly string[]): boolean {
+  const delimiterIndex = argv.indexOf("--");
+  const options = delimiterIndex < 0 ? argv : argv.slice(0, delimiterIndex);
+  return options.includes("--json");
+}
+
 function isInteractiveSparkCliTerminal(options: RunSparkCliOptions): boolean {
   return Boolean(
     (options.terminal?.stdinIsTTY ?? processStdin.isTTY) &&
@@ -2000,7 +2027,7 @@ if (isDirectRun(import.meta.url, process.argv[1])) {
       process.exitCode = code;
     })
     .catch((error: unknown) => {
-      console.error(error instanceof Error ? error.stack || error.message : String(error));
+      console.error(formatSparkCliFailure(error, process.argv.slice(2)));
       process.exitCode = 1;
     });
 }
