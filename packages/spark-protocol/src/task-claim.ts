@@ -16,7 +16,7 @@ export const sparkTaskClaimAcquireRequestSchema = sparkTaskClaimLeaseIdentitySch
     .object({
       previousSessionId: z.string().min(1),
       reason: z.enum(["claim_expired", "review_needs_changes_owner_inactive"]),
-      evidenceRef: z.string().regex(/^(?:artifact|evidence):/u),
+      evidenceRef: z.string().startsWith("evidence:"),
     })
     .optional(),
 });
@@ -30,7 +30,7 @@ export const sparkTaskClaimRecoverRequestSchema = sparkTaskClaimLeaseIdentitySch
   taskRef: z.string().startsWith("task:"),
   previousSessionId: z.string().min(1),
   reason: z.enum(["claim_expired", "review_needs_changes_owner_inactive"]),
-  evidenceRef: z.string().regex(/^(?:artifact|evidence):/u),
+  evidenceRef: z.string().startsWith("evidence:"),
 });
 
 export const sparkTaskClaimMutationResultSchema = z.object({
