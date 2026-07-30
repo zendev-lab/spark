@@ -16,7 +16,7 @@ import type {
   WorkflowRunRecord,
   WorkflowRunStatus,
   WorkflowRunStoreSnapshot,
-} from "./index.ts";
+} from "./types.ts";
 
 type LoadableWorkflowRunStoreSnapshot = Omit<
   WorkflowRunStoreSnapshot,

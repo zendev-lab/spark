@@ -20,7 +20,7 @@ import type {
   WorkflowPhaseRun,
   WorkflowRunResult,
 } from "./types.ts";
-import { userWorkflowDir, workspaceWorkflowDir } from "./index.ts";
+import { userWorkflowDir, workspaceWorkflowDir } from "./registry-paths.ts";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_DYNAMIC_WORKFLOW_STALE_AFTER_MS = 30 * 60 * 1_000;

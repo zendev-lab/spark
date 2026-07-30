@@ -1,4 +1,4 @@
-import type { WorkflowRunRecord } from "./index.ts";
+import type { WorkflowRunRecord } from "./types.ts";
 
 export function reconcileWorkflowRunCounters(
   record: WorkflowRunRecord,

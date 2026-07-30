@@ -34,7 +34,7 @@ import {
   type SparkDynamicWorkflowRunStoreSnapshot,
   type SparkDynamicWorkflowUsageTotals,
 } from "./dynamic-workflow-run-store.ts";
-import { userWorkflowDir, workspaceWorkflowDir } from "./index.ts";
+import { userWorkflowDir, workspaceWorkflowDir } from "./registry-paths.ts";
 
 export interface SparkDynamicWorkflowEventRunMetadata {
   version: 2;

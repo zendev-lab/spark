@@ -9,7 +9,7 @@ import type {
   WorkflowRunCompletionFollowUp,
   WorkflowRunNextSteps,
   WorkflowRunRecord,
-} from "./index.ts";
+} from "./types.ts";
 import {
   isAcknowledgeableWorkflowRun,
   isAcknowledgedWorkflowRunProblem,

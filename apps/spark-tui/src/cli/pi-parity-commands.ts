@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { basename, dirname } from "node:path";
-import type { OAuthLoginCallbacks } from "@earendil-works/pi-ai/oauth";
+import type { OAuthLoginCallbacks } from "@zendev-lab/spark-ai";
 import { sparkTuiPiParityStrings } from "@zendev-lab/spark-i18n/cli";
 import type {
   SparkAuthFlow,

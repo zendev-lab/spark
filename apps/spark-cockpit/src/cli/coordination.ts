@@ -70,7 +70,6 @@ export interface SparkCockpitCliCommand {
   tokenId?: string;
 }
 
-
 export type SparkCockpitCliResult =
   | { action: "help"; text: string }
   | { action: "status"; result: SparkCockpitStatusResult }

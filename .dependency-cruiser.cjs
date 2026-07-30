@@ -4,12 +4,10 @@ module.exports = {
     // --- pi-ai boundary (audit gap): only spark-ai may import pi-ai directly ---
     {
       name: "no-direct-pi-ai",
-      comment:
-        "Direct @earendil-works/pi-ai imports must go through @zendev-lab/spark-ai. " +
-        "apps/spark-tui/src/cli/pi-parity-commands.ts is WIP — exempt until the user commits cleanup.",
+      comment: "Direct @earendil-works/pi-ai imports must go through @zendev-lab/spark-ai.",
       severity: "error",
       from: {
-        pathNot: "^(packages/spark-ai/|apps/spark-tui/src/cli/pi-parity-commands\\.ts$)",
+        pathNot: "^packages/spark-ai/",
       },
       to: {
         path: "node_modules/.*/@earendil-works/pi-ai|/node_modules/@earendil-works/pi-ai|^@earendil-works/pi-ai",
@@ -272,11 +270,12 @@ module.exports = {
   ],
   options: {
     doNotFollow: {
-      path: ["node_modules", "dist", "\\.svelte-kit", "reports", "coverage"],
+      path: ["node_modules", "build", "dist", "\\.svelte-kit", "reports", "coverage"],
     },
     exclude: {
       path: [
         "node_modules",
+        "build",
         "dist",
         "\\.svelte-kit",
         "reports",
