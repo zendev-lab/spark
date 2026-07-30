@@ -6,9 +6,15 @@ import {
   startCockpitWebService,
   stopCockpitWebService,
 } from "./web-service.ts";
+import { helpFlagRequested } from "./shared.ts";
 
 /** Handle `spark cockpit web …` after the surface dispatcher peels off `web`. */
 export async function runCockpitWebCli(argv: string[]): Promise<number> {
+  if (helpFlagRequested(argv)) {
+    process.stdout.write(cockpitWebHelpText());
+    return 0;
+  }
+
   const [command = "status"] = argv;
   const json = argv.includes("--json");
   switch (command) {
@@ -40,4 +46,16 @@ export async function runCockpitWebCli(argv: string[]): Promise<number> {
     default:
       throw new Error(`Unknown spark cockpit web command: ${command}`);
   }
+}
+
+function cockpitWebHelpText(): string {
+  return `spark cockpit web - manage the background Cockpit Web service
+
+Usage:
+  spark cockpit web start [--json]
+  spark cockpit web status [--json]
+  spark cockpit web stop [--json]
+  spark cockpit web logs [--lines <n>] [--json]
+  spark cockpit web --help
+`;
 }

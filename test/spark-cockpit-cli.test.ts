@@ -32,6 +32,9 @@ const PLAN = {
 };
 
 test("parseSparkCockpitCliArgs routes Cockpit coordination resources", () => {
+  assert.deepEqual(parseSparkCockpitCliArgs(["access", "create", "--help"]), {
+    resource: "help",
+  });
   assert.deepEqual(parseSparkCockpitCliArgs(["status", "--json"]), {
     resource: "status",
     verb: "show",
@@ -142,6 +145,22 @@ test("spark-cockpit thin bin routes through the TypeScript surface entry", async
   const missingWeb = await runBin(bin, ["web", "not-a-real-op"]);
   assert.notEqual(missingWeb.code, 0);
   assert.match(`${missingWeb.stdout}${missingWeb.stderr}`, /Unknown spark cockpit web command/u);
+
+  const sparkHome = await mkdtemp(join(tmpdir(), "spark-cockpit-help-"));
+  try {
+    const nestedHelp = await runBin(bin, ["web", "start", "--help"], {
+      ...process.env,
+      SPARK_HOME: sparkHome,
+    });
+    assert.equal(nestedHelp.code, 0);
+    assert.match(
+      nestedHelp.stdout,
+      /spark cockpit web - manage the background Cockpit Web service/u,
+    );
+    assert.equal(existsSync(join(sparkHome, "apps", "cockpit", "run", "cockpit.pid")), false);
+  } finally {
+    await rm(sparkHome, { recursive: true, force: true });
+  }
 });
 
 test("spark cockpit status/project/task/goal/artifact/review/workflow expose stable JSON", async () => {
@@ -544,9 +563,10 @@ type AcceptanceInvocation = {
 async function runBin(
   bin: string,
   args: string[],
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return await new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(bin, args, { env, stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk: Buffer) => {

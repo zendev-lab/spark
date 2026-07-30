@@ -87,6 +87,12 @@ export function readNumberOption(
   return parsed;
 }
 
+export function helpFlagRequested(argv: readonly string[]): boolean {
+  const delimiterIndex = argv.indexOf("--");
+  const options = delimiterIndex < 0 ? argv : argv.slice(0, delimiterIndex);
+  return options.some((arg) => arg === "--help" || arg === "-h");
+}
+
 export function printSparkCliResult(
   output: SparkCliOutput,
   value: unknown,

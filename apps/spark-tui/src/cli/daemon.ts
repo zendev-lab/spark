@@ -79,6 +79,7 @@ import {
 } from "../native-tui.ts";
 import {
   consoleSparkCliOutput,
+  helpFlagRequested,
   parseSparkCliOptions,
   printSparkCliResult,
   readBooleanOption,
@@ -700,6 +701,9 @@ export function parseSparkDaemonCliArgs(argv: string[]): SparkDaemonCliCommand {
 
   const [action, ...rest] = argv;
   if (action === "help" || action === "--help" || action === "-h") {
+    return { action: "help" };
+  }
+  if (helpFlagRequested(argv)) {
     return { action: "help" };
   }
 

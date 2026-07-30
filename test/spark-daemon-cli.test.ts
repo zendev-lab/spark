@@ -1195,6 +1195,8 @@ test("parseSparkCliCommand parses Pi-compatible global modes and resource comman
 test("parseSparkDaemonCliArgs parses daemon IPC commands", async () => {
   assert.deepEqual(parseSparkDaemonCliArgs([]), { action: "service", argv: [] });
   assert.deepEqual(parseSparkDaemonCliArgs(["--help"]), { action: "help" });
+  assert.deepEqual(parseSparkDaemonCliArgs(["doctor", "--help"]), { action: "help" });
+  assert.deepEqual(parseSparkDaemonCliArgs(["start", "-h"]), { action: "help" });
   assert.deepEqual(parseSparkDaemonCliArgs(["submit", "--session", "s1", "-p", "hello"]), {
     action: "submit",
     json: false,
