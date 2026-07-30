@@ -1,4 +1,3 @@
-# yamllint disable rule:line-length
 name: "CI - Static Checks"
 
 # PR hook lane: prek hooks except spark-check-fix. Grouped static/docs verification

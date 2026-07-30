@@ -75,8 +75,8 @@ Target package topology follows type-first names:
 
 - Public/default repo-owned tools should use canonical `tool({ action })` surfaces when operations share one domain/state/permission/render/result contract; do not keep fragmented duplicate aliases public, and render action tools as `tool action=<value> ...`.
 - Prefer `pnpm run fix` before committing when touching TS/Markdown; pre-commit runs the same command.
-- GitHub Actions workflows disable YAML line-length checks so SHA-pinned `uses:` entries retain
-  Renovate version comments; keep `# v...` comments on the same line as each digest.
+- Root `.yamllint` disables YAML line-length checks; keep Renovate `# v...` comments on the same
+  line as each SHA-pinned GitHub Action digest.
 - Do not commit secrets or `.env` files.
 - **State directories** — Workspace agent runtime lives under `.spark/` (durable memory under `.spark/memory/`, including `learnings/`, `reflections/`, and `recall-candidates.json`). User-level Spark paths use explicit `SPARK_HOME` when set, otherwise the standard XDG config/data/cache/state/runtime roots via `resolveSparkUserPaths()` and `resolveSparkPaths()`. Public role, skill, and workflow definitions remain under `$HOME/.agents/`; project roles, skills, and workflows use `.agents/{roles,skills,workflows}`. Learning / recall / reflection capability code lives in `@zendev-lab/spark-memory` (not separate `spark-learnings` / `spark-recall` packages). Legacy `.learnings/` and `.spark/reflections/` are migrated into `.spark/memory/` when needed.
 - Boundary checks should keep retained `pi-*` kernel adapters independent from Spark product/Cockpit packages, keep Spark shared packages independent from the `spark-extension` composition root, and keep both independent from Cockpit/daemon adapter packages.
