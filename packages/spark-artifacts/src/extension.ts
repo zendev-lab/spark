@@ -5,6 +5,7 @@ import type {
   ToolRenderComponent,
   ToolRenderTheme,
 } from "@zendev-lab/spark-core";
+import { truncateToWidth } from "@zendev-lab/spark-text";
 import {
   EVIDENCE_CURATION_STATUSES,
   EVIDENCE_FORMATS,
@@ -61,9 +62,7 @@ class ToolCallText implements ToolRenderComponent {
   }
 
   render(width: number): string[] {
-    return [
-      this.text.length > width ? `${this.text.slice(0, Math.max(0, width - 1))}…` : this.text,
-    ];
+    return [truncateToWidth(this.text, Math.max(1, width), "…")];
   }
 }
 

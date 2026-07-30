@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import type { ToolConfig, ToolRenderComponent } from "@zendev-lab/spark-core";
+import { truncateToWidth } from "@zendev-lab/spark-text";
 import {
   executeSparkSessionAction,
   type SparkSessionAction,
@@ -155,8 +156,7 @@ class SessionToolCallText implements ToolRenderComponent {
   }
 
   render(width: number): string[] {
-    if (this.text.length <= width) return [this.text];
-    return [`${this.text.slice(0, Math.max(0, width - 1))}…`];
+    return [truncateToWidth(this.text, Math.max(1, width), "…")];
   }
 }
 
