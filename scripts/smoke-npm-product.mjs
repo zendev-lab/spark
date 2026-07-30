@@ -160,9 +160,9 @@ try {
   let tarballPath;
   if (suppliedTarball) {
     tarballPath = resolve(root, suppliedTarball);
-    console.log(`Using prebuilt npm product artifact ${tarballPath}...`);
+    console.log(`Using prebuilt npm artifact ${tarballPath}...`);
   } else {
-    console.log("Building npm product artifact...");
+    console.log("Building npm artifact...");
     await run("node", ["scripts/build-npm-product.mjs"], {
       cwd: root,
       env: process.env,

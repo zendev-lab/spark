@@ -113,8 +113,8 @@ export function renderSparkRoleRunCompletionMessageLines(
   const lines = [trunc(title)];
   const activity = lastActivityText(entry);
   if (activity) lines.push(trunc(`  ⎿ ${activity}`));
-  if (entry.outputArtifacts.length > 0)
-    lines.push(trunc(`  artifacts: ${entry.outputArtifacts.join(", ")}`));
+  if (entry.outputEvidenceRefs.length > 0)
+    lines.push(trunc(`  artifacts: ${entry.outputEvidenceRefs.join(", ")}`));
   if (entry.errorMessage) lines.push(trunc(`  error: ${entry.errorMessage}`));
   const usage = usageText(entry);
   if (usage) lines.push(trunc(`  ${dim(theme, usage)}`));
@@ -176,7 +176,7 @@ function formatRoleRunRow(
   const badges = [
     elapsed,
     usage,
-    entry.outputArtifacts.length > 0 ? `artifacts=${entry.outputArtifacts.length}` : undefined,
+    entry.outputEvidenceRefs.length > 0 ? `evidence=${entry.outputEvidenceRefs.length}` : undefined,
   ]
     .filter((part): part is string => Boolean(part))
     .join(" · ");

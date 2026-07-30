@@ -2,7 +2,7 @@
 
 Spark runtime adapter for executing one Spark task with a registered role.
 
-Runtime resolves reusable `RoleSpec`s from `@zendev-lab/spark-roles` and adapts concrete role execution back into Spark task/run/artifact state. Hosts inject a `SparkRoleInstructionExecutor` for daemon-native execution. Graph-level ready-task scheduling and durable workflow-run state live in `@zendev-lab/spark-workflows`; `@zendev-lab/spark-runtime` stays focused on one task execution at a time.
+Runtime resolves reusable `RoleSpec`s from `@zendev-lab/spark-roles` and adapts concrete role execution back into Spark task/run/Evidence state. Hosts inject a `SparkRoleInstructionExecutor` for daemon-native execution. Graph-level ready-task scheduling and durable workflow-run state live in `@zendev-lab/spark-workflows`; `@zendev-lab/spark-runtime` stays focused on one task execution at a time.
 
 Responsibilities:
 
@@ -14,9 +14,9 @@ Responsibilities:
 - refresh active claim leases with a heartbeat loop during non-dry-run execution
 - sweep persisted expired claims with `sweepExpiredTaskClaims()`
 - adapt `spark-roles` active-run tracking for timeout/reconciliation UI and kill/reply/steer result surfaces
-- persist task-run artifacts through `@zendev-lab/spark-artifacts`
-- read bounded role-run artifact previews for background-run inspection
-- compact historical role-run transcript artifacts through `collectRoleRunArtifactRetentionPlan()`
+- persist task-run Evidence through `@zendev-lab/spark-artifacts`
+- read bounded role-run Evidence previews for background-run inspection
+- compact historical role-run transcript Evidence through `collectRoleRunEvidenceRetentionPlan()`
 - update `TaskRun` and task status on success/failure
 
 Non-responsibilities:
@@ -28,8 +28,8 @@ Non-responsibilities:
 
 Default launch mode:
 
-- Spark task execution should use fresh role runs by default: the assigned role selects the reusable role, while the task description and input artifacts provide explicit context.
-- Forked runs require an explicit parent session/context source and should be used only when that parent context is intentionally shared and cannot reasonably be materialized as artifacts first.
+- Spark task execution should use fresh role runs by default: the assigned role selects the reusable role, while the task description and input Evidence provide explicit context.
+- Forked runs require an explicit parent session/context source and should be used only when that parent context is intentionally shared and cannot reasonably be materialized as Evidence first.
 
 Timeout semantics:
 
@@ -42,6 +42,6 @@ Attribution:
 
 - `roleRef` identifies the reusable role; it is not the concrete running actor.
 - `runName`, `ownerSessionId`, and `runRef` identify the concrete run in `TaskRun` records and active `TaskClaim`s.
-- Runtime-created artifacts use `kind: "role-run"` with task provenance and run-record data so outputs are attributed to the Spark task and concrete run while still retaining the role ref.
+- Runtime-created Evidence records use task provenance and run-record data so outputs are attributed to the Spark task and concrete run while still retaining the role ref.
 
 Use `runSparkTask()` for single-task execution. Use `@zendev-lab/spark-workflows` `runReadyTasks()` for graph-level ready task scheduling.

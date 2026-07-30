@@ -14,7 +14,7 @@ import {
   type SparkInvocationEvent,
   type SparkInvocationRecord,
 } from "../store/invocations.ts";
-import { productArtifactDaemonProjectionEventFromToolResult } from "../product-artifact-projection.ts";
+import { artifactDaemonProjectionEventFromToolResult } from "../artifact-projection.ts";
 import {
   getSparkDaemonTaskSessionId,
   validateSparkDaemonTask,
@@ -363,14 +363,14 @@ function daemonEventsFromTaskResult(
   const sessionId = getSparkDaemonTaskSessionId(task) ?? undefined;
   return rawEvents.flatMap((raw): SparkDaemonEvent[] => {
     if (!raw || typeof raw !== "object") return [];
-    const productArtifact = productArtifactDaemonProjectionEventFromToolResult(raw, {
+    const artifact = artifactDaemonProjectionEventFromToolResult(raw, {
       ...(task.workspaceId ? { workspaceId: task.workspaceId } : {}),
       ...(task.projectId ? { projectId: task.projectId } : {}),
       ...(sessionId ? { sessionId } : {}),
       invocationId,
       metadata: daemonTaskRouteMetadata(task),
     });
-    if (productArtifact) return [productArtifact];
+    if (artifact) return [artifact];
     const candidate = raw as { type?: unknown; event?: unknown };
     if (candidate.type === "view_event") {
       try {

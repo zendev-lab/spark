@@ -308,6 +308,15 @@ export function taskViewFromCandidate(
   const title = stringField(candidate, "title") ?? stringField(candidate, "name") ?? ref;
   const rawStatus = stringField(candidate, "status");
   const status = isTaskStatus(rawStatus) ? rawStatus : "pending";
+  const evidenceRefs = strictPrefixedRefs(
+    [
+      ...stringArrayField(candidate, "evidenceRefs"),
+      ...stringArrayField(candidate, "outputEvidenceRefs"),
+    ],
+    "evidence:",
+  );
+  const artifactRefs = strictPrefixedRefs(stringArrayField(candidate, "artifactRefs"), "artifact:");
+  if (!evidenceRefs || !artifactRefs) return undefined;
   return {
     version: SPARK_PROTOCOL_VERSION,
     ref,
@@ -324,15 +333,8 @@ export function taskViewFromCandidate(
       : {}),
     todos: taskTodosFromCandidate(candidate),
     runRefs: stringArrayField(candidate, "runRefs"),
-    artifactRefs: [
-      ...stringArrayField(candidate, "artifactRefs"),
-      ...stringArrayField(candidate, "outputArtifacts"),
-      ...stringArrayField(candidate, "evidenceRefs"),
-    ].filter(
-      (value, index, array) =>
-        (value.startsWith("artifact:") || value.startsWith("evidence:")) &&
-        array.indexOf(value) === index,
-    ),
+    evidenceRefs,
+    artifactRefs,
     metadata: jsonMetadata(metadata),
   };
 }
@@ -373,13 +375,13 @@ export function entityViewFromCandidate(
     metadata: jsonMetadata(metadata),
   };
 
-  if (isProductArtifactKind(rawKind) && isArtifactRef) {
+  if (isArtifactKind(rawKind) && isArtifactRef) {
     return {
       type: "artifact",
       artifact: {
         ...common,
         kind: rawKind,
-        format: productArtifactFormat(stringField(candidate, "format")),
+        format: artifactFormat(stringField(candidate, "format")),
       },
     };
   }
@@ -431,6 +433,16 @@ export function isoStringField(record: Record<string, unknown>, key: string): st
   return value && !Number.isNaN(Date.parse(value)) ? value : undefined;
 }
 
+export function strictPrefixedRefs(
+  values: string[],
+  prefix: "evidence:" | "artifact:",
+): string[] | undefined {
+  if (values.some((value) => !value.startsWith(prefix) || value.length === prefix.length)) {
+    return undefined;
+  }
+  return values.filter((value, index) => values.indexOf(value) === index);
+}
+
 export function stringArrayField(record: Record<string, unknown>, key: string): string[] {
   const value = record[key];
   return Array.isArray(value)
@@ -461,9 +473,7 @@ export function taskTodoStatus(value: string | undefined): SparkTaskTodoView["st
   return "pending";
 }
 
-export function isProductArtifactKind(
-  value: string | undefined,
-): value is "issue" | "pr" | "preview" {
+export function isArtifactKind(value: string | undefined): value is "issue" | "pr" | "preview" {
   return value === "issue" || value === "pr" || value === "preview";
 }
 
@@ -481,7 +491,7 @@ export function evidenceFormat(value: string | undefined): SparkEvidenceView["fo
   return "other";
 }
 
-export function productArtifactFormat(value: string | undefined): SparkArtifactView["format"] {
+export function artifactFormat(value: string | undefined): SparkArtifactView["format"] {
   if (
     value === "markdown" ||
     value === "json" ||

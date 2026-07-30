@@ -37,7 +37,7 @@ export interface SparkWorkflowRoleRunRequest {
     agentType?: string;
     isolation?: "graft";
     timeoutMs?: number;
-    artifactRef?: string;
+    evidenceRef?: string;
     envKeys?: string[];
     allowedTools?: string[];
     index: number;
@@ -70,7 +70,7 @@ export interface SparkWorkflowModelRunRequest {
     agentType: "model";
     isolation?: "graft";
     timeoutMs?: number;
-    artifactRef?: string;
+    evidenceRef?: string;
     envKeys?: string[];
     allowedTools?: string[];
     index: number;
@@ -118,7 +118,7 @@ export function createSparkWorkflowRoleRunAdapter(
           agentType: "model",
           isolation: effectiveOptions.isolation,
           timeoutMs: effectiveOptions.timeoutMs,
-          artifactRef: effectiveOptions.artifactRef,
+          evidenceRef: effectiveOptions.evidenceRef,
           envKeys: workflowEnvKeys(effectiveOptions.env),
           allowedTools: effectiveOptions.allowedTools,
           index: effectiveOptions.index,
@@ -147,7 +147,7 @@ export function createSparkWorkflowRoleRunAdapter(
         agentType: effectiveOptions.agentType,
         isolation: effectiveOptions.isolation,
         timeoutMs: effectiveOptions.timeoutMs,
-        artifactRef: effectiveOptions.artifactRef,
+        evidenceRef: effectiveOptions.evidenceRef,
         envKeys: workflowEnvKeys(effectiveOptions.env),
         allowedTools: effectiveOptions.allowedTools,
         index: effectiveOptions.index,
@@ -188,7 +188,7 @@ export function renderSparkWorkflowAgentInstruction(
   if (options.agentType) lines.push("- Agent type: " + options.agentType);
   if (options.isolation) lines.push("- Isolation: " + options.isolation);
   if (options.timeoutMs) lines.push("- Timeout ms: " + options.timeoutMs);
-  if (options.artifactRef) lines.push("- Briefing artifact: " + options.artifactRef);
+  if (options.evidenceRef) lines.push("- Briefing evidence: " + options.evidenceRef);
   const envKeys = workflowEnvKeys(options.env);
   if (envKeys?.length) lines.push("- Environment keys: " + envKeys.join(","));
   if (options.allowedTools?.length)

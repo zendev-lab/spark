@@ -5,7 +5,7 @@ import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
 export type RecallScope = "user" | "workspace" | "repo";
-export type RecallCandidateStatus = "candidate" | "rejected";
+export type RecallCandidateStatus = "candidate" | "promoted" | "rejected";
 export type RecallCandidateKind = "explicit" | "stable_fact" | "open_item";
 
 export interface RecallCandidate {
@@ -19,6 +19,8 @@ export interface RecallCandidate {
   status: RecallCandidateStatus;
   createdAt: string;
   updatedAt: string;
+  promotedAt?: string;
+  promotedTo?: string;
   rejectedReason?: string;
 }
 
@@ -79,19 +81,91 @@ export class RecallStore {
   }
 
   async reject(id: string, reason: string): Promise<RecallCandidate> {
+    const [candidate] = await this.rejectMany([id], reason);
+    return candidate!;
+  }
+
+  async rejectMany(ids: readonly string[], reason: string): Promise<RecallCandidate[]> {
+    const requested = [...new Set(ids)];
+    if (requested.length === 0) return [];
+    const snapshot = await this.loadSnapshot();
+    const byId = new Map(snapshot.candidates.map((candidate, index) => [candidate.id, index]));
+    const missing = requested.filter((id) => !byId.has(id));
+    if (missing.length > 0) throw new Error(`recall candidate not found: ${missing.join(", ")}`);
+    const now = new Date().toISOString();
+    const rejectedReason = requiredText(reason, "reason");
+    const updated = requested.map((id) => {
+      const index = byId.get(id)!;
+      const current = snapshot.candidates[index]!;
+      const candidate: RecallCandidate = {
+        ...current,
+        status: "rejected",
+        rejectedReason,
+        updatedAt: now,
+      };
+      delete candidate.promotedAt;
+      delete candidate.promotedTo;
+      snapshot.candidates[index] = candidate;
+      return candidate;
+    });
+    await this.saveSnapshot(snapshot);
+    return updated;
+  }
+
+  async promote(id: string, promotedTo: string): Promise<RecallCandidate> {
     const snapshot = await this.loadSnapshot();
     const index = snapshot.candidates.findIndex((candidate) => candidate.id === id);
     if (index < 0) throw new Error(`recall candidate not found: ${id}`);
     const now = new Date().toISOString();
-    const candidate = {
-      ...snapshot.candidates[index],
-      status: "rejected" as const,
-      rejectedReason: requiredText(reason, "reason"),
+    const candidate: RecallCandidate = {
+      ...snapshot.candidates[index]!,
+      status: "promoted",
+      promotedAt: now,
+      promotedTo: requiredText(promotedTo, "promotedTo"),
       updatedAt: now,
     };
+    delete candidate.rejectedReason;
     snapshot.candidates[index] = candidate;
     await this.saveSnapshot(snapshot);
     return candidate;
+  }
+
+  async restoreMany(ids: readonly string[]): Promise<RecallCandidate[]> {
+    const requested = [...new Set(ids)];
+    if (requested.length === 0) return [];
+    const snapshot = await this.loadSnapshot();
+    const byId = new Map(snapshot.candidates.map((candidate, index) => [candidate.id, index]));
+    const missing = requested.filter((id) => !byId.has(id));
+    if (missing.length > 0) throw new Error(`recall candidate not found: ${missing.join(", ")}`);
+    const now = new Date().toISOString();
+    const restored = requested.map((id) => {
+      const index = byId.get(id)!;
+      const candidate: RecallCandidate = {
+        ...snapshot.candidates[index]!,
+        status: "candidate",
+        updatedAt: now,
+      };
+      delete candidate.promotedAt;
+      delete candidate.promotedTo;
+      delete candidate.rejectedReason;
+      snapshot.candidates[index] = candidate;
+      return candidate;
+    });
+    await this.saveSnapshot(snapshot);
+    return restored;
+  }
+
+  async purgeRejected(ids: readonly string[]): Promise<number> {
+    const requested = new Set(ids);
+    if (requested.size === 0) return 0;
+    const snapshot = await this.loadSnapshot();
+    const before = snapshot.candidates.length;
+    snapshot.candidates = snapshot.candidates.filter(
+      (candidate) => !(requested.has(candidate.id) && candidate.status === "rejected"),
+    );
+    const removed = before - snapshot.candidates.length;
+    if (removed > 0) await this.saveSnapshot(snapshot);
+    return removed;
   }
 
   async search(query: string): Promise<RecallCandidate[]> {
@@ -217,11 +291,21 @@ function assertCandidate(
       `candidates[${index}].sourceSessionId must be a string`,
     );
   }
-  if (candidate.status !== "candidate" && candidate.status !== "rejected") {
+  if (
+    candidate.status !== "candidate" &&
+    candidate.status !== "promoted" &&
+    candidate.status !== "rejected"
+  ) {
     throw new RecallStoreFormatError(
       filePath,
-      `candidates[${index}].status must be candidate or rejected`,
+      `candidates[${index}].status must be candidate, promoted, or rejected`,
     );
+  }
+  if (candidate.promotedAt !== undefined && typeof candidate.promotedAt !== "string") {
+    throw new RecallStoreFormatError(filePath, `candidates[${index}].promotedAt must be a string`);
+  }
+  if (candidate.promotedTo !== undefined && typeof candidate.promotedTo !== "string") {
+    throw new RecallStoreFormatError(filePath, `candidates[${index}].promotedTo must be a string`);
   }
   if (typeof candidate.createdAt !== "string" || typeof candidate.updatedAt !== "string") {
     throw new RecallStoreFormatError(filePath, `candidates[${index}] timestamps must be strings`);

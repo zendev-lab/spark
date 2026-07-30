@@ -197,7 +197,7 @@ function activeRun(
     projectRef: task.projectRef,
     taskRef: task.ref,
     status: "running",
-    outputArtifacts: [],
+    outputEvidenceRefs: [],
     resourceAllocation: {
       leaseId: "resource:active",
       nodeId: "node-8",

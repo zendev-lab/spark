@@ -17,7 +17,7 @@ import type {
 } from "./schema.ts";
 import { validateSparkAskFlowRequest } from "./schema.ts";
 import {
-  createSparkAskFlowArtifactBody as createSharedSparkAskFlowArtifactBody,
+  createSparkAskFlowEvidenceBody as createSharedSparkAskFlowEvidenceBody,
   summarizeAskResult,
 } from "./summary.ts";
 import {
@@ -93,7 +93,7 @@ export interface SparkAskFlowElaborationNote {
   note: string;
 }
 
-export interface SparkAskFlowArtifactBody {
+export interface SparkAskFlowEvidenceBody {
   request: SparkAskFlowRequest;
   result: SparkAskFlowResult;
 }
@@ -223,17 +223,17 @@ export function replayableSparkAskFlow(
   return { ...input, questions };
 }
 
-export function createSparkAskFlowArtifactBody(
+export function createSparkAskFlowEvidenceBody(
   request: SparkAskFlowRequest,
   result: SparkAskFlowResult,
-): SparkAskFlowArtifactBody & { summary: string } {
-  return createSharedSparkAskFlowArtifactBody(
+): SparkAskFlowEvidenceBody & { summary: string } {
+  return createSharedSparkAskFlowEvidenceBody(
     request,
     normalizeSparkAskFlowResult(result, request),
   );
 }
 
-export function isSparkAskFlowArtifactBody(value: unknown): value is SparkAskFlowArtifactBody & {
+export function isSparkAskFlowEvidenceBody(value: unknown): value is SparkAskFlowEvidenceBody & {
   summary?: string;
 } {
   return Boolean(

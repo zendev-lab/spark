@@ -1,5 +1,5 @@
 import type {
-  ArtifactRef,
+  EvidenceRef,
   RoleRunCompletionOutcome,
   RoleRef,
   RunRef,
@@ -16,14 +16,14 @@ import {
   listActiveSparkRoleRunProcesses,
   type SparkRoleRunInputControl,
   type KillSparkRoleRunProcessResult,
-  type RoleRunArtifactPreview,
+  type RoleRunEvidencePreview,
   type RoleRunJsonEventsTail,
   type RoleRunTextTail,
 } from "@zendev-lab/spark-runtime";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   collectBackgroundChildRuns,
-  enrichBackgroundChildRunsWithRoleRunArtifacts,
+  enrichBackgroundChildRunsWithRoleRunEvidence,
 } from "./background-child-runs.ts";
 import {
   backgroundRunView,
@@ -137,12 +137,12 @@ export interface SparkBackgroundChildRunView {
   summary?: string;
   errorMessage?: string;
   outcome?: RoleRunCompletionOutcome;
-  artifactRefs: ArtifactRef[];
-  transcriptRef?: ArtifactRef;
+  evidenceRefs: EvidenceRef[];
+  transcriptRef?: EvidenceRef;
   stdoutTail?: RoleRunTextTail;
   stderrTail?: RoleRunTextTail;
   jsonEventsTail?: RoleRunJsonEventsTail;
-  roleRunArtifacts?: RoleRunArtifactPreview[];
+  roleRunEvidence?: RoleRunEvidencePreview[];
   nextAction?: string;
 }
 
@@ -289,7 +289,7 @@ export async function buildSparkBackgroundDetails(input: {
     ),
     activityEvents,
   });
-  const collectedChildRuns = await enrichBackgroundChildRunsWithRoleRunArtifacts({
+  const collectedChildRuns = await enrichBackgroundChildRunsWithRoleRunEvidence({
     cwd: input.cwd,
     childRuns: collectBackgroundChildRuns({
       graph: input.graph,

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { ArtifactStore, validateArtifact } from "@zendev-lab/spark-artifacts";
+import { EvidenceStore, validateEvidenceRecord } from "@zendev-lab/spark-artifacts";
 import {
   formatJsonFile,
   newRef,
@@ -32,7 +32,7 @@ function executionReadyPlan(objective: string): TaskPlan {
     nonGoals: [],
     successCriteria: [`Validation command for ${objective} passes with exit code 0.`],
     evidenceRequired: [
-      `Validation artifact records command output, exit code, and changed-file summary for ${objective}.`,
+      `Validation evidence records command output, exit code, and changed-file summary for ${objective}.`,
     ],
     steps: [objective],
     riskLevel: "normal",
@@ -60,18 +60,18 @@ test("refs carry kind and id", () => {
   assert.equal(isRef("agent:builtin-worker"), false);
   assert.throws(() => refKind("agent:builtin-worker"), /unknown ref kind/);
 
-  // evidence is a first-class RefKind (ArtifactRef may be evidence:…); isRefKind must accept it
+  // Evidence is a first-class RefKind with its own namespace.
   assert.equal(isRefKind("evidence"), true);
   const evidenceRef = newRef("evidence", "proof");
   assert.equal(evidenceRef, "evidence:proof");
   assert.equal(isRef(evidenceRef), true);
   assert.equal(isRef(evidenceRef, "evidence"), true);
-  assert.equal(isRef("evidence:proof", "artifact"), false);
+  assert.equal(isRef("evidence:proof", "evidence"), true);
   assert.equal(refKind(evidenceRef), "evidence");
 });
 
 test("artifact contract validates persisted metadata shape", () => {
-  const ref = newRef("artifact", "contract");
+  const ref = newRef("evidence", "contract");
   const projectRef = newRef("proj", "contract-project");
   const artifact = {
     ref,
@@ -94,25 +94,29 @@ test("artifact contract validates persisted metadata shape", () => {
     updatedAt: "2026-05-28T00:00:00.000Z",
   };
 
-  assert.doesNotThrow(() => validateArtifact(artifact));
+  assert.doesNotThrow(() => validateEvidenceRecord(artifact));
   assert.throws(
-    () => validateArtifact({ ...artifact, provenance: undefined }),
+    () => validateEvidenceRecord({ ...artifact, ref: "artifact:not-evidence" }),
+    /evidence ref must be a valid evidence ref/,
+  );
+  assert.throws(
+    () => validateEvidenceRecord({ ...artifact, provenance: undefined }),
     /provenance must be an object/,
   );
   assert.throws(
-    () => validateArtifact({ ...artifact, bodyTruncated: true, bodyPreview: "preview" }),
+    () => validateEvidenceRecord({ ...artifact, bodyTruncated: true, bodyPreview: "preview" }),
     /bodySize must be a positive number/,
   );
   assert.throws(
-    () => validateArtifact({ ...artifact, curation: { status: "kept" } }),
+    () => validateEvidenceRecord({ ...artifact, curation: { status: "kept" } }),
     /curation.status must be valid/,
   );
 });
 
-test("artifact store defaults and filters curation lifecycle", async () => {
+test("Evidence store defaults and filters curation lifecycle", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-artifact-curation-"));
   try {
-    const store = new ArtifactStore({ rootDir: dir });
+    const store = new EvidenceStore({ rootDir: dir });
     const trace = await store.put({
       kind: "trace",
       title: "Noisy run trace",
@@ -363,7 +367,7 @@ test("task role labels prefer active claim, finished attribution, then latest ru
         taskRef: legacy.ref,
         runName: "reviewer-9999",
         status: "succeeded",
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
       },
     }),
     "me/reviewer-9999",

@@ -329,7 +329,7 @@ const verdict = await agent([
 })
 
 if (config.mode === 'delivery-sync') {
-  const receipt = await artifactRecord({
+  const receipt = await evidenceRecord({
     title: config.workflowName + ' managed sections',
     kind: 'record',
     format: 'markdown',

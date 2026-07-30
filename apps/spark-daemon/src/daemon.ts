@@ -51,7 +51,7 @@ import {
   runtimeEnvelope,
   type RouteContext,
 } from "./protocol/outbound.js";
-import { productArtifactProjectionPayload } from "./product-artifact-projection.ts";
+import { artifactProjectionPayload } from "./artifact-projection.ts";
 import {
   acknowledgeRuntimeCommandTerminalForRoute,
   claimRuntimeCommandReceipt,
@@ -638,10 +638,10 @@ export function runtimeEnvelopeForInvocationEvent(
     return null;
   }
   const messageId = invocationEventMessageId(pending.event);
-  if (event.type === "daemon.product_artifact.projected") {
+  if (event.type === "daemon.artifact.projected") {
     if (!route.workspaceId) return null;
     return artifactProjected(
-      productArtifactProjectionPayload(event.artifact, {
+      artifactProjectionPayload(event.artifact, {
         workspaceId: route.workspaceId,
         scope: event.projectId ? "project" : "workspace",
         ...(event.invocationId ? { invocationId: event.invocationId } : {}),

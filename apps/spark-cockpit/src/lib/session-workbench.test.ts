@@ -33,6 +33,7 @@ describe("session workbench projection", () => {
             title: "Implement inspector",
             status: "running",
             progress: 0.5,
+            evidenceRefs: [],
             artifactRefs: ["artifact:report-1"],
             startedAt: "2026-07-13T08:00:00.000Z",
           },
@@ -49,6 +50,7 @@ describe("session workbench projection", () => {
               { id: "todo-2", content: "Render tabs", status: "in_progress", notes: [] },
             ],
             runRefs: ["run:inv-1"],
+            evidenceRefs: [],
             artifactRefs: ["artifact:report-1"],
           },
         ],
@@ -278,6 +280,27 @@ describe("session workbench projection", () => {
     expect(view.evidence.map((artifact) => artifact.id)).toEqual(["note-1"]);
   });
 
+  it("rejects Artifact refs emitted on the evidence activity lane", () => {
+    expect(() =>
+      buildSessionWorkbenchView({
+        session: session(),
+        activity: {
+          reports: [
+            {
+              id: "artifact:wrong-lane",
+              kind: "evidence.update",
+              title: "Malformed evidence event",
+              text: "wrong prefix",
+              role: "assistant",
+              status: "succeeded",
+              createdAt: "2026-07-13T08:03:00.000Z",
+            },
+          ],
+        },
+      }),
+    ).toThrow(/evidence activity requires a non-empty evidence: ref/);
+  });
+
   it("maps canonical activity artifact kinds without inferring Git state from prose", () => {
     const view = buildSessionWorkbenchView({
       session: session(),
@@ -342,7 +365,7 @@ describe("session workbench projection", () => {
             createdAt: "2026-07-13T08:01:00.000Z",
           },
           {
-            id: "artifact:reload-safe",
+            id: "evidence:reload-safe",
             kind: "evidence.update",
             title: "Reload-safe artifact",
             text: "Projected evidence.",
@@ -402,7 +425,7 @@ describe("session workbench projection", () => {
             kind: "session",
             title: "Initial run title",
             status: "running",
-            artifactRefs: [],
+            evidenceRefs: [],
             startedAt: "2026-07-13T08:00:00.000Z",
           },
         ],
@@ -491,6 +514,7 @@ describe("session workbench projection", () => {
             status: "done",
             todos: [],
             runRefs: [],
+            evidenceRefs: [],
             artifactRefs: [],
           },
         ],

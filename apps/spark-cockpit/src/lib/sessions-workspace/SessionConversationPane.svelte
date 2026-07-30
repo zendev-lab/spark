@@ -1,16 +1,26 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
+  import { browser } from "$app/environment";
+  import { replaceState } from "$app/navigation";
+  import { page } from "$app/state";
   import {
     ConversationViewport,
     Message as ConversationMessage,
   } from "$lib/components/conversation";
   import Icon from "$lib/Icon.svelte";
   import SessionAskPanel from "$lib/SessionAskPanel.svelte";
+  import {
+    defaultSessionPrimaryView,
+    requestedSessionPrimaryView,
+    type SessionPrimaryView,
+  } from "$lib/session-work-view";
   import type { Snippet } from "svelte";
   import type { SessionConversationHost } from "./conversation-host";
   import SessionStageHeader from "./SessionStageHeader.svelte";
   import SessionComposerPane from "./SessionComposerPane.svelte";
+  import SessionPrimaryViewTabs from "./SessionPrimaryViewTabs.svelte";
   import SessionSideThreadDialog from "./SessionSideThreadDialog.svelte";
+  import SessionWorkPanel from "./SessionWorkPanel.svelte";
 
   let {
     host,
@@ -25,6 +35,35 @@
   } = $props();
 
   let sideThreadOpen = $state(false);
+  let selectedPrimaryView = $state<SessionPrimaryView>("transcript");
+  let primaryViewSessionId = $state("");
+  let primaryViewExplicit = $state(false);
+
+  $effect(() => {
+    const sessionId = host.selected.sessionId;
+    if (primaryViewSessionId !== sessionId) {
+      const requested = browser
+        ? requestedSessionPrimaryView(new URL(window.location.href))
+        : undefined;
+      primaryViewSessionId = sessionId;
+      primaryViewExplicit = requested !== undefined;
+      selectedPrimaryView = requested ?? defaultSessionPrimaryView(host.liveSessionView);
+      return;
+    }
+    if (!primaryViewExplicit) {
+      selectedPrimaryView = defaultSessionPrimaryView(host.liveSessionView);
+    }
+  });
+
+  function selectPrimaryView(view: SessionPrimaryView) {
+    selectedPrimaryView = view;
+    primaryViewExplicit = true;
+    if (!browser) return;
+    const url = new URL(page.url);
+    url.searchParams.set("view", view);
+    replaceState(url, page.state);
+  }
+
 </script>
 
 <SessionStageHeader
@@ -35,7 +74,32 @@
   onOpenSideThread={() => (sideThreadOpen = true)}
 />
 
-    {#key host.selected.sessionId}
+<SessionPrimaryViewTabs
+  selected={selectedPrimaryView}
+  workLabel={host.copy.workTab}
+  transcriptLabel={host.copy.transcriptTab}
+  ariaLabel={host.copy.workViewAria}
+  onSelect={selectPrimaryView}
+/>
+
+<div
+  id="session-work-panel"
+  class="primary-view-panel work-panel"
+  role="tabpanel"
+  aria-labelledby="session-work-tab"
+  hidden={selectedPrimaryView !== "work"}
+>
+  <SessionWorkPanel {host} />
+</div>
+
+<div
+  id="session-transcript-panel"
+  class="primary-view-panel transcript-panel"
+  role="tabpanel"
+  aria-labelledby="session-transcript-tab"
+  hidden={selectedPrimaryView !== "transcript"}
+>
+  {#key host.selected.sessionId}
       <ConversationViewport
         label={host.copy.timelineTitle}
         followKey={host.timelineFollowKey}
@@ -80,7 +144,8 @@
         {/each}
       {/if}
       </ConversationViewport>
-    {/key}
+  {/key}
+</div>
 
     <form
       id="session-model-form"
@@ -148,7 +213,19 @@
 {/if}
 
 <style>
+  .primary-view-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+  }
 
+  .primary-view-panel[hidden] {
+    display: none;
+  }
+
+  .transcript-panel {
+    display: flex;
+  }
 
   .spark-mark {
     align-items: center;
@@ -189,4 +266,5 @@
     overflow-y: auto;
     width: 100%;
   }
+
 </style>

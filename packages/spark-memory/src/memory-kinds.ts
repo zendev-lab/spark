@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
@@ -36,6 +37,10 @@ export type SparkMemoryCandidateAction =
   | "record_candidate"
   | "list"
   | "search"
+  | "audit"
+  | "gc"
+  | "promote"
+  | "restore"
   | "reject";
 
 type ToolResult = Awaited<ReturnType<ToolConfig["execute"]>>;
@@ -61,6 +66,46 @@ export async function executeMemoryCandidateAction(input: {
   if (action === "search") {
     const candidates = await store.search(requiredString(params.query, "query"));
     return result(renderCandidates(candidates, "Search recall candidates"), { candidates });
+  }
+  if (action === "audit" || action === "gc") {
+    const candidates = await store.list();
+    const olderThanDays = optionalNonNegativeNumber(params.olderThanDays, 7, "olderThanDays");
+    const plan = createRecallCandidateGcPlan(candidates, scope, olderThanDays);
+    if (action === "audit" || !optionalBoolean(params.apply, false, "apply")) {
+      return result(renderRecallCandidateGcPlan(plan), { apply: false, plan });
+    }
+    const planDigest = requiredString(params.planDigest, "planDigest");
+    if (planDigest !== plan.digest) {
+      throw new Error(
+        `memory candidate GC plan digest mismatch: expected ${plan.digest}, received ${planDigest}`,
+      );
+    }
+    const rejected = await store.rejectMany(
+      plan.items.map((item) => item.id),
+      `Automatic recall quarantine: ${plan.reasonSummary}`,
+    );
+    return result(`Rejected ${rejected.length} recall candidate(s) using plan ${plan.digest}.`, {
+      apply: true,
+      plan,
+      rejected,
+    });
+  }
+  if (action === "promote") {
+    const candidate = await store.promote(
+      requiredString(params.id, "id"),
+      requiredString(params.promotedTo ?? params.ref, "promotedTo"),
+    );
+    return result(`Promoted recall candidate ${candidate.id} to ${candidate.promotedTo}.`, {
+      candidate,
+    });
+  }
+  if (action === "restore") {
+    const ids =
+      params.ids === undefined
+        ? [requiredString(params.id, "id")]
+        : requiredStringArray(params.ids, "ids");
+    const restored = await store.restoreMany(ids);
+    return result(`Restored ${restored.length} recall candidate(s).`, { restored });
   }
   if (action === "reject") {
     const candidate = await store.reject(
@@ -96,7 +141,7 @@ async function executeBuiltinLearningAction(
   const store = defaultLearningStore(cwd, location);
 
   if (action === "record") {
-    const artifact = await store.record({
+    const evidence = await store.record({
       id: optionalString(params.id),
       title: requiredString(params.title, "title"),
       statement: requiredString(params.statement, "statement"),
@@ -116,8 +161,8 @@ async function executeBuiltinLearningAction(
       confidence: optionalNumber(params.confidence, "confidence"),
     });
     return result(
-      `Recorded learning ${artifact.ref} [${artifact.body.status}] ${artifact.body.title}`,
-      { learning: artifact },
+      `Recorded learning ${evidence.ref} [${evidence.body.status}] ${evidence.body.title}`,
+      { learning: evidence },
     );
   }
 
@@ -156,20 +201,20 @@ async function executeBuiltinLearningAction(
       includeInactive: optionalBoolean(params.includeInactive, false, "includeInactive"),
     });
     const limit = optionalPositiveInt(params.limit, 20, "limit");
-    const visible = detailed.artifacts.slice(0, limit);
+    const visible = detailed.evidence.slice(0, limit);
     const lines = [
-      `Spark learnings: ${detailed.artifacts.length}${
-        visible.length < detailed.artifacts.length ? ` (showing ${visible.length})` : ""
+      `Spark learnings: ${detailed.evidence.length}${
+        visible.length < detailed.evidence.length ? ` (showing ${visible.length})` : ""
       }`,
       ...visible.map(
-        (artifact) =>
-          `- [${artifact.body.status}/${artifact.body.category}/${store.location}] ${artifact.ref} ${artifact.body.title}`,
+        (evidence) =>
+          `- [${evidence.body.status}/${evidence.body.category}/${store.location}] ${evidence.ref} ${evidence.body.title}`,
       ),
       ...detailed.diagnostics.map((diagnostic) => `- warning: ${diagnostic.message}`),
     ];
     if (visible.length === 0) lines.push("- No learnings.");
     return result(lines.join("\n"), {
-      count: detailed.artifacts.length,
+      count: detailed.evidence.length,
       shown: visible.length,
       learnings: visible,
       warnings: detailed.diagnostics,
@@ -177,57 +222,57 @@ async function executeBuiltinLearningAction(
   }
 
   if (action === "read") {
-    const artifact = await store.get(requiredString(params.ref ?? params.id, "ref"));
+    const evidence = await store.get(requiredString(params.ref ?? params.id, "ref"));
     const maxChars = optionalPositiveInt(params.maxChars, 4_000, "maxChars");
-    const body = JSON.stringify(artifact.body, null, 2);
+    const body = JSON.stringify(evidence.body, null, 2);
     const rendered = body.length > maxChars ? `${body.slice(0, Math.max(0, maxChars - 1))}…` : body;
     return result(
       [
-        `${artifact.ref} [${artifact.body.status}/${artifact.body.category}/${store.location}] ${artifact.body.title}`,
-        `updated=${artifact.updatedAt} evidence=${artifact.body.evidenceRefs.length}`,
+        `${evidence.ref} [${evidence.body.status}/${evidence.body.category}/${store.location}] ${evidence.body.title}`,
+        `updated=${evidence.updatedAt} evidence=${evidence.body.evidenceRefs.length}`,
         "",
         rendered,
       ].join("\n"),
-      { learning: artifact, bodyChars: body.length, shownChars: rendered.length },
+      { learning: evidence, bodyChars: body.length, shownChars: rendered.length },
     );
   }
 
   if (action === "mark_stale") {
-    const artifact = await store.markStale(
+    const evidence = await store.markStale(
       requiredString(params.ref ?? params.id, "ref"),
       requiredString(params.reason, "reason"),
     );
-    return result(`Marked stale ${artifact.ref}: ${artifact.body.title}`, { learning: artifact });
+    return result(`Marked stale ${evidence.ref}: ${evidence.body.title}`, { learning: evidence });
   }
 
   if (action === "supersede") {
-    const artifact = await store.markSuperseded(
+    const evidence = await store.markSuperseded(
       requiredString(params.ref ?? params.id, "ref"),
       requiredStringArray(params.supersededBy, "supersededBy"),
       optionalString(params.reason),
     );
-    return result(`Marked superseded ${artifact.ref}: ${artifact.body.title}`, {
-      learning: artifact,
+    return result(`Marked superseded ${evidence.ref}: ${evidence.body.title}`, {
+      learning: evidence,
     });
   }
 
   if (action === "reject") {
-    const artifact = await store.rejectCandidate(
+    const evidence = await store.rejectCandidate(
       requiredString(params.ref ?? params.id, "ref"),
       requiredString(params.reason, "reason"),
     );
-    return result(`Rejected learning ${artifact.ref}: ${artifact.body.title}`, {
-      learning: artifact,
+    return result(`Rejected learning ${evidence.ref}: ${evidence.body.title}`, {
+      learning: evidence,
     });
   }
 
   if (action === "export_markdown") {
-    const artifacts = await store.list({
+    const evidence = await store.list({
       status: optionalLearningStatusFilter(params.status),
       includeCandidates: optionalBoolean(params.includeCandidates, false, "includeCandidates"),
       includeInactive: optionalBoolean(params.includeInactive, false, "includeInactive"),
     });
-    const markdown = renderLearningExportMarkdown(artifacts.map((artifact) => artifact.body));
+    const markdown = renderLearningExportMarkdown(evidence.map((record) => record.body));
     const outputPathValue = optionalString(params.outputPath);
     const outputPath = outputPathValue ? resolve(cwd, outputPathValue) : undefined;
     if (outputPath) {
@@ -235,8 +280,8 @@ async function executeBuiltinLearningAction(
       await writeFile(outputPath, markdown, "utf8");
     }
     return result(
-      `Exported ${artifacts.length} learning(s)${outputPath ? ` to ${outputPath}` : ""}`,
-      { count: artifacts.length, outputPath, markdown },
+      `Exported ${evidence.length} learning(s)${outputPath ? ` to ${outputPath}` : ""}`,
+      { count: evidence.length, outputPath, markdown },
     );
   }
 
@@ -274,12 +319,16 @@ function normalizeCandidateAction(value: unknown): SparkMemoryCandidateAction {
     value === "record_candidate" ||
     value === "list" ||
     value === "search" ||
+    value === "audit" ||
+    value === "gc" ||
+    value === "promote" ||
+    value === "restore" ||
     value === "reject"
   ) {
     return value;
   }
   throw new Error(
-    "memory.action for kind=candidate must be record, record_candidate, list, search, or reject",
+    "memory.action for kind=candidate must be record, record_candidate, list, search, audit, gc, promote, restore, or reject",
   );
 }
 
@@ -304,6 +353,80 @@ function normalizeLearningAction(value: unknown): SparkMemoryLearningAction {
 function normalizeRecallScope(value: unknown): RecallScope {
   if (value === "user" || value === "workspace" || value === "repo") return value;
   throw new Error("memory.scope must be user, workspace, or repo");
+}
+
+interface RecallCandidateGcPlanItem {
+  id: string;
+  kind: RecallCandidate["kind"];
+  updatedAt: string;
+  reasonCode: "compaction_open_item" | "compaction_snapshot";
+}
+
+interface RecallCandidateGcPlan {
+  schemaVersion: 1;
+  scope: RecallScope;
+  olderThanDays: number;
+  generatedAt: string;
+  reasonSummary: string;
+  digest: string;
+  items: RecallCandidateGcPlanItem[];
+}
+
+function createRecallCandidateGcPlan(
+  candidates: readonly RecallCandidate[],
+  scope: RecallScope,
+  olderThanDays: number,
+): RecallCandidateGcPlan {
+  const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1_000;
+  const items = candidates
+    .filter(
+      (candidate) =>
+        candidate.scope === scope &&
+        candidate.status === "candidate" &&
+        Boolean(candidate.sourceSessionId) &&
+        Date.parse(candidate.updatedAt) <= cutoff,
+    )
+    .map(
+      (candidate): RecallCandidateGcPlanItem => ({
+        id: candidate.id,
+        kind: candidate.kind,
+        updatedAt: candidate.updatedAt,
+        reasonCode: candidate.kind === "open_item" ? "compaction_open_item" : "compaction_snapshot",
+      }),
+    )
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const reasonSummary =
+    "session-scoped compaction candidates exceeded their recall TTL; explicit candidates remain protected";
+  const digest = createHash("sha256")
+    .update(JSON.stringify({ schemaVersion: 1, scope, olderThanDays, items }))
+    .digest("hex");
+  return {
+    schemaVersion: 1,
+    scope,
+    olderThanDays,
+    generatedAt: new Date().toISOString(),
+    reasonSummary,
+    digest,
+    items,
+  };
+}
+
+function renderRecallCandidateGcPlan(plan: RecallCandidateGcPlan): string {
+  const byReason = new Map<string, number>();
+  for (const item of plan.items)
+    byReason.set(item.reasonCode, (byReason.get(item.reasonCode) ?? 0) + 1);
+  const visible = plan.items.slice(0, 20);
+  return [
+    `Recall candidate GC plan (${plan.scope})`,
+    `- digest: ${plan.digest}`,
+    `- eligible: ${plan.items.length}`,
+    `- policy: ${plan.reasonSummary}`,
+    ...[...byReason.entries()].map(([reason, count]) => `- ${reason}: ${count}`),
+    ...visible.map((item) => `  - ${item.id} [${item.reasonCode}]`),
+    ...(visible.length < plan.items.length
+      ? [`  - … ${plan.items.length - visible.length} more`]
+      : []),
+  ].join("\n");
 }
 
 function renderCandidates(candidates: RecallCandidate[], title: string): string {
@@ -362,6 +485,14 @@ function optionalPositiveInt(value: unknown, fallback: number, field: string): n
     throw new Error(`memory.${field} must be a positive number`);
   }
   return Math.floor(value);
+}
+
+function optionalNonNegativeNumber(value: unknown, fallback: number, field: string): number {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`memory.${field} must be a non-negative number`);
+  }
+  return value;
 }
 
 function optionalLearningLocation(value: unknown): LearningLocation | undefined {

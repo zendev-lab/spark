@@ -5,8 +5,8 @@ const MAX_PREVIEW_CHARS = 8_000;
 
 export type SessionInspectorTab = "summary" | "artifacts" | "changes" | "tasks";
 
-/** Product-facing artifact kinds shown in the session sidebar. */
-export const SESSION_PRODUCT_ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
+/** User-facing Artifact kinds shown in the session sidebar. */
+export const SESSION_ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
 
 export interface SessionWorkbenchActivityCommand {
   id: string;
@@ -63,6 +63,7 @@ export interface SessionWorkbenchRun {
   runtimeName: string | null;
   runtimeStatus: string | null;
   latestOutput: string | null;
+  evidenceRefs: string[];
   artifactRefs: string[];
 }
 
@@ -79,6 +80,7 @@ export interface SessionWorkbenchTask {
   todoTotal: number;
   todos: SessionWorkbenchTodo[];
   runRefs: string[];
+  evidenceRefs: string[];
   artifactRefs: string[];
 }
 
@@ -130,7 +132,7 @@ export interface SessionWorkbenchContext {
 export interface SessionWorkbenchView {
   runs: SessionWorkbenchRun[];
   tasks: SessionWorkbenchTask[];
-  /** Product artifacts (issue / pr / preview) bound to this session. */
+  /** Artifacts (issue / pr / preview) bound to this session. */
   artifacts: SessionWorkbenchArtifact[];
   changes: SessionWorkbenchArtifact[];
   /** Agent-internal evidence; not rendered in the session sidebar. */
@@ -202,27 +204,25 @@ export function buildSessionWorkbenchView(input: {
       .map(activityTask),
   ]);
 
-  const artifacts = deduplicateArtifacts([
+  const allArtifacts = deduplicateArtifacts([
     ...input.session.artifacts.map(sessionArtifact),
     ...reports.filter(isArtifactReport).map(activityArtifact),
   ]);
   const evidence = deduplicateArtifacts([
     ...(input.session.evidence ?? []).map(sessionEvidence),
-    ...artifacts.filter(
-      (artifact) => !SESSION_PRODUCT_ARTIFACT_KINDS.has(artifact.kind) && !artifact.canonicalChange,
+    ...allArtifacts.filter(
+      (artifact) => !SESSION_ARTIFACT_KINDS.has(artifact.kind) && !artifact.canonicalChange,
     ),
     ...reports.filter(isEvidenceReport).map(activityEvidence),
   ]);
 
-  const productArtifacts = artifacts.filter((artifact) =>
-    SESSION_PRODUCT_ARTIFACT_KINDS.has(artifact.kind),
-  );
-  const changeArtifacts = artifacts.filter((artifact) => artifact.canonicalChange);
+  const artifacts = allArtifacts.filter((artifact) => SESSION_ARTIFACT_KINDS.has(artifact.kind));
+  const changeArtifacts = allArtifacts.filter((artifact) => artifact.canonicalChange);
 
   return {
     runs: sortByRecency(runs),
     tasks,
-    artifacts: productArtifacts,
+    artifacts: artifacts,
     changes: changeArtifacts,
     evidence,
     sessionTodo: latestSessionTodo(input.session),
@@ -288,6 +288,7 @@ function sessionRun(run: SparkSessionView["runs"][number]): SessionWorkbenchRun 
     runtimeName: null,
     runtimeStatus: null,
     latestOutput: null,
+    evidenceRefs: [...run.evidenceRefs],
     artifactRefs: [...run.artifactRefs],
   };
 }
@@ -329,6 +330,7 @@ function mergeActivityCommands(
       runtimeName: command.runtimeName,
       runtimeStatus: command.runtimeStatus,
       latestOutput: boundedText(command.latestLog, MAX_OUTPUT_CHARS),
+      evidenceRefs: [],
       artifactRefs: [],
     });
   }
@@ -377,6 +379,7 @@ function appendRunReports(
       runtimeName: null,
       runtimeStatus: null,
       latestOutput: null,
+      evidenceRefs: [],
       artifactRefs: [],
     });
   }
@@ -397,6 +400,7 @@ function sessionTask(task: SparkSessionView["tasks"][number]): SessionWorkbenchT
     todoTotal: task.todos.length,
     todos: task.todos.map((todo) => ({ ...todo, notes: [...todo.notes] })),
     runRefs: [...task.runRefs],
+    evidenceRefs: [...task.evidenceRefs],
     artifactRefs: [...task.artifactRefs],
   };
 }
@@ -415,6 +419,7 @@ function activityTask(report: SessionWorkbenchActivityReport): SessionWorkbenchT
     todoTotal: 0,
     todos: [],
     runRefs: [],
+    evidenceRefs: [],
     artifactRefs: [],
   };
 }
@@ -480,14 +485,14 @@ function activityArtifact(report: SessionWorkbenchActivityReport): SessionWorkbe
 }
 
 function activityEvidence(report: SessionWorkbenchActivityReport): SessionWorkbenchArtifact {
+  if (report.id.startsWith("artifact:") || report.id === "evidence:") {
+    throw new Error("evidence activity requires a non-empty evidence: ref");
+  }
   const kind =
     report.kind === "evidence.update" ? "evidence" : report.kind.slice("evidence.".length);
   return {
     id: artifactId(report.id),
-    ref:
-      report.id.startsWith("evidence:") || report.id.startsWith("artifact:")
-        ? report.id
-        : `evidence:${report.id}`,
+    ref: report.id.startsWith("evidence:") ? report.id : `evidence:${report.id}`,
     source: "activity",
     title: report.title || report.id,
     kind,

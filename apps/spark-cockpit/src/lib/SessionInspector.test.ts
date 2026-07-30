@@ -168,6 +168,7 @@ describe("SessionInspector rendered contract", () => {
               { id: "todo-2", content: "Active item", status: "in_progress", notes: [] },
             ],
             runRefs: [],
+            evidenceRefs: [],
             artifactRefs: [],
           },
           {
@@ -183,6 +184,7 @@ describe("SessionInspector rendered contract", () => {
             todoTotal: 0,
             todos: [],
             runRefs: [],
+            evidenceRefs: [],
             artifactRefs: [],
           },
         ],
@@ -205,7 +207,7 @@ describe("SessionInspector rendered contract", () => {
     expect(body).toContain("Unassigned task");
   });
 
-  it("keeps product artifacts, canonical changes, and internal evidence on separate surfaces", () => {
+  it("keeps artifacts, canonical changes, and internal evidence on separate surfaces", () => {
     const view = sessionWorkbenchView({
       artifacts: [
         {

@@ -691,23 +691,20 @@ export type {
   SparkAskAutoAnswerProvider,
   SparkAskAutoAnswerResolver,
 } from "./action-tool.ts";
-export {
-  isUserAnsweredAskEvidenceArtifactBody,
-  verifyCanonicalAskEvidenceArtifact,
-} from "./evidence.ts";
+export { isUserAnsweredAskEvidenceBody, verifyCanonicalAskEvidence } from "./evidence.ts";
 export type {
   CanonicalAskEvidenceAnswer,
-  SparkAskEvidenceArtifactBody,
+  SparkAskEvidenceBody,
   VerifiedCanonicalAskEvidence,
 } from "./evidence.ts";
 export {
-  createAskArtifactBody,
-  isAskArtifactBody,
+  createAskEvidenceBody,
+  isAskEvidenceBody,
   summarizeAskAnswers,
   summarizeAskResult,
 } from "./summary.ts";
 export type {
-  AskArtifactBody,
+  AskEvidenceBody,
   AskSummaryAnswer,
   AskSummaryRequest,
   AskSummaryResult,

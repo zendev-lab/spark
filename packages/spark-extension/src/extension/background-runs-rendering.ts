@@ -45,9 +45,9 @@ function appendBackgroundChildSummaryLines(
 ): void {
   if (child.summary) lines.push(`${indent}Summary: ${child.summary}`);
   else if (child.errorMessage) lines.push(`${indent}Error: ${child.errorMessage}`);
-  if (child.artifactRefs.length > 0)
+  if (child.evidenceRefs.length > 0)
     lines.push(
-      `${indent}Artifacts: ${child.artifactRefs.length} (${formatInlineRefs(child.artifactRefs)})`,
+      `${indent}Evidence: ${child.evidenceRefs.length} (${formatInlineRefs(child.evidenceRefs)})`,
     );
   if (child.transcriptRef) lines.push(`${indent}Transcript: ${child.transcriptRef}`);
   if (child.stdoutTail)
@@ -56,9 +56,9 @@ function appendBackgroundChildSummaryLines(
     lines.push(`${indent}Stderr tail: ${roleRunTailMetadata(child.stderrTail)}`);
   if (child.jsonEventsTail)
     lines.push(`${indent}JSON events tail: ${jsonEventsTailMetadata(child.jsonEventsTail)}`);
-  for (const artifact of child.roleRunArtifacts ?? []) {
-    if (artifact.skippedReason)
-      lines.push(`${indent}Artifact ${artifact.artifactRef}: ${artifact.skippedReason}`);
+  for (const evidence of child.roleRunEvidence ?? []) {
+    if (evidence.skippedReason)
+      lines.push(`${indent}EvidenceRecord ${evidence.evidenceRef}: ${evidence.skippedReason}`);
   }
 }
 

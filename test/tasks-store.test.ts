@@ -10,7 +10,7 @@ import {
   cancelRoleRun,
   listActiveRoleRuns,
 } from "@zendev-lab/spark-roles";
-import { ArtifactStore } from "@zendev-lab/spark-artifacts";
+import { EvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
   DependencyError,
   newRef,
@@ -80,6 +80,24 @@ after(async () => {
   await killActiveSparkRoleRunProcesses({ forceAfterMs: 0, waitMs: 1_000 });
 });
 
+type LegacyTaskRunEvidenceFixture = {
+  legacyFieldNames: string[];
+  taskFields: Record<string, unknown>;
+  runFields: Record<string, unknown>;
+  completionSummaryFields: Record<string, unknown>;
+};
+
+async function loadLegacyTaskRunEvidenceFixture(): Promise<LegacyTaskRunEvidenceFixture> {
+  const path = join(
+    process.cwd(),
+    "test",
+    "fixtures",
+    "legacy-evidence",
+    "task-run-v1-fields.json",
+  );
+  return JSON.parse(await readFile(path, "utf8")) as LegacyTaskRunEvidenceFixture;
+}
+
 function executionReadyPlan(objective: string): TaskPlan {
   return {
     objective,
@@ -88,7 +106,7 @@ function executionReadyPlan(objective: string): TaskPlan {
     nonGoals: [],
     successCriteria: [`Validation command for ${objective} passes with exit code 0.`],
     evidenceRequired: [
-      `Validation artifact records command output, exit code, and changed-file summary for ${objective}.`,
+      `Validation evidence records command output, exit code, and changed-file summary for ${objective}.`,
     ],
     steps: [objective],
     riskLevel: "normal",
@@ -240,14 +258,14 @@ async function assertRunSparkTaskSucceedsWithChildOutput(
       roleRef: builtinRoleRef("worker"),
       plan: executionReadyPlan(testCase.planObjective),
     });
-    const artifactStore = new ArtifactStore({
+    const evidenceStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
     const run = await runSparkTask({
       graph,
       taskRef: task.ref,
       registry: new RoleRegistry(),
-      artifactStore,
+      evidenceStore: evidenceStore,
       cwd: dir,
       dryRun: false,
       roleExecutor: async (input) =>
@@ -394,7 +412,7 @@ test("default task graph store writes V2 project/task file tree without legacy p
       projectRef: project.ref,
       taskRef: dependent.ref,
       status: "succeeded",
-      outputArtifacts: [],
+      outputEvidenceRefs: [],
     });
 
     await store.save(graph);
@@ -441,6 +459,169 @@ test("default task graph store writes V2 project/task file tree without legacy p
       { taskRef: dependent.ref, dependsOn: prerequisite.ref },
     ]);
     assert.equal(loaded?.runs()[0]?.ref, "run:v2-demo");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("task graph store migrates v1 evidence fields once without losing record data", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-task-evidence-v2-migration-"));
+  try {
+    const legacyFixture = await loadLegacyTaskRunEvidenceFixture();
+    const store = defaultTaskGraphStore(dir);
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Migration project", description: "schema v2" });
+    const task = graph.createTask({
+      projectRef: project.ref,
+      name: "migration-task",
+      title: "Migration task",
+      description: "Preserve complete task data",
+      status: "pending",
+      inputEvidenceRefs: ["evidence:already-input" as never],
+      plan: executionReadyPlan("Migration task"),
+    });
+    graph.recordRun({
+      ref: "run:migration" as RunRef,
+      projectRef: project.ref,
+      taskRef: task.ref,
+      roleRef: builtinRoleRef("worker"),
+      runName: "migration-run",
+      status: "succeeded",
+      outputEvidenceRefs: ["evidence:already-output" as never],
+      completionSummary: {
+        runRef: "run:migration" as RunRef,
+        taskRef: task.ref,
+        status: "succeeded",
+        summary: "Migration complete",
+        evidenceRefs: ["evidence:already-summary" as never],
+        createdAt: "2026-07-29T00:00:00.000Z",
+      },
+    });
+    await store.save(graph);
+
+    const taskDir = join(
+      dir,
+      ".spark",
+      "projects",
+      project.ref.replace(":", "-"),
+      "tasks",
+      task.ref.replace(":", "-"),
+    );
+    const taskPath = join(taskDir, "task.json");
+    const runPath = join(taskDir, "runs", "run-migration.json");
+    const taskV2 = JSON.parse(await readFile(taskPath, "utf8")) as Record<string, unknown>;
+    const runV2 = JSON.parse(await readFile(runPath, "utf8")) as Record<string, unknown>;
+    const { inputEvidenceRefs: _input, outputEvidenceRefs: _output, ...taskRest } = taskV2;
+    const summary = runV2.completionSummary as Record<string, unknown>;
+    const { evidenceRefs: _summaryRefs, ...summaryRest } = summary;
+    const {
+      outputEvidenceRefs: _runOutput,
+      completionSummary: _completionSummary,
+      ...runRest
+    } = runV2;
+    await writeFile(
+      taskPath,
+      `${JSON.stringify(
+        {
+          ...taskRest,
+          version: 1,
+          ...legacyFixture.taskFields,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await writeFile(
+      runPath,
+      `${JSON.stringify(
+        {
+          ...runRest,
+          version: 1,
+          ...legacyFixture.runFields,
+          completionSummary: {
+            ...summaryRest,
+            ...legacyFixture.completionSummaryFields,
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const taskBeforeLoad = await readFile(taskPath, "utf8");
+    const runBeforeLoad = await readFile(runPath, "utf8");
+    const loaded = await store.load();
+    assert.deepEqual(loaded?.getTask(task.ref).inputEvidenceRefs, [
+      "evidence:legacy-input",
+      "evidence:already-input",
+    ]);
+    assert.deepEqual(loaded?.getTask(task.ref).outputEvidenceRefs, ["evidence:legacy-output"]);
+    const migratedRun = loaded?.runs(project.ref)[0];
+    assert.equal(migratedRun?.runName, "migration-run");
+    assert.deepEqual(migratedRun?.outputEvidenceRefs, [
+      "evidence:legacy-run",
+      "evidence:already-output",
+    ]);
+    assert.deepEqual(migratedRun?.completionSummary?.evidenceRefs, [
+      "evidence:legacy-summary",
+      "evidence:already-summary",
+    ]);
+
+    assert.equal(await readFile(taskPath, "utf8"), taskBeforeLoad);
+    assert.equal(await readFile(runPath, "utf8"), runBeforeLoad);
+
+    assert.ok(loaded);
+    await store.save(loaded);
+    const taskAfterFirstSave = await readFile(taskPath, "utf8");
+    const runAfterFirstSave = await readFile(runPath, "utf8");
+    assert.match(taskAfterFirstSave, /"version": 2/);
+    assert.match(runAfterFirstSave, /"version": 2/);
+    for (const legacyField of legacyFixture.legacyFieldNames) {
+      assert.doesNotMatch(
+        `${taskAfterFirstSave}\n${runAfterFirstSave}`,
+        new RegExp(`"${legacyField}"`),
+      );
+    }
+    assert.match(taskAfterFirstSave, /"inputEvidenceRefs"/);
+    assert.match(runAfterFirstSave, /"evidenceRefs"/);
+
+    const reloaded = await store.load();
+    assert.ok(reloaded);
+    await store.save(reloaded);
+    assert.equal(await readFile(taskPath, "utf8"), taskAfterFirstSave);
+    assert.equal(await readFile(runPath, "utf8"), runAfterFirstSave);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("task graph store rejects mixed-prefix evidence in v2 files", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-task-evidence-v2-invalid-"));
+  try {
+    const store = defaultTaskGraphStore(dir);
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Invalid project", description: "schema v2" });
+    const task = graph.createTask({
+      projectRef: project.ref,
+      title: "Invalid task",
+      description: "reject mixed prefix",
+      status: "pending",
+      plan: executionReadyPlan("Invalid task"),
+    });
+    await store.save(graph);
+    const taskPath = join(
+      dir,
+      ".spark",
+      "projects",
+      project.ref.replace(":", "-"),
+      "tasks",
+      task.ref.replace(":", "-"),
+      "task.json",
+    );
+    const raw = JSON.parse(await readFile(taskPath, "utf8")) as Record<string, unknown>;
+    raw.outputEvidenceRefs = ["artifact:not-internal-evidence"];
+    await writeFile(taskPath, `${JSON.stringify(raw, null, 2)}\n`);
+    await assert.rejects(() => store.load(), /outputEvidenceRefs\[0\] must be an evidence: ref/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -828,7 +1009,7 @@ test("task plan readiness distinguishes minimal and execution-ready plans", () =
       ["missing_success_criteria", "Add at least one observable entry to plan.successCriteria."],
       [
         "missing_evidence_required",
-        "Add at least one concrete validation artifact or command to plan.evidenceRequired.",
+        "Add at least one concrete validation Evidence record or command to plan.evidenceRequired.",
       ],
       [
         "weak_objective",
@@ -858,7 +1039,7 @@ test("task plan readiness distinguishes minimal and execution-ready plans", () =
       successCriteria: [
         "Decision artifact records the selected direction and rejected alternatives.",
       ],
-      evidenceRequired: ["Decision artifact ref is attached to the task plan."],
+      evidenceRequired: ["Decision Evidence ref is attached to the task plan."],
       steps: ["Record the decision artifact for the selected direction"],
       riskLevel: "normal",
       openQuestions: ["Which direction should we take?"],
@@ -1119,7 +1300,7 @@ test("task plan readiness provides remediation for every issue kind", () => {
       ["missing_success_criteria", "Add at least one observable entry to plan.successCriteria."],
       [
         "missing_evidence_required",
-        "Add at least one concrete validation artifact or command to plan.evidenceRequired.",
+        "Add at least one concrete validation Evidence record or command to plan.evidenceRequired.",
       ],
       ["missing_steps", "Add at least one concrete plan item to plan.items."],
       [
@@ -1181,7 +1362,7 @@ test("task completion readiness requires output artifacts for declared evidence"
     taskCompletionReadiness(doneItems).issues.map((issue) => issue.kind),
     ["missing_completion_evidence"],
   );
-  const withArtifact = graph.attachOutputArtifact(task.ref, "artifact:evidence" as const);
+  const withArtifact = graph.attachOutputEvidence(task.ref, "evidence:evidence" as const);
   assert.deepEqual(taskCompletionReadiness(withArtifact), { ready: true, issues: [] });
 });
 
@@ -1578,7 +1759,7 @@ test("task graph store merges task progress from stale snapshots under lock", as
       taskRef: task.ref,
       status: "succeeded",
       finishedAt: "2026-05-20T00:00:00.000Z",
-      outputArtifacts: [],
+      outputEvidenceRefs: [],
     });
     stale.setTaskStatus(task.ref, "done");
 
@@ -2005,7 +2186,7 @@ test("legacy agent-shaped role fields are rejected at task graph load boundaries
       roleRef: builtinRoleRef("worker"),
       runName: "worker-current",
       status: "running",
-      outputArtifacts: [],
+      outputEvidenceRefs: [],
     });
     return { snapshot: graph.snapshot(), runRef };
   }
@@ -2065,7 +2246,7 @@ test("task claims use a lease that can expire", () => {
     taskRef: task.ref,
     status: "running",
     startedAt: "2026-05-18T00:00:00.000Z",
-    outputArtifacts: [],
+    outputEvidenceRefs: [],
   });
   const claimed = graph.claimTask(task.ref, {
     kind: "main",
@@ -2125,7 +2306,7 @@ test("expired claim sweeper persists retryable stale claims", async () => {
       roleRef: builtinRoleRef("worker"),
       status: "running",
       startedAt: "2026-05-18T00:00:00.000Z",
-      outputArtifacts: [],
+      outputEvidenceRefs: [],
     });
     graph.claimTask(task.ref, {
       kind: "role-run",
@@ -2631,7 +2812,7 @@ test("background resume persists plan items through the task graph without a TOD
           status: "succeeded",
           startedAt: finishedAt,
           finishedAt,
-          outputArtifacts: [],
+          outputEvidenceRefs: [],
         });
         runningGraph.setTaskStatus(taskRef, "done");
         return run;
@@ -2752,7 +2933,7 @@ test("workflow run store persists manager lifecycle and task progress", async ()
         projectRef,
         taskRef,
         status: "succeeded",
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
       },
     });
     const followUp = await store.finishRun(dagRun.ref, {
@@ -2973,7 +3154,7 @@ test("Spark DAG run store keeps foreground-timeout runs active for late progress
         projectRef,
         taskRef,
         status: "succeeded",
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
       },
     });
     await store.reconcile({
@@ -3003,7 +3184,7 @@ test("Spark DAG run store keeps foreground-timeout runs active for late progress
             projectRef,
             taskRef,
             status: "succeeded",
-            outputArtifacts: [],
+            outputEvidenceRefs: [],
           },
         ],
       }),
@@ -3057,7 +3238,7 @@ test("Spark DAG run store ignores late progress after legacy timeout terminal fi
         projectRef,
         taskRef: lateTaskRef,
         status: "succeeded",
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
       },
     });
 
@@ -3096,7 +3277,7 @@ test("Spark DAG run store derives counters from unique scheduled and completed r
       store.recordProgress(dagRun.ref, {
         taskRef,
         completed: 99,
-        run: { ref: runRef, projectRef, taskRef, status: "succeeded", outputArtifacts: [] },
+        run: { ref: runRef, projectRef, taskRef, status: "succeeded", outputEvidenceRefs: [] },
       }),
     ]);
     await store.finishRun(dagRun.ref, { scheduled: 99, completed: 99, timedOut: false });
@@ -3429,7 +3610,7 @@ test("Spark DAG run store reconciles stale running manager records", async () =>
       projectRef: project.ref,
       taskRef: task.ref,
       status: "succeeded",
-      outputArtifacts: [],
+      outputEvidenceRefs: [],
     });
 
     const snapshot = await store.reconcile({ graph, activeRunRefs: [] });
@@ -4099,7 +4280,7 @@ test("runReadyTasks treats timeoutMs as a foreground wait budget", async () => {
           ownerSessionId: claim?.sessionId,
           status: "running",
           startedAt: nowIso(),
-          outputArtifacts: [],
+          outputEvidenceRefs: [],
         };
         runningGraph.recordRun(run);
         return new Promise<TaskRun>(() => undefined);
@@ -4155,7 +4336,7 @@ test("runSparkTask does not complete real tasks when the role run never starts",
       roleRef: builtinRoleRef("worker"),
       plan: executionReadyPlan("Plan"),
     });
-    const artifactStore = new ArtifactStore({
+    const evidenceStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
 
@@ -4163,7 +4344,7 @@ test("runSparkTask does not complete real tasks when the role run never starts",
       graph,
       taskRef: task.ref,
       registry: new RoleRegistry(),
-      artifactStore,
+      evidenceStore: evidenceStore,
       cwd: dir,
       dryRun: false,
       roleExecutor: async (input) => testRoleRunResult(input, { status: "not_started" }),
@@ -4175,9 +4356,9 @@ test("runSparkTask does not complete real tasks when the role run never starts",
     assert.match(run.errorMessage ?? "", /did not start and produced no output/);
     assert.equal(graph.getTask(task.ref).status, "failed");
     assert.equal(graph.getTask(task.ref).claim, undefined);
-    const [artifact] = await artifactStore.list({ kind: "trace" });
-    assert.ok(artifact);
-    const body = artifact.body as {
+    const [evidence] = await evidenceStore.list({ kind: "trace" });
+    assert.ok(evidence);
+    const body = evidence.body as {
       schemaVersion?: number;
       runRef?: string;
       taskRef?: string;
@@ -4227,7 +4408,7 @@ const childOutputSuccessCases: ChildOutputSuccessCase[] = [
       },
     ],
     assertRun(run) {
-      assert.equal(run.outputArtifacts.length, 1);
+      assert.equal(run.outputEvidenceRefs.length, 1);
     },
   },
   {
@@ -4277,14 +4458,14 @@ test("runSparkTask summarizes final assistant text instead of raw Pi control JSO
       roleRef: builtinRoleRef("worker"),
       plan: executionReadyPlan("Summary output task"),
     });
-    const artifactStore = new ArtifactStore({
+    const evidenceStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
     const run = await runSparkTask({
       graph,
       taskRef: task.ref,
       registry: new RoleRegistry(),
-      artifactStore,
+      evidenceStore: evidenceStore,
       cwd: dir,
       dryRun: false,
       roleExecutor: async (input) =>
@@ -4296,7 +4477,7 @@ test("runSparkTask summarizes final assistant text instead of raw Pi control JSO
               type: "message_end",
               message: {
                 role: "assistant",
-                content: [{ type: "text", text: "Final scout report: use a mailbox artifact." }],
+                content: [{ type: "text", text: "Final scout report: use mailbox evidence." }],
               },
             },
           ],
@@ -4307,9 +4488,9 @@ test("runSparkTask summarizes final assistant text instead of raw Pi control JSO
     assert.equal(run.status, "succeeded");
     assert.match(run.completionSummary?.summary ?? "", /Final scout report/);
     assert.doesNotMatch(run.completionSummary?.summary ?? "", /agent_start/);
-    const [artifact] = await artifactStore.list({ kind: "trace" });
+    const [evidence] = await evidenceStore.list({ kind: "trace" });
     assert.match(
-      (artifact?.body as { summary?: string } | undefined)?.summary ?? "",
+      (evidence?.body as { summary?: string } | undefined)?.summary ?? "",
       /Final scout report/,
     );
   } finally {
@@ -4317,8 +4498,8 @@ test("runSparkTask summarizes final assistant text instead of raw Pi control JSO
   }
 });
 
-test("runSparkTask writes compact role-run artifacts for large output", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-large-role-artifact-"));
+test("runSparkTask writes compact role-run Evidence for large output", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-large-role-evidence-"));
   try {
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Demo", description: "demo" });
@@ -4329,7 +4510,7 @@ test("runSparkTask writes compact role-run artifacts for large output", async ()
       roleRef: builtinRoleRef("worker"),
       plan: executionReadyPlan("Large output task"),
     });
-    const artifactStore = new ArtifactStore({
+    const evidenceStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
     const payload = "P".repeat(100_000);
@@ -4338,7 +4519,7 @@ test("runSparkTask writes compact role-run artifacts for large output", async ()
       graph,
       taskRef: task.ref,
       registry: new RoleRegistry(),
-      artifactStore,
+      evidenceStore: evidenceStore,
       cwd: dir,
       dryRun: false,
       roleExecutor: async (input) =>
@@ -4351,22 +4532,22 @@ test("runSparkTask writes compact role-run artifacts for large output", async ()
     });
 
     assert.equal(run.status, "succeeded");
-    const [artifact] = await artifactStore.list({ kind: "trace" });
-    assert.ok(artifact);
-    const artifactPath = artifactStore.pathFor(artifact.ref);
-    const metadata = await readFile(artifactPath, "utf8");
-    const metadataStats = await stat(artifactPath);
-    const artifactBodyText = await artifactStore.getBody(artifact.ref);
-    assert.ok(metadataStats.size < 60_000, `artifact metadata is too large: ${metadataStats.size}`);
+    const [evidence] = await evidenceStore.list({ kind: "trace" });
+    assert.ok(evidence);
+    const evidencePath = evidenceStore.pathFor(evidence.ref);
+    const metadata = await readFile(evidencePath, "utf8");
+    const metadataStats = await stat(evidencePath);
+    const evidenceBodyText = await evidenceStore.getBody(evidence.ref);
+    assert.ok(metadataStats.size < 60_000, `Evidence metadata is too large: ${metadataStats.size}`);
     assert.ok(
-      Buffer.byteLength(artifactBodyText, "utf8") < 60_000,
-      `artifact body is too large: ${Buffer.byteLength(artifactBodyText, "utf8")}`,
+      Buffer.byteLength(evidenceBodyText, "utf8") < 60_000,
+      `Evidence body is too large: ${Buffer.byteLength(evidenceBodyText, "utf8")}`,
     );
     assert.equal(metadata.includes("A".repeat(50_000)), false);
     assert.equal(metadata.includes("P".repeat(50_000)), false);
     assert.equal(metadata.includes("E".repeat(50_000)), false);
 
-    const body = artifact.body as {
+    const body = evidence.body as {
       schemaVersion?: number;
       runRef?: string;
       taskRef?: string;
@@ -4414,14 +4595,14 @@ test("runSparkTask dry-run records validation without completing the task", asyn
       description: "plan",
       kind: "plan",
     });
-    const artifactStore = new ArtifactStore({
+    const evidenceStore = new EvidenceStore({
       rootDir: join(dir, "artifacts"),
     });
     const run = await runSparkTask({
       graph,
       taskRef: task.ref,
       registry: new RoleRegistry(),
-      artifactStore,
+      evidenceStore: evidenceStore,
       cwd: dir,
       dryRun: true,
     });
@@ -4430,11 +4611,11 @@ test("runSparkTask dry-run records validation without completing the task", asyn
     assert.equal(graph.getTask(task.ref).status, "ready");
     assert.equal(graph.getTask(task.ref).roleRef, undefined);
     assert.equal(graph.getTask(task.ref).claim, undefined);
-    assert.equal(graph.getTask(task.ref).outputArtifacts.length, 1);
-    assert.deepEqual(run.outputArtifacts, graph.getTask(task.ref).outputArtifacts);
-    const [artifact] = await artifactStore.list({ kind: "trace" });
+    assert.equal(graph.getTask(task.ref).outputEvidenceRefs.length, 1);
+    assert.deepEqual(run.outputEvidenceRefs, graph.getTask(task.ref).outputEvidenceRefs);
+    const [artifact] = await evidenceStore.list({ kind: "trace" });
     assert.ok(artifact);
-    assert.equal(artifact.ref, run.outputArtifacts[0]);
+    assert.equal(artifact.ref, run.outputEvidenceRefs[0]);
     assert.match(artifact.title, /^Role run worker-/);
     assert.equal(artifact.provenance.producer, "task");
     assert.equal(artifact.provenance.projectRef, project.ref);

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 
-import type { Artifact } from "@zendev-lab/spark-artifacts";
+import type { EvidenceRecord } from "@zendev-lab/spark-artifacts";
 import {
   readJsonFileOptional,
   writeJsonFileAtomic,
@@ -10,7 +10,7 @@ import {
 
 import type { SparkAskAutoAnswerRequest } from "./action-tool.ts";
 
-export interface SparkAskEvidenceArtifactBody {
+export interface SparkAskEvidenceBody {
   schema: "spark.ask.evidence/v1" | "spark.ask.evidence/v2";
   request: SparkAskAutoAnswerRequest;
   result: unknown;
@@ -42,9 +42,7 @@ interface CanonicalAskEvidenceReceipt {
   recordedAt: string;
 }
 
-export function isUserAnsweredAskEvidenceArtifactBody(
-  value: unknown,
-): value is SparkAskEvidenceArtifactBody {
+export function isUserAnsweredAskEvidenceBody(value: unknown): value is SparkAskEvidenceBody {
   return normalizeUserAnsweredAskEvidence(value) !== undefined;
 }
 
@@ -56,7 +54,7 @@ export function isUserAnsweredAskEvidenceArtifactBody(
  */
 export async function recordCanonicalAskEvidenceReceipt(
   cwd: string,
-  evidence: Artifact,
+  evidence: EvidenceRecord,
 ): Promise<void> {
   const answers = normalizeUserAnsweredAskEvidence(evidence.body);
   if (!answers) throw new Error("canonical ask evidence requires a user-answered result");
@@ -72,9 +70,9 @@ export async function recordCanonicalAskEvidenceReceipt(
   await writeJsonFileAtomic(canonicalAskEvidenceReceiptPath(cwd, evidenceRef), receipt);
 }
 
-export async function verifyCanonicalAskEvidenceArtifact(
+export async function verifyCanonicalAskEvidence(
   cwd: string,
-  evidence: Artifact,
+  evidence: EvidenceRecord,
 ): Promise<VerifiedCanonicalAskEvidence | undefined> {
   const answers = normalizeUserAnsweredAskEvidence(evidence.body);
   if (!answers || !evidence.hash || !evidence.ref.startsWith("evidence:")) return undefined;

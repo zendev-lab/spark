@@ -24,7 +24,7 @@ export interface AskSummaryRequest {
   mode?: string;
 }
 
-export interface AskArtifactBody<Req = AskSummaryRequest, Res = AskSummaryResult> {
+export interface AskEvidenceBody<Req = AskSummaryRequest, Res = AskSummaryResult> {
   request: Req;
   result: Res;
   summary: string;
@@ -58,27 +58,27 @@ export function summarizeAskAnswers(answers: Record<string, AskSummaryAnswer>): 
   return entries.map(([id, answer]) => `${id}=${formatAskAnswerForDisplay(answer)}`).join("; ");
 }
 
-export function createAskArtifactBody<Req extends AskSummaryRequest, Res extends AskSummaryResult>(
+export function createAskEvidenceBody<Req extends AskSummaryRequest, Res extends AskSummaryResult>(
   request: Req,
   result: Res,
   options: { blocked?: boolean } = {},
-): AskArtifactBody<Req, Res> {
+): AskEvidenceBody<Req, Res> {
   return omitUndefinedFields({
     request,
     result,
     summary: summarizeAskResult(request, result, options),
-  }) as AskArtifactBody<Req, Res>;
+  }) as AskEvidenceBody<Req, Res>;
 }
 
-export function createSparkAskFlowArtifactBody(
+export function createSparkAskFlowEvidenceBody(
   request: SparkAskFlowRequest,
   result: SparkAskFlowResult,
   options: { blocked?: boolean } = {},
-): AskArtifactBody<SparkAskFlowRequest, SparkAskFlowResult> {
-  return createAskArtifactBody(request, result, options);
+): AskEvidenceBody<SparkAskFlowRequest, SparkAskFlowResult> {
+  return createAskEvidenceBody(request, result, options);
 }
 
-export function isAskArtifactBody(value: unknown): value is AskArtifactBody {
+export function isAskEvidenceBody(value: unknown): value is AskEvidenceBody {
   return Boolean(
     value &&
     typeof value === "object" &&

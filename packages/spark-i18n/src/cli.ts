@@ -366,11 +366,11 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
       { name: "workflows", description: "open workflows in the local session inspector" },
       { name: "runs", description: "open runs in the local session inspector" },
       { name: "tasks", description: "open tasks in the local session inspector" },
-      { name: "artifacts", description: "open local product artifacts (issue/pr/preview)" },
+      { name: "artifacts", description: "open local artifacts (issue/pr/preview)" },
       {
         name: "evidence",
         description:
-          "deprecated alias; opens product Artifacts (issue/pr/preview), not the internal evidence ledger",
+          "deprecated alias; opens Artifacts (issue/pr/preview), not the internal evidence ledger",
       },
       { name: "reviews", description: "open reviewer verdicts in the local session inspector" },
       { name: "graft", description: "open Graft provenance in the local session inspector" },
