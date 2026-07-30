@@ -1011,7 +1011,7 @@ function chooseFailureClass(input: NormalizedProviderFailure): FailureClass {
     return "transient";
   }
   if (
-    /econnreset|etimedout|timeout|socket hang up|temporary|temporarily|network error|overloaded|try again later|servers are currently overloaded/u.test(
+    /econnreset|etimedout|timeout|socket hang up|stream[_ -]?read[_ -]?error|temporary|temporarily|network error|overloaded|try again later|servers are currently overloaded/u.test(
       text,
     ) ||
     isMalformedProviderJsonErrorText(text)

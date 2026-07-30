@@ -91,6 +91,11 @@ const cases: Array<{
     expected: "transient",
   },
   {
+    name: "provider stream read error maps to transient",
+    input: { stopReason: "error", errorMessage: "stream_read_error" },
+    expected: "transient",
+  },
+  {
     name: "aborted stopReason maps to aborted",
     input: { stopReason: "aborted", errorMessage: "user cancelled" },
     expected: "aborted",

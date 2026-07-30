@@ -86,6 +86,23 @@ test("background inbox excludes different workspace session from startup project
   assert.equal(projection.suppressedFromStartup, true);
 });
 
+test("background inbox normalizes missing evidence refs from legacy completion summaries", () => {
+  const { evidenceRefs: _evidenceRefs, ...legacy } = summary("failed");
+
+  const projection = projectHiddenRoleRunInboxEntry({
+    run: run(),
+    summary: legacy as TaskRunCompletionSummary,
+    taskStatus: "running",
+    workspaceHash: "workspace-current",
+    sessionKey: "session:current",
+    acknowledged: false,
+    recentCutoffMs,
+  });
+
+  assert.deepEqual(projection.summary.evidenceRefs, []);
+  assert.equal(projection.actionable, true);
+});
+
 test("run_status includeHistory preserves acknowledged historical failures", () => {
   const projection = projectHiddenRoleRunInboxEntry({
     run: run(),
