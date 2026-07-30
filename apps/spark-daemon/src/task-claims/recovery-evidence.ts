@@ -4,14 +4,17 @@ import {
   type ArtifactRef,
   type EvidenceRef,
 } from "@zendev-lab/spark-artifacts";
-import type { SparkLocalRpcParsedInput } from "@zendev-lab/spark-protocol";
+import type {
+  SparkTaskClaimAcquireRequest,
+  SparkTaskClaimRecoverRequest,
+} from "@zendev-lab/spark-protocol/task-claim";
 import { SparkDaemonControlError } from "../control-error.ts";
 
 export async function assertTaskClaimRecoveryEvidence(
   cwd: string,
   input:
-    | SparkLocalRpcParsedInput<"task.claim.recover">
-    | (NonNullable<SparkLocalRpcParsedInput<"task.claim.acquire">["recovery"]> & {
+    | SparkTaskClaimRecoverRequest
+    | (NonNullable<SparkTaskClaimAcquireRequest["recovery"]> & {
         taskRef: string;
         sessionId: string;
       }),

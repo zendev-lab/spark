@@ -50,4 +50,6 @@ export const sparkTaskClaimMutationResultSchema = z.object({
 });
 
 export type SparkTaskClaimLeaseIdentity = z.infer<typeof sparkTaskClaimLeaseIdentitySchema>;
+export type SparkTaskClaimAcquireRequest = z.infer<typeof sparkTaskClaimAcquireRequestSchema>;
+export type SparkTaskClaimRecoverRequest = z.infer<typeof sparkTaskClaimRecoverRequestSchema>;
 export type SparkTaskClaimMutationResult = z.infer<typeof sparkTaskClaimMutationResultSchema>;
