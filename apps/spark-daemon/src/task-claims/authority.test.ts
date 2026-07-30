@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { acquireMainTaskClaim, recoverMainTaskClaim, releaseMainTaskClaim } from "./authority.ts";
 import {
@@ -158,7 +158,7 @@ describe("daemon main task claim authority", () => {
       await defaultTaskGraphStore(context.root).save(graph!);
       const recoveryNow = "2026-07-29T00:02:00.000Z";
       const lease = attachTaskClaimTestSession(context, "session:new", recoveryNow);
-      const artifact = await defaultArtifactStore(context.root).put({
+      const evidence = await defaultEvidenceStore(context.root).put({
         kind: "record",
         title: "Claim recovery",
         format: "json",
@@ -186,7 +186,7 @@ describe("daemon main task claim authority", () => {
           taskRef: context.task.ref,
           previousSessionId: "session:old",
           reason: "claim_expired",
-          evidenceRef: artifact.ref,
+          evidenceRef: evidence.ref,
         },
         recoveryNow,
       );

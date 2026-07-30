@@ -1,5 +1,6 @@
 import {
   defaultArtifactStore,
+  defaultEvidenceStore,
   type ArtifactRef,
   type EvidenceRef,
 } from "@zendev-lab/spark-artifacts";
@@ -15,12 +16,12 @@ export async function assertTaskClaimRecoveryEvidence(
         sessionId: string;
       }),
 ): Promise<void> {
-  const artifact = await defaultArtifactStore(cwd).tryGet(
-    input.evidenceRef as ArtifactRef | EvidenceRef,
-  );
-  const body = artifact?.body;
+  const evidence = input.evidenceRef.startsWith("evidence:")
+    ? await defaultEvidenceStore(cwd).tryGet(input.evidenceRef as EvidenceRef)
+    : await defaultArtifactStore(cwd).tryGet(input.evidenceRef as ArtifactRef);
+  const body = evidence?.body;
   if (
-    !artifact ||
+    !evidence ||
     !isRecord(body) ||
     body.action !== "authorize_task_claim_recovery" ||
     body.taskRef !== input.taskRef ||
