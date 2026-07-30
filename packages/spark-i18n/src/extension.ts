@@ -357,6 +357,7 @@ const SPARK_EXTENSION_TOOL_COPY: Record<string, Partial<SparkExtensionToolCopy>>
   impl_update_task_plan_items: { label: "Spark Update Task plan items" },
   impl_run_ready_tasks: { label: "Spark Run Ready Tasks" },
   impl_recover_task_claim: { label: "Spark Recover Task Claim" },
+  impl_release_task_claim: { label: "Spark Release Task Claim" },
   impl_list_projects: { label: "Spark List Projects" },
   impl_project_mutation: { label: "Spark Project Mutation" },
   impl_use_project: { label: "Spark Use Project" },

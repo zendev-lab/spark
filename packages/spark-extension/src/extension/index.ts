@@ -19,6 +19,7 @@ import { registerSparkTodoTools } from "./spark-todo-tool-registration.ts";
 import { registerSparkFinishTaskTool } from "./spark-finish-task-tool-registration.ts";
 import { registerSparkClaimTaskTool } from "./spark-claim-task-tool-registration.ts";
 import { registerSparkRecoverTaskClaimTool } from "./spark-recover-task-claim-tool-registration.ts";
+import { registerSparkReleaseTaskClaimTool } from "./spark-release-task-claim-tool-registration.ts";
 import { registerSparkRunReadyTasksTool } from "./spark-run-ready-tasks-tool-registration.ts";
 import { registerSparkGoalTool } from "./spark-goal-tool-registration.ts";
 import { registerSparkLoopTool } from "./spark-loop-tool-registration.ts";
@@ -241,6 +242,8 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
 
   registerSparkRecoverTaskClaimTool(registerSparkImplementationTool, { refreshSparkWidget });
 
+  registerSparkReleaseTaskClaimTool(registerSparkImplementationTool, { refreshSparkWidget });
+
   registerSparkPlanTasksTool(registerSparkImplementationTool, { refreshSparkWidget });
 
   registerSparkGoalTool(registerSparkTool, {
@@ -340,6 +343,7 @@ function createSparkTaskHandlers(resolveTool: SparkImplementationResolver): Spar
     plan: direct("impl_plan_tasks"),
     finish: direct("impl_finish_task"),
     recover: direct("impl_recover_task_claim"),
+    release: direct("impl_release_task_claim"),
     plan_update: ({ toolCallId, params, signal, onUpdate, ctx }) => {
       normalizeTaskPlanUpdateScope(params.scope);
       return executeSparkImplementationTool(resolveTool, "impl_update_task_plan_items", {
