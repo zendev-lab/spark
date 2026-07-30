@@ -196,7 +196,7 @@ test("CI and prek consume the canonical package scripts", async () => {
   assert.match(verifyWorkflow, /re-actors\/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe/u);
   assert.match(verifyWorkflow, /jobs: \$\{\{ toJSON\(needs\) \}\}/u);
   assert.match(verifyWorkflow, /pnpm run test:browser:cockpit/u);
-  assert.match(verifyWorkflow, /name: verify/u);
+  assert.match(verifyWorkflow, /name: required/u);
   assert.doesNotMatch(verifyWorkflow, /test:npm-product/u);
   assert.match(hygieneWorkflow, /pnpm run report:hygiene/u);
   assert.doesNotMatch(hygieneWorkflow, /pnpm exec (?:knip|jscpd)/u);
