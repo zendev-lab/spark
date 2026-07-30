@@ -350,9 +350,10 @@ async function maybeRecordAskEvidence(
   const cwd = typeof ctx.cwd === "string" ? ctx.cwd : undefined;
   if (!cwd) throw new Error("ask recordAsEvidence requires a workspace cwd");
   const body: SparkAskEvidenceBody = {
-    schema: "spark.ask.evidence/v1",
+    schema: "spark.ask.evidence/v2",
     request: decodeAutoAnswerRequest(params),
     result: isRecord(result.details) ? (result.details.result ?? null) : null,
+    answerSource: "user",
     autoAnswered: false,
     recordedAt: new Date().toISOString(),
   };
@@ -460,63 +461,28 @@ function validateAutoAnswerResult(
 
 function withSyntheticAutoAnswerUi(
   ctx: SparkHostContext,
-  request: SparkAskAutoAnswerRequest,
+  _request: SparkAskAutoAnswerRequest,
   answers: Record<string, SparkAskAutoAnswerEntry>,
 ): SparkHostContext {
-  let index = 0;
-  const nextQuestion = () => request.questions[index++];
-  const ui = {
-    // Reviewer owns the answer only after the host has closed the human interaction.
-    // Do not reopen that interaction while converting reviewer output through the raw adapter.
-    interaction: undefined,
-    select: async () => labelChoice(nextQuestion(), answers),
-    selectWithCustom: async () => selectionChoice(nextQuestion(), answers),
-    input: async () => freeformChoice(nextQuestion(), answers),
-  };
-  return {
-    ...(isRecord(ctx) ? ctx : {}),
-    ui: { ...(isRecord(ctx) && isRecord(ctx.ui) ? ctx.ui : {}), ...ui },
-  };
-}
-
-function selectionChoice(
-  question: SparkAskAutoAnswerQuestion | undefined,
-  answers: Record<string, SparkAskAutoAnswerEntry>,
-): { value?: string; customText?: string } | undefined {
-  if (!question) return undefined;
-  const answer = answers[question.id];
-  if (!answer) return undefined;
-  if (answer.customText !== undefined) return { customText: answer.customText };
-  const labels = labelsForValues(question, answer.values ?? []);
-  return labels.length > 0 ? { value: labels.join(", ") } : undefined;
-}
-
-function labelChoice(
-  question: SparkAskAutoAnswerQuestion | undefined,
-  answers: Record<string, SparkAskAutoAnswerEntry>,
-): string | undefined {
-  if (!question) return undefined;
-  const answer = answers[question.id];
-  if (!answer) return undefined;
-  if (answer.customText !== undefined) return answer.customText;
-  return labelsForValues(question, answer.values ?? []).join(", ") || undefined;
-}
-
-function freeformChoice(
-  question: SparkAskAutoAnswerQuestion | undefined,
-  answers: Record<string, SparkAskAutoAnswerEntry>,
-): string | undefined {
-  if (!question) return undefined;
-  const answer = answers[question.id];
-  return answer?.customText ?? answer?.notes ?? answer?.comment;
-}
-
-function labelsForValues(question: SparkAskAutoAnswerQuestion, values: string[]): string[] {
-  const byValue = new Map((question.options ?? []).map((option) => [option.value, option.label]));
-  return values.flatMap((value) => {
-    const label = byValue.get(value);
-    return label ? [label] : [];
+  const interaction = async (interactionRequest: { requestId?: unknown }) => ({
+    kind: "askFlow" as const,
+    requestId:
+      typeof interactionRequest.requestId === "string"
+        ? interactionRequest.requestId
+        : `ask-reviewer:${Date.now().toString(36)}`,
+    status: "answered" as const,
+    answers,
   });
+  const syntheticContext: SparkHostContext & { askAnswerSource: "reviewer" } = {
+    ...(isRecord(ctx) ? ctx : {}),
+    askAnswerSource: "reviewer",
+    ui: {
+      ...(isRecord(ctx) && isRecord(ctx.ui) ? ctx.ui : {}),
+      interaction,
+      custom: undefined,
+    },
+  };
+  return syntheticContext;
 }
 
 function missingAutoAnswerResolverReason(): string {
@@ -553,6 +519,10 @@ function annotateAutoAnswerResult(
     ...result,
     details: {
       ...(isRecord(result.details) ? result.details : {}),
+      answerSource: "reviewer",
+      result: isRecord(result.details?.result)
+        ? { ...result.details.result, answerSource: "reviewer" }
+        : result.details?.result,
       autoAnswered: true,
       autoAnswer: {
         mode: "reviewer",

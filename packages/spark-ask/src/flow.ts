@@ -8,6 +8,7 @@ import { Type } from "typebox";
 
 import { SparkAskFlowController } from "./ui/controller.ts";
 import { SparkAskFlowPayloadStore } from "./ask-payload-store.ts";
+import { normalizeSparkAskAnswerSource } from "./answer-source.ts";
 import type {
   SparkAskFlowAnswerEntry,
   SparkAskFlowQuestion,
@@ -68,6 +69,7 @@ interface SparkHostAPI {
 
 interface SparkAskFlowToolContext {
   cwd?: string;
+  askAnswerSource?: unknown;
   ui?: {
     custom?: unknown;
     interaction?: unknown;
@@ -325,7 +327,10 @@ export function registerSparkAskFlowTool(pi: SparkHostAPI): void {
 
       const interactionRun = await runSparkAskFlowInteraction(request, ui);
       if (interactionRun) {
-        const normalizedResult = normalizeSparkAskFlowResult(interactionRun.result, request);
+        const normalizedResult = annotateSparkAskFlowAnswerSource(
+          normalizeSparkAskFlowResult(interactionRun.result, request),
+          context,
+        );
         if (typeof context.cwd === "string" && context.cwd.trim()) {
           await payloadStore.save(context.cwd, {
             request,
@@ -342,6 +347,9 @@ export function registerSparkAskFlowTool(pi: SparkHostAPI): void {
             status: normalizedResult.status,
             cancelled: normalizedResult.cancelled,
             mode: normalizedResult.mode,
+            ...(normalizedResult.answerSource
+              ? { answerSource: normalizedResult.answerSource }
+              : {}),
             protocolInteraction: true,
             ...(interactionRun.fallbackReason
               ? { protocolInteractionFallback: interactionRun.fallbackReason }
@@ -373,7 +381,10 @@ export function registerSparkAskFlowTool(pi: SparkHostAPI): void {
       const cwd = requiredSparkAskFlowCwd(context);
 
       const customRun = await runSparkAskFlowCustomUi(request, custom);
-      const normalizedResult = normalizeSparkAskFlowResult(customRun.result, request);
+      const normalizedResult = annotateSparkAskFlowAnswerSource(
+        normalizeSparkAskFlowResult(customRun.result, request),
+        context,
+      );
       await payloadStore.save(cwd, { request, result: normalizedResult, timestamp: Date.now() });
 
       return {
@@ -383,6 +394,7 @@ export function registerSparkAskFlowTool(pi: SparkHostAPI): void {
           status: normalizedResult.status,
           cancelled: normalizedResult.cancelled,
           mode: normalizedResult.mode,
+          ...(normalizedResult.answerSource ? { answerSource: normalizedResult.answerSource } : {}),
           ...(customRun.fallbackReason ? { customUiFallback: customRun.fallbackReason } : {}),
         },
       };
@@ -670,6 +682,17 @@ function formatStringArg(
 
 function decodeSparkAskFlowToolContext(ctx: unknown): SparkAskFlowToolContext {
   return ctx && typeof ctx === "object" ? (ctx as SparkAskFlowToolContext) : {};
+}
+
+function annotateSparkAskFlowAnswerSource(
+  result: SparkAskFlowResult,
+  context: SparkAskFlowToolContext,
+): SparkAskFlowResult {
+  if (result.status !== "answered") return result;
+  return {
+    ...result,
+    answerSource: normalizeSparkAskAnswerSource(context.askAnswerSource) ?? "user",
+  };
 }
 
 function requiredSparkAskFlowCwd(ctx: SparkAskFlowToolContext): string {

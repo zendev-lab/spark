@@ -1,3 +1,4 @@
+import type { SparkAskAnswerSource } from "./answer-source.ts";
 import type { SparkAskFlowAnswerEntry, SparkAskFlowRequest, SparkAskFlowResult } from "./schema.ts";
 import { formatAskAnswerForDisplay } from "./shared-semantics.ts";
 
@@ -11,6 +12,7 @@ export interface AskSummaryAnswer {
 export interface AskSummaryResult {
   status: "answered" | "pending" | "cancelled" | "no_selection";
   humanRequestId?: string;
+  answerSource?: SparkAskAnswerSource;
   answers: Record<string, AskSummaryAnswer>;
   nextAction?: "resume" | "clarify_then_reask" | "block";
   mode?: string;
@@ -43,7 +45,8 @@ export function summarizeAskResult(
     return `${title}${blockedPrefix}: ${result.status}; ${answerText}`;
   const nextAction =
     result.nextAction && result.nextAction !== "resume" ? `; next=${result.nextAction}` : "";
-  return `${title}${blockedPrefix}: answered; ${answerText}${nextAction}`;
+  const source = result.answerSource ? `; source=${result.answerSource}` : "";
+  return `${title}${blockedPrefix}: answered; ${answerText}${nextAction}${source}`;
 }
 
 export function summarizeAskAnswers(answers: Record<string, AskSummaryAnswer>): string {
