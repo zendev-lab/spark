@@ -128,6 +128,26 @@ for (const terminal of [
   });
 }
 
+test("runSparkHeadlessSession classifies provider stream read errors as transient", async () => {
+  const assistant = terminalAssistant("error", "stream_read_error");
+
+  await assert.rejects(
+    runSparkHeadlessSession(
+      { cwd: process.cwd(), sessionId: "session-stream-read-error", prompt: "hello" },
+      {
+        createServices: async () =>
+          headlessServices(async () => terminalOutcome(assistant)) as never,
+      },
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal((error as Error & { code?: string }).code, "EXECUTION_TRANSIENT");
+      assert.match(error.message, /stream_read_error/u);
+      return true;
+    },
+  );
+});
+
 test("runSparkHeadlessSession preserves an active caller cancellation", async () => {
   const controller = new AbortController();
   const reason = new Error("operator cancelled");

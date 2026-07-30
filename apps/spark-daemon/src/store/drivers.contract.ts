@@ -294,8 +294,8 @@ export function runSparkDriverStoreContract(
         const workflow = runningTick(harness, "workflow-one", "workflow", "session-workflow");
         const retry = harness.drivers.completeTick(workflow.invocation, workflow.task, {
           status: "failed",
-          errorCode: "EXECUTOR_TIMEOUT",
-          errorMessage: "temporary",
+          errorCode: "EXECUTION_TRANSIENT",
+          errorMessage: "Spark headless session failed: stream_read_error",
           now: "2026-07-23T00:00:00.000Z",
         }).driver;
         expect(retry).toMatchObject({
