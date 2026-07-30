@@ -101,6 +101,21 @@ export function settingsHubHref(activeWorkspaceSlug?: string | null): string {
   return `/settings?${search.toString()}`;
 }
 
+export function workspaceSwitcherHrefForPage(input: {
+  url: Pick<URL, "pathname" | "origin">;
+  activeWorkspacePath: string;
+  workspacePath: (workspace: { slug: string }, suffix?: string) => string;
+}): (targetWorkspace: { slug: string }) => string {
+  return (targetWorkspace) =>
+    workspaceSwitcherHref({
+      pathname: input.url.pathname,
+      origin: input.url.origin,
+      activeWorkspacePath: input.activeWorkspacePath,
+      targetWorkspaceSlug: targetWorkspace.slug,
+      workspacePath: input.workspacePath,
+    });
+}
+
 export function workspaceSwitcherHref(input: {
   pathname: string;
   origin: string;

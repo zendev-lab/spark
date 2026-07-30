@@ -8,9 +8,10 @@
     isConsoleNavItemActive,
     isControlPlanePath,
   } from "$lib/console-nav";
+  import "$lib/shell/shell-nav-link.css";
   import CockpitTopbar from "$lib/shell/CockpitTopbar.svelte";
   import type { CockpitSearchSession } from "$lib/shell/cockpit-search";
-  import { workspaceSwitcherHref as buildWorkspaceSwitcherHref } from "$lib/workbench-nav";
+  import { workspaceSwitcherHrefForPage } from "$lib/workbench-nav";
   import { workspacePath } from "$lib/workspace-routes";
 
   let { data, children } = $props();
@@ -66,15 +67,9 @@
     return isConsoleNavItemActive({ pathname: page.url.pathname, href });
   }
 
-  function workspaceSwitcherHref(workspace: { slug: string }) {
-    return buildWorkspaceSwitcherHref({
-      pathname: page.url.pathname,
-      origin: page.url.origin,
-      activeWorkspacePath,
-      targetWorkspaceSlug: workspace.slug,
-      workspacePath,
-    });
-  }
+  let workspaceSwitcherHref = $derived(
+    workspaceSwitcherHrefForPage({ url: page.url, activeWorkspacePath, workspacePath }),
+  );
 
   function closeMobileNavigation() {
     mobileNavigationOpen = false;
@@ -105,7 +100,7 @@
   <div class="console-body">
     {#if mobileNavigationOpen}
       <button
-        class="console-nav-backdrop"
+        class="shell-mobile-navigation-backdrop"
         type="button"
         aria-label={t.aria.closeWorkspaceNavigation}
         onclick={closeMobileNavigation}
@@ -113,7 +108,7 @@
     {/if}
 
     <aside
-      class="console-nav"
+      class="console-nav shell-mobile-navigation"
       class:mobile-open={mobileNavigationOpen}
       id="console-navigation"
       aria-label={consoleMessages.ariaNavigation}
@@ -125,7 +120,7 @@
             <div class="nav-group-items">
               {#each group.items as item}
                 <a
-                  class="nav-link"
+                  class="shell-nav-link"
                   class:active={isActive(item.href)}
                   href={item.href}
                   onclick={closeMobileNavigation}
@@ -142,7 +137,7 @@
       {#if !isControlPlane && hasActiveWorkspace}
         <div class="console-nav-footer">
           <a
-            class="nav-link cockpit-settings-link"
+            class="shell-nav-link cockpit-settings-link"
             href={COCKPIT_SETTINGS_HREF}
             onclick={closeMobileNavigation}
           >
@@ -181,6 +176,7 @@
   }
 
   .console-shell {
+    --shell-mobile-navigation-width: 280px;
     display: grid;
     grid-template-rows: var(--shell-topbar-height) minmax(0, 1fr);
     height: 100dvh;
@@ -236,28 +232,6 @@
     gap: 2px;
   }
 
-  .nav-link {
-    align-items: center;
-    border-radius: var(--rounded-md);
-    color: var(--color-ink-muted);
-    display: flex;
-    font-size: 13px;
-    gap: 10px;
-    min-height: 40px;
-    padding: 0 10px;
-    text-decoration: none;
-  }
-
-  .nav-link:hover {
-    background: var(--color-surface-soft);
-    color: var(--color-ink);
-  }
-
-  .nav-link.active {
-    background: var(--color-primary-weak);
-    color: var(--color-primary);
-    font-weight: 600;
-  }
 
   .console-main {
     display: grid;
@@ -309,47 +283,9 @@
     padding: var(--spacing-xl) var(--spacing-xxl) var(--spacing-section);
   }
 
-  .console-nav-backdrop {
-    display: none;
-  }
-
   @media (max-width: 900px) {
     .console-body {
       grid-template-columns: minmax(0, 1fr);
-    }
-
-    .console-nav {
-      border-right: 1px solid var(--color-border);
-      box-shadow: var(--shadow-popover);
-      height: calc(100dvh - var(--shell-topbar-height));
-      inset: var(--shell-topbar-height) auto 0 0;
-      max-width: min(280px, 88vw);
-      opacity: 0;
-      position: fixed;
-      transform: translateX(-100%);
-      transition:
-        opacity var(--motion-default) ease,
-        transform var(--motion-default) ease,
-        visibility var(--motion-default) ease;
-      visibility: hidden;
-      width: min(280px, 88vw);
-      z-index: 55;
-    }
-
-    .console-nav.mobile-open {
-      opacity: 1;
-      transform: translateX(0);
-      visibility: visible;
-    }
-
-    .console-nav-backdrop {
-      background: rgb(15 23 42 / 24%);
-      border: 0;
-      display: block;
-      inset: var(--shell-topbar-height) 0 0;
-      padding: 0;
-      position: fixed;
-      z-index: 50;
     }
   }
 
@@ -363,9 +299,4 @@
     }
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .console-nav {
-      transition: none;
-    }
-  }
 </style>

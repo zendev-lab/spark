@@ -9,13 +9,14 @@
     shouldInvalidatePendingAsk,
   } from "$lib/pending-ask";
   import WorkbenchSessionRail from "$lib/WorkbenchSessionRail.svelte";
+  import "$lib/shell/shell-nav-link.css";
   import CockpitTopbar from "$lib/shell/CockpitTopbar.svelte";
   import type { CockpitSearchSession } from "$lib/shell/cockpit-search";
   import {
     buildWorkbenchNavItems,
     isWorkbenchNavItemActive,
     settingsHubHref,
-    workspaceSwitcherHref as buildWorkspaceSwitcherHref,
+    workspaceSwitcherHrefForPage,
   } from "$lib/workbench-nav";
   import { workbenchSessionIdFromPath, workspacePath } from "$lib/workspace-routes";
   import {
@@ -123,15 +124,9 @@
     });
   }
 
-  function workspaceSwitcherHref(workspace: { slug: string }) {
-    return buildWorkspaceSwitcherHref({
-      pathname: page.url.pathname,
-      origin: page.url.origin,
-      activeWorkspacePath,
-      targetWorkspaceSlug: workspace.slug,
-      workspacePath,
-    });
-  }
+  let workspaceSwitcherHref = $derived(
+    workspaceSwitcherHrefForPage({ url: page.url, activeWorkspacePath, workspacePath }),
+  );
 
   function closeMobileSidebar() {
     mobileSidebarOpen = false;
@@ -182,7 +177,7 @@
     {#if !isWorkspaceDirectory}
       {#if mobileSidebarOpen}
         <button
-          class="mobile-sidebar-backdrop"
+          class="shell-mobile-navigation-backdrop"
           type="button"
           aria-label={t.aria.closeWorkspaceNavigation}
           onclick={closeMobileSidebar}
@@ -190,7 +185,7 @@
       {/if}
 
       <aside
-        class="sidebar"
+        class="sidebar shell-mobile-navigation"
         class:mobile-open={mobileSidebarOpen}
         id="workbench-sidebar"
         aria-label={t.aria.workspaceNavigation}
@@ -223,12 +218,12 @@
 
         <nav class="secondary-nav" aria-label={t.aria.workspaceNavigation}>
           {#each navItems as item}
-            <a class="nav-link" class:active={isActive(item.href)} href={item.href}>
+            <a class="shell-nav-link workbench-nav-link" class:active={isActive(item.href)} href={item.href}>
               <Icon name={item.icon} size={18} />
               <span>{item.label}</span>
             </a>
           {/each}
-          <a class="nav-link" href={settingsHref}>
+          <a class="shell-nav-link workbench-nav-link" href={settingsHref}>
             <Icon name="settings" size={18} stroke={2.2} />
             <span>{t.user.settings}</span>
           </a>
@@ -252,6 +247,7 @@
   }
 
   .shell {
+    --shell-mobile-navigation-width: 320px;
     display: grid;
     grid-template-rows: var(--shell-topbar-height) minmax(0, 1fr);
     height: 100dvh;
@@ -286,28 +282,8 @@
     padding-top: 8px;
   }
 
-  .nav-link {
-    align-items: center;
-    border-radius: var(--rounded-md);
-    color: var(--color-ink-muted);
-    display: flex;
-    font-size: 13px;
+  .workbench-nav-link {
     font-weight: 500;
-    gap: 10px;
-    min-height: 40px;
-    padding: 0 10px;
-    text-decoration: none;
-  }
-
-  .nav-link:hover {
-    background: var(--color-surface-soft);
-    color: var(--color-ink);
-  }
-
-  .nav-link.active {
-    background: var(--color-primary-weak);
-    color: var(--color-primary);
-    font-weight: 600;
   }
 
   .workspace {
@@ -329,10 +305,6 @@
     padding: 0;
   }
 
-  .mobile-sidebar-backdrop {
-    display: none;
-  }
-
   @media (max-width: 1000px) {
     .shell-body {
       grid-template-columns: var(--shell-sidebar-width-compact) minmax(0, 1fr);
@@ -345,40 +317,6 @@
       grid-template-columns: minmax(0, 1fr);
     }
 
-    .sidebar {
-      border-right: 1px solid var(--color-border);
-      box-shadow: var(--shadow-popover);
-      height: calc(100dvh - var(--shell-topbar-height));
-      inset: var(--shell-topbar-height) auto 0 0;
-      max-width: min(320px, 88vw);
-      opacity: 0;
-      position: fixed;
-      transform: translateX(-100%);
-      transition:
-        opacity var(--motion-default) ease,
-        transform var(--motion-default) ease,
-        visibility var(--motion-default) ease;
-      visibility: hidden;
-      width: min(320px, 88vw);
-      z-index: 55;
-    }
-
-    .sidebar.mobile-open {
-      opacity: 1;
-      transform: translateX(0);
-      visibility: visible;
-    }
-
-    .mobile-sidebar-backdrop {
-      background: rgb(15 23 42 / 24%);
-      border: 0;
-      display: block;
-      inset: var(--shell-topbar-height) 0 0;
-      padding: 0;
-      position: fixed;
-      z-index: 50;
-    }
-
     .content {
       padding: var(--spacing-lg) var(--spacing-md) var(--spacing-xxl);
     }
@@ -388,9 +326,4 @@
     }
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .sidebar {
-      transition: none;
-    }
-  }
 </style>
