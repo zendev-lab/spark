@@ -37,6 +37,7 @@ import {
   type Component,
   type DefaultTextStyle,
   type Focusable,
+  type OverlayOptions,
   type SlashCommand,
   type TUI,
 } from "../tui/pi-tui-adapter.ts";
@@ -60,6 +61,7 @@ import {
 } from "../tui/action-bar.ts";
 import type { SparkModelSelectorTheme, SparkModelSelectorTuiLike } from "../tui/model-selector.ts";
 
+import { composeSparkNativeFrame } from "./layout.ts";
 import {
   channelQuotePreviewFromDetails,
   compactToolPreview,
@@ -146,6 +148,17 @@ import {
   type SparkNativeWorkspaceSessionState,
 } from "./types.ts";
 
+type AskFlowInteractionRequest = Extract<SparkInteractionRequest, { kind: "askFlow" }>;
+type AskFlowInteractionResponse = Extract<SparkInteractionResponse, { kind: "askFlow" }>;
+type NativePresentationKind = "overlay" | "child";
+
+interface NativeCustomLifecycle {
+  onPresented?: (kind: NativePresentationKind, component: Component) => void;
+  onClosed?: () => void;
+}
+
+const MAX_SETTLED_ASK_LIFECYCLE = 32;
+
 type NativeWidgetFactory = (
   tui: { terminal: { columns: number }; requestRender(): void },
   theme: SparkHostRenderTheme,
@@ -167,12 +180,15 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private readonly renderTheme: SparkHostRenderTheme;
   private workspaceSession?: SparkNativeWorkspaceSessionState;
   private cachedWidth?: number;
+  private cachedHeight?: number;
   private cachedLines?: string[];
   private readonly statuses = new Map<string, string>();
   private readonly widgets = new Map<string, SparkNativeWidget>();
   private readonly cockpit = createSparkNativeCockpitState();
   private readonly completedTaskSummaryKeys = new Set<string>();
-  private readonly presentedAskRequestIds = new Set<string>();
+  private readonly activeAskFlows = new Map<string, Promise<AskFlowInteractionResponse>>();
+  private readonly settledAskResponses = new Map<string, AskFlowInteractionResponse>();
+  private readonly pendingAskPresentations = new Map<string, NativePresentationKind>();
   private activeCockpitPanel: SparkNativeCockpitPanel | undefined;
   private activeActionBarView: SparkActionBarView | undefined;
   private activeActionBar: SparkTuiActionBarComponent | undefined;
@@ -769,19 +785,30 @@ export class SparkNativeTuiApp implements Component, Focusable {
       done: (value: T) => void,
     ) => Component,
     options?: unknown,
+    lifecycle: NativeCustomLifecycle = {},
   ): Promise<T> {
     return new Promise<T>((resolve) => {
       let settled = false;
+      let closed = false;
       let handle: { hide(): void } | undefined;
+      let component: Component | undefined;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        if (handle) handle.hide();
+        else if (component) this.tui.removeChild(component);
+        lifecycle.onClosed?.();
+        this.tui.setFocus(this);
+        this.invalidate();
+        this.tui.requestRender();
+      };
       const done = (value: T) => {
         if (settled) return;
         settled = true;
-        handle?.hide();
-        this.tui.setFocus(this);
-        this.tui.requestRender();
+        close();
         resolve(value);
       };
-      const component = factory(
+      component = factory(
         {
           terminal: { columns: this.tui.terminal.columns },
           requestRender: () => this.tui.requestRender(),
@@ -790,29 +817,50 @@ export class SparkNativeTuiApp implements Component, Focusable {
         this.keybindings,
         done,
       );
+      if (settled || closed) {
+        close();
+        return;
+      }
       const overlayOptions = isOverlayRequest(options) ? options.overlayOptions : undefined;
       if (
         (!isOverlayRequest(options) || options.overlay !== false) &&
         typeof this.tui.showOverlay === "function"
       ) {
         handle = this.tui.showOverlay(component, overlayOptions);
+        lifecycle.onPresented?.("overlay", component);
       } else {
         this.tui.addChild(component);
         this.tui.setFocus(component);
-        handle = {
-          hide: () => {
-            this.tui.removeChild(component);
-            this.tui.setFocus(this);
-            this.tui.requestRender();
-          },
-        };
+        lifecycle.onPresented?.("child", component);
       }
+      this.invalidate();
+      this.tui.requestRender();
     });
   }
 
   async handleInteractionRequest(
     request: SparkInteractionRequest,
   ): Promise<SparkInteractionResponse> {
+    if (request.kind === "askFlow" && !this.interactionHandler) {
+      const settled = this.settledAskResponses.get(request.requestId);
+      if (settled) return settled;
+      const active = this.activeAskFlows.get(request.requestId);
+      if (active) return active;
+
+      this.recordInteractionRequest(request);
+      const presentation = this.presentAskFlow(request).then((response) => {
+        this.rememberSettledAskResponse(response);
+        this.completeInteractionRequest(response);
+        return response;
+      });
+      this.activeAskFlows.set(request.requestId, presentation);
+      try {
+        return await presentation;
+      } finally {
+        this.activeAskFlows.delete(request.requestId);
+      }
+    }
+
     this.recordInteractionRequest(request);
     if (this.interactionHandler) {
       const response = await this.interactionHandler(request, { app: this, session: this.session });
@@ -837,10 +885,9 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private async presentAskFlow(
-    request: Extract<SparkInteractionRequest, { kind: "askFlow" }>,
-  ): Promise<Extract<SparkInteractionResponse, { kind: "askFlow" }>> {
-    if (!this.presentedAskRequestIds.has(request.requestId)) {
-      this.presentedAskRequestIds.add(request.requestId);
+    request: AskFlowInteractionRequest,
+  ): Promise<AskFlowInteractionResponse> {
+    if (!this.settledAskResponses.has(request.requestId)) {
       this.session.addCustomMessage({
         customType: "interaction-request",
         content: `${request.title}${request.prompt ? `\n${request.prompt}` : ""}`,
@@ -855,10 +902,29 @@ export class SparkNativeTuiApp implements Component, Focusable {
     });
     let timedOut = false;
     const resultPromise = this.custom<SparkAskFlowResult>(
-      (tui, theme, _keybindings, done) => controller.run(tui, theme as AskRenderTheme, done),
+      (tui, theme, _keybindings, done) => {
+        const terminal = { columns: tui.terminal?.columns ?? this.tui.terminal.columns };
+        const view = controller.run(
+          { terminal, requestRender: () => tui.requestRender() },
+          theme as AskRenderTheme,
+          done,
+        );
+        return {
+          render: (width: number) => {
+            terminal.columns = Math.max(1, width);
+            return view.render();
+          },
+          handleInput: (data: string) => view.handleInput(data),
+          invalidate: () => view.invalidate(),
+        };
+      },
       {
         overlay: true,
-        overlayOptions: { width: "78%", minWidth: 56, maxHeight: "88%" },
+        overlayOptions: this.askOverlayOptions(),
+      },
+      {
+        onPresented: (kind) => this.setPendingAskPresentation(request.requestId, kind),
+        onClosed: () => this.clearPendingAskPresentation(request.requestId),
       },
     );
     const timeout = request.timeoutMs
@@ -890,6 +956,55 @@ export class SparkNativeTuiApp implements Component, Focusable {
         ...(timedOut && cancelled ? { timedOut: true } : {}),
       },
     };
+  }
+
+  private askOverlayOptions(): OverlayOptions {
+    const columns = Math.max(1, this.tui.terminal.columns);
+    const rows = Math.max(1, this.tui.terminal.rows);
+    const horizontalMargin = columns < 72 ? 1 : 2;
+    const verticalMargin = rows < 22 ? 1 : 2;
+    const availableWidth = Math.max(1, columns - horizontalMargin * 2);
+    const preferredWidth = Math.min(96, Math.max(40, Math.floor(columns * 0.8)));
+    return {
+      anchor: "center",
+      margin: {
+        top: verticalMargin,
+        bottom: verticalMargin,
+        left: horizontalMargin,
+        right: horizontalMargin,
+      },
+      width: Math.min(availableWidth, preferredWidth),
+      minWidth: Math.min(availableWidth, 40),
+      maxHeight: Math.max(8, rows - verticalMargin * 2),
+    };
+  }
+
+  private setPendingAskPresentation(requestId: string, kind: NativePresentationKind): void {
+    this.pendingAskPresentations.set(requestId, kind);
+    this.invalidate();
+    this.tui.requestRender();
+  }
+
+  private clearPendingAskPresentation(requestId: string): void {
+    if (!this.pendingAskPresentations.delete(requestId)) return;
+    this.invalidate();
+    this.tui.requestRender();
+  }
+
+  private renderPendingAskPresentations(width: number): string[] {
+    return [...this.pendingAskPresentations.entries()].map(([requestId, kind]) =>
+      truncateToWidth(this.renderTheme.fg("accent", `Ask pending · ${requestId} · ${kind}`), width),
+    );
+  }
+
+  private rememberSettledAskResponse(response: AskFlowInteractionResponse): void {
+    this.settledAskResponses.delete(response.requestId);
+    this.settledAskResponses.set(response.requestId, response);
+    while (this.settledAskResponses.size > MAX_SETTLED_ASK_LIFECYCLE) {
+      const oldest = this.settledAskResponses.keys().next().value;
+      if (oldest === undefined) break;
+      this.settledAskResponses.delete(oldest);
+    }
   }
 
   private completeInteractionRequest(response: SparkInteractionResponse): void {
@@ -1200,40 +1315,62 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   invalidate(): void {
     this.cachedWidth = undefined;
+    this.cachedHeight = undefined;
     this.cachedLines = undefined;
     this.editor.invalidate();
     for (const widget of this.widgets.values()) widget.component?.invalidate?.();
   }
 
   render(width: number): string[] {
-    if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
-
-    const lines: string[] = [];
-    lines.push(
-      truncateToWidth(
-        this.renderTheme.bold(this.renderTheme.fg("accent", nativeTuiStrings.appTitle)),
-        width,
-      ),
-    );
-    lines.push(truncateToWidth(this.renderTheme.fg("muted", this.statusLine()), width));
-    lines.push(...this.renderWorkspaceSessionState(width));
-    lines.push(...this.renderWidgets("aboveEditor", width));
-    lines.push(...this.renderActiveCockpitPanel(width));
-    lines.push(this.separatorLine(width));
-
-    for (const message of this.session.messages) {
-      lines.push(...this.renderMessage(message, width));
+    const height = Math.max(1, this.tui.terminal.rows);
+    if (this.cachedLines && this.cachedWidth === width && this.cachedHeight === height) {
+      return this.cachedLines;
     }
 
-    lines.push(...this.renderInputQueue(width));
-    lines.push(this.separatorLine(width));
-    lines.push(...this.editor.render(width));
-    lines.push(...this.renderWidgets("belowEditor", width));
-    lines.push(truncateToWidth(this.renderTheme.fg("muted", this.footerLine()), width));
-    lines.push(...this.runtimeFooterLines(width));
+    const header = [
+      truncateToWidth(
+        [
+          this.renderTheme.bold(this.renderTheme.fg("accent", nativeTuiStrings.appTitle)),
+          this.renderTheme.fg("muted", this.statusLine()),
+        ].join(" · "),
+        width,
+      ),
+    ];
+    const context = this.renderWorkspaceSessionState(width);
+    const detail = this.renderActiveCockpitPanel(width);
+    const auxiliary = [
+      ...this.renderPendingAskPresentations(width),
+      ...this.renderWidgets("aboveEditor", width),
+    ];
+    const transcript = this.session.messages.flatMap((message) =>
+      this.renderMessage(message, width),
+    );
+    const queue = this.renderInputQueue(width);
+    const composer = [this.separatorLine(width), ...this.editor.render(width)];
+    const footer = [
+      ...this.renderWidgets("belowEditor", width),
+      truncateToWidth(this.renderTheme.fg("muted", this.footerLine()), width),
+    ];
+    const runtimeFooter = this.runtimeFooterLines(width);
 
     this.cachedWidth = width;
-    this.cachedLines = lines.map((line) => truncateToWidth(line, width));
+    this.cachedHeight = height;
+    this.cachedLines = composeSparkNativeFrame({
+      width,
+      height,
+      sections: {
+        header,
+        context,
+        detail,
+        detailActive: detail.length > 0,
+        auxiliary,
+        transcript,
+        queue,
+        composer,
+        footer,
+        runtimeFooter,
+      },
+    });
     return this.cachedLines;
   }
 
