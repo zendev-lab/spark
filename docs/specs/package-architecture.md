@@ -8,7 +8,7 @@ The machine-readable source of truth is
 workspace declares a `layer`, `owner`, `stability`, and authoritative
 `stateWriter`. `pnpm run check:architecture` rejects an unclassified workspace,
 an undeclared production dependency, a stale export, a second public package,
-or growth beyond the current 40/40-workspace budget.
+or growth beyond the current 39/40-workspace budget.
 
 ## Dependency direction
 
@@ -40,7 +40,7 @@ state; Cockpit owns its coordination database and projections.
 | `adapter` | integration with a terminal, channel, shell, or external service | cross-domain orchestration |
 | `contract` | JSON-friendly wire schemas and compatibility validation | workspace implementation dependencies |
 | `foundation` | small dependency-light primitives and host contracts | product policy |
-| `private-adapter` | Cockpit-only storage, projection, or localization | daemon/shared ownership |
+| `private-adapter` | Cockpit-only storage or projection | daemon/shared ownership |
 | `compatibility` | legacy read or wire compatibility inside a current owner | a second implementation package |
 | `experiment` | isolated, non-default spike with an explicit graduation decision | production startup |
 
@@ -63,6 +63,12 @@ state; Cockpit owns its coordination database and projections.
   rewritten while reading configuration; there is no facade workspace.
 - `spark-cockpit-*` names are Cockpit-private. Shared code must move to a
   capability or foundation package before daemon/native reuse.
+- Cockpit's en/zh-CN product catalog lives at the owner-restricted
+  `@zendev-lab/spark-i18n/cockpit` subpath. It has no independent runtime,
+  state, permission, or failure boundary, so the former single-consumer
+  Cockpit catalog workspace was merged into `spark-i18n`. Dependency
+  Cruiser permits that subpath only from `apps/spark-cockpit`; the merge
+  reduced the classified workspace count to 39/40 without raising the cap.
 - `spark-acp` is the supported stateless ACP adapter. It depends on
   `spark-daemon-client` and `spark-protocol`, while daemon session/invocation
   stores remain the only writers.

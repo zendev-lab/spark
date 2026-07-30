@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "architectureSource": "architecture/packages.json",
-  "workspaceCount": 40,
+  "workspaceCount": 39,
   "counts": {
-    "local-test": 30,
+    "local-test": 29,
     "browser-test": 1,
     "process-test": 1,
     "boundary-contract": 7,
@@ -142,16 +142,6 @@
       },
       "supplementalGates": []
     },
-    "@zendev-lab/spark-cockpit-i18n": {
-      "path": "packages/spark-cockpit-i18n",
-      "strategy": "local-test",
-      "primaryGate": {
-        "command": "pnpm --filter @zendev-lab/spark-cockpit-i18n run check",
-        "paths": ["packages/spark-cockpit-i18n/src/index.test.ts"],
-        "rules": []
-      },
-      "supplementalGates": []
-    },
     "@zendev-lab/spark-core": {
       "path": "packages/spark-core",
       "strategy": "boundary-contract",
@@ -245,7 +235,8 @@
           "command": "pnpm --filter @zendev-lab/spark-i18n run test",
           "paths": [
             "packages/spark-i18n/src/index.test.ts",
-            "packages/spark-i18n/src/extension.test.ts"
+            "packages/spark-i18n/src/extension.test.ts",
+            "packages/spark-i18n/src/cockpit/index.test.ts"
           ],
           "rules": ["hand-written facade tests"]
         }

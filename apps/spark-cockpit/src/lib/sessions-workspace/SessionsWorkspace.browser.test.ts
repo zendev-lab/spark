@@ -2,7 +2,7 @@ import { createRawSnippet } from "svelte";
 import { page } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { cockpitDictionaries } from "@zendev-lab/spark-cockpit-i18n";
+import { cockpitDictionaries } from "@zendev-lab/spark-i18n/cockpit";
 import SessionDetailsPanel from "./SessionDetailsPanel.svelte";
 import SessionStageHeader from "./SessionStageHeader.svelte";
 import type { SessionConversationHost } from "./conversation-host";

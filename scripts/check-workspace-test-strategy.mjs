@@ -11,7 +11,7 @@ const strategies = new Set([
   "generated-only",
 ]);
 const expectedCounts = {
-  "local-test": 30,
+  "local-test": 29,
   "browser-test": 1,
   "process-test": 1,
   "boundary-contract": 7,
@@ -81,8 +81,8 @@ export function validateWorkspaceTestStrategy({ ledger, architecture, root = def
     if (!(name in entries)) fail(errors, "unclassified workspace: " + name);
   for (const name of ledgerNames)
     if (!(name in (architecture?.packages ?? {}))) fail(errors, "extra workspace: " + name);
-  if (ledger.workspaceCount !== architectureNames.length || ledger.workspaceCount !== 40)
-    fail(errors, "workspace strategy count must equal architecture count 40");
+  if (ledger.workspaceCount !== architectureNames.length)
+    fail(errors, "workspace strategy count must equal architecture package count");
   const manifests = workspaceManifests(root, architecture);
   const counts = Object.fromEntries([...strategies].map((strategy) => [strategy, 0]));
   for (const [name, entry] of Object.entries(entries)) {
@@ -118,8 +118,16 @@ export function validateWorkspaceTestStrategy({ ledger, architecture, root = def
       errors,
       "spark-i18n must use deterministic generated-only strategy with supplemental hand tests",
     );
-  if (entries["@zendev-lab/spark-cockpit-i18n"]?.strategy !== "local-test")
-    fail(errors, "spark-cockpit-i18n must remain local-test");
+  if (
+    !i18n.supplementalGates?.some(
+      (gate) =>
+        gate.command.includes("run test") &&
+        gate.paths?.includes("packages/spark-i18n/src/cockpit/index.test.ts"),
+    )
+  )
+    fail(errors, "spark-i18n must own the Cockpit catalog test after package consolidation");
+  if (entries["@zendev-lab/spark-cockpit-i18n"])
+    fail(errors, "retired spark-cockpit-i18n must not remain in the workspace strategy ledger");
   const cli = entries["@zendev-lab/spark-cli"];
   if (
     cli?.strategy !== "process-test" ||

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getCockpitDictionary } from "./index.ts";
+import { cockpitMessageKeySnapshot } from "./keys.snapshot.ts";
 
 function collectKeys(value: unknown, prefix = ""): string[] {
   if (value == null || typeof value !== "object") {
@@ -14,7 +15,7 @@ function collectKeys(value: unknown, prefix = ""): string[] {
 }
 
 describe("Cockpit dictionaries", () => {
-  it("loads Cockpit dictionaries from spark-cockpit-i18n", () => {
+  it("loads Cockpit dictionaries from the spark-i18n cockpit subpath", () => {
     const en = getCockpitDictionary("en");
     const zh = getCockpitDictionary("zh-CN");
 
@@ -32,9 +33,15 @@ describe("Cockpit dictionaries", () => {
     expect(zh.modelSettings.actions.defaultUpdated).toBe("默认模型已更新。");
   });
 
-  it("keeps English and Chinese Cockpit dictionary key parity", () => {
-    expect(collectKeys(getCockpitDictionary("zh-CN")).sort()).toEqual(
-      collectKeys(getCockpitDictionary("en")).sort(),
+  it("keeps both Cockpit locales equal to the fixed migration key snapshot", () => {
+    const enKeys = collectKeys(getCockpitDictionary("en")).sort();
+    const zhCNKeys = collectKeys(getCockpitDictionary("zh-CN")).sort();
+
+    expect(enKeys).toEqual([...cockpitMessageKeySnapshot]);
+    expect(zhCNKeys).toEqual([...cockpitMessageKeySnapshot]);
+    console.info(
+      "SPARK_COCKPIT_I18N_MIGRATION_TRANSCRIPT",
+      JSON.stringify({ enKeyCount: enKeys.length, zhCNKeyCount: zhCNKeys.length }),
     );
   });
 

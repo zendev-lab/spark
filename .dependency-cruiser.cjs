@@ -69,6 +69,22 @@ module.exports = {
         dependencyTypes: ["local"],
       },
     },
+    {
+      name: "spark-i18n-cockpit-surface-private",
+      comment:
+        "The @zendev-lab/spark-i18n/cockpit catalog is owned exclusively by the Cockpit app.",
+      severity: "error",
+      from: {
+        pathNot: "^(apps/spark-cockpit/|packages/spark-i18n/src/cockpit/)",
+      },
+      to: {
+        path:
+          "^packages/spark-i18n/src/cockpit/|" +
+          "node_modules/.*/@zendev-lab/spark-i18n/cockpit(?:/|$)|" +
+          "/node_modules/@zendev-lab/spark-i18n/cockpit(?:/|$)|" +
+          "^@zendev-lab/spark-i18n/cockpit(?:/|$)",
+      },
+    },
 
     // --- retained pi-* kernel adapter packages ---
     {

@@ -106,12 +106,16 @@ export function validateMutationOwnership({
     } else if ("config" in entry)
       errors.push(name + " deferred entry must not declare a Stryker config");
   }
-  if (ledger.workspaceCount !== 40 || Object.keys(entries).length !== 40)
-    errors.push("mutation workspace count must be 40");
+  if (
+    ledger.workspaceCount !== architectureNames.length ||
+    Object.keys(entries).length !== architectureNames.length
+  )
+    errors.push("mutation workspace count must equal architecture package count");
   if (ledger.includedCount !== 10 || counts.included !== 10)
     errors.push("included mutation count must be 10");
-  if (ledger.deferredCount !== 30 || counts.deferred !== 30)
-    errors.push("deferred mutation count must be 30");
+  const expectedDeferredCount = architectureNames.length - 10;
+  if (ledger.deferredCount !== expectedDeferredCount || counts.deferred !== expectedDeferredCount)
+    errors.push("deferred mutation count must match non-included architecture packages");
   const source = runnerSource ?? readFileSync(join(root, ledger.runner ?? ""), "utf8");
   if (!source.includes("loadMutationLedger") || /const\s+packages\s*=\s*\[/u.test(source))
     errors.push(

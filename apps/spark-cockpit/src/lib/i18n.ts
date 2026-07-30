@@ -7,7 +7,7 @@ import {
   resolveRequestLocale,
   type SparkLocale,
 } from "@zendev-lab/spark-i18n";
-import { getCockpitDictionary, type CockpitMessages } from "@zendev-lab/spark-cockpit-i18n";
+import { getCockpitDictionary, type CockpitMessages } from "@zendev-lab/spark-i18n/cockpit";
 
 export const locales = ["en", "zh-CN"] as const;
 export type Locale = SparkLocale;
