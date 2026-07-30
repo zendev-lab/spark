@@ -1,7 +1,8 @@
+# yamllint disable rule:line-length
 name: "CI - Static Checks"
 
-# PR hook lane: prek hooks except spark-check-fix. The explicit static verification
-# runs in parallel with unit/process/browser lanes in ci-verify.yml.
+# PR hook lane: prek hooks except spark-check-fix. Grouped static/docs verification
+# runs in ci-verify.yml alongside the tests and smoke jobs.
 on:
   pull_request:
     branches:
