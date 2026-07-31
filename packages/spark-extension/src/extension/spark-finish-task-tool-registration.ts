@@ -44,6 +44,7 @@ import {
   type SparkTaskClaimDaemonClient,
 } from "./spark-task-claim-daemon-client.ts";
 import { recordTaskSubjectReview } from "./subject-review-store.ts";
+import { requireTaskLensPasses } from "./spark-lens-completion-gate.ts";
 
 interface SparkFinishTaskToolDependencies {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
@@ -291,6 +292,7 @@ export function registerSparkFinishTaskTool(
             details: { found: true, error: "no_matching_claimed_task" },
           };
         }
+        await requireTaskLensPasses(cwd, candidate.task);
         const followUpDisposition = await checkResearchFollowUpDisposition(
           cwd,
           candidate.task,

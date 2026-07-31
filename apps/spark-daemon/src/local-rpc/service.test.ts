@@ -103,6 +103,31 @@ describe("transport-neutral local RPC service", () => {
     db.close();
   });
 
+  it("executes internal Lens health through the typed daemon procedure", async () => {
+    const { paths, db } = createFixture();
+    const cwd = join(paths.dataDir, "workspace");
+    mkdirSync(cwd, { recursive: true });
+
+    const health = await invokeLocalRpcService(
+      "lens.execute",
+      {
+        cwd,
+        toolCallId: "lens-health-1",
+        operationId: "lens:health:service-test",
+        params: { action: "health" },
+      },
+      { paths, db },
+    );
+
+    expect(health.content[0]?.text).toContain("typescript-dual-verification-v1");
+    expect(health.details).toMatchObject({
+      health: {
+        providers: [{ providerId: "typescript-6-tsc" }, { providerId: "vite-plus-native-check" }],
+      },
+    });
+    db.close();
+  });
+
   it("executes daemon-owned file and artifact tools through typed procedures", async () => {
     const { paths, db } = createFixture();
     const cwd = join(paths.dataDir, "workspace");
@@ -157,11 +182,11 @@ describe("transport-neutral local RPC service", () => {
     db.close();
   });
 
-  it("exhaustively groups all 75 methods behind their protocol output parser", () => {
+  it("exhaustively groups all 76 methods behind their protocol output parser", () => {
     const groupedMethods = Object.values(localRpcServiceHandlerMethodGroups).flat();
     const catalogMethods = Object.keys(sparkLocalRpcProcedureSchemas) as SparkLocalRpcMethod[];
 
-    expect(groupedMethods).toHaveLength(75);
+    expect(groupedMethods).toHaveLength(76);
     expect(new Set(groupedMethods).size).toBe(groupedMethods.length);
     expect([...groupedMethods].sort()).toEqual([...catalogMethods].sort());
 

@@ -41,6 +41,7 @@ describe("git_change lifecycle", () => {
       cwd,
       runner: stackRunner(calls),
       store: defaultArtifactStore(cwd),
+      readyGate: async () => {},
     });
     const artifact = await service.adopt();
 

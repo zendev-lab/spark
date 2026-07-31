@@ -12,6 +12,7 @@ import {
   type GitChangeEntry,
   type GitPullRequestSnapshot,
 } from "../artifact/index.ts";
+import { requireCurrentLensPass } from "./verification-gate.ts";
 
 export type GitLifecycleAction =
   | "inspect"
@@ -36,6 +37,7 @@ export interface GitLifecycleServiceOptions {
   store?: ArtifactStore;
   runner?: GitCommandRunner;
   worktreeRoot?: string;
+  readyGate?: (worktreePath: string, artifactRef: ArtifactRef) => Promise<unknown>;
 }
 
 export interface CreateGitChangeInput {
@@ -91,6 +93,7 @@ export class GitLifecycleService {
   readonly store: ArtifactStore;
   readonly runner: GitCommandRunner;
   readonly worktreeRoot: string;
+  readonly readyGate: (worktreePath: string, artifactRef: ArtifactRef) => Promise<unknown>;
 
   constructor(options: GitLifecycleServiceOptions) {
     this.cwd = resolve(options.cwd);
@@ -100,6 +103,7 @@ export class GitLifecycleService {
       options.worktreeRoot ??
       process.env.SPARK_GIT_WORKTREE_ROOT ??
       join(homedir(), ".agents", "worktrees");
+    this.readyGate = options.readyGate ?? requireCurrentLensPass;
   }
 
   async inspect(input: {
@@ -275,6 +279,16 @@ export class GitLifecycleService {
   ): Promise<Artifact<GitChangeArtifactBody>> {
     const artifact = await this.requireGitChange(artifactRef);
     const worktreePath = requireAttachedWorktree(artifact);
+    if (options.ready === true) {
+      try {
+        await this.readyGate(worktreePath, artifact.ref);
+      } catch (error) {
+        throw new GitLifecycleError(
+          "verification_required",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
     const args = ["stack", "submit", "--auto"];
     if (options.ready === true) args.push("--open");
     await this.runChecked("gh", args, worktreePath, "stack_submit_failed");

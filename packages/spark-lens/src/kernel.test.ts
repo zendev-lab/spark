@@ -9,6 +9,7 @@ import { describe, expect, test } from "vitest";
 import {
   capabilityRoute,
   captureWorkspaceRevision,
+  aggregateDiagnosticFindings,
   evaluateLensVerdict,
   isWorkspaceRevisionCurrent,
   providersForRoute,
@@ -190,5 +191,42 @@ describe("fail-closed verdicts", () => {
         requiredProviderIds: [provider("tsc")],
       }),
     ).toBe("pass");
+  });
+});
+
+describe("diagnostic aggregation", () => {
+  test("keeps provider provenance on one corroborated Observation", () => {
+    const findings = aggregateDiagnosticFindings("revision", [
+      {
+        providerId: provider("tsc"),
+        providerVersion: version("6.0.3"),
+        path: "src/index.ts",
+        line: 4,
+        character: 2,
+        code: "TS2322",
+        severity: "error",
+        message: "Type string is not assignable to number",
+        fingerprint: "src/index.ts:4:assignment",
+        durationMs: 10,
+      },
+      {
+        providerId: provider("vite-plus"),
+        providerVersion: version("0.2.6"),
+        path: "src/index.ts",
+        line: 4,
+        character: 2,
+        code: "TS2322",
+        severity: "error",
+        message: "Type string is not assignable to number",
+        fingerprint: "src/index.ts:4:assignment",
+        durationMs: 20,
+      },
+    ]);
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      agreement: "corroborated",
+      observations: [{ providerId: "tsc" }, { providerId: "vite-plus" }],
+    });
   });
 });

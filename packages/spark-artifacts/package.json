@@ -26,6 +26,7 @@
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-daemon-client": "workspace:^",
+    "@zendev-lab/spark-lens": "workspace:^",
     "@zendev-lab/spark-text": "workspace:^",
     "marked": "^18.0.7",
     "sanitize-html": "^2.17.6",

@@ -600,6 +600,9 @@ importers:
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:^
         version: link:../spark-daemon-client
+      '@zendev-lab/spark-lens':
+        specifier: workspace:^
+        version: link:../spark-lens
       '@zendev-lab/spark-text':
         specifier: workspace:^
         version: link:../spark-text

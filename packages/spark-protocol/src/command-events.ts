@@ -106,6 +106,7 @@ export const sparkCommandKindOptions = [
   "file.execute.request",
   "artifact.execute.request",
   "git.execute.request",
+  "lens.execute.request",
   "human.request.list.request",
   "human.response.deliver.request",
   "diagnostics.request",
@@ -345,6 +346,7 @@ export const localRpcMethodToSparkCommandKind = {
   "file.execute": "file.execute.request",
   "artifact.execute": "artifact.execute.request",
   "git.execute": "git.execute.request",
+  "lens.execute": "lens.execute.request",
 } as const satisfies Record<string, SparkCommandKind>;
 
 export const runtimeServerCommandKindOptions = [

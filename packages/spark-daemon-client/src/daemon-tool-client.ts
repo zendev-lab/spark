@@ -9,7 +9,11 @@ import {
   type SparkDaemonClientOptions,
 } from "./daemon-client.ts";
 
-export type SparkDaemonToolMethod = "file.execute" | "artifact.execute" | "git.execute";
+export type SparkDaemonToolMethod =
+  | "file.execute"
+  | "artifact.execute"
+  | "git.execute"
+  | "lens.execute";
 
 export interface SparkDaemonToolRequestOptions extends SparkDaemonClientOptions {
   cwd: string;

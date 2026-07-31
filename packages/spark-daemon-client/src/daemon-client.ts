@@ -48,6 +48,7 @@ const DAEMON_ONLY_TOOL_METHODS = new Set<SparkLocalRpcMethod>([
   "file.execute",
   "artifact.execute",
   "git.execute",
+  "lens.execute",
 ]);
 
 /**
