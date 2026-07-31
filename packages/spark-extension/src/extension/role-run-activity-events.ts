@@ -93,12 +93,12 @@ function normalizeEvent(value: unknown, label: string): SparkRoleRunActivityEven
   );
   if (messageRole)
     output.messageRole = messageRole as SparkRoleRunActivityEventInput["messageRole"];
-  const artifactRefs = optionalStringArray(
-    (value as { artifactRefs?: unknown }).artifactRefs,
-    `${label}.artifactRefs`,
+  const evidenceRefs = optionalStringArray(
+    (value as { evidenceRefs?: unknown }).evidenceRefs,
+    `${label}.evidenceRefs`,
   );
-  if (artifactRefs)
-    output.artifactRefs = artifactRefs as SparkRoleRunActivityEventInput["artifactRefs"];
+  if (evidenceRefs)
+    output.evidenceRefs = evidenceRefs as SparkRoleRunActivityEventInput["evidenceRefs"];
   const usage = (value as { usage?: unknown }).usage;
   if (usage !== undefined)
     output.usage = JSON.parse(JSON.stringify(usage)) as SparkRoleRunActivityEventInput["usage"];

@@ -24,6 +24,7 @@ const dependencies = {
   "@earendil-works/pi-ai": "0.82.1",
   "@earendil-works/pi-tui": "0.82.1",
   "@sveltejs/kit": "2.65.1",
+  marked: "^18.0.7",
   "sanitize-html": "2.17.6",
   "web-push": "3.6.7",
   ws: "^8.18.3",
@@ -197,4 +198,4 @@ await Promise.all([
 await removeSourceMaps(resolve(productDirectory, "build"));
 await Promise.all([writeProductManifest(), writeBuildInfo(), writeLauncher()]);
 
-console.log(`Built npm product artifact: ${productDirectory}`);
+console.log(`Built npm artifact: ${productDirectory}`);

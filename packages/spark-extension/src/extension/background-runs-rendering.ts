@@ -1,5 +1,11 @@
 import type { RoleRunJsonEventsTail, RoleRunTextTail } from "@zendev-lab/spark-runtime";
-import type { SparkBackgroundChildRunView, SparkBackgroundRunsDetails } from "./background-runs.ts";
+import type {
+  SparkBackgroundChildRunView,
+  SparkBackgroundChildStatus,
+  SparkBackgroundRunsDetails,
+  SparkBackgroundRunView,
+  SparkBackgroundSummaryState,
+} from "./background-runs.ts";
 import { shortRoleLabel } from "./task-ownership.ts";
 
 const BACKGROUND_ACTIVE_CHILD_LIMIT = 5;
@@ -45,9 +51,9 @@ function appendBackgroundChildSummaryLines(
 ): void {
   if (child.summary) lines.push(`${indent}Summary: ${child.summary}`);
   else if (child.errorMessage) lines.push(`${indent}Error: ${child.errorMessage}`);
-  if (child.artifactRefs.length > 0)
+  if (child.evidenceRefs.length > 0)
     lines.push(
-      `${indent}Artifacts: ${child.artifactRefs.length} (${formatInlineRefs(child.artifactRefs)})`,
+      `${indent}Evidence: ${child.evidenceRefs.length} (${formatInlineRefs(child.evidenceRefs)})`,
     );
   if (child.transcriptRef) lines.push(`${indent}Transcript: ${child.transcriptRef}`);
   if (child.stdoutTail)
@@ -56,10 +62,22 @@ function appendBackgroundChildSummaryLines(
     lines.push(`${indent}Stderr tail: ${roleRunTailMetadata(child.stderrTail)}`);
   if (child.jsonEventsTail)
     lines.push(`${indent}JSON events tail: ${jsonEventsTailMetadata(child.jsonEventsTail)}`);
-  for (const artifact of child.roleRunArtifacts ?? []) {
-    if (artifact.skippedReason)
-      lines.push(`${indent}Artifact ${artifact.artifactRef}: ${artifact.skippedReason}`);
+  for (const evidence of child.roleRunEvidence ?? []) {
+    if (evidence.skippedReason)
+      lines.push(`${indent}EvidenceRecord ${evidence.evidenceRef}: ${evidence.skippedReason}`);
   }
+}
+
+function backgroundChildStatusLabel(status: SparkBackgroundChildStatus): string {
+  return status;
+}
+
+function backgroundSummaryStateLabel(state: SparkBackgroundSummaryState): string {
+  return state.replace("_", " ");
+}
+
+function isBackgroundProblemRun(run: SparkBackgroundRunView): boolean {
+  return run.status === "failed" || run.status === "stale" || run.status === "timed_out";
 }
 
 function renderBackgroundChildListLine(child: SparkBackgroundChildRunView): string {
@@ -79,11 +97,7 @@ export function renderSparkBackgroundRunsText(
 ): string {
   const lines: string[] = [];
   const activeRunRef = details.summary.activeRunRef;
-  const problem = details.runs.find(
-    (run) =>
-      (run.status === "failed" || run.status === "stale" || run.status === "timed_out") &&
-      !run.acknowledgedAt,
-  );
+  const problem = details.runs.find((run) => isBackgroundProblemRun(run) && !run.acknowledgedAt);
   if (details.action === "kill") {
     lines.push(`Stopped background child runs: ${details.killed?.length ?? 0}`);
     for (const killed of details.killed ?? []) {
@@ -137,7 +151,7 @@ export function renderSparkBackgroundRunsText(
     );
     lines.push(`  Progress: ${problem.completed}/${problem.scheduled} tasks observed finished`);
   } else if (problem) {
-    lines.push(`Background work: ${details.summary.state.replace("_", " ")}`);
+    lines.push(`Background work: ${backgroundSummaryStateLabel(details.summary.state)}`);
     lines.push(
       `  Last problem: ${problem.status} ${problem.runRef}, ${problem.completed}/${problem.scheduled} tasks finished`,
     );

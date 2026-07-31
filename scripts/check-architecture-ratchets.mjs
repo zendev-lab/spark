@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, extname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -175,13 +175,10 @@ function runArchitectureRatchets() {
     }
     const extensionPath = join(root, extension);
     if (!isFile(extensionPath)) continue;
-    const unsafePiImports = findUnsafePiCompatibilityImports(
-      readFileSync(extensionPath, "utf8"),
-      extension,
-    );
+    const unsafePiImports = findUnsafePiCompatibilityImportsInGraph(extensionPath);
     if (unsafePiImports.length > 0) {
       failures.push(
-        `${extension} statically imports Pi subpaths unsupported by the compatibility loader (${unsafePiImports.join(", ")}). Use the virtualized package root and defer modern public subpaths behind a Spark-owned compatibility adapter.`,
+        `${extension} runtime graph imports Pi subpaths unsupported by the compatibility loader (${unsafePiImports.join(", ")}). Use only loader-virtualized Pi entries from compatibility extensions.`,
       );
     }
   }
@@ -244,20 +241,125 @@ export function findUnsafePiCompatibilityImports(source, fileName = "source.ts")
   const unsafe = new Set();
 
   function inspect(node) {
+    const specifier = moduleSpecifierText(node);
     if (
-      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-      node.moduleSpecifier &&
-      ts.isStringLiteralLike(node.moduleSpecifier)
+      specifier === "@mariozechner/pi-ai" ||
+      specifier?.startsWith("@mariozechner/pi-ai/") ||
+      (specifier?.startsWith("@earendil-works/pi-ai/") && !safeSpecifiers.has(specifier))
     ) {
-      const specifier = node.moduleSpecifier.text;
-      if (specifier.startsWith("@earendil-works/pi-ai/") && !safeSpecifiers.has(specifier)) {
-        unsafe.add(specifier);
-      }
+      unsafe.add(specifier);
     }
     ts.forEachChild(node, inspect);
   }
   inspect(sourceFile);
   return [...unsafe].sort((left, right) => left.localeCompare(right));
+}
+
+export function findUnsafePiCompatibilityImportsInGraph(entryPath) {
+  const pending = [entryPath];
+  const visited = new Set();
+  const unsafe = new Set();
+
+  while (pending.length > 0) {
+    const currentPath = pending.pop();
+    if (!currentPath || visited.has(currentPath) || !isFile(currentPath)) continue;
+    visited.add(currentPath);
+    const source = readFileSync(currentPath, "utf8");
+    const displayPath = relative(root, currentPath);
+    for (const specifier of findUnsafePiCompatibilityImports(source, displayPath)) {
+      unsafe.add(`${displayPath}: ${specifier}`);
+    }
+    for (const specifier of findRuntimeModuleSpecifiers(source, displayPath)) {
+      const resolved = resolveCompatibilitySourceModule(currentPath, specifier);
+      if (resolved) pending.push(resolved);
+    }
+  }
+
+  return [...unsafe].sort((left, right) => left.localeCompare(right));
+}
+
+function findRuntimeModuleSpecifiers(source, fileName) {
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const specifiers = new Set();
+  function inspect(node) {
+    const specifier = moduleSpecifierText(node);
+    if (specifier) specifiers.add(specifier);
+    ts.forEachChild(node, inspect);
+  }
+  inspect(sourceFile);
+  return [...specifiers];
+}
+
+function moduleSpecifierText(node) {
+  if (
+    (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+    node.moduleSpecifier &&
+    ts.isStringLiteralLike(node.moduleSpecifier) &&
+    !isTypeOnlyModuleEdge(node)
+  ) {
+    return node.moduleSpecifier.text;
+  }
+  if (
+    ts.isCallExpression(node) &&
+    node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+    node.arguments.length === 1 &&
+    ts.isStringLiteralLike(node.arguments[0])
+  ) {
+    return node.arguments[0].text;
+  }
+  return undefined;
+}
+
+function isTypeOnlyModuleEdge(node) {
+  if (ts.isExportDeclaration(node)) return node.isTypeOnly;
+  const importClause = node.importClause;
+  if (!importClause) return false;
+  if (importClause.isTypeOnly) return true;
+  if (importClause.name || !importClause.namedBindings) return false;
+  return (
+    ts.isNamedImports(importClause.namedBindings) &&
+    importClause.namedBindings.elements.every((element) => element.isTypeOnly)
+  );
+}
+
+function resolveCompatibilitySourceModule(importerPath, specifier) {
+  if (specifier.startsWith(".")) return resolveRelativeSourceModule(importerPath, specifier);
+  if (!specifier.startsWith("@zendev-lab/")) return undefined;
+  try {
+    const resolvedPath = fileURLToPath(
+      import.meta.resolve(specifier, pathToFileURL(join(root, "package.json"))),
+    );
+    if (!resolvedPath.startsWith(`${root}${sep}`) || !isFile(resolvedPath)) return undefined;
+    return resolvedPath;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveRelativeSourceModule(importerPath, specifier) {
+  const base = resolve(dirname(importerPath), specifier);
+  const candidates = extname(base)
+    ? [base]
+    : [
+        base,
+        `${base}.ts`,
+        `${base}.tsx`,
+        `${base}.mts`,
+        `${base}.js`,
+        `${base}.mjs`,
+        join(base, "index.ts"),
+        join(base, "index.tsx"),
+        join(base, "index.mts"),
+        join(base, "index.js"),
+        join(base, "index.mjs"),
+      ];
+  return candidates.find((candidate) => isFile(candidate));
 }
 
 export function findLegacyDaemonClientViolations(source, fileName = "source.ts") {
@@ -272,17 +374,7 @@ export function findLegacyDaemonClientViolations(source, fileName = "source.ts")
   let usesLegacyRequestSymbol = false;
 
   function inspect(node) {
-    const moduleSpecifier =
-      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-      node.moduleSpecifier &&
-      ts.isStringLiteralLike(node.moduleSpecifier)
-        ? node.moduleSpecifier.text
-        : ts.isCallExpression(node) &&
-            node.expression.kind === ts.SyntaxKind.ImportKeyword &&
-            node.arguments.length === 1 &&
-            ts.isStringLiteralLike(node.arguments[0])
-          ? node.arguments[0].text
-          : undefined;
+    const moduleSpecifier = moduleSpecifierText(node);
     if (moduleSpecifier === "@zendev-lab/spark-daemon-client/local-rpc") {
       importsLegacySubpath = true;
     }
@@ -347,7 +439,11 @@ function isFile(path) {
 }
 
 function readJson(path) {
-  return JSON.parse(readFileSync(path, "utf8"));
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new Error(`Failed to parse JSON from ${path}`, { cause: error });
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {

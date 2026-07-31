@@ -43,13 +43,13 @@
             {#if task.readyFrontier}
               <span class="frontier-badge">{messages.readyFrontier}</span>
             {/if}
-            {#if card.evidenceArtifacts.length > 0}
+            {#if card.artifacts.length > 0}
               <div
                 class="evidence-links"
                 aria-label={messages.evidenceForAria.replace("{task}", task.title)}
               >
                 <span class="meta-label">{messages.evidence}</span>
-                {#each card.evidenceArtifacts as artifact}
+                {#each card.artifacts as artifact}
                   <a href={`${workspaceUrl}/artifacts/${artifact.id}`}>{artifact.title}</a>
                 {/each}
               </div>

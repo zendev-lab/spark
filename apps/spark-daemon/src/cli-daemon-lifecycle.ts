@@ -20,7 +20,8 @@ import {
   readSparkDaemonConfig,
   writeSparkDaemonConfig,
 } from "./config.js";
-import { createSparkDaemonUplinkControl, startSparkDaemon } from "./daemon.js";
+import { createSparkDaemonUplinkControl } from "./daemon.js";
+import { startSparkDaemon } from "./daemon-start.js";
 import { getSparkDaemonServerProfile } from "./server-profiles.js";
 import { createSparkDaemonModelControl } from "./model-control.ts";
 import { unifyDaemonSessionTranscripts } from "./session-transcript-unification.ts";
@@ -44,6 +45,11 @@ import {
   requestDaemonRestart,
   requestDaemonStop,
   requestDaemonStatus,
+  requestHumanInteractionList,
+  requestHumanInteractionRespond,
+  type LocalHumanInteractionListResult,
+  type LocalHumanInteractionRespondParams,
+  type LocalHumanInteractionRespondResult,
   requestTurnSubmit,
   startLocalRpcServer,
 } from "./local-rpc.js";
@@ -527,8 +533,10 @@ export async function daemon(
       return await logsCommand(paths, args, io);
     case "submit":
       return await daemonSubmit(paths, args, io);
+    case "ask":
+      return await daemonAsk(paths, args, io);
     default:
-      throw new Error("Usage: spark daemon <status|start|stop|restart|sync|logs|submit>");
+      throw new Error("Usage: spark daemon <status|start|stop|restart|sync|logs|submit|ask>");
   }
 }
 
@@ -1160,6 +1168,82 @@ export async function daemonSubmit(
   }
   io.stdout.write(`queued ${result.invocationId}\n`);
   return 0;
+}
+
+export async function daemonAsk(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  args: string[],
+  io: CliIo,
+): Promise<number> {
+  prepareSparkDaemonState(paths);
+  const flags = parseFlags(args);
+  const [subcommand = "list", interactionRequestId] = positionalArgs(args);
+  const list = io.humanInteractionListFromService ?? requestHumanInteractionList;
+  if (subcommand === "list") {
+    const result: LocalHumanInteractionListResult = await list(paths, {
+      ...(flags.session?.trim() ? { sessionId: flags.session.trim() } : {}),
+    });
+    if (flags.json === "true") {
+      io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    } else {
+      io.stdout.write(renderHumanInteractionList(result));
+    }
+    return 0;
+  }
+  if (subcommand !== "answer" && subcommand !== "cancel") {
+    throw new Error("Usage: spark daemon ask <list|answer|cancel>");
+  }
+  if (!interactionRequestId?.trim()) {
+    throw new Error(`spark daemon ask ${subcommand} requires <interaction-request-id>`);
+  }
+  const params: LocalHumanInteractionRespondParams = {
+    interactionRequestId: interactionRequestId.trim(),
+    ...(flags.session?.trim() ? { sessionId: flags.session.trim() } : {}),
+    ...(flags.invocation?.trim() ? { invocationId: flags.invocation.trim() } : {}),
+    status: subcommand === "answer" ? "answered" : "cancelled",
+    answers: subcommand === "answer" ? parseAnswers(flags.answers) : {},
+    responseArtifactRefs: [],
+  };
+  const respond = io.humanInteractionRespondFromService ?? requestHumanInteractionRespond;
+  const result: LocalHumanInteractionRespondResult = await respond(paths, params);
+  if (flags.json === "true") {
+    io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  } else {
+    io.stdout.write(`${result.message}\n`);
+  }
+  return 0;
+}
+
+function parseAnswers(raw: string | undefined): Record<string, unknown> {
+  if (!raw) throw new Error("spark daemon ask answer requires --answers <json>");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("spark daemon ask answer requires valid JSON in --answers");
+  }
+  if (!isRecord(parsed)) {
+    throw new Error("spark daemon ask answer requires a JSON object in --answers");
+  }
+  return parsed;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function renderHumanInteractionList(result: LocalHumanInteractionListResult): string {
+  if (result.waits.length === 0) return "No pending Spark daemon human interactions.\n";
+  return `${result.waits
+    .map((wait) =>
+      [
+        `${wait.interactionRequestId} human=${wait.humanRequestId} session=${wait.sessionId ?? ""}`,
+        `title=${wait.title}`,
+        `prompt=${wait.prompt}`,
+        `questions=${JSON.stringify(wait.questions ?? [])}`,
+      ].join("\n"),
+    )
+    .join("\n\n")}\n`;
 }
 
 function daemonServerConnectionLabel(server: {

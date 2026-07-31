@@ -36,7 +36,8 @@ import {
 } from "@zendev-lab/spark-cockpit-coordination/runtime-ws";
 import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-system";
 
-import { createSparkDaemonUplinkControl, startSparkDaemon } from "./daemon.ts";
+import { createSparkDaemonUplinkControl } from "./daemon.ts";
+import { startSparkDaemon } from "./daemon-start.ts";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import { readSparkDaemonConfig, writeSparkDaemonConfig } from "./config.ts";
 import { relocateSparkDaemonCockpit } from "./relocation.ts";

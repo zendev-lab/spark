@@ -16,6 +16,7 @@ import {
   sparkLocalRpcReadinessOrpcErrors,
   sparkLocalRpcSessionOrpcErrors,
   sparkLocalRpcSideThreadOrpcErrors,
+  sparkLocalRpcTaskClaimOrpcErrors,
   sparkLocalRpcUplinkOrpcErrors,
   sparkLocalRpcWorkspaceOrpcErrors,
   type SparkLocalRpcOrpcMethod,
@@ -27,12 +28,19 @@ import {
   sparkHumanRpcErrorCodeOptions,
   sparkInvocationRpcErrorCodeOptions,
   sparkModelRpcErrorCodeOptions,
+  sparkTaskClaimRpcErrorCodeOptions,
   sparkUplinkRpcErrorCodeOptions,
   sparkWorkspaceRpcErrorCodeOptions,
 } from "./daemon-rpc-errors.ts";
 import { sparkDriverScheduleRequestSchema } from "./driver.ts";
 import { sparkSessionRegistryErrorCodeOptions } from "./session-errors.ts";
 import { sparkSideThreadErrorCodeOptions } from "./side-thread.ts";
+
+function requireSchema<T extends { parse(value: unknown): unknown }>(schema: T | undefined): T {
+  expect(schema).toBeDefined();
+  if (!schema) throw new Error("Expected oRPC procedure schema.");
+  return schema;
+}
 
 function resolveContractPath(path: readonly string[]): unknown {
   let cursor: unknown = sparkLocalRpcOrpcContract;
@@ -79,13 +87,24 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     const commandMethods = Object.keys(localRpcMethodToSparkCommandKind).sort();
     const contractMethods = Object.keys(sparkLocalRpcOrpcMethodPaths).sort();
     expect(contractMethods).toEqual(commandMethods);
-    expect(Object.keys(sparkLocalRpcProcedureSchemas)).toHaveLength(66);
+    expect(Object.keys(sparkLocalRpcProcedureSchemas)).toHaveLength(70);
   });
 
   it("nests contracts under domain routers matching method path map", () => {
     for (const [method, path] of Object.entries(sparkLocalRpcOrpcMethodPaths)) {
       expect(resolveContractPath(path), method).toBeTruthy();
     }
+    expect(sparkLocalRpcOrpcMethodPaths["side-thread.ensure"]).toEqual(["sideThread", "ensure"]);
+    expect(sparkLocalRpcOrpcMethodPaths["workspace.ensure-local"]).toEqual([
+      "workspace",
+      "ensureLocal",
+    ]);
+    expect(sparkLocalRpcOrpcMethodPaths["provider.auth.api-key.set"]).toEqual([
+      "provider",
+      "auth",
+      "apiKey",
+      "set",
+    ]);
   });
 
   it("marks every contracted method as live", () => {
@@ -103,6 +122,121 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     expect(sparkLocalRpcOrpcContract.workspace.list).toBeDefined();
     expect(sparkLocalRpcOrpcContract.uplink.status).toBeDefined();
     expect(sparkLocalRpcOrpcContract.model.catalog).toBeDefined();
+  });
+
+  it("parses session-bound workspace client procedures through their oRPC schemas", () => {
+    const attach = sparkLocalRpcOrpcContract.workspace.client.attach["~orpc"];
+    const heartbeat = sparkLocalRpcOrpcContract.workspace.client.heartbeat["~orpc"];
+    const release = sparkLocalRpcOrpcContract.workspace.client.release["~orpc"];
+    const attachInput = requireSchema(attach.inputSchema);
+    const heartbeatInput = requireSchema(heartbeat.inputSchema);
+    const releaseInput = requireSchema(release.inputSchema);
+    const outputSchemas = [attach, heartbeat, release].map(({ outputSchema }) =>
+      requireSchema(outputSchema),
+    );
+
+    expect(
+      attachInput.parse({
+        workspaceId: "workspace-1",
+        clientId: "client-1",
+        kind: "interactive",
+        sessionId: "session-1",
+      }),
+    ).toMatchObject({ workspaceId: "workspace-1", clientId: "client-1", sessionId: "session-1" });
+    expect(
+      heartbeatInput.parse({
+        clientId: "client-1",
+        leaseFence: "fence-1",
+      }),
+    ).toMatchObject({ clientId: "client-1", leaseFence: "fence-1" });
+    expect(
+      releaseInput.parse({
+        clientId: "client-1",
+        leaseFence: "fence-1",
+      }),
+    ).toMatchObject({ clientId: "client-1", leaseFence: "fence-1" });
+
+    const result = {
+      client: {
+        id: "client-1",
+        workspaceId: "workspace-1",
+        kind: "interactive" as const,
+        status: "connected" as const,
+        attachedAt: "2026-07-27T11:59:00.000Z",
+        sessionId: "session-1",
+        lastSeenAt: "2026-07-27T12:00:00.000Z",
+        leaseFence: "fence-1",
+        leaseExpiresAt: "2026-07-27T12:01:00.000Z",
+        metadata: {},
+      },
+      workspace: {
+        id: "workspace-1",
+        serverUrl: "http://127.0.0.1:4310",
+        localWorkspaceKey: "workspace-1",
+        displayName: "Workspace 1",
+        localPath: "/workspace-1",
+        status: "available" as const,
+        capabilities: {},
+        diagnostics: {},
+        updatedAt: "2026-07-27T12:00:00.000Z",
+      },
+      observedAt: "2026-07-27T12:00:00.000Z",
+    };
+    for (const outputSchema of outputSchemas) {
+      const parsed = outputSchema.parse(result);
+      expect(parsed).toMatchObject({ client: result.client });
+    }
+  });
+
+  it("requires fenced session leases for daemon-owned task claim mutations", () => {
+    const acquire = sparkLocalRpcOrpcContract.task.claim.acquire["~orpc"];
+    const release = sparkLocalRpcOrpcContract.task.claim.release["~orpc"];
+    const recover = sparkLocalRpcOrpcContract.task.claim.recover["~orpc"];
+    const identity = {
+      workspaceId: "workspace-1",
+      clientId: "client-1",
+      leaseFence: "fence-1",
+      sessionId: "session:one",
+    };
+
+    expect(
+      requireSchema(acquire.inputSchema).parse({
+        ...identity,
+        taskRef: "task:one",
+        status: "blocked",
+      }),
+    ).toMatchObject({ ...identity, status: "blocked" });
+    expect(
+      requireSchema(release.inputSchema).parse({
+        ...identity,
+        taskRef: "task:one",
+        disposition: "release",
+      }),
+    ).toMatchObject(identity);
+    expect(
+      requireSchema(recover.inputSchema).parse({
+        ...identity,
+        taskRef: "task:one",
+        previousSessionId: "session:old",
+        reason: "claim_expired",
+        evidenceRef: "evidence:recovery",
+      }),
+    ).toMatchObject(identity);
+    expect(() =>
+      requireSchema(acquire.inputSchema).parse({
+        ...identity,
+        taskRef: "task:one",
+        status: "done",
+      }),
+    ).toThrow();
+    expect(() =>
+      requireSchema(acquire.inputSchema).parse({
+        workspaceId: identity.workspaceId,
+        clientId: identity.clientId,
+        sessionId: identity.sessionId,
+        taskRef: "task:one",
+      }),
+    ).toThrow();
   });
 
   it("declares only readiness and protocol-approved Side Thread domain errors", () => {
@@ -162,6 +296,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       [sparkLocalRpcDriverOrpcErrors, sparkDriverRpcErrorCodeOptions],
       [sparkLocalRpcInvocationOrpcErrors, sparkInvocationRpcErrorCodeOptions],
       [sparkLocalRpcModelOrpcErrors, sparkModelRpcErrorCodeOptions],
+      [sparkLocalRpcTaskClaimOrpcErrors, sparkTaskClaimRpcErrorCodeOptions],
       [sparkLocalRpcUplinkOrpcErrors, sparkUplinkRpcErrorCodeOptions],
       [sparkLocalRpcWorkspaceOrpcErrors, sparkWorkspaceRpcErrorCodeOptions],
       [sparkLocalRpcHumanOrpcErrors, sparkHumanRpcErrorCodeOptions],
@@ -183,6 +318,9 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["provider.auth.login.respond", "provider_oauth_prompt_conflict"],
       ["workspace.transfer.respond", "workspace_transfer_not_found"],
       ["workspace.relocate", "relocation_target_invalid"],
+      ["task.claim.acquire", "task_claim_lease_invalid"],
+      ["task.claim.release", "task_claim_conflict"],
+      ["task.claim.recover", "task_claim_recovery_refused"],
       ["uplink.prefer", "uplink_transfer_rejected"],
       ["human.interaction.respond", "human_wait_registry_unavailable"],
       ["session.notification.deliver", "channel_delivery_not_sent"],

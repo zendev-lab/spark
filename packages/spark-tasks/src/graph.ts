@@ -3,7 +3,7 @@ import {
   NotFoundError,
   newRef,
   nowIso,
-  type ArtifactRef,
+  type EvidenceRef,
   type Project,
   type ProjectRef,
   type ProjectRoadmap,
@@ -53,6 +53,7 @@ import {
   normalizeRoleRef,
   normalizeTask,
   normalizeTaskCancellation,
+  normalizeTaskExecutionPolicy,
   normalizeTaskPlan,
   normalizeTaskRefs,
   normalizeTaskRun,
@@ -139,6 +140,7 @@ export class TaskGraph {
       kind: input.kind ?? "generic",
       status,
       roleRef: normalizeRoleRef(input.roleRef),
+      executionPolicy: normalizeTaskExecutionPolicy(input.executionPolicy, input.kind ?? "generic"),
       finishedBy: input.finishedBy,
       cancellation:
         status === "cancelled"
@@ -146,8 +148,8 @@ export class TaskGraph {
           : undefined,
       supersededBy,
       claim: isUnfinishedTaskStatus(status) ? input.claim : undefined,
-      inputArtifacts: input.inputArtifacts ?? [],
-      outputArtifacts: [],
+      inputEvidenceRefs: input.inputEvidenceRefs ?? [],
+      outputEvidenceRefs: [],
       plan,
       createdAt: now,
       updatedAt: now,
@@ -192,6 +194,10 @@ export class TaskGraph {
             kind: input.kind ?? existing.kind,
             status: input.status ?? existing.status,
             roleRef: normalizeRoleRef(input.roleRef ?? existing.roleRef),
+            executionPolicy: normalizeTaskExecutionPolicy(
+              input.executionPolicy ?? existing.executionPolicy,
+              input.kind ?? existing.kind,
+            ),
             supersededBy: input.supersededBy ?? existing.supersededBy,
             plan: normalizeTaskPlan(input.plan ?? existing.plan, description, title),
           })
@@ -203,6 +209,7 @@ export class TaskGraph {
             kind: input.kind,
             status: input.status,
             roleRef: normalizeRoleRef(input.roleRef),
+            executionPolicy: normalizeTaskExecutionPolicy(input.executionPolicy, input.kind),
             supersededBy: input.supersededBy,
             plan: normalizeTaskPlan(input.plan, description, title),
           });
@@ -333,7 +340,7 @@ export class TaskGraph {
     const updated: Task = {
       ...task,
       roleRef: task.roleRef,
-      status: isUnfinishedTaskStatus(task.status) ? "running" : task.status,
+      status: input.status ?? "running",
       claim,
       updatedAt: now,
     };
@@ -373,30 +380,36 @@ export class TaskGraph {
     return updated;
   }
 
+  expireTaskClaim(taskRef: TaskRef, now = nowIso()): Task | undefined {
+    const task = this.getTask(taskRef);
+    if (!task.claim || !isExpiredClaim(task.claim, now)) return undefined;
+    if (task.claim.runRef) {
+      const run = this.#runs.get(task.claim.runRef);
+      if (run?.status === "running" || run?.status === "queued") {
+        this.#runs.set(task.claim.runRef, {
+          ...run,
+          status: "cancelled",
+          failureKind: "claim_stale",
+          errorMessage: `task claim expired at ${task.claim.expiresAt}`,
+          finishedAt: now,
+        });
+      }
+    }
+    const updated: Task = {
+      ...task,
+      claim: undefined,
+      status: task.status === "running" ? "pending" : task.status,
+      updatedAt: now,
+    };
+    this.#tasks.set(task.ref, updated);
+    return updated;
+  }
+
   expireTaskClaims(now = nowIso()): Task[] {
     const expired: Task[] = [];
     for (const task of this.#tasks.values()) {
-      if (!task.claim || !isExpiredClaim(task.claim, now)) continue;
-      if (task.claim.runRef) {
-        const run = this.#runs.get(task.claim.runRef);
-        if (run?.status === "running" || run?.status === "queued") {
-          this.#runs.set(task.claim.runRef, {
-            ...run,
-            status: "cancelled",
-            failureKind: "claim_stale",
-            errorMessage: `task claim expired at ${task.claim.expiresAt}`,
-            finishedAt: now,
-          });
-        }
-      }
-      const updated: Task = {
-        ...task,
-        claim: undefined,
-        status: task.status === "running" ? "pending" : task.status,
-        updatedAt: now,
-      };
-      this.#tasks.set(task.ref, updated);
-      expired.push(updated);
+      const updated = this.expireTaskClaim(task.ref, now);
+      if (updated) expired.push(updated);
     }
     return expired;
   }
@@ -428,6 +441,7 @@ export class TaskGraph {
         | "kind"
         | "status"
         | "roleRef"
+        | "executionPolicy"
         | "finishedBy"
         | "cancellation"
         | "supersededBy"
@@ -459,6 +473,10 @@ export class TaskGraph {
       kind: patch.kind ?? task.kind,
       status,
       roleRef: normalizeRoleRef(patch.roleRef ?? task.roleRef),
+      executionPolicy: normalizeTaskExecutionPolicy(
+        patch.executionPolicy ?? task.executionPolicy,
+        patch.kind ?? task.kind,
+      ),
       finishedBy: isUnfinishedTaskStatus(status)
         ? (patch.finishedBy ?? task.finishedBy)
         : (patch.finishedBy ?? task.finishedBy ?? attributionFromTask({ ...task, ...patch })),
@@ -480,12 +498,12 @@ export class TaskGraph {
     return updated;
   }
 
-  attachOutputArtifact(taskRef: TaskRef, artifactRef: ArtifactRef): Task {
+  attachOutputEvidence(taskRef: TaskRef, evidenceRef: EvidenceRef): Task {
     const task = this.getTask(taskRef);
-    const outputArtifacts = task.outputArtifacts.includes(artifactRef)
-      ? task.outputArtifacts
-      : [...task.outputArtifacts, artifactRef];
-    const updated = { ...task, outputArtifacts, updatedAt: nowIso() };
+    const outputEvidenceRefs = task.outputEvidenceRefs.includes(evidenceRef)
+      ? task.outputEvidenceRefs
+      : [...task.outputEvidenceRefs, evidenceRef];
+    const updated = { ...task, outputEvidenceRefs, updatedAt: nowIso() };
     this.#tasks.set(taskRef, updated);
     return updated;
   }

@@ -10,6 +10,8 @@ import {
   requestDaemonRestart,
   requestDaemonStop,
   requestDaemonStatus,
+  requestHumanInteractionList,
+  requestHumanInteractionRespond,
   requestTurnSubmit,
   requestWorkspaceAttach,
   requestWorkspaceList,
@@ -30,6 +32,8 @@ export interface CliIo {
   daemonStopFromService?: typeof requestDaemonStop;
   daemonRestartFromService?: typeof requestDaemonRestart;
   turnSubmitToService?: typeof requestTurnSubmit;
+  humanInteractionListFromService?: typeof requestHumanInteractionList;
+  humanInteractionRespondFromService?: typeof requestHumanInteractionRespond;
   listWorkspacesFromService?: typeof requestWorkspaceList;
   registerWorkspaceInService?: typeof requestWorkspaceRegister;
   relocateWorkspaceInService?: typeof requestWorkspaceRelocate;
@@ -175,6 +179,9 @@ Commands:
   sync [--wait]
   logs [--follow] [--lines <n>]
   submit --session <id> --prompt <text> [--idempotency-key <key>] [--json]
+  ask list [--session <id>] [--json]
+  ask answer <interaction-request-id> --answers <json> [--session <id>] [--invocation <id>] [--json]
+  ask cancel <interaction-request-id> [--session <id>] [--invocation <id>] [--json]
 
 Example:
   spark daemon status --json
@@ -190,6 +197,7 @@ Commands:
   login --server-url <url> [--no-open] [--allow-insecure-http]
   workspace register [path] --server-url <url> --token <workspace-registration-token|-> --name <name> [--profile <path-or-git-url>] [--allow-insecure-http]
   workspace relocate --to-server-url <https-origin> [--from-server-url <origin>] [--yes] [--json]
+  workspace migrate-evidence [--workspace <id-or-path>] [--apply] [--json]
   workspace ls [--json] [--all] [--full]
   workspace show [id] [--workspace <id>] [--json]
   workspace stop <id> [--workspace <id>] [--yes]
@@ -223,6 +231,7 @@ export function printWorkspaceHelp(io: CliIo): void {
 Commands:
   register [path] --server-url <url> --token <workspace-registration-token|-> --name <name> [--profile <path-or-git-url>] [--allow-insecure-http]
   relocate --to-server-url <https-origin> [--from-server-url <origin>] [--yes] [--json]
+  migrate-evidence [--workspace <id-or-path>] [--apply] [--json]
   ls [--json] [--all] [--full]
   show [id] [--workspace <id>] [--json]
   stop <id> [--workspace <id>] [--yes]

@@ -1,29 +1,16 @@
-import type {
-  ArtifactRef,
-  RoleRunCompletionOutcome,
-  RoleRef,
-  RunRef,
-  TaskRef,
-  TaskStatus,
-  ProjectRef,
-} from "@zendev-lab/spark-core";
+import type { ProjectRef, RunRef, TaskRef } from "@zendev-lab/spark-core";
 import type {
   WorkflowRunAcknowledgeResult,
   WorkflowRunControlStatus,
-  WorkflowRunStatus,
 } from "@zendev-lab/spark-workflows";
 import {
   listActiveSparkRoleRunProcesses,
-  type SparkRoleRunInputControl,
   type KillSparkRoleRunProcessResult,
-  type RoleRunArtifactPreview,
-  type RoleRunJsonEventsTail,
-  type RoleRunTextTail,
 } from "@zendev-lab/spark-runtime";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   collectBackgroundChildRuns,
-  enrichBackgroundChildRunsWithRoleRunArtifacts,
+  enrichBackgroundChildRunsWithRoleRunEvidence,
 } from "./background-child-runs.ts";
 import {
   backgroundRunView,
@@ -36,6 +23,11 @@ import {
   buildSparkRoleRunRegistry,
   type SparkRoleRunRegistrySnapshot,
 } from "./spark-role-run-observability.ts";
+import type {
+  SparkBackgroundChildRunView,
+  SparkBackgroundRunView,
+  SparkBackgroundSummaryState,
+} from "./background-run-contracts.ts";
 import { loadRoleRunActivityEvents } from "./role-run-activity-events.ts";
 import { defaultSparkWorkflowRunStore } from "./spark-workflow-run-store.ts";
 
@@ -58,6 +50,7 @@ export type SparkBackgroundAction =
   | "prune"
   | "clear_inactive"
   | "kill_active";
+
 const SPARK_BACKGROUND_ACTIONS: SparkBackgroundAction[] = [
   "status",
   "list",
@@ -82,69 +75,12 @@ const SPARK_BACKGROUND_KILL_SIGNALS = new Set<NodeJS.Signals>([
   "SIGINT",
   "SIGHUP",
 ]);
-export type SparkBackgroundSummaryState =
-  | "idle"
-  | "running"
-  | "needs_attention"
-  | "stale"
-  | "legacy_timeout";
-export type SparkBackgroundChildStatus =
-  | "active"
-  | "running"
-  | "queued"
-  | "succeeded"
-  | "blocked"
-  | "failed"
-  | "cancelled"
-  | "unknown";
-
-export interface SparkBackgroundRunView {
-  runRef: RunRef;
-  status: WorkflowRunStatus;
-  legacyTimedOut: boolean;
-  projectRef?: ProjectRef;
-  ownerSessionId?: string;
-  scheduled: number;
-  completed: number;
-  taskRunRefs: RunRef[];
-  incompleteTaskRefs: TaskRef[];
-  startedAt: string;
-  updatedAt: string;
-  finishedAt?: string;
-  acknowledgedAt?: string;
-  nextActions: string[];
-}
-
-export interface SparkBackgroundChildRunView {
-  runRef: RunRef;
-  workflowRunRef?: RunRef;
-  taskRef?: TaskRef;
-  taskName?: string;
-  taskTitle?: string;
-  taskStatus?: TaskStatus;
-  roleRef?: RoleRef;
-  runName?: string;
-  ownerSessionId?: string;
-  claimKind?: string;
-  pid?: number;
-  cwd?: string;
-  startedAt?: string;
-  finishedAt?: string;
-  timedOutAt?: string;
-  inputControl?: SparkRoleRunInputControl;
-  activeProcess: boolean;
-  status: SparkBackgroundChildStatus;
-  summary?: string;
-  errorMessage?: string;
-  outcome?: RoleRunCompletionOutcome;
-  artifactRefs: ArtifactRef[];
-  transcriptRef?: ArtifactRef;
-  stdoutTail?: RoleRunTextTail;
-  stderrTail?: RoleRunTextTail;
-  jsonEventsTail?: RoleRunJsonEventsTail;
-  roleRunArtifacts?: RoleRunArtifactPreview[];
-  nextAction?: string;
-}
+export type {
+  SparkBackgroundChildRunView,
+  SparkBackgroundChildStatus,
+  SparkBackgroundRunView,
+  SparkBackgroundSummaryState,
+} from "./background-run-contracts.ts";
 
 export interface SparkBackgroundRunsDetails {
   action: SparkBackgroundAction;
@@ -289,7 +225,7 @@ export async function buildSparkBackgroundDetails(input: {
     ),
     activityEvents,
   });
-  const collectedChildRuns = await enrichBackgroundChildRunsWithRoleRunArtifacts({
+  const collectedChildRuns = await enrichBackgroundChildRunsWithRoleRunEvidence({
     cwd: input.cwd,
     childRuns: collectBackgroundChildRuns({
       graph: input.graph,
@@ -303,17 +239,20 @@ export async function buildSparkBackgroundDetails(input: {
   const targetIsWorkflowRun = Boolean(
     input.targetRunRef && selectedRuns.some((run) => run.ref === input.targetRunRef),
   );
-  const childRuns =
+  const childRuns: SparkBackgroundChildRunView[] =
     input.action === "inspect" && input.targetRunRef && !targetIsWorkflowRun
       ? collectedChildRuns.filter((child) => child.runRef === input.targetRunRef)
       : collectedChildRuns;
-  const runs = selectedRuns.map((run) =>
+  const runs: SparkBackgroundRunView[] = selectedRuns.map((run) =>
     backgroundRunView(
       run,
       childRuns.filter((child) => child.workflowRunRef === run.ref && child.activeProcess),
     ),
   );
-  const summary = summarizeBackgroundRuns({ runs, childRuns });
+  const summary: SparkBackgroundRunsDetails["summary"] = summarizeBackgroundRuns({
+    runs,
+    childRuns,
+  });
   return {
     action: input.action,
     currentProjectRef: input.currentProjectRef,

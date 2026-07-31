@@ -17,10 +17,10 @@ import {
   type RoleRegistry,
   type RoleLaunchMode,
 } from "@zendev-lab/spark-roles";
-import type { ArtifactStore } from "@zendev-lab/spark-artifacts";
+import type { EvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
   DependencyError,
-  type ArtifactRef,
+  type EvidenceRef,
   type JsonValue,
   newRef,
   nowIso,
@@ -29,6 +29,7 @@ import {
   type RoleRunCompletionOutcome,
   type RunRef,
   type Task,
+  type TaskResourceAllocation,
   type TaskRef,
   type TaskRun,
   type TaskRunCompletionSummary,
@@ -42,28 +43,28 @@ import {
   type TaskGraphStoreUpdateOptions,
 } from "@zendev-lab/spark-tasks";
 import {
-  type RoleRunArtifactBody,
+  type RoleRunEvidenceBody,
   type RoleRunJsonEventsTail,
   type RoleRunTextTail,
-} from "./role-run-artifacts.ts";
+} from "./role-run-evidence.ts";
 
 export {
-  SPARK_ROLE_RUN_ARTIFACT_PREVIEW_METADATA_MAX_BYTES,
+  SPARK_ROLE_RUN_EVIDENCE_PREVIEW_METADATA_MAX_BYTES,
   SPARK_ROLE_RUN_RETENTION_TAIL_BYTES,
-  collectRoleRunArtifactRetentionPlan,
-  isRoleRunArtifactBody,
+  collectRoleRunEvidenceRetentionPlan,
+  isRoleRunEvidenceBody,
   isRoleRunJsonEventsTail,
   isRoleRunTextTail,
-  readRoleRunArtifactPreview,
-  type RoleRunArtifactBody,
-  type RoleRunArtifactPreview,
-  type RoleRunArtifactRetentionCandidate,
-  type RoleRunArtifactRetentionPlan,
-  type RoleRunArtifactRetentionSkipReason,
-  type RoleRunArtifactRetentionSkipped,
+  readRoleRunEvidencePreview,
+  type RoleRunEvidenceBody,
+  type RoleRunEvidencePreview,
+  type RoleRunEvidenceRetentionCandidate,
+  type RoleRunEvidenceRetentionPlan,
+  type RoleRunEvidenceRetentionSkipReason,
+  type RoleRunEvidenceRetentionSkipped,
   type RoleRunJsonEventsTail,
   type RoleRunTextTail,
-} from "./role-run-artifacts.ts";
+} from "./role-run-evidence.ts";
 
 export interface SparkRoleRunResult {
   record: RoleRunRecord & {
@@ -154,9 +155,9 @@ export interface SendSparkRoleRunInputResult extends ActiveSparkRoleRunProcess {
 const EMPTY_ROLE_RUN_FAILURE_KIND = "runtime_error";
 const MAX_TASK_ROLE_INSTRUCTION_CHARS = 6_000;
 const MAX_TASK_ROLE_TODO_PREVIEW_ITEMS = 2;
-const MAX_ROLE_RUN_ARTIFACT_TEXT_TAIL_BYTES = 12 * 1024;
-const MAX_ROLE_RUN_ARTIFACT_JSON_EVENT_TAIL_COUNT = 10;
-const MAX_ROLE_RUN_ARTIFACT_JSON_EVENT_CHARS = 1_000;
+const MAX_ROLE_RUN_EVIDENCE_TEXT_TAIL_BYTES = 12 * 1024;
+const MAX_ROLE_RUN_EVIDENCE_JSON_EVENT_TAIL_COUNT = 10;
+const MAX_ROLE_RUN_EVIDENCE_JSON_EVENT_CHARS = 1_000;
 const DEFAULT_ROLE_RUN_SHUTDOWN_WAIT_MS = 3_000;
 const ROLE_RUN_SECRET_PATTERN = /(?:api[-_\s]?key|token|bearer)\s*[:=]\s*[^\s,;}]+/giu;
 
@@ -210,7 +211,7 @@ function diagnosticNextAction(failureCategory: string): string {
     return "Check the native Spark provider registry/model selector and align role model settings with an available provider/model.";
   if (failureCategory === "empty_output")
     return "Inspect role executor configuration, model selection, and runtime stderr; rerun with diagnostics if the executor produced no stdout, stderr, or JSON events.";
-  return "Inspect stderr, JSON events, and role-run artifact tails for the failing run.";
+  return "Inspect stderr, JSON events, and role-run evidence tails for the failing run.";
 }
 
 function redactDiagnosticText(text: string): string {
@@ -452,7 +453,7 @@ export interface SparkTaskRunOptions {
   assignedRoleRef?: RoleRef;
   /** Fallback role used only when assignedRoleRef and task.roleRef are both absent. */
   defaultRoleRef?: RoleRef;
-  artifactStore?: ArtifactStore;
+  evidenceStore?: EvidenceStore;
   cwd?: string;
   dryRun?: boolean;
   timeoutMs?: number;
@@ -462,6 +463,7 @@ export interface SparkTaskRunOptions {
   forkFromSession?: string;
   sessionModel?: string;
   env?: NodeJS.ProcessEnv;
+  resourceAllocation?: TaskResourceAllocation;
   allowedTools?: string[];
   roleExecutor?: SparkRoleInstructionExecutor;
   onRoleEvent?: (event: unknown) => void | Promise<void>;
@@ -516,7 +518,13 @@ export async function sweepExpiredTaskClaims(
   return store.withLock(async () => {
     const graph = await store.load();
     if (!graph) return { graph: null, expired: [], saved: false };
-    const expired = graph.expireTaskClaims(now);
+    const expired = graph
+      .tasks()
+      .filter((task) => task.claim?.kind === "role-run")
+      .flatMap((task) => {
+        const updated = graph.expireTaskClaim(task.ref, now);
+        return updated ? [updated] : [];
+      });
     if (expired.length === 0) return { graph, expired, saved: false };
     await store.save(graph);
     return { graph, expired, saved: true };
@@ -561,12 +569,14 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
     ref: runRef,
     projectRef: task.projectRef,
     taskRef: task.ref,
+    ...(dryRun ? { dryRun: true } : {}),
     roleRef: taskRoleRef,
     runName,
     ownerSessionId,
+    resourceAllocation: input.resourceAllocation,
     status: "running",
     startedAt: nowIso(),
-    outputArtifacts: [],
+    outputEvidenceRefs: [],
   };
   input.graph.recordRun(run);
   const heartbeatAbort = dryRun ? undefined : new AbortController();
@@ -599,7 +609,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
       {
         roleRef: taskRoleRef,
         instruction: buildSparkTaskRoleInstruction(task, input.graph),
-        inputs: task.inputArtifacts,
+        inputs: task.inputEvidenceRefs,
       },
       {
         cwd: input.cwd ?? process.cwd(),
@@ -622,13 +632,13 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
     );
     if (runSignal?.aborted) throw abortSignalReason(runSignal);
 
-    let outputArtifactRef: ArtifactRef | undefined;
-    if (input.artifactStore) {
-      const artifact = await input.artifactStore.put({
+    let outputEvidenceRef: EvidenceRef | undefined;
+    if (input.evidenceStore) {
+      const evidence = await input.evidenceStore.put({
         kind: "trace",
         title: `Role run ${runName} for ${task.title}`,
         format: "json",
-        body: createRoleRunArtifactBody({
+        body: createRoleRunEvidenceBody({
           result,
           taskRef: task.ref,
           roleRef: taskRoleRef,
@@ -642,8 +652,8 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
           note: `runName=${runName}`,
         },
       });
-      outputArtifactRef = artifact.ref;
-      input.graph.attachOutputArtifact(task.ref, artifact.ref);
+      outputEvidenceRef = evidence.ref;
+      input.graph.attachOutputEvidence(task.ref, evidence.ref);
     }
 
     const outcome = result.outcome ?? result.record.outcome;
@@ -663,11 +673,11 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
       roleRunEvidenceCompletionFailure(
         input.graph.getTask(task.ref),
         dryRun,
-        Boolean(input.artifactStore),
+        Boolean(input.evidenceStore),
       );
     const succeeded = !completionFailure;
     const finishedAt = nowIso();
-    const outputArtifacts = outputArtifactRef ? [outputArtifactRef] : [];
+    const outputEvidenceRefs = outputEvidenceRef ? [outputEvidenceRef] : [];
     const status = taskRunStatusForOutcome(succeeded, outcome);
     const finished: TaskRun = {
       ...run,
@@ -676,7 +686,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
       failureKind: completionFailure ? taskRunFailureKindForOutcome(outcome) : undefined,
       errorMessage: completionFailure,
       finishedAt,
-      outputArtifacts,
+      outputEvidenceRefs,
       completionSummary: dryRun
         ? undefined
         : createTaskRunCompletionSummary({
@@ -684,7 +694,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
             status,
             finishedAt,
             outcome,
-            outputArtifacts,
+            outputEvidenceRefs,
             summary: completionFailure ?? summarizeRoleRunResult(result),
           }),
     };
@@ -702,12 +712,12 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
         failureKind: "runtime_timeout",
         errorMessage,
         finishedAt,
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
         completionSummary: createTaskRunCompletionSummary({
           run,
           status: "failed",
           finishedAt,
-          outputArtifacts: [],
+          outputEvidenceRefs: [],
           summary: errorMessage,
         }),
       };
@@ -733,7 +743,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
         errorMessage,
         outcome,
         finishedAt,
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
         completionSummary: dryRun
           ? undefined
           : createTaskRunCompletionSummary({
@@ -741,7 +751,7 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
               status: "cancelled",
               finishedAt,
               outcome,
-              outputArtifacts: [],
+              outputEvidenceRefs: [],
               summary: errorMessage,
             }),
       };
@@ -757,14 +767,14 @@ export async function runSparkTask(input: SparkTaskRunOptions): Promise<TaskRun>
       failureKind: error instanceof PiRoleRunTimeoutError ? "runtime_timeout" : "runtime_error",
       errorMessage,
       finishedAt,
-      outputArtifacts: [],
+      outputEvidenceRefs: [],
       completionSummary: dryRun
         ? undefined
         : createTaskRunCompletionSummary({
             run,
             status: "failed",
             finishedAt,
-            outputArtifacts: [],
+            outputEvidenceRefs: [],
             summary: errorMessage,
           }),
     };
@@ -870,14 +880,14 @@ function taskTodoInstructionRank(todo: TaskTodo): number {
 
 function boundTaskRoleInstruction(instruction: string): string {
   if (instruction.length <= MAX_TASK_ROLE_INSTRUCTION_CHARS) return instruction;
-  return `${instruction.slice(0, MAX_TASK_ROLE_INSTRUCTION_CHARS).trimEnd()}\n\n… task instruction truncated; inspect task_read({ action: "task_status", taskRef: "task:..." }) and artifact({ action: "read" }) if more context is needed.`;
+  return `${instruction.slice(0, MAX_TASK_ROLE_INSTRUCTION_CHARS).trimEnd()}\n\n… task instruction truncated; inspect task_read({ action: "task_status", taskRef: "task:..." }) and evidence({ action: "read" }) if more context is needed.`;
 }
 
-function createRoleRunArtifactBody(input: {
+function createRoleRunEvidenceBody(input: {
   result: SparkRoleRunResult;
   taskRef: TaskRef;
   roleRef: RoleRef;
-}): RoleRunArtifactBody {
+}): RoleRunEvidenceBody {
   const { result } = input;
   return {
     schemaVersion: 1,
@@ -910,7 +920,7 @@ function compactRoleRunRecord(
 
 function createTextTail(
   text: string,
-  maxBytes = MAX_ROLE_RUN_ARTIFACT_TEXT_TAIL_BYTES,
+  maxBytes = MAX_ROLE_RUN_EVIDENCE_TEXT_TAIL_BYTES,
 ): RoleRunTextTail {
   const bytes = Buffer.byteLength(text, "utf8");
   if (bytes <= maxBytes) return { bytes, tail: text, tailBytes: bytes, truncated: false };
@@ -925,15 +935,15 @@ function createTextTail(
 
 function createJsonEventsTail(
   events: unknown[],
-  maxEvents = MAX_ROLE_RUN_ARTIFACT_JSON_EVENT_TAIL_COUNT,
+  maxEvents = MAX_ROLE_RUN_EVIDENCE_JSON_EVENT_TAIL_COUNT,
 ): RoleRunJsonEventsTail {
   const rawTail = events.slice(-maxEvents);
   let truncated = events.length > rawTail.length;
   const tail = rawTail.map((event) => {
     const serialized = JSON.stringify(event) ?? String(event);
-    if (serialized.length <= MAX_ROLE_RUN_ARTIFACT_JSON_EVENT_CHARS) return serialized;
+    if (serialized.length <= MAX_ROLE_RUN_EVIDENCE_JSON_EVENT_CHARS) return serialized;
     truncated = true;
-    return `${serialized.slice(0, MAX_ROLE_RUN_ARTIFACT_JSON_EVENT_CHARS).trimEnd()}…`;
+    return `${serialized.slice(0, MAX_ROLE_RUN_EVIDENCE_JSON_EVENT_CHARS).trimEnd()}…`;
   });
   return {
     count: events.length,
@@ -947,7 +957,7 @@ function createTaskRunCompletionSummary(input: {
   run: TaskRun;
   status: TaskRunCompletionSummary["status"];
   finishedAt: string;
-  outputArtifacts: ArtifactRef[];
+  outputEvidenceRefs: EvidenceRef[];
   outcome?: RoleRunCompletionOutcome;
   summary: string;
 }): TaskRunCompletionSummary {
@@ -958,7 +968,7 @@ function createTaskRunCompletionSummary(input: {
     runName: input.run.runName,
     status: input.status,
     summary: boundCompletionSummary(input.summary),
-    artifactRefs: [...input.outputArtifacts],
+    evidenceRefs: [...input.outputEvidenceRefs],
     outcome: input.outcome ? { ...input.outcome } : undefined,
     createdAt: input.finishedAt,
   };
@@ -1307,7 +1317,7 @@ export function sparkTaskExecutorRoleRef(task: Task, defaultRoleRef?: RoleRef): 
 }
 
 function defaultRoleRefForTaskKind(kind: Task["kind"]): RoleRef {
-  if (kind === "research") return "role:builtin-scout" as RoleRef;
+  if (kind === "research") return "role:builtin-researcher" as RoleRef;
   if (kind === "review") return "role:builtin-reviewer" as RoleRef;
   return "role:builtin-worker" as RoleRef;
 }

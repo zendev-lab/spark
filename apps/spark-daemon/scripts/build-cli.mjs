@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { chmod, cp, rm } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -31,5 +31,20 @@ await build({
 });
 
 await chmod("dist/cli.js", 0o755);
-await rm(migrationsDestination, { recursive: true, force: true });
-await cp(migrationsSource, migrationsDestination, { recursive: true });
+await mkdir(migrationsDestination, { recursive: true });
+
+const migrationNames = await readdir(migrationsSource);
+await Promise.all(
+  migrationNames.map((name) =>
+    copyFile(join(migrationsSource, name), join(migrationsDestination, name)),
+  ),
+);
+
+const staleMigrationNames = (await readdir(migrationsDestination)).filter(
+  (name) => !migrationNames.includes(name),
+);
+await Promise.all(
+  staleMigrationNames.map((name) =>
+    rm(join(migrationsDestination, name), { recursive: true, force: true }),
+  ),
+);

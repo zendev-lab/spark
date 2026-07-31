@@ -180,6 +180,7 @@ export const actions: Actions = {
       });
     }
 
+    let workspaceSlug = slug;
     try {
       const workspace = createWorkspaceWithLease(getDatabase(), {
         name,
@@ -202,6 +203,7 @@ export const actions: Actions = {
         resources: profile.resources,
         runtimeWorkspaceBindingId,
       });
+      workspaceSlug = workspace.slug;
       if (workspaceSetup.enrollmentTokenId) {
         bindRuntimeRefreshTokenToWorkspace(getDatabase(), {
           tokenId: workspaceSetup.enrollmentTokenId,
@@ -216,7 +218,7 @@ export const actions: Actions = {
       });
     }
 
-    redirect(303, workspaceSessionsPath({ slug }));
+    redirect(303, workspaceSessionsPath({ slug: workspaceSlug }));
   },
 };
 

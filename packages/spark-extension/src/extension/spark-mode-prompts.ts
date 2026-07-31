@@ -85,7 +85,7 @@ const SPARK_GOAL_DECISION_RULE = `Goal objectives should normally describe the s
 function renderGoalAction(hasExplicitGoal: boolean): string {
   const goalSource = hasExplicitGoal
     ? "Use the explicit goal focus as the target objective."
-    : "Infer the target objective from the current project purpose, description, title, task plans, required evidence, recent artifacts, and blockers.";
+    : "Infer the target objective from the current project purpose, description, title, task plans, required evidence, recent Evidence records, and blockers.";
   return (
     'Run the Spark goal drive from durable task/project state: read the current project/task plan and inspect ready tasks with task_read({ action: "project_status" }). ' +
     goalSource +
@@ -122,7 +122,7 @@ export function renderSparkUltracodeWorkflowPrompt(
     'If an existing saved workflow clearly satisfies the request, run it with workflow_run({ selector, args }) after reading/previewing it through workflow({ action: "read" }).',
     "If no saved workflow fits, generate one metadata-first JavaScript workflow script and execute it with workflow_run({ script, args, concurrency, maxAgents, tokenBudget }). Do not run ad hoc shell/filesystem steps outside workflow_run.",
     "Use bounded defaults unless the user explicitly asks otherwise: concurrency <= 4, maxAgents <= 12, clear stages, and a visible tokenBudget when the workflow may fan out.",
-    "Generated scripts should use quality helpers such as verify, judgePanel, completenessCheck, retry, gate, and artifactRecord where they improve confidence, and should synthesize a compact final result.",
+    "Generated scripts should use quality helpers such as verify, judgePanel, completenessCheck, retry, gate, and evidenceRecord where they improve confidence, and should synthesize a compact final result.",
     "Reuse workflow_run approval, persistence, resume, and telemetry paths; do not duplicate approval or run-manager state.",
     "Keep workflow output standalone unless the user explicitly asks to attach results to Spark project/task state.",
     renderSparkUltracodeWorkflowGuidance(focus, savedWorkflows),

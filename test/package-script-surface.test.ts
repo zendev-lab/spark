@@ -8,6 +8,7 @@ const canonicalRootScripts = [
   "build",
   "build:docs",
   "check",
+  "check:evidence-surface",
   "check:boundaries",
   "check:docs",
   "check:static",
@@ -63,6 +64,7 @@ test("root package exposes one compact validation and release surface", async ()
   );
   assert.equal(scripts["build:docs"], "pnpm --filter @zendev-lab/spark-docs run build");
   assert.equal(scripts["check:docs"], "pnpm --filter @zendev-lab/spark-docs run check");
+  assert.equal(scripts["check:evidence-surface"], "node scripts/check-evidence-surface.mjs");
   assert.equal(
     scripts["check:boundaries"],
     "depcruise --config .dependency-cruiser.cjs apps packages test",
@@ -79,6 +81,7 @@ test("root package exposes one compact validation and release surface", async ()
     "pnpm --filter @zendev-lab/spark-docs exec astro sync",
     "node scripts/check-architecture-ratchets.mjs",
     "node scripts/check-npm-product.mjs",
+    "pnpm run check:evidence-surface",
     "pnpm run check:boundaries",
     "pnpm run check:test-quality",
     "node scripts/check-doc-terminology.mjs",
@@ -196,7 +199,7 @@ test("CI and prek consume the canonical package scripts", async () => {
   assert.match(verifyWorkflow, /re-actors\/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe/u);
   assert.match(verifyWorkflow, /jobs: \$\{\{ toJSON\(needs\) \}\}/u);
   assert.match(verifyWorkflow, /pnpm run test:browser:cockpit/u);
-  assert.match(verifyWorkflow, /name: verify/u);
+  assert.match(verifyWorkflow, /name: required/u);
   assert.doesNotMatch(verifyWorkflow, /test:npm-product/u);
   assert.match(hygieneWorkflow, /pnpm run report:hygiene/u);
   assert.doesNotMatch(hygieneWorkflow, /pnpm exec (?:knip|jscpd)/u);

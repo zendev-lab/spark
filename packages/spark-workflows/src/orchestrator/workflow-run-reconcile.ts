@@ -6,7 +6,7 @@ import {
   createWorkflowRunCompletionFollowUp,
 } from "./workflow-run-completion.ts";
 import { reconcileWorkflowRunCounters, uniqueRefs } from "./workflow-run-counters.ts";
-import type { WorkflowRunRecord, WorkflowRunStoreSnapshot } from "./index.ts";
+import type { WorkflowRunRecord, WorkflowRunStoreSnapshot } from "./types.ts";
 
 export interface WorkflowRunSnapshotReconcileInput {
   graph?: TaskGraph;

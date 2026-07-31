@@ -1,5 +1,5 @@
 import type {
-  ArtifactRef,
+  EvidenceRef,
   JsonValue,
   Project,
   ProjectRef,
@@ -13,6 +13,7 @@ import type {
   TaskDependency,
   TaskKind,
   TaskPlan,
+  TaskExecutionPolicy,
   TaskPlanIssue,
   TaskRef,
   TaskRun,
@@ -46,11 +47,12 @@ export interface CreateTaskInput {
   kind?: TaskKind;
   status?: Task["status"];
   roleRef?: RoleRef;
+  executionPolicy?: TaskExecutionPolicy;
   finishedBy?: TaskAttribution;
   cancellation?: TaskCancellation;
   supersededBy?: TaskRef[];
   claim?: TaskClaim;
-  inputArtifacts?: ArtifactRef[];
+  inputEvidenceRefs?: EvidenceRef[];
   plan?: TaskPlan;
   /**
    * Legacy/import seed rows for task plan items. TaskGraphStore projects these
@@ -62,6 +64,7 @@ export interface CreateTaskInput {
 export interface ClaimTaskInput {
   kind: TaskClaimKind;
   claimedBy: string;
+  status?: "pending" | "ready" | "running" | "blocked";
   roleRef?: RoleRef;
   runName?: string;
   sessionId?: string;
@@ -142,6 +145,7 @@ export interface TaskPlanInput {
   kind?: TaskKind;
   status?: Task["status"];
   roleRef?: RoleRef;
+  executionPolicy?: TaskExecutionPolicy;
   supersededBy?: TaskRef[];
   dependsOn?: Array<TaskRef | string>;
   rationale?: string;

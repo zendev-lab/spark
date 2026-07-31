@@ -265,6 +265,8 @@ test("builtin role prompts and direct-call tool copy stay host-neutral", () => {
     .map((role) => role.systemPrompt)
     .join("\n");
   assert.match(prompts, /You are a Pi scout/);
+  assert.match(prompts, /You are a Pi explorer/);
+  assert.match(prompts, /You are a Pi researcher/);
   assert.match(prompts, /report the blocker.*upward/i);
   assert.doesNotMatch(prompts, /available ask tool/);
   assert.doesNotMatch(prompts, /You are a Spark/);
@@ -279,7 +281,7 @@ test("role spec tools keep patch presets out of builtin role lookup", async () =
     const listed = await executeRoleTool(tools, "list_roles", { source: "builtin" }, dir);
     const roleIds = ((listed.details?.roles ?? []) as Array<{ id: string }>).map((role) => role.id);
 
-    assert.deepEqual(roleIds, ["reviewer", "scout", "worker"]);
+    assert.deepEqual(roleIds, ["explorer", "researcher", "reviewer", "scout", "worker"]);
     assert.doesNotMatch(listed.content[0]?.text ?? "", /\bpatcher?\b/);
     await assert.rejects(
       executeRoleTool(tools, "get_role", { role: "patch" }, dir),

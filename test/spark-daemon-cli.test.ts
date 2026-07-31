@@ -12,8 +12,10 @@ import {
 } from "@zendev-lab/spark-daemon-client/local-rpc";
 import { SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
 import { parseSparkDaemonEvent, parseSparkInteractionRequest } from "@zendev-lab/spark-protocol";
+import { sparkSessionKey } from "../packages/spark-loop/src/session-identity.ts";
 
 import {
+  formatSparkCliFailure,
   handleSparkRpcLine,
   parseSparkCliCommand,
   runSparkCli,
@@ -34,9 +36,13 @@ import {
   sparkDaemonServiceCliCommand,
   type ManagedSessionRegistryResult,
   type SparkDaemonClientOptions,
+  type SparkWorkspaceClientKind,
 } from "../apps/spark-tui/src/cli/daemon.ts";
 import { loadSparkHeadlessSessionModule } from "../apps/spark-daemon/src/spark/session-run.ts";
-import { SparkNativeAdmissionError } from "../apps/spark-tui/src/native-tui.ts";
+import {
+  SparkNativeAdmissionError,
+  registerSparkNativeTuiSignalHandlers,
+} from "../apps/spark-tui/src/native-tui.ts";
 import { CREATE_SPARK_SESSION_SELECTION } from "../apps/spark-tui/src/tui/session-selector.ts";
 
 test("Spark daemon loads headless session executor from workspace package source", async () => {
@@ -374,6 +380,22 @@ test("parseSparkCliCommand routes daemon and print commands without changing def
         workspaceId: "ws_demo",
       },
     },
+  );
+});
+
+test("Spark CLI failures are concise and honor JSON mode before the option delimiter", () => {
+  const failure = new Error("Configure a model before submitting.");
+  assert.equal(formatSparkCliFailure(failure, ["daemon", "submit"]), failure.message);
+  assert.deepEqual(JSON.parse(formatSparkCliFailure(failure, ["daemon", "submit", "--json"])), {
+    action: "error",
+    error: {
+      code: "cli_error",
+      message: failure.message,
+    },
+  });
+  assert.equal(
+    formatSparkCliFailure(failure, ["daemon", "submit", "--", "--json"]),
+    failure.message,
   );
 });
 
@@ -820,6 +842,43 @@ test("daemon session list defaults to live attachable workspace clients", async 
   assert.doesNotMatch(list.text, /wcl-old-a/u);
 });
 
+test("daemon ask commands expose pending interactions and JSON answers", () => {
+  assert.deepEqual(parseSparkDaemonCliArgs(["ask", "list", "--session", "session-a", "--json"]), {
+    action: "ask",
+    subcommand: "list",
+    json: true,
+    sessionId: "session-a",
+  });
+  assert.deepEqual(
+    parseSparkDaemonCliArgs([
+      "ask",
+      "answer",
+      "interaction-a",
+      "--answers",
+      '{"decision":"reuse-existing-megatron"}',
+      "--session",
+      "session-a",
+    ]),
+    {
+      action: "ask",
+      subcommand: "answer",
+      json: false,
+      interactionRequestId: "interaction-a",
+      sessionId: "session-a",
+      invocationId: undefined,
+      answers: { decision: "reuse-existing-megatron" },
+    },
+  );
+  assert.deepEqual(parseSparkDaemonCliArgs(["ask", "cancel", "interaction-a"]), {
+    action: "ask",
+    subcommand: "cancel",
+    json: false,
+    interactionRequestId: "interaction-a",
+    sessionId: undefined,
+    invocationId: undefined,
+  });
+});
+
 test("daemon sessions plural alias routes to live list", () => {
   assert.deepEqual(parseSparkDaemonCliArgs(["sessions", "list", "--json"]), {
     action: "sessions",
@@ -1158,6 +1217,8 @@ test("parseSparkCliCommand parses Pi-compatible global modes and resource comman
 test("parseSparkDaemonCliArgs parses daemon IPC commands", async () => {
   assert.deepEqual(parseSparkDaemonCliArgs([]), { action: "service", argv: [] });
   assert.deepEqual(parseSparkDaemonCliArgs(["--help"]), { action: "help" });
+  assert.deepEqual(parseSparkDaemonCliArgs(["doctor", "--help"]), { action: "help" });
+  assert.deepEqual(parseSparkDaemonCliArgs(["start", "-h"]), { action: "help" });
   assert.deepEqual(parseSparkDaemonCliArgs(["submit", "--session", "s1", "-p", "hello"]), {
     action: "submit",
     json: false,
@@ -1909,8 +1970,21 @@ test("Spark TUI and headless print attach and release workspace clients", async 
       status: "available",
     };
     const ensures: Array<{ localPath: string }> = [];
-    const attaches: Array<{ kind: string; workspaceId: string; displayName?: string }> = [];
+    const attaches: Array<{
+      kind: string;
+      workspaceId: string;
+      displayName?: string;
+      sessionId?: string;
+    }> = [];
     const releases: string[] = [];
+    const attachedClients = new Map<
+      string,
+      {
+        kind: SparkWorkspaceClientKind;
+        sessionId?: string;
+        leaseFence?: string;
+      }
+    >();
     const submitted: Array<{ sessionId: string; prompt: string }> = [];
     const registeredSessions: Array<{
       sessionId: string;
@@ -1942,6 +2016,12 @@ test("Spark TUI and headless print attach and release workspace clients", async 
       workspaceClientAttach: async (_paths, input) => {
         attaches.push(input);
         const id = `wcl-${input.kind}-${attaches.length}`;
+        const leaseFence = input.sessionId ? `fence-${attaches.length}` : undefined;
+        attachedClients.set(id, {
+          kind: input.kind,
+          ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+          ...(leaseFence ? { leaseFence } : {}),
+        });
         return {
           client: {
             id,
@@ -1950,21 +2030,45 @@ test("Spark TUI and headless print attach and release workspace clients", async 
             status: "connected" as const,
             attachedAt: "2026-06-19T00:00:00.000Z",
             lastSeenAt: "2026-06-19T00:00:00.000Z",
+            ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+            ...(leaseFence ? { leaseFence } : {}),
           },
           workspace,
           observedAt: "2026-06-19T00:00:00.000Z",
         };
       },
-      workspaceClientRelease: async (_paths, input) => {
-        releases.push(input.clientId);
+      workspaceClientHeartbeat: async (_paths, input) => {
+        const attached = attachedClients.get(input.clientId);
+        assert.ok(attached, `unknown attached client: ${input.clientId}`);
         return {
           client: {
             id: input.clientId,
             workspaceId: workspace.id,
-            kind: "interactive" as const,
+            kind: attached.kind,
+            status: "connected" as const,
+            attachedAt: "2026-06-19T00:00:00.000Z",
+            lastSeenAt: "2026-06-19T00:00:01.000Z",
+            ...(attached.sessionId ? { sessionId: attached.sessionId } : {}),
+            ...(attached.leaseFence ? { leaseFence: attached.leaseFence } : {}),
+          },
+          workspace,
+          observedAt: "2026-06-19T00:00:01.000Z",
+        };
+      },
+      workspaceClientRelease: async (_paths, input) => {
+        releases.push(input.clientId);
+        const attached = attachedClients.get(input.clientId);
+        assert.ok(attached, `unknown attached client: ${input.clientId}`);
+        return {
+          client: {
+            id: input.clientId,
+            workspaceId: workspace.id,
+            kind: attached.kind,
             status: "disconnected" as const,
             attachedAt: "2026-06-19T00:00:00.000Z",
             lastSeenAt: "2026-06-19T00:00:01.000Z",
+            ...(attached.sessionId ? { sessionId: attached.sessionId } : {}),
+            ...(attached.leaseFence ? { leaseFence: attached.leaseFence } : {}),
           },
           workspace,
           observedAt: "2026-06-19T00:00:01.000Z",
@@ -2238,13 +2342,26 @@ test("Spark TUI and headless print attach and release workspace clients", async 
 
     assert.deepEqual(
       attaches.map((attach) => attach.kind),
-      ["headless", "headless", "interactive"],
+      ["headless", "headless", "interactive", "interactive"],
     );
     assert.deepEqual(
       attaches.map((attach) => attach.workspaceId),
-      [workspace.id, workspace.id, workspace.id],
+      [workspace.id, workspace.id, workspace.id, workspace.id],
     );
-    assert.deepEqual(releases, ["wcl-headless-1", "wcl-headless-2", "wcl-interactive-3"]);
+    assert.equal(attaches.at(-1)?.sessionId, "session:generated-3");
+    const nativeOptions = capturedTuiOptions as {
+      responder?: { sessionId?: string };
+      workspaceSession?: { sessionId?: string };
+    };
+    assert.equal(nativeOptions.workspaceSession?.sessionId, "session:generated-3");
+    assert.equal(nativeOptions.responder?.sessionId, "session:generated-3");
+    assert.notEqual(attaches.at(-1)?.sessionId, "wcl-interactive-4");
+    assert.deepEqual(releases, [
+      "wcl-headless-1",
+      "wcl-headless-2",
+      "wcl-interactive-4",
+      "wcl-interactive-3",
+    ]);
     assert.equal(ensures.length, 3);
     assert.deepEqual(
       registeredSessions.map((session) => ({
@@ -2261,6 +2378,119 @@ test("Spark TUI and headless print attach and release workspace clients", async 
     assert.equal(submitted.at(-1)?.prompt, "runtime-plan-instruction");
     assert.match(logs.join("\n"), /inv_turn/u);
   } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("native TUI session heartbeat cleans up failures and isolates same-session surfaces", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-cli-session-heartbeat-"));
+  try {
+    const base = createWorkspaceAttachTestDeps(dir, {
+      existingSessionIds: new Set(["same-session"]),
+    });
+    const expectedSessionId = sparkSessionKey({ sessionId: "same-session" });
+    const observedIdentities: Array<{ responder?: string; view?: string }> = [];
+    const run = async (failure?: string) =>
+      await runSparkCli(["--session-id", "same-session"], {
+        daemonClient: base.daemonClient,
+        createHostServices: base.createHostServices,
+        terminal: { stdinIsTTY: true, stdoutIsTTY: true },
+        runTui: async (input) => {
+          assert.equal(typeof input, "object");
+          assert.notEqual(input, null);
+          const options = input as Exclude<typeof input, string | undefined>;
+          observedIdentities.push({
+            responder: (options.responder as { sessionId?: string } | undefined)?.sessionId,
+            view: options.workspaceSession?.sessionId,
+          });
+          if (failure === "signal") {
+            const listeners = new Map<"SIGINT" | "SIGTERM", () => void>();
+            const source = {
+              once(signal: "SIGINT" | "SIGTERM", listener: () => void) {
+                listeners.set(signal, listener);
+              },
+              off(signal: "SIGINT" | "SIGTERM", listener: () => void) {
+                if (listeners.get(signal) === listener) listeners.delete(signal);
+              },
+            };
+            await new Promise<void>((resolve) => {
+              const unregister = registerSparkNativeTuiSignalHandlers(source, resolve);
+              listeners.get("SIGINT")?.();
+              unregister();
+            });
+            assert.equal(listeners.size, 0);
+            return;
+          }
+          if (failure) throw new Error(failure);
+        },
+      });
+
+    assert.equal(await run(), 0);
+    assert.equal(await run(), 0);
+    assert.equal(await run("signal"), 0);
+    await assert.rejects(run("configure failed"), /configure failed/u);
+    await assert.rejects(run("start failed"), /start failed/u);
+
+    assert.deepEqual(
+      observedIdentities,
+      Array.from({ length: 5 }, () => ({
+        responder: expectedSessionId,
+        view: expectedSessionId,
+      })),
+    );
+    assert.equal(base.sessionAttaches.length, 5);
+    assert.deepEqual(
+      new Set(base.sessionAttaches.map((attach) => attach.sessionId)),
+      new Set([expectedSessionId]),
+    );
+    assert.equal(new Set(base.sessionAttaches.map((attach) => attach.clientId)).size, 5);
+    assert.equal(new Set(base.sessionAttaches.map((attach) => attach.leaseFence)).size, 5);
+    assert.deepEqual(
+      base.sessionReleases,
+      base.sessionAttaches.map((attach) => ({
+        clientId: attach.clientId,
+        leaseFence: attach.leaseFence,
+      })),
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("native TUI reports session release failure and leaves the lease to TTL", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-cli-session-release-failure-"));
+  const originalError = console.error;
+  const errors: string[] = [];
+  try {
+    const base = createWorkspaceAttachTestDeps(dir, {
+      existingSessionIds: new Set(["same-session"]),
+    });
+    const release = base.daemonClient.workspaceClientRelease!;
+    const daemonClient: SparkDaemonClientOptions = {
+      ...base.daemonClient,
+      workspaceClientRelease: async (paths, input) => {
+        if (input.leaseFence) throw new Error("release unavailable");
+        return await release(paths, input);
+      },
+    };
+    console.error = (message?: unknown) => errors.push(String(message));
+
+    assert.equal(
+      await runSparkCli(["--session-id", "same-session"], {
+        daemonClient,
+        createHostServices: base.createHostServices,
+        terminal: { stdinIsTTY: true, stdoutIsTTY: true },
+        runTui: async () => undefined,
+      }),
+      0,
+    );
+    assert.equal(base.sessionAttaches.length, 1);
+    assert.equal(base.sessionReleases.length, 0);
+    assert.deepEqual(errors, [
+      "[spark] Spark daemon session release failed; lease will expire by TTL: release unavailable",
+    ]);
+  } finally {
+    console.error = originalError;
     await rm(dir, { recursive: true, force: true });
   }
 });
@@ -2834,6 +3064,8 @@ function createDurableSessionAttachTestDeps(dir: string, stateRoot: string) {
     localPath: dir,
     status: "active",
   };
+  let sessionClientSequence = 0;
+  const sessionClients = new Map<string, { sessionId: string; leaseFence: string }>();
   const daemonClient = {
     daemonStatus: async () => ({
       observedAt: now,
@@ -2841,30 +3073,76 @@ function createDurableSessionAttachTestDeps(dir: string, stateRoot: string) {
       invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
     }),
     workspaceEnsureLocal: async () => workspace,
-    workspaceClientAttach: async () => ({
-      client: {
-        id: "control-plane-client-1",
-        workspaceId: workspace.id,
-        kind: "interactive" as const,
-        status: "connected" as const,
-        attachedAt: now,
-        lastSeenAt: now,
-      },
-      workspace,
-      observedAt: now,
-    }),
-    workspaceClientRelease: async () => ({
-      client: {
-        id: "control-plane-client-1",
-        workspaceId: workspace.id,
-        kind: "interactive" as const,
-        status: "disconnected" as const,
-        attachedAt: now,
-        lastSeenAt: now,
-      },
-      workspace,
-      observedAt: now,
-    }),
+    workspaceClientAttach: async (_paths, input) => {
+      if (!input.sessionId) {
+        return {
+          client: {
+            id: "control-plane-client-1",
+            workspaceId: workspace.id,
+            kind: "interactive" as const,
+            status: "connected" as const,
+            attachedAt: now,
+            lastSeenAt: now,
+          },
+          workspace,
+          observedAt: now,
+        };
+      }
+      sessionClientSequence += 1;
+      const clientId = `durable-session-client-${sessionClientSequence}`;
+      const leaseFence = `durable-fence-${sessionClientSequence}`;
+      sessionClients.set(clientId, { sessionId: input.sessionId, leaseFence });
+      return {
+        client: {
+          id: clientId,
+          workspaceId: workspace.id,
+          kind: "interactive" as const,
+          status: "connected" as const,
+          attachedAt: now,
+          lastSeenAt: now,
+          sessionId: input.sessionId,
+          leaseFence,
+        },
+        workspace,
+        observedAt: now,
+      };
+    },
+    workspaceClientHeartbeat: async (_paths, input) => {
+      const sessionClient = sessionClients.get(input.clientId);
+      assert.ok(sessionClient, `unknown heartbeat client: ${input.clientId}`);
+      return {
+        client: {
+          id: input.clientId,
+          workspaceId: workspace.id,
+          kind: "interactive" as const,
+          status: "connected" as const,
+          attachedAt: now,
+          lastSeenAt: now,
+          sessionId: sessionClient.sessionId,
+          leaseFence: sessionClient.leaseFence,
+        },
+        workspace,
+        observedAt: now,
+      };
+    },
+    workspaceClientRelease: async (_paths, input) => {
+      const sessionClient = sessionClients.get(input.clientId);
+      return {
+        client: {
+          id: input.clientId,
+          workspaceId: workspace.id,
+          kind: "interactive" as const,
+          status: "disconnected" as const,
+          attachedAt: now,
+          lastSeenAt: now,
+          ...(sessionClient
+            ? { sessionId: sessionClient.sessionId, leaseFence: sessionClient.leaseFence }
+            : {}),
+        },
+        workspace,
+        observedAt: now,
+      };
+    },
     managedSessions: {
       list: async () => {
         throw new Error("registry unavailable in durable-session fallback fixture");
@@ -3001,6 +3279,13 @@ function createWorkspaceAttachTestDeps(
     status: "active",
   };
   const clientId = options.clientId ?? "workspace-client-current";
+  let sessionClientSequence = 0;
+  const sessionClients = new Map<
+    string,
+    { workspaceId: string; sessionId: string; leaseFence: string }
+  >();
+  const sessionAttaches: Array<{ clientId: string; sessionId: string; leaseFence: string }> = [];
+  const sessionReleases: Array<{ clientId: string; leaseFence?: string }> = [];
   const daemonClient = {
     daemonStatus: async () => ({
       observedAt: now,
@@ -3008,30 +3293,82 @@ function createWorkspaceAttachTestDeps(
       invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
     }),
     workspaceEnsureLocal: async () => workspace,
-    workspaceClientAttach: async () => ({
-      client: {
-        id: clientId,
-        workspaceId: workspace.id,
-        kind: "interactive" as const,
-        status: "connected" as const,
-        attachedAt: now,
-        lastSeenAt: now,
-      },
-      workspace,
-      observedAt: now,
-    }),
-    workspaceClientRelease: async () => ({
-      client: {
-        id: clientId,
-        workspaceId: workspace.id,
-        kind: "interactive" as const,
-        status: "disconnected" as const,
-        attachedAt: now,
-        lastSeenAt: now,
-      },
-      workspace,
-      observedAt: now,
-    }),
+    workspaceClientAttach: async (_paths, input) => {
+      if (!input.sessionId) {
+        return {
+          client: {
+            id: clientId,
+            workspaceId: workspace.id,
+            kind: "interactive" as const,
+            status: "connected" as const,
+            attachedAt: now,
+            lastSeenAt: now,
+          },
+          workspace,
+          observedAt: now,
+        };
+      }
+      sessionClientSequence += 1;
+      const sessionClientId = `${clientId}-session-${sessionClientSequence}`;
+      const leaseFence = `fence-${sessionClientSequence}`;
+      sessionClients.set(sessionClientId, {
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+        leaseFence,
+      });
+      sessionAttaches.push({ clientId: sessionClientId, sessionId: input.sessionId, leaseFence });
+      return {
+        client: {
+          id: sessionClientId,
+          workspaceId: input.workspaceId,
+          kind: "interactive" as const,
+          status: "connected" as const,
+          attachedAt: now,
+          lastSeenAt: now,
+          sessionId: input.sessionId,
+          leaseFence,
+        },
+        workspace,
+        observedAt: now,
+      };
+    },
+    workspaceClientHeartbeat: async (_paths, input) => {
+      const sessionClient = sessionClients.get(input.clientId);
+      assert.ok(sessionClient, `unknown heartbeat client: ${input.clientId}`);
+      return {
+        client: {
+          id: input.clientId,
+          workspaceId: sessionClient.workspaceId,
+          kind: "interactive" as const,
+          status: "connected" as const,
+          attachedAt: now,
+          lastSeenAt: now,
+          sessionId: sessionClient.sessionId,
+          leaseFence: sessionClient.leaseFence,
+        },
+        workspace,
+        observedAt: now,
+      };
+    },
+    workspaceClientRelease: async (_paths, input) => {
+      const sessionClient = sessionClients.get(input.clientId);
+      if (sessionClient) sessionReleases.push(input);
+      return {
+        client: {
+          id: input.clientId,
+          workspaceId: sessionClient?.workspaceId ?? workspace.id,
+          kind: "interactive" as const,
+          status: "disconnected" as const,
+          attachedAt: now,
+          lastSeenAt: now,
+          ...(sessionClient
+            ? { sessionId: sessionClient.sessionId, leaseFence: sessionClient.leaseFence }
+            : {}),
+        },
+        workspace,
+        observedAt: now,
+      };
+    },
   } satisfies SparkDaemonClientOptions;
   const emitted: Array<{ event: string; payload?: Record<string, unknown> }> = [];
   const createHostServices = async () => {
@@ -3106,7 +3443,7 @@ function createWorkspaceAttachTestDeps(
       diagnostics: [],
     } as never;
   };
-  return { daemonClient, createHostServices, emitted };
+  return { daemonClient, createHostServices, emitted, sessionAttaches, sessionReleases };
 }
 
 test("native TUI model selection and following turn share one managed session", async () => {

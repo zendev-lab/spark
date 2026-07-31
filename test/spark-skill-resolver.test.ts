@@ -85,12 +85,29 @@ test("built-in model reproduction skill keeps the core short and references prog
   assert.equal(skill.disableModelInvocation, true);
   assert.match(skill.body, /Known Diff Procedure/u);
   assert.match(skill.body, /references\/known-diffs\/catalog\.md/u);
+  for (const reference of [
+    "first-divergence",
+    "distributed-observability",
+    "experiment-contract",
+    "topology-planning",
+    "parallel-qualification",
+    "resource-scheduling",
+    "continuous-delivery",
+  ]) {
+    assert.match(skill.body, new RegExp(`references/${reference}\\.md`, "u"));
+  }
   assert.doesNotMatch(skill.body, /ATTN-BADDBMM-BWD-001/u);
 
   const references = join(skill.baseDir, "references");
   const catalog = await readFile(join(references, "known-diffs", "catalog.md"), "utf8");
   const sourceNotes = await readFile(join(references, "known-diffs", "source-notes.md"), "utf8");
   const provenance = await readFile(join(references, "provenance.md"), "utf8");
+  const resourceScheduling = await readFile(join(references, "resource-scheduling.md"), "utf8");
+  const continuousDelivery = await readFile(join(references, "continuous-delivery.md"), "utf8");
+  const evals = JSON.parse(await readFile(join(skill.baseDir, "evals", "evals.json"), "utf8")) as {
+    skill_name?: string;
+    evals?: unknown[];
+  };
   for (const id of [
     "ATTN-BADDBMM-BWD-001",
     "MOE-UNPERMUTE-ACCUM-001",
@@ -102,6 +119,10 @@ test("built-in model reproduction skill keeps the core short and references prog
   }
   assert.match(provenance, /model-repro-bench/u);
   assert.match(provenance, /3680b9fa45c2a4ea5efce1506ddec406013f1b61/u);
+  assert.match(resourceScheduling, /8 GPUs -> 4 paired 1\+1 lanes/u);
+  assert.match(continuousDelivery, /first Draft PR/u);
+  assert.equal(evals.skill_name, MODEL_REPRODUCTION_SKILL_NAME);
+  assert.equal(evals.evals?.length, 3);
 
   const autoload = await renderModelReproductionSkillAutoloadPrompt("repro-123");
   assert.match(autoload, /load once for reproId=repro-123/u);

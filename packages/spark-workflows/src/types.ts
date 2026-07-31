@@ -1,3 +1,5 @@
+import type { EvidenceRef } from "@zendev-lab/spark-core";
+
 export interface WorkflowStage {
   title: string;
   detail?: string;
@@ -45,6 +47,8 @@ export type WorkflowPhaseRun = WorkflowStageRun;
 
 export interface WorkflowAgentOptions {
   label?: string;
+  /** Explicit reusable Spark Role for this workflow child; the host validates the ref. */
+  roleRef?: string;
   stage?: string;
   /** @deprecated Use stage. */
   phase?: string;
@@ -53,7 +57,7 @@ export interface WorkflowAgentOptions {
   isolation?: "graft";
   agentType?: string;
   timeoutMs?: number;
-  artifactRef?: string;
+  evidenceRef?: EvidenceRef;
   env?: Record<string, string | undefined>;
   allowedTools?: string[];
 }
@@ -82,7 +86,7 @@ export interface WorkflowAgentDeliverySummary {
   message?: string;
 }
 
-export interface WorkflowArtifactRecordInput {
+export interface WorkflowEvidenceRecordInput {
   title: string;
   body: string;
   kind?: string;
@@ -91,13 +95,13 @@ export interface WorkflowArtifactRecordInput {
   projectRef?: string;
 }
 
-export interface WorkflowArtifactRecordResult {
-  ref: string;
+export interface WorkflowEvidenceRecordResult {
+  ref: EvidenceRef;
 }
 
-export type WorkflowArtifactRecorder = (
-  input: WorkflowArtifactRecordInput,
-) => Promise<WorkflowArtifactRecordResult> | WorkflowArtifactRecordResult;
+export type WorkflowEvidenceRecorder = (
+  input: WorkflowEvidenceRecordInput,
+) => Promise<WorkflowEvidenceRecordResult> | WorkflowEvidenceRecordResult;
 
 export interface WorkflowWebSearchInput {
   query?: string;
@@ -307,7 +311,7 @@ export type WorkflowAgentRunner = (
 export interface WorkflowRunOptions {
   args?: unknown;
   agent: WorkflowAgentRunner;
-  artifactRecord?: WorkflowArtifactRecorder;
+  evidenceRecord?: WorkflowEvidenceRecorder;
   webSearch?: WorkflowWebSearchAdapter;
   fetchContent?: WorkflowFetchContentAdapter;
   concurrency?: number;

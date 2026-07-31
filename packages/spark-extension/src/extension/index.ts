@@ -19,6 +19,7 @@ import { registerSparkTodoTools } from "./spark-todo-tool-registration.ts";
 import { registerSparkFinishTaskTool } from "./spark-finish-task-tool-registration.ts";
 import { registerSparkClaimTaskTool } from "./spark-claim-task-tool-registration.ts";
 import { registerSparkRecoverTaskClaimTool } from "./spark-recover-task-claim-tool-registration.ts";
+import { registerSparkReleaseTaskClaimTool } from "./spark-release-task-claim-tool-registration.ts";
 import { registerSparkRunReadyTasksTool } from "./spark-run-ready-tasks-tool-registration.ts";
 import { registerSparkGoalTool } from "./spark-goal-tool-registration.ts";
 import { registerSparkLoopTool } from "./spark-loop-tool-registration.ts";
@@ -26,7 +27,6 @@ import {
   ensureActiveReproDriver,
   registerSparkReproTool,
 } from "./spark-repro-tool-registration.ts";
-import { requestSparkSubgoalReceipt } from "./spark-subgoal-session-request.ts";
 import { registerSparkDriveTool } from "./spark-drive-tool-registration.ts";
 import { registerSparkDriverTool } from "./spark-driver-tool-registration.ts";
 import { registerSparkWorkflowDriverTool } from "./spark-workflow-driver-tool-registration.ts";
@@ -46,12 +46,16 @@ import {
 import { sessionModelName } from "./session-model.ts";
 import { withSparkToolOperationalNotes } from "./spark-tool-operational-notes.ts";
 import { SparkWorkflowRunManagerController } from "./spark-workflow-run-manager.ts";
-import { registerSparkModeCycleShortcut } from "./spark-mode-shortcut.ts";
 import { registerSparkPhaseTool } from "./mode/index.ts";
 import { sparkSessionKey } from "./session-state.ts";
 import type { SparkRegisteredToolConfig, SparkToolContext } from "./spark-tool-registration.ts";
 import { SparkWidgetController } from "./spark-widget-controller.ts";
 import { createSparkTurnContextController } from "./spark-turn-context-controller.ts";
+import { createSparkSessionHeartbeatController } from "./spark-session-heartbeat.ts";
+import {
+  createSparkTaskClaimDaemonClient,
+  type SparkTaskClaimDaemonClient,
+} from "./spark-task-claim-daemon-client.ts";
 import {
   createSparkSessionTodoContextProvider,
   SPARK_SESSION_TODO_CONTEXT_PROVIDER_ID,
@@ -71,10 +75,13 @@ import {
   sparkDaemonDriverControl,
   type SparkDaemonDriverControl,
 } from "./spark-daemon-driver-client.ts";
+import { registerSparkReproRoles } from "./spark-repro-roles.ts";
 
 interface SparkProductFacadeApi extends SparkCommandApi {
   /** Host/test override; production defaults to the daemon local RPC client. */
   driverControl?: SparkDaemonDriverControl;
+  /** Test/compatible-host override; production claim authority remains daemon RPC. */
+  taskClaimDaemonClient?: SparkTaskClaimDaemonClient;
   registerTool?(config: SparkRegisteredToolConfig): void;
   registerInternalTool?(config: SparkRegisteredToolConfig): void;
   registerShortcut?(
@@ -103,6 +110,7 @@ interface SparkProductFacadeApi extends SparkCommandApi {
 }
 
 export default function sparkExtension(pi: SparkProductFacadeApi) {
+  registerSparkReproRoles();
   const driverControl = pi.driverControl ?? sparkDaemonDriverControl;
   const widgetController = new SparkWidgetController();
   const roleRunTuiController = new SparkRoleRunTuiController(pi);
@@ -126,6 +134,12 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   const turnContextController = createSparkTurnContextController(contextRegistry, {
     providerIds: [SPARK_SESSION_TODO_CONTEXT_PROVIDER_ID],
   });
+  const sessionHeartbeatController = createSparkSessionHeartbeatController();
+  const taskClaimDaemonClient =
+    pi.taskClaimDaemonClient ??
+    createSparkTaskClaimDaemonClient({
+      fallbackLease: () => sessionHeartbeatController.lease(),
+    });
 
   async function refreshSparkWidget(cwd: string, ctx?: SparkToolContext): Promise<void> {
     await widgetController.refresh(cwd, ctx);
@@ -155,6 +169,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     refreshSparkWidget,
     ensureWorkflowRunManager: (cwd, ctx) => workflowRunManagerController.ensure(cwd, ctx),
     turnContextController,
+    sessionHeartbeatController,
     createAskAutoAnswerResolver: (ctx) => (request, askCtx) =>
       answerAskWithReviewer(request, askCtx, ctx),
     ensureActiveReproDriver: async (ctx) => {
@@ -221,8 +236,6 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   });
   registerSparkReflectionCommands(pi);
 
-  registerSparkModeCycleShortcut(pi, { refreshSparkWidget });
-
   registerSparkStatusTool(registerSparkImplementationTool, { ensureSparkStateForActiveWorkspace });
 
   registerSparkStateTool(registerSparkImplementationTool, { ensureSparkStateForActiveWorkspace });
@@ -232,13 +245,22 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkFinishTaskTool(registerSparkImplementationTool, {
     refreshSparkWidget,
     createReviewerRunner,
+    taskClaimDaemonClient,
   });
 
   registerSparkProjectTools(registerSparkImplementationTool, { refreshSparkWidget });
 
-  registerSparkClaimTaskTool(registerSparkImplementationTool, { refreshSparkWidget });
+  registerSparkClaimTaskTool(registerSparkImplementationTool, {
+    refreshSparkWidget,
+    taskClaimDaemonClient,
+  });
 
-  registerSparkRecoverTaskClaimTool(registerSparkImplementationTool, { refreshSparkWidget });
+  registerSparkRecoverTaskClaimTool(registerSparkImplementationTool, {
+    refreshSparkWidget,
+    taskClaimDaemonClient,
+  });
+
+  registerSparkReleaseTaskClaimTool(registerSparkImplementationTool, { refreshSparkWidget });
 
   registerSparkPlanTasksTool(registerSparkImplementationTool, { refreshSparkWidget });
 
@@ -254,7 +276,6 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkReproTool(registerSparkTool, {
     driverControl,
     refreshSparkWidget,
-    sendSessionRequest: requestSparkSubgoalReceipt,
   });
 
   registerSparkDriveTool(registerSparkTool, {
@@ -272,6 +293,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkRunReadyTasksTool(registerSparkImplementationTool, {
     ensureWorkflowRunManager: (cwd, ctx) => workflowRunManagerController.ensure(cwd, ctx),
     piCommand: () => pi.getPiCommand?.(),
+    refreshSparkWidget,
   });
 
   registerSparkWorkflowRunsTool(registerSparkImplementationTool, { refreshSparkWidget });
@@ -339,6 +361,7 @@ function createSparkTaskHandlers(resolveTool: SparkImplementationResolver): Spar
     plan: direct("impl_plan_tasks"),
     finish: direct("impl_finish_task"),
     recover: direct("impl_recover_task_claim"),
+    release: direct("impl_release_task_claim"),
     plan_update: ({ toolCallId, params, signal, onUpdate, ctx }) => {
       normalizeTaskPlanUpdateScope(params.scope);
       return executeSparkImplementationTool(resolveTool, "impl_update_task_plan_items", {

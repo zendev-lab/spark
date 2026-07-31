@@ -45,4 +45,9 @@ export {
 export { prepareSparkNativeEditorInput } from "./editor-input.ts";
 export { SparkNativeTuiApp } from "./app.ts";
 export { createSparkNativeUiTransport } from "./ui-transport.ts";
-export { runNativeSparkTui, type RunNativeSparkTuiOptions } from "./run.ts";
+export {
+  registerSparkNativeTuiSignalHandlers,
+  runNativeSparkTui,
+  type RunNativeSparkTuiOptions,
+  type SparkNativeSignalSource,
+} from "./run.ts";

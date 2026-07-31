@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -8,8 +9,18 @@ import { test } from "vitest";
 const configPath = resolve(".dependency-cruiser.cjs");
 const docTerminologyScriptPath = resolve("scripts/check-doc-terminology.mjs");
 
-test("dependency-cruiser config loads and encodes required boundary rules", async () => {
-  const source = await readFile(configPath, "utf8");
+test("dependency-cruiser config loads and encodes required boundary rules", () => {
+  const config = createRequire(import.meta.url)(configPath) as {
+    forbidden?: Array<{
+      name?: string;
+      comment?: string;
+      severity?: string;
+      from?: { path?: string; pathNot?: string };
+      to?: { circular?: boolean };
+    }>;
+  };
+  const rules = config.forbidden ?? [];
+  const ruleNames = new Set(rules.map((rule) => rule.name));
   for (const ruleName of [
     "no-direct-pi-ai",
     "no-direct-pi-tui",
@@ -22,15 +33,66 @@ test("dependency-cruiser config loads and encodes required boundary rules", asyn
     "spark-foundation-no-spark-extension",
     "spark-fusion-foundation-only",
     "spark-repro-no-host-or-product",
-    "fusion-repro-no-circular",
+    "production-no-circular",
     "spark-extension-no-product-adapters",
     "daemon-no-tui-app",
     "cockpit-no-app-internals",
   ]) {
-    assert.match(source, new RegExp(`name:\\s*"${ruleName}"`, "u"));
+    assert.equal(ruleNames.has(ruleName), true, "missing dependency rule " + ruleName);
   }
-  assert.match(source, /pi-parity-commands/u);
-  assert.match(source, /Dynamic import/u);
+
+  const productionNoCircular = rules.find((rule) => rule.name === "production-no-circular");
+  assert.deepEqual(productionNoCircular, {
+    name: "production-no-circular",
+    comment: "Production application and package modules must remain acyclic.",
+    severity: "error",
+    from: { path: "^(apps|packages)/" },
+    to: { circular: true },
+  });
+  assert.equal(ruleNames.has("spark-workflows-no-circular"), false);
+  assert.equal(ruleNames.has("fusion-repro-no-circular"), false);
+
+  const piAiBoundary = rules.find((rule) => rule.name === "no-direct-pi-ai");
+  assert.equal(piAiBoundary?.from?.pathNot, "^packages/spark-ai/");
+  assert.doesNotMatch(piAiBoundary?.comment ?? "", /pi-parity-commands/u);
+});
+
+test("production circular rule rejects a real TypeScript cycle", async () => {
+  const root = await mkdtemp(join(tmpdir(), "spark-depcruise-cycle-"));
+  try {
+    const fixture = join(root, "packages", "cycle-fixture");
+    await mkdir(fixture, { recursive: true });
+    await Promise.all([
+      writeFile(join(fixture, "a.ts"), `import "./b.js";\n`),
+      writeFile(join(fixture, "b.ts"), `import "./a.js";\n`),
+    ]);
+
+    const binary = resolve("node_modules/dependency-cruiser/bin/dependency-cruise.mjs");
+    const baseArgs = [binary, "--config", configPath, "packages/cycle-fixture"];
+    const errorResult = spawnSync(process.execPath, baseArgs, { cwd: root, encoding: "utf8" });
+    assert.notEqual(errorResult.status, 0, errorResult.stderr);
+
+    const jsonResult = spawnSync(
+      process.execPath,
+      [binary, "--config", configPath, "--output-type", "json", "packages/cycle-fixture"],
+      { cwd: root, encoding: "utf8" },
+    );
+    const report = JSON.parse(jsonResult.stdout) as {
+      summary?: {
+        error?: number;
+        violations?: Array<{ rule?: { name?: string; severity?: string } }>;
+      };
+    };
+    const violations = report.summary?.violations ?? [];
+    assert.ok((report.summary?.error ?? 0) > 0);
+    assert.deepEqual(
+      violations.map((violation) => violation.rule?.name),
+      ["production-no-circular"],
+    );
+    assert.equal(violations[0]?.rule?.severity, "error");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("dependency-cruiser reports clean on the workspace", () => {

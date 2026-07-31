@@ -8,13 +8,19 @@ import { taskClaimSummary } from "./task-display.ts";
 import { compactTaskDetail, normalizeOptionalToolString } from "./task-plan-tool.ts";
 import {
   evaluateSparkTaskClaimRecovery,
-  recordSparkTaskClaimRecoveryArtifact,
+  recordSparkTaskClaimRecoveryEvidence,
   type SparkTaskClaimRecoveryDecision,
 } from "./task-claim-recovery.ts";
+import {
+  createSparkTaskClaimDaemonClient,
+  SparkDaemonSessionLeaseRequiredError,
+  type SparkTaskClaimDaemonClient,
+} from "./spark-task-claim-daemon-client.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 
 interface SparkRecoverTaskClaimToolDependencies {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
+  taskClaimDaemonClient?: SparkTaskClaimDaemonClient;
 }
 
 interface NormalizedSparkRecoverTaskClaimInput {
@@ -26,6 +32,7 @@ export function registerSparkRecoverTaskClaimTool(
   registerSparkTool: SparkToolRegistrar,
   deps: SparkRecoverTaskClaimToolDependencies,
 ): void {
+  const taskClaimDaemonClient = deps.taskClaimDaemonClient ?? createSparkTaskClaimDaemonClient();
   registerSparkTool({
     name: "impl_recover_task_claim",
     label: "Spark Recover Task Claim",
@@ -48,35 +55,34 @@ export function registerSparkRecoverTaskClaimTool(
       const workflowRunStatus = await defaultSparkWorkflowRunStore(cwd).status();
       const activeRoleRunProcesses = activeSparkRoleRunProcessesForCwd(cwd);
       const sessionKey = sparkSessionKey(ctx);
-      const recovered = await store.update(
-        async (graph) => {
-          const project = input.projectSelector
-            ? resolveRecoverProject(graph.projects(), input.projectSelector)
-            : await currentSparkProject(cwd, ctx, graph);
-          if (!project) return { error: "no_project" as const };
-          const task = resolveRecoverTask(graph.tasks(project.ref), input.taskSelector);
-          if (!task) return { error: "no_task" as const };
-          const decision = await evaluateSparkTaskClaimRecovery({
-            cwd,
-            task,
-            projectRef: project.ref,
-            currentSessionKey: sessionKey,
-            workflowRunStatus,
-            activeRoleRunProcesses,
-          });
-          if (!decision.recoverable) return { error: "not_recoverable" as const, task, decision };
-          const artifact = await recordSparkTaskClaimRecoveryArtifact({
-            cwd,
-            task,
-            projectRef: project.ref,
-            decision,
-            recoveredBy: sessionKey,
-          });
-          graph.releaseTaskClaim(task.ref);
-          return { task: graph.getTask(task.ref), decision, artifactRef: artifact.ref };
-        },
-        { createIfMissing: false },
-      );
+      const graph = await store.load();
+      const result = await (async () => {
+        if (!graph) return { error: "no_project" as const };
+        const project = input.projectSelector
+          ? resolveRecoverProject(graph.projects(), input.projectSelector)
+          : await currentSparkProject(cwd, ctx, graph);
+        if (!project) return { error: "no_project" as const };
+        const task = resolveRecoverTask(graph.tasks(project.ref), input.taskSelector);
+        if (!task) return { error: "no_task" as const };
+        const decision = await evaluateSparkTaskClaimRecovery({
+          cwd,
+          task,
+          projectRef: project.ref,
+          currentSessionKey: sessionKey,
+          workflowRunStatus,
+          activeRoleRunProcesses,
+        });
+        if (!decision.recoverable) return { error: "not_recoverable" as const, task, decision };
+        const evidence = await recordSparkTaskClaimRecoveryEvidence({
+          cwd,
+          task,
+          projectRef: project.ref,
+          decision,
+          recoveredBy: sessionKey,
+        });
+        return { task, decision, evidenceRef: evidence.ref };
+      })();
+      const recovered = { graph, result };
       if (!recovered.graph || recovered.result.error === "no_project")
         return {
           content: [{ type: "text", text: "No current Spark project selected for recovery." }],
@@ -90,26 +96,83 @@ export function registerSparkRecoverTaskClaimTool(
       if (recovered.result.error === "not_recoverable") {
         return renderRecoveryRefusal(recovered.result.task, recovered.result.decision);
       }
+      const previousSessionId =
+        recovered.result.task.claim?.sessionId ?? recovered.result.task.claim?.claimedBy;
+      const recoveryReason = daemonRecoveryReason(recovered.result.decision);
+      if (!previousSessionId || !recoveryReason) {
+        return {
+          content: [{ type: "text", text: "Claim recovery evidence is incomplete." }],
+          details: { found: true, error: "recovery_evidence_incomplete" },
+          isError: true,
+        };
+      }
+      try {
+        await taskClaimDaemonClient.recover(ctx, {
+          taskRef: recovered.result.task.ref,
+          previousSessionId,
+          reason: recoveryReason,
+          evidenceRef: recovered.result.evidenceRef,
+        });
+      } catch (error) {
+        const leaseRequired = error instanceof SparkDaemonSessionLeaseRequiredError;
+        return {
+          content: [
+            {
+              type: "text",
+              text: leaseRequired
+                ? "Cannot recover a main task claim without a current daemon-fenced persistent session lease."
+                : `Cannot recover task claim through Spark daemon authority: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+          details: {
+            found: true,
+            error: leaseRequired ? "daemon_session_lease_required" : "daemon_task_recovery_failed",
+          },
+          isError: true,
+        };
+      }
+      const finalTask = (await store.load())?.getTask(recovered.result.task.ref);
+      if (!finalTask || finalTask.claim) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Daemon recovery completed without a stable unclaimed task projection.",
+            },
+          ],
+          details: { found: true, error: "daemon_recovery_projection_mismatch" },
+          isError: true,
+        };
+      }
       await deps.refreshSparkWidget(cwd, ctx);
       return {
         content: [
           {
             type: "text" as const,
             text:
-              `Recovered Spark task claim: @${recovered.result.task.name}: ${recovered.result.task.title} (${recovered.result.task.ref})\n` +
+              `Recovered Spark task claim: @${finalTask.name}: ${finalTask.title} (${finalTask.ref})\n` +
               `Reason: ${recovered.result.decision.reason}\n` +
-              `Recovery evidence: ${recovered.result.artifactRef}\n` +
+              `Recovery evidence: ${recovered.result.evidenceRef}\n` +
               "Task is now unclaimed and can re-enter the ready frontier; it was not marked done.",
           },
         ],
         details: {
-          task: recovered.result.task as unknown as Record<string, unknown>,
+          task: finalTask as unknown as Record<string, unknown>,
           claimRecovery: recovered.result.decision,
-          recoveredClaimArtifactRef: recovered.result.artifactRef,
+          recoveredClaimEvidenceRef: recovered.result.evidenceRef,
         },
       };
     },
   });
+}
+
+function daemonRecoveryReason(
+  decision: SparkTaskClaimRecoveryDecision,
+): "claim_expired" | "review_needs_changes_owner_inactive" | undefined {
+  return decision.reason === "claim_expired" ||
+    decision.reason === "review_needs_changes_owner_inactive"
+    ? decision.reason
+    : undefined;
 }
 
 function normalizeSparkRecoverTaskClaimInput(

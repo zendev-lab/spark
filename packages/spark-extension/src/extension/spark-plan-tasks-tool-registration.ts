@@ -26,10 +26,12 @@ import {
   normalizeOptionalToolString,
   normalizeRequiredToolString,
   normalizeTaskKind,
+  normalizeTaskExecutionPolicyPatch,
   normalizeTaskPlanPatch,
   normalizeTaskStatus,
   normalizeToolStringArray,
   taskKindDescription,
+  taskExecutionPolicySchema,
   taskPlanSchema,
 } from "./task-plan-tool.ts";
 import { syncTaskPlanItemsFromPlan } from "./task-plan-items.ts";
@@ -107,9 +109,10 @@ export function registerSparkPlanTasksTool(
           roleRef: Type.Optional(
             Type.String({
               description:
-                "Optional builtin/extension/project/user Spark role spec id or ref, e.g. scout, reviewer, or worker. This is a preferred executor hint, not a readiness requirement.",
+                "Optional builtin/extension/project/user Spark role spec id or ref, e.g. explorer, researcher, reviewer, or worker. This is a preferred executor hint, not a readiness requirement.",
             }),
           ),
+          executionPolicy: Type.Optional(taskExecutionPolicySchema()),
           plan: Type.Optional(taskPlanSchema()),
           dependsOn: Type.Optional(
             Type.Array(
@@ -322,13 +325,19 @@ function normalizeSparkPlanTaskInput(
   );
   const roleRefInput = normalizeOptionalToolString(value.roleRef, `tasks[${position - 1}].roleRef`);
   const roleRef = roleRefInput ? registry.select(roleRefInput).ref : undefined;
+  const kind = normalizeTaskKind(value.kind) ?? "generic";
   return {
     name,
     title,
     description,
-    kind: normalizeTaskKind(value.kind) ?? "generic",
+    kind,
     status: normalizeTaskStatus(value.status),
     roleRef,
+    executionPolicy: normalizeTaskExecutionPolicyPatch(
+      value.executionPolicy,
+      `tasks[${position - 1}].executionPolicy`,
+      kind,
+    ),
     plan: normalizeTaskPlan(
       normalizeTaskPlanPatch(value.plan, `tasks[${position - 1}].plan`),
       description,

@@ -103,11 +103,11 @@ describe("transport-neutral local RPC service", () => {
     db.close();
   });
 
-  it("exhaustively groups all 66 methods behind their protocol output parser", () => {
+  it("exhaustively groups all 69 methods behind their protocol output parser", () => {
     const groupedMethods = Object.values(localRpcServiceHandlerMethodGroups).flat();
     const catalogMethods = Object.keys(sparkLocalRpcProcedureSchemas) as SparkLocalRpcMethod[];
 
-    expect(groupedMethods).toHaveLength(66);
+    expect(groupedMethods).toHaveLength(70);
     expect(new Set(groupedMethods).size).toBe(groupedMethods.length);
     expect([...groupedMethods].sort()).toEqual([...catalogMethods].sort());
 

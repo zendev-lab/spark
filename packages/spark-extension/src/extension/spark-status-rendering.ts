@@ -7,6 +7,7 @@ import {
 import type {
   ProjectRef,
   TaskRef,
+  TaskRun,
   TaskRunCompletionSummary,
   TaskStatus,
 } from "@zendev-lab/spark-core";
@@ -304,6 +305,7 @@ function renderTaskScopedStatus(input: SparkStatusRenderInput):
     const hiddenTodos = taskTodos.length - visibleTaskTodos.length;
     if (hiddenTodos > 0) lines.push(`    - … ${hiddenTodos} more TODOs`);
   }
+  if (latestRun?.execution) lines.push(`  ${formatManagedTaskExecution(latestRun)}`);
   const selectedTask = compactTaskDecisionDetail(input, task);
   const selectedProject = {
     ref: project.ref,
@@ -378,6 +380,7 @@ function compactTaskDecisionDetail(
   input: SparkStatusRenderInput,
   task: ReturnType<TaskGraph["tasks"]>[number],
 ): Record<string, unknown> {
+  const latestRun = latestRunsByTaskRef(input.graph.runs(task.projectRef)).get(task.ref);
   const taskOwnedBySession = isClaimOwnedBySession(task, input.sessionKey);
   const taskTodos = taskOwnedBySession ? input.graph.taskTodos(task.ref) : [];
   const visibleTaskTodos = taskTodos.slice(0, DEFAULT_SPARK_STATUS_TODO_LIMIT);
@@ -388,7 +391,8 @@ function compactTaskDecisionDetail(
     status: task.status,
     kind: task.kind,
     projectRef: task.projectRef,
-    owner: deriveTaskRoleLabel({ task, currentSessionKey: input.sessionKey }),
+    owner: deriveTaskRoleLabel({ task, currentSessionKey: input.sessionKey, latestRun }),
+    taskRun: compactManagedTaskExecution(latestRun),
     claimedByCurrentSession: taskOwnedBySession,
     plan: taskPlanSummary(task),
     todos: {
@@ -725,10 +729,11 @@ function appendTaskStatusLines(
 ): void {
   lines.push("  Active tasks:");
   for (const task of input.visibleTasks) {
+    const latestRun = input.lastRunsByTaskRef.get(task.ref);
     const owner = deriveTaskRoleLabel({
       task,
       currentSessionKey: input.sessionKey,
-      latestRun: input.lastRunsByTaskRef.get(task.ref),
+      latestRun,
     });
     const planSummary = taskPlanSummary(task);
     const lifecycleSuffix = taskLifecycleSuffix(task);
@@ -750,6 +755,7 @@ function appendTaskStatusLines(
       owner,
       claimed: taskClaimSummary(task),
       claimedByCurrentSession: taskOwnedBySession,
+      taskRun: compactManagedTaskExecution(latestRun),
       plan: planSummary,
       todos: {
         total: taskTodos.length,
@@ -778,6 +784,7 @@ function appendTaskStatusLines(
         const hiddenTodos = taskTodos.length - DEFAULT_SPARK_STATUS_TODO_LIMIT;
         if (hiddenTodos > 0) lines.push(`    - … ${hiddenTodos} more TODOs`);
       }
+      if (latestRun?.execution) lines.push(`    ${formatManagedTaskExecution(latestRun)}`);
       continue;
     }
     const taskSummary = input.graph.todoSummary(task.ref);
@@ -798,7 +805,50 @@ function appendTaskStatusLines(
       for (const todo of visibleTaskTodos)
         lines.push(`    - [${todo.status}] ${todo.id} ${todo.content}`);
     }
+    if (latestRun?.execution) lines.push(`    ${formatManagedTaskExecution(latestRun)}`);
   }
+}
+
+function compactManagedTaskExecution(
+  run: TaskRun | undefined,
+): Record<string, unknown> | undefined {
+  if (!run?.execution) return undefined;
+  return {
+    runRef: run.ref,
+    status: run.status,
+    roleRef: run.roleRef,
+    executionSessionId: run.execution.executionSessionId,
+    sessionGoalId: run.execution.sessionGoalId,
+    subgoalRef: run.execution.subgoalRef,
+    planRevision: run.execution.planRevision,
+    definitionDigest: run.execution.definitionDigest,
+    jobId: run.execution.jobId,
+    attempt: run.execution.attempt,
+    invocationId: run.execution.invocationId,
+    ...(run.resourceAllocation ? { resourceAllocation: run.resourceAllocation } : {}),
+    evidenceRefs: run.outputEvidenceRefs,
+    failureKind: run.failureKind,
+    errorMessage: run.errorMessage,
+  };
+}
+
+function formatManagedTaskExecution(run: TaskRun): string {
+  const execution = run.execution;
+  if (!execution) return "";
+  return [
+    `TaskRun=${run.ref}`,
+    `status=${run.status}`,
+    `Session=${execution.executionSessionId}`,
+    `Goal=${execution.sessionGoalId}`,
+    execution.subgoalRef ? `Subgoal=${execution.subgoalRef}` : undefined,
+    `attempt=${execution.attempt}`,
+    run.resourceAllocation
+      ? `lease=${run.resourceAllocation.leaseId} GPUs=${run.resourceAllocation.gpuIds.join(",") || "none"}`
+      : undefined,
+    `evidence=${run.outputEvidenceRefs.length}`,
+  ]
+    .filter((value): value is string => !!value)
+    .join(" | ");
 }
 
 function sparkRunControlStatusLine(control: WorkflowRunControl): string {

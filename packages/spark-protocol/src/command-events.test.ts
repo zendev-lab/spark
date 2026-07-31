@@ -69,6 +69,9 @@ describe("SparkCommand vocabulary", () => {
       "workspace.client.heartbeat",
       "workspace.client.release",
       "workspace.executor.ensure",
+      "task.claim.acquire",
+      "task.claim.release",
+      "task.claim.recover",
       "workspace.transfer.pending",
       "workspace.transfer.respond",
       "session.list",
@@ -99,6 +102,7 @@ describe("SparkCommand vocabulary", () => {
       "provider.auth.login.status",
       "provider.auth.login.respond",
       "provider.auth.login.cancel",
+      "human.interaction.list",
       "human.interaction.respond",
     ]);
     expect(sparkCommandKindForLocalRpcMethod("turn.submit")).toBe("turn.submit.request");
@@ -130,6 +134,9 @@ describe("SparkCommand vocabulary", () => {
       "side-thread.handoff.request",
     );
     expect(sparkCommandKindForLocalRpcMethod("model.catalog")).toBe("model.catalog.request");
+    expect(sparkCommandKindForLocalRpcMethod("human.interaction.list")).toBe(
+      "human.request.list.request",
+    );
     expect(sparkCommandKindForLocalRpcMethod("human.interaction.respond")).toBe(
       "human.response.deliver.request",
     );

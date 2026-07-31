@@ -5,25 +5,18 @@ import {
   newRef,
   nowIso,
   type EvidenceRef,
-  SPARK_SUBGOAL_ASSIGNMENT_SCHEMA,
-  SPARK_SUBGOAL_RECEIPT_SCHEMA,
-  type RoleRef,
   type SparkSubgoal,
   type SparkSubgoalDefinition,
   type SparkSubgoalStatus,
   type SparkSubgoalVerificationResult,
-  type SparkSubgoalAssignment,
-  type SparkSubgoalReceipt,
   type SubgoalRef,
   type TaskRef,
 } from "@zendev-lab/spark-core";
 
 export interface CreateSubgoalInput extends SparkSubgoalDefinition {
   ref?: SubgoalRef;
-  goalId: string;
-  roleRef: RoleRef;
   planRevision: number;
-  taskRefs?: TaskRef[];
+  taskRef?: TaskRef;
   evidenceRefs?: EvidenceRef[];
   now?: string;
 }
@@ -33,83 +26,6 @@ export interface SparkSubgoalCompletionProof {
   definitionDigest: string;
   evidenceRefs: EvidenceRef[];
   canonicalAskEvidenceRef?: EvidenceRef;
-}
-
-export interface CreateSubgoalAssignmentInput {
-  subgoal: SparkSubgoal;
-  ownerSessionId: string;
-  now?: string;
-}
-
-export function encodeSubgoalAssignment(
-  input: CreateSubgoalAssignmentInput,
-): SparkSubgoalAssignment {
-  if (input.subgoal.authority !== "safe_local") {
-    throw new Error("only safe_local subgoals may be delegated");
-  }
-  return {
-    schema: SPARK_SUBGOAL_ASSIGNMENT_SCHEMA,
-    subgoalRef: input.subgoal.ref,
-    goalId: input.subgoal.goalId,
-    planRevision: input.subgoal.planRevision,
-    definitionDigest: subgoalDefinitionDigest(input.subgoal),
-    definition: {
-      goal: input.subgoal.goal,
-      doneWhen: [...input.subgoal.doneWhen],
-      evidenceRequired: [...input.subgoal.evidenceRequired],
-      authority: input.subgoal.authority,
-      ...(input.subgoal.dependsOn ? { dependsOn: [...input.subgoal.dependsOn] } : {}),
-    },
-    ownerSessionId: nonEmpty(input.ownerSessionId, "ownerSessionId"),
-    evidenceRequired: [...input.subgoal.evidenceRequired],
-    assignedAt: input.now ?? nowIso(),
-  };
-}
-
-export function decodeSubgoalAssignment(value: unknown): SparkSubgoalAssignment {
-  if (!value || typeof value !== "object") throw new Error("invalid subgoal assignment");
-  const assignment = value as SparkSubgoalAssignment;
-  if (assignment.schema !== SPARK_SUBGOAL_ASSIGNMENT_SCHEMA)
-    throw new Error("invalid subgoal assignment schema");
-  if (assignment.definition.authority !== "safe_local")
-    throw new Error("subgoal assignment authority is not delegable");
-  if (!Number.isInteger(assignment.planRevision) || !assignment.definitionDigest)
-    throw new Error("invalid subgoal assignment binding");
-  return assignment;
-}
-
-export function encodeSubgoalReceipt(
-  receipt: Omit<SparkSubgoalReceipt, "schema">,
-): SparkSubgoalReceipt {
-  return { schema: SPARK_SUBGOAL_RECEIPT_SCHEMA, ...receipt };
-}
-
-export function decodeSubgoalReceipt(value: unknown): SparkSubgoalReceipt {
-  if (!value || typeof value !== "object") throw new Error("invalid subgoal receipt");
-  const receipt = value as SparkSubgoalReceipt;
-  if (receipt.schema !== SPARK_SUBGOAL_RECEIPT_SCHEMA)
-    throw new Error("invalid subgoal receipt schema");
-  if (!Number.isInteger(receipt.planRevision) || !Array.isArray(receipt.evidenceRefs))
-    throw new Error("invalid subgoal receipt binding");
-  return receipt;
-}
-
-export function verifySubgoalReceipt(
-  subgoal: SparkSubgoal,
-  receipt: SparkSubgoalReceipt,
-): SparkSubgoalVerificationResult {
-  if (receipt.subgoalRef !== subgoal.ref || receipt.status !== "done") {
-    return {
-      verdict: "Repair",
-      subgoalRef: subgoal.ref,
-      reasons: [receipt.reason ?? "subgoal receipt is not done"],
-    };
-  }
-  return verifySubgoalCompletion(subgoal, {
-    planRevision: receipt.planRevision,
-    definitionDigest: receipt.definitionDigest,
-    evidenceRefs: receipt.evidenceRefs,
-  });
 }
 
 export interface UpdateSubgoalStatusInput {
@@ -123,20 +39,19 @@ export interface UpdateSubgoalStatusInput {
 export function createSubgoal(input: CreateSubgoalInput): SparkSubgoal {
   const timestamp = input.now ?? nowIso();
   const ref = input.ref ?? newRef("subgoal");
-  const goalId = nonEmpty(input.goalId, "goalId");
-  if (!isRef(input.roleRef, "role")) throw new Error("roleRef must be a role: ref");
   const planRevision = positiveInteger(input.planRevision, "planRevision");
   const definition = normalizeDefinition(input);
   if (definition.dependsOn?.includes(ref))
     throw new Error(`subgoal ${ref} cannot depend on itself`);
+  if (input.taskRef && !isRef(input.taskRef, "task")) {
+    throw new Error("taskRef must be a task: ref");
+  }
   return {
     ref,
-    goalId,
-    roleRef: input.roleRef,
     planRevision,
     ...definition,
     status: "pending",
-    taskRefs: uniqueRefs(input.taskRefs ?? [], "task", "taskRefs"),
+    ...(input.taskRef ? { taskRef: input.taskRef } : {}),
     evidenceRefs: uniqueRefs(input.evidenceRefs ?? [], "evidence", "evidenceRefs"),
     createdAt: timestamp,
     updatedAt: timestamp,

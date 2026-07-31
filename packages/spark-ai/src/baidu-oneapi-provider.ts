@@ -1,11 +1,11 @@
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
-import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
+import * as openAIResponses from "@earendil-works/pi-ai/api/openai-responses";
 
 import { createBaiduOneApiProviderAdapter, silenceOpenAiSdkTransportLogs } from "./baidu-oneapi.ts";
 
 const nativeBaiduOneApiProvider = createBaiduOneApiProviderAdapter({
   anthropicMessages: anthropicMessagesApi(),
-  openAIResponses: silenceOpenAiSdkTransportLogs(openAIResponsesApi()),
+  openAIResponses: silenceOpenAiSdkTransportLogs(openAIResponses),
 });
 
 export const streamBaiduOneApi: typeof nativeBaiduOneApiProvider.stream = (...args) =>

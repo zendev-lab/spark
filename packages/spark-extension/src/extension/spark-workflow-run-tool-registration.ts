@@ -1,17 +1,17 @@
 import { Type } from "typebox";
 import {
-  defaultArtifactStore,
-  type ArtifactFormat,
+  defaultEvidenceStore,
+  type EvidenceFormat,
   type JsonValue,
 } from "@zendev-lab/spark-artifacts";
-import { type RoleRef, type RunRef } from "@zendev-lab/spark-core";
+import { type EvidenceRef, type RoleRef, type RunRef } from "@zendev-lab/spark-core";
 import {
   parseWorkflowScript,
   readSavedWorkflow,
   runWorkflowScript,
   type WorkflowAgentReportedTelemetry,
   type WorkflowAgentRunner,
-  type WorkflowArtifactRecordInput,
+  type WorkflowEvidenceRecordInput,
   type WorkflowFetchContentInput,
   type WorkflowRunResult,
   type WorkflowWebSearchInput,
@@ -65,6 +65,7 @@ export interface SparkWorkflowRunApprovalSummary {
     timeoutMs: number[];
   };
   tools: string[];
+  roles: string[];
   isolation: string[];
   base?: SparkDynamicWorkflowRunBaseMetadata;
 }
@@ -99,10 +100,10 @@ export interface SparkWorkflowRunToolDeps {
     signal: AbortSignal;
     base?: SparkDynamicWorkflowRunBaseMetadata;
   }) => Promise<WorkflowAgentRunner> | WorkflowAgentRunner;
-  artifactRecord?: (input: {
+  evidenceRecord?: (input: {
     cwd: string;
-    record: WorkflowArtifactRecordInput;
-  }) => Promise<{ ref: string }> | { ref: string };
+    record: WorkflowEvidenceRecordInput;
+  }) => Promise<{ ref: EvidenceRef }> | { ref: EvidenceRef };
   webSearch?: (input: { cwd: string; request: WorkflowWebSearchInput }) => unknown;
   fetchContent?: (input: { cwd: string; request: WorkflowFetchContentInput }) => unknown;
   approveRun?: (input: {
@@ -134,7 +135,8 @@ export function registerSparkWorkflowRunTool(
       "Use workflow_run only when the user explicitly asks for workflow, workflows, ultracode, fan-out, or multi-agent orchestration; do not use it for a single quick tool call.",
       "workflow_run accepts either selector (builtin:<id>, workspace:<id>, user:<id>) or raw script, never both. Raw scripts must be trusted/generated for this request and must start with export const meta = { name, description, stages? }. Deprecated meta.phases is accepted only for old saved workflows.",
       "Generated/risky workflows require scoped approval before execution; Spark summarizes fan-out, web/fetch, write/isolation, shell, long-running, resource, and base metadata risks before any child agents run.",
-      "For workflow_run scripts, available globals include agent(prompt, opts), parallel(thunks), pipeline(items, ...stages), workflow(name,args), stage(title,{budget?}), budget, verify, judgePanel, loopUntilDry, completenessCheck, retry, gate, artifactRecord, webSearch, fetchContent, and args. Deprecated phase(title) is accepted only for old saved workflows.",
+      "For workflow_run scripts, available globals include agent(prompt, opts), parallel(thunks), pipeline(items, ...stages), workflow(name,args), stage(title,{budget?}), budget, verify, judgePanel, loopUntilDry, completenessCheck, retry, gate, evidenceRecord, webSearch, fetchContent, and args. Deprecated phase(title) is accepted only for old saved workflows.",
+      "agent opts may select a loaded reusable role with roleRef; the host validates that role and its tool policy. Workflow roles must not dispatch Project Tasks or promote Repro gates.",
       "Every agent() prompt must include enough context; intermediate values stay in workflow variables and only the compact final result returns to the conversation.",
       "Prefer quality helpers: verify for adversarial checks, judgePanel for best-of-N, loopUntilDry for exhaustive discovery, and completenessCheck before final synthesis.",
       "Use tokenBudget/maxAgents/concurrency when the user asks for spend/time bounds or the fan-out is large.",
@@ -270,8 +272,8 @@ export function registerSparkWorkflowRunTool(
           resumeJournal,
           agent,
           runWorkflow: deps.runWorkflow ?? runWorkflowScript,
-          artifactRecord: (record: WorkflowArtifactRecordInput) =>
-            recordWorkflowArtifact(cwd, record, deps),
+          evidenceRecord: (record: WorkflowEvidenceRecordInput) =>
+            recordWorkflowEvidence(cwd, record, deps),
           webSearch: (request: WorkflowWebSearchInput) => webSearchAdapter({ cwd, request }),
           fetchContent: (request: WorkflowFetchContentInput) =>
             fetchContentAdapter({ cwd, request }),
@@ -408,7 +410,7 @@ async function ensureWorkflowRunApproval(input: {
   existingRun?: SparkDynamicWorkflowRunRecord;
   now?: () => string;
 }): Promise<SparkDynamicWorkflowRunApproval | undefined> {
-  const summary = buildWorkflowApprovalSummary(input);
+  const summary = await buildWorkflowApprovalSummary(input);
   if (!summary.required) return undefined;
   if (
     input.existingRun?.approval?.status === "approved" &&
@@ -438,7 +440,8 @@ async function ensureWorkflowRunApproval(input: {
   };
 }
 
-function buildWorkflowApprovalSummary(input: {
+async function buildWorkflowApprovalSummary(input: {
+  cwd: string;
   sourceLabel: string;
   script: string;
   meta: ReturnType<typeof parseWorkflowScript>["meta"];
@@ -448,9 +451,14 @@ function buildWorkflowApprovalSummary(input: {
     tokenBudget?: number;
   };
   base?: SparkDynamicWorkflowRunBaseMetadata;
-}): SparkWorkflowRunApprovalSummary {
+}): Promise<SparkWorkflowRunApprovalSummary> {
   const scriptHash = hashWorkflowScript(input.script);
-  const allowedTools = extractWorkflowAllowedTools(input.script);
+  const roles = extractWorkflowRoleRefs(input.script);
+  const rolePolicies = await resolveWorkflowRolePolicies(input.cwd, roles);
+  const allowedTools = uniqueStrings([
+    ...extractWorkflowAllowedTools(input.script),
+    ...rolePolicies.flatMap((policy) => policy.allowedTools),
+  ]);
   const timeoutMs = extractWorkflowTimeoutMs(input.script);
   const isolation = extractWorkflowIsolationModes(input.script);
   const agentCallSites = countRegexMatches(input.script, /\bagent\s*\(/gu);
@@ -469,6 +477,17 @@ function buildWorkflowApprovalSummary(input: {
     riskFlags.push("web_or_fetch");
     reasons.push("script can call workflow webSearch/fetchContent adapters");
   }
+  if (roles.length > 0) {
+    riskFlags.push("role_policies");
+    reasons.push(`script selects role policy/policies: ${roles.join(", ")}`);
+  }
+  const unresolvedRoles = rolePolicies
+    .filter((policy) => !policy.resolved)
+    .map((policy) => policy.roleRef);
+  if (unresolvedRoles.length > 0) {
+    riskFlags.push("unknown_roles");
+    reasons.push(`script selects unresolved role policy/policies: ${unresolvedRoles.join(", ")}`);
+  }
   if (isolation.length > 0) {
     riskFlags.push("isolation");
     reasons.push(`script requests isolation mode(s): ${isolation.join(", ")}`);
@@ -479,13 +498,13 @@ function buildWorkflowApprovalSummary(input: {
     reasons.push(`agent tool policy includes shell-like tool(s): ${shellTools.join(", ")}`);
   }
   const writeTools = allowedTools.filter(isWorkflowWriteTool);
-  const writesArtifacts = /\bartifactRecord\s*\(/u.test(input.script);
-  if (writeTools.length > 0 || writesArtifacts) {
+  const writesEvidence = /\bevidenceRecord\s*\(/u.test(input.script);
+  if (writeTools.length > 0 || writesEvidence) {
     riskFlags.push("write_tools");
     reasons.push(
       writeTools.length > 0
         ? `agent tool policy includes write-capable tool(s): ${writeTools.join(", ")}`
-        : "script can write workflow artifacts",
+        : "script can write workflow evidence",
     );
   }
   const longTimeouts = timeoutMs.filter((value) => value > 300_000);
@@ -514,6 +533,7 @@ function buildWorkflowApprovalSummary(input: {
       timeoutMs,
     },
     tools: allowedTools,
+    roles,
     isolation,
     ...(input.base ? { base: input.base } : {}),
   };
@@ -615,6 +635,7 @@ function approvalRecordSummary(
     riskFlags: summary.riskFlags,
     resources: summary.resources,
     tools: summary.tools,
+    roles: summary.roles,
     isolation: summary.isolation,
     ...(summary.base ? { base: summary.base } : {}),
   };
@@ -637,6 +658,7 @@ function formatWorkflowApprovalSummary(summary: SparkWorkflowRunApprovalSummary)
       ? `Timeouts: ${compactList(summary.resources.timeoutMs)}ms`
       : undefined,
     summary.tools.length ? `Allowed tools: ${compactList(summary.tools)}` : undefined,
+    summary.roles.length ? `Selected roles: ${compactList(summary.roles)}` : undefined,
     summary.isolation.length ? `Isolation: ${compactList(summary.isolation)}` : undefined,
     summary.base?.baseRef
       ? `Base: ref=${summary.base.baseRef} state=${summary.base.baseState ?? "unknown"} tree=${summary.base.baseTree ?? "unknown"}`
@@ -660,8 +682,36 @@ function extractWorkflowAllowedTools(script: string): string[] {
   }
   if (/\bwebSearch\s*\(/u.test(script)) tools.push("web_search");
   if (/\bfetchContent\s*\(/u.test(script)) tools.push("fetch_content");
-  if (/\bartifactRecord\s*\(/u.test(script)) tools.push("artifactRecord");
+  if (/\bevidenceRecord\s*\(/u.test(script)) tools.push("evidenceRecord");
   return uniqueStrings(tools.filter((tool) => tool.trim().length > 0));
+}
+
+function extractWorkflowRoleRefs(script: string): string[] {
+  return uniqueStrings(
+    Array.from(
+      script.matchAll(/(?:\broleRef|["'][A-Za-z][A-Za-z0-9]*RoleRef["'])\s*:\s*["']([^"']+)["']/gu),
+      (match) => match[1] ?? "",
+    ),
+  );
+}
+
+async function resolveWorkflowRolePolicies(
+  cwd: string,
+  roles: string[],
+): Promise<Array<{ roleRef: string; resolved: boolean; allowedTools: string[] }>> {
+  if (roles.length === 0) return [];
+  const registry = await createSparkRoleRegistry(cwd);
+  return roles.map((roleRef) => {
+    try {
+      return {
+        roleRef,
+        resolved: true,
+        allowedTools: registry.get(roleRef).allowedTools ?? [],
+      };
+    } catch {
+      return { roleRef, resolved: false, allowedTools: [] };
+    }
+  });
 }
 
 function extractWorkflowTimeoutMs(script: string): number[] {
@@ -684,7 +734,7 @@ function isWorkflowShellTool(tool: string): boolean {
 }
 
 function isWorkflowWriteTool(tool: string): boolean {
-  return /^(edit|write|apply_patch|graft|graft_write|graft_edit|graft_delete|artifact|artifactRecord)$/u.test(
+  return /^(edit|write|apply_patch|graft|graft_write|graft_edit|graft_delete|artifact|evidenceRecord)$/u.test(
     tool,
   );
 }
@@ -882,24 +932,24 @@ function workflowGraftBaseRef(
   return base.baseRef?.trim() || undefined;
 }
 
-async function recordWorkflowArtifact(
+async function recordWorkflowEvidence(
   cwd: string,
-  record: WorkflowArtifactRecordInput,
+  record: WorkflowEvidenceRecordInput,
   deps: SparkWorkflowRunToolDeps,
-): Promise<{ ref: string }> {
-  if (deps.artifactRecord) return deps.artifactRecord({ cwd, record });
-  const artifact = await defaultArtifactStore(cwd).put({
+): Promise<{ ref: EvidenceRef }> {
+  if (deps.evidenceRecord) return deps.evidenceRecord({ cwd, record });
+  const evidence = await defaultEvidenceStore(cwd).put({
     kind:
       record.kind === "record" || record.kind === "trace" || record.kind === "knowledge"
         ? record.kind
         : "document",
     title: record.title,
-    format: normalizeWorkflowArtifactFormat(record.format),
+    format: normalizeWorkflowEvidenceFormat(record.format),
     body: record.body as unknown as JsonValue,
     curation: { status: "raw", retention: "task" },
-    provenance: { producer: "task", note: "workflow_run artifactRecord" },
+    provenance: { producer: "task", note: "workflow_run evidenceRecord" },
   });
-  return { ref: artifact.ref };
+  return { ref: evidence.ref };
 }
 
 async function refreshSparkWorkflowWidgetSafely(
@@ -1222,7 +1272,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function normalizeWorkflowArtifactFormat(value: string | undefined): ArtifactFormat {
+function normalizeWorkflowEvidenceFormat(value: string | undefined): EvidenceFormat {
   if (value === "markdown" || value === "json" || value === "text") return value;
   return "markdown";
 }

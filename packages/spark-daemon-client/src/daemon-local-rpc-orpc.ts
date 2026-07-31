@@ -509,6 +509,11 @@ const modelProviderHumanInvokers = {
       sparkLocalRpcProcedureSchemas["provider.auth.login.cancel"].output,
       client.provider.auth.login.cancel(input, options),
     ),
+  "human.interaction.list": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["human.interaction.list"].output,
+      client.human.interaction.list(input, options),
+    ),
   "human.interaction.respond": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["human.interaction.respond"].output,
@@ -524,7 +529,29 @@ const modelProviderHumanInvokers = {
   | "provider.auth.login.status"
   | "provider.auth.login.respond"
   | "provider.auth.login.cancel"
+  | "human.interaction.list"
   | "human.interaction.respond"
+>;
+
+const taskClaimInvokers = {
+  "task.claim.acquire": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["task.claim.acquire"].output,
+      client.task.claim.acquire(input, options),
+    ),
+  "task.claim.release": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["task.claim.release"].output,
+      client.task.claim.release(input, options),
+    ),
+  "task.claim.recover": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["task.claim.recover"].output,
+      client.task.claim.recover(input, options),
+    ),
+} satisfies Pick<
+  SparkDaemonOrpcProcedureInvokerMap,
+  "task.claim.acquire" | "task.claim.release" | "task.claim.recover"
 >;
 
 const sparkDaemonOrpcProcedureInvokers = {
@@ -534,6 +561,7 @@ const sparkDaemonOrpcProcedureInvokers = {
   ...uplinkInvokers,
   ...sessionInvokers,
   ...sideThreadInvokers,
+  ...taskClaimInvokers,
   ...modelProviderHumanInvokers,
 } satisfies SparkDaemonOrpcProcedureInvokerMap;
 

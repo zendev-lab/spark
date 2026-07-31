@@ -1,11 +1,19 @@
 import { Type } from "typebox";
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
   DEFAULT_READY_TASK_MAX_CONCURRENCY,
   DEFAULT_READY_TASK_TIMEOUT_MS,
+  isRef,
+  type ProjectRef,
+  type TaskRef,
+  type TaskResourceAllocation,
 } from "@zendev-lab/spark-core";
-import { runReadyTasks } from "@zendev-lab/spark-workflows";
-import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+import {
+  discoverTaskResourceInventory,
+  packTaskResourceFrontier,
+  runReadyTasks,
+} from "@zendev-lab/spark-workflows";
+import { defaultTaskGraphStore, type TaskGraph } from "@zendev-lab/spark-tasks";
 import { ensureRoleModelSettingsForProject } from "./role-model-settings.ts";
 import {
   currentSparkProject,
@@ -19,11 +27,19 @@ import { ensureSparkGraphInvariants } from "./spark-graph-invariants.ts";
 import { NO_SPARK_PROJECT_FOUND_HINT } from "./spark-project-guidance.ts";
 import { createSparkRuntimeReadyTaskRunner } from "./spark-ready-task-runtime.ts";
 import { createSparkRoleRegistry } from "./spark-role-registry.ts";
+import { collectReproOrchestrationSnapshot } from "./spark-repro-orchestration.ts";
+import { readSessionRepro } from "./spark-session-repro.ts";
+import {
+  dispatchManagedTaskSessions,
+  type ManagedTaskSessionDispatchInput,
+} from "./spark-task-session-dispatch.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 
 interface SparkRunReadyTasksToolDeps {
   ensureWorkflowRunManager: (cwd: string, ctx: SparkToolContext) => Promise<void>;
   piCommand?: (cwd: string, ctx: SparkToolContext) => string | undefined;
+  refreshSparkWidget?: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
+  dispatchManagedTaskSessions?: typeof dispatchManagedTaskSessions;
 }
 
 export function normalizeSparkRunReadyTasksBoolean(
@@ -56,7 +72,7 @@ export function registerSparkRunReadyTasksTool(
     name: "impl_run_ready_tasks",
     label: "Spark Run Ready Tasks",
     description:
-      "Internal implementation for assign: run all currently ready Spark tasks with their bound builtin/extension/project/user Spark role specs and persist task-run artifacts. Dry-run by default. Use assign for Spark-native role/task workflow instead of spawning nested pi CLI sessions.",
+      "Internal implementation for assign: run all currently ready Spark tasks with their bound builtin/extension/project/user Spark role specs and persist task-run Evidence. Dry-run by default. Use assign for Spark-native role/task workflow instead of spawning nested pi CLI sessions.",
     parameters: Type.Object({
       dryRun: Type.Optional(Type.Boolean({ default: true })),
       maxConcurrency: Type.Optional(
@@ -72,6 +88,9 @@ export function registerSparkRunReadyTasksTool(
             "Foreground wait budget in milliseconds for this tool call; active background child runs continue after it expires.",
         }),
       ),
+      taskRefs: Type.Optional(
+        Type.Array(Type.String({ description: "Explicit ready-task allowlist." })),
+      ),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = ctx.cwd;
@@ -86,6 +105,7 @@ export function registerSparkRunReadyTasksTool(
         DEFAULT_READY_TASK_TIMEOUT_MS,
         "assign timeoutMs",
       );
+      const requestedTaskRefs = normalizeSparkRunReadyTaskRefs(params.taskRefs);
       const store = defaultTaskGraphStore(cwd);
       const graph = await loadSparkGraph(cwd, ctx);
       if (!graph)
@@ -106,6 +126,24 @@ export function registerSparkRunReadyTasksTool(
           details: { found: false, error: "no_current_project" },
         };
       const registry = await createSparkRoleRegistry(cwd);
+      const repro = await readSessionRepro(cwd, ctx);
+      const orchestration =
+        repro?.projectRef === project.ref
+          ? collectReproOrchestrationSnapshot(repro, graph)
+          : undefined;
+      if (orchestration && requestedTaskRefs === undefined) {
+        throw new Error(
+          "active Repro assignment requires an explicit safe-frontier taskRefs allowlist",
+        );
+      }
+      const taskRefs = requestedTaskRefs
+        ? validateTaskAllowlist({
+            graph,
+            projectRef: project.ref,
+            taskRefs: requestedTaskRefs,
+            safeTaskRefs: orchestration?.dispatchableTaskRefs,
+          })
+        : undefined;
       const piCommand = deps.piCommand?.(cwd, ctx) ?? "pi";
       if (!dryRun) {
         const settingsResult = await ensureRoleModelSettingsForProject({
@@ -120,6 +158,74 @@ export function registerSparkRunReadyTasksTool(
           return {
             content: [{ type: "text", text: settingsResult.message }],
             details: settingsResult as unknown as Record<string, unknown>,
+          };
+        }
+        if (taskRefs) {
+          const ownerSessionId = ctx.sessionId?.trim();
+          if (!ownerSessionId) {
+            throw new Error(
+              "managed Task Session assignment requires a daemon-owned owner session",
+            );
+          }
+          const dispatch = deps.dispatchManagedTaskSessions ?? dispatchManagedTaskSessions;
+          const resourceInventory = await discoverTaskResourceInventory();
+          const packing = packTaskResourceFrontier({
+            tasks: taskRefs.map((taskRef) => graph.getTask(taskRef)),
+            runs: graph.runs(),
+            inventory: resourceInventory,
+            maxConcurrency,
+          });
+          if (packing.scheduled.length === 0) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Accepted 0 managed Task Session runs for “${project.title}”; ${packing.deferred.length} task(s) are waiting for resources or retry authority.`,
+                },
+              ],
+              details: {
+                accepted: true,
+                dryRun: false,
+                projectRef: project.ref,
+                taskRefs: [],
+                bindings: [],
+                resourceInventory,
+                resourceDeferred: packing.deferred,
+                policy: { maxConcurrency, timeoutMs },
+              },
+            };
+          }
+          const resourceAllocations = Object.fromEntries(
+            packing.scheduled.map((packed) => [packed.taskRef, packed.allocation]),
+          ) as Partial<Record<TaskRef, TaskResourceAllocation>>;
+          const records = await dispatch({
+            cwd,
+            ctx,
+            ownerSessionId,
+            projectRef: project.ref,
+            taskRefs: packing.scheduled.map((packed) => packed.taskRef),
+            registry,
+            resourceAllocations,
+            ...(orchestration && repro ? { subgoals: repro.subgoals } : {}),
+          } satisfies ManagedTaskSessionDispatchInput);
+          await deps.refreshSparkWidget?.(cwd, ctx);
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Accepted ${records.length} managed Task Session run(s) for “${project.title}”; execution continues asynchronously.`,
+              },
+            ],
+            details: {
+              accepted: true,
+              dryRun: false,
+              projectRef: project.ref,
+              taskRefs: records.map((record) => record.taskRef),
+              bindings: records,
+              resourceInventory,
+              resourceDeferred: packing.deferred,
+              policy: { maxConcurrency, timeoutMs },
+            },
           };
         }
         const runStore = defaultSparkWorkflowRunStore(cwd);
@@ -156,10 +262,11 @@ export function registerSparkRunReadyTasksTool(
         };
       }
 
-      const artifactStore = defaultArtifactStore(cwd);
+      const evidenceStore = defaultEvidenceStore(cwd);
+      const resourceInventory = await discoverTaskResourceInventory();
       const runtimeRunner = createSparkRuntimeReadyTaskRunner({
         registry,
-        artifactStore,
+        evidenceStore,
         cwd,
         sessionModel: sessionModelName(ctx.model),
       });
@@ -167,9 +274,11 @@ export function registerSparkRunReadyTasksTool(
         graph,
         ...runtimeRunner,
         projectRef: project.ref,
+        taskRefs,
         dryRun: true,
         maxConcurrency,
         timeoutMs,
+        resourceInventory,
       });
       const runLabels = result.runs.map((run) => run.runName ?? run.roleRef ?? run.ref);
       const visibleRunLabels = runLabels.slice(0, 8);
@@ -193,4 +302,42 @@ export function registerSparkRunReadyTasksTool(
       };
     },
   });
+}
+
+function normalizeSparkRunReadyTaskRefs(value: unknown): TaskRef[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    throw new Error("assign taskRefs must be an array of task refs");
+  }
+  return [...new Set(value)].map((ref, index) => {
+    if (!isRef(ref, "task")) throw new Error(`assign taskRefs[${index}] must be a task: ref`);
+    return ref;
+  });
+}
+
+function validateTaskAllowlist(input: {
+  graph: TaskGraph;
+  projectRef: ProjectRef;
+  taskRefs: TaskRef[];
+  safeTaskRefs?: TaskRef[];
+}): TaskRef[] {
+  const ready = new Set(input.graph.readyTasks(input.projectRef).map((task) => task.ref));
+  const safe = input.safeTaskRefs ? new Set(input.safeTaskRefs) : undefined;
+  for (const taskRef of input.taskRefs) {
+    const task = input.graph.getTask(taskRef);
+    if (task.projectRef !== input.projectRef) {
+      throw new Error(`assign task ${taskRef} does not belong to the current project`);
+    }
+    if (!ready.has(taskRef)) throw new Error(`assign task ${taskRef} is not ready`);
+    if (safe && !safe.has(taskRef)) {
+      throw new Error(`assign task ${taskRef} is outside the active Repro safe frontier`);
+    }
+    const active = input.graph
+      .runs(input.projectRef)
+      .some(
+        (run) => run.taskRef === taskRef && (run.status === "queued" || run.status === "running"),
+      );
+    if (active) throw new Error(`assign task ${taskRef} already has an active attempt`);
+  }
+  return input.taskRefs;
 }

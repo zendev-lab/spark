@@ -7,10 +7,11 @@ import type {
   ToolRenderComponent,
   ToolRenderTheme,
 } from "@zendev-lab/spark-core";
+import { truncateToWidth } from "@zendev-lab/spark-text";
 import {
-  isUserAnsweredAskEvidenceArtifactBody,
+  isUserAnsweredAskEvidenceBody,
   recordCanonicalAskEvidenceReceipt,
-  type SparkAskEvidenceArtifactBody,
+  type SparkAskEvidenceBody,
 } from "./evidence.ts";
 
 export type SparkAskAction = "ask" | "flow";
@@ -27,14 +28,7 @@ export interface SparkAskActionToolOptions {
   autoAnswer?: SparkAskAutoAnswerResolver;
 }
 
-export interface SparkAskAutoAnswerRequest {
-  title?: string;
-  mode?: string;
-  context?: string;
-  flow?: string;
-  questions: SparkAskAutoAnswerQuestion[];
-}
-
+import type { SparkAskAutoAnswerRequest } from "./action-contracts.ts";
 export interface SparkAskAutoAnswerQuestion {
   id: string;
   prompt: string;
@@ -106,9 +100,7 @@ class ToolCallText implements ToolRenderComponent {
   }
 
   render(width: number): string[] {
-    return [
-      this.text.length > width ? `${this.text.slice(0, Math.max(0, width - 1))}…` : this.text,
-    ];
+    return [truncateToWidth(this.text, Math.max(1, width), "…")];
   }
 }
 
@@ -289,6 +281,18 @@ function didHumanAskTimeOut(result: Awaited<ReturnType<ToolConfig["execute"]>>):
   );
 }
 
+function describeAskResultStatus(result: Awaited<ReturnType<ToolConfig["execute"]>>): string {
+  const details = isRecord(result.details) ? result.details : undefined;
+  const inner = details && isRecord(details.result) ? details.result : undefined;
+  const status = typeof inner?.status === "string" ? inner.status : undefined;
+  if (status === "pending") return "status=pending (async/inbox request, no answer yet)";
+  if (status === "cancelled") return "status=cancelled (no user answer)";
+  if (status === "no_selection")
+    return "status=no_selection (interactive surface produced no choice)";
+  if (status) return `status=${status}`;
+  return inner ? "an incomplete ask result" : "no ask result payload";
+}
+
 async function waitForReviewerFallback(timeoutMs: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) throw signal.reason ?? new Error("ask aborted");
   await new Promise<void>((resolve, reject) => {
@@ -350,16 +354,21 @@ async function maybeRecordAskEvidence(
   if (params.recordAsEvidence !== true) return result;
   const cwd = typeof ctx.cwd === "string" ? ctx.cwd : undefined;
   if (!cwd) throw new Error("ask recordAsEvidence requires a workspace cwd");
-  const body: SparkAskEvidenceArtifactBody = {
-    schema: "spark.ask.evidence/v1",
+  const body: SparkAskEvidenceBody = {
+    schema: "spark.ask.evidence/v2",
     request: decodeAutoAnswerRequest(params),
     result: isRecord(result.details) ? (result.details.result ?? null) : null,
+    answerSource: "user",
     autoAnswered: false,
     recordedAt: new Date().toISOString(),
   };
-  if (!isUserAnsweredAskEvidenceArtifactBody(body)) {
+  if (!isUserAnsweredAskEvidenceBody(body)) {
     if (didHumanAskTimeOut(result)) return result;
-    throw new Error("ask.recordAsEvidence requires a completed user-answered result");
+    throw new Error(
+      `ask.recordAsEvidence requires a completed user-answered result (observed ${describeAskResultStatus(result)}). ` +
+        "No evidence was recorded and no decision proof exists. Re-ask the same question when a user can answer, " +
+        "or continue with work that does not depend on this decision; never substitute a prior or synthesized approval.",
+    );
   }
   let evidenceBody: JsonValue;
   try {
@@ -461,63 +470,28 @@ function validateAutoAnswerResult(
 
 function withSyntheticAutoAnswerUi(
   ctx: SparkHostContext,
-  request: SparkAskAutoAnswerRequest,
+  _request: SparkAskAutoAnswerRequest,
   answers: Record<string, SparkAskAutoAnswerEntry>,
 ): SparkHostContext {
-  let index = 0;
-  const nextQuestion = () => request.questions[index++];
-  const ui = {
-    // Reviewer owns the answer only after the host has closed the human interaction.
-    // Do not reopen that interaction while converting reviewer output through the raw adapter.
-    interaction: undefined,
-    select: async () => labelChoice(nextQuestion(), answers),
-    selectWithCustom: async () => selectionChoice(nextQuestion(), answers),
-    input: async () => freeformChoice(nextQuestion(), answers),
-  };
-  return {
-    ...(isRecord(ctx) ? ctx : {}),
-    ui: { ...(isRecord(ctx) && isRecord(ctx.ui) ? ctx.ui : {}), ...ui },
-  };
-}
-
-function selectionChoice(
-  question: SparkAskAutoAnswerQuestion | undefined,
-  answers: Record<string, SparkAskAutoAnswerEntry>,
-): { value?: string; customText?: string } | undefined {
-  if (!question) return undefined;
-  const answer = answers[question.id];
-  if (!answer) return undefined;
-  if (answer.customText !== undefined) return { customText: answer.customText };
-  const labels = labelsForValues(question, answer.values ?? []);
-  return labels.length > 0 ? { value: labels.join(", ") } : undefined;
-}
-
-function labelChoice(
-  question: SparkAskAutoAnswerQuestion | undefined,
-  answers: Record<string, SparkAskAutoAnswerEntry>,
-): string | undefined {
-  if (!question) return undefined;
-  const answer = answers[question.id];
-  if (!answer) return undefined;
-  if (answer.customText !== undefined) return answer.customText;
-  return labelsForValues(question, answer.values ?? []).join(", ") || undefined;
-}
-
-function freeformChoice(
-  question: SparkAskAutoAnswerQuestion | undefined,
-  answers: Record<string, SparkAskAutoAnswerEntry>,
-): string | undefined {
-  if (!question) return undefined;
-  const answer = answers[question.id];
-  return answer?.customText ?? answer?.notes ?? answer?.comment;
-}
-
-function labelsForValues(question: SparkAskAutoAnswerQuestion, values: string[]): string[] {
-  const byValue = new Map((question.options ?? []).map((option) => [option.value, option.label]));
-  return values.flatMap((value) => {
-    const label = byValue.get(value);
-    return label ? [label] : [];
+  const interaction = async (interactionRequest: { requestId?: unknown }) => ({
+    kind: "askFlow" as const,
+    requestId:
+      typeof interactionRequest.requestId === "string"
+        ? interactionRequest.requestId
+        : `ask-reviewer:${Date.now().toString(36)}`,
+    status: "answered" as const,
+    answers,
   });
+  const syntheticContext: SparkHostContext & { askAnswerSource: "reviewer" } = {
+    ...(isRecord(ctx) ? ctx : {}),
+    askAnswerSource: "reviewer",
+    ui: {
+      ...(isRecord(ctx) && isRecord(ctx.ui) ? ctx.ui : {}),
+      interaction,
+      custom: undefined,
+    },
+  };
+  return syntheticContext;
 }
 
 function missingAutoAnswerResolverReason(): string {
@@ -554,6 +528,10 @@ function annotateAutoAnswerResult(
     ...result,
     details: {
       ...(isRecord(result.details) ? result.details : {}),
+      answerSource: "reviewer",
+      result: isRecord(result.details?.result)
+        ? { ...result.details.result, answerSource: "reviewer" }
+        : result.details?.result,
       autoAnswered: true,
       autoAnswer: {
         mode: "reviewer",

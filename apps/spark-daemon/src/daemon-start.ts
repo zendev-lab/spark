@@ -101,19 +101,24 @@ import {
   resolveWebSocketUrl,
   runtimeEnvelopeForInvocationEvent,
   sendHeartbeat,
-  sendJson,
   serverUrlForConfig,
   sparkDaemonSupportedFeatures,
   sparkDaemonVersion,
   workspaceSummary,
-  type StartSparkDaemonOptions,
 } from "./daemon.ts";
+import { sendJson } from "./daemon-command-runtime.ts";
+import type { StartSparkDaemonOptions } from "./daemon-runtime-contract.ts";
 import { createRepeatedErrorReporter } from "./repeated-error-reporter.ts";
 import { artifactProjected } from "./protocol/outbound.ts";
 import {
-  PRODUCT_ARTIFACT_PROJECTION_RECONCILE_INTERVAL_MS,
-  ProductArtifactProjectionReconciler,
-} from "./product-artifact-projection.ts";
+  ARTIFACT_PROJECTION_RECONCILE_INTERVAL_MS,
+  ArtifactProjectionReconciler,
+} from "./artifact-projection.ts";
+import {
+  MAIN_TASK_CLAIM_RECONCILE_INTERVAL_MS,
+  MAIN_TASK_CLAIM_STARTUP_RECOVERY_WINDOW_MS,
+} from "./task-claims/policy.ts";
+import { reconcileMainTaskClaims } from "./task-claims/reconciler.ts";
 
 export async function startSparkDaemon(options: StartSparkDaemonOptions): Promise<void> {
   const runtime = await createPreparedDaemonRuntime(options);
@@ -145,6 +150,7 @@ interface DaemonServingLoops {
   channelReply?: Promise<void>;
   notification?: Promise<void>;
   sessionCompletion?: Promise<void>;
+  taskClaims?: Promise<void>;
 }
 
 interface RestartDrainController {
@@ -179,6 +185,7 @@ interface PreparedDaemonRuntime {
   servingGate: ServingLoopGate;
   loops: DaemonServingLoops;
   restartDrain: RestartDrainController;
+  taskClaimStartupRecoveryUntil: string;
   stopScheduler: () => void;
   stopDirectInvocations: () => void;
   stopChannelIngress: () => void;
@@ -292,6 +299,10 @@ async function createPreparedDaemonRuntime(
     closeRestartAdmission,
   });
   const servingGate = createServingLoopGate();
+  const taskClaimStartupRecoveryUntil = new Date(
+    Date.parse(options.taskClaimNow?.() ?? new Date().toISOString()) +
+      MAIN_TASK_CLAIM_STARTUP_RECOVERY_WINDOW_MS,
+  ).toISOString();
   const stopScheduler = () => scheduler?.stop();
   const stopDirectInvocations = () => invocationRegistry.stop();
   const stopChannelIngress = () => void shutdownChannelIngress("runtime-abort");
@@ -325,6 +336,7 @@ async function createPreparedDaemonRuntime(
     servingGate,
     loops: {},
     restartDrain,
+    taskClaimStartupRecoveryUntil,
     stopScheduler,
     stopDirectInvocations,
     stopChannelIngress,
@@ -452,6 +464,7 @@ function createServingLoopGate(): ServingLoopGate {
 
 async function prepareDaemonServing(runtime: PreparedDaemonRuntime): Promise<void> {
   const { options, runtimeSignal, channelIngress } = runtime;
+  await reconcileMainTaskClaimsBeforeAdmission(runtime);
   if (!runtimeSignal.aborted) {
     await options.onReady?.({
       channelIngress,
@@ -465,6 +478,40 @@ async function prepareDaemonServing(runtime: PreparedDaemonRuntime): Promise<voi
   if (canOpenDaemonAdmission(runtime)) await activateDaemonAdmission(runtime);
   startDaemonServingLoops(runtime);
   commitDaemonServingFence(runtime);
+}
+
+async function reconcileMainTaskClaimsBeforeAdmission(
+  runtime: PreparedDaemonRuntime,
+): Promise<void> {
+  const result = await reconcileMainTaskClaims(runtime.options.db, {
+    now: runtime.options.taskClaimNow?.(),
+    startupRecoveryUntil: runtime.taskClaimStartupRecoveryUntil,
+  });
+  if (result.degraded.length > 0) {
+    throw new Error(
+      `Task claim startup reconciliation failed: ${result.degraded
+        .map((entry) => `${entry.workspaceId}: ${entry.error}`)
+        .join("; ")}`,
+    );
+  }
+}
+
+async function runMainTaskClaimReconcileLoop(runtime: PreparedDaemonRuntime): Promise<void> {
+  const intervalMs =
+    runtime.options.taskClaimReconcileIntervalMs ?? MAIN_TASK_CLAIM_RECONCILE_INTERVAL_MS;
+  while (!runtime.runtimeSignal.aborted) {
+    await delayUnlessAborted(intervalMs, runtime.runtimeSignal);
+    if (runtime.runtimeSignal.aborted) return;
+    const result = await reconcileMainTaskClaims(runtime.options.db, {
+      now: runtime.options.taskClaimNow?.(),
+      startupRecoveryUntil: runtime.taskClaimStartupRecoveryUntil,
+    });
+    for (const degraded of result.degraded) {
+      console.error(
+        `[spark-daemon] task claim reconcile degraded for ${degraded.workspaceId}: ${degraded.error}`,
+      );
+    }
+  }
 }
 
 function canOpenDaemonAdmission(runtime: PreparedDaemonRuntime): boolean {
@@ -481,6 +528,12 @@ async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<
 
 function startDaemonServingLoops(runtime: PreparedDaemonRuntime): void {
   const { scheduler, channelIngress, options, runtimeSignal, servingGate, loops } = runtime;
+  if (!options.once) {
+    loops.taskClaims = servingGate.promise.then(async (committed) => {
+      if (!committed || runtimeSignal.aborted) return;
+      await runMainTaskClaimReconcileLoop(runtime);
+    });
+  }
   if (scheduler && !options.once) {
     loops.scheduler = servingGate.promise.then(async (committed) => {
       if (committed && !runtimeSignal.aborted) await runSchedulerLoop(runtime);
@@ -654,6 +707,7 @@ async function cleanupPreparedDaemonRuntime(runtime: PreparedDaemonRuntime): Pro
   await runtime.loops.notification;
   await runtime.loops.sessionCompletion;
   await runtime.loops.channelReply;
+  await runtime.loops.taskClaims;
   if (options.managePidFile !== false && existsSync(options.paths.pidFile)) {
     rmSync(options.paths.pidFile, { force: true });
   }
@@ -707,6 +761,17 @@ function createDaemonScheduler(input: {
             );
             emitDriverUpdate(input, driver, driver.lastInvocationId);
             return input.driverStore.mutationResult(driver);
+          },
+          wakeOwner: (ownerSessionId, wake) => {
+            const drivers = input.driverStore
+              .list({ ownerSessionId })
+              .filter((driver) => driver.kind === wake.kind && driver.status !== "running");
+            for (const candidate of drivers) {
+              const driver = input.driverStore.wake(candidate.driverId, {
+                reason: wake.reason,
+              });
+              emitDriverUpdate(input, driver, driver.lastInvocationId);
+            }
           },
         },
         channelIngress: {
@@ -1359,7 +1424,7 @@ async function runSparkDaemonServerConnection(
   await new Promise<void>((resolvePromise, reject) => {
     const runtimeSession = { id: undefined as string | undefined };
     let heartbeat: NodeJS.Timeout | undefined;
-    let productArtifactReconcileTimer: NodeJS.Timeout | undefined;
+    let artifactReconcileTimer: NodeJS.Timeout | undefined;
     let tokenRefresh: NodeJS.Timeout | undefined;
     let intentionalClose = false;
     let settled = false;
@@ -1369,9 +1434,9 @@ async function runSparkDaemonServerConnection(
     let inFlightInvocationEvent:
       | { messageId: string; invocationId: string; sequence: number }
       | undefined;
-    let productArtifactReconcileRun: Promise<void> | undefined;
+    let artifactReconcileRun: Promise<void> | undefined;
     const invocationStore = new SparkInvocationStore(options.db);
-    const productArtifactReconciler = new ProductArtifactProjectionReconciler();
+    const artifactReconciler = new ArtifactProjectionReconciler();
     const deliveryDestination = `cockpit:${runtimeId}`;
     const currentWorkspaceBindingIds = () =>
       serverUrl
@@ -1453,9 +1518,9 @@ async function runSparkDaemonServerConnection(
         clearInterval(heartbeat);
         heartbeat = undefined;
       }
-      if (productArtifactReconcileTimer) {
-        clearInterval(productArtifactReconcileTimer);
-        productArtifactReconcileTimer = undefined;
+      if (artifactReconcileTimer) {
+        clearInterval(artifactReconcileTimer);
+        artifactReconcileTimer = undefined;
       }
       if (tokenRefresh) {
         clearTimeout(tokenRefresh);
@@ -1481,12 +1546,12 @@ async function runSparkDaemonServerConnection(
     const ws = new WebSocket(webSocketUrl, {
       headers: { Authorization: `Bearer ${runtimeToken}` },
     });
-    const flushProductArtifactProjections = async () => {
+    const flushArtifactProjections = async () => {
       if (!runtimeReady || ws.readyState !== WebSocket.OPEN || !serverUrl) return;
       const workspaces = listWorkspacesForServer(options.db, serverUrl);
       for (const workspace of workspaces) {
         if (!workspace.serverBindingId || !workspace.serverWorkspaceId) continue;
-        const pending = await productArtifactReconciler.collect({
+        const pending = await artifactReconciler.collect({
           localPath: workspace.localPath,
           workspaceBindingId: workspace.serverBindingId,
           workspaceId: workspace.serverWorkspaceId,
@@ -1506,23 +1571,23 @@ async function runSparkDaemonServerConnection(
               ),
             );
           } catch (error) {
-            productArtifactReconciler.markSendFailed(projection.messageId);
+            artifactReconciler.markSendFailed(projection.messageId);
             throw error;
           }
         }
       }
     };
-    const queueProductArtifactReconcile = () => {
-      if (productArtifactReconcileRun) return;
-      const run = flushProductArtifactProjections()
+    const queueArtifactReconcile = () => {
+      if (artifactReconcileRun) return;
+      const run = flushArtifactProjections()
         .catch((error: unknown) => {
           logDaemonError(runtimeId, error);
         })
         .finally(() => {
           activeHandlers.delete(run);
-          productArtifactReconcileRun = undefined;
+          artifactReconcileRun = undefined;
         });
-      productArtifactReconcileRun = run;
+      artifactReconcileRun = run;
       activeHandlers.add(run);
     };
     const flushNextInvocationEvent = () => {
@@ -1608,14 +1673,14 @@ async function runSparkDaemonServerConnection(
           runtimeReady = true;
           flushPendingRuntimeCommandTerminals(ws, options.db, runtimeId, serverUrl);
           flushNextInvocationEvent();
-          queueProductArtifactReconcile();
-          productArtifactReconcileTimer ??= setInterval(
-            queueProductArtifactReconcile,
-            PRODUCT_ARTIFACT_PROJECTION_RECONCILE_INTERVAL_MS,
+          queueArtifactReconcile();
+          artifactReconcileTimer ??= setInterval(
+            queueArtifactReconcile,
+            ARTIFACT_PROJECTION_RECONCILE_INTERVAL_MS,
           );
         },
         onIngestAck(ackOf) {
-          productArtifactReconciler.acknowledge(ackOf);
+          artifactReconciler.acknowledge(ackOf);
           const inFlight = inFlightInvocationEvent;
           if (inFlight?.messageId !== ackOf) return;
           invocationStore.acknowledgeDelivery(

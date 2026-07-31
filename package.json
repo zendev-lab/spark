@@ -30,7 +30,8 @@
   "type": "module",
   "scripts": {
     "check": "pnpm run check:static && pnpm run check:docs && pnpm run test:unit && pnpm run test:process:source",
-    "check:static": "pnpm --filter @zendev-lab/spark-cockpit exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/check-architecture-ratchets.mjs && node scripts/check-npm-product.mjs && pnpm run check:boundaries && pnpm run check:test-quality && node scripts/check-doc-terminology.mjs && vp fmt . --check && vp lint --quiet && pnpm run typecheck",
+    "check:static": "pnpm --filter @zendev-lab/spark-cockpit exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/check-architecture-ratchets.mjs && node scripts/check-npm-product.mjs && pnpm run check:evidence-surface && pnpm run check:boundaries && pnpm run check:test-quality && node scripts/check-doc-terminology.mjs && vp fmt . --check && vp lint --quiet && pnpm run typecheck",
+    "check:evidence-surface": "node scripts/check-evidence-surface.mjs",
     "check:boundaries": "depcruise --config .dependency-cruiser.cjs apps packages test",
     "fix": "pnpm --filter @zendev-lab/spark-cockpit exec svelte-kit sync && vp fmt . --write && vp lint --fix --quiet && pnpm run typecheck",
     "typecheck": "pnpm --filter @zendev-lab/spark-cockpit run check && vp check --no-fmt --no-lint && pnpm --filter @zendev-lab/spark-daemon run check",
@@ -83,6 +84,7 @@
     "typebox": "catalog:"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.82.1",
     "@j178/prek": "0.4.6",
     "@types/node": "^26.1.1",
     "@zendev-lab/spark-daemon-client": "workspace:*",
@@ -90,7 +92,6 @@
     "dependency-cruiser": "^18.1.0",
     "es-toolkit": "catalog:",
     "esbuild": "^0.28.0",
-    "jiti": "2.7.0",
     "jscpd": "^5.0.12",
     "knip": "^6.27.0",
     "p-retry": "catalog:",

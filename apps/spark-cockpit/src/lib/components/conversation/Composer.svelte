@@ -74,7 +74,14 @@
   });
 
   function submitOnEnter(event: KeyboardEvent) {
-    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+    if (
+      event.key !== "Enter" ||
+      (!event.metaKey && !event.ctrlKey) ||
+      event.shiftKey ||
+      event.isComposing
+    ) {
+      return;
+    }
     event.preventDefault();
     const textarea = event.currentTarget as HTMLTextAreaElement;
     const form = textarea.form;
@@ -147,10 +154,8 @@
   .conversation-composer-shell {
     background: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: 14px;
-    box-shadow:
-      0 1px 2px rgb(15 23 42 / 5%),
-      0 14px 32px rgb(15 23 42 / 7%);
+    border-radius: var(--rounded-lg);
+    box-shadow: var(--shadow-card-raised);
     container-name: conversation-composer;
     container-type: inline-size;
     display: grid;
@@ -159,8 +164,8 @@
     overflow: visible;
     padding: 0;
     transition:
-      border-color 120ms ease,
-      box-shadow 120ms ease;
+      border-color var(--motion-fast) ease,
+      box-shadow var(--motion-fast) ease;
   }
 
   .conversation-composer-shell:focus-within {
@@ -228,7 +233,7 @@
   }
 
   textarea:focus-visible {
-    border-radius: 7px;
+    border-radius: var(--rounded-sm);
     box-shadow: var(--shadow-focus);
   }
 
@@ -274,8 +279,7 @@
     align-items: center;
     background: var(--color-primary);
     border: 0;
-    aspect-ratio: 1;
-    border-radius: 999px;
+    border-radius: var(--rounded-full);
     color: var(--color-on-primary, #fff);
     cursor: pointer;
     display: inline-flex;
@@ -283,11 +287,10 @@
     font: inherit;
     font-size: 13px;
     font-weight: 600;
-    gap: 0;
+    gap: 7px;
     justify-content: center;
-    height: 38px;
-    padding: 0;
-    width: 38px;
+    min-height: var(--control-height-default);
+    padding: 0 13px;
   }
 
   .composer-submit:hover:not(:disabled) {
@@ -305,16 +308,7 @@
   }
 
   .submit-label {
-    border: 0;
-    clip: rect(0 0 0 0);
-    clip-path: inset(50%);
-    height: 1px;
-    margin: -1px;
-    overflow: hidden;
-    padding: 0;
-    position: absolute;
     white-space: nowrap;
-    width: 1px;
   }
 
   .sr-only {
@@ -342,13 +336,28 @@
     }
 
     .composer-submit {
+      aspect-ratio: 1;
       padding: 0;
+      width: var(--control-height-touch);
+    }
+
+    .submit-label {
+      border: 0;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+      height: 1px;
+      margin: -1px;
+      overflow: hidden;
+      padding: 0;
+      position: absolute;
+      white-space: nowrap;
+      width: 1px;
     }
   }
 
   @container conversation-composer (max-width: 360px) {
     .composer-submit {
-      width: 38px;
+      width: var(--control-height-touch);
     }
   }
 
@@ -358,11 +367,24 @@
     }
 
     textarea {
+      font-size: 16px;
       min-height: 60px;
     }
 
     .keyboard-hint {
       display: none;
+    }
+  }
+
+  @media (pointer: coarse) {
+    .composer-submit {
+      min-height: var(--control-height-touch);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .conversation-composer-shell {
+      transition: none;
     }
   }
 </style>

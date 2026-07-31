@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
 import { sparkSessionPendingTurnSchema } from "./session-assignment.ts";
-import { sparkDriverViewSchema } from "./driver.ts";
+import { sparkDriverKindSchema, sparkDriverViewSchema } from "./driver.ts";
 
 export * from "./action-bars.ts";
 export * from "./ask-semantics.ts";
@@ -230,6 +230,9 @@ export const sparkToolCallViewSchema = z.object({
   metadata: sparkJsonObjectSchema.default({}),
 });
 
+const evidenceRefSchema = z.string().regex(/^evidence:.+$/u, "must be an evidence: ref");
+const artifactRefSchema = z.string().regex(/^artifact:.+$/u, "must be an artifact: ref");
+
 export const sparkRunViewSchema = z.object({
   version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),
   id: z.string().min(1),
@@ -240,7 +243,8 @@ export const sparkRunViewSchema = z.object({
   summary: z.string().optional(),
   startedAt: sparkIsoDateTimeSchema.optional(),
   completedAt: sparkIsoDateTimeSchema.optional(),
-  artifactRefs: z.array(sparkRefSchema).default([]),
+  evidenceRefs: z.array(evidenceRefSchema).default([]),
+  artifactRefs: z.array(artifactRefSchema).default([]),
   metadata: sparkJsonObjectSchema.default({}),
 });
 
@@ -263,12 +267,13 @@ export const sparkTaskViewSchema = z.object({
   projectRef: sparkRefSchema.optional(),
   todos: z.array(sparkTaskTodoViewSchema).default([]),
   runRefs: z.array(sparkRefSchema).default([]),
-  artifactRefs: z.array(sparkRefSchema).default([]),
+  evidenceRefs: z.array(evidenceRefSchema).default([]),
+  artifactRefs: z.array(artifactRefSchema).default([]),
   metadata: sparkJsonObjectSchema.default({}),
 });
 
 /**
- * Product-facing deliverables (Cockpit 产物): issue / pr / preview.
+ * User-facing Artifacts (Cockpit 产物): issue / pr / preview.
  * Legacy snapshots may still carry evidence kinds here; new emits use
  * `evidence.update` + `sparkEvidenceViewSchema` instead.
  */
@@ -284,14 +289,14 @@ const sparkArtifactProjectionProgressSchema = z
 
 const sparkArtifactProjectionJsonContentRefSchema = z
   .object({
-    productArtifactRef: sparkRefSchema,
+    artifactRef: artifactRefSchema,
     inlineJson: sparkJsonObjectSchema.optional(),
   })
   .strict();
 
 const sparkArtifactProjectionPreviewContentRefSchema = z
   .object({
-    productArtifactRef: sparkRefSchema,
+    artifactRef: artifactRefSchema,
     previewFormat: z.enum(["md", "mdx", "html", "a2ui", "spark-ui"]),
     version: z.number().int().positive(),
     progress: sparkArtifactProjectionProgressSchema.nullable(),
@@ -364,14 +369,14 @@ export const sparkArtifactProjectionSchema = z
       if (projection.format !== "json") {
         context.addIssue({
           code: "custom",
-          message: "issue/pr Product Artifact projections must use json transport format",
+          message: "issue/pr Artifact projections must use json transport format",
           path: ["format"],
         });
       }
       if (projection.mime !== "application/json") {
         context.addIssue({
           code: "custom",
-          message: "json Product Artifact projection must use application/json",
+          message: "json Artifact projection must use application/json",
           path: ["mime"],
         });
       }
@@ -390,7 +395,7 @@ export const sparkArtifactProjectionSchema = z
     if (inlineBytes !== undefined && inlineBytes > SPARK_ARTIFACT_PROJECTION_MAX_INLINE_BYTES) {
       context.addIssue({
         code: "custom",
-        message: `inline Product Artifact projection exceeds ${SPARK_ARTIFACT_PROJECTION_MAX_INLINE_BYTES} bytes`,
+        message: `inline Artifact projection exceeds ${SPARK_ARTIFACT_PROJECTION_MAX_INLINE_BYTES} bytes`,
         path: ["contentRef"],
       });
     }
@@ -474,6 +479,72 @@ export const sparkSessionUsageSchema = z.object({
   contextWindow: z.number().positive().optional(),
 });
 
+export const sparkSessionPrimaryWorkViewSchema = z.object({
+  kind: sparkDriverKindSchema,
+  driverId: z.string().min(1),
+});
+
+export const sparkSessionGoalWorkViewSchema = z.object({
+  goalId: z.string().min(1),
+  objective: z.string().min(1),
+  status: z.enum(["active", "paused", "complete"]),
+  reason: z.string().min(1).optional(),
+  updatedAt: sparkIsoDateTimeSchema,
+});
+
+export const sparkSessionReproCurrentStepViewSchema = z.object({
+  id: z.string().min(1),
+  stage: z.enum(["setup", "scaffold", "reproduce", "scale", "deliver"]),
+  goal: z.string().min(1),
+  status: z.enum(["pending", "in_progress", "done", "blocked", "cancelled"]),
+  authority: z.enum(["safe_local", "ask_decision", "ask_approval"]),
+  doneWhen: z.array(z.string().min(1)),
+  evidenceRequired: z.array(z.string().min(1)),
+  blocker: z.string().min(1).optional(),
+});
+
+export const sparkSessionVerificationReceiptViewSchema = z.object({
+  stepId: z.string().min(1),
+  proofKind: z.enum(["evidence", "decision", "approval"]),
+  verifiedDoneWhen: z.array(z.string().min(1)),
+  evidenceRefs: z.array(z.string().min(1)),
+});
+
+export const sparkSessionReproWorkViewSchema = z.object({
+  reproId: z.string().min(1),
+  status: z.enum(["active", "complete"]),
+  contractStatus: z.enum(["draft", "frozen"]),
+  objective: z.string().min(1),
+  successCriteria: z.array(z.string().min(1)),
+  evidenceRequired: z.array(z.string().min(1)),
+  stage: z.object({
+    name: z.enum(["setup", "scaffold", "reproduce", "scale", "deliver"]),
+    title: z.string().min(1),
+    index: z.number().int().nonnegative(),
+    total: z.number().int().positive(),
+    phase: z.enum(["plan", "implement"]),
+  }),
+  plan: z.object({
+    revision: z.number().int().positive(),
+    completedSteps: z.number().int().nonnegative(),
+    totalSteps: z.number().int().nonnegative(),
+    currentStep: sparkSessionReproCurrentStepViewSchema.optional(),
+  }),
+  stopGuard: z.object({
+    decision: z.enum(["continue", "ask", "complete"]),
+    stagnationCount: z.number().int().nonnegative(),
+    limit: z.number().int().positive(),
+  }),
+  latestVerification: sparkSessionVerificationReceiptViewSchema.optional(),
+  updatedAt: sparkIsoDateTimeSchema,
+});
+
+export const sparkSessionWorkViewSchema = z.object({
+  primary: sparkSessionPrimaryWorkViewSchema.optional(),
+  goal: sparkSessionGoalWorkViewSchema.optional(),
+  repro: sparkSessionReproWorkViewSchema.optional(),
+});
+
 export const sparkSessionViewSchema = z.object({
   version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),
   sessionId: z.string().min(1),
@@ -490,9 +561,11 @@ export const sparkSessionViewSchema = z.object({
   tools: z.array(sparkToolCallViewSchema).default([]),
   runs: z.array(sparkRunViewSchema).default([]),
   drivers: z.array(sparkDriverViewSchema).optional(),
+  /** Daemon-owned, display-safe projection of durable Goal/Repro work state. */
+  work: sparkSessionWorkViewSchema.optional(),
   tasks: z.array(sparkTaskViewSchema).default([]),
   artifacts: z.array(sparkArtifactViewSchema).default([]),
-  /** Agent-internal evidence ledger projections; product deliverables stay in `artifacts`. */
+  /** Agent-internal Evidence projections; Artifacts stay in `artifacts`. */
   evidence: z.array(sparkEvidenceViewSchema).default([]),
   mailbox: z.array(sparkSessionMailMessageViewSchema).optional(),
   createdAt: sparkIsoDateTimeSchema.optional(),
@@ -799,9 +872,9 @@ export const sparkDaemonSessionUpdatedEventSchema = sparkDaemonEventBaseSchema.e
   title: z.string().min(1).optional(),
 });
 
-export const sparkDaemonProductArtifactProjectedEventSchema = sparkDaemonEventBaseSchema
+export const sparkDaemonArtifactProjectedEventSchema = sparkDaemonEventBaseSchema
   .extend({
-    type: z.literal("daemon.product_artifact.projected"),
+    type: z.literal("daemon.artifact.projected"),
     artifact: z
       .object({
         ref: sparkRefSchema,
@@ -815,18 +888,18 @@ export const sparkDaemonProductArtifactProjectedEventSchema = sparkDaemonEventBa
   })
   .superRefine((event, context) => {
     const contentRef = event.artifact.projection.contentRef;
-    if (contentRef.productArtifactRef !== event.artifact.ref) {
+    if (contentRef.artifactRef !== event.artifact.ref) {
       context.addIssue({
         code: "custom",
-        message: "projection contentRef must reference the projected Product Artifact",
-        path: ["artifact", "projection", "contentRef", "productArtifactRef"],
+        message: "projection contentRef must reference the projected Artifact",
+        path: ["artifact", "projection", "contentRef", "artifactRef"],
       });
     }
     const hasPreviewShape = "previewFormat" in contentRef;
     if ((event.artifact.kind === "preview") !== hasPreviewShape) {
       context.addIssue({
         code: "custom",
-        message: "Product Artifact kind must match its projection content shape",
+        message: "Artifact kind must match its projection content shape",
         path: ["artifact", "projection", "contentRef"],
       });
     }
@@ -838,7 +911,7 @@ export const sparkDaemonEventSchema = z.discriminatedUnion("type", [
   sparkDaemonInteractionRequestEventSchema,
   sparkDaemonInteractionResponseEventSchema,
   sparkDaemonSessionUpdatedEventSchema,
-  sparkDaemonProductArtifactProjectedEventSchema,
+  sparkDaemonArtifactProjectedEventSchema,
 ]);
 
 export type SparkViewModelStatus = z.infer<typeof sparkViewModelStatusSchema>;
@@ -867,6 +940,16 @@ export type SparkSessionMailChannelDeliveryView = z.infer<
 >;
 export type SparkSessionMailMessageView = z.infer<typeof sparkSessionMailMessageViewSchema>;
 export type SparkSessionUsage = z.infer<typeof sparkSessionUsageSchema>;
+export type SparkSessionPrimaryWorkView = z.infer<typeof sparkSessionPrimaryWorkViewSchema>;
+export type SparkSessionGoalWorkView = z.infer<typeof sparkSessionGoalWorkViewSchema>;
+export type SparkSessionReproCurrentStepView = z.infer<
+  typeof sparkSessionReproCurrentStepViewSchema
+>;
+export type SparkSessionVerificationReceiptView = z.infer<
+  typeof sparkSessionVerificationReceiptViewSchema
+>;
+export type SparkSessionReproWorkView = z.infer<typeof sparkSessionReproWorkViewSchema>;
+export type SparkSessionWorkView = z.infer<typeof sparkSessionWorkViewSchema>;
 export type SparkSessionView = z.infer<typeof sparkSessionViewSchema>;
 export type SparkSessionSnapshotHistory = z.infer<typeof sparkSessionSnapshotHistorySchema>;
 export type SparkSessionSnapshotPage = z.infer<typeof sparkSessionSnapshotPageSchema>;
@@ -883,8 +966,8 @@ export type SparkDaemonInteractionResponseEvent = z.infer<
   typeof sparkDaemonInteractionResponseEventSchema
 >;
 export type SparkDaemonSessionUpdatedEvent = z.infer<typeof sparkDaemonSessionUpdatedEventSchema>;
-export type SparkDaemonProductArtifactProjectedEvent = z.infer<
-  typeof sparkDaemonProductArtifactProjectedEventSchema
+export type SparkDaemonArtifactProjectedEvent = z.infer<
+  typeof sparkDaemonArtifactProjectedEventSchema
 >;
 export type SparkDaemonEvent = z.infer<typeof sparkDaemonEventSchema>;
 

@@ -191,7 +191,7 @@
     display: grid;
     gap: 16px;
     grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
-    height: 52px;
+    height: var(--shell-topbar-height);
     padding: 0 14px 0 16px;
     position: relative;
     z-index: 60;

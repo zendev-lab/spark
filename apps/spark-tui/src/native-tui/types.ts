@@ -13,8 +13,7 @@ import type {
 import type { SparkKeybindingContext, SparkKeybindings } from "../host/keybindings.ts";
 import type { SparkHostMessageRenderer, RegisteredCommand } from "../host/types.ts";
 import type { SparkTheme } from "../host/theme.ts";
-import type { SparkNativeSession } from "./session.ts";
-import type { SparkNativeTuiApp } from "./app.ts";
+import type { SparkNativeAppContract, SparkNativeSessionContract } from "./session-contracts.ts";
 import type { SparkNativeCockpitPanel } from "./cockpit-types.ts";
 
 export type {
@@ -149,14 +148,14 @@ export interface SparkNativeAbortResult {
 }
 
 export interface SparkNativeSlashCommandContext {
-  readonly app: SparkNativeTuiApp;
-  readonly session: SparkNativeSession;
+  readonly app: SparkNativeAppContract;
+  readonly session: SparkNativeSessionContract;
   exit(): void;
 }
 
 export interface SparkNativeInteractionContext {
-  readonly app: SparkNativeTuiApp;
-  readonly session: SparkNativeSession;
+  readonly app: SparkNativeAppContract;
+  readonly session: SparkNativeSessionContract;
 }
 
 export type SparkNativeInteractionHandler = (
@@ -221,6 +220,8 @@ export interface SparkNativeWorkspaceSessionState {
   mode: SparkNativeWorkspaceSessionMode;
   workspaceDir: string;
   workspaceHash: string;
+  /** Canonical host/claim owner identity for the attached persistent session. */
+  sessionId?: string;
   controlPlaneSessionId?: string;
   attachTarget?: string;
   mismatchDiagnostic?: string;

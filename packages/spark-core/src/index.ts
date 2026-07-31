@@ -717,6 +717,13 @@ export interface SparkDriverPolicyDefinition {
   retryDelaysMs: readonly number[];
 }
 
+export interface SparkSessionLeaseIdentity {
+  workspaceId: string;
+  clientId: string;
+  leaseFence: string;
+  sessionId: string;
+}
+
 export interface SparkHostContext {
   cwd?: string;
   /** Current Spark view/session identity for session-scoped extension state. */
@@ -727,6 +734,8 @@ export interface SparkHostContext {
   sessionSurface?: "local" | "channel";
   /** Origin label for hidden session-message metadata. */
   sessionSource?: SparkSessionMessageSource;
+  /** Current daemon-fenced session lease, supplied only by trusted local hosts. */
+  sessionLease?: () => SparkSessionLeaseIdentity | undefined;
   /** Current daemon invocation, available only in daemon-owned headless turns. */
   invocationId?: string;
   /** Present only inside a daemon-owned autonomous driver tick. */
@@ -784,8 +793,6 @@ export type SparkRef = Ref<"spark">;
 export type ProjectRef = Ref<"proj">;
 export type TaskRef = Ref<"task">;
 export type RoleRef = Ref<"role">;
-/** Stable artifact identity; evidence writes may use `evidence:` while remaining artifact-shaped. */
-export type ArtifactRef = Ref<"artifact"> | Ref<"evidence">;
 export type EvidenceRef = Ref<"evidence">;
 export type RunRef = Ref<"run">;
 export type ReviewRef = Ref<"review">;
@@ -795,44 +802,6 @@ export type SubgoalRef = Ref<"subgoal">;
 
 export type SparkSubgoalStatus = "pending" | "in_progress" | "done" | "blocked" | "cancelled";
 export type SparkSubgoalAuthority = "safe_local" | "ask_decision" | "ask_approval";
-
-export interface SparkSubgoalDelegation {
-  sessionId: string;
-  planRevision: number;
-  definitionDigest: string;
-  delegatedAt: string;
-}
-
-export const SPARK_SUBGOAL_ASSIGNMENT_SCHEMA = "spark.subgoal.assignment/v1" as const;
-export const SPARK_SUBGOAL_RECEIPT_SCHEMA = "spark.subgoal.receipt/v1" as const;
-
-export type SparkSubgoalReceiptStatus = "accepted" | "done" | "repair";
-
-export interface SparkSubgoalAssignment {
-  schema: typeof SPARK_SUBGOAL_ASSIGNMENT_SCHEMA;
-  subgoalRef: SubgoalRef;
-  goalId: string;
-  planRevision: number;
-  definitionDigest: string;
-  definition: SparkSubgoalDefinition;
-  ownerSessionId: string;
-  evidenceRequired: string[];
-  assignedAt: string;
-}
-
-export interface SparkSubgoalReceipt {
-  schema: typeof SPARK_SUBGOAL_RECEIPT_SCHEMA;
-  subgoalRef: SubgoalRef;
-  status: SparkSubgoalReceiptStatus;
-  planRevision: number;
-  definitionDigest: string;
-  evidenceRefs: EvidenceRef[];
-  reason?: string;
-}
-
-export type SparkSubgoalDelegationOutcome =
-  | { status: "accepted"; delegation: SparkSubgoalDelegation; receipt: SparkSubgoalReceipt }
-  | { status: "repair"; receipt: SparkSubgoalReceipt };
 
 export interface SparkSubgoalDefinition {
   goal: string;
@@ -860,13 +829,10 @@ export type SparkSubgoalVerificationResult =
 
 export interface SparkSubgoal extends SparkSubgoalDefinition {
   ref: SubgoalRef;
-  goalId: string;
-  roleRef: RoleRef;
   planRevision: number;
   status: SparkSubgoalStatus;
-  taskRefs: TaskRef[];
+  taskRef?: TaskRef;
   evidenceRefs: EvidenceRef[];
-  delegation?: SparkSubgoalDelegation;
   verification?: Extract<SparkSubgoalVerificationResult, { verdict: "Pass" }>;
   blocker?: string;
   createdAt: string;
@@ -878,7 +844,6 @@ export type AnyRef =
   | ProjectRef
   | TaskRef
   | RoleRef
-  | ArtifactRef
   | EvidenceRef
   | RunRef
   | ReviewRef
@@ -1149,7 +1114,7 @@ export interface RoadmapItem {
   evidenceRequired?: string[];
   evidenceRefs?: string[];
   openQuestions?: string[];
-  askRefs?: Array<AskRef | ArtifactRef | string>;
+  askRefs?: Array<AskRef | EvidenceRef | string>;
   taskRefs?: TaskRef[];
   createdAt?: string;
   updatedAt?: string;
@@ -1211,7 +1176,7 @@ export interface TaskPlanItem {
   status: TaskPlanItemStatus;
   notes?: string[];
   blockedBy?: string[];
-  evidenceRefs?: ArtifactRef[];
+  evidenceRefs?: EvidenceRef[];
   createdAt: string;
   updatedAt: string;
   deletedAt?: string;
@@ -1231,7 +1196,56 @@ export interface TaskPlan {
   decompositionRationale?: string;
   riskLevel?: "trivial" | "normal" | "high";
   openQuestions: string[];
-  askRefs: Array<AskRef | ArtifactRef>;
+  askRefs: Array<AskRef | EvidenceRef>;
+}
+
+export type TaskExecutionContinuity = "reuse_within_revision" | "fresh";
+export type TaskExecutionIsolation = "readonly" | "isolated_worktree" | "isolated_results";
+export type TaskExecutionComparison = "single_side" | "reference" | "target" | "paired";
+
+export interface TaskResourceRequest {
+  /** GPUs requested per side. Paired comparisons reserve twice this count. */
+  gpuCount: number;
+  minGpuMemoryGiB?: number;
+  topologyClass?: string;
+  exclusiveNode?: boolean;
+}
+
+export interface TaskExecutionPolicy {
+  continuity: TaskExecutionContinuity;
+  isolation: TaskExecutionIsolation;
+  comparison: TaskExecutionComparison;
+  resources?: TaskResourceRequest;
+  concurrencyKeys: string[];
+  timeoutMs?: number;
+  maxAttempts: number;
+}
+
+export interface TaskGpuResource {
+  id: string;
+  memoryGiB?: number;
+  topologyClasses: string[];
+}
+
+export interface TaskResourceInventory {
+  nodeId: string;
+  gpus: TaskGpuResource[];
+}
+
+export interface TaskResourceAllocationGroup {
+  side: TaskExecutionComparison;
+  gpuIds: string[];
+}
+
+export interface TaskResourceAllocation {
+  leaseId: string;
+  nodeId: string;
+  groups: TaskResourceAllocationGroup[];
+  gpuIds: string[];
+  concurrencyKeys: string[];
+  topologyClass?: string;
+  exclusiveNode: boolean;
+  allocatedAt: string;
 }
 
 export type TaskPlanIssueKind =
@@ -1284,6 +1298,7 @@ export interface Task {
   kind: TaskKind;
   status: TaskStatus;
   roleRef?: RoleRef;
+  executionPolicy?: TaskExecutionPolicy;
   /** Last actor that finished this task after active claims are cleared. */
   finishedBy?: TaskAttribution;
   /** Cancellation metadata when status is cancelled. */
@@ -1291,8 +1306,8 @@ export interface Task {
   /** Replacement task refs that supersede this task, matching learning supersededBy shape. */
   supersededBy: TaskRef[];
   claim?: TaskClaim;
-  inputArtifacts: ArtifactRef[];
-  outputArtifacts: ArtifactRef[];
+  inputEvidenceRefs: EvidenceRef[];
+  outputEvidenceRefs: EvidenceRef[];
   plan?: TaskPlan;
   createdAt: string;
   updatedAt: string;
@@ -1329,27 +1344,48 @@ export interface TaskRunCompletionSummary {
   runName?: string;
   status: TaskRunStatus;
   summary: string;
-  artifactRefs: ArtifactRef[];
+  evidenceRefs: EvidenceRef[];
   outcome?: RoleRunCompletionOutcome;
   createdAt: string;
+}
+
+export interface TaskRunExecutionBinding {
+  ownerSessionId: string;
+  executionSessionId: string;
+  sessionGoalId: string;
+  subgoalRef?: SubgoalRef;
+  planRevision?: number;
+  definitionDigest?: string;
+  jobId: string;
+  attempt: number;
+  /** Daemon invocation accepted for this attempt; used for restart-safe reconciliation. */
+  invocationId?: string;
 }
 
 export interface TaskRun {
   ref: RunRef;
   projectRef: ProjectRef;
   taskRef: TaskRef;
+  /** Preview-only runs never consume bounded execution attempts. */
+  dryRun?: boolean;
   roleRef?: RoleRef;
   /** Human-readable name for this concrete child run. */
   runName?: string;
   /** Session that owns this concrete child run, used for post-completion attribution. */
   ownerSessionId?: string;
+  /** Durable daemon-managed execution identity for Task-to-Session runs. */
+  execution?: TaskRunExecutionBinding;
+  /** Resource lease reconstructed from active TaskRuns after restart. */
+  resourceAllocation?: TaskResourceAllocation;
+  /** Daemon cancellation was requested after the Task policy timeout elapsed. */
+  timeoutRequestedAt?: string;
   status: TaskRunStatus;
   failureKind?: TaskRunFailureKind;
   errorMessage?: string;
   outcome?: RoleRunCompletionOutcome;
   startedAt?: string;
   finishedAt?: string;
-  outputArtifacts: ArtifactRef[];
+  outputEvidenceRefs: EvidenceRef[];
   completionSummary?: TaskRunCompletionSummary;
 }
 
@@ -1358,12 +1394,12 @@ export type GatePolicy = "required" | "advisory" | "blocking";
 
 export interface ReviewGate {
   ref: ReviewRef;
-  subject: TaskRef | ArtifactRef | RoleRef;
+  subject: TaskRef | EvidenceRef | RoleRef;
   lens: "task-completion" | "artifact" | "role-spec" | "readiness";
   policy: GatePolicy;
   outcome: ReviewOutcome;
   summary: string;
-  artifactRef?: ArtifactRef;
+  evidenceRef?: EvidenceRef;
   createdAt: string;
 }
 
@@ -1371,7 +1407,7 @@ export interface SparkRunTrace {
   ref: SparkRef;
   idea: string;
   projectRef?: ProjectRef;
-  sparkMdArtifactRef?: ArtifactRef;
+  sparkMdEvidenceRef?: EvidenceRef;
   taskRefs: TaskRef[];
   reviewRefs: ReviewRef[];
   askRefs: AskRef[];

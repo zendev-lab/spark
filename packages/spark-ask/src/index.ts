@@ -5,6 +5,8 @@ import type {
 import { truncateToWidth } from "@zendev-lab/spark-tui/text";
 import { Type } from "typebox";
 
+import { normalizeSparkAskAnswerSource, type SparkAskAnswerSource } from "./answer-source.ts";
+
 import { summarizeAskResult } from "./summary.ts";
 import {
   defaultAskChoice,
@@ -65,6 +67,8 @@ export interface SparkAskResult {
   humanRequestId?: string;
   /** True only when the host closed the human wait because its deadline elapsed. */
   timedOut?: boolean;
+  /** Provenance of a submitted answer; omitted for non-answered results. */
+  answerSource?: SparkAskAnswerSource;
   cancelled: boolean;
   answers: Record<string, SparkAskAnswerEntry>;
   nextAction: "resume" | "block";
@@ -269,12 +273,14 @@ export function registerSparkAskTools(pi: SparkAskHostApi): void {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const request = decodeAskRequest(params);
-      const result = await askUser(request, ctxUi(ctx));
+      const rawResult = await askUser(request, ctxUi(ctx));
+      const result = annotateAskUserAnswerSource(rawResult, ctx);
       return {
         content: [{ type: "text", text: summarizeResult(request, result) }],
         details: {
           request,
           result,
+          ...(result.answerSource ? { answerSource: result.answerSource } : {}),
         },
       };
     },
@@ -643,6 +649,24 @@ function formatStringArg(
   return `${options.prefix ?? ""}${truncateInline(rendered, options.maxLength ?? TOOL_CALL_DEFAULT_ARG_MAX_LENGTH)}`;
 }
 
+function annotateAskUserAnswerSource(result: SparkAskResult, ctx: unknown): SparkAskResult {
+  if (result.status !== "answered") return result;
+  const context =
+    ctx && typeof ctx === "object" ? (ctx as { askAnswerSource?: unknown; ui?: unknown }) : {};
+  const source =
+    normalizeSparkAskAnswerSource(context.askAnswerSource) ??
+    (hasAskUserInteraction(context.ui) ? "user" : undefined);
+  return source ? { ...result, answerSource: source } : result;
+}
+
+function hasAskUserInteraction(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const ui = value as Record<string, unknown>;
+  return [ui.interaction, ui.select, ui.selectWithCustom, ui.input].some(
+    (candidate) => typeof candidate === "function",
+  );
+}
+
 function needsQuoting(value: string): boolean {
   return /\s|["'`]/.test(value);
 }
@@ -653,6 +677,7 @@ function truncateInline(value: string, maxLength: number): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
+export type { SparkAskAnswerSource } from "./answer-source.ts";
 export * from "./schema.ts";
 export * from "./flow.ts";
 export {
@@ -666,23 +691,20 @@ export type {
   SparkAskAutoAnswerProvider,
   SparkAskAutoAnswerResolver,
 } from "./action-tool.ts";
-export {
-  isUserAnsweredAskEvidenceArtifactBody,
-  verifyCanonicalAskEvidenceArtifact,
-} from "./evidence.ts";
+export { isUserAnsweredAskEvidenceBody, verifyCanonicalAskEvidence } from "./evidence.ts";
 export type {
   CanonicalAskEvidenceAnswer,
-  SparkAskEvidenceArtifactBody,
+  SparkAskEvidenceBody,
   VerifiedCanonicalAskEvidence,
 } from "./evidence.ts";
 export {
-  createAskArtifactBody,
-  isAskArtifactBody,
+  createAskEvidenceBody,
+  isAskEvidenceBody,
   summarizeAskAnswers,
   summarizeAskResult,
 } from "./summary.ts";
 export type {
-  AskArtifactBody,
+  AskEvidenceBody,
   AskSummaryAnswer,
   AskSummaryRequest,
   AskSummaryResult,

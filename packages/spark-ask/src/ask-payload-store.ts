@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
+import { normalizeSparkAskAnswerSource } from "./answer-source.ts";
 import {
   validateSparkAskFlowRequest,
   type SparkAskFlowAnswerEntry,
@@ -130,6 +131,12 @@ function assertSparkAskFlowResult(
   }
   if (typeof value.cancelled !== "boolean") {
     throw new SparkAskFlowPayloadStoreFormatError(filePath, "result.cancelled must be a boolean");
+  }
+  if (value.answerSource !== undefined && !normalizeSparkAskAnswerSource(value.answerSource)) {
+    throw new SparkAskFlowPayloadStoreFormatError(
+      filePath,
+      "result.answerSource must be user or reviewer",
+    );
   }
   if (!isRecord(value.answers)) {
     throw new SparkAskFlowPayloadStoreFormatError(filePath, "result.answers must be an object");

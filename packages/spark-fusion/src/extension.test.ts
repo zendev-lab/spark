@@ -51,6 +51,16 @@ describe("Spark Fusion extension", () => {
     expect(registered?.renderCall?.({ action: "deliberate" }, {}, undefined).render(80)).toEqual([
       "fusion action=deliberate panels=3",
     ]);
+
+    const narrow =
+      registered
+        ?.renderCall?.(
+          { action: "deliberate" },
+          { bold: (text) => `\u001b[1m${text}\u001b[22m` },
+          undefined,
+        )
+        .render(16)[0] ?? "";
+    expect(narrow.replace(/\u001b\[[0-9;]*m/gu, "")).toHaveLength(16);
   });
 
   it("uses the host leaf runner, carries the session model, and returns Judge data to the writer", async () => {

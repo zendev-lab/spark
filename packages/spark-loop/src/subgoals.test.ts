@@ -4,32 +4,26 @@ import {
   createSubgoal,
   subgoalDefinitionDigest,
   updateSubgoalStatus,
-  decodeSubgoalAssignment,
-  decodeSubgoalReceipt,
-  encodeSubgoalAssignment,
-  encodeSubgoalReceipt,
   verifySubgoalCompletion,
-  verifySubgoalReceipt,
 } from "./subgoals.ts";
 import type {
   EvidenceRef,
-  RoleRef,
   SparkSubgoal,
   SparkSubgoalDefinition,
   SubgoalRef,
+  TaskRef,
 } from "@zendev-lab/spark-core";
 
-const roleRef = "role:repro-researcher" as RoleRef;
 const proofRef = "evidence:experiment-result" as EvidenceRef;
 const askRef = "evidence:canonical-ask" as EvidenceRef;
 const dependencyRef = "subgoal:baseline" as SubgoalRef;
+const taskRef = "task:reference-training" as TaskRef;
 
 function subgoal(authority: SparkSubgoalDefinition["authority"] = "safe_local"): SparkSubgoal {
   return createSubgoal({
     ref: "subgoal:training-run" as SubgoalRef,
-    goalId: "goal-1",
-    roleRef,
     planRevision: 3,
+    taskRef,
     goal: "Run the reference training experiment",
     doneWhen: ["The command exits with code 0", "The loss curve is captured"],
     evidenceRequired: ["Command result", "Loss curve artifact"],
@@ -68,51 +62,14 @@ describe("subgoalDefinitionDigest", () => {
   });
 });
 
-describe("subgoal delegation envelopes", () => {
-  it("encodes and verifies a matching safe-local done receipt", () => {
+describe("createSubgoal", () => {
+  it("binds at most one project task and owns no session or role state", () => {
     const current = subgoal();
-    const assignment = encodeSubgoalAssignment({
-      subgoal: current,
-      ownerSessionId: "session-owner",
-    });
-    expect(decodeSubgoalAssignment(assignment)).toMatchObject({
-      schema: "spark.subgoal.assignment/v1",
-      subgoalRef: current.ref,
-      planRevision: current.planRevision,
-      definitionDigest: subgoalDefinitionDigest(current),
-    });
-    const receipt = encodeSubgoalReceipt({
-      subgoalRef: current.ref,
-      status: "done",
-      planRevision: current.planRevision,
-      definitionDigest: subgoalDefinitionDigest(current),
-      evidenceRefs: [proofRef],
-    });
-    expect(verifySubgoalReceipt(current, decodeSubgoalReceipt(receipt))).toMatchObject({
-      verdict: "Pass",
-    });
-  });
-
-  it.each(["ask_decision", "ask_approval"] as const)("forbids %s delegation", (authority) => {
-    expect(() =>
-      encodeSubgoalAssignment({ subgoal: subgoal(authority), ownerSessionId: "owner" }),
-    ).toThrow(/only safe_local/);
-  });
-
-  it("repairs stale revision, digest, and missing evidence receipts", () => {
-    const current = subgoal();
-    expect(
-      verifySubgoalReceipt(
-        current,
-        encodeSubgoalReceipt({
-          subgoalRef: current.ref,
-          status: "done",
-          planRevision: current.planRevision - 1,
-          definitionDigest: "stale",
-          evidenceRefs: [],
-        }),
-      ),
-    ).toMatchObject({ verdict: "Repair" });
+    expect(current.taskRef).toBe(taskRef);
+    expect(current).not.toHaveProperty("taskRefs");
+    expect(current).not.toHaveProperty("goalId");
+    expect(current).not.toHaveProperty("roleRef");
+    expect(current).not.toHaveProperty("delegation");
   });
 });
 

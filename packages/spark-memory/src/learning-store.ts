@@ -2,16 +2,16 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
-  ArtifactStore,
-  type Artifact,
-  type ArtifactFormat,
-  type ArtifactKind,
-  type ArtifactLink,
-  type ArtifactListDiagnostic,
-  type Provenance,
+  EvidenceStore,
+  type EvidenceRecord,
+  type EvidenceFormat,
+  type EvidenceKind,
+  type EvidenceLink,
+  type EvidenceListDiagnostic,
+  type EvidenceProvenance,
 } from "@zendev-lab/spark-artifacts";
 import {
-  type ArtifactRef,
+  type EvidenceRef,
   type JsonValue,
   isRef,
   newRef,
@@ -86,7 +86,7 @@ export interface LearningSearchFilter extends LearningListFilter {
 }
 
 export interface LearningSearchResult {
-  ref: ArtifactRef;
+  ref: EvidenceRef;
   location: LearningLocation;
   record: LearningRecord;
   score: number;
@@ -96,13 +96,13 @@ export interface LearningSearchResult {
 
 export interface LearningStoreDiagnostic {
   filePath?: string;
-  ref?: ArtifactRef;
+  ref?: EvidenceRef;
   message: string;
-  source: "artifact-metadata" | "artifact-body" | "learning-record";
+  source: "evidence-metadata" | "evidence-body" | "learning-record";
 }
 
 export interface LearningListResult {
-  artifacts: Array<Artifact<LearningRecord>>;
+  evidence: Array<EvidenceRecord<LearningRecord>>;
   diagnostics: LearningStoreDiagnostic[];
 }
 
@@ -112,31 +112,33 @@ export interface LearningSearchResultSet {
 }
 
 export interface LearningStoreOptions {
-  artifactStore: LearningArtifactStore;
+  evidenceStore: LearningEvidenceStore;
   location?: LearningLocation;
 }
 
-export interface LearningArtifactStore {
-  put<T extends JsonValue | string>(input: LearningPutArtifactInput<T>): Promise<Artifact<T>>;
-  get<T extends JsonValue | string = JsonValue | string>(ref: ArtifactRef): Promise<Artifact<T>>;
+export interface LearningEvidenceStore {
+  put<T extends JsonValue | string>(input: LearningPutEvidenceInput<T>): Promise<EvidenceRecord<T>>;
+  get<T extends JsonValue | string = JsonValue | string>(
+    ref: EvidenceRef,
+  ): Promise<EvidenceRecord<T>>;
   tryGet<T extends JsonValue | string = JsonValue | string>(
-    ref: ArtifactRef,
-  ): Promise<Artifact<T> | null>;
-  list(filter?: { kind?: ArtifactKind }): Promise<Artifact[]>;
-  listWithDiagnostics?(filter?: { kind?: ArtifactKind }): Promise<{
-    artifacts: Artifact[];
-    diagnostics: ArtifactListDiagnostic[];
+    ref: EvidenceRef,
+  ): Promise<EvidenceRecord<T> | null>;
+  list(filter?: { kind?: EvidenceKind }): Promise<EvidenceRecord[]>;
+  listWithDiagnostics?(filter?: { kind?: EvidenceKind }): Promise<{
+    evidence: EvidenceRecord[];
+    diagnostics: EvidenceListDiagnostic[];
   }>;
 }
 
-export interface LearningPutArtifactInput<T extends JsonValue | string = JsonValue | string> {
-  kind: ArtifactKind;
+export interface LearningPutEvidenceInput<T extends JsonValue | string = JsonValue | string> {
+  kind: EvidenceKind;
   title: string;
-  format: ArtifactFormat;
+  format: EvidenceFormat;
   body: T;
-  provenance: Provenance;
-  links?: Omit<ArtifactLink, "from">[];
-  ref?: ArtifactRef;
+  provenance: EvidenceProvenance;
+  links?: Omit<EvidenceLink, "from">[];
+  ref?: EvidenceRef;
 }
 
 const DEFAULT_ACTIVE_STATUSES: LearningStatus[] = ["active"];
@@ -233,26 +235,26 @@ export function parseLearningExportMarkdown(
 }
 
 export class LearningStore {
-  readonly artifactStore: LearningArtifactStore;
+  readonly evidenceStore: LearningEvidenceStore;
   readonly location: LearningLocation;
 
   constructor(options: LearningStoreOptions) {
-    this.artifactStore = options.artifactStore;
+    this.evidenceStore = options.evidenceStore;
     this.location = options.location ?? "workspace";
   }
 
-  async record(input: LearningRecordInput): Promise<Artifact<LearningRecord>> {
+  async record(input: LearningRecordInput): Promise<EvidenceRecord<LearningRecord>> {
     const now = nowIso();
     const id = input.id ?? stableLearningId(input);
-    const ref = newRef("artifact", id);
-    const existing = await this.artifactStore.tryGet<LearningRecord>(ref);
+    const ref = newRef("evidence", id);
+    const existing = await this.evidenceStore.tryGet<LearningRecord>(ref);
     const record: LearningRecord = normalizeLearningRecord(input, {
       id,
       createdAt: existing?.body.createdAt ?? now,
       updatedAt: now,
     });
     validateLearningRecord(record);
-    return this.artifactStore.put({
+    return this.evidenceStore.put({
       ref,
       kind: "knowledge",
       title: record.title,
@@ -266,10 +268,10 @@ export class LearningStore {
     });
   }
 
-  async restore(record: LearningRecord): Promise<Artifact<LearningRecord>> {
+  async restore(record: LearningRecord): Promise<EvidenceRecord<LearningRecord>> {
     validateLearningRecord(record);
-    const ref = newRef("artifact", record.id);
-    return this.artifactStore.put({
+    const ref = newRef("evidence", record.id);
+    return this.evidenceStore.put({
       ref,
       kind: "knowledge",
       title: record.title,
@@ -283,39 +285,39 @@ export class LearningStore {
     });
   }
 
-  async get(refOrId: string): Promise<Artifact<LearningRecord>> {
-    const artifact = await this.artifactStore.get(learningRef(refOrId));
-    return normalizeLearningArtifact(artifact);
+  async get(refOrId: string): Promise<EvidenceRecord<LearningRecord>> {
+    const evidence = await this.evidenceStore.get(learningRef(refOrId));
+    return normalizeLearningEvidence(evidence);
   }
 
-  async list(filter: LearningListFilter = {}): Promise<Array<Artifact<LearningRecord>>> {
-    return (await this.listDetailed(filter)).artifacts;
+  async list(filter: LearningListFilter = {}): Promise<Array<EvidenceRecord<LearningRecord>>> {
+    return (await this.listDetailed(filter)).evidence;
   }
 
   async listDetailed(filter: LearningListFilter = {}): Promise<LearningListResult> {
-    const listed = await listLearningArtifactsWithDiagnostics(this.artifactStore);
-    const hydrated = await hydrateLearningArtifactsWithDiagnostics(
-      listed.artifacts,
-      this.artifactStore,
+    const listed = await listLearningEvidenceWithDiagnostics(this.evidenceStore);
+    const hydrated = await hydrateLearningEvidenceWithDiagnostics(
+      listed.evidence,
+      this.evidenceStore,
     );
     const diagnostics = [...listed.diagnostics, ...hydrated.diagnostics];
-    const artifacts: Array<Artifact<LearningRecord>> = [];
-    for (const artifact of hydrated.artifacts) {
-      let normalized: Artifact<LearningRecord>;
+    const evidence: Array<EvidenceRecord<LearningRecord>> = [];
+    for (const record of hydrated.evidence) {
+      let normalized: EvidenceRecord<LearningRecord>;
       try {
-        normalized = normalizeLearningArtifact(artifact);
+        normalized = normalizeLearningEvidence(record);
       } catch (error) {
         diagnostics.push({
-          ref: artifact.ref,
-          message: `invalid learning artifact ${artifact.ref}: ${unknownErrorMessage(error)}`,
+          ref: record.ref,
+          message: `invalid learning evidence ${record.ref}: ${unknownErrorMessage(error)}`,
           source: "learning-record",
         });
         continue;
       }
-      if (matchesLearningFilter(normalized.body, filter)) artifacts.push(normalized);
+      if (matchesLearningFilter(normalized.body, filter)) evidence.push(normalized);
     }
     return {
-      artifacts: artifacts.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+      evidence: evidence.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
       diagnostics,
     };
   }
@@ -327,8 +329,8 @@ export class LearningStore {
   async searchDetailed(filter: LearningSearchFilter): Promise<LearningSearchResultSet> {
     const query = filter.query.trim();
     const listed = await this.listDetailed(filter);
-    const results = listed.artifacts
-      .map((artifact) => scoreLearning(artifact, query, this.location))
+    const results = listed.evidence
+      .map((evidence) => scoreLearning(evidence, query, this.location))
       .filter((result) => result.score > 0 || !query)
       .sort((left, right) => {
         if (right.score !== left.score) return right.score - left.score;
@@ -338,11 +340,11 @@ export class LearningStore {
     return { results, diagnostics: listed.diagnostics };
   }
 
-  async activate(refOrId: string): Promise<Artifact<LearningRecord>> {
+  async activate(refOrId: string): Promise<EvidenceRecord<LearningRecord>> {
     return this.patchStatus(refOrId, { status: "active" });
   }
 
-  async markStale(refOrId: string, reason: string): Promise<Artifact<LearningRecord>> {
+  async markStale(refOrId: string, reason: string): Promise<EvidenceRecord<LearningRecord>> {
     const staleAt = nowIso();
     return this.patchStatus(refOrId, {
       status: "stale",
@@ -351,7 +353,7 @@ export class LearningStore {
     });
   }
 
-  async rejectCandidate(refOrId: string, reason: string): Promise<Artifact<LearningRecord>> {
+  async rejectCandidate(refOrId: string, reason: string): Promise<EvidenceRecord<LearningRecord>> {
     const rejectedAt = nowIso();
     return this.patchStatus(refOrId, {
       status: "rejected",
@@ -364,7 +366,7 @@ export class LearningStore {
     refOrId: string,
     supersededBy: string | string[],
     reason?: string,
-  ): Promise<Artifact<LearningRecord>> {
+  ): Promise<EvidenceRecord<LearningRecord>> {
     const replacementRefs = Array.isArray(supersededBy) ? supersededBy : [supersededBy];
     const existing = await this.get(refOrId);
     const record = {
@@ -382,18 +384,18 @@ export class LearningStore {
     patch: Partial<
       Pick<LearningRecord, "status" | "staleReason" | "staleAt" | "rejectedReason" | "rejectedAt">
     >,
-  ): Promise<Artifact<LearningRecord>> {
+  ): Promise<EvidenceRecord<LearningRecord>> {
     const existing = await this.get(refOrId);
     const record = { ...existing.body, ...patch, updatedAt: nowIso() };
     return this.writeUpdatedRecord(existing.ref, record);
   }
 
   private async writeUpdatedRecord(
-    ref: ArtifactRef,
+    ref: EvidenceRef,
     record: LearningRecord,
-  ): Promise<Artifact<LearningRecord>> {
+  ): Promise<EvidenceRecord<LearningRecord>> {
     validateLearningRecord(record);
-    return this.artifactStore.put({
+    return this.evidenceStore.put({
       ref,
       kind: "knowledge",
       title: record.title,
@@ -411,7 +413,7 @@ export class LearningStore {
 export function defaultLearningStore(cwd: string, location?: LearningLocation): LearningStore {
   const target = resolveLearningStoreTarget(cwd, location);
   return new LearningStore({
-    artifactStore: new ArtifactStore({ rootDir: target.rootDir }),
+    evidenceStore: new EvidenceStore({ rootDir: target.rootDir }),
     location: target.location,
   });
 }
@@ -463,60 +465,60 @@ function findGitRoot(cwd: string): string | undefined {
   }
 }
 
-async function listLearningArtifactsWithDiagnostics(
-  store: LearningArtifactStore,
-): Promise<{ artifacts: Artifact[]; diagnostics: LearningStoreDiagnostic[] }> {
+async function listLearningEvidenceWithDiagnostics(
+  store: LearningEvidenceStore,
+): Promise<{ evidence: EvidenceRecord[]; diagnostics: LearningStoreDiagnostic[] }> {
   if (store.listWithDiagnostics) {
     const result = await store.listWithDiagnostics({ kind: "knowledge" });
     return {
-      artifacts: result.artifacts,
+      evidence: result.evidence,
       diagnostics: result.diagnostics.map((diagnostic) => ({
         filePath: diagnostic.filePath,
         message: diagnostic.message,
-        source: "artifact-metadata" as const,
+        source: "evidence-metadata" as const,
       })),
     };
   }
-  return { artifacts: await store.list({ kind: "knowledge" }), diagnostics: [] };
+  return { evidence: await store.list({ kind: "knowledge" }), diagnostics: [] };
 }
 
-async function hydrateLearningArtifactsWithDiagnostics(
-  artifacts: Artifact[],
-  store: LearningArtifactStore,
-): Promise<{ artifacts: Artifact[]; diagnostics: LearningStoreDiagnostic[] }> {
-  const hydrated: Artifact[] = [];
+async function hydrateLearningEvidenceWithDiagnostics(
+  evidence: EvidenceRecord[],
+  store: LearningEvidenceStore,
+): Promise<{ evidence: EvidenceRecord[]; diagnostics: LearningStoreDiagnostic[] }> {
+  const hydrated: EvidenceRecord[] = [];
   const diagnostics: LearningStoreDiagnostic[] = [];
-  for (const artifact of artifacts) {
-    if (!artifact.bodyTruncated) {
-      hydrated.push(artifact);
+  for (const record of evidence) {
+    if (!record.bodyTruncated) {
+      hydrated.push(record);
       continue;
     }
     try {
-      hydrated.push(await store.get(artifact.ref));
+      hydrated.push(await store.get(record.ref));
     } catch (error) {
       diagnostics.push({
-        ref: artifact.ref,
-        message: `cannot hydrate learning artifact ${artifact.ref}: ${unknownErrorMessage(error)}`,
-        source: "artifact-body",
+        ref: record.ref,
+        message: `cannot hydrate learning evidence ${record.ref}: ${unknownErrorMessage(error)}`,
+        source: "evidence-body",
       });
     }
   }
-  return { artifacts: hydrated, diagnostics };
+  return { evidence: hydrated, diagnostics };
 }
 
-function normalizeLearningArtifact(artifact: Artifact): Artifact<LearningRecord> {
-  const body = artifact.body;
+function normalizeLearningEvidence(evidence: EvidenceRecord): EvidenceRecord<LearningRecord> {
+  const body = evidence.body;
   try {
     validateLearningRecord(body);
   } catch (error) {
-    throw new Error(`invalid learning artifact ${artifact.ref}: ${unknownErrorMessage(error)}`);
+    throw new Error(`invalid learning evidence ${evidence.ref}: ${unknownErrorMessage(error)}`);
   }
-  if (artifact.kind !== "knowledge") {
+  if (evidence.kind !== "knowledge") {
     throw new Error(
-      `invalid learning artifact ${artifact.ref}: kind must be knowledge, received ${artifact.kind}`,
+      `invalid learning evidence ${evidence.ref}: kind must be knowledge, received ${evidence.kind}`,
     );
   }
-  return { ...artifact, body };
+  return { ...evidence, body };
 }
 
 export function validateLearningRecord(record: unknown): asserts record is LearningRecord {
@@ -610,8 +612,8 @@ function stableLearningId(input: LearningRecordInput): string {
   return `learning-${stableId(sourceKey)}`;
 }
 
-function learningRef(refOrId: string): ArtifactRef {
-  return isRef(refOrId, "artifact") ? refOrId : newRef("artifact", refOrId);
+function learningRef(refOrId: string): EvidenceRef {
+  return isRef(refOrId, "evidence") ? refOrId : newRef("evidence", refOrId);
 }
 
 function matchesLearningFilter(record: LearningRecord, filter: LearningListFilter): boolean {
@@ -631,11 +633,11 @@ function matchesLearningFilter(record: LearningRecord, filter: LearningListFilte
 }
 
 function scoreLearning(
-  artifact: Artifact<LearningRecord>,
+  evidence: EvidenceRecord<LearningRecord>,
   query: string,
   location: LearningLocation,
 ): LearningSearchResult {
-  const record = artifact.body;
+  const record = evidence.body;
   const haystack = searchableLearningText(record);
   const terms = query
     .toLowerCase()
@@ -653,7 +655,7 @@ function scoreLearning(
   score += record.confidence ?? 0;
   if (record.status === "active") score += 0.25;
   return {
-    ref: artifact.ref,
+    ref: evidence.ref,
     location,
     record,
     score,
@@ -695,15 +697,15 @@ function summarizeEvidence(evidenceRefs: string[]): string {
   return `${evidenceRefs[0]} +${evidenceRefs.length - 1} more`;
 }
 
-function relationLinks(record: LearningRecord): Omit<ArtifactLink, "from">[] {
-  return evidenceArtifactRefs(record.evidenceRefs).map((artifactRef) => ({
-    to: artifactRef,
+function relationLinks(record: LearningRecord): Omit<EvidenceLink, "from">[] {
+  return learningEvidenceLinks(record.evidenceRefs).map((evidenceRef) => ({
+    to: evidenceRef,
     relation: "derived-from" as const,
   }));
 }
 
-function evidenceArtifactRefs(evidenceRefs: string[]): ArtifactRef[] {
-  return evidenceRefs.filter((ref): ref is ArtifactRef => isRef(ref, "artifact"));
+function learningEvidenceLinks(evidenceRefs: string[]): EvidenceRef[] {
+  return evidenceRefs.filter((ref): ref is EvidenceRef => isRef(ref, "evidence"));
 }
 
 function requireNonEmpty(value: unknown, label: string): string {

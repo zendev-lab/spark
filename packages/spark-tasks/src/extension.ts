@@ -1,5 +1,6 @@
 import { Type } from "typebox";
 import type { ToolConfig, ToolRenderComponent, ToolRenderTheme } from "@zendev-lab/spark-core";
+import { truncateToWidth } from "@zendev-lab/spark-text";
 
 export type SparkTaskReadAction =
   | "task_status"
@@ -15,6 +16,7 @@ export type SparkTaskWriteAction =
   | "plan"
   | "finish"
   | "recover"
+  | "release"
   | "plan_update"
   | "cache_cleanup";
 export type SparkTaskAssignAction = "assign";
@@ -80,9 +82,7 @@ class ToolCallText implements ToolRenderComponent {
   }
 
   render(width: number): string[] {
-    return [
-      this.text.length > width ? `${this.text.slice(0, Math.max(0, width - 1))}…` : this.text,
-    ];
+    return [truncateToWidth(this.text, Math.max(1, width), "…")];
   }
 }
 
@@ -102,6 +102,7 @@ const TASK_WRITE_ACTIONS: readonly SparkTaskWriteAction[] = [
   "plan",
   "finish",
   "recover",
+  "release",
   "plan_update",
   "cache_cleanup",
 ];
@@ -203,17 +204,18 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
     name: "task_write",
     label: "Task Write",
     description:
-      "Project/task graph mutation capability. Use intent-specific actions to select/finish/rename/update projects, claim/plan/finish tasks, update task plan items, or clean task-owned caches.",
+      "Project/task graph mutation capability. Use intent-specific actions to select/finish/rename/update projects, claim/plan/finish/release tasks, update task plan items, or clean task-owned caches.",
     promptGuidelines: [
       "Use task_write for project/task graph mutations.",
       "Creating or claiming a task is plan-locked: every task must have a bound high-bar task.plan before claim/creation completes; objectives, success criteria, evidence, and plan items must be concrete and objectively verifiable.",
-      "Use action=plan_update to refine the claimed task's plan items; use the session-bound todo tool for standalone session checklists.",
+      "Use action=release to give up this session's unfinished task claim without finishing or cancelling the task; use action=plan_update to refine claimed task plan items.",
+      "Use the session-bound todo tool for standalone session checklists.",
       "Use assign for explicit role-run spawning; task_write does not expose run_ready or run_control.",
     ],
     parameters: Type.Object({
       action: Type.String({
         description:
-          "project_use | project_rename | project_metadata_update | claim | plan | finish | recover | plan_update | cache_cleanup",
+          "project_use | project_rename | project_metadata_update | claim | plan | finish | recover | release | plan_update | cache_cleanup",
       }),
       scope: Type.Optional(Type.String({ description: "For plan_update: task plan items only." })),
       project: Type.Optional(Type.String({ description: "Project selector/ref/title." })),
@@ -286,12 +288,14 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
       ),
       summary: Type.Optional(Type.String({ description: "Task completion/failure summary." })),
       evidenceRefs: Type.Optional(
-        Type.Array(Type.String({ description: "Artifact refs that evidence task completion." })),
+        Type.Array(
+          Type.String({ description: "EvidenceRecord refs that evidence task completion." }),
+        ),
       ),
       evidence: Type.Optional(
         Type.Any({
           description:
-            "Optional structured finish evidence. Spark can turn validationCommands, changedFiles, sourceRefs, and notes into a bounded task evidence artifact automatically.",
+            "Optional structured finish evidence. Spark can turn validationCommands, changedFiles, sourceRefs, and notes into a bounded task Evidence record automatically.",
         }),
       ),
       dryRun: Type.Optional(
@@ -321,11 +325,12 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
     name: "assign",
     label: "Assign",
     description:
-      "Explicit Spark assignment/spawn capability. Schedule the ready task frontier through the workflow runtime; dry-run by default.",
+      "Explicit Spark assignment/spawn capability. Schedule an allowlisted ready-task frontier through daemon-managed Task Sessions; dry-run by default.",
     promptGuidelines: [
       "Use assign only when ready Spark work should be dispatched to role runs.",
       "Prefer workflow runtime for parallel/scripted execution; assign is the explicit spawn surface for Spark ready-task frontiers.",
       "Use task_read for inspection and task_write for graph mutations before assigning work.",
+      "When a planner supplies taskRefs, only those ready tasks may be dispatched; non-ready or out-of-scope refs fail closed.",
     ],
     parameters: Type.Object({
       dryRun: Type.Optional(
@@ -335,6 +340,13 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
       ),
       maxConcurrency: Type.Optional(Type.Number({ description: "Assignment concurrency limit." })),
       timeoutMs: Type.Optional(Type.Number({ description: "Foreground wait budget." })),
+      taskRefs: Type.Optional(
+        Type.Array(
+          Type.String({
+            description: "Optional explicit ready-task allowlist. Required by active Repro drives.",
+          }),
+        ),
+      ),
     }),
     renderCall(args, theme) {
       const dryRun = args.dryRun === false ? "spawn" : "dry-run";

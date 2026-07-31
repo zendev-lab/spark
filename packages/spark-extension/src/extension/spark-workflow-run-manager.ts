@@ -1,4 +1,4 @@
-import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import {
   DEFAULT_READY_TASK_MAX_CONCURRENCY,
   DEFAULT_READY_TASK_TIMEOUT_MS,
@@ -10,6 +10,7 @@ import {
   type WorkflowRunCompletionFollowUp,
   type WorkflowRunControlStatus,
   type WorkflowRunStatus,
+  discoverTaskResourceInventory,
   runReadyTasks,
 } from "@zendev-lab/spark-workflows";
 import {
@@ -82,7 +83,7 @@ export class SparkWorkflowRunManagerController {
     const graph = await loadSparkGraph(cwd, ctx);
     if (!graph) return { continuePolling: false };
     const registry = await createSparkRoleRegistry(cwd);
-    const artifactStore = defaultArtifactStore(cwd);
+    const evidenceStore = defaultEvidenceStore(cwd);
     const touched = new Set<TaskRef>();
     const runStore = defaultSparkWorkflowRunStore(cwd);
     const currentProject = await currentSparkProject(cwd, ctx, graph);
@@ -131,11 +132,12 @@ export class SparkWorkflowRunManagerController {
     const timeoutMs = control?.policy.timeoutMs ?? DEFAULT_READY_TASK_TIMEOUT_MS;
     const runtimeRunner = createSparkRuntimeReadyTaskRunner({
       registry,
-      artifactStore,
+      evidenceStore,
       cwd,
       sessionModel: sessionModelName(ctx.model),
       roleExecutor: ctx.runRole,
     });
+    const resourceInventory = await discoverTaskResourceInventory();
     const workflowRun = await runStore.startRun({
       projectRef: currentProject.ref,
       dryRun: false,
@@ -152,6 +154,7 @@ export class SparkWorkflowRunManagerController {
         maxConcurrency,
         timeoutMs,
         projectRef: currentProject.ref,
+        resourceInventory,
         claim: { sessionId: ownerSessionId },
         onSchedule: async (progress) => {
           touched.add(progress.taskRef);

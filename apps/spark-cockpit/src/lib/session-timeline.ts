@@ -353,7 +353,7 @@ function isInternalExecutionFailureReport(report: SessionTimelineReport): boolea
 /**
  * Tool results emit `evidence.update` (and product-only `artifact.update`) as
  * side-channel views. Those belong in the session inspector / evidence lanes,
- * not as standalone chat bubbles — product artifacts already live under 产物.
+ * not as standalone chat bubbles — artifacts already live under 产物.
  */
 function isArtifactActivityReport(report: SessionTimelineReport): boolean {
   return (

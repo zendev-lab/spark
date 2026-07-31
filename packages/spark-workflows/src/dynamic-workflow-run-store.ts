@@ -20,7 +20,7 @@ import type {
   WorkflowPhaseRun,
   WorkflowRunResult,
 } from "./types.ts";
-import { userWorkflowDir, workspaceWorkflowDir } from "./index.ts";
+import { userWorkflowDir, workspaceWorkflowDir } from "./registry-paths.ts";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_DYNAMIC_WORKFLOW_STALE_AFTER_MS = 30 * 60 * 1_000;
@@ -94,6 +94,7 @@ export interface SparkDynamicWorkflowRunApproval {
       timeoutMs: number[];
     };
     tools: string[];
+    roles: string[];
     isolation: string[];
     base?: SparkDynamicWorkflowRunBaseMetadata;
   };
@@ -681,6 +682,7 @@ function normalizeWorkflowApproval(value: unknown): SparkDynamicWorkflowRunAppro
           }
         : { stageCount: 0, phaseCount: 0, agentCallSites: 0, timeoutMs: [] },
       tools: stringArray(summary.tools),
+      roles: stringArray(summary.roles),
       isolation: stringArray(summary.isolation),
       ...(isRecord(summary.base)
         ? { base: summary.base as unknown as SparkDynamicWorkflowRunBaseMetadata }

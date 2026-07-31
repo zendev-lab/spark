@@ -1,3 +1,4 @@
 export * from "./daemon-client.ts";
 export * from "./daemon-local-rpc.ts";
 export * from "./daemon-local-rpc-orpc.ts";
+export * from "./session-heartbeat.ts";

@@ -14,6 +14,7 @@ import {
   type WorkspaceOccupancySession,
   type WorkspaceSessionSurface,
 } from "@zendev-lab/spark-protocol";
+import type { SparkTaskClaimLeaseIdentity } from "@zendev-lab/spark-protocol/task-claim";
 import { asciiSlug } from "@zendev-lab/spark-system";
 import { SparkDaemonControlError } from "../control-error.ts";
 
@@ -58,6 +59,8 @@ export interface SparkDaemonWorkspaceClient {
   lastSeenAt: string;
   leaseExpiresAt?: string;
   releasedAt?: string;
+  sessionId?: string;
+  leaseFence?: string;
   metadata: Record<string, unknown>;
 }
 
@@ -68,17 +71,20 @@ export interface AttachWorkspaceClientOptions {
   displayName?: string;
   metadata?: Record<string, unknown>;
   leaseTtlMs?: number;
+  sessionId?: string;
   now?: string;
 }
 
 export interface HeartbeatWorkspaceClientOptions {
   clientId: string;
   leaseTtlMs?: number;
+  leaseFence?: string;
   now?: string;
 }
 
 export interface ReleaseWorkspaceClientOptions {
   clientId: string;
+  leaseFence?: string;
   now?: string;
 }
 
@@ -689,6 +695,30 @@ export function workspaceKeyForPath(localPath: string): string {
   return workspaceKeyForName(basename(normalizeLocalPath(localPath)));
 }
 
+export interface SparkDaemonWorkspaceClaimTarget {
+  id: string;
+  localPath: string;
+}
+
+export function listWorkspaceClaimTargets(db: DatabaseSync): SparkDaemonWorkspaceClaimTarget[] {
+  return db
+    .prepare("SELECT id, local_path AS localPath FROM daemon_workspaces ORDER BY id")
+    .all() as unknown as SparkDaemonWorkspaceClaimTarget[];
+}
+
+export function requireWorkspaceClaimTarget(
+  db: DatabaseSync,
+  workspaceId: string,
+): SparkDaemonWorkspaceClaimTarget {
+  const target = db
+    .prepare("SELECT id, local_path AS localPath FROM daemon_workspaces WHERE id = ? LIMIT 1")
+    .get(workspaceId) as SparkDaemonWorkspaceClaimTarget | undefined;
+  if (!target) {
+    throw new SparkDaemonControlError("workspace_not_found", `Unknown workspace: ${workspaceId}`);
+  }
+  return target;
+}
+
 export function listWorkspaces(db: DatabaseSync): SparkDaemonWorkspace[] {
   const rows = db
     .prepare(
@@ -1003,20 +1033,32 @@ export function attachWorkspaceClient(
   const leaseExpiresAt = leaseExpiresAtFor(now, options.leaseTtlMs);
   const existing = db
     .prepare(
-      "SELECT workspace_id AS workspaceId, attached_at AS attachedAt FROM daemon_workspace_clients WHERE id = ? LIMIT 1",
+      "SELECT workspace_id AS workspaceId, attached_at AS attachedAt, session_id AS sessionId, lease_fence AS leaseFence FROM daemon_workspace_clients WHERE id = ? LIMIT 1",
     )
-    .get(clientId) as { workspaceId: string; attachedAt: string } | undefined;
+    .get(clientId) as
+    | {
+        workspaceId: string;
+        attachedAt: string;
+        sessionId: string | null;
+        leaseFence: string | null;
+      }
+    | undefined;
   if (existing && existing.workspaceId !== workspace.id) {
     throw new SparkDaemonControlError(
       "workspace_client_conflict",
       `Workspace client ${clientId} is already bound to workspace ${existing.workspaceId}.`,
     );
   }
+  if (!options.sessionId && existing?.sessionId) {
+    throw new Error(`Legacy attach cannot replace session-bound workspace client ${clientId}.`);
+  }
+  const sessionId = options.sessionId ?? null;
+  const leaseFence = sessionId ? createWorkspaceClientLeaseFence() : null;
 
   db.prepare(
     `INSERT INTO daemon_workspace_clients
-      (id, workspace_id, kind, display_name, status, attached_at, last_seen_at, lease_expires_at, released_at, metadata_json)
-     VALUES (?, ?, ?, ?, 'connected', ?, ?, ?, NULL, ?)
+      (id, workspace_id, kind, display_name, status, attached_at, last_seen_at, lease_expires_at, released_at, session_id, lease_fence, metadata_json)
+     VALUES (?, ?, ?, ?, 'connected', ?, ?, ?, NULL, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
       workspace_id = excluded.workspace_id,
       kind = excluded.kind,
@@ -1025,6 +1067,8 @@ export function attachWorkspaceClient(
       last_seen_at = excluded.last_seen_at,
       lease_expires_at = excluded.lease_expires_at,
       released_at = NULL,
+      session_id = excluded.session_id,
+      lease_fence = excluded.lease_fence,
       metadata_json = excluded.metadata_json`,
   ).run(
     clientId,
@@ -1034,6 +1078,8 @@ export function attachWorkspaceClient(
     existing?.attachedAt ?? now,
     now,
     leaseExpiresAt ?? null,
+    sessionId,
+    leaseFence,
     JSON.stringify(options.metadata ?? {}),
   );
 
@@ -1051,19 +1097,32 @@ export function heartbeatWorkspaceClient(
       `Unknown workspace client: ${options.clientId}`,
     );
   }
+  assertWorkspaceClientLease(client, options.leaseFence, options.now);
   const now = options.now ?? new Date().toISOString();
-  db.prepare(
-    `UPDATE daemon_workspace_clients
-     SET status = 'connected',
-         last_seen_at = ?,
-         lease_expires_at = ?,
-         released_at = NULL
-     WHERE id = ?`,
-  ).run(
-    now,
-    leaseExpiresAtFor(now, options.leaseTtlMs) ?? client.leaseExpiresAt ?? null,
-    client.id,
-  );
+  const result = db
+    .prepare(
+      `UPDATE daemon_workspace_clients
+       SET status = 'connected',
+           last_seen_at = ?,
+           lease_expires_at = ?,
+           released_at = NULL
+       WHERE id = ?
+         AND ((lease_fence IS NULL AND ? IS NULL) OR lease_fence = ?)
+         AND status = 'connected'
+         AND released_at IS NULL
+         AND (lease_expires_at IS NULL OR lease_expires_at >= ?)`,
+    )
+    .run(
+      now,
+      leaseExpiresAtFor(now, options.leaseTtlMs) ?? client.leaseExpiresAt ?? null,
+      client.id,
+      options.leaseFence ?? null,
+      options.leaseFence ?? null,
+      now,
+    );
+  if (Number(result.changes ?? 0) !== 1) {
+    throw new Error(`Workspace client lease changed before heartbeat: ${client.id}`);
+  }
   return requireWorkspaceClient(db, client.id);
 }
 
@@ -1078,15 +1137,25 @@ export function releaseWorkspaceClient(
       `Unknown workspace client: ${options.clientId}`,
     );
   }
+  assertWorkspaceClientLease(client, options.leaseFence, options.now);
   const now = options.now ?? new Date().toISOString();
-  db.prepare(
-    `UPDATE daemon_workspace_clients
-     SET status = 'disconnected',
-         last_seen_at = ?,
-         lease_expires_at = NULL,
-         released_at = ?
-     WHERE id = ?`,
-  ).run(now, now, client.id);
+  const result = db
+    .prepare(
+      `UPDATE daemon_workspace_clients
+       SET status = 'disconnected',
+           last_seen_at = ?,
+           lease_expires_at = NULL,
+           released_at = ?
+       WHERE id = ?
+         AND ((lease_fence IS NULL AND ? IS NULL) OR lease_fence = ?)
+         AND status = 'connected'
+         AND released_at IS NULL
+         AND (lease_expires_at IS NULL OR lease_expires_at >= ?)`,
+    )
+    .run(now, now, client.id, options.leaseFence ?? null, options.leaseFence ?? null, now);
+  if (Number(result.changes ?? 0) !== 1) {
+    throw new Error(`Workspace client lease changed before release: ${client.id}`);
+  }
   return requireWorkspaceClient(db, client.id);
 }
 
@@ -1133,6 +1202,34 @@ export function expireWorkspaceClientLeases(
   return Number(result.changes ?? 0);
 }
 
+export function requireFencedSessionWorkspaceClient(
+  db: DatabaseSync,
+  identity: SparkTaskClaimLeaseIdentity,
+  now = new Date().toISOString(),
+): SparkDaemonWorkspaceClient {
+  const client = getWorkspaceClientById(db, identity.clientId);
+  if (
+    !client ||
+    client.workspaceId !== identity.workspaceId ||
+    client.sessionId !== identity.sessionId ||
+    client.kind !== "interactive"
+  ) {
+    throw new SparkDaemonControlError(
+      "task_claim_lease_invalid",
+      `Workspace client ${identity.clientId} is not the active interactive lease for ${identity.sessionId}.`,
+    );
+  }
+  try {
+    assertWorkspaceClientLease(client, identity.leaseFence, now);
+  } catch (error) {
+    throw new SparkDaemonControlError(
+      "task_claim_lease_invalid",
+      error instanceof Error ? error.message : `Invalid task claim lease: ${identity.clientId}`,
+    );
+  }
+  return client;
+}
+
 export function listWorkspaceClients(
   db: DatabaseSync,
   workspaceId?: string,
@@ -1148,6 +1245,8 @@ export function listWorkspaceClients(
                       last_seen_at AS lastSeenAt,
                       lease_expires_at AS leaseExpiresAt,
                       released_at AS releasedAt,
+                      session_id AS sessionId,
+                      lease_fence AS leaseFence,
                       metadata_json AS metadataJson
                FROM daemon_workspace_clients
                ${workspaceId ? "WHERE workspace_id = ?" : ""}
@@ -1521,8 +1620,10 @@ export function workspaceClientSurface(client: {
 
 export function workspaceClientSessionId(client: {
   id: string;
+  sessionId?: string;
   metadata: Record<string, unknown>;
 }): string {
+  if (client.sessionId?.trim()) return client.sessionId.trim();
   const sessionId = client.metadata.sessionId;
   return typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : client.id;
 }
@@ -1590,6 +1691,8 @@ function getWorkspaceClientById(
               last_seen_at AS lastSeenAt,
               lease_expires_at AS leaseExpiresAt,
               released_at AS releasedAt,
+              session_id AS sessionId,
+              lease_fence AS leaseFence,
               metadata_json AS metadataJson
        FROM daemon_workspace_clients
        WHERE id = ?
@@ -1617,6 +1720,8 @@ interface WorkspaceClientRow {
   lastSeenAt: string;
   leaseExpiresAt: string | null;
   releasedAt: string | null;
+  sessionId: string | null;
+  leaseFence: string | null;
   metadataJson: string;
 }
 
@@ -1631,6 +1736,8 @@ function mapWorkspaceClientRow(row: WorkspaceClientRow): SparkDaemonWorkspaceCli
     lastSeenAt: row.lastSeenAt,
     ...(row.leaseExpiresAt ? { leaseExpiresAt: row.leaseExpiresAt } : {}),
     ...(row.releasedAt ? { releasedAt: row.releasedAt } : {}),
+    ...(row.sessionId ? { sessionId: row.sessionId } : {}),
+    ...(row.leaseFence ? { leaseFence: row.leaseFence } : {}),
     metadata: parseObject(row.metadataJson),
   };
 }
@@ -1644,6 +1751,31 @@ function leaseExpiresAtFor(now: string, leaseTtlMs: number | undefined): string 
 
 function createSparkDaemonWorkspaceClientId(): string {
   return `wcl_${randomUUID().replaceAll("-", "")}`;
+}
+
+function createWorkspaceClientLeaseFence(): string {
+  return `wclf_${randomUUID().replaceAll("-", "")}`;
+}
+
+function assertWorkspaceClientLease(
+  client: SparkDaemonWorkspaceClient,
+  leaseFence: string | undefined,
+  nowValue: string | undefined,
+): void {
+  if (!client.leaseFence) {
+    if (leaseFence)
+      throw new Error(`Legacy workspace client does not accept a lease fence: ${client.id}`);
+    return;
+  }
+  if (!leaseFence || leaseFence !== client.leaseFence) {
+    throw new Error(`Workspace client lease fence mismatch: ${client.id}`);
+  }
+  if (client.status !== "connected" || client.releasedAt) {
+    throw new Error(`Workspace client lease is no longer active: ${client.id}`);
+  }
+  if (client.leaseExpiresAt && client.leaseExpiresAt <= (nowValue ?? new Date().toISOString())) {
+    throw new Error(`Workspace client lease has expired: ${client.id}`);
+  }
 }
 
 function profileFromRow(row: WorkspaceRow): { profile?: WorkspaceProfileRegistration } {

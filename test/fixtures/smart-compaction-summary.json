@@ -9,7 +9,7 @@
       {
         "path": "a.ts",
         "change": "updated",
-        "evidenceRefs": ["artifact:a"]
+        "evidenceRefs": ["evidence:a"]
       }
     ],
     "commands": [

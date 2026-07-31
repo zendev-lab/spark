@@ -1,3 +1,4 @@
+import type { ArtifactRef } from "@zendev-lab/spark-artifacts";
 import { type TaskGraph } from "@zendev-lab/spark-tasks";
 import type { Project, ProjectRef, Task, TaskRef } from "@zendev-lab/spark-core";
 import { createId, parseSparkAssignment } from "@zendev-lab/spark-protocol";
@@ -5,6 +6,7 @@ import { createId, parseSparkAssignment } from "@zendev-lab/spark-protocol";
 import {
   consoleSparkCliErrorOutput,
   consoleSparkCliOutput,
+  helpFlagRequested,
   parseSparkCliOptions,
   printSparkCliResult,
   readBooleanOption,
@@ -14,20 +16,26 @@ import {
 } from "./shared.ts";
 import type { CockpitAccessCliResult } from "./access.ts";
 import type { WorkspaceAccessCliResult } from "./workspace-access.ts";
+import type { CockpitInstanceCliFailure, CockpitInstanceCliResult } from "./instance.ts";
+import { loadSparkCockpitCoordinationState } from "./coordination-adapter.ts";
 import type {
-  CockpitInstanceCliFailure,
-  CockpitInstanceCliOptions,
-  CockpitInstanceCliResult,
-} from "./instance.ts";
-import {
-  loadSparkCockpitCoordinationState,
-  type SparkCockpitCoordinationState,
-} from "./coordination-adapter.ts";
-import {
-  getManagedSession,
-  submitAssignment,
-  type CockpitCoordinationDaemonClientOptions,
-} from "./coordination-daemon.ts";
+  SparkCockpitArtifactSummary,
+  SparkCockpitCliOptions,
+  SparkCockpitCoordinationState,
+  SparkCockpitGoalSource,
+  SparkCockpitGoalSummary,
+  SparkCockpitReviewSummary,
+  SparkCockpitWorkflowSummary,
+} from "./coordination-contract.ts";
+export type {
+  SparkCockpitArtifactSummary,
+  SparkCockpitCliOptions,
+  SparkCockpitGoalSource,
+  SparkCockpitGoalSummary,
+  SparkCockpitReviewSummary,
+  SparkCockpitWorkflowSummary,
+} from "./coordination-contract.ts";
+import { getManagedSession, submitAssignment } from "./coordination-daemon.ts";
 
 export type SparkCockpitCliResource =
   | "help"
@@ -61,55 +69,6 @@ export interface SparkCockpitCliCommand {
   yes?: boolean;
   label?: string;
   tokenId?: string;
-}
-
-export interface SparkCockpitCliOptions {
-  cwd?: string;
-  daemonClient?: CockpitCoordinationDaemonClientOptions;
-  graph?: TaskGraph | null;
-  currentProjectRef?: ProjectRef;
-  currentSessionKey?: string | null;
-  goal?: SparkCockpitGoalSummary | null;
-  artifacts?: SparkCockpitArtifactSummary[];
-  reviews?: SparkCockpitReviewSummary[];
-  workflows?: SparkCockpitWorkflowSummary[];
-  instance?: CockpitInstanceCliOptions;
-}
-
-export type SparkCockpitGoalSource =
-  | "none"
-  | "current-project"
-  | "unrelated-project"
-  | "legacy-unscoped";
-
-export interface SparkCockpitGoalSummary {
-  status: string;
-  objective?: string;
-  goalId?: string;
-  sessionKey?: string;
-  projectRef?: ProjectRef;
-  source?: SparkCockpitGoalSource;
-  current?: boolean;
-}
-
-export interface SparkCockpitArtifactSummary {
-  artifactRef: string;
-  title?: string;
-  kind?: string;
-  status?: string;
-}
-
-export interface SparkCockpitReviewSummary {
-  reviewRef: string;
-  status?: string;
-  targetRef?: string;
-  outcome?: string;
-}
-
-export interface SparkCockpitWorkflowSummary {
-  runRef: string;
-  status?: string;
-  name?: string;
 }
 
 export type SparkCockpitCliResult =
@@ -257,6 +216,9 @@ export function parseSparkCockpitCliArgs(argv: string[]): SparkCockpitCliCommand
   if (argv.length === 0) return { resource: "status", json: false };
   const [resourceToken, ...rest] = argv;
   if (resourceToken === "help" || resourceToken === "--help" || resourceToken === "-h") {
+    return { resource: "help" };
+  }
+  if (helpFlagRequested(argv)) {
     return { resource: "help" };
   }
   const parsed = parseSparkCliOptions(rest);
@@ -634,7 +596,7 @@ function cockpitTask(
     resource: "task",
     task: taskRow(graph, task),
     projectRef: task.projectRef,
-    evidenceRefs: [...(task.inputArtifacts ?? []), ...(task.outputArtifacts ?? [])],
+    evidenceRefs: [...(task.inputEvidenceRefs ?? []), ...(task.outputEvidenceRefs ?? [])],
     text: `${task.status} ${task.ref} ${task.title}\n`,
   };
 }
@@ -654,6 +616,14 @@ function cockpitArtifacts(
   command: SparkCockpitCliCommand,
 ): SparkCockpitArtifactListResult {
   const artifacts = state.artifacts.slice(0, command.limit ?? 50);
+  for (const artifact of artifacts) {
+    if (
+      !artifact.artifactRef.startsWith("artifact:") ||
+      artifact.artifactRef.length === "artifact:".length
+    ) {
+      throw new Error("Cockpit Artifact summary requires an artifact: ref");
+    }
+  }
   return {
     plane: "cockpit",
     resource: "artifact",

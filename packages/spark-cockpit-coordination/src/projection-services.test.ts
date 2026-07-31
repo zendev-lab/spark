@@ -740,7 +740,7 @@ describe("projection services", () => {
     db.close();
   });
 
-  it("finalizes an existing registered workspace instead of inserting a duplicate slug", () => {
+  it("finalizes the workspace already leased to a registered binding", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
     const workspaceId = createId("ws");
     const leaseId = createId("wob");
@@ -756,10 +756,10 @@ describe("projection services", () => {
     ).run(leaseId, workspaceId, runtimeWorkspaceBindingId, now, now);
 
     const input = {
-      slug: "local-default",
-      name: "Local default",
+      slug: "spark-dev",
+      name: "Spark Dev",
       description: "Ready for work",
-      settings: { profileInputs: { workspaceSlug: "local-default" } },
+      settings: { profileInputs: { workspaceSlug: "spark-dev" } },
       profileSource: {
         sourceKind: "builtin" as const,
         profileId: "fresh",
@@ -792,13 +792,15 @@ describe("projection services", () => {
     };
     const workspace = db
       .prepare(
-        `SELECT name,
+        `SELECT slug,
+                name,
                 description,
                 settings_json AS settingsJson
          FROM workspaces
          WHERE id = ?`,
       )
       .get(workspaceId) as {
+      slug: string;
       name: string;
       description: string | null;
       settingsJson: string;
@@ -825,11 +827,12 @@ describe("projection services", () => {
     expect(finalizedAgain.id).toBe(workspaceId);
     expect(workspaceCount.count).toBe(1);
     expect(workspace).toMatchObject({
-      name: "Local default",
+      slug: "spark-dev",
+      name: "Spark Dev",
       description: "Ready for work",
     });
     expect(parseJson(workspace.settingsJson, "workspace settings")).toEqual({
-      profileInputs: { workspaceSlug: "local-default" },
+      profileInputs: { workspaceSlug: "spark-dev" },
     });
     expect(activeLeaseCount.count).toBe(1);
     expect(profileCount.count).toBe(1);
@@ -1359,11 +1362,11 @@ describe("projection services", () => {
     db.close();
   });
 
-  it("keeps Product Artifact revisions monotonic while reconcile preserves rich associations", () => {
+  it("keeps Artifact revisions monotonic while reconcile preserves rich associations", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
     const workspace = createWorkspaceWithLease(db, {
-      slug: "product-artifacts",
-      name: "Product artifacts",
+      slug: "artifacts",
+      name: "Artifacts",
       runtimeWorkspaceBindingId,
       createdAt: now,
     });
@@ -1374,7 +1377,7 @@ describe("projection services", () => {
       createdAt: now,
     });
     const artifactId = createId("art");
-    const productArtifactRef = "artifact:preview:monotonic";
+    const artifactRef = "artifact:preview:monotonic";
     const projection = (
       version: number,
       updatedAt: string,
@@ -1389,16 +1392,16 @@ describe("projection services", () => {
       hash: `hash-v${version}`,
       sizeBytes: Buffer.byteLength(content),
       contentRef: {
-        productArtifactRef,
+        artifactRef,
         previewFormat: "mdx",
         version,
         progress: null,
         inlineText: content,
       },
       provenance: {
-        producer: "spark-product-artifact",
-        productArtifactRef,
-        productArtifactUpdatedAt: updatedAt,
+        producer: "spark-artifact",
+        artifactRef,
+        artifactUpdatedAt: updatedAt,
         runtimeInvocationId: `inv-${version}`,
       },
       links: [
@@ -1434,9 +1437,9 @@ describe("projection services", () => {
         ...revisionOne,
         scope: "workspace",
         provenance: {
-          producer: "spark-product-artifact",
-          productArtifactRef,
-          productArtifactUpdatedAt: "2026-05-22T00:01:00.000Z",
+          producer: "spark-artifact",
+          artifactRef,
+          artifactUpdatedAt: "2026-05-22T00:01:00.000Z",
         },
         links: [],
       },
@@ -1452,9 +1455,9 @@ describe("projection services", () => {
         ...revisionThree,
         scope: "workspace",
         provenance: {
-          producer: "spark-product-artifact",
-          productArtifactRef,
-          productArtifactUpdatedAt: "2026-05-22T00:04:00.000Z",
+          producer: "spark-artifact",
+          artifactRef,
+          artifactUpdatedAt: "2026-05-22T00:04:00.000Z",
         },
         links: [],
       },
@@ -1487,7 +1490,7 @@ describe("projection services", () => {
       inlineText: "version three",
     });
     expect(parseJson(stored.provenanceJson, "provenance")).toMatchObject({
-      productArtifactUpdatedAt: "2026-05-22T00:04:00.000Z",
+      artifactUpdatedAt: "2026-05-22T00:04:00.000Z",
       runtimeInvocationId: "inv-2",
     });
     expect(

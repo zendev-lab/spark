@@ -657,6 +657,23 @@ describe("Spark daemon local RPC", () => {
     });
 
     try {
+      const pending = await requestSparkDaemonLocalRpcWire<{
+        waits: Array<{ interactionRequestId: string; sessionId: string }>;
+      }>(
+        {
+          id: "list-local-rpc",
+          method: "human.interaction.list",
+          params: { sessionId: "session-local-rpc" },
+        },
+        { paths },
+      );
+      expect(pending.waits).toEqual([
+        expect.objectContaining({
+          interactionRequestId: "interaction-local-rpc",
+          sessionId: "session-local-rpc",
+        }),
+      ]);
+
       const delivered = await requestSparkDaemonLocalRpcWire<{
         outcome: string;
         returnedToTool: boolean;

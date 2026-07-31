@@ -2,7 +2,7 @@
   "name": "@zendev-lab/spark-artifacts",
   "version": "0.1.0",
   "private": true,
-  "description": "Product artifacts (issue/pr/preview) and internal evidence storage for Spark capability hosts.",
+  "description": "Artifacts (issue/pr/preview) and internal evidence storage for Spark capability hosts.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [
@@ -13,10 +13,11 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./evidence-migration": "./src/evidence-migration.ts",
     "./extension": "./src/extension.ts",
     "./generative-ui": "./src/generative-ui.ts",
-    "./preview-renderer": "./src/product/preview-renderer.ts",
-    "./product": "./src/product/index.ts"
+    "./preview-renderer": "./src/artifact/preview-renderer.ts",
+    "./artifact": "./src/artifact/index.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
@@ -24,6 +25,7 @@
   },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-text": "workspace:^",
     "marked": "^18.0.7",
     "sanitize-html": "^2.17.6",
     "typebox": "catalog:"

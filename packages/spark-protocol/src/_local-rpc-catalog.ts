@@ -21,6 +21,7 @@ import type {
   SparkHumanRpcErrorCode,
   SparkInvocationRpcErrorCode,
   SparkModelRpcErrorCode,
+  SparkTaskClaimRpcErrorCode,
   SparkUplinkRpcErrorCode,
   SparkWorkspaceRpcErrorCode,
 } from "./daemon-rpc-errors.ts";
@@ -89,6 +90,12 @@ import {
   sparkSideThreadSubmitRequestSchema,
   sparkSideThreadSubmitResultSchema,
 } from "./side-thread.ts";
+import {
+  sparkTaskClaimAcquireRequestSchema,
+  sparkTaskClaimMutationResultSchema,
+  sparkTaskClaimRecoverRequestSchema,
+  sparkTaskClaimReleaseRequestSchema,
+} from "./task-claim.ts";
 import { sparkSessionViewSchema } from "./protocol.ts";
 import { SPARK_PROTOCOL_VERSION } from "./version.ts";
 
@@ -232,6 +239,14 @@ export const sparkLocalRpcModelOrpcErrors = {
   provider_oauth_response_invalid: { status: 422 },
 } as const satisfies Record<SparkModelRpcErrorCode, SparkLocalRpcErrorSpec>;
 
+export const sparkLocalRpcTaskClaimOrpcErrors = {
+  task_claim_lease_invalid: { status: 403 },
+  task_claim_not_found: { status: 404 },
+  task_claim_conflict: { status: 409 },
+  task_claim_store_busy: { status: 503 },
+  task_claim_recovery_refused: { status: 409 },
+} as const satisfies Record<SparkTaskClaimRpcErrorCode, SparkLocalRpcErrorSpec>;
+
 export const sparkLocalRpcUplinkOrpcErrors = {
   uplink_url_invalid: { status: 422 },
   uplink_profile_not_found: { status: 404 },
@@ -290,6 +305,7 @@ export const sparkLocalRpcCommonOrpcErrors = {
   ...sparkLocalRpcModelOrpcErrors,
   ...sparkLocalRpcUplinkOrpcErrors,
   ...sparkLocalRpcWorkspaceOrpcErrors,
+  ...sparkLocalRpcTaskClaimOrpcErrors,
   ...sparkLocalRpcHumanOrpcErrors,
 } as const;
 
@@ -601,6 +617,11 @@ const sparkLocalRpcWorkspaceMutationOrpcErrors = {
 const sparkLocalRpcWorkspaceClientAttachOrpcErrors = {
   ...sparkLocalRpcWorkspaceMutationOrpcErrors,
   workspace_client_conflict: sparkLocalRpcWorkspaceOrpcErrors.workspace_client_conflict,
+} as const;
+
+const sparkLocalRpcReadinessTaskClaimOrpcErrors = {
+  ...sparkLocalRpcReadinessOrpcErrors,
+  ...sparkLocalRpcTaskClaimOrpcErrors,
 } as const;
 
 const sparkLocalRpcWorkspaceClientMutationOrpcErrors = {
@@ -977,6 +998,8 @@ export const sparkLocalRpcWorkspaceClientSchema = z.object({
   lastSeenAt: isoDateTimeSchema,
   leaseExpiresAt: isoDateTimeSchema.optional(),
   releasedAt: isoDateTimeSchema.optional(),
+  sessionId: z.string().min(1).optional(),
+  leaseFence: z.string().min(1).optional(),
   metadata: sparkProtocolJsonObjectSchema,
 });
 
@@ -986,12 +1009,14 @@ export const sparkLocalRpcWorkspaceClientAttachRequestSchema = z.object({
   kind: workspaceClientKindSchema,
   displayName: z.string().min(1).optional(),
   leaseTtlMs: z.number().int().nonnegative().optional(),
+  sessionId: z.string().min(1).optional(),
   metadata: sparkProtocolJsonObjectSchema.optional(),
 });
 
 export const sparkLocalRpcWorkspaceClientHeartbeatRequestSchema = z.object({
   clientId: z.string().min(1),
   leaseTtlMs: z.number().int().nonnegative().optional(),
+  leaseFence: z.string().min(1).optional(),
 });
 
 export const sparkLocalRpcWorkspaceExecutorEnsureRequestSchema =
@@ -1073,6 +1098,10 @@ export const sparkLocalRpcSessionNotificationDeliverResultSchema = z.object({
   ),
 });
 
+export const sparkLocalRpcHumanInteractionListRequestSchema = z.object({
+  sessionId: z.string().trim().min(1).optional(),
+});
+
 export const sparkLocalRpcHumanInteractionRespondRequestSchema = z.object({
   interactionRequestId: z.string().trim().min(1),
   sessionId: z.string().trim().min(1).optional(),
@@ -1111,6 +1140,10 @@ const sparkLocalRpcHumanWaitResponseSchema = z.object({
   answers: sparkProtocolJsonObjectSchema,
   responseArtifactRefs: z.array(z.string()),
   deliveredAt: isoDateTimeSchema,
+});
+
+export const sparkLocalRpcHumanInteractionListResultSchema = z.object({
+  waits: z.array(sparkLocalRpcHumanWaitSchema),
 });
 
 export const sparkLocalRpcHumanInteractionRespondResultSchema = z.object({
@@ -1231,12 +1264,24 @@ export const sparkLocalRpcProcedureSchemas = {
     output: sparkLocalRpcWorkspaceClientResultSchema,
   },
   "workspace.client.release": {
-    input: z.object({ clientId: z.string().min(1) }),
+    input: z.object({ clientId: z.string().min(1), leaseFence: z.string().min(1).optional() }),
     output: sparkLocalRpcWorkspaceClientResultSchema,
   },
   "workspace.executor.ensure": {
     input: sparkLocalRpcWorkspaceExecutorEnsureRequestSchema,
     output: sparkLocalRpcWorkspaceClientResultSchema,
+  },
+  "task.claim.acquire": {
+    input: sparkTaskClaimAcquireRequestSchema,
+    output: sparkTaskClaimMutationResultSchema,
+  },
+  "task.claim.release": {
+    input: sparkTaskClaimReleaseRequestSchema,
+    output: sparkTaskClaimMutationResultSchema,
+  },
+  "task.claim.recover": {
+    input: sparkTaskClaimRecoverRequestSchema,
+    output: sparkTaskClaimMutationResultSchema,
   },
   "workspace.transfer.pending": {
     input: z.object({ workspaceId: z.string().min(1).optional() }).default({}),
@@ -1374,6 +1419,10 @@ export const sparkLocalRpcProcedureSchemas = {
     output: sparkAuthFlowSchema,
   },
   "provider.auth.login.cancel": { input: flowIdInputSchema, output: sparkAuthFlowSchema },
+  "human.interaction.list": {
+    input: sparkLocalRpcHumanInteractionListRequestSchema,
+    output: sparkLocalRpcHumanInteractionListResultSchema,
+  },
   "human.interaction.respond": {
     input: sparkLocalRpcHumanInteractionRespondRequestSchema,
     output: sparkLocalRpcHumanInteractionRespondResultSchema,
@@ -1612,6 +1661,28 @@ export const sparkLocalRpcOrpcContract = {
       ),
     },
   },
+  task: {
+    claim: {
+      acquire: procedure(
+        "POST",
+        "/task/claim/acquire",
+        p["task.claim.acquire"],
+        sparkLocalRpcReadinessTaskClaimOrpcErrors,
+      ),
+      release: procedure(
+        "POST",
+        "/task/claim/release",
+        p["task.claim.release"],
+        sparkLocalRpcReadinessTaskClaimOrpcErrors,
+      ),
+      recover: procedure(
+        "POST",
+        "/task/claim/recover",
+        p["task.claim.recover"],
+        sparkLocalRpcReadinessTaskClaimOrpcErrors,
+      ),
+    },
+  },
   uplink: {
     park: procedure("POST", "/uplink/park", p["uplink.park"], sparkLocalRpcUplinkProfileOrpcErrors),
     unpark: procedure(
@@ -1777,6 +1848,12 @@ export const sparkLocalRpcOrpcContract = {
   },
   human: {
     interaction: {
+      list: procedure(
+        "GET",
+        "/human/interaction/list",
+        p["human.interaction.list"],
+        sparkLocalRpcHumanOrpcErrors,
+      ),
       respond: procedure(
         "POST",
         "/human/interaction/respond",

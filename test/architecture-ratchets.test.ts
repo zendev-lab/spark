@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, relative } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 // @ts-expect-error The executable architecture script intentionally has no declaration surface.
@@ -6,6 +10,7 @@ import * as architectureRatchets from "../scripts/check-architecture-ratchets.mj
 const {
   findLegacyDaemonClientViolations,
   findUnsafePiCompatibilityImports,
+  findUnsafePiCompatibilityImportsInGraph,
   isLegacyDaemonClientBoundaryExempt,
 } = architectureRatchets;
 
@@ -63,27 +68,66 @@ describe("legacy daemon client architecture ratchet", () => {
 });
 
 describe("Pi compatibility extension architecture ratchet", () => {
-  it("rejects static imports that the compatibility loader rewrites as root-prefixed paths", () => {
+  it("rejects static and dynamic imports that the compatibility loader rewrites as root-prefixed paths", () => {
     expect(
       findUnsafePiCompatibilityImports(`
         import * as piAi from "@earendil-works/pi-ai";
         import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
         export { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
+        import legacyPiAi from "@mariozechner/pi-ai";
+        piAi.lazyApi(() => import("@earendil-works/pi-ai/api/openai-responses"));
       `),
     ).toEqual([
       "@earendil-works/pi-ai/api/anthropic-messages.lazy",
+      "@earendil-works/pi-ai/api/openai-responses",
       "@earendil-works/pi-ai/providers/openai-codex",
+      "@mariozechner/pi-ai",
     ]);
   });
 
-  it("allows virtualized static entries and deferred modern public subpaths", () => {
+  it("allows only Pi entries virtualized by the production compatibility loader", () => {
     expect(
       findUnsafePiCompatibilityImports(`
         import * as piAi from "@earendil-works/pi-ai";
         import { getModels } from "@earendil-works/pi-ai/compat";
         import type { OAuthProviderInterface } from "@earendil-works/pi-ai/oauth";
-        piAi.lazyApi(() => import("@earendil-works/pi-ai/api/openai-responses"));
+        import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
       `),
     ).toEqual([]);
+  });
+
+  it("follows workspace package exports from a compatibility entrypoint", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-pi-workspace-import-ratchet-"));
+    try {
+      const entry = join(dir, "extension.ts");
+      await writeFile(entry, 'import "@zendev-lab/spark-ai/baidu-oneapi-provider";\n', "utf8");
+
+      expect(findUnsafePiCompatibilityImportsInGraph(entry)).toEqual([
+        "packages/spark-ai/src/baidu-oneapi-provider.ts: @earendil-works/pi-ai/api/anthropic-messages.lazy",
+        "packages/spark-ai/src/baidu-oneapi-provider.ts: @earendil-works/pi-ai/api/openai-responses",
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("follows relative imports from a compatibility entrypoint", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-pi-import-ratchet-"));
+    try {
+      const entry = join(dir, "extension.ts");
+      const helper = join(dir, "helper.ts");
+      await writeFile(entry, 'import "./helper.ts";\n', "utf8");
+      await writeFile(
+        helper,
+        'await import("@earendil-works/pi-ai/api/openai-responses");\n',
+        "utf8",
+      );
+
+      expect(findUnsafePiCompatibilityImportsInGraph(entry)).toEqual([
+        `${relative(process.cwd(), helper)}: @earendil-works/pi-ai/api/openai-responses`,
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

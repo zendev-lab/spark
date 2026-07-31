@@ -2,7 +2,7 @@ import {
   createDefaultRoleRegistry,
   hydrateDefaultRoleRegistry,
   type RoleRegistry,
-} from "./index.ts";
+} from "./role-runtime.ts";
 
 export async function createSparkRoleRegistry(cwd: string): Promise<RoleRegistry> {
   const registry = createDefaultRoleRegistry();

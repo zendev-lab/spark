@@ -22,7 +22,7 @@ building a host profile, or diagnosing why a capability is unavailable.
 | Discover and run procedures | `workflow`, `workflow_run` | Read saved workflows or execute a selected workflow |
 
 `artifact` is user-facing and limited to Issue, PR, and preview deliverables.
-`evidence` is an agent-internal ledger and is not shown as a product artifact.
+`evidence` is an agent-internal ledger and is not shown as a artifact.
 `context` can only list or preview registered bounded providers; it does not
 accept an arbitrary prompt.
 

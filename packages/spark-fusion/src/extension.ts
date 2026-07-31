@@ -22,15 +22,18 @@ export interface SparkFusionExtensionApi {
 
 class ToolCallText implements ToolRenderComponent {
   private readonly text: string;
+  private readonly style: ((text: string) => string) | undefined;
 
-  constructor(text: string) {
+  constructor(text: string, style?: (text: string) => string) {
     this.text = text;
+    this.style = style;
   }
 
   render(width: number): string[] {
-    return [
-      this.text.length > width ? `${this.text.slice(0, Math.max(0, width - 1))}…` : this.text,
-    ];
+    const maxWidth = Math.max(1, width);
+    const line =
+      this.text.length > maxWidth ? `${this.text.slice(0, Math.max(0, maxWidth - 1))}…` : this.text;
+    return [this.style ? this.style(line) : line];
   }
 }
 
@@ -148,5 +151,6 @@ function modelRef(ctx: SparkHostContext): string | undefined {
 }
 
 function renderCall(theme: ToolRenderTheme, text: string): ToolCallText {
-  return new ToolCallText(theme.bold ? theme.bold(text) : text);
+  // Fusion labels are controlled ASCII; apply ANSI styling only after width truncation.
+  return new ToolCallText(text, theme.bold);
 }

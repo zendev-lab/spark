@@ -480,6 +480,50 @@ describe("SparkDaemonHumanInteractionBroker", () => {
     }
   });
 
+  it("opens a route-less daemon blocking ask for bounded local answering", async () => {
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    const waits = new SparkDaemonHumanWaitRegistry(db);
+    const broker = new SparkDaemonHumanInteractionBroker({
+      db,
+      waits,
+      getRuntimeId: () => undefined,
+    });
+
+    try {
+      const pendingResponse = broker.interact(
+        askRequest("interaction-route-less-daemon", "blocking", 1_000),
+        {
+          sessionId: "session-route-less-daemon",
+          invocationId: "invocation-route-less-daemon",
+          sessionSource: "daemon",
+        },
+      );
+      await vi.waitFor(() => expect(waits.listPending()).toHaveLength(1));
+      const wait = waits.listPending()[0]!;
+      expect(wait).toMatchObject({
+        interactionRequestId: "interaction-route-less-daemon",
+        sessionId: "session-route-less-daemon",
+        delivery: "blocking",
+      });
+
+      await expect(
+        broker.respond(wait, {
+          status: "answered",
+          answers: { decision: "yes" },
+          responseArtifactRefs: [],
+        }),
+      ).resolves.toMatchObject({ outcome: "accepted", returnedToTool: true });
+      await expect(pendingResponse).resolves.toMatchObject({
+        requestId: "interaction-route-less-daemon",
+        status: "answered",
+        answers: { decision: "yes" },
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   it("cancels a route-less TUI blocking ask without inventing a Cockpit settlement", async () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);

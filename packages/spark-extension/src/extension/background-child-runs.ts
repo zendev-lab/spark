@@ -1,11 +1,13 @@
 import type { RunRef, TaskRef, ProjectRef } from "@zendev-lab/spark-core";
 import type { WorkflowRunRecord } from "@zendev-lab/spark-workflows";
 import {
-  readRoleRunArtifactPreview,
+  readRoleRunEvidencePreview,
   type ActiveSparkRoleRunProcess,
 } from "@zendev-lab/spark-runtime";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
-import type { SparkBackgroundChildRunView, SparkBackgroundChildStatus } from "./background-runs.ts";
+import type { SparkBackgroundChildRunView } from "./background-run-contracts.ts";
+
+type SparkBackgroundChildStatus = SparkBackgroundChildRunView["status"];
 
 export function resolveBackgroundTaskRef(
   graph: TaskGraph,
@@ -108,10 +110,10 @@ export function collectBackgroundChildRuns(input: {
       summary: taskRun?.completionSummary?.summary,
       errorMessage: taskRun?.errorMessage,
       outcome: taskRun?.outcome ? { ...taskRun.outcome } : undefined,
-      artifactRefs: [
-        ...(taskRun?.completionSummary?.artifactRefs ?? []),
-        ...(taskRun?.outputArtifacts ?? []).filter(
-          (artifactRef) => !(taskRun?.completionSummary?.artifactRefs ?? []).includes(artifactRef),
+      evidenceRefs: [
+        ...(taskRun?.completionSummary?.evidenceRefs ?? []),
+        ...(taskRun?.outputEvidenceRefs ?? []).filter(
+          (evidenceRef) => !(taskRun?.completionSummary?.evidenceRefs ?? []).includes(evidenceRef),
         ),
       ],
     };
@@ -125,18 +127,18 @@ export function collectBackgroundChildRuns(input: {
   });
 }
 
-export async function enrichBackgroundChildRunsWithRoleRunArtifacts(input: {
+export async function enrichBackgroundChildRunsWithRoleRunEvidence(input: {
   cwd: string;
   childRuns: SparkBackgroundChildRunView[];
 }): Promise<SparkBackgroundChildRunView[]> {
   return Promise.all(
     input.childRuns.map(async (child) => {
-      if (child.artifactRefs.length === 0) return child;
-      const roleRunArtifacts = await Promise.all(
-        child.artifactRefs.map((artifactRef) => readRoleRunArtifactPreview(input.cwd, artifactRef)),
+      if (child.evidenceRefs.length === 0) return child;
+      const roleRunEvidence = await Promise.all(
+        child.evidenceRefs.map((evidenceRef) => readRoleRunEvidencePreview(input.cwd, evidenceRef)),
       );
-      const compact = roleRunArtifacts.find(
-        (artifact) => artifact.summary || artifact.transcriptRef,
+      const compact = roleRunEvidence.find(
+        (evidence) => evidence.summary || evidence.transcriptRef,
       );
       return {
         ...child,
@@ -145,7 +147,7 @@ export async function enrichBackgroundChildRunsWithRoleRunArtifacts(input: {
         stdoutTail: compact?.stdout,
         stderrTail: compact?.stderr,
         jsonEventsTail: compact?.jsonEvents,
-        roleRunArtifacts,
+        roleRunEvidence,
       };
     }),
   );

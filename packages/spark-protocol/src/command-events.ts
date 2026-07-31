@@ -66,6 +66,9 @@ export const sparkCommandKindOptions = [
   "workspace.transfer.respond.request",
   "project.create.request",
   "task.start.request",
+  "task.claim.acquire.request",
+  "task.claim.release.request",
+  "task.claim.recover.request",
   "assignment.create.request",
   "session.list.request",
   "session.get.request",
@@ -98,6 +101,7 @@ export const sparkCommandKindOptions = [
   "provider.auth.login.cancel.request",
   "invocation.cancel.request",
   "artifact.content.request",
+  "human.request.list.request",
   "human.response.deliver.request",
   "diagnostics.request",
 ] as const;
@@ -296,6 +300,9 @@ export const localRpcMethodToSparkCommandKind = {
   "workspace.client.heartbeat": "workspace.client.heartbeat.request",
   "workspace.client.release": "workspace.client.release.request",
   "workspace.executor.ensure": "workspace.executor.ensure.request",
+  "task.claim.acquire": "task.claim.acquire.request",
+  "task.claim.release": "task.claim.release.request",
+  "task.claim.recover": "task.claim.recover.request",
   "workspace.transfer.pending": "workspace.transfer.pending.request",
   "workspace.transfer.respond": "workspace.transfer.respond.request",
   "session.list": "session.list.request",
@@ -326,6 +333,7 @@ export const localRpcMethodToSparkCommandKind = {
   "provider.auth.login.status": "provider.auth.login.status.request",
   "provider.auth.login.respond": "provider.auth.login.respond.request",
   "provider.auth.login.cancel": "provider.auth.login.cancel.request",
+  "human.interaction.list": "human.request.list.request",
   "human.interaction.respond": "human.response.deliver.request",
 } as const satisfies Record<string, SparkCommandKind>;
 

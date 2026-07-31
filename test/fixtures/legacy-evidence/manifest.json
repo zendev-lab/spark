@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Controlled read-compatibility and fail-closed fixtures for pre-hard-cut Evidence schemas. Production and ordinary feature tests must not add these fields.",
+  "fixtures": {
+    "subject-review-v1.json": "v1 review reader normalization",
+    "subject-review-mixed-v1.json": "canonical and legacy field ambiguity rejection",
+    "session-goal-v1.json": "v1 goal review reader normalization",
+    "session-goal-mixed-v1.json": "canonical and legacy goal review ambiguity rejection",
+    "task-run-v1-fields.json": "v1 task and task-run reader normalization",
+    "workflow-run-v1-completion-digest.json": "v1 workflow completion digest reader normalization",
+    "subject-review-dangling-product-v1.json": "negative old-field plus Artifact ref fixture for state-doctor diagnostics"
+  }
+}

@@ -8,21 +8,11 @@ import type { ProjectRef } from "@zendev-lab/spark-core";
 import type {
   SparkCockpitArtifactSummary,
   SparkCockpitCliOptions,
+  SparkCockpitCoordinationState,
   SparkCockpitGoalSummary,
   SparkCockpitReviewSummary,
   SparkCockpitWorkflowSummary,
-} from "./coordination.ts";
-
-export interface SparkCockpitCoordinationState {
-  cwd: string;
-  graph: TaskGraph | null;
-  currentProjectRef: ProjectRef | null;
-  currentSessionKey: string | null;
-  goal: SparkCockpitGoalSummary | null;
-  artifacts: SparkCockpitArtifactSummary[];
-  reviews: SparkCockpitReviewSummary[];
-  workflows: SparkCockpitWorkflowSummary[];
-}
+} from "./coordination-contract.ts";
 
 export async function loadSparkCockpitCoordinationState(
   options: SparkCockpitCliOptions,
@@ -68,15 +58,11 @@ async function readGoalSummary(cwd: string): Promise<SparkCockpitGoalSummary | n
 
 async function readArtifactSummaries(cwd: string): Promise<SparkCockpitArtifactSummary[]> {
   try {
-    const { artifacts } = await defaultArtifactStore(cwd).listWithDiagnostics({
-      includeRaw: true,
-      includeArchived: true,
-    });
+    const artifacts = await defaultArtifactStore(cwd).list();
     return artifacts.map((artifact) => ({
       artifactRef: artifact.ref,
       title: artifact.title,
       kind: artifact.kind,
-      status: artifact.curation?.status,
     }));
   } catch {
     return [];

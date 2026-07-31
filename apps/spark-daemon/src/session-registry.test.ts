@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ProjectRef, RoleRef, SubgoalRef, TaskRef } from "@zendev-lab/spark-core";
 import {
   defaultSparkSessionRegistryRoot,
   SparkSessionRegistry,
@@ -146,6 +147,55 @@ describe("daemon session registry cwd ownership", () => {
         workspaceId: "ws_missing",
       }),
     ).rejects.toMatchObject({ code: "workspace_cwd_unavailable" });
+  });
+
+  it("authors and persists task-execution relations from the internal create binding", async () => {
+    const sparkHome = await mkdtemp(join(tmpdir(), "spark-daemon-task-session-"));
+    roots.push(sparkHome);
+    const registry = createDaemonSessionRegistry(sparkHome, {
+      resolveWorkspaceCwd: () => "/Users/demo/workspace/model-repro",
+    });
+    await registry.create({
+      sessionId: "sess_owner",
+      scope: { kind: "workspace", workspaceId: "ws_repro" },
+      workspaceId: "ws_repro",
+    });
+    const session = await registry.create({
+      sessionId: "sess_task",
+      scope: { kind: "workspace", workspaceId: "ws_repro" },
+      workspaceId: "ws_repro",
+      taskExecution: {
+        ownerSessionId: "sess_owner",
+        projectRef: "proj:model-repro" as ProjectRef,
+        taskRef: "task:trace-reference" as TaskRef,
+        subgoalRef: "subgoal:trace-reference" as SubgoalRef,
+        runRef: "run:trace-reference-1",
+        sessionGoalId: "goal-trace-reference-1",
+        roleRef: "role:builtin-explorer" as RoleRef,
+        planRevision: 6,
+        definitionDigest: "abc123",
+        jobId: "task-job:abc123",
+        attempt: 1,
+      },
+    });
+
+    expect(session.relation).toEqual({
+      kind: "task_execution",
+      ownerSessionId: "sess_owner",
+      projectRef: "proj:model-repro",
+      taskRef: "task:trace-reference",
+      subgoalRef: "subgoal:trace-reference",
+      runRef: "run:trace-reference-1",
+      sessionGoalId: "goal-trace-reference-1",
+      roleRef: "role:builtin-explorer",
+      planRevision: 6,
+      definitionDigest: "abc123",
+      jobId: "task-job:abc123",
+      attempt: 1,
+    });
+    await expect(registry.get("sess_task")).resolves.toMatchObject({
+      relation: { kind: "task_execution", jobId: "task-job:abc123" },
+    });
   });
 });
 

@@ -1,6 +1,6 @@
 import { nowIso, type RunRef, type ProjectRef } from "@zendev-lab/spark-core";
 
-import type { WorkflowRunRecord, WorkflowRunStoreSnapshot } from "./index.ts";
+import type { WorkflowRunRecord, WorkflowRunStoreSnapshot } from "./types.ts";
 import {
   isAcknowledgeableWorkflowRun,
   isTerminalWorkflowRunStatus,

@@ -1,7 +1,7 @@
 /** Spark TUI native host service construction. */
 
 import { basename, join, resolve } from "node:path";
-import { stableId, type SparkHostAPI, type ToolEffect } from "@zendev-lab/spark-core";
+import { stableId, type SparkHostAPI } from "@zendev-lab/spark-core";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import {
   createProviderRegistryLeafRunner,
@@ -21,7 +21,20 @@ import {
   renderSparkActiveSystemPrompt,
   type SparkSessionContext,
 } from "@zendev-lab/spark-extension/host-support";
-import { SparkAgentLoop } from "./agent-loop.ts";
+import type {
+  SparkCliHostServices,
+  SparkCliHostServicesOptions,
+  SparkCliHostDiagnostic,
+  SparkCompactionModelRunner,
+} from "./contracts.ts";
+export type {
+  SparkCliHostServices,
+  SparkCliHostServicesOptions,
+  SparkCliHostDiagnostic,
+  SparkCompactionModelRunner,
+  SparkCompactionModelRunnerRequest,
+} from "./contracts.ts";
+
 import { SparkAuthStore, SparkProviderAuthResolver, defaultSparkAuthPath } from "./auth.ts";
 import {
   type SparkConfig,
@@ -29,14 +42,13 @@ import {
   loadSparkConfig,
   saveSparkConfig,
 } from "./config.ts";
-import { SparkExtensionLoader, type SparkExtensionLoadResult } from "./extension-loader.ts";
+import { SparkExtensionLoader } from "./extension-loader.ts";
 import { SparkKeybindings } from "./keybindings.ts";
 import {
   SparkModelSelector,
   registerSparkModelSelectorKeybindings,
   resolveSparkModelSelectionById,
   sparkModelSelectionValue,
-  type SparkModelPicker,
 } from "./model-selector.ts";
 import { SparkHostModelRegistry } from "./model-registry.ts";
 import { loadPlugins, type LoadResult } from "./plugin-loader.ts";
@@ -45,102 +57,16 @@ import {
   type SparkPromptTemplateResolveResult,
 } from "./prompt-templates.ts";
 import { SparkProviderRegistry, type SparkActiveSelection } from "./provider-registry.ts";
-import { SparkHostRuntime, type SparkHostRuntimeOptions } from "./runtime.ts";
+import { SparkHostRuntime } from "./runtime.ts";
 import { SparkSessionStore } from "./session-store.ts";
 import {
   SparkSkillResolver,
   formatSelectedSparkSkillsForPrompt,
   type SparkSkillPromptMatch,
 } from "./skill-resolver.ts";
-import { loadSparkThemeCatalog, type SparkTheme, type SparkThemeCatalog } from "./theme.ts";
+import { loadSparkThemeCatalog } from "./theme.ts";
 
-export interface SparkCliHostDiagnostic {
-  type: "warning" | "error";
-  message: string;
-}
-
-export interface SparkCompactionModelRunnerRequest {
-  model: string;
-  prompt: string;
-  maxTokens: number;
-}
-
-export type SparkCompactionModelRunner = (
-  request: SparkCompactionModelRunnerRequest,
-) => Promise<unknown>;
-
-export interface SparkCliHostServices {
-  cwd: string;
-  config: SparkConfig;
-  saveConfig?: (config: SparkConfig) => Promise<void>;
-  runtime: SparkHostRuntime;
-  keybindings: SparkKeybindings;
-  providerRegistry: SparkProviderRegistry;
-  authStore?: SparkAuthStore;
-  authResolver?: SparkProviderAuthResolver;
-  modelRegistry?: SparkHostModelRegistry;
-  modelSelector: SparkModelSelector;
-  sessionStore: SparkSessionStore;
-  runCompactionModel?: SparkCompactionModelRunner;
-  skillResolver: SparkSkillResolver;
-  promptTemplates?: SparkPromptTemplateResolveResult;
-  agentLoop: SparkAgentLoop;
-  extensionLoadResult: SparkExtensionLoadResult;
-  providerLoadResult: LoadResult;
-  diagnostics: SparkCliHostDiagnostic[];
-  themeCatalog?: SparkThemeCatalog;
-  theme?: SparkTheme;
-}
-
-export interface SparkCliHostServicesOptions {
-  cwd?: string;
-  sparkHome?: string;
-  sparkStateRoot?: string;
-  sessionSurface?: "local" | "channel";
-  sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
-  channelBinding?: SparkHostRuntimeOptions["channelBinding"];
-  invocationId?: string;
-  stateOwnerSessionId?: string;
-  driver?: SparkHostRuntimeOptions["driver"];
-  sessionQuestionChain?: readonly string[];
-  allowedTools?: readonly string[];
-  /** Host-enforced effect allowlist; unknown tool effects are denied. */
-  allowedToolEffects?: readonly ToolEffect[];
-  config?: SparkConfig;
-  configPath?: string;
-  keybindingsPath?: string;
-  hasUI?: boolean;
-  ui?: SparkHostRuntimeOptions["ui"];
-  sessionManager?: SparkHostRuntimeOptions["sessionManager"];
-  extensions?: string[];
-  providers?: string[];
-  extensionImporter?: (specifier: string) => Promise<unknown>;
-  providerImporter?: (specifier: string) => Promise<unknown>;
-  authPath?: string;
-  authStore?: SparkAuthStore;
-  authEnv?: NodeJS.ProcessEnv;
-  modelPicker?: SparkModelPicker;
-  systemPrompt?: string;
-  noPromptTemplates?: boolean;
-  /** Scheduler-owned role runs pin phase independently of persisted session phase. */
-  executionPhase?: "plan" | "implement";
-  /** Per-model-stream wall-clock deadline; <=0 disables it. Default disabled. */
-  streamTimeoutMs?: number;
-  /** Abort a model stream after this long with no events; <=0 disables. */
-  streamIdleTimeoutMs?: number;
-  /** Per-tool execution deadline; <=0 disables it. */
-  toolTimeoutMs?: number;
-  /** Per-interaction/approval deadline; <=0 disables it. */
-  interactionTimeoutMs?: number;
-  /**
-   * Session tool-approval method for `requiresApproval` tools.
-   * Local TUI defaults to `skip`; channel headless sessions should pass `auto`.
-   */
-  approvalMethod?: "skip" | "human" | "auto";
-  /** When auto-review rejects: escalate to ask (default) or deny. */
-  approvalRejectAction?: "ask" | "deny";
-}
-
+import { SparkAgentLoop } from "./agent-loop.ts";
 export async function createSparkCliHostServices(
   options: SparkCliHostServicesOptions = {},
 ): Promise<SparkCliHostServices> {
@@ -293,8 +219,11 @@ export async function createSparkCliHostServices(
   for (const diagnostic of themeCatalog.diagnostics) diagnostics.push(diagnostic);
 
   runtime.setRoleRunner(async (input) => {
-    const { createSparkHeadlessRoleExecutor } = await import("../headless-role-executor.ts");
-    const executeRole = createSparkHeadlessRoleExecutor({ sparkHome: options.sparkHome });
+    const { createSparkHeadlessRoleExecutor } = await import("../headless-role-executor-core.ts");
+    const executeRole = createSparkHeadlessRoleExecutor({
+      sparkHome: options.sparkHome,
+      createServices: createSparkCliHostServices,
+    });
     return await executeRole(input);
   });
   const skillResolver = new SparkSkillResolver({

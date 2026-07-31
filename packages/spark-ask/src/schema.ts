@@ -1,5 +1,7 @@
 import { Type, type Static } from "typebox";
 
+import type { SparkAskAnswerSource } from "./answer-source.ts";
+
 // ---- Limits ----
 export const MAX_QUESTIONS = 20;
 export const MIN_OPTIONS = 2;
@@ -130,6 +132,8 @@ export interface SparkAskFlowResult {
   humanRequestId?: string;
   /** True only when the host closed the human wait because its deadline elapsed. */
   timedOut?: boolean;
+  /** Provenance of a submitted answer; omitted for non-answered results and legacy payloads. */
+  answerSource?: SparkAskAnswerSource;
   answers: Record<string, SparkAskFlowAnswerEntry>;
   flow?: string;
   mode: "submit" | "elaborate" | "cancel";

@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { chmod } from "node:fs/promises";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "vitest";
@@ -13,7 +23,6 @@ import { registerSparkSessionTool } from "@zendev-lab/spark-session/extension";
 import {
   newRef,
   stableId,
-  type ArtifactRef,
   type EvidenceRef,
   type SparkHostDriverContext,
   type ExtensionRoleRunRequest,
@@ -24,11 +33,12 @@ import {
   type ExtensionInteractionResponse,
   type RoleRef,
   type RunRef,
+  type SubgoalRef,
   type TaskPlan,
   type TaskRef,
   type ProjectRef,
 } from "@zendev-lab/spark-core";
-import { defaultArtifactStore, defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { defaultLearningStore } from "@zendev-lab/spark-memory";
 import { defaultWorkflowRunStore } from "../packages/spark-workflows/src/index.ts";
 import { registerSparkWorkflowTool } from "../packages/spark-workflows/src/extension.ts";
@@ -46,7 +56,7 @@ import {
   TaskGraph,
   TaskGraphStore,
 } from "@zendev-lab/spark-tasks";
-import { registerSparkArtifactTool } from "@zendev-lab/spark-artifacts/extension";
+import { registerSparkEvidenceTool } from "@zendev-lab/spark-artifacts/extension";
 import type { SparkDaemonDriverTickTask } from "../apps/spark-daemon/src/core/types.ts";
 import { SparkDriverStore } from "../apps/spark-daemon/src/store/drivers.ts";
 import { SparkInvocationStore } from "../apps/spark-daemon/src/store/invocations.ts";
@@ -56,15 +66,19 @@ import piAskExtension from "../packages/spark-ask/src/extension.ts";
 import sparkExtension from "../packages/spark-extension/src/extension/index.ts";
 import { SparkWorkflowRunManagerController } from "../packages/spark-extension/src/extension/spark-workflow-run-manager.ts";
 import { registerSparkReproTool } from "../packages/spark-extension/src/extension/spark-repro-tool-registration.ts";
+import { materializeReproStagePlan } from "../packages/spark-extension/src/extension/spark-repro-project.ts";
+import { REPRO_STAGE_BLUEPRINTS } from "../packages/spark-extension/src/extension/spark-repro-stage-blueprints.ts";
 import { collectReproOrchestrationSnapshot } from "../packages/spark-extension/src/extension/spark-repro-orchestration.ts";
 import { JsonStoreFormatError } from "../packages/spark-extension/src/extension/json-store.ts";
 import type { SparkToolContext } from "../packages/spark-extension/src/extension/spark-tool-registration.ts";
 import type { SparkDaemonDriverControl } from "../packages/spark-extension/src/extension/spark-daemon-driver-client.ts";
+import type { SparkTaskClaimDaemonClient } from "../packages/spark-extension/src/extension/spark-task-claim-daemon-client.ts";
 import {
   loadCurrentProjectState,
   loadHiddenRoleRunInboxState,
   loadSparkPhase,
   saveCurrentProjectRef,
+  sparkSessionKey,
 } from "../packages/spark-extension/src/extension/session-state.ts";
 import {
   assignTodoDisplayNumber,
@@ -97,17 +111,18 @@ import { collectReproExperimentIssues } from "../packages/spark-extension/src/ex
 import { normalizeSparkClaimTaskInput } from "../packages/spark-extension/src/extension/spark-claim-task-tool-registration.ts";
 import { normalizeSparkFinishTaskInput } from "../packages/spark-extension/src/extension/spark-finish-task-tool-registration.ts";
 import {
+  rebuildSubjectReviewIndex,
   rebuildWorkspaceReviewIndex,
   subjectReviewRecordPath,
   taskReviewDirectory,
 } from "../packages/spark-extension/src/extension/subject-review-store.ts";
 import { normalizeSparkTodoOps } from "../packages/spark-extension/src/extension/spark-todo-tool-registration.ts";
 import {
-  normalizeArtifactBoolean,
-  normalizeArtifactLimit,
-  normalizeArtifactRef,
+  normalizeEvidenceBoolean,
+  normalizeEvidenceLimit,
+  normalizeEvidenceRef,
   normalizePositiveInteger,
-} from "../packages/spark-extension/src/extension/artifact-tools.ts";
+} from "../packages/spark-extension/src/extension/evidence-tools.ts";
 import {
   normalizeLearningBoolean,
   normalizeLearningCategory,
@@ -138,7 +153,7 @@ import {
   normalizeTaskKind,
   normalizeTaskStatus,
 } from "../packages/spark-extension/src/extension/task-plan-tool.ts";
-import { normalizeSparkAskReplayArtifactRef } from "../packages/spark-extension/src/extension/spark-ask-tool-registration.ts";
+import { normalizeSparkAskReplayEvidenceRef } from "../packages/spark-extension/src/extension/spark-ask-tool-registration.ts";
 import {
   readSessionRepro,
   sessionReproStorePath,
@@ -153,13 +168,12 @@ import {
   updateReproStep,
 } from "@zendev-lab/spark-repro";
 import {
-  encodeSubgoalReceipt,
   inferSessionGoalObjective,
   loadSessionGoal,
   loadSessionLoop,
+  sessionGoalStorePath,
   setSessionGoal,
   setSessionLoop,
-  subgoalDefinitionDigest,
   updateSessionGoalStatus,
 } from "../packages/spark-loop/src/index.ts";
 import type {
@@ -171,7 +185,33 @@ import type {
 type SparkHostApiForTest = Parameters<typeof sparkExtension>[0];
 type SparkToolConfig = Parameters<NonNullable<SparkHostApiForTest["registerTool"]>>[0];
 type SparkToolResult = Awaited<ReturnType<SparkToolConfig["execute"]>>;
+const evidenceSurfaceNegativeValues = JSON.parse(
+  readFileSync(
+    join(process.cwd(), "test", "fixtures", "evidence-surface", "negative-values.json"),
+    "utf8",
+  ),
+) as { wrongNamespaceRef: string; wrongKind: string };
+type LegacyEvidenceFixture<T> = {
+  legacyFieldNames: string[];
+  value: T;
+};
 type TestNotification = { message: string; level?: "info" | "warning" | "error" | "success" };
+
+async function loadLegacyEvidenceFixture<T>(
+  name: string,
+  replacements: Record<string, string> = {},
+): Promise<T> {
+  const fixturePath = join(process.cwd(), "test", "fixtures", "legacy-evidence", name);
+  let source = await readFile(fixturePath, "utf8");
+  for (const [key, value] of Object.entries(replacements)) {
+    source = source.replaceAll(`__${key}__`, value);
+  }
+  return JSON.parse(source) as T;
+}
+
+function quotedJsonField(field: string): RegExp {
+  return new RegExp(`"${field.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`);
+}
 type TestSparkDaemonDriverControl = SparkDaemonDriverControl & {
   drivers: Map<string, Awaited<ReturnType<SparkDaemonDriverControl["start"]>>["driver"]>;
   ensuredOwners: Array<{ sessionId: string; cwd: string }>;
@@ -186,7 +226,7 @@ function executionReadyPlan(objective: string): TaskPlan {
     nonGoals: [],
     successCriteria: [`Validation command for ${objective} passes with exit code 0.`],
     evidenceRequired: [
-      `Validation artifact records command output, exit code, and changed-file summary for ${objective}.`,
+      `Validation evidence records command output, exit code, and changed-file summary for ${objective}.`,
     ],
     steps: [objective],
     riskLevel: "normal",
@@ -323,27 +363,30 @@ test("Spark tool normalizer groups reject invalid explicit parameters instead of
   );
 
   runNormalizerGroup(
-    "artifacts",
+    "evidence",
     [
-      [() => normalizeArtifactLimit(undefined, 20), 20],
-      [() => normalizeArtifactLimit(0, 20), 0],
-      [() => normalizeArtifactLimit(12, 20), 12],
+      [() => normalizeEvidenceLimit(undefined, 20), 20],
+      [() => normalizeEvidenceLimit(0, 20), 0],
+      [() => normalizeEvidenceLimit(12, 20), 12],
       [() => normalizePositiveInteger(undefined, 1, "thresholdBytes"), 1],
       [() => normalizePositiveInteger(8, 1, "thresholdBytes"), 8],
-      [() => normalizeArtifactBoolean(undefined, false, "dryRun"), false],
-      [() => normalizeArtifactBoolean(true, false, "dryRun"), true],
-      [() => normalizeArtifactRef("artifact:one"), "artifact:one"],
+      [() => normalizeEvidenceBoolean(undefined, false, "dryRun"), false],
+      [() => normalizeEvidenceBoolean(true, false, "dryRun"), true],
+      [() => normalizeEvidenceRef("evidence:one"), "evidence:one"],
     ],
     [
-      [() => normalizeArtifactLimit("12", 20), /limit must be a finite number/],
-      [() => normalizeArtifactLimit(1.5, 20), /limit must be a non-negative integer/],
-      [() => normalizeArtifactLimit(-1, 20), /limit must be a non-negative integer/],
+      [() => normalizeEvidenceLimit("12", 20), /limit must be a finite number/],
+      [() => normalizeEvidenceLimit(1.5, 20), /limit must be a non-negative integer/],
+      [() => normalizeEvidenceLimit(-1, 20), /limit must be a non-negative integer/],
       [
         () => normalizePositiveInteger(0, 1, "thresholdBytes"),
         /thresholdBytes must be a positive integer/,
       ],
-      [() => normalizeArtifactBoolean("true", false, "dryRun"), /dryRun must be a boolean/],
-      [() => normalizeArtifactRef("note:one"), /artifactRef must be an artifact: ref/],
+      [() => normalizeEvidenceBoolean("true", false, "dryRun"), /dryRun must be a boolean/],
+      [
+        () => normalizeEvidenceRef(evidenceSurfaceNegativeValues.wrongNamespaceRef),
+        /evidenceRef must be an evidence: ref/,
+      ],
     ],
   );
 
@@ -388,7 +431,7 @@ test("Spark tool normalizer groups reject invalid explicit parameters instead of
     "state",
     [
       [() => normalizeSparkStateAction(undefined), "state_status"],
-      [() => normalizeSparkStateAction("role_run_artifact_compact"), "role_run_artifact_compact"],
+      [() => normalizeSparkStateAction("role_run_evidence_compact"), "role_run_evidence_compact"],
       [() => normalizeSparkStateOptionalString(undefined, "exportDir"), undefined],
       [() => normalizeSparkStateOptionalString("exports", "exportDir"), "exports"],
     ],
@@ -541,13 +584,13 @@ test("Spark tool normalizer groups reject invalid explicit parameters instead of
           normalizeSparkFinishTaskInput({
             status: "failed",
             summary: " Failed ",
-            evidenceRefs: ["artifact:focused-validation"],
+            evidenceRefs: ["evidence:focused-validation"],
           }),
         {
           task: undefined,
           status: "failed",
           summary: "Failed",
-          evidenceRefs: ["artifact:focused-validation"],
+          evidenceRefs: ["evidence:focused-validation"],
           evidence: undefined,
         },
       ],
@@ -655,11 +698,11 @@ test("Spark tool normalizer groups reject invalid explicit parameters instead of
       ],
       [
         () => normalizeSparkFinishTaskInput({ evidenceRefs: "artifact:focused-validation" }),
-        /evidenceRefs must be an array of artifact refs/,
+        /evidenceRefs must be an array of evidence refs/,
       ],
       [
         () => normalizeSparkFinishTaskInput({ evidenceRefs: ["task:not-an-artifact"] }),
-        /evidenceRefs\[0\] must be an artifact: ref/,
+        /evidenceRefs\[0\] must be an evidence: ref/,
       ],
       [() => normalizeSparkFinishTaskInput({ summary: 42 }), /summary must be a string/],
       [() => normalizeSparkFinishTaskInput({ evidence: [] }), /evidence must be an object/],
@@ -668,7 +711,7 @@ test("Spark tool normalizer groups reject invalid explicit parameters instead of
         /evidence\.changedFiles must be an array of strings/,
       ],
       [() => normalizeSparkStateAction("status"), /action must be state_status/],
-      [() => normalizeSparkStateAction("compact-role-run-artifacts"), /role_run_artifact_compact/],
+      [() => normalizeSparkStateAction("compact-role-run-evidence"), /role_run_evidence_compact/],
       [() => normalizeSparkTodoOps({}), /ops must be a non-empty array/],
       [() => normalizeSparkTodoOps([{ op: "pause", item: "One" }]), /ops\[0\]\.op must be init/],
       [
@@ -681,12 +724,15 @@ test("Spark tool normalizer groups reject invalid explicit parameters instead of
   runNormalizerGroup(
     "ask replay",
     [
-      [() => normalizeSparkAskReplayArtifactRef(undefined), undefined],
-      [() => normalizeSparkAskReplayArtifactRef("artifact:ask-one"), "artifact:ask-one"],
+      [() => normalizeSparkAskReplayEvidenceRef(undefined), undefined],
+      [() => normalizeSparkAskReplayEvidenceRef("evidence:ask-one"), "evidence:ask-one"],
     ],
     [
-      [() => normalizeSparkAskReplayArtifactRef(42), /artifactRef must be a string/],
-      [() => normalizeSparkAskReplayArtifactRef("ask:one"), /artifactRef must be an artifact: ref/],
+      [() => normalizeSparkAskReplayEvidenceRef(42), /evidenceRef must be a string/],
+      [
+        () => normalizeSparkAskReplayEvidenceRef("artifact:one"),
+        /evidenceRef must be an evidence: ref/,
+      ],
     ],
   );
 });
@@ -929,7 +975,19 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
       (await workflowCommand.getArgumentCompletions?.("run builtin:re"))?.map(
         (entry) => entry.value,
       ),
-      ["run builtin:research", "run builtin:review"],
+      [
+        "run builtin:research",
+        "run builtin:review",
+        "run builtin:repro-stage-orchestrate",
+        "run builtin:repro-module-sweep",
+        "run builtin:repro-first-divergence",
+        "run builtin:repro-change-loop",
+        "run builtin:repro-long-horizon",
+        "run builtin:repro-axis-qualify",
+        "run builtin:repro-topology-compose",
+        "run builtin:repro-evidence-review",
+        "run builtin:repro-delivery-sync",
+      ],
     );
     const workflowsCommand = initializedRun.commands.get("workflows");
     assert.ok(workflowsCommand, "missing /workflows command");
@@ -1727,6 +1785,116 @@ test("/implement continues through the agent-end hook without auto-answering or 
   }
 });
 
+test("claim reports committed partial success when local metadata projection disappears", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-claim-partial-success-"));
+  const projectsPath = join(dir, ".spark", "projects");
+  const hiddenPath = join(dir, ".spark", "projects-hidden");
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "claim-partial");
+    const run = registerSparkToolsForTest({
+      taskClaimDaemonClient: createTestTaskClaimDaemonClient({
+        afterAcquire: async () => rename(projectsPath, hiddenPath),
+      }),
+    });
+    await useOnlySparkProject(run.tools, ctx);
+    await executeSparkTool(run.tools, "impl_plan_tasks", ctx, {
+      tasks: [
+        {
+          name: "partial-claim",
+          title: "Partial claim",
+          description: "Report daemon authority after metadata projection failure.",
+          kind: "implement",
+          plan: executionReadyPlan("Report daemon authority after metadata projection failure."),
+        },
+      ],
+    });
+
+    const claimed = await executeSparkTool(run.tools, "impl_claim_task", ctx, {
+      task: "partial-claim",
+      status: "blocked",
+    });
+    const details = claimed.details as {
+      committed?: boolean;
+      partial?: boolean;
+      postCommitWarnings?: string[];
+      task?: { status?: string; claim?: { sessionId?: string } };
+    };
+    assert.equal(claimed.isError, undefined);
+    assert.equal(details.committed, true);
+    assert.equal(details.partial, true);
+    assert.equal(details.task?.status, "blocked");
+    assert.match(details.postCommitWarnings?.join("\n") ?? "", /metadata/i);
+
+    await rm(projectsPath, { recursive: true, force: true });
+    await rename(hiddenPath, projectsPath);
+    const task = (await defaultTaskGraphStore(dir).load())
+      ?.tasks()
+      .find((entry) => entry.name === "partial-claim");
+    assert.equal(task?.status, "blocked");
+    assert.equal(task?.claim?.sessionId, ctxSessionKey(ctx));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("finish reports committed success when post-daemon graph reload disappears", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-finish-partial-success-"));
+  const projectsPath = join(dir, ".spark", "projects");
+  const hiddenPath = join(dir, ".spark", "projects-hidden");
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "finish-partial");
+    const run = registerSparkToolsForTest({
+      taskClaimDaemonClient: createTestTaskClaimDaemonClient({
+        afterRelease: async () => rename(projectsPath, hiddenPath),
+      }),
+    });
+    await useOnlySparkProject(run.tools, ctx);
+    await executeSparkTool(run.tools, "impl_plan_tasks", ctx, {
+      tasks: [
+        {
+          name: "partial-finish",
+          title: "Partial finish",
+          description: "Return committed terminal status after projection failure.",
+          kind: "implement",
+          plan: executionReadyPlan("Return committed terminal status after projection failure."),
+        },
+      ],
+    });
+    await executeSparkTool(run.tools, "impl_claim_task", ctx, { task: "partial-finish" });
+    await executeSparkTool(run.tools, "impl_update_task_plan_items", ctx, {
+      ops: [
+        { op: "upsert_done", item: "Return committed terminal status after projection failure." },
+      ],
+    });
+
+    const finished = await executeSparkTool(run.tools, "impl_finish_task", ctx, {
+      task: "partial-finish",
+      summary: "Daemon terminal mutation committed before projection failure.",
+    });
+    const details = finished.details as {
+      transition?: { committed?: boolean };
+      statusAfter?: string;
+      postCommitWarnings?: string[];
+    };
+    assert.equal(finished.isError, undefined);
+    assert.equal(details.transition?.committed, true);
+    assert.equal(details.statusAfter, "done");
+    assert.match(details.postCommitWarnings?.join("\n") ?? "", /reload returned no graph/i);
+
+    await rm(projectsPath, { recursive: true, force: true });
+    await rename(hiddenPath, projectsPath);
+    const task = (await defaultTaskGraphStore(dir).load())
+      ?.tasks()
+      .find((entry) => entry.name === "partial-finish");
+    assert.equal(task?.status, "done");
+    assert.equal(task?.claim, undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("/goal sets a durable session goal instead of execute-mode continuation", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-run-foreground-continue-"));
   try {
@@ -2053,28 +2221,9 @@ test("/loop stop aliases clear plain loop state and pause is removed", async () 
   }
 });
 
-test("Shift+Tab shortcut shows per-turn Spark mode hints without persisting mode", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-shift-tab-mode-"));
-  const inactiveDir = await mkdtemp(join(tmpdir(), "spark-shift-tab-inactive-"));
-  try {
-    await writeEmptySparkProject(dir);
-    const ctx = testSparkContext(dir, "main");
-    const run = registerSparkToolsForTest();
-    const shortcut = run.shortcuts.get("shift+tab");
-    assert.ok(shortcut, "missing Shift+Tab Spark mode shortcut");
-    assert.equal(shortcut.isActive?.(testSparkContext(inactiveDir, "main")), false);
-    assert.equal(shortcut.isActive?.(ctx), true);
-
-    await executeSparkTool(run.tools, "impl_use_project", ctx, { project: "Tool persistence" });
-    assert.equal((await loadSparkPhase(dir, ctx)).phase, "plan");
-
-    await shortcut.handler(ctx);
-    assert.equal((await loadSparkPhase(dir, ctx)).phase, "plan");
-    assert.equal(ctx.editorText, "/plan ");
-  } finally {
-    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
-    await rm(inactiveDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
-  }
+test("Spark extension leaves Shift+Tab to the host thinking-level binding", () => {
+  const run = registerSparkToolsForTest();
+  assert.equal(run.shortcuts.has("shift+tab"), false);
 });
 
 test("impl_plan_tasks blocks underspecified executable tasks without opening a canned ask", async () => {
@@ -2529,19 +2678,19 @@ test("impl_claim_task recovers an expired foreign claim when background work is 
     });
 
     assert.match(toolText(claimed), /Recovered previous task claim: claim_expired/);
-    assert.match(toolText(claimed), /Recovery evidence: artifact:/);
+    assert.match(toolText(claimed), /Recovery evidence: evidence:/);
     const details = claimed.details as {
-      recoveredClaimArtifactRef?: string;
+      recoveredClaimEvidenceRef?: string;
       claimRecovery?: { recoverable?: boolean; reason?: string };
     };
     assert.equal(details.claimRecovery?.recoverable, true);
     assert.equal(details.claimRecovery?.reason, "claim_expired");
-    assert.match(details.recoveredClaimArtifactRef ?? "", /^artifact:/);
+    assert.match(details.recoveredClaimEvidenceRef ?? "", /^evidence:/);
     const recovered = (await store.load())?.getTask(task.ref);
     assert.equal(recovered?.claim?.sessionId, ctxSessionKey(ctx));
     assert.equal(recovered?.status, "running");
-    const artifact = await defaultArtifactStore(dir).get(
-      details.recoveredClaimArtifactRef as ArtifactRef,
+    const artifact = await defaultEvidenceStore(dir).get(
+      details.recoveredClaimEvidenceRef as EvidenceRef,
     );
     const body = artifact.body as {
       previousClaim?: { claimedBy?: string };
@@ -2582,16 +2731,16 @@ test("task_write recover requeues needs_changes inactive-owner claim without mar
       now: "2026-01-01T00:00:00.000Z",
       leaseMs: 365 * 24 * 60 * 60 * 1_000,
     });
-    const evidence = await defaultArtifactStore(dir).put({
+    const evidence = await defaultEvidenceStore(dir).put({
       kind: "document",
       title: "Final evidence that still needs review changes",
       format: "markdown",
       body: "# Evidence\n\nThe work has evidence but still received needs_changes.",
       provenance: { producer: "task", projectRef: project.ref, taskRef: task.ref },
     });
-    graph.attachOutputArtifact(task.ref, evidence.ref);
+    graph.attachOutputEvidence(task.ref, evidence.ref);
     await store.save(graph);
-    await defaultArtifactStore(dir).put({
+    await defaultEvidenceStore(dir).put({
       kind: "record",
       title: "Task finish review for @recover-needs-changes",
       format: "json",
@@ -2619,10 +2768,10 @@ test("task_write recover requeues needs_changes inactive-owner claim without mar
       /Task is now unclaimed and can re-enter the ready frontier; it was not marked done/,
     );
     const recoveredDetails = recovered.details as {
-      recoveredClaimArtifactRef?: string;
+      recoveredClaimEvidenceRef?: string;
       claimRecovery?: { recoverable?: boolean; reason?: string };
     };
-    assert.match(recoveredDetails.recoveredClaimArtifactRef ?? "", /^artifact:/);
+    assert.match(recoveredDetails.recoveredClaimEvidenceRef ?? "", /^evidence:/);
     assert.equal(recoveredDetails.claimRecovery?.recoverable, true);
     assert.equal(recoveredDetails.claimRecovery?.reason, "review_needs_changes_owner_inactive");
 
@@ -2636,8 +2785,199 @@ test("task_write recover requeues needs_changes inactive-owner claim without mar
     const reloaded = (await store.load())?.getTask(task.ref);
     assert.equal(reloaded?.status, "pending");
     assert.equal(reloaded?.claim, undefined);
-    assert.equal(reloaded?.outputArtifacts.includes(evidence.ref), true);
+    assert.equal(reloaded?.outputEvidenceRefs.includes(evidence.ref), true);
     assert.notEqual(reloaded?.status, "done");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("task_write release gives up the current claim without finishing or dropping task state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-release-current-claim-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await useOnlySparkProject(tools, ctx);
+    const store = defaultTaskGraphStore(dir);
+    const graph = await store.load();
+    assert.ok(graph);
+    const project = graph.projects()[0];
+    assert.ok(project);
+    const evidence = await defaultEvidenceStore(dir).put({
+      kind: "record",
+      title: "Release preservation evidence",
+      format: "json",
+      body: { summary: "Keep this evidence attached after release." },
+      provenance: { producer: "task", projectRef: project.ref },
+    });
+    const task = graph.createTask({
+      projectRef: project.ref,
+      name: "release-current-claim",
+      title: "Release current claim",
+      description: "Release must preserve plan items and evidence without finishing the task.",
+      kind: "implement",
+      status: "ready",
+      plan: executionReadyPlan("Release the current task claim safely."),
+      todos: [
+        {
+          content: "Assert exact task plan and evidence state before and after claim release",
+          status: "done",
+        },
+        {
+          content:
+            "Run pnpm test test/spark-tools.test.ts -t task_write release and record exit code 0",
+          status: "pending",
+        },
+      ],
+    });
+    graph.attachOutputEvidence(task.ref, evidence.ref);
+    const runRef = newRef("run");
+    graph.claimTask(task.ref, {
+      kind: "main",
+      claimedBy: ctxSessionKey(ctx),
+      sessionId: ctxSessionKey(ctx),
+      runRef,
+      leaseMs: 60_000,
+    });
+    const before = graph.getTask(task.ref);
+    const beforePlan = structuredClone(before.plan);
+    const beforeTodos = structuredClone(graph.taskTodos(task.ref));
+    const beforeEvidenceRefs = [...before.outputEvidenceRefs];
+    await store.save(graph);
+    const evidenceCount = (await defaultEvidenceStore(dir).list()).length;
+    const learningCount = (await defaultLearningStore(dir).list({ includeCandidates: true }))
+      .length;
+
+    const released = await executeSparkTool(tools, "task_write", ctx, { action: "release" });
+
+    assert.match(toolText(released), /Released Spark task claim: @release-current-claim/);
+    assert.match(toolText(released), /Task remains unfinished/);
+    const releaseDetails = released.details as {
+      releasedBy?: string;
+      previousClaim?: { runRef?: string; sessionId?: string };
+    };
+    assert.equal(releaseDetails.releasedBy, ctxSessionKey(ctx));
+    assert.equal(releaseDetails.previousClaim?.runRef, runRef);
+    assert.equal(releaseDetails.previousClaim?.sessionId, ctxSessionKey(ctx));
+    const reloaded = await store.load();
+    assert.ok(reloaded);
+    const releasedTask = reloaded.getTask(task.ref);
+    assert.equal(releasedTask.status, "pending");
+    assert.equal(releasedTask.claim, undefined);
+    assert.deepEqual(releasedTask.plan, beforePlan);
+    assert.deepEqual(reloaded.taskTodos(task.ref), beforeTodos);
+    assert.deepEqual(releasedTask.outputEvidenceRefs, beforeEvidenceRefs);
+    assert.equal(
+      reloaded.readyTasks(project.ref).some((candidate) => candidate.ref === task.ref),
+      true,
+    );
+
+    reloaded.claimTask(task.ref, {
+      kind: "main",
+      claimedBy: ctxSessionKey(ctx),
+      sessionId: ctxSessionKey(ctx),
+      leaseMs: 60_000,
+    });
+    await store.save(reloaded);
+    const explicitlyReleased = await executeSparkTool(tools, "task_write", ctx, {
+      action: "release",
+      taskRef: task.ref,
+    });
+    assert.match(toolText(explicitlyReleased), /Released Spark task claim: @release-current-claim/);
+    assert.equal((await store.load())?.getTask(task.ref).claim, undefined);
+    assert.equal((await defaultEvidenceStore(dir).list()).length, evidenceCount);
+    assert.equal(
+      (await defaultLearningStore(dir).list({ includeCandidates: true })).length,
+      learningCount,
+    );
+
+    const status = await executeSparkTool(tools, "task_read", ctx, {
+      action: "project_status",
+      projectRef: project.ref,
+      format: "json",
+    });
+    const statusDetails = status.details as {
+      selectedProject?: { taskCounts?: { claimedByCurrentSession?: number } };
+      currentClaim?: unknown;
+    };
+    assert.equal(statusDetails.selectedProject?.taskCounts?.claimedByCurrentSession, 0);
+    assert.equal(statusDetails.currentClaim, undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("task_write release rejects non-owner, unclaimed, terminal, and unrelated inputs without mutation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-release-refusals-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await useOnlySparkProject(tools, ctx);
+    const store = defaultTaskGraphStore(dir);
+    const graph = await store.load();
+    assert.ok(graph);
+    const project = graph.projects()[0];
+    assert.ok(project);
+    const create = (name: string, status: "ready" | "done" | "failed" | "cancelled") =>
+      graph.createTask({
+        projectRef: project.ref,
+        name,
+        title: name,
+        description: `Release refusal fixture for ${name}.`,
+        kind: "implement",
+        status,
+        plan: executionReadyPlan(`Refuse release for ${name}.`),
+      });
+    const foreign = create("foreign-claim", "ready");
+    graph.claimTask(foreign.ref, {
+      kind: "main",
+      claimedBy: "session:other",
+      sessionId: "session:other",
+      leaseMs: 60_000,
+    });
+    const cases = [
+      { task: foreign, error: "claimed_by_other" },
+      { task: create("unclaimed", "ready"), error: "task_unclaimed" },
+      { task: create("terminal-done", "done"), error: "task_terminal" },
+      { task: create("terminal-failed", "failed"), error: "task_terminal" },
+      { task: create("terminal-cancelled", "cancelled"), error: "task_terminal" },
+    ];
+    await store.save(graph);
+
+    for (const entry of cases) {
+      const taskPath = join(
+        dir,
+        ".spark",
+        "projects",
+        project.ref.replace(":", "-"),
+        "tasks",
+        entry.task.ref.replace(":", "-"),
+        "task.json",
+      );
+      const before = await readFile(taskPath);
+      const refused = await executeSparkTool(tools, "task_write", ctx, {
+        action: "release",
+        taskRef: entry.task.ref,
+      });
+      assert.equal((refused.details as { error?: string }).error, entry.error);
+      assert.deepEqual(await readFile(taskPath), before);
+    }
+
+    const noCurrentClaim = await executeSparkTool(tools, "task_write", ctx, {
+      action: "release",
+    });
+    assert.equal((noCurrentClaim.details as { error?: string }).error, "no_current_claim");
+    await assert.rejects(
+      () =>
+        executeSparkTool(tools, "task_write", ctx, {
+          action: "release",
+          taskRef: cases[1]?.task.ref,
+          status: "done",
+        }),
+      /accepts only project\/projectRef and task\/taskRef; unexpected: status/u,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -2730,6 +3070,68 @@ test("canonical task claim can claim an existing planned task by taskRef", async
       claimedTask?.plan?.objective,
       "Audit a ready planned task through the canonical task facade.",
     );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("canonical task claim preserves every explicit unfinished status", async () => {
+  for (const status of ["pending", "ready", "running", "blocked"] as const) {
+    const dir = await mkdtemp(join(tmpdir(), `task-write-claim-status-${status}-`));
+    try {
+      await writeEmptySparkProject(dir);
+      const ctx = testSparkContext(dir, `status-${status}`);
+      const { tools } = registerSparkToolsForTest();
+      await useOnlySparkProject(tools, ctx);
+      const graph = await defaultTaskGraphStore(dir).load();
+      const project = graph?.projects()[0];
+      assert.ok(project);
+      const task = graph.createTask({
+        projectRef: project.ref,
+        name: `claim-status-${status}`,
+        title: `Claim status ${status}`,
+        description: `Explicit ${status} must survive daemon-owned claim acquisition.`,
+        kind: "implement",
+        status: "ready",
+        plan: executionReadyPlan(`Preserve explicit ${status} during claim acquisition.`),
+      });
+      await defaultTaskGraphStore(dir).save(graph);
+
+      await executeSparkTool(tools, "task_write", ctx, {
+        action: "claim",
+        taskRef: task.ref,
+        status,
+      });
+
+      const claimedTask = (await defaultTaskGraphStore(dir).load())?.getTask(task.ref);
+      assert.equal(claimedTask?.status, status);
+      assert.equal(claimedTask?.claim?.sessionId, ctxSessionKey(ctx));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("impl_claim_task rejects ephemeral main-claim ownership deterministically", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-claim-ephemeral-rejected-"));
+  try {
+    const persistent = testSparkContext(dir, "ephemeral");
+    const ctx: TestSparkContext = {
+      ...persistent,
+      sessionId: "",
+      sessionManager: {
+        getSessionFile: () => undefined,
+        getLeafId: () => undefined,
+      },
+    };
+    const { tools } = registerSparkToolsForTest();
+
+    const rejected = await executeSparkTool(tools, "impl_claim_task", ctx, {
+      taskRef: "task:unreachable",
+    });
+
+    assert.equal((rejected.details as { error?: string }).error, "durable_session_required");
+    assert.match(toolText(rejected), /persistent session/u);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -2874,7 +3276,7 @@ test("impl_claim_task requires an existing bound task plan instead of asking at 
     );
     const reloaded = await defaultTaskGraphStore(dir).load();
     assert.equal(reloaded?.getTask(task.ref).claim, undefined);
-    assert.equal((await defaultArtifactStore(dir).list({ kind: "record" })).length, 0);
+    assert.equal((await defaultEvidenceStore(dir).list({ kind: "record" })).length, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -3462,11 +3864,11 @@ test("impl_finish_task completes this session's claimed task", async () => {
     assert.match(toolText(completed), /Finished Spark task: \[done\] @finish-me: Finish me/);
     assert.match(
       toolText(completed),
-      /Completion evidence warning: Task completion needs evidence artifacts/,
+      /Completion evidence warning: Task completion needs Evidence records/,
     );
     assert.match(
       toolText(completed),
-      /Learning candidate: artifact:.* — Candidate from @finish-me/,
+      /Learning candidate: evidence:.* — Candidate from @finish-me/,
     );
     assert.equal((completed.details?.task as { status?: string } | undefined)?.status, "done");
     assert.equal((completed.details as { statusBefore?: string }).statusBefore, "running");
@@ -3484,7 +3886,7 @@ test("impl_finish_task completes this session's claimed task", async () => {
     assert.equal((completed.details as { reviewRequired?: boolean }).reviewRequired, true);
     assert.equal((completed.details?.review as { approved?: boolean } | undefined)?.approved, true);
     assert.ok(
-      (completed.details as { reviewArtifact?: string }).reviewArtifact?.startsWith("artifact:"),
+      (completed.details as { reviewEvidence?: string }).reviewEvidence?.startsWith("evidence:"),
     );
     assert.equal(
       (completed.details as { reviewer?: { required?: boolean; approved?: boolean } }).reviewer
@@ -3521,17 +3923,17 @@ test("impl_finish_task completes this session's claimed task", async () => {
     assert.ok(loaded);
     assert.equal(loaded.getTask(taskRef).status, "done");
     assert.equal(loaded.getTask(taskRef).claim, undefined);
-    const reviewArtifacts = await defaultArtifactStore(dir).list({ kind: "record" });
-    assert.equal(reviewArtifacts.length, 1);
+    const reviewEvidences = await defaultEvidenceStore(dir).list({ kind: "record" });
+    assert.equal(reviewEvidences.length, 1);
     const reviewDir = taskReviewDirectory(dir, loaded.getTask(taskRef).projectRef, taskRef);
     const reviewIndex = JSON.parse(await readFile(join(reviewDir, "index.json"), "utf8")) as {
-      reviews: Array<{ subjectKind?: string; subjectRef?: string; artifactRef?: string }>;
+      reviews: Array<{ subjectKind?: string; subjectRef?: string; evidenceRef?: string }>;
     };
     assert.equal(reviewIndex.reviews[0]?.subjectKind, "task");
     assert.equal(reviewIndex.reviews[0]?.subjectRef, taskRef);
-    assert.equal(reviewIndex.reviews[0]?.artifactRef, reviewArtifacts[0]?.ref);
+    assert.equal(reviewIndex.reviews[0]?.evidenceRef, reviewEvidences[0]?.ref);
     const subjectReview = JSON.parse(
-      await readFile(subjectReviewRecordPath(reviewDir, reviewArtifacts[0]!.ref), "utf8"),
+      await readFile(subjectReviewRecordPath(reviewDir, reviewEvidences[0]!.ref), "utf8"),
     ) as { subjectKind?: string; subjectRef?: string; outcome?: string };
     assert.equal(subjectReview.subjectKind, "task");
     assert.equal(subjectReview.subjectRef, taskRef);
@@ -3541,7 +3943,7 @@ test("impl_finish_task completes this session's claimed task", async () => {
     assert.equal(reviewEntry?.subjectKind, "task");
     assert.match(
       reviewEntry?.path ?? "",
-      /projects\/proj-.*\/tasks\/task-.*\/reviews\/artifact-.*\.json/,
+      /projects\/proj-.*\/tasks\/task-.*\/reviews\/evidence-.*\.json/,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -3616,7 +4018,7 @@ test("impl_finish_task attaches evidenceRefs before reviewer gate", async () => 
       },
     });
     await useOnlySparkProjectInExplicitPlanMode(tools, ctx);
-    const evidence = await defaultArtifactStore(dir).put({
+    const evidence = await defaultEvidenceStore(dir).put({
       kind: "record",
       title: "Focused validation evidence",
       format: "markdown",
@@ -3660,13 +4062,13 @@ test("impl_finish_task attaches evidenceRefs before reviewer gate", async () => 
     );
     const loaded = await defaultTaskGraphStore(dir).load();
     assert.ok(loaded);
-    assert.deepEqual(loaded.getTask(taskRef).outputArtifacts, [evidence.ref]);
+    assert.deepEqual(loaded.getTask(taskRef).outputEvidenceRefs, [evidence.ref]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("impl_finish_task can create bounded task evidence artifact before reviewer gate", async () => {
+test("impl_finish_task can create bounded task Evidence before reviewer gate", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-generated-evidence-"));
   try {
     await writeEmptySparkProject(dir);
@@ -3685,7 +4087,7 @@ test("impl_finish_task can create bounded task evidence artifact before reviewer
     const claim = await planAndClaimTask(tools, ctx, {
       name: "finish-generated-evidence",
       title: "Finish with generated evidence",
-      description: "Finish should create a bounded task evidence artifact.",
+      description: "Finish should create a bounded task Evidence record.",
       plan: executionReadyPlan("Finish with generated evidence"),
       todos: ["Generate evidence and finish task"],
     });
@@ -3712,24 +4114,24 @@ test("impl_finish_task can create bounded task evidence artifact before reviewer
       },
     });
 
-    assert.match(toolText(finished), /Generated evidence artifact: artifact:/);
-    const generatedRef = (finished.details as { generatedEvidenceArtifact?: ArtifactRef })
-      .generatedEvidenceArtifact;
-    assert.ok(generatedRef?.startsWith("artifact:"));
-    if (!generatedRef) throw new Error("missing generated evidence artifact ref");
+    assert.match(toolText(finished), /Evidence recorded: evidence:/);
+    const generatedRef = (finished.details as { generatedEvidenceRef?: EvidenceRef })
+      .generatedEvidenceRef;
+    assert.ok(generatedRef?.startsWith("evidence:"));
+    if (!generatedRef) throw new Error("missing generated evidence ref");
     assert.deepEqual(reviewerEvidenceRefs, [generatedRef]);
     assert.deepEqual((finished.details as { evidenceRefs?: string[] }).evidenceRefs, [
       generatedRef,
     ]);
     const loaded = await defaultTaskGraphStore(dir).load();
     assert.ok(loaded);
-    assert.deepEqual(loaded.getTask(taskRef).outputArtifacts, [generatedRef]);
-    const artifact = await defaultArtifactStore(dir).get(generatedRef);
-    assert.equal(artifact.provenance.producer, "task");
-    assert.equal(artifact.provenance.taskRef, taskRef);
-    assert.equal(artifact.curation?.status, "candidate");
-    assert.equal(artifact.curation?.retention, "task");
-    const body = artifact.body;
+    assert.deepEqual(loaded.getTask(taskRef).outputEvidenceRefs, [generatedRef]);
+    const evidence = await defaultEvidenceStore(dir).get(generatedRef);
+    assert.equal(evidence.provenance.producer, "task");
+    assert.equal(evidence.provenance.taskRef, taskRef);
+    assert.equal(evidence.curation?.status, "candidate");
+    assert.equal(evidence.curation?.retention, "task");
+    const body = evidence.body;
     assert.equal(typeof body, "string");
     if (typeof body !== "string") throw new Error("generated evidence body must be markdown");
     assert.match(body, /Generated finish evidence/);
@@ -3754,7 +4156,7 @@ test("impl_finish_task does not persist evidenceRefs when follow-up gate blocks"
       },
     });
     await useOnlySparkProjectInExplicitPlanMode(tools, ctx);
-    const evidence = await defaultArtifactStore(dir).put({
+    const evidence = await defaultEvidenceStore(dir).put({
       kind: "record",
       title: "Follow-up evidence",
       format: "markdown",
@@ -3794,7 +4196,7 @@ test("impl_finish_task does not persist evidenceRefs when follow-up gate blocks"
     const loaded = await defaultTaskGraphStore(dir).load();
     assert.ok(loaded);
     assert.equal(loaded.getTask(taskRef).status, "running");
-    assert.deepEqual(loaded.getTask(taskRef).outputArtifacts, []);
+    assert.deepEqual(loaded.getTask(taskRef).outputEvidenceRefs, []);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -3862,7 +4264,7 @@ test("impl_finish_task keeps task unfinished when reviewer rejects done transiti
       false,
     );
     assert.ok(
-      (rejected.details as { reviewArtifact?: string }).reviewArtifact?.startsWith("artifact:"),
+      (rejected.details as { reviewEvidence?: string }).reviewEvidence?.startsWith("evidence:"),
     );
     assert.equal((await defaultLearningStore(dir).list({ includeCandidates: true })).length, 0);
 
@@ -3870,24 +4272,24 @@ test("impl_finish_task keeps task unfinished when reviewer rejects done transiti
     assert.ok(loaded);
     assert.equal(loaded.getTask(taskRef).status, "running");
     assert.ok(loaded.getTask(taskRef).claim);
-    const reviewArtifacts = await defaultArtifactStore(dir).list({ kind: "record" });
-    assert.equal(reviewArtifacts.length, 1);
-    assert.equal(reviewArtifacts[0]?.provenance.producer, "review");
-    assert.equal(reviewArtifacts[0]?.provenance.taskRef, taskRef);
-    const reviewArtifact = await defaultArtifactStore(dir).get(reviewArtifacts[0]!.ref);
+    const reviewEvidences = await defaultEvidenceStore(dir).list({ kind: "record" });
+    assert.equal(reviewEvidences.length, 1);
+    assert.equal(reviewEvidences[0]?.provenance.producer, "review");
+    assert.equal(reviewEvidences[0]?.provenance.taskRef, taskRef);
+    const reviewEvidence = await defaultEvidenceStore(dir).get(reviewEvidences[0]!.ref);
     const reviewerRun = (
-      reviewArtifact?.body as { reviewerRun?: { stdoutPreview?: string } } | undefined
+      reviewEvidence?.body as { reviewerRun?: { stdoutPreview?: string } } | undefined
     )?.reviewerRun;
     assert.match(reviewerRun?.stdoutPreview ?? "", /test reviewer raw stdout/);
     const reviewDir = taskReviewDirectory(dir, loaded.getTask(taskRef).projectRef, taskRef);
     const reviewIndex = JSON.parse(await readFile(join(reviewDir, "index.json"), "utf8")) as {
-      reviews: Array<{ subjectKind?: string; subjectRef?: string; artifactRef?: string }>;
+      reviews: Array<{ subjectKind?: string; subjectRef?: string; evidenceRef?: string }>;
     };
     assert.equal(reviewIndex.reviews[0]?.subjectKind, "task");
     assert.equal(reviewIndex.reviews[0]?.subjectRef, taskRef);
-    assert.equal(reviewIndex.reviews[0]?.artifactRef, reviewArtifacts[0]?.ref);
+    assert.equal(reviewIndex.reviews[0]?.evidenceRef, reviewEvidences[0]?.ref);
     const subjectReview = JSON.parse(
-      await readFile(subjectReviewRecordPath(reviewDir, reviewArtifacts[0]!.ref), "utf8"),
+      await readFile(subjectReviewRecordPath(reviewDir, reviewEvidences[0]!.ref), "utf8"),
     ) as { subjectKind?: string; subjectRef?: string; outcome?: string };
     assert.equal(subjectReview.subjectKind, "task");
     assert.equal(subjectReview.subjectRef, taskRef);
@@ -3947,10 +4349,10 @@ test("impl_finish_task treats malformed reviewer verdict as blocking feedback", 
     assert.ok(loaded);
     assert.equal(loaded.getTask(taskRef).status, "running");
     assert.ok(loaded.getTask(taskRef).claim);
-    const reviewArtifacts = await defaultArtifactStore(dir).list({ kind: "record" });
-    assert.equal(reviewArtifacts.length, 1);
-    assert.equal(reviewArtifacts[0]?.provenance.producer, "review");
-    assert.equal(reviewArtifacts[0]?.provenance.taskRef, taskRef);
+    const reviewEvidences = await defaultEvidenceStore(dir).list({ kind: "record" });
+    assert.equal(reviewEvidences.length, 1);
+    assert.equal(reviewEvidences[0]?.provenance.producer, "review");
+    assert.equal(reviewEvidences[0]?.provenance.taskRef, taskRef);
     assert.equal((await defaultLearningStore(dir).list({ includeCandidates: true })).length, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -4000,15 +4402,15 @@ test("impl_finish_task blocks research follow-ups without explicit disposition",
     assert.ok(loaded);
     assert.equal(loaded.getTask(taskRef).status, "running");
     assert.ok(loaded.getTask(taskRef).claim);
-    assert.equal((await defaultArtifactStore(dir).list({ kind: "record" })).length, 0);
+    assert.equal((await defaultEvidenceStore(dir).list({ kind: "record" })).length, 0);
     assert.equal((await defaultLearningStore(dir).list({ includeCandidates: true })).length, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("impl_finish_task accepts summary disposition for artifact follow-ups", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-artifact-followup-disposition-"));
+test("impl_finish_task accepts summary disposition for Evidence follow-ups", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-evidence-followup-disposition-"));
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
@@ -4022,7 +4424,7 @@ test("impl_finish_task accepts summary disposition for artifact follow-ups", asy
       },
     });
     await useOnlySparkProjectInExplicitPlanMode(tools, ctx);
-    const evidence = await defaultArtifactStore(dir).put({
+    const evidence = await defaultEvidenceStore(dir).put({
       kind: "record",
       title: "Follow-up evidence",
       format: "markdown",
@@ -4031,25 +4433,25 @@ test("impl_finish_task accepts summary disposition for artifact follow-ups", asy
     });
 
     const claim = await planAndClaimTask(tools, ctx, {
-      name: "finish-artifact-followup-disposition",
-      title: "Finish artifact follow-up disposition",
-      description: "Summary disposition may explicitly cover artifact follow-up signals.",
+      name: "finish-evidence-followup-disposition",
+      title: "Finish Evidence follow-up disposition",
+      description: "Summary disposition may explicitly cover Evidence follow-up signals.",
       kind: "research",
-      plan: executionReadyPlan("Finish artifact follow-up disposition"),
-      todos: ["Validate artifact follow-up disposition"],
+      plan: executionReadyPlan("Finish Evidence follow-up disposition"),
+      todos: ["Validate Evidence follow-up disposition"],
     });
     const taskRef = (claim.details?.task as { ref?: TaskRef } | undefined)?.ref;
     assert.ok(taskRef);
 
     await executeSparkTool(tools, "impl_update_task_plan_items", ctx, {
       ops: [
-        { op: "init", items: ["Validate artifact follow-up disposition"] },
-        { op: "done", item: "Validate artifact follow-up disposition" },
+        { op: "init", items: ["Validate Evidence follow-up disposition"] },
+        { op: "done", item: "Validate Evidence follow-up disposition" },
       ],
     });
 
     const finished = await executeSparkTool(tools, "impl_finish_task", ctx, {
-      summary: `Research conclusion: artifact disposition is explicit.\nFollow-ups:\n- already_covered: ${evidence.ref} is covered by an existing task.`,
+      summary: `Research conclusion: Evidence disposition is explicit.\nFollow-ups:\n- already_covered: ${evidence.ref} is covered by an existing task.`,
       evidenceRefs: [evidence.ref],
     });
 
@@ -4058,7 +4460,7 @@ test("impl_finish_task accepts summary disposition for artifact follow-ups", asy
     const loaded = await defaultTaskGraphStore(dir).load();
     assert.ok(loaded);
     assert.equal(loaded.getTask(taskRef).status, "done");
-    assert.deepEqual(loaded.getTask(taskRef).outputArtifacts, [evidence.ref]);
+    assert.deepEqual(loaded.getTask(taskRef).outputEvidenceRefs, [evidence.ref]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -4111,7 +4513,7 @@ test("impl_finish_task completes research when follow-ups are dispositioned", as
     assert.ok(loaded);
     assert.equal(loaded.getTask(taskRef).status, "done");
     assert.equal(loaded.getTask(taskRef).claim, undefined);
-    assert.equal((await defaultArtifactStore(dir).list({ kind: "record" })).length, 1);
+    assert.equal((await defaultEvidenceStore(dir).list({ kind: "record" })).length, 1);
     assert.equal((await defaultLearningStore(dir).list({ includeCandidates: true })).length, 1);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -4222,6 +4624,7 @@ test("split task tools dispatch read, write, and assign actions", async () => {
     assert.doesNotMatch(taskParameters, /Preferred role ref/);
     assert.doesNotMatch(taskParameters, /run_ready/);
     assert.doesNotMatch(taskParameters, /run_control/);
+    assert.match(taskParameters, /recover \| release \| plan_update/);
     const taskReadParameters = JSON.stringify(tools.get("task_read")?.parameters);
     assert.match(taskReadParameters, /task_status/);
     assert.match(taskReadParameters, /project_status/);
@@ -4266,11 +4669,48 @@ test("split task tools dispatch read, write, and assign actions", async () => {
           title: "Canonical task tool",
           description: "Exercise task action routing.",
           status: "ready",
+          executionPolicy: {
+            continuity: "fresh",
+            isolation: "isolated_results",
+            comparison: "paired",
+            resources: { gpuCount: 0 },
+            concurrencyKeys: ["results:canonical-task-tool"],
+            timeoutMs: 60_000,
+            maxAttempts: 3,
+          },
           plan: executionReadyPlan("Exercise task action routing"),
         },
       ],
     });
     assert.match(toolText(planned), /Planned tasks: created=1/);
+    const plannedGraph = await defaultTaskGraphStore(dir).load();
+    assert.deepEqual(
+      plannedGraph?.tasks().find((task) => task.name === "canonical-task-tool")?.executionPolicy,
+      {
+        continuity: "fresh",
+        isolation: "isolated_results",
+        comparison: "paired",
+        concurrencyKeys: ["results:canonical-task-tool"],
+        timeoutMs: 60_000,
+        maxAttempts: 3,
+      },
+    );
+    await assert.rejects(
+      () =>
+        executeSparkTool(tools, "task_write", ctx, {
+          action: "plan",
+          tasks: [
+            {
+              name: "invalid-resource-policy",
+              title: "Invalid resource policy",
+              description: "Must fail closed.",
+              executionPolicy: { resources: { gpuCount: -1 } },
+              plan: executionReadyPlan("Reject invalid resource policy"),
+            },
+          ],
+        }),
+      /resources\.gpuCount must be a non-negative integer/u,
+    );
 
     const status = await executeSparkTool(tools, "task_read", ctx, {
       action: "project_status",
@@ -4589,11 +5029,11 @@ test("evidence tool lists and reads evidence through the canonical facade", asyn
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
-    const artifact = await defaultArtifactStore(dir).put({
+    const evidence = await defaultEvidenceStore(dir).put({
       kind: "document",
       title: "Facade research note",
       format: "text",
-      body: "artifact body",
+      body: "evidence body",
       provenance: { producer: "spark" },
     });
     const { tools } = registerSparkToolsForTest();
@@ -4602,7 +5042,7 @@ test("evidence tool lists and reads evidence through the canonical facade", asyn
       action: "list",
       kind: "document",
     });
-    assert.match(toolText(listed), new RegExp(`- ${artifact.ref}`));
+    assert.match(toolText(listed), new RegExp(`- ${evidence.ref}`));
     assert.doesNotMatch(toolText(listed), /Facade research note/);
     assert.equal((listed.details as { count?: number }).count, 1);
     assert.equal((listed.details as { view?: string }).view, "ref-only");
@@ -4612,51 +5052,48 @@ test("evidence tool lists and reads evidence through the canonical facade", asyn
       kind: "document",
       view: "summary",
     });
-    assert.match(toolText(summary), new RegExp(`${artifact.ref}.*Facade research note`));
+    assert.match(toolText(summary), new RegExp(`${evidence.ref}.*Facade research note`));
 
     const refOnly = await executeSparkTool(tools, "evidence", ctx, {
       action: "list",
       kind: "document",
       view: "ref-only",
     });
-    assert.match(toolText(refOnly), new RegExp(`- ${artifact.ref}`));
+    assert.match(toolText(refOnly), new RegExp(`- ${evidence.ref}`));
     assert.doesNotMatch(toolText(refOnly), /Facade research note/);
 
     const read = await executeSparkTool(tools, "evidence", ctx, {
       action: "read",
-      artifactRef: artifact.ref,
+      evidenceRef: evidence.ref,
     });
     assert.match(toolText(read), /Facade research note/);
-    assert.match(
-      toolText(read),
-      /Recorded evidence|evidence body|Facade research note|artifact body/,
-    );
+    assert.match(toolText(read), /Recorded evidence|evidence body|Facade research note/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("artifact tool rejects invalid explicit filters", async () => {
+test("evidence tool rejects invalid filters and non-evidence refs", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-artifacts-invalid-filters-"));
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
-    const artifact = await defaultArtifactStore(dir).put({
+    const evidence = await defaultEvidenceStore(dir).put({
       kind: "document",
       title: "Boundary note",
       format: "text",
-      body: "artifact body",
+      body: "evidence body",
       provenance: { producer: "spark" },
     });
     const { tools } = registerSparkToolsForTest();
 
     await assert.rejects(
       () => executeSparkTool(tools, "evidence", ctx, { action: "list", kind: "note" }),
-      /kind must be a valid artifact kind; valid values: document, record, trace, knowledge; received: note/,
+      /kind must be a valid Evidence kind; valid values: document, record, trace, knowledge; received: note/,
     );
     await assert.rejects(
       () => executeSparkTool(tools, "evidence", ctx, { action: "list", producer: "agent" }),
-      /producer must be a valid artifact producer; valid values: spark, role, task, review, ask, cue, user; received: agent.*producer=task.*runRef\/taskRef/,
+      /producer must be a valid Evidence producer; valid values: spark, role, task, review, ask, cue, user; received: agent.*producer=task.*runRef\/taskRef/,
     );
     await assert.rejects(
       () =>
@@ -4668,17 +5105,17 @@ test("artifact tool rejects invalid explicit filters", async () => {
           body: "draft",
           provenance: { producer: "task" },
         }),
-      /kind must be a valid artifact kind; valid values: document, record, trace, knowledge; received: plan-draft.*kind=document/,
+      /kind must be a valid Evidence kind; valid values: document, record, trace, knowledge; received: plan-draft.*kind=document/,
     );
     await assert.rejects(
       () =>
         executeSparkTool(tools, "evidence", ctx, {
           action: "link",
-          from: artifact.ref,
+          from: evidence.ref,
           to: "task:demo",
           relation: "review",
         }),
-      /relation must be a valid artifact link relation; valid values: parent, input, output, review-of, answer-to, trace-of, derived-from; received: review/,
+      /relation must be a valid Evidence link relation; valid values: parent, input, output, review-of, answer-to, trace-of, derived-from; received: review/,
     );
     await assert.rejects(
       () => executeSparkTool(tools, "evidence", ctx, { action: "list", projectRef: "project:one" }),
@@ -4697,9 +5134,9 @@ test("artifact tool rejects invalid explicit filters", async () => {
       () =>
         executeSparkTool(tools, "evidence", ctx, {
           action: "read",
-          artifactRef: "note:one",
+          evidenceRef: evidenceSurfaceNegativeValues.wrongNamespaceRef,
         }),
-      /artifactRef must be an evidence: or artifact: ref/,
+      /evidenceRef must be an evidence: ref/,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -4725,18 +5162,18 @@ test("memory kind=learning routes record, list, search, read, export, and import
       statement:
         "Spark learnings live in .spark/memory/learnings locally and can be shared through explicit Markdown exports.",
       category: "decision",
-      evidenceRefs: ["artifact:decision-gate"],
+      evidenceRefs: ["evidence:decision-gate"],
       tags: ["nyakore", "spark"],
       confidence: 0.9,
     });
-    assert.match(toolText(recorded), /Recorded learning artifact:learning-explicit-export/);
+    assert.match(toolText(recorded), /Recorded learning evidence:learning-explicit-export/);
     await writeFile(
       join(dir, ".spark", "memory", "learnings", "invalid-kind-learning.json"),
       JSON.stringify(
         {
-          ref: "artifact:invalid-kind-learning",
+          ref: "evidence:invalid-kind-learning",
           kind: "not-a-valid-kind",
-          title: "Invalid learning artifact metadata",
+          title: "Invalid learning Evidence metadata",
           format: "json",
           body: {},
           links: [],
@@ -4756,7 +5193,7 @@ test("memory kind=learning routes record, list, search, read, export, and import
       location: "workspace",
     });
     assert.match(toolText(listed), /Export shared learnings explicitly/);
-    assert.match(toolText(listed), /warning:.*kind must be a valid artifact kind/);
+    assert.match(toolText(listed), /warning:.*kind must be a valid Evidence kind/);
     assert.equal((listed.details as { warnings?: unknown[] }).warnings?.length, 1);
 
     const search = await executeSparkTool(tools, "memory", ctx, {
@@ -4766,13 +5203,13 @@ test("memory kind=learning routes record, list, search, read, export, and import
       location: "workspace",
     });
     assert.match(toolText(search), /Export shared learnings explicitly/);
-    assert.match(toolText(search), /warning:.*kind must be a valid artifact kind/);
+    assert.match(toolText(search), /warning:.*kind must be a valid Evidence kind/);
     assert.equal((search.details as { warnings?: unknown[] }).warnings?.length, 1);
 
     const read = await executeSparkTool(tools, "memory", ctx, {
       kind: "learning",
       action: "read",
-      ref: "artifact:learning-explicit-export",
+      ref: "evidence:learning-explicit-export",
     });
     assert.match(toolText(read), /Export shared learnings explicitly/);
     assert.ok(
@@ -4901,19 +5338,22 @@ test("memory kind=learning rejects invalid explicit parameters", async () => {
   }
 });
 
-test("impl_ask_replay rejects invalid explicit artifact refs", async () => {
+test("impl_ask_replay rejects non-evidence refs", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-ask-replay-invalid-ref-"));
   try {
     const ctx = testSparkContext(dir, "main");
     const { tools } = registerSparkToolsForTest();
 
     await assert.rejects(
-      () => executeSparkTool(tools, "impl_ask_replay", ctx, { artifactRef: 42 }),
-      /artifactRef must be a string/,
+      () => executeSparkTool(tools, "impl_ask_replay", ctx, { evidenceRef: 42 }),
+      /evidenceRef must be a string/,
     );
     await assert.rejects(
-      () => executeSparkTool(tools, "impl_ask_replay", ctx, { artifactRef: "ask:one" }),
-      /artifactRef must be an artifact: ref/,
+      () =>
+        executeSparkTool(tools, "impl_ask_replay", ctx, {
+          evidenceRef: evidenceSurfaceNegativeValues.wrongNamespaceRef,
+        }),
+      /evidenceRef must be an evidence: ref/,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -4930,14 +5370,14 @@ test("impl_use_project clarifies generic project labels", async () => {
     const created = await executeSparkTool(tools, "impl_use_project", ctx, { title: "tasks" });
     assert.match(toolText(created), /Created new Spark project/);
     assert.equal((created.details as { created?: boolean } | undefined)?.created, true);
-    const artifacts = await defaultArtifactStore(dir).list({
+    const artifacts = await defaultEvidenceStore(dir).list({
       kind: "record",
     });
     assert.equal(artifacts.length, 1);
-    const traces = await defaultArtifactStore(dir).list({
+    const traces = await defaultEvidenceStore(dir).list({
       kind: "trace",
     });
-    const askArtifact = await defaultArtifactStore(dir).get(artifacts[0].ref);
+    const askArtifact = await defaultEvidenceStore(dir).get(artifacts[0].ref);
     const askBody = askArtifact.body as {
       request?: { questions?: Array<{ id: string; prompt?: string }> };
     };
@@ -5120,6 +5560,111 @@ test("impl_use_project reports selected existing projects", async () => {
     assert.equal((selected.details as { created?: boolean } | undefined)?.created, false);
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("subject review rebuild reads a controlled v1 Evidence fixture and writes canonical indexes", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-subject-review-legacy-"));
+  try {
+    const fixture =
+      await loadLegacyEvidenceFixture<LegacyEvidenceFixture<Record<string, unknown>>>(
+        "subject-review-v1.json",
+      );
+    const reviewDir = join(dir, "reviews");
+    await mkdir(reviewDir, { recursive: true });
+    await writeFile(join(reviewDir, "legacy.json"), JSON.stringify(fixture.value));
+
+    const index = await rebuildSubjectReviewIndex(reviewDir);
+    assert.equal(index.reviews[0]?.evidenceRef, "evidence:legacy-review");
+    const persisted = await readFile(join(reviewDir, "index.json"), "utf8");
+    assert.match(persisted, /"evidenceRef": "evidence:legacy-review"/);
+    for (const legacyField of fixture.legacyFieldNames) {
+      assert.doesNotMatch(persisted, quotedJsonField(legacyField));
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("subject review rebuild rejects controlled mixed canonical and legacy Evidence", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-subject-review-mixed-evidence-"));
+  try {
+    const fixture = await loadLegacyEvidenceFixture<LegacyEvidenceFixture<Record<string, unknown>>>(
+      "subject-review-mixed-v1.json",
+    );
+    const reviewDir = join(dir, "reviews");
+    await mkdir(reviewDir, { recursive: true });
+    await writeFile(join(reviewDir, "mixed.json"), JSON.stringify(fixture.value));
+    await assert.rejects(
+      () => rebuildSubjectReviewIndex(reviewDir),
+      /must not contain both evidenceRef and legacy/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("session goal reads a controlled legacy review fixture and writes only Evidence names", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-session-goal-legacy-evidence-"));
+  try {
+    const ctx = testSparkContext(dir, "main");
+    const fixture = await loadLegacyEvidenceFixture<LegacyEvidenceFixture<Record<string, unknown>>>(
+      "session-goal-v1.json",
+      { SESSION_ID: ctx.sessionId },
+    );
+    const path = sessionGoalStorePath(dir, ctx);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, JSON.stringify(fixture.value));
+
+    const loaded = await loadSessionGoal(dir, ctx);
+    assert.equal(loaded?.lastReviewEvidenceRef, "evidence:legacy-review");
+    await updateSessionGoalStatus(dir, ctx, "active", { reason: "rewrite canonical schema" });
+    const persisted = await readFile(path, "utf8");
+    assert.match(persisted, /"lastReviewEvidenceRef": "evidence:legacy-review"/);
+    for (const legacyField of fixture.legacyFieldNames) {
+      assert.doesNotMatch(persisted, quotedJsonField(legacyField));
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("session goal rejects controlled mixed canonical and legacy review Evidence", async () => {
+  const fixture = await loadLegacyEvidenceFixture<{
+    legacyFieldNames: string[];
+    cases: Array<{ name: string; fields: Record<string, unknown> }>;
+  }>("session-goal-mixed-v1.json");
+  for (const testCase of fixture.cases) {
+    const dir = await mkdtemp(join(tmpdir(), `spark-session-goal-mixed-${testCase.name}-`));
+    try {
+      const ctx = testSparkContext(dir, "main");
+      const path = sessionGoalStorePath(dir, ctx);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(
+        path,
+        JSON.stringify({
+          version: 1,
+          goal: {
+            version: 1,
+            goalId: `mixed-${testCase.name}`,
+            sessionKey: ctx.sessionId,
+            originalObjective: "Reject ambiguous persisted evidence",
+            objective: "Reject ambiguous persisted evidence",
+            status: "active",
+            source: "explicit",
+            ...testCase.fields,
+            createdAt: "2026-07-01T00:00:00.000Z",
+            updatedAt: "2026-07-01T00:00:00.000Z",
+          },
+        }),
+      );
+      await assert.rejects(
+        () => loadSessionGoal(dir, ctx),
+        /must not contain multiple canonical or legacy review evidence fields/,
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 });
 
@@ -5334,10 +5879,10 @@ test("spark_goal tool sets and updates durable session goals", async () => {
     assert.equal(editedGoal?.objective, "Finish the edited durable goal slice");
     assert.equal(editedGoal?.originalObjective, "Finish the durable goal slice");
     assert.equal(editedGoal?.lastReviewRef, undefined);
-    assert.equal(editedGoal?.lastReviewArtifactRef, undefined);
+    assert.equal(editedGoal?.lastReviewEvidenceRef, undefined);
     assert.equal(editedGoal?.lastReviewedAt, undefined);
 
-    const completionEvidence = await defaultArtifactStore(dir).put({
+    const completionEvidence = await defaultEvidenceStore(dir).put({
       kind: "trace",
       title: "Durable goal slice completion",
       format: "text",
@@ -5397,14 +5942,14 @@ test("spark_goal complete uses deterministic blocker before reviewer when work r
         status: "done",
         plan: executionReadyPlan("Completed evidence must not bypass unfinished work"),
       });
-      const evidence = await defaultArtifactStore(dir).put({
+      const evidence = await defaultEvidenceStore(dir).put({
         kind: "trace",
         title: "Partial completion evidence",
         format: "text",
         body: "One completed task has evidence, but the project still has unfinished work.",
         provenance: { producer: "task", projectRef: project.ref, taskRef: doneTask.ref },
       });
-      graph.attachOutputArtifact(doneTask.ref, evidence.ref);
+      graph.attachOutputEvidence(doneTask.ref, evidence.ref);
       graph.createTask({
         projectRef: project.ref,
         name: "unfinished-complete-blocker",
@@ -5429,7 +5974,7 @@ test("spark_goal complete uses deterministic blocker before reviewer when work r
     const goal = await loadSessionGoal(dir, ctx);
     assert.equal(goal?.status, "active");
     assert.ok(goal?.lastReviewedAt);
-    assert.equal(goal?.lastReviewArtifactRef, undefined);
+    assert.equal(goal?.lastReviewEvidenceRef, undefined);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -5470,7 +6015,7 @@ test("spark_goal complete requires explicit evidence and objective reviewer gate
       action: "start",
       objective: "Finish the explicit reviewer gate slice",
     });
-    const evidence = await defaultArtifactStore(dir).put({
+    const evidence = await defaultEvidenceStore(dir).put({
       kind: "trace",
       title: "Explicit reviewer gate evidence",
       format: "text",
@@ -5507,7 +6052,7 @@ test("spark_goal complete allows an explicitly evidenced narrow goal after revie
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
     let reviewerCalls = 0;
-    let completionEvidenceRef: ArtifactRef | undefined;
+    let completionEvidenceRef: EvidenceRef | undefined;
     const { tools } = registerSparkToolsForTest({
       reviewerRunner: {
         async review(input: ReviewInput): Promise<ReviewerRunResult> {
@@ -5537,7 +6082,7 @@ test("spark_goal complete allows an explicitly evidenced narrow goal after revie
           "Update docs and run final validation for plain loop stop lifecycle",
         ),
       });
-      const evidence = await defaultArtifactStore(dir).put({
+      const evidence = await defaultEvidenceStore(dir).put({
         kind: "trace",
         title: "Loop stop lifecycle validation",
         format: "text",
@@ -5545,7 +6090,7 @@ test("spark_goal complete allows an explicitly evidenced narrow goal after revie
         provenance: { producer: "task", projectRef: project.ref, taskRef: doneTask.ref },
       });
       completionEvidenceRef = evidence.ref;
-      graph.attachOutputArtifact(doneTask.ref, evidence.ref);
+      graph.attachOutputEvidence(doneTask.ref, evidence.ref);
       graph.createTask({
         projectRef: project.ref,
         name: "role-tui-observability-backlog",
@@ -5581,7 +6126,7 @@ test("spark_goal complete allows an explicitly evidenced narrow goal after revie
     assert.equal(reviewerCalls, 1);
     const goal = await loadSessionGoal(dir, ctx);
     assert.equal(goal?.status, "complete");
-    assert.ok(goal?.lastReviewArtifactRef);
+    assert.ok(goal?.lastReviewEvidenceRef);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -5611,7 +6156,7 @@ test("spark_goal pause requires reviewer approval and preserves active goal on r
     assert.match(toolText(rejected), /pause reason is not justified/);
     const goal = await loadSessionGoal(dir, ctx);
     assert.equal(goal?.status, "active");
-    assert.equal((await defaultArtifactStore(dir).list({ kind: "record" })).length, 1);
+    assert.equal((await defaultEvidenceStore(dir).list({ kind: "record" })).length, 1);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -5644,7 +6189,7 @@ test("spark_goal rejects autonomous pause and keeps blocker resolution guidance"
     assert.match(toolText(rejected), /resolve the blocker first/);
     const goal = await loadSessionGoal(dir, ctx);
     assert.equal(goal?.status, "active");
-    assert.equal((await defaultArtifactStore(dir).list({ kind: "record" })).length, 0);
+    assert.equal((await defaultEvidenceStore(dir).list({ kind: "record" })).length, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -6298,6 +6843,33 @@ test("/repro command treats non-action text as the repro objective", async () =>
   }
 });
 
+test("repro record without an active drive returns an actionable recovery hint", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-inactive-recovery-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+
+    const status = await executeSparkTool(tools, "repro", ctx, { action: "status" });
+    assert.match(toolText(status), /No repro drive is active\./);
+    assert.match(toolText(status), /repro\(\{ action: "start" \}\)/);
+    assert.equal((status.details as { active?: boolean }).active, false);
+    assert.equal((status.details as { recovery?: string }).recovery, 'repro({ action: "start" })');
+
+    const record = await executeSparkTool(tools, "repro", ctx, {
+      action: "record",
+      requirementId: "repro-contract-frozen",
+      proof: { kind: "evidence", evidenceRefs: ["evidence:00000000-0000-4000-8000-000000000000"] },
+    });
+    assert.match(toolText(record), /No active repro drive\./);
+    assert.match(toolText(record), /repro\(\{ action: "start" \}\)/);
+    assert.match(toolText(record), /evidence refs stay valid/);
+    assert.equal((record.details as { active?: boolean }).active, false);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
 test("repro record accepts only receipt-backed ask decisions with matching values", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-proof-validation-"));
   try {
@@ -6402,9 +6974,14 @@ test("repro record accepts only receipt-backed ask decisions with matching value
       title: "Reviewer decision is not user evidence",
       format: "json",
       body: {
-        schema: "spark.ask.evidence/v1",
+        schema: "spark.ask.evidence/v2",
         request: { questions: [{ id: "strategy", prompt: "Choose strategy" }] },
-        result: { status: "answered", answers: { strategy: { values: ["reuse"] } } },
+        result: {
+          status: "answered",
+          answerSource: "reviewer",
+          answers: { strategy: { values: ["reuse"] } },
+        },
+        answerSource: "reviewer",
         autoAnswered: true,
         recordedAt: new Date().toISOString(),
       },
@@ -6437,7 +7014,7 @@ test("repro approval Steps require a current bound approving Ask receipt", async
     await executeSparkTool(tools, "repro", ctx, { action: "start" });
     const initial = await readSessionRepro(dir, ctx);
     if (!initial) throw new Error("missing active repro");
-    const stepId = "repro-contract-frozen";
+    const stepId = "freeze-source-model-weight-data-contract";
     await executeSparkTool(tools, "repro", ctx, {
       action: "plan",
       reason: "Require explicit contract approval",
@@ -6730,7 +7307,7 @@ test("repro plan, step, and settle enforce the typed protocol and bounded contin
 
     const reproBeforeStep = await readSessionRepro(dir, ctx);
     const contractStep = reproBeforeStep?.plan.steps.find(
-      (step) => step.id === "repro-contract-frozen",
+      (step) => step.id === "freeze-source-model-weight-data-contract",
     );
     if (!reproBeforeStep || !contractStep) throw new Error("missing seeded repro contract step");
     const evidence = await defaultEvidenceStore(dir).put({
@@ -6750,7 +7327,7 @@ test("repro plan, step, and settle enforce the typed protocol and bounded contin
     });
     const stepped = await executeSparkTool(tools, "repro", ctx, {
       action: "step",
-      stepId: "repro-contract-frozen",
+      stepId: "freeze-source-model-weight-data-contract",
       stepStatus: "done",
       stepEvidenceRefs: [evidence.ref],
     });
@@ -8054,7 +8631,7 @@ test("impl_workflow_runs reply and steer require one active visible role-run", a
         ownerSessionId: "session:parent",
         status: "running",
         startedAt: new Date().toISOString(),
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
       });
     });
     const { tools } = registerSparkToolsForTest();
@@ -8250,9 +8827,9 @@ test("impl_workflow_runs reply records failed delivery without successful activi
       toolText(replied),
       new RegExp(`Spark background role-run reply: not delivered to ${active.runRef}`),
     );
-    assert.match(toolText(replied), /Control artifact: artifact:/);
+    assert.match(toolText(replied), /Control evidence: evidence:/);
     const details = replied.details as {
-      controlArtifactRef?: string;
+      controlEvidenceRef?: string;
       sent?: Array<{ delivered?: boolean; runRef?: string; inputControl?: string }>;
       background?: {
         roleRunRegistry?: {
@@ -8260,15 +8837,15 @@ test("impl_workflow_runs reply records failed delivery without successful activi
         };
       };
     };
-    assert.match(details.controlArtifactRef ?? "", /^artifact:/);
+    assert.match(details.controlEvidenceRef ?? "", /^evidence:/);
     assert.equal(details.sent?.[0]?.runRef, active.runRef);
     assert.equal(details.sent?.[0]?.delivered, false);
     assert.equal(details.sent?.[0]?.inputControl, "none");
-    const controlArtifact = await defaultArtifactStore(dir).get(
-      details.controlArtifactRef as ArtifactRef,
+    const controlEvidence = await defaultEvidenceStore(dir).get(
+      details.controlEvidenceRef as EvidenceRef,
     );
-    assert.equal(controlArtifact.provenance.runRef, active.runRef);
-    const controlBody = controlArtifact.body as {
+    assert.equal(controlEvidence.provenance.runRef, active.runRef);
+    const controlBody = controlEvidence.body as {
       sent?: Array<{
         delivered?: boolean;
         runRef?: string;
@@ -8376,20 +8953,20 @@ test("impl_workflow_runs reply delivers through native role-run input control", 
       toolText(replied),
       new RegExp(`Spark background role-run reply: sent to ${active.runRef}`),
     );
-    assert.match(toolText(replied), /Control artifact: artifact:/);
+    assert.match(toolText(replied), /Control evidence: evidence:/);
     const details = replied.details as {
-      controlArtifactRef?: string;
+      controlEvidenceRef?: string;
       sent?: Array<{ delivered?: boolean; runRef?: string; inputControl?: string }>;
       background?: {
         roleRunRegistry?: {
           entries?: Array<{
             runRef?: string;
-            events?: Array<{ type?: string; message?: string; artifactRefs?: string[] }>;
+            events?: Array<{ type?: string; message?: string; evidenceRefs?: string[] }>;
           }>;
         };
       };
     };
-    assert.match(details.controlArtifactRef ?? "", /^artifact:/);
+    assert.match(details.controlEvidenceRef ?? "", /^evidence:/);
     assert.equal(details.sent?.[0]?.runRef, active.runRef);
     assert.equal(details.sent?.[0]?.delivered, true);
     assert.equal(details.sent?.[0]?.inputControl, "native");
@@ -8411,9 +8988,9 @@ test("impl_workflow_runs reply delivers through native role-run input control", 
     assert.match(
       (entry?.events ?? [])
         .filter((event) => event.type === "replied")
-        .flatMap((event) => event.artifactRefs ?? [])
+        .flatMap((event) => event.evidenceRefs ?? [])
         .at(0) ?? "",
-      /^artifact:/,
+      /^evidence:/,
     );
 
     await executeSparkTool(tools, "impl_workflow_runs", ctx, {
@@ -8482,7 +9059,7 @@ test("impl_workflow_runs reports failed workflow run with stuck child as attenti
       errorMessage: "role run failed while the child process was still active",
       startedAt: activeProcess.startedAt,
       finishedAt,
-      outputArtifacts: [],
+      outputEvidenceRefs: [],
       completionSummary: {
         runRef: activeProcess.runRef,
         taskRef: task.ref,
@@ -8490,7 +9067,7 @@ test("impl_workflow_runs reports failed workflow run with stuck child as attenti
         runName: activeProcess.runName,
         status: "failed" as const,
         summary: "role run failed while the child process was still active",
-        artifactRefs: [],
+        evidenceRefs: [],
         createdAt: finishedAt,
       },
     };
@@ -8598,7 +9175,7 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
     const roleRef = "role:builtin-worker" as RoleRef;
     const failedRunRef = "run:compact-failed-role-run" as RunRef;
     const succeededRunRef = "run:compact-succeeded-role-run" as RunRef;
-    const transcript = await defaultArtifactStore(dir).put({
+    const transcript = await defaultEvidenceStore(dir).put({
       kind: "trace",
       title: "Failed role-run transcript",
       format: "text",
@@ -8611,7 +9188,7 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
         runRef: failedRunRef,
       },
     });
-    const failedArtifact = await defaultArtifactStore(dir).put({
+    const failedArtifact = await defaultEvidenceStore(dir).put({
       kind: "trace",
       title: "Failed compact role-run result",
       format: "json",
@@ -8646,7 +9223,7 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
         runRef: failedRunRef,
       },
     });
-    const succeededArtifact = await defaultArtifactStore(dir).put({
+    const succeededArtifact = await defaultEvidenceStore(dir).put({
       kind: "trace",
       title: "Succeeded compact role-run result",
       format: "json",
@@ -8690,7 +9267,7 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
       errorMessage: "missing required evidence",
       startedAt: now,
       finishedAt: now,
-      outputArtifacts: [failedArtifact.ref],
+      outputEvidenceRefs: [failedArtifact.ref],
       completionSummary: {
         runRef: failedRunRef,
         taskRef: failedTask.ref,
@@ -8698,7 +9275,7 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
         runName: "worker-compact-failed",
         status: "failed",
         summary: "Failed compact summary: missing required evidence",
-        artifactRefs: [failedArtifact.ref],
+        evidenceRefs: [failedArtifact.ref],
         createdAt: now,
       },
     });
@@ -8711,7 +9288,7 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
       status: "succeeded",
       startedAt: now,
       finishedAt: now,
-      outputArtifacts: [succeededArtifact.ref],
+      outputEvidenceRefs: [succeededArtifact.ref],
       completionSummary: {
         runRef: succeededRunRef,
         taskRef: succeededTask.ref,
@@ -8719,7 +9296,7 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
         runName: "worker-compact-succeeded",
         status: "succeeded",
         summary: "Succeeded compact summary: docs updated",
-        artifactRefs: [succeededArtifact.ref],
+        evidenceRefs: [succeededArtifact.ref],
         createdAt: now,
       },
     });
@@ -8798,8 +9375,8 @@ test("impl_workflow_runs inspect/list use compact role-run summaries and tail re
   }
 });
 
-test("impl_workflow_runs inspect keeps legacy large role-run artifacts behind refs", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-background-runs-large-role-artifact-"));
+test("impl_workflow_runs inspect keeps legacy large role-run Evidence behind refs", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-background-runs-large-role-evidence-"));
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
@@ -8815,15 +9392,15 @@ test("impl_workflow_runs inspect keeps legacy large role-run artifacts behind re
       projectRef: project.ref,
       name: "legacy-large-background-role-run",
       title: "Legacy large background role-run task",
-      description: "Represents an old background role-run with a large artifact body.",
+      description: "Represents an old background role-run with a large Evidence body.",
       kind: "implement",
       status: "done",
       plan: executionReadyPlan("Legacy large background role-run task"),
     });
     const legacyBodyMarker = "BACKGROUND_LEGACY_ROLE_RUN_FULL_BODY_SENTINEL";
-    const artifact = await defaultArtifactStore(dir).put({
+    const evidence = await defaultEvidenceStore(dir).put({
       kind: "trace",
-      title: "Legacy large background role-run artifact",
+      title: "Legacy large background role-run Evidence",
       format: "text",
       body: legacyBodyMarker.repeat(4_000),
       provenance: { producer: "task", projectRef: project.ref, taskRef: task.ref },
@@ -8840,7 +9417,7 @@ test("impl_workflow_runs inspect keeps legacy large role-run artifacts behind re
       status: "succeeded",
       startedAt: now,
       finishedAt: now,
-      outputArtifacts: [artifact.ref],
+      outputEvidenceRefs: [evidence.ref],
     });
     await store.save(graph);
 
@@ -8850,8 +9427,8 @@ test("impl_workflow_runs inspect keeps legacy large role-run artifacts behind re
     });
     const text = toolText(inspect);
     assert.match(text, /Background child run: run:legacy-large-background-role-run succeeded/);
-    assert.match(text, new RegExp(artifact.ref));
-    assert.match(text, /unsupported_role_run_body: artifact body not loaded/);
+    assert.match(text, new RegExp(evidence.ref));
+    assert.match(text, /unsupported_role_run_body: evidence body not loaded/);
     assert.doesNotMatch(text, new RegExp(legacyBodyMarker));
     assert.doesNotMatch(JSON.stringify(inspect.details), new RegExp(legacyBodyMarker));
   } finally {
@@ -9005,8 +9582,8 @@ test("workflow-run manager preflights role models with configured Pi command", a
   }
 });
 
-test("impl_status renders legacy large role-run artifacts by refs without artifact body", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-status-large-role-run-artifact-"));
+test("impl_status renders legacy large role-run Evidence by refs without loading its body", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-status-large-role-run-evidence-"));
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
@@ -9022,15 +9599,15 @@ test("impl_status renders legacy large role-run artifacts by refs without artifa
       projectRef: project.ref,
       name: "legacy-large-role-run",
       title: "Legacy large role-run task",
-      description: "Represents an old role-run with a large artifact body.",
+      description: "Represents an old role-run with a large Evidence body.",
       kind: "implement",
       status: "done",
       plan: executionReadyPlan("Legacy large role-run task"),
     });
     const legacyBodyMarker = "LEGACY_ROLE_RUN_FULL_BODY_SENTINEL";
-    const artifact = await defaultArtifactStore(dir).put({
+    const evidence = await defaultEvidenceStore(dir).put({
       kind: "trace",
-      title: "Legacy large role-run artifact",
+      title: "Legacy large role-run Evidence",
       format: "text",
       body: legacyBodyMarker.repeat(3_000),
       provenance: { producer: "spark", projectRef: project.ref, taskRef: task.ref },
@@ -9047,7 +9624,7 @@ test("impl_status renders legacy large role-run artifacts by refs without artifa
       status: "succeeded",
       startedAt: now,
       finishedAt: now,
-      outputArtifacts: [artifact.ref],
+      outputEvidenceRefs: [evidence.ref],
       completionSummary: {
         runRef,
         taskRef: task.ref,
@@ -9055,7 +9632,7 @@ test("impl_status renders legacy large role-run artifacts by refs without artifa
         runName: "worker-legacy-large",
         status: "succeeded",
         summary: "Legacy compact summary only",
-        artifactRefs: [artifact.ref],
+        evidenceRefs: [evidence.ref],
         createdAt: now,
       },
     });
@@ -9065,7 +9642,7 @@ test("impl_status renders legacy large role-run artifacts by refs without artifa
     const text = toolText(status);
     assert.match(text, /Recent role-run completions:/);
     assert.match(text, /Legacy compact summary only/);
-    assert.match(text, new RegExp(artifact.ref));
+    assert.match(text, new RegExp(evidence.ref));
     assert.doesNotMatch(text, new RegExp(legacyBodyMarker));
     assert.doesNotMatch(JSON.stringify(status.details), new RegExp(legacyBodyMarker));
   } finally {
@@ -9121,6 +9698,96 @@ test("impl_status reports derived ready frontier for pending execution-ready tas
       activeText,
       /\[pending\] @pending-derived-ready: Pending derived ready task .*ready_frontier=yes/,
     );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("task status projects managed Session Goal and TaskRun evidence bindings", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-task-managed-execution-status-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "owner");
+    const store = defaultTaskGraphStore(dir);
+    const graph = await store.load();
+    assert.ok(graph);
+    const [project] = graph.projects();
+    assert.ok(project);
+    const task = graph.createTask({
+      projectRef: project.ref,
+      name: "managed-execution",
+      title: "Managed execution projection",
+      description: "Expose the daemon-owned Task to Session Goal execution binding.",
+      kind: "research",
+      roleRef: "role:builtin-researcher" as RoleRef,
+      status: "running",
+      plan: executionReadyPlan("Expose managed execution projection"),
+    });
+    const evidenceRef = "evidence:managed-execution-evidence" as EvidenceRef;
+    const runRef = "run:managed-execution" as RunRef;
+    graph.recordRun({
+      ref: runRef,
+      projectRef: project.ref,
+      taskRef: task.ref,
+      roleRef: "role:builtin-researcher" as RoleRef,
+      runName: "managed-execution-attempt-2",
+      status: "running",
+      execution: {
+        ownerSessionId: "owner",
+        executionSessionId: "sess_task_projection",
+        sessionGoalId: "goal-managed-projection",
+        subgoalRef: "subgoal:managed-projection" as SubgoalRef,
+        planRevision: 6,
+        definitionDigest: "definition-digest",
+        jobId: "job-managed-projection",
+        attempt: 2,
+        invocationId: "inv_managed_projection",
+      },
+      startedAt: "2026-07-29T00:00:00.000Z",
+      outputEvidenceRefs: [evidenceRef],
+    });
+    await store.save(graph);
+
+    const { tools } = registerSparkToolsForTest();
+    await useOnlySparkProject(tools, ctx);
+    const status = await executeSparkTool(tools, "task_read", ctx, {
+      action: "task_status",
+      taskRef: task.ref,
+    });
+    assert.match(
+      toolText(status),
+      /TaskRun=run:managed-execution \| status=running \| Session=sess_task_projection \| Goal=goal-managed-projection/u,
+    );
+    const taskRun = (
+      status.details as {
+        selectedTask?: {
+          taskRun?: {
+            runRef?: string;
+            executionSessionId?: string;
+            sessionGoalId?: string;
+            subgoalRef?: string;
+            attempt?: number;
+            evidenceRefs?: string[];
+          };
+        };
+      }
+    ).selectedTask?.taskRun;
+    assert.deepEqual(taskRun, {
+      runRef,
+      status: "running",
+      roleRef: "role:builtin-researcher",
+      executionSessionId: "sess_task_projection",
+      sessionGoalId: "goal-managed-projection",
+      subgoalRef: "subgoal:managed-projection",
+      planRevision: 6,
+      definitionDigest: "definition-digest",
+      jobId: "job-managed-projection",
+      attempt: 2,
+      invocationId: "inv_managed_projection",
+      evidenceRefs: [evidenceRef],
+      failureKind: undefined,
+      errorMessage: undefined,
+    });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -9337,6 +10004,7 @@ test("impl_state cache_cleanup previews and deletes only safe cache files", asyn
     const sessionTodoDir = join(dir, ".spark", "session-todos");
     const displayNumberDir = join(dir, ".spark", "todo-display-numbers");
     const artifactsDir = join(dir, ".spark", "artifacts");
+    const evidenceDir = join(dir, ".spark", "evidence");
     const notesDir = join(dir, ".spark", "notes");
     const roleReportsDir = join(dir, ".spark", "role-reports");
     const reviewsDir = join(dir, ".spark", "reviews");
@@ -9345,6 +10013,7 @@ test("impl_state cache_cleanup previews and deletes only safe cache files", asyn
     await mkdir(sessionTodoDir, { recursive: true });
     await mkdir(displayNumberDir, { recursive: true });
     await mkdir(artifactsDir, { recursive: true });
+    await mkdir(evidenceDir, { recursive: true });
     await mkdir(notesDir, { recursive: true });
     await mkdir(roleReportsDir, { recursive: true });
     await mkdir(reviewsDir, { recursive: true });
@@ -9355,6 +10024,7 @@ test("impl_state cache_cleanup previews and deletes only safe cache files", asyn
     const terminalOtherSessionTodos = join(sessionTodoDir, "other-session.json");
     const staleDisplayNumbers = join(displayNumberDir, "other-session.json");
     const protectedArtifact = join(artifactsDir, "keep.txt");
+    const protectedEvidence = join(evidenceDir, "keep.txt");
     const protectedWorkflowRuns = join(dir, ".spark", "workflow-runs.json");
     const protectedReviewsIndex = join(reviewsDir, "index.json");
     const protectedNote = join(notesDir, "keep.md");
@@ -9370,6 +10040,7 @@ test("impl_state cache_cleanup previews and deletes only safe cache files", asyn
     );
     await writeFile(staleDisplayNumbers, JSON.stringify({ version: 1, entries: [] }), "utf8");
     await writeFile(protectedArtifact, "keep", "utf8");
+    await writeFile(protectedEvidence, "keep", "utf8");
     await writeFile(
       protectedWorkflowRuns,
       JSON.stringify({
@@ -9411,6 +10082,7 @@ test("impl_state cache_cleanup previews and deletes only safe cache files", asyn
     assert.equal(existsSync(currentTaskTodos), true);
     assert.equal(existsSync(projectTreeIndexPath(dir)), true);
     assert.equal(existsSync(protectedArtifact), true);
+    assert.equal(existsSync(protectedEvidence), true);
     assert.equal(existsSync(protectedWorkflowRuns), true);
     assert.equal(existsSync(protectedReviewsIndex), true);
     assert.equal(existsSync(protectedNote), true);
@@ -9527,18 +10199,18 @@ test("impl_state state_doctor reports protected-store candidates without deletin
       ],
     });
 
-    const artifact = await defaultArtifactStore(dir).put({
+    const evidence = await defaultEvidenceStore(dir).put({
       kind: "trace",
-      title: "Large diagnostics artifact",
+      title: "Large diagnostics evidence",
       format: "text",
       body: "x".repeat(70 * 1024),
       provenance: { producer: "spark", projectRef: terminalProject.ref },
     });
-    const orphanBlob = join(dir, ".spark", "artifacts", "blobs", "orphan-diagnostics.txt");
+    const orphanBlob = join(dir, ".spark", "evidence", "blobs", "orphan-diagnostics.txt");
     const noteFile = join(dir, ".spark", "notes", "diagnostics-note.md");
     const roleReportFile = join(dir, ".spark", "role-reports", "diagnostics-report.md");
     const reviewsIndexFile = join(dir, ".spark", "reviews", "index.json");
-    await mkdir(join(dir, ".spark", "artifacts", "blobs"), { recursive: true });
+    await mkdir(join(dir, ".spark", "evidence", "blobs"), { recursive: true });
     await mkdir(join(dir, ".spark", "notes"), { recursive: true });
     await mkdir(join(dir, ".spark", "role-reports"), { recursive: true });
     await mkdir(join(dir, ".spark", "reviews"), { recursive: true });
@@ -9559,9 +10231,9 @@ test("impl_state state_doctor reports protected-store candidates without deletin
     assert.doesNotMatch(text, /Active diagnostics project/);
     assert.match(text, /Inactive workflow runs: 1/);
     assert.match(text, /run:inactive-diagnostics/);
-    assert.match(text, /Large artifacts: 1/);
-    assert.match(text, new RegExp(artifact.ref));
-    assert.match(text, /Orphan artifact blobs: 1/);
+    assert.match(text, /Large evidence: 1/);
+    assert.match(text, new RegExp(evidence.ref));
+    assert.match(text, /Orphan evidence blobs: 1/);
     assert.match(text, /orphan-diagnostics\.txt/);
     assert.match(text, /notes: 1/);
     assert.match(text, /diagnostics-note\.md/);
@@ -9571,21 +10243,21 @@ test("impl_state state_doctor reports protected-store candidates without deletin
 
     const details = diagnostics.details as {
       diagnostics?: {
-        largeArtifacts: { candidates: Array<Record<string, unknown>> };
+        largeEvidence: { candidates: Array<Record<string, unknown>> };
         orphanBlobs: { candidates: Array<Record<string, unknown>> };
         terminalProjects: { candidates: Array<Record<string, unknown>> };
       };
     };
-    assert.equal(details.diagnostics?.largeArtifacts.candidates[0]?.ref, artifact.ref);
-    assert.equal("body" in (details.diagnostics?.largeArtifacts.candidates[0] ?? {}), false);
+    assert.equal(details.diagnostics?.largeEvidence.candidates[0]?.ref, evidence.ref);
+    assert.equal("body" in (details.diagnostics?.largeEvidence.candidates[0] ?? {}), false);
     assert.equal(
       details.diagnostics?.orphanBlobs.candidates[0]?.path,
-      ".spark/artifacts/blobs/orphan-diagnostics.txt",
+      ".spark/evidence/blobs/orphan-diagnostics.txt",
     );
     assert.equal(details.diagnostics?.terminalProjects.candidates[0]?.ref, terminalProject.ref);
 
     assert.equal(existsSync(projectTreeIndexPath(dir)), true);
-    assert.equal(existsSync(defaultArtifactStore(dir).pathFor(artifact.ref)), true);
+    assert.equal(existsSync(defaultEvidenceStore(dir).pathFor(evidence.ref)), true);
     assert.equal(existsSync(orphanBlob), true);
     assert.equal(existsSync(noteFile), true);
     assert.equal(existsSync(roleReportFile), true);
@@ -9632,21 +10304,12 @@ test("impl_state state_doctor reports store-v2 migration diagnostics with stable
       "reviews",
     );
     await mkdir(reviewDir, { recursive: true });
+    const legacyReviewFixture = await loadLegacyEvidenceFixture<
+      LegacyEvidenceFixture<Record<string, unknown>>
+    >("subject-review-dangling-product-v1.json");
     await writeFile(
-      join(reviewDir, "artifact-dangling-review.json"),
-      `${JSON.stringify({
-        version: 1,
-        subjectKind: "task",
-        subjectRef: "task:missing",
-        artifactRef: "artifact:dangling-review",
-        outcome: "approved",
-        summary: "dangling review",
-        reviewedAt: "2026-06-18T00:00:00.000Z",
-        recordedAt: "2026-06-18T00:00:00.000Z",
-        reviewerRun: {},
-        verdict: {},
-        legacyImportOnly: [".spark/review-gate.json"],
-      })}\n`,
+      join(reviewDir, "legacy-dangling-review.json"),
+      `${JSON.stringify(legacyReviewFixture.value)}\n`,
       "utf8",
     );
 
@@ -9799,18 +10462,18 @@ test("impl_state store_v2_migrate previews, backs up, applies legacy graph impor
   }
 });
 
-test("impl_state state_doctor surfaces artifact blob stat failures", async () => {
+test("impl_state state_doctor surfaces evidence blob stat failures", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-state-diagnostics-stat-"));
   try {
     await writeEmptySparkProject(dir);
-    const artifactDir = join(dir, ".spark", "artifacts");
-    await mkdir(artifactDir, { recursive: true });
+    const evidenceDir = join(dir, ".spark", "evidence");
+    await mkdir(evidenceDir, { recursive: true });
     await writeFile(
-      join(artifactDir, "too-long-blob.json"),
+      join(evidenceDir, "too-long-blob.json"),
       `${JSON.stringify(
         {
-          ref: "artifact:diagnostics-stat-failure",
-          kind: "role-run",
+          ref: "evidence:diagnostics-stat-failure",
+          kind: "trace",
           title: "Diagnostics stat failure",
           format: "text",
           blobPath: `blobs/${"x".repeat(4096)}/body.txt`,
@@ -9842,7 +10505,7 @@ test("impl_state rejects invalid explicit action and path parameters", async () 
 
     await assert.rejects(
       () => executeSparkTool(tools, "impl_state", ctx, { action: "repair" }),
-      /action must be state_status, state_doctor, store_v2_migrate, cache_cleanup, workflow_run_prune, or role_run_artifact_compact/,
+      /action must be state_status, state_doctor, store_v2_migrate, cache_cleanup, workflow_run_prune, or role_run_evidence_compact/,
     );
     for (const oldAction of [
       "status",
@@ -9851,17 +10514,17 @@ test("impl_state rejects invalid explicit action and path parameters", async () 
       "migrate-v2",
       "cleanup",
       "prune",
-      "compact-role-run-artifacts",
+      "compact-role-run-evidence",
     ]) {
       await assert.rejects(
         () => executeSparkTool(tools, "impl_state", ctx, { action: oldAction }),
-        /action must be state_status, state_doctor, store_v2_migrate, cache_cleanup, workflow_run_prune, or role_run_artifact_compact/,
+        /action must be state_status, state_doctor, store_v2_migrate, cache_cleanup, workflow_run_prune, or role_run_evidence_compact/,
       );
     }
     await assert.rejects(
       () =>
         executeSparkTool(tools, "impl_state", ctx, {
-          action: "role_run_artifact_compact",
+          action: "role_run_evidence_compact",
           exportDir: 42,
         }),
       /exportDir must be a string/,
@@ -9869,7 +10532,7 @@ test("impl_state rejects invalid explicit action and path parameters", async () 
     await assert.rejects(
       () =>
         executeSparkTool(tools, "impl_state", ctx, {
-          action: "role_run_artifact_compact",
+          action: "role_run_evidence_compact",
           exportDir: "",
         }),
       /exportDir must be a non-empty string/,
@@ -9889,7 +10552,7 @@ test("impl_state rejects invalid numeric parameters instead of using defaults", 
     await assert.rejects(
       () =>
         executeSparkTool(tools, "impl_state", ctx, {
-          action: "role_run_artifact_compact",
+          action: "role_run_evidence_compact",
           thresholdBytes: "1024",
         }),
       /thresholdBytes must be a finite number/,
@@ -9897,7 +10560,7 @@ test("impl_state rejects invalid numeric parameters instead of using defaults", 
     await assert.rejects(
       () =>
         executeSparkTool(tools, "impl_state", ctx, {
-          action: "role_run_artifact_compact",
+          action: "role_run_evidence_compact",
           tailBytes: 0,
         }),
       /tailBytes must be a positive integer/,
@@ -9940,11 +10603,11 @@ test("impl_state rejects invalid boolean parameters instead of using defaults", 
   }
 });
 
-test("impl_state role_run_artifact_compact dry-run lists large role-run candidates and keeps non-role artifacts", async () => {
+test("impl_state role_run_evidence_compact dry-run lists large role-run candidates and keeps non-role Evidence", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-role-run-retention-dry-run-"));
   try {
     await writeEmptySparkProject(dir);
-    const store = defaultArtifactStore(dir);
+    const store = defaultEvidenceStore(dir);
     const roleRun = await store.put({
       kind: "trace",
       title: "Large historical role run",
@@ -9959,7 +10622,7 @@ test("impl_state role_run_artifact_compact dry-run lists large role-run candidat
     });
     const research = await store.put({
       kind: "document",
-      title: "Large research artifact",
+      title: "Large research evidence",
       format: "text",
       body: "research\n".repeat(2 * 1024),
       provenance: { producer: "spark" },
@@ -9970,19 +10633,19 @@ test("impl_state role_run_artifact_compact dry-run lists large role-run candidat
     const researchMetadata = JSON.parse(await readFile(store.pathFor(research.ref), "utf8")) as {
       blobPath: string;
     };
-    const roleRunBlob = join(dir, ".spark", "artifacts", roleRunMetadata.blobPath);
-    const researchBlob = join(dir, ".spark", "artifacts", researchMetadata.blobPath);
+    const roleRunBlob = join(dir, ".spark", "evidence", roleRunMetadata.blobPath);
+    const researchBlob = join(dir, ".spark", "evidence", researchMetadata.blobPath);
 
     const ctx = testSparkContext(dir, "main");
     const { tools } = registerSparkToolsForTest();
     const result = await executeSparkTool(tools, "impl_state", ctx, {
-      action: "role_run_artifact_compact",
+      action: "role_run_evidence_compact",
       thresholdBytes: 1024,
       tailBytes: 80,
     });
 
     const text = toolText(result);
-    assert.match(text, /Spark role-run artifact retention dry-run/);
+    assert.match(text, /Spark role-run evidence retention dry-run/);
     assert.match(text, new RegExp(roleRun.ref));
     assert.doesNotMatch(text, new RegExp(research.ref));
     assert.match(text, /non-role-run=1/);
@@ -10018,7 +10681,7 @@ test("impl_state role_run_artifact_compact dry-run lists large role-run candidat
     assert.match(details.retention?.candidates[0]?.transcriptTail?.tail ?? "", /tail-marker/);
     assert.equal(
       details.retention?.skipped.some(
-        (entry) => entry.ref === research.ref && entry.reason === "not_role_run_artifact",
+        (entry) => entry.ref === research.ref && entry.reason === "not_role_run_evidence",
       ),
       true,
     );
@@ -10027,12 +10690,12 @@ test("impl_state role_run_artifact_compact dry-run lists large role-run candidat
   }
 });
 
-test("impl_state role_run_artifact_compact skips blob paths outside artifact root", async () => {
+test("impl_state role_run_evidence_compact skips blob paths outside Evidence root", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-role-run-retention-boundary-"));
   const outsidePath = `${dir}-outside-role-run.json`;
   try {
     await writeEmptySparkProject(dir);
-    const store = defaultArtifactStore(dir);
+    const store = defaultEvidenceStore(dir);
     const roleRun = await store.put({
       kind: "trace",
       title: "External role run blob",
@@ -10054,7 +10717,7 @@ test("impl_state role_run_artifact_compact skips blob paths outside artifact roo
     const ctx = testSparkContext(dir, "main");
     const { tools } = registerSparkToolsForTest();
     const result = await executeSparkTool(tools, "impl_state", ctx, {
-      action: "role_run_artifact_compact",
+      action: "role_run_evidence_compact",
       thresholdBytes: 1,
       tailBytes: 80,
     });
@@ -10080,18 +10743,18 @@ test("impl_state role_run_artifact_compact skips blob paths outside artifact roo
   }
 });
 
-test("impl_state role_run_artifact_compact reports invalid artifact metadata", async () => {
+test("impl_state role_run_evidence_compact reports invalid Evidence metadata", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-role-run-retention-invalid-json-"));
   try {
     await writeEmptySparkProject(dir);
-    const metadataDir = join(dir, ".spark", "artifacts");
+    const metadataDir = join(dir, ".spark", "evidence");
     await mkdir(metadataDir, { recursive: true });
     await writeFile(join(metadataDir, "broken-role-run.json"), "{not-json", "utf8");
 
     const ctx = testSparkContext(dir, "main");
     const { tools } = registerSparkToolsForTest();
     const result = await executeSparkTool(tools, "impl_state", ctx, {
-      action: "role_run_artifact_compact",
+      action: "role_run_evidence_compact",
       thresholdBytes: 1,
       tailBytes: 80,
     });
@@ -10113,11 +10776,11 @@ test("impl_state role_run_artifact_compact reports invalid artifact metadata", a
   }
 });
 
-test("impl_state role_run_artifact_compact apply writes replacement summary before deleting blob", async () => {
+test("impl_state role_run_evidence_compact apply writes replacement summary before deleting blob", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-role-run-retention-apply-"));
   try {
     await writeEmptySparkProject(dir);
-    const store = defaultArtifactStore(dir);
+    const store = defaultEvidenceStore(dir);
     const roleRun = await store.put({
       kind: "trace",
       title: "Large historical role run apply",
@@ -10133,13 +10796,13 @@ test("impl_state role_run_artifact_compact apply writes replacement summary befo
     const before = JSON.parse(await readFile(store.pathFor(roleRun.ref), "utf8")) as {
       blobPath: string;
     };
-    const blob = join(dir, ".spark", "artifacts", before.blobPath);
+    const blob = join(dir, ".spark", "evidence", before.blobPath);
     assert.equal(existsSync(blob), true);
 
     const ctx = testSparkContext(dir, "main");
     const { tools } = registerSparkToolsForTest();
     const applied = await executeSparkTool(tools, "impl_state", ctx, {
-      action: "role_run_artifact_compact",
+      action: "role_run_evidence_compact",
       dryRun: false,
       thresholdBytes: 1024,
       tailBytes: 80,
@@ -10171,7 +10834,7 @@ test("impl_state role_run_artifact_compact apply writes replacement summary befo
 
     const fetched = await executeSparkTool(tools, "evidence", ctx, {
       action: "read",
-      artifactRef: roleRun.ref,
+      evidenceRef: roleRun.ref,
       maxChars: 4_000,
     });
     assert.match(toolText(fetched), /Historical role-run transcript worker-large-apply/);
@@ -10926,8 +11589,88 @@ function createRejectingReviewerRunner(
   };
 }
 
+function createTestTaskClaimDaemonClient(
+  options: {
+    afterAcquire?: (ctx: SparkToolContext) => void | Promise<void>;
+    afterRelease?: (ctx: SparkToolContext) => void | Promise<void>;
+  } = {},
+): SparkTaskClaimDaemonClient {
+  return {
+    async acquire(ctx, input) {
+      const sessionKey = sparkSessionKey(ctx);
+      const updated = await defaultTaskGraphStore(ctx.cwd).update((graph) => {
+        const task = graph.getTask(input.taskRef as TaskRef);
+        if (task.claim && task.claim.sessionId !== sessionKey) {
+          if (!input.recovery) throw new Error(`task is already claimed: ${task.ref}`);
+          graph.releaseTaskClaim(task.ref, task.claim.claimedBy);
+        }
+        return graph.claimTask(task.ref, {
+          kind: "main",
+          claimedBy: sessionKey,
+          sessionId: sessionKey,
+          status: input.status,
+          roleRef: input.roleRef as RoleRef | undefined,
+          leaseMs: 3 * 60 * 1_000,
+        });
+      });
+      const task = updated.result;
+      await options.afterAcquire?.(ctx);
+      return {
+        taskRef: task.ref,
+        projectRef: task.projectRef,
+        sessionId: sessionKey,
+        outcome: "acquired",
+        changed: true,
+        observedAt: task.claim!.heartbeatAt,
+        claim: {
+          claimedAt: task.claim!.claimedAt,
+          heartbeatAt: task.claim!.heartbeatAt,
+          expiresAt: task.claim!.expiresAt,
+        },
+      };
+    },
+    async recover(ctx, input) {
+      const sessionKey = sparkSessionKey(ctx);
+      const updated = await defaultTaskGraphStore(ctx.cwd).update((graph) => {
+        const task = graph.getTask(input.taskRef as TaskRef);
+        return graph.releaseTaskClaim(task.ref, task.claim?.claimedBy);
+      });
+      return {
+        taskRef: updated.result.ref,
+        projectRef: updated.result.projectRef,
+        sessionId: sessionKey,
+        outcome: "recovered",
+        changed: true,
+        observedAt: updated.result.updatedAt,
+      };
+    },
+    async release(ctx, input) {
+      const sessionKey = sparkSessionKey(ctx);
+      const updated = await defaultTaskGraphStore(ctx.cwd).update((graph) => {
+        const task = graph.getTask(input.taskRef as TaskRef);
+        return input.disposition === "release"
+          ? graph.releaseTaskClaim(task.ref, task.claim?.claimedBy)
+          : graph.setTaskStatus(task.ref, input.disposition);
+      });
+      await options.afterRelease?.(ctx);
+      return {
+        taskRef: updated.result.ref,
+        projectRef: updated.result.projectRef,
+        sessionId: sessionKey,
+        outcome: "released",
+        changed: true,
+        observedAt: updated.result.updatedAt,
+      };
+    },
+  };
+}
+
 function registerSparkToolsForTest(
-  options: { reviewerRunner?: ReviewerRunner; piCommand?: string } = {},
+  options: {
+    reviewerRunner?: ReviewerRunner;
+    piCommand?: string;
+    taskClaimDaemonClient?: SparkTaskClaimDaemonClient;
+  } = {},
 ): {
   tools: Map<string, SparkToolConfig>;
   messages: string[];
@@ -10968,6 +11711,7 @@ function registerSparkToolsForTest(
   const driverControl = createTestDriverControl();
   const pi: SparkHostApiForTest & {
     driverControl: TestSparkDaemonDriverControl;
+    taskClaimDaemonClient: SparkTaskClaimDaemonClient;
     getActiveTools: () => string[];
     getAllTools: () => Array<{ name: string }>;
     setActiveTools: (names: string[]) => void;
@@ -10975,6 +11719,7 @@ function registerSparkToolsForTest(
     getPiCommand?: () => string | undefined;
   } = {
     driverControl,
+    taskClaimDaemonClient: options.taskClaimDaemonClient ?? createTestTaskClaimDaemonClient(),
     registerCommand: (name, config) => {
       commands.set(name, config);
     },
@@ -11015,7 +11760,7 @@ function registerSparkToolsForTest(
     tools.set(config.name, config);
     activeToolNames.add(config.name);
   };
-  registerSparkArtifactTool({
+  registerSparkEvidenceTool({
     registerTool: (config) => registerExternalTool(config as SparkToolConfig),
   });
   registerSparkMemoryTool({
@@ -11586,7 +12331,18 @@ test("impl_plan_tasks enforces concrete experiments for the bound reproduce proj
     assert.ok(initial?.projectRef);
     const reproduceIndex = initial.stages.findIndex((stage) => stage.name === "reproduce");
     assert.notEqual(reproduceIndex, -1);
-    await writeSessionRepro(dir, { ...initial, currentStageIndex: reproduceIndex }, ctx);
+    const materializedScaffold = await materializeReproStagePlan(dir, ctx, initial, "scaffold");
+    const materializedReproduce = await materializeReproStagePlan(
+      dir,
+      ctx,
+      { ...materializedScaffold.repro, currentStageIndex: reproduceIndex },
+      "reproduce",
+    );
+    await writeSessionRepro(
+      dir,
+      { ...materializedReproduce.repro, currentStageIndex: reproduceIndex },
+      ctx,
+    );
 
     const taskInput = (name: string, item: string) => ({
       name,
@@ -11745,7 +12501,7 @@ test("repro entry surfaces start the driver with the canonical rendered prompt",
   assert.equal(prompts[1], prompts[2]);
 });
 
-test("repro start creates a generic project with five ready plans and three-task frontier", async () => {
+test("repro start creates a generic project with one task per bound subgoal", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-project-binding-"));
   try {
     await writeEmptySparkProject(dir);
@@ -11757,7 +12513,7 @@ test("repro start creates a generic project with five ready plans and three-task
     });
 
     const repro = await readSessionRepro(dir, ctx);
-    assert.equal(repro?.version, 5);
+    assert.equal(repro?.version, 6);
     assert.ok(repro?.projectRef);
     const graph = await defaultTaskGraphStore(dir).load();
     assert.ok(graph);
@@ -11765,7 +12521,7 @@ test("repro start creates a generic project with five ready plans and three-task
     assert.equal(project.kind, "generic");
     assert.equal(project.kindState, undefined);
     const tasks = graph.tasks(project.ref);
-    assert.equal(tasks.length, 5);
+    assert.equal(tasks.length, 26);
     assert.equal(
       tasks.every((task) => decideTaskPlanBeforeCreate(task).accepted),
       true,
@@ -11775,20 +12531,134 @@ test("repro start creates a generic project with five ready plans and three-task
         .readyTasks(project.ref)
         .map((task) => task.name)
         .sort(),
-      ["alignment-paths", "baseline-availability", "implementation-landscape"],
+      [
+        "competitor-baseline-availability-researched",
+        "freeze-source-model-weight-data-contract",
+        "trace-target-existing-path",
+      ],
     );
-    assert.equal(project.roadmap.items.length, 1);
-    assert.equal(project.roadmap.items[0]?.taskRefs?.length, 5);
+    assert.equal(project.roadmap.items.length, 5);
+    assert.equal(
+      project.roadmap.items.reduce((count, item) => count + (item.taskRefs?.length ?? 0), 0),
+      26,
+    );
     assert.deepEqual(
-      [...new Set(repro.subgoals.flatMap((subgoal) => subgoal.taskRefs))].sort(),
+      [
+        ...new Set(
+          repro.subgoals
+            .map((subgoal) => subgoal.taskRef)
+            .filter((taskRef): taskRef is TaskRef => !!taskRef),
+        ),
+      ].sort((left, right) => left.localeCompare(right)),
       tasks.map((task) => task.ref).sort(),
     );
     const persisted = JSON.parse(await readFile(sessionReproStorePath(dir, ctx), "utf8")) as {
       version: number;
       repro?: { projectRef?: string };
     };
-    assert.equal(persisted.version, 5);
+    assert.equal(persisted.version, 6);
     assert.equal(persisted.repro?.projectRef, project.ref);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro stage blueprints materialize a complete dependency-valid task graph", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-stage-blueprints-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "start",
+      objective: "Qualify a model reproduction through target scale",
+    });
+    let repro = await readSessionRepro(dir, ctx);
+    if (!repro?.projectRef) throw new Error("missing project-backed repro");
+    for (const stage of ["scaffold", "reproduce", "scale", "deliver"] as const) {
+      repro = (await materializeReproStagePlan(dir, ctx, repro, stage)).repro;
+    }
+
+    const blueprints = Object.values(REPRO_STAGE_BLUEPRINTS);
+    assert.deepEqual(
+      blueprints.map((blueprint) => blueprint.stage),
+      ["setup", "scaffold", "reproduce", "scale", "deliver"],
+    );
+    assert.equal(REPRO_STAGE_BLUEPRINTS.deliver.displayTitle, "Finalize");
+    const blueprintTasks = blueprints.flatMap((blueprint) => blueprint.tasks);
+    assert.equal(new Set(blueprintTasks.map((task) => task.id)).size, blueprintTasks.length);
+    assert.equal(
+      blueprints.every((blueprint) =>
+        blueprint.tasks.every((task) =>
+          blueprint.roadmaps.some((roadmap) => roadmap.key === task.roadmapKey),
+        ),
+      ),
+      true,
+    );
+
+    const taskById = new Map(blueprintTasks.map((task) => [task.id, task]));
+    for (const task of blueprintTasks) {
+      assert.equal(
+        task.dependsOn.every((dependency) => taskById.has(dependency)),
+        true,
+        `unknown dependency for ${task.id}`,
+      );
+    }
+    assert.deepEqual(taskById.get("qualify-tp")?.dependsOn, [
+      "revalidate-parent-determinism-and-checkpoint",
+    ]);
+    assert.deepEqual(taskById.get("qualify-ep")?.dependsOn, [
+      "revalidate-parent-determinism-and-checkpoint",
+    ]);
+    assert.deepEqual(taskById.get("compose-tp-ep")?.dependsOn, ["qualify-tp", "qualify-ep"]);
+    assert.deepEqual(taskById.get("compose-tp-ep-pp")?.dependsOn, [
+      "compose-tp-ep",
+      "qualify-pp-delta",
+    ]);
+    assert.deepEqual(taskById.get("join-s0-time-and-s2-structure")?.dependsOn, [
+      "run-s0-p0-htarget",
+      "bitwise-pass-20",
+    ]);
+    assert.equal(taskById.get("qualify-tp")?.executionPolicy.resources?.gpuCount, 2);
+    assert.equal(taskById.get("qualify-ep")?.executionPolicy.resources?.gpuCount, 2);
+    assert.equal(taskById.get("qualify-tp")?.roleRef, "role:extension-repro-distributed-runner");
+    assert.equal(taskById.get("qualify-ep")?.roleRef, "role:extension-repro-distributed-runner");
+    assert.equal(taskById.get("compose-tp-ep")?.executionPolicy.resources?.gpuCount, 4);
+    assert.equal(taskById.get("compose-tp-ep-pp")?.executionPolicy.resources?.gpuCount, 8);
+    assert.equal(
+      taskById.get("performance-budget")?.executionPolicy.resources?.exclusiveNode,
+      true,
+    );
+    assert.equal(
+      taskById.get("performance-budget")?.roleRef,
+      "role:extension-repro-performance-benchmarker",
+    );
+    assert.equal(
+      blueprintTasks.every((task) => task.executionPolicy.maxAttempts === 2),
+      true,
+    );
+
+    const graph = await defaultTaskGraphStore(dir).load();
+    assert.ok(graph);
+    const tasks = graph.tasks(repro.projectRef);
+    assert.equal(tasks.length, blueprintTasks.length);
+    assert.equal(
+      tasks.every((task) => decideTaskPlanBeforeCreate(task).accepted),
+      true,
+    );
+    assert.equal(
+      tasks.every((task) => task.executionPolicy?.concurrencyKeys.length === 1),
+      true,
+    );
+    assert.equal(repro.subgoals.length, blueprintTasks.length);
+    assert.equal(
+      repro.subgoals.every((subgoal) => typeof subgoal.taskRef === "string"),
+      true,
+    );
+    assert.equal(
+      new Set(repro.subgoals.map((subgoal) => subgoal.taskRef)).size,
+      blueprintTasks.length,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
@@ -11832,8 +12702,8 @@ test("repro settle keeps a ten second cadence when any safe task run is active",
     const repro = await readSessionRepro(dir, ctx);
     assert.ok(repro?.projectRef);
     const safeTaskRef = repro.subgoals.find(
-      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRefs.length > 0,
-    )?.taskRefs[0];
+      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRef,
+    )?.taskRef;
     assert.ok(safeTaskRef);
     await defaultTaskGraphStore(dir).update((graph) => {
       graph.recordRun({
@@ -11842,7 +12712,7 @@ test("repro settle keeps a ten second cadence when any safe task run is active",
         taskRef: safeTaskRef,
         status: "running",
         startedAt: "2026-07-28T00:00:00.000Z",
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
       });
       graph.recordRun({
         ref: "run:repro-safe-later-success" as RunRef,
@@ -11851,7 +12721,7 @@ test("repro settle keeps a ten second cadence when any safe task run is active",
         status: "succeeded",
         startedAt: "2026-07-28T00:00:01.000Z",
         finishedAt: "2026-07-28T00:00:02.000Z",
-        outputArtifacts: [],
+        outputEvidenceRefs: [],
       });
     });
     const graph = await defaultTaskGraphStore(dir).load();
@@ -11884,9 +12754,11 @@ test("repro settle leaves the driver dormant while awaiting owner ask authority"
       dir,
       {
         ...repro,
-        subgoals: repro.subgoals.map((subgoal) =>
-          subgoal.authority === "safe_local" ? { ...subgoal, taskRefs: [] } : subgoal,
-        ),
+        subgoals: repro.subgoals.map((subgoal) => {
+          if (subgoal.authority !== "safe_local") return subgoal;
+          const { taskRef: _taskRef, ...unbound } = subgoal;
+          return unbound;
+        }),
       },
       ctx,
     );
@@ -11915,10 +12787,10 @@ test("repro settle schedules a thirty second repair tick when bound ask tasks ar
     const repro = await readSessionRepro(dir, ctx);
     assert.ok(repro?.projectRef);
     const safeSubgoal = repro.subgoals.find(
-      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRefs.length > 0,
+      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRef,
     );
     assert.ok(safeSubgoal);
-    const taskRef = safeSubgoal.taskRefs[0]!;
+    const taskRef = safeSubgoal.taskRef!;
     const askRepro = {
       ...repro,
       subgoals: repro.subgoals.map((subgoal) =>
@@ -11952,10 +12824,10 @@ test("repro orchestration excludes ask authority tasks from the dispatchable fro
     const repro = await readSessionRepro(dir, ctx);
     assert.ok(repro?.projectRef);
     const safeSubgoal = repro.subgoals.find(
-      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRefs.length > 0,
+      (subgoal) => subgoal.authority === "safe_local" && subgoal.taskRef,
     );
     assert.ok(safeSubgoal);
-    const askTaskRef = safeSubgoal.taskRefs[0]!;
+    const askTaskRef = safeSubgoal.taskRef!;
     const withAskAuthority = {
       ...repro,
       subgoals: repro.subgoals.map((subgoal) =>
@@ -11975,6 +12847,26 @@ test("repro orchestration excludes ask authority tasks from the dispatchable fro
   }
 });
 
+test("repro tool exposes Task-bound planning without a delegate action", () => {
+  const tools = new Map<string, SparkToolConfig>();
+  registerSparkReproTool(
+    (config) => {
+      tools.set(config.name, config as SparkToolConfig);
+    },
+    { driverControl: createTestDriverControl() },
+  );
+  const tool = tools.get("repro");
+  assert.ok(tool);
+  const publicContract = JSON.stringify({
+    description: tool.description,
+    promptGuidelines: tool.promptGuidelines,
+    parameters: tool.parameters,
+  });
+  assert.doesNotMatch(publicContract, /subgoal\.assignment|subgoal\.receipt|action=delegate/u);
+  assert.match(publicContract, /taskRef/u);
+});
+
+/* Historical delegate/receipt integration tests retired with the protocol.
 test("repro delegation persists the assignment before dispatch and completes only a matching receipt", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-subgoal-delegation-"));
   try {
@@ -12299,8 +13191,9 @@ test("repro delegation turns malformed receipts and corrupt evidence reads into 
     }
   }
 });
+*/
 
-test("repro advance reports the target stage when its planned subgoals are missing", async () => {
+test("repro advance materializes the target stage blueprint before advancing", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-advance-planning-blocker-"));
   try {
     await writeEmptySparkProject(dir);
@@ -12372,11 +13265,17 @@ test("repro advance reports the target stage when its planned subgoals are missi
     );
 
     const advanced = await executeSparkTool(tools, "repro", ctx, { action: "advance" });
-    const blocker =
-      "Stage scaffold has no planned subgoals. Plan concrete subgoals and task experiments before advancing.";
-    assert.match(toolText(advanced), /Stage scaffold has no planned subgoals/u);
-    assert.ok(Array.isArray(advanced.details?.blockingReasons));
-    assert.ok(advanced.details.blockingReasons.includes(blocker));
+    assert.match(toolText(advanced), /Stage advanced to: Scaffold/u);
+    const afterAdvance = await readSessionRepro(dir, ctx);
+    assert.equal(afterAdvance?.stages[afterAdvance.currentStageIndex]?.name, "scaffold");
+    const scaffoldSubgoals = afterAdvance?.subgoals.filter(
+      (subgoal) => subgoal.stage === "scaffold",
+    );
+    assert.ok(scaffoldSubgoals && scaffoldSubgoals.length > 8);
+    assert.equal(
+      scaffoldSubgoals.every((subgoal) => typeof subgoal.taskRef === "string"),
+      true,
+    );
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }

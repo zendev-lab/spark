@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Model Reproduction
 
-Use this core only inside an active Spark repro drive. It is loaded explicitly for the first daemon tick of a new `reproId`; do not reload it on later ticks unless the user asks.
+Use this core inside an active Spark repro drive or when a sandboxed reproduction bench explicitly binds this skill by path. Daemon repro loads it for the first tick of a new `reproId`; do not reload it on later daemon ticks unless the user asks. A bench executor may invoke `/skill:model-reproduction` on each independent process resume because it does not own the daemon checkpoint.
 
 ## Authority
 
@@ -32,7 +32,14 @@ Resolve paths relative to this `SKILL.md` and read only what the current work ne
 - `references/scale.md`: step, model, and parallel scale-out after smaller gates pass.
 - `references/deliver.md`: production migration, patch ablation, reports, and PR evidence.
 - `references/localization.md`: first-divergence localization and falsifiable attribution.
+- `references/first-divergence.md`: incident DAG, hypothesis fan-out, and mechanism confirmation.
 - `references/observability.md`: dump contracts, projections, coverage, and reporting.
+- `references/distributed-observability.md`: per-rank and collective-boundary evidence.
+- `references/experiment-contract.md`: typed single-variable experiment requirements.
+- `references/topology-planning.md`: Pfit/Ptarget selection and topology parentage.
+- `references/parallel-qualification.md`: TP, EP, PP, SP, CP, DP, and sharding order.
+- `references/resource-scheduling.md`: GPU packing, isolation, concurrency keys, and timeouts.
+- `references/continuous-delivery.md`: event-driven report and Draft PR synchronization.
 - `references/speedup.md`: offline replay and minimal failing cases.
 - `references/lessons.md`: anti-patterns, environment traps, and deletion claims.
 - `references/known-diffs/catalog.md`: normalized Megatron/Fleet Diff candidates.

@@ -1,5 +1,5 @@
 import type { RoleRegistry } from "@zendev-lab/spark-roles";
-import type { ArtifactStore } from "@zendev-lab/spark-artifacts";
+import type { EvidenceStore } from "@zendev-lab/spark-artifacts";
 import type { RoleRef } from "@zendev-lab/spark-core";
 import {
   killActiveSparkRoleRunProcesses,
@@ -19,7 +19,7 @@ export interface SparkRuntimeReadyTaskRunnerOptions {
   registry: RoleRegistry;
   /** Role assigned when a ready task has no task-level role hint. Defaults by task kind, then worker. */
   defaultRoleRef?: RoleRef;
-  artifactStore?: ArtifactStore;
+  evidenceStore?: EvidenceStore;
   cwd?: string;
   sessionDir?: string;
   launch?: RoleLaunchMode;
@@ -40,11 +40,16 @@ export function createSparkRuntimeReadyTaskRunner(
         taskRef: input.taskRef,
         registry: options.registry,
         defaultRoleRef: options.defaultRoleRef,
-        artifactStore: options.artifactStore,
+        evidenceStore: options.evidenceStore,
         cwd: options.cwd,
         dryRun: input.dryRun,
         timeoutMs: input.timeoutMs,
         signal: input.signal,
+        resourceAllocation: input.resourceAllocation,
+        env:
+          input.resourceAllocation && input.resourceAllocation.gpuIds.length > 0
+            ? { CUDA_VISIBLE_DEVICES: input.resourceAllocation.gpuIds.join(",") }
+            : undefined,
         sessionDir: options.sessionDir,
         launch: options.launch,
         forkFromSession: options.forkFromSession,

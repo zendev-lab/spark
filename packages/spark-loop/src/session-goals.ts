@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { nowIso, type ArtifactRef } from "@zendev-lab/spark-core";
+import { nowIso, type EvidenceRef } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import { JsonStoreFormatError, readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 import {
@@ -20,7 +20,7 @@ export interface SparkSessionGoalReviewSummary {
   remainingWork?: string;
   blockers: string[];
   reviewRef?: string;
-  artifactRef?: string;
+  evidenceRef?: EvidenceRef;
   reviewedAt: string;
 }
 
@@ -36,7 +36,7 @@ export interface SparkSessionGoal {
   pauseReason?: string;
   completedReason?: string;
   lastReviewRef?: string;
-  lastReviewArtifactRef?: ArtifactRef;
+  lastReviewEvidenceRef?: EvidenceRef;
   lastReviewedAt?: string;
   createdAt: string;
   updatedAt: string;
@@ -78,6 +78,8 @@ export async function setSessionGoal(
     objective: string;
     source: SparkSessionGoalSource;
     status?: SparkSessionGoalStatus;
+    /** Internal managed-session identity used to bind a queued TaskRun before dispatch. */
+    goalId?: string;
   },
 ): Promise<SparkSessionGoal> {
   const objective = normalizeGoalObjective(input.objective);
@@ -86,7 +88,7 @@ export async function setSessionGoal(
   const now = nowIso();
   const goal: SparkSessionGoal = {
     version: 1,
-    goalId: existing ? existing.goalId : randomUUID(),
+    goalId: existing ? existing.goalId : input.goalId?.trim() || randomUUID(),
     sessionKey: sparkSessionOwnerKey(ctx),
     originalObjective: objective,
     objective,
@@ -119,7 +121,7 @@ export async function editSessionGoalObjective(
     objective: normalizeGoalObjective(objective),
     source: "explicit",
     lastReviewRef: undefined,
-    lastReviewArtifactRef: undefined,
+    lastReviewEvidenceRef: undefined,
     lastReviewedAt: undefined,
     updatedAt: nowIso(),
   };
@@ -275,11 +277,10 @@ function withoutGoalRuntimeState(goal: SparkSessionGoal): SparkSessionGoal {
 
 function goalReviewPointerFields(
   review: SparkSessionGoalReviewSummary,
-): Pick<SparkSessionGoal, "lastReviewRef" | "lastReviewArtifactRef" | "lastReviewedAt"> {
-  const artifactRef = review.artifactRef as ArtifactRef | undefined;
+): Pick<SparkSessionGoal, "lastReviewRef" | "lastReviewEvidenceRef" | "lastReviewedAt"> {
   return {
-    lastReviewRef: review.reviewRef ?? artifactRef,
-    lastReviewArtifactRef: artifactRef,
+    lastReviewRef: review.reviewRef ?? review.evidenceRef,
+    lastReviewEvidenceRef: review.evidenceRef,
     lastReviewedAt: review.reviewedAt,
   };
 }
@@ -287,32 +288,71 @@ function goalReviewPointerFields(
 function normalizeGoalReviewPointer(
   value: Record<string, unknown>,
   filePath: string,
-): Pick<SparkSessionGoal, "lastReviewRef" | "lastReviewArtifactRef" | "lastReviewedAt"> {
+): Pick<SparkSessionGoal, "lastReviewRef" | "lastReviewEvidenceRef" | "lastReviewedAt"> {
   const legacyReview = value.lastReview;
-  const legacyArtifactRef = isRecord(legacyReview)
-    ? optionalString(legacyReview.artifactRef, filePath, "goal.lastReview.artifactRef")
-    : undefined;
+  const hasCanonicalEvidenceRef = Object.hasOwn(value, "lastReviewEvidenceRef");
+  const hasLegacyTopLevelEvidenceRef = Object.hasOwn(value, "lastReviewArtifactRef");
+  const hasLegacyNestedEvidenceRef =
+    isRecord(legacyReview) && Object.hasOwn(legacyReview, "artifactRef");
+  if (
+    Number(hasCanonicalEvidenceRef) +
+      Number(hasLegacyTopLevelEvidenceRef) +
+      Number(hasLegacyNestedEvidenceRef) >
+    1
+  ) {
+    throw new JsonStoreFormatError(
+      filePath,
+      "goal must not contain multiple canonical or legacy review evidence fields",
+    );
+  }
+  const legacyArtifactRef = legacyGoalReviewArtifactRef(legacyReview, filePath);
   const legacyReviewedAt = isRecord(legacyReview)
     ? optionalString(legacyReview.reviewedAt, filePath, "goal.lastReview.reviewedAt")
     : undefined;
   const lastReviewRef = optionalString(value.lastReviewRef, filePath, "goal.lastReviewRef");
-  const lastReviewArtifactRef = optionalString(
-    value.lastReviewArtifactRef,
+  const topLevelReviewEvidenceRef = optionalEvidenceRef(
+    hasCanonicalEvidenceRef ? value.lastReviewEvidenceRef : value.lastReviewArtifactRef,
     filePath,
-    "goal.lastReviewArtifactRef",
+    hasCanonicalEvidenceRef ? "goal.lastReviewEvidenceRef" : "goal.lastReviewArtifactRef",
   );
   const lastReviewedAt = optionalString(value.lastReviewedAt, filePath, "goal.lastReviewedAt");
+  const legacyEvidenceRef =
+    legacyArtifactRef === undefined
+      ? undefined
+      : requireEvidenceRef(legacyArtifactRef, filePath, "goal.lastReview.artifactRef");
   return {
     ...(lastReviewRef || legacyArtifactRef
       ? { lastReviewRef: lastReviewRef ?? legacyArtifactRef }
       : {}),
-    ...(lastReviewArtifactRef || legacyArtifactRef
-      ? { lastReviewArtifactRef: (lastReviewArtifactRef ?? legacyArtifactRef) as ArtifactRef }
+    ...(topLevelReviewEvidenceRef || legacyEvidenceRef
+      ? { lastReviewEvidenceRef: topLevelReviewEvidenceRef ?? legacyEvidenceRef }
       : {}),
     ...(lastReviewedAt || legacyReviewedAt
       ? { lastReviewedAt: lastReviewedAt ?? legacyReviewedAt }
       : {}),
   };
+}
+
+function legacyGoalReviewArtifactRef(legacyReview: unknown, filePath: string): string | undefined {
+  return isRecord(legacyReview)
+    ? optionalString(legacyReview.artifactRef, filePath, "goal.lastReview.artifactRef")
+    : undefined;
+}
+
+function optionalEvidenceRef(
+  value: unknown,
+  filePath: string,
+  field: string,
+): EvidenceRef | undefined {
+  const ref = optionalString(value, filePath, field);
+  return ref === undefined ? undefined : requireEvidenceRef(ref, filePath, field);
+}
+
+function requireEvidenceRef(value: string, filePath: string, field: string): EvidenceRef {
+  if (!value.startsWith("evidence:") || value.length === "evidence:".length) {
+    throw new JsonStoreFormatError(filePath, `${field} must be an evidence: ref`);
+  }
+  return value as EvidenceRef;
 }
 
 function normalizeGoalStatus(value: unknown, filePath: string): SparkSessionGoalStatus {

@@ -1,0 +1,9 @@
+{
+  "wrongNamespaceRef": "artifact:not-evidence",
+  "wrongArtifactNamespaceRef": "evidence:not-artifact",
+  "wrongKind": "issue",
+  "wrongArtifactKind": "record",
+  "oldField": {
+    "artifactRef": "evidence:legacy-field"
+  }
+}
