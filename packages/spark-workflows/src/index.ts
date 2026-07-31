@@ -1,6 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 export * from "./driver-policy.ts";
 export * from "./repro-builtins.ts";
 import {
@@ -9,6 +8,9 @@ import {
   type BuiltinWorkflowMode,
 } from "./builtins.ts";
 import { parseWorkflowScript } from "./metadata.ts";
+import { userWorkflowDir, workspaceWorkflowDir } from "./registry-paths.ts";
+
+export { userWorkflowDir, workspaceWorkflowDir } from "./registry-paths.ts";
 
 export type WorkflowSource = "builtin" | "workspace" | "user";
 export type WorkflowSelector = `${WorkflowSource}:${string}`;
@@ -53,14 +55,6 @@ export function normalizeWorkflowId(id: string): string {
 
 export function workflowSelector(source: WorkflowSource, id: string): WorkflowSelector {
   return `${source}:${normalizeWorkflowId(id)}`;
-}
-
-export function workspaceWorkflowDir(cwd: string): string {
-  return join(cwd, ".agents", "workflows");
-}
-
-export function userWorkflowDir(): string {
-  return resolveSparkUserPaths().workflowsDir;
 }
 
 export async function listSavedWorkflows(

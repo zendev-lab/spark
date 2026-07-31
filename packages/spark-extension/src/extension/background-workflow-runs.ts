@@ -3,9 +3,20 @@ import type { WorkflowRunRecord } from "@zendev-lab/spark-workflows";
 import type {
   SparkBackgroundChildRunView,
   SparkBackgroundRunView,
-  SparkBackgroundRunsDetails,
   SparkBackgroundSummaryState,
-} from "./background-runs.ts";
+} from "./background-run-contracts.ts";
+
+interface SparkBackgroundRunsDetailsContract {
+  summary: {
+    state: SparkBackgroundSummaryState;
+    activeRunRef?: RunRef;
+    activeChildren: number;
+    scheduled: number;
+    completed: number;
+    actionableProblems: number;
+    nextAction: string;
+  };
+}
 
 export function isActionableProblemRun(run: WorkflowRunRecord): boolean {
   return isProblemRun(run) && !run.acknowledgedAt;
@@ -73,7 +84,7 @@ export function selectBackgroundRuns(input: {
 export function summarizeBackgroundRuns(input: {
   runs: SparkBackgroundRunView[];
   childRuns: SparkBackgroundChildRunView[];
-}): SparkBackgroundRunsDetails["summary"] {
+}): SparkBackgroundRunsDetailsContract["summary"] {
   const activeRun = input.runs.find((run) => run.status === "running");
   const activeChildren = input.childRuns.filter((child) => child.activeProcess).length;
   const actionable = input.runs.filter(

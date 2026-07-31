@@ -11,13 +11,13 @@ import {
 } from "@earendil-works/pi-ai";
 
 import {
-  classifyProviderFailure,
   materializeRouteModel,
   resolveSparkModelMessageIdentity,
   retagAssistantMessageStream,
   SparkModelRegistry,
   SparkRouteResolver,
-} from "./index.ts";
+} from "./model-routing.ts";
+import { classifyProviderFailure } from "./provider-failure.ts";
 import { retryProviderStreamBeforeOutput } from "./provider-stream-retry.ts";
 import type {
   ProviderConfig,

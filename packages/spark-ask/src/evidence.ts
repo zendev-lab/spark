@@ -8,7 +8,7 @@ import {
   type EvidenceRef,
 } from "@zendev-lab/spark-core";
 
-import type { SparkAskAutoAnswerRequest } from "./action-tool.ts";
+import type { SparkAskAutoAnswerRequest } from "./action-contracts.ts";
 
 export interface SparkAskEvidenceBody {
   schema: "spark.ask.evidence/v1" | "spark.ask.evidence/v2";

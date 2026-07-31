@@ -6,7 +6,7 @@ import {
   type SparkSessionRecord,
 } from "@zendev-lab/spark-host/session-store";
 import { formatSessionList } from "../host/session-navigation.ts";
-import type { SparkDaemonWorkspace } from "./daemon.ts";
+import type { SparkDaemonWorkspace } from "./daemon-contracts.ts";
 
 export interface DaemonSessionListResult {
   plane: "daemon";

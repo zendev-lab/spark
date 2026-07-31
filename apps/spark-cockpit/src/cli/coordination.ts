@@ -16,20 +16,26 @@ import {
 } from "./shared.ts";
 import type { CockpitAccessCliResult } from "./access.ts";
 import type { WorkspaceAccessCliResult } from "./workspace-access.ts";
+import type { CockpitInstanceCliFailure, CockpitInstanceCliResult } from "./instance.ts";
+import { loadSparkCockpitCoordinationState } from "./coordination-adapter.ts";
 import type {
-  CockpitInstanceCliFailure,
-  CockpitInstanceCliOptions,
-  CockpitInstanceCliResult,
-} from "./instance.ts";
-import {
-  loadSparkCockpitCoordinationState,
-  type SparkCockpitCoordinationState,
-} from "./coordination-adapter.ts";
-import {
-  getManagedSession,
-  submitAssignment,
-  type CockpitCoordinationDaemonClientOptions,
-} from "./coordination-daemon.ts";
+  SparkCockpitArtifactSummary,
+  SparkCockpitCliOptions,
+  SparkCockpitCoordinationState,
+  SparkCockpitGoalSource,
+  SparkCockpitGoalSummary,
+  SparkCockpitReviewSummary,
+  SparkCockpitWorkflowSummary,
+} from "./coordination-contract.ts";
+export type {
+  SparkCockpitArtifactSummary,
+  SparkCockpitCliOptions,
+  SparkCockpitGoalSource,
+  SparkCockpitGoalSummary,
+  SparkCockpitReviewSummary,
+  SparkCockpitWorkflowSummary,
+} from "./coordination-contract.ts";
+import { getManagedSession, submitAssignment } from "./coordination-daemon.ts";
 
 export type SparkCockpitCliResource =
   | "help"
@@ -63,55 +69,6 @@ export interface SparkCockpitCliCommand {
   yes?: boolean;
   label?: string;
   tokenId?: string;
-}
-
-export interface SparkCockpitCliOptions {
-  cwd?: string;
-  daemonClient?: CockpitCoordinationDaemonClientOptions;
-  graph?: TaskGraph | null;
-  currentProjectRef?: ProjectRef;
-  currentSessionKey?: string | null;
-  goal?: SparkCockpitGoalSummary | null;
-  artifacts?: SparkCockpitArtifactSummary[];
-  reviews?: SparkCockpitReviewSummary[];
-  workflows?: SparkCockpitWorkflowSummary[];
-  instance?: CockpitInstanceCliOptions;
-}
-
-export type SparkCockpitGoalSource =
-  | "none"
-  | "current-project"
-  | "unrelated-project"
-  | "legacy-unscoped";
-
-export interface SparkCockpitGoalSummary {
-  status: string;
-  objective?: string;
-  goalId?: string;
-  sessionKey?: string;
-  projectRef?: ProjectRef;
-  source?: SparkCockpitGoalSource;
-  current?: boolean;
-}
-
-export interface SparkCockpitArtifactSummary {
-  artifactRef: ArtifactRef;
-  title?: string;
-  kind?: string;
-  status?: string;
-}
-
-export interface SparkCockpitReviewSummary {
-  reviewRef: string;
-  status?: string;
-  targetRef?: string;
-  outcome?: string;
-}
-
-export interface SparkCockpitWorkflowSummary {
-  runRef: string;
-  status?: string;
-  name?: string;
 }
 
 export type SparkCockpitCliResult =

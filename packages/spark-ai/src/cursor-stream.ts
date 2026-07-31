@@ -26,7 +26,7 @@ import { cappedExponentialCeiling, equalJitter } from "@zendev-lab/spark-retry";
 import { CURSOR_PROVIDER_API, CURSOR_PROVIDER_ID } from "./cursor-constants.ts";
 import { buildCursorModelSelection } from "./cursor-model-catalog.ts";
 import { sanitizeCursorDiscoveryError } from "./cursor-model-discovery.ts";
-import { classifyProviderFailure } from "./index.ts";
+import { classifyProviderFailure } from "./provider-failure.ts";
 
 export interface CursorSdkRuntime {
   Agent: {

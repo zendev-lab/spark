@@ -1,23 +1,13 @@
 import { DEFAULT_SPARK_DRIVE_DESCRIPTORS } from "./spark-drive-descriptors.ts";
-import type { SparkSessionGoal } from "./spark-session-goals.ts";
-import type { SparkSessionLoop } from "./spark-session-loops.ts";
-import type { SparkSessionRepro } from "./spark-session-repro.ts";
+import type { DriveDerivationContract, DriveDescriptorContract } from "./spark-drive-contracts.ts";
 
-export interface SparkDriveDerivationInput {
+type SparkDriveDerivationInput = Omit<DriveDerivationContract, "activeLens"> & {
   activeLens?: SparkActiveLensDriveState;
-  workflowActive?: boolean;
-  repro?: SparkSessionRepro | null | undefined;
-  goal?: SparkSessionGoal | null | undefined;
-  loop?: SparkSessionLoop | null | undefined;
-}
-
-export interface SparkDriveDescriptor<Id extends string = string> {
+};
+type SparkDriveDescriptor<Id extends string = string> = Omit<DriveDescriptorContract, "id"> & {
   id: Id;
-  label?: string;
-  priority: number;
-  aliases?: readonly string[];
-  isActive?: (input: SparkDriveDerivationInput) => boolean;
-}
+};
+export type { SparkDriveDerivationInput, SparkDriveDescriptor };
 
 export class SparkDriveRegistry<Mode extends string = string> {
   readonly #descriptors = new Map<Mode, SparkDriveDescriptor<Mode>>();

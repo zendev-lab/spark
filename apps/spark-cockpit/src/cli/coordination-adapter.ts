@@ -8,21 +8,11 @@ import type { ProjectRef } from "@zendev-lab/spark-core";
 import type {
   SparkCockpitArtifactSummary,
   SparkCockpitCliOptions,
+  SparkCockpitCoordinationState,
   SparkCockpitGoalSummary,
   SparkCockpitReviewSummary,
   SparkCockpitWorkflowSummary,
-} from "./coordination.ts";
-
-export interface SparkCockpitCoordinationState {
-  cwd: string;
-  graph: TaskGraph | null;
-  currentProjectRef: ProjectRef | null;
-  currentSessionKey: string | null;
-  goal: SparkCockpitGoalSummary | null;
-  artifacts: SparkCockpitArtifactSummary[];
-  reviews: SparkCockpitReviewSummary[];
-  workflows: SparkCockpitWorkflowSummary[];
-}
+} from "./coordination-contract.ts";
 
 export async function loadSparkCockpitCoordinationState(
   options: SparkCockpitCliOptions,

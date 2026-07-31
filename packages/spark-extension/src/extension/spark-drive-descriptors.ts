@@ -1,4 +1,7 @@
-import type { SparkDriveDerivationInput, SparkDriveDescriptor } from "./spark-drive-state.ts";
+import type { DriveDerivationContract, DriveDescriptorContract } from "./spark-drive-contracts.ts";
+
+type SparkDriveDerivationInput = DriveDerivationContract;
+type SparkDriveDescriptor = DriveDescriptorContract;
 
 export const ASSIST_DRIVE_DESCRIPTOR = {
   id: "assist",

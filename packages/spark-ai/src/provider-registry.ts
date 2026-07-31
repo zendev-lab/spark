@@ -1,5 +1,5 @@
 import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
-import type { SparkAuthRef, SparkModelProfile } from "./index.ts";
+import type { SparkAuthRef, SparkModelProfile } from "./model-routing.ts";
 
 export interface ProviderModelDefinition {
   id: string;

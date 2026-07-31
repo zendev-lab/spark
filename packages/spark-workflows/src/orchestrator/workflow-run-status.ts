@@ -1,4 +1,4 @@
-import type { WorkflowRunRecord, WorkflowRunStatus } from "./index.ts";
+import type { WorkflowRunRecord, WorkflowRunStatus } from "./types.ts";
 
 export function isTerminalWorkflowRunStatus(status: WorkflowRunStatus): boolean {
   return (

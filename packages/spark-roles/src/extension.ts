@@ -23,7 +23,7 @@ import {
   type RoleSpec,
   type RoleSpecProposal,
   type WritableRoleSource,
-} from "./index.ts";
+} from "./role-runtime.ts";
 
 export interface SparkRolesHostApi {
   registerTool(config: SparkRolesToolConfig): void;
