@@ -15,11 +15,12 @@ export function createSparkLensToolConfig(): SparkRegisteredToolConfig & {
     name: "lens",
     label: "Lens",
     description:
-      "Run internal, revision-safe diagnostics or verification for a GitChange worktree.",
+      "Run internal revision-safe diagnostics, verification, code discovery, or impact analysis for a GitChange worktree.",
     promptGuidelines: [
       "Treat pass as valid only for the exact workspace revision in the returned receipt.",
       "A provider error, timeout, silence, conflict, or stale revision is not clean.",
       "Use verify when a completion or Ready transition needs a durable receipt.",
+      "Search and outline return versioned read parameters; use read rather than expecting Lens to duplicate source.",
     ],
     policy: {
       effect: "read",
@@ -32,9 +33,18 @@ export function createSparkLensToolConfig(): SparkRegisteredToolConfig & {
         Type.Literal("diagnostics"),
         Type.Literal("verify"),
         Type.Literal("health"),
+        Type.Literal("search"),
+        Type.Literal("outline"),
+        Type.Literal("navigate"),
+        Type.Literal("structural_search"),
+        Type.Literal("impact"),
       ]),
       artifactRef: Type.Optional(Type.String({ description: "GitChange artifact ref." })),
       path: Type.Optional(Type.String({ description: "Optional finding path filter." })),
+      query: Type.Optional(Type.String({ description: "Symbol query for search or navigate." })),
+      pattern: Type.Optional(
+        Type.String({ description: "ast-grep pattern for structural_search." }),
+      ),
       refresh: Type.Optional(
         Type.Boolean({
           description: "Request a fresh provider run; verification is always fresh.",

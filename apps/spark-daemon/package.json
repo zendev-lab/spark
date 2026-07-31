@@ -23,6 +23,7 @@
     "doctor": "pnpm run build && node dist/cli.js doctor"
   },
   "dependencies": {
+    "@ast-grep/napi": "^0.45.0",
     "@core-workspace/infoflow-sdk-nodejs": "2026.6.12-beta.1",
     "@orpc/server": "catalog:",
     "@zendev-lab/spark-ai": "workspace:^",

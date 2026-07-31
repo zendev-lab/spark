@@ -228,6 +228,48 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       exited_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS lens_code_symbols (
+      workspace_root TEXT NOT NULL,
+      symbol_id TEXT NOT NULL,
+      revision_digest TEXT NOT NULL,
+      path TEXT NOT NULL,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      start_line INTEGER NOT NULL,
+      end_line INTEGER NOT NULL,
+      source TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      PRIMARY KEY (workspace_root, symbol_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS lens_code_graph_meta (
+      workspace_root TEXT PRIMARY KEY,
+      revision_digest TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS lens_code_files (
+      workspace_root TEXT NOT NULL,
+      path TEXT NOT NULL,
+      revision_digest TEXT NOT NULL,
+      content_digest TEXT NOT NULL,
+      PRIMARY KEY (workspace_root, path)
+    );
+
+    CREATE TABLE IF NOT EXISTS lens_code_edges (
+      workspace_root TEXT NOT NULL,
+      edge_id TEXT NOT NULL,
+      revision_digest TEXT NOT NULL,
+      from_path TEXT NOT NULL,
+      to_path TEXT,
+      from_symbol TEXT,
+      to_symbol TEXT,
+      kind TEXT NOT NULL,
+      source TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      PRIMARY KEY (workspace_root, edge_id)
+    );
+
     CREATE INDEX IF NOT EXISTS invocations_status_idx ON invocations(status, created_at);
     CREATE INDEX IF NOT EXISTS driver_wakeups_due_idx
       ON driver_wakeups(status, due_at, updated_at)
@@ -263,6 +305,14 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       ON lens_observations(workspace_root, revision_digest);
     CREATE INDEX IF NOT EXISTS lens_provider_processes_status_idx
       ON lens_provider_processes(status, last_heartbeat_at);
+    CREATE INDEX IF NOT EXISTS lens_code_symbols_search_idx
+      ON lens_code_symbols(workspace_root, revision_digest, name);
+    CREATE INDEX IF NOT EXISTS lens_code_symbols_path_idx
+      ON lens_code_symbols(workspace_root, revision_digest, path);
+    CREATE INDEX IF NOT EXISTS lens_code_edges_from_idx
+      ON lens_code_edges(workspace_root, revision_digest, from_path);
+    CREATE INDEX IF NOT EXISTS lens_code_edges_to_idx
+      ON lens_code_edges(workspace_root, revision_digest, to_path);
   `);
   migrateSessionRequestCompletionDeliverySchema(db);
   migrateChannelDeliverySchema(db);

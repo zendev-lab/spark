@@ -22,6 +22,7 @@ const require = __sparkCreateRequire(import.meta.url);`,
   bundle: true,
   entryPoints: ["src/cli.ts"],
   external: [
+    "@ast-grep/napi",
     "ws",
     "@core-workspace/infoflow-sdk-nodejs",
     "@cursor/sdk",

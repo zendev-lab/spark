@@ -1,17 +1,22 @@
 import type { DatabaseSync } from "node:sqlite";
 
-import type { LensDiagnosticReport } from "@zendev-lab/spark-lens";
+import { resolveArtifactFileRoot } from "@zendev-lab/spark-files";
+import { captureWorkspaceRevision, type LensDiagnosticReport } from "@zendev-lab/spark-lens";
 
+import { DaemonLensCodeIntelligence } from "./code-intelligence.ts";
+import { DaemonLensCodeIntelligenceStore } from "./code-intelligence-store.ts";
 import { TypeScriptLensVerificationService } from "./typescript-verification.ts";
 import type { LocalRpcServiceOutput, LocalRpcServiceRequest } from "../local-rpc/types.ts";
 
 type LensExecuteRequest = Extract<LocalRpcServiceRequest, { method: "lens.execute" }>;
 
 const services = new WeakMap<DatabaseSync, TypeScriptLensVerificationService>();
+const intelligenceServices = new WeakMap<DatabaseSync, DaemonLensCodeIntelligence>();
 
 export async function closeDaemonLensToolService(db: DatabaseSync): Promise<void> {
   const service = services.get(db);
   services.delete(db);
+  intelligenceServices.delete(db);
   await service?.close();
 }
 
@@ -21,8 +26,19 @@ export async function executeDaemonLensTool(
 ): Promise<LocalRpcServiceOutput<LensExecuteRequest>> {
   const params = request.params.params;
   const action = stringParam(params.action, "action");
-  if (action !== "diagnostics" && action !== "verify" && action !== "health") {
-    throw new Error("lens action must be diagnostics, verify, or health");
+  if (
+    ![
+      "diagnostics",
+      "verify",
+      "health",
+      "search",
+      "outline",
+      "navigate",
+      "structural_search",
+      "impact",
+    ].includes(action)
+  ) {
+    throw new Error("unsupported lens action");
   }
   const artifactRef = optionalString(params.artifactRef, "artifactRef");
   const service = serviceFor(db);
@@ -33,6 +49,52 @@ export async function executeDaemonLensTool(
       `Lens profile=${health.profile} providers=${available}/${health.providers.length}`,
       { health },
     );
+  }
+  if (
+    action === "search" ||
+    action === "outline" ||
+    action === "navigate" ||
+    action === "structural_search" ||
+    action === "impact"
+  ) {
+    const root = await resolveArtifactFileRoot(request.params.cwd, artifactRef);
+    const revision = await captureWorkspaceRevision({
+      workspaceRoot: root.cwd,
+      profile: { id: "revisioned-code-intelligence-v1", astGrep: "0.45.0" },
+    });
+    const intelligence = intelligenceFor(db);
+    const indexed = await intelligence.index({ revision });
+    const path = optionalString(params.path, "path");
+    const query = optionalString(params.query, "query");
+    const pattern = optionalString(params.pattern, "pattern");
+    const maxFindings = optionalInteger(params.maxFindings, "maxFindings") ?? 20;
+    let items: unknown[];
+    if (action === "outline") {
+      if (!path) throw new Error("outline requires path");
+      items = intelligence.outline(revision, path);
+    } else if (action === "impact") {
+      if (!path) throw new Error("impact requires path");
+      items = intelligence.impact(revision, path);
+    } else if (action === "structural_search") {
+      if (!pattern) throw new Error("structural_search requires pattern");
+      items = await intelligence.structuralSearch({
+        revision,
+        pattern,
+        ...(path ? { path } : {}),
+        limit: Math.min(maxFindings, 1_000),
+      });
+    } else {
+      if (!query) throw new Error(`${action} requires query`);
+      items = intelligence.search(revision, query, Math.min(maxFindings, 1_000));
+    }
+    const withArtifact = root.artifactRef
+      ? items.map((item) => addArtifactRef(item, root.artifactRef!))
+      : items;
+    return result(`Lens ${action}: ${withArtifact.length} result(s) revision=${revision.digest}`, {
+      revisionDigest: revision.digest,
+      indexed,
+      items: withArtifact,
+    });
   }
 
   const path = optionalString(params.path, "path");
@@ -70,6 +132,20 @@ function serviceFor(db: DatabaseSync): TypeScriptLensVerificationService {
   const service = new TypeScriptLensVerificationService(db);
   services.set(db, service);
   return service;
+}
+
+function intelligenceFor(db: DatabaseSync): DaemonLensCodeIntelligence {
+  const existing = intelligenceServices.get(db);
+  if (existing) return existing;
+  const service = new DaemonLensCodeIntelligence(new DaemonLensCodeIntelligenceStore(db));
+  intelligenceServices.set(db, service);
+  return service;
+}
+
+function addArtifactRef(value: unknown, artifactRef: `artifact:${string}`): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const item = value as { read?: Record<string, unknown> };
+  return item.read ? { ...item, read: { ...item.read, artifactRef } } : item;
 }
 
 function publicReport(report: LensDiagnosticReport) {
