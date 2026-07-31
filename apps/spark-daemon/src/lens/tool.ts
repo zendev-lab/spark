@@ -9,6 +9,12 @@ type LensExecuteRequest = Extract<LocalRpcServiceRequest, { method: "lens.execut
 
 const services = new WeakMap<DatabaseSync, TypeScriptLensVerificationService>();
 
+export async function closeDaemonLensToolService(db: DatabaseSync): Promise<void> {
+  const service = services.get(db);
+  services.delete(db);
+  await service?.close();
+}
+
 export async function executeDaemonLensTool(
   request: LensExecuteRequest,
   db: DatabaseSync,

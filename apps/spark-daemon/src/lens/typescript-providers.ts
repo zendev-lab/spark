@@ -18,9 +18,10 @@ export interface CommandDiagnosticValue {
   findings: DiagnosticFinding[];
 }
 
-interface PackageBinary {
+export interface PackageBinary {
   command: string;
   argsPrefix: string[];
+  entrypoint: string;
   version: ProviderVersion;
 }
 
@@ -146,7 +147,7 @@ function commandProvider(options: {
   };
 }
 
-async function resolvePackageBinary(
+export async function resolvePackageBinary(
   workspaceRoot: string,
   packageName: string,
   binName: string,
@@ -178,9 +179,11 @@ async function resolvePackageBinary(
   if (typeof manifest.version !== "string" || !manifest.version) {
     throw new Error(`${packageName} has no package version`);
   }
+  const entrypoint = resolve(dirname(packageJsonPath), relativeBin);
   return {
     command: process.execPath,
-    argsPrefix: [resolve(dirname(packageJsonPath), relativeBin)],
+    argsPrefix: [entrypoint],
+    entrypoint,
     version: manifest.version as ProviderVersion,
   };
 }

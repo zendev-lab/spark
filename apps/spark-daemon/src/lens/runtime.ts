@@ -76,8 +76,11 @@ export class DaemonLensRuntime {
     let result: ProviderResult;
     try {
       const entry = await this.#session(provider, {
+        worktreeRoot: options.request.revision.workspaceRoot,
+        projectRoot: options.request.revision.workspaceRoot,
         workspaceRoot: options.request.revision.workspaceRoot,
         profileDigest: options.request.revision.profileDigest,
+        configDigest: options.request.revision.profileDigest,
       });
       const value = await Promise.race([
         entry.session.request(options.request, controller.signal),
@@ -164,7 +167,9 @@ export class DaemonLensRuntime {
 }
 
 function sessionKey(providerId: ProviderId, workspace: LensWorkspaceContext): string {
-  return `${providerId}\0${workspace.workspaceRoot}\0${workspace.profileDigest}`;
+  return [providerId, workspace.worktreeRoot, workspace.projectRoot, workspace.configDigest].join(
+    "\0",
+  );
 }
 
 function resultKey(providerId: ProviderId, request: ProviderRequest): string {

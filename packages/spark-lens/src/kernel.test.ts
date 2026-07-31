@@ -9,10 +9,14 @@ import { describe, expect, test } from "vitest";
 import {
   capabilityRoute,
   captureWorkspaceRevision,
+  decideProviderTrust,
   aggregateDiagnosticFindings,
   evaluateLensVerdict,
   isWorkspaceRevisionCurrent,
   providersForRoute,
+  OXFMT_PROVIDER_ID,
+  TYPESCRIPT_7_PROVIDER_ID,
+  TYPESCRIPT_LSP_PROFILE,
   type Observation,
   type ProviderId,
   type ProviderResult,
@@ -37,6 +41,45 @@ describe("capability routes", () => {
     expect(() => capabilityRoute.merge("diagnostics", [provider("tsc"), provider("tsc")])).toThrow(
       /distinct/,
     );
+  });
+});
+
+describe("provider trust and the TypeScript profile", () => {
+  test("requires digest-bound trust for project-local executables", () => {
+    const launch = {
+      providerId: provider("ts7"),
+      executable: "/project/node_modules/.bin/tsc",
+      args: ["--lsp", "--stdio"],
+      cwd: "/project",
+      source: "project_local" as const,
+      executableDigest: "binary-v1",
+      configDigest: "config-v1",
+    };
+    expect(decideProviderTrust(launch, undefined)).toEqual({
+      trusted: false,
+      reason: "grant_missing",
+    });
+    expect(
+      decideProviderTrust(launch, {
+        providerId: launch.providerId,
+        source: "project_local",
+        executableDigest: "binary-v0",
+        configDigest: "config-v1",
+      }),
+    ).toEqual({ trusted: false, reason: "executable_changed" });
+  });
+
+  test("assigns exactly one formatter owner and native semantic owner", () => {
+    expect(TYPESCRIPT_LSP_PROFILE.routes).toContainEqual({
+      kind: "exclusive",
+      capability: "format",
+      owner: OXFMT_PROVIDER_ID,
+    });
+    expect(TYPESCRIPT_LSP_PROFILE.routes).toContainEqual({
+      kind: "exclusive",
+      capability: "completion",
+      owner: TYPESCRIPT_7_PROVIDER_ID,
+    });
   });
 });
 

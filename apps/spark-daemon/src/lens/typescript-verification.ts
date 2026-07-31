@@ -28,6 +28,7 @@ import {
   inspectTypeScriptToolchain,
   type CommandDiagnosticValue,
 } from "./typescript-providers.ts";
+import { inspectTypeScriptLspProfile } from "./typescript-lsp-profile.ts";
 
 export interface RunTypeScriptDiagnosticsInput {
   cwd: string;
@@ -57,6 +58,7 @@ export class TypeScriptLensVerificationService {
       profile: TYPESCRIPT_DUAL_VERIFICATION_PROFILE.id,
       routeDigest: TYPESCRIPT_DUAL_ROUTE_DIGEST,
       providers: await inspectTypeScriptToolchain(root.cwd),
+      lspProfile: await inspectTypeScriptLspProfile(root.cwd),
     };
   }
 

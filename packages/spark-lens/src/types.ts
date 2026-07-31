@@ -67,8 +67,14 @@ export interface LensProvider {
 }
 
 export interface LensWorkspaceContext {
+  /** Canonical root of the isolated Git worktree. */
+  worktreeRoot: string;
+  /** Project root used to initialize the provider. */
+  projectRoot: string;
   workspaceRoot: string;
   profileDigest: string;
+  /** Digest of the effective provider configuration, excluding secrets. */
+  configDigest: string;
 }
 
 export type ProviderResultStatus = "ok" | "error" | "timeout" | "cancelled" | "silent";
