@@ -28,10 +28,11 @@ test("runtime model control rejects sessions outside the explicit route scope", 
       scope: { kind: "workspace", workspaceId: "workspace-a" },
       workspaceId: "workspace-a",
     });
-    const daemonSession = await registry.create({
-      sessionId: "session-daemon",
-      title: "Daemon",
-      scope: { kind: "daemon" },
+    const otherWorkspaceSession = await registry.create({
+      sessionId: "session-b",
+      title: "Workspace B",
+      scope: { kind: "workspace", workspaceId: "workspace-b" },
+      workspaceId: "workspace-b",
     });
 
     await assert.rejects(
@@ -64,14 +65,14 @@ test("runtime model control rejects sessions outside the explicit route scope", 
           kind: "session.thinking.set.request",
           scope: "workspace",
           workspaceId: "workspace-a",
-          payload: { sessionId: daemonSession.sessionId, thinkingLevel: "high" },
+          payload: { sessionId: otherWorkspaceSession.sessionId, thinkingLevel: "high" },
         },
       ),
       /does not belong to the routed control scope/u,
     );
 
     assert.equal((await registry.get(sessionA.sessionId))?.model, undefined);
-    assert.equal((await registry.get(daemonSession.sessionId))?.thinkingLevel, undefined);
+    assert.equal((await registry.get(otherWorkspaceSession.sessionId))?.thinkingLevel, undefined);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
