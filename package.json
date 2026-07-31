@@ -24,7 +24,8 @@
   "workspaces": {
     "packages": [
       "apps/*",
-      "packages/*"
+      "packages/*",
+      "!packages/spark-mcp-spike"
     ]
   },
   "type": "module",

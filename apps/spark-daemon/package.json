@@ -33,6 +33,7 @@
     "@zendev-lab/spark-files": "workspace:^",
     "@zendev-lab/spark-host": "workspace:^",
     "@zendev-lab/spark-i18n": "workspace:^",
+    "@zendev-lab/spark-lens": "workspace:^",
     "@zendev-lab/spark-loop": "workspace:^",
     "@zendev-lab/spark-modes": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
