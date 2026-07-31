@@ -2,6 +2,7 @@ export * from "./revision.ts";
 export * from "./routes.ts";
 export * from "./language-profiles.ts";
 export * from "./intelligence.ts";
+export * from "./patch-proposal.ts";
 export * from "./trust.ts";
 export * from "./types.ts";
 export * from "./typescript-profile.ts";

@@ -17,6 +17,8 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import piFilesExtension, {
+  atomicReplaceTextFiles,
+  contentVersion,
   truncateHead,
   truncateLine,
   applyEditsToNormalizedContent,
@@ -94,6 +96,37 @@ async function withTempDir(fn: (dir: string) => Promise<void>): Promise<void> {
 test("spark-files exposes one tool per file operation", () => {
   const tools = collectTools(piFilesExtension);
   assert.deepEqual([...tools.keys()].sort(), ["edit", "find", "grep", "read", "write"]);
+});
+
+test("batch CAS checks every file before promoting any content", async () => {
+  await withTempDir(async (dir) => {
+    const first = join(dir, "first.txt");
+    const second = join(dir, "second.txt");
+    await writeFile(first, "first-v1");
+    await writeFile(second, "second-v1");
+    const firstVersion = contentVersion(Buffer.from("first-v1"));
+    const secondVersion = contentVersion(Buffer.from("second-v1"));
+
+    const conflict = await atomicReplaceTextFiles([
+      { filePath: first, content: "first-v2", expectedVersion: firstVersion },
+      {
+        filePath: second,
+        content: "second-v2",
+        expectedVersion: contentVersion(Buffer.from("stale")),
+      },
+    ]);
+    assert.equal(conflict.ok, false);
+    assert.equal(await readFile(first, "utf8"), "first-v1");
+    assert.equal(await readFile(second, "utf8"), "second-v1");
+
+    const promoted = await atomicReplaceTextFiles([
+      { filePath: first, content: "first-v2", expectedVersion: firstVersion },
+      { filePath: second, content: "second-v2", expectedVersion: secondVersion },
+    ]);
+    assert.equal(promoted.ok, true);
+    assert.equal(await readFile(first, "utf8"), "first-v2");
+    assert.equal(await readFile(second, "utf8"), "second-v2");
+  });
 });
 
 test("relative paths route through an attached git_change Artifact worktree", async () => {

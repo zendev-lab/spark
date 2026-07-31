@@ -36,4 +36,25 @@ export {
 export { pathExists, resolveReadPath, resolveReadPathSync, resolveToCwd } from "./path-utils.ts";
 export { resolveArtifactFileRoot } from "./artifact-root.ts";
 export { walkTree, type WalkEntry, type WalkOptions } from "./gitignore-walker.ts";
+export {
+  atomicReplaceTextFile,
+  atomicReplaceTextFiles,
+  contentVersion,
+  createFileReadMetadata,
+  isFileVersionPrecondition,
+  MISSING_FILE_VERSION,
+  readRegularFileSnapshot,
+  type AtomicReplaceConflict,
+  type AtomicReplaceResult,
+  type AtomicTextFileBatchConflict,
+  type AtomicTextFileBatchResult,
+  type AtomicTextFileBatchUpdate,
+  type FileContentVersion,
+  type FileLineAnchor,
+  type FileLineEnding,
+  type FileReadMetadata,
+  type FileReadWindow,
+  type FileVersionState,
+  type RegularFileSnapshot,
+} from "./file-version.ts";
 export type { ToolExecResult, ToolTextContent } from "./shared.ts";

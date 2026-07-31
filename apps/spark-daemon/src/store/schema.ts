@@ -212,6 +212,27 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS lens_patch_proposals (
+      proposal_ref TEXT PRIMARY KEY,
+      workspace_root TEXT NOT NULL,
+      base_revision_digest TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('proposed', 'applied', 'stale', 'rejected')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS lens_observation_dispositions (
+      observation_ref TEXT PRIMARY KEY,
+      workspace_root TEXT NOT NULL,
+      revision_digest TEXT NOT NULL,
+      disposition TEXT NOT NULL CHECK (
+        disposition IN ('false_positive', 'deferred', 'flagged', 'suppressed')
+      ),
+      patch_proposal_ref TEXT,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS lens_provider_processes (
       process_key TEXT PRIMARY KEY,
       provider_id TEXT NOT NULL,
@@ -303,6 +324,10 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       ON lens_provider_results(revision_digest, capability);
     CREATE INDEX IF NOT EXISTS lens_observations_revision_idx
       ON lens_observations(workspace_root, revision_digest);
+    CREATE INDEX IF NOT EXISTS lens_patch_proposals_revision_idx
+      ON lens_patch_proposals(workspace_root, base_revision_digest, status);
+    CREATE INDEX IF NOT EXISTS lens_observation_dispositions_revision_idx
+      ON lens_observation_dispositions(workspace_root, revision_digest);
     CREATE INDEX IF NOT EXISTS lens_provider_processes_status_idx
       ON lens_provider_processes(status, last_heartbeat_at);
     CREATE INDEX IF NOT EXISTS lens_code_symbols_search_idx
