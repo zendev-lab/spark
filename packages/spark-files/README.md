@@ -1,7 +1,7 @@
 # @zendev-lab/spark-files
 
-Working-tree file tools for Spark extension hosts: `read`, `write`, `edit`, `ls`,
-`grep`, and `find`. These give a Pi host the same coding-agent file surface as
+Working-tree file tools for Spark extension hosts: `read`, `write`, `edit`,
+`grep`, and `find`. These give a Spark host a stable coding-agent file surface
 pi-coding-agent, but the implementation depends only on
 `@zendev-lab/spark-core`, `typebox`, `diff`, `ignore`, and `minimatch` —
 no `@earendil-works/pi-coding-agent` runtime, no `@earendil-works/pi-tui`, and
@@ -31,8 +31,6 @@ no `rg`/`fd`/`bash` subprocess.
   no-op edits are rejected with precise errors. Its read/commit window uses the
   same atomic version check, so an intervening change fails instead of being
   overwritten. Emits a display diff plus a unified patch in `details`.
-- `ls` — alphabetical directory listing with a `/` suffix for directories,
-  capped at 500 entries / 50KB.
 - `grep` — pure-JS content search returning `path:line: text`, with regex or
   literal matching, optional case-insensitivity, optional context lines, glob
   filtering, and match/byte/line truncation. Respects `.gitignore` plus hard
@@ -55,7 +53,10 @@ registerSparkFilesTools(pi, { tools: ["read", "grep", "find"] });
 ```
 
 Tools resolve their working directory from the extension context (`ctx.cwd`)
-per call, so a single registration works across sessions with different cwds.
+per call. Supplying a `git_change` `artifactRef` routes relative paths to that
+Artifact's attached worktree; absolute paths remain absolute. This is routing
+and attribution, not a permission boundary. `ls` remains exported only for
+explicit compatibility registration and is not part of the default tool set.
 
 The sole read/write protocol is versioned: there is no plain read mode and no
 blind write path. The check is content-level optimistic concurrency plus a

@@ -2,7 +2,7 @@
   "name": "@zendev-lab/spark-files",
   "version": "0.1.0",
   "private": true,
-  "description": "Working-tree file tools (read/edit/write/grep/find/ls) for Spark extension hosts, with Pi-parity truncation and diff semantics.",
+  "description": "Working-tree file tools (read/edit/write/grep/find) for Spark extension hosts, with versioned reads and atomic writes.",
   "keywords": [
     "file-tools",
     "spark-extension",
@@ -25,7 +25,9 @@
     "test": "vp test run"
   },
   "dependencies": {
+    "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-daemon-client": "workspace:^",
     "diff": "^8.0.4",
     "ignore": "^7.0.5",
     "minimatch": "^10.2.5",

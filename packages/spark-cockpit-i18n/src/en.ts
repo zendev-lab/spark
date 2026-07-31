@@ -730,7 +730,8 @@ const messages = {
       noTasksTitle: "No tasks yet",
       noTasksBody: "Tasks Spark creates for this conversation appear here.",
       noArtifactsTitle: "No artifacts yet",
-      noArtifactsBody: "Issue, PR, and preview artifacts bound to this conversation appear here.",
+      noArtifactsBody:
+        "Issue, Git change, and document artifacts bound to this conversation appear here.",
       noChangesTitle: "No structured changes yet",
       noChangesBody:
         "Changes published by Spark appear here. Chat text alone is not treated as a code change.",
@@ -1313,12 +1314,12 @@ const messages = {
     },
     emptyWorkspace: {
       title: "Create a workspace first",
-      body: "Create a workspace first, then browse ISSUE, PR, and preview artifacts.",
+      body: "Create a workspace first, then browse issue, Git change, and document artifacts.",
       action: "Open overview",
     },
     empty: {
       title: "No artifacts yet",
-      body: "Issues, pull requests, and preview progress appear here.",
+      body: "Issues, Git changes, and documents appear here.",
     },
     list: {
       title: "Workspace artifacts",

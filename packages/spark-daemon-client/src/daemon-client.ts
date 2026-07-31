@@ -44,6 +44,27 @@ export interface SparkDaemonClient {
   ): Promise<SparkLocalRpcOutput<M>>;
 }
 
+const DAEMON_ONLY_TOOL_METHODS = new Set<SparkLocalRpcMethod>([
+  "file.execute",
+  "artifact.execute",
+  "git.execute",
+]);
+
+/**
+ * The typed daemon socket could not be reached before a tool procedure was
+ * dispatched. Callers may start the daemon and retry this specific failure.
+ */
+export class SparkDaemonPreDispatchUnavailableError extends SparkDaemonLocalRpcError {
+  override readonly name = "SparkDaemonPreDispatchUnavailableError";
+  readonly method: SparkLocalRpcMethod;
+
+  constructor(method: SparkLocalRpcMethod, cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(`Spark daemon was unavailable before ${method} dispatch: ${detail}`, { cause });
+    this.method = method;
+  }
+}
+
 /**
  * Create the single protocol-aware daemon client facade.
  *
@@ -97,6 +118,9 @@ export async function requestSparkDaemon<M extends SparkLocalRpcMethod>(
     });
   } catch (error) {
     if (options.signal?.aborted || isAbortError(error)) throw error;
+    if (DAEMON_ONLY_TOOL_METHODS.has(method)) {
+      throw new SparkDaemonPreDispatchUnavailableError(method, error);
+    }
     const result = await requestSparkDaemonLocalRpc<unknown>(method, input, legacyOptions(options));
     return sparkLocalRpcProcedureSchemas[method].output.parse(result) as SparkLocalRpcOutput<M>;
   }

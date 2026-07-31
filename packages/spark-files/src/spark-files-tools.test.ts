@@ -24,7 +24,9 @@ import piFilesExtension, {
   walkTree,
   DEFAULT_MAX_LINES,
   DEFAULT_MAX_BYTES,
+  registerSparkFilesTools,
 } from "./index.ts";
+import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
 
 interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
@@ -91,7 +93,57 @@ async function withTempDir(fn: (dir: string) => Promise<void>): Promise<void> {
 
 test("spark-files exposes one tool per file operation", () => {
   const tools = collectTools(piFilesExtension);
-  assert.deepEqual([...tools.keys()].sort(), ["edit", "find", "grep", "ls", "read", "write"]);
+  assert.deepEqual([...tools.keys()].sort(), ["edit", "find", "grep", "read", "write"]);
+});
+
+test("relative paths route through an attached git_change Artifact worktree", async () => {
+  await withTempDir(async (dir) => {
+    const worktree = join(dir, "managed-worktree");
+    await mkdir(worktree);
+    await writeFile(join(worktree, "artifact.txt"), "from artifact worktree\n", "utf8");
+    const artifact = await defaultArtifactStore(dir).put({
+      kind: "git_change",
+      title: "Managed change",
+      body: {
+        schemaVersion: 2,
+        kind: "git_change",
+        repository: { forge: "github", repo: "acme/app" },
+        trunk: "main",
+        worktree: {
+          path: worktree,
+          branch: "feature",
+          ownership: "spark",
+          status: "attached",
+        },
+        stack: {
+          authority: "gh-stack",
+          currentBranch: "feature",
+          entries: [
+            {
+              branch: "feature",
+              base: "base-oid",
+              isCurrent: true,
+              isMerged: false,
+              isQueued: false,
+              needsRebase: false,
+            },
+          ],
+        },
+        lifecycle: "local",
+      },
+    });
+
+    const read = collectTools(piFilesExtension).get("read")!;
+    const result = await read.execute(
+      "artifact-read",
+      { path: "artifact.txt", artifactRef: artifact.ref },
+      undefined,
+      noop,
+      { cwd: dir },
+    );
+    assert.match(text(result), /from artifact worktree/u);
+    assert.equal(result.details?.artifactRef, artifact.ref);
+  });
 });
 
 test("paginated reads reconstruct a version-consistent file without gaps", async () => {
@@ -809,7 +861,7 @@ test("edit fuzzy-matches smart quotes and trailing whitespace", async () => {
 
 test("ls lists alphabetically with directory suffixes", async () => {
   await withTempDir(async (dir) => {
-    const ls = collectTools(piFilesExtension).get("ls")!;
+    const ls = collectTools((api) => registerSparkFilesTools(api, { tools: ["ls"] })).get("ls")!;
     await mkdir(join(dir, "subdir"));
     await writeFile(join(dir, "b.txt"), "", "utf-8");
     await writeFile(join(dir, "a.txt"), "", "utf-8");
@@ -820,7 +872,7 @@ test("ls lists alphabetically with directory suffixes", async () => {
 
 test("ls summarizes large directories when shorter", async () => {
   await withTempDir(async (dir) => {
-    const ls = collectTools(piFilesExtension).get("ls")!;
+    const ls = collectTools((api) => registerSparkFilesTools(api, { tools: ["ls"] })).get("ls")!;
     await mkdir(join(dir, "many"));
     for (let i = 0; i < 35; i += 1) {
       await writeFile(

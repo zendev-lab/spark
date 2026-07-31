@@ -161,6 +161,11 @@ export interface ToolConfig {
   /** Canonical composable policy declaration for Spark hosts. */
   policy?: ToolPolicy;
   /**
+   * Optional argument-aware policy refinement. `policy` remains the
+   * conservative registration envelope used by host allowlists.
+   */
+  resolvePolicy?: (args: Readonly<Record<string, unknown>>) => ToolPolicy;
+  /**
    * Side-effect classification owned by the tool implementation. Hosts must
    * treat an omitted value as unknown, never infer it from the tool name.
    * @deprecated Declare `policy.effect`; retained for Pi and existing tools.
@@ -240,6 +245,38 @@ export function resolveToolPolicy(config: ToolConfig): ResolvedToolPolicy {
     domains: Object.freeze(normalizePolicyLabels(policy?.domains)),
     phases: Object.freeze(normalizePolicyLabels(policy?.phases)),
     approval,
+  });
+}
+
+/** Resolve the policy for one concrete call without weakening registration allowlists. */
+export function resolveToolPolicyForArgs(
+  config: ToolConfig,
+  args: Readonly<Record<string, unknown>>,
+): ResolvedToolPolicy {
+  if (!config.resolvePolicy) return resolveToolPolicy(config);
+  try {
+    const policy = config.resolvePolicy(args);
+    const resolved = resolveToolPolicy({
+      ...config,
+      policy,
+      resolvePolicy: undefined,
+      effect: undefined,
+      executionMode: undefined,
+      requiresApproval: undefined,
+    });
+    return resolved.effect === "unknown" ? unknownRequiredToolPolicy() : resolved;
+  } catch {
+    return unknownRequiredToolPolicy();
+  }
+}
+
+function unknownRequiredToolPolicy(): ResolvedToolPolicy {
+  return Object.freeze({
+    effect: "unknown",
+    executionMode: "sequential",
+    domains: Object.freeze([]),
+    phases: Object.freeze([]),
+    approval: "required",
   });
 }
 
@@ -793,6 +830,7 @@ export type SparkRef = Ref<"spark">;
 export type ProjectRef = Ref<"proj">;
 export type TaskRef = Ref<"task">;
 export type RoleRef = Ref<"role">;
+export type ArtifactRef = Ref<"artifact">;
 export type EvidenceRef = Ref<"evidence">;
 export type RunRef = Ref<"run">;
 export type ReviewRef = Ref<"review">;
@@ -1306,6 +1344,8 @@ export interface Task {
   /** Replacement task refs that supersede this task, matching learning supersededBy shape. */
   supersededBy: TaskRef[];
   claim?: TaskClaim;
+  /** User-facing atomic work products linked to this task. */
+  artifactRefs: ArtifactRef[];
   inputEvidenceRefs: EvidenceRef[];
   outputEvidenceRefs: EvidenceRef[];
   plan?: TaskPlan;

@@ -313,7 +313,7 @@ interface DependencyFileSnapshot {
 }
 
 interface TaskFileSnapshot extends Task {
-  version: 2;
+  version: 3;
   todoOwnerRef: TaskRef;
   runsPath: "runs";
   reviewsPath: "reviews";
@@ -492,7 +492,7 @@ function projectFileSnapshot(project: PersistedProject): ProjectFileSnapshot {
 
 function taskFileSnapshot(task: Task): TaskFileSnapshot {
   return {
-    version: 2,
+    version: 3,
     ...task,
     todoOwnerRef: task.ref,
     runsPath: "runs",
@@ -501,10 +501,11 @@ function taskFileSnapshot(task: Task): TaskFileSnapshot {
 }
 
 function migrateTaskFileSnapshot(raw: Record<string, unknown>, filePath: string): TaskFileSnapshot {
-  if (raw.version === 2) {
+  if (raw.version === 3) {
     rejectLegacyEvidenceFields(raw, filePath, ["inputArtifacts", "outputArtifacts"]);
     return {
       ...(raw as unknown as TaskFileSnapshot),
+      artifactRefs: persistedArtifactRefs(raw.artifactRefs, filePath),
       inputEvidenceRefs: persistedEvidenceRefs(
         raw.inputEvidenceRefs,
         filePath,
@@ -519,17 +520,60 @@ function migrateTaskFileSnapshot(raw: Record<string, unknown>, filePath: string)
       ),
     };
   }
-  if (raw.version !== 1) throw new TaskGraphStoreFormatError(filePath, "version must be 1 or 2");
+  if (raw.version === 2) {
+    rejectLegacyEvidenceFields(raw, filePath, ["inputArtifacts", "outputArtifacts"]);
+    return {
+      ...(raw as unknown as Omit<TaskFileSnapshot, "version" | "artifactRefs">),
+      version: 3,
+      artifactRefs: [],
+      inputEvidenceRefs: persistedEvidenceRefs(
+        raw.inputEvidenceRefs,
+        filePath,
+        "inputEvidenceRefs",
+        false,
+      ),
+      outputEvidenceRefs: persistedEvidenceRefs(
+        raw.outputEvidenceRefs,
+        filePath,
+        "outputEvidenceRefs",
+        false,
+      ),
+    };
+  }
+  if (raw.version !== 1)
+    throw new TaskGraphStoreFormatError(filePath, "version must be 1, 2, or 3");
   const { inputArtifacts, outputArtifacts, ...rest } = raw;
   return {
     ...(rest as unknown as Omit<
       TaskFileSnapshot,
-      "version" | "inputEvidenceRefs" | "outputEvidenceRefs"
+      "version" | "artifactRefs" | "inputEvidenceRefs" | "outputEvidenceRefs"
     >),
-    version: 2,
+    version: 3,
+    artifactRefs: [],
     inputEvidenceRefs: persistedEvidenceRefs(inputArtifacts, filePath, "inputArtifacts", true),
     outputEvidenceRefs: persistedEvidenceRefs(outputArtifacts, filePath, "outputArtifacts", true),
   };
+}
+
+function persistedArtifactRefs(
+  value: unknown,
+  filePath: string,
+): import("@zendev-lab/spark-core").ArtifactRef[] {
+  if (!Array.isArray(value))
+    throw new TaskGraphStoreFormatError(filePath, "artifactRefs must be an array");
+  return value.map((entry, index) => {
+    if (
+      typeof entry !== "string" ||
+      !entry.startsWith("artifact:") ||
+      entry.length === "artifact:".length
+    ) {
+      throw new TaskGraphStoreFormatError(
+        filePath,
+        `artifactRefs[${index}] must be an artifact: ref`,
+      );
+    }
+    return entry as import("@zendev-lab/spark-core").ArtifactRef;
+  });
 }
 
 function migrateRunFileSnapshot(raw: Record<string, unknown>, filePath: string): RunFileSnapshot {

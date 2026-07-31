@@ -191,8 +191,11 @@ const allow = new Map([
     "artifact-ref-on-evidence-surface",
     [
       /^packages\/spark-artifacts\/src\/extension\.ts$/u,
+      /^packages\/spark-tasks\/src\/(?:common|extension|graph|internal)\.ts$/u,
       /^packages\/spark-tasks\/src\/graph-store\.ts$/u,
+      /^packages\/spark-extension\/src\/extension\/spark-task-artifact\.ts$/u,
       /^packages\/spark-extension\/src\/extension\/subject-review-store\.ts$/u,
+      /^packages\/spark-extension\/src\/__tests__\/(?:spark-role-run-(?:observability|terminal-visibility|tui)|tasks-store)\.test\.ts$/u,
       /^packages\/spark-loop\/src\/session-goals\.ts$/u,
       evidenceMigrationPaths,
     ],

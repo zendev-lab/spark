@@ -273,7 +273,7 @@ export const sparkTaskViewSchema = z.object({
 });
 
 /**
- * User-facing Artifacts (Cockpit 产物): issue / pr / preview.
+ * User-facing Artifacts (Cockpit 产物): issue / git_change / document.
  * Legacy snapshots may still carry evidence kinds here; new emits use
  * `evidence.update` + `sparkEvidenceViewSchema` instead.
  */
@@ -305,7 +305,22 @@ const sparkArtifactProjectionPreviewContentRefSchema = z
   })
   .strict();
 
+const sparkArtifactProjectionDocumentContentRefSchema = z
+  .object({
+    artifactRef: artifactRefSchema,
+    mediaType: z.string().min(1),
+    revision: z.number().int().positive(),
+    progress: sparkArtifactProjectionProgressSchema.nullable(),
+    inlineMarkdown: z.string().optional(),
+    inlineText: z.string().optional(),
+    /** Protocol-v1 view compatibility; no longer determines Artifact kind. */
+    previewFormat: z.enum(["md", "mdx", "html", "a2ui", "spark-ui"]).optional(),
+    version: z.number().int().positive().optional(),
+  })
+  .strict();
+
 export const sparkArtifactProjectionContentRefSchema = z.union([
+  sparkArtifactProjectionDocumentContentRefSchema,
   sparkArtifactProjectionPreviewContentRefSchema,
   sparkArtifactProjectionJsonContentRefSchema,
 ]);
@@ -326,10 +341,44 @@ export const sparkArtifactProjectionSchema = z
   .strict()
   .superRefine((projection, context) => {
     const contentRef = projection.contentRef;
+    const isDocument = "mediaType" in contentRef;
     const isPreview = "previewFormat" in contentRef;
     let inlineBytes: number | undefined;
 
-    if (isPreview) {
+    if (isDocument) {
+      const isMarkdown = contentRef.mediaType === "text/markdown";
+      const expectedFormat = isMarkdown ? "markdown" : "text";
+      if (projection.format !== expectedFormat) {
+        context.addIssue({
+          code: "custom",
+          message: `document ${contentRef.mediaType} must use ${expectedFormat} transport format`,
+          path: ["format"],
+        });
+      }
+      if (projection.mime !== contentRef.mediaType) {
+        context.addIssue({
+          code: "custom",
+          message: "document projection mime must match contentRef.mediaType",
+          path: ["mime"],
+        });
+      }
+      if (isMarkdown && contentRef.inlineText !== undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "markdown document must use inlineMarkdown",
+          path: ["contentRef", "inlineText"],
+        });
+      }
+      if (!isMarkdown && contentRef.inlineMarkdown !== undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "non-markdown document must use inlineText",
+          path: ["contentRef", "inlineMarkdown"],
+        });
+      }
+      const inline = isMarkdown ? contentRef.inlineMarkdown : contentRef.inlineText;
+      if (inline !== undefined) inlineBytes = utf8ByteLength(inline);
+    } else if (isPreview) {
       const isMarkdown = contentRef.previewFormat === "md";
       const expectedFormat = isMarkdown ? "markdown" : "text";
       const expectedMime = isMarkdown
@@ -412,7 +461,17 @@ export const sparkArtifactViewSchema = z.object({
   version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),
   ref: sparkRefSchema,
   title: z.string().min(1),
-  kind: z.enum(["document", "record", "trace", "knowledge", "issue", "pr", "preview", "other"]),
+  kind: z.enum([
+    "document",
+    "record",
+    "trace",
+    "knowledge",
+    "issue",
+    "git_change",
+    "pr",
+    "preview",
+    "other",
+  ]),
   format: z.enum(["markdown", "json", "text", "mdx", "html", "blob", "other"]),
   status: z.string().optional(),
   producer: z.string().optional(),
@@ -878,7 +937,7 @@ export const sparkDaemonArtifactProjectedEventSchema = sparkDaemonEventBaseSchem
     artifact: z
       .object({
         ref: sparkRefSchema,
-        kind: z.enum(["issue", "pr", "preview"]),
+        kind: z.enum(["issue", "git_change", "document", "pr", "preview"]),
         title: z.string().min(1),
         projection: sparkArtifactProjectionSchema,
         createdAt: sparkIsoDateTimeSchema.optional(),
@@ -895,8 +954,12 @@ export const sparkDaemonArtifactProjectedEventSchema = sparkDaemonEventBaseSchem
         path: ["artifact", "projection", "contentRef", "artifactRef"],
       });
     }
-    const hasPreviewShape = "previewFormat" in contentRef;
-    if ((event.artifact.kind === "preview") !== hasPreviewShape) {
+    const hasDocumentShape = "mediaType" in contentRef;
+    const hasLegacyPreviewShape = !hasDocumentShape && "previewFormat" in contentRef;
+    if (
+      (event.artifact.kind === "document") !== hasDocumentShape ||
+      (event.artifact.kind === "preview") !== hasLegacyPreviewShape
+    ) {
       context.addIssue({
         code: "custom",
         message: "Artifact kind must match its projection content shape",

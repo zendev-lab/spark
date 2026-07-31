@@ -4684,7 +4684,10 @@ test("split task tools dispatch read, write, and assign actions", async () => {
     assert.doesNotMatch(taskParameters, /Preferred role ref/);
     assert.doesNotMatch(taskParameters, /run_ready/);
     assert.doesNotMatch(taskParameters, /run_control/);
-    assert.match(taskParameters, /recover \| release \| plan_update/);
+    assert.match(
+      taskParameters,
+      /recover \| release \| artifact_link \| artifact_unlink \| plan_update/,
+    );
     const taskReadParameters = JSON.stringify(tools.get("task_read")?.parameters);
     assert.match(taskReadParameters, /task_status/);
     assert.match(taskReadParameters, /project_status/);

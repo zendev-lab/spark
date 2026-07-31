@@ -12,7 +12,12 @@ const migrationsDestination = fileURLToPath(new URL("../dist/migrations/", impor
 
 await build({
   banner: {
-    js: "#!/usr/bin/env node",
+    // Some dependency-light tool paths still reach CommonJS packages such as
+    // sanitize-html. Give esbuild's ESM require shim a Node-native resolver so
+    // built daemon startup does not fail on their builtin dynamic requires.
+    js: `#!/usr/bin/env node
+import { createRequire as __sparkCreateRequire } from "node:module";
+const require = __sparkCreateRequire(import.meta.url);`,
   },
   bundle: true,
   entryPoints: ["src/cli.ts"],

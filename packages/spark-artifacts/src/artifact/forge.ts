@@ -49,7 +49,7 @@ export async function syncForgePr(options: ForgeSyncOptions): Promise<ForgePrSna
 
 export function issueBodyFromSnapshot(snapshot: ForgeIssueSnapshot): IssueArtifactBody {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "issue",
     forge: snapshot.forge,
     repo: snapshot.repo,

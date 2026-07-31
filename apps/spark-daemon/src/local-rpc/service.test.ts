@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -103,11 +103,65 @@ describe("transport-neutral local RPC service", () => {
     db.close();
   });
 
-  it("exhaustively groups all 72 methods behind their protocol output parser", () => {
+  it("executes daemon-owned file and artifact tools through typed procedures", async () => {
+    const { paths, db } = createFixture();
+    const cwd = join(paths.dataDir, "workspace");
+    mkdirSync(cwd, { recursive: true });
+
+    const write = await invokeLocalRpcService(
+      "file.execute",
+      {
+        cwd,
+        tool: "write",
+        toolCallId: "write-1",
+        operationId: "file:write:service-test",
+        params: {
+          path: "note.md",
+          content: "# daemon-owned\n",
+          expectedVersion: "missing",
+        },
+      },
+      { paths, db },
+    );
+    expect(write.isError).not.toBe(true);
+
+    const read = await invokeLocalRpcService(
+      "file.execute",
+      {
+        cwd,
+        tool: "read",
+        toolCallId: "read-1",
+        operationId: "file:read:service-test",
+        params: { path: "note.md" },
+      },
+      { paths, db },
+    );
+    expect(read.content[0]?.text).toContain("# daemon-owned");
+
+    const artifact = await invokeLocalRpcService(
+      "artifact.execute",
+      {
+        cwd,
+        toolCallId: "artifact-1",
+        operationId: "artifact:service-test",
+        params: {
+          action: "create",
+          kind: "document",
+          title: "Daemon document",
+          content: "owned by daemon",
+        },
+      },
+      { paths, db },
+    );
+    expect(artifact.content[0]?.text).toContain("Created artifact:");
+    db.close();
+  });
+
+  it("exhaustively groups all 75 methods behind their protocol output parser", () => {
     const groupedMethods = Object.values(localRpcServiceHandlerMethodGroups).flat();
     const catalogMethods = Object.keys(sparkLocalRpcProcedureSchemas) as SparkLocalRpcMethod[];
 
-    expect(groupedMethods).toHaveLength(72);
+    expect(groupedMethods).toHaveLength(75);
     expect(new Set(groupedMethods).size).toBe(groupedMethods.length);
     expect([...groupedMethods].sort()).toEqual([...catalogMethods].sort());
 

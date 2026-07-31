@@ -1,0 +1,768 @@
+import { spawn } from "node:child_process";
+import { homedir } from "node:os";
+import { access, mkdir } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  defaultArtifactStore,
+  newArtifactRef,
+  type Artifact,
+  type ArtifactRef,
+  type ArtifactStore,
+  type GitChangeArtifactBody,
+  type GitChangeEntry,
+  type GitPullRequestSnapshot,
+} from "../artifact/index.ts";
+
+export type GitLifecycleAction =
+  | "inspect"
+  | "init"
+  | "checkout"
+  | "adopt"
+  | "layer_add"
+  | "commit"
+  | "refresh"
+  | "submit"
+  | "sync"
+  | "cleanup";
+
+export type GitCommandRunner = (
+  command: string,
+  args: string[],
+  cwd: string,
+) => Promise<{ stdout: string; stderr: string; code: number }>;
+
+export interface GitLifecycleServiceOptions {
+  cwd: string;
+  store?: ArtifactStore;
+  runner?: GitCommandRunner;
+  worktreeRoot?: string;
+}
+
+export interface CreateGitChangeInput {
+  title?: string;
+  branch?: string;
+  trunk?: string;
+}
+
+export interface CheckoutGitChangeInput {
+  target: string;
+  title?: string;
+}
+
+export interface AdoptGitChangeInput {
+  worktreePath?: string;
+  title?: string;
+}
+
+export interface CommitGitChangeInput {
+  artifactRef: ArtifactRef;
+  message: string;
+  paths?: string[];
+  tracked?: boolean;
+}
+
+interface GhStackView {
+  trunk: string;
+  currentBranch?: string;
+  number?: number;
+  stackNumber?: number;
+  branches: Array<{
+    name: string;
+    base: string;
+    isCurrent?: boolean;
+    isMerged?: boolean;
+    isQueued?: boolean;
+    needsRebase?: boolean;
+  }>;
+}
+
+export class GitLifecycleError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "GitLifecycleError";
+    this.code = code;
+  }
+}
+
+export class GitLifecycleService {
+  readonly cwd: string;
+  readonly store: ArtifactStore;
+  readonly runner: GitCommandRunner;
+  readonly worktreeRoot: string;
+
+  constructor(options: GitLifecycleServiceOptions) {
+    this.cwd = resolve(options.cwd);
+    this.store = options.store ?? defaultArtifactStore(this.cwd);
+    this.runner = options.runner ?? defaultGitCommandRunner;
+    this.worktreeRoot =
+      options.worktreeRoot ??
+      process.env.SPARK_GIT_WORKTREE_ROOT ??
+      join(homedir(), ".agents", "worktrees");
+  }
+
+  async inspect(input: {
+    artifactRef?: ArtifactRef;
+    worktreePath?: string;
+  }): Promise<GitChangeArtifactBody> {
+    if (input.artifactRef) {
+      const artifact = await this.requireGitChange(input.artifactRef);
+      const worktreePath = artifact.body.worktree.path;
+      if (!worktreePath)
+        throw new GitLifecycleError("worktree_missing", "artifact has no worktree");
+      return this.inspectWorktree(
+        worktreePath,
+        artifact.body.worktree.ownership,
+        artifact.body.cleanupBlockers,
+      );
+    }
+    return this.inspectWorktree(input.worktreePath ?? this.cwd, "external");
+  }
+
+  async init(input: CreateGitChangeInput = {}): Promise<Artifact<GitChangeArtifactBody>> {
+    const ref = newArtifactRef();
+    const repository = await this.repositoryIdentity(this.cwd);
+    const trunk = input.trunk?.trim() || (await this.defaultTrunk(this.cwd));
+    const branch = input.branch?.trim() || `codex/change-${artifactId(ref).slice(0, 8)}`;
+    assertBranch(branch);
+    const worktreePath = this.managedWorktreePath(repository.repo, ref);
+    await this.assertWorktreeTargetAvailable(worktreePath);
+    await mkdir(dirname(worktreePath), { recursive: true });
+
+    const startPoint = await this.trunkStartPoint(this.cwd, trunk);
+    await this.runChecked(
+      "git",
+      ["worktree", "add", "--detach", worktreePath, startPoint],
+      this.cwd,
+      "worktree_add_failed",
+    );
+    try {
+      await this.runChecked(
+        "gh",
+        ["stack", "init", "--base", trunk, branch],
+        worktreePath,
+        "stack_init_failed",
+      );
+      const body = await this.inspectWorktree(worktreePath, "spark");
+      return this.store.put({
+        ref,
+        kind: "git_change",
+        title: input.title?.trim() || branch,
+        format: "json",
+        body,
+      });
+    } catch (error) {
+      await this.rollbackNewWorktree(worktreePath, error);
+      throw error;
+    }
+  }
+
+  async checkout(input: CheckoutGitChangeInput): Promise<Artifact<GitChangeArtifactBody>> {
+    const target = input.target.trim();
+    if (!target) throw new GitLifecycleError("target_required", "checkout target is required");
+    const ref = newArtifactRef();
+    const repository = await this.repositoryIdentity(this.cwd);
+    const trunk = await this.defaultTrunk(this.cwd);
+    const worktreePath = this.managedWorktreePath(repository.repo, ref);
+    await this.assertWorktreeTargetAvailable(worktreePath);
+    await mkdir(dirname(worktreePath), { recursive: true });
+    await this.runChecked(
+      "git",
+      ["worktree", "add", "--detach", worktreePath, await this.trunkStartPoint(this.cwd, trunk)],
+      this.cwd,
+      "worktree_add_failed",
+    );
+    try {
+      await this.runChecked(
+        "gh",
+        ["stack", "checkout", target],
+        worktreePath,
+        "stack_checkout_failed",
+      );
+      const body = await this.inspectWorktree(worktreePath, "spark");
+      return this.store.put({
+        ref,
+        kind: "git_change",
+        title: input.title?.trim() || body.stack.currentBranch || `Stack ${target}`,
+        format: "json",
+        body,
+      });
+    } catch (error) {
+      await this.rollbackNewWorktree(worktreePath, error);
+      throw error;
+    }
+  }
+
+  async adopt(input: AdoptGitChangeInput = {}): Promise<Artifact<GitChangeArtifactBody>> {
+    const worktreePath = resolve(input.worktreePath ?? this.cwd);
+    const body = await this.inspectWorktree(worktreePath, "external");
+    return this.store.put({
+      kind: "git_change",
+      title: input.title?.trim() || body.stack.currentBranch || "Git change",
+      format: "json",
+      body,
+    });
+  }
+
+  async layerAdd(
+    artifactRef: ArtifactRef,
+    branch: string,
+  ): Promise<Artifact<GitChangeArtifactBody>> {
+    assertBranch(branch);
+    const artifact = await this.requireGitChange(artifactRef);
+    const worktreePath = requireAttachedWorktree(artifact);
+    await this.assertCleanWorktree(worktreePath);
+    await this.runChecked("gh", ["stack", "add", branch], worktreePath, "stack_add_failed");
+    return this.refresh(artifactRef);
+  }
+
+  async commit(input: CommitGitChangeInput): Promise<Artifact<GitChangeArtifactBody>> {
+    const artifact = await this.requireGitChange(input.artifactRef);
+    const worktreePath = requireAttachedWorktree(artifact);
+    const message = input.message.trim();
+    if (!message) throw new GitLifecycleError("message_required", "commit message is required");
+    const paths = uniquePaths(input.paths);
+    if (paths.length === 0 && input.tracked !== true) {
+      throw new GitLifecycleError(
+        "commit_scope_required",
+        "commit requires explicit paths or tracked=true; implicit whole-worktree staging is disabled",
+      );
+    }
+    const alreadyStaged = await this.runChecked(
+      "git",
+      ["diff", "--cached", "--name-only"],
+      worktreePath,
+      "git_diff_failed",
+    );
+    if (alreadyStaged.stdout.trim()) {
+      throw new GitLifecycleError(
+        "preexisting_staged_changes",
+        "commit refuses pre-existing staged changes; unstage them before using git action=commit",
+      );
+    }
+    if (paths.length > 0) {
+      await this.runChecked("git", ["add", "--", ...paths], worktreePath, "git_add_failed");
+    }
+    if (input.tracked === true) {
+      await this.runChecked("git", ["add", "-u"], worktreePath, "git_add_failed");
+    }
+    const staged = await this.runner("git", ["diff", "--cached", "--quiet"], worktreePath);
+    if (staged.code === 0) {
+      throw new GitLifecycleError("nothing_staged", "no staged changes to commit");
+    }
+    if (staged.code !== 1) {
+      throw commandError("git_diff_failed", "git diff --cached --quiet", staged);
+    }
+    await this.runChecked("git", ["commit", "-m", message], worktreePath, "git_commit_failed");
+    return this.refresh(input.artifactRef);
+  }
+
+  async refresh(artifactRef: ArtifactRef): Promise<Artifact<GitChangeArtifactBody>> {
+    const artifact = await this.requireGitChange(artifactRef);
+    const worktreePath = requireAttachedWorktree(artifact);
+    const body = await this.inspectWorktree(
+      worktreePath,
+      artifact.body.worktree.ownership,
+      artifact.body.cleanupBlockers,
+    );
+    return this.store.update(artifact.ref, { body });
+  }
+
+  async submit(
+    artifactRef: ArtifactRef,
+    options: { ready?: boolean } = {},
+  ): Promise<Artifact<GitChangeArtifactBody>> {
+    const artifact = await this.requireGitChange(artifactRef);
+    const worktreePath = requireAttachedWorktree(artifact);
+    const args = ["stack", "submit", "--auto"];
+    if (options.ready === true) args.push("--open");
+    await this.runChecked("gh", args, worktreePath, "stack_submit_failed");
+    return this.refresh(artifactRef);
+  }
+
+  async sync(artifactRef: ArtifactRef): Promise<Artifact<GitChangeArtifactBody>> {
+    const artifact = await this.requireGitChange(artifactRef);
+    const worktreePath = requireAttachedWorktree(artifact);
+    await this.runChecked("gh", ["stack", "sync"], worktreePath, "stack_sync_failed");
+    return this.refresh(artifactRef);
+  }
+
+  async cleanup(artifactRef: ArtifactRef): Promise<Artifact<GitChangeArtifactBody>> {
+    const artifact = await this.requireGitChange(artifactRef);
+    const worktreePath = requireAttachedWorktree(artifact);
+    const body = await this.inspectWorktree(
+      worktreePath,
+      artifact.body.worktree.ownership,
+      artifact.body.cleanupBlockers,
+    );
+    await this.store.update(artifact.ref, { body });
+    const blockers: string[] = [];
+    if (body.worktree.ownership !== "spark") {
+      blockers.push("worktree is externally owned");
+    }
+    if (resolve(worktreePath) !== this.managedWorktreePath(body.repository.repo, artifact.ref)) {
+      blockers.push("worktree path is outside the Artifact-managed location");
+    }
+    const status = await this.runner("git", ["status", "--porcelain"], worktreePath);
+    if (status.code !== 0) blockers.push("unable to inspect worktree status");
+    else if (status.stdout.trim()) blockers.push("worktree has uncommitted changes");
+
+    const uncoveredHead = await this.runner(
+      "git",
+      ["rev-list", "--count", "HEAD", "--not", "--remotes=origin"],
+      worktreePath,
+    );
+    if (uncoveredHead.code !== 0) {
+      blockers.push("unable to prove remote coverage for HEAD");
+    } else if (Number.parseInt(uncoveredHead.stdout.trim(), 10) > 0) {
+      blockers.push("HEAD has commits not covered by origin");
+    }
+
+    for (const entry of body.stack.entries) {
+      const unpushed = await this.runner(
+        "git",
+        ["rev-list", "--count", entry.branch, "--not", "--remotes=origin"],
+        worktreePath,
+      );
+      if (unpushed.code !== 0) {
+        blockers.push(`${entry.branch}: unable to prove remote coverage`);
+      } else if (Number.parseInt(unpushed.stdout.trim(), 10) > 0) {
+        blockers.push(`${entry.branch}: has unpushed commits`);
+      }
+      const state = entry.pullRequest?.state.toLowerCase();
+      if (state !== "merged" && state !== "closed") {
+        blockers.push(`${entry.branch}: PR is not terminal`);
+      }
+    }
+
+    if (blockers.length > 0) {
+      const blockedBody: GitChangeArtifactBody = {
+        ...body,
+        worktree: { ...body.worktree, status: "cleanup_blocked" },
+        lifecycle: "cleanup_blocked",
+        cleanupBlockers: blockers,
+      };
+      await this.store.update(artifact.ref, { body: blockedBody });
+      throw new GitLifecycleError("cleanup_blocked", blockers.join("; "));
+    }
+
+    const commonGitDir = body.repository.commonGitDir;
+    const removalCwd =
+      commonGitDir && pathWithin(this.cwd, worktreePath) ? dirname(commonGitDir) : this.cwd;
+    await this.runChecked(
+      "git",
+      ["worktree", "remove", worktreePath],
+      removalCwd,
+      "worktree_remove_failed",
+    );
+    const cleanedBody: GitChangeArtifactBody = {
+      ...body,
+      worktree: { ...body.worktree, status: "cleaned" },
+      lifecycle: "cleaned",
+      cleanupBlockers: undefined,
+    };
+    return this.store.update(artifact.ref, { body: cleanedBody });
+  }
+
+  private async inspectWorktree(
+    worktreePath: string,
+    ownership: "spark" | "external",
+    cleanupBlockers?: string[],
+  ): Promise<GitChangeArtifactBody> {
+    const absolutePath = resolve(worktreePath);
+    if (!(await pathExists(absolutePath))) {
+      throw new GitLifecycleError("worktree_missing", `worktree does not exist: ${absolutePath}`);
+    }
+    const repository = await this.repositoryIdentity(absolutePath);
+    const commonDirResult = await this.runChecked(
+      "git",
+      ["rev-parse", "--git-common-dir"],
+      absolutePath,
+      "repository_inspect_failed",
+    );
+    const commonGitDir = isAbsolute(commonDirResult.stdout.trim())
+      ? resolve(commonDirResult.stdout.trim())
+      : resolve(absolutePath, commonDirResult.stdout.trim());
+    const stackResult = await this.runChecked(
+      "gh",
+      ["stack", "view", "--json"],
+      absolutePath,
+      "stack_inspect_failed",
+    );
+    const view = parseStackView(stackResult.stdout);
+    const currentBranch =
+      view.currentBranch ?? (await this.currentBranch(absolutePath)) ?? undefined;
+    const entries: GitChangeEntry[] = [];
+    for (const branch of view.branches) {
+      entries.push({
+        branch: branch.name,
+        base: branch.base,
+        isCurrent: branch.isCurrent ?? branch.name === currentBranch,
+        isMerged: branch.isMerged ?? false,
+        isQueued: branch.isQueued ?? false,
+        needsRebase: branch.needsRebase ?? false,
+        pullRequest: await this.tryPullRequestSnapshot(absolutePath, repository.repo, branch.name),
+      });
+    }
+    const lifecycle = gitChangeLifecycle(entries);
+    return {
+      schemaVersion: 2,
+      kind: "git_change",
+      repository: {
+        forge: "github",
+        repo: repository.repo,
+        remote: repository.remote,
+        commonGitDir,
+      },
+      trunk: view.trunk,
+      worktree: {
+        path: absolutePath,
+        branch: currentBranch,
+        ownership,
+        status: "attached",
+      },
+      stack: {
+        authority: "gh-stack",
+        number: view.number ?? view.stackNumber,
+        currentBranch,
+        entries,
+        observedAt: new Date().toISOString(),
+      },
+      lifecycle,
+      cleanupBlockers,
+    };
+  }
+
+  private async tryPullRequestSnapshot(
+    cwd: string,
+    repo: string,
+    branch: string,
+  ): Promise<GitPullRequestSnapshot | undefined> {
+    const result = await this.runner(
+      "gh",
+      [
+        "pr",
+        "view",
+        branch,
+        "--repo",
+        repo,
+        "--json",
+        "number,title,state,url,body,labels,headRefName,baseRefName,isDraft,statusCheckRollup",
+      ],
+      cwd,
+    );
+    if (result.code !== 0) return undefined;
+    let raw: {
+      number: number;
+      title: string;
+      state: string;
+      url: string;
+      body?: string;
+      labels?: Array<{ name: string }>;
+      headRefName: string;
+      baseRefName: string;
+      isDraft?: boolean;
+      statusCheckRollup?: Array<{ state?: string; name?: string }>;
+    };
+    try {
+      raw = JSON.parse(result.stdout) as typeof raw;
+    } catch {
+      return undefined;
+    }
+    const checks = raw.statusCheckRollup ?? [];
+    return {
+      forge: "github",
+      repo,
+      number: raw.number,
+      url: raw.url,
+      state: String(raw.state).toLowerCase(),
+      title: raw.title,
+      labels: (raw.labels ?? []).map((label) => label.name),
+      bodyText: raw.body,
+      headRef: raw.headRefName,
+      baseRef: raw.baseRefName,
+      draft: Boolean(raw.isDraft),
+      checksSummary:
+        checks.length === 0
+          ? undefined
+          : checks
+              .map((check) => `${check.name ?? "check"}=${check.state ?? "unknown"}`)
+              .join(", "),
+      syncedAt: new Date().toISOString(),
+    };
+  }
+
+  private async requireGitChange(
+    artifactRef: ArtifactRef,
+  ): Promise<Artifact<GitChangeArtifactBody>> {
+    const artifact = await this.store.get(artifactRef);
+    if (artifact.body.kind !== "git_change") {
+      throw new GitLifecycleError(
+        "wrong_artifact_kind",
+        `${artifact.ref} is ${artifact.body.kind}, not git_change`,
+      );
+    }
+    return artifact as Artifact<GitChangeArtifactBody>;
+  }
+
+  private async repositoryIdentity(cwd: string): Promise<{ repo: string; remote: string }> {
+    const result = await this.runChecked(
+      "git",
+      ["remote", "get-url", "origin"],
+      cwd,
+      "origin_required",
+    );
+    const remote = result.stdout.trim();
+    const repo = githubRepoFromRemote(remote);
+    if (!repo) {
+      throw new GitLifecycleError(
+        "github_required",
+        `native writable stacks require a GitHub origin: ${remote}`,
+      );
+    }
+    return { repo, remote };
+  }
+
+  private async defaultTrunk(cwd: string): Promise<string> {
+    const symbolic = await this.runner(
+      "git",
+      ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+      cwd,
+    );
+    if (symbolic.code === 0 && symbolic.stdout.trim()) {
+      return symbolic.stdout.trim().replace(/^origin\//u, "");
+    }
+    for (const candidate of ["main", "master"]) {
+      const found = await this.runner(
+        "git",
+        ["rev-parse", "--verify", `refs/heads/${candidate}`],
+        cwd,
+      );
+      if (found.code === 0) return candidate;
+    }
+    throw new GitLifecycleError("trunk_not_found", "unable to determine default trunk branch");
+  }
+
+  private async trunkStartPoint(cwd: string, trunk: string): Promise<string> {
+    const remote = await this.runner(
+      "git",
+      ["rev-parse", "--verify", `refs/remotes/origin/${trunk}`],
+      cwd,
+    );
+    return remote.code === 0 ? `origin/${trunk}` : trunk;
+  }
+
+  private async currentBranch(cwd: string): Promise<string | undefined> {
+    const result = await this.runner("git", ["branch", "--show-current"], cwd);
+    return result.code === 0 && result.stdout.trim() ? result.stdout.trim() : undefined;
+  }
+
+  private managedWorktreePath(repo: string, ref: ArtifactRef): string {
+    const [owner, name] = repo.split("/", 2);
+    if (!owner || !name)
+      throw new GitLifecycleError("invalid_repo", `invalid GitHub repo: ${repo}`);
+    return resolve(this.worktreeRoot, "github.com", owner, name, artifactId(ref));
+  }
+
+  private async assertWorktreeTargetAvailable(path: string): Promise<void> {
+    if (await pathExists(path)) {
+      throw new GitLifecycleError("worktree_exists", `worktree target already exists: ${path}`);
+    }
+  }
+
+  private async assertCleanWorktree(path: string): Promise<void> {
+    const status = await this.runChecked(
+      "git",
+      ["status", "--porcelain"],
+      path,
+      "worktree_status_failed",
+    );
+    if (status.stdout.trim()) {
+      throw new GitLifecycleError(
+        "dirty_worktree",
+        "worktree must be clean before changing stack topology",
+      );
+    }
+  }
+
+  private async rollbackNewWorktree(path: string, cause: unknown): Promise<void> {
+    const result = await this.runner("git", ["worktree", "remove", path], this.cwd);
+    if (result.code !== 0) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      throw new GitLifecycleError(
+        "rollback_failed",
+        `${message}; automatic worktree rollback also failed: ${commandOutput(result)}`,
+      );
+    }
+  }
+
+  private async runChecked(
+    command: string,
+    args: string[],
+    cwd: string,
+    code: string,
+  ): Promise<{ stdout: string; stderr: string; code: number }> {
+    const result = await this.runner(command, args, cwd);
+    if (result.code !== 0) throw commandError(code, `${command} ${args.join(" ")}`, result);
+    return result;
+  }
+}
+
+export function defaultGitCommandRunner(
+  command: string,
+  args: string[],
+  cwd: string,
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  return new Promise((resolvePromise) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: {
+        ...process.env,
+        GH_PROMPT_DISABLED: "1",
+        GIT_TERMINAL_PROMPT: "0",
+      },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer | string) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (error) => {
+      resolvePromise({ stdout, stderr: error.message, code: 127 });
+    });
+    child.on("close", (code) => {
+      resolvePromise({ stdout, stderr, code: code ?? 1 });
+    });
+  });
+}
+
+function parseStackView(value: string): GhStackView {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch {
+    throw new GitLifecycleError("invalid_stack_json", "gh stack view returned invalid JSON");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new GitLifecycleError("invalid_stack_json", "gh stack view returned a non-object");
+  }
+  const record = parsed as Record<string, unknown>;
+  if (typeof record.trunk !== "string" || !Array.isArray(record.branches)) {
+    throw new GitLifecycleError(
+      "invalid_stack_json",
+      "gh stack view JSON requires trunk and branches",
+    );
+  }
+  const branches = record.branches.map((value, index) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new GitLifecycleError("invalid_stack_json", `branches[${index}] must be an object`);
+    }
+    const branch = value as Record<string, unknown>;
+    if (typeof branch.name !== "string" || typeof branch.base !== "string") {
+      throw new GitLifecycleError(
+        "invalid_stack_json",
+        `branches[${index}] requires name and base`,
+      );
+    }
+    return {
+      name: branch.name,
+      base: branch.base,
+      isCurrent: booleanOrUndefined(branch.isCurrent),
+      isMerged: booleanOrUndefined(branch.isMerged),
+      isQueued: booleanOrUndefined(branch.isQueued),
+      needsRebase: booleanOrUndefined(branch.needsRebase),
+    };
+  });
+  return {
+    trunk: record.trunk,
+    currentBranch: typeof record.currentBranch === "string" ? record.currentBranch : undefined,
+    number: numberOrUndefined(record.number),
+    stackNumber: numberOrUndefined(record.stackNumber),
+    branches,
+  };
+}
+
+function gitChangeLifecycle(entries: GitChangeEntry[]): GitChangeArtifactBody["lifecycle"] {
+  if (entries.length === 0 || entries.some((entry) => !entry.pullRequest)) return "local";
+  if (
+    entries.every((entry) => {
+      const state = entry.pullRequest?.state.toLowerCase();
+      return state === "merged" || state === "closed";
+    })
+  ) {
+    return "terminal";
+  }
+  return "published";
+}
+
+function requireAttachedWorktree(artifact: Artifact<GitChangeArtifactBody>): string {
+  const path = artifact.body.worktree.path;
+  if (!path || artifact.body.worktree.status !== "attached") {
+    throw new GitLifecycleError("worktree_unavailable", `${artifact.ref} has no attached worktree`);
+  }
+  return path;
+}
+
+function githubRepoFromRemote(remote: string): string | undefined {
+  const match =
+    /^(?:https?:\/\/github\.com\/|ssh:\/\/git@github\.com\/|git@github\.com:)([^/]+)\/(.+?)(?:\.git)?$/iu.exec(
+      remote.trim(),
+    );
+  if (!match) return undefined;
+  return `${match[1]}/${match[2]!.replace(/\.git$/iu, "")}`;
+}
+
+function artifactId(ref: ArtifactRef): string {
+  return ref.slice("artifact:".length);
+}
+
+function assertBranch(branch: string): void {
+  if (!branch.trim() || branch.startsWith("-") || branch.includes("\0")) {
+    throw new GitLifecycleError("invalid_branch", `invalid branch name: ${branch}`);
+  }
+}
+
+function uniquePaths(values: string[] | undefined): string[] {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+function booleanOrUndefined(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
+}
+
+function commandError(
+  code: string,
+  command: string,
+  result: { stdout: string; stderr: string; code: number },
+): GitLifecycleError {
+  return new GitLifecycleError(
+    code,
+    `${command} failed (exit ${result.code}): ${commandOutput(result)}`,
+  );
+}
+
+function commandOutput(result: { stdout: string; stderr: string }): string {
+  return result.stderr.trim() || result.stdout.trim() || "no output";
+}
+
+function pathWithin(candidate: string, parent: string): boolean {
+  const scoped = relative(resolve(parent), resolve(candidate));
+  return scoped === "" || (!scoped.startsWith("..") && !isAbsolute(scoped));
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}

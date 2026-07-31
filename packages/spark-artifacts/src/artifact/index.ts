@@ -5,8 +5,24 @@ export {
   isArtifactBody,
   isArtifactFormat,
   isArtifactKind,
+  isLegacyArtifactBody,
+  isStoredArtifactBody,
+  isStoredArtifactKind,
   type ForgeHost,
+  type ArtifactProgress,
+  type DocumentArtifactBody,
+  type GitChangeArtifactBody,
+  type GitChangeEntry,
+  type GitChangeLifecycle,
+  type GitChangeRepository,
+  type GitChangeStack,
+  type GitChangeWorktreeStatus,
+  type GitPullRequestSnapshot,
   type IssueArtifactBody,
+  type LegacyArtifactBody,
+  type LegacyIssueArtifactBody,
+  type LegacyPrArtifactBody,
+  type LegacyPreviewArtifactBody,
   type PrArtifactBody,
   type PreviewArtifactBody,
   type PreviewContentFormat,
@@ -19,6 +35,8 @@ export {
   type ArtifactRef,
   type ArtifactStoreOptions,
   type PutArtifactInput,
+  type StoredArtifactBody,
+  type StoredArtifactKind,
   type WorktreeStatus,
 } from "./types.ts";
 
@@ -27,6 +45,7 @@ export {
   ArtifactValidationError,
   defaultArtifactStore,
   newArtifactRef,
+  normalizeLegacyArtifactBody,
 } from "./store.ts";
 
 export {

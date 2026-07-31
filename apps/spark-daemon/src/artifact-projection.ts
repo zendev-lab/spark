@@ -9,11 +9,11 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { defaultArtifactStore, projectArtifact, type Artifact } from "@zendev-lab/spark-artifacts";
 
-export const ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
+export const ARTIFACT_KINDS = new Set(["issue", "git_change", "document", "pr", "preview"]);
 
 export interface ArtifactProjectionSource {
   ref: string;
-  kind: "issue" | "pr" | "preview";
+  kind: "issue" | "git_change" | "document" | "pr" | "preview";
   title: string;
   projection: SparkArtifactProjection;
   createdAt?: string;
@@ -147,8 +147,13 @@ export function artifactProjectionSourceFromToolResult(
   const createdAt = isoString(artifact.createdAt);
   const updatedAt = isoString(artifact.updatedAt);
   const contentRef = projection.data.contentRef;
-  const hasPreviewShape = "previewFormat" in contentRef;
-  if (contentRef.artifactRef !== ref || (kind === "preview") !== hasPreviewShape) {
+  const hasDocumentShape = "mediaType" in contentRef;
+  const hasLegacyPreviewShape = !hasDocumentShape && "previewFormat" in contentRef;
+  if (
+    contentRef.artifactRef !== ref ||
+    (kind === "document") !== hasDocumentShape ||
+    (kind === "preview") !== hasLegacyPreviewShape
+  ) {
     return null;
   }
   return {

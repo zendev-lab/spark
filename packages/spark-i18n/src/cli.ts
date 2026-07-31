@@ -370,11 +370,14 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
       { name: "workflows", description: "open workflows in the local session inspector" },
       { name: "runs", description: "open runs in the local session inspector" },
       { name: "tasks", description: "open tasks in the local session inspector" },
-      { name: "artifacts", description: "open local artifacts (issue/pr/preview)" },
+      {
+        name: "artifacts",
+        description: "open local artifacts (issue/git_change/document)",
+      },
       {
         name: "evidence",
         description:
-          "deprecated alias; opens Artifacts (issue/pr/preview), not the internal evidence ledger",
+          "deprecated alias; opens Artifacts (issue/git_change/document), not the internal evidence ledger",
       },
       { name: "reviews", description: "open reviewer verdicts in the local session inspector" },
       { name: "graft", description: "open Graft provenance in the local session inspector" },
@@ -479,10 +482,14 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
       { name: "workflows", description: "在本地会话检查器中打开 workflow" },
       { name: "runs", description: "在本地会话检查器中打开 run" },
       { name: "tasks", description: "在本地会话检查器中打开 task" },
-      { name: "artifacts", description: "打开本地产物（issue/pr/preview）" },
+      {
+        name: "artifacts",
+        description: "打开本地产物（issue/git_change/document）",
+      },
       {
         name: "evidence",
-        description: "已弃用别名；打开产品 Artifacts（issue/pr/preview），不是内部 evidence 账本",
+        description:
+          "已弃用别名；打开产品 Artifacts（issue/git_change/document），不是内部 evidence 账本",
       },
       { name: "reviews", description: "在本地会话检查器中打开 reviewer verdict" },
       { name: "graft", description: "在本地会话检查器中打开 Graft provenance" },

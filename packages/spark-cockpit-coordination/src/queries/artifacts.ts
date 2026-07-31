@@ -3,22 +3,49 @@ import { ensureArtifactPreviewCache, readArtifactPreviewContent } from "../artif
 import { loadWorkspaceByRouteId } from "../routing.ts";
 
 export function loadArtifactsPage(db: DatabaseSync, workspaceRouteId: string) {
-  return loadArtifactKindPage(db, workspaceRouteId, ["issue", "pr", "preview"]);
+  return loadArtifactKindPage(db, workspaceRouteId, ["issue", "git_change", "pr", "preview"], {
+    includeCanonicalDocuments: true,
+  });
 }
 
 /** Internal evidence projection (document/record/knowledge); not a user-facing Cockpit page. */
 export function loadEvidencePage(db: DatabaseSync, workspaceRouteId: string) {
-  return loadArtifactKindPage(db, workspaceRouteId, ["document", "record", "knowledge"]);
+  return loadArtifactKindPage(db, workspaceRouteId, ["record", "knowledge"], {
+    includeLegacyEvidenceDocuments: true,
+  });
 }
 
 function loadArtifactKindPage(
   db: DatabaseSync,
   workspaceRouteId: string,
   kinds: readonly string[],
+  options: {
+    includeCanonicalDocuments?: boolean;
+    includeLegacyEvidenceDocuments?: boolean;
+  } = {},
 ) {
   const workspace = loadWorkspaceByRouteId(db, workspaceRouteId);
   if (!workspace) return null;
   const placeholders = kinds.map(() => "?").join(", ");
+  const canonicalDocument =
+    `COALESCE((` +
+    `CASE WHEN json_valid(a.provenance_json) ` +
+    `THEN CAST(json_extract(a.provenance_json, '$.artifactRef') AS TEXT) END LIKE 'artifact:%' ` +
+    `OR CASE WHEN json_valid(a.content_ref_json) ` +
+    `THEN CAST(json_extract(a.content_ref_json, '$.artifactRef') AS TEXT) END LIKE 'artifact:%'` +
+    `), 0)`;
+  const documentPredicates = [
+    ...(options.includeCanonicalDocuments
+      ? [`(a.kind = 'document' AND ${canonicalDocument})`]
+      : []),
+    ...(options.includeLegacyEvidenceDocuments
+      ? [`(a.kind = 'document' AND NOT ${canonicalDocument})`]
+      : []),
+  ];
+  const kindPredicate = [
+    ...(kinds.length > 0 ? [`a.kind IN (${placeholders})`] : []),
+    ...documentPredicates,
+  ].join(" OR ");
   const artifacts = db
     .prepare(
       `SELECT a.id,
@@ -55,7 +82,7 @@ function loadArtifactKindPage(
          GROUP BY artifact_id
        ) cache ON cache.artifact_id = a.id
        WHERE a.workspace_id = ?
-         AND a.kind IN (${placeholders})
+         AND (${kindPredicate})
        GROUP BY a.id
        ORDER BY a.created_at DESC`,
     )

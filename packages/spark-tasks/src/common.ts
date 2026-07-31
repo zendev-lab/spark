@@ -1,4 +1,5 @@
 import type {
+  ArtifactRef,
   EvidenceRef,
   JsonValue,
   Project,
@@ -52,6 +53,7 @@ export interface CreateTaskInput {
   cancellation?: TaskCancellation;
   supersededBy?: TaskRef[];
   claim?: TaskClaim;
+  artifactRefs?: ArtifactRef[];
   inputEvidenceRefs?: EvidenceRef[];
   plan?: TaskPlan;
   /**

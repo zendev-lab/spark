@@ -349,6 +349,9 @@ importers:
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:^
         version: link:../../packages/spark-daemon-client
+      '@zendev-lab/spark-files':
+        specifier: workspace:^
+        version: link:../../packages/spark-files
       '@zendev-lab/spark-host':
         specifier: workspace:^
         version: link:../../packages/spark-host
@@ -591,6 +594,9 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-daemon-client':
+        specifier: workspace:^
+        version: link:../spark-daemon-client
       '@zendev-lab/spark-text':
         specifier: workspace:^
         version: link:../spark-text
@@ -877,9 +883,15 @@ importers:
 
   packages/spark-files:
     dependencies:
+      '@zendev-lab/spark-artifacts':
+        specifier: workspace:^
+        version: link:../spark-artifacts
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-daemon-client':
+        specifier: workspace:^
+        version: link:../spark-daemon-client
       diff:
         specifier: ^8.0.4
         version: 8.0.4
@@ -7000,6 +7012,10 @@ packages:
     resolution: {integrity: sha512-ILTWeOriIluwEvPjv67v7Blgrcx+LZOkAUVtKI3putuhlZm84FnqDORNXPPm+HY3NdZOMhyDwZ1E+eZB/Df5dA==}
     engines: {node: '>=16.0.0'}
 
+  remark-smartypants@3.0.3:
+    resolution: {integrity: sha512-gCaK+ndZ0hYezlqFegHFCVh2CQemsi0Npdh1qVM9bxlUFknjkbP6VmojWhddOCrbK0PbbacmYLWfTULRiT1eWA==}
+    engines: {node: '>=16.0.0'}
+
   remark-stringify@11.0.0:
     resolution: {integrity: sha512-1OSmLd3awB/t8qdoEOMazZkNsfVTeY4fTsgzcQFdXNq8ToTN4ZGwrMnlda4K6smTFKD+GRV6O48i6Z4iKgPPpw==}
 
@@ -8181,7 +8197,7 @@ snapshots:
       remark-gfm: 4.0.1(supports-color@10.2.2)
       remark-parse: 11.0.0(supports-color@10.2.2)
       remark-rehype: 11.1.2
-      remark-smartypants: 3.0.2
+      remark-smartypants: 3.0.3
       unified: 11.0.5
       unist-util-remove-position: 5.0.0
       unist-util-visit: 5.1.0
@@ -14103,6 +14119,13 @@ snapshots:
       vfile: 6.0.3
 
   remark-smartypants@3.0.2:
+    dependencies:
+      retext: 9.0.0
+      retext-smartypants: 6.2.0
+      unified: 11.0.5
+      unist-util-visit: 5.1.0
+
+  remark-smartypants@3.0.3:
     dependencies:
       retext: 9.0.0
       retext-smartypants: 6.2.0
