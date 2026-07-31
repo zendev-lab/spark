@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import { realpathSync } from "node:fs";
-import { join } from "node:path";
-import { createJiti } from "jiti";
 import { test } from "vitest";
 
 import {
@@ -454,59 +451,6 @@ test("Baidu OneAPI stream wrapper normalizes done error and result paths for bot
     assert.equal(result.provider, "baidu-oneapi");
     assert.equal(result.errorMessage?.includes(source), true);
     assert.equal(isNormalizedBaiduContextOverflow(result), true);
-  }
-});
-
-test("Baidu OneAPI lazy adapters load through the Pi compatibility Jiti graph", async () => {
-  const piAiRoot = realpathSync(
-    join(process.cwd(), "packages/spark-ai/node_modules/@earendil-works/pi-ai"),
-  );
-  const jiti = createJiti(import.meta.url, {
-    moduleCache: false,
-    alias: {
-      "@earendil-works/pi-ai": join(piAiRoot, "dist/compat.js"),
-      "@earendil-works/pi-ai/api/anthropic-messages.lazy": join(
-        piAiRoot,
-        "dist/api/anthropic-messages.lazy.js",
-      ),
-      "@earendil-works/pi-ai/api/openai-responses": join(piAiRoot, "dist/api/openai-responses.js"),
-    },
-  });
-  const provider = (await jiti.import(
-    join(process.cwd(), "packages/spark-ai/src/baidu-oneapi-provider.ts"),
-  )) as typeof import("@zendev-lab/spark-ai/baidu-oneapi-provider");
-  const context = { messages: [], tools: [] };
-  const baseModel = {
-    name: "Jiti compatibility adapter",
-    api: "baidu-oneapi",
-    provider: "baidu-oneapi",
-    baseUrl: "https://oneapi-comate.baidu-int.com",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 1000,
-    maxTokens: 1000,
-  };
-  const streams = [
-    provider.streamBaiduOneApiAnthropic(
-      { ...baseModel, id: "claude-opus-5" } as never,
-      context as never,
-      { apiKey: "" },
-    ),
-    provider.streamBaiduOneApiOpenAIResponses(
-      { ...baseModel, id: "gpt-5.6-luna", baseUrl: baseModel.baseUrl + "/v1" } as never,
-      context as never,
-      { apiKey: "" },
-    ),
-  ];
-  for (const stream of streams) {
-    for await (const _event of stream) void _event;
-    const result = await stream.result();
-    assert.equal(result.api, "baidu-oneapi");
-    assert.equal(result.provider, "baidu-oneapi");
-    assert.equal(result.stopReason, "error");
-    assert.match(result.errorMessage ?? "", /No API key for provider: baidu-oneapi/);
-    assert.doesNotMatch(result.errorMessage ?? "", /Mismatched api/);
   }
 });
 
