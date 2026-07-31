@@ -26,6 +26,7 @@ jobs:
           persist-credentials: false
 
       - name: Check PR title
+        if: github.event.pull_request.user.login != 'renovate[bot]'
         uses: zrr1999/zendev/actions/validate-title@v0.0.7
         with:
           text: ${{ github.event.pull_request.title }}
