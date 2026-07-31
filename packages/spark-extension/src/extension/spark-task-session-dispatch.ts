@@ -17,6 +17,7 @@ import {
 } from "@zendev-lab/spark-core";
 import {
   setSessionGoal,
+  sparkSessionKey,
   sparkStateCwd,
   subgoalDefinitionDigest,
   type SparkSessionContext,
@@ -407,12 +408,13 @@ function reserveTaskSessionRuns(
     };
     const runRef = newRef("run");
     const runName = `${task.name}-attempt-${attempt}`;
+    const claimSessionId = sparkSessionKey({ sessionId: executionSessionId });
     graph.claimTask(taskRef, {
       kind: "role-run",
-      claimedBy: executionSessionId,
+      claimedBy: claimSessionId,
       roleRef,
       runName,
-      sessionId: executionSessionId,
+      sessionId: claimSessionId,
       runRef,
       leaseMs: 600_000,
     });

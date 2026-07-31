@@ -140,6 +140,10 @@ describe("managed Task Session dispatch", () => {
           invocationId: expect.stringMatching(/^inv_/u),
         },
       });
+      expect(persisted?.getTask(tasks[index]!.ref).claim).toMatchObject({
+        claimedBy: `session:${record.sessionId}`,
+        sessionId: `session:${record.sessionId}`,
+      });
       await expect(loadSessionGoal(cwd, { sessionId: record.sessionId })).resolves.toMatchObject({
         goalId: record.goalId,
         objective: safeSubgoals[index]!.goal,

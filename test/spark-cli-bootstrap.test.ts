@@ -178,9 +178,16 @@ test("createSparkCliHostServices constructs runtime, extensions, provider regist
       providers: ["fake-provider"],
     };
     const captured: { systemPrompt?: string } = {};
+    const sessionLease = {
+      workspaceId: "workspace-bootstrap",
+      clientId: "client-bootstrap",
+      sessionId: "session:bootstrap",
+      leaseFence: "fence-bootstrap",
+    };
     const services = await createSparkCliHostServices({
       cwd,
       sparkHome,
+      sessionLease,
       config,
       extensions: config.extensions,
       providers: config.providers,
@@ -198,6 +205,7 @@ test("createSparkCliHostServices constructs runtime, extensions, provider regist
     assert.equal(services.sessionStore.cwd, cwd);
     const baseContext = services.runtime.makeContext();
     assert.equal(typeof baseContext.runRole, "function");
+    assert.deepEqual(baseContext.sessionLease?.(), sessionLease);
     const sessionManager = baseContext.sessionManager;
     const sessionFile = sessionManager?.getSessionFile?.();
     assert.ok(sessionFile);

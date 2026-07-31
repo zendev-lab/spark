@@ -3950,6 +3950,73 @@ test("impl_finish_task completes this session's claimed task", async () => {
   }
 });
 
+test("impl_finish_task commits a canonical managed role-run claim without main-claim authority", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-managed-role-run-"));
+  try {
+    const ctx = testSparkContext(dir, "sess_task_worker");
+    const sessionKey = sparkSessionKey(ctx);
+    const graph = new TaskGraph();
+    const project = graph.createProject({
+      title: "Managed Task Session",
+      description: "Exercise managed role-run completion.",
+    });
+    const task = graph.createTask({
+      projectRef: project.ref,
+      name: "managed-role-run",
+      title: "Managed role-run",
+      description: "Finish through the managed Task Session identity.",
+      kind: "implement",
+      status: "ready",
+      plan: executionReadyPlan("Finish managed role-run"),
+    });
+    graph.claimTask(task.ref, {
+      kind: "role-run",
+      claimedBy: sessionKey,
+      sessionId: sessionKey,
+      roleRef: "role:builtin-explorer" as RoleRef,
+      runName: "managed-role-run",
+      leaseMs: 600_000,
+    });
+    const claimed = graph.getTask(task.ref);
+    assert.ok(claimed.plan);
+    graph.updateTask(task.ref, {
+      plan: {
+        ...claimed.plan,
+        items: (claimed.plan.items ?? []).map((item) => ({
+          ...item,
+          status: "done" as const,
+          updatedAt: new Date().toISOString(),
+        })),
+      },
+    });
+    await defaultTaskGraphStore(dir).save(graph);
+    await saveCurrentProjectRef(dir, ctx, project.ref);
+
+    let mainAuthorityCalls = 0;
+    const rejectMainAuthority = async (): Promise<never> => {
+      mainAuthorityCalls += 1;
+      throw new Error("managed role-run completion must not enter main claim authority");
+    };
+    const { tools } = registerSparkToolsForTest({
+      taskClaimDaemonClient: {
+        acquire: rejectMainAuthority,
+        recover: rejectMainAuthority,
+        release: rejectMainAuthority,
+      },
+    });
+    const completed = await executeSparkTool(tools, "impl_finish_task", ctx, {
+      task: task.ref,
+      summary: "Managed Task Session completed its assigned role-run.",
+    });
+
+    assert.match(toolText(completed), /Finished Spark task: \[done\] @managed-role-run/);
+    assert.equal(mainAuthorityCalls, 0);
+    assert.equal((await defaultTaskGraphStore(dir).load())?.getTask(task.ref).status, "done");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("impl_finish_task returns structured transition data for failed no-review completion", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-tool-finish-failed-structured-"));
   try {
