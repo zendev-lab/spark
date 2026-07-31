@@ -109,6 +109,18 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS session_request_completion_deliveries (
+      source_invocation_id TEXT PRIMARY KEY,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'delivered')),
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      claim_token TEXT,
+      claim_expires_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      delivered_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS channel_deliveries (
       id TEXT PRIMARY KEY,
       kind TEXT NOT NULL CHECK (kind IN ('reply', 'ask', 'interaction_ack', 'inbound', 'notification')),
@@ -212,6 +224,7 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       WHERE terminal_json IS NOT NULL;
     CREATE INDEX IF NOT EXISTS daemon_human_waits_status_idx ON daemon_human_waits(status, created_at);
   `);
+  migrateSessionRequestCompletionDeliverySchema(db);
   migrateChannelDeliverySchema(db);
   addMissingRuntimeCommandReceiptColumns(db);
   addMissingInvocationColumns(db);
@@ -232,6 +245,36 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
   db.exec("CREATE INDEX IF NOT EXISTS workspaces_status_idx ON workspaces(status)");
   migrateSparkDaemonRegistrationTables(db);
   backfillSparkDaemonRegistrationTables(db);
+}
+
+function migrateSessionRequestCompletionDeliverySchema(db: DatabaseSync): void {
+  const columns = workspaceColumns(db, "session_request_completion_deliveries");
+  if (!columns.has("claim_token") || !columns.has("claim_expires_at")) {
+    db.exec(`
+      ALTER TABLE session_request_completion_deliveries
+        RENAME TO session_request_completion_deliveries_legacy;
+      CREATE TABLE session_request_completion_deliveries (
+        source_invocation_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'delivered')),
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        claim_token TEXT,
+        claim_expires_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        delivered_at TEXT
+      );
+      INSERT INTO session_request_completion_deliveries
+        (source_invocation_id, status, attempt_count, last_error, created_at, updated_at, delivered_at)
+      SELECT source_invocation_id, status, attempt_count, last_error, created_at, updated_at, delivered_at
+      FROM session_request_completion_deliveries_legacy;
+      DROP TABLE session_request_completion_deliveries_legacy;
+    `);
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_session_request_completion_due
+      ON session_request_completion_deliveries(status, claim_expires_at, updated_at)
+  `);
 }
 
 function addMissingDriverColumns(db: DatabaseSync): void {

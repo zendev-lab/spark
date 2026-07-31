@@ -190,6 +190,7 @@ export function completeInvocationWithChannelDelivery(
     db: DatabaseSync;
     invocations: SparkInvocationStore;
     deliveries: SparkChannelDeliveryStore;
+    afterComplete?: (completed: SparkInvocationRecord) => void;
   },
   invocation: SparkInvocationRecord,
   task: SparkDaemonTask,
@@ -204,15 +205,18 @@ export function completeInvocationWithChannelDelivery(
           completion.status === "succeeded" ? "final" : "failure",
           completion.result,
         );
-  if (!delivery) {
+  if (!delivery && !deps.afterComplete) {
     return deps.invocations.complete(invocation.invocationId, completion);
   }
 
   deps.db.exec("BEGIN IMMEDIATE");
   try {
     const completed = deps.invocations.complete(invocation.invocationId, completion);
-    const { idempotencyKey, ...payload } = delivery;
-    deps.deliveries.enqueue({ kind: "reply", idempotencyKey, payload });
+    if (delivery) {
+      const { idempotencyKey, ...payload } = delivery;
+      deps.deliveries.enqueue({ kind: "reply", idempotencyKey, payload });
+    }
+    deps.afterComplete?.(completed);
     deps.db.exec("COMMIT");
     return completed;
   } catch (error) {

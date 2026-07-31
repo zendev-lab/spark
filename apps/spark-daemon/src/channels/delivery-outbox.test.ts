@@ -938,6 +938,7 @@ describe("daemon channel delivery outbox", () => {
         messageId: "source-message-1",
       },
     };
+    let completionIntentCount = 0;
     try {
       const invocation = invocations.submit({
         sessionId: task.sessionId,
@@ -946,10 +947,24 @@ describe("daemon channel delivery outbox", () => {
       });
       invocations.claimNext("worker");
 
-      completeInvocationWithChannelDelivery({ db, invocations, deliveries }, invocation, task, {
-        status: "succeeded",
-        result: { assistantText: "done" },
-      });
+      completeInvocationWithChannelDelivery(
+        { db, invocations, deliveries, afterComplete: () => void (completionIntentCount += 1) },
+        invocation,
+        task,
+        {
+          status: "succeeded",
+          result: { assistantText: "done" },
+        },
+      );
+      expect(() =>
+        completeInvocationWithChannelDelivery(
+          { db, invocations, deliveries, afterComplete: () => void (completionIntentCount += 1) },
+          invocation,
+          task,
+          { status: "succeeded", result: { assistantText: "done again" } },
+        ),
+      ).toThrow("Invalid Spark invocation transition");
+      expect(completionIntentCount).toBe(1);
 
       expect(invocations.require(invocation.invocationId)).toMatchObject({
         status: "succeeded",

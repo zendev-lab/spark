@@ -28,6 +28,41 @@ describe("migrateSparkDaemonDatabase", () => {
     }
   });
 
+  it("upgrades pending completion deliveries with claim lease columns", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`
+        CREATE TABLE session_request_completion_deliveries (
+          source_invocation_id TEXT PRIMARY KEY,
+          status TEXT NOT NULL CHECK (status IN ('pending', 'delivered')),
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          delivered_at TEXT
+        );
+        INSERT INTO session_request_completion_deliveries
+          (source_invocation_id, status, attempt_count, created_at, updated_at)
+        VALUES ('inv_pending', 'pending', 2, '2026-07-29T00:00:00.000Z', '2026-07-29T00:00:01.000Z');
+      `);
+
+      migrateSparkDaemonDatabase(db);
+
+      const columns = db.prepare("PRAGMA table_info(session_request_completion_deliveries)").all();
+      expect(columns).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "claim_token" }),
+          expect.objectContaining({ name: "claim_expires_at" }),
+        ]),
+      );
+      expect(
+        db.prepare("SELECT status, attempt_count FROM session_request_completion_deliveries").get(),
+      ).toEqual({ status: "pending", attempt_count: 2 });
+    } finally {
+      db.close();
+    }
+  });
+
   it("expands legacy workspace client rows with nullable session lease columns", () => {
     const db = new DatabaseSync(":memory:");
     try {
