@@ -1,6 +1,7 @@
 export {
   SparkSessionRegistry,
   SparkSessionRegistryError,
+  SPARK_SESSION_REGISTRY_VERSION,
   defaultSparkSessionRegistryRoot,
   type BindSparkSessionInput,
   type CreateSparkSessionInput,

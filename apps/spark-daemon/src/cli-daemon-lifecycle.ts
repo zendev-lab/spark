@@ -24,6 +24,7 @@ import { createSparkDaemonUplinkControl } from "./daemon.js";
 import { startSparkDaemon } from "./daemon-start.js";
 import { getSparkDaemonServerProfile } from "./server-profiles.js";
 import { createSparkDaemonModelControl } from "./model-control.ts";
+import { migrateDaemonGlobalSessions } from "./session-scope-migration.ts";
 import { unifyDaemonSessionTranscripts } from "./session-transcript-unification.ts";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
@@ -55,7 +56,7 @@ import {
 } from "./local-rpc.js";
 import { migrateLegacyQueueHistory } from "./store/legacy-queue-migration.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
-import { resolveWorkspaceLocalPath } from "./store/workspaces.js";
+import { listWorkspaces, resolveWorkspaceLocalPath } from "./store/workspaces.js";
 import {
   cancelSparkDaemonRestartSuccessor,
   clearSparkDaemonRestartFenceForExplicitStart,
@@ -141,6 +142,17 @@ export async function start(
     );
   }
   const db = openSparkDaemonDatabase(paths);
+  const userPaths = resolveSparkUserPaths();
+  const sparkHome = userPaths.dataRoot;
+  try {
+    // The daemon process lock is held and the registry owner does not exist yet,
+    // so the migration has exclusive mutation authority over registry.json.
+    await migrateDaemonGlobalSessions({ sparkHome, workspaces: listWorkspaces(db) });
+  } catch (error) {
+    db.close();
+    await lock.release();
+    throw error;
+  }
   const shutdown = new AbortController();
   const stopIntent = new AbortController();
   const lifecycle = new SparkDaemonLifecycle(successorContext ?? {}, { initiallyServing: false });
@@ -161,16 +173,12 @@ export async function start(
   const localEventBus = createSparkDaemonLocalEventBus();
   const invocationRegistry = new SparkDaemonInvocationRegistry();
   await migrateLegacyQueueHistory({ db, queueRoot: legacySparkDaemonQueueRoot({ paths }) });
-  const userPaths = resolveSparkUserPaths();
-  const sparkHome = userPaths.dataRoot;
   const config = existsSync(paths.configFile)
     ? readSparkDaemonConfig(paths)
     : defaultSparkDaemonConfig();
   if (!existsSync(paths.configFile)) writeSparkDaemonConfig(paths, config);
-  const daemonCwd = process.cwd();
   const sessionRegistry = createDaemonSessionRegistry(sparkHome, {
     daemonId: config.installationId,
-    daemonCwd,
     resolveWorkspaceCwd: (workspaceId) => resolveWorkspaceLocalPath(db, workspaceId),
   });
   const modelControl = createSparkDaemonModelControl({

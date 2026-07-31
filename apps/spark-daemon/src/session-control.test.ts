@@ -19,6 +19,39 @@ import { migrateSparkDaemonDatabase } from "./store/schema.ts";
 import { registerWorkspace } from "./store/workspaces.ts";
 
 describe("daemon session control admission", () => {
+  it("rejects new daemon-global top-level sessions", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-session-workspace-only-"));
+    const db = openMemoryDatabase();
+    migrateSparkDaemonDatabase(db);
+    const paths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const sessionRegistry = createDaemonSessionRegistry(join(root, ".spark"), {
+      daemonId: "workspace-only-test",
+      daemonCwd: root,
+    });
+    try {
+      await expect(
+        executeSparkDaemonSessionControl(
+          { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
+          {
+            kind: "session.create.request",
+            scope: "any",
+            payload: {
+              sessionId: "session-retired-daemon-scope",
+              scope: { kind: "daemon" },
+            },
+          },
+        ),
+      ).rejects.toMatchObject({
+        code: "invalid_scope",
+        message: "New top-level sessions must belong to a workspace.",
+      });
+      await expect(sessionRegistry.get("session-retired-daemon-scope")).resolves.toBeUndefined();
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("freezes an originating QQ binding into the durable child invocation", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-origin-binding-"));
     const db = openMemoryDatabase();
@@ -130,7 +163,12 @@ describe("daemon session control admission", () => {
       daemonId: "local-origin-test",
       daemonCwd: root,
     });
-    await sessionRegistry.create({ sessionId: "session-local", scope: { kind: "daemon" } });
+    await sessionRegistry.create({
+      sessionId: "session-local",
+      scope: { kind: "workspace", workspaceId: "workspace-local" },
+      workspaceId: "workspace-local",
+      cwd: root,
+    });
     try {
       const submitted = await executeSparkDaemonSessionControl(
         { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
@@ -168,7 +206,12 @@ describe("daemon session control admission", () => {
       daemonId: "admission-test",
       daemonCwd: root,
     });
-    await sessionRegistry.create({ sessionId: "session-race", scope: { kind: "daemon" } });
+    await sessionRegistry.create({
+      sessionId: "session-race",
+      scope: { kind: "workspace", workspaceId: "workspace-race" },
+      workspaceId: "workspace-race",
+      cwd: root,
+    });
 
     const firstModel = deferred<{ providerName: string; modelId: string }>();
     let modelReadCount = 0;
@@ -185,7 +228,7 @@ describe("daemon session control admission", () => {
     } as unknown as SparkDaemonModelControl;
     const request = {
       kind: "turn.submit.request" as const,
-      scope: "daemon" as const,
+      scope: "any" as const,
       sessionId: "session-race",
       idempotencyKey: "idem_10000000000000000000000000000000",
       payload: { sessionId: "session-race", prompt: "admit exactly once" },
@@ -240,7 +283,12 @@ describe("daemon session control admission", () => {
     const sessionId = "session-pending-truth";
 
     try {
-      await sessionRegistry.create({ sessionId, scope: { kind: "daemon" } });
+      await sessionRegistry.create({
+        sessionId,
+        scope: { kind: "workspace", workspaceId: "workspace-pending" },
+        workspaceId: "workspace-pending",
+        cwd: root,
+      });
       const store = new SparkInvocationStore(db);
       const running = store.submit({
         sessionId,
@@ -544,7 +592,12 @@ describe("daemon session control admission", () => {
     );
 
     try {
-      await sessionRegistry.create({ sessionId, scope: { kind: "daemon" } });
+      await sessionRegistry.create({
+        sessionId,
+        scope: { kind: "workspace", workspaceId: "workspace-snapshot" },
+        workspaceId: "workspace-snapshot",
+        cwd: root,
+      });
       await sessionRegistry.recordRun({ sessionId, sessionPath: transcriptPath });
       const requestPage = async (beforeMessageId?: string): Promise<SparkSessionSnapshotPage> => {
         const response = await executeSparkDaemonSessionControl(
@@ -606,7 +659,12 @@ describe("daemon session control admission", () => {
       daemonId: "model-propagation-test",
       daemonCwd: root,
     });
-    await sessionRegistry.create({ sessionId: "session-model", scope: { kind: "daemon" } });
+    await sessionRegistry.create({
+      sessionId: "session-model",
+      scope: { kind: "workspace", workspaceId: "workspace-model" },
+      workspaceId: "workspace-model",
+      cwd: root,
+    });
 
     const effectiveModel = vi.fn(async () => ({
       providerName: "default-provider",
@@ -653,7 +711,12 @@ describe("daemon session control admission", () => {
       daemonId: "model-validation-test",
       daemonCwd: root,
     });
-    await sessionRegistry.create({ sessionId: "session-invalid-model", scope: { kind: "daemon" } });
+    await sessionRegistry.create({
+      sessionId: "session-invalid-model",
+      scope: { kind: "workspace", workspaceId: "workspace-invalid-model" },
+      workspaceId: "workspace-invalid-model",
+      cwd: root,
+    });
 
     try {
       // Model without provider/ prefix should be rejected by schema
@@ -696,7 +759,12 @@ describe("daemon session control admission", () => {
       daemonId: "model-fallback-test",
       daemonCwd: root,
     });
-    await sessionRegistry.create({ sessionId: "session-fallback", scope: { kind: "daemon" } });
+    await sessionRegistry.create({
+      sessionId: "session-fallback",
+      scope: { kind: "workspace", workspaceId: "workspace-fallback" },
+      workspaceId: "workspace-fallback",
+      cwd: root,
+    });
 
     const effectiveModel = vi.fn(async () => ({ providerName: "openai", modelId: "gpt-4o" }));
     const modelControl = {

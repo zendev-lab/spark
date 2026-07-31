@@ -21,9 +21,9 @@ export const CREATE_SPARK_SESSION_SELECTION = "__spark_create_session__";
 
 const UNTITLED_SESSION_LABEL = "New conversation";
 
-/** Match the daemon and Cockpit default list boundary: archived sessions are opt-in. */
+/** Native selection exposes active workspace sessions only. */
 export function isSelectableSparkSession(session: SparkSessionRegistryRecord): boolean {
-  return session.status !== "archived";
+  return session.status !== "archived" && session.scope.kind === "workspace";
 }
 
 const plain = (text: string): string => text;
@@ -251,9 +251,9 @@ export function formatSparkSessionListByWorkspace(options: SparkSessionSelectorO
       items: group.items.filter((item) => item.value !== CREATE_SPARK_SESSION_SELECTION),
     }))
     .filter((group) => group.items.length > 0);
-  if (groups.length === 0) return "No managed Spark sessions in daemon.";
+  if (groups.length === 0) return "No managed Spark sessions in this workspace hierarchy.";
   return [
-    "Spark daemon sessions:",
+    "Spark workspace sessions:",
     ...groups.flatMap((group) => [
       `${group.label} (${group.items.length})`,
       ...group.items.map((item) => `  ${item.label} • ${item.description}`),
@@ -281,6 +281,7 @@ function sessionSelectionGroups(
 
   for (const session of options.sessions.filter(isSelectableSparkSession)) {
     const identity = sessionGroupIdentity(session, options);
+    if (!identity) continue;
     const group = byKey.get(identity.key) ?? {
       key: identity.key,
       label: identity.label,
@@ -304,14 +305,8 @@ function currentWorkspaceTabLabel(options: SparkSessionSelectorOptions): string 
 function sessionGroupIdentity(
   session: SparkSessionRegistryRecord,
   options: SparkSessionSelectorOptions,
-): { key: string; label: string; tabLabel: string } {
-  if (session.scope.kind === "daemon") {
-    return {
-      key: "tui-only",
-      label: "TUI only",
-      tabLabel: "TUI only",
-    };
-  }
+): { key: string; label: string; tabLabel: string } | undefined {
+  if (session.scope.kind !== "workspace") return undefined;
   const workspaceId = session.scope.workspaceId;
   if (workspaceId === options.workspaceId) {
     return {

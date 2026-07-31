@@ -25,7 +25,9 @@ Lifecycle status is `ready | running | archived`. `session list|get` also expose
 
 - `surface: local | channel`, derived from authoritative channel bindings;
 - `activity: idle | running`, projected without changing lifecycle status;
-- adapter IDs, external keys, bindings, and workspace or daemon scope.
+- adapter IDs, external keys, bindings, and workspace ownership.
+
+Every new top-level session belongs to a registered workspace. Local tools default list/create to the current workspace, Cockpit accepts workspace-scoped creation only, and ACP calls `workspace.ensure-local` for `input.cwd` before creating the session. Daemon-global scope remains a read-only legacy shape so old transcripts can be recovered; startup migration maps records whose `cwd` identifies one workspace and archives unmatched records without deleting their transcript pointers. The migration keeps an exact hash-manifested backup, replaces the registry atomically, and is idempotent after registry v4.
 
 Registry records and bindings are authoritative. Adapter liveness comes from daemon `channel.status`.
 

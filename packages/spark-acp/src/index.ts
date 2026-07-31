@@ -41,8 +41,10 @@ export interface SparkAcpSessionRecord {
 }
 
 export interface SparkAcpDaemon {
+  ensureWorkspace(input: { cwd: string }): Promise<{ id: string }>;
   createSession(input: {
     cwd: string;
+    workspaceId: string;
     title?: string;
   }): Promise<{ sessionId: string; createdAt: string }>;
   submitTurn(input: {
@@ -103,7 +105,12 @@ export function createSparkAcpAgent(options: SparkAcpAgentOptions = {}): SparkAc
       const cwd =
         typeof ctx.params.cwd === "string" && ctx.params.cwd.trim() ? ctx.params.cwd : defaultCwd;
       const control = await daemon();
-      const created = await control.createSession({ cwd, title: "ACP session" });
+      const workspace = await control.ensureWorkspace({ cwd });
+      const created = await control.createSession({
+        cwd,
+        workspaceId: workspace.id,
+        title: "ACP session",
+      });
       const record: SparkAcpSessionRecord = {
         sparkSessionId: created.sessionId,
         cwd,
@@ -420,10 +427,22 @@ function orpcDaemon(handle: SparkDaemonOrpcClientHandle): SparkAcpDaemon {
   const invoke = (method: Parameters<typeof invokeSparkDaemonOrpcLiveMethod>[1], params: unknown) =>
     invokeSparkDaemonOrpcLiveMethod(handle.client, method, params);
   return {
+    async ensureWorkspace(input) {
+      const workspace = await invoke("workspace.ensure-local", { localPath: input.cwd });
+      if (!workspace || typeof workspace !== "object" || Array.isArray(workspace)) {
+        throw new Error("Spark daemon returned an invalid workspace.ensure-local result");
+      }
+      const id = (workspace as Record<string, unknown>).id;
+      if (typeof id !== "string" || !id.trim()) {
+        throw new Error("Spark daemon returned an invalid workspace.ensure-local result");
+      }
+      return { id: id.trim() };
+    },
     async createSession(input) {
       const session = parseSparkSessionRegistryRecord(
         await invoke("session.create", {
-          scope: { kind: "daemon" },
+          scope: { kind: "workspace", workspaceId: input.workspaceId },
+          workspaceId: input.workspaceId,
           cwd: input.cwd,
           title: input.title,
         }),

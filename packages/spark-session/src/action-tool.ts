@@ -114,13 +114,15 @@ export async function executeSparkSessionAction(
       const requestedActivity = normalizeSessionActivity(params.activity);
       const surface = requestedSurface;
       const adapter = normalizeChannelAdapter(params.adapter);
+      const requestedWorkspaceId =
+        requestParams.scope?.kind === "workspace" ? requestParams.scope.workspaceId : undefined;
       const sessions = records
         .map(projectSession)
         .filter(
           (session) =>
-            !channelWorkspaceId ||
+            !requestedWorkspaceId ||
             (session.scope.kind === "workspace" &&
-              session.scope.workspaceId === channelWorkspaceId),
+              session.scope.workspaceId === requestedWorkspaceId),
         )
         .filter((session) => !surface || session.surface === surface)
         .filter((session) => !requestedActivity || session.activity === requestedActivity)
@@ -479,22 +481,15 @@ async function listRequest(
       includeArchived,
     };
   }
-  if (scope === "daemon") return { scope: { kind: "daemon" }, includeArchived };
-  if (workspaceId)
-    return {
-      scope: { kind: "workspace", workspaceId },
-      workspaceId,
-      includeArchived,
-    };
-  if (scope === "workspace") {
-    const resolvedWorkspaceId = await currentWorkspaceId(ctx, request, signal);
-    return {
-      scope: { kind: "workspace", workspaceId: resolvedWorkspaceId },
-      workspaceId: resolvedWorkspaceId,
-      includeArchived,
-    };
+  if (scope === "daemon") {
+    throw new Error("session list supports workspace scope only");
   }
-  return { includeArchived };
+  const resolvedWorkspaceId = workspaceId ?? (await currentWorkspaceId(ctx, request, signal));
+  return {
+    scope: { kind: "workspace", workspaceId: resolvedWorkspaceId },
+    workspaceId: resolvedWorkspaceId,
+    includeArchived,
+  };
 }
 
 async function sessionCreateRequest(
@@ -519,7 +514,9 @@ async function sessionCreateRequest(
     role,
     ...(cwd ? { cwd } : {}),
   };
-  if (scope === "daemon") return { ...common, scope: { kind: "daemon" } };
+  if (scope === "daemon") {
+    throw new Error("session create supports workspace scope only");
+  }
   const workspaceId =
     optionalString(params.workspaceId, "workspaceId") ??
     (await currentWorkspaceId(ctx, request, signal));

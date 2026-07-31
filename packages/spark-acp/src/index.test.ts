@@ -10,6 +10,8 @@ import type { SparkTurnStreamPage } from "@zendev-lab/spark-protocol";
 import { createSparkAcpAgent, type SparkAcpDaemon } from "./index.ts";
 
 class FakeDaemon implements SparkAcpDaemon {
+  readonly ensuredWorkspaces: string[] = [];
+  readonly createdSessions: Array<{ cwd: string; workspaceId: string; title?: string }> = [];
   readonly submitted: Array<{ sessionId: string; prompt: string; idempotencyKey: string }> = [];
   readonly cancellations: Array<{ invocationId: string; reason: string }> = [];
   readonly humanResponses: Record<string, unknown>[] = [];
@@ -17,7 +19,13 @@ class FakeDaemon implements SparkAcpDaemon {
   status: "running" | "succeeded" | "failed" | "cancelled" = "succeeded";
   assistantText = "daemon answer";
 
-  async createSession(_input: { cwd: string }) {
+  async ensureWorkspace(input: { cwd: string }) {
+    this.ensuredWorkspaces.push(input.cwd);
+    return { id: "workspace-acp" };
+  }
+
+  async createSession(input: { cwd: string; workspaceId: string; title?: string }) {
+    this.createdSessions.push(input);
     return { sessionId: "sess_acp_canonical", createdAt: "2026-07-27T00:00:00.000Z" };
   }
 
@@ -184,6 +192,10 @@ describe("spark-acp daemon adapter", () => {
         });
     });
 
+    expect(daemon.ensuredWorkspaces).toEqual(["/tmp/spark-acp"]);
+    expect(daemon.createdSessions).toEqual([
+      { cwd: "/tmp/spark-acp", workspaceId: "workspace-acp", title: "ACP session" },
+    ]);
     expect(daemon.submitted).toEqual([
       expect.objectContaining({
         sessionId: "sess_acp_canonical",

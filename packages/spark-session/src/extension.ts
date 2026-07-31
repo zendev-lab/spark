@@ -52,8 +52,11 @@ export function registerSparkSessionTool(
       reset: Type.Optional(
         Type.Boolean({ description: "Persistent call only; reset before submitting the turn." }),
       ),
-      scope: Type.Optional(Type.String({ description: "workspace | daemon for create/list." })),
-      workspaceId: Type.Optional(Type.String()),
+      workspaceId: Type.Optional(
+        Type.String({
+          description: "Workspace override for create/list; defaults to the current workspace.",
+        }),
+      ),
       includeArchived: Type.Optional(Type.Boolean()),
       surface: Type.Optional(
         Type.String({ description: "all | local | channel for list. Defaults to all." }),
