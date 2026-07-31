@@ -54,6 +54,8 @@ test("session tool exposes persistent lifecycle, calls, classification, and mail
     request: async () => assert.fail("request should not run during registration"),
   });
   const schema = JSON.stringify(tool.parameters);
+  const properties = (tool.parameters as { properties?: Record<string, unknown> }).properties ?? {};
+  assert.equal("scope" in properties, false);
   for (const action of [
     "list",
     "get",
@@ -241,9 +243,13 @@ test("session tool routes managed actions through daemon RPC and classifies surf
   assert.deepEqual(
     calls.map((call) => call.method),
     [
+      "workspace.ensure-local",
       "session.list",
+      "workspace.ensure-local",
       "session.list",
+      "workspace.ensure-local",
       "session.list",
+      "workspace.ensure-local",
       "session.list",
       "session.get",
       "workspace.ensure-local",

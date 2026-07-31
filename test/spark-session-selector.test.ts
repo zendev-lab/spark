@@ -206,8 +206,8 @@ test("Spark session selector switches workspace groups horizontally", () => {
     true,
   );
   assert.equal(
-    lines.some((line) => line.includes("TUI only (1)")),
-    true,
+    lines.some((line) => line.includes("Daemon conversation")),
+    false,
   );
   assert.equal(
     lines.some((line) => line.includes("Recent conversation")),
@@ -256,22 +256,22 @@ test("Spark session selector switches workspace groups horizontally", () => {
   component.handleInput?.("\u001b[C");
   lines = component.render(96);
   assert.equal(
-    lines.some((line) => line.includes("[TUI only (1)]")),
+    lines.some((line) => line.includes("[spark (4)]")),
     true,
   );
   assert.equal(
     lines.some((line) => line.includes("Daemon conversation")),
-    true,
+    false,
   );
-  component.handleInput?.("\r");
-  assert.deepEqual(selected, [daemonSession.sessionId]);
+  assert.deepEqual(selected, []);
 });
 
-test("isSelectableSparkSession matches the daemon default non-archived list", () => {
+test("isSelectableSparkSession admits active workspace sessions only", () => {
   assert.equal(isSelectableSparkSession(sessions[0] as SparkSessionRegistryRecord), true);
   assert.equal(isSelectableSparkSession(archivedSession), false);
   assert.equal(isSelectableSparkSession(channelBindingSession), true);
   assert.equal(isSelectableSparkSession(channelTitleSession), true);
+  assert.equal(isSelectableSparkSession(daemonSession), false);
 });
 
 test("Spark session list text uses the same workspace groups as the selector", () => {
@@ -294,14 +294,14 @@ test("Spark session list text uses the same workspace groups as the selector", (
     ],
   });
 
-  assert.match(text, /^Spark daemon sessions:/u);
+  assert.match(text, /^Spark workspace sessions:/u);
   assert.match(text, /spark • \/workspace\/spark \(2\)/u);
   assert.match(text, /spore • \/workspace\/spark \(1\)/u);
-  assert.match(text, /TUI only \(1\)/u);
+  assert.doesNotMatch(text, /Daemon conversation/u);
   assert.match(text, /Ops room • session-channel-bound • feishu/u);
 });
 
-test("Spark session selector custom UI returns an existing daemon session", async () => {
+test("Spark session selector custom UI returns an existing workspace session", async () => {
   let overlayEnabled = false;
   let rendered = false;
   const customUi: SparkModelSelectorCustomUi = {

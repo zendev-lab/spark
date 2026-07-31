@@ -174,6 +174,12 @@ export async function executeSparkDaemonSessionControl(
     }
     case "session.create.request": {
       const parsed = sparkSessionCreateRequestSchema.parse(request.payload);
+      if (parsed.scope.kind !== "workspace") {
+        throw new SparkSessionRegistryError(
+          "invalid_scope",
+          "New top-level sessions must belong to a workspace.",
+        );
+      }
       if (
         options.actor === "spark-daemon-runtime-ws" &&
         (parsed.cwd !== undefined ||

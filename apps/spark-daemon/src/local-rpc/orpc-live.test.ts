@@ -175,7 +175,7 @@ describe("local-rpc direct oRPC service", () => {
     const createError = await rejectionOf(
       invokeSparkDaemonOrpcLiveMethod(handle.client, "session.create", createInput),
     );
-    expect(createError).toMatchObject({ code: "daemon_identity_unavailable" });
+    expect(createError).toMatchObject({ code: "invalid_scope" });
     await expect(
       handleLocalRpcLine(
         JSON.stringify({ id: "legacy-create", method: "session.create", params: createInput }),
@@ -186,7 +186,7 @@ describe("local-rpc direct oRPC service", () => {
       ),
     ).resolves.toMatchObject({
       ok: false,
-      error: { code: "daemon_identity_unavailable" },
+      error: { code: "invalid_scope" },
     });
 
     await sessionRegistry.create({

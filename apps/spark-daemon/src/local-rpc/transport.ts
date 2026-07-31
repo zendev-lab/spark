@@ -82,7 +82,6 @@ export async function startLocalRpcServer(options: {
     options.sessionRegistry ??
     createDaemonSessionRegistry(options.sparkHome, {
       daemonId: config.installationId,
-      daemonCwd: process.cwd(),
       resolveWorkspaceCwd: (workspaceId) => resolveWorkspaceLocalPath(options.db, workspaceId),
     });
   const mailStore =

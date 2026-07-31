@@ -6,7 +6,6 @@ import {
   listRuntimeSessionRoutes,
   reconcileRuntimeSessionListProjection,
   runRuntimeSessionControlCommand,
-  runtimeSessionRouteForRuntime,
   runtimeSessionRouteForSession,
   runtimeSessionRouteForWorkspace,
   type RuntimeSessionRoute,
@@ -64,8 +63,12 @@ export type CockpitRuntimeSessionListRequest = SparkSessionListRequest & {
   timeoutMs?: number;
 };
 
-export type CockpitRuntimeSessionCreateRequest = SparkSessionCreateRequest & {
-  runtimeId?: string;
+export type CockpitRuntimeSessionCreateRequest = Omit<
+  SparkSessionCreateRequest,
+  "scope" | "workspaceId"
+> & {
+  scope: { kind: "workspace"; workspaceId: string };
+  workspaceId: string;
   idempotencyKey?: string;
 };
 
@@ -212,9 +215,12 @@ async function listSessionsWithControlState(
 ): Promise<CockpitRuntimeSessionListResult> {
   const { runtimeId, timeoutMs, ...request } = options;
   const parsed = sparkSessionListRequestSchema.parse(request);
+  if (parsed.scope?.kind === "daemon") {
+    throw new Error("Cockpit session lists support workspace scope only.");
+  }
   let routes: RuntimeSessionRoute[];
   try {
-    routes = routesForList(db, parsed, runtimeId);
+    routes = routesForList(db, parsed);
   } catch (error) {
     const stale = projectedSessions(db, parsed, runtimeId);
     if (stale.length > 0) return { sessions: stale, controlAvailable: false };
@@ -269,6 +275,9 @@ async function listRouteSessions(
   request: ReturnType<typeof sparkSessionListRequestSchema.parse>,
   timeoutMs?: number,
 ): Promise<SparkSessionRegistryRecord[]> {
+  if (route.scope !== "workspace" || !route.workspaceId) {
+    throw new Error("Cockpit session lists require a workspace route.");
+  }
   const candidateSessionIds = listRuntimeSessionProjections(db, {
     runtimeId: route.runtimeId,
     scope: route.scope,
@@ -283,10 +292,7 @@ async function listRouteSessions(
       payload: {
         kind: "session.list.request",
         payload: {
-          scope:
-            route.scope === "workspace"
-              ? { kind: "workspace", workspaceId: route.workspaceId! }
-              : { kind: "daemon" },
+          scope: { kind: "workspace", workspaceId: route.workspaceId },
           ...(request.includeArchived !== undefined
             ? { includeArchived: request.includeArchived }
             : {}),
@@ -512,13 +518,14 @@ async function createSession(
   db: DatabaseSync,
   input: CockpitRuntimeSessionCreateRequest,
 ): Promise<SparkSessionRegistryRecord> {
-  const { runtimeId, idempotencyKey, ...request } = input;
+  const { idempotencyKey, ...request } = input;
   const parsed = sparkSessionCreateRequestSchema.parse(request);
+  if (parsed.scope.kind !== "workspace") {
+    throw new Error("Cockpit can create workspace-scoped sessions only.");
+  }
   const route = requireOnlineRoute(
     db,
-    parsed.scope.kind === "workspace"
-      ? runtimeSessionRouteForWorkspace(db, parsed.scope.workspaceId)
-      : runtimeSessionRouteForRuntime(runtimeId ?? ""),
+    runtimeSessionRouteForWorkspace(db, parsed.scope.workspaceId),
   );
   const result = await runRuntimeSessionControlCommand(db, {
     route,
@@ -668,13 +675,12 @@ async function getTurnStream(
 function routesForList(
   db: DatabaseSync,
   request: ReturnType<typeof sparkSessionListRequestSchema.parse>,
-  runtimeId?: string,
 ): RuntimeSessionRoute[] {
   if (request.scope?.kind === "workspace") {
     return [requireOnlineRoute(db, runtimeSessionRouteForWorkspace(db, request.scope.workspaceId))];
   }
   if (request.scope?.kind === "daemon") {
-    return [requireOnlineRoute(db, runtimeSessionRouteForRuntime(runtimeId ?? ""))];
+    throw new Error("Cockpit session lists support workspace scope only.");
   }
   return listRuntimeSessionRoutes(db).filter((route) => route.scope === "workspace");
 }

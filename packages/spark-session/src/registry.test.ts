@@ -53,7 +53,7 @@ describe("SparkSessionRegistry", () => {
 
     await registry.create({ workspaceId: "ws_new" });
     expect(JSON.parse(await readFile(registry.filePath, "utf8"))).toMatchObject({
-      version: 3,
+      version: 4,
       sessions: [
         { sessionId: "sess_legacy", scope: { kind: "workspace" } },
         { scope: { kind: "workspace", workspaceId: "ws_new" } },
@@ -61,23 +61,39 @@ describe("SparkSessionRegistry", () => {
     });
   });
 
-  it("stores and filters daemon-global sessions without a workspace alias", async () => {
+  it("reads legacy daemon-global sessions but rejects new top-level creation", async () => {
     const registry = await tempRegistry();
-    const global = await registry.create({
+    const global = {
       sessionId: "sess_global",
       scope: { kind: "daemon", daemonId: "install-test" },
       cwd: "/daemon/base",
-    });
-    await registry.create({ workspaceId: "ws_other" });
+      status: "archived",
+      bindings: [],
+      createdAt: "2026-07-10T00:00:00.000Z",
+      updatedAt: "2026-07-10T00:00:00.000Z",
+    };
+    await writeFile(
+      registry.filePath,
+      `${JSON.stringify({ version: 3, sessions: [global] })}\n`,
+      "utf8",
+    );
 
-    expect(global).toMatchObject({
-      scope: { kind: "daemon", daemonId: "install-test" },
-      cwd: "/daemon/base",
-    });
-    expect(global).not.toHaveProperty("workspaceId");
     await expect(
-      registry.list({ scope: { kind: "daemon", daemonId: "install-test" } }),
+      registry.list({
+        includeArchived: true,
+        scope: { kind: "daemon", daemonId: "install-test" },
+      }),
     ).resolves.toEqual([global]);
+    await expect(
+      registry.create({
+        sessionId: "sess_new_global",
+        scope: { kind: "daemon", daemonId: "install-test" },
+        cwd: "/daemon/base",
+      }),
+    ).rejects.toMatchObject({
+      code: "invalid_scope",
+      message: "New top-level sessions must belong to a workspace.",
+    });
   });
 
   it("creates, binds, lists, and archives sessions after channel unbind", async () => {

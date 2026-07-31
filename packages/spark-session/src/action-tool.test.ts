@@ -85,7 +85,7 @@ describe("session list and inbox progressive disclosure", () => {
       {
         action: "list",
         toolCallId: "list-page-1",
-        params: { limit: 1, offset: 0 },
+        params: { workspaceId: "workspace-routing", limit: 1, offset: 0 },
         signal: new AbortController().signal,
         ctx: {},
       },
@@ -100,7 +100,7 @@ describe("session list and inbox progressive disclosure", () => {
       {
         action: "list",
         toolCallId: "list-page-2",
-        params: { limit: 1, offset: 1 },
+        params: { workspaceId: "workspace-routing", limit: 1, offset: 1 },
         signal: new AbortController().signal,
         ctx: {},
       },
@@ -108,6 +108,31 @@ describe("session list and inbox progressive disclosure", () => {
     );
     expect(second.content[0]!.text).toContain("sess_second");
     expect(second.content[0]!.text).toContain("next offset=none; remaining=0");
+  });
+
+  it("rejects the retired daemon scope for public list and create actions", async () => {
+    const request = vi.fn(async () => {
+      throw new Error("daemon RPC must not be reached");
+    });
+    const base = {
+      toolCallId: "workspace-scope-only",
+      signal: new AbortController().signal,
+      ctx: { cwd: "/workspace/spark" },
+    };
+
+    await expect(
+      executeSparkSessionAction(
+        { ...base, action: "list", params: { scope: "daemon" } },
+        { request: request as never },
+      ),
+    ).rejects.toThrow(/workspace scope only/u);
+    await expect(
+      executeSparkSessionAction(
+        { ...base, action: "create", params: { scope: "daemon", role: "Quality" } },
+        { request: request as never },
+      ),
+    ).rejects.toThrow(/workspace scope only/u);
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("pages whole inbox summaries and points to read for full details", async () => {
