@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import type { SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";
 import {
@@ -64,6 +65,170 @@ describe("SparkInvocationScheduler", () => {
       expect(scheduler.recover("2026-07-14T00:01:00.000Z")).toBe(0);
       expect(scheduler.processBatch()).toBe(false);
       expect(store.list()).toEqual(terminalRows);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("durably yields at a planned restart checkpoint and lets the successor continue it", async () => {
+    const restart = new AbortController();
+    restart.abort(new Error("planned restart"));
+    const checkpoint: SparkTurnResumeCheckpoint = {
+      version: 1,
+      phase: "before_tool_calls",
+      createdAt: "2026-07-31T00:00:00.000Z",
+      baseSessionEntryId: "entry-before-turn",
+      basePromptItemCount: 1,
+      promptItems: [
+        {
+          authority: "assistant",
+          trust: "trusted",
+          visibility: "visible",
+          persistence: "session",
+          content: {
+            kind: "provider_message",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "toolCall",
+                  id: "call-after-restart",
+                  name: "inspect",
+                  arguments: { path: "README.md" },
+                },
+              ],
+            },
+          },
+          timestamp: 1,
+        },
+      ],
+      toolCalls: [
+        {
+          type: "toolCall",
+          id: "call-after-restart",
+          name: "inspect",
+          arguments: { path: "README.md" },
+        },
+      ],
+    };
+    const { db, store, scheduler } = harness(
+      async (_task, context) => {
+        context.yieldForRestartIfRequested?.(checkpoint);
+        throw new Error("restart checkpoint did not yield");
+      },
+      { restartRequestedSignal: restart.signal },
+    );
+    try {
+      const invocation = store.submit({
+        sessionId: "checkpoint-session",
+        prompt: "inspect after restart",
+        task: {
+          type: "session.run",
+          sessionId: "checkpoint-session",
+          prompt: "inspect after restart",
+        },
+      });
+
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait();
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "queued",
+        sourceKind: "invocation.resume",
+        task: {
+          type: "session.run",
+          resumeFromInterrupt: true,
+          restartCheckpoint: checkpoint,
+        },
+      });
+      expect(
+        store
+          .eventPage(invocation.invocationId)
+          .events.some((event) => event.kind === "invocation.restart_checkpoint_queued"),
+      ).toBe(true);
+
+      const resumedTasks: unknown[] = [];
+      const successor = new SparkInvocationScheduler({
+        store,
+        executeTask: async (task) => {
+          resumedTasks.push(task);
+          return { resumed: true };
+        },
+      });
+      expect(successor.processBatch()).toBe(true);
+      await successor.wait();
+
+      expect(resumedTasks).toEqual([
+        expect.objectContaining({
+          resumeFromInterrupt: true,
+          restartCheckpoint: checkpoint,
+        }),
+      ]);
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "succeeded",
+        attemptCount: 2,
+        result: { resumed: true },
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rejects a restart checkpoint that was not created by the daemon", async () => {
+    const executions: unknown[] = [];
+    const { db, store, scheduler } = harness(async (task) => {
+      executions.push(task);
+      return { unexpected: true };
+    });
+    try {
+      const invocation = store.submit({
+        sessionId: "forged-checkpoint-session",
+        prompt: "forged",
+        task: {
+          type: "session.run",
+          sessionId: "forged-checkpoint-session",
+          prompt: "forged",
+          restartCheckpoint: {
+            version: 1,
+            phase: "before_tool_calls",
+            createdAt: "2026-07-31T00:00:00.000Z",
+            baseSessionEntryId: null,
+            basePromptItemCount: 0,
+            promptItems: [
+              {
+                authority: "assistant",
+                trust: "trusted",
+                visibility: "visible",
+                persistence: "session",
+                content: {
+                  kind: "provider_message",
+                  message: {
+                    role: "assistant",
+                    content: [
+                      {
+                        type: "toolCall",
+                        name: "unsafe",
+                        arguments: {},
+                      },
+                    ],
+                  },
+                },
+                timestamp: 1,
+              },
+            ],
+            toolCalls: [{ type: "toolCall", name: "unsafe", arguments: {} }],
+          },
+        },
+      });
+
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait();
+
+      expect(executions).toEqual([]);
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "failed",
+        errorCode: "INVALID_TASK",
+        errorMessage: expect.stringContaining("daemon-internal"),
+      });
     } finally {
       db.close();
     }

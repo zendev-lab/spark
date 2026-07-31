@@ -26,6 +26,10 @@ import {
 } from "@zendev-lab/spark-host/system-prompt";
 import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
 import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
+import {
+  isSparkTurnRestartYieldError,
+  type SparkTurnResumeCheckpoint,
+} from "@zendev-lab/spark-turn";
 import { renderModelReproductionSkillAutoloadPrompt } from "@zendev-lab/spark-host/builtin-skills";
 import {
   channelDeliveryFailureOutcome,
@@ -204,6 +208,7 @@ export function createSparkDaemonTaskExecutor(
         }
         return completed.result;
       } catch (error) {
+        if (isSparkTurnRestartYieldError(error)) throw error;
         if (!context.signal.aborted && !projectedFailure) {
           await emitSessionFailure(sessionTask, trackedContext, error);
         }
@@ -849,6 +854,12 @@ export async function executeSparkDaemonSessionRunTask(
   const messageMetadata = sessionRunMessageMetadata(task, context.invocationId, reproSkillId);
   const binding = completeChannelBinding(task);
   const interaction = interactionForSessionRun(options, task, context);
+  const checkpointRestart =
+    typeof context.yieldForRestartIfRequested === "function"
+      ? (checkpoint: SparkTurnResumeCheckpoint) => context.yieldForRestartIfRequested?.(checkpoint)
+      : undefined;
+  const canCheckpointRestart =
+    !driver && !task.reset && !task.hiddenExecution && !binding && Boolean(checkpointRestart);
   return await options.executeSession({
     ...sessionExecutionIdentity(task, options, sessionContext),
     prompt: await sessionRunPrompt(task, options.paths, context.invocationId, reproSkillId),
@@ -859,6 +870,10 @@ export async function executeSparkDaemonSessionRunTask(
     // scheduler budget is paused.
     ...(systemPrompt ? { systemPrompt } : {}),
     ...(messageMetadata ? { messageMetadata } : {}),
+    ...(task.restartCheckpoint ? { restartCheckpoint: task.restartCheckpoint } : {}),
+    ...(canCheckpointRestart && checkpointRestart
+      ? { yieldForRestartIfRequested: checkpointRestart }
+      : {}),
     ...sessionExecutionPolicy(task, sessionContext, binding, driver),
     invocationId: context.invocationId,
     ...(options.sessionLease ? { sessionLease: options.sessionLease } : {}),

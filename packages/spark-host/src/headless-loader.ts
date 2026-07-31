@@ -8,6 +8,7 @@ import type {
   SparkSessionLeaseIdentity,
   ToolEffect,
 } from "@zendev-lab/spark-core";
+import type { SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
 
 export type SparkHeadlessRoleRunStatus =
   | "queued"
@@ -33,6 +34,10 @@ export interface SparkHeadlessSessionRunInput {
   /** Internal transcript metadata for daemon-owned hidden execution. */
   sessionVisibility?: "internal";
   sessionPurpose?: "driver_tick";
+  /** Exact pending tool-call continuation captured by a planned daemon restart. */
+  restartCheckpoint?: SparkTurnResumeCheckpoint;
+  /** Persist and yield when a restart is pending; otherwise return normally. */
+  yieldForRestartIfRequested?: (checkpoint: SparkTurnResumeCheckpoint) => void;
   signal?: AbortSignal;
   timeoutMs?: number;
   sparkHome?: string;

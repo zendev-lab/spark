@@ -6,6 +6,7 @@ import {
   classifyProviderFailure,
   type AssistantMessage,
   type Message,
+  type ToolCall,
   type UserMessage,
 } from "@zendev-lab/spark-ai";
 import { sparkTextPhaseFromSignature } from "@zendev-lab/spark-protocol";
@@ -16,8 +17,11 @@ import {
   sparkPromptItemFromProviderMessage,
   sparkPromptItemMetadata,
   sparkRuntimePromptItem,
+  type SparkAgentLoopRunHooks,
+  type SparkBeforeToolCallsCheckpoint,
   type SparkPromptItem,
   type SparkRunOutcome,
+  type SparkTurnResumeCheckpoint,
 } from "@zendev-lab/spark-turn";
 
 import type { SparkCliHostServices } from "./contracts.ts";
@@ -63,6 +67,13 @@ export interface SparkAgentSessionRunOptions {
    * told to resume from persisted session state without redoing completed work.
    */
   resumeFromInterrupt?: boolean;
+  /** Daemon-internal exact continuation point for a planned restart. */
+  restartCheckpoint?: SparkTurnResumeCheckpoint;
+  /**
+   * Atomically persist and yield when the daemon has a pending restart.
+   * A normal return means no restart is currently requested.
+   */
+  yieldForRestartIfRequested?: (checkpoint: SparkTurnResumeCheckpoint) => void;
 }
 
 const MAX_CONTEXT_OVERFLOW_COMPACTIONS = 5;
@@ -108,13 +119,19 @@ export class SparkAgentSession {
   }
 
   async run(options: SparkAgentSessionRunOptions): Promise<SparkAgentSessionRunResult> {
-    const record = await this.loadOrCreateRecord(options);
+    const record = await this.loadOrCreateRecord(options, Boolean(options.restartCheckpoint));
     this.services.runtime.setSessionId(record.header.id);
     this.services.agentLoop.setViewSessionId(record.header.id);
+    if (options.restartCheckpoint) {
+      return await this.resumeFromRestartCheckpoint(record, options, options.restartCheckpoint);
+    }
     const prompt = promptWithResumeNotice(options.prompt, options.resumeFromInterrupt);
     await this.tryPreflightCompaction(record, prompt);
     let beforeCount = this.loadPromptItems(record);
-    let outcome = await this.services.agentLoop.submitWithOutcome(prompt);
+    let outcome = await this.services.agentLoop.submitWithOutcome(
+      prompt,
+      this.restartHooks(record, beforeCount, options),
+    );
 
     let compactAttempt = 0;
     while (
@@ -129,7 +146,10 @@ export class SparkAgentSession {
       // Reload from the persisted compacted record so the user prompt and
       // provider error are neither duplicated nor written into session history.
       beforeCount = this.loadPromptItems(record);
-      outcome = await this.services.agentLoop.submitWithOutcome(prompt);
+      outcome = await this.services.agentLoop.submitWithOutcome(
+        prompt,
+        this.restartHooks(record, beforeCount, options),
+      );
     }
     let rateLimitAttempt = 0;
     while (
@@ -142,12 +162,58 @@ export class SparkAgentSession {
       // Same as overflow recovery: drop the failed transient turn and resubmit
       // from the last persisted session snapshot.
       beforeCount = this.loadPromptItems(record);
-      outcome = await this.services.agentLoop.submitWithOutcome(prompt);
+      outcome = await this.services.agentLoop.submitWithOutcome(
+        prompt,
+        this.restartHooks(record, beforeCount, options),
+      );
     }
-    const assistant = outcome.assistant;
+    return await this.persistRunOutcome(record, beforeCount, outcome, options.messageMetadata);
+  }
 
+  private async resumeFromRestartCheckpoint(
+    record: SparkSessionRecord,
+    options: SparkAgentSessionRunOptions,
+    checkpoint: SparkTurnResumeCheckpoint,
+  ): Promise<SparkAgentSessionRunResult> {
+    const basePromptItems = sessionRecordToPromptItems(record);
+    assertRestartCheckpointBase(record, basePromptItems, checkpoint);
+    this.services.agentLoop.replacePromptItems([...basePromptItems, ...checkpoint.promptItems]);
+    const outcome = await this.services.agentLoop.resumeToolCallsWithOutcome(
+      checkpoint.toolCalls,
+      this.restartHooks(record, basePromptItems.length, options),
+    );
+    return await this.persistRunOutcome(
+      record,
+      basePromptItems.length,
+      outcome,
+      options.messageMetadata,
+    );
+  }
+
+  private restartHooks(
+    record: SparkSessionRecord,
+    beforeCount: number,
+    options: SparkAgentSessionRunOptions,
+  ): SparkAgentLoopRunHooks {
+    if (!options.yieldForRestartIfRequested) return {};
+    return {
+      beforeToolCalls: (turnCheckpoint) => {
+        options.yieldForRestartIfRequested?.(
+          restartCheckpointForTurn(record, beforeCount, turnCheckpoint),
+        );
+      },
+    };
+  }
+
+  private async persistRunOutcome(
+    record: SparkSessionRecord,
+    beforeCount: number,
+    outcome: SparkRunOutcome,
+    messageMetadata: Record<string, unknown> | undefined,
+  ): Promise<SparkAgentSessionRunResult> {
+    const assistant = outcome.assistant;
     const newItems = this.services.agentLoop.getPromptItems().slice(beforeCount);
-    let pendingMessageMetadata = options.messageMetadata;
+    let pendingMessageMetadata = messageMetadata;
     let persistedCount = 0;
     for (const item of newItems) {
       if (item.persistence !== "session") continue;
@@ -227,12 +293,13 @@ export class SparkAgentSession {
 
   private async loadOrCreateRecord(
     options: SparkAgentSessionRunOptions,
+    restartResume = false,
   ): Promise<SparkSessionRecord> {
-    if (options.forkFromSession) {
+    if (!restartResume && options.forkFromSession) {
       const parent = await this.services.sessionStore.loadByRef(options.forkFromSession);
       return this.services.sessionStore.forkSession(parent, { id: options.sessionId });
     }
-    if (options.reset) {
+    if (!restartResume && options.reset) {
       const record = this.services.sessionStore.createSession({
         id: options.sessionId,
         visibility: options.sessionVisibility,
@@ -476,6 +543,79 @@ export class SparkAgentSession {
       }
     }
   }
+}
+
+function restartCheckpointForTurn(
+  record: SparkSessionRecord,
+  beforeCount: number,
+  checkpoint: SparkBeforeToolCallsCheckpoint,
+): SparkTurnResumeCheckpoint {
+  if (checkpoint.promptItems.length <= beforeCount) {
+    throw new Error("Spark restart checkpoint has no transient prompt delta");
+  }
+  const promptItems = structuredClone(
+    checkpoint.promptItems.slice(beforeCount),
+  ) as SparkPromptItem[];
+  const toolCalls = structuredClone(checkpoint.toolCalls) as ToolCall[];
+  const resumeCheckpoint: SparkTurnResumeCheckpoint = {
+    version: 1,
+    phase: "before_tool_calls",
+    createdAt: new Date().toISOString(),
+    baseSessionEntryId: getSparkSessionBranch(record).at(-1)?.id ?? null,
+    basePromptItemCount: beforeCount,
+    promptItems,
+    toolCalls,
+  };
+  assertCheckpointAssistantCalls(resumeCheckpoint);
+  return resumeCheckpoint;
+}
+
+function assertRestartCheckpointBase(
+  record: SparkSessionRecord,
+  basePromptItems: readonly SparkPromptItem[],
+  checkpoint: SparkTurnResumeCheckpoint,
+): void {
+  const actualEntryId = getSparkSessionBranch(record).at(-1)?.id ?? null;
+  if (actualEntryId !== checkpoint.baseSessionEntryId) {
+    throw restartCheckpointConflict(
+      `session head changed (expected ${checkpoint.baseSessionEntryId ?? "<empty>"}, found ${actualEntryId ?? "<empty>"})`,
+    );
+  }
+  if (basePromptItems.length !== checkpoint.basePromptItemCount) {
+    throw restartCheckpointConflict(
+      `base prompt changed (expected ${checkpoint.basePromptItemCount} items, found ${basePromptItems.length})`,
+    );
+  }
+  assertCheckpointAssistantCalls(checkpoint);
+}
+
+function assertCheckpointAssistantCalls(checkpoint: SparkTurnResumeCheckpoint): void {
+  const tail = checkpoint.promptItems.at(-1);
+  const message = tail?.content.kind === "provider_message" ? tail.content.message : undefined;
+  const pending =
+    message?.role === "assistant" && Array.isArray(message.content)
+      ? message.content.filter((part): part is ToolCall =>
+          Boolean(
+            part &&
+            typeof part === "object" &&
+            !Array.isArray(part) &&
+            (part as { type?: unknown }).type === "toolCall",
+          ),
+        )
+      : [];
+  if (pending.length === 0 || JSON.stringify(pending) !== JSON.stringify(checkpoint.toolCalls)) {
+    throw restartCheckpointConflict(
+      "pending tool calls do not match the checkpoint assistant message",
+    );
+  }
+}
+
+function restartCheckpointConflict(message: string): Error & { code?: string } {
+  const error = new Error(`Spark restart checkpoint conflict: ${message}`) as Error & {
+    code?: string;
+  };
+  error.code = "RESTART_CHECKPOINT_CONFLICT";
+  return error;
 }
 
 function activeSparkModelId(services: SparkCliHostServices): string | undefined {

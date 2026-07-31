@@ -855,6 +855,7 @@ function createDaemonScheduler(input: {
     emitEvent: (event) => input.eventHub.emit(event),
     concurrency: options.schedulerConcurrency,
     taskTimeoutMs: options.invocationTimeoutMs,
+    restartRequestedSignal: options.restartSignal,
     initiallyAccepting: false,
   });
 }

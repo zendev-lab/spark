@@ -11,7 +11,9 @@ import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import {
   SparkAgentLoop,
   resolveSparkPromptCache,
+  SparkTurnRestartYieldError,
   splitSparkSystemPrompt,
+  type SparkBeforeToolCallsCheckpoint,
   type SparkAgentLoopEvent,
   type SparkAgentStreamFunction,
   type SparkRunOutcome,
@@ -1321,6 +1323,93 @@ test("SparkAgentLoop dispatches tool calls and feeds tool results back into the 
     ),
     true,
   );
+});
+
+test("SparkAgentLoop yields before tool dispatch and resumes the exact calls once", async () => {
+  const toolCallEnvelope: ToolCall = {
+    type: "toolCall",
+    id: "tc-restart",
+    name: "checkpoint_echo",
+    arguments: { value: "resume-me" },
+  };
+  const toolAssistant = buildAssistant([toolCallEnvelope], "toolUse");
+  const predecessorHost = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-restart-predecessor",
+  });
+  let toolExecutions = 0;
+  predecessorHost.registerTool({
+    name: "checkpoint_echo",
+    description: "checkpoint test tool",
+    parameters: { type: "object" },
+    async execute() {
+      toolExecutions += 1;
+      return { content: [{ type: "text", text: "unexpected predecessor execution" }] };
+    },
+  });
+  const predecessorAgentEnd: unknown[] = [];
+  predecessorHost.on("agent_end", (event) => predecessorAgentEnd.push(event));
+  const predecessor = new SparkAgentLoop({
+    host: predecessorHost,
+    streamFunction: makeFakeStream({
+      rounds: [[{ type: "done", reason: "toolUse", message: toolAssistant }]],
+    }),
+    getModel: () => TEST_MODEL,
+  });
+  let checkpoint: SparkBeforeToolCallsCheckpoint | undefined;
+
+  await assert.rejects(
+    predecessor.submitWithOutcome("run the checkpoint tool", {
+      beforeToolCalls: (candidate) => {
+        checkpoint = candidate;
+        throw new SparkTurnRestartYieldError();
+      },
+    }),
+    (error: unknown) => error instanceof SparkTurnRestartYieldError,
+  );
+  assert.equal(toolExecutions, 0);
+  assert.equal(predecessorAgentEnd.length, 0);
+  assert.equal(predecessor.getState(), "idle");
+  assert.ok(checkpoint);
+  assert.deepEqual(checkpoint.toolCalls, [toolCallEnvelope]);
+
+  const successorHost = new SparkHostRuntime({
+    cwd: "/tmp/spark-agent-loop-restart-successor",
+  });
+  successorHost.registerTool({
+    name: "checkpoint_echo",
+    description: "checkpoint test tool",
+    parameters: { type: "object" },
+    async execute(_id, parameters) {
+      toolExecutions += 1;
+      return {
+        content: [
+          {
+            type: "text",
+            text: `resumed:${(parameters as { value?: string }).value ?? ""}`,
+          },
+        ],
+      };
+    },
+  });
+  const finalAssistant = buildAssistant([{ type: "text", text: "restart continuation complete" }]);
+  const successor = new SparkAgentLoop({
+    host: successorHost,
+    streamFunction: makeFakeStream({
+      rounds: [[{ type: "done", reason: "stop", message: finalAssistant }]],
+    }),
+    getModel: () => TEST_MODEL,
+  });
+  successor.replacePromptItems(checkpoint.promptItems);
+
+  const outcome = await successor.resumeToolCallsWithOutcome(checkpoint.toolCalls);
+
+  assert.equal(outcome.status, "completed");
+  assert.equal(toolExecutions, 1);
+  assert.deepEqual(
+    successor.getMessages().map((message) => message.role),
+    ["user", "assistant", "toolResult", "assistant"],
+  );
+  assert.match(toolResultText(asToolResult(successor.getMessages()[2])), /resumed:resume-me/u);
 });
 
 test("SparkAgentLoop keeps a thrown tool error inside the execution chain and completes the turn", async () => {
