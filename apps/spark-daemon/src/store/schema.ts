@@ -520,6 +520,8 @@ function addMissingInvocationColumns(db: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS invocation_events_cursor_idx
       ON invocation_events(invocation_id, sequence);
+    CREATE INDEX IF NOT EXISTS invocation_events_kind_created_idx
+      ON invocation_events(kind, created_at, invocation_id, sequence);
   `);
 }
 

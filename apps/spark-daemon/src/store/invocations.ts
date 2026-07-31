@@ -1,3 +1,5 @@
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
+import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { SparkDaemonControlError } from "../control-error.ts";
@@ -155,6 +157,11 @@ export interface CompleteSparkInvocationInput {
 
 const DEFAULT_EVENT_PAGE_LIMIT = 100;
 export const MAX_INVOCATION_EVENT_PAGE_LIMIT = 500;
+export const MAX_PERSISTED_INVOCATION_RESULT_BYTES = 512 * 1024;
+export const MAX_PERSISTED_INVOCATION_EVENT_BYTES = 256 * 1024;
+const MAX_PERSISTED_RESULT_STRING_BYTES = 384 * 1024;
+const MAX_PERSISTED_RESULT_ARRAY_ITEMS = 64;
+const MAX_PERSISTED_RESULT_OBJECT_KEYS = 128;
 
 const allowedTransitions: Record<SparkInvocationStatus, readonly SparkInvocationStatus[]> = {
   queued: ["running", "failed", "cancelled"],
@@ -337,7 +344,7 @@ export class SparkInvocationStore {
         input.status,
         input.prompt ?? null,
         serializeJson(input.task),
-        serializeJson(input.result),
+        serializeJson(compactInvocationResult(input.result)),
         input.sourceKind ?? null,
         input.sourceRef ?? null,
         input.retryOfInvocationId ?? null,
@@ -705,6 +712,7 @@ export class SparkInvocationStore {
     const current = this.require(invocationId);
     assertTransition(current.status, input.status);
     const now = input.now ?? new Date().toISOString();
+    const result = compactInvocationResult(input.result);
     const changes = Number(
       this.db
         .prepare(
@@ -718,7 +726,7 @@ export class SparkInvocationStore {
           input.cancelReason ?? null,
           input.errorCode ?? null,
           input.errorMessage ?? null,
-          serializeJson(input.result),
+          serializePersistedResult(result),
           now,
           now,
           invocationId,
@@ -726,7 +734,7 @@ export class SparkInvocationStore {
         ).changes,
     );
     if (changes !== 1) throw new Error(`Invocation transition conflict: ${invocationId}`);
-    return this.require(invocationId);
+    return completedInvocationRecord(current, input, result, now);
   }
 
   appendEvent(
@@ -746,13 +754,19 @@ export class SparkInvocationStore {
         )
         .get(invocationId) as { sequence: number } | undefined;
       const sequence = Number(cursor?.sequence ?? 0) + 1;
+      const persistedPayload = persistedInvocationEventPayload(
+        invocationId,
+        sequence,
+        kind,
+        payload,
+      );
       this.db
         .prepare(
           `INSERT INTO invocation_events
             (invocation_id, sequence, kind, payload_json, created_at)
            VALUES (?, ?, ?, ?, ?)`,
         )
-        .run(invocationId, sequence, kind, JSON.stringify(payload), now);
+        .run(invocationId, sequence, kind, JSON.stringify(persistedPayload), now);
       this.db
         .prepare(
           `UPDATE invocations
@@ -762,7 +776,13 @@ export class SparkInvocationStore {
         )
         .run(sequence, now, invocationId);
       this.db.exec("COMMIT");
-      return { invocationId, sequence, kind, payload, createdAt: now };
+      return {
+        invocationId,
+        sequence,
+        kind,
+        payload: persistedPayload as Record<string, unknown>,
+        createdAt: now,
+      };
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
@@ -995,6 +1015,35 @@ export class SparkInvocationStore {
     };
   }
 
+  pruneViewEventCache(before: string, limit = 1_000): number {
+    const normalizedLimit = Math.max(1, Math.min(10_000, Math.floor(limit)));
+    return Number(
+      this.db
+        .prepare(
+          `DELETE FROM invocation_events
+           WHERE rowid IN (
+             SELECT e.rowid
+             FROM invocation_events e
+             JOIN invocations i ON i.id = e.invocation_id
+             WHERE e.kind = 'daemon.view_event'
+               AND e.created_at < ?
+               AND i.status IN ('succeeded', 'failed', 'cancelled')
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM invocation_event_delivery_consumers known
+                 LEFT JOIN invocation_event_deliveries d
+                   ON d.destination = known.destination
+                  AND d.invocation_id = e.invocation_id
+                 WHERE COALESCE(d.sequence, 0) < e.sequence
+               )
+             ORDER BY e.created_at, e.rowid
+             LIMIT ?
+           )`,
+        )
+        .run(before, normalizedLimit).changes,
+    );
+  }
+
   oldestActive(): { queued?: string; running?: string } {
     const rows = this.db
       .prepare(
@@ -1149,7 +1198,7 @@ function invocationListFilter(
 }
 
 function invocationEvent(row: InvocationEventRow): SparkInvocationEvent {
-  const payload = JSON.parse(row.payload_json) as unknown;
+  const payload = parseJson(row.payload_json);
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error(`Invalid invocation event payload at sequence ${row.sequence}`);
   }
@@ -1198,6 +1247,51 @@ function recoveredTerminalLifecycleEvent(row: PendingDeliveryRow): SparkInvocati
   };
 }
 
+function persistedInvocationEventPayload(
+  invocationId: string,
+  sequence: number,
+  kind: string,
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  if (kind !== "daemon.view_event") return payload;
+  const bounded = boundedJsonValue(payload, 0, MAX_PERSISTED_INVOCATION_EVENT_BYTES);
+  if (
+    !containsTruncatedMarker(bounded) &&
+    jsonBytes(bounded) <= MAX_PERSISTED_INVOCATION_EVENT_BYTES
+  ) {
+    return bounded as Record<string, unknown>;
+  }
+  const sessionId = jsonString(payload, "sessionId") ?? "unknown";
+  return {
+    version: SPARK_PROTOCOL_VERSION,
+    type: "daemon.view_event",
+    source: "daemon",
+    invocationId,
+    sessionId,
+    view: {
+      version: SPARK_PROTOCOL_VERSION,
+      type: "session.message",
+      sessionId,
+      message: {
+        version: SPARK_PROTOCOL_VERSION,
+        id: `cache-omitted-${invocationId}-${sequence}`,
+        role: "assistant",
+        text: "[streamed view event omitted from durable cache]",
+        status: "done",
+        metadata: { cacheOmitted: true },
+      },
+    },
+  };
+}
+
+function containsTruncatedMarker(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (!Array.isArray(value) && (value as Record<string, unknown>).truncated === true) return true;
+  return Array.isArray(value)
+    ? value.some(containsTruncatedMarker)
+    : Object.values(value as Record<string, unknown>).some(containsTruncatedMarker);
+}
+
 function jsonObject(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -1209,12 +1303,188 @@ function jsonString(value: Record<string, unknown> | undefined, key: string): st
   return typeof candidate === "string" && candidate.trim() ? candidate : undefined;
 }
 
+function truncateJsonString(value: string, maxJsonBytes: number): string {
+  const bounded = value.length > maxJsonBytes ? value.slice(0, maxJsonBytes) : value;
+  if (Buffer.byteLength(JSON.stringify(bounded)) <= maxJsonBytes) return bounded;
+  let low = 0;
+  let high = bounded.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(JSON.stringify(bounded.slice(0, middle))) <= maxJsonBytes) low = middle;
+    else high = middle - 1;
+  }
+  return bounded.slice(0, low);
+}
+
+function compactRegistryPersistence(
+  value: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+  const compact: Record<string, unknown> = {};
+  if (typeof value.status === "string") compact.status = truncateJsonString(value.status, 512);
+  if (typeof value.message === "string") compact.message = truncateJsonString(value.message, 8_192);
+  return compact;
+}
+
+function compactInvocationResult(result: unknown): unknown {
+  if (result === undefined) return undefined;
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const record = result as Record<string, unknown>;
+    if (Object.hasOwn(record, "jsonEvents")) {
+      const registryPersistence = compactRegistryPersistence(
+        jsonObject(record.registryPersistence),
+      );
+      const compact: Record<string, unknown> = {
+        ...(typeof record.sessionId === "string"
+          ? { sessionId: truncateJsonString(record.sessionId, 1_024) }
+          : {}),
+        ...(typeof record.sessionPath === "string"
+          ? { sessionPath: truncateJsonString(record.sessionPath, 8_192) }
+          : {}),
+        ...(typeof record.newMessageCount === "number" && Number.isFinite(record.newMessageCount)
+          ? { newMessageCount: record.newMessageCount }
+          : {}),
+        ...(typeof record.assistantText === "string"
+          ? { assistantText: truncateJsonString(record.assistantText, 384 * 1_024) }
+          : {}),
+        ...(typeof record.stderr === "string"
+          ? { stderr: truncateJsonString(record.stderr, 64 * 1_024) }
+          : {}),
+        ...(typeof record.eventsStreamed === "boolean"
+          ? { eventsStreamed: record.eventsStreamed }
+          : {}),
+        ...(Array.isArray(record.jsonEvents) ? { jsonEventCount: record.jsonEvents.length } : {}),
+        ...(record.channelReplyDelivered === true ? { channelReplyDelivered: true } : {}),
+        ...(record.channelReplyDeliveryPending === true
+          ? { channelReplyDeliveryPending: true }
+          : {}),
+        ...(registryPersistence ? { registryPersistence } : {}),
+      };
+      if (Buffer.byteLength(JSON.stringify(compact)) > MAX_PERSISTED_INVOCATION_RESULT_BYTES) {
+        throw new Error("Compacted invocation result exceeded the persisted result byte limit");
+      }
+      return compact;
+    }
+  }
+  return boundedJsonValue(result);
+}
+
+function boundedJsonValue(
+  value: unknown,
+  depth = 0,
+  budget = MAX_PERSISTED_INVOCATION_RESULT_BYTES,
+): unknown {
+  if (value === undefined) return undefined;
+  if (depth > 8) return { truncated: true, reason: "depth" };
+  if (value === null || typeof value === "number" || typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const inputBytes = Buffer.byteLength(value) + 2;
+    if (inputBytes <= budget) return value;
+    const maxStringBytes = Math.max(0, Math.min(MAX_PERSISTED_RESULT_STRING_BYTES, budget - 64));
+    return {
+      value: truncateJsonString(value, maxStringBytes),
+      originalBytes: inputBytes,
+      truncated: true,
+    };
+  }
+  if (Array.isArray(value)) {
+    const items: unknown[] = [];
+    let truncated = value.length > MAX_PERSISTED_RESULT_ARRAY_ITEMS;
+    for (const item of value.slice(0, MAX_PERSISTED_RESULT_ARRAY_ITEMS)) {
+      const candidate = [...items, boundedJsonValue(item, depth + 1, Math.max(64, budget - 128))];
+      if (jsonBytes(candidate) > budget - 64) {
+        truncated = true;
+        break;
+      }
+      items.push(candidate[candidate.length - 1]);
+    }
+    if (!truncated) return items;
+    const bounded = { itemCount: value.length, items, truncated: true };
+    return jsonBytes(bounded) <= budget ? bounded : { itemCount: value.length, truncated: true };
+  }
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "symbol") return value.description ?? "symbol";
+  if (typeof value === "function") return "[function]";
+  const bounded: Record<string, unknown> = {};
+  let truncated = false;
+  let seenKeys = 0;
+  for (const key in value as Record<string, unknown>) {
+    seenKeys += 1;
+    if (seenKeys > MAX_PERSISTED_RESULT_OBJECT_KEYS) {
+      truncated = true;
+      break;
+    }
+    const child = boundedJsonValue(
+      (value as Record<string, unknown>)[key],
+      depth + 1,
+      Math.max(64, budget - jsonBytes(bounded) - 128),
+    );
+    bounded[key] = child;
+    if (jsonBytes(bounded) > budget - 64) {
+      delete bounded[key];
+      truncated = true;
+      break;
+    }
+  }
+  if (truncated) {
+    bounded.truncated = true;
+    while (jsonBytes(bounded) > budget && Object.keys(bounded).length > 1) {
+      const lastKey = Object.keys(bounded).at(-2);
+      if (!lastKey) break;
+      delete bounded[lastKey];
+    }
+  }
+  return jsonBytes(bounded) <= budget ? bounded : { truncated: true };
+}
+
+function jsonBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value));
+}
+
+function completedInvocationRecord(
+  current: SparkInvocationRecord,
+  input: CompleteSparkInvocationInput,
+  result: unknown,
+  now: string,
+): SparkInvocationRecord {
+  const completed: SparkInvocationRecord = {
+    ...current,
+    status: input.status,
+    updatedAt: now,
+    finishedAt: now,
+  };
+  Reflect.deleteProperty(completed, "cancelReason");
+  Reflect.deleteProperty(completed, "errorCode");
+  Reflect.deleteProperty(completed, "errorMessage");
+  Reflect.deleteProperty(completed, "result");
+  if (input.cancelReason) completed.cancelReason = input.cancelReason;
+  if (input.errorCode) completed.errorCode = input.errorCode;
+  if (input.errorMessage) completed.errorMessage = input.errorMessage;
+  if (result !== undefined) completed.result = result;
+  return completed;
+}
+
+function serializePersistedResult(value: unknown): string | null {
+  if (value === undefined) return null;
+  const serialized = JSON.stringify(value);
+  if (Buffer.byteLength(serialized) > MAX_PERSISTED_INVOCATION_RESULT_BYTES) {
+    throw new Error(
+      `Persisted invocation result exceeded ${MAX_PERSISTED_INVOCATION_RESULT_BYTES} bytes`,
+    );
+  }
+  return serialized;
+}
+
 function serializeJson(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
 }
 
 function parseJson(value: string): unknown {
-  return JSON.parse(value) as unknown;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch (error) {
+    throw new Error("Invalid persisted JSON", { cause: error });
+  }
 }
 
 function assertTransition(from: SparkInvocationStatus, to: SparkInvocationStatus): void {

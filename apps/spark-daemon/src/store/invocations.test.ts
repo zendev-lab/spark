@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -5,7 +6,11 @@ import { join } from "node:path";
 import { parseSparkDaemonEvent } from "@zendev-lab/spark-protocol";
 import { describe, expect, it } from "vitest";
 import { migrateSparkDaemonDatabase } from "./schema.ts";
-import { MAX_INVOCATION_EVENT_PAGE_LIMIT, SparkInvocationStore } from "./invocations.ts";
+import {
+  MAX_INVOCATION_EVENT_PAGE_LIMIT,
+  MAX_PERSISTED_INVOCATION_RESULT_BYTES,
+  SparkInvocationStore,
+} from "./invocations.ts";
 import { buildPendingDeliveriesQuery } from "./invocation-delivery-query.ts";
 import { registerWorkspace } from "./workspaces.ts";
 
@@ -689,6 +694,152 @@ describe("SparkInvocationStore", () => {
         eventCount: 1,
         blockedByDeliveryCount: 1,
       });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("stores bounded persistent results instead of duplicating streamed event caches", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({
+        sessionId: "session-bounded-result",
+        prompt: "persist the final output",
+      });
+      store.claimNext("worker-bounded-result");
+      const completed = store.complete(invocation.invocationId, {
+        status: "succeeded",
+        result: {
+          sessionId: "session-bounded-result",
+          sessionPath: "/tmp/session-bounded-result.jsonl",
+          assistantText: "durable final answer",
+          stderr: "",
+          eventsStreamed: true,
+          jsonEvents: Array.from({ length: 2_000 }, () => ({
+            type: "view_event",
+            event: { text: "x".repeat(1_024) },
+          })),
+        },
+      });
+
+      expect(completed.result).toMatchObject({
+        assistantText: "durable final answer",
+        eventsStreamed: true,
+        jsonEventCount: 2_000,
+        sessionPath: "/tmp/session-bounded-result.jsonl",
+      });
+      const persisted = db
+        .prepare(
+          `SELECT LENGTH(result_json) AS bytes,
+                  json_type(result_json, '$.jsonEvents') AS json_events_type
+           FROM invocations WHERE id = ?`,
+        )
+        .get(invocation.invocationId) as { bytes: number; json_events_type: string | null };
+      expect(persisted.bytes).toBeLessThanOrEqual(MAX_PERSISTED_INVOCATION_RESULT_BYTES);
+      expect(persisted.json_events_type).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("bounds an unclassified oversized result instead of growing SQLite without a bound", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({ prompt: "oversized unknown result" });
+      store.claimNext("worker-oversized-result");
+
+      expect(() =>
+        store.complete(invocation.invocationId, {
+          status: "succeeded",
+          result: { unknownOutput: "x".repeat(MAX_PERSISTED_INVOCATION_RESULT_BYTES + 1) },
+        }),
+      ).not.toThrow();
+      expect(store.require(invocation.invocationId).result).toMatchObject({
+        unknownOutput: { truncated: true },
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("prunes only acknowledged terminal view-event cache rows in bounded batches", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({ prompt: "cache retention" });
+      store.claimNext("worker-cache-retention");
+      store.appendEvent(
+        invocation.invocationId,
+        "daemon.task.lifecycle",
+        { status: "running" },
+        "2026-07-01T00:00:00.000Z",
+      );
+      store.appendEvent(
+        invocation.invocationId,
+        "daemon.view_event",
+        { text: "cached one" },
+        "2026-07-01T00:00:01.000Z",
+      );
+      store.appendEvent(
+        invocation.invocationId,
+        "daemon.view_event",
+        { text: "cached two" },
+        "2026-07-01T00:00:02.000Z",
+      );
+      const terminal = store.appendEvent(
+        invocation.invocationId,
+        "daemon.task.lifecycle",
+        { status: "succeeded" },
+        "2026-07-01T00:00:03.000Z",
+      );
+      store.complete(invocation.invocationId, {
+        status: "succeeded",
+        now: "2026-07-01T00:00:04.000Z",
+      });
+      store.pendingDeliveries("cockpit:retention", 1);
+      store.acknowledgeDelivery("cockpit:retention", invocation.invocationId, terminal.sequence);
+
+      expect(store.pruneViewEventCache("2026-07-02T00:00:00.000Z", 1)).toBe(1);
+      expect(store.pruneViewEventCache("2026-07-02T00:00:00.000Z", 1)).toBe(1);
+      expect(store.pruneViewEventCache("2026-07-02T00:00:00.000Z", 1)).toBe(0);
+      expect(store.eventPage(invocation.invocationId).events.map((event) => event.kind)).toEqual([
+        "daemon.task.lifecycle",
+        "daemon.task.lifecycle",
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("replaces oversized streamed view events with a valid bounded cache marker", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({ sessionId: "session-large-event", prompt: "large event" });
+      const event = store.appendEvent(invocation.invocationId, "daemon.view_event", {
+        version: 1,
+        type: "daemon.view_event",
+        source: "daemon",
+        sessionId: "session-large-event",
+        invocationId: invocation.invocationId,
+        view: {
+          version: 1,
+          type: "session.message",
+          sessionId: "session-large-event",
+          message: {
+            version: 1,
+            id: "large-message",
+            role: "assistant",
+            text: "x".repeat(512 * 1024),
+            status: "done",
+          },
+        },
+      });
+
+      expect(() => parseSparkDaemonEvent(event.payload)).not.toThrow();
+      expect(event.payload).toMatchObject({
+        type: "daemon.view_event",
+        view: { type: "session.message", message: { metadata: { cacheOmitted: true } } },
+      });
+      expect(Buffer.byteLength(JSON.stringify(event.payload))).toBeLessThanOrEqual(256 * 1024);
     } finally {
       db.close();
     }
