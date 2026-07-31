@@ -2221,28 +2221,9 @@ test("/loop stop aliases clear plain loop state and pause is removed", async () 
   }
 });
 
-test("Shift+Tab shortcut shows per-turn Spark mode hints without persisting mode", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-shift-tab-mode-"));
-  const inactiveDir = await mkdtemp(join(tmpdir(), "spark-shift-tab-inactive-"));
-  try {
-    await writeEmptySparkProject(dir);
-    const ctx = testSparkContext(dir, "main");
-    const run = registerSparkToolsForTest();
-    const shortcut = run.shortcuts.get("shift+tab");
-    assert.ok(shortcut, "missing Shift+Tab Spark mode shortcut");
-    assert.equal(shortcut.isActive?.(testSparkContext(inactiveDir, "main")), false);
-    assert.equal(shortcut.isActive?.(ctx), true);
-
-    await executeSparkTool(run.tools, "impl_use_project", ctx, { project: "Tool persistence" });
-    assert.equal((await loadSparkPhase(dir, ctx)).phase, "plan");
-
-    await shortcut.handler(ctx);
-    assert.equal((await loadSparkPhase(dir, ctx)).phase, "plan");
-    assert.equal(ctx.editorText, "/plan ");
-  } finally {
-    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
-    await rm(inactiveDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
-  }
+test("Spark extension leaves Shift+Tab to the host thinking-level binding", () => {
+  const run = registerSparkToolsForTest();
+  assert.equal(run.shortcuts.has("shift+tab"), false);
 });
 
 test("impl_plan_tasks blocks underspecified executable tasks without opening a canned ask", async () => {

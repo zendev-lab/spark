@@ -46,7 +46,6 @@ import {
 import { sessionModelName } from "./session-model.ts";
 import { withSparkToolOperationalNotes } from "./spark-tool-operational-notes.ts";
 import { SparkWorkflowRunManagerController } from "./spark-workflow-run-manager.ts";
-import { registerSparkModeCycleShortcut } from "./spark-mode-shortcut.ts";
 import { registerSparkPhaseTool } from "./mode/index.ts";
 import { sparkSessionKey } from "./session-state.ts";
 import type { SparkRegisteredToolConfig, SparkToolContext } from "./spark-tool-registration.ts";
@@ -236,8 +235,6 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     createReviewerRunner,
   });
   registerSparkReflectionCommands(pi);
-
-  registerSparkModeCycleShortcut(pi, { refreshSparkWidget });
 
   registerSparkStatusTool(registerSparkImplementationTool, { ensureSparkStateForActiveWorkspace });
 
