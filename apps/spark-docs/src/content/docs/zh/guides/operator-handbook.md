@@ -37,14 +37,33 @@ spark paths --json
 
 ## 2. 配置可认证的模型
 
-打开 TUI：
+从 Pi 迁移到 0.2.0 时，先在不启动 Pi 的情况下检查并导入：
 
 ```bash
-spark
+spark daemon auth status --json
+spark daemon auth import pi --json
+spark daemon model list --all --json
 ```
 
-运行 `/login` 配置 provider，再用 `/model` 选择可用模型。API Key 只应输入 Spark
-提供的 secret prompt，不能写进仓库、命令历史或 Cockpit 注册命令。
+设置了 `PI_CODING_AGENT_DIR` 时，导入源是其中的 `auth.json`；否则是
+`~/.pi/agent/auth.json`。只会导入已注册且认证类型匹配的 provider；不会展开
+`$ENV`/`${ENV}`、执行 `!command` 或修改 Pi 文件。默认保留 Spark 已有凭证；
+检查脱敏报告后才考虑 `--overwrite`。
+
+即使全部跳过，完成的事务仍返回退出码 `0`。源文件、JSON 解析或 Spark store
+失败返回 `1` 且不写入；用法错误返回 `2`。修复可读性或 JSON 后重跑同一命令，
+排障材料中不要复制任何凭证值。
+
+也可直接配置 provider：
+
+```bash
+spark daemon auth login [provider]
+spark daemon model set <provider/model> --default --json
+```
+
+或打开 `spark`，运行 `/login`，再用 `/model`。不可用模型仍会显示原因和登录动作，
+但不能成为 active。API Key 只应输入 Spark 的 secret prompt，不能写进仓库、
+命令历史或 Cockpit 注册命令。
 
 没有已认证模型时，Cockpit 会禁用会话提交。JSON CLI 提交会返回可处理的错误：
 
@@ -59,6 +78,9 @@ spark
 ```
 
 配置 provider 后，只重试原提交一次。
+
+`spark daemon login` 是另一件事：它只授权本机连接 Cockpit。Provider 认证只存在于
+`spark daemon auth` 和对应的 TUI slash command。
 
 ## 3. 分别启动 daemon 和 Cockpit
 
@@ -189,6 +211,11 @@ fail closed，不能自动 replay。
 /help commands
 ```
 
+`/help` 始终在本地渲染，绝不会作为 agent prompt 提交。Esc 取消 `/model` 是纯
+no-op。`/status`、action bar 和 palette 的普通动作一次 Enter 即执行。TUI 在
+`60x18` 及以上尺寸保留完整逻辑消息；应使用 terminal scrollback，不能把最后一条
+可见行误当成完整消息。
+
 这些界面应协同工作：
 
 - **Conversations** 与 TUI 展示 daemon 拥有的会话和 turn。
@@ -200,6 +227,14 @@ fail closed，不能自动 replay。
 
 继续阅读 [TUI](/zh/guides/tui/)、[运行与会话](/zh/guides/runs-and-sessions/)、
 [Cockpit](/zh/guides/cockpit/) 和 [长期工作](/zh/guides/automation/)。
+
+### Renderer 状态
+
+Spark 0.2.0 继续在私有 `SparkTerminalController` 后使用 Pi TUI kernel。
+OpenTUI 只是隔离候选，不是生产依赖。运行 `pnpm run audit:renderer` 可查看
+fail-closed readiness 报告。在 launcher flag、native artifact、PTY 生命周期、
+四种终端尺寸和完整 controller contract 都提供可复现证据前，Spark 不会提高 Node
+基线，也不会切换 renderer。
 
 ## 8. 远程访问
 
@@ -254,8 +289,10 @@ Settings。一个 binding 只能拥有一条 active Cockpit lease；要迁移时
 
 ### 没有已认证模型
 
-回到 TUI，先运行 `/login`，再运行 `/model`。只有 daemon 报告可用的已认证模型后，
-Cockpit 才应允许提交。
+先运行 `spark daemon auth status --json` 和
+`spark daemon model list --all --json`。然后使用
+`spark daemon auth login <provider>`，或回到 TUI 运行 `/login`、再运行
+`/model`。只有 daemon 报告可用的已认证模型后，Cockpit 才应允许提交。
 
 ### Run 看起来卡住
 

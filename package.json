@@ -53,6 +53,7 @@
     "smoke": "node scripts/smoke-npm-product.mjs",
     "audit": "pnpm audit --registry=https://registry.npmjs.org/ --audit-level high",
     "report:hygiene": "node scripts/report-hygiene.mjs",
+    "audit:renderer": "node --experimental-strip-types scripts/spark-opentui-readiness.mts",
     "prepare": "prek install --hook-type commit-msg --hook-type pre-commit"
   },
   "dependencies": {

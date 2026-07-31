@@ -71,6 +71,11 @@ export default defineConfig({
               translations: { zh: "运维与完整使用手册" },
               link: "/guides/operator-handbook/",
             },
+            {
+              label: "Migrating to Spark 0.2",
+              translations: { zh: "迁移到 Spark 0.2" },
+              link: "/guides/migration-0.2/",
+            },
           ],
         },
         {

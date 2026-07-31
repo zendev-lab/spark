@@ -200,6 +200,19 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   assert.equal(runtime.goal?.metadata?.extensionId, "spark-drive");
   assert.equal(runtime.goal?.metadata?.plane, "daemon");
   assert.equal(runtime.goal?.metadata?.canonicalCliTarget, undefined);
+  const providerCommands = createSparkPiParitySlashCommands({
+    runtime: host,
+  } as SparkCliHostServices);
+  assert.equal(providerCommands.login?.metadata?.resource, "auth");
+  assert.equal(
+    providerCommands.login?.metadata?.canonicalCliTarget,
+    "spark daemon auth login [provider]",
+  );
+  assert.equal(providerCommands.logout?.metadata?.resource, "auth");
+  assert.equal(
+    providerCommands.logout?.metadata?.canonicalCliTarget,
+    "spark daemon auth logout <provider>",
+  );
 
   const slashFixture = {
     "/session list": runtime.session,
@@ -1184,6 +1197,27 @@ test("TUI action bar renders disabled and danger states and confirms danger acti
   assert.deepEqual(actions, ["stop-turn"]);
 });
 
+test("TUI action bar dispatches a normal action once even when Enter repeats", async () => {
+  const view = sparkSlashActionBarForInput("/status");
+  assert.ok(view);
+  let resolveAction: (() => void) | undefined;
+  const actions: string[] = [];
+  const component = createSparkTuiActionBarComponent({
+    view,
+    onAction: (action) =>
+      new Promise<void>((resolve) => {
+        actions.push(action.id);
+        resolveAction = resolve;
+      }),
+  });
+
+  component.handleInput("\r");
+  component.handleInput("\r");
+  assert.equal(actions.length, 1);
+  resolveAction?.();
+  await Promise.resolve();
+});
+
 test("bare catalog slash opens a focused bottom action bar without writing transcript", async () => {
   const harness = createSparkNativeTuiHarness({
     withOverlay: true,
@@ -1749,6 +1783,32 @@ test("Spark native TUI harness captures resize-safe golden render sections", () 
   assert.match(wideText, /│ first line/);
   assert.match(wideText, /│ second line with wider details/);
   assert.match(wideText, /thinking> hidden chain of implementation notes/);
+});
+
+test("Spark native TUI preserves the complete latest logical message at release sizes", () => {
+  const body =
+    "LATEST_MESSAGE_BEGIN alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau LATEST_MESSAGE_END";
+  const harness = createSparkNativeTuiHarness({ cols: 160, rows: 40 });
+  harness.session.addSystemMessage("older transcript entry must remain available");
+  harness.session.appendAssistantChunk(body);
+
+  for (const [width, height] of [
+    [60, 18],
+    [80, 24],
+    [120, 30],
+    [160, 40],
+  ] as const) {
+    const lines = harness.renderLines(width);
+    const rendered = stripAnsi(lines.join("\n"));
+    assert.equal(
+      lines.every((line) => visibleWidth(line) <= width),
+      true,
+      `${width}x${height} render must stay within the terminal width`,
+    );
+    assert.match(rendered, /older transcript entry must remain available/u);
+    assert.match(rendered, /LATEST_MESSAGE_BEGIN/u);
+    assert.match(rendered, /LATEST_MESSAGE_END/u);
+  }
 });
 
 test("Spark native TUI labels channel users and cross-session agents", () => {

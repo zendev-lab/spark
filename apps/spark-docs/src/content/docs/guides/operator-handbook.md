@@ -45,15 +45,36 @@ same `SPARK_HOME`.
 
 ## 2. Configure an authenticated model
 
-Open the TUI:
+For a 0.2.0 migration from Pi, inspect and import without starting Pi:
 
 ```bash
-spark
+spark daemon auth status --json
+spark daemon auth import pi --json
+spark daemon model list --all --json
 ```
 
-Run `/login` to configure a provider and `/model` to select an available model.
-Enter API keys only in Spark's secret prompt. Do not put them in a repository,
-command history, or a Cockpit registration command.
+The import source is `PI_CODING_AGENT_DIR/auth.json` when that directory is set,
+otherwise `~/.pi/agent/auth.json`. The command imports only registered providers
+whose credential kind matches. It never expands `$ENV`/`${ENV}`, runs
+`!command`, or changes the Pi file. Existing Spark credentials are preserved;
+review the secret-free report before using `--overwrite`.
+
+An all-skipped report still exits `0`. A source, parse, or Spark-store failure
+exits `1` and writes nothing; invalid command use exits `2`. Fix file
+readability or malformed JSON and rerun the same import. Do not copy credential
+values into a diagnostic.
+
+To configure a provider directly:
+
+```bash
+spark daemon auth login [provider]
+spark daemon model set <provider/model> --default --json
+```
+
+Or open `spark`, run `/login`, then `/model`. Unavailable models remain visible
+with their reason and login action, but cannot become active. Enter API keys
+only in Spark's secret prompt. Do not put them in a repository, command history,
+or a Cockpit registration command.
 
 Cockpit disables conversation submission when no authenticated model is
 available. A JSON CLI submission reports an actionable error:
@@ -69,6 +90,10 @@ available. A JSON CLI submission reports an actionable error:
 ```
 
 Configure the provider, then retry the original submission once.
+
+`spark daemon login` is unrelated: it authorizes machine connectivity to
+Cockpit. Provider authentication exists only under `spark daemon auth` and the
+corresponding TUI slash commands.
 
 ## 3. Start the daemon and Cockpit independently
 
@@ -209,6 +234,12 @@ Inside the TUI, use:
 /help commands
 ```
 
+`/help` is rendered locally and is never submitted as an agent prompt. `/model`
+Esc cancellation is a no-op. `/status`, the action bar, and the palette execute
+normal actions on one Enter. The TUI retains complete logical messages at
+`60x18` and larger; use terminal scrollback instead of assuming only the final
+visible row exists.
+
 Use these surfaces together:
 
 - **Conversations** and the TUI show daemon-owned sessions and turns.
@@ -222,6 +253,15 @@ Use these surfaces together:
 
 Continue with [TUI](/guides/tui/), [runs and sessions](/guides/runs-and-sessions/),
 [Cockpit](/guides/cockpit/), and [long-running work](/guides/automation/).
+
+### Renderer status
+
+Spark 0.2.0 keeps the Pi TUI kernel behind the private
+`SparkTerminalController`. OpenTUI is an isolated candidate, not a production
+dependency. Run `pnpm run audit:renderer` to see the fail-closed readiness
+report. Spark will not raise its Node baseline or switch renderers until
+launcher flags, native artifacts, PTY lifecycle, all four terminal sizes, and
+the complete controller contract pass as reproducible gates.
 
 ## 8. Remote access
 
@@ -280,8 +320,11 @@ registering it elsewhere.
 
 ### No authenticated model is available
 
-Return to the TUI, run `/login`, then `/model`. Cockpit should enable submission
-only after the daemon reports an available authenticated model.
+Run `spark daemon auth status --json` and
+`spark daemon model list --all --json`. Then use
+`spark daemon auth login <provider>` or return to the TUI and run `/login`,
+followed by `/model`. Cockpit should enable submission only after the daemon
+reports an available authenticated model.
 
 ### A run appears stuck
 

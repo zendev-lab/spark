@@ -9,11 +9,12 @@ spark
 spark tui "initial prompt"
 spark run "headless prompt"
 spark run --json "headless prompt"
-spark --mode rpc
-spark --list-models [search]
+spark daemon model list --all
 ```
 
-Compatibility aliases include `spark-tui`, `spark --print`, and `spark-tui --print`.
+Spark 0.2 removes the Pi-style `--print`, `--mode`, and `--list-models`
+compatibility flags. `spark-tui` remains the private terminal-host executable;
+use the unified `spark` CLI for product commands.
 
 ## Configuration
 

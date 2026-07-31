@@ -182,7 +182,7 @@ const report = {
       sparkEvidenceRef: source("spark"),
       competitorEvidenceRef: source("codex"),
       finding:
-        "Codex advertises non-interactive exec/review commands; Spark help has --print/json/rpc but the zellij automation path is harness-driven rather than a polished workflow command.",
+        "Codex advertises non-interactive exec/review commands; Spark 0.2 exposes native run/bg/daemon JSON surfaces while the zellij automation path remains harness-driven.",
       recommendedFollowUp:
         "Expose a first-class scripted zellij/daemon automation recipe for Spark parity with codex exec.",
     },

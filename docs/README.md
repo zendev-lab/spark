@@ -20,6 +20,7 @@ map for internal contracts and operator procedures.
 - [`specs/spark-cockpit-remote-access.md`](./specs/spark-cockpit-remote-access.md): remote Cockpit operation.
 - [`operations/cockpit-relocation.md`](./operations/cockpit-relocation.md): feature-only Cockpit snapshot relocation, HTTPS/WSS cutover, validation, and rollback.
 - [`operations/zellij-harness.md`](./operations/zellij-harness.md): real TUI validation and pane capture.
+- [`operations/renderer-readiness.md`](./operations/renderer-readiness.md): renderer-neutral controller and fail-closed OpenTUI release/PTY gates.
 - [`operations/test-architecture.md`](./operations/test-architecture.md): test ownership, assertion hierarchy, source-mirror ratchet, and golden-file policy.
 - [`operations/mutation-ce.md`](./operations/mutation-ce.md): leaf-package Stryker continuous evaluation, timing table, and hygiene.
 - [`operations/acp.md`](./operations/acp.md): supported opt-in ACP stdio adapter, daemon mapping, permissions, and capability boundary.
