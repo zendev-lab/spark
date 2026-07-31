@@ -2972,6 +2972,31 @@ test("canonical task claim can claim an existing planned task by taskRef", async
   }
 });
 
+test("impl_claim_task rejects ephemeral main-claim ownership deterministically", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-claim-ephemeral-rejected-"));
+  try {
+    const persistent = testSparkContext(dir, "ephemeral");
+    const ctx: TestSparkContext = {
+      ...persistent,
+      sessionId: "",
+      sessionManager: {
+        getSessionFile: () => undefined,
+        getLeafId: () => undefined,
+      },
+    };
+    const { tools } = registerSparkToolsForTest();
+
+    const rejected = await executeSparkTool(tools, "impl_claim_task", ctx, {
+      taskRef: "task:unreachable",
+    });
+
+    assert.equal((rejected.details as { error?: string }).error, "durable_session_required");
+    assert.match(toolText(rejected), /persistent session/u);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("impl_claim_task rejects inline plan on claim", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-claim-plan-rejected-"));
   try {

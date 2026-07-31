@@ -42,6 +42,7 @@ import {
   SparkDaemonRemoteError,
   SparkDaemonRpcError,
   SparkDaemonUnavailableError,
+  type SparkDaemonSessionHeartbeatHandle,
 } from "@zendev-lab/spark-daemon-client";
 import { SparkSessionStore, type SparkSessionInfo } from "@zendev-lab/spark-host/session-store";
 
@@ -69,6 +70,10 @@ import {
   type SparkDaemonManagedSessionsClient,
 } from "./session-registry.ts";
 import type { ChannelStatusSnapshot } from "./channel-status.ts";
+import {
+  attachSparkWorkspaceSessionHeartbeat,
+  type AttachSparkWorkspaceSessionClientOptions,
+} from "./daemon-session-heartbeat.ts";
 import {
   SparkNativeAdmissionError,
   type SparkNativeAdmissionContext,
@@ -384,25 +389,34 @@ export interface LocalWorkspaceClientAttachInput {
   kind: SparkWorkspaceClientKind;
   displayName?: string;
   leaseTtlMs?: number;
+  sessionId?: string;
   metadata?: Record<string, unknown>;
 }
 
 export interface LocalWorkspaceClientHeartbeatInput {
   clientId: string;
   leaseTtlMs?: number;
+  leaseFence?: string;
 }
 
 export interface LocalWorkspaceClientReleaseInput {
   clientId: string;
+  leaseFence?: string;
 }
 
 export interface SparkWorkspaceClientLease {
   id: string;
   workspaceId: string;
   kind: SparkWorkspaceClientKind;
+  displayName?: string;
   status: "connected" | "disconnected";
   attachedAt: string;
   lastSeenAt: string;
+  leaseExpiresAt?: string;
+  releasedAt?: string;
+  sessionId?: string;
+  leaseFence?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface LocalWorkspaceClientResult {
@@ -417,6 +431,8 @@ export interface SparkWorkspaceClientHandle {
   heartbeat(): Promise<LocalWorkspaceClientResult>;
   release(): Promise<LocalWorkspaceClientResult | null>;
 }
+
+export type { AttachSparkWorkspaceSessionClientOptions } from "./daemon-session-heartbeat.ts";
 
 export interface AttachSparkWorkspaceClientOptions {
   kind: SparkWorkspaceClientKind;
@@ -1231,7 +1247,10 @@ export function sparkDaemonHelpText(): string {
 }
 
 export interface SparkDaemonNativeResponderOptions {
+  /** Daemon registry session identifier used for session/turn RPCs. */
   sessionId?: string;
+  /** Canonical host/claim owner identity exposed by the responder. */
+  identitySessionId?: string;
   workspaceId?: string;
   cwd?: string;
   ensureSession?: () => Promise<void>;
@@ -1251,14 +1270,16 @@ export type SparkDaemonNativeResponderContext = Omit<SparkNativeResponderContext
 };
 
 export type SparkDaemonNativeResponder = SparkNativeResponder &
-  Required<Pick<SparkNativeResponder, "admit" | "observe" | "cancel" | "status">> &
-  ((input: string, context?: SparkDaemonNativeResponderContext) => Promise<string>);
+  Required<Pick<SparkNativeResponder, "admit" | "observe" | "cancel" | "status">> & {
+    sessionId: string;
+  } & ((input: string, context?: SparkDaemonNativeResponderContext) => Promise<string>);
 
 export function createSparkDaemonNativeResponder(
   client: SparkDaemonClientOptions = {},
   options: SparkDaemonNativeResponderOptions = {},
 ): SparkDaemonNativeResponder {
-  const sessionId = options.sessionId ?? `spark-cli-${Date.now().toString(36)}`;
+  const targetSessionId = options.sessionId ?? `spark-cli-${Date.now().toString(36)}`;
+  const sessionId = options.identitySessionId?.trim() || targetSessionId;
   let sessionReady: Promise<void> | undefined;
 
   const ensureReady = async () => {
@@ -1268,7 +1289,7 @@ export function createSparkDaemonNativeResponder(
           ? options.ensureSession()
           : ensureSparkDaemonWorkspaceSession(
               {
-                sessionId,
+                sessionId: targetSessionId,
                 workspaceId: options.workspaceId!,
                 cwd: options.cwd ?? process.cwd(),
               },
@@ -1294,7 +1315,7 @@ export function createSparkDaemonNativeResponder(
       submissionStarted = true;
       return await clientSubmit(
         {
-          sessionId,
+          sessionId: targetSessionId,
           prompt,
           idempotencyKey: context.submissionId,
           messageMetadata: {
@@ -1339,9 +1360,9 @@ export function createSparkDaemonNativeResponder(
       });
     }
     if (options.waitForCompletion === false) {
-      return STRINGS.queuedSession(sessionId, admission.invocationId);
+      return STRINGS.queuedSession(targetSessionId, admission.invocationId);
     }
-    const finalText = await waitForSubmittedTurn(sessionId, admission, client, {
+    const finalText = await waitForSubmittedTurn(targetSessionId, admission, client, {
       signal: context?.signal,
       pollIntervalMs: options.pollIntervalMs,
       timeoutMs: options.timeoutMs,
@@ -1371,6 +1392,7 @@ export function createSparkDaemonNativeResponder(
   };
 
   return Object.assign(responder, {
+    sessionId,
     admit,
     observe,
     cancel: async (invocationId: string, reason: string) =>
@@ -1620,6 +1642,33 @@ export async function attachSparkWorkspaceClient(
   }
 
   return { client: attached.client, workspace: attached.workspace, heartbeat, release };
+}
+
+export async function attachSparkWorkspaceSessionClient(
+  client: SparkDaemonClientOptions = {},
+  options: AttachSparkWorkspaceSessionClientOptions,
+): Promise<SparkDaemonSessionHeartbeatHandle> {
+  return await attachSparkWorkspaceSessionHeartbeat(
+    {
+      ensureRunning: async () => await clientEnsureRunning(client),
+      attach: async (input) =>
+        (await clientWorkspaceClientAttach(
+          input,
+          client,
+        )) as SparkLocalRpcOutput<"workspace.client.attach">,
+      heartbeat: async (input) =>
+        (await clientWorkspaceClientHeartbeat(
+          input,
+          client,
+        )) as SparkLocalRpcOutput<"workspace.client.heartbeat">,
+      release: async (input) =>
+        (await clientWorkspaceClientRelease(
+          input,
+          client,
+        )) as SparkLocalRpcOutput<"workspace.client.release">,
+    },
+    options,
+  );
 }
 
 async function clientSessions(

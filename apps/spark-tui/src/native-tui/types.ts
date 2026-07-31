@@ -221,6 +221,8 @@ export interface SparkNativeWorkspaceSessionState {
   mode: SparkNativeWorkspaceSessionMode;
   workspaceDir: string;
   workspaceHash: string;
+  /** Canonical host/claim owner identity for the attached persistent session. */
+  sessionId?: string;
   controlPlaneSessionId?: string;
   attachTarget?: string;
   mismatchDiagnostic?: string;

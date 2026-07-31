@@ -28,6 +28,47 @@ describe("migrateSparkDaemonDatabase", () => {
     }
   });
 
+  it("expands legacy workspace client rows with nullable session lease columns", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`
+        CREATE TABLE daemon_workspace_clients (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          display_name TEXT,
+          status TEXT NOT NULL,
+          attached_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          lease_expires_at TEXT,
+          released_at TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+        INSERT INTO daemon_workspace_clients
+          (id, workspace_id, kind, status, attached_at, last_seen_at, metadata_json)
+        VALUES
+          ('legacy-client', 'workspace-1', 'interactive', 'connected',
+           '2026-07-27T00:00:00.000Z', '2026-07-27T00:00:00.000Z', '{}');
+      `);
+
+      migrateSparkDaemonDatabase(db);
+      migrateSparkDaemonDatabase(db);
+
+      expect(columnNames(db, "daemon_workspace_clients")).toEqual(
+        expect.arrayContaining(["session_id", "lease_fence"]),
+      );
+      expect(
+        db
+          .prepare(
+            "SELECT session_id AS sessionId, lease_fence AS leaseFence FROM daemon_workspace_clients WHERE id = ?",
+          )
+          .get("legacy-client"),
+      ).toEqual({ sessionId: null, leaseFence: null });
+    } finally {
+      db.close();
+    }
+  });
+
   it("retires permanent daemon error rows without deleting other outbox work", () => {
     const db = new DatabaseSync(":memory:");
     try {
@@ -252,6 +293,12 @@ describe("migrateSparkDaemonDatabase", () => {
           "invocation_events_delivery_order_idx",
         ]),
       );
+      expect(indexColumns(db, "invocation_events_delivery_order_idx")).toEqual([
+        "created_at",
+        "invocation_id",
+        "sequence",
+      ]);
+      expect(() => migrateSparkDaemonDatabase(db)).not.toThrow();
       expect(indexColumns(db, "invocation_events_delivery_order_idx")).toEqual([
         "created_at",
         "invocation_id",

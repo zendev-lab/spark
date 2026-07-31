@@ -599,6 +599,8 @@ function migrateSparkDaemonRegistrationTables(db: DatabaseSync): void {
       last_seen_at TEXT NOT NULL,
       lease_expires_at TEXT,
       released_at TEXT,
+      session_id TEXT,
+      lease_fence TEXT,
       metadata_json TEXT NOT NULL DEFAULT '{}'
     );
 
@@ -622,6 +624,14 @@ function migrateSparkDaemonRegistrationTables(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS daemon_workspace_clients_lease_idx
       ON daemon_workspace_clients(status, lease_expires_at);
   `);
+  const columns = new Set(
+    (
+      db.prepare("PRAGMA table_info(daemon_workspace_clients)").all() as Array<{ name: string }>
+    ).map((column) => column.name),
+  );
+  for (const name of ["session_id", "lease_fence"] as const) {
+    if (!columns.has(name)) db.exec(`ALTER TABLE daemon_workspace_clients ADD COLUMN ${name} TEXT`);
+  }
 }
 
 function backfillSparkDaemonRegistrationTables(db: DatabaseSync): void {

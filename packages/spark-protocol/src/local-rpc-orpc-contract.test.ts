@@ -34,6 +34,12 @@ import { sparkDriverScheduleRequestSchema } from "./driver.ts";
 import { sparkSessionRegistryErrorCodeOptions } from "./session-errors.ts";
 import { sparkSideThreadErrorCodeOptions } from "./side-thread.ts";
 
+function requireSchema<T extends { parse(value: unknown): unknown }>(schema: T | undefined): T {
+  expect(schema).toBeDefined();
+  if (!schema) throw new Error("Expected oRPC procedure schema.");
+  return schema;
+}
+
 function resolveContractPath(path: readonly string[]): unknown {
   let cursor: unknown = sparkLocalRpcOrpcContract;
   for (const segment of path) {
@@ -86,6 +92,17 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     for (const [method, path] of Object.entries(sparkLocalRpcOrpcMethodPaths)) {
       expect(resolveContractPath(path), method).toBeTruthy();
     }
+    expect(sparkLocalRpcOrpcMethodPaths["side-thread.ensure"]).toEqual(["sideThread", "ensure"]);
+    expect(sparkLocalRpcOrpcMethodPaths["workspace.ensure-local"]).toEqual([
+      "workspace",
+      "ensureLocal",
+    ]);
+    expect(sparkLocalRpcOrpcMethodPaths["provider.auth.api-key.set"]).toEqual([
+      "provider",
+      "auth",
+      "apiKey",
+      "set",
+    ]);
   });
 
   it("marks every contracted method as live", () => {
@@ -103,6 +120,70 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     expect(sparkLocalRpcOrpcContract.workspace.list).toBeDefined();
     expect(sparkLocalRpcOrpcContract.uplink.status).toBeDefined();
     expect(sparkLocalRpcOrpcContract.model.catalog).toBeDefined();
+  });
+
+  it("parses session-bound workspace client procedures through their oRPC schemas", () => {
+    const attach = sparkLocalRpcOrpcContract.workspace.client.attach["~orpc"];
+    const heartbeat = sparkLocalRpcOrpcContract.workspace.client.heartbeat["~orpc"];
+    const release = sparkLocalRpcOrpcContract.workspace.client.release["~orpc"];
+    const attachInput = requireSchema(attach.inputSchema);
+    const heartbeatInput = requireSchema(heartbeat.inputSchema);
+    const releaseInput = requireSchema(release.inputSchema);
+    const outputSchemas = [attach, heartbeat, release].map(({ outputSchema }) =>
+      requireSchema(outputSchema),
+    );
+
+    expect(
+      attachInput.parse({
+        workspaceId: "workspace-1",
+        clientId: "client-1",
+        kind: "interactive",
+        sessionId: "session-1",
+      }),
+    ).toMatchObject({ workspaceId: "workspace-1", clientId: "client-1", sessionId: "session-1" });
+    expect(
+      heartbeatInput.parse({
+        clientId: "client-1",
+        leaseFence: "fence-1",
+      }),
+    ).toMatchObject({ clientId: "client-1", leaseFence: "fence-1" });
+    expect(
+      releaseInput.parse({
+        clientId: "client-1",
+        leaseFence: "fence-1",
+      }),
+    ).toMatchObject({ clientId: "client-1", leaseFence: "fence-1" });
+
+    const result = {
+      client: {
+        id: "client-1",
+        workspaceId: "workspace-1",
+        kind: "interactive" as const,
+        status: "connected" as const,
+        attachedAt: "2026-07-27T11:59:00.000Z",
+        sessionId: "session-1",
+        lastSeenAt: "2026-07-27T12:00:00.000Z",
+        leaseFence: "fence-1",
+        leaseExpiresAt: "2026-07-27T12:01:00.000Z",
+        metadata: {},
+      },
+      workspace: {
+        id: "workspace-1",
+        serverUrl: "http://127.0.0.1:4310",
+        localWorkspaceKey: "workspace-1",
+        displayName: "Workspace 1",
+        localPath: "/workspace-1",
+        status: "available" as const,
+        capabilities: {},
+        diagnostics: {},
+        updatedAt: "2026-07-27T12:00:00.000Z",
+      },
+      observedAt: "2026-07-27T12:00:00.000Z",
+    };
+    for (const outputSchema of outputSchemas) {
+      const parsed = outputSchema.parse(result);
+      expect(parsed).toMatchObject({ client: result.client });
+    }
   });
 
   it("declares only readiness and protocol-approved Side Thread domain errors", () => {

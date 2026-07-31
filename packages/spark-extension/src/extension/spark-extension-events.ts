@@ -22,6 +22,7 @@ import { sparkActiveLensDriveMode, sparkActiveLensPhase } from "./spark-drive-st
 import type { SparkModeMessageApi } from "./spark-mode-entry.ts";
 import { createSparkAgentEndReconciliationController } from "./spark-agent-end-reconciliation.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
+import type { SparkSessionHeartbeatController } from "./spark-session-heartbeat.ts";
 import type { SparkTurnContextController } from "./spark-turn-context-controller.ts";
 
 interface SparkExtensionEventApi extends SparkModeMessageApi {
@@ -34,6 +35,7 @@ export interface SparkExtensionEventDeps {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
   ensureWorkflowRunManager: (cwd: string, ctx: SparkToolContext) => Promise<void>;
   turnContextController?: Pick<SparkTurnContextController, "collect" | "reset">;
+  sessionHeartbeatController?: SparkSessionHeartbeatController;
   createAskAutoAnswerResolver?: (
     ctx: SparkToolContext,
   ) =>
@@ -167,6 +169,7 @@ export function registerSparkExtensionEvents(
   });
   pi.on?.("session_start", async (_event: unknown, ctx: SparkToolContext) => {
     deps.turnContextController?.reset(ctx);
+    await deps.sessionHeartbeatController?.start(ctx);
     await ensureLocalSparkDirectory(ctx.cwd);
     ensureSparkClaimReaper(ctx.cwd);
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx, { skipSweep: true });
@@ -180,6 +183,7 @@ export function registerSparkExtensionEvents(
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
   pi.on?.("session_shutdown", async (event: unknown, ctx: SparkToolContext) => {
+    await deps.sessionHeartbeatController?.stop(ctx);
     agentEndReconciliation.reset(ctx);
     deps.turnContextController?.reset(ctx);
     await cleanupOwnedBackgroundSubroles(ctx.cwd, ctx, shutdownReason(event), {

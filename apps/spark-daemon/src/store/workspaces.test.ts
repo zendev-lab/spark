@@ -523,6 +523,194 @@ describe("Spark daemon workspace store", () => {
     });
   });
 
+  it("rejects unfenced session heartbeat and release without mutating the connected lease", () => {
+    withSparkDaemonWorkspaceStore(({ db, root }) => {
+      const workspace = registerWorkspace(db, { localPath: root });
+      const attached = attachWorkspaceClient(db, {
+        workspaceId: workspace.id,
+        clientId: "session-client-unfenced",
+        kind: "interactive",
+        sessionId: "session-unfenced",
+        leaseTtlMs: 60_000,
+        now: "2099-07-27T00:00:00.000Z",
+      });
+      const before = listWorkspaceClients(db, workspace.id)[0];
+
+      expect(() =>
+        heartbeatWorkspaceClient(db, {
+          clientId: attached.id,
+          now: "2099-07-27T00:00:01.000Z",
+        }),
+      ).toThrow("Workspace client lease fence mismatch: session-client-unfenced");
+      expect(listWorkspaceClients(db, workspace.id)[0]).toEqual(before);
+
+      expect(() =>
+        releaseWorkspaceClient(db, {
+          clientId: attached.id,
+          now: "2099-07-27T00:00:02.000Z",
+        }),
+      ).toThrow("Workspace client lease fence mismatch: session-client-unfenced");
+      expect(listWorkspaceClients(db, workspace.id)[0]).toEqual(before);
+      expect(before).toMatchObject({ status: "connected", leaseFence: attached.leaseFence });
+    });
+  });
+
+  it("persists session leases across file database reopen and migration", () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-store-reopen-"));
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+      },
+    });
+    let db = openSparkDaemonDatabase(paths);
+    try {
+      const workspace = registerWorkspace(db, { localPath: root });
+      const attached = attachWorkspaceClient(db, {
+        workspaceId: workspace.id,
+        clientId: "session-client-reopen",
+        kind: "interactive",
+        sessionId: "session-reopen",
+        leaseTtlMs: 60_000,
+        now: "2099-07-27T00:00:00.000Z",
+      });
+      db.close();
+
+      db = openSparkDaemonDatabase(paths);
+      const reopened = listWorkspaceClients(db, workspace.id)[0];
+      expect(reopened).toMatchObject({
+        sessionId: "session-reopen",
+        leaseFence: attached.leaseFence,
+        leaseExpiresAt: attached.leaseExpiresAt,
+      });
+      expect(
+        heartbeatWorkspaceClient(db, {
+          clientId: attached.id,
+          leaseFence: attached.leaseFence,
+          now: "2099-07-27T00:00:01.000Z",
+        }),
+      ).toMatchObject({ status: "connected", leaseFence: attached.leaseFence });
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("heartbeats legacy workspace client rows without a lease fence", () => {
+    withSparkDaemonWorkspaceStore(({ db, root }) => {
+      const workspace = registerWorkspace(db, { localPath: root });
+      const legacy = attachWorkspaceClient(db, {
+        workspaceId: workspace.id,
+        clientId: "legacy-client-unfenced",
+        kind: "headless",
+        now: "2026-07-27T00:00:00.000Z",
+      });
+
+      expect(legacy).not.toHaveProperty("sessionId");
+      expect(legacy).not.toHaveProperty("leaseFence");
+      expect(
+        heartbeatWorkspaceClient(db, {
+          clientId: legacy.id,
+          now: "2026-07-27T00:00:01.000Z",
+        }),
+      ).toMatchObject({ status: "connected" });
+    });
+  });
+
+  it("fences session-bound workspace client leases and preserves legacy clients", () => {
+    withSparkDaemonWorkspaceStore(({ db, root }) => {
+      const workspace = registerWorkspace(db, { localPath: root, displayName: "Local default" });
+      const first = attachWorkspaceClient(db, {
+        workspaceId: workspace.id,
+        clientId: "session-client",
+        kind: "interactive",
+        sessionId: "session-a",
+        leaseTtlMs: 1_000,
+        now: "2026-05-26T00:00:00.000Z",
+      });
+      expect(first.sessionId).toBe("session-a");
+      expect(first.leaseFence).toBeTruthy();
+      expect(() =>
+        heartbeatWorkspaceClient(db, {
+          clientId: first.id,
+          leaseFence: "stale",
+          now: "2026-05-26T00:00:00.100Z",
+        }),
+      ).toThrow(/fence mismatch/);
+      const renewed = heartbeatWorkspaceClient(db, {
+        clientId: first.id,
+        leaseFence: first.leaseFence,
+        leaseTtlMs: 1_000,
+        now: "2026-05-26T00:00:00.100Z",
+      });
+      expect(renewed.leaseFence).toBe(first.leaseFence);
+      expect(() =>
+        attachWorkspaceClient(db, {
+          workspaceId: workspace.id,
+          clientId: first.id,
+          kind: "interactive",
+          now: "2026-05-26T00:00:00.200Z",
+        }),
+      ).toThrow(/cannot replace session-bound/);
+      const second = attachWorkspaceClient(db, {
+        workspaceId: workspace.id,
+        clientId: first.id,
+        kind: "interactive",
+        sessionId: "session-a",
+        now: "2026-05-26T00:00:00.300Z",
+      });
+      expect(second.leaseFence).not.toBe(first.leaseFence);
+      expect(() =>
+        heartbeatWorkspaceClient(db, { clientId: first.id, leaseFence: first.leaseFence }),
+      ).toThrow(/fence mismatch/);
+      expect(() =>
+        releaseWorkspaceClient(db, { clientId: first.id, leaseFence: first.leaseFence }),
+      ).toThrow(/fence mismatch/);
+      const peer = attachWorkspaceClient(db, {
+        workspaceId: workspace.id,
+        clientId: "session-peer",
+        kind: "interactive",
+        sessionId: "session-a",
+      });
+      expect(peer.id).not.toBe(second.id);
+      expect(peer.leaseFence).not.toBe(second.leaseFence);
+      expect(
+        listWorkspaceClients(db, workspace.id).filter(({ sessionId }) => sessionId === "session-a"),
+      ).toHaveLength(2);
+      const legacy = attachWorkspaceClient(db, {
+        workspaceId: workspace.id,
+        clientId: "legacy-client",
+        kind: "headless",
+        now: "2026-05-26T00:00:00.000Z",
+      });
+      expect(legacy.leaseFence).toBeUndefined();
+      expect(heartbeatWorkspaceClient(db, { clientId: legacy.id }).leaseFence).toBeUndefined();
+      releaseWorkspaceClient(db, { clientId: second.id, leaseFence: second.leaseFence });
+      expect(() =>
+        heartbeatWorkspaceClient(db, { clientId: second.id, leaseFence: second.leaseFence }),
+      ).toThrow(/no longer active/);
+      const expiring = attachWorkspaceClient(db, {
+        workspaceId: workspace.id,
+        clientId: "expiring-session",
+        kind: "interactive",
+        sessionId: "session-b",
+        leaseTtlMs: 1_000,
+        now: "2026-05-26T00:00:00.000Z",
+      });
+      expect(() =>
+        heartbeatWorkspaceClient(db, {
+          clientId: expiring.id,
+          leaseFence: expiring.leaseFence,
+          now: "2026-05-26T00:00:01.001Z",
+        }),
+      ).toThrow(/expired/);
+    });
+  });
+
   it("expires borrowed workspace clients by lease", () => {
     withSparkDaemonWorkspaceStore(({ db, root }) => {
       const workspace = registerWorkspace(db, {
