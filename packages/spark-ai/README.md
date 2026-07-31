@@ -98,15 +98,15 @@ cache. Cursor CLI/Desktop login and subscription state are not reused.
 List discovered or fallback Cursor models:
 
 ```console
-spark --list-models cursor
+spark daemon model list --all --json
 ```
 
 Select a Composer, Grok, or context/fast variant and Spark thinking level:
 
 ```console
-spark --model cursor/composer-2.5 --thinking high
-spark --model cursor/composer-2.5:slow --thinking xhigh
-spark --model cursor/grok-4.5 --thinking high
+spark daemon model set cursor/composer-2.5 --default
+spark daemon model set cursor/composer-2.5:slow --session <session-id>
+spark daemon model set cursor/grok-4.5 --session <session-id>
 ```
 
 The picker lists each canonical model id once (aliases like `composer` /
@@ -116,7 +116,7 @@ default is already fast, `:fast` is omitted from the list (and likewise for
 Context qualifiers such as `@1m` appear only when the live/fallback catalog
 exposes a `context` parameter — they change Spark's context-window accounting.
 `:fast` and `:slow` are selection-only Cursor parameter variants. Spark thinking
-remains the separate `--thinking` control; the provider maps it to Cursor
+remains a separate session control; the provider maps it to Cursor
 `reasoning`, `effort`, or boolean `thinking` parameters only when the catalog
 exposes them.
 

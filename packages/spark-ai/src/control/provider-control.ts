@@ -19,6 +19,11 @@ import {
   type SparkOAuthProviderInterface,
   type SparkProviderAuthStatus,
 } from "./auth.ts";
+import {
+  importPiAuth,
+  type SparkAuthImportReport,
+  type SparkAuthImportTarget,
+} from "./pi-auth-import.ts";
 import { SparkOAuthFlowBroker, type SparkOAuthFlowSnapshot } from "./oauth-flow.ts";
 import {
   defaultSparkProviderConfigPath,
@@ -94,6 +99,7 @@ export interface SparkProviderControl {
   oauthStatus(flowId: string): SparkOAuthFlowSnapshot | undefined;
   respondOAuth(flowId: string, promptId: string, value: string): SparkOAuthFlowSnapshot;
   cancelOAuth(flowId: string): SparkOAuthFlowSnapshot;
+  importPiAuth(input: { sourcePath: string; overwrite?: boolean }): Promise<SparkAuthImportReport>;
   resolveApiKey(provider: ProviderConfig): string | undefined;
   resolveApiKeyAsync(provider: ProviderConfig): Promise<string | undefined>;
   /** Refresh/validate credentials for the selected model before starting a turn. */
@@ -231,6 +237,27 @@ class LocalSparkProviderControl implements SparkProviderControl {
 
   cancelOAuth(flowId: string): SparkOAuthFlowSnapshot {
     return this.#oauthFlows.cancel(flowId);
+  }
+
+  async importPiAuth(input: {
+    sourcePath: string;
+    overwrite?: boolean;
+  }): Promise<SparkAuthImportReport> {
+    const state = await this.#loadState();
+    const targets: SparkAuthImportTarget[] = state.registry.listProviders().map((provider) => {
+      const ref = normalizeProviderAuthRef(provider.apiKey);
+      return {
+        providerName: provider.name,
+        credentialProvider: ref.kind === "oauth" ? ref.provider : provider.name,
+        authKind: ref.kind === "oauth" ? "oauth" : ref.kind === "env" ? "api_key" : "none",
+      };
+    });
+    return importPiAuth({
+      sourcePath: input.sourcePath,
+      store: this.#authStore,
+      targets,
+      overwrite: input.overwrite === true,
+    });
   }
 
   resolveApiKey(provider: ProviderConfig): string | undefined {

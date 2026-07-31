@@ -43,9 +43,11 @@ import {
   sparkTurnSubmitResultSchema,
 } from "./invocation-lifecycle.ts";
 import {
+  sparkAuthImportReportSchema,
   sparkAuthFlowSchema,
   sparkDefaultModelSetRequestSchema,
   sparkModelControlSnapshotSchema,
+  sparkPiAuthImportRequestSchema,
 } from "./model-control.ts";
 import { isoDateTimeSchema, prefixedIdSchema } from "./refs.ts";
 import {
@@ -1401,6 +1403,10 @@ export const sparkLocalRpcProcedureSchemas = {
     }),
     output: sparkModelControlSnapshotSchema,
   },
+  "provider.auth.import.pi": {
+    input: sparkPiAuthImportRequestSchema,
+    output: sparkAuthImportReportSchema,
+  },
   "provider.auth.logout": {
     input: providerNameInputSchema,
     output: z.object({
@@ -1810,6 +1816,14 @@ export const sparkLocalRpcOrpcContract = {
           "/provider/auth/api-key/set",
           p["provider.auth.api-key.set"],
           sparkLocalRpcProviderApiKeyOrpcErrors,
+        ),
+      },
+      import: {
+        pi: procedure(
+          "POST",
+          "/provider/auth/import/pi",
+          p["provider.auth.import.pi"],
+          sparkLocalRpcReadinessModelOrpcErrors,
         ),
       },
       logout: procedure(

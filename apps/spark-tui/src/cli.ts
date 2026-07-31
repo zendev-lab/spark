@@ -60,11 +60,6 @@ import {
   type SparkDaemonModelAuthClient,
 } from "./cli/model-control.ts";
 import { createSparkPromptTemplateSlashCommands } from "./cli/prompt-template-commands.ts";
-import {
-  formatSparkResourceResult,
-  runSparkResourceCommand,
-  type SparkResourceKind,
-} from "./cli/resource-manager.ts";
 import type { SparkCliHostServices, SparkCliHostServicesOptions } from "./host/bootstrap.ts";
 import {
   formatSelection as formatSparkModelSelection,
@@ -98,10 +93,7 @@ export interface SparkCliArgs {
   help: boolean;
 }
 
-export type SparkCliMode = "text" | "json" | "rpc";
-
 export interface SparkCliRuntimeOptions {
-  mode?: SparkCliMode;
   provider?: string;
   model?: string;
   session?: string;
@@ -129,17 +121,7 @@ export interface SparkCliRuntimeOptions {
 
 export type SparkCliCommand =
   | { kind: "help" }
-  | { kind: "print"; prompt: string; mode?: "text" | "json"; options?: SparkCliRuntimeOptions }
-  | { kind: "rpc"; options?: SparkCliRuntimeOptions }
-  | { kind: "list-models"; query?: string; options?: SparkCliRuntimeOptions }
-  | {
-      kind: "resources";
-      action: "install" | "remove" | "update" | "list" | "config";
-      source?: string;
-      resourceKind?: SparkResourceKind;
-      local?: boolean;
-      json?: boolean;
-    }
+  | { kind: "run"; prompt: string; json: boolean; options?: SparkCliRuntimeOptions }
   | { kind: "tui"; initialMessage?: string; options?: SparkCliRuntimeOptions }
   | { kind: "daemon"; command: SparkDaemonCliCommand }
   | { kind: "error"; message: string };
@@ -186,34 +168,39 @@ export function parseSparkCliCommand(argv: string[]): SparkCliCommand {
     };
   }
   if (argv[0] === "sessions" || argv[0] === "session") {
-    return { kind: "daemon", command: parseSparkDaemonCliArgs(argv) };
+    return {
+      kind: "error",
+      message: `Legacy "${argv[0]}" was removed. Use "spark daemon session ..." instead.`,
+    };
   }
+  if (
+    argv[0] === "install" ||
+    argv[0] === "remove" ||
+    argv[0] === "uninstall" ||
+    argv[0] === "update" ||
+    argv[0] === "list" ||
+    argv[0] === "config"
+  ) {
+    return {
+      kind: "error",
+      message: `Legacy "${argv[0]}" resource command was removed from spark-tui.`,
+    };
+  }
+  if (
+    argv.some(
+      (arg) => arg === "--print" || arg === "-p" || arg === "--mode" || arg === "--list-models",
+    )
+  ) {
+    return {
+      kind: "error",
+      message:
+        'Legacy Pi-style flags were removed. Use "spark run", "spark acp", or "spark daemon model list".',
+    };
+  }
+  if (argv[0] === "run") return parseSparkRunCliCommand(argv.slice(1));
 
-  const resource = parseSparkResourceCliCommand(argv);
-  if (resource) return resource;
-
-  const parsed = parseSparkPiCompatibleOptions(argv);
+  const parsed = parseSparkNativeOptions(argv);
   const options = compactRuntimeOptions(parsed.options);
-  if (parsed.listModels !== undefined) {
-    return {
-      kind: "list-models",
-      ...(parsed.listModels ? { query: parsed.listModels } : {}),
-      ...(options ? { options } : {}),
-    };
-  }
-  if (parsed.options.mode === "rpc") return { kind: "rpc", ...(options ? { options } : {}) };
-  if (parsed.print) {
-    const prompt = parsed.messages.join(" ").trim();
-    if (!prompt) throw new Error(tuiCliStrings.printRequiresPrompt);
-    return {
-      kind: "print",
-      prompt,
-      ...(parsed.options.mode === "json" || parsed.options.mode === "text"
-        ? { mode: parsed.options.mode }
-        : {}),
-      ...(options ? { options } : {}),
-    };
-  }
   const initialMessage = parsed.messages.join(" ").trim();
   return {
     kind: "tui",
@@ -222,83 +209,51 @@ export function parseSparkCliCommand(argv: string[]): SparkCliCommand {
   };
 }
 
-interface ParsedSparkPiOptions {
-  print: boolean;
-  listModels?: string;
+interface ParsedSparkNativeOptions {
   messages: string[];
   options: SparkCliRuntimeOptions;
 }
 
-function parseSparkResourceCliCommand(argv: string[]): SparkCliCommand | undefined {
-  const [actionToken, ...rest] = argv;
-  if (
-    actionToken !== "install" &&
-    actionToken !== "remove" &&
-    actionToken !== "uninstall" &&
-    actionToken !== "update" &&
-    actionToken !== "list" &&
-    actionToken !== "config"
-  ) {
-    return undefined;
-  }
-  let resourceKind: SparkResourceKind | undefined;
+function parseSparkRunCliCommand(argv: string[]): SparkCliCommand {
+  const mapped: string[] = [];
   let json = false;
-  let local = false;
-  const positionals: string[] = [];
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index]!;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]!;
     if (arg === "--json") {
       json = true;
       continue;
     }
-    if (arg === "--provider") {
-      resourceKind = "provider";
+    if (arg === "--resume") {
+      const session = readRequired(argv, ++index, arg);
+      mapped.push("--session", session);
       continue;
     }
-    if (arg === "--skill") {
-      resourceKind = "skill";
+    if (arg.startsWith("--resume=")) {
+      const session = arg.slice("--resume=".length);
+      if (!session) throw new Error("--resume requires a value");
+      mapped.push("--session", session);
       continue;
     }
-    if (arg === "--prompt-template") {
-      resourceKind = "prompt-template";
-      continue;
-    }
-    if (arg === "--theme") {
-      resourceKind = "theme";
-      continue;
-    }
-    if (arg === "--extension") {
-      resourceKind = "extension";
-      continue;
-    }
-    if (arg === "--local" || arg === "-l") {
-      local = true;
-      continue;
-    }
-    positionals.push(arg);
+    mapped.push(arg);
   }
-  const action = actionToken === "uninstall" ? "remove" : actionToken;
+  const parsed = parseSparkNativeOptions(mapped);
+  const prompt = parsed.messages.join(" ").trim();
+  if (!prompt) throw new Error("spark run requires a prompt");
+  const options = compactRuntimeOptions(parsed.options);
   return {
-    kind: "resources",
-    action,
-    ...(positionals[0] ? { source: positionals[0] } : {}),
-    ...(resourceKind ? { resourceKind } : {}),
-    ...(local ? { local } : {}),
-    ...(json ? { json } : {}),
+    kind: "run",
+    prompt,
+    json,
+    ...(options ? { options } : {}),
   };
 }
 
-function parseSparkPiCompatibleOptions(argv: string[]): ParsedSparkPiOptions {
+function parseSparkNativeOptions(argv: string[]): ParsedSparkNativeOptions {
   const messages: string[] = [];
   const options: SparkCliRuntimeOptions = {};
-  let print = false;
-  let listModels: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
     switch (arg) {
-      case "--mode":
-        options.mode = readMode(argv[++index]);
-        break;
       case "--provider":
         options.provider = readRequired(argv, ++index, arg);
         break;
@@ -379,20 +334,6 @@ function parseSparkPiCompatibleOptions(argv: string[]): ParsedSparkPiOptions {
       case "-na":
         options.projectTrustOverride = false;
         break;
-      case "--print":
-      case "-p":
-        print = true;
-        break;
-      case "--list-models": {
-        const next = argv[index + 1];
-        if (next && !next.startsWith("-") && !next.startsWith("@")) {
-          listModels = next;
-          index += 1;
-        } else {
-          listModels = "";
-        }
-        break;
-      }
       default:
         if (arg.startsWith("@")) {
           (options.fileArgs ??= []).push(arg.slice(1));
@@ -403,7 +344,7 @@ function parseSparkPiCompatibleOptions(argv: string[]): ParsedSparkPiOptions {
         }
     }
   }
-  return { print, messages, options, ...(listModels !== undefined ? { listModels } : {}) };
+  return { messages, options };
 }
 
 function compactRuntimeOptions(
@@ -908,11 +849,6 @@ function readRequired(argv: string[], index: number, flag: string): string {
   return value;
 }
 
-function readMode(value: string | undefined): SparkCliMode {
-  if (value === "text" || value === "json" || value === "rpc") return value;
-  throw new Error(`--mode must be text, json, or rpc`);
-}
-
 function readThinkingLevel(
   value: string | undefined,
 ): NonNullable<SparkCliRuntimeOptions["thinking"]> {
@@ -950,28 +886,7 @@ export async function runSparkCli(
       return await runSparkDaemonCliCommand(command.command, undefined, daemonClient);
     case "error":
       throw new Error(command.message);
-    case "resources": {
-      const result = await runSparkResourceCommand(command.action, command.source, {
-        kind: command.resourceKind,
-        local: command.local,
-      });
-      console.log(
-        command.json ? JSON.stringify(result, null, 2) : formatSparkResourceResult(result),
-      );
-      return 0;
-    }
-    case "list-models": {
-      const createHostServices = options.createHostServices ?? createDefaultSparkCliHostServices;
-      const services = await createHostServices(
-        await hostServiceOptionsFromRuntime(command.options),
-      );
-      console.log(formatSparkModelList(services, command.query));
-      return 0;
-    }
-    case "rpc":
-      await runSparkRpcMode(daemonClient, command.options);
-      return 0;
-    case "print": {
+    case "run": {
       const sessionId =
         command.options?.sessionId ??
         command.options?.session ??
@@ -1009,7 +924,7 @@ export async function runSparkCli(
 
         if (!command.options?.wait) {
           // Default: queued ACK semantics
-          if (command.mode === "json") printSparkJsonEventStream(command.prompt, sessionId, result);
+          if (command.json) printSparkJsonEventStream(command.prompt, sessionId, result);
           else console.log(JSON.stringify(result, null, 2));
           return 0;
         }
@@ -1023,7 +938,7 @@ export async function runSparkCli(
         }
 
         const waitResult = await waitForInvocationTerminal(invocationId, daemonClient);
-        if (command.mode === "json") {
+        if (command.json) {
           printSparkJsonEventStream(
             command.prompt,
             sessionId,
@@ -1383,10 +1298,10 @@ function registerSparkNativeModelCommand(
     metadata: {
       source: "extension",
       extensionId: "spark-model",
-      plane: "tui",
+      plane: "daemon",
       resource: "model",
       verbs: ["select", "status"],
-      canonicalCliTarget: "spark tui --model <model-id>",
+      canonicalCliTarget: "spark daemon model set <provider/model> --session <id>",
     },
     getArgumentCompletions: (prefix) => modelArgumentCompletions(services, prefix),
     async handler(args, ctx) {
@@ -1396,7 +1311,7 @@ function registerSparkNativeModelCommand(
   });
 }
 
-async function handleSparkNativeModelCommand(
+export async function handleSparkNativeModelCommand(
   services: SparkCliHostServices,
   args: string,
   modelControl?: SparkDaemonModelAuthClient,
@@ -1407,12 +1322,14 @@ async function handleSparkNativeModelCommand(
     const selection = query
       ? resolveDaemonModelSelection(snapshot, query)
       : await services.modelSelector.pick(daemonSnapshotToPickerState(snapshot), { hasUI: true });
-    const active =
-      selection ?? modelRefToSelection(snapshot.session?.model ?? snapshot.defaultModel);
-    if (!active) throw new Error(tuiCliStrings.noActiveModel);
-    await modelControl.setSessionModel(active);
-    synchronizeLocalModelSelection(services, active);
-    return active;
+    if (!selection) {
+      const active = modelRefToSelection(snapshot.session?.model ?? snapshot.defaultModel);
+      if (!active) throw new Error(tuiCliStrings.noActiveModel);
+      return active;
+    }
+    await modelControl.setSessionModel(selection);
+    synchronizeLocalModelSelection(services, selection);
+    return selection;
   }
   const query = args.trim();
   if (query) return await services.modelSelector.select(resolveSparkModelArgument(services, query));
@@ -1498,7 +1415,7 @@ function registerDaemonModelCycleKeybinding(
     description: `Cycle to the ${direction} Spark model`,
     handler: async () => {
       const snapshot = await modelControl.snapshot();
-      const items = daemonSnapshotToPickerState(snapshot).items;
+      const items = daemonSnapshotToPickerState(snapshot).items.filter((item) => item.available);
       if (items.length === 0) return;
       const effectiveModel = snapshot.session?.model ?? snapshot.defaultModel;
       const activeValue = effectiveModel

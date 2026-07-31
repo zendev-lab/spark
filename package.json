@@ -1,8 +1,8 @@
 {
   "name": "spark",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
-  "description": "Spark monorepo: daemon-first agent orchestration across TUI, Cockpit, and channels, with Pi product compatibility retained.",
+  "description": "Spark monorepo: daemon-first agent orchestration across TUI, Cockpit, and channels, with Pi retained only as an SDK kernel.",
   "keywords": [
     "Agentic Workflow",
     "Coding Agent",
@@ -130,8 +130,8 @@
     ]
   },
   "sparkRelease": {
-    "minimumUpdaterVersion": "0.1.0",
-    "rollbackCompatibility": ">=0.1.0 <0.2.0",
-    "migrationMode": "expand-only"
+    "minimumUpdaterVersion": "0.2.0",
+    "rollbackCompatibility": ">=0.2.0 <0.3.0",
+    "migrationMode": "manual"
   }
 }

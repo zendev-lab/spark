@@ -33,6 +33,9 @@ export interface SparkModelSelectorItem {
   modelLabel: string;
   description: string;
   active: boolean;
+  available: boolean;
+  unavailableReason?: string;
+  loginCommand?: string;
   reasoning: boolean;
 }
 
@@ -162,7 +165,7 @@ export class SparkModelSelector {
   private resolveCycleTarget(
     direction: SparkModelCycleDirection,
   ): SparkActiveSelection | undefined {
-    const items = this.listItems();
+    const items = this.listItems().filter((item) => item.available);
     if (items.length === 0) return undefined;
     const active = this.registry.getActive();
     const activeModelId = active ? sparkModelSelectionValue(active) : undefined;
@@ -302,6 +305,7 @@ function toSelectorItem(
     modelLabel: appendCostSummary(model.name || model.id, model),
     description: describeModel(provider, model),
     active: active?.providerName === provider.name && active.modelId === model.id,
+    available: true,
     reasoning: model.reasoning,
   };
 }

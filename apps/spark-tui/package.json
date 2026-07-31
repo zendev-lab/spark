@@ -20,7 +20,6 @@
     "./headless-role-executor": "./src/headless-role-executor.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.82.1",
     "@zendev-lab/spark-ai": "workspace:^",
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-ask": "workspace:^",

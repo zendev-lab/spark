@@ -278,15 +278,16 @@ test("a persistently undelivered Ask stays visible and reopens after bounded ret
   assert.match(notifications[0] ?? "", /keeping it open for retry/u);
 });
 
-test("parseSparkCliCommand routes daemon and print commands without changing default TUI parsing", () => {
+test("parseSparkCliCommand routes daemon and native run commands without changing default TUI parsing", () => {
   assert.deepEqual(parseSparkCliCommand(["build", "this"]), {
     kind: "tui",
     initialMessage: "build this",
   });
   assert.deepEqual(parseSparkCliCommand(["--help"]), { kind: "help" });
-  assert.deepEqual(parseSparkCliCommand(["--print", "hello", "daemon"]), {
-    kind: "print",
+  assert.deepEqual(parseSparkCliCommand(["run", "hello", "daemon"]), {
+    kind: "run",
     prompt: "hello daemon",
+    json: false,
   });
   assert.deepEqual(parseSparkCliCommand(["daemon", "status", "--json"]), {
     kind: "daemon",
@@ -312,23 +313,11 @@ test("parseSparkCliCommand routes daemon and print commands without changing def
       },
     },
   );
-  assert.deepEqual(parseSparkCliCommand(["sessions", "list", "--all-workspaces", "--json"]), {
-    kind: "daemon",
-    command: {
-      action: "sessions",
-      subcommand: "list",
-      json: true,
-      allWorkspaces: true,
-      history: true,
-      registry: false,
-      includeArchived: false,
-      workspaceId: undefined,
-    },
-  });
-  assert.deepEqual(parseSparkCliCommand(["session", "replay", "--session", "s1"]), {
-    kind: "daemon",
-    command: { action: "sessions", subcommand: "replay", json: false, sessionId: "s1" },
-  });
+  assert.equal(
+    parseSparkCliCommand(["sessions", "list", "--all-workspaces", "--json"]).kind,
+    "error",
+  );
+  assert.equal(parseSparkCliCommand(["session", "replay", "--session", "s1"]).kind, "error");
   assert.throws(
     () => parseSparkCliCommand(["daemon", "session", "mailto"]),
     /unknown spark daemon session command: mailto/u,
@@ -1185,33 +1174,22 @@ function daemonViewEventFixture(id: string, text: string) {
   };
 }
 
-test("parseSparkCliCommand parses Pi-compatible global modes and resource commands", () => {
-  assert.deepEqual(parseSparkCliCommand(["--mode", "json", "--print", "hello"]), {
-    kind: "print",
+test("parseSparkCliCommand parses native run and rejects removed Pi-compatible commands", () => {
+  assert.deepEqual(parseSparkCliCommand(["run", "--json", "hello"]), {
+    kind: "run",
     prompt: "hello",
-    mode: "json",
-    options: { mode: "json" },
-  });
-  assert.throws(
-    () => parseSparkCliCommand(["--unknown", "--print", "hello"]),
-    /Unknown spark option: --unknown/,
-  );
-  assert.deepEqual(parseSparkCliCommand(["--mode", "rpc", "--session-id", "s1"]), {
-    kind: "rpc",
-    options: { mode: "rpc", sessionId: "s1" },
-  });
-  assert.deepEqual(parseSparkCliCommand(["--list-models", "opus", "--provider", "p1"]), {
-    kind: "list-models",
-    query: "opus",
-    options: { provider: "p1" },
-  });
-  assert.deepEqual(parseSparkCliCommand(["install", "./my-skill", "--skill", "--json"]), {
-    kind: "resources",
-    action: "install",
-    source: "./my-skill",
-    resourceKind: "skill",
     json: true,
   });
+  for (const legacy of [
+    ["--print", "hello"],
+    ["--mode", "rpc"],
+    ["--list-models", "opus"],
+    ["install", "./my-skill", "--skill"],
+    ["sessions"],
+  ]) {
+    assert.equal(parseSparkCliCommand(legacy).kind, "error");
+  }
+  assert.throws(() => parseSparkCliCommand(["run", "--unknown", "hello"]), /Unknown spark option/u);
 });
 
 test("parseSparkDaemonCliArgs parses daemon IPC commands", async () => {
@@ -2190,9 +2168,9 @@ test("Spark TUI and headless print attach and release workspace clients", async 
       logs.push(String(value));
     };
     try {
-      assert.equal(await runSparkCli(["--print", "headless prompt"], { daemonClient }), 0);
+      assert.equal(await runSparkCli(["run", "headless prompt"], { daemonClient }), 0);
       assert.equal(
-        await runSparkCli(["--mode", "json", "--print", "json prompt", "--session-id", "json-s1"], {
+        await runSparkCli(["run", "--json", "json prompt", "--session-id", "json-s1"], {
           daemonClient,
         }),
         0,

@@ -45,6 +45,9 @@ describe("daemon model control", () => {
       source: "environment",
       reference: "BAIDU_ONEAPI_API_KEY",
     });
+    await expect(
+      control.importPiAuth({ sourcePath: "/tmp/pi/auth.json", overwrite: false }),
+    ).resolves.toMatchObject({ source: "pi", totals: { imported: 0 } });
 
     const selected = await control.setSessionModel("sess_demo", selectedModel);
     expect(selected.model).toMatchObject(selectedModel);
@@ -240,6 +243,14 @@ function fakeProviderControl(
     oauthStatus: () => flow,
     respondOAuth: () => flow,
     cancelOAuth: () => ({ ...flow, phase: "cancelled" }),
+    importPiAuth: async () => ({
+      source: "pi",
+      sourcePath: "~/.pi/agent/auth.json",
+      imported: [],
+      overwritten: [],
+      skipped: [],
+      totals: { imported: 0, overwritten: 0, skipped: 0 },
+    }),
     resolveApiKey: () => "key",
     resolveApiKeyAsync: async () => "key",
     prepareModel: prepareModel ?? (async () => undefined),

@@ -268,6 +268,11 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
             invoke("provider.auth.api-key.set", params),
           ),
         },
+        import: {
+          pi: os.provider.auth.import.pi.handler(async ({ input: params }) =>
+            invoke("provider.auth.import.pi", params),
+          ),
+        },
         logout: os.provider.auth.logout.handler(async ({ input: params }) =>
           invoke("provider.auth.logout", params),
         ),

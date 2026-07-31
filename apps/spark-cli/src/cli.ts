@@ -58,11 +58,11 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
     case "install":
       return rest.includes("--managed")
         ? { kind: "managed-install", argv: rest }
-        : { kind: "dispatch", target: "tui", argv };
+        : errorCommand('spark install requires "--managed"');
     case "update":
       return isManagedUpdateCommand(rest)
         ? { kind: "update", argv: rest }
-        : { kind: "dispatch", target: "tui", argv };
+        : errorCommand("spark update accepts only managed update commands");
     case "paths":
       return parseSparkPathsCommand(rest);
     case "run":
@@ -72,7 +72,13 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
     case "doctor":
       return { kind: "dispatch", target: "daemon", argv: ["doctor", ...rest] };
     case "tui":
-      return { kind: "dispatch", target: "tui", argv: rest };
+      return rest.some(
+        (arg) => arg === "--print" || arg === "-p" || arg === "--mode" || arg === "--list-models",
+      )
+        ? errorCommand(
+            'Legacy TUI flags were removed. Use "spark run", "spark acp", or "spark daemon model list".',
+          )
+        : { kind: "dispatch", target: "tui", argv: rest };
     case "daemon":
       return { kind: "dispatch", target: "daemon", argv: rest };
     case "server":
@@ -81,13 +87,8 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
       return { kind: "dispatch", target: "cockpit", argv: rest };
     case "acp":
       return { kind: "dispatch", target: "acp", argv: rest };
-    case "sessions":
-    case "session":
-      return { kind: "dispatch", target: "tui", argv };
     default:
-      return isSparkTuiCompatibilityCommand(first)
-        ? { kind: "dispatch", target: "tui", argv }
-        : errorCommand(dispatcherStrings.unknownSubcommand(first, argv));
+      return errorCommand(dispatcherStrings.unknownSubcommand(first, argv));
   }
 }
 
@@ -119,8 +120,8 @@ export async function runSparkDispatcher(
       const payload = {
         sparkHome: process.env.SPARK_HOME?.trim() ?? null,
         user: resolveSparkUserPaths(),
-        cockpit: resolveSparkPaths({ app: "cockpit" }),
-        daemon: resolveSparkPaths({ app: "daemon" }),
+        cockpit: publicSparkPaths(resolveSparkPaths({ app: "cockpit" })),
+        daemon: publicSparkPaths(resolveSparkPaths({ app: "daemon" })),
       };
       stdout.write(
         command.json ? `${JSON.stringify(payload, null, 2)}\n` : formatSparkPaths(payload),
@@ -152,32 +153,19 @@ export function helpText(): string {
 }
 
 function parseSparkRunCommand(argv: string[]): SparkDispatcherCommand {
-  const mapped = ["--print"];
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
-    if (arg === "--") {
-      mapped.push(...argv.slice(index));
-      break;
-    }
-    if (arg === "--json") {
-      mapped.push("--mode", "json");
-      continue;
-    }
     if (arg === "--resume") {
       const session = argv[++index];
       if (!session) return errorCommand("spark run --resume requires a session id");
-      mapped.push("--session", session);
       continue;
     }
     if (arg.startsWith("--resume=")) {
       const session = arg.slice("--resume=".length);
       if (!session) return errorCommand("spark run --resume requires a session id");
-      mapped.push("--session", session);
-      continue;
     }
-    mapped.push(arg);
   }
-  return { kind: "dispatch", target: "tui", argv: mapped };
+  return { kind: "dispatch", target: "tui", argv: ["run", ...argv] };
 }
 
 function parseSparkBackgroundCommand(argv: string[]): SparkDispatcherCommand {
@@ -236,8 +224,8 @@ function parseSparkPathsCommand(argv: string[]): SparkDispatcherCommand {
 function formatSparkPaths(payload: {
   sparkHome: string | null;
   user: ReturnType<typeof resolveSparkUserPaths>;
-  cockpit: ReturnType<typeof resolveSparkPaths>;
-  daemon: ReturnType<typeof resolveSparkPaths>;
+  cockpit: Omit<ReturnType<typeof resolveSparkPaths>, "piAgentDir">;
+  daemon: Omit<ReturnType<typeof resolveSparkPaths>, "piAgentDir">;
 }): string {
   const lines = [`SPARK_HOME=${payload.sparkHome ?? "<unset>"}`, "", "user:"];
   for (const [key, value] of Object.entries(payload.user)) lines.push(`  ${key}=${value}`);
@@ -265,16 +253,6 @@ function generatedSessionId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function isSparkTuiCompatibilityCommand(first: string): boolean {
-  return (
-    first === "--print" ||
-    first === "-p" ||
-    first === "--mode" ||
-    first === "--list-models" ||
-    isSparkTuiResourceCommand(first)
-  );
-}
-
 function isManagedUpdateCommand(argv: readonly string[]): boolean {
   const action = argv[0];
   return (
@@ -289,31 +267,15 @@ function isManagedUpdateCommand(argv: readonly string[]): boolean {
   );
 }
 
-function isSparkTuiResourceCommand(first: string): boolean {
-  return (
-    first === "install" ||
-    first === "remove" ||
-    first === "uninstall" ||
-    first === "update" ||
-    first === "list" ||
-    first === "config"
-  );
+function isSparkTuiHeadlessCompatibilityCommand(argv: readonly string[]): boolean {
+  return argv[0] === "run" || argv.includes("--help") || argv.includes("-h");
 }
 
-function isSparkTuiHeadlessCompatibilityCommand(argv: readonly string[]): boolean {
-  if (
-    argv.includes("--help") ||
-    argv.includes("-h") ||
-    argv.includes("--print") ||
-    argv.includes("-p") ||
-    argv.includes("--list-models")
-  ) {
-    return true;
-  }
-  const first = argv[0];
-  if (first && isSparkTuiResourceCommand(first)) return true;
-  if (first === "sessions" || first === "session") return true;
-  return argv.some((arg, index) => arg === "--mode" && argv[index + 1] === "rpc");
+function publicSparkPaths(
+  paths: ReturnType<typeof resolveSparkPaths>,
+): Omit<ReturnType<typeof resolveSparkPaths>, "piAgentDir"> {
+  const { piAgentDir: _piAgentDir, ...publicPaths } = paths;
+  return publicPaths;
 }
 
 function isInteractiveTerminal(io: SparkDispatcherIo): boolean {

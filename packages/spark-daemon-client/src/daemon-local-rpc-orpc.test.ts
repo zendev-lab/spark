@@ -22,7 +22,7 @@ describe("Spark daemon oRPC socket client", () => {
     expect([...sparkDaemonOrpcInvokerMethods].sort()).toEqual(
       [...sparkLocalRpcOrpcLiveMethods].sort(),
     );
-    expect(sparkDaemonOrpcInvokerMethods).toHaveLength(70);
+    expect(sparkDaemonOrpcInvokerMethods).toHaveLength(71);
   });
 
   it("preserves method-specific input and output types through the generic invoker", () => {

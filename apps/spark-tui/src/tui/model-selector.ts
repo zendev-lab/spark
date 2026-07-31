@@ -109,14 +109,16 @@ export class SparkModelSelectorComponent implements Component {
   private readonly title: string;
   private readonly requestRender?: () => void;
   private readonly selectList: SelectList;
-  private readonly hasItems: boolean;
+  private readonly availableItems: SparkModelSelectorItem[];
+  private readonly unavailableItems: SparkModelSelectorItem[];
 
   constructor(options: SparkModelSelectorComponentOptions) {
     this.title = options.title ?? "Select Model";
     this.requestRender = options.requestRender;
-    this.hasItems = options.state.items.length > 0;
+    this.availableItems = options.state.items.filter((item) => item.available);
+    this.unavailableItems = options.state.items.filter((item) => !item.available);
 
-    const selectItems = options.state.items.map(toSelectItem);
+    const selectItems = this.availableItems.map(toSelectItem);
     this.selectList = new SelectList(
       selectItems,
       Math.min(Math.max(selectItems.length, 1), options.maxVisible ?? 10),
@@ -124,7 +126,7 @@ export class SparkModelSelectorComponent implements Component {
       MODEL_SELECTOR_LAYOUT,
     );
 
-    const activeIndex = options.state.items.findIndex((item) => item.active);
+    const activeIndex = this.availableItems.findIndex((item) => item.active);
     if (activeIndex >= 0) this.selectList.setSelectedIndex(activeIndex);
 
     this.selectList.onSelect = (item) => options.onSelect(sparkModelSelectionFromValue(item.value));
@@ -145,13 +147,31 @@ export class SparkModelSelectorComponent implements Component {
     lines.push(truncateToWidth(this.title, width));
     lines.push(truncateToWidth("".padEnd(Math.min(width, 80), "─"), width));
 
-    if (this.hasItems) {
+    if (this.availableItems.length > 0) {
       lines.push(...this.selectList.render(width));
-    } else {
+    } else if (this.unavailableItems.length === 0) {
       lines.push(truncateToWidth("No providers or models registered.", width));
     }
+    if (this.unavailableItems.length > 0) {
+      lines.push(truncateToWidth("Unavailable", width));
+      lines.push(
+        ...this.unavailableItems.map((item) =>
+          truncateToWidth(
+            `  × ${item.modelLabel} — ${item.unavailableReason ?? "Authentication required"} · ${item.loginCommand ?? `/login ${item.providerName}`}`,
+            width,
+          ),
+        ),
+      );
+    }
 
-    lines.push(truncateToWidth("↑↓ navigate • enter select • esc cancel", width));
+    lines.push(
+      truncateToWidth(
+        this.availableItems.length > 0
+          ? "↑↓ navigate • enter select • esc cancel"
+          : "Run the shown /login command, then reopen • esc cancel",
+        width,
+      ),
+    );
     return lines.map((line) => truncateToWidth(line, width));
   }
 }

@@ -210,11 +210,17 @@ function piParityCommandMetadata(
   _command: SparkNativeSlashCommand,
 ): SparkNativeSlashCommand["metadata"] {
   const canonical = piParityCanonicalCliTarget(name);
+  const providerAuthCommand = name === "login" || name === "logout";
   return {
     source: "extension",
     extensionId: "spark-pi-parity",
     plane: canonical.startsWith("spark daemon") ? "daemon" : "tui",
-    resource: name === "fork" || name === "clone" || name === "tree" ? "session" : name,
+    resource:
+      name === "fork" || name === "clone" || name === "tree"
+        ? "session"
+        : providerAuthCommand
+          ? "auth"
+          : name,
     verbs: name === "session" ? ["show", "list"] : [name],
     canonicalCliTarget: canonical,
     ...(name === "fork" ? { deprecatedAliasFor: "/session fork --current" } : {}),
@@ -235,6 +241,10 @@ function piParityCanonicalCliTarget(name: string): string {
       return "spark daemon session tree <session>";
     case "resume":
       return "spark tui attach <session>";
+    case "login":
+      return "spark daemon auth login [provider]";
+    case "logout":
+      return "spark daemon auth logout <provider>";
     default:
       return `spark tui ${name}`;
   }

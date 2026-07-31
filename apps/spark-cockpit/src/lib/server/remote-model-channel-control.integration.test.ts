@@ -17,6 +17,7 @@ import {
   createId,
   runtimeProtocolVersion,
   type SparkAuthFlow,
+  type SparkAuthImportReport,
   type SparkModelControlSnapshot,
   type SparkModelRef,
   type SparkSessionRegistryRecord,
@@ -492,6 +493,17 @@ class FixtureModelControl implements SparkDaemonModelControl {
     this.apiKeyConfigured = true;
     writePrivateFile(this.targets.provider, apiKey);
     return await this.snapshot();
+  }
+
+  async importPiAuth(): Promise<SparkAuthImportReport> {
+    return {
+      source: "pi",
+      sourcePath: "~/.pi/agent/auth.json",
+      imported: [],
+      overwritten: [],
+      skipped: [],
+      totals: { imported: 0, overwritten: 0, skipped: 0 },
+    };
   }
 
   async logout(): Promise<{ removed: boolean; snapshot: SparkModelControlSnapshot }> {

@@ -10,9 +10,12 @@ import {
   unwatchFile,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { resolvePiAuthSourcePath } from "@zendev-lab/spark-ai/control";
+import type { SparkAuthFlow, SparkAuthImportReport } from "@zendev-lab/spark-protocol";
 import { gitCommand, resolveSparkPaths } from "@zendev-lab/spark-system";
 import {
   defaultSparkDaemonConfig,
@@ -39,6 +42,14 @@ import {
   requestUplinkPrefer,
   requestUplinkStatus,
   requestWorkspaceStop,
+  requestProviderAuthImportPi,
+  requestProviderAuthLogout,
+  requestProviderAuthOAuthCancel,
+  requestProviderAuthOAuthRespond,
+  requestProviderAuthOAuthStart,
+  requestProviderAuthOAuthStatus,
+  requestProviderAuthSetApiKey,
+  requestProviderAuthSnapshot,
 } from "./local-rpc.js";
 import {
   completeSparkDaemonDeviceAuthorization,
@@ -128,6 +139,8 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
         return await logs(paths, args.slice(1), io);
       case "login":
         return await login(paths, args.slice(1), io);
+      case "auth":
+        return await providerAuth(paths, subcommand, rest, io);
       case "start": {
         const managed = process.env.XPC_SERVICE_NAME === "dev.spark.daemon";
         return await start(paths, {
@@ -185,6 +198,347 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
     }
     return 1;
   }
+}
+
+async function providerAuth(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  subcommand: string | undefined,
+  args: string[],
+  io: CliIo,
+): Promise<number> {
+  if (
+    subcommand === "help" ||
+    subcommand === "--help" ||
+    subcommand === "-h" ||
+    helpRequested(args)
+  ) {
+    printProviderAuthHelp(io);
+    return 0;
+  }
+
+  if (subcommand === undefined || subcommand === "status") {
+    if (args.some((arg) => arg !== "--json")) return providerAuthUsageError(io);
+    return await providerAuthStatus(paths, io, args.includes("--json"));
+  }
+  if (subcommand === "login") {
+    if (args.some((arg) => arg.startsWith("--")) || positionalArgs(args).length > 1) {
+      return providerAuthUsageError(io);
+    }
+    return await providerAuthLogin(paths, positionalArgs(args)[0], io);
+  }
+  if (subcommand === "logout") {
+    const flags = parseFlags(args);
+    const positionals = positionalArgs(args);
+    if (args.some((arg) => arg.startsWith("--") && arg !== "--json") || positionals.length !== 1) {
+      return providerAuthUsageError(io);
+    }
+    const result = await requestProviderAuthService(paths, io, () =>
+      requestProviderAuthLogout(paths, positionals[0]!),
+    );
+    if (flags.json === "true") {
+      io.stdout.write(`${JSON.stringify({ provider: positionals[0], ...result }, null, 2)}\n`);
+    } else {
+      io.stdout.write(
+        result.removed
+          ? `Removed stored credentials for ${positionals[0]}.\n`
+          : `No stored credentials found for ${positionals[0]}.\n`,
+      );
+    }
+    return 0;
+  }
+  if (subcommand !== "import") return providerAuthUsageError(io);
+
+  const flags = parseFlags(args);
+  const positionals = positionalArgs(args);
+  const unknownFlag = args.find(
+    (arg) => arg.startsWith("--") && arg !== "--overwrite" && arg !== "--json",
+  );
+  if (unknownFlag || positionals.length !== 1 || positionals[0] !== "pi") {
+    return providerAuthUsageError(io);
+  }
+
+  const sourcePath = resolvePiAuthSourcePath();
+  const displaySourcePath = authPathForDisplay(sourcePath);
+  try {
+    const report = await requestProviderAuthService(
+      paths,
+      io,
+      () =>
+        (io.providerAuthImportPiInService ?? requestProviderAuthImportPi)(paths, {
+          sourcePath,
+          overwrite: flags.overwrite === "true",
+        }),
+      io.providerAuthImportPiInService !== undefined,
+    );
+    renderProviderAuthImportReport(io, report, flags.json === "true");
+    return 0;
+  } catch (error) {
+    const message = safeProviderAuthImportError(error, displaySourcePath);
+    if (flags.json === "true") {
+      io.stderr.write(
+        `${JSON.stringify(
+          {
+            source: "pi",
+            sourcePath: displaySourcePath,
+            error: { code: "AUTH_IMPORT_FAILED", message },
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    } else {
+      io.stderr.write(`${message}\n`);
+    }
+    return 1;
+  }
+}
+
+async function requestProviderAuthService<T>(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  io: CliIo,
+  request: () => Promise<T>,
+  injected = false,
+): Promise<T> {
+  if (injected) return await request();
+  return await requestWorkspaceService(paths, io, request);
+}
+
+async function providerAuthStatus(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  io: CliIo,
+  json: boolean,
+): Promise<number> {
+  const snapshot = await requestProviderAuthService(paths, io, () =>
+    requestProviderAuthSnapshot(paths),
+  );
+  if (json) {
+    io.stdout.write(`${JSON.stringify(snapshot, null, 2)}\n`);
+    return 0;
+  }
+  io.stdout.write("Spark provider authentication\n");
+  if (snapshot.providers.length === 0) {
+    io.stdout.write("  No providers registered.\n");
+    return 0;
+  }
+  for (const provider of snapshot.providers) {
+    io.stdout.write(
+      `  ${provider.providerName}  ${provider.auth.configured ? "configured" : "missing"}  ${provider.auth.source ?? provider.auth.kind}\n`,
+    );
+  }
+  return 0;
+}
+
+async function providerAuthLogin(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  requestedProvider: string | undefined,
+  io: CliIo,
+): Promise<number> {
+  const snapshot = await requestProviderAuthService(paths, io, () =>
+    requestProviderAuthSnapshot(paths),
+  );
+  const configurable = snapshot.providers.filter(
+    (provider) => provider.auth.kind === "oauth" || provider.auth.kind === "api_key",
+  );
+  const provider = requestedProvider
+    ? configurable.find((entry) => entry.providerName === requestedProvider)
+    : configurable.length === 1
+      ? configurable[0]
+      : undefined;
+  if (!provider) {
+    const available = configurable.map((entry) => entry.providerName).join(", ") || "none";
+    throw new Error(
+      requestedProvider
+        ? `Unknown or non-configurable Spark provider "${requestedProvider}". Available: ${available}.`
+        : `Select a Spark provider: ${available}.`,
+    );
+  }
+
+  if (provider.auth.kind !== "oauth") {
+    const apiKey = await promptSecret(io, `${provider.providerName} API key`);
+    await requestProviderAuthService(paths, io, () =>
+      requestProviderAuthSetApiKey(paths, {
+        providerName: provider.providerName,
+        apiKey,
+      }),
+    );
+    io.stdout.write(`Stored API key for ${provider.providerName}.\n`);
+    return 0;
+  }
+
+  let flow = await requestProviderAuthService(paths, io, () =>
+    requestProviderAuthOAuthStart(paths, provider.providerName),
+  );
+  const seen = { auth: false, deviceCode: false, progress: 0 };
+  try {
+    while (true) {
+      publishProviderOAuthProgress(flow, seen, io);
+      if (flow.status === "succeeded") {
+        io.stdout.write(`OAuth login completed for ${provider.providerName}.\n`);
+        return 0;
+      }
+      if (flow.status === "failed") {
+        throw new Error(
+          `OAuth login failed for ${provider.providerName}: ${flow.error ?? "unknown error"}`,
+        );
+      }
+      if (flow.status === "cancelled") {
+        io.stdout.write(`OAuth login cancelled for ${provider.providerName}.\n`);
+        return 1;
+      }
+      if (flow.prompt) {
+        const value = await collectProviderOAuthPrompt(flow.prompt, io);
+        flow = await requestProviderAuthService(paths, io, () =>
+          requestProviderAuthOAuthRespond(paths, {
+            flowId: flow.id,
+            promptId: flow.prompt!.id,
+            value,
+          }),
+        );
+        continue;
+      }
+      const pollMs = Math.max(
+        100,
+        Math.min(2_000, (flow.deviceCode?.intervalSeconds ?? 1) * 1_000),
+      );
+      await delay(pollMs);
+      flow = await requestProviderAuthService(paths, io, () =>
+        requestProviderAuthOAuthStatus(paths, flow.id),
+      );
+    }
+  } catch (error) {
+    if (flow.status !== "succeeded" && flow.status !== "failed" && flow.status !== "cancelled") {
+      await requestProviderAuthService(paths, io, () =>
+        requestProviderAuthOAuthCancel(paths, flow.id),
+      );
+    }
+    throw error;
+  }
+}
+
+function publishProviderOAuthProgress(
+  flow: SparkAuthFlow,
+  seen: { auth: boolean; deviceCode: boolean; progress: number },
+  io: CliIo,
+): void {
+  if (flow.authorization && !seen.auth) {
+    io.stdout.write(`Open ${flow.authorization.url}\n`);
+    if (flow.authorization.instructions) io.stdout.write(`${flow.authorization.instructions}\n`);
+    seen.auth = true;
+  }
+  if (flow.deviceCode && !seen.deviceCode) {
+    io.stdout.write(
+      `Device code ${flow.deviceCode.userCode} at ${flow.deviceCode.verificationUri}\n`,
+    );
+    seen.deviceCode = true;
+  }
+  for (const message of flow.progress.slice(seen.progress)) {
+    io.stdout.write(`OAuth: ${message}\n`);
+  }
+  seen.progress = flow.progress.length;
+}
+
+async function collectProviderOAuthPrompt(
+  prompt: NonNullable<SparkAuthFlow["prompt"]>,
+  io: CliIo,
+): Promise<string> {
+  if (prompt.kind === "select") {
+    io.stdout.write(`${prompt.message}\n`);
+    for (const option of prompt.options ?? []) {
+      io.stdout.write(`  ${option.id}  ${option.label}\n`);
+    }
+    return await promptWithDefault(io, "Selection", prompt.options?.[0]?.id);
+  }
+  const stdin = io.stdin ?? process.stdin;
+  if (!stdin.isTTY)
+    throw new Error(`OAuth provider requested interactive input: ${prompt.message}`);
+  const reader = createInterface({ input: stdin, output: process.stdout });
+  try {
+    const answer = await reader.question(`${prompt.message}: `);
+    if (!answer && prompt.allowEmpty !== true) {
+      throw new Error("OAuth prompt response must be non-empty.");
+    }
+    return answer;
+  } finally {
+    reader.close();
+  }
+}
+
+function printProviderAuthHelp(io: CliIo): void {
+  io.stdout.write(
+    "Usage:\n" +
+      "  spark daemon auth status [--json]\n" +
+      "  spark daemon auth login [provider]\n" +
+      "  spark daemon auth logout <provider> [--json]\n" +
+      "  spark daemon auth import pi [--overwrite] [--json]\n\n" +
+      "Provider credentials are separate from `spark daemon login`, which authorizes machine connectivity to Cockpit.\n" +
+      "Pi import never executes Pi, environment references, or shell commands.\n",
+  );
+}
+
+function providerAuthUsageError(io: CliIo): number {
+  io.stderr.write(
+    "Usage: spark daemon auth <status|login|logout|import> (run `spark daemon auth --help`)\n",
+  );
+  return 2;
+}
+
+function renderProviderAuthImportReport(
+  io: CliIo,
+  report: SparkAuthImportReport,
+  json: boolean,
+): void {
+  if (json) {
+    io.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    return;
+  }
+  io.stdout.write(`Pi auth import from ${report.sourcePath}\n`);
+  for (const entry of report.imported) {
+    io.stdout.write(`  imported    ${entry.provider} (${entry.type})\n`);
+  }
+  for (const entry of report.overwritten) {
+    io.stdout.write(`  overwritten ${entry.provider} (${entry.type})\n`);
+  }
+  for (const entry of report.skipped) {
+    io.stdout.write(
+      `  skipped     ${entry.provider}${entry.type ? ` (${entry.type})` : ""}: ${entry.reason}\n`,
+    );
+  }
+  io.stdout.write(
+    `Imported ${report.totals.imported}, overwritten ${report.totals.overwritten}, skipped ${report.totals.skipped}.\n`,
+  );
+}
+
+function safeProviderAuthImportError(error: unknown, sourcePath: string): string {
+  const code =
+    typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
+  if (code === "ENOENT") return `Pi auth file was not found at ${sourcePath}.`;
+  if (code === "EACCES" || code === "EPERM") {
+    return `Pi auth file could not be read at ${sourcePath}.`;
+  }
+  if (
+    error instanceof Error &&
+    (error.message === "Pi auth file contains invalid JSON" ||
+      error.message === "Pi auth file root must be a JSON object")
+  ) {
+    return error.message;
+  }
+  if (
+    error instanceof Error &&
+    error.message.startsWith("Refusing to overwrite unreadable Spark auth store:")
+  ) {
+    return "Spark auth store could not be read; no credentials were imported.";
+  }
+  return `Pi auth import failed for ${sourcePath}.`;
+}
+
+function authPathForDisplay(path: string): string {
+  const home = resolve(homedir());
+  const relativeToHome = relative(home, path);
+  return relativeToHome === ".." || relativeToHome.startsWith("../") || isAbsolute(relativeToHome)
+    ? path
+    : relativeToHome
+      ? join("~", relativeToHome)
+      : "~";
 }
 
 async function login(

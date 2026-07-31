@@ -87,7 +87,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     const commandMethods = Object.keys(localRpcMethodToSparkCommandKind).sort();
     const contractMethods = Object.keys(sparkLocalRpcOrpcMethodPaths).sort();
     expect(contractMethods).toEqual(commandMethods);
-    expect(Object.keys(sparkLocalRpcProcedureSchemas)).toHaveLength(70);
+    expect(Object.keys(sparkLocalRpcProcedureSchemas)).toHaveLength(71);
   });
 
   it("nests contracts under domain routers matching method path map", () => {
@@ -104,6 +104,12 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "auth",
       "apiKey",
       "set",
+    ]);
+    expect(sparkLocalRpcOrpcMethodPaths["provider.auth.import.pi"]).toEqual([
+      "provider",
+      "auth",
+      "import",
+      "pi",
     ]);
   });
 

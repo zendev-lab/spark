@@ -484,6 +484,11 @@ const modelProviderHumanInvokers = {
       sparkLocalRpcProcedureSchemas["provider.auth.api-key.set"].output,
       client.provider.auth.apiKey.set(input, options),
     ),
+  "provider.auth.import.pi": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["provider.auth.import.pi"].output,
+      client.provider.auth.import.pi(input, options),
+    ),
   "provider.auth.logout": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["provider.auth.logout"].output,
@@ -524,6 +529,7 @@ const modelProviderHumanInvokers = {
   | "model.catalog"
   | "model.default.set"
   | "provider.auth.api-key.set"
+  | "provider.auth.import.pi"
   | "provider.auth.logout"
   | "provider.auth.login.start"
   | "provider.auth.login.status"

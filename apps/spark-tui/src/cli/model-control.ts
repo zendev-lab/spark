@@ -10,7 +10,10 @@ import type { SparkModelPickerState } from "../host/model-selector.ts";
 import type { SparkActiveSelection } from "../host/provider-registry.ts";
 import { requestSparkDaemonControl, type SparkDaemonClientOptions } from "./daemon.ts";
 
-export type SparkDaemonModelAuthClient = Omit<SparkModelControlClient, "logout"> & {
+export type SparkDaemonModelAuthClient = Omit<
+  SparkModelControlClient,
+  "logout" | "importPiAuth"
+> & {
   logout(providerName: string): Promise<boolean>;
 };
 
@@ -68,26 +71,38 @@ export function daemonSnapshotToPickerState(
   snapshot: SparkModelControlSnapshot,
 ): SparkModelPickerState {
   const effectiveModel = snapshot.session?.model ?? snapshot.defaultModel;
-  const active = effectiveModel ? selection(effectiveModel) : undefined;
+  const effectiveEntry = effectiveModel
+    ? snapshot.providers
+        .flatMap((provider) => provider.models)
+        .find((entry) => modelEquals(entry.model, effectiveModel))
+    : undefined;
+  const active =
+    effectiveModel && effectiveEntry?.available ? selection(effectiveModel) : undefined;
   const providers = snapshot.providers
     .map((provider) => ({
       providerName: provider.providerName,
       providerLabel: provider.label,
       active: active?.providerName === provider.providerName,
-      models: provider.models
-        .filter((entry) => entry.available)
-        .map((entry) => ({
-          value: sparkModelValue(entry.model),
-          providerName: entry.model.providerName,
-          providerLabel: entry.model.providerLabel ?? provider.label,
-          modelId: entry.model.modelId,
-          modelLabel: entry.model.modelLabel ?? entry.model.modelId,
-          description:
-            entry.description ??
-            `${entry.reasoning ? "reasoning" : "standard"} · ${entry.contextWindow ?? "?"} ctx`,
-          active: modelEquals(entry.model, effectiveModel),
-          reasoning: entry.reasoning,
-        })),
+      models: provider.models.map((entry) => ({
+        value: sparkModelValue(entry.model),
+        providerName: entry.model.providerName,
+        providerLabel: entry.model.providerLabel ?? provider.label,
+        modelId: entry.model.modelId,
+        modelLabel: entry.model.modelLabel ?? entry.model.modelId,
+        description: entry.available
+          ? (entry.description ??
+            `${entry.reasoning ? "reasoning" : "standard"} · ${entry.contextWindow ?? "?"} ctx`)
+          : (entry.unavailableReason ?? "Authentication required"),
+        active: entry.available && modelEquals(entry.model, effectiveModel),
+        available: entry.available,
+        ...(entry.available
+          ? {}
+          : {
+              unavailableReason: entry.unavailableReason ?? "Authentication required",
+              loginCommand: `/login ${provider.providerName}`,
+            }),
+        reasoning: entry.reasoning,
+      })),
     }))
     .filter((provider) => provider.models.length > 0);
   return {

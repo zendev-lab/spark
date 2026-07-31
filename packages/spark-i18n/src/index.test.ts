@@ -96,7 +96,7 @@ describe("CLI/TUI strings", () => {
       "未知 spark 子命令",
     );
     expect(sparkTuiCliStrings().helpText).toContain("spark-tui - Spark terminal UI");
-    expect(sparkTuiCliStrings().helpText).toContain("zellij --session spark");
+    expect(sparkTuiCliStrings().helpText).toContain("spark run [--json] <prompt>");
     expect(sparkTuiCliStrings().helpText).toContain("spark daemon session list --json");
     expect(sparkTuiCliStrings().helpText).toContain("--session-id <session-id>");
     expect(sparkTuiCliStrings().helpText).toContain("workspace-bound");

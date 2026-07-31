@@ -6,6 +6,7 @@ import type {
 import {
   parseSparkAuthFlow,
   parseSparkModelControlSnapshot,
+  type SparkAuthImportReport,
   type SparkAuthFlow,
   type SparkModelCatalogEntry,
   type SparkModelCatalogProvider,
@@ -28,6 +29,7 @@ export interface SparkDaemonModelControl {
     thinkingLevel: SparkThinkingLevel,
   ): Promise<SparkSessionRegistryRecord>;
   setApiKey(providerName: string, apiKey: string): Promise<SparkModelControlSnapshot>;
+  importPiAuth(input: { sourcePath: string; overwrite: boolean }): Promise<SparkAuthImportReport>;
   logout(providerName: string): Promise<{ removed: boolean; snapshot: SparkModelControlSnapshot }>;
   startOAuth(providerName: string): Promise<SparkAuthFlow>;
   oauthStatus(flowId: string): Promise<SparkAuthFlow>;
@@ -98,6 +100,13 @@ class DaemonModelControl implements SparkDaemonModelControl {
     }
     await this.#providerControl.setApiKey(providerName, apiKey);
     return await this.snapshot();
+  }
+
+  async importPiAuth(input: {
+    sourcePath: string;
+    overwrite: boolean;
+  }): Promise<SparkAuthImportReport> {
+    return await this.#providerControl.importPiAuth(input);
   }
 
   async logout(

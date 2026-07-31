@@ -49,6 +49,27 @@ export interface SparkAuthStoreOptions {
   now?: () => Date;
 }
 
+export type SparkAuthImportCredential =
+  | {
+      type: "oauth";
+      credentials: OAuthCredentials;
+    }
+  | {
+      type: "api_key";
+      apiKey: string;
+    };
+
+export interface SparkAuthImportCandidate {
+  provider: string;
+  credential: SparkAuthImportCredential;
+}
+
+export interface SparkAuthStoreImportResult {
+  imported: string[];
+  overwritten: string[];
+  existing: string[];
+}
+
 export interface SparkProviderAuthStatus {
   provider: string;
   kind: "none" | "env" | "literal" | "oauth";
@@ -229,7 +250,16 @@ export class SparkAuthStore {
   async reload(): Promise<void> {
     try {
       const raw = await readFile(this.path, "utf8");
-      const parsed = parseAuthFile(JSON.parse(raw));
+      let value: unknown;
+      try {
+        value = JSON.parse(raw);
+      } catch (error) {
+        if (error instanceof SyntaxError) {
+          throw new Error("Spark auth store contains invalid JSON");
+        }
+        throw error;
+      }
+      const parsed = parseAuthFile(value);
       this.#credentials = parsed.credentials;
       this.#loadError = undefined;
     } catch (error) {
@@ -283,6 +313,55 @@ export class SparkAuthStore {
         [provider]: cloneCredential({ ...credential, provider }),
       };
       await this.#persist();
+    });
+  }
+
+  async importMany(
+    candidates: readonly SparkAuthImportCandidate[],
+    options: { overwrite?: boolean } = {},
+  ): Promise<SparkAuthStoreImportResult> {
+    const unique = new Map<string, SparkAuthImportCredential>();
+    for (const candidate of candidates) {
+      validateCredentialKey(candidate.provider);
+      unique.set(candidate.provider, cloneImportCredential(candidate.credential));
+    }
+    return withPathMutation(this.path, async () => {
+      await this.#reloadForMutation();
+      if (unique.size === 0) return { imported: [], overwritten: [], existing: [] };
+      const imported: string[] = [];
+      const overwritten: string[] = [];
+      const existing: string[] = [];
+      const next = { ...this.#credentials };
+      const updatedAt = this.#now().toISOString();
+
+      for (const [provider, credential] of unique) {
+        if (next[provider] && !options.overwrite) {
+          existing.push(provider);
+          continue;
+        }
+        if (next[provider]) overwritten.push(provider);
+        else imported.push(provider);
+        next[provider] =
+          credential.type === "oauth"
+            ? {
+                type: "oauth",
+                provider,
+                credentials: cloneOAuthCredentials(credential.credentials),
+                updatedAt,
+              }
+            : {
+                type: "api_key",
+                provider,
+                apiKey: credential.apiKey,
+                updatedAt,
+              };
+      }
+
+      if (imported.length > 0 || overwritten.length > 0) {
+        this.#credentials = next;
+        await this.#persist();
+      }
+      return { imported, overwritten, existing };
     });
   }
 
@@ -484,10 +563,12 @@ export function normalizeProviderAuthRef(value: string | undefined): ProviderAut
 }
 
 function parseAuthFile(value: unknown): SparkAuthFile {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return emptyAuthFile();
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Spark auth store root must be a JSON object");
+  }
   const record = value as { version?: unknown; credentials?: unknown };
   if (record.version !== AUTH_FILE_VERSION || !isRecord(record.credentials)) {
-    return emptyAuthFile();
+    throw new Error(`Unsupported Spark auth store version: ${String(record.version)}`);
   }
   const credentials: Record<string, SparkStoredCredential> = {};
   for (const [provider, credential] of Object.entries(record.credentials)) {
@@ -522,10 +603,6 @@ function parseCredential(provider: string, value: unknown): SparkStoredCredentia
   return undefined;
 }
 
-function emptyAuthFile(): SparkAuthFile {
-  return { version: AUTH_FILE_VERSION, credentials: {} };
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -556,6 +633,12 @@ function cloneCredential(credential: SparkStoredCredential): SparkStoredCredenti
     apiKey: credential.apiKey,
     updatedAt: credential.updatedAt,
   };
+}
+
+function cloneImportCredential(credential: SparkAuthImportCredential): SparkAuthImportCredential {
+  return credential.type === "oauth"
+    ? { type: "oauth", credentials: cloneOAuthCredentials(credential.credentials) }
+    : { type: "api_key", apiKey: credential.apiKey };
 }
 
 function cloneOAuthCredentials(credentials: OAuthCredentials): OAuthCredentials {

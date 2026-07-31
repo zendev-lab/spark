@@ -12,6 +12,7 @@ import {
   requestDaemonStatus,
   requestHumanInteractionList,
   requestHumanInteractionRespond,
+  requestProviderAuthImportPi,
   requestTurnSubmit,
   requestWorkspaceAttach,
   requestWorkspaceList,
@@ -34,6 +35,7 @@ export interface CliIo {
   turnSubmitToService?: typeof requestTurnSubmit;
   humanInteractionListFromService?: typeof requestHumanInteractionList;
   humanInteractionRespondFromService?: typeof requestHumanInteractionRespond;
+  providerAuthImportPiInService?: typeof requestProviderAuthImportPi;
   listWorkspacesFromService?: typeof requestWorkspaceList;
   registerWorkspaceInService?: typeof requestWorkspaceRegister;
   relocateWorkspaceInService?: typeof requestWorkspaceRelocate;

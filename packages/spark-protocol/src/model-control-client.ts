@@ -1,8 +1,10 @@
 import {
   parseSparkAuthFlow,
+  parseSparkAuthImportReport,
   parseSparkModelControlSnapshot,
   sparkThinkingLevelOptions,
   type SparkAuthFlow,
+  type SparkAuthImportReport,
   type SparkModelControlSnapshot,
   type SparkModelRef,
   type SparkThinkingLevel,
@@ -29,6 +31,7 @@ export interface SparkModelControlClient {
     apiKey: string,
     extra?: Record<string, unknown>,
   ): Promise<SparkModelControlSnapshot>;
+  importPiAuth(input: { sourcePath: string; overwrite?: boolean }): Promise<SparkAuthImportReport>;
   logout(providerName: string): Promise<{ removed: boolean; snapshot?: unknown }>;
   startOAuth(providerName: string): Promise<SparkAuthFlow>;
   oauthStatus(flowId: string): Promise<SparkAuthFlow>;
@@ -88,6 +91,13 @@ export function createSparkModelControlClient(
     setApiKey: async (providerName, apiKey, extra) =>
       parseSparkModelControlSnapshot(
         await transport("provider.auth.api-key.set", { providerName, apiKey, ...extra }),
+      ),
+    importPiAuth: async (input) =>
+      parseSparkAuthImportReport(
+        await transport("provider.auth.import.pi", {
+          sourcePath: input.sourcePath,
+          overwrite: input.overwrite ?? false,
+        }),
       ),
     logout: async (providerName) => {
       const result = await transport("provider.auth.logout", { providerName });
