@@ -25,8 +25,8 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "@cursor/sdk": "1.0.23",
-    "@earendil-works/pi-ai": "^0.82.1",
+    "@cursor/sdk": "1.0.26",
+    "@earendil-works/pi-ai": "^0.83.0",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-retry": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
