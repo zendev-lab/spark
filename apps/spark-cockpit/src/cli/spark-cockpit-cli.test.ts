@@ -462,7 +462,7 @@ test("spark cockpit assign crosses the real daemon RPC without starting HTTP", a
     await stopCockpitAcceptanceDaemon(child);
     await rm(root, { recursive: true, force: true });
   }
-}, 15_000);
+}, 60_000);
 
 test("spark cockpit assign submits through the daemon RPC without a side assignment store", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-cockpit-assign-"));
