@@ -21,6 +21,7 @@ import type {
   SparkHumanRpcErrorCode,
   SparkInvocationRpcErrorCode,
   SparkModelRpcErrorCode,
+  SparkTaskClaimRpcErrorCode,
   SparkUplinkRpcErrorCode,
   SparkWorkspaceRpcErrorCode,
 } from "./daemon-rpc-errors.ts";
@@ -89,6 +90,12 @@ import {
   sparkSideThreadSubmitRequestSchema,
   sparkSideThreadSubmitResultSchema,
 } from "./side-thread.ts";
+import {
+  sparkTaskClaimAcquireRequestSchema,
+  sparkTaskClaimMutationResultSchema,
+  sparkTaskClaimRecoverRequestSchema,
+  sparkTaskClaimReleaseRequestSchema,
+} from "./task-claim.ts";
 import { sparkSessionViewSchema } from "./protocol.ts";
 import { SPARK_PROTOCOL_VERSION } from "./version.ts";
 
@@ -232,6 +239,14 @@ export const sparkLocalRpcModelOrpcErrors = {
   provider_oauth_response_invalid: { status: 422 },
 } as const satisfies Record<SparkModelRpcErrorCode, SparkLocalRpcErrorSpec>;
 
+export const sparkLocalRpcTaskClaimOrpcErrors = {
+  task_claim_lease_invalid: { status: 403 },
+  task_claim_not_found: { status: 404 },
+  task_claim_conflict: { status: 409 },
+  task_claim_store_busy: { status: 503 },
+  task_claim_recovery_refused: { status: 409 },
+} as const satisfies Record<SparkTaskClaimRpcErrorCode, SparkLocalRpcErrorSpec>;
+
 export const sparkLocalRpcUplinkOrpcErrors = {
   uplink_url_invalid: { status: 422 },
   uplink_profile_not_found: { status: 404 },
@@ -290,6 +305,7 @@ export const sparkLocalRpcCommonOrpcErrors = {
   ...sparkLocalRpcModelOrpcErrors,
   ...sparkLocalRpcUplinkOrpcErrors,
   ...sparkLocalRpcWorkspaceOrpcErrors,
+  ...sparkLocalRpcTaskClaimOrpcErrors,
   ...sparkLocalRpcHumanOrpcErrors,
 } as const;
 
@@ -601,6 +617,11 @@ const sparkLocalRpcWorkspaceMutationOrpcErrors = {
 const sparkLocalRpcWorkspaceClientAttachOrpcErrors = {
   ...sparkLocalRpcWorkspaceMutationOrpcErrors,
   workspace_client_conflict: sparkLocalRpcWorkspaceOrpcErrors.workspace_client_conflict,
+} as const;
+
+const sparkLocalRpcReadinessTaskClaimOrpcErrors = {
+  ...sparkLocalRpcReadinessOrpcErrors,
+  ...sparkLocalRpcTaskClaimOrpcErrors,
 } as const;
 
 const sparkLocalRpcWorkspaceClientMutationOrpcErrors = {
@@ -1250,6 +1271,18 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkLocalRpcWorkspaceExecutorEnsureRequestSchema,
     output: sparkLocalRpcWorkspaceClientResultSchema,
   },
+  "task.claim.acquire": {
+    input: sparkTaskClaimAcquireRequestSchema,
+    output: sparkTaskClaimMutationResultSchema,
+  },
+  "task.claim.release": {
+    input: sparkTaskClaimReleaseRequestSchema,
+    output: sparkTaskClaimMutationResultSchema,
+  },
+  "task.claim.recover": {
+    input: sparkTaskClaimRecoverRequestSchema,
+    output: sparkTaskClaimMutationResultSchema,
+  },
   "workspace.transfer.pending": {
     input: z.object({ workspaceId: z.string().min(1).optional() }).default({}),
     output: sparkLocalRpcWorkspaceTransferPendingResultSchema,
@@ -1625,6 +1658,28 @@ export const sparkLocalRpcOrpcContract = {
         "/workspace/transfer/respond",
         p["workspace.transfer.respond"],
         sparkLocalRpcWorkspaceTransferOrpcErrors,
+      ),
+    },
+  },
+  task: {
+    claim: {
+      acquire: procedure(
+        "POST",
+        "/task/claim/acquire",
+        p["task.claim.acquire"],
+        sparkLocalRpcReadinessTaskClaimOrpcErrors,
+      ),
+      release: procedure(
+        "POST",
+        "/task/claim/release",
+        p["task.claim.release"],
+        sparkLocalRpcReadinessTaskClaimOrpcErrors,
+      ),
+      recover: procedure(
+        "POST",
+        "/task/claim/recover",
+        p["task.claim.recover"],
+        sparkLocalRpcReadinessTaskClaimOrpcErrors,
       ),
     },
   },

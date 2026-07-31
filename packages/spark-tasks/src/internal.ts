@@ -1386,7 +1386,9 @@ export function cloneTodos(todos: TaskTodo[]): TaskTodo[] {
   }));
 }
 
-export function isUnfinishedTaskStatus(status: Task["status"]): boolean {
+export function isUnfinishedTaskStatus(
+  status: Task["status"],
+): status is Exclude<Task["status"], "done" | "failed" | "cancelled"> {
   return status !== "done" && status !== "failed" && status !== "cancelled";
 }
 

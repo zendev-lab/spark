@@ -13,7 +13,7 @@ import {
   listActiveSparkRoleRunProcesses,
   runSparkTask,
 } from "@zendev-lab/spark-runtime";
-import type { RunRef, TaskPlan } from "@zendev-lab/spark-core";
+import { stableId, type RunRef, type TaskPlan } from "@zendev-lab/spark-core";
 import { TaskGraph, defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { setSessionGoal, updateSessionGoalStatus } from "../packages/spark-loop/src/index.ts";
 
@@ -55,6 +55,40 @@ function requireTool(tools: Map<string, SparkToolConfig>, name: string): SparkTo
   const tool = tools.get(name);
   assert.ok(tool, `missing tool registration: ${name}`);
   return tool;
+}
+
+function widgetTaskClaimDaemonClient(): NonNullable<SparkPi["taskClaimDaemonClient"]> {
+  return {
+    async acquire(ctx, input) {
+      const sessionFile = ctx.sessionManager?.getSessionFile?.();
+      assert.ok(sessionFile);
+      const sessionId = `session:${stableId(sessionFile)}`;
+      const updated = await defaultTaskGraphStore(ctx.cwd).update((graph) =>
+        graph.claimTask(input.taskRef as `task:${string}`, {
+          kind: "main",
+          claimedBy: sessionId,
+          sessionId,
+          leaseMs: 3 * 60_000,
+        }),
+      );
+      const task = updated.result;
+      return {
+        taskRef: task.ref,
+        projectRef: task.projectRef,
+        sessionId,
+        outcome: "acquired",
+        changed: true,
+        observedAt: task.claim!.heartbeatAt,
+        claim: task.claim!,
+      };
+    },
+    async recover() {
+      throw new Error("not used by widget refresh test");
+    },
+    async release() {
+      throw new Error("not used by widget refresh test");
+    },
+  };
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {
@@ -440,6 +474,7 @@ test("Spark extension refreshes SparkWidget after claim and TODO tools", async (
       },
     };
     const pi: SparkPi = {
+      taskClaimDaemonClient: widgetTaskClaimDaemonClient(),
       registerCommand() {},
       registerTool(config) {
         tools.set(config.name, config);

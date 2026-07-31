@@ -3,6 +3,7 @@ import type {
   ExtensionInteractionResponse,
   ExtensionRoleRunner,
   SparkHostDriverContext,
+  SparkSessionLeaseIdentity,
 } from "@zendev-lab/spark-core";
 import type { ToolCallComponent, ToolCallRenderTheme } from "./tool-rendering.ts";
 import type { SparkDriveModeInput } from "./spark-drive-state.ts";
@@ -43,6 +44,7 @@ export interface SparkToolContext {
   sessionId?: string;
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
+  sessionLease?: () => SparkSessionLeaseIdentity | undefined;
   invocationId?: string;
   driver?: SparkHostDriverContext;
   /** Command-host bridge for dispatching a turn through an externally owned session runtime. */

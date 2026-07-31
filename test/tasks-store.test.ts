@@ -2334,7 +2334,7 @@ test("expired claim sweeper persists retryable stale claims", async () => {
   }
 });
 
-test("expired claim sweeper skips persistence when no claims expire", async () => {
+test("role-run claim sweeper never expires daemon-owned main claims", async () => {
   const graph = new TaskGraph();
   const project = graph.createProject({ title: "Demo", description: "demo" });
   const task = graph.createTask({
@@ -2360,7 +2360,7 @@ test("expired claim sweeper skips persistence when no claims expire", async () =
     },
   };
 
-  const result = await sweepExpiredTaskClaims(store, "2026-05-18T00:00:01.000Z");
+  const result = await sweepExpiredTaskClaims(store, "2026-05-18T00:00:20.000Z");
   assert.equal(result.saved, false);
   assert.equal(result.expired.length, 0);
   assert.equal(saveCalls, 0);

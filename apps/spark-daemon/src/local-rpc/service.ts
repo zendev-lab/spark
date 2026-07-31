@@ -19,6 +19,7 @@ import { handleHumanRequest } from "./handlers/human.ts";
 import { handleModelRequest } from "./handlers/model.ts";
 import { handleSessionRequest } from "./handlers/session.ts";
 import { handleSideThreadRequest } from "./handlers/side-thread.ts";
+import { handleTaskClaimRequest } from "./handlers/task-claim.ts";
 import { handleTurnRequest } from "./handlers/turn.ts";
 import { handleUplinkRequest } from "./handlers/uplink.ts";
 import { handleWorkspaceRequest } from "./handlers/workspace.ts";
@@ -80,6 +81,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "workspace.client.release",
     "workspace.executor.ensure",
   ],
+  taskClaim: ["task.claim.acquire", "task.claim.release", "task.claim.recover"],
   session: [
     "session.notification.deliver",
     "session.list",
@@ -222,6 +224,9 @@ async function dispatchLocalRpcServiceRequest(
   }
   if (requestBelongsToHandlerGroup(request, "workspace")) {
     return handleWorkspaceRequest(context, request);
+  }
+  if (requestBelongsToHandlerGroup(request, "taskClaim")) {
+    return handleTaskClaimRequest(context, request);
   }
   if (requestBelongsToHandlerGroup(request, "session")) {
     return handleSessionRequest(context, request);

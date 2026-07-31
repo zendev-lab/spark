@@ -1,7 +1,6 @@
 import { defaultTaskGraphStore, type TaskGraph } from "@zendev-lab/spark-tasks";
 import { renderActiveSparkContext } from "./spark-active-context.ts";
 import { ensureLocalSparkDirectory, readActiveSparkMd } from "./spark-activation.ts";
-import { ensureSparkClaimReaper, sweepExpiredSparkClaims } from "./spark-claim-reaper.ts";
 import { ensureSparkGraphInvariants } from "./spark-graph-invariants.ts";
 import {
   currentSparkProject,
@@ -104,11 +103,8 @@ export async function renderActiveSparkContextSummary(
 export async function ensureSparkStateForActiveWorkspace(
   cwd: string,
   ctx?: SparkSessionContext,
-  options: { skipSweep?: boolean } = {},
 ): Promise<TaskGraph | null> {
   await ensureLocalSparkDirectory(cwd);
-  if (!options.skipSweep) await sweepExpiredSparkClaims(cwd, ctx);
-  ensureSparkClaimReaper(cwd);
   return loadSparkGraph(cwd, ctx);
 }
 

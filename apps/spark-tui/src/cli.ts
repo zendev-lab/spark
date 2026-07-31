@@ -1192,6 +1192,16 @@ export async function runSparkCli(
                   sessionId: currentSessionIdentity,
                 })
               : undefined;
+          services.runtime.setSessionLeaseProvider(() => {
+            const current = sessionHeartbeat?.lease;
+            if (!current) return undefined;
+            return {
+              workspaceId: current.workspaceId,
+              clientId: current.clientId,
+              leaseFence: current.leaseFence,
+              sessionId: current.sessionId,
+            };
+          });
           try {
             await runTui({
               initialMessage,
@@ -1284,6 +1294,7 @@ export async function runSparkCli(
               },
             });
           } finally {
+            services.runtime.setSessionLeaseProvider(undefined);
             await stopSparkSessionHeartbeat(sessionHeartbeat, (message) => {
               if (pendingNativeUiTransport?.notify) {
                 pendingNativeUiTransport.notify(message, "warning");

@@ -1,8 +1,3 @@
-/**
- * oRPC router for local-rpc methods.
- *
- * Every contracted method calls the transport-neutral daemon service directly.
- */
 import type { DatabaseSync } from "node:sqlite";
 import { ORPCError, implement } from "@orpc/server";
 import {
@@ -168,6 +163,19 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
         ),
         respond: os.workspace.transfer.respond.handler(async ({ input: params }) =>
           invoke("workspace.transfer.respond", params),
+        ),
+      },
+    },
+    task: {
+      claim: {
+        acquire: os.task.claim.acquire.handler(async ({ input: params }) =>
+          invoke("task.claim.acquire", params),
+        ),
+        release: os.task.claim.release.handler(async ({ input: params }) =>
+          invoke("task.claim.release", params),
+        ),
+        recover: os.task.claim.recover.handler(async ({ input: params }) =>
+          invoke("task.claim.recover", params),
         ),
       },
     },

@@ -54,6 +54,10 @@ import { SparkWidgetController } from "./spark-widget-controller.ts";
 import { createSparkTurnContextController } from "./spark-turn-context-controller.ts";
 import { createSparkSessionHeartbeatController } from "./spark-session-heartbeat.ts";
 import {
+  createSparkTaskClaimDaemonClient,
+  type SparkTaskClaimDaemonClient,
+} from "./spark-task-claim-daemon-client.ts";
+import {
   createSparkSessionTodoContextProvider,
   SPARK_SESSION_TODO_CONTEXT_PROVIDER_ID,
 } from "./spark-session-todo-context.ts";
@@ -77,6 +81,8 @@ import { registerSparkReproRoles } from "./spark-repro-roles.ts";
 interface SparkProductFacadeApi extends SparkCommandApi {
   /** Host/test override; production defaults to the daemon local RPC client. */
   driverControl?: SparkDaemonDriverControl;
+  /** Test/compatible-host override; production claim authority remains daemon RPC. */
+  taskClaimDaemonClient?: SparkTaskClaimDaemonClient;
   registerTool?(config: SparkRegisteredToolConfig): void;
   registerInternalTool?(config: SparkRegisteredToolConfig): void;
   registerShortcut?(
@@ -130,6 +136,11 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     providerIds: [SPARK_SESSION_TODO_CONTEXT_PROVIDER_ID],
   });
   const sessionHeartbeatController = createSparkSessionHeartbeatController();
+  const taskClaimDaemonClient =
+    pi.taskClaimDaemonClient ??
+    createSparkTaskClaimDaemonClient({
+      fallbackLease: () => sessionHeartbeatController.lease(),
+    });
 
   async function refreshSparkWidget(cwd: string, ctx?: SparkToolContext): Promise<void> {
     await widgetController.refresh(cwd, ctx);
@@ -237,13 +248,20 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkFinishTaskTool(registerSparkImplementationTool, {
     refreshSparkWidget,
     createReviewerRunner,
+    taskClaimDaemonClient,
   });
 
   registerSparkProjectTools(registerSparkImplementationTool, { refreshSparkWidget });
 
-  registerSparkClaimTaskTool(registerSparkImplementationTool, { refreshSparkWidget });
+  registerSparkClaimTaskTool(registerSparkImplementationTool, {
+    refreshSparkWidget,
+    taskClaimDaemonClient,
+  });
 
-  registerSparkRecoverTaskClaimTool(registerSparkImplementationTool, { refreshSparkWidget });
+  registerSparkRecoverTaskClaimTool(registerSparkImplementationTool, {
+    refreshSparkWidget,
+    taskClaimDaemonClient,
+  });
 
   registerSparkReleaseTaskClaimTool(registerSparkImplementationTool, { refreshSparkWidget });
 

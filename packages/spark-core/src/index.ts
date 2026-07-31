@@ -717,6 +717,13 @@ export interface SparkDriverPolicyDefinition {
   retryDelaysMs: readonly number[];
 }
 
+export interface SparkSessionLeaseIdentity {
+  workspaceId: string;
+  clientId: string;
+  leaseFence: string;
+  sessionId: string;
+}
+
 export interface SparkHostContext {
   cwd?: string;
   /** Current Spark view/session identity for session-scoped extension state. */
@@ -727,6 +734,8 @@ export interface SparkHostContext {
   sessionSurface?: "local" | "channel";
   /** Origin label for hidden session-message metadata. */
   sessionSource?: SparkSessionMessageSource;
+  /** Current daemon-fenced session lease, supplied only by trusted local hosts. */
+  sessionLease?: () => SparkSessionLeaseIdentity | undefined;
   /** Current daemon invocation, available only in daemon-owned headless turns. */
   invocationId?: string;
   /** Present only inside a daemon-owned autonomous driver tick. */

@@ -40,12 +40,16 @@ import {
   recordSparkTaskClaimRecoveryEvidence,
   type SparkTaskClaimRecoveryDecision,
 } from "./task-claim-recovery.ts";
+import {
+  createSparkTaskClaimDaemonClient,
+  SparkDaemonSessionLeaseRequiredError,
+  type SparkTaskClaimDaemonClient,
+} from "./spark-task-claim-daemon-client.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
-
-const MAIN_TASK_CLAIM_LEASE_MS = 10 * 60 * 1_000;
 
 interface SparkClaimTaskToolDependencies {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
+  taskClaimDaemonClient?: SparkTaskClaimDaemonClient;
 }
 
 export interface NormalizedSparkClaimTaskInput {
@@ -84,6 +88,7 @@ export function registerSparkClaimTaskTool(
   registerSparkTool: SparkToolRegistrar,
   deps: SparkClaimTaskToolDependencies,
 ): void {
+  const taskClaimDaemonClient = deps.taskClaimDaemonClient ?? createSparkTaskClaimDaemonClient();
   registerSparkTool({
     name: "impl_claim_task",
     label: "Spark Claim Task",
@@ -181,14 +186,15 @@ export function registerSparkClaimTaskTool(
         };
       const workflowRunStatus = await defaultSparkWorkflowRunStore(cwd).status();
       const activeRoleRunProcesses = activeSparkRoleRunProcessesForCwd(cwd);
-      const claimed = await store.update(
-        async (graph) => {
+      const claimed = {
+        graph: existingGraph,
+        result: await (async (graph: TaskGraph) => {
           const project = input.projectSelector
             ? resolveClaimProject(graph, input.projectSelector)
             : await currentSparkProject(cwd, ctx, graph);
           if (!project) return { error: "no_project" as const };
           const tasks = graph.tasks(project.ref);
-          let existing =
+          const existing =
             resolveSessionClaimedTask(
               graph,
               project.ref,
@@ -226,8 +232,6 @@ export function registerSparkClaimTaskTool(
                 recoveredBy: sessionKey,
               })
             ).ref;
-            graph.releaseTaskClaim(existing.ref);
-            existing = graph.getTask(existing.ref);
           }
           const activeClaim = findActiveSessionClaim(graph, project.ref, sessionKey, existing?.ref);
           if (isUnfinishedTaskStatus(status) && activeClaim)
@@ -238,41 +242,16 @@ export function registerSparkClaimTaskTool(
             return { error: "task_plan_required" as const, issues: readiness.issues };
           const resolved = resolveClaimedTaskFields(input, existing);
           if (!resolved) return { error: "task_title_required" as const };
-          const requestedName = taskNamePatchForClaim(existing, input.name, input.title);
-          const namePatch = requestedName
-            ? uniqueTaskNameForExistingTask(tasks, requestedName, existing.ref)
-            : undefined;
-          const task = graph.updateTask(existing.ref, {
-            ...(namePatch ? { name: namePatch } : {}),
-            title: resolved.title,
-            description: resolved.description,
-            kind: resolved.kind,
-            status,
-            roleRef: input.roleRef ?? existing.roleRef,
-            plan: normalizeTaskPlan(resolved.plan, resolved.description, resolved.title),
-          });
-          if (isUnfinishedTaskStatus(status)) {
-            graph.claimTask(task.ref, {
-              kind: "main",
-              claimedBy: sessionKey,
-              sessionId: sessionKey,
-              roleRef: input.roleRef ?? task.roleRef,
-              leaseMs: MAIN_TASK_CLAIM_LEASE_MS,
-            });
-          }
-          if (!graph.taskTodos(task.ref).some(isActiveTaskTodo))
-            syncTaskPlanItemsFromPlan(graph, task);
-          const taskTodos = graph.taskTodos(task.ref);
-          const hasActiveTodos = taskTodos.some(isActiveTaskTodo);
           return {
-            task: graph.getTask(task.ref),
-            hasActiveTodos,
+            task: existing,
+            hasActiveTodos: graph.taskTodos(existing.ref).some(isActiveTaskTodo),
             recoveredClaimEvidenceRef,
             claimRecovery,
+            requestedName: taskNamePatchForClaim(existing, input.name, input.title),
+            resolved,
           };
-        },
-        { createIfMissing: false },
-      );
+        })(existingGraph),
+      };
       if (!claimed.graph || claimed.result.error === "no_project")
         return {
           content: [{ type: "text", text: NO_SPARK_PROJECT_FOUND_HINT }],
@@ -333,31 +312,193 @@ export function registerSparkClaimTaskTool(
             claimRecovery: claimed.result.claimRecovery,
           },
         };
-      await saveCurrentProjectRef(
-        cwd,
-        ctx,
-        claimed.result.task.projectRef,
-        claimed.result.task.ref,
-      );
-      await deps.refreshSparkWidget(cwd, ctx);
+      const prepared = claimed.result;
+      if (!prepared.task || !prepared.resolved) {
+        return {
+          content: [
+            { type: "text", text: "Task claim preflight did not produce a claimable task." },
+          ],
+          details: { found: true, error: "claim_preflight_incomplete" },
+          isError: true,
+        };
+      }
+      let daemonClaim: Awaited<ReturnType<SparkTaskClaimDaemonClient["acquire"]>>;
+      try {
+        daemonClaim = await taskClaimDaemonClient.acquire(ctx, {
+          taskRef: prepared.task.ref,
+          status,
+          roleRef: input.roleRef ?? prepared.task.roleRef,
+          recovery: taskClaimRecoveryIntent(
+            prepared.task,
+            prepared.claimRecovery,
+            prepared.recoveredClaimEvidenceRef,
+          ),
+        });
+      } catch (error) {
+        const leaseRequired = error instanceof SparkDaemonSessionLeaseRequiredError;
+        return {
+          content: [
+            {
+              type: "text",
+              text: leaseRequired
+                ? `Cannot claim ${claimInputLabel(input)}: a current daemon-fenced persistent session lease is required.`
+                : `Cannot claim ${claimInputLabel(input)} through Spark daemon authority: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+          details: {
+            found: true,
+            error: leaseRequired ? "daemon_session_lease_required" : "daemon_task_claim_failed",
+          },
+          isError: true,
+        };
+      }
+      let committed: {
+        graph: TaskGraph | null;
+        result: { error: "daemon_claim_lost" } | { task: Task; hasActiveTodos: boolean };
+      };
+      try {
+        committed = await store.update(
+          (graph) => {
+            const current = graph.getTask(prepared.task.ref);
+            if (!isClaimOwnedBySession(current, sessionKey)) {
+              return { error: "daemon_claim_lost" as const };
+            }
+            const tasks = graph.tasks(current.projectRef);
+            const namePatch = prepared.requestedName
+              ? uniqueTaskNameForExistingTask(tasks, prepared.requestedName, current.ref)
+              : undefined;
+            const task = graph.updateTask(current.ref, {
+              ...(namePatch ? { name: namePatch } : {}),
+              title: prepared.resolved.title,
+              description: prepared.resolved.description,
+              kind: prepared.resolved.kind,
+              roleRef: input.roleRef ?? current.roleRef,
+              plan: normalizeTaskPlan(
+                prepared.resolved.plan,
+                prepared.resolved.description,
+                prepared.resolved.title,
+              ),
+            });
+            if (!graph.taskTodos(task.ref).some(isActiveTaskTodo))
+              syncTaskPlanItemsFromPlan(graph, task);
+            return {
+              task: graph.getTask(task.ref),
+              hasActiveTodos: graph.taskTodos(task.ref).some(isActiveTaskTodo),
+            };
+          },
+          { createIfMissing: false },
+        );
+      } catch (error) {
+        return daemonClaimPartialSuccess(prepared.task, daemonClaim, status, [
+          `Local task metadata finalization failed: ${error instanceof Error ? error.message : String(error)}`,
+        ]);
+      }
+      const metadata = committed.result;
+      if (!committed.graph || "error" in metadata) {
+        return daemonClaimPartialSuccess(prepared.task, daemonClaim, status, [
+          "Daemon claim committed, but local task metadata could not confirm current ownership.",
+        ]);
+      }
+      const finalTask = metadata.task;
+      const hasActiveTodos = metadata.hasActiveTodos;
+      const postCommitWarnings: string[] = [];
+      try {
+        await saveCurrentProjectRef(cwd, ctx, finalTask.projectRef, finalTask.ref);
+      } catch (error) {
+        postCommitWarnings.push(
+          `Current project update failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      try {
+        await deps.refreshSparkWidget(cwd, ctx);
+      } catch (error) {
+        postCommitWarnings.push(
+          `Widget refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      const warningSuffix =
+        postCommitWarnings.length > 0
+          ? `\nPost-commit warnings: ${postCommitWarnings.join("; ")}`
+          : "";
       return {
         content: [
           {
             type: "text",
-            text: renderClaimedTaskText(claimed.result.task, claimed.result.hasActiveTodos, {
+            text: `${renderClaimedTaskText(finalTask, hasActiveTodos, {
               recoveredClaimEvidenceRef: claimed.result.recoveredClaimEvidenceRef,
               claimRecovery: claimed.result.claimRecovery,
-            }),
+            })}${warningSuffix}`,
           },
         ],
         details: {
-          task: claimed.result.task as unknown as Record<string, unknown>,
+          task: finalTask as unknown as Record<string, unknown>,
           recoveredClaimEvidenceRef: claimed.result.recoveredClaimEvidenceRef,
           claimRecovery: claimed.result.claimRecovery,
+          committed: true,
+          postCommitWarnings,
         },
       };
     },
   });
+}
+
+function daemonClaimPartialSuccess(
+  task: Task,
+  daemonClaim: Awaited<ReturnType<SparkTaskClaimDaemonClient["acquire"]>>,
+  status: ReturnType<typeof normalizeTaskStatus>,
+  postCommitWarnings: string[],
+) {
+  const projectedTask: Task = daemonClaim.claim
+    ? {
+        ...task,
+        ...(status ? { status } : {}),
+        claim: {
+          kind: "main",
+          claimedBy: daemonClaim.sessionId,
+          sessionId: daemonClaim.sessionId,
+          claimedAt: daemonClaim.claim.claimedAt,
+          heartbeatAt: daemonClaim.claim.heartbeatAt,
+          expiresAt: daemonClaim.claim.expiresAt,
+        },
+      }
+    : task;
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text:
+          `Claimed Spark task through daemon authority: @${task.name}: ${task.title} (${task.ref})\n` +
+          `Post-commit warnings: ${postCommitWarnings.join("; ")}\n` +
+          "The claim is committed; retry task_write claim to reconcile local metadata.",
+      },
+    ],
+    details: {
+      found: true,
+      committed: true,
+      partial: true,
+      task: projectedTask as unknown as Record<string, unknown>,
+      daemonClaim,
+      postCommitWarnings,
+    },
+  };
+}
+
+function taskClaimRecoveryIntent(
+  task: Task,
+  decision: SparkTaskClaimRecoveryDecision | undefined,
+  evidenceRef: EvidenceRef | undefined,
+): Parameters<SparkTaskClaimDaemonClient["acquire"]>[1]["recovery"] {
+  const reason = decision?.reason;
+  const previousSessionId = task.claim?.sessionId ?? task.claim?.claimedBy;
+  if (
+    !decision?.recoverable ||
+    !evidenceRef ||
+    !previousSessionId ||
+    (reason !== "claim_expired" && reason !== "review_needs_changes_owner_inactive")
+  ) {
+    return undefined;
+  }
+  return { previousSessionId, reason, evidenceRef };
 }
 
 interface ResolvedClaimedTaskFields {

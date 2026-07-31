@@ -21,7 +21,7 @@ import {
   defaultTaskGraphStore,
   isUnfinishedTaskStatus,
   taskCompletionReadiness,
-  type TaskGraph,
+  TaskGraph,
 } from "@zendev-lab/spark-tasks";
 import { currentSparkProject, saveCurrentProjectRef, sparkSessionKey } from "./session-state.ts";
 import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
@@ -38,10 +38,15 @@ import type {
   TaskReviewVerdict,
 } from "./reviewer-runner.ts";
 import { withSparkReviewerLease } from "./spark-reviewer-lease.ts";
+import {
+  finishSparkTaskClaim,
+  type SparkTaskClaimDaemonClient,
+} from "./spark-task-claim-daemon-client.ts";
 import { recordTaskSubjectReview } from "./subject-review-store.ts";
 
 interface SparkFinishTaskToolDependencies {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
+  taskClaimDaemonClient: SparkTaskClaimDaemonClient;
   createReviewerRunner?: (
     cwd: string,
     ctx: SparkToolContext,
@@ -82,6 +87,7 @@ interface FinishTaskSuccessResult {
   remainingReadyTasks: Task[];
   nextReady?: Task;
   projectCompletionCandidate: FinishProjectCompletionCandidate;
+  postCommitWarnings: string[];
 }
 
 interface FinishTaskErrorResult {
@@ -89,6 +95,11 @@ interface FinishTaskErrorResult {
 }
 
 type FinishCommitResult = FinishTaskSuccessResult | FinishTaskErrorResult;
+
+interface FinishCommitEnvelope {
+  graph: TaskGraph | null;
+  result: FinishCommitResult;
+}
 
 interface FollowUpDispositionSignal {
   source: string;
@@ -406,9 +417,9 @@ export function registerSparkFinishTaskTool(
         }
       }
 
-      let updated: Awaited<ReturnType<typeof store.update>>;
+      let updated: FinishCommitEnvelope;
       try {
-        updated = await commitFinishedTask(store, cwd, ctx, {
+        updated = await commitFinishedTask(store, cwd, ctx, deps.taskClaimDaemonClient, {
           ...input,
           evidenceRefs: finishEvidenceRefs,
         });
@@ -439,12 +450,31 @@ export function registerSparkFinishTaskTool(
         };
       }
       const finishedResult = finishResult;
-      await saveCurrentProjectRef(cwd, ctx, finishedResult.projectRef);
-      await deps.refreshSparkWidget(cwd, ctx);
-      const learningCandidate =
-        input.status === "done" && input.summary
-          ? await recordTaskLearningCandidate(cwd, finishedResult.task, input.summary)
-          : undefined;
+      const postCommitWarnings = [...finishedResult.postCommitWarnings];
+      try {
+        await saveCurrentProjectRef(cwd, ctx, finishedResult.projectRef);
+      } catch (error) {
+        postCommitWarnings.push(`Current project update failed: ${unknownErrorMessage(error)}`);
+      }
+      try {
+        await deps.refreshSparkWidget(cwd, ctx);
+      } catch (error) {
+        postCommitWarnings.push(`Widget refresh failed: ${unknownErrorMessage(error)}`);
+      }
+      let learningCandidate: Awaited<ReturnType<typeof recordTaskLearningCandidate>> | undefined;
+      if (input.status === "done" && input.summary) {
+        try {
+          learningCandidate = await recordTaskLearningCandidate(
+            cwd,
+            finishedResult.task,
+            input.summary,
+          );
+        } catch (error) {
+          postCommitWarnings.push(
+            `Learning candidate recording failed: ${unknownErrorMessage(error)}`,
+          );
+        }
+      }
       const summarySuffix = input.summary ? ` — ${truncateInline(input.summary, 160)}` : "";
       const completionIssueSuffix =
         finishedResult.completionReadiness && !finishedResult.completionReadiness.ready
@@ -458,12 +488,16 @@ export function registerSparkFinishTaskTool(
       const generatedEvidenceSuffix = generatedEvidence
         ? `\nEvidence recorded: ${generatedEvidence.ref}`
         : "";
+      const warningSuffix =
+        postCommitWarnings.length > 0
+          ? `\nPost-commit warnings: ${postCommitWarnings.join("; ")}`
+          : "";
       const executionSuffix = renderFinishNextStepSuffix(finishedResult.nextReady, input.status);
       return {
         content: [
           {
             type: "text",
-            text: `Finished Spark task: [${finishedResult.task.status}] @${finishedResult.task.name}: ${finishedResult.task.title}${summarySuffix}${completionIssueSuffix}${candidateSuffix}${generatedEvidenceSuffix}${executionSuffix}`,
+            text: `Finished Spark task: [${finishedResult.task.status}] @${finishedResult.task.name}: ${finishedResult.task.title}${summarySuffix}${completionIssueSuffix}${candidateSuffix}${generatedEvidenceSuffix}${warningSuffix}${executionSuffix}`,
           },
         ],
         details: renderFinishTransitionDetails({
@@ -483,6 +517,7 @@ export function registerSparkFinishTaskTool(
           remainingReadyTasks: finishedResult.remainingReadyTasks,
           projectCompletionCandidate: finishedResult.projectCompletionCandidate,
           nextReadyTask: finishedResult.nextReady,
+          postCommitWarnings,
           learningCandidate,
         }),
       };
@@ -730,9 +765,10 @@ async function commitFinishedTask(
   store: ReturnType<typeof defaultTaskGraphStore>,
   cwd: string,
   ctx: SparkToolContext,
+  taskClaimDaemonClient: SparkTaskClaimDaemonClient,
   input: NormalizedSparkFinishTaskInput,
-): Promise<Awaited<ReturnType<typeof store.update>>> {
-  return store.update(
+): Promise<FinishCommitEnvelope> {
+  const prepared = await store.update(
     async (graph) => {
       const project = await currentSparkProject(cwd, ctx, graph);
       if (!project) return { error: "no_project" as const };
@@ -741,24 +777,57 @@ async function commitFinishedTask(
       if (!task) return { error: "no_matching_claimed_task" as const };
       const statusBefore = task.status;
       task = attachFinishEvidenceRefs(graph, task, input.evidenceRefs);
-      const finished = graph.setTaskStatus(task.ref, input.status);
-      const completionReadiness =
-        input.status === "done" ? taskCompletionReadiness(finished) : undefined;
-      const progress = finishProjectProgress(graph, project.ref);
-      const nextReady = input.status === "done" ? progress.remainingReadyTasks[0] : undefined;
-      return {
-        task: finished,
-        statusBefore,
-        statusAfter: finished.status,
-        completionReadiness,
-        projectRef: project.ref,
-        remainingReadyTasks: progress.remainingReadyTasks,
-        nextReady,
-        projectCompletionCandidate: progress.projectCompletionCandidate,
-      } satisfies FinishTaskSuccessResult;
+      return { taskRef: task.ref, projectRef: project.ref, statusBefore };
     },
     { createIfMissing: false },
   );
+  if (!prepared.graph) return { graph: null, result: { error: "no_project" } };
+  if ("error" in prepared.result && prepared.result.error) {
+    return { graph: prepared.graph, result: prepared.result };
+  }
+
+  await finishSparkTaskClaim(taskClaimDaemonClient, ctx, {
+    taskRef: prepared.result.taskRef,
+    status: input.status,
+  });
+  const fallbackGraph = TaskGraph.fromSnapshot(prepared.graph.snapshot());
+  const fallbackTask = fallbackGraph.setTaskStatus(prepared.result.taskRef, input.status);
+  const postCommitWarnings: string[] = [];
+  let graph = fallbackGraph;
+  let finished = fallbackTask;
+  try {
+    const persisted = await store.load();
+    if (persisted) {
+      graph = persisted;
+      finished = persisted.getTask(prepared.result.taskRef);
+    } else {
+      postCommitWarnings.push(
+        "Task graph reload returned no graph; response uses committed projection.",
+      );
+    }
+  } catch (error) {
+    postCommitWarnings.push(
+      `Task graph reload failed after daemon commit; response uses committed projection: ${unknownErrorMessage(error)}`,
+    );
+  }
+  const completionReadiness =
+    input.status === "done" ? taskCompletionReadiness(finished) : undefined;
+  const progress = finishProjectProgress(graph, prepared.result.projectRef);
+  const nextReady = input.status === "done" ? progress.remainingReadyTasks[0] : undefined;
+  return {
+    graph,
+    result: {
+      task: finished,
+      statusBefore: prepared.result.statusBefore,
+      statusAfter: finished.status,
+      completionReadiness,
+      projectRef: prepared.result.projectRef,
+      remainingReadyTasks: progress.remainingReadyTasks,
+      nextReady,
+      projectCompletionCandidate: progress.projectCompletionCandidate,
+      postCommitWarnings,
+    } satisfies FinishTaskSuccessResult,
+  };
 }
 
 interface FinishTransitionDetailsInput {
@@ -779,6 +848,7 @@ interface FinishTransitionDetailsInput {
   generatedEvidenceRef?: EvidenceRef;
   remainingReadyTasks: Task[];
   projectCompletionCandidate: FinishProjectCompletionCandidate;
+  postCommitWarnings?: string[];
   nextReadyTask?: Task;
   learningCandidate?: { evidence: EvidenceRecord<LearningRecord>; location: LearningLocation };
 }
@@ -812,6 +882,7 @@ function renderFinishTransitionDetails(
     nextReadyTask: input.nextReadyTask ? compactTaskDetail(input.nextReadyTask) : undefined,
     remainingReadyTasks: input.remainingReadyTasks.map(compactTaskDetail),
     projectCompletionCandidate: input.projectCompletionCandidate,
+    postCommitWarnings: input.postCommitWarnings ?? [],
     learningCandidate,
     reviewRequired: input.reviewRequired,
     review: input.review,
