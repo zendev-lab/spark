@@ -7,6 +7,22 @@ import {
 } from "./evidence-migration-types.ts";
 import { isArtifactRef, isEvidenceRef } from "./evidence-migration-paths.ts";
 
+export type ReviewEvidenceStateFileKind = "global" | "goal" | "task";
+
+export function reviewEvidenceStateFileKind(
+  filePath: string,
+): ReviewEvidenceStateFileKind | undefined {
+  const normalized = filePath.replaceAll("\\", "/");
+  if (/^\.spark\/reviews\/[^/]+\.json$/u.test(normalized)) return "global";
+  if (/^\.spark\/sessions\/[^/]+\/goal-reviews\/[^/]+\/[^/]+\.json$/u.test(normalized)) {
+    return "goal";
+  }
+  if (/^\.spark\/projects\/[^/]+\/tasks\/[^/]+\/reviews\/[^/]+\.json$/u.test(normalized)) {
+    return "task";
+  }
+  return undefined;
+}
+
 export function rewriteStateRefs(
   value: unknown,
   filePath: string,
@@ -15,11 +31,21 @@ export function rewriteStateRefs(
   evidenceRefs: ReadonlySet<string>,
   issues: EvidenceMigrationIssueBuckets,
 ): { value: unknown; changed: number } {
+  const stateVersion = isRecord(value) ? value.version : undefined;
+  let collisionDetected = false;
+
   function visit(current: unknown, path: string[]): { value: unknown; changed: number } {
     if (typeof current === "string") {
       const mapped = mapping.get(current);
-      if (mapped) return { value: mapped, changed: 1 };
-      if (isLegacyArtifactNamedEvidenceFieldPath(path, filePath)) {
+      if (
+        mapped &&
+        (isEvidenceFieldPath(path) ||
+          isLegacyArtifactNamedEvidenceFieldPath(path) ||
+          !isArtifactFieldPath(path))
+      ) {
+        return { value: mapped, changed: 1 };
+      }
+      if (isLegacyArtifactNamedEvidenceFieldPath(path)) {
         return { value: current, changed: 0 };
       }
       if (isEvidenceFieldPath(path)) {
@@ -50,15 +76,35 @@ export function rewriteStateRefs(
       let changed = 0;
       const next: Record<string, unknown> = {};
       for (const [key, entry] of Object.entries(current)) {
-        const result = visit(entry, [...path, key]);
-        changed += result.changed;
-        next[key] = result.value;
+        const canonicalKey = canonicalEvidenceKeyForLegacyArtifactField(
+          [...path, key],
+          filePath,
+          stateVersion,
+        );
+        if (canonicalKey !== key && Object.hasOwn(current, canonicalKey)) {
+          collisionDetected = true;
+          issues.artifactMisclassified.push(
+            migrationIssue(
+              filePath,
+              "legacy_evidence_field_collision",
+              `${pathLabel([...path, key])} collides with ${pathLabel([...path, canonicalKey])}`,
+            ),
+          );
+          const result = visit(entry, [...path, key]);
+          changed += result.changed;
+          next[key] = result.value;
+          continue;
+        }
+        const result = visit(entry, [...path, canonicalKey]);
+        changed += result.changed + (canonicalKey === key ? 0 : 1);
+        next[canonicalKey] = result.value;
       }
       return { value: changed > 0 ? next : current, changed };
     }
     return { value: current, changed: 0 };
   }
-  return visit(value, []);
+  const rewritten = visit(value, []);
+  return collisionDetected ? { value, changed: 0 } : rewritten;
 }
 
 export function rewriteExactRefs(
@@ -264,21 +310,57 @@ function isEvidenceFieldPath(path: readonly string[]): boolean {
   );
 }
 
-function isLegacyArtifactNamedEvidenceFieldPath(
+function canonicalEvidenceKeyForLegacyArtifactField(
   path: readonly string[],
   filePath: string,
-): boolean {
+  stateVersion: unknown,
+): string {
+  const key = path.at(-1)!;
+  const normalizedFilePath = filePath.replaceAll("\\", "/");
+  const pathKey = path.join(".");
+  const reviewFile = reviewEvidenceStateFileKind(normalizedFilePath) !== undefined;
+  const askReceipt = /^\.spark\/asks\/evidence-receipts\/[^/]+\.json$/u.test(normalizedFilePath);
+  if (
+    key === "artifactRef" &&
+    ((reviewFile && (pathKey === "artifactRef" || pathKey === "reviews.[].artifactRef")) ||
+      (askReceipt && pathKey === "artifactRef"))
+  ) {
+    return "evidenceRef";
+  }
+  if (key !== "artifactRefs") return key;
+  if (
+    normalizedFilePath === ".spark/role-run-activity-events.json" &&
+    pathKey === "events.[].artifactRefs"
+  ) {
+    return "evidenceRefs";
+  }
+  if (
+    normalizedFilePath === ".spark/workflow-runs.json" &&
+    (pathKey === "runs.[].completionDigest.[].artifactRefs" ||
+      pathKey === "runs.[].completionFollowUp.completionDigest.[].artifactRefs")
+  ) {
+    return "evidenceRefs";
+  }
+  if (
+    stateVersion === 2 &&
+    /^\.spark\/projects\/[^/]+\/tasks\/[^/]+\/runs\/[^/]+\.json$/u.test(normalizedFilePath) &&
+    pathKey === "completionSummary.artifactRefs"
+  ) {
+    return "evidenceRefs";
+  }
+  return key;
+}
+
+function isLegacyArtifactNamedEvidenceFieldPath(path: readonly string[]): boolean {
   const keys = path.filter((segment) => segment !== "[]");
   if (!keys.includes("artifactRef")) return false;
-  // Subject-review and goal-review v1 records used `artifactRef` for internal Evidence.
-  // Their schema-v2 readers normalize the field in memory. The namespace migration keeps
-  // its original behavior: exact mapped refs are rewritten, while unmatched legacy values
-  // are not reclassified as canonical Artifact refs during dry-run or replay.
-  return (
-    keys.includes("lastReview") ||
-    /^\.spark\/reviews\//u.test(filePath) ||
-    /^\.spark\/sessions\/[^/]+\/goal-reviews\//u.test(filePath)
-  );
+  // Goal v1 state keeps this field name because its reader performs in-memory normalization.
+  // Review records and ask receipts are renamed by canonicalEvidenceKeyForLegacyArtifactField.
+  return keys.includes("lastReview");
+}
+
+function pathLabel(path: readonly string[]): string {
+  return path.join(".") || "<root>";
 }
 
 function isArtifactFieldPath(path: readonly string[]): boolean {

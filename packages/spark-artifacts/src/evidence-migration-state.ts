@@ -13,7 +13,7 @@ import {
   stateScanPathExcluded,
   workspacePath,
 } from "./evidence-migration-paths.ts";
-import { rewriteStateRefs } from "./evidence-migration-references.ts";
+import { reviewEvidenceStateFileKind, rewriteStateRefs } from "./evidence-migration-references.ts";
 import { addWriteOperation } from "./evidence-migration-operations.ts";
 import type { WorkspaceEvidenceInventory } from "./evidence-migration-scan.ts";
 
@@ -24,10 +24,8 @@ export async function discoverSchemaEvidenceRefs(
 ): Promise<void> {
   for (const relativePath of filesBefore.keys()) {
     const normalized = relativePath.replaceAll("\\", "/");
-    if (
-      !relativePath.endsWith(".json") ||
-      (!normalized.startsWith(".spark/reviews/") && !normalized.includes("/goal-reviews/"))
-    ) {
+    const reviewKind = reviewEvidenceStateFileKind(normalized);
+    if (!relativePath.endsWith(".json") || (reviewKind !== "global" && reviewKind !== "goal")) {
       continue;
     }
     let raw: unknown;
@@ -37,7 +35,12 @@ export async function discoverSchemaEvidenceRefs(
       continue;
     }
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) continue;
-    for (const key of ["artifactRef", "reviewArtifactRef"] as const) {
+    for (const key of [
+      "artifactRef",
+      "reviewArtifactRef",
+      "evidenceRef",
+      "reviewEvidenceRef",
+    ] as const) {
       const sourceRef = (raw as Record<string, unknown>)[key];
       if (typeof sourceRef !== "string") continue;
       if (sourceRef.startsWith("evidence:") && sourceRef.length > "evidence:".length) {
