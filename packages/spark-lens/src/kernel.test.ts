@@ -15,6 +15,10 @@ import {
   isWorkspaceRevisionCurrent,
   providersForRoute,
   OXFMT_PROVIDER_ID,
+  PYTHON_LENS_PROFILE,
+  RUFF_PROVIDER_ID,
+  RUSTFMT_PROVIDER_ID,
+  RUST_LENS_PROFILE,
   TYPESCRIPT_7_PROVIDER_ID,
   TYPESCRIPT_LSP_PROFILE,
   type Observation,
@@ -80,6 +84,21 @@ describe("provider trust and the TypeScript profile", () => {
       capability: "completion",
       owner: TYPESCRIPT_7_PROVIDER_ID,
     });
+  });
+
+  test("keeps Python and Rust formatter ownership exclusive", () => {
+    expect(PYTHON_LENS_PROFILE.routes).toContainEqual({
+      kind: "exclusive",
+      capability: "format",
+      owner: RUFF_PROVIDER_ID,
+    });
+    expect(RUST_LENS_PROFILE.routes).toContainEqual({
+      kind: "exclusive",
+      capability: "format",
+      owner: RUSTFMT_PROVIDER_ID,
+    });
+    expect(PYTHON_LENS_PROFILE.verificationObligations).toHaveLength(3);
+    expect(RUST_LENS_PROFILE.verificationObligations.length).toBeGreaterThanOrEqual(4);
   });
 });
 
