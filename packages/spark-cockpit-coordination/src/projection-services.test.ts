@@ -740,7 +740,7 @@ describe("projection services", () => {
     db.close();
   });
 
-  it("finalizes an existing registered workspace instead of inserting a duplicate slug", () => {
+  it("finalizes the workspace already leased to a registered binding", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
     const workspaceId = createId("ws");
     const leaseId = createId("wob");
@@ -756,10 +756,10 @@ describe("projection services", () => {
     ).run(leaseId, workspaceId, runtimeWorkspaceBindingId, now, now);
 
     const input = {
-      slug: "local-default",
-      name: "Local default",
+      slug: "spark-dev",
+      name: "Spark Dev",
       description: "Ready for work",
-      settings: { profileInputs: { workspaceSlug: "local-default" } },
+      settings: { profileInputs: { workspaceSlug: "spark-dev" } },
       profileSource: {
         sourceKind: "builtin" as const,
         profileId: "fresh",
@@ -792,13 +792,15 @@ describe("projection services", () => {
     };
     const workspace = db
       .prepare(
-        `SELECT name,
+        `SELECT slug,
+                name,
                 description,
                 settings_json AS settingsJson
          FROM workspaces
          WHERE id = ?`,
       )
       .get(workspaceId) as {
+      slug: string;
       name: string;
       description: string | null;
       settingsJson: string;
@@ -825,11 +827,12 @@ describe("projection services", () => {
     expect(finalizedAgain.id).toBe(workspaceId);
     expect(workspaceCount.count).toBe(1);
     expect(workspace).toMatchObject({
-      name: "Local default",
+      slug: "spark-dev",
+      name: "Spark Dev",
       description: "Ready for work",
     });
     expect(parseJson(workspace.settingsJson, "workspace settings")).toEqual({
-      profileInputs: { workspaceSlug: "local-default" },
+      profileInputs: { workspaceSlug: "spark-dev" },
     });
     expect(activeLeaseCount.count).toBe(1);
     expect(profileCount.count).toBe(1);

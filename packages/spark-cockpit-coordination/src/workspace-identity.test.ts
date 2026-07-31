@@ -109,4 +109,57 @@ describe("workspace directory identity", () => {
     expect(synced).toEqual({ name: "settings", slug: "workspace-settings" });
     db.close();
   });
+
+  it("keeps a finalized Cockpit identity while syncing the daemon binding label", () => {
+    const db = openMemoryDatabase();
+    migrate(db);
+    const now = "2026-07-20T00:00:00.000Z";
+    const runtimeId = createId("rt");
+    const bindingId = createId("rtwb");
+    const workspaceId = createId("ws");
+    db.prepare(
+      `INSERT INTO runtime_connections
+        (id, installation_id, name, status, protocol_version, capabilities_json, labels_json, created_at, updated_at)
+       VALUES (?, 'install-final', 'Runtime', 'online', '1', '{}', '{}', ?, ?)`,
+    ).run(runtimeId, now, now);
+    db.prepare(
+      `INSERT INTO runtime_workspace_bindings
+        (id, runtime_id, local_workspace_key, local_path, display_name, status, capabilities_json, diagnostics_json, created_at, updated_at)
+       VALUES (?, ?, 'spark', '/Users/test/workspaces/spark', 'old-label', 'available', '{}', '{}', ?, ?)`,
+    ).run(bindingId, runtimeId, now, now);
+    db.prepare(
+      `INSERT INTO workspaces
+        (id, slug, name, description, status, settings_json, created_at, updated_at)
+       VALUES (?, 'spark-dev', 'Spark Dev', NULL, 'active', '{}', ?, ?)`,
+    ).run(workspaceId, now, now);
+    db.prepare(
+      `INSERT INTO workspace_leases
+        (id, workspace_id, runtime_workspace_binding_id, owner_mode, started_at, ended_at, created_at)
+       VALUES (?, ?, ?, 'primary', ?, NULL, ?)`,
+    ).run(createId("wob"), workspaceId, bindingId, now, now);
+    db.prepare(
+      `INSERT INTO workspace_profile_sources
+        (id, workspace_id, source_kind, profile_id, profile_name, schema_version, created_at)
+       VALUES (?, ?, 'builtin', 'fresh', 'Fresh workspace', '1', ?)`,
+    ).run(createId("wpsrc"), workspaceId, now);
+
+    const synced = syncWorkspaceIdentityFromLocalPath(
+      db,
+      workspaceId,
+      "/Users/test/workspaces/spark",
+      "2026-07-20T00:01:00.000Z",
+    );
+
+    expect(synced).toEqual({ name: "Spark Dev", slug: "spark-dev" });
+    expect(db.prepare("SELECT slug, name FROM workspaces WHERE id = ?").get(workspaceId)).toEqual({
+      slug: "spark-dev",
+      name: "Spark Dev",
+    });
+    expect(
+      db
+        .prepare("SELECT display_name AS displayName FROM runtime_workspace_bindings WHERE id = ?")
+        .get(bindingId),
+    ).toEqual({ displayName: "spark" });
+    db.close();
+  });
 });

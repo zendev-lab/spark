@@ -58,8 +58,11 @@ export function resolveWorkspaceDirectoryDisplayName(input: {
 }
 
 /**
- * Keep workspaces.name/slug and the active lease binding display_name aligned
- * with the bound local directory. Reserved or colliding slugs keep the current slug.
+ * Keep a registration placeholder aligned with its daemon-local directory.
+ *
+ * Once a workspace profile has been finalized, Cockpit owns its configured
+ * name/slug while the daemon continues to own the binding path/display name.
+ * Reserved or colliding placeholder slugs keep their current slug.
  */
 export function syncWorkspaceIdentityFromLocalPath(
   db: DatabaseSync,
@@ -72,30 +75,44 @@ export function syncWorkspaceIdentityFromLocalPath(
 
   const current = db
     .prepare(
-      `SELECT id, slug, name
+      `SELECT w.id,
+              w.slug,
+              w.name,
+              EXISTS (
+                SELECT 1
+                FROM workspace_profile_sources wps
+                WHERE wps.workspace_id = w.id
+              ) AS profileConfigured
        FROM workspaces
+       w
        WHERE id = ? AND status = 'active'
        LIMIT 1`,
     )
-    .get(workspaceId) as { id: string; slug: string; name: string } | undefined;
+    .get(workspaceId) as
+    | { id: string; slug: string; name: string; profileConfigured: number }
+    | undefined;
   if (!current) return null;
 
+  let nextName = current.name;
   let nextSlug = current.slug;
-  if (
-    identity.slug !== current.slug &&
-    !isReservedWorkbenchPathSegment(identity.slug) &&
-    !activeWorkspaceSlugTaken(db, identity.slug, workspaceId)
-  ) {
-    nextSlug = identity.slug;
-  }
+  if (!current.profileConfigured) {
+    nextName = identity.name;
+    if (
+      identity.slug !== current.slug &&
+      !isReservedWorkbenchPathSegment(identity.slug) &&
+      !activeWorkspaceSlugTaken(db, identity.slug, workspaceId)
+    ) {
+      nextSlug = identity.slug;
+    }
 
-  db.prepare(
-    `UPDATE workspaces
-     SET name = ?,
-         slug = ?,
-         updated_at = ?
-     WHERE id = ?`,
-  ).run(identity.name, nextSlug, now, workspaceId);
+    db.prepare(
+      `UPDATE workspaces
+       SET name = ?,
+           slug = ?,
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(nextName, nextSlug, now, workspaceId);
+  }
 
   db.prepare(
     `UPDATE runtime_workspace_bindings
@@ -109,7 +126,7 @@ export function syncWorkspaceIdentityFromLocalPath(
      )`,
   ).run(identity.name, now, workspaceId);
 
-  return { name: identity.name, slug: nextSlug };
+  return { name: nextName, slug: nextSlug };
 }
 
 function activeWorkspaceSlugTaken(db: DatabaseSync, slug: string, workspaceId: string): boolean {

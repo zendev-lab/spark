@@ -109,6 +109,7 @@ export interface CreateWorkspaceWithLeaseInput extends CreateWorkspaceInput {
 
 export interface WorkspaceProjection {
   id: string;
+  slug: string;
   /** Active Cockpit origin lease id. */
   leaseId: string;
   createdAt: string;
@@ -127,17 +128,41 @@ export function createWorkspaceWithLease(db: DatabaseSync, input: CreateWorkspac
       );
     }
 
-    const existing = db
+    const existingForBinding = db
+      .prepare(
+        `SELECT w.id,
+                w.slug,
+                w.created_at AS createdAt
+         FROM workspace_leases wob
+         JOIN workspaces w ON w.id = wob.workspace_id
+         WHERE wob.runtime_workspace_binding_id = ?
+           AND wob.ended_at IS NULL
+           AND w.status = 'active'
+         LIMIT 1`,
+      )
+      .get(input.runtimeWorkspaceBindingId) as
+      | { id: string; slug: string; createdAt: string }
+      | undefined;
+    const existingForSlug = db
       .prepare(
         `SELECT id,
+                slug,
                 created_at AS createdAt
          FROM workspaces
          WHERE slug = ? AND status = 'active'
          LIMIT 1`,
       )
-      .get(input.slug) as { id: string; createdAt: string } | undefined;
+      .get(input.slug) as { id: string; slug: string; createdAt: string } | undefined;
+    if (existingForBinding && existingForSlug && existingForBinding.id !== existingForSlug.id) {
+      throw new Error(`Workspace slug is already in use: ${input.slug}`);
+    }
 
-    return upsertWorkspaceProjection(db, input, input.runtimeWorkspaceBindingId, existing ?? null);
+    return upsertWorkspaceProjection(
+      db,
+      input,
+      input.runtimeWorkspaceBindingId,
+      existingForBinding ?? existingForSlug ?? null,
+    );
   });
 }
 
@@ -333,11 +358,12 @@ function upsertWorkspaceProjection(
   db: DatabaseSync,
   input: CreateWorkspaceInput,
   runtimeWorkspaceBindingId: string,
-  existing: { id: string; createdAt: string } | null,
+  existing: { id: string; slug: string; createdAt: string } | null,
 ): WorkspaceProjection {
   const timestamp = input.createdAt ?? nowIso();
   const workspace = {
     id: existing?.id ?? createId("ws"),
+    slug: input.slug,
     createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp,
   };
@@ -345,12 +371,14 @@ function upsertWorkspaceProjection(
   if (existing) {
     db.prepare(
       `UPDATE workspaces
-       SET name = ?,
+       SET slug = ?,
+           name = ?,
            description = ?,
            settings_json = ?,
            updated_at = ?
        WHERE id = ?`,
     ).run(
+      input.slug,
       input.name,
       input.description ?? null,
       toJson(input.settings ?? {}),
