@@ -1,4 +1,4 @@
-import type { ToolEffect } from "@zendev-lab/spark-core";
+import type { SparkSessionLeaseIdentity, ToolEffect } from "@zendev-lab/spark-core";
 import type { SparkConfig } from "./config.ts";
 import type { SparkExtensionLoadResult } from "./extension-loader.ts";
 import type { SparkKeybindings } from "./keybindings.ts";
@@ -58,6 +58,7 @@ export interface SparkCliHostServicesOptions {
   sparkStateRoot?: string;
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
+  sessionLease?: SparkSessionLeaseIdentity;
   channelBinding?: SparkHostRuntimeOptions["channelBinding"];
   invocationId?: string;
   stateOwnerSessionId?: string;

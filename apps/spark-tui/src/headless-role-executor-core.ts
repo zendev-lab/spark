@@ -13,6 +13,7 @@ import type {
   RoleRef,
   RunRef,
   SparkHostDriverContext,
+  SparkSessionLeaseIdentity,
   ToolConfig,
   ToolEffect,
 } from "@zendev-lab/spark-core";
@@ -106,6 +107,8 @@ export interface SparkHeadlessSessionRunInput {
   sparkHome?: string;
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
+  /** Daemon-issued lease for the exact persistent session running this turn. */
+  sessionLease?: SparkSessionLeaseIdentity;
   channelBinding?: {
     adapter: "feishu" | "infoflow" | "qqbot";
     externalKey: string;
@@ -180,6 +183,7 @@ export async function runSparkHeadlessSession(
     // supplies shared config/auth paths via controlPlaneServicePaths.
     sessionSurface: input.sessionSurface,
     sessionSource: input.sessionSource,
+    sessionLease: input.sessionLease,
     channelBinding: input.channelBinding,
     invocationId: input.invocationId,
     stateOwnerSessionId: input.stateOwnerSessionId,

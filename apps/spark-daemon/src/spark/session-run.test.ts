@@ -60,19 +60,33 @@ function driverContext(
 }
 
 describe("daemon native session execution", () => {
-  it("wakes the owner Repro driver after a managed Task Session settles", async () => {
+  it("passes and releases the daemon-fenced lease for a managed Task Session", async () => {
     const wakeOwner = vi.fn();
+    const release = vi.fn();
+    const executeSession = vi.fn(async () => ({
+      assistantText: "done",
+      sessionPath: "/tmp/sess_task_execution.jsonl",
+    }));
     const task: SparkDaemonSessionRunTask = {
       type: "session.run",
       sessionId: "sess_task_execution",
       prompt: "execute the bound task",
+      workspaceId: "workspace-task",
     };
     const executor = createSparkDaemonTaskExecutor({
       paths,
-      createSparkHeadlessSessionExecutor: () => async () => ({
-        assistantText: "done",
-        sessionPath: "/tmp/sess_task_execution.jsonl",
-      }),
+      createSparkHeadlessSessionExecutor: () => executeSession,
+      sessionLeaseControl: {
+        acquire: vi.fn(async () => ({
+          identity: {
+            workspaceId: "workspace-task",
+            clientId: "client-task",
+            sessionId: "session:sess_task_execution",
+            leaseFence: "fence-task",
+          },
+          release,
+        })),
+      },
       sessionRegistry: {
         get: vi.fn(
           async () =>
@@ -104,10 +118,52 @@ describe("daemon native session execution", () => {
 
     await executor(task, context(task));
 
+    expect(executeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "sess_task_execution",
+        sessionLease: {
+          workspaceId: "workspace-task",
+          clientId: "client-task",
+          sessionId: "session:sess_task_execution",
+          leaseFence: "fence-task",
+        },
+      }),
+    );
+    expect(release).toHaveBeenCalledOnce();
     expect(wakeOwner).toHaveBeenCalledWith("sess_owner", {
       kind: "repro",
       reason: expect.stringContaining("task:probe"),
     });
+  });
+
+  it("releases the managed Task Session lease when headless execution fails", async () => {
+    const release = vi.fn();
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_task_failure",
+      prompt: "fail",
+      workspaceId: "workspace-task",
+    };
+    const executor = createSparkDaemonTaskExecutor({
+      paths,
+      createSparkHeadlessSessionExecutor: () => async () => {
+        throw new Error("headless failure");
+      },
+      sessionLeaseControl: {
+        acquire: vi.fn(async () => ({
+          identity: {
+            workspaceId: "workspace-task",
+            clientId: "client-task-failure",
+            sessionId: "session:sess_task_failure",
+            leaseFence: "fence-task-failure",
+          },
+          release,
+        })),
+      },
+    });
+
+    await expect(executor(task, context(task))).rejects.toThrow("headless failure");
+    expect(release).toHaveBeenCalledOnce();
   });
 
   it("autoloads the built-in repro skill only on generation one until its checkpoint persists", async () => {

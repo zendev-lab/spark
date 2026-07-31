@@ -15,6 +15,7 @@ import {
   type RoleRef,
   type Task,
   type TaskCompletionReadiness,
+  type TaskRef,
   type TaskStatus,
 } from "@zendev-lab/spark-core";
 import {
@@ -777,13 +778,22 @@ async function commitFinishedTask(
       if (!task) return { error: "no_matching_claimed_task" as const };
       const statusBefore = task.status;
       task = attachFinishEvidenceRefs(graph, task, input.evidenceRefs);
-      return { taskRef: task.ref, projectRef: project.ref, statusBefore };
+      return {
+        taskRef: task.ref,
+        projectRef: project.ref,
+        statusBefore,
+        claimKind: task.claim?.kind,
+      };
     },
     { createIfMissing: false },
   );
   if (!prepared.graph) return { graph: null, result: { error: "no_project" } };
   if ("error" in prepared.result && prepared.result.error) {
     return { graph: prepared.graph, result: prepared.result };
+  }
+
+  if (prepared.result.claimKind === "role-run") {
+    return await commitRoleRunFinishedTask(store, cwd, ctx, prepared.result.taskRef, input.status);
   }
 
   await finishSparkTaskClaim(taskClaimDaemonClient, ctx, {
@@ -828,6 +838,43 @@ async function commitFinishedTask(
       postCommitWarnings,
     } satisfies FinishTaskSuccessResult,
   };
+}
+
+async function commitRoleRunFinishedTask(
+  store: ReturnType<typeof defaultTaskGraphStore>,
+  cwd: string,
+  ctx: SparkToolContext,
+  taskRef: TaskRef,
+  status: "done" | "failed" | "cancelled",
+): Promise<FinishCommitEnvelope> {
+  const committed = await store.update(
+    async (graph) => {
+      const project = await currentSparkProject(cwd, ctx, graph);
+      if (!project) return { error: "no_project" as const };
+      const task = resolveSessionClaimedTask(graph, project.ref, sparkSessionKey(ctx), taskRef);
+      if (!task || task.claim?.kind !== "role-run") {
+        return { error: "no_matching_claimed_task" as const };
+      }
+      const statusBefore = task.status;
+      const finished = graph.setTaskStatus(task.ref, status);
+      const completionReadiness = status === "done" ? taskCompletionReadiness(finished) : undefined;
+      const progress = finishProjectProgress(graph, project.ref);
+      return {
+        task: finished,
+        statusBefore,
+        statusAfter: finished.status,
+        completionReadiness,
+        projectRef: project.ref,
+        remainingReadyTasks: progress.remainingReadyTasks,
+        nextReady: status === "done" ? progress.remainingReadyTasks[0] : undefined,
+        projectCompletionCandidate: progress.projectCompletionCandidate,
+        postCommitWarnings: [],
+      } satisfies FinishTaskSuccessResult;
+    },
+    { createIfMissing: false },
+  );
+  if (!committed.graph) return { graph: null, result: { error: "no_project" } };
+  return { graph: committed.graph, result: committed.result };
 }
 
 interface FinishTransitionDetailsInput {

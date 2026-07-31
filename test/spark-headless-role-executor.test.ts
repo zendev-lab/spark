@@ -23,6 +23,12 @@ test("runSparkHeadlessSession times out a never-resolving agent turn", async () 
   let capturedServiceOptions:
     | {
         sessionSurface?: "local" | "channel";
+        sessionLease?: {
+          workspaceId: string;
+          clientId: string;
+          sessionId: string;
+          leaseFence: string;
+        };
         channelBinding?: { adapter: "feishu" | "infoflow" | "qqbot"; externalKey: string };
         allowedTools?: readonly string[];
         sparkStateRoot?: string;
@@ -71,6 +77,12 @@ test("runSparkHeadlessSession times out a never-resolving agent turn", async () 
         prompt: "hang",
         timeoutMs: 10,
         sessionSurface: "channel",
+        sessionLease: {
+          workspaceId: "workspace-1",
+          clientId: "client-1",
+          sessionId: "session:session-timeout",
+          leaseFence: "fence-1",
+        },
         channelBinding: { adapter: "qqbot", externalKey: "qqbot:c2c:user-1" },
         allowedTools: ["session"],
       },
@@ -87,6 +99,12 @@ test("runSparkHeadlessSession times out a never-resolving agent turn", async () 
 
   assert.equal(abortedReason, "Spark headless session timed out after 10ms");
   assert.equal(capturedServiceOptions?.sessionSurface, "channel");
+  assert.deepEqual(capturedServiceOptions?.sessionLease, {
+    workspaceId: "workspace-1",
+    clientId: "client-1",
+    sessionId: "session:session-timeout",
+    leaseFence: "fence-1",
+  });
   assert.deepEqual(capturedServiceOptions?.channelBinding, {
     adapter: "qqbot",
     externalKey: "qqbot:c2c:user-1",
