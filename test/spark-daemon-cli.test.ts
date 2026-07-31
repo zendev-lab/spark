@@ -14,6 +14,7 @@ import { SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
 import { parseSparkDaemonEvent, parseSparkInteractionRequest } from "@zendev-lab/spark-protocol";
 
 import {
+  formatSparkCliFailure,
   handleSparkRpcLine,
   parseSparkCliCommand,
   runSparkCli,
@@ -374,6 +375,22 @@ test("parseSparkCliCommand routes daemon and print commands without changing def
         workspaceId: "ws_demo",
       },
     },
+  );
+});
+
+test("Spark CLI failures are concise and honor JSON mode before the option delimiter", () => {
+  const failure = new Error("Configure a model before submitting.");
+  assert.equal(formatSparkCliFailure(failure, ["daemon", "submit"]), failure.message);
+  assert.deepEqual(JSON.parse(formatSparkCliFailure(failure, ["daemon", "submit", "--json"])), {
+    action: "error",
+    error: {
+      code: "cli_error",
+      message: failure.message,
+    },
+  });
+  assert.equal(
+    formatSparkCliFailure(failure, ["daemon", "submit", "--", "--json"]),
+    failure.message,
   );
 });
 
@@ -1195,6 +1212,8 @@ test("parseSparkCliCommand parses Pi-compatible global modes and resource comman
 test("parseSparkDaemonCliArgs parses daemon IPC commands", async () => {
   assert.deepEqual(parseSparkDaemonCliArgs([]), { action: "service", argv: [] });
   assert.deepEqual(parseSparkDaemonCliArgs(["--help"]), { action: "help" });
+  assert.deepEqual(parseSparkDaemonCliArgs(["doctor", "--help"]), { action: "help" });
+  assert.deepEqual(parseSparkDaemonCliArgs(["start", "-h"]), { action: "help" });
   assert.deepEqual(parseSparkDaemonCliArgs(["submit", "--session", "s1", "-p", "hello"]), {
     action: "submit",
     json: false,

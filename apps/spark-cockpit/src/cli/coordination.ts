@@ -6,6 +6,7 @@ import { createId, parseSparkAssignment } from "@zendev-lab/spark-protocol";
 import {
   consoleSparkCliErrorOutput,
   consoleSparkCliOutput,
+  helpFlagRequested,
   parseSparkCliOptions,
   printSparkCliResult,
   readBooleanOption,
@@ -258,6 +259,9 @@ export function parseSparkCockpitCliArgs(argv: string[]): SparkCockpitCliCommand
   if (argv.length === 0) return { resource: "status", json: false };
   const [resourceToken, ...rest] = argv;
   if (resourceToken === "help" || resourceToken === "--help" || resourceToken === "-h") {
+    return { resource: "help" };
+  }
+  if (helpFlagRequested(argv)) {
     return { resource: "help" };
   }
   const parsed = parseSparkCliOptions(rest);

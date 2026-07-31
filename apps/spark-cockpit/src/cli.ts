@@ -5,6 +5,7 @@ import {
   type SparkCockpitCliOptions,
 } from "./cli/coordination.ts";
 import { startCockpitProductionHost } from "./cli/production-start.ts";
+import { helpFlagRequested } from "./cli/shared.ts";
 import { runCockpitWebCli } from "./cli/web-cli.ts";
 
 /**
@@ -27,6 +28,10 @@ export async function runSparkCockpitCli(
       process.stdout.write(sparkCockpitHelpText());
       return 0;
     case "start":
+      if (helpFlagRequested(rest)) {
+        process.stdout.write(sparkCockpitHelpText());
+        return 0;
+      }
       return await startCockpitProductionHost(rest);
     case "web":
       return await runCockpitWebCli(rest);
