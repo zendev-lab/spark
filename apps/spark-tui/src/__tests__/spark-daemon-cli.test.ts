@@ -1883,6 +1883,8 @@ test("Spark TUI and headless print attach and release workspace clients", async 
             workspaceId: input.workspaceId,
             kind: input.kind,
             status: "connected" as const,
+            sessionId: input.sessionId,
+            leaseFence: `fence-${attaches.length}`,
             attachedAt: "2026-06-19T00:00:00.000Z",
             lastSeenAt: "2026-06-19T00:00:00.000Z",
           },
@@ -2173,13 +2175,18 @@ test("Spark TUI and headless print attach and release workspace clients", async 
 
     assert.deepEqual(
       attaches.map((attach) => attach.kind),
-      ["headless", "headless", "interactive"],
+      ["headless", "headless", "interactive", "interactive"],
     );
     assert.deepEqual(
       attaches.map((attach) => attach.workspaceId),
-      [workspace.id, workspace.id, workspace.id],
+      [workspace.id, workspace.id, workspace.id, workspace.id],
     );
-    assert.deepEqual(releases, ["wcl-headless-1", "wcl-headless-2", "wcl-interactive-3"]);
+    assert.deepEqual(releases, [
+      "wcl-headless-1",
+      "wcl-headless-2",
+      "wcl-interactive-4",
+      "wcl-interactive-3",
+    ]);
     assert.equal(ensures.length, 3);
     assert.deepEqual(
       registeredSessions.map((session) => ({
@@ -2776,12 +2783,14 @@ function createDurableSessionAttachTestDeps(dir: string, stateRoot: string) {
       invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
     }),
     workspaceEnsureLocal: async () => workspace,
-    workspaceClientAttach: async () => ({
+    workspaceClientAttach: async (_paths, input) => ({
       client: {
         id: "control-plane-client-1",
         workspaceId: workspace.id,
         kind: "interactive" as const,
         status: "connected" as const,
+        sessionId: input.sessionId,
+        leaseFence: "fence-control-plane",
         attachedAt: now,
         lastSeenAt: now,
       },
@@ -2943,12 +2952,14 @@ function createWorkspaceAttachTestDeps(
       invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
     }),
     workspaceEnsureLocal: async () => workspace,
-    workspaceClientAttach: async () => ({
+    workspaceClientAttach: async (_paths, input) => ({
       client: {
         id: clientId,
-        workspaceId: workspace.id,
+        workspaceId: input.workspaceId,
         kind: "interactive" as const,
         status: "connected" as const,
+        sessionId: input.sessionId,
+        leaseFence: "fence-workspace-client",
         attachedAt: now,
         lastSeenAt: now,
       },

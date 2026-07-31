@@ -53,6 +53,7 @@
   "devDependencies": {
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
+    "jiti": "2.7.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

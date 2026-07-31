@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, vi } from "vitest";
 import type { SparkDaemonClient } from "@zendev-lab/spark-daemon-client";
-import { registerSparkExtensionEvents } from "../packages/spark-extension/src/extension/spark-extension-events.ts";
-import { createSparkSessionHeartbeatController } from "../packages/spark-extension/src/extension/spark-session-heartbeat.ts";
-import type { SparkToolContext } from "../packages/spark-extension/src/extension/spark-tool-registration.ts";
+import { registerSparkExtensionEvents } from "../extension/spark-extension-events.ts";
+import { createSparkSessionHeartbeatController } from "../extension/spark-session-heartbeat.ts";
+import type { SparkToolContext } from "../extension/spark-tool-registration.ts";
 
 const observedAt = "2026-07-28T00:00:00.000Z";
 const workspace = {
