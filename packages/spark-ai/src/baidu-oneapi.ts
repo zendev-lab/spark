@@ -99,6 +99,11 @@ const CLAUDE_OPUS_COST = {
   cacheWrite: 6.875,
 };
 
+// The compat factory imports the transport after stream() returns, so the process-wide
+// OpenAI log guard must remain active until the lazy stream reaches a terminal result.
+let openAiSdkLogGuardDepth = 0;
+let openAiSdkPreviousLogLevel: string | undefined;
+
 export function silenceOpenAiSdkTransportLogs(transport: ProviderStreams): ProviderStreams {
   return {
     stream: (model, context, options) =>
@@ -108,16 +113,45 @@ export function silenceOpenAiSdkTransportLogs(transport: ProviderStreams): Provi
   };
 }
 
-function withOpenAiSdkLoggingDisabled<T>(start: () => T): T {
-  const previous = process.env.OPENAI_LOG;
-  process.env.OPENAI_LOG = "off";
+function withOpenAiSdkLoggingDisabled<T extends BaiduOneApiStream>(start: () => T): T {
+  const release = acquireOpenAiSdkLogGuard();
+  let stream: T;
   try {
-    // pi-ai creates the OpenAI client synchronously before returning its event stream.
-    return start();
-  } finally {
-    if (previous === undefined) delete process.env.OPENAI_LOG;
-    else process.env.OPENAI_LOG = previous;
+    stream = start();
+  } catch (error) {
+    release();
+    throw error;
   }
+  try {
+    void stream.result().then(release, release);
+  } catch (error) {
+    release();
+    throw error;
+  }
+  return stream;
+}
+
+function acquireOpenAiSdkLogGuard(): () => void {
+  if (openAiSdkLogGuardDepth === 0) {
+    openAiSdkPreviousLogLevel = process.env.OPENAI_LOG;
+    process.env.OPENAI_LOG = "off";
+  }
+  openAiSdkLogGuardDepth += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    openAiSdkLogGuardDepth -= 1;
+    if (openAiSdkLogGuardDepth > 0) return;
+    if (process.env.OPENAI_LOG === "off") {
+      if (openAiSdkPreviousLogLevel === undefined) {
+        Reflect.deleteProperty(process.env, "OPENAI_LOG");
+      } else {
+        process.env.OPENAI_LOG = openAiSdkPreviousLogLevel;
+      }
+    }
+    openAiSdkPreviousLogLevel = undefined;
+  };
 }
 
 function mapThinkingEffort(
