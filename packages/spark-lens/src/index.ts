@@ -1,5 +1,6 @@
 export * from "./revision.ts";
 export * from "./routes.ts";
+export * from "./scorecard.ts";
 export * from "./language-profiles.ts";
 export * from "./intelligence.ts";
 export * from "./patch-proposal.ts";
