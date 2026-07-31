@@ -20,7 +20,7 @@ import {
   validateBuiltinRoleProfiles,
 } from "@zendev-lab/spark-roles";
 
-test("builtin Pi worker is instructed to implement concrete repo behavior feedback", () => {
+test("builtin Spark worker is instructed to implement concrete repo behavior feedback", () => {
   const roles = createBuiltinRoles();
   const worker = roles.find((role) => role.id === "worker");
   assert.match(

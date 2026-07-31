@@ -47,6 +47,7 @@ interface ToolConfig {
     ctx: {
       cwd?: string;
       model?: { provider: string; id: string; api?: string };
+      modelRegistry?: unknown;
       runRole?: ExtensionRoleRunner;
     },
   ) => Promise<{
@@ -149,20 +150,6 @@ test("role action tool manages role model settings", async () => {
   const previousBindingHome = process.env.SPARK_HOME;
   process.env.SPARK_HOME = dir;
   try {
-    const fakePi = join(dir, "fake-pi.cjs");
-    await writeFile(
-      fakePi,
-      [
-        "#!/usr/bin/env node",
-        "const args = process.argv.slice(2);",
-        "if (args[0] === '--list-models' && args[1] === 'test/model') process.exit(0);",
-        "if (!args.includes('--print')) process.exit(10);",
-        "if (!args.includes('--model') || args[args.indexOf('--model') + 1] !== 'test/model') process.exit(11);",
-        "process.stdout.write(JSON.stringify({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Fake worker result.' }] }, args }) + '\\n');",
-      ].join("\n"),
-      "utf8",
-    );
-    await chmod(fakePi, 0o755);
     const tools = registerRoleToolsForTest();
 
     const saved = await executeRoleTool(
@@ -173,7 +160,6 @@ test("role action tool manages role model settings", async () => {
         role: "worker",
         model: "test/model",
         source: "project",
-        piCommand: fakePi,
       },
       dir,
     );
@@ -234,7 +220,6 @@ test("role action tool manages role model settings", async () => {
           role: "worker",
           model: "missing/model",
           source: "project",
-          piCommand: fakePi,
         },
         dir,
       ),
@@ -254,22 +239,21 @@ test("builtin role prompts and direct-call tool copy stay host-neutral", () => {
   const roleToolParameters = tools.get("role")?.parameters as
     | { properties?: Record<string, { description?: string }> }
     | undefined;
-  assert.match(
-    roleToolParameters?.properties?.piCommand?.description ?? "",
-    /model_set validation/,
-  );
+  assert.equal(roleToolParameters?.properties?.piCommand, undefined);
 
   const registry = createDefaultRoleRegistry({ now: "2026-01-01T00:00:00.000Z" });
   const prompts = registry
     .list({ source: "builtin" })
     .map((role) => role.systemPrompt)
     .join("\n");
-  assert.match(prompts, /You are a Pi scout/);
-  assert.match(prompts, /You are a Pi explorer/);
-  assert.match(prompts, /You are a Pi researcher/);
+  assert.match(prompts, /You are a Spark scout/);
+  assert.match(prompts, /You are a Spark explorer/);
+  assert.match(prompts, /You are a Spark researcher/);
+  assert.match(prompts, /You are a Spark worker/);
+  assert.match(prompts, /You are a Spark reviewer/);
   assert.match(prompts, /report the blocker.*upward/i);
   assert.doesNotMatch(prompts, /available ask tool/);
-  assert.doesNotMatch(prompts, /You are a Spark/);
+  assert.doesNotMatch(prompts, /You are a Pi/);
   assert.doesNotMatch(prompts, /Spark ask tools/);
   assert.doesNotMatch(prompts, /Spark project or task/);
 });
@@ -338,7 +322,7 @@ test("call_role launches fresh role runs", async () => {
     assert.equal(details.record?.launch, "fresh");
     assert.equal(details.jsonEventCount, 1);
     assert.equal(capturedNativeInput?.role.id, "worker");
-    assert.match(capturedNativeInput?.role.systemPrompt ?? "", /Pi worker/);
+    assert.match(capturedNativeInput?.role.systemPrompt ?? "", /Spark worker/);
     assert.ok(capturedNativeInput?.role.allowedTools?.includes("edit"));
     assert.equal(capturedNativeInput?.instruction.instruction, "Run the fake worker.");
     assert.equal(capturedNativeInput?.launch, "fresh");
@@ -723,6 +707,7 @@ function executeCallRole(
   cwd = DEFAULT_TEST_CWD,
   ctxExtra: {
     model?: { provider: string; id: string; api?: string };
+    modelRegistry?: unknown;
     runRole?: ExtensionRoleRunner;
   } = {},
 ): Promise<{ content: Array<{ type: "text"; text: string }>; details?: Record<string, unknown> }> {
@@ -736,6 +721,7 @@ function executeRoleTool(
   cwd = DEFAULT_TEST_CWD,
   ctxExtra: {
     model?: { provider: string; id: string; api?: string };
+    modelRegistry?: unknown;
     runRole?: ExtensionRoleRunner;
   } = {},
 ): Promise<{ content: Array<{ type: "text"; text: string }>; details?: Record<string, unknown> }> {
@@ -745,8 +731,20 @@ function executeRoleTool(
   return tool.execute("tool-call", call.params, new AbortController().signal, () => undefined, {
     cwd,
     runRole: defaultNativeRoleRunner,
+    modelRegistry: testModelRegistry(),
     ...ctxExtra,
   });
+}
+
+function testModelRegistry(): {
+  getAll(): Array<{ provider: string; id: string }>;
+  getAvailable(): Array<{ provider: string; id: string }>;
+} {
+  const models = [{ provider: "test", id: "model" }];
+  return {
+    getAll: () => models,
+    getAvailable: () => models,
+  };
 }
 
 function executeRoleToolWithoutCwd(

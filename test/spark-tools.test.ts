@@ -750,6 +750,7 @@ type TestSparkContext = {
   hasUI: boolean;
   notifications: TestNotification[];
   runRole?: ExtensionRoleRunner;
+  modelRegistry?: unknown;
   selected?: string;
   inputValue?: string;
   editorText?: string;
@@ -9508,15 +9509,18 @@ test("legacy /run commands are not registered", () => {
   assert.equal(commands.get("run-parallel"), undefined);
 });
 
-test("workflow-run manager preflights role models with configured Pi command", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-tool-dag-manager-pi-command-"));
+test("workflow-run manager preflights role models through the host catalog without pi", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-tool-dag-manager-model-catalog-"));
   const previousBindingHome = process.env.SPARK_HOME;
-  const previousPath = process.env.PATH;
   try {
     process.env.SPARK_HOME = dir;
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
     ctx.inputValue = "test/model";
+    ctx.modelRegistry = {
+      getAll: () => [{ provider: "test", id: "model" }],
+      getAvailable: () => [{ provider: "test", id: "model" }],
+    };
     ctx.runRole = createTestRoleRunner({
       stdout: `${JSON.stringify({ type: "done" })}\n`,
       jsonEvents: [{ type: "done" }],
@@ -9543,25 +9547,8 @@ test("workflow-run manager preflights role models with configured Pi command", a
       policy: { maxConcurrency: 1, timeoutMs: 1_000 },
     });
 
-    const emptyPathDir = join(dir, "empty-path");
-    await mkdir(emptyPathDir);
-    const fakePi = join(dir, "custom-pi");
-    await writeFile(
-      fakePi,
-      [
-        "#!/bin/sh",
-        'if [ "$1" = "--list-models" ] && [ "$2" = "test/model" ]; then exit 0; fi',
-        'if [ "$1" = "--list-models" ]; then printf "No models matching %s\\n" "$2"; exit 0; fi',
-        "exit 1",
-      ].join("\n"),
-      "utf8",
-    );
-    await chmod(fakePi, 0o755);
-    process.env.PATH = emptyPathDir;
-
     const manager = new SparkWorkflowRunManagerController({
       refreshSparkWidget: async () => undefined,
-      piCommand: () => fakePi,
     });
     const result = await manager.runOnce(dir, ctx);
 
@@ -9576,8 +9563,6 @@ test("workflow-run manager preflights role models with configured Pi command", a
   } finally {
     if (previousBindingHome === undefined) delete process.env.SPARK_HOME;
     else process.env.SPARK_HOME = previousBindingHome;
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
 });
@@ -11668,7 +11653,6 @@ function createTestTaskClaimDaemonClient(
 function registerSparkToolsForTest(
   options: {
     reviewerRunner?: ReviewerRunner;
-    piCommand?: string;
     taskClaimDaemonClient?: SparkTaskClaimDaemonClient;
   } = {},
 ): {
@@ -11716,7 +11700,6 @@ function registerSparkToolsForTest(
     getAllTools: () => Array<{ name: string }>;
     setActiveTools: (names: string[]) => void;
     createReviewerRunner: NonNullable<SparkHostApiForTest["createReviewerRunner"]>;
-    getPiCommand?: () => string | undefined;
   } = {
     driverControl,
     taskClaimDaemonClient: options.taskClaimDaemonClient ?? createTestTaskClaimDaemonClient(),
@@ -11754,7 +11737,6 @@ function registerSparkToolsForTest(
     },
     createReviewerRunner: () =>
       options.reviewerRunner ?? createTaskApprovingGoalUnmetReviewerRunner(),
-    getPiCommand: () => options.piCommand,
   };
   const registerExternalTool = (config: SparkToolConfig): void => {
     tools.set(config.name, config);

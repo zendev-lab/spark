@@ -196,29 +196,23 @@ test("spark-roles default registry ignores legacy agent-shaped role stores", asy
 test("spark-roles validates model names before saving settings", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-roles-model-validation-"));
   try {
-    const fakePi = join(dir, "fake-pi.cjs");
-    await writeFile(
-      fakePi,
-      [
-        "#!/usr/bin/env node",
-        "const args = process.argv.slice(2);",
-        "if (args[0] === '--list-models' && args[1] === 'openai/gpt-5.5') process.exit(0);",
-        "if (args[0] === '--list-models' && args[1] === 'missing-zero/model') { process.stdout.write('No models matching missing-zero/model\\n'); process.exit(0); }",
-        "process.exit(42);",
-      ].join("\n"),
-      "utf8",
-    );
-    await chmod(fakePi, 0o755);
+    const catalog = {
+      lookup: async (model: string) =>
+        model === "openai/gpt-5.5"
+          ? { providerName: "openai", modelId: "gpt-5.5", available: true }
+          : model === "locked/model"
+            ? {
+                providerName: "locked",
+                modelId: "model",
+                available: false,
+                unavailableReason: "login required",
+              }
+            : undefined,
+    };
 
-    await validateRoleModel({ piCommand: fakePi, model: "openai/gpt-5.5", cwd: dir });
-    await assert.rejects(
-      validateRoleModel({ piCommand: fakePi, model: "missing/model", cwd: dir }),
-      /model validation failed/,
-    );
-    await assert.rejects(
-      validateRoleModel({ piCommand: fakePi, model: "missing-zero/model", cwd: dir }),
-      /No models matching missing-zero\/model/,
-    );
+    await validateRoleModel({ catalog, model: "openai/gpt-5.5" });
+    await assert.rejects(validateRoleModel({ catalog, model: "missing/model" }), /unknown model/);
+    await assert.rejects(validateRoleModel({ catalog, model: "locked/model" }), /login required/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

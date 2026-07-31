@@ -98,7 +98,6 @@ interface SparkProductFacadeApi extends SparkCommandApi {
     ctx: SparkToolContext,
   ): ReviewerRunner | Promise<ReviewerRunner>;
   getThinkingLevel?(): unknown;
-  getPiCommand?(): string | undefined;
   registerMessageRenderer?(
     customType: string,
     renderer: (
@@ -148,7 +147,6 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
 
   const workflowRunManagerController = new SparkWorkflowRunManagerController({
     refreshSparkWidget,
-    piCommand: () => pi.getPiCommand?.(),
     driverControl,
   });
 
@@ -292,7 +290,6 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
 
   registerSparkRunReadyTasksTool(registerSparkImplementationTool, {
     ensureWorkflowRunManager: (cwd, ctx) => workflowRunManagerController.ensure(cwd, ctx),
-    piCommand: () => pi.getPiCommand?.(),
     refreshSparkWidget,
   });
 

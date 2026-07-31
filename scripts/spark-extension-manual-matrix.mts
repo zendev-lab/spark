@@ -95,9 +95,6 @@ class ManualPiApi {
   getThinkingLevel(): string {
     return "low";
   }
-  getPiCommand(): string {
-    return "pi";
-  }
   createReviewerRunner(): ReviewerRunner {
     return {
       async review(input: ReviewInput) {
