@@ -66,6 +66,11 @@ export default defineConfig({
               translations: { zh: "规划并实现一个修改" },
               link: "/guides/plan-and-implement/",
             },
+            {
+              label: "Operator handbook",
+              translations: { zh: "运维与完整使用手册" },
+              link: "/guides/operator-handbook/",
+            },
           ],
         },
         {
