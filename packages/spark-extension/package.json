@@ -16,8 +16,8 @@
     "./host-support": "./src/host-support.ts"
   },
   "scripts": {
-    "check": "vp check --no-fmt --no-lint . && vp test run",
-    "test": "vp test run"
+    "check": "vp check --no-fmt --no-lint . && vp test run --config vitest.config.ts",
+    "test": "vp test run --config vitest.config.ts"
   },
   "dependencies": {
     "@zendev-lab/spark-artifacts": "workspace:^",
@@ -41,6 +41,9 @@
     "typebox": "catalog:"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
+    "typescript": "catalog:",
     "vitest": "catalog:"
   }
 }

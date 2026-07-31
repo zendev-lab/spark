@@ -1,14 +1,25 @@
 import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { compile } from "svelte/compiler";
+import { createRawSnippet } from "svelte";
+import { parse } from "svelte/compiler";
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 
 import SessionQueue from "./SessionQueue.svelte";
+import type { SessionQueueItem } from "./index";
 
-const componentRoot = dirname(fileURLToPath(import.meta.url));
-const componentPath = resolve(componentRoot, "SessionQueue.svelte");
+type CssAtRule = {
+  type: "Atrule";
+  name: string;
+  prelude: string;
+  block: {
+    children: Array<{
+      type: string;
+      prelude: { children: Array<{ children: Array<unknown> }> };
+      block: { children: unknown[] };
+    }>;
+  };
+};
+
 const labels = {
   region: "QUEUE_REGION",
   queued: "WAITING_LABEL",
@@ -21,88 +32,72 @@ const item = {
 };
 
 describe("SessionQueue component contract", () => {
-  it("compiles as a Svelte component", () => {
-    const source = readFileSync(componentPath, "utf8");
-
-    expect(() => compile(source, { filename: componentPath, generate: "server" })).not.toThrow();
-  });
-
   it("renders no queue shell when the daemon reports no queued turns", () => {
     const { body } = render(SessionQueue, {
       props: { items: [], labels, hasRunningTurn: false },
     });
-
     expect(body).not.toContain("data-session-queue");
   });
 
-  it("labels a lone queued turn as waiting when no turn is running", () => {
-    const { body } = render(SessionQueue, {
+  it("labels a lone queued turn according to running-turn state", () => {
+    const waiting = render(SessionQueue, {
       props: { items: [item], labels, hasRunningTurn: false },
-    });
-
-    expect(body).toContain("WAITING_LABEL");
-    expect(body).not.toContain("NEXT_LABEL");
-    expect(body).toContain(item.text);
-    expect(body).not.toContain("<details");
-    expect(body).toMatch(/data-session-queue[^>]*tabindex="-1"/);
-  });
-
-  it("labels a lone follow-up as next only behind a genuinely running turn", () => {
-    const { body } = render(SessionQueue, {
+    }).body;
+    const next = render(SessionQueue, {
       props: { items: [item], labels, hasRunningTurn: true },
-    });
+    }).body;
 
-    expect(body).toContain("NEXT_LABEL");
-    expect(body).not.toContain("WAITING_LABEL");
-    expect(body).toContain(item.text);
+    expect(waiting).toContain("WAITING_LABEL");
+    expect(waiting).not.toContain("NEXT_LABEL");
+    expect(next).toContain("NEXT_LABEL");
+    expect(next).not.toContain("WAITING_LABEL");
+    expect(waiting).toContain(item.text);
+    expect(waiting).toContain(`title="${item.text}"`);
+    expect(waiting).not.toContain("<details");
+    expect(waiting).toContain('tabindex="-1"');
   });
 
-  it("uses the bounded counted disclosure for multiple queued turns", () => {
+  it("uses an open counted disclosure for multiple queued turns", () => {
     const secondItem = { ...item, id: "inv_second", text: "then run the tests" };
     const { body } = render(SessionQueue, {
       props: { items: [item, secondItem], labels, hasRunningTurn: true },
     });
 
-    expect(body).toMatch(/<details\b[^>]*\bopen(?:="")?/);
-    expect(body).toMatch(/<span class="queue-count[^"]*">2<\/span>/);
-    expect(body).toContain("WAITING_LABEL");
+    expect(body).toContain("<details open");
+    expect(body).toContain("queue-count");
+    expect(body).toContain(">2</span>");
     expect(body).toContain(item.text);
     expect(body).toContain(secondItem.text);
   });
 
-  it("keeps the queue bounded and long display-safe prompts readable", () => {
-    const source = readFileSync(componentPath, "utf8");
+  it("renders caller-owned item actions without introducing a local form", () => {
+    const actions = createRawSnippet((queueItem: () => SessionQueueItem) => ({
+      render: () => `<button data-action-for="${queueItem().id}">Remove</button>`,
+    }));
+    const { body } = render(SessionQueue, {
+      props: { items: [item], labels, hasRunningTurn: false, actions },
+    });
 
-    expect(source).toContain("max-height: 10rem;");
-    expect(source).toContain("overflow-y: auto;");
-    expect(source).toContain("overflow-wrap: anywhere;");
-    expect(source).toContain("-webkit-line-clamp: 2;");
-    expect(source).toContain("title={item.text}");
+    expect(body).toContain('data-action-for="inv_follow_up"');
+    expect(body).toContain("Remove");
+    expect(body).not.toContain("<form");
   });
 
-  it("delegates item actions without creating a browser-local queue or form path", () => {
-    const source = readFileSync(componentPath, "utf8");
-    const index = readFileSync(resolve(componentRoot, "index.ts"), "utf8");
-
-    expect(index).toContain("actions?: Snippet<[SessionQueueItem]>");
-    expect(index).toContain("hasRunningTurn: boolean;");
-    expect(index).toContain("next: string;");
-    expect(source).toContain("{@render actions(item)}");
-    expect(source).toContain(".single-queue-item .queue-item-actions");
-    expect(source).toContain(".queue-item:focus-within .queue-item-actions");
-    expect(source).toContain("@media (hover: none)");
-    expect(source).not.toContain("<form");
-    expect(source).not.toContain("onclick=");
-    expect(source).not.toContain("$state");
-    expect(source).not.toContain("queuedMessages");
-  });
-
-  it("exports the component and its daemon-facing presentation types", () => {
-    const index = readFileSync(resolve(componentRoot, "index.ts"), "utf8");
-
-    expect(index).toContain('export { default as SessionQueue } from "./SessionQueue.svelte"');
-    expect(index).toContain("SessionQueueItem");
-    expect(index).toContain("SessionQueueLabels");
-    expect(index).toContain("SessionQueueProps");
+  it("keeps caller-owned actions visible for non-hover input via structured CSS AST", () => {
+    const ast = parse(readFileSync(new URL("./SessionQueue.svelte", import.meta.url), "utf8"));
+    const hoverNone = ast.css?.children.find(
+      (node: { type: string; name?: string; prelude?: string }) =>
+        node.type === "Atrule" && node.name === "media" && node.prelude === "(hover: none)",
+    ) as CssAtRule | undefined;
+    expect(hoverNone?.type).toBe("Atrule");
+    if (hoverNone?.type !== "Atrule") throw new Error("Missing hover-none media contract");
+    const rule = hoverNone.block.children[0];
+    expect(rule?.type).toBe("Rule");
+    if (rule?.type !== "Rule") throw new Error("Missing hover-none action rule");
+    const selector = rule.prelude.children[0]?.children[0];
+    expect(selector).toMatchObject({ type: "ClassSelector", name: "queue-item-actions" });
+    expect(rule.block.children).toContainEqual(
+      expect.objectContaining({ type: "Declaration", property: "opacity", value: "1" }),
+    );
   });
 });

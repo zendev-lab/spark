@@ -10,12 +10,12 @@ import {
   runSparkCompactionCandidatePipeline,
 } from "@zendev-lab/spark-memory/compaction-candidates";
 import { defaultRecallStore } from "@zendev-lab/spark-memory";
-import sparkMemoryExtension from "../packages/spark-memory/src/extension.ts";
+import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
 import type {
   SparkCompactionCandidatePipelineOptions,
   SparkCompactionCandidatePipelineResult,
-} from "../packages/spark-memory/src/compaction-candidates.ts";
-import type { ToolConfig } from "../packages/spark-core/src/index.ts";
+} from "@zendev-lab/spark-memory/compaction-candidates";
+import type { ToolConfig } from "@zendev-lab/spark-core";
 
 const structuredSummary = {
   mode: "smart",

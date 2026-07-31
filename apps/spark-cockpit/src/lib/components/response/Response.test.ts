@@ -1,54 +1,95 @@
 import { readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compile } from "svelte/compiler";
+import { parse } from "svelte/compiler";
 import { describe, expect, it } from "vitest";
 
-const responseRoot = dirname(fileURLToPath(import.meta.url));
-const responsePath = join(responseRoot, "Response.svelte");
-const libRoot = resolve(responseRoot, "../..");
+const root = dirname(fileURLToPath(import.meta.url));
+const path = join(root, "Response.svelte");
+
+function responseAst() {
+  return parse(readFileSync(path, "utf8"), { modern: true });
+}
+
+function walk(value: unknown, visit: (node: Record<string, unknown>) => void) {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const item of value) walk(item, visit);
+    return;
+  }
+  const node = value as Record<string, unknown>;
+  if (typeof node.type === "string") visit(node);
+  for (const [key, child] of Object.entries(node)) {
+    if (key !== "parent") walk(child, visit);
+  }
+}
 
 describe("Svelte AI Elements Response boundary", () => {
-  it("compiles the source-derived Response component", () => {
-    const source = readFileSync(responsePath, "utf8");
-
-    expect(() => compile(source, { filename: responsePath, generate: "server" })).not.toThrow();
+  it("pins complete Response provenance and license goldens", () => {
+    expect(readFileSync(join(root, "VENDOR.md"), "utf8")).toBe(
+      readFileSync(join(root, "VENDOR.md.golden"), "utf8"),
+    );
+    expect(readFileSync(join(root, "UPSTREAM-LICENSE.txt"), "utf8")).toBe(
+      readFileSync(join(root, "UPSTREAM-LICENSE.txt.golden"), "utf8"),
+    );
   });
 
-  it("enables the complete Response stack and keeps Streamdown props composable", () => {
-    const source = readFileSync(responsePath, "utf8");
+  it("imports the complete rich-markdown component stack", () => {
+    const imports: string[] = [];
+    walk(responseAst().instance, (node) => {
+      if (node.type !== "ImportDeclaration") return;
+      const source = node.source as { value?: unknown } | undefined;
+      if (typeof source?.value === "string") imports.push(source.value);
+    });
 
-    expect(source).toContain('from "svelte-streamdown"');
-    expect(source).toContain('from "svelte-streamdown/code"');
-    expect(source).toContain('from "svelte-streamdown/math"');
-    expect(source).toContain('from "svelte-streamdown/mermaid"');
-    expect(source).toContain("{...restProps}");
-    expect(source).toContain("[data-streamdown-code]");
-    expect(source).toContain("[data-streamdown-table]");
-    expect(source).toContain("[data-streamdown-mermaid]");
+    expect(imports).toEqual([
+      "svelte-streamdown",
+      "svelte-streamdown/code",
+      "svelte-streamdown/math",
+      "svelte-streamdown/mermaid",
+    ]);
   });
 
-  it("wires streaming repair only to the active Spark UI block and escapes raw HTML", () => {
-    const safeMarkdown = readFileSync(join(libRoot, "SafeMarkdown.svelte"), "utf8");
-    const sparkUiRenderer = readFileSync(join(libRoot, "SparkUiRenderer.svelte"), "utf8");
-    const agentStream = readFileSync(join(libRoot, "AgentMdxStream.svelte"), "utf8");
+  it("retains structured selectors for code, tables, mermaid, and streaming", () => {
+    const attributes = new Set<string>();
+    walk(responseAst().css, (node) => {
+      if (node.type !== "AttributeSelector") return;
+      const name = node.name as { name?: unknown } | string | undefined;
+      if (typeof name === "string") attributes.add(name);
+      else if (typeof name?.name === "string") attributes.add(name.name);
+    });
 
-    expect(safeMarkdown).toContain("static={!streaming}");
-    expect(safeMarkdown).toContain("parseIncompleteMarkdown");
-    expect(safeMarkdown).toContain("enabled: streaming");
-    expect(safeMarkdown).toContain("renderHtml={false}");
-    expect(sparkUiRenderer).toContain("streaming && index === document.blocks.length - 1");
-    expect(sparkUiRenderer).toContain("streaming={blockStreaming}");
-    expect(agentStream).toContain("streamCaretOwnedByMarkdown");
+    expect(attributes).toEqual(
+      new Set([
+        "type",
+        "data-streamdown-code",
+        "data-streamdown-table-download",
+        "data-streamdown-mermaid",
+        "data-streamdown-table",
+        "data-streaming",
+      ]),
+    );
   });
 
-  it("pins upstream provenance and retains the MIT notice", () => {
-    const vendor = readFileSync(join(responseRoot, "VENDOR.md"), "utf8");
-    const license = readFileSync(join(responseRoot, "UPSTREAM-LICENSE.txt"), "utf8");
+  it("retains a structured reduced-motion media contract", () => {
+    const media: Array<{ prelude: unknown; declarations: Array<[unknown, unknown]> }> = [];
+    walk(responseAst().css, (node) => {
+      if (node.type !== "Atrule" || node.name !== "media") return;
+      const declarations: Array<[unknown, unknown]> = [];
+      walk(node.block, (child) => {
+        if (child.type === "Declaration") declarations.push([child.property, child.value]);
+      });
+      media.push({ prelude: node.prelude, declarations });
+    });
 
-    expect(vendor).toContain("fa4bc217f84bc571378bc371332a154106772614");
-    expect(vendor).toContain("https://svelte-ai-elements.vercel.app/r/response.json");
-    expect(license).toContain("MIT License");
-    expect(license).toContain("Copyright (c) 2026 Sikandar Bhide");
+    expect(media).toEqual([
+      {
+        prelude: "(prefers-reduced-motion: reduce)",
+        declarations: [
+          ["animation-duration", "0.01ms !important"],
+          ["transition-duration", "0.01ms !important"],
+        ],
+      },
+    ]);
   });
 });

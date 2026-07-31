@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
+import { parse } from "svelte/compiler";
 import { describe, expect, it } from "vitest";
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -64,25 +66,46 @@ describe("package boundaries", () => {
   });
 
   it("keeps artifact fallback out of daemon/local workspace files", () => {
-    const agentsProduct = readFileSync(
-      join(repoRoot, "packages/spark-cockpit-coordination/src/agents-product.ts"),
-      "utf8",
+    const sourceFile = ts.createSourceFile(
+      "agents-product.ts",
+      readFileSync(
+        join(repoRoot, "packages/spark-cockpit-coordination/src/agents-product.ts"),
+        "utf8",
+      ),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
     );
-    expect(agentsProduct).not.toContain('resolveSparkPaths({ app: "daemon" })');
-    expect(agentsProduct).not.toContain(".spark");
-    expect(agentsProduct).not.toMatch(/readFileSync|new DatabaseSync/u);
+    const structure = collectTypeScriptStructure(sourceFile);
+    expect(structure.calls).not.toContain("resolveSparkPaths");
+    expect(structure.calls).not.toContain("readFileSync");
+    expect(structure.constructors).not.toContain("DatabaseSync");
+    expect(structure.stringLiterals.some((value) => value.includes(".spark"))).toBe(false);
   });
 
   it("keeps the artifacts route focused on the read-only artifact library", () => {
     const artifactsRoute = join(webRoot, "src/routes/(workbench)/[workspaceId]/artifacts");
-    const page = readFileSync(join(artifactsRoute, "+page.svelte"), "utf8");
-    const pageServer = readFileSync(join(artifactsRoute, "+page.server.ts"), "utf8");
+    const pageServer = ts.createSourceFile(
+      "+page.server.ts",
+      readFileSync(join(artifactsRoute, "+page.server.ts"), "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const serverStructure = collectTypeScriptStructure(pageServer);
+    const pageStructure = collectSvelteNodeNames(
+      parse(readFileSync(join(artifactsRoute, "+page.svelte"), "utf8"), {
+        modern: true,
+        filename: "+page.svelte",
+      }),
+    );
 
-    expect(pageServer).toContain("loadArtifactsPage");
-    expect(pageServer).not.toContain("export const actions");
-    expect(pageServer).not.toContain("task.start.request");
-    expect(pageServer).not.toContain("invocation.cancel.request");
-    expect(page).not.toContain("WorkspaceAgentProduct");
+    expect(serverStructure.imports).toContain("loadArtifactsPage");
+    expect(serverStructure.variables).toContain("load");
+    expect(serverStructure.variables).not.toContain("actions");
+    expect(serverStructure.stringLiterals).not.toContain("task.start.request");
+    expect(serverStructure.stringLiterals).not.toContain("invocation.cancel.request");
+    expect(pageStructure).not.toContain("WorkspaceAgentProduct");
   });
 
   it("does not import Spark daemon internals from the cockpit app", () => {
@@ -115,6 +138,61 @@ describe("package boundaries", () => {
     expect(violations).toEqual([]);
   });
 });
+
+function collectTypeScriptStructure(sourceFile: ts.SourceFile): {
+  calls: string[];
+  constructors: string[];
+  imports: string[];
+  stringLiterals: string[];
+  variables: string[];
+} {
+  const calls = new Set<string>();
+  const constructors = new Set<string>();
+  const imports = new Set<string>();
+  const stringLiterals = new Set<string>();
+  const variables = new Set<string>();
+  function visit(node: ts.Node): void {
+    if (ts.isCallExpression(node)) calls.add(node.expression.getText(sourceFile));
+    if (ts.isNewExpression(node)) constructors.add(node.expression.getText(sourceFile));
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      stringLiterals.add(node.text);
+    }
+    if (ts.isImportDeclaration(node) && node.importClause) {
+      if (node.importClause.name) imports.add(node.importClause.name.text);
+      const bindings = node.importClause.namedBindings;
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const element of bindings.elements) imports.add(element.name.text);
+      }
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) variables.add(node.name.text);
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return {
+    calls: [...calls],
+    constructors: [...constructors],
+    imports: [...imports],
+    stringLiterals: [...stringLiterals],
+    variables: [...variables],
+  };
+}
+
+function collectSvelteNodeNames(root: unknown): string[] {
+  const names = new Set<string>();
+  const seen = new Set<object>();
+  function visit(value: unknown): void {
+    if (!value || typeof value !== "object" || seen.has(value)) return;
+    seen.add(value);
+    const record = value as Record<string, unknown>;
+    if (typeof record.name === "string") names.add(record.name);
+    for (const child of Object.values(record)) {
+      if (Array.isArray(child)) child.forEach(visit);
+      else visit(child);
+    }
+  }
+  visit(root);
+  return [...names];
+}
 
 function collectSourceFiles(root: string): string[] {
   if (!existsSync(root)) {

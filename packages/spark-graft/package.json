@@ -22,11 +22,19 @@
     "./sandbox": "./src/sandbox-entry.ts",
     "./graft-client": "./src/graft-client.ts"
   },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test": "vp test run"
+  },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-roles": "workspace:^",
     "es-toolkit": "catalog:",
     "typebox": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "pi": {
     "extensions": [

@@ -1,44 +1,64 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { compile } from "svelte/compiler";
+import { getCockpitDictionary } from "@zendev-lab/spark-cockpit-i18n";
+import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 
-const pagePath = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../routes/(console)/[workspaceId]/settings/registration/+page.svelte",
-);
+import RegistrationPage from "../routes/(console)/[workspaceId]/settings/registration/+page.svelte";
+
+const messages = getCockpitDictionary("en");
+const baseData = {
+  locale: "en",
+  messages,
+  runnerConnections: [],
+  runnerBindings: [],
+  enrollmentTokens: [],
+  loopbackServerOrigin: false,
+  insecureRemoteServerOrigin: false,
+};
 
 describe("workspace registration page contract", () => {
-  it("compiles as a Svelte page", () => {
-    const source = readFileSync(pagePath, "utf8");
+  it.each([
+    ["/workspaces/project-a", "/workspaces/project-a"],
+    [null, messages.settings.bindings.pathPending],
+  ] as const)(
+    "renders the connected directory identity for localPath=%s",
+    (localPath, expected) => {
+      const { body } = render(RegistrationPage, {
+        props: {
+          data: {
+            ...baseData,
+            runnerBindings: [
+              {
+                id: "binding:test",
+                localPath,
+                localWorkspaceKey: "project-key",
+                runtimeName: "Local runner",
+                status: "active",
+                updatedAt: "2026-01-01T00:00:00.000Z",
+              },
+            ],
+          } as never,
+          form: {} as never,
+        },
+      });
 
-    expect(() => compile(source, { filename: pagePath, generate: "server" })).not.toThrow();
-  });
+      expect(body).toContain(expected);
+      expect(body).toContain("Local runner");
+      expect(body).toContain("project-key");
+      expect(body).toContain('action="?/unbindWorkspace"');
+      expect(body).not.toContain("Name and address");
+    },
+  );
 
-  it("shows the connected directory path as the workspace identity", () => {
-    const source = readFileSync(pagePath, "utf8");
+  it("keeps daemon enrollment distinct from browser-access token minting", () => {
+    const { body, head } = render(RegistrationPage, {
+      props: { data: baseData as never, form: {} as never },
+    });
 
-    expect(source).toContain('class="binding-path"');
-    expect(source).toContain("class:pending={!binding.localPath}");
-    expect(source).toContain("binding.localPath ?? t.bindings.pathPending");
-    expect(source).not.toContain("binding.localPath ?? binding.localWorkspaceKey");
-    expect(source).not.toContain("<strong>{binding.displayName}</strong>");
-    expect(source).toContain('<Icon name="folder" size={13} />');
-    expect(source).toContain("white-space: normal");
-    expect(source).toContain("overflow-wrap: anywhere");
-  });
-
-  it("keeps daemon registration without workspace browser-access minting", () => {
-    const source = readFileSync(pagePath, "utf8");
-
-    expect(source).toMatch(
-      /<TokenManagementSurface\s+[\s\S]*?formAction="\?\/createEnrollmentToken"/,
-    );
-    expect(source).not.toContain('action="?/createWorkspaceAccessToken"');
-    expect(source).not.toContain("form.workspaceAccessToken");
-    expect(source).not.toContain("t.access.");
-    expect(source).not.toContain("workspaceRegisterCommand");
-    expect(source).not.toContain("device-commands");
+    expect(head).toContain(messages.settings.enrollment.title);
+    expect(body).toContain(messages.settings.enrollment.tokenFallbackTitle);
+    expect(body).toContain('action="?/createEnrollmentToken"');
+    expect(body).toContain(messages.settings.enrollment.emptyTitle);
+    expect(body).not.toContain("createWorkspaceAccessToken");
+    expect(body).not.toContain(messages.settings.access.title);
   });
 });

@@ -9,9 +9,9 @@ import {
   defaultSparkMemoryStore,
   renderSparkMemoryCheckpoint,
   renderSparkMemoryPolicy,
-} from "../packages/spark-memory/src/index.ts";
-import sparkMemoryExtension from "../packages/spark-memory/src/extension.ts";
-import type { ToolConfig } from "../packages/spark-core/src/index.ts";
+} from "@zendev-lab/spark-memory";
+import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
+import type { ToolConfig } from "@zendev-lab/spark-core";
 
 test("spark memory stores, searches, and forgets explicit scoped entries", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-store-"));

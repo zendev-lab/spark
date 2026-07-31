@@ -1,0 +1,301 @@
+{
+  "schemaVersion": 1,
+  "architectureSource": "architecture/packages.json",
+  "runner": "scripts/run-leaf-mutation.mjs",
+  "workspaceCount": 40,
+  "includedCount": 10,
+  "deferredCount": 30,
+  "workspaces": {
+    "@zendev-lab/spark-retry": {
+      "path": "packages/spark-retry",
+      "status": "included",
+      "risk": "high",
+      "riskReason": "retry policy and timing",
+      "config": "packages/spark-retry/stryker.config.json",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-retry run check"
+    },
+    "@zendev-lab/spark-protocol": {
+      "path": "packages/spark-protocol",
+      "status": "included",
+      "risk": "high",
+      "riskReason": "wire and schema compatibility",
+      "config": "packages/spark-protocol/stryker.config.json",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-protocol run check"
+    },
+    "@zendev-lab/spark-cockpit-db": {
+      "path": "packages/spark-cockpit-db",
+      "status": "included",
+      "risk": "high",
+      "riskReason": "schema and migration persistence",
+      "config": "packages/spark-cockpit-db/stryker.config.json",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-cockpit-db run check"
+    },
+    "@zendev-lab/spark-system": {
+      "path": "packages/spark-system",
+      "status": "included",
+      "risk": "high",
+      "riskReason": "paths sockets and sqlite primitives",
+      "config": "packages/spark-system/stryker.config.json",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-system run check"
+    },
+    "@zendev-lab/spark-channels": {
+      "path": "packages/spark-channels",
+      "status": "included",
+      "risk": "high",
+      "riskReason": "external adapters and reconnect",
+      "config": "packages/spark-channels/stryker.config.json",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-channels run check"
+    },
+    "@zendev-lab/spark-cockpit-coordination": {
+      "path": "packages/spark-cockpit-coordination",
+      "status": "included",
+      "risk": "high",
+      "riskReason": "control and RPC ownership",
+      "config": "packages/spark-cockpit-coordination/stryker.config.json",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-cockpit-coordination run check"
+    },
+    "@zendev-lab/spark-session": {
+      "path": "packages/spark-session",
+      "status": "included",
+      "risk": "high",
+      "riskReason": "durable registry and mail",
+      "config": "packages/spark-session/stryker.config.json",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-session run check"
+    },
+    "@zendev-lab/spark-artifacts": {
+      "path": "packages/spark-artifacts",
+      "status": "included",
+      "risk": "high",
+      "riskReason": "filesystem worktree and artifact persistence",
+      "config": "packages/spark-artifacts/stryker.config.json",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-artifacts run check"
+    },
+    "@zendev-lab/spark-repro": {
+      "path": "packages/spark-repro",
+      "status": "included",
+      "risk": "high",
+      "riskReason": "reproduction state transitions",
+      "config": "packages/spark-repro/stryker.config.json",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-repro run check"
+    },
+    "@zendev-lab/spark-i18n": {
+      "path": "packages/spark-i18n",
+      "status": "included",
+      "risk": "medium",
+      "riskReason": "hand-written facade around generated localization",
+      "config": "packages/spark-i18n/stryker.config.json",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-i18n run generate && git diff --exit-code -- packages/spark-i18n/src/paraglide && pnpm --filter @zendev-lab/spark-i18n run test",
+      "configNote": "mutate hand-written src/index.ts and src/extension.ts only"
+    },
+    "@zendev-lab/spark-cli": {
+      "path": "apps/spark-cli",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "cli application behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm run test:process:source"
+    },
+    "@zendev-lab/spark-cockpit": {
+      "path": "apps/spark-cockpit",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "cockpit application behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm run test:browser:cockpit"
+    },
+    "@zendev-lab/spark-daemon": {
+      "path": "apps/spark-daemon",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "daemon application behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-daemon run check"
+    },
+    "@zendev-lab/spark-docs": {
+      "path": "apps/spark-docs",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "docs application behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-docs run check"
+    },
+    "@zendev-lab/spark-tui-app": {
+      "path": "apps/spark-tui",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "tui application behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/spark-native-tui-harness.test.ts test/spark-native-tui-layout.test.ts test/spark-theme.test.ts test/spark-session-navigation.test.ts test/spark-session-selector.test.ts"
+    },
+    "@zendev-lab/spark-acp": {
+      "path": "packages/spark-acp",
+      "status": "deferred",
+      "risk": "medium",
+      "riskReason": "acp adapter behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-acp run check"
+    },
+    "@zendev-lab/spark-ai": {
+      "path": "packages/spark-ai",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "ai capability behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-ai run check"
+    },
+    "@zendev-lab/spark-ask": {
+      "path": "packages/spark-ask",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "interaction capability behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/spark-ask-core.test.ts test/spark-ask-flow.test.ts test/spark-ask-tool.test.ts"
+    },
+    "@zendev-lab/spark-cockpit-i18n": {
+      "path": "packages/spark-cockpit-i18n",
+      "status": "deferred",
+      "risk": "medium",
+      "riskReason": "cockpit private-adapter behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-cockpit-i18n run check"
+    },
+    "@zendev-lab/spark-core": {
+      "path": "packages/spark-core",
+      "status": "deferred",
+      "risk": "medium",
+      "riskReason": "host-contract foundation behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/core.test.ts test/spark-ext-host-contract.test.ts"
+    },
+    "@zendev-lab/spark-cue": {
+      "path": "packages/spark-cue",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "execution-adapters adapter behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-cue run check"
+    },
+    "@zendev-lab/spark-daemon-client": {
+      "path": "packages/spark-daemon-client",
+      "status": "deferred",
+      "risk": "medium",
+      "riskReason": "daemon client behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-daemon-client run check"
+    },
+    "@zendev-lab/spark-extension": {
+      "path": "packages/spark-extension",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "extension-host composition behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-extension run check"
+    },
+    "@zendev-lab/spark-files": {
+      "path": "packages/spark-files",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "files capability behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/spark-files-tools.test.ts"
+    },
+    "@zendev-lab/spark-fusion": {
+      "path": "packages/spark-fusion",
+      "status": "deferred",
+      "risk": "medium",
+      "riskReason": "fusion capability behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-fusion run check"
+    },
+    "@zendev-lab/spark-graft": {
+      "path": "packages/spark-graft",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "execution-adapters adapter behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/spark-graft-client-timeout.test.ts test/spark-graft-extension.test.ts test/spark-graft-sandbox-extension.test.ts"
+    },
+    "@zendev-lab/spark-host": {
+      "path": "packages/spark-host",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "extension-host runtime behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-host run check"
+    },
+    "@zendev-lab/spark-loop": {
+      "path": "packages/spark-loop",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "goals capability behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-loop run check"
+    },
+    "@zendev-lab/spark-mcp-spike": {
+      "path": "packages/spark-mcp-spike",
+      "status": "deferred",
+      "risk": "medium",
+      "riskReason": "protocol-experiments experiment behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-mcp-spike run check"
+    },
+    "@zendev-lab/spark-memory": {
+      "path": "packages/spark-memory",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "memory capability behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/spark-memory.test.ts test/spark-memory-layout-migrate.test.ts test/spark-memory-compaction-candidates.test.ts"
+    },
+    "@zendev-lab/spark-modes": {
+      "path": "packages/spark-modes",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "modes capability behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/spark-modes.test.ts test/spark-mode-state.test.ts"
+    },
+    "@zendev-lab/spark-roles": {
+      "path": "packages/spark-roles",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "roles capability behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/reviewer-runner.test.ts test/roles-store.test.ts test/spark-role-registry.test.ts test/spark-roles-tool.test.ts"
+    },
+    "@zendev-lab/spark-runtime": {
+      "path": "packages/spark-runtime",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "task-execution runtime behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/spark-runtime-native-executor.test.ts test/runtime-role-run-retention.test.ts"
+    },
+    "@zendev-lab/spark-tasks": {
+      "path": "packages/spark-tasks",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "tasks capability behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/task-resource-scheduler.test.ts test/tasks-store.test.ts test/spark-claim-recovery.test.ts"
+    },
+    "@zendev-lab/spark-text": {
+      "path": "packages/spark-text",
+      "status": "deferred",
+      "risk": "medium",
+      "riskReason": "presentation-primitives foundation behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/spark-rendering.test.ts test/tool-rendering.test.ts"
+    },
+    "@zendev-lab/spark-tui": {
+      "path": "packages/spark-tui",
+      "status": "deferred",
+      "risk": "medium",
+      "riskReason": "presentation adapter behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/spark-rendering.test.ts test/tool-rendering.test.ts test/spark-keybindings.test.ts test/spark-theme.test.ts"
+    },
+    "@zendev-lab/spark-turn": {
+      "path": "packages/spark-turn",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "turn-runtime runtime behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-turn run check"
+    },
+    "@zendev-lab/spark-update": {
+      "path": "packages/spark-update",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "deployment foundation behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-update run check"
+    },
+    "@zendev-lab/spark-web": {
+      "path": "packages/spark-web",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "web capability behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/spark-web.test.ts"
+    },
+    "@zendev-lab/spark-workflows": {
+      "path": "packages/spark-workflows",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "workflows capability behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm test test/spark-workflows.test.ts test/spark-workflows-tool.test.ts test/spark-workflow-registry.test.ts test/spark-workflow-run-ownership.test.ts"
+    }
+  }
+}

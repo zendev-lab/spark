@@ -1,37 +1,84 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { compile } from "svelte/compiler";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
 
-const root = dirname(fileURLToPath(import.meta.url));
-const componentPath = join(root, "AskQuestionField.svelte");
+import { mount, tick, unmount } from "svelte";
+import { afterEach, describe, expect, it } from "vitest";
+
+import AskQuestionField from "./AskQuestionField.svelte";
+import { getDictionary } from "./i18n";
+import { cockpitCustomAnswerValue, type PendingWorkbenchAsk } from "./pending-ask";
+
+const messages = getDictionary("en").inboxDetail.response;
+let mounted: Record<string, unknown> | undefined;
+
+afterEach(async () => {
+  if (mounted) await unmount(mounted);
+  mounted = undefined;
+  document.body.replaceChildren();
+});
+
+function renderQuestion(question: PendingWorkbenchAsk["questions"][number]) {
+  const target = document.createElement("div");
+  document.body.append(target);
+  mounted = mount(AskQuestionField, {
+    target,
+    props: { question, questionIndex: 0, messages },
+  });
+  return target;
+}
+
+const choiceQuestion = (type: "single" | "preview" | "multi") =>
+  ({
+    id: `${type}-choice`,
+    type,
+    prompt: `Choose ${type}`,
+    required: true,
+    options: [
+      {
+        value: "first",
+        label: "First",
+        description: "First choice",
+        preview: "preview body",
+      },
+    ],
+  }) satisfies PendingWorkbenchAsk["questions"][number];
 
 describe("AskQuestionField", () => {
-  it("compiles as a shared Global Ask and Inbox question field", () => {
-    const source = readFileSync(componentPath, "utf8");
-    expect(() => compile(source, { filename: componentPath, generate: "server" })).not.toThrow();
-  });
+  it.each(["single", "preview", "multi"] as const)(
+    "offers an unconditional custom answer for %s questions",
+    async (type) => {
+      const target = renderQuestion(choiceQuestion(type));
+      await tick();
 
-  it("always adds a custom reply to single, preview, and multi choice questions", () => {
-    const source = readFileSync(componentPath, "utf8");
+      const customChoice = target.querySelector<HTMLInputElement>(
+        `[value="${cockpitCustomAnswerValue}"]`,
+      );
+      const customAnswer = target.querySelector<HTMLTextAreaElement>(
+        `[name="custom-answer:${type}-choice"]`,
+      );
+      expect(customChoice).not.toBeNull();
+      expect(customAnswer).not.toBeNull();
+      expect(target.querySelector(".option-preview")?.textContent).toContain("preview body");
 
-    expect(source).toContain('question.type === "single"');
-    expect(source).toContain('question.type === "multi"');
-    expect(source).toContain('question.type === "preview"');
-    expect(source).toContain(
-      '(question.type === "single" || question.type === "preview") && question.options?.length',
-    );
-    expect(source.match(/value=\{cockpitCustomAnswerValue\}/gu)).toHaveLength(2);
-    expect(source.match(/name=\{customAnswerName\}/gu)).toHaveLength(2);
-    expect(source).toContain("selectCustomChoice");
-    expect(source).toContain("choice.click()");
-    expect(source.match(/option\.preview/gu)).toHaveLength(4);
-    expect(source.match(/class="option-preview"/gu)).toHaveLength(2);
-    expect(source).toContain('type="radio"');
-    expect(source).toContain("required={question.required}");
-    expect(source).not.toContain('type="checkbox" value={option.value} required');
-    expect(source).not.toContain("messages.previewOnly");
-    expect(source).not.toContain("allowOther");
+      customAnswer?.focus();
+      await tick();
+      expect(customChoice?.checked).toBe(true);
+      expect(customChoice?.type).toBe(type === "multi" ? "checkbox" : "radio");
+      expect(customChoice?.required).toBe(type === "multi" ? false : true);
+    },
+  );
+
+  it("renders a required freeform question without choice controls", async () => {
+    const target = renderQuestion({
+      id: "freeform",
+      type: "freeform",
+      prompt: "Explain",
+      required: true,
+    });
+    await tick();
+
+    const answer = target.querySelector<HTMLTextAreaElement>('[name="answer:freeform"]');
+    expect(answer?.required).toBe(true);
+    expect(answer?.getAttribute("aria-label")).toBe("Explain");
+    expect(target.querySelector("[data-custom-answer-choice]")).toBeNull();
   });
 });

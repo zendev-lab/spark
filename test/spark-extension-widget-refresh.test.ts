@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import sparkExtension from "../packages/spark-extension/src/extension/index.ts";
-import type { SparkWidgetTheme, SparkWidgetTui } from "../packages/spark-host/src/spark-widget.ts";
+import sparkExtension from "@zendev-lab/spark-extension/extension";
+import type { SparkWidgetTheme, SparkWidgetTui } from "@zendev-lab/spark-host/spark-widget";
 import { RoleRegistry, builtinRoleRef } from "@zendev-lab/spark-roles";
-import { defaultWorkflowRunStore } from "../packages/spark-workflows/src/index.ts";
+import { defaultWorkflowRunStore } from "@zendev-lab/spark-workflows";
 import {
   killActiveSparkRoleRunProcesses,
   listActiveSparkRoleRunProcesses,
@@ -15,7 +15,7 @@ import {
 } from "@zendev-lab/spark-runtime";
 import { stableId, type RunRef, type TaskPlan } from "@zendev-lab/spark-core";
 import { TaskGraph, defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
-import { setSessionGoal, updateSessionGoalStatus } from "../packages/spark-loop/src/index.ts";
+import { setSessionGoal, updateSessionGoalStatus } from "@zendev-lab/spark-loop";
 
 type SparkPi = Parameters<typeof sparkExtension>[0];
 type SparkToolConfig = Parameters<NonNullable<SparkPi["registerTool"]>>[0];

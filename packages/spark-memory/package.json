@@ -22,12 +22,20 @@
     "./reflection-session-scanner": "./src/reflection-session-scanner.ts",
     "./reflection-synthesis-engine": "./src/reflection-synthesis-engine.ts"
   },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test": "vp test run"
+  },
   "dependencies": {
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
     "@zendev-lab/spark-text": "workspace:^",
     "typebox": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "pi": {
     "extensions": [
