@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readlink, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -12,6 +12,7 @@ import {
   readSparkUpdateConfig,
   writeSparkUpdateConfig,
 } from "./config.ts";
+import { detectSparkInstallation, packageManagerUpdateCommand } from "./installation.ts";
 import { SparkUpdateManager, canAutomaticallyApply, isNetworkCheckDue } from "./manager.ts";
 import {
   emptySparkUpdateState,
@@ -105,6 +106,44 @@ describe("Spark update configuration and state", () => {
     await mkdir(paths.stateDir, { recursive: true });
     await writeFile(paths.lockFile, "99999999\n");
     await expect(withSparkUpdateLock(paths, async () => "recovered")).resolves.toBe("recovered");
+  });
+});
+
+describe("Spark installation ownership", () => {
+  it.each([
+    [
+      "vp",
+      "/Users/test/.vite-plus/packages/@zendev-lab/spark#release/lib/node_modules/@zendev-lab/spark",
+    ],
+    [
+      "pnpm",
+      "/Users/test/Library/pnpm/global/5/.pnpm/@zendev-lab+spark@0.1.1/node_modules/@zendev-lab/spark",
+    ],
+    ["yarn", "/Users/test/.yarn/global/node_modules/@zendev-lab/spark"],
+    ["bun", "/Users/test/.bun/install/global/node_modules/@zendev-lab/spark"],
+    ["npm", "/usr/local/lib/node_modules/@zendev-lab/spark"],
+  ] as const)("recognizes %s package-manager installs", (method, productRoot) => {
+    expect(
+      detectSparkInstallation({
+        managed: false,
+        version: "0.1.1",
+        channel: "latest",
+        env: { HOME: "/Users/test", PATH: "" },
+        productRoot,
+        commandPath: "/opt/bin/spark",
+      }),
+    ).toMatchObject({ method, version: "0.1.1", automaticUpdates: true, rollback: true });
+  });
+
+  it("builds exact package-manager update commands", () => {
+    expect(packageManagerUpdateCommand("vp", "0.1.2")).toMatchObject({
+      command: "vp",
+      args: ["install", "-g", "--ignore-scripts", "@zendev-lab/spark@0.1.2"],
+    });
+    expect(packageManagerUpdateCommand("pnpm", "0.1.2").display).toContain("pnpm install -g");
+    expect(packageManagerUpdateCommand("yarn", "0.1.2").display).toContain("yarn global add");
+    expect(packageManagerUpdateCommand("bun", "0.1.2").display).toContain("bun install -g");
+    expect(packageManagerUpdateCommand("npm", "0.1.2").display).toContain("npm install -g");
   });
 });
 
@@ -406,6 +445,116 @@ describe("managed filesystem transaction", () => {
       state: { quarantined: [{ version: "0.1.0" }] },
     });
     errorLog.mockRestore();
+  });
+});
+
+describe("package-manager update transaction", () => {
+  it("updates a Vite+ install and hands daemon ownership to the exact new build", async () => {
+    const root = await temporaryRoot();
+    const env = { HOME: root, PATH: "/usr/bin:/bin" };
+    const commandPath = join(root, ".vite-plus", "bin", "spark");
+    let installedVersion = "0.1.0";
+    let cockpitRunning = true;
+    const run = vi.fn(async (command: string, args: string[]) => {
+      if (command === "vp") {
+        installedVersion = args.at(-1)!.split("@").at(-1)!;
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      if (command === commandPath && args[0] === "version") {
+        return { code: 0, stdout: JSON.stringify(testBuildInfo(installedVersion)), stderr: "" };
+      }
+      if (command === commandPath && args[0] === "cockpit") {
+        if (args[2] === "status") {
+          return {
+            code: 0,
+            stdout: JSON.stringify({
+              running: cockpitRunning,
+              url: "http://127.0.0.1:5173",
+            }),
+            stderr: "",
+          };
+        }
+        if (args[2] === "stop") cockpitRunning = false;
+        if (args[2] === "start") cockpitRunning = true;
+        return { code: 0, stdout: JSON.stringify({ running: cockpitRunning }), stderr: "" };
+      }
+      if (command === commandPath && args[0] === "daemon") {
+        return {
+          code: 0,
+          stdout: JSON.stringify({
+            invocations: { queued: 0, running: 0 },
+            build: { runningFingerprint: testBuildInfo(installedVersion).fingerprint },
+          }),
+          stderr: "",
+        };
+      }
+      throw new Error(`Unexpected command: ${command} ${args.join(" ")}`);
+    });
+    const manager = new SparkUpdateManager({
+      env,
+      productRoot: join(
+        root,
+        ".vite-plus/packages/@zendev-lab/spark#release/lib/node_modules/@zendev-lab/spark",
+      ),
+      commandPath,
+      buildInfo: testBuildInfo("0.1.0"),
+      run,
+      fetch: vi.fn(async (input) => {
+        if (String(input).includes("127.0.0.1")) {
+          return new Response(JSON.stringify({ service: "spark-cockpit", status: "ok" }));
+        }
+        return new Response(
+          JSON.stringify({
+            version: "0.1.1",
+            dist: { integrity: "sha512-0.1.1", tarball: "https://registry.invalid/spark.tgz" },
+          }),
+        );
+      }),
+    });
+
+    await expect(manager.apply("0.1.1", { wait: true })).resolves.toMatchObject({
+      installation: { method: "vp", version: "0.1.1" },
+      state: { currentVersion: "0.1.1", rollbackVersion: "0.1.0" },
+    });
+    expect(run).toHaveBeenCalledWith(
+      "vp",
+      ["install", "-g", "--ignore-scripts", "@zendev-lab/spark@0.1.1"],
+      expect.any(Object),
+    );
+    expect(run).toHaveBeenCalledWith(
+      commandPath,
+      ["cockpit", "web", "stop", "--json"],
+      expect.any(Object),
+    );
+    expect(run).toHaveBeenCalledWith(
+      commandPath,
+      ["cockpit", "web", "start", "--json"],
+      expect.any(Object),
+    );
+  });
+
+  it("registers one daily-gated launchd tick for a package-manager install", async () => {
+    const root = await temporaryRoot();
+    const commandPath = join(root, ".vite-plus", "bin", "spark");
+    const manager = new SparkUpdateManager({
+      env: { HOME: root, PATH: `${dirname(commandPath)}:/usr/bin:/bin` },
+      productRoot: join(
+        root,
+        ".vite-plus/packages/@zendev-lab/spark#release/lib/node_modules/@zendev-lab/spark",
+      ),
+      commandPath,
+      buildInfo: testBuildInfo("0.1.0"),
+      platform: "darwin",
+      run: vi.fn(async () => ({ code: 0, stdout: "", stderr: "" })),
+    });
+
+    await expect(
+      manager.configure({ policy: "auto", checkIntervalHours: 24 }),
+    ).resolves.toMatchObject({ policy: "auto", checkIntervalHours: 24 });
+    const plist = await readFile(manager.paths.updaterLaunchAgentPath, "utf8");
+    expect(plist).toContain(`<string>${commandPath}</string>`);
+    expect(plist).toContain("<string>update</string>");
+    expect(plist).toContain("<string>__tick</string>");
   });
 });
 

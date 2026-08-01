@@ -101,16 +101,16 @@ Workflow 管理统一使用 `/workflow <action>`。旧的连字符命令仍可�
 spark install --managed [--version <version>] [--prefix <path>]
 spark update status [--json]
 spark update check [--json]
-spark update configure --policy manual|notify|auto --channel latest|next
+spark update configure [--policy manual|notify|auto] [--channel latest|next] [--interval-hours <hours>]
 spark update apply [version] --yes
 spark update rollback --yes
 spark update retry [version] --yes
 spark version [--json]
 ```
 
-`apply`、`rollback` 与 `retry` 会修改 managed installation，因此要求
-`--yes`。默认策略为 `notify`，自动应用仍需显式启用。Updater 永远不会修改
-package-manager installation 或源码 checkout。
+`apply`、`rollback` 与 `retry` 会修改安装，因此要求 `--yes`。默认策略为
+`notify`，检查周期为 24 小时；自动应用仍需显式启用。全局 npm、pnpm、Yarn、Bun
+与 Vite+ 安装会把精确版本变更委托给原安装所有者；源码 checkout 永远不会被修改。
 
 ## Daemon 服务
 

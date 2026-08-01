@@ -190,10 +190,13 @@ const messages = {
     available: "可用版本",
     pending: "待切换版本",
     policy: "更新策略",
+    installation: "安装所有者",
     none: "无",
     unmanaged: "当前不是托管安装",
-    unmanagedBody:
-      "Cockpit 不会修改源码 checkout 或普通包管理器安装。请在终端执行下面的精确迁移命令。",
+    unmanagedBody: "源码 checkout 不会被自动修改。请在终端执行下面的精确迁移命令。",
+    packageManaged: "包管理器安装",
+    packageManagedBody:
+      "Spark 将精确版本更新委托给当前安装所有者，同时保持统一的更新策略与服务交接。",
     quarantined: "已隔离版本",
     readOnly: "Cockpit 只显示 updater 状态。安装、回滚和隔离状态由外部 spark updater 独占管理。",
   },

@@ -66,7 +66,8 @@ $XDG_CACHE_HOME/spark/update/
 
 Use `SPARK_UPDATE_POLICY` and `SPARK_UPDATE_CHANNEL` for temporary policy
 overrides. Run `spark update status --json` to inspect the effective policy and
-transaction state.
+transaction state. The persisted `checkIntervalHours` defaults to `24` and can
+be changed with `spark update configure --interval-hours <hours>`.
 
 ## Workspace and agent definitions
 

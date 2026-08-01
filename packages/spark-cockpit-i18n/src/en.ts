@@ -190,10 +190,14 @@ const messages = {
     available: "Available",
     pending: "Pending",
     policy: "Policy",
+    installation: "Installation owner",
     none: "None",
     unmanaged: "Not a managed installation",
     unmanagedBody:
-      "Cockpit never modifies a source checkout or package-manager installation. Run the exact migration command below in a terminal.",
+      "Source checkouts are never modified. Run the exact migration command below in a terminal.",
+    packageManaged: "Package-manager installation",
+    packageManagedBody:
+      "Spark delegates exact updates to this installation owner while keeping one updater policy and service handoff.",
     quarantined: "Quarantined versions",
     readOnly:
       "Cockpit only displays updater state. Installation, rollback, and quarantine are owned by the external spark updater.",
