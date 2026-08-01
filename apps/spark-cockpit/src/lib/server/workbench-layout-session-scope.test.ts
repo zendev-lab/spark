@@ -70,7 +70,7 @@ beforeEach(() => {
 });
 
 describe("workbench session layout scope", () => {
-  it("paints the rail from the projected list without waiting on live session.list", async () => {
+  it("resolves legacy detail through the generic session scope without a route-id branch", async () => {
     const url = new URL("http://localhost:5173/sessions/sess_cached");
     const result = await load({
       cookies: {},
@@ -81,8 +81,8 @@ describe("workbench session layout scope", () => {
 
     expect(mocks.shellLayout).toHaveBeenCalledWith(
       expect.objectContaining({
-        pathname: "/sessions",
-        preferredWorkspaceId: null,
+        pathname: "/sessions/sess_cached",
+        preferredWorkspaceId: workspace.id,
       }),
     );
     expect(mocks.projectedList).toHaveBeenCalledWith({ workspaceId: workspace.id });

@@ -8,6 +8,7 @@ import {
   preferToolSummary,
   textConversationPart,
 } from "./components/conversation/conversation-view";
+import { mergeToolParts } from "./components/conversation/conversation-part-converters";
 import type {
   ConversationApprovalState,
   ConversationMessageView,
@@ -188,12 +189,33 @@ export function activeSessionTimelineProcessItemId(
   );
 }
 
-export function buildSessionTimeline(input: {
+type SessionTimelineInput = {
   messages: SparkMessageView[];
   commands: SessionTimelineCommand[];
   reports: SessionTimelineReport[];
   fallbackTimestamp: string;
-}): SessionTimelineItem[] {
+};
+
+type CanonicalTimelineProjection = {
+  items: SessionTimelineItem[];
+  canonicalMessageIds: Set<string>;
+  canonicalUserInvocationIds: Set<string>;
+  canonicalFallbackMatches: Map<string, number>;
+};
+
+type CommandTimelineProjection = {
+  items: SessionTimelineItem[];
+  fallbackSubmittedMessages: Map<string, number>;
+};
+
+export function buildSessionTimeline(input: SessionTimelineInput): SessionTimelineItem[] {
+  const canonical = projectCanonicalMessages(input);
+  const commands = projectFallbackCommands(input, canonical);
+  const reports = projectReports(input, canonical, commands);
+  return mergeTimelineItems(sortTimelineItems([...canonical.items, ...commands.items, ...reports]));
+}
+
+function projectCanonicalMessages(input: SessionTimelineInput): CanonicalTimelineProjection {
   const items: SessionTimelineItem[] = [];
   const canonicalMessageIds = new Set<string>();
   const canonicalUserInvocationIds = new Set<string>();
@@ -236,6 +258,15 @@ export function buildSessionTimeline(input: {
     });
   }
 
+  return { items, canonicalMessageIds, canonicalUserInvocationIds, canonicalFallbackMatches };
+}
+
+function projectFallbackCommands(
+  input: SessionTimelineInput,
+  canonical: CanonicalTimelineProjection,
+): CommandTimelineProjection {
+  const items: SessionTimelineItem[] = [];
+  const { canonicalMessageIds } = canonical;
   // Assignment commands predate the daemon-owned native transcript. They do not
   // carry a canonical message ID, so they cannot be reconciled safely once a
   // session snapshot exists. Keep them only as an empty-snapshot compatibility
@@ -260,6 +291,17 @@ export function buildSessionTimeline(input: {
     }
   }
 
+  return { items, fallbackSubmittedMessages };
+}
+
+function projectReports(
+  input: SessionTimelineInput,
+  canonical: CanonicalTimelineProjection,
+  commands: CommandTimelineProjection,
+): SessionTimelineItem[] {
+  const items: SessionTimelineItem[] = [];
+  const { canonicalMessageIds, canonicalUserInvocationIds, canonicalFallbackMatches } = canonical;
+  const { fallbackSubmittedMessages } = commands;
   for (const [reportIndex, report] of latestStableReports(input.reports).entries()) {
     if (
       report.kind === "daemon.task.lifecycle" ||
@@ -331,15 +373,23 @@ export function buildSessionTimeline(input: {
     });
   }
 
+  return items;
+}
+
+function sortTimelineItems(items: SessionTimelineItem[]): SessionTimelineItem[] {
   const sortedItems = items.sort((left, right) => {
     const time = Date.parse(left.timestamp) - Date.parse(right.timestamp);
     if (Number.isFinite(time) && time !== 0) return time;
     const lexical = left.timestamp.localeCompare(right.timestamp);
     return lexical || left.order - right.order || left.id.localeCompare(right.id);
   });
+  return sortedItems;
+}
+
+function mergeTimelineItems(items: SessionTimelineItem[]): SessionTimelineItem[] {
   return mergeTimelineThinkingChains(
     mergeConsecutiveSparkMessages(
-      foldRuntimeControlTurns(mergeTimelineInteractionParts(mergeTimelineToolParts(sortedItems))),
+      foldRuntimeControlTurns(mergeTimelineInteractionParts(mergeTimelineToolParts(items))),
     ),
   );
 }
@@ -643,29 +693,8 @@ function mergeTimelineThinkingChains(items: SessionTimelineItem[]) {
   });
 }
 
-function mergeToolsInParts(parts: ConversationPart[]) {
-  const result: ConversationPart[] = [];
-  const toolIndexes = new Map<string, number>();
-  for (const part of parts) {
-    if (part.type !== "tool") {
-      result.push(part);
-      continue;
-    }
-    const previousIndex = toolIndexes.get(part.callId);
-    const previous = previousIndex === undefined ? undefined : result[previousIndex];
-    if (previousIndex === undefined || previous?.type !== "tool") {
-      toolIndexes.set(part.callId, result.length);
-      result.push(part);
-      continue;
-    }
-    result[previousIndex] = {
-      ...previous,
-      name: part.name || previous.name,
-      state: laterToolState(previous.state, part.state),
-      summary: preferToolSummary(previous.summary, part.summary, previous.state, part.state),
-    };
-  }
-  return result;
+function mergeToolsInParts(parts: ConversationPart[]): ConversationPart[] {
+  return mergeToolParts(parts);
 }
 
 function laterMessageStatus(previous: string | null, next: string | null): string | null {

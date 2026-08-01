@@ -1,7 +1,8 @@
 <script lang="ts">
   import Icon from "$lib/Icon.svelte";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
-  import { Button, Field, Input, PageHeader } from "$lib/ui";
+  import TokenManagementSurface from "$lib/TokenManagementSurface.svelte";
+  import { Button, PageHeader } from "$lib/ui";
 
   let { data, form } = $props();
 
@@ -35,81 +36,62 @@
 <section class="access-page">
   <PageHeader title={t.access.title} lede={t.access.body} />
 
-  <section class="panel-card">
-    <div class="device-heading">
-      <div>
-        <h2>{t.access.createHeading}</h2>
-        <p>{t.access.createBody}</p>
-      </div>
-      <Icon name="user" size={20} />
-    </div>
-
-    <form class="token-form" method="POST" action="?/createAccessToken">
-      <Field id="access-label" label={t.access.label} reserveMeta={false}>
-        <Input id="access-label" name="label" placeholder={t.access.labelPlaceholder} />
-      </Field>
-      <Button type="submit">
-        <Icon name="plus" size={16} stroke={2.4} />
-        <span>{t.access.createToken}</span>
-      </Button>
-    </form>
-
-    {#if form?.intent === "cockpitAccess" && form?.accessToken}
-      <div class="token-created">
-        <div>
-          <strong>{t.access.tokenCreatedTitle}</strong>
-          <p>{form.message}</p>
-        </div>
-        <div class="token-display">
-          <span>{t.access.loginUrl}</span>
-          <pre>{form.loginUrl}</pre>
-        </div>
-        <div class="token-display">
-          <span>{t.access.oneTimeToken}</span>
-          <pre>{form.accessToken}</pre>
-        </div>
-        <small>{t.access.expiresPrefix} {formatRelative(form.accessExpiresAt ?? null)}</small>
-      </div>
-    {:else if form?.intent === "cockpitAccess" && form?.message}
-      <p class="form-message" role="alert">{form.message}</p>
-    {/if}
-
-    <article class="token-table">
-      <div class="table-heading">
-        <h3>{t.access.tableTitle}</h3>
-        <span>{data.accessTokens.length} {t.access.tableCount}</span>
-      </div>
-      {#if data.accessTokens.length === 0}
-        <div class="empty-state">
-          <Icon name="user" size={20} />
-          <div>
-            <strong>{t.access.emptyTitle}</strong>
-            <p>{t.access.emptyBody}</p>
-          </div>
-        </div>
-      {:else}
-        <div class="token-list">
-          {#each data.accessTokens as token}
-            {@const status = accessStatus(token)}
-            <div class="token-row">
-              <div>
-                <strong>{token.label ?? t.access.defaultTokenLabel}</strong>
-              </div>
-              <span class="status-pill {status}">{statusLabel(status)}</span>
-              <time><small>{t.enrollment.created}</small>{formatRelative(token.createdAt)}</time>
-              <time><small>{t.enrollment.expires}</small>{formatRelative(token.expiresAt)}</time>
-              <form method="POST" action="?/revokeAccessToken">
-                <input type="hidden" name="tokenId" value={token.id} />
-                <Button variant="secondary" size="compact" type="submit" disabled={status !== "ready"}>
-                  {t.access.revoke}
-                </Button>
-              </form>
+  <TokenManagementSurface
+      formAction="?/createAccessToken"
+      fieldId="access-label"
+      fieldLabel={t.access.label}
+      fieldPlaceholder={t.access.labelPlaceholder}
+      submitLabel={t.access.createToken}
+      heading={t.access.createHeading}
+      body={t.access.createBody}
+      icon="user"
+      message={form?.intent === "cockpitAccess" ? form?.message : null}
+      tableTitle={t.access.tableTitle}
+      tableCount={`${data.accessTokens.length} ${t.access.tableCount}`}
+      emptyIcon="user"
+      emptyTitle={t.access.emptyTitle}
+      emptyBody={t.access.emptyBody}
+      hasTokens={data.accessTokens.length > 0}
+    >
+      {#if form?.intent === "cockpitAccess" && form?.accessToken}
+        {#snippet created()}
+          <div class="token-created">
+            <div>
+              <strong>{t.access.tokenCreatedTitle}</strong>
+              <p>{form.message}</p>
             </div>
-          {/each}
-        </div>
+            <div class="token-display">
+              <span>{t.access.loginUrl}</span>
+              <pre>{form.loginUrl}</pre>
+            </div>
+            <div class="token-display">
+              <span>{t.access.oneTimeToken}</span>
+              <pre>{form.accessToken}</pre>
+            </div>
+            <small>{t.access.expiresPrefix} {formatRelative(form.accessExpiresAt ?? null)}</small>
+          </div>
+        {/snippet}
       {/if}
-    </article>
-  </section>
+      {#snippet tokens()}
+        {#each data.accessTokens as token}
+          {@const status = accessStatus(token)}
+          <div class="token-row">
+            <div>
+              <strong>{token.label ?? t.access.defaultTokenLabel}</strong>
+            </div>
+            <span class="status-pill {status}">{statusLabel(status)}</span>
+            <time><small>{t.enrollment.created}</small>{formatRelative(token.createdAt)}</time>
+            <time><small>{t.enrollment.expires}</small>{formatRelative(token.expiresAt)}</time>
+            <form method="POST" action="?/revokeAccessToken">
+              <input type="hidden" name="tokenId" value={token.id} />
+              <Button variant="secondary" size="compact" type="submit" disabled={status !== "ready"}>
+                {t.access.revoke}
+              </Button>
+            </form>
+          </div>
+        {/each}
+      {/snippet}
+  </TokenManagementSurface>
 </section>
 
 <style>
@@ -121,31 +103,11 @@
     width: 100%;
   }
 
-  h2,
-  h3,
-  p {
-    margin: 0;
-  }
-
-  h2 {
-    color: var(--color-ink);
-    font-size: 18px;
-    line-height: 1.3;
-  }
-
-  h3 {
-    color: var(--color-ink);
-    font-size: 15px;
-    line-height: 1.35;
-  }
-
-  .panel-card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--rounded-lg);
-    display: grid;
-    gap: 14px;
-    padding: 16px;
+  .token-created,
+  .token-row {
+    background: var(--color-surface-soft);
+    border: 1px solid var(--color-border-soft);
+    border-radius: var(--rounded-md);
   }
 
   .device-heading {
@@ -155,21 +117,12 @@
     justify-content: space-between;
   }
 
-  .device-heading p,
-  .empty-state p,
   .token-created p,
   .token-created small,
   .token-row small {
     color: var(--color-ink-subtle);
     font-size: 13px;
     line-height: 1.5;
-  }
-
-  .token-form {
-    align-items: end;
-    display: grid;
-    gap: 12px;
-    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .token-created,
@@ -209,35 +162,6 @@
     word-break: break-all;
   }
 
-  .token-table {
-    display: grid;
-    gap: 12px;
-  }
-
-  .table-heading {
-    align-items: baseline;
-    display: flex;
-    gap: 10px;
-    justify-content: space-between;
-  }
-
-  .table-heading span {
-    color: var(--color-ink-muted);
-    font-size: 13px;
-  }
-
-  .empty-state {
-    align-items: start;
-    display: flex;
-    gap: 12px;
-    padding: 14px;
-  }
-
-  .token-list {
-    display: grid;
-    gap: 8px;
-  }
-
   .token-row {
     align-items: center;
     display: grid;
@@ -271,7 +195,6 @@
   }
 
   @media (max-width: 820px) {
-    .token-form,
     .token-row {
       grid-template-columns: 1fr;
     }

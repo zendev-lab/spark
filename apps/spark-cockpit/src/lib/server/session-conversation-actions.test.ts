@@ -121,7 +121,7 @@ vi.mock("$lib/server/submission-idempotency", () => ({
     `idem_${phase === "session.create" ? "1" : "2"}${submissionId.length.toString(16).padStart(31, "0")}`,
 }));
 
-import { actions, load } from "../../routes/(workbench)/sessions/+page.server";
+import { actions, loadSessionsPage as load } from "./session-page-routes";
 import { conversationStartSessionId } from "./conversation-submission";
 
 const session = {

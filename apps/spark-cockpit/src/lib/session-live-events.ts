@@ -452,193 +452,292 @@ export function sessionEventCursor(
     : `${event.sequence}|${event.createdAt}|${event.id}`;
 }
 
+type DaemonEventType = SparkDaemonEvent["type"];
+type DaemonEventOf<K extends DaemonEventType> = Extract<SparkDaemonEvent, { type: K }>;
+type DaemonEventHandler<K extends DaemonEventType> = (
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  daemonEvent: DaemonEventOf<K>,
+) => SessionLiveEventResult;
+
+type ViewEvent = DaemonEventOf<"daemon.view_event">["view"];
+type ViewEventType = ViewEvent["type"];
+type ViewEventOf<K extends ViewEventType> = Extract<ViewEvent, { type: K }>;
+type ViewEventHandler<K extends ViewEventType> = (
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  daemonEvent: DaemonEventOf<"daemon.view_event">,
+  viewEvent: ViewEventOf<K>,
+) => SessionLiveEventResult;
+
+const daemonEventHandlers = {
+  "daemon.session.updated": applySessionUpdatedEvent,
+  "daemon.task.lifecycle": applyTaskLifecycleEvent,
+  "daemon.view_event": applyViewEvent,
+  "daemon.interaction.request": refreshActivityForDaemonEvent,
+  "daemon.interaction.response": refreshActivityForDaemonEvent,
+  "daemon.artifact.projected": refreshActivityForDaemonEvent,
+} satisfies { [K in DaemonEventType]: DaemonEventHandler<K> };
+
+const viewEventHandlers = {
+  "session.snapshot": applySessionSnapshotEvent,
+  "session.message": applySessionMessageEvent,
+  "run.update": applyRunUpdateEvent,
+  "driver.update": applyDriverUpdateEvent,
+  "task.update": applyTaskUpdateEvent,
+  "artifact.update": applyArtifactUpdateEvent,
+  "evidence.update": applyEvidenceUpdateEvent,
+} satisfies { [K in ViewEventType]: ViewEventHandler<K> };
+
 function applyDaemonEvent(
   state: SessionLiveEventState,
   event: SessionSerializedEvent,
 ): SessionLiveEventResult | null {
   if (!event.kind.startsWith("daemon.")) return null;
-
   const daemonEvent = daemonEventFromPayload(event.payload);
-  if (!daemonEvent) {
+  if (!daemonEvent || daemonEvent.sessionId !== state.sessionId) {
     return { changed: false, refreshActivity: false };
   }
+  return dispatchDaemonEvent(state, event, daemonEvent);
+}
 
-  if (daemonEvent.sessionId !== state.sessionId) {
-    return { changed: false, refreshActivity: false };
+function dispatchDaemonEvent(
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  daemonEvent: SparkDaemonEvent,
+): SessionLiveEventResult {
+  const handler = daemonEventHandlers[daemonEvent.type] as DaemonEventHandler<
+    typeof daemonEvent.type
+  >;
+  return handler(state, event, daemonEvent);
+}
+
+function applySessionUpdatedEvent(
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  daemonEvent: DaemonEventOf<"daemon.session.updated">,
+): SessionLiveEventResult {
+  if (state.view && daemonEvent.title) {
+    state.view = {
+      ...state.view,
+      title: daemonEvent.title,
+      updatedAt: daemonEvent.emittedAt ?? event.createdAt,
+    };
   }
+  return { changed: Boolean(daemonEvent.title), refreshActivity: true };
+}
 
-  if (daemonEvent.type === "daemon.session.updated") {
-    if (state.view && daemonEvent.title) {
-      state.view = {
-        ...state.view,
-        title: daemonEvent.title,
-        updatedAt: daemonEvent.emittedAt ?? event.createdAt,
-      };
-    }
-    return { changed: Boolean(daemonEvent.title), refreshActivity: true };
-  }
-
-  if (daemonEvent.type !== "daemon.view_event") {
-    if (daemonEvent.type === "daemon.task.lifecycle") {
-      const turnId = daemonEvent.invocationId ?? null;
-      const status = daemonEvent.status.toLocaleLowerCase();
-      if (
-        !turnId ||
-        !isKnownPendingInvocation(state, turnId) ||
-        !acceptInvocationPhase(state, turnId, status)
-      ) {
-        return { changed: false, refreshActivity: true };
-      }
-      const previousActiveTurnId = state.activeTurnId;
-      const viewChanged = applyDaemonInvocationPhaseToView(
-        state,
-        turnId,
-        status,
-        daemonEvent.emittedAt ?? event.createdAt,
-      );
-      applyInvocationCancellationTarget(state, turnId, status);
-      return {
-        changed: viewChanged || state.activeTurnId !== previousActiveTurnId,
-        refreshActivity: true,
-      };
-    }
-    // Lifecycle / session meta events never rewrite pendingTurns or status;
-    // those come from `session.snapshot` / incremental view events.
+function applyTaskLifecycleEvent(
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  daemonEvent: DaemonEventOf<"daemon.task.lifecycle">,
+): SessionLiveEventResult {
+  const turnId = daemonEvent.invocationId ?? null;
+  const status = daemonEvent.status.toLocaleLowerCase();
+  if (
+    !turnId ||
+    !isKnownPendingInvocation(state, turnId) ||
+    !acceptInvocationPhase(state, turnId, status)
+  ) {
     return { changed: false, refreshActivity: true };
   }
+  const previousActiveTurnId = state.activeTurnId;
+  const viewChanged = applyDaemonInvocationPhaseToView(
+    state,
+    turnId,
+    status,
+    daemonEvent.emittedAt ?? event.createdAt,
+  );
+  applyInvocationCancellationTarget(state, turnId, status);
+  return {
+    changed: viewChanged || state.activeTurnId !== previousActiveTurnId,
+    refreshActivity: true,
+  };
+}
 
-  const viewEvent = daemonEvent.view;
-  if (viewEvent.type === "session.snapshot") {
-    if (viewEvent.session.sessionId !== state.sessionId) {
-      return { changed: false, refreshActivity: false };
-    }
-    const mailbox = viewEvent.session.mailbox ?? state.view?.mailbox;
-    const previous = state.view;
-    state.view = reconcileSessionView(
-      previous,
-      normalizeSnapshotAgainstInvocationPhases(
-        cloneSessionView({
-          ...viewEvent.session,
-          ...(mailbox ? { mailbox } : {}),
-        }),
-        state.invocationPhases,
-      ),
-      state.sessionId,
-      { preserveCurrentHistory: true, source: "event" },
-    );
-    syncInvocationStateFromView(state, true);
-    return { changed: state.view !== previous, refreshActivity: false };
+function refreshActivityForDaemonEvent(): SessionLiveEventResult {
+  return { changed: false, refreshActivity: true };
+}
+
+function applyViewEvent(
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  daemonEvent: DaemonEventOf<"daemon.view_event">,
+): SessionLiveEventResult {
+  return dispatchViewEvent(state, event, daemonEvent, daemonEvent.view);
+}
+
+function dispatchViewEvent(
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  daemonEvent: DaemonEventOf<"daemon.view_event">,
+  viewEvent: ViewEvent,
+): SessionLiveEventResult {
+  const handler = viewEventHandlers[viewEvent.type] as ViewEventHandler<typeof viewEvent.type>;
+  return handler(state, event, daemonEvent, viewEvent);
+}
+
+function applySessionSnapshotEvent(
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  _daemonEvent: DaemonEventOf<"daemon.view_event">,
+  viewEvent: ViewEventOf<"session.snapshot">,
+): SessionLiveEventResult {
+  if (viewEvent.session.sessionId !== state.sessionId) {
+    return { changed: false, refreshActivity: false };
   }
+  const mailbox = viewEvent.session.mailbox ?? state.view?.mailbox;
+  const previous = state.view;
+  state.view = reconcileSessionView(
+    previous,
+    normalizeSnapshotAgainstInvocationPhases(
+      cloneSessionView({
+        ...viewEvent.session,
+        ...(mailbox ? { mailbox } : {}),
+      }),
+      state.invocationPhases,
+    ),
+    state.sessionId,
+    { preserveCurrentHistory: true, source: "event" },
+  );
+  syncInvocationStateFromView(state, true);
+  return { changed: state.view !== previous, refreshActivity: false };
+}
 
+function applySessionMessageEvent(
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  daemonEvent: DaemonEventOf<"daemon.view_event">,
+  viewEvent: ViewEventOf<"session.message">,
+): SessionLiveEventResult {
+  if (viewEvent.sessionId !== state.sessionId) return { changed: false, refreshActivity: false };
   const current = state.view ?? emptySessionView(state.sessionId, event.createdAt);
-  if (viewEvent.type === "session.message") {
-    if (viewEvent.sessionId !== state.sessionId) {
-      return { changed: false, refreshActivity: false };
-    }
-    const message = correlateLiveUserMessage(
-      sanitizeLiveMessage(viewEvent.message),
-      daemonEvent.invocationId ?? null,
-    );
-    const messages = upsertSessionMessage(current.messages, message, state.sessionId, "ordered");
-    if (messages === current.messages) {
-      return { changed: false, refreshActivity: false };
-    }
+  const message = correlateLiveUserMessage(
+    sanitizeLiveMessage(viewEvent.message),
+    daemonEvent.invocationId ?? null,
+  );
+  const messages = upsertSessionMessage(current.messages, message, state.sessionId, "ordered");
+  if (messages === current.messages) return { changed: false, refreshActivity: false };
+  state.view = {
+    ...current,
+    messages,
+    updatedAt: message.updatedAt ?? message.createdAt ?? event.createdAt,
+  };
+  return { changed: true, refreshActivity: false };
+}
+
+function applyRunUpdateEvent(
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  daemonEvent: DaemonEventOf<"daemon.view_event">,
+  viewEvent: ViewEventOf<"run.update">,
+): SessionLiveEventResult {
+  if (viewEvent.sessionId && viewEvent.sessionId !== state.sessionId) {
+    return { changed: false, refreshActivity: false };
+  }
+  const current = state.view ?? emptySessionView(state.sessionId, event.createdAt);
+  state.view = {
+    ...current,
+    runs: upsertById(current.runs, viewEvent.run),
+    updatedAt:
+      viewEvent.run.completedAt ??
+      viewEvent.run.startedAt ??
+      daemonEvent.emittedAt ??
+      event.createdAt,
+  };
+  return { changed: true, refreshActivity: false };
+}
+
+function applyDriverUpdateEvent(
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  daemonEvent: DaemonEventOf<"daemon.view_event">,
+  viewEvent: ViewEventOf<"driver.update">,
+): SessionLiveEventResult {
+  if (viewEvent.sessionId !== state.sessionId) return { changed: false, refreshActivity: false };
+  const current = state.view ?? emptySessionView(state.sessionId, event.createdAt);
+  state.view = {
+    ...current,
+    drivers: upsertByKey(current.drivers ?? [], viewEvent.driver, (driver) => driver.driverId),
+    updatedAt: daemonEvent.emittedAt ?? event.createdAt,
+  };
+  return { changed: true, refreshActivity: false };
+}
+
+function applyTaskUpdateEvent(
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  daemonEvent: DaemonEventOf<"daemon.view_event">,
+  viewEvent: ViewEventOf<"task.update">,
+): SessionLiveEventResult {
+  const current = state.view ?? emptySessionView(state.sessionId, event.createdAt);
+  state.view = {
+    ...current,
+    tasks: upsertByKey(current.tasks, viewEvent.task, (task) => task.ref),
+    updatedAt: daemonEvent.emittedAt ?? event.createdAt,
+  };
+  return { changed: true, refreshActivity: false };
+}
+
+function applyArtifactUpdateEvent(
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  _daemonEvent: DaemonEventOf<"daemon.view_event">,
+  viewEvent: ViewEventOf<"artifact.update">,
+): SessionLiveEventResult {
+  const current = state.view ?? emptySessionView(state.sessionId, event.createdAt);
+  const kind = viewEvent.artifact.kind;
+  if (kind === "issue" || kind === "pr" || kind === "preview") {
     state.view = {
       ...current,
-      messages,
-      updatedAt: message.updatedAt ?? message.createdAt ?? event.createdAt,
+      artifacts: upsertByKey(current.artifacts, viewEvent.artifact, (artifact) => artifact.ref),
+      updatedAt: viewEvent.artifact.updatedAt ?? viewEvent.artifact.createdAt ?? event.createdAt,
     };
     return { changed: true, refreshActivity: false };
   }
-  if (viewEvent.type === "run.update") {
-    if (viewEvent.sessionId && viewEvent.sessionId !== state.sessionId) {
-      return { changed: false, refreshActivity: false };
-    }
-    state.view = {
-      ...current,
-      // A run card may describe a nested workflow, role or task. It is useful
-      // inspector data, but it does not own the conversation execution state.
-      // Only daemon lifecycle / pending-turn truth may drive the header spinner
-      // and Stop target.
-      runs: upsertById(current.runs, viewEvent.run),
-      updatedAt:
-        viewEvent.run.completedAt ??
-        viewEvent.run.startedAt ??
-        daemonEvent.emittedAt ??
-        event.createdAt,
-    };
-    return { changed: true, refreshActivity: false };
-  }
-  if (viewEvent.type === "driver.update") {
-    if (viewEvent.sessionId !== state.sessionId) {
-      return { changed: false, refreshActivity: false };
-    }
-    state.view = {
-      ...current,
-      drivers: upsertByKey(current.drivers ?? [], viewEvent.driver, (driver) => driver.driverId),
-      updatedAt: daemonEvent.emittedAt ?? event.createdAt,
-    };
-    return { changed: true, refreshActivity: false };
-  }
-  if (viewEvent.type === "task.update") {
-    state.view = {
-      ...current,
-      tasks: upsertByKey(current.tasks, viewEvent.task, (task) => task.ref),
-      updatedAt: daemonEvent.emittedAt ?? event.createdAt,
-    };
-    return { changed: true, refreshActivity: false };
-  }
-  if (viewEvent.type === "artifact.update") {
-    const kind = viewEvent.artifact.kind;
-    if (kind === "issue" || kind === "pr" || kind === "preview") {
-      state.view = {
-        ...current,
-        artifacts: upsertByKey(current.artifacts, viewEvent.artifact, (artifact) => artifact.ref),
-        updatedAt: viewEvent.artifact.updatedAt ?? viewEvent.artifact.createdAt ?? event.createdAt,
-      };
-      return { changed: true, refreshActivity: false };
-    }
-    // Legacy artifact.update for evidence kinds — land in the evidence lane.
-    const evidence = {
-      version: viewEvent.artifact.version,
-      ref: viewEvent.artifact.ref,
-      title: viewEvent.artifact.title,
-      kind:
-        kind === "document" || kind === "record" || kind === "trace" || kind === "knowledge"
-          ? kind
-          : ("other" as const),
-      format:
-        viewEvent.artifact.format === "markdown" ||
-        viewEvent.artifact.format === "json" ||
-        viewEvent.artifact.format === "text" ||
-        viewEvent.artifact.format === "blob"
-          ? viewEvent.artifact.format
-          : ("other" as const),
-      ...(viewEvent.artifact.status ? { status: viewEvent.artifact.status } : {}),
-      ...(viewEvent.artifact.producer ? { producer: viewEvent.artifact.producer } : {}),
-      ...(viewEvent.artifact.createdAt ? { createdAt: viewEvent.artifact.createdAt } : {}),
-      ...(viewEvent.artifact.updatedAt ? { updatedAt: viewEvent.artifact.updatedAt } : {}),
-      ...(viewEvent.artifact.preview ? { preview: viewEvent.artifact.preview } : {}),
-      metadata: viewEvent.artifact.metadata,
-    };
-    state.view = {
-      ...current,
-      evidence: upsertByKey(current.evidence ?? [], evidence, (item) => item.ref),
-      updatedAt: evidence.updatedAt ?? evidence.createdAt ?? event.createdAt,
-    };
-    return { changed: true, refreshActivity: false };
-  }
-  if (viewEvent.type === "evidence.update") {
-    state.view = {
-      ...current,
-      evidence: upsertByKey(current.evidence ?? [], viewEvent.evidence, (item) => item.ref),
-      updatedAt: viewEvent.evidence.updatedAt ?? viewEvent.evidence.createdAt ?? event.createdAt,
-    };
-    return { changed: true, refreshActivity: false };
-  }
-  const _exhaustive: never = viewEvent;
-  void _exhaustive;
-  return { changed: false, refreshActivity: false };
+  const evidence = {
+    version: viewEvent.artifact.version,
+    ref: viewEvent.artifact.ref,
+    title: viewEvent.artifact.title,
+    kind:
+      kind === "document" || kind === "record" || kind === "trace" || kind === "knowledge"
+        ? kind
+        : ("other" as const),
+    format:
+      viewEvent.artifact.format === "markdown" ||
+      viewEvent.artifact.format === "json" ||
+      viewEvent.artifact.format === "text" ||
+      viewEvent.artifact.format === "blob"
+        ? viewEvent.artifact.format
+        : ("other" as const),
+    ...(viewEvent.artifact.status ? { status: viewEvent.artifact.status } : {}),
+    ...(viewEvent.artifact.producer ? { producer: viewEvent.artifact.producer } : {}),
+    ...(viewEvent.artifact.createdAt ? { createdAt: viewEvent.artifact.createdAt } : {}),
+    ...(viewEvent.artifact.updatedAt ? { updatedAt: viewEvent.artifact.updatedAt } : {}),
+    ...(viewEvent.artifact.preview ? { preview: viewEvent.artifact.preview } : {}),
+    metadata: viewEvent.artifact.metadata,
+  };
+  state.view = {
+    ...current,
+    evidence: upsertByKey(current.evidence ?? [], evidence, (item) => item.ref),
+    updatedAt: evidence.updatedAt ?? evidence.createdAt ?? event.createdAt,
+  };
+  return { changed: true, refreshActivity: false };
+}
+
+function applyEvidenceUpdateEvent(
+  state: SessionLiveEventState,
+  event: SessionSerializedEvent,
+  _daemonEvent: DaemonEventOf<"daemon.view_event">,
+  viewEvent: ViewEventOf<"evidence.update">,
+): SessionLiveEventResult {
+  const current = state.view ?? emptySessionView(state.sessionId, event.createdAt);
+  state.view = {
+    ...current,
+    evidence: upsertByKey(current.evidence ?? [], viewEvent.evidence, (item) => item.ref),
+    updatedAt: viewEvent.evidence.updatedAt ?? viewEvent.evidence.createdAt ?? event.createdAt,
+  };
+  return { changed: true, refreshActivity: false };
 }
 
 function applyDaemonInvocationPhaseToView(

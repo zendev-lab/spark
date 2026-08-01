@@ -1,13 +1,14 @@
 import type { SparkMessageView } from "@zendev-lab/spark-protocol";
-import type {
-  ConversationApprovalState,
-  ConversationChainStep,
-  ConversationPart,
-  ConversationTaskState,
-  ConversationToolState,
-} from "./types";
+import type { ConversationChainStep, ConversationPart } from "./types";
 import { isInternalExecutionTransportFailure } from "./internal-execution-detail";
 import { isVisibleThinkingChain } from "./thinking-chain-view";
+import {
+  mergeToolParts,
+  normalizeConversationPart,
+  toolState,
+} from "./conversation-part-converters";
+
+export { preferToolSummary } from "./conversation-part-converters";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -17,7 +18,7 @@ export function conversationPartsFromMessage(
 ): ConversationPart[] {
   const messageRecord = message as SparkMessageView & { parts?: unknown };
   const rawParts = Array.isArray(messageRecord.parts) ? messageRecord.parts : [];
-  let parts = mergeMessageToolParts(
+  let parts = mergeToolParts(
     rawParts.flatMap((part, index) => normalizePart(part, message, index)),
   );
 
@@ -208,149 +209,7 @@ function normalizePart(
   message: SparkMessageView,
   index: number,
 ): ConversationPart[] {
-  if (!isRecord(value)) return [];
-  const type = stringField(value, "type");
-  if (!type) return [];
-
-  if (type === "text") {
-    const text = stringField(value, "text");
-    const streaming =
-      stringField(value, "status") === "streaming" || message.status === "streaming";
-    if (text?.trim() && stringField(value, "phase") === "commentary") {
-      return [{ type: "commentary", summary: text, state: streaming ? "streaming" : "complete" }];
-    }
-    return text?.trim()
-      ? [
-          {
-            type: "text",
-            text,
-            streaming,
-          },
-        ]
-      : [];
-  }
-
-  if (
-    type === "image" &&
-    typeof value.contentIndex === "number" &&
-    Number.isSafeInteger(value.contentIndex) &&
-    value.contentIndex >= 0 &&
-    isRenderableImageMediaType(value.mediaType)
-  ) {
-    return [
-      {
-        type: "image",
-        contentIndex: value.contentIndex,
-        mediaType: value.mediaType,
-        ...(typeof value.name === "string" && value.name.trim() ? { name: value.name.trim() } : {}),
-      },
-    ];
-  }
-
-  if (type === "thinking" || type === "reasoning") {
-    const redacted = value.redacted === true;
-    const summary = redacted ? "" : (stringField(value, "summary") ?? stringField(value, "text"));
-    return summary?.trim() || redacted
-      ? [
-          {
-            type: "reasoning",
-            summary: summary ?? "",
-            state:
-              stringField(value, "status") === "streaming" || message.status === "streaming"
-                ? "streaming"
-                : "complete",
-            redacted,
-          },
-        ]
-      : [];
-  }
-
-  if (type === "tool-call" || type === "tool-result" || type === "tool") {
-    const callId =
-      stringField(value, "callId") ??
-      stringField(value, "toolCallId") ??
-      message.toolCallId ??
-      `${message.id}:tool:${index}`;
-    const name =
-      stringField(value, "name") ?? stringField(value, "toolName") ?? message.toolName ?? "tool";
-    const summary =
-      stringField(value, "summary") ??
-      stringField(value, "text") ??
-      (message.role === "tool" && message.text.trim() ? message.text.trim() : undefined) ??
-      (type === "tool-result" && message.text.trim() ? message.text.trim() : undefined);
-    return [
-      {
-        type: "tool",
-        callId,
-        name,
-        state: toolState(stringField(value, "status") ?? message.status, type),
-        ...(summary ? { summary } : {}),
-      },
-    ];
-  }
-
-  if (type === "task") {
-    const taskRef = stringField(value, "taskRef") ?? `${message.id}:task:${index}`;
-    return [
-      {
-        type: "task",
-        taskRef,
-        title: stringField(value, "title") ?? taskRef,
-        state: taskState(stringField(value, "status")),
-        summary: stringField(value, "summary"),
-      },
-    ];
-  }
-
-  if (type === "approval") {
-    const requestId = stringField(value, "requestId") ?? `${message.id}:approval:${index}`;
-    return [
-      {
-        type: "approval",
-        requestId,
-        title: stringField(value, "title") ?? requestId,
-        state: approvalState(stringField(value, "status")),
-        kind: stringField(value, "kind"),
-        summary: stringField(value, "summary"),
-      },
-    ];
-  }
-
-  if (type === "artifact") {
-    const artifactRef =
-      stringField(value, "artifactRef") ??
-      stringField(value, "artifactId") ??
-      stringField(value, "ref") ??
-      `${message.id}:artifact:${index}`;
-    return [
-      {
-        type: "artifact",
-        artifactRef,
-        title: stringField(value, "title") ?? artifactRef,
-        kind: stringField(value, "kind"),
-        state: stringField(value, "state") ?? stringField(value, "status"),
-        summary: stringField(value, "summary"),
-      },
-    ];
-  }
-
-  if (type === "error") {
-    const title = stringField(value, "title") ?? "Error";
-    return [
-      {
-        type: "error",
-        title,
-        message:
-          stringField(value, "message") ??
-          stringField(value, "summary") ??
-          stringField(value, "text") ??
-          title,
-        code: stringField(value, "code"),
-      },
-    ];
-  }
-
-  return [{ type: "unknown", label: boundedLabel(type) }];
+  return normalizeConversationPart(value, message, index);
 }
 
 function stripRenderedImagePlaceholders(parts: ConversationPart[]): ConversationPart[] {
@@ -370,18 +229,6 @@ function stripRenderedImagePlaceholders(parts: ConversationPart[]): Conversation
 
 function isImagePlaceholder(value: string): boolean {
   return /^\s*(?:\[图片\]|\[image(?::[^\]]+)?\])\s*$/iu.test(value);
-}
-
-function isRenderableImageMediaType(
-  value: unknown,
-): value is Extract<ConversationPart, { type: "image" }>["mediaType"] {
-  return (
-    value === "image/bmp" ||
-    value === "image/gif" ||
-    value === "image/jpeg" ||
-    value === "image/png" ||
-    value === "image/webp"
-  );
 }
 
 function fallbackParts(message: SparkMessageView, displayText: string): ConversationPart[] {
@@ -409,109 +256,7 @@ function fallbackParts(message: SparkMessageView, displayText: string): Conversa
   return [{ type: "text", text: displayText, streaming: message.status === "streaming" }];
 }
 
-function toolState(value: string | undefined, partType: string): ConversationToolState {
-  if (value === "awaiting-approval") return "awaiting-approval";
-  if (["completed", "complete", "done", "succeeded", "success"].includes(value ?? "")) {
-    return "completed";
-  }
-  if (["failed", "error"].includes(value ?? "")) return "failed";
-  if (["denied", "rejected"].includes(value ?? "")) return "denied";
-  if (["cancelled", "canceled"].includes(value ?? "")) return "cancelled";
-  if (["running", "streaming"].includes(value ?? "")) return "running";
-  if (partType === "tool-result") return "completed";
-  return "pending";
-}
-
-function taskState(value: string | undefined): ConversationTaskState {
-  if (["completed", "complete", "done", "succeeded", "success"].includes(value ?? "")) {
-    return "completed";
-  }
-  if (["failed", "error"].includes(value ?? "")) return "failed";
-  if (value === "blocked") return "blocked";
-  if (["cancelled", "canceled"].includes(value ?? "")) return "cancelled";
-  if (["running", "in_progress", "claimed"].includes(value ?? "")) return "running";
-  return "pending";
-}
-
-function approvalState(value: string | undefined): ConversationApprovalState {
-  if (["approved", "accepted"].includes(value ?? "")) return "approved";
-  if (["answered", "resolved", "completed", "complete", "done"].includes(value ?? "")) {
-    return "resolved";
-  }
-  if (["rejected", "denied"].includes(value ?? "")) return "rejected";
-  if (["cancelled", "canceled"].includes(value ?? "")) return "cancelled";
-  return "requested";
-}
-
-function mergeMessageToolParts(parts: ConversationPart[]) {
-  const result: ConversationPart[] = [];
-  const toolIndexes = new Map<string, number>();
-
-  for (const part of parts) {
-    if (part.type !== "tool") {
-      result.push(part);
-      continue;
-    }
-    const previousIndex = toolIndexes.get(part.callId);
-    const previous = previousIndex === undefined ? undefined : result[previousIndex];
-    if (previousIndex === undefined || previous?.type !== "tool") {
-      toolIndexes.set(part.callId, result.length);
-      result.push(part);
-      continue;
-    }
-    result[previousIndex] = {
-      ...previous,
-      name: part.name || previous.name,
-      state: laterToolState(previous.state, part.state),
-      summary: preferToolSummary(previous.summary, part.summary, previous.state, part.state),
-    };
-  }
-
-  return result;
-}
-
-/** Prefer completed/failed result text over call-argument previews. */
-export function preferToolSummary(
-  previous: string | undefined,
-  next: string | undefined,
-  previousState: ConversationToolState,
-  nextState: ConversationToolState,
-): string | undefined {
-  const nextIsResult =
-    nextState === "completed" ||
-    nextState === "failed" ||
-    nextState === "denied" ||
-    nextState === "cancelled";
-  const previousIsResult =
-    previousState === "completed" ||
-    previousState === "failed" ||
-    previousState === "denied" ||
-    previousState === "cancelled";
-  if (nextIsResult && next?.trim()) return next.trim();
-  if (previousIsResult && previous?.trim()) return previous.trim();
-  if (next?.trim()) return next.trim();
-  if (previous?.trim()) return previous.trim();
-  return undefined;
-}
-
-function laterToolState(previous: ConversationToolState, next: ConversationToolState) {
-  const rank: Record<ConversationToolState, number> = {
-    pending: 0,
-    "awaiting-approval": 1,
-    running: 2,
-    completed: 3,
-    denied: 3,
-    cancelled: 3,
-    failed: 4,
-  };
-  return rank[next] >= rank[previous] ? next : previous;
-}
-
 function stringField(value: UnknownRecord, key: string) {
   const candidate = value[key];
   return typeof candidate === "string" && candidate.trim() ? candidate : undefined;
-}
-
-function boundedLabel(value: string) {
-  return value.length <= 80 ? value : `${value.slice(0, 77)}…`;
 }
