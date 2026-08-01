@@ -30,6 +30,7 @@ import { catalogSparkNativeCommands } from "../apps/spark-tui/src/native-tui/com
 import { nativeKernelSlashCommandEntries } from "../apps/spark-tui/src/native-tui/slash-commands.ts";
 import { createSparkPiParitySlashCommands } from "../apps/spark-tui/src/cli/pi-parity-commands.ts";
 import type { SparkDaemonModelAuthClient } from "../apps/spark-tui/src/cli/model-control.ts";
+import type { Component } from "../apps/spark-tui/src/tui/pi-tui-adapter.ts";
 import { SparkSessionMailStore } from "../apps/spark-tui/src/host/session-mail-store.ts";
 import { createSparkTuiActionBarComponent } from "../apps/spark-tui/src/tui/action-bar.ts";
 import sparkExtension from "../packages/spark-extension/src/extension/index.ts";
@@ -88,6 +89,55 @@ function recordingDriverControl(starts: SparkDriverStartRequest[]): SparkDaemonD
     },
   };
 }
+
+test("native TUI composes a bounded conversation frame", () => {
+  const harness = createSparkNativeTuiHarness({
+    cols: 60,
+    rows: 18,
+    workspaceSession: {
+      mode: "attached",
+      workspaceDir: `/workspace/${"long-segment/".repeat(12)}`,
+      workspaceHash: "hash-123",
+      controlPlaneSessionId: "session-primary",
+    },
+  });
+  harness.session.messages.push(
+    { role: "user", text: "older transcript message" },
+    { role: "assistant", text: "recent transcript message" },
+  );
+  harness.app.setEditorText("draft prompt");
+  harness.app.invalidate();
+
+  const lines = harness.renderLines();
+  const plain = lines.map(stripAnsi);
+  assert.ok(lines.length <= 18);
+  assert.ok(lines.every((line) => visibleWidth(line) <= 60));
+  assert.equal(plain.filter((line) => line.startsWith("Spark · ")).length, 1);
+  assert.equal(plain.filter((line) => line.includes("Spark session attached")).length, 1);
+
+  const context = firstMarkerIndex(plain, /Spark session attached/);
+  const message = firstMarkerIndex(plain, /recent transcript message/);
+  const composer = firstMarkerIndex(plain, /draft prompt/);
+  assert.ok(context < message && message < composer);
+});
+
+test("native TUI invalidates its cached frame when terminal height changes", () => {
+  const harness = createSparkNativeTuiHarness({ cols: 60, rows: 18 });
+  harness.session.messages.push(
+    ...Array.from({ length: 20 }, (_, index) => ({
+      role: "assistant" as const,
+      text: `height-cache-message-${index}`,
+    })),
+  );
+  harness.app.invalidate();
+  const tall = harness.renderLines();
+
+  (harness.tui.terminal as { rows: number }).rows = 8;
+  const short = harness.renderLines();
+  assert.ok(tall.length > short.length);
+  assert.ok(short.length <= 8);
+  assert.match(short.map(stripAnsi).join("\n"), /height-cache-message-19/);
+});
 
 test("native TUI kernel slash commands are minimal and resource slash is extension-owned", async () => {
   assert.deepEqual(
@@ -230,7 +280,10 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
     );
   }
 
-  const harness = createSparkNativeTuiHarness({ slashCommands: { ...runtime, ...local } });
+  const harness = createSparkNativeTuiHarness({
+    rows: 120,
+    slashCommands: { ...runtime, ...local },
+  });
   assert.equal(await harness.submit("/help"), "command");
   let rendered = stripAnsi(harness.render());
   assert.match(rendered, /Spark — start here/);
@@ -451,10 +504,10 @@ test("native TUI keeps Pi-like project UI placement when session selector is sho
   const goalLine = firstMarkerIndex(lines, /Goal: daemon-first/);
   const readyLine = firstMarkerIndex(lines, /Ready: @pi-like-project-ui-placement/);
 
-  assert.deepEqual(sessionLines, [2]);
-  assert.equal(projectLine, 3);
-  assert.equal(goalLine, 4);
-  assert.equal(readyLine, 5);
+  assert.deepEqual(sessionLines, [1]);
+  assert.equal(projectLine, 2);
+  assert.equal(goalLine, 3);
+  assert.equal(readyLine, 4);
 });
 
 test("native TUI renders compact session status before Pi-like project UI", () => {
@@ -477,8 +530,8 @@ test("native TUI renders compact session status before Pi-like project UI", () =
   const lines = stripAnsi(harness.render()).split("\n");
   const sessionLine = firstMarkerIndex(lines, /Spark session attached/);
   const projectLine = firstMarkerIndex(lines, /Project: Spark daemon-first/);
-  assert.equal(sessionLine, 2);
-  assert.equal(projectLine, 3);
+  assert.equal(sessionLine, 1);
+  assert.equal(projectLine, 2);
   assert.equal(
     lines.filter((line) =>
       /Spark session attached|workspace hash: hash-current|attach target: session:attached/.test(
@@ -539,6 +592,219 @@ test("Spark native TUI renders theme color and live widget animation frames", as
   widgetRequestRender?.();
   assert.equal(harness.state.renderRequests.length > 0, true);
   assert.match(stripAnsi(harness.render()), /frame:1/);
+});
+
+function nativeAskRequest(
+  requestId: string,
+  overrides: Partial<Extract<SparkInteractionRequest, { kind: "askFlow" }>> = {},
+): Extract<SparkInteractionRequest, { kind: "askFlow" }> {
+  return {
+    version: SPARK_PROTOCOL_VERSION,
+    requestId,
+    kind: "askFlow",
+    title: "Choose an implementation path",
+    prompt: "The turn remains paused until this is answered.",
+    mode: "decision",
+    questions: [
+      {
+        id: "path",
+        prompt: "Which path should Spark take?",
+        type: "single",
+        required: true,
+        defaultValues: [],
+        options: [
+          { value: "safe", label: "Safe path" },
+          { value: "fast", label: "Fast path" },
+        ],
+      },
+    ],
+    metadata: {},
+    ...overrides,
+  };
+}
+
+test("native custom synchronous done never presents or leaks a component", async () => {
+  for (const withOverlay of [false, true]) {
+    const harness = createSparkNativeTuiHarness({ withOverlay });
+    const component: Component = {
+      render: () => ["must not become visible"],
+      handleInput: () => {},
+      invalidate: () => {},
+    };
+    const result = await harness.app.custom<string>(
+      (_tui, _theme, _keybindings, done) => {
+        done("synchronous-result");
+        return component;
+      },
+      { overlay: true },
+    );
+    assert.equal(result, "synchronous-result");
+    assert.equal(harness.state.overlays.length, 0);
+    assert.equal(harness.state.children.length, 0);
+    assert.equal(harness.state.focused, harness.app);
+    assert.equal(markerIndexes(harness.renderLines().map(stripAnsi), /Ask pending/).length, 0);
+    assert.equal(harness.state.renderRequests.length, 1);
+  }
+});
+
+test("native ask lifecycle cache bounds replay and transcript dedup together", async () => {
+  const harness = createSparkNativeTuiHarness({ withOverlay: true });
+  const responses = new Map<
+    string,
+    Awaited<ReturnType<typeof harness.app.handleInteractionRequest>>
+  >();
+  for (let index = 0; index <= 32; index += 1) {
+    const request = nativeAskRequest(`ask-bounded-${index}`);
+    const responsePromise = harness.app.handleInteractionRequest(request);
+    await harness.flush();
+    const overlay = harness.state.overlays.at(-1);
+    assert.ok(overlay);
+    overlay.component.handleInput?.("\r");
+    overlay.component.handleInput?.("\r");
+    responses.set(request.requestId, await responsePromise);
+  }
+  assert.equal(harness.state.overlays.length, 33);
+
+  const newest = nativeAskRequest("ask-bounded-32");
+  const newestReplay = await harness.app.handleInteractionRequest(newest);
+  assert.deepEqual(newestReplay, responses.get(newest.requestId));
+  assert.equal(harness.state.overlays.length, 33);
+
+  const evicted = nativeAskRequest("ask-bounded-0");
+  const evictedPresentation = harness.app.handleInteractionRequest(evicted);
+  await harness.flush();
+  assert.equal(harness.state.overlays.length, 34);
+  const replacement = harness.state.overlays.at(-1)!;
+  assert.equal(replacement.visible, true);
+  assert.equal(
+    markerIndexes(harness.renderLines().map(stripAnsi), /Ask pending · ask-bounded-0/).length,
+    1,
+  );
+  replacement.component.handleInput?.("\r");
+  replacement.component.handleInput?.("\r");
+  await evictedPresentation;
+
+  const markers = harness.session.messages.filter(
+    (message) =>
+      message.customType === "interaction-request" &&
+      (message.details as { request?: { requestId?: string } } | undefined)?.request?.requestId ===
+        "ask-bounded-0",
+  );
+  assert.equal(markers.length, 2);
+});
+
+test("native ask overlay geometry fits terminal variants and renders within its width", async () => {
+  for (const [cols, rows] of [
+    [60, 18],
+    [80, 24],
+    [120, 30],
+  ] as const) {
+    const harness = createSparkNativeTuiHarness({ cols, rows, withOverlay: true });
+    const promise = harness.app.handleInteractionRequest(nativeAskRequest(`ask-geometry-${cols}`));
+    await harness.flush();
+    const overlay = harness.state.overlays.at(-1);
+    assert.ok(overlay?.options);
+    assert.equal(overlay.options.anchor, "center");
+    assert.ok(overlay.options.margin);
+    assert.equal(typeof overlay.options.width, "number");
+    assert.ok((overlay.options.width as number) <= cols - 2);
+    assert.ok((overlay.options.minWidth as number) <= (overlay.options.width as number));
+    assert.ok((overlay.options.maxHeight as number) <= rows);
+    const renderWidth = overlay.options.width as number;
+    const lines = overlay.component.render(renderWidth);
+    assert.ok(lines.every((line) => visibleWidth(line) <= renderWidth));
+    assert.ok(lines.length <= (overlay.options.maxHeight as number) * 2);
+    overlay.component.handleInput?.("\x1b[B");
+    overlay.component.handleInput?.("\r");
+    overlay.component.handleInput?.("\r");
+    await promise;
+  }
+});
+
+test("native ask pending state is unique in the main frame and clears after answer", async () => {
+  const harness = createSparkNativeTuiHarness({ withOverlay: true });
+  const request = nativeAskRequest("ask-pending-visible");
+  const first = harness.app.handleInteractionRequest(request);
+  const second = harness.app.handleInteractionRequest(request);
+  await harness.flush();
+  assert.equal(harness.state.overlays.length, 1);
+  assert.equal(
+    markerIndexes(harness.renderLines().map(stripAnsi), /Ask pending · ask-pending-visible/).length,
+    1,
+  );
+  const overlay = harness.state.overlays[0]!;
+  overlay.component.handleInput?.("\r");
+  overlay.component.handleInput?.("\r");
+  const [firstResponse, secondResponse] = await Promise.all([first, second]);
+  assert.deepEqual(firstResponse, secondResponse);
+  assert.equal(markerIndexes(harness.renderLines().map(stripAnsi), /Ask pending/).length, 0);
+  assert.equal(overlay.visible, false);
+  assert.equal(harness.state.focused, harness.app);
+
+  const replay = await harness.app.handleInteractionRequest(request);
+  assert.deepEqual(replay, firstResponse);
+  assert.equal(harness.state.overlays.length, 1);
+  assert.equal(
+    harness.session.messages.filter((message) =>
+      message.text.includes("Choose an implementation path"),
+    ).length,
+    1,
+  );
+});
+
+test("native ask fallback child closes on answer and permits a different request", async () => {
+  const harness = createSparkNativeTuiHarness();
+  const first = harness.app.handleInteractionRequest(nativeAskRequest("ask-child-answer"));
+  await harness.flush();
+  assert.equal(harness.state.children.length, 1);
+  const child = harness.state.children[0]!;
+  child.handleInput?.("\r");
+  child.handleInput?.("\r");
+  const answered = await first;
+  assert.equal(answered.status, "answered");
+  assert.equal(harness.state.children.length, 0);
+  assert.equal(harness.state.focused, harness.app);
+
+  const next = harness.app.handleInteractionRequest(nativeAskRequest("ask-child-next"));
+  await harness.flush();
+  assert.equal(harness.state.children.length, 1);
+  harness.state.children[0]!.handleInput?.("\t");
+  harness.state.children[0]!.handleInput?.("3");
+  const cancelled = await next;
+  assert.equal(cancelled.status, "cancelled");
+  assert.equal(cancelled.metadata.timedOut, undefined);
+  assert.equal(harness.state.children.length, 0);
+});
+
+test("native ask fallback timeout cleans up and replays without recreating UI", async () => {
+  const harness = createSparkNativeTuiHarness();
+  const request = nativeAskRequest("ask-child-timeout", { timeoutMs: 20 });
+  const response = await harness.app.handleInteractionRequest(request);
+  assert.equal(response.status, "cancelled");
+  assert.equal(response.metadata.timedOut, true);
+  assert.equal(harness.state.children.length, 0);
+  assert.equal(harness.state.focused, harness.app);
+  assert.equal(markerIndexes(harness.renderLines().map(stripAnsi), /Ask pending/).length, 0);
+  assert.ok(harness.state.renderRequests.length > 0);
+  const replay = await harness.app.handleInteractionRequest(request);
+  assert.deepEqual(replay, response);
+  assert.equal(harness.state.children.length, 0);
+});
+
+test("native ask answer wins a timeout race without timedOut metadata", async () => {
+  const harness = createSparkNativeTuiHarness({ withOverlay: true });
+  const promise = harness.app.handleInteractionRequest(
+    nativeAskRequest("ask-answer-timeout-race", { timeoutMs: 100 }),
+  );
+  await harness.flush();
+  const overlay = harness.state.overlays.at(-1)!;
+  overlay.component.handleInput?.("\r");
+  overlay.component.handleInput?.("\r");
+  const response = await promise;
+  assert.equal(response.status, "answered");
+  assert.equal(response.metadata.timedOut, undefined);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(overlay.visible, false);
 });
 
 test("native TUI renders daemon ask flow and every question has a custom reply fallback", async () => {
@@ -624,6 +890,8 @@ test("native TUI closes the human ask overlay when its wait times out", async ()
   assert.equal(response.status, "cancelled");
   assert.equal(response.metadata.timedOut, true);
   assert.equal(overlay.visible, false);
+  assert.equal(harness.state.focused, harness.app);
+  assert.equal(markerIndexes(harness.renderLines().map(stripAnsi), /Ask pending/).length, 0);
   assert.equal(harness.app.cockpitSnapshot().interactions, 0);
 });
 
@@ -667,14 +935,10 @@ test("native TUI falls back to a custom reply when a choice question has no opti
   });
 });
 
-test("native TUI reopens a daemon ask without duplicating its transcript entry", async () => {
+test("native TUI replays a settled daemon ask without duplicating UI or transcript", async () => {
   const harness = createSparkNativeTuiHarness({ withOverlay: true });
-  const request: Extract<SparkInteractionRequest, { kind: "askFlow" }> = {
-    version: SPARK_PROTOCOL_VERSION,
-    requestId: "ask-native-reopen",
-    kind: "askFlow",
+  const request = nativeAskRequest("ask-native-replay", {
     title: "Retry this answer",
-    mode: "decision",
     questions: [
       {
         id: "retry-answer",
@@ -685,20 +949,21 @@ test("native TUI reopens a daemon ask without duplicating its transcript entry",
         options: [],
       },
     ],
-    metadata: {},
-  };
+  });
 
-  for (const answer of ["first attempt", "second attempt"]) {
-    const responsePromise = harness.app.handleInteractionRequest(request);
-    await harness.flush();
-    const overlay = harness.state.overlays.at(-1);
-    assert.ok(overlay);
-    for (const character of answer) overlay.component.handleInput?.(character);
-    overlay.component.handleInput?.("\r");
-    overlay.component.handleInput?.("\r");
-    assert.equal((await responsePromise).status, "answered");
-  }
+  const responsePromise = harness.app.handleInteractionRequest(request);
+  await harness.flush();
+  const overlay = harness.state.overlays.at(-1);
+  assert.ok(overlay);
+  for (const character of "first attempt") overlay.component.handleInput?.(character);
+  overlay.component.handleInput?.("\r");
+  overlay.component.handleInput?.("\r");
+  const response = await responsePromise;
+  assert.equal(response.status, "answered");
 
+  const replay = await harness.app.handleInteractionRequest(request);
+  assert.deepEqual(replay, response);
+  assert.equal(harness.state.overlays.length, 1);
   assert.equal(
     harness.session.messages.filter((message) => message.customType === "interaction-request")
       .length,
@@ -923,7 +1188,11 @@ test("Spark native Pi parity slash commands are discoverable and route represent
     providerLoadResult: { outcomes: [] } as never,
     diagnostics: [],
   });
-  const harness = createSparkNativeTuiHarness({ slashCommands, autocompleteBasePath: dir });
+  const harness = createSparkNativeTuiHarness({
+    rows: 120,
+    slashCommands,
+    autocompleteBasePath: dir,
+  });
   harness.session.appendAssistantChunk("assistant reply to copy");
   harness.session.finishAssistantMessage();
 
