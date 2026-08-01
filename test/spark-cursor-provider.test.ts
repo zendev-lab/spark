@@ -521,7 +521,7 @@ function mockCursorRuntime(options: MockCursorRuntimeOptions): CursorSdkRuntime 
           async downloadArtifact() {
             return Buffer.alloc(0);
           },
-        } as CursorSdkAgent;
+        } as unknown as CursorSdkAgent;
       },
     },
   };
