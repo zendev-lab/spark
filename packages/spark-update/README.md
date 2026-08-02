@@ -9,3 +9,9 @@ Managed installs keep immutable package versions below the Spark XDG data
 directory and switch a `current` symlink atomically. A version-independent
 launcher in `$PREFIX/bin/spark` is the only executable referenced by service
 managers.
+
+Global npm, pnpm, Yarn, Bun, and Vite+ installs remain owned by their package
+manager. The updater detects that owner, requests one exact Spark version, and
+then performs the same daemon and running-Cockpit handoff checks. One macOS
+launchd tick owns the configured daily check; daemon and Cockpit do not run
+competing schedulers.

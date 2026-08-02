@@ -84,16 +84,21 @@ const UPDATE_COMMAND_HANDLERS: Readonly<Record<string, UpdateCommandHandler>> = 
   configure: async ({ manager, rest, stdout }) => {
     const policyValue = optionValue(rest, "--policy");
     const channelValue = optionValue(rest, "--channel");
+    const intervalValue = optionValue(rest, "--interval-hours");
     const policy = policyValue ? parsePolicy(policyValue) : undefined;
     const channel = channelValue ? parseChannel(channelValue) : undefined;
+    const checkIntervalHours = intervalValue ? Number(intervalValue) : undefined;
     if (policyValue && !policy) throw new Error(`Invalid update policy: ${policyValue}`);
     if (channelValue && !channel) throw new Error(`Invalid update channel: ${channelValue}`);
-    if (!policy && !channel) {
-      throw new Error("spark update configure requires --policy and/or --channel");
+    if (!policy && !channel && checkIntervalHours === undefined) {
+      throw new Error(
+        "spark update configure requires --policy, --channel, and/or --interval-hours",
+      );
     }
     const config = await manager.configure({
       ...(policy ? { policy } : {}),
       ...(channel ? { channel } : {}),
+      ...(checkIntervalHours !== undefined ? { checkIntervalHours } : {}),
     });
     stdout.write(`${JSON.stringify(config, null, 2)}\n`);
   },
@@ -135,7 +140,8 @@ function positional(argv: string[]): string | undefined {
       !argument.startsWith("--") &&
       argv[index - 1] !== "--prefix" &&
       argv[index - 1] !== "--policy" &&
-      argv[index - 1] !== "--channel",
+      argv[index - 1] !== "--channel" &&
+      argv[index - 1] !== "--interval-hours",
   );
 }
 
@@ -149,12 +155,16 @@ function formatStatus(status: Awaited<ReturnType<SparkUpdateManager["status"]>>)
   const state = status.state;
   return [
     `managed: ${status.managed ? "yes" : "no"}`,
+    `installation: ${status.installation.method}`,
     `policy: ${status.config.policy}`,
     `channel: ${status.config.channel}`,
     `current: ${state.currentVersion ?? "none"}`,
     `available: ${state.availableVersion ?? "none"}`,
     `pending: ${state.pendingVersion ?? "none"}`,
     `quarantined: ${state.quarantined.map((entry) => entry.version).join(", ") || "none"}`,
+    ...(status.installation.updateCommand
+      ? [`update command: ${status.installation.updateCommand}`]
+      : []),
     ...(status.repairCommand ? [`repair: ${status.repairCommand}`] : []),
   ].join("\n");
 }

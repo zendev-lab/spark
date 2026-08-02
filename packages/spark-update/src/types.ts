@@ -2,6 +2,24 @@ export const SPARK_UPDATE_STATE_SCHEMA_VERSION = 1;
 
 export type SparkUpdatePolicy = "manual" | "notify" | "auto";
 export type SparkUpdateChannel = "latest" | "next";
+export type SparkInstallMethod =
+  | "managed"
+  | "vp"
+  | "pnpm"
+  | "yarn"
+  | "bun"
+  | "npm"
+  | "source"
+  | "unknown";
+
+export interface SparkInstallation {
+  method: SparkInstallMethod;
+  version?: string;
+  commandPath?: string;
+  updateCommand?: string;
+  automaticUpdates: boolean;
+  rollback: boolean;
+}
 
 export interface SparkBuildInfo {
   schemaVersion: 1;
@@ -88,6 +106,7 @@ export interface SparkUpdatePaths {
 
 export interface SparkUpdateStatus {
   managed: boolean;
+  installation: SparkInstallation;
   config: SparkUpdateConfig;
   state: SparkUpdateState;
   paths: SparkUpdatePaths;

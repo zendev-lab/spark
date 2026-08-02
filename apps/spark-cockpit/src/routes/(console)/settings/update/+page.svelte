@@ -28,7 +28,11 @@
     </article>
     <article>
       <span>{copy.policy}</span>
-      <strong>{update.policy} · {update.channel}</strong>
+      <strong>{update.policy} · {update.channel} · {update.checkIntervalHours}h</strong>
+    </article>
+    <article>
+      <span>{copy.installation}</span>
+      <strong>{update.installation}</strong>
     </article>
   </section>
 
@@ -37,6 +41,14 @@
       <h2>{copy.unmanaged}</h2>
       <p>{copy.unmanagedBody}</p>
       <code>{update.repairCommand}</code>
+    </section>
+  {/if}
+
+  {#if update.updateCommand}
+    <section class="notice">
+      <h2>{copy.packageManaged}</h2>
+      <p>{copy.packageManagedBody}</p>
+      <code>{update.updateCommand}</code>
     </section>
   {/if}
 

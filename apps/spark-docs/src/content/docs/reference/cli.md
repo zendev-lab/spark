@@ -110,17 +110,18 @@ normal help or completion.
 spark install --managed [--version <version>] [--prefix <path>]
 spark update status [--json]
 spark update check [--json]
-spark update configure --policy manual|notify|auto --channel latest|next
+spark update configure [--policy manual|notify|auto] [--channel latest|next] [--interval-hours <hours>]
 spark update apply [version] --yes
 spark update rollback --yes
 spark update retry [version] --yes
 spark version [--json]
 ```
 
-`apply`, `rollback`, and `retry` mutate the managed installation and require
-`--yes`. The default policy is `notify`; automatic application remains opt-in.
-Package-manager installations and source checkouts are never modified by the
-updater.
+`apply`, `rollback`, and `retry` mutate the installation and require `--yes`.
+The default policy is `notify` with a 24-hour check interval; automatic
+application remains opt-in. Global npm, pnpm, Yarn, Bun, and Vite+ installs
+delegate exact-version changes to their owner. Source checkouts are never
+modified.
 
 ## Daemon service
 

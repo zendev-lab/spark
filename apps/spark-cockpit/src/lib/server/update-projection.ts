@@ -2,8 +2,12 @@ import { SparkUpdateManager } from "@zendev-lab/spark-update";
 
 export interface CockpitUpdateProjection {
   managed: boolean;
+  installation: "managed" | "vp" | "pnpm" | "yarn" | "bun" | "npm" | "source" | "unknown";
+  automaticUpdates: boolean;
+  updateCommand: string | null;
   policy: "manual" | "notify" | "auto";
   channel: "latest" | "next";
+  checkIntervalHours: number;
   current: string | null;
   available: string | null;
   pending: string | null;
@@ -20,8 +24,12 @@ export async function readCockpitUpdateProjection(
   const status = await new SparkUpdateManager({ env: options.env }).status();
   return {
     managed: status.managed,
+    installation: status.installation.method,
+    automaticUpdates: status.installation.automaticUpdates,
+    updateCommand: status.installation.updateCommand ?? null,
     policy: status.config.policy,
     channel: status.config.channel,
+    checkIntervalHours: status.config.checkIntervalHours,
     current: status.state.currentVersion ?? null,
     available: status.state.availableVersion ?? null,
     pending: status.state.pendingVersion ?? null,

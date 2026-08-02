@@ -28,7 +28,8 @@ npm install --global @zendev-lab/spark
 spark --help
 ```
 
-Package-manager and source-checkout installations report update instructions
+Global npm, pnpm, Yarn, Bun, and Vite+ installations delegate exact-version
+updates to their installation owner. Source checkouts report migration guidance
 but never replace themselves.
 
 Run the health check before troubleshooting a host:

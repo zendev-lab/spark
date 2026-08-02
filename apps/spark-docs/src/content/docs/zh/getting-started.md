@@ -27,7 +27,8 @@ npm install --global @zendev-lab/spark
 spark --help
 ```
 
-由 package manager 管理的安装和源码 checkout 只报告升级命令，不会替换自身。
+全局 npm、pnpm、Yarn、Bun 与 Vite+ 安装会把精确版本更新委托给原安装所有者；源码
+checkout 只报告迁移指引，不会替换自身。
 
 在排查某个界面前，先运行健康检查：
 
