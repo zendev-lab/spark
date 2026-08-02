@@ -1,6 +1,12 @@
 # syntax=docker/dockerfile:1
 
-FROM node:26.5.1-bookworm-slim AS build
+FROM node:26.5.1-bookworm-slim AS base
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM base AS build
 
 ARG SPARK_BUILD_GIT_SHA=container-build
 
@@ -21,7 +27,7 @@ COPY . .
 RUN pnpm install --offline --frozen-lockfile --ignore-scripts
 RUN pnpm run release:pack
 
-FROM node:26.5.1-bookworm-slim AS runtime
+FROM base AS runtime
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
