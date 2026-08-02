@@ -22,6 +22,18 @@ const lockFileName = "cockpit-web.lock";
 const startupTimeoutMs = 15_000;
 const stopTimeoutMs = 10_000;
 
+function serviceWorkingDirectory(env: NodeJS.ProcessEnv): string {
+  const productDist = env.SPARK_PRODUCT_DIST?.trim();
+  return productDist ? dirname(productDist) : appDir;
+}
+
+function webServiceEntrypoint(env: NodeJS.ProcessEnv): string {
+  return (
+    env.SPARK_COCKPIT_WEB_SERVICE_ENTRYPOINT?.trim() ??
+    fileURLToPath(new URL("./web-service-entry.ts", import.meta.url))
+  );
+}
+
 type CockpitWebSpawn = (
   command: string,
   args: readonly string[],
@@ -248,13 +260,9 @@ export async function startCockpitWebService(
   try {
     child = deps.spawnProcess(
       process.execPath,
-      [
-        ...runnerExecArgv(),
-        fileURLToPath(new URL("./web-service-entry.ts", import.meta.url)),
-        "run",
-      ],
+      [...runnerExecArgv(), webServiceEntrypoint(env), "run"],
       {
-        cwd: appDir,
+        cwd: serviceWorkingDirectory(env),
         detached: true,
         env,
         stdio: ["ignore", logFd, logFd],
@@ -341,6 +349,8 @@ function acquireRunnerLock(
 function serverCommand(env: NodeJS.ProcessEnv): { command: string; args: string[] } {
   const testEntry = env.SPARK_COCKPIT_WEB_TEST_SERVER_ENTRY;
   if (testEntry) return { command: process.execPath, args: [testEntry] };
+  const productEntry = env.SPARK_COCKPIT_SERVER_ENTRYPOINT?.trim();
+  if (productEntry) return { command: process.execPath, args: [productEntry] };
   return { command: "pnpm", args: ["exec", "tsx", join(appDir, "server", "index.ts")] };
 }
 
@@ -380,7 +390,7 @@ export async function runCockpitWebService(
     writeRecordAtomically(paths.pidFile, record);
     const command = serverCommand(env);
     const server = deps.spawnProcess(command.command, command.args, {
-      cwd: appDir,
+      cwd: serviceWorkingDirectory(env),
       env,
       stdio: "inherit",
     });

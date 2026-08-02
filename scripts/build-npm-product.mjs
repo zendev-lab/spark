@@ -12,24 +12,28 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { resolveProductRuntimeDependencies } from "./product-runtime-closure.mjs";
+
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const productDirectory = resolve(root, "dist/npm-package");
 const productDist = resolve(productDirectory, "dist");
 let rootManifest;
 
-const dependencies = {
-  "@core-workspace/infoflow-sdk-nodejs": "2026.6.12-beta.1",
-  "@cursor/sdk": "1.0.23",
-  "@earendil-works/pi-ai": "0.82.1",
-  "@earendil-works/pi-tui": "0.82.1",
-  "@sveltejs/kit": "2.65.1",
-  marked: "^18.0.7",
-  "sanitize-html": "2.17.6",
-  "web-push": "3.6.7",
-  ws: "^8.18.3",
-};
-const externalPackages = Object.keys(dependencies);
+// These packages are intentionally left outside the esbuild bundles. The final
+// dependency manifest is derived from every generated JS file below, including
+// SvelteKit's lazy server chunks, and pinned to the versions installed by pnpm.
+const externalPackages = [
+  "@core-workspace/infoflow-sdk-nodejs",
+  "@cursor/sdk",
+  "@earendil-works/pi-ai",
+  "@earendil-works/pi-tui",
+  "@sveltejs/kit",
+  "marked",
+  "sanitize-html",
+  "web-push",
+  "ws",
+];
 const productBins = {
   spark: "spark-cli.js",
   "spark-tui": "spark-tui.js",
@@ -69,7 +73,7 @@ async function bundle(entry, output) {
   ]);
 }
 
-async function writeProductManifest() {
+async function writeProductManifest(dependencies) {
   const manifest = {
     name: "@zendev-lab/spark",
     version: rootManifest.version,
@@ -143,6 +147,10 @@ process.env.SPARK_PRODUCT_DIST = productDist;
 process.env.SPARK_BUILD_INFO_PATH = resolve(productDist, "build-info.json");
 process.env.SPARK_DAEMON_ENTRYPOINT = resolve(productDist, "spark-daemon.js");
 process.env.SPARK_COCKPIT_SERVER_ENTRYPOINT = resolve(productDist, "spark-cockpit-server.js");
+process.env.SPARK_COCKPIT_WEB_SERVICE_ENTRYPOINT = resolve(
+  productDist,
+  "spark-cockpit-web-service.js",
+);
 process.env.SPARK_HEADLESS_EXECUTOR_MODULE = resolve(
   productDist,
   "spark-headless-role-executor.js",
@@ -202,6 +210,10 @@ await Promise.all([
     resolve(productDist, "spark-headless-role-executor.js"),
   ),
   bundle("apps/spark-cockpit/src/cli-entry.ts", resolve(productDist, "spark-cockpit.js")),
+  bundle(
+    "apps/spark-cockpit/src/cli/web-service-entry.ts",
+    resolve(productDist, "spark-cockpit-web-service.js"),
+  ),
   bundle("apps/spark-cockpit/server/index.ts", resolve(productDist, "spark-cockpit-server.js")),
   bundle("packages/spark-acp/scripts/stdio.ts", resolve(productDist, "spark-acp.js")),
   bundle("packages/spark-update/src/entry.ts", resolve(productDist, "spark-update.js")),
@@ -221,7 +233,13 @@ await Promise.all([
   cp(resolve(root, "README.md"), resolve(productDirectory, "README.md")),
   cp(resolve(root, "LICENSE"), resolve(productDirectory, "LICENSE")),
 ]);
+await cp(
+  resolve(root, "packages/spark-cue/skills/spark-cue"),
+  resolve(productDirectory, "skills/spark-cue"),
+  { recursive: true },
+);
 await removeSourceMaps(resolve(productDirectory, "build"));
-await Promise.all([writeProductManifest(), writeBuildInfo(), writeLaunchers()]);
+const dependencies = await resolveProductRuntimeDependencies(root, productDirectory);
+await Promise.all([writeProductManifest(dependencies), writeBuildInfo(), writeLaunchers()]);
 
 console.log(`Built npm artifact: ${productDirectory}`);

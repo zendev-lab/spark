@@ -9,7 +9,9 @@ export interface Migration {
   sql: string;
 }
 
-const migrationsDirectory = join(dirname(fileURLToPath(import.meta.url)), "migrations");
+const migrationsDirectory = process.env.SPARK_PRODUCT_DIST
+  ? join(process.env.SPARK_PRODUCT_DIST, "migrations")
+  : join(dirname(fileURLToPath(import.meta.url)), "migrations");
 
 export function loadMigrations(): Migration[] {
   if (!existsSync(migrationsDirectory)) {

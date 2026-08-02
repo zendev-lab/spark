@@ -25,7 +25,7 @@ jobs:
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 26
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Static checks
@@ -46,7 +46,7 @@ jobs:
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 26
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Unit and integration tests
@@ -64,7 +64,7 @@ jobs:
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 26
+          node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Packed product smoke tests
@@ -87,12 +87,40 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
+          load: true
           push: false
           pull: true
+          tags: spark-cockpit:ci
           build-args: |
             SPARK_BUILD_GIT_SHA=${{ github.sha }}
           cache-from: type=gha,scope=spark-cockpit
           cache-to: type=gha,mode=max,scope=spark-cockpit,ignore-error=true
+      - name: Smoke Cockpit container
+        run: |
+          container_id="$(docker run --detach \
+            --env SPARK_COCKPIT_PUBLIC_URL=https://spark.example.test \
+            --env SPARK_COCKPIT_TRUST_PROXY=loopback \
+            spark-cockpit:ci)"
+          test -n "${container_id}"
+          trap 'test -z "${container_id:-}" || docker rm --force "${container_id}" >/dev/null' EXIT
+          for attempt in $(seq 1 30); do
+            status="$(docker inspect --format '{{.State.Health.Status}}' "${container_id}")"
+            test "${status}" != unhealthy
+            test "${status}" != healthy || break
+            sleep 1
+          done
+          test "${status}" = healthy
+          docker exec "${container_id}" node -e '
+            const response = await fetch("http://127.0.0.1:5173/workspaces/new", {
+              headers: {
+                accept: "text/html",
+                host: "spark.example.test",
+                "x-forwarded-for": "127.0.0.1",
+                "x-forwarded-proto": "https",
+              },
+            });
+            if (!response.ok) throw new Error(`workspace route returned ${response.status}`);
+          '
 
   required:
     name: required

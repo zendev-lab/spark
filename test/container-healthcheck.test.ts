@@ -29,7 +29,8 @@ test("container healthcheck represents the trusted public proxy", () => {
 
 test("container healthcheck validates the Cockpit health response", async () => {
   const healthy = await checkCockpitHealth({}, async (input) => {
-    assert.equal(String(input), "http://127.0.0.1:5173/api/v1/health");
+    assert.ok(input instanceof URL);
+    assert.equal(input.href, "http://127.0.0.1:5173/api/v1/health");
     return Response.json({ service: "spark-cockpit", status: "ok" });
   });
 

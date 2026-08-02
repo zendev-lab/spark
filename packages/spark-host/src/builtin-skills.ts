@@ -26,7 +26,14 @@ export interface SparkBuiltinSkill {
 
 export const MODEL_REPRODUCTION_SKILL_NAME = "model-reproduction" as const;
 
+function productSkillsDir(): string | undefined {
+  const productDist = process.env.SPARK_PRODUCT_DIST?.trim();
+  return productDist ? resolve(productDist, "../skills") : undefined;
+}
+
 export function defaultBuiltinSkillsDir(): string {
+  const fromProduct = productSkillsDir();
+  if (fromProduct && existsSync(fromProduct)) return fromProduct;
   const hostDir = dirname(fileURLToPath(import.meta.url));
   const adjacent = resolve(hostDir, "../skills");
   if (existsSync(adjacent)) return adjacent;
@@ -72,6 +79,9 @@ export async function renderModelReproductionSkillAutoloadPrompt(reproId: string
 }
 
 export function defaultSparkCueSkillsDir(): string {
+  const productSkills = productSkillsDir();
+  const fromProduct = productSkills && resolve(productSkills, "spark-cue");
+  if (fromProduct && existsSync(fromProduct)) return fromProduct;
   const hostDir = dirname(fileURLToPath(import.meta.url));
   const fromWorkspace = resolve(hostDir, "../../../spark-cue/skills");
   if (existsSync(fromWorkspace)) return fromWorkspace;

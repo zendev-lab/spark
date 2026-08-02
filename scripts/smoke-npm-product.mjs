@@ -253,10 +253,16 @@ try {
     const origin = `http://127.0.0.1:${port}`;
     const healthReadyMs = await waitForHealth(`${origin}/api/v1/health`, cockpit, cockpitOutput);
     const route = await probeCockpitRoute(origin, cockpit, cockpitOutput);
+    const workspaceRoute = await probeCockpitRoute(
+      `${origin}/workspaces/new`,
+      cockpit,
+      cockpitOutput,
+    );
     console.log(
       `SPARK_COCKPIT_SMOKE_METRICS ${JSON.stringify({
         healthReadyMs: Math.round(healthReadyMs),
         routeMs: Math.round(route.routeMs),
+        workspaceRouteMs: Math.round(workspaceRoute.routeMs),
         clientAssetCount: route.clientAssetCount,
       })}`,
     );
@@ -268,6 +274,45 @@ try {
         return;
       }
       cockpit.once("exit", resolveExit);
+    });
+  }
+  const backgroundPort = await availablePort();
+  const backgroundOrigin = `http://127.0.0.1:${backgroundPort}`;
+  const backgroundEnvironment = {
+    ...environment,
+    HOST: "127.0.0.1",
+    PORT: String(backgroundPort),
+    ORIGIN: backgroundOrigin,
+  };
+  console.log("Probing installed Cockpit background-service lifecycle...");
+  try {
+    const started = JSON.parse(
+      (
+        await run(spark, [...sparkArgvPrefix, "cockpit", "web", "start", "--json"], {
+          cwd: installRoot,
+          env: backgroundEnvironment,
+        })
+      ).stdout,
+    );
+    if (!started.running) throw new Error("Cockpit background service did not report running");
+    await probeCockpitRoute(
+      `${backgroundOrigin}/workspaces/new`,
+      { exitCode: null },
+      { stderr: "" },
+    );
+    const status = JSON.parse(
+      (
+        await run(spark, [...sparkArgvPrefix, "cockpit", "web", "status", "--json"], {
+          cwd: installRoot,
+          env: backgroundEnvironment,
+        })
+      ).stdout,
+    );
+    if (!status.running) throw new Error("Cockpit background service status was not running");
+  } finally {
+    await run(spark, [...sparkArgvPrefix, "cockpit", "web", "stop", "--json"], {
+      cwd: installRoot,
+      env: backgroundEnvironment,
     });
   }
   const installedFileCount = await (async function countFiles(directory) {

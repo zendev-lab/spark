@@ -104,6 +104,8 @@ describe("Cockpit Web background service", () => {
     const root = mkdtempSync(join(tmpdir(), "spark-cockpit-web-"));
     roots.push(root);
     const env = isolatedEnv(root);
+    env.SPARK_PRODUCT_DIST = "/opt/spark/package/dist";
+    env.SPARK_COCKPIT_WEB_SERVICE_ENTRYPOINT = "/opt/spark/package/dist/web-service.js";
     const child = fakeChild();
     const spawnProcess = vi.fn(() => {
       writeRecord(root, record(root));
@@ -127,6 +129,11 @@ describe("Cockpit Web background service", () => {
       status: { running: true, pid: 4242, url: "http://127.0.0.1:5173" },
     });
     expect(spawnProcess).toHaveBeenCalledOnce();
+    expect(spawnProcess).toHaveBeenCalledWith(
+      process.execPath,
+      expect.arrayContaining(["/opt/spark/package/dist/web-service.js", "run"]),
+      expect.objectContaining({ cwd: "/opt/spark/package" }),
+    );
     expect(child.unref).toHaveBeenCalledOnce();
 
     const duplicate = await startCockpitWebService(env, injected);

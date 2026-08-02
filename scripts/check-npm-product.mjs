@@ -3,6 +3,8 @@
 import { access, readFile, readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
+import { resolveProductRuntimeDependencies } from "./product-runtime-closure.mjs";
+
 const root = process.cwd();
 const productDirectory = resolve(root, "dist/npm-package");
 const productManifestPath = resolve(productDirectory, "package.json");
@@ -69,6 +71,10 @@ if (await exists(productManifestPath)) {
       failures.push(`product must retain root ${field} metadata`);
     }
   }
+  const expectedDependencies = await resolveProductRuntimeDependencies(root, productDirectory);
+  if (JSON.stringify(manifest.dependencies) !== JSON.stringify(expectedDependencies)) {
+    failures.push("product dependencies must match the generated runtime closure");
+  }
   for (const asset of [
     "bin/spark",
     "bin/spark-tui",
@@ -81,12 +87,14 @@ if (await exists(productManifestPath)) {
     "dist/spark-daemon.js",
     "dist/spark-headless-role-executor.js",
     "dist/spark-cockpit-server.js",
+    "dist/spark-cockpit-web-service.js",
     "dist/spark-update.js",
     "dist/migrations/0001_initial.sql",
     "skills/model-reproduction/SKILL.md",
     "skills/model-reproduction/references/known-diffs/catalog.md",
     "skills/model-reproduction/references/known-diffs/source-notes.md",
     "skills/model-reproduction/references/provenance.md",
+    "skills/spark-cue/SKILL.md",
     "build/handler.js",
   ]) {
     if (!(await exists(resolve(productDirectory, asset))))
