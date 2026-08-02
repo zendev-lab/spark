@@ -36,6 +36,9 @@ jobs:
       - name: Run repository checks
         run: pnpm run check
 
+      - name: Install Chromium
+        run: pnpm --filter @zendev-lab/spark-cockpit run setup:browser
+
       - name: Run Cockpit browser tests
         run: pnpm run test:browser:cockpit
 
