@@ -33,7 +33,28 @@ and generated npm product from drifting while keeping failures attributable to d
 `pnpm run check` remains the serial local gate; CI runs grouped checks, tests, and smoke jobs in
 parallel, then requires a single aggregate `required` job.
 
-## Assertion hierarchy
+## Ownership and strategy ledgers
+
+`test/test-ownership.json` is the authoritative disposition for every root `test/**/*.test.ts` file at the recorded `origin/main` baseline commit. An `owner-local` entry has exactly one package or app owner and its `currentPath` must be under that owner's workspace; a `root-integration` entry remains under `test/`, names at least two owners, and must exercise only public package exports. Root integration is admitted only when the behavior crosses ownership boundaries; moving a test must not expand a public API solely to preserve a test import.
+
+`test/workspace-test-strategy.json` classifies every workspace in `architecture/packages.json` as `local-test`, `browser-test`, `process-test`, `boundary-contract`, or `generated-only`. Each entry names an executable primary gate and concrete paths/rules. A generated-only workspace may retain hand-written tests as supplemental coverage, but generated output is verified by its generation-and-diff gate.
+
+`test/mutation-ce-ownership.json` is the single source for mutation CE selection. `included` entries must provide a Stryker config with explicit `src/` mutation paths; `deferred` entries must record an owner, risk level, risk rationale, and an executable alternate gate. Deferred mutation CE is a risk decision, not a claim that mutation testing succeeded. `scripts/run-leaf-mutation.mjs` derives its package set from this ledger.
+
+The corresponding checkers are:
+
+```bash
+node scripts/check-test-ownership.mjs
+node scripts/check-workspace-test-strategy.mjs
+node scripts/check-mutation-ce-ownership.mjs
+```
+
+All three must report zero unclassified or pending entries before a test-architecture change is complete.
+
+## Source-mirror debt
+
+`pnpm run check:test-quality` is a ratchet for implementation-mirror tests. Its committed baseline must remain `legacyFiles=0` and `sourceMirrorAssertions=0`. Tests should assert observable behavior, schemas, AST/dependency rules, or complete reviewed goldens—not that a production source fragment exists. A new source-mirror assertion is a regression even when the total suite still passes.
+
 
 Prefer, in order:
 

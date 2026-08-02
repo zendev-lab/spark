@@ -13,11 +13,11 @@ import {
   jinaReaderUrlFor,
   searchSparkWeb,
   type SparkWebSearchProvider,
-} from "../packages/spark-web/src/index.ts";
+} from "@zendev-lab/spark-web";
 import sparkWebExtension, {
   SPARK_WEB_TOOL_OUTPUT_MAX_CHARS,
-} from "../packages/spark-web/src/extension.ts";
-import type { ToolConfig } from "../packages/spark-core/src/index.ts";
+} from "@zendev-lab/spark-web/extension";
+import type { ToolConfig } from "@zendev-lab/spark-core";
 
 const mockFetcher: typeof fetch = async (_url) =>
   new Response(

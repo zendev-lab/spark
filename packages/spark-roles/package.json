@@ -16,6 +16,10 @@
     "./extension": "./src/extension.ts",
     "./reviewer-runner": "./src/reviewer-runner.ts"
   },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test": "vp test run"
+  },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-host": "workspace:^",
@@ -23,6 +27,13 @@
     "@zendev-lab/spark-tui": "workspace:^",
     "es-toolkit": "catalog:",
     "typebox": "catalog:"
+  },
+  "devDependencies": {
+    "@zendev-lab/spark-graft": "workspace:^",
+    "@zendev-lab/spark-runtime": "workspace:^",
+    "@zendev-lab/spark-tasks": "workspace:^",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "pi": {
     "extensions": [

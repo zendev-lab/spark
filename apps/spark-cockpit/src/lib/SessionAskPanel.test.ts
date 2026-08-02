@@ -1,18 +1,12 @@
 // @vitest-environment jsdom
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { mount, tick, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import SessionAskPanel from "./SessionAskPanel.svelte";
 import { getDictionary } from "./i18n";
 import type { PendingWorkbenchAsk } from "./pending-ask";
 
-const appMocks = vi.hoisted(() => ({
-  formSubmits: vi.fn(),
-  invalidates: vi.fn(),
-}));
+const appMocks = vi.hoisted(() => ({ formSubmits: vi.fn(), invalidates: vi.fn() }));
 
 vi.mock("$app/forms", () => ({
   enhance: (form: HTMLFormElement) => {
@@ -24,22 +18,8 @@ vi.mock("$app/forms", () => ({
     return { destroy: () => form.removeEventListener("submit", onSubmit) };
   },
 }));
-
 vi.mock("$app/navigation", () => ({ invalidateAll: appMocks.invalidates }));
 
-const libRoot = dirname(fileURLToPath(import.meta.url));
-const inboxPagePath = resolve(
-  libRoot,
-  "../routes/(workbench)/[workspaceId]/inbox/[inboxItemId]/+page.svelte",
-);
-const inboxServerPath = resolve(
-  libRoot,
-  "../routes/(workbench)/[workspaceId]/inbox/[inboxItemId]/+page.server.ts",
-);
-const layoutPath = resolve(libRoot, "../routes/(workbench)/+layout.svelte");
-const workspacePath = resolve(libRoot, "SessionsWorkspace.svelte");
-const conversationPanePath = resolve(libRoot, "sessions-workspace/SessionConversationPane.svelte");
-const composerPanePath = resolve(libRoot, "sessions-workspace/SessionComposerPane.svelte");
 const messages = getDictionary("en").inboxDetail;
 const ask: PendingWorkbenchAsk = {
   id: "inbox_preview",
@@ -72,54 +52,54 @@ const ask: PendingWorkbenchAsk = {
 let mounted: Record<string, unknown> | undefined;
 
 afterEach(async () => {
-  if (mounted) {
-    await unmount(mounted);
-  }
+  if (mounted) await unmount(mounted);
   mounted = undefined;
   document.body.replaceChildren();
   appMocks.formSubmits.mockClear();
   appMocks.invalidates.mockClear();
 });
 
-describe("SessionAskPanel", () => {
-  it("renders an inline ask form for the session composer", async () => {
-    const target = document.createElement("div");
-    document.body.append(target);
-    mounted = mount(SessionAskPanel, { target, props: { ask, messages } });
-    await tick();
+async function renderPanel() {
+  const target = document.createElement("div");
+  document.body.append(target);
+  mounted = mount(SessionAskPanel, { target, props: { ask, messages } });
+  await tick();
+  return target;
+}
 
-    expect(document.querySelector("#session-ask-title")?.textContent).toBe("Choose a preview");
-    expect(document.querySelector(".option-preview")?.textContent).toContain(
+describe("SessionAskPanel", () => {
+  it("renders one accessible inline preview question with daemon-owned navigation", async () => {
+    const target = await renderPanel();
+    const title = target.querySelector<HTMLElement>("#session-ask-title");
+    const form = target.querySelector<HTMLFormElement>("form");
+    const option = target.querySelector<HTMLInputElement>('input[value="compact"]');
+    const detail = target.querySelector<HTMLAnchorElement>(
+      'a[href="/preview/inbox/inbox_preview"]',
+    );
+
+    expect(title?.textContent).toBe("Choose a preview");
+    expect(form?.getAttribute("action")).toBe("/preview/inbox/inbox_preview?/respond");
+    expect(form?.method).toBe("post");
+    expect(option?.required).toBe(true);
+    expect(option?.checked).toBe(false);
+    expect(detail).not.toBeNull();
+    expect(target.querySelector("dialog")).toBeNull();
+    expect(target.querySelector(".pending-count")?.textContent).toBe("2");
+    expect(target.querySelector(".option-preview")?.textContent).toContain(
       "export const compact = true",
     );
-    expect(
-      document.querySelector('form[action="/preview/inbox/inbox_preview?/respond"]'),
-    ).toBeTruthy();
-    expect(document.querySelector(".pending-count")?.textContent).toBe("2");
   });
 
-  it("is mounted beside the session composer, not inside its send form or a global dialog", () => {
-    const layout = readFileSync(layoutPath, "utf8");
-    const workspace = readFileSync(workspacePath, "utf8");
-    const conversationPane = readFileSync(conversationPanePath, "utf8");
-    const composerPane = readFileSync(composerPanePath, "utf8");
-    expect(layout).not.toContain("GlobalAskDialog");
-    expect(conversationPane).toContain("<SessionAskPanel");
-    expect(conversationPane.indexOf("<SessionAskPanel")).toBeLessThan(
-      conversationPane.indexOf("<SessionComposerPane"),
-    );
-    expect(composerPane.includes("SessionAskPanel")).toBe(false);
-    expect(workspace).toContain("sessionPendingAsk");
-  });
+  it("selects the preview answer and submits through the enhanced inline form", async () => {
+    const target = await renderPanel();
+    const form = target.querySelector<HTMLFormElement>("form");
+    const option = target.querySelector<HTMLInputElement>('input[value="compact"]');
+    if (!form || !option) throw new Error("Expected ask form controls");
 
-  it("shares unconditional custom replies across the panel and Inbox detail", () => {
-    const inboxPage = readFileSync(inboxPagePath, "utf8");
-    const inboxServer = readFileSync(inboxServerPath, "utf8");
-
-    expect(inboxPage).toContain("<AskQuestionField");
-    expect(inboxServer).toContain("humanSingleAnswerWithCustomFallback");
-    expect(inboxServer).toContain("humanMultiAnswerWithCustomFallback");
-    expect(inboxServer).not.toContain('question.type === "preview"');
-    expect(inboxPage).not.toContain("allowOther");
+    option.click();
+    await tick();
+    expect(option.checked).toBe(true);
+    form.requestSubmit();
+    expect(appMocks.formSubmits).toHaveBeenCalledOnce();
   });
 });

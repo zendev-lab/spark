@@ -42,16 +42,14 @@ module.exports = {
       },
     },
 
-    // --- deep-link: relative packages/*/src from apps (root test/ exempted as known debt) ---
+    // --- deep-link: relative packages/*/src from apps and root tests ---
     {
       name: "no-app-relative-packages-src-deep-link",
       comment:
-        "Do not reach into packages/*/src via relative paths. Use package exports. " +
-        "Root test/ still uses deep relative imports (legacy); exempt until Phase 5 test migration. " +
-        "Spark apps must consume workspace packages through declared package exports.",
+        "Apps and root tests must consume workspace packages through declared package exports.",
       severity: "error",
       from: {
-        path: "^apps/",
+        path: "^(apps|test)/",
       },
       to: {
         path: "(^|/)packages/[^/]+/src(/|$)",

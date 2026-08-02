@@ -15,7 +15,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build-cli.mjs",
-    "check": "vp check --no-fmt --no-lint .",
+    "check": "vp check --no-fmt --no-lint . && vp test run",
     "cli": "pnpm run build && node dist/cli.js",
     "prepack": "pnpm run build",
     "test": "vp test run",

@@ -1,37 +1,25 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 
-/** L0 leaves + L1 Vitest packages for weekly mutation CE. */
-const packages = [
-  // L0
-  "@zendev-lab/spark-retry",
-  "@zendev-lab/spark-protocol",
-  "@zendev-lab/spark-cockpit-db",
-  "@zendev-lab/spark-system",
-  // L1
-  "@zendev-lab/spark-channels",
-  "@zendev-lab/spark-cockpit-coordination",
-  "@zendev-lab/spark-session",
-  "@zendev-lab/spark-artifacts",
-  "@zendev-lab/spark-repro",
-  "@zendev-lab/spark-i18n",
-];
+import { loadMutationLedger } from "./check-mutation-ce-ownership.mjs";
 
+const { includedPackageIds } = loadMutationLedger();
 let failed = 0;
-for (const name of packages) {
-  console.log(`\n=== mutation: ${name} ===\n`);
+for (const name of includedPackageIds) {
+  console.log("\n=== mutation: " + name + " ===\n");
   const result = spawnSync("pnpm", ["--filter", name, "exec", "stryker", "run"], {
     stdio: "inherit",
     shell: process.platform === "win32",
   });
   if (result.status !== 0) {
     failed += 1;
-    console.error(`\n[mutation] ${name} exited ${result.status ?? "signal"}\n`);
+    console.error("\n[mutation] " + name + " exited " + (result.status ?? "signal") + "\n");
   }
 }
-
 if (failed > 0) {
-  console.error(`[mutation] ${failed}/${packages.length} package(s) failed`);
+  console.error("[mutation] " + failed + "/" + includedPackageIds.length + " package(s) failed");
   process.exit(1);
 }
-console.log(`[mutation] ${packages.length}/${packages.length} package(s) completed`);
+console.log(
+  `[mutation] ${includedPackageIds.length}/${includedPackageIds.length} package(s) completed`,
+);

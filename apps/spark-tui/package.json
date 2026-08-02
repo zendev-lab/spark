@@ -19,6 +19,9 @@
     "./executable": "./bin/spark-tui",
     "./headless-role-executor": "./src/headless-role-executor.ts"
   },
+  "scripts": {
+    "test": "vp test run --config vitest.config.ts"
+  },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.83.0",
     "@zendev-lab/spark-ai": "workspace:^",
@@ -46,5 +49,12 @@
     "@zendev-lab/spark-turn": "workspace:^",
     "@zendev-lab/spark-web": "workspace:^",
     "@zendev-lab/spark-workflows": "workspace:^"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
+    "jiti": "2.7.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

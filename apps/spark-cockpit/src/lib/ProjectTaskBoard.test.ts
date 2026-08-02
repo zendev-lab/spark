@@ -1,22 +1,71 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { getCockpitDictionary } from "@zendev-lab/spark-cockpit-i18n";
+import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 
-const componentPath = resolve(dirname(fileURLToPath(import.meta.url)), "ProjectTaskBoard.svelte");
+import ProjectTaskBoard from "./ProjectTaskBoard.svelte";
+import { buildProjectTaskBoard } from "./project-task-board";
+
+const messages = getCockpitDictionary("en").taskBoard;
 
 describe("ProjectTaskBoard component contract", () => {
-  it("renders board columns, evidence links, and assign forms in the browser-facing component", () => {
-    const source = readFileSync(componentPath, "utf8");
+  it("renders board columns, frontier evidence, and an assignable task form", () => {
+    const columns = buildProjectTaskBoard({
+      canAssign: true,
+      tasks: [
+        {
+          runtimeTaskId: "task:ready",
+          title: "Verify the migration",
+          statusGroup: "ready",
+          readyFrontier: true,
+          outputArtifactIds: ["artifact:preview"],
+        },
+      ],
+      artifacts: [
+        {
+          id: "artifact:preview",
+          title: "Migration preview",
+          kind: "preview",
+          format: "md",
+        },
+      ],
+    });
+    const { body } = render(ProjectTaskBoard, {
+      props: { columns, workspaceUrl: "/workspace-a", messages },
+    });
 
-    expect(source).toContain("aria-label={messages.aria}");
-    expect(source).toContain("{#each columns as column}");
-    expect(source).toContain('class="task-card"');
-    expect(source).toContain("{messages.readyFrontier}");
-    expect(source).toContain('class="evidence-links"');
-    expect(source).toContain("href={`${workspaceUrl}/artifacts/${artifact.id}`}");
-    expect(source).toContain('action="?/assignTask"');
-    expect(source).toContain('name="runtimeTaskId"');
-    expect(source).toContain("card.assignable ? messages.assign : messages.notAssignable");
+    expect(body).toContain(messages.aria);
+    expect(body).toContain(messages.columns.ready);
+    expect(body).toContain("Verify the migration");
+    expect(body).toContain("task:ready");
+    expect(body).toContain(messages.readyFrontier);
+    expect(body).toContain('href="/workspace-a/artifacts/artifact:preview"');
+    expect(body).toContain("Migration preview");
+    expect(body).toContain('action="?/assignTask"');
+    expect(body).toContain('name="runtimeTaskId"');
+    expect(body).toContain('value="task:ready"');
+    expect(body).toContain(messages.assign);
+  });
+
+  it("renders non-assignable tasks with a disabled action and empty columns", () => {
+    const columns = buildProjectTaskBoard({
+      canAssign: false,
+      tasks: [
+        {
+          runtimeTaskId: "task:running",
+          title: "Already claimed",
+          statusGroup: "running",
+          readyFrontier: false,
+        },
+      ],
+      artifacts: [],
+    });
+    const { body } = render(ProjectTaskBoard, {
+      props: { columns, workspaceUrl: "/workspace-a", messages },
+    });
+
+    expect(body).toContain("Already claimed");
+    expect(body).toContain(messages.notAssignable);
+    expect(body).toContain("disabled");
+    expect(body).toContain(messages.empty);
   });
 });

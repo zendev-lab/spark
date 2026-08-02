@@ -1,5 +1,8 @@
 import { render } from "vitest-browser-svelte";
 import { describe, expect, it } from "vitest";
+import AgentMdxStream from "../../AgentMdxStream.svelte";
+import SafeMarkdown from "../../SafeMarkdown.svelte";
+import SparkUiRenderer from "../../SparkUiRenderer.svelte";
 import Response from "./Response.svelte";
 
 describe("Response browser contract", () => {
@@ -57,5 +60,59 @@ describe("Response browser contract", () => {
 
     expect(screen.container.querySelector("strong")?.textContent).toBe("未完成");
     expect(screen.container.querySelector('.ai-response[data-streaming="true"]')).not.toBeNull();
+  });
+
+  it("streams only the final Spark UI Markdown block with one caret and no raw HTML", async () => {
+    const source = [
+      "**first** <script>bad()</script>",
+      '<ArtifactCard artifactRef="artifact:one" title="Artifact one" />',
+      "**last",
+    ].join("\n");
+    const screen = await render(AgentMdxStream, { source, streaming: true });
+    const markdown = [...screen.container.querySelectorAll(".ai-response")];
+
+    expect(markdown).toHaveLength(2);
+    expect(markdown[0]?.getAttribute("data-streaming")).toBeNull();
+    expect(markdown[1]?.getAttribute("data-streaming")).toBe("true");
+    expect(screen.container.querySelectorAll('.ai-response[data-streaming="true"]')).toHaveLength(
+      1,
+    );
+    expect(screen.container.querySelectorAll(".streaming-caret")).toHaveLength(0);
+    expect(screen.container.querySelector("script")).toBeNull();
+  });
+
+  it("keeps SafeMarkdown static when streaming is disabled and rejects raw HTML", async () => {
+    const screen = await render(SafeMarkdown, {
+      source: "**safe** <script>bad()</script>",
+      streaming: false,
+    });
+
+    expect(screen.container.querySelector("strong")?.textContent).toBe("safe");
+    expect(screen.container.querySelector('.ai-response[data-streaming="true"]')).toBeNull();
+    expect(screen.container.querySelector("script")).toBeNull();
+    expect(screen.container.querySelectorAll(".streaming-caret")).toHaveLength(0);
+  });
+
+  it("streams only the final SparkUiRenderer block", async () => {
+    const screen = await render(SparkUiRenderer, {
+      document: {
+        schemaVersion: 1,
+        blocks: [
+          { type: "markdown", text: "**first**" },
+          { type: "callout", tone: "info", body: "**last" },
+        ],
+        diagnostics: [],
+      },
+      streaming: true,
+    } as never);
+    const markdown = [...screen.container.querySelectorAll(".ai-response")];
+
+    expect(markdown).toHaveLength(2);
+    expect(markdown[0]?.getAttribute("data-streaming")).toBeNull();
+    expect(markdown[1]?.getAttribute("data-streaming")).toBe("true");
+    expect(screen.container.querySelectorAll('.ai-response[data-streaming="true"]')).toHaveLength(
+      1,
+    );
+    expect(screen.container.querySelectorAll(".streaming-caret")).toHaveLength(0);
   });
 });

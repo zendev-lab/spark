@@ -20,12 +20,20 @@
     ".": "./src/index.ts",
     "./extension": "./src/extension.ts"
   },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test": "vp test run"
+  },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
     "diff": "^8.0.4",
     "ignore": "^7.0.5",
     "minimatch": "^10.2.5",
     "typebox": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "pi": {
     "extensions": [

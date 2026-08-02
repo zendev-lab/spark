@@ -9,7 +9,7 @@ import {
   importPiAuth,
   resolvePiAuthSourcePath,
   type SparkAuthImportTarget,
-} from "../packages/spark-ai/src/control/index.ts";
+} from "@zendev-lab/spark-ai/control";
 
 async function withImportDir(fn: (dir: string) => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "spark-pi-auth-import-"));

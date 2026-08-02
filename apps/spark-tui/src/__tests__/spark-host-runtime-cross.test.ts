@@ -1,0 +1,55 @@
+import assert from "node:assert/strict";
+import { test } from "vitest";
+
+import piAskExtension from "@zendev-lab/spark-ask/extension";
+import piCueExtension from "@zendev-lab/spark-cue";
+import piGraftExtension from "@zendev-lab/spark-graft/extension";
+import { SparkHostRuntime } from "../host/runtime.ts";
+
+test("SparkHostRuntime accepts piCueExtension(pi) without throwing", () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-cross" });
+  assert.doesNotThrow(() => piCueExtension(host));
+  const toolNames = host.getAllTools().map((tool) => tool.name);
+  assert.ok(toolNames.includes("cue_exec"), `expected cue_exec in ${toolNames.join(",")}`);
+  assert.ok(toolNames.includes("cue_jobs"));
+  assert.ok(toolNames.length >= 5, "spark-cue registers multiple tools");
+});
+
+test("SparkHostRuntime accepts piGraftExtension(pi) and records its tools", () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-cross" });
+  assert.doesNotThrow(() => piGraftExtension(host as never));
+  const commandNames = host.listCommands().map((entry) => entry.name);
+  assert.equal(
+    commandNames.some((name) => name.startsWith("graft-")),
+    false,
+  );
+  const toolNames = host.getAllTools().map((tool) => tool.name);
+  assert.ok(toolNames.includes("graft"));
+  assert.deepEqual([...toolNames], ["graft"]);
+  assert.deepEqual(host.getTool("graft")?.policy, {
+    effect: "local_write",
+    executionMode: "sequential",
+    domains: ["graft"],
+    phases: [],
+    approval: "none",
+  });
+});
+
+test("SparkHostRuntime accepts piAskExtension(pi) and registers canonical ask tool", () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-cross" });
+  assert.doesNotThrow(() => piAskExtension(host));
+  const toolNames = host.getAllTools().map((tool) => tool.name);
+  assert.ok(toolNames.includes("ask"));
+  assert.ok(!toolNames.includes("ask_user"));
+  assert.ok(!toolNames.includes("ask_flow"));
+});
+
+test("SparkHostRuntime survives a session_start event from spark-graft", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-cross" });
+  piGraftExtension(host as never);
+  // spark-graft registers an on("session_start") handler that defensively reads
+  // ctx.sessionManager.getBranch() / getEntries(); SparkHostRuntime ships a
+  // bare sessionManager stub so the handler must complete without throwing.
+  const results = await host.emit("session_start", {});
+  assert.equal(results.length >= 1, true, "session_start fires at least one listener");
+});

@@ -6,20 +6,20 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { test } from "vitest";
 
-import { runWorkflowScript } from "../packages/spark-workflows/src/index.ts";
+import { runWorkflowScript } from "@zendev-lab/spark-workflows";
 import {
   createSparkWorkflowRoleRunAdapter,
   SPARK_WORKFLOW_GRAFT_ISOLATION_TOOLS,
   type SparkWorkflowGraftAgentResult,
   type SparkWorkflowRoleRunRequest,
-} from "../packages/spark-runtime/src/index.ts";
+} from "@zendev-lab/spark-runtime";
 import {
   registerSparkGraftExtension,
   type SparkGraftHostApi,
   type SparkGraftToolContext,
   type SparkGraftToolDefinition,
   type SparkGraftToolResult,
-} from "../packages/spark-graft/src/index.ts";
+} from "@zendev-lab/spark-graft";
 
 const execFileAsync = promisify(execFile);
 const graftRepo = process.env.GRAFT_REPO ?? resolve(process.cwd(), "../graft");

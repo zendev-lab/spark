@@ -1,25 +1,44 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { compile } from "svelte/compiler";
+import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 
-const componentPath = resolve(dirname(fileURLToPath(import.meta.url)), "ArtifactPart.svelte");
+import ArtifactPart from "./ArtifactPart.svelte";
+
+const baseProps = {
+  artifactRef: "artifact:demo",
+  title: "Rendered artifact",
+  kind: "preview",
+  state: "recorded",
+  previewLabel: "Open preview",
+  statusLabel: (status: string) => `Status: ${status}`,
+};
 
 describe("ArtifactPart component contract", () => {
-  it("compiles as a Svelte component", () => {
-    const source = readFileSync(componentPath, "utf8");
+  it("renders daemon artifact identity without inventing a product route", () => {
+    const { body } = render(ArtifactPart, {
+      props: { ...baseProps, summary: "Stored evidence summary" },
+    });
 
-    expect(() => compile(source, { filename: componentPath, generate: "server" })).not.toThrow();
+    expect(body).toContain("Rendered artifact");
+    expect(body).toContain("artifact:demo");
+    expect(body).toContain("Stored evidence summary");
+    expect(body).toContain("Status: recorded");
+    expect(body).not.toContain("/artifacts/");
+    expect(body).not.toContain("href=");
   });
 
-  it("keeps daemon artifact refs route-free while exposing verified preview URLs", () => {
-    const source = readFileSync(componentPath, "utf8");
+  it("links only verified local preview URLs", () => {
+    const { body: verified } = render(ArtifactPart, {
+      props: { ...baseProps, summary: "http://127.0.0.1:4173/preview/preview_123" },
+    });
+    const { body: external } = render(ArtifactPart, {
+      props: { ...baseProps, summary: "https://example.com/preview/preview_123" },
+    });
 
-    expect(source).toContain("<strong>{title}</strong>");
-    expect(source).toContain("<code>{artifactRef}</code>");
-    expect(source).not.toContain("artifactHref");
-    expect(source).not.toContain("/artifacts/");
-    expect(source).toContain("href={previewUrl}");
+    expect(verified).toContain('href="http://127.0.0.1:4173/preview/preview_123"');
+    expect(verified).toContain('target="_blank"');
+    expect(verified).toContain('rel="noreferrer"');
+    expect(verified).toContain("Open preview");
+    expect(external).not.toContain("href=");
+    expect(external).toContain("https://example.com/preview/preview_123");
   });
 });

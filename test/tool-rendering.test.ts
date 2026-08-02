@@ -5,12 +5,12 @@ import { expect, test } from "vitest";
 
 import { visibleWidth } from "@zendev-lab/spark-tui/text";
 
-import piAskExtension from "../packages/spark-ask/src/extension.ts";
-import { registerSparkCueTools } from "../packages/spark-cue/src/index.ts";
-import piGraftExtension from "../packages/spark-graft/src/extension.ts";
-import { registerSparkRolesTools } from "../packages/spark-roles/src/extension.ts";
-import { registerSparkSessionTool } from "../packages/spark-session/src/extension.ts";
-import sparkExtension from "../packages/spark-extension/src/extension/index.ts";
+import piAskExtension from "@zendev-lab/spark-ask/extension";
+import { registerSparkCueTools } from "@zendev-lab/spark-cue";
+import piGraftExtension from "@zendev-lab/spark-graft/extension";
+import { registerSparkRolesTools } from "@zendev-lab/spark-roles/extension";
+import { registerSparkSessionTool } from "@zendev-lab/spark-session/extension";
+import sparkExtension from "@zendev-lab/spark-extension/extension";
 
 interface RenderTheme {
   fg: (_color: string, text: string) => string;

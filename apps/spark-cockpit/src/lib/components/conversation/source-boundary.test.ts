@@ -1,90 +1,193 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { compile, parse } from "svelte/compiler";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 const conversationRoot = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(conversationRoot, "../../../..");
-const pinnedCommit = "fa4bc217f84bc571378bc371332a154106772614";
+
+const integrationPaths = [
+  "src/lib/SessionsWorkspace.svelte",
+  "src/lib/sessions-workspace/SessionStartPane.svelte",
+  "src/lib/sessions-workspace/SessionConversationPane.svelte",
+  "src/lib/sessions-workspace/SessionStageHeader.svelte",
+  "src/lib/sessions-workspace/SessionComposerPane.svelte",
+] as const;
+
+type SvelteNode = {
+  type?: string;
+  name?: string;
+  attributes?: SvelteNode[];
+  expression?: SvelteNode;
+  value?: unknown;
+  fragment?: SvelteNode;
+  nodes?: SvelteNode[];
+  [key: string]: unknown;
+};
 
 describe("source-derived conversation component boundary", () => {
-  it("pins upstream provenance and retains the complete MIT notice", () => {
+  it("pins upstream provenance and retains the complete MIT license golden", () => {
     const vendor = readFileSync(join(conversationRoot, "VENDOR.md"), "utf8");
     const license = readFileSync(join(conversationRoot, "UPSTREAM-LICENSE.txt"), "utf8");
 
-    expect(vendor).toContain("https://github.com/SikandarJODD/ai-elements");
-    expect(vendor).toContain(pinnedCommit);
-    expect(vendor).toContain("source-derived Spark components, not a registry snapshot");
-    expect(license).toContain("MIT License");
-    expect(license).toContain("Copyright (c) 2026 Sikandar Bhide");
-    expect(license).toContain("The above copyright notice and this permission notice");
+    expect(vendor).toBe(readFileSync(join(conversationRoot, "VENDOR.md.golden"), "utf8"));
+    expect(license).toBe(
+      `MIT License\n\nCopyright (c) 2026 Sikandar Bhide\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the "Software"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n`,
+    );
   });
 
-  it("keeps provider and AI chat runtimes outside the source-derived conversation shell", () => {
-    const source = sourceFiles(conversationRoot)
-      .map((path) => readFileSync(path, "utf8"))
-      .join("\n");
+  it("keeps provider and AI chat runtimes outside the source-derived shell", () => {
     const packageJson = JSON.parse(readFileSync(join(appRoot, "package.json"), "utf8")) as {
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
     };
-    const dependencyNames = [
+    const dependencyNames = new Set([
       ...Object.keys(packageJson.dependencies ?? {}),
       ...Object.keys(packageJson.devDependencies ?? {}),
-    ];
+    ]);
+    const imports = new Set(
+      sourceFiles(conversationRoot).flatMap((path) =>
+        moduleSpecifiers(readFileSync(path, "utf8"), path),
+      ),
+    );
 
-    expect(source).not.toMatch(/from\s+["']ai["']/);
-    expect(source).not.toContain("@ai-sdk/svelte");
-    expect(source).not.toMatch(/from\s+["']shiki["']/);
-    expect(source).not.toContain("tailwindcss");
-    expect(source).not.toContain("UIMessage");
-    expect(source).not.toContain("ToolUIPart");
-    expect(source).not.toContain("FileUIPart");
-    expect(dependencyNames).not.toContain("ai");
-    expect(dependencyNames).not.toContain("@ai-sdk/svelte");
-    expect(dependencyNames).toContain("svelte-streamdown");
-    expect(dependencyNames).not.toContain("@shikijs/themes");
-    expect(dependencyNames).not.toContain("tailwindcss");
+    expect(imports.has("ai")).toBe(false);
+    expect(imports.has("@ai-sdk/svelte")).toBe(false);
+    expect(imports.has("shiki")).toBe(false);
+    expect(imports.has("tailwindcss")).toBe(false);
+    expect(dependencyNames.has("ai")).toBe(false);
+    expect(dependencyNames.has("@ai-sdk/svelte")).toBe(false);
+    expect(dependencyNames.has("@shikijs/themes")).toBe(false);
+    expect(dependencyNames.has("tailwindcss")).toBe(false);
+    expect(dependencyNames.has("svelte-streamdown")).toBe(true);
   });
 
-  it("integrates presentation components without replacing the daemon form path", () => {
-    const workspace = readFileSync(join(appRoot, "src/lib/SessionsWorkspace.svelte"), "utf8");
-    const startPane = readFileSync(
-      join(appRoot, "src/lib/sessions-workspace/SessionStartPane.svelte"),
-      "utf8",
+  it("keeps the presentation shell wired to daemon-backed forms", () => {
+    const contracts = new Map(
+      integrationPaths.map((relativePath) => {
+        const source = readFileSync(join(appRoot, relativePath), "utf8");
+        compile(source, { filename: relativePath, generate: false });
+        return [
+          relativePath,
+          componentContract(
+            parse(source, { filename: relativePath, modern: true }) as unknown as SvelteNode,
+          ),
+        ];
+      }),
     );
-    const conversationPane = readFileSync(
-      join(appRoot, "src/lib/sessions-workspace/SessionConversationPane.svelte"),
-      "utf8",
-    );
-    const stageHeader = readFileSync(
-      join(appRoot, "src/lib/sessions-workspace/SessionStageHeader.svelte"),
-      "utf8",
-    );
-    const composerPane = readFileSync(
-      join(appRoot, "src/lib/sessions-workspace/SessionComposerPane.svelte"),
-      "utf8",
-    );
-    const shell = `${workspace}\n${startPane}\n${conversationPane}\n${stageHeader}\n${composerPane}`;
 
-    expect(shell).toContain("<ConversationViewport");
-    expect(shell).toContain("{#key host.selected.sessionId}");
-    expect(shell).toContain("<ConversationMessage");
-    expect(shell).toContain("<Composer");
-    expect(shell).toContain("<ModelRuntimeControl");
-    expect(shell).toContain('action="?/sendMessage"');
-    expect(shell).toContain('action="?/selectModel"');
-    expect(shell).toContain('action="?/selectThinking"');
-    expect(shell).toContain("use:enhance={enhanceSendMessage}");
-    expect(shell).toContain("host.enhanceSendMessage(submission)");
-    expect(startPane).toContain('name="submissionId" value={startSubmissionId}');
-    expect(shell).toContain('name="submissionId" value={host.sendSubmissionId}');
-    expect(shell).toContain("retryAction={item.id === host.retryableTimelineItemId");
-    expect(workspace).not.toContain("<SessionRetryAction");
-    expect(workspace).not.toContain('class="timeline-entry');
-    expect(workspace).not.toContain('class="message-block');
+    expect(contracts.get(integrationPaths[0])?.components.has("SessionStartPane")).toBe(true);
+    expect(contracts.get(integrationPaths[2])?.components.has("ConversationViewport")).toBe(true);
+    expect(contracts.get(integrationPaths[2])?.components.has("ConversationMessage")).toBe(true);
+    expect(contracts.get(integrationPaths[2])?.components.has("SessionComposerPane")).toBe(true);
+    expect(contracts.get(integrationPaths[2])?.formActions).toEqual(
+      new Set(["?/selectModel", "?/selectThinking", "?/cancelTurn", "?/sendMessage"]),
+    );
+    expect(contracts.get(integrationPaths[2])?.enhanceExpressions).toEqual(
+      new Set([
+        "host.enhanceSelectModel",
+        "host.enhanceSelectThinking",
+        "host.enhanceRemoveQueuedTurn",
+        "host.enhanceRetryMessage",
+      ]),
+    );
+    expect(contracts.get(integrationPaths[2])?.inputNames.has("submissionId")).toBe(true);
+    expect(
+      contracts
+        .get(integrationPaths[2])
+        ?.componentAttributes.get("ConversationMessage")
+        ?.some((name) => name === "retryAction"),
+    ).toBe(true);
+    expect(contracts.get(integrationPaths[3])?.formActions.has("?/cancelTurn")).toBe(true);
+    expect(contracts.get(integrationPaths[4])?.components.has("Composer")).toBe(true);
+    expect(contracts.get(integrationPaths[4])?.components.has("ModelRuntimeControl")).toBe(true);
+    expect(contracts.get(integrationPaths[4])?.formActions.has("?/sendMessage")).toBe(true);
+    expect(contracts.get(integrationPaths[4])?.enhanceExpressions.has("enhanceSendMessage")).toBe(
+      true,
+    );
+    expect(contracts.get(integrationPaths[4])?.inputNames.has("submissionId")).toBe(true);
+    expect(contracts.get(integrationPaths[1])?.formActions.has("?/startConversation")).toBe(true);
+    expect(contracts.get(integrationPaths[1])?.inputNames.has("submissionId")).toBe(true);
   });
 });
+
+function componentContract(ast: SvelteNode) {
+  const components = new Set<string>();
+  const formActions = new Set<string>();
+  const enhanceExpressions = new Set<string>();
+  const inputNames = new Set<string>();
+  const componentAttributes = new Map<string, string[]>();
+  // eslint-disable-next-line complexity -- one AST visitor collects the complete component/form contract.
+  walk(ast.fragment, (node) => {
+    if (node.type === "Component" && node.name) {
+      components.add(node.name);
+      componentAttributes.set(
+        node.name,
+        (node.attributes ?? []).flatMap((attribute) =>
+          attribute.type === "Attribute" && attribute.name ? [attribute.name] : [],
+        ),
+      );
+    }
+    if (node.type === "RegularElement" && node.name === "input") {
+      for (const attribute of node.attributes ?? []) {
+        if (attribute.type === "Attribute" && attribute.name === "name") {
+          const text = textAttribute(attribute);
+          if (text) inputNames.add(text);
+        }
+      }
+    }
+    if (node.type === "UseDirective" && node.name === "enhance") {
+      const expression = node.expression;
+      if (expression?.type === "Identifier" && expression.name)
+        enhanceExpressions.add(expression.name);
+      if (expression?.type === "MemberExpression") {
+        const object = expression.object as SvelteNode | undefined;
+        const property = expression.property as SvelteNode | undefined;
+        if (object?.name && property?.name)
+          enhanceExpressions.add(`${object.name}.${property.name}`);
+      }
+    }
+    if (node.type !== "RegularElement" || node.name !== "form") return;
+    for (const attribute of node.attributes ?? []) {
+      if (attribute.type !== "Attribute" || attribute.name !== "action") continue;
+      const text = textAttribute(attribute);
+      if (text) formActions.add(text);
+    }
+  });
+  return { components, formActions, enhanceExpressions, inputNames, componentAttributes };
+}
+
+function textAttribute(node: SvelteNode): string | undefined {
+  const value = node.value;
+  if (!Array.isArray(value) || value.length !== 1) return undefined;
+  const text = (value[0] as { data?: unknown }).data;
+  return typeof text === "string" ? text : undefined;
+}
+
+function moduleSpecifiers(source: string, path: string): string[] {
+  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  return file.statements.flatMap((statement) =>
+    ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)
+      ? [statement.moduleSpecifier.text]
+      : [],
+  );
+}
+
+function walk(value: unknown, visit: (node: SvelteNode) => void): void {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const child of value) walk(child, visit);
+    return;
+  }
+  const node = value as SvelteNode;
+  if (typeof node.type === "string") visit(node);
+  for (const [key, child] of Object.entries(node)) {
+    if (key === "parent" || key === "metadata") continue;
+    walk(child, visit);
+  }
+}
 
 function sourceFiles(root: string): string[] {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {

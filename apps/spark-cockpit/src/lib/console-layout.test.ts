@@ -1,18 +1,45 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const layoutServer = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../routes/(console)/+layout.server.ts",
-);
+const mocks = vi.hoisted(() => ({
+  loadShellWorkspaceLayout: vi.fn(),
+}));
+
+vi.mock("$lib/server/shell-layout", () => ({
+  loadShellWorkspaceLayout: mocks.loadShellWorkspaceLayout,
+}));
+
+import { load } from "../routes/(console)/+layout.server";
 
 describe("console layout load", () => {
-  it("skips remote session listing so settings pages stay local-fast", () => {
-    const source = readFileSync(layoutServer, "utf8");
-    expect(source).toContain("isControlPlanePath");
-    expect(source).toContain("sessions: []");
-    expect(source).not.toContain("listManagedSessionsForCockpit");
+  beforeEach(() => {
+    mocks.loadShellWorkspaceLayout.mockReset();
+    mocks.loadShellWorkspaceLayout.mockReturnValue({
+      activeWorkspaceId: "workspace:test",
+      workspaces: [],
+    });
+  });
+
+  it.each([
+    ["/settings/access", true],
+    ["/workspace-a/settings/models", false],
+  ])("keeps %s local-fast without remote session projection", (pathname, isGlobalConsole) => {
+    const url = new URL(`http://localhost${pathname}?workspace=workspace-a`);
+    const result = load({
+      cookies: { get: vi.fn() },
+      locals: { workspaceId: "workspace:authorized" },
+      url,
+    } as never) as Record<string, unknown>;
+
+    expect(mocks.loadShellWorkspaceLayout).toHaveBeenCalledOnce();
+    expect(mocks.loadShellWorkspaceLayout).toHaveBeenCalledWith({
+      cookies: expect.anything(),
+      pathname,
+      protocol: "http:",
+      preferredWorkspaceSlug: "workspace-a",
+      authorizedWorkspaceId: "workspace:authorized",
+    });
+    expect(result.sessions).toEqual([]);
+    expect(result.sessionsAvailable).toBe(true);
+    expect(result.isGlobalConsole).toBe(isGlobalConsole);
   });
 });

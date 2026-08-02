@@ -1,59 +1,97 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compile } from "svelte/compiler";
+import { compile, parse } from "svelte/compiler";
 import { describe, expect, it } from "vitest";
 
-const modelSelectorRoot = dirname(fileURLToPath(import.meta.url));
-const pinnedCommit = "fa4bc217f84bc571378bc371332a154106772614";
+const root = dirname(fileURLToPath(import.meta.url));
+
+function file(name: string) {
+  return readFileSync(join(root, name), "utf8");
+}
+
+function sha256(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function walk(value: unknown, visit: (node: Record<string, unknown>) => void) {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const item of value) walk(item, visit);
+    return;
+  }
+  const node = value as Record<string, unknown>;
+  if (typeof node.type === "string") visit(node);
+  for (const [key, child] of Object.entries(node)) if (key !== "parent") walk(child, visit);
+}
 
 describe("source-derived model selector boundary", () => {
-  it("pins source provenance and the upstream license", () => {
-    const vendor = readFileSync(join(modelSelectorRoot, "VENDOR.md"), "utf8");
-    const license = readFileSync(join(modelSelectorRoot, "UPSTREAM-LICENSE.txt"), "utf8");
-
-    expect(vendor).toContain("https://github.com/SikandarJODD/ai-elements");
-    expect(vendor).toContain(pinnedCommit);
-    expect(vendor).toContain("source-derived composition");
-    expect(license).toContain("MIT License");
-    expect(license).toContain("Copyright (c) 2026 Sikandar Bhide");
-  });
-
-  it("uses only presentation primitives and local provider marks", () => {
-    const source = readFileSync(join(modelSelectorRoot, "ModelPicker.svelte"), "utf8");
-
-    expect(source).toContain('from "bits-ui"');
-    expect(source).not.toMatch(/from\s+["']ai["']/);
-    expect(source).not.toContain("@ai-sdk/svelte");
-    expect(source).not.toContain("models.dev");
-    expect(source).not.toContain("UIMessage");
-    expect(source).not.toContain("FileUIPart");
-  });
-
-  it("compiles the unified model and reasoning control", () => {
-    const picker = readFileSync(join(modelSelectorRoot, "ModelPicker.svelte"), "utf8");
-    const runtimeControl = readFileSync(
-      join(modelSelectorRoot, "ModelRuntimeControl.svelte"),
-      "utf8",
+  it("pins the complete upstream provenance and license documents", () => {
+    expect(sha256(file("VENDOR.md"))).toBe(
+      "c8fd1e55c40effa4be91960fc1bba37dff2de9d7eabf86048c0aac55dd62ff8d",
     );
+    expect(sha256(file("UPSTREAM-LICENSE.txt"))).toBe(
+      "4c77bfa732c9331e487ffb1fd25ec4483da6bf0200c0bb9bb2f62ab644d1f24f",
+    );
+  });
 
+  it("uses the local presentation primitive without AI runtime imports", () => {
+    const imports: string[] = [];
+    walk(parse(file("ModelPicker.svelte"), { modern: true }).instance, (node) => {
+      if (node.type !== "ImportDeclaration") return;
+      const source = node.source as { value?: unknown } | undefined;
+      if (typeof source?.value === "string") imports.push(source.value);
+    });
+
+    expect(imports).toEqual(["$lib/Icon.svelte", "$lib/ui", "bits-ui", "./types"]);
+  });
+
+  it("compiles unified model and reasoning controls with structured ownership", () => {
+    const picker = file("ModelPicker.svelte");
+    const runtime = file("ModelRuntimeControl.svelte");
     expect(() =>
-      compile(picker, {
-        filename: join(modelSelectorRoot, "ModelPicker.svelte"),
-        generate: "server",
-      }),
+      compile(picker, { filename: "ModelPicker.svelte", generate: "server" }),
     ).not.toThrow();
     expect(() =>
-      compile(runtimeControl, {
-        filename: join(modelSelectorRoot, "ModelRuntimeControl.svelte"),
-        generate: "server",
-      }),
+      compile(runtime, { filename: "ModelRuntimeControl.svelte", generate: "server" }),
     ).not.toThrow();
-    expect(picker).toContain("open = $bindable(false)");
-    expect(picker).not.toContain("primary-action");
-    expect(picker).not.toContain("thinking-section");
-    expect(runtimeControl).toContain("bind:open");
-    expect(runtimeControl).toContain("thinking-control");
-    expect(runtimeControl).toContain("reasoningSupported");
+
+    const pickerCalls = new Set<string>();
+    walk(parse(picker, { modern: true }).instance, (node) => {
+      if (node.type !== "CallExpression") return;
+      const callee = node.callee as { name?: unknown } | undefined;
+      if (typeof callee?.name === "string") pickerCalls.add(callee.name);
+    });
+    const runtimeAst = parse(runtime, { modern: true });
+    const runtimeClasses = new Set<string>();
+    const bindings = new Set<string>();
+    const ifTests = new Set<string>();
+    const imports = new Set<string>();
+    walk(runtimeAst, (node) => {
+      if (node.type === "ImportDeclaration") {
+        const source = node.source as { value?: unknown } | undefined;
+        if (typeof source?.value === "string") imports.add(source.value);
+      }
+      if (node.type === "Attribute" && node.name === "class") {
+        const value = node.value as Array<{ data?: unknown }> | undefined;
+        for (const part of value ?? [])
+          if (typeof part.data === "string") runtimeClasses.add(part.data);
+      }
+      if (node.type === "BindDirective" && typeof node.name === "string") bindings.add(node.name);
+      if (node.type === "IfBlock") {
+        const test = node.test as { name?: unknown } | undefined;
+        if (typeof test?.name === "string") ifTests.add(test.name);
+      }
+    });
+
+    expect(pickerCalls.has("$bindable")).toBe(true);
+    expect(runtimeClasses.has("thinking-control")).toBe(true);
+    expect(bindings.has("open")).toBe(true);
+    expect(bindings.has("value")).toBe(true);
+    expect(ifTests.has("reasoningSupported")).toBe(true);
+    expect(imports.has("@zendev-lab/spark-session")).toBe(false);
+    expect(imports.has("@zendev-lab/spark-daemon")).toBe(false);
+    expect(imports.has("$lib/server/db")).toBe(false);
   });
 });
