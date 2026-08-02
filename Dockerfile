@@ -18,7 +18,7 @@ RUN pnpm fetch --frozen-lockfile
 
 COPY . .
 
-RUN pnpm install --offline --frozen-lockfile
+RUN pnpm install --offline --frozen-lockfile --ignore-scripts
 RUN pnpm run release:pack
 
 FROM node:26.5.1-bookworm-slim AS runtime
