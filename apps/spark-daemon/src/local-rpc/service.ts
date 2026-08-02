@@ -76,6 +76,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "workspace.register",
     "workspace.attach",
     "workspace.stop",
+    "workspace.lifecycle",
     "workspace.client.attach",
     "workspace.client.heartbeat",
     "workspace.client.release",

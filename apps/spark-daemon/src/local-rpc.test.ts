@@ -1010,6 +1010,85 @@ describe("Spark daemon local RPC", () => {
     }
   });
 
+  it("previews lifecycle changes without remote effects and unbinds before unregistering", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-lifecycle-"));
+    const workspacePath = join(root, "workspace");
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    try {
+      mkdirSync(workspacePath);
+      const workspace = registerWorkspace(db, {
+        serverUrl: "https://cockpit.example/",
+        localPath: workspacePath,
+        displayName: "project",
+        serverBindingId: "rtwb_11111111111141111111111111111111",
+        serverWorkspaceId: "ws_11111111111141111111111111111111",
+      });
+      const unbind = vi.fn(async () => ({
+        runtimeId: "rt_11111111111141111111111111111111",
+        bindingId: "rtwb_11111111111141111111111111111111",
+        workspaceIds: ["ws_11111111111141111111111111111111"],
+        unboundAt: "2026-08-02T00:00:00.000Z",
+      }));
+
+      const preview = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "rpc_lifecycle_preview",
+          method: "workspace.lifecycle",
+          params: { action: "unregister", workspaceId: workspace.id, dryRun: true },
+        }),
+        paths,
+        db,
+        undefined,
+        { unbindSparkDaemonWorkspaceFromCockpit: unbind },
+      );
+      expect(preview).toMatchObject({
+        ok: true,
+        result: { action: "unregister", applied: false },
+      });
+      expect(unbind).not.toHaveBeenCalled();
+      expect(listWorkspaces(db)).toHaveLength(1);
+
+      const applied = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "rpc_lifecycle_apply",
+          method: "workspace.lifecycle",
+          params: { action: "unregister", workspaceId: workspace.id },
+        }),
+        paths,
+        db,
+        undefined,
+        { unbindSparkDaemonWorkspaceFromCockpit: unbind },
+      );
+      expect(applied).toMatchObject({
+        ok: true,
+        result: {
+          action: "unregister",
+          applied: true,
+          workspace: { lifecycle: { state: "unregistered" } },
+        },
+      });
+      expect(unbind).toHaveBeenCalledWith(paths, {
+        serverUrl: "https://cockpit.example/",
+        bindingId: "rtwb_11111111111141111111111111111111",
+        allowInsecureHttp: true,
+      });
+      expect(listWorkspaces(db)).toEqual([]);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("hard-cuts local turn submit/status/stream to invocation ids and bounded cursors", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-"));
     const paths = resolveSparkPaths({

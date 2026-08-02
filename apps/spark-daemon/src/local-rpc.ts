@@ -50,6 +50,7 @@ export {
   requestWorkspaceEnsureLocal,
   requestWorkspaceExecutorEnsure,
   requestWorkspaceList,
+  requestWorkspaceLifecycle,
   requestWorkspaceRegister,
   requestWorkspaceRelocate,
   requestWorkspaceStop,
@@ -79,6 +80,8 @@ export {
   type LocalWorkspaceRegisterRequest,
   type LocalWorkspaceRelocateRequest,
   type LocalWorkspaceRelocateResult,
+  type LocalWorkspaceLifecycleMutation,
+  type LocalWorkspaceLifecycleMutationResult,
   type SparkDaemonLocalEventBus,
   type WorkspaceListResult,
 } from "./local-rpc/impl.ts";

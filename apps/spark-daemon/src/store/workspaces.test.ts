@@ -7,6 +7,7 @@ import { SparkDaemonControlError } from "../control-error.ts";
 import { openSparkDaemonDatabase } from "./schema.js";
 import {
   addWorkspace,
+  applyWorkspaceLifecycleMutation,
   applyCockpitWorkspaceBindingAssignments,
   attachWorkspace,
   attachWorkspaceClient,
@@ -28,10 +29,12 @@ import {
   registerWorkspace,
   releaseWorkspaceClient,
   resolveWorkspaceBindingId,
+  resolveWorkspaceLocalPath,
   sparkDaemonServerStatusSummaries,
   stopWorkspace,
   workspaceKeyForName,
   workspaceKeyForPath,
+  WorkspacePathConflictError,
   workspaceSummaries,
 } from "./workspaces.js";
 
@@ -70,6 +73,151 @@ function withSparkDaemonWorkspaceStore<T>(
 }
 
 describe("Spark daemon workspace store", () => {
+  it("unregisters without deleting history and reuses the same workspace on registration", () => {
+    withSparkDaemonWorkspaceStore(({ db, root }) => {
+      const checkout = join(root, "checkout");
+      mkdirSync(checkout);
+      const workspace = registerWorkspace(db, {
+        localPath: checkout,
+        displayName: "checkout",
+      });
+
+      const removed = applyWorkspaceLifecycleMutation(db, {
+        action: "unregister",
+        workspaceId: workspace.id,
+      });
+
+      expect(removed).toMatchObject({ action: "unregister", applied: true });
+      expect(listWorkspaces(db)).toEqual([]);
+      expect(listWorkspaces(db, { includeInactive: true })).toEqual([
+        expect.objectContaining({
+          id: workspace.id,
+          lifecycle: expect.objectContaining({
+            state: "unregistered",
+            previousLocalPath: realpathSync(checkout),
+          }),
+        }),
+      ]);
+      expect(resolveWorkspaceLocalPath(db, workspace.id)).toBeUndefined();
+
+      const registered = registerWorkspace(db, {
+        localPath: checkout,
+        displayName: "checkout",
+      });
+      expect(registered).toMatchObject({ id: workspace.id });
+      expect(registered).not.toHaveProperty("lifecycle");
+    });
+  });
+
+  it("moves an idle workspace while preserving its identity", () => {
+    withSparkDaemonWorkspaceStore(({ db, root }) => {
+      const before = join(root, "before");
+      const after = join(root, "after");
+      mkdirSync(before);
+      mkdirSync(after);
+      const workspace = registerWorkspace(db, { localPath: before, displayName: "project" });
+
+      const moved = applyWorkspaceLifecycleMutation(db, {
+        action: "move",
+        workspaceId: workspace.id,
+        localPath: after,
+      });
+
+      expect(moved).toMatchObject({
+        action: "move",
+        applied: true,
+        previousLocalPath: realpathSync(before),
+        localPath: realpathSync(after),
+        workspace: { id: workspace.id, localPath: realpathSync(after) },
+      });
+      expect(resolveWorkspaceLocalPath(db, workspace.id)).toBe(realpathSync(after));
+    });
+  });
+
+  it("merges nested workspaces as durable aliases and keeps their invocation history", () => {
+    withSparkDaemonWorkspaceStore(({ db, root }) => {
+      const sparkPath = join(root, "workspace", "spark");
+      const resumePath = join(root, "workspace", "resume");
+      mkdirSync(sparkPath, { recursive: true });
+      mkdirSync(resumePath, { recursive: true });
+      const target = registerWorkspace(db, { localPath: sparkPath, displayName: "spark" });
+      const source = registerWorkspace(db, { localPath: resumePath, displayName: "resume" });
+      expect(() =>
+        planWorkspaceRegistration(db, {
+          localPath: root,
+          displayName: "personal",
+          allowLocalPathRebind: true,
+        }),
+      ).toThrow(WorkspacePathConflictError);
+      db.prepare(
+        `INSERT INTO invocations
+          (id, workspace_binding_id, status, created_at, updated_at)
+         VALUES ('inv_source_history', ?, 'succeeded', ?, ?)`,
+      ).run(source.id, "2026-08-02T00:00:00.000Z", "2026-08-02T00:01:00.000Z");
+
+      const merged = applyWorkspaceLifecycleMutation(db, {
+        action: "merge",
+        targetWorkspaceId: target.id,
+        localPath: root,
+        allNested: true,
+      });
+
+      expect(merged).toMatchObject({
+        action: "merge",
+        applied: true,
+        workspace: { id: target.id, localPath: realpathSync(root), sessionCount: 1 },
+        sources: [
+          expect.objectContaining({
+            id: source.id,
+            lifecycle: expect.objectContaining({
+              state: "merged",
+              mergedIntoWorkspaceId: target.id,
+            }),
+          }),
+        ],
+      });
+      expect(listWorkspaces(db)).toEqual([
+        expect.objectContaining({ id: target.id, localPath: realpathSync(root), sessionCount: 1 }),
+      ]);
+      expect(resolveWorkspaceLocalPath(db, source.id)).toBe(realpathSync(root));
+      expect(resolveWorkspaceBindingId(db, source.id)).toBe(target.id);
+      expect(
+        planWorkspaceRegistration(db, {
+          localPath: root,
+          displayName: "personal",
+          allowLocalPathRebind: true,
+        }),
+      ).toMatchObject({ existingWorkspaceId: target.id, localWorkspaceKey: "personal" });
+      const rebound = registerWorkspace(db, {
+        localPath: root,
+        displayName: "personal",
+        allowLocalPathRebind: true,
+      });
+      expect(rebound).toMatchObject({ id: target.id, localWorkspaceKey: "personal" });
+      expect(resolveWorkspaceBindingId(db, source.id)).toBe(target.id);
+    });
+  });
+
+  it("refuses lifecycle changes while a workspace has active work", () => {
+    withSparkDaemonWorkspaceStore(({ db, root }) => {
+      const workspace = registerWorkspace(db, { localPath: root, displayName: "busy" });
+      db.prepare(
+        `INSERT INTO invocations
+          (id, workspace_binding_id, status, created_at, updated_at)
+         VALUES ('inv_busy', ?, 'running', ?, ?)`,
+      ).run(workspace.id, "2026-08-02T00:00:00.000Z", "2026-08-02T00:00:00.000Z");
+
+      expectControlError(
+        () =>
+          applyWorkspaceLifecycleMutation(db, {
+            action: "unregister",
+            workspaceId: workspace.id,
+          }),
+        "workspace_lifecycle_conflict",
+      );
+    });
+  });
+
   it("reports caller-addressable workspace and client lookup failures with stable codes", () => {
     withSparkDaemonWorkspaceStore(({ db, root }) => {
       const workspace = registerWorkspace(db, {

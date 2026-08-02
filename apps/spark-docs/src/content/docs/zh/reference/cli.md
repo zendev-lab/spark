@@ -149,9 +149,19 @@ session new、文本 prompt、cancel、assistant/tool 流式更新和 tool permi
 spark daemon login --server-url <url>
 spark daemon workspace register . --server-url <url> --token <token> --name <name>
 spark daemon workspace ls --json
+spark daemon workspace move <id> <new-path> --dry-run
+spark daemon workspace unregister <id> --dry-run
+spark daemon workspace merge --into <target-id> --path <parent> --all-nested --dry-run
 spark cockpit access create
 spark cockpit workspace access create --workspace <id>
 ```
 
 只应在明确受信任的私有网络中使用 `--allow-insecure-http`。所有非 loopback
 Cockpit URL 都应优先使用 HTTPS。
+
+`workspace stop` 只暂停连接，不会释放已注册路径。`workspace unregister`
+在保留历史记录的同时释放路径，`workspace move` 在新路径继续使用原 workspace
+ID。`workspace merge` 会把目标扩展到父目录，并把每个来源 ID 保留为 alias，
+因此已有 session 和 invocation 引用仍可解析。生命周期操作会先生成计划，除非传入
+`--yes`，否则需要确认；使用 `--dry-run --json` 可以只检查、不修改。通过
+`workspace ls --all` 查看已合并或已注销的记录。

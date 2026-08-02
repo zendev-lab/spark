@@ -1,4 +1,5 @@
 import {
+  applyWorkspaceLifecycleMutation,
   attachWorkspace,
   attachWorkspaceClient,
   ensureLocalWorkspace,
@@ -6,6 +7,7 @@ import {
   heartbeatWorkspaceClient,
   listWorkspaces,
   planWorkspaceRegistration,
+  planWorkspaceLifecycleMutation,
   registerWorkspace,
   releaseWorkspaceClient,
   stopWorkspace,
@@ -32,6 +34,7 @@ type WorkspaceRequest = Extract<
       | "workspace.register"
       | "workspace.attach"
       | "workspace.stop"
+      | "workspace.lifecycle"
       | "workspace.client.attach"
       | "workspace.client.heartbeat"
       | "workspace.client.release"
@@ -54,7 +57,9 @@ export async function handleWorkspaceRequest(
   switch (request.method) {
     case "workspace.list":
       return parseLocalRpcServiceOutput(request.method, {
-        workspaces: listWorkspaces(db),
+        workspaces: listWorkspaces(db, {
+          includeInactive: request.params.includeInactive === true,
+        }),
         observedAt: new Date().toISOString(),
       });
     case "workspace.ensure-local":
@@ -200,6 +205,28 @@ export async function handleWorkspaceRequest(
       const workspace = stopWorkspace(db, { id: request.params.id });
       options.onUplinkReconfigure?.(workspace.serverUrl);
       return parseLocalRpcServiceOutput(request.method, workspace);
+    }
+    case "workspace.lifecycle": {
+      const { dryRun: _dryRun, ...mutation } = request.params;
+      const plan = planWorkspaceLifecycleMutation(db, mutation);
+      if (request.params.dryRun) {
+        return parseLocalRpcServiceOutput(request.method, plan);
+      }
+      if (
+        mutation.action === "unregister" &&
+        !plan.workspace.lifecycle &&
+        plan.workspace.serverUrl &&
+        plan.workspace.serverBindingId
+      ) {
+        await unbindWorkspaceFromCockpit(paths, {
+          serverUrl: plan.workspace.serverUrl,
+          bindingId: plan.workspace.serverBindingId,
+          allowInsecureHttp: true,
+        });
+      }
+      const result = applyWorkspaceLifecycleMutation(db, mutation);
+      options.onUplinkReconfigure?.(plan.workspace.serverUrl);
+      return parseLocalRpcServiceOutput(request.method, result);
     }
     case "workspace.client.attach": {
       const client = attachWorkspaceClient(db, request.params);

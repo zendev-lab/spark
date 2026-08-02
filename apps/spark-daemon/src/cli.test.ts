@@ -15,8 +15,10 @@ import { getSparkDaemonServerProfile, upsertSparkDaemonServerProfile } from "./s
 import { openSparkDaemonDatabase } from "./store/schema.js";
 import {
   addWorkspace,
+  applyWorkspaceLifecycleMutation,
   attachWorkspace,
   listWorkspaces,
+  planWorkspaceLifecycleMutation,
   registerWorkspace,
   stopWorkspace,
 } from "./store/workspaces.js";
@@ -33,6 +35,7 @@ function createCliIo(
     humanInteractionListFromService?: CliIo["humanInteractionListFromService"];
     humanInteractionRespondFromService?: CliIo["humanInteractionRespondFromService"];
     listWorkspacesFromService?: CliIo["listWorkspacesFromService"];
+    mutateWorkspaceLifecycleInService?: CliIo["mutateWorkspaceLifecycleInService"];
     registerWorkspaceInService?: CliIo["registerWorkspaceInService"];
     relocateWorkspaceInService?: CliIo["relocateWorkspaceInService"];
     attachWorkspaceInService?: CliIo["attachWorkspaceInService"];
@@ -92,6 +95,22 @@ function createCliIo(
       ? { daemonRestartFromService: options.daemonRestartFromService }
       : {}),
     listWorkspacesFromService: options.listWorkspacesFromService ?? workspaceListResultFromDb,
+    mutateWorkspaceLifecycleInService:
+      options.mutateWorkspaceLifecycleInService ??
+      (async (paths, request) => {
+        const db = openSparkDaemonDatabase(paths);
+        try {
+          const { dryRun, ...mutation } = request;
+          const result = dryRun
+            ? planWorkspaceLifecycleMutation(db, mutation)
+            : applyWorkspaceLifecycleMutation(db, mutation);
+          return result as Awaited<
+            ReturnType<NonNullable<CliIo["mutateWorkspaceLifecycleInService"]>>
+          >;
+        } finally {
+          db.close();
+        }
+      }),
     registerWorkspaceInService:
       options.registerWorkspaceInService ??
       (async (paths, request) => {
@@ -149,12 +168,15 @@ function testSparkDaemonConfig(
   };
 }
 
-async function workspaceListResultFromDb(paths: ReturnType<typeof resolveSparkPaths>) {
+async function workspaceListResultFromDb(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  options: { includeInactive?: boolean } = {},
+) {
   const db = openSparkDaemonDatabase(paths);
   try {
     return {
       observedAt: "2026-05-26T00:00:00.000Z",
-      workspaces: listWorkspaces(db),
+      workspaces: listWorkspaces(db, options),
     };
   } finally {
     db.close();
@@ -2157,6 +2179,102 @@ describe("Spark daemon CLI", () => {
     });
   });
 
+  it("previews and applies workspace path moves through the daemon", async () => {
+    await withTempSparkEnv(async (root) => {
+      const paths = resolveSparkPaths({ app: "daemon" });
+      const before = join(root, "before");
+      const after = join(root, "after");
+      mkdirSync(before, { recursive: true });
+      mkdirSync(after, { recursive: true });
+      const db = openSparkDaemonDatabase(paths);
+      const workspace = registerWorkspace(db, { localPath: before, displayName: "project" });
+      db.close();
+
+      const preview = createCliIo();
+      await expect(
+        main(["ws", "move", workspace.id, after, "--dry-run", "--json"], preview.io),
+      ).resolves.toBe(0);
+      expect(JSON.parse(preview.stdout())).toMatchObject({ action: "move", applied: false });
+
+      const apply = createCliIo();
+      await expect(
+        main(["ws", "move", workspace.id, after, "--yes", "--json"], apply.io),
+      ).resolves.toBe(0);
+      expect(JSON.parse(apply.stdout())).toMatchObject({
+        action: "move",
+        applied: true,
+        workspace: { id: workspace.id, localPath: realpathSync(after) },
+      });
+    });
+  });
+
+  it("merges every nested workspace only after confirmation and exposes aliases with --all", async () => {
+    await withTempSparkEnv(async (root) => {
+      const paths = resolveSparkPaths({ app: "daemon" });
+      const sparkPath = join(root, "workspace", "spark");
+      const resumePath = join(root, "workspace", "resume");
+      mkdirSync(sparkPath, { recursive: true });
+      mkdirSync(resumePath, { recursive: true });
+      const db = openSparkDaemonDatabase(paths);
+      const target = registerWorkspace(db, { localPath: sparkPath, displayName: "spark" });
+      const source = registerWorkspace(db, { localPath: resumePath, displayName: "resume" });
+      db.close();
+
+      const unconfirmed = createCliIo();
+      await expect(
+        main(["ws", "merge", "--into", target.id, "--path", root, "--all-nested"], unconfirmed.io),
+      ).resolves.toBe(4);
+      expect(unconfirmed.stderr()).toContain("Pass --yes to confirm");
+
+      const apply = createCliIo();
+      await expect(
+        main(
+          ["ws", "merge", "--into", target.id, "--path", root, "--all-nested", "--yes", "--json"],
+          apply.io,
+        ),
+      ).resolves.toBe(0);
+      expect(JSON.parse(apply.stdout())).toMatchObject({
+        action: "merge",
+        applied: true,
+        workspace: { id: target.id, localPath: realpathSync(root) },
+        sources: [{ id: source.id, lifecycle: { state: "merged" } }],
+      });
+
+      const list = createCliIo();
+      await expect(main(["ws", "ls", "--all", "--json"], list.io)).resolves.toBe(0);
+      expect(JSON.parse(list.stdout())).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: target.id }),
+          expect.objectContaining({ id: source.id, status: "merged" }),
+        ]),
+      );
+    });
+  });
+
+  it("unregisters a workspace without deleting its retained record", async () => {
+    await withTempSparkEnv(async (root) => {
+      const paths = resolveSparkPaths({ app: "daemon" });
+      const db = openSparkDaemonDatabase(paths);
+      const workspace = registerWorkspace(db, { localPath: root, displayName: "personal" });
+      db.close();
+
+      const capture = createCliIo();
+      await expect(
+        main(["ws", "unregister", workspace.id, "--yes", "--json"], capture.io),
+      ).resolves.toBe(0);
+      expect(JSON.parse(capture.stdout())).toMatchObject({
+        action: "unregister",
+        applied: true,
+        workspace: { id: workspace.id, lifecycle: { state: "unregistered" } },
+      });
+
+      const verifyDb = openSparkDaemonDatabase(paths);
+      expect(listWorkspaces(verifyDb)).toEqual([]);
+      expect(listWorkspaces(verifyDb, { includeInactive: true })).toHaveLength(1);
+      verifyDb.close();
+    });
+  });
+
   it("returns conflict exit code for nested workspace registration", async () => {
     const capture = createCliIo();
 
@@ -2695,7 +2813,7 @@ describe("Spark daemon CLI", () => {
     await withTempSparkEnv(async () => {
       await expect(main(["ws", "reconcile"], capture.io)).resolves.toBe(1);
       expect(capture.stderr()).toContain(
-        "Usage: spark daemon workspace <register|relocate|migrate-evidence|ls|show|stop>",
+        "Usage: spark daemon workspace <register|relocate|migrate-evidence|ls|show|stop|unregister|move|merge>",
       );
     });
   });

@@ -243,8 +243,28 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
   retireLegacyDaemonErrorOutbox(db);
   migrateWorkspacesTable(db);
   db.exec("CREATE INDEX IF NOT EXISTS workspaces_status_idx ON workspaces(status)");
+  migrateWorkspaceLifecycleTable(db);
   migrateSparkDaemonRegistrationTables(db);
   backfillSparkDaemonRegistrationTables(db);
+}
+
+function migrateWorkspaceLifecycleTable(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workspace_lifecycle (
+      workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+      state TEXT NOT NULL CHECK (state IN ('merged', 'unregistered')),
+      merged_into_workspace_id TEXT REFERENCES workspaces(id),
+      previous_local_path TEXT NOT NULL,
+      changed_at TEXT NOT NULL,
+      CHECK (
+        (state = 'merged' AND merged_into_workspace_id IS NOT NULL AND merged_into_workspace_id <> workspace_id)
+        OR (state = 'unregistered' AND merged_into_workspace_id IS NULL)
+      )
+    );
+    CREATE INDEX IF NOT EXISTS workspace_lifecycle_merge_target_idx
+      ON workspace_lifecycle(merged_into_workspace_id)
+      WHERE state = 'merged';
+  `);
 }
 
 function migrateSessionRequestCompletionDeliverySchema(db: DatabaseSync): void {

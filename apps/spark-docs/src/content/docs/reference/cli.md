@@ -160,9 +160,21 @@ NDJSON; startup recovery details go to stderr.
 spark daemon login --server-url <url>
 spark daemon workspace register . --server-url <url> --token <token> --name <name>
 spark daemon workspace ls --json
+spark daemon workspace move <id> <new-path> --dry-run
+spark daemon workspace unregister <id> --dry-run
+spark daemon workspace merge --into <target-id> --path <parent> --all-nested --dry-run
 spark cockpit access create
 spark cockpit workspace access create --workspace <id>
 ```
 
 Use `--allow-insecure-http` only for an explicitly trusted private network.
 Prefer HTTPS for every non-loopback Cockpit URL.
+
+`workspace stop` only pauses a connection; it does not free the registered
+path. `workspace unregister` frees the path while retaining history, and
+`workspace move` preserves the workspace ID at a new path. `workspace merge`
+expands the target to the parent path and retains each source ID as an alias,
+so existing session and invocation references remain resolvable. Lifecycle
+changes show a plan first, require confirmation unless `--yes` is passed, and
+can be inspected without mutation with `--dry-run --json`. Use `workspace ls
+--all` to inspect merged or unregistered records.

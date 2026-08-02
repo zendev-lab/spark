@@ -84,6 +84,7 @@ export const sparkWorkspaceRpcErrorCodeOptions = [
   "workspace_not_found",
   "workspace_client_not_found",
   "workspace_client_conflict",
+  "workspace_lifecycle_conflict",
   "workspace_registration_failed",
   "workspace_registration_invalid",
   "workspace_registration_unavailable",

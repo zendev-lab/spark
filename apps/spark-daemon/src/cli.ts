@@ -31,10 +31,12 @@ import {
 } from "./server-profiles.js";
 
 import {
+  type LocalWorkspaceLifecycleMutation,
   LocalRpcUnavailableError,
   localRpcSocketPath,
   requestWorkspaceAttach,
   requestWorkspaceList,
+  requestWorkspaceLifecycle,
   requestWorkspaceRegister,
   requestWorkspaceRelocate,
   requestUplinkPark,
@@ -823,6 +825,10 @@ async function workspace(
     return code;
   }
 
+  if (subcommand === "unregister" || subcommand === "move" || subcommand === "merge") {
+    return await mutateWorkspaceLifecycleCommand(paths, subcommand, args, io);
+  }
+
   if (subcommand === "show") {
     return await showWorkspaceCommand(paths, args, io);
   }
@@ -840,7 +846,7 @@ async function workspace(
   }
 
   throw new Error(
-    "Usage: spark daemon workspace <register|relocate|migrate-evidence|ls|show|stop>",
+    "Usage: spark daemon workspace <register|relocate|migrate-evidence|ls|show|stop|unregister|move|merge>",
   );
 }
 
@@ -1165,7 +1171,9 @@ async function listWorkspaceCommand(
   io: CliIo,
 ): Promise<number> {
   const flags = parseFlags(args);
-  const workspaces = await loadWorkspaceList(paths, io);
+  const workspaces = await loadWorkspaceList(paths, io, {
+    includeInactive: flags.all === "true",
+  });
   const statusContext = workspaceStatusContext(paths);
   if (flags.json === "true") {
     io.stdout.write(
@@ -1276,9 +1284,11 @@ function isMissingLocalRpcSocketError(
 async function loadWorkspaceList(
   paths: ReturnType<typeof resolveSparkPaths>,
   io: CliIo,
+  options: { includeInactive?: boolean } = {},
 ): Promise<SparkDaemonWorkspace[]> {
   return await requestWorkspaceService(paths, io, async () => {
-    return (await (io.listWorkspacesFromService ?? requestWorkspaceList)(paths)).workspaces;
+    return (await (io.listWorkspacesFromService ?? requestWorkspaceList)(paths, options))
+      .workspaces;
   });
 }
 
@@ -1312,6 +1322,134 @@ async function stopWorkspaceForCli(
   });
 }
 
+async function mutateWorkspaceLifecycleForCli(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  mutation: LocalWorkspaceLifecycleMutation,
+  io: CliIo,
+) {
+  return await requestWorkspaceService(paths, io, async () => {
+    return await (io.mutateWorkspaceLifecycleInService ?? requestWorkspaceLifecycle)(
+      paths,
+      mutation,
+    );
+  });
+}
+
+async function mutateWorkspaceLifecycleCommand(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  action: "unregister" | "move" | "merge",
+  args: string[],
+  io: CliIo,
+): Promise<number> {
+  const flags = parseFlags(args);
+  const positionals = positionalArgs(args);
+  const workspaces = await loadWorkspaceList(paths, io, { includeInactive: true });
+  let mutation: LocalWorkspaceLifecycleMutation;
+
+  if (action === "unregister") {
+    const identifier = flags.workspace ?? positionals[0];
+    if (!identifier) throw new Error("Pass a workspace id or --workspace <id>.");
+    mutation = {
+      action,
+      workspaceId: resolveWorkspace(workspaces, identifier).id,
+      dryRun: true,
+    };
+  } else if (action === "move") {
+    const identifier = flags.workspace ?? positionals[0];
+    const localPath = flags.to ?? flags.path ?? positionals[1];
+    if (!identifier || !localPath) {
+      throw new Error("Usage: spark daemon workspace move <id> <path> [--yes] [--json]");
+    }
+    assertDirectory(localPath);
+    mutation = {
+      action,
+      workspaceId: resolveWorkspace(workspaces, identifier).id,
+      localPath,
+      dryRun: true,
+    };
+  } else {
+    const targetIdentifier = flags.into ?? flags.workspace;
+    const localPath = flags.path ?? flags.to ?? resolveInvocationCwd();
+    const allNested = flags["all-nested"] === "true";
+    if (!targetIdentifier) {
+      throw new Error(
+        "Usage: spark daemon workspace merge [source ...] --into <target> --path <parent> [--all-nested] [--yes] [--json]",
+      );
+    }
+    if (positionals.length === 0 && !allNested) {
+      throw new Error("Pass at least one source workspace or --all-nested.");
+    }
+    assertDirectory(localPath);
+    mutation = {
+      action,
+      targetWorkspaceId: resolveWorkspace(workspaces, targetIdentifier).id,
+      sourceWorkspaceIds: positionals.map(
+        (identifier) => resolveWorkspace(workspaces, identifier).id,
+      ),
+      localPath,
+      ...(allNested ? { allNested: true } : {}),
+      dryRun: true,
+    };
+  }
+
+  const plan = await mutateWorkspaceLifecycleForCli(paths, mutation, io);
+  if (flags["dry-run"] === "true") {
+    if (flags.json === "true") {
+      io.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+    } else {
+      io.stdout.write(workspaceLifecycleMutationText(plan, true));
+    }
+    return 0;
+  }
+
+  const subject =
+    action === "merge"
+      ? `Merge ${plan.sources.length} workspace(s) into '${plan.workspace.displayName}' at ${formatPathForDisplay(plan.localPath)}?`
+      : action === "move"
+        ? `Move workspace '${plan.workspace.displayName}' to ${formatPathForDisplay(plan.localPath)}?`
+        : `Unregister workspace '${plan.workspace.displayName}' while retaining its history?`;
+  if (!(await confirmAction(io, flags, subject))) {
+    io.stdout.write("Cancelled.\n");
+    return 4;
+  }
+
+  const { dryRun: _dryRun, ...applyMutation } = mutation;
+  const result = await mutateWorkspaceLifecycleForCli(paths, applyMutation, io);
+  if (flags.json === "true") {
+    io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  } else {
+    io.stdout.write(workspaceLifecycleMutationText(result, false));
+  }
+  return 0;
+}
+
+function workspaceLifecycleMutationText(
+  result: Awaited<ReturnType<typeof requestWorkspaceLifecycle>>,
+  dryRun: boolean,
+): string {
+  const prefix = dryRun ? "Plan" : "✓";
+  if (result.action === "unregister") {
+    return (
+      `${prefix} unregister '${result.workspace.displayName}'\n` +
+      `  path     ${formatPathForDisplay(result.localPath)}\n` +
+      "  history  retained; inspect with workspace ls --all\n"
+    );
+  }
+  if (result.action === "move") {
+    return (
+      `${prefix} move '${result.workspace.displayName}'\n` +
+      `  from     ${formatPathForDisplay(result.previousLocalPath)}\n` +
+      `  to       ${formatPathForDisplay(result.localPath)}\n`
+    );
+  }
+  return (
+    `${prefix} merge ${result.sources.length} workspace(s) into '${result.workspace.displayName}'\n` +
+    `  path     ${formatPathForDisplay(result.localPath)}\n` +
+    `  sources  ${result.sources.map((source) => source.displayName).join(", ")}\n` +
+    "  history  source IDs remain aliases; inspect with workspace ls --all\n"
+  );
+}
+
 async function showWorkspaceCommand(
   paths: ReturnType<typeof resolveSparkPaths>,
   args: string[],
@@ -1319,9 +1457,9 @@ async function showWorkspaceCommand(
 ): Promise<number> {
   const flags = parseFlags(args);
   const identifier = flags.workspace ?? positionalArgs(args)[0];
-  const workspaces = await loadWorkspaceList(paths, io);
+  const workspaces = await loadWorkspaceList(paths, io, { includeInactive: Boolean(identifier) });
   let workspace = resolveWorkspaceForShow(workspaces, identifier);
-  if (isUserDetachedWorkspace(workspace)) {
+  if (!workspace.lifecycle && isUserDetachedWorkspace(workspace)) {
     workspace = await attachWorkspaceForCli(paths, workspace.id, io);
   }
   const statusContext = workspaceStatusContext(paths);
@@ -1559,6 +1697,7 @@ function workspaceListItem(workspace: SparkDaemonWorkspace, context: WorkspaceSt
     ...(offlineReason ? { offlineReason } : {}),
     ...(degradedReasons.length > 0 ? { degradedReasons } : {}),
     ...(workspace.profile ? { profile: workspace.profile } : {}),
+    ...(workspace.lifecycle ? { lifecycle: workspace.lifecycle } : {}),
     counts: {
       projects: null,
       unresolvedInbox: null,
@@ -1627,9 +1766,16 @@ function workspaceStatusLabel(
   workspace: {
     status: string;
     diagnostics?: Record<string, unknown>;
+    lifecycle?: SparkDaemonWorkspace["lifecycle"];
   },
   context: WorkspaceStatusContext = { daemonRunning: true },
 ): string {
+  if (workspace.lifecycle?.state === "merged") {
+    return `merged → ${workspace.lifecycle.mergedIntoWorkspaceId}`;
+  }
+  if (workspace.lifecycle?.state === "unregistered") {
+    return "unregistered";
+  }
   if (isUserDetached(workspace)) {
     return "offline · detached";
   }
@@ -1654,9 +1800,12 @@ function workspaceStatusJson(
   workspace: {
     status: string;
     diagnostics?: Record<string, unknown>;
+    lifecycle?: SparkDaemonWorkspace["lifecycle"];
   },
   context: WorkspaceStatusContext = { daemonRunning: true },
 ): string {
+  if (workspace.lifecycle?.state === "merged") return "merged";
+  if (workspace.lifecycle?.state === "unregistered") return "unregistered";
   if (isUserDetached(workspace)) {
     return "offline:detached";
   }
