@@ -6,7 +6,7 @@ import {
   runSparkDaemonCliCommand,
   type SparkDaemonClientOptions,
 } from "../apps/spark-tui/src/cli/daemon.ts";
-import type { SparkModelControlSnapshot } from "../packages/spark-protocol/src/index.ts";
+import type { SparkModelControlSnapshot } from "@zendev-lab/spark-protocol";
 
 const snapshot: SparkModelControlSnapshot = {
   providers: [

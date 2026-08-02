@@ -53,8 +53,8 @@
       emptyBody={t.access.emptyBody}
       hasTokens={data.accessTokens.length > 0}
     >
-      {#if form?.intent === "cockpitAccess" && form?.accessToken}
-        {#snippet created()}
+      {#snippet created()}
+        {#if form?.intent === "cockpitAccess" && form?.accessToken}
           <div class="token-created">
             <div>
               <strong>{t.access.tokenCreatedTitle}</strong>
@@ -70,8 +70,8 @@
             </div>
             <small>{t.access.expiresPrefix} {formatRelative(form.accessExpiresAt ?? null)}</small>
           </div>
-        {/snippet}
-      {/if}
+        {/if}
+      {/snippet}
       {#snippet tokens()}
         {#each data.accessTokens as token}
           {@const status = accessStatus(token)}
