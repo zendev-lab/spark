@@ -42,7 +42,7 @@ The first publication may use a short-lived, package-scoped granular
 `NPM_TOKEN` stored only in the protected `npm-release` environment:
 
 1. Push the first reviewed version tag and let the protected workflow publish.
-2. Configure npm trusted publishing for repository `zendev-lab/spark`, workflow
+2. Configure npm trusted publishing for repository `zrr1999/spark`, workflow
    `.github/workflows/cd-publish.yml`, and environment `npm-release`.
 3. Rerun a prerelease through OIDC provenance to verify trusted publishing.
 4. Revoke and remove the one-time token from npm and GitHub.

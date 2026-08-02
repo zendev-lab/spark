@@ -1,6 +1,6 @@
 {
   "name": "spark",
-  "version": "0.2.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Spark monorepo: daemon-first agent orchestration across TUI, Cockpit, and channels, with Pi product compatibility retained.",
   "keywords": [
@@ -8,15 +8,15 @@
     "Coding Agent",
     "Spark"
   ],
-  "homepage": "https://github.com/zendev-lab/spark#readme",
+  "homepage": "https://github.com/zrr1999/spark#readme",
   "bugs": {
-    "url": "https://github.com/zendev-lab/spark/issues"
+    "url": "https://github.com/zrr1999/spark/issues"
   },
   "license": "MIT",
   "author": "zrr1999",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zendev-lab/spark.git"
+    "url": "git+https://github.com/zrr1999/spark.git"
   },
   "bin": {
     "spark": "./apps/spark-cli/bin/spark"
