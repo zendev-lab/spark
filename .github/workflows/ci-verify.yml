@@ -103,7 +103,7 @@ jobs:
             spark-cockpit:ci)"
           test -n "${container_id}"
           trap 'test -z "${container_id:-}" || docker rm --force "${container_id}" >/dev/null' EXIT
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             status="$(docker inspect --format '{{.State.Health.Status}}' "${container_id}")"
             test "${status}" != unhealthy
             test "${status}" != healthy || break
