@@ -212,27 +212,12 @@ importers:
 
   apps/spark-cli:
     dependencies:
-      '@zendev-lab/spark-acp':
-        specifier: workspace:^
-        version: link:../../packages/spark-acp
-      '@zendev-lab/spark-cockpit':
-        specifier: workspace:^
-        version: link:../spark-cockpit
-      '@zendev-lab/spark-daemon':
-        specifier: workspace:^
-        version: link:../spark-daemon
       '@zendev-lab/spark-i18n':
         specifier: workspace:^
         version: link:../../packages/spark-i18n
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../../packages/spark-system
-      '@zendev-lab/spark-tui-app':
-        specifier: workspace:^
-        version: link:../spark-tui
-      '@zendev-lab/spark-update':
-        specifier: workspace:^
-        version: link:../../packages/spark-update
 
   apps/spark-cockpit:
     dependencies:

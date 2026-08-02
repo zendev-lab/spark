@@ -105,8 +105,10 @@ import {
   restart,
   restartSuccessor,
   start,
+  startCommand,
   stop,
 } from "./cli-daemon-lifecycle.ts";
+import { runSparkDaemonControlCommand } from "./control-cli.ts";
 
 export type { CliIo } from "./cli-shared.ts";
 export { sparkDaemonServiceExitCode } from "./cli-daemon-lifecycle.ts";
@@ -143,6 +145,7 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
         return await providerAuth(paths, subcommand, rest, io);
       case "start": {
         const managed = process.env.XPC_SERVICE_NAME === "dev.spark.daemon";
+        if (!managed) return await startCommand(paths, args.slice(1), io);
         return await start(paths, {
           // Plists created by older Spark versions invoked `start` directly.
           // launchd exposes the label here, so legacy managed activation must
@@ -171,6 +174,16 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
         return await daemonSubmit(paths, args.slice(1), io);
       case "ask":
         return await daemonAsk(paths, args.slice(1), io);
+      case "model":
+      case "invocation":
+      case "session":
+      case "sessions":
+      case "channel":
+      case "channels":
+      case "run":
+      case "runs":
+      case "events":
+        return await runSparkDaemonControlCommand(paths, command, args.slice(1), io);
       case "workspace":
       case "ws":
         return await workspace(paths, subcommand, rest, io);
@@ -749,6 +762,8 @@ async function status(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo): P
   io.stdout.write(
     JSON.stringify(
       {
+        action: "status",
+        daemon,
         enrolled: credentialServers.some((server) => server.enrolled),
         runtimeId: profiles.length === 1 ? primary?.runtimeId : undefined,
         serverUrl: profiles.length === 1 ? primary?.serverUrl : undefined,

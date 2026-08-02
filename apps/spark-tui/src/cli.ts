@@ -33,10 +33,7 @@ import {
   ensureSparkDaemonWorkspaceSession,
   handleSparkDaemonHumanInteractionRequest,
   handleSparkDaemonCliCommand,
-  parseSparkDaemonCliArgs,
-  runSparkDaemonCliCommand,
   type SparkDaemonClientOptions,
-  type SparkDaemonCliCommand,
   type SparkDaemonWorkspace,
 } from "./cli/daemon.ts";
 import {
@@ -123,7 +120,6 @@ export type SparkCliCommand =
   | { kind: "help" }
   | { kind: "run"; prompt: string; json: boolean; options?: SparkCliRuntimeOptions }
   | { kind: "tui"; initialMessage?: string; options?: SparkCliRuntimeOptions }
-  | { kind: "daemon"; command: SparkDaemonCliCommand }
   | { kind: "error"; message: string };
 
 export interface SparkCliTerminalState {
@@ -152,15 +148,15 @@ export function parseSparkCliArgs(argv: string[]): SparkCliArgs {
 
 export function parseSparkCliCommand(argv: string[]): SparkCliCommand {
   if (argv.length === 0) return { kind: "tui" };
-  if (
-    argv.some((arg) => arg === "-h" || arg === "--help") &&
-    argv[0] !== "daemon" &&
-    argv[0] !== "server"
-  ) {
+  if (argv[0] === "daemon") {
+    return {
+      kind: "error",
+      message: '"daemon" is not a spark-tui command. Use "spark daemon ..." instead.',
+    };
+  }
+  if (argv.some((arg) => arg === "-h" || arg === "--help") && argv[0] !== "server") {
     return { kind: "help" };
   }
-  if (argv[0] === "daemon")
-    return { kind: "daemon", command: parseSparkDaemonCliArgs(argv.slice(1)) };
   if (argv[0] === "server") {
     return {
       kind: "error",
@@ -882,8 +878,6 @@ export async function runSparkCli(
     case "help":
       printHelp();
       return 0;
-    case "daemon":
-      return await runSparkDaemonCliCommand(command.command, undefined, daemonClient);
     case "error":
       throw new Error(command.message);
     case "run": {

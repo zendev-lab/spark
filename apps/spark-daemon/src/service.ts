@@ -1394,7 +1394,7 @@ export function stopSparkDaemonLaunchdLabel(
   const run = options.run ?? runLaunchctl;
   const stopped = run(["bootout", target]);
   const registered = run(["print", target]);
-  if (registered.status === 0) {
+  if (registered.status === 0 && stopped.status !== 0) {
     const detail = stopped.stderr || stopped.stdout || "launchctl still reports the job";
     throw new Error(
       `Failed to unregister Spark daemon ${launchdLabel}; the launchd label remains registered: ${detail}`,

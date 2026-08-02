@@ -214,6 +214,16 @@ Commands:
   restart [--yes] [--wait]
   sync [--wait]
   logs
+  auth <status|login|logout|import> [args...]
+  model <list|status|set> [args...]
+  session <list|show|create|bind|unbind|archive|inbox> [args...]
+  spark daemon session show <session-id>
+  invocation <list|status|result|stream|cancel|retry|retention> [args...]
+  channel <status|reload|notify> [args...]
+  spark daemon channel status --workspace <id>
+  run <list|show|cancel> [args...]
+  spark daemon run cancel <run-id>
+  events watch [--json]
 
 Workspace registration may print a one-time browser key. Mint additional keys on the
 Cockpit host with spark cockpit workspace access create --workspace <id>.

@@ -278,7 +278,7 @@ test("a persistently undelivered Ask stays visible and reopens after bounded ret
   assert.match(notifications[0] ?? "", /keeping it open for retry/u);
 });
 
-test("parseSparkCliCommand routes daemon and native run commands without changing default TUI parsing", () => {
+test("parseSparkCliCommand keeps daemon commands outside spark-tui", () => {
   assert.deepEqual(parseSparkCliCommand(["build", "this"]), {
     kind: "tui",
     initialMessage: "build this",
@@ -290,86 +290,14 @@ test("parseSparkCliCommand routes daemon and native run commands without changin
     json: false,
   });
   assert.deepEqual(parseSparkCliCommand(["daemon", "status", "--json"]), {
-    kind: "daemon",
-    command: { action: "status", json: true },
+    kind: "error",
+    message: '"daemon" is not a spark-tui command. Use "spark daemon ..." instead.',
   });
-  assert.deepEqual(parseSparkCliCommand(["daemon", "workspace", "ls", "--json"]), {
-    kind: "daemon",
-    command: { action: "service", argv: ["workspace", "ls", "--json"] },
-  });
-  assert.deepEqual(
-    parseSparkCliCommand(["daemon", "sessions", "list", "--all-workspaces", "--json"]),
-    {
-      kind: "daemon",
-      command: {
-        action: "sessions",
-        subcommand: "list",
-        json: true,
-        allWorkspaces: true,
-        history: true,
-        registry: false,
-        includeArchived: false,
-        workspaceId: undefined,
-      },
-    },
-  );
   assert.equal(
     parseSparkCliCommand(["sessions", "list", "--all-workspaces", "--json"]).kind,
     "error",
   );
   assert.equal(parseSparkCliCommand(["session", "replay", "--session", "s1"]).kind, "error");
-  assert.throws(
-    () => parseSparkCliCommand(["daemon", "session", "mailto"]),
-    /unknown spark daemon session command: mailto/u,
-  );
-  assert.deepEqual(
-    parseSparkCliCommand([
-      "daemon",
-      "session",
-      "inbox",
-      "read",
-      "mail:1",
-      "--session",
-      "session-b",
-      "--json",
-    ]),
-    {
-      kind: "daemon",
-      command: {
-        action: "sessions",
-        subcommand: "inbox",
-        json: true,
-        sessionId: "session-b",
-        inboxAction: "read",
-        all: false,
-        messageId: "mail:1",
-      },
-    },
-  );
-  assert.deepEqual(
-    parseSparkCliCommand(["daemon", "channel", "status", "--workspace", "ws_demo", "--json"]),
-    {
-      kind: "daemon",
-      command: {
-        action: "channel",
-        subcommand: "status",
-        json: true,
-        workspaceId: "ws_demo",
-      },
-    },
-  );
-  assert.deepEqual(
-    parseSparkCliCommand(["daemon", "channel", "reload", "--workspace", "ws_demo", "--json"]),
-    {
-      kind: "daemon",
-      command: {
-        action: "channel",
-        subcommand: "reload",
-        json: true,
-        workspaceId: "ws_demo",
-      },
-    },
-  );
 });
 
 test("Spark CLI failures are concise and honor JSON mode before the option delimiter", () => {

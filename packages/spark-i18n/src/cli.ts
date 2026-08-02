@@ -5,7 +5,7 @@ export interface SparkCliDispatcherStrings {
   dispatchFailure: (targetLabel: string, detail: string) => string;
   signalExit: (targetLabel: string, signal: string) => string;
   helpText: string;
-  targetLabel: (target: "tui" | "daemon" | "cockpit" | "acp") => string;
+  targetLabel: (target: "tui" | "daemon" | "cockpit" | "acp" | "update") => string;
   tuiRequiresTty: string;
 }
 
@@ -48,6 +48,8 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
           return "Spark Cockpit";
         case "acp":
           return "Spark ACP adapter";
+        case "update":
+          return "Spark updater";
       }
     },
   },
@@ -72,6 +74,8 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
           return "Spark Cockpit";
         case "acp":
           return "Spark ACP adapter";
+        case "update":
+          return "Spark 更新器";
       }
     },
   },

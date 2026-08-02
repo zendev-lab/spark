@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "Spark managed installation, update policy, release metadata, and rollback owner.",
+  "bin": {
+    "spark-update": "./bin/spark-update"
+  },
   "files": [
+    "bin",
     "src",
     "!src/**/*.test.ts",
     "package.json",
@@ -12,7 +16,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./cli": "./src/cli.ts"
+    "./cli": "./src/cli.ts",
+    "./executable": "./bin/spark-update"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",

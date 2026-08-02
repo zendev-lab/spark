@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { test } from "vitest";
 
 import {
@@ -78,24 +76,39 @@ test("parseSparkDispatcherArgs routes canonical planes and rejects removed alias
     target: "daemon",
     argv: ["submit", "--session", "s1", "hello"],
   });
-  assert.equal(parseSparkDispatcherArgs(["install", "./skill", "--skill"]).kind, "error");
+  assert.deepEqual(parseSparkDispatcherArgs(["install", "./skill", "--skill"]), {
+    kind: "dispatch",
+    target: "update",
+    argv: ["install", "./skill", "--skill"],
+  });
   assert.deepEqual(parseSparkDispatcherArgs(["install", "--managed", "--version", "0.1.0"]), {
-    kind: "managed-install",
-    argv: ["--managed", "--version", "0.1.0"],
+    kind: "dispatch",
+    target: "update",
+    argv: ["install", "--managed", "--version", "0.1.0"],
   });
   assert.deepEqual(parseSparkDispatcherArgs(["update", "status", "--json"]), {
-    kind: "update",
-    argv: ["status", "--json"],
+    kind: "dispatch",
+    target: "update",
+    argv: ["update", "status", "--json"],
   });
-  assert.equal(parseSparkDispatcherArgs(["update", "./resource"]).kind, "error");
+  assert.deepEqual(parseSparkDispatcherArgs(["update", "./resource"]), {
+    kind: "dispatch",
+    target: "update",
+    argv: ["update", "./resource"],
+  });
 });
 
-test("parseSparkDispatcherArgs keeps help/version local and rejects unknown subcommands", () => {
+test("parseSparkDispatcherArgs keeps help local and forwards version to spark-update", () => {
   assert.deepEqual(parseSparkDispatcherArgs(["--help"]), { kind: "help" });
-  assert.deepEqual(parseSparkDispatcherArgs(["version"]), { kind: "version" });
+  assert.deepEqual(parseSparkDispatcherArgs(["version"]), {
+    kind: "dispatch",
+    target: "update",
+    argv: ["version"],
+  });
   assert.deepEqual(parseSparkDispatcherArgs(["version", "--json"]), {
-    kind: "version",
-    json: true,
+    kind: "dispatch",
+    target: "update",
+    argv: ["version", "--json"],
   });
   const command = parseSparkDispatcherArgs(["build", "this"]);
   assert.equal(command.kind, "error");
@@ -147,35 +160,30 @@ test("spark paths reports one SPARK_HOME without dispatching or writing", async 
   }
 });
 
-test("dispatcher resolves source targets through package executable exports", () => {
+test("dispatcher resolves source companion executables without importing app CLIs", () => {
   const tui = resolveTargetCommand("tui");
   assert.match(tui.command, /apps\/spark-tui\/bin\/spark-tui$/u);
   assert.deepEqual(tui.args, []);
   const daemon = resolveTargetCommand("daemon");
-  assert.match(daemon.command, /apps\/spark-tui\/bin\/spark-tui$/u);
-  assert.deepEqual(daemon.args, ["daemon"]);
+  assert.match(daemon.command, /apps\/spark-daemon\/bin\/spark-daemon$/u);
+  assert.deepEqual(daemon.args, []);
   const cockpit = resolveTargetCommand("cockpit");
   assert.match(cockpit.command, /apps\/spark-cockpit\/bin\/spark-cockpit$/u);
   assert.deepEqual(cockpit.args, []);
   const acp = resolveTargetCommand("acp");
   assert.match(acp.command, /packages\/spark-acp\/scripts\/stdio\.ts$/u);
   assert.deepEqual(acp.args, []);
+  const update = resolveTargetCommand("update");
+  assert.match(update.command, /packages\/spark-update\/bin\/spark-update$/u);
+  assert.deepEqual(update.args, []);
 });
 
-test("dispatcher keeps packaged product entries ahead of source checkout executables", () => {
-  const productDist = mkdtempSync(join(tmpdir(), "spark-dispatcher-product-"));
-  const productCockpit = join(productDist, "spark-cockpit.js");
-  const previousProductDist = process.env.SPARK_PRODUCT_DIST;
-  writeFileSync(productCockpit, "", "utf8");
-  process.env.SPARK_PRODUCT_DIST = productDist;
-  try {
-    const cockpit = resolveTargetCommand("cockpit");
-    assert.equal(cockpit.command, process.execPath);
-    assert.deepEqual(cockpit.args, [productCockpit]);
-  } finally {
-    if (previousProductDist === undefined) delete process.env.SPARK_PRODUCT_DIST;
-    else process.env.SPARK_PRODUCT_DIST = previousProductDist;
-    rmSync(productDist, { recursive: true, force: true });
+test("spark-cli package depends only on shared libraries", () => {
+  const manifest = JSON.parse(readFileSync("apps/spark-cli/package.json", "utf8")) as {
+    dependencies?: Record<string, string>;
+  };
+  for (const dependency of Object.keys(manifest.dependencies ?? {})) {
+    assert.doesNotMatch(dependency, /^@zendev-lab\/spark-(?:tui-app|daemon|cockpit|acp|update)$/u);
   }
 });
 
@@ -210,7 +218,7 @@ test("runSparkDispatcher fails fast for non-TTY TUI while preserving canonical h
     },
   };
   const launcher = {
-    run: async (target: "tui" | "daemon" | "cockpit" | "acp", argv: string[]) => {
+    run: async (target: "tui" | "daemon" | "cockpit" | "acp" | "update", argv: string[]) => {
       calls.push({ target, argv });
       return 0;
     },

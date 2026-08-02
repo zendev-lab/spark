@@ -21,10 +21,14 @@ The dispatcher does not own terminal rendering, daemon execution, provider/model
 - `spark run ...` and `spark bg ...` to daemon-native headless execution.
 - `spark daemon ...` to daemon execution, authentication, model, session, and
   administration surfaces.
+- `spark version`, `spark install`, and `spark update` to the update executable.
 
 Spark 0.2 rejects the former Pi-style `--print`, `--mode`, `--list-models`,
 root session aliases, and resource-management commands. Provider authentication
 is under `spark daemon auth`; `spark daemon login` remains machine connectivity
 for daemon/Cockpit.
 
-Unknown subcommands fail loudly and suggest `spark tui ...` for prompt text. The `@zendev-lab/spark-daemon` package remains an implementation dependency; users should prefer the public `spark daemon ...` command group.
+Unknown subcommands fail loudly and suggest `spark tui ...` for prompt text. The
+dispatcher has no dependency on companion app CLIs; it resolves `spark-tui`,
+`spark-daemon`, `spark-cockpit`, `spark-acp`, and `spark-update` beside itself or
+on `PATH`.
