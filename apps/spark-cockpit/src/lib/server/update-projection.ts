@@ -2,7 +2,16 @@ import { SparkUpdateManager } from "@zendev-lab/spark-update";
 
 export interface CockpitUpdateProjection {
   managed: boolean;
-  installation: "managed" | "vp" | "pnpm" | "yarn" | "bun" | "npm" | "source" | "unknown";
+  installation:
+    | "managed"
+    | "vp"
+    | "pnpm"
+    | "yarn"
+    | "bun"
+    | "npm"
+    | "container"
+    | "source"
+    | "unknown";
   automaticUpdates: boolean;
   updateCommand: string | null;
   policy: "manual" | "notify" | "auto";

@@ -126,8 +126,10 @@ export class SparkUpdateManager {
     ]);
     const managed = await isManagedCurrentLink(this.paths);
     const installation = this.resolveInstallation(managed, config.channel, state.currentVersion);
+    const usesRuntimeBuild =
+      installation.method === "container" || isPackageManagerMethod(installation.method);
     const effectiveState =
-      isPackageManagerMethod(installation.method) && installation.version
+      usesRuntimeBuild && installation.version
         ? {
             ...state,
             currentVersion: installation.version,
@@ -165,9 +167,9 @@ export class SparkUpdateManager {
     const state = await readSparkUpdateState(this.paths);
     const managed = await isManagedCurrentLink(this.paths);
     const installation = this.resolveInstallation(managed, config.channel, state.currentVersion);
-    const currentVersion = isPackageManagerMethod(installation.method)
-      ? installation.version
-      : state.currentVersion;
+    const usesRuntimeBuild =
+      installation.method === "container" || isPackageManagerMethod(installation.method);
+    const currentVersion = usesRuntimeBuild ? installation.version : state.currentVersion;
     if (options.background && !isNetworkCheckDue(config, state, this.#now())) {
       return await this.status();
     }
@@ -181,7 +183,7 @@ export class SparkUpdateManager {
     let nextState: SparkUpdateState = {
       ...state,
       ...(currentVersion ? { currentVersion } : {}),
-      ...(isPackageManagerMethod(installation.method) && currentVersion
+      ...(usesRuntimeBuild && currentVersion
         ? { currentFingerprint: this.#buildInfo.fingerprint }
         : {}),
       lastCheckAt: this.#now().toISOString(),

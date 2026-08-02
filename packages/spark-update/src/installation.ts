@@ -33,6 +33,16 @@ export function detectSparkInstallation(options: {
     };
   }
 
+  if (env.SPARK_INSTALL_METHOD?.trim() === "container") {
+    return {
+      method: "container",
+      ...(options.version ? { version: options.version } : {}),
+      ...(commandPath ? { commandPath } : {}),
+      automaticUpdates: false,
+      rollback: false,
+    };
+  }
+
   const method = detectPackageManager(options.productRoot, env);
   if (isPackageManagerMethod(method)) {
     const update = packageManagerUpdateCommand(method, options.channel, commandPath);
@@ -67,7 +77,7 @@ export function isPackageManagerMethod(
 }
 
 export function packageManagerUpdateCommand(
-  method: Exclude<SparkInstallMethod, "managed" | "source" | "unknown">,
+  method: Exclude<SparkInstallMethod, "managed" | "container" | "source" | "unknown">,
   target: string,
   sparkCommandPath?: string,
 ): SparkPackageUpdateCommand {

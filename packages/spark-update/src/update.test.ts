@@ -135,6 +135,27 @@ describe("Spark installation ownership", () => {
     ).toMatchObject({ method, version: "0.1.1", automaticUpdates: true, rollback: true });
   });
 
+  it("leaves container updates and rollback to the image owner", async () => {
+    const root = await temporaryRoot();
+    const manager = new SparkUpdateManager({
+      env: { HOME: root, SPARK_INSTALL_METHOD: "container" },
+      productRoot: "/opt/spark/node_modules/@zendev-lab/spark",
+      commandPath: "/opt/spark/node_modules/.bin/spark",
+      buildInfo: testBuildInfo("0.1.1"),
+    });
+
+    await expect(manager.status()).resolves.toMatchObject({
+      installation: {
+        method: "container",
+        version: "0.1.1",
+        automaticUpdates: false,
+        rollback: false,
+      },
+      state: { currentVersion: "0.1.1" },
+    });
+    await expect(manager.apply("0.1.2")).rejects.toThrow(/cannot update itself/u);
+  });
+
   it("builds exact package-manager update commands", () => {
     expect(packageManagerUpdateCommand("vp", "0.1.2")).toMatchObject({
       command: "vp",

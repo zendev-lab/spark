@@ -33,6 +33,7 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=5173 \
     SPARK_HOME=/var/lib/spark \
+    SPARK_INSTALL_METHOD=container \
     SPARK_UPDATE_POLICY=manual \
     PATH=/opt/spark/node_modules/.bin:${PATH}
 

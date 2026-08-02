@@ -58,9 +58,12 @@ Create the one-time Cockpit browser key against the same persistent state:
 docker exec spark-cockpit spark cockpit access create
 ```
 
-Image replacement owns container upgrades, so the image defaults Spark's
-self-update policy to `manual`. Rebuild or pull a newer image, then replace the
-container while retaining `spark-cockpit-data`.
+Image replacement owns container upgrades, so the image identifies its install
+owner as `container` and defaults Spark's self-update policy to `manual`.
+Cockpit can report the running version, but `spark update apply` and Spark's
+package-manager rollback are intentionally unavailable. Rebuild or pull a newer
+image, then replace the container while retaining `spark-cockpit-data`; rollback
+means replacing it again with a previously pinned image.
 
 For a published stable image, replace `spark-cockpit:local` with
 `ghcr.io/zendev-lab/spark:latest`. Pin an exact version for reproducible
