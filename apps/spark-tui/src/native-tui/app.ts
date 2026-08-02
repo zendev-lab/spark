@@ -129,6 +129,7 @@ import {
   nativeTuiStrings,
 } from "./strings.ts";
 import { SparkNativeSession } from "./session.ts";
+import { SparkTerminalController } from "./controller.ts";
 import {
   MAX_NATIVE_QUEUE_ITEMS,
   MAX_COCKPIT_PANEL_ROWS,
@@ -186,18 +187,15 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private readonly widgets = new Map<string, SparkNativeWidget>();
   private readonly cockpit = createSparkNativeCockpitState();
   private readonly completedTaskSummaryKeys = new Set<string>();
+  private readonly controller = new SparkTerminalController();
   private readonly activeAskFlows = new Map<string, Promise<AskFlowInteractionResponse>>();
   private readonly settledAskResponses = new Map<string, AskFlowInteractionResponse>();
   private readonly pendingAskPresentations = new Map<string, NativePresentationKind>();
-  private activeCockpitPanel: SparkNativeCockpitPanel | undefined;
   private activeActionBarView: SparkActionBarView | undefined;
   private activeActionBar: SparkTuiActionBarComponent | undefined;
   private actionBarHandle: { hide(): void } | undefined;
   private sessionFooterMetrics: SparkNativeFooterMetrics = {};
   private readonly runFooterMetrics = new Map<string, SparkNativeFooterMetrics>();
-  private focusedValue = false;
-  private toolsExpanded = false;
-  private thinkingExpanded = false;
   private workingSpinnerFrame = 0;
   private workingSpinnerTimer: ReturnType<typeof setInterval> | undefined;
   private readonly handleSessionChange = () => {
@@ -239,11 +237,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   get focused(): boolean {
-    return this.focusedValue;
+    return this.controller.viewState.focused;
   }
 
   set focused(value: boolean) {
-    this.focusedValue = value;
+    this.controller.dispatch({ type: "focus.set", focused: value });
     this.editor.focused = value;
   }
 
@@ -451,7 +449,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   cockpitSnapshot(): SparkNativeCockpitSnapshot {
     return {
-      activePanel: this.activeCockpitPanel,
+      activePanel: this.controller.viewState.activeCockpitPanel,
       sessionId: this.cockpit.sessionId,
       sessionStatus: this.cockpit.sessionStatus,
       workflows: this.cockpit.workflows.size,
@@ -467,20 +465,19 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   toggleCockpitPanel(panel: SparkNativeCockpitPanel = "overview"): boolean {
-    this.activeCockpitPanel = this.activeCockpitPanel === panel ? undefined : panel;
-    if (this.activeCockpitPanel === "runs" || this.activeCockpitPanel === "workflows") {
+    const state = this.controller.dispatch({ type: "cockpit.toggle", panel });
+    if (state.activeCockpitPanel === "runs" || state.activeCockpitPanel === "workflows") {
       this.ensureWorkflowRunSelection();
     }
     this.invalidate();
     this.tui.requestRender();
-    return this.activeCockpitPanel !== undefined;
+    return state.activeCockpitPanel !== undefined;
   }
 
   cycleCockpitPanel(): SparkNativeCockpitPanel {
-    const current = this.activeCockpitPanel ?? "overview";
-    const index = SPARK_COCKPIT_PANELS.indexOf(current);
-    const next = SPARK_COCKPIT_PANELS[(index + 1) % SPARK_COCKPIT_PANELS.length] ?? "overview";
-    this.activeCockpitPanel = next;
+    const next =
+      this.controller.dispatch({ type: "cockpit.cycle", panels: SPARK_COCKPIT_PANELS })
+        .activeCockpitPanel ?? "overview";
     if (next === "runs" || next === "workflows") this.ensureWorkflowRunSelection();
     this.invalidate();
     this.tui.requestRender();
@@ -488,11 +485,12 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private handleCockpitPanelInput(data: string): boolean {
-    if (this.activeCockpitPanel !== "runs" && this.activeCockpitPanel !== "workflows") {
+    const activePanel = this.controller.viewState.activeCockpitPanel;
+    if (activePanel !== "runs" && activePanel !== "workflows") {
       return false;
     }
     if (matchesKey(data, Key.escape)) {
-      this.activeCockpitPanel = undefined;
+      this.controller.dispatch({ type: "cockpit.close" });
       this.invalidate();
       this.tui.requestRender();
       return true;
@@ -1230,25 +1228,25 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   toggleTools(): boolean {
-    this.toolsExpanded = !this.toolsExpanded;
+    const state = this.controller.dispatch({ type: "tools.toggle" });
     this.invalidate();
     this.tui.requestRender();
-    return this.toolsExpanded;
+    return state.toolsExpanded;
   }
 
   toggleThinking(): boolean {
-    this.thinkingExpanded = !this.thinkingExpanded;
+    const state = this.controller.dispatch({ type: "thinking.toggle" });
     this.invalidate();
     this.tui.requestRender();
-    return this.thinkingExpanded;
+    return state.thinkingExpanded;
   }
 
   areToolsExpanded(): boolean {
-    return this.toolsExpanded;
+    return this.controller.viewState.toolsExpanded;
   }
 
   isThinkingExpanded(): boolean {
-    return this.thinkingExpanded;
+    return this.controller.viewState.thinkingExpanded;
   }
 
   private handleSparkKeybinding(data: string): boolean {
@@ -1504,7 +1502,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
       );
       return lines;
     }
-    if (!this.toolsExpanded) {
+    if (!this.controller.viewState.toolsExpanded) {
       const suffix = this.renderTheme.fg("dim", " • folded (Ctrl+O expand)");
       const previewText = preview ? ` ${this.renderTheme.fg("muted", `— ${preview}`)}` : "";
       return [truncateToWidth(`${styledHeader}${previewText}${suffix}`, width)];
@@ -1536,7 +1534,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private renderThinkingMessage(message: SparkNativeMessage, width: number): string[] {
-    if (!this.thinkingExpanded) {
+    if (!this.controller.viewState.thinkingExpanded) {
       return this.styleRoleLines("thinking", [
         truncateToWidth(nativeTuiStrings.thinkingFolded(Boolean(message.streaming)), width),
       ]);
@@ -1633,10 +1631,9 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private renderActiveCockpitPanel(width: number): string[] {
-    if (!this.activeCockpitPanel) return [];
-    return this.renderCockpitPanel(this.activeCockpitPanel, width).map((line) =>
-      truncateToWidth(line, width),
-    );
+    const activePanel = this.controller.viewState.activeCockpitPanel;
+    if (!activePanel) return [];
+    return this.renderCockpitPanel(activePanel, width).map((line) => truncateToWidth(line, width));
   }
 
   private renderCockpitPanel(panel: SparkNativeCockpitPanel, width?: number): string[] {
@@ -2164,7 +2161,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
   openCockpitPanelFromArgs(args: string): string | false {
     const requested = args.trim().toLowerCase();
     if (requested === "off" || requested === "close" || requested === "hide") {
-      this.activeCockpitPanel = undefined;
+      this.controller.dispatch({ type: "cockpit.close" });
       this.invalidate();
       this.tui.requestRender();
       return nativeTuiStrings.cockpitPanelClosed;
@@ -2176,7 +2173,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   openCockpitPanel(panel: SparkNativeCockpitPanel): string | false {
-    this.activeCockpitPanel = panel;
+    this.controller.dispatch({ type: "cockpit.open", panel });
     if (panel === "runs" || panel === "workflows") this.ensureWorkflowRunSelection();
     this.invalidate();
     this.tui.requestRender();

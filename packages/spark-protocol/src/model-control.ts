@@ -74,6 +74,43 @@ export const sparkDefaultModelSetRequestSchema = z.object({
   model: sparkModelRefSchema,
 });
 
+export const sparkAuthImportSkipReasonSchema = z.enum([
+  "existing",
+  "unsupported_provider",
+  "auth_kind_mismatch",
+  "dynamic_reference_unsupported",
+  "invalid_credential",
+]);
+
+const sparkAuthImportCredentialSchema = z.object({
+  provider: z.string().min(1),
+  type: z.enum(["api_key", "oauth"]),
+});
+
+export const sparkAuthImportReportSchema = z.object({
+  source: z.literal("pi"),
+  sourcePath: z.string().min(1),
+  imported: z.array(sparkAuthImportCredentialSchema),
+  overwritten: z.array(sparkAuthImportCredentialSchema),
+  skipped: z.array(
+    z.object({
+      provider: z.string().min(1),
+      type: z.enum(["api_key", "oauth"]).optional(),
+      reason: sparkAuthImportSkipReasonSchema,
+    }),
+  ),
+  totals: z.object({
+    imported: z.number().int().nonnegative(),
+    overwritten: z.number().int().nonnegative(),
+    skipped: z.number().int().nonnegative(),
+  }),
+});
+
+export const sparkPiAuthImportRequestSchema = z.object({
+  sourcePath: z.string().min(1),
+  overwrite: z.boolean().default(false),
+});
+
 export const sparkAuthFlowStatusSchema = z.enum([
   "pending",
   "waiting_for_user",
@@ -142,6 +179,9 @@ export type SparkModelCatalogProvider = z.infer<typeof sparkModelCatalogProvider
 export type SparkSessionModelSelection = z.infer<typeof sparkSessionModelSelectionSchema>;
 export type SparkModelControlSnapshot = z.infer<typeof sparkModelControlSnapshotSchema>;
 export type SparkDefaultModelSetRequest = z.infer<typeof sparkDefaultModelSetRequestSchema>;
+export type SparkAuthImportSkipReason = z.infer<typeof sparkAuthImportSkipReasonSchema>;
+export type SparkAuthImportReport = z.infer<typeof sparkAuthImportReportSchema>;
+export type SparkPiAuthImportRequest = z.infer<typeof sparkPiAuthImportRequestSchema>;
 export type SparkAuthFlowStatus = z.infer<typeof sparkAuthFlowStatusSchema>;
 export type SparkAuthFlowPrompt = z.infer<typeof sparkAuthFlowPromptSchema>;
 export type SparkAuthFlow = z.infer<typeof sparkAuthFlowSchema>;
@@ -152,6 +192,10 @@ export function parseSparkModelControlSnapshot(value: unknown): SparkModelContro
 
 export function parseSparkAuthFlow(value: unknown): SparkAuthFlow {
   return sparkAuthFlowSchema.parse(value);
+}
+
+export function parseSparkAuthImportReport(value: unknown): SparkAuthImportReport {
+  return sparkAuthImportReportSchema.parse(value);
 }
 
 export function parseSparkDefaultModelSetRequest(value: unknown): SparkDefaultModelSetRequest {

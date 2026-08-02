@@ -5,7 +5,7 @@ export interface SparkCliDispatcherStrings {
   dispatchFailure: (targetLabel: string, detail: string) => string;
   signalExit: (targetLabel: string, signal: string) => string;
   helpText: string;
-  targetLabel: (target: "tui" | "daemon" | "cockpit" | "acp") => string;
+  targetLabel: (target: "tui" | "daemon" | "cockpit" | "acp" | "update") => string;
   tuiRequiresTty: string;
 }
 
@@ -35,9 +35,9 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
     dispatchFailure: (targetLabel, detail) => `Unable to dispatch to ${targetLabel}: ${detail}`,
     signalExit: (targetLabel, signal) => `${targetLabel} exited due to signal ${signal}`,
     helpText:
-      'spark - Spark command dispatcher\n\nUsage:\n  spark\n  spark run [--json] [--wait] [--resume <session>] <prompt>\n  spark bg [--session <id>] [--json] <prompt>\n  spark paths [--json]\n  spark doctor\n  spark tui [initial message]\n  spark --print [--wait] <prompt>\n  spark --mode json --print <prompt>\n  spark --mode rpc\n  spark --list-models [search]\n  spark install|remove|update|list|config [resource]\n  spark install --managed [--version <version>] [--prefix <path>]\n  spark update status|check|apply|rollback|retry|configure\n  spark version [--json]\n  spark daemon <command> [args...]\n  spark cockpit [command] [args...]\n  spark acp\n  spark --help\n  spark --version\n\nDispatches to Spark surfaces:\n  spark run       foreground headless run (alias-friendly replacement for --print)\n  spark bg        submit a background daemon invocation and return its receipt\n  spark paths     print the unified Spark configuration and state paths\n  spark doctor    top-level Spark health check via the daemon CLI\n  spark tui       tui local control plane: interactive terminal UI, attach/resume, local UI settings\n  spark update    managed installation, update policy, and rollback owner\n  spark daemon    daemon execution plane: session, invocation, events, logs, process state\n  spark cockpit   cross-daemon coordination and Web presentation host\n  spark acp       ACP NDJSON stdio adapter backed by canonical daemon sessions\n\nFlags:\n  --wait, -w    Wait for invocation to reach terminal status before exiting (print/run mode)\n\nCompatibility aliases are documented in docs/specs/command-planes.md. Unknown subcommands fail loudly instead of being interpreted as prompts. Use "spark tui ..." for interactive TUI input.\n',
+      'spark - Spark command dispatcher\n\nUsage:\n  spark\n  spark run [--json] [--wait] [--resume <session>] <prompt>\n  spark bg [--session <id>] [--json] <prompt>\n  spark paths [--json]\n  spark doctor\n  spark tui [initial message]\n  spark install --managed [--version <version>] [--prefix <path>]\n  spark update status|check|apply|rollback|retry|configure\n  spark version [--json]\n  spark daemon auth <status|login|logout|import> [args...]\n  spark daemon model <list|status|set> [args...]\n  spark daemon <command> [args...]\n  spark cockpit [command] [args...]\n  spark acp\n  spark --help\n  spark --version\n\nDispatches to Spark surfaces:\n  spark run       foreground headless run\n  spark bg        submit a background daemon invocation and return its receipt\n  spark paths     print public Spark configuration and state paths\n  spark doctor    top-level Spark health check via the daemon CLI\n  spark tui       tui local control plane: interactive terminal UI, attach/resume, local UI settings\n  spark update    managed installation, update policy, and rollback owner\n  spark daemon    daemon execution plane: auth, model, session, invocation, events, logs, process state\n  spark cockpit   cross-daemon coordination and Web presentation host\n  spark acp       ACP NDJSON stdio adapter backed by canonical daemon sessions\n\nFlags:\n  --wait, -w    Wait for invocation to reach terminal status before exiting\n\nUnknown subcommands fail loudly instead of being interpreted as prompts. Use "spark tui ..." for interactive TUI input.\n',
     tuiRequiresTty:
-      'Spark TUI requires an interactive terminal (stdin and stdout must be TTYs). Use "spark --print <prompt>", "spark --mode rpc", or "spark daemon submit ..." for non-interactive/headless use.',
+      'Spark TUI requires an interactive terminal (stdin and stdout must be TTYs). Use "spark run <prompt>", "spark acp", or "spark daemon submit ..." for non-interactive/headless use.',
     targetLabel: (target) => {
       switch (target) {
         case "tui":
@@ -48,6 +48,8 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
           return "Spark Cockpit";
         case "acp":
           return "Spark ACP adapter";
+        case "update":
+          return "Spark updater";
       }
     },
   },
@@ -59,9 +61,9 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
     dispatchFailure: (targetLabel, detail) => `无法分发到 ${targetLabel}：${detail}`,
     signalExit: (targetLabel, signal) => `${targetLabel} 因信号 ${signal} 退出`,
     helpText:
-      'spark - Spark 命令分发器\n\n用法：\n  spark\n  spark run [--json] [--wait] [--resume <session>] <prompt>\n  spark bg [--session <id>] [--json] <prompt>\n  spark paths [--json]\n  spark doctor\n  spark tui [初始消息]\n  spark --print [--wait] <prompt>\n  spark --mode json --print <prompt>\n  spark --mode rpc\n  spark --list-models [search]\n  spark install|remove|update|list|config [resource]\n  spark install --managed [--version <version>] [--prefix <path>]\n  spark update status|check|apply|rollback|retry|configure\n  spark version [--json]\n  spark daemon <command> [args...]\n  spark cockpit [command] [args...]\n  spark acp\n  spark --help\n  spark --version\n\n分发到 Spark 界面：\n  spark run       前台 headless 执行（替代 --print 的一等动词）\n  spark bg        将后台 turn 提交到 Spark daemon 队列\n  spark paths     打印统一的 Spark 配置和状态路径\n  spark doctor    通过 daemon CLI 执行顶层 Spark 健康检查\n  spark tui       tui local control plane：interactive terminal UI、attach/resume、local UI settings\n  spark update    托管安装、更新策略和回滚状态所有者\n  spark daemon    daemon execution plane：session、invocation、events、logs、process state\n  spark cockpit   coordination plane and Cockpit 网页 UI\n  spark acp       使用 canonical daemon session 的 ACP NDJSON stdio adapter\n\nFlags：\n  --wait, -w    等待调用到达终态后再退出（print/run mode）\n\nCompatibility aliases are documented in docs/specs/command-planes.md。未知子命令会直接失败，不会被解释成 prompt。交互式 TUI 输入请使用 "spark tui ..."。\n',
+      'spark - Spark 命令分发器\n\n用法：\n  spark\n  spark run [--json] [--wait] [--resume <session>] <prompt>\n  spark bg [--session <id>] [--json] <prompt>\n  spark paths [--json]\n  spark doctor\n  spark tui [初始消息]\n  spark install --managed [--version <version>] [--prefix <path>]\n  spark update status|check|apply|rollback|retry|configure\n  spark version [--json]\n  spark daemon auth <status|login|logout|import> [参数...]\n  spark daemon model <list|status|set> [参数...]\n  spark daemon <命令> [参数...]\n  spark cockpit [命令] [参数...]\n  spark acp\n  spark --help\n  spark --version\n\n分发到 Spark 界面：\n  spark run       前台 headless 执行\n  spark bg        将后台 turn 提交到 Spark daemon 队列\n  spark paths     打印公开的 Spark 配置和状态路径\n  spark doctor    通过 daemon CLI 执行顶层 Spark 健康检查\n  spark tui       tui local control plane：interactive terminal UI、attach/resume、local UI settings\n  spark update    托管安装、更新策略和回滚状态所有者\n  spark daemon    daemon execution plane：auth、model、session、invocation、events、logs、process state\n  spark cockpit   coordination plane and Cockpit 网页 UI\n  spark acp       使用 canonical daemon session 的 ACP NDJSON stdio adapter\n\nFlags：\n  --wait, -w    等待调用到达终态后再退出\n\n未知子命令会直接失败，不会被解释成 prompt。交互式 TUI 输入请使用 "spark tui ..."。\n',
     tuiRequiresTty:
-      'Spark TUI 需要交互式终端（stdin 和 stdout 必须是 TTY）。非交互/headless 使用请改用 "spark --print <prompt>"、"spark --mode rpc" 或 "spark daemon submit ..."。',
+      'Spark TUI 需要交互式终端（stdin 和 stdout 必须是 TTY）。非交互/headless 使用请改用 "spark run <prompt>"、"spark acp" 或 "spark daemon submit ..."。',
     targetLabel: (target) => {
       switch (target) {
         case "tui":
@@ -72,6 +74,8 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
           return "Spark Cockpit";
         case "acp":
           return "Spark ACP adapter";
+        case "update":
+          return "Spark 更新器";
       }
     },
   },
@@ -80,10 +84,10 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
 const TUI_CLI: Record<SparkLanguage, SparkTuiCliStrings> = {
   en: {
     helpText:
-      'spark-tui - Spark terminal UI\n\nUsage:\n  spark-tui [initial message]\n  spark-tui --print <prompt>\n  spark-tui --mode json --print <prompt>\n  spark-tui --mode rpc\n  spark-tui --list-models [search]\n  spark-tui install|remove|update|list|config [resource]\n  spark-tui --help\n\nSpark command planes:\n  spark daemon    daemon execution plane\n  spark cockpit   cross-daemon coordination and Web presentation host\n  spark tui       tui local control plane\n\nZellij daemon session resume/attach:\n  zellij --session spark run -- spark tui\n  spark daemon session list --json\n  spark tui --session-id <session-id>\n  Spark session selection is workspace-bound; attach a session from the same canonical cwd/workspace hash.\n\nRuns terminal UI rendering by default, but prompts are submitted to the Spark daemon over local IPC. Pi-compatible resource commands update the effective Spark config.json and keep extensions/providers/skills/prompt templates/themes explicit. Use the root "spark daemon ..." dispatcher path for daemon execution-plane administration.',
+      "spark-tui - Spark terminal UI host\n\nUse the public Spark command surface:\n  spark\n  spark tui [initial message]\n  spark run [--json] <prompt>\n  spark acp\n  spark daemon session list --json\n  spark tui --session-id <session-id>\n\nSpark session selection is workspace-bound; attach a session from the same canonical cwd/workspace hash. Prompts are submitted to the Spark daemon over local IPC.",
     printRequiresPrompt: "spark --print requires a prompt",
     tuiRequiresTty:
-      'spark-tui requires an interactive terminal (stdin and stdout must be TTYs). Use "spark-tui --print <prompt>", "spark-tui --mode rpc", or "spark daemon submit ..." for non-interactive/headless use.',
+      'spark-tui requires an interactive terminal (stdin and stdout must be TTYs). Use "spark run <prompt>", "spark acp", or "spark daemon submit ..." for non-interactive/headless use.',
     headlessDisplayName: "Spark headless submit",
     interactiveDisplayName: "Spark TUI",
     modelCommandDescription: "Switch or inspect the active Spark model",
@@ -98,10 +102,10 @@ const TUI_CLI: Record<SparkLanguage, SparkTuiCliStrings> = {
   },
   zh: {
     helpText:
-      'spark-tui - Spark 终端 UI\n\n用法：\n  spark-tui [初始消息]\n  spark-tui --print <prompt>\n  spark-tui --mode json --print <prompt>\n  spark-tui --mode rpc\n  spark-tui --list-models [search]\n  spark-tui install|remove|update|list|config [resource]\n  spark-tui --help\n\nSpark command planes：\n  spark daemon    daemon execution plane\n  spark cockpit   cross-daemon coordination and Web presentation host\n  spark tui       tui local control plane\n\nZellij daemon session resume/attach：\n  zellij --session spark run -- spark tui\n  spark daemon session list --json\n  spark tui --session-id <session-id>\n  Spark session selection is workspace-bound; attach a session from the same canonical cwd/workspace hash.\n\n默认运行终端 UI 渲染，但 prompt 会通过本地 IPC 提交给 Spark daemon。Pi 兼容 resource 命令会更新当前有效的 Spark config.json，并显式维护 extensions/providers/skills/prompt templates/themes。daemon execution-plane 管理请使用根命令 "spark daemon ..."。',
+      "spark-tui - Spark 终端 UI host\n\n请使用公开 Spark 命令面：\n  spark\n  spark tui [初始消息]\n  spark run [--json] <prompt>\n  spark acp\n  spark daemon session list --json\n  spark tui --session-id <session-id>\n\nSpark session 选择受 workspace 约束；请从相同 canonical cwd/workspace hash attach。Prompt 通过本地 IPC 提交给 Spark daemon。",
     printRequiresPrompt: "spark --print 需要 prompt",
     tuiRequiresTty:
-      'spark-tui 需要交互式终端（stdin 和 stdout 必须是 TTY）。非交互/headless 使用请改用 "spark-tui --print <prompt>"、"spark-tui --mode rpc" 或 "spark daemon submit ..."。',
+      'spark-tui 需要交互式终端（stdin 和 stdout 必须是 TTY）。非交互/headless 使用请改用 "spark run <prompt>"、"spark acp" 或 "spark daemon submit ..."。',
     headlessDisplayName: "Spark headless submit",
     interactiveDisplayName: "Spark TUI",
     modelCommandDescription: "切换或查看当前 Spark 模型",
@@ -301,19 +305,19 @@ function renderNativeCommandHelp(
   ].join("\n");
 }
 
+function withoutTerminalPunctuation(value: string): string {
+  return value.trim().replace(/[.!?。！？]+$/u, "");
+}
+
 const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
   en: {
-    welcome: [
-      "Spark native TUI is running.",
-      "Type a task, /plan for durable work, or /model to switch models.",
-      "Use /help for commands; Ctrl+C/Ctrl+D exits.",
-    ].join("\n"),
+    welcome: ["Type a task, /plan for durable work, or /model to switch models."].join("\n"),
     stoppedTurn: (reason, clearedQueued) =>
       `Stopped current Spark turn (${reason}).${
         clearedQueued > 0 ? ` Restored ${clearedQueued} queued input(s) to the editor.` : ""
       }`,
     admissionRejected: (error) =>
-      `Spark daemon rejected the turn: ${error}. The input can be restored with Alt+Up or resubmitted with /retry.`,
+      `Spark daemon rejected the turn: ${withoutTerminalPunctuation(error)}. The input can be restored with Alt+Up or resubmitted with /retry.`,
     admissionUnconfirmed: (submissionId, error) =>
       `Daemon admission ${submissionId} has an unknown outcome: ${error}. Spark will retry the same request identity; do not resubmit it as a new turn.`,
     cancellationRequested: (invocationId) =>
@@ -327,7 +331,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     observationInterrupted: (invocationId, error) =>
       `Live observation of daemon invocation ${invocationId} was interrupted: ${error}. Daemon ownership is retained; inspect /status or reconnect for the latest projection.`,
     turnFailed: (error) =>
-      `Spark turn failed: ${error}. Use /retry to resubmit or /status to inspect the daemon.`,
+      `Spark turn failed: ${withoutTerminalPunctuation(error)}. Use /retry to resubmit or /status to inspect the daemon.`,
     steeringUpdate: (body) =>
       `Steering update for the previous Spark turn. Use this to adjust or correct the in-progress response before continuing.\n\n${body}`,
     defaultHelp: [
@@ -420,17 +424,13 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     commandHelp: (input) => renderNativeCommandHelp("en", input),
   },
   zh: {
-    welcome: [
-      "Spark native TUI 正在运行。",
-      "直接输入任务，或用 /plan 规划、/model 切换模型。",
-      "输入 /help 查看命令；Ctrl+C/Ctrl+D 退出。",
-    ].join("\n"),
+    welcome: ["直接输入任务，或用 /plan 规划、/model 切换模型。"].join("\n"),
     stoppedTurn: (reason, clearedQueued) =>
       `已停止当前 Spark turn（${reason}）。${
         clearedQueued > 0 ? `已将 ${clearedQueued} 条 queued input 恢复到编辑器。` : ""
       }`,
     admissionRejected: (error) =>
-      `Spark daemon 拒绝了该 turn：${error}。可用 Alt+Up 恢复输入，或用 /retry 重新提交。`,
+      `Spark daemon 拒绝了该 turn：${withoutTerminalPunctuation(error)}。可用 Alt+Up 恢复输入，或用 /retry 重新提交。`,
     admissionUnconfirmed: (submissionId, error) =>
       `daemon admission ${submissionId} 的结果未知：${error}。Spark 将使用同一请求身份重试；不要把它作为新 turn 再次提交。`,
     cancellationRequested: (invocationId) =>
@@ -444,7 +444,7 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     observationInterrupted: (invocationId, error) =>
       `daemon invocation ${invocationId} 的实时观察已中断：${error}。执行所有权仍在 daemon；请用 /status 检查或重新连接以获取最新投影。`,
     turnFailed: (error) =>
-      `Spark turn 失败：${error}。使用 /retry 重新提交，或用 /status 检查 daemon。`,
+      `Spark turn 失败：${withoutTerminalPunctuation(error)}。使用 /retry 重新提交，或用 /status 检查 daemon。`,
     steeringUpdate: (body) =>
       `上一轮 Spark turn 的 steering update。用于在继续前调整或纠正进行中的回复。\n\n${body}`,
     defaultHelp: [
@@ -739,7 +739,7 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
   },
 };
 
-const DAEMON_HELP_TEXT = `spark daemon - daemon execution plane\n\nUsage:\n  spark daemon [--workspace <name>]\n  spark daemon login --server-url <url> [--no-open]\n  spark daemon status [--json]\n  spark daemon start [--json]\n  spark daemon stop [--yes]\n  spark daemon restart [--yes] [--wait]\n  spark daemon logs [--follow] [--lines <n>]\n  spark daemon submit --session <id> --prompt <text> [--reset] [--json]\n  spark daemon ask list [--session <id>] [--json]\n  spark daemon ask answer <interaction-request-id> --answers <json> [--session <id>] [--json]\n  spark daemon ask cancel <interaction-request-id> [--session <id>] [--json]\n  spark daemon invocation list [--status <state>] [--session <id>] [--since <iso>] [--limit <n>] [--offset <n>] [--json]\n  spark daemon invocation status <invocation-id> [--json]\n  spark daemon invocation result <invocation-id> [--json]\n  spark daemon invocation stream <invocation-id> [--after <cursor>] [--limit <n>] [--json]\n  spark daemon invocation cancel <invocation-id> [--reason <text>] [--json]\n  spark daemon invocation retry <invocation-id> [--json]\n  spark daemon invocation retention --before <iso> [--limit <n>] [--json]\n  spark daemon session list [--json] [--registry] [--include-archived]\n  spark daemon session create --workspace <id> [--title <text>] [--role <role>] [--json]\n  spark daemon session show <session-id> [--json]\n  spark daemon session tree <session-id> [--json]\n  spark daemon session fork <session-id> [--id <new-session-id>] [--json]\n  spark daemon session clone <session-id> [--id <new-session-id>] [--json]\n  spark daemon session bind <session-id> --external-key <key> [--json]\n  spark daemon session unbind <session-id> --external-key <key> [--json]\n  spark daemon session archive <session-id> [--json]\n  spark daemon session export --session <id|path> [--format jsonl|json|text] [--leaf <entry-id|root>] [--json]\n  spark daemon session replay --session <id|path> [--leaf <entry-id|root>] [--json]\n  spark daemon session inbox --session <session-id> [--all] [--json]\n  spark daemon session inbox read <message-id> --session <session-id> [--json]\n  spark daemon session inbox ack <message-id> --session <session-id> [--json]\n  spark daemon channel list --workspace <id> [--json]\n  spark daemon channel status --workspace <id> [--json]\n  spark daemon channel reload --workspace <id> [--json]\n  spark daemon channel notify --workspace <id> [--action test|send] [--json]\n  spark daemon run list [--state <state>] [--limit <n>] [--json]\n  spark daemon run show <run-id> [--json]\n  spark daemon run cancel <run-id> [--json]\n  spark daemon events watch [--limit <n>] [--json]\n  spark daemon workspace register [path] --server-url <url> --token <token|-> --name <name>\n  spark daemon workspace ls [--json] [--all] [--full]\n  spark daemon workspace show [name] [--json]\n  spark daemon workspace stop <name> [--yes]\n\nDaemon login grants machine connectivity only. Every workspace registration consumes a fresh one-time workspace token. Spark CLI starts/wakes the Spark daemon and talks over local IPC; SQLite-backed invocations are execution truth. Project/task/goal/review/assign commands belong under spark cockpit, the coordination CLI and Web host. Session registry and channel listeners are daemon-owned (see docs/specs/sessions-and-channels.md).`;
+const DAEMON_HELP_TEXT = `spark daemon - daemon execution plane\n\nUsage:\n  spark daemon [--workspace <name>]\n  spark daemon login --server-url <url> [--no-open]\n  spark daemon auth status [--json]\n  spark daemon auth login [provider]\n  spark daemon auth logout <provider> [--json]\n  spark daemon auth import pi [--overwrite] [--json]\n  spark daemon model list [--all] [--json]\n  spark daemon model status [--session <id>] [--json]\n  spark daemon model set <provider/model> (--session <id>|--default) [--json]\n  spark daemon status [--json]\n  spark daemon start [--json]\n  spark daemon stop [--yes]\n  spark daemon restart [--yes] [--wait]\n  spark daemon logs [--follow] [--lines <n>]\n  spark daemon submit --session <id> --prompt <text> [--reset] [--json]\n  spark daemon ask list [--session <id>] [--json]\n  spark daemon ask answer <interaction-request-id> --answers <json> [--session <id>] [--json]\n  spark daemon ask cancel <interaction-request-id> [--session <id>] [--json]\n  spark daemon invocation list [--status <state>] [--session <id>] [--since <iso>] [--limit <n>] [--offset <n>] [--json]\n  spark daemon invocation status <invocation-id> [--json]\n  spark daemon invocation result <invocation-id> [--json]\n  spark daemon invocation stream <invocation-id> [--after <cursor>] [--limit <n>] [--json]\n  spark daemon invocation cancel <invocation-id> [--reason <text>] [--json]\n  spark daemon invocation retry <invocation-id> [--json]\n  spark daemon invocation retention --before <iso> [--limit <n>] [--json]\n  spark daemon session list [--json] [--registry] [--include-archived]\n  spark daemon session create --workspace <id> [--title <text>] [--role <role>] [--json]\n  spark daemon session show <session-id> [--json]\n  spark daemon session tree <session-id> [--json]\n  spark daemon session fork <session-id> [--id <new-session-id>] [--json]\n  spark daemon session clone <session-id> [--id <new-session-id>] [--json]\n  spark daemon session bind <session-id> --external-key <key> [--json]\n  spark daemon session unbind <session-id> --external-key <key> [--json]\n  spark daemon session archive <session-id> [--json]\n  spark daemon session export --session <id|path> [--format jsonl|json|text] [--leaf <entry-id|root>] [--json]\n  spark daemon session replay --session <id|path> [--leaf <entry-id|root>] [--json]\n  spark daemon session inbox --session <session-id> [--all] [--json]\n  spark daemon session inbox read <message-id> --session <session-id> [--json]\n  spark daemon session inbox ack <message-id> --session <session-id> [--json]\n  spark daemon channel list --workspace <id> [--json]\n  spark daemon channel status --workspace <id> [--json]\n  spark daemon channel reload --workspace <id> [--json]\n  spark daemon channel notify --workspace <id> [--action test|send] [--json]\n  spark daemon run list [--state <state>] [--limit <n>] [--json]\n  spark daemon run show <run-id> [--json]\n  spark daemon run cancel <run-id> [--json]\n  spark daemon events watch [--limit <n>] [--json]\n  spark daemon workspace register [path] --server-url <url> --token <token|-> --name <name>\n  spark daemon workspace ls [--json] [--all] [--full]\n  spark daemon workspace show [name] [--json]\n  spark daemon workspace stop <name> [--yes]\n\nDaemon login grants machine connectivity only; provider credentials live under daemon auth. Every workspace registration consumes a fresh one-time workspace token. Spark CLI starts/wakes the Spark daemon and talks over local IPC; SQLite-backed invocations are execution truth. Project/task/goal/review/assign commands belong under spark cockpit, the coordination CLI and Web host. Session registry and channel listeners are daemon-owned (see docs/specs/sessions-and-channels.md).`;
 
 const DAEMON_STRINGS: Record<SparkLanguage, SparkDaemonCliStrings> = {
   en: {

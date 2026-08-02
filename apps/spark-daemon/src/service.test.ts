@@ -1092,6 +1092,12 @@ describe("Spark daemon restart successor", () => {
       run: () => ({ status: call++ === 0 ? 0 : 1, stdout: "", stderr: "" }),
     });
     expect(stopped.detail).toContain("Stopped Spark daemon");
+
+    const stopping = stopSparkDaemonLaunchdLabel({
+      uid: 501,
+      run: () => ({ status: 0, stdout: "", stderr: "" }),
+    });
+    expect(stopping.detail).toContain("Stopped Spark daemon");
   });
 
   it("isolates terminal tombstones and cancellation by restart id", () => {

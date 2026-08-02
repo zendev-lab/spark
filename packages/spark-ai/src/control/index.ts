@@ -8,8 +8,11 @@ export {
   resetSparkOAuthProviders,
 } from "./auth.ts";
 export type {
+  SparkAuthImportCandidate,
+  SparkAuthImportCredential,
   ProviderAuthRef,
   SparkAuthFile,
+  SparkAuthStoreImportResult,
   SparkAuthStoreOptions,
   SparkOAuthLoginCallbacks,
   SparkOAuthPrompt,
@@ -19,6 +22,16 @@ export type {
   SparkProviderAuthStatus,
   SparkStoredCredential,
 } from "./auth.ts";
+export { importPiAuth, resolvePiAuthSourcePath } from "./pi-auth-import.ts";
+export type {
+  ImportPiAuthOptions,
+  SparkAuthImportCredentialKind,
+  SparkAuthImportReport,
+  SparkAuthImportResultEntry,
+  SparkAuthImportSkippedEntry,
+  SparkAuthImportSkipReason,
+  SparkAuthImportTarget,
+} from "./pi-auth-import.ts";
 export { SparkOAuthFlowBroker } from "./oauth-flow.ts";
 export type {
   SparkOAuthFlowBrokerOptions,

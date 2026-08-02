@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { test } from "vitest";
 
 import {
@@ -11,7 +9,7 @@ import {
   runSparkDispatcher,
 } from "../apps/spark-cli/src/cli.ts";
 
-test("parseSparkDispatcherArgs routes default, tui, daemon, cockpit, ACP, sessions, and print commands", () => {
+test("parseSparkDispatcherArgs routes canonical planes and rejects removed aliases", () => {
   assert.deepEqual(parseSparkDispatcherArgs([]), {
     kind: "dispatch",
     target: "tui",
@@ -40,30 +38,23 @@ test("parseSparkDispatcherArgs routes default, tui, daemon, cockpit, ACP, sessio
     target: "acp",
     argv: [],
   });
-  assert.deepEqual(parseSparkDispatcherArgs(["sessions", "list", "--all-workspaces"]), {
-    kind: "dispatch",
-    target: "tui",
-    argv: ["sessions", "list", "--all-workspaces"],
-  });
-  assert.deepEqual(parseSparkDispatcherArgs(["session", "replay", "--session", "s1"]), {
-    kind: "dispatch",
-    target: "tui",
-    argv: ["session", "replay", "--session", "s1"],
-  });
-  assert.deepEqual(parseSparkDispatcherArgs(["--print", "hello"]), {
-    kind: "dispatch",
-    target: "tui",
-    argv: ["--print", "hello"],
-  });
-  assert.deepEqual(parseSparkDispatcherArgs(["--mode", "json", "--print", "hello"]), {
-    kind: "dispatch",
-    target: "tui",
-    argv: ["--mode", "json", "--print", "hello"],
-  });
+  for (const removed of [
+    ["sessions", "list", "--all-workspaces"],
+    ["session", "replay", "--session", "s1"],
+    ["--print", "hello"],
+    ["--mode", "json", "--print", "hello"],
+    ["--list-models"],
+    ["remove", "thing"],
+    ["list", "models"],
+    ["config"],
+  ]) {
+    assert.equal(parseSparkDispatcherArgs(removed).kind, "error");
+  }
+  assert.equal(parseSparkDispatcherArgs(["tui", "--mode", "rpc"]).kind, "error");
   assert.deepEqual(parseSparkDispatcherArgs(["run", "--json", "--resume", "s1", "hello"]), {
     kind: "dispatch",
     target: "tui",
-    argv: ["--print", "--mode", "json", "--session", "s1", "hello"],
+    argv: ["run", "--json", "--resume", "s1", "hello"],
   });
   assert.deepEqual(parseSparkDispatcherArgs(["paths", "--json"]), {
     kind: "paths",
@@ -87,30 +78,37 @@ test("parseSparkDispatcherArgs routes default, tui, daemon, cockpit, ACP, sessio
   });
   assert.deepEqual(parseSparkDispatcherArgs(["install", "./skill", "--skill"]), {
     kind: "dispatch",
-    target: "tui",
+    target: "update",
     argv: ["install", "./skill", "--skill"],
   });
   assert.deepEqual(parseSparkDispatcherArgs(["install", "--managed", "--version", "0.1.0"]), {
-    kind: "managed-install",
-    argv: ["--managed", "--version", "0.1.0"],
+    kind: "dispatch",
+    target: "update",
+    argv: ["install", "--managed", "--version", "0.1.0"],
   });
   assert.deepEqual(parseSparkDispatcherArgs(["update", "status", "--json"]), {
-    kind: "update",
-    argv: ["status", "--json"],
+    kind: "dispatch",
+    target: "update",
+    argv: ["update", "status", "--json"],
   });
   assert.deepEqual(parseSparkDispatcherArgs(["update", "./resource"]), {
     kind: "dispatch",
-    target: "tui",
+    target: "update",
     argv: ["update", "./resource"],
   });
 });
 
-test("parseSparkDispatcherArgs keeps help/version local and rejects unknown subcommands", () => {
+test("parseSparkDispatcherArgs keeps help local and forwards version to spark-update", () => {
   assert.deepEqual(parseSparkDispatcherArgs(["--help"]), { kind: "help" });
-  assert.deepEqual(parseSparkDispatcherArgs(["version"]), { kind: "version" });
+  assert.deepEqual(parseSparkDispatcherArgs(["version"]), {
+    kind: "dispatch",
+    target: "update",
+    argv: ["version"],
+  });
   assert.deepEqual(parseSparkDispatcherArgs(["version", "--json"]), {
-    kind: "version",
-    json: true,
+    kind: "dispatch",
+    target: "update",
+    argv: ["version", "--json"],
   });
   const command = parseSparkDispatcherArgs(["build", "this"]);
   assert.equal(command.kind, "error");
@@ -162,35 +160,30 @@ test("spark paths reports one SPARK_HOME without dispatching or writing", async 
   }
 });
 
-test("dispatcher resolves source targets through package executable exports", () => {
+test("dispatcher resolves source companion executables without importing app CLIs", () => {
   const tui = resolveTargetCommand("tui");
   assert.match(tui.command, /apps\/spark-tui\/bin\/spark-tui$/u);
   assert.deepEqual(tui.args, []);
   const daemon = resolveTargetCommand("daemon");
-  assert.match(daemon.command, /apps\/spark-tui\/bin\/spark-tui$/u);
-  assert.deepEqual(daemon.args, ["daemon"]);
+  assert.match(daemon.command, /apps\/spark-daemon\/bin\/spark-daemon$/u);
+  assert.deepEqual(daemon.args, []);
   const cockpit = resolveTargetCommand("cockpit");
   assert.match(cockpit.command, /apps\/spark-cockpit\/bin\/spark-cockpit$/u);
   assert.deepEqual(cockpit.args, []);
   const acp = resolveTargetCommand("acp");
   assert.match(acp.command, /packages\/spark-acp\/scripts\/stdio\.ts$/u);
   assert.deepEqual(acp.args, []);
+  const update = resolveTargetCommand("update");
+  assert.match(update.command, /packages\/spark-update\/bin\/spark-update$/u);
+  assert.deepEqual(update.args, []);
 });
 
-test("dispatcher keeps packaged product entries ahead of source checkout executables", () => {
-  const productDist = mkdtempSync(join(tmpdir(), "spark-dispatcher-product-"));
-  const productCockpit = join(productDist, "spark-cockpit.js");
-  const previousProductDist = process.env.SPARK_PRODUCT_DIST;
-  writeFileSync(productCockpit, "", "utf8");
-  process.env.SPARK_PRODUCT_DIST = productDist;
-  try {
-    const cockpit = resolveTargetCommand("cockpit");
-    assert.equal(cockpit.command, process.execPath);
-    assert.deepEqual(cockpit.args, [productCockpit]);
-  } finally {
-    if (previousProductDist === undefined) delete process.env.SPARK_PRODUCT_DIST;
-    else process.env.SPARK_PRODUCT_DIST = previousProductDist;
-    rmSync(productDist, { recursive: true, force: true });
+test("spark-cli package depends only on shared libraries", () => {
+  const manifest = JSON.parse(readFileSync("apps/spark-cli/package.json", "utf8")) as {
+    dependencies?: Record<string, string>;
+  };
+  for (const dependency of Object.keys(manifest.dependencies ?? {})) {
+    assert.doesNotMatch(dependency, /^@zendev-lab\/spark-(?:tui-app|daemon|cockpit|acp|update)$/u);
   }
 });
 
@@ -211,7 +204,7 @@ test("runSparkDispatcher invokes injected launcher with the selected target", as
   assert.deepEqual(calls, [{ target: "daemon", argv: ["workspace", "ls"] }]);
 });
 
-test("runSparkDispatcher fails fast for non-TTY TUI while preserving headless shims", async () => {
+test("runSparkDispatcher fails fast for non-TTY TUI while preserving canonical headless commands", async () => {
   const stderr: string[] = [];
   const calls: Array<{ target: string; argv: string[] }> = [];
   const io = {
@@ -225,7 +218,7 @@ test("runSparkDispatcher fails fast for non-TTY TUI while preserving headless sh
     },
   };
   const launcher = {
-    run: async (target: "tui" | "daemon" | "cockpit" | "acp", argv: string[]) => {
+    run: async (target: "tui" | "daemon" | "cockpit" | "acp" | "update", argv: string[]) => {
       calls.push({ target, argv });
       return 0;
     },
@@ -234,19 +227,15 @@ test("runSparkDispatcher fails fast for non-TTY TUI while preserving headless sh
   assert.equal(await runSparkDispatcher([], io, launcher), 2);
   assert.deepEqual(calls, []);
   assert.match(stderr.join(""), /requires an interactive terminal/u);
-  assert.match(stderr.join(""), /spark --print <prompt>/u);
+  assert.match(stderr.join(""), /spark run <prompt>/u);
 
-  assert.equal(await runSparkDispatcher(["--print", "hello"], io, launcher), 0);
   assert.equal(await runSparkDispatcher(["tui", "--help"], io, launcher), 0);
   assert.equal(await runSparkDispatcher(["run", "--json", "hello"], io, launcher), 0);
-  assert.equal(await runSparkDispatcher(["tui", "--mode", "rpc"], io, launcher), 0);
-  assert.equal(await runSparkDispatcher(["sessions", "list"], io, launcher), 0);
+  assert.equal(await runSparkDispatcher(["--print", "hello"], io, launcher), 2);
+  assert.equal(await runSparkDispatcher(["sessions", "list"], io, launcher), 2);
   assert.deepEqual(calls, [
-    { target: "tui", argv: ["--print", "hello"] },
     { target: "tui", argv: ["--help"] },
-    { target: "tui", argv: ["--print", "--mode", "json", "hello"] },
-    { target: "tui", argv: ["--mode", "rpc"] },
-    { target: "tui", argv: ["sessions", "list"] },
+    { target: "tui", argv: ["run", "--json", "hello"] },
   ]);
 });
 

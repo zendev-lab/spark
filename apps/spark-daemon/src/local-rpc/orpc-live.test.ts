@@ -346,6 +346,7 @@ describe("local-rpc direct oRPC service", () => {
       setSessionModel: unusedModelControlMethod,
       setSessionThinkingLevel: unusedModelControlMethod,
       setApiKey: unusedModelControlMethod,
+      importPiAuth: unusedModelControlMethod,
       logout: unusedModelControlMethod,
       startOAuth: unusedModelControlMethod,
       async oauthStatus(flowId: string) {
@@ -552,6 +553,7 @@ describe("local-rpc direct oRPC service", () => {
       setSessionModel: crossDomainFailure,
       setSessionThinkingLevel: crossDomainFailure,
       setApiKey: crossDomainFailure,
+      importPiAuth: crossDomainFailure,
       logout: crossDomainFailure,
       startOAuth: crossDomainFailure,
       oauthStatus: crossDomainFailure,

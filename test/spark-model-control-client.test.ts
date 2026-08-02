@@ -6,6 +6,9 @@ import {
   daemonSnapshotToPickerState,
   resolveDaemonModelSelection,
 } from "../apps/spark-tui/src/cli/model-control.ts";
+import { handleSparkNativeModelCommand } from "../apps/spark-tui/src/cli.ts";
+import type { SparkDaemonModelAuthClient } from "../apps/spark-tui/src/cli/model-control.ts";
+import type { SparkCliHostServices } from "../apps/spark-tui/src/host/index.ts";
 import type { SparkModelControlSnapshot } from "../packages/spark-protocol/src/index.ts";
 
 const snapshot: SparkModelControlSnapshot = {
@@ -58,15 +61,31 @@ const snapshot: SparkModelControlSnapshot = {
   ],
 };
 
-test("daemon model picker exposes only available models and preserves the default", () => {
+test("daemon model picker displays unavailable models without making them selectable active", () => {
   const state = daemonSnapshotToPickerState(snapshot);
 
   assert.deepEqual(
     state.items.map((item) => item.value),
-    ["provider-a/model-a", "provider-b/model-a"],
+    ["provider-a/model-a", "provider-a/model-locked", "provider-b/model-a"],
   );
   assert.equal(state.activeModelId, "provider-a/model-a");
   assert.equal(state.items[0]?.active, true);
+  assert.deepEqual(
+    state.items.find((item) => item.modelId === "model-locked"),
+    {
+      value: "provider-a/model-locked",
+      providerName: "provider-a",
+      providerLabel: "Provider A",
+      modelId: "model-locked",
+      modelLabel: "model-locked",
+      description: "Login required",
+      active: false,
+      available: false,
+      unavailableReason: "Login required",
+      loginCommand: "/login provider-a",
+      reasoning: false,
+    },
+  );
 });
 
 test("daemon model picker prefers the persisted session model over the global default", () => {
@@ -80,7 +99,18 @@ test("daemon model picker prefers the persisted session model over the global de
 
   assert.equal(state.activeModelId, "provider-b/model-a");
   assert.equal(state.items[0]?.active, false);
-  assert.equal(state.items[1]?.active, true);
+  assert.equal(state.items[2]?.active, true);
+});
+
+test("daemon model picker does not present an unavailable configured default as active", () => {
+  const state = daemonSnapshotToPickerState({
+    ...snapshot,
+    defaultModel: { providerName: "provider-a", modelId: "model-locked" },
+  });
+
+  assert.equal(state.active, undefined);
+  assert.equal(state.activeModelId, undefined);
+  assert.equal(state.items.find((item) => item.modelId === "model-locked")?.active, false);
 });
 
 test("daemon model resolution requires provider when a model id is ambiguous", () => {
@@ -154,4 +184,25 @@ test("bound daemon model control keeps session and global model RPCs distinct", 
       params: { model: { providerName: "provider-a", modelId: "model-a" } },
     },
   ]);
+});
+
+test("daemon-backed model picker cancel is a pure no-op", async () => {
+  let setCalls = 0;
+  const services = {
+    modelSelector: { pick: async () => undefined },
+    providerRegistry: { setActive: () => assert.fail("cancel must not update local selection") },
+  } as unknown as SparkCliHostServices;
+  const modelControl = {
+    snapshot: async () => snapshot,
+    setSessionModel: async () => {
+      setCalls += 1;
+      throw new Error("cancel must not mutate daemon state");
+    },
+  } as unknown as SparkDaemonModelAuthClient;
+
+  assert.deepEqual(await handleSparkNativeModelCommand(services, "", modelControl), {
+    providerName: "provider-a",
+    modelId: "model-a",
+  });
+  assert.equal(setCalls, 0);
 });

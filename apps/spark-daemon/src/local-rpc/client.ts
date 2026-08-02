@@ -10,6 +10,9 @@ import {
   type SparkDriverStartRequest,
   type SparkDriverStatusRequest,
   type SparkDriverWakeRequest,
+  type SparkAuthImportReport,
+  type SparkAuthFlow,
+  type SparkModelControlSnapshot,
 } from "@zendev-lab/spark-protocol";
 import {
   type LocalDaemonRestartResult,
@@ -75,6 +78,61 @@ export async function requestDaemonStop(paths: SparkPaths): Promise<LocalDaemonS
 
 export async function requestDaemonRestart(paths: SparkPaths): Promise<LocalDaemonRestartResult> {
   return daemonRestart(await localRpcRequest(paths, "daemon.restart", {}));
+}
+
+export async function requestProviderAuthImportPi(
+  paths: SparkPaths,
+  params: { sourcePath: string; overwrite: boolean },
+): Promise<SparkAuthImportReport> {
+  return localRpcRequest(paths, "provider.auth.import.pi", params);
+}
+
+export async function requestProviderAuthSnapshot(
+  paths: SparkPaths,
+): Promise<SparkModelControlSnapshot> {
+  return localRpcRequest(paths, "model.catalog", {});
+}
+
+export async function requestProviderAuthSetApiKey(
+  paths: SparkPaths,
+  params: { providerName: string; apiKey: string },
+): Promise<SparkModelControlSnapshot> {
+  return localRpcRequest(paths, "provider.auth.api-key.set", params);
+}
+
+export async function requestProviderAuthLogout(
+  paths: SparkPaths,
+  providerName: string,
+): Promise<{ removed: boolean; snapshot: SparkModelControlSnapshot }> {
+  return localRpcRequest(paths, "provider.auth.logout", { providerName });
+}
+
+export async function requestProviderAuthOAuthStart(
+  paths: SparkPaths,
+  providerName: string,
+): Promise<SparkAuthFlow> {
+  return localRpcRequest(paths, "provider.auth.login.start", { providerName });
+}
+
+export async function requestProviderAuthOAuthStatus(
+  paths: SparkPaths,
+  flowId: string,
+): Promise<SparkAuthFlow> {
+  return localRpcRequest(paths, "provider.auth.login.status", { flowId });
+}
+
+export async function requestProviderAuthOAuthRespond(
+  paths: SparkPaths,
+  params: { flowId: string; promptId: string; value: string },
+): Promise<SparkAuthFlow> {
+  return localRpcRequest(paths, "provider.auth.login.respond", params);
+}
+
+export async function requestProviderAuthOAuthCancel(
+  paths: SparkPaths,
+  flowId: string,
+): Promise<SparkAuthFlow> {
+  return localRpcRequest(paths, "provider.auth.login.cancel", { flowId });
 }
 
 export async function requestHumanInteractionList(

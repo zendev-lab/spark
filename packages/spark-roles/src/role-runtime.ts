@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import {
   stableId,
   writeTextFileAtomic,
@@ -88,15 +88,15 @@ export interface RoleRunRequest {
   runName?: string;
   launch?: RoleLaunchMode;
   systemPrompt?: string;
-  /** Concrete Pi model to use for this run (usually current session model, unless overridden). */
+  /** Concrete Spark provider/model to use for this run (usually current session model). */
   model?: string;
   /** Optional role thinking/reasoning level. */
   thinking?: RoleThinkingLevel;
   /** Optional role tool allowlist. Hosts/presets own which tools are appropriate. */
   allowedTools?: string[];
-  /** Launch Pi without saving or reusing a session. Useful for short verifier gates. */
+  /** Launch without saving or reusing a session. Useful for short verifier gates. */
   noSession?: boolean;
-  /** Disable extension discovery for process-backed role runs. Useful for self-contained verifier gates. */
+  /** Disable extension discovery for compatibility adapters. Useful for self-contained verifier gates. */
   noExtensions?: boolean;
   sessionDir?: string;
   forkFromSession?: string;
@@ -106,6 +106,22 @@ export interface RoleRunRequest {
 
 export interface RoleRunCommandInput extends RoleRunRequest {
   systemPrompt: string;
+}
+
+export interface ModelCatalogEntry {
+  providerName: string;
+  modelId: string;
+  available: boolean;
+  unavailableReason?: string;
+}
+
+/**
+ * Host-neutral model catalog boundary used by role configuration. Native hosts
+ * adapt their daemon-backed catalog to this port; role code never shells out
+ * to a product executable to discover models.
+ */
+export interface ModelCatalogPort {
+  lookup(model: string): Promise<ModelCatalogEntry | undefined>;
 }
 
 export interface RoleRunLauncherInput extends RoleRunCommandInput {
@@ -287,31 +303,31 @@ export function createBuiltinRoles(now = nowIso()): RoleSpec[] {
     builtin(
       "scout",
       "Legacy fast repo and context reconnaissance; prefer explorer or researcher for new tasks.",
-      "You are a Pi scout retained for compatibility with existing tasks. Gather context, identify relevant files and risks, and do not edit files. New local executable investigations should use explorer, while source and prior-art investigations should use researcher. When a blocker, missing user decision, or ambiguity cannot be resolved from available context, report the blocker and the exact question needed upward in your final response instead of asking interactively. Flag clearly placeholder/generic/stale project or task names so the host can safely improve them without changing refs.",
+      "You are a Spark scout retained for compatibility with existing tasks. Gather context, identify relevant files and risks, and do not edit files. New local executable investigations should use explorer, while source and prior-art investigations should use researcher. When a blocker, missing user decision, or ambiguity cannot be resolved from available context, report the blocker and the exact question needed upward in your final response instead of asking interactively. Flag clearly placeholder/generic/stale project or task names so the host can safely improve them without changing refs.",
       now,
     ),
     builtin(
       "explorer",
       "Inspects local repositories and environments with non-mutating executable probes.",
-      "You are a Pi explorer. Establish local facts from the actual repository and environment. Read relevant source, configuration, manifests, and logs, and run only non-mutating probes needed to verify entry points, builds, runtime availability, resource use, or observed behavior. Never edit files, change repository state, install dependencies, start persistent services, or mutate external systems. Report concrete paths and symbols, every executed command with its exit status and bounded output, and classify conclusions as observed, inferred, or unverified. When a blocker, missing user decision, or ambiguity cannot be resolved locally, report it and the exact question needed upward instead of asking interactively.",
+      "You are a Spark explorer. Establish local facts from the actual repository and environment. Read relevant source, configuration, manifests, and logs, and run only non-mutating probes needed to verify entry points, builds, runtime availability, resource use, or observed behavior. Never edit files, change repository state, install dependencies, start persistent services, or mutate external systems. Report concrete paths and symbols, every executed command with its exit status and bounded output, and classify conclusions as observed, inferred, or unverified. When a blocker, missing user decision, or ambiguity cannot be resolved locally, report it and the exact question needed upward instead of asking interactively.",
       now,
     ),
     builtin(
       "researcher",
       "Researches source, documentation, issues, pull requests, and prior art.",
-      "You are a Pi researcher. Investigate the assigned topic from repository source and authoritative external material without executing commands or editing files. Confirm the target and keywords, search broadly, then deeply inspect the three to five most relevant sources when available. Cite only sources you actually inspected. Separate direct reuse, reusable patterns, and background context; distinguish observed facts, reasoned inferences, and unresolved gaps. Return a compact source table, mechanism-focused deep dives, extracted implementation patterns, and a recommended route with limitations. If no relevant result exists, report the search coverage and exact gap. Do not ask interactively or spawn other roles; report blockers and the exact question needed upward.",
+      "You are a Spark researcher. Investigate the assigned topic from repository source and authoritative external material without executing commands or editing files. Confirm the target and keywords, search broadly, then deeply inspect the three to five most relevant sources when available. Cite only sources you actually inspected. Separate direct reuse, reusable patterns, and background context; distinguish observed facts, reasoned inferences, and unresolved gaps. Return a compact source table, mechanism-focused deep dives, extracted implementation patterns, and a recommended route with limitations. If no relevant result exists, report the search coverage and exact gap. Do not ask interactively or spawn other roles; report blockers and the exact question needed upward.",
       now,
     ),
     builtin(
       "worker",
       "Executes approved implementation tasks.",
-      "You are a Pi worker. Implement only the assigned instruction. When a blocker, missing requirement, approval need, or ambiguity cannot be resolved from available context, stop and report the blocker and the exact question needed upward in your final response instead of asking interactively. When the user reports a concrete repo behavior change, fix the implementation instead of only recording a preference. Flag clearly placeholder/generic/stale project or claimed-task @name/title when the current intent makes the better name clear while preserving refs and intentional user names.",
+      "You are a Spark worker. Implement only the assigned instruction. When a blocker, missing requirement, approval need, or ambiguity cannot be resolved from available context, stop and report the blocker and the exact question needed upward in your final response instead of asking interactively. When the user reports a concrete repo behavior change, fix the implementation instead of only recording a preference. Flag clearly placeholder/generic/stale project or claimed-task @name/title when the current intent makes the better name clear while preserving refs and intentional user names.",
       now,
     ),
     builtin(
       "reviewer",
       "Reviews results, internal Evidence, and Artifacts against task intent.",
-      "You are a Pi reviewer. Verify claims from fresh context and return actionable findings. Do not ask interactively; when intent or evidence is ambiguous, reject with concrete questions in findings/blockers instead of silently assuming an answer. Call out placeholder/generic/stale project or task names only when a safe improvement is clear from context and would preserve refs.",
+      "You are a Spark reviewer. Verify claims from fresh context and return actionable findings. Do not ask interactively; when intent or evidence is ambiguous, reject with concrete questions in findings/blockers instead of silently assuming an answer. Call out placeholder/generic/stale project or task names only when a safe improvement is clear from context and would preserve refs.",
       now,
     ),
   ];
@@ -773,54 +789,56 @@ async function writeRoleModelSettingsFile(
 }
 
 export async function validateRoleModel(input: {
-  piCommand: string;
+  catalog: ModelCatalogPort;
   model: string;
-  cwd?: string;
-  timeoutMs?: number;
 }): Promise<void> {
   const model = input.model.trim();
   if (!model) throw new Error("role model is required");
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(input.piCommand, ["--list-models", model], {
-      cwd: input.cwd,
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill("SIGTERM");
-      reject(new Error(`model validation timed out for ${model}`));
-    }, input.timeoutMs ?? 15_000);
-    timer.unref?.();
-    child.once("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8").trim();
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
-      const output = [stdout, stderr].filter(Boolean).join("\n");
-      if (code === 0 && !isNoMatchingModelOutput(output)) resolve();
-      else {
-        reject(new Error(`model validation failed for ${model}: ${output || `exit ${code}`}`));
-      }
-    });
-  });
+  if (!model.includes("/")) {
+    throw new Error(`role model must use provider/model syntax: ${model}`);
+  }
+  const entry = await input.catalog.lookup(model);
+  if (!entry) throw new Error(`model validation failed for ${model}: unknown model`);
+  if (!entry.available) {
+    throw new Error(
+      `model validation failed for ${model}: ${entry.unavailableReason ?? "authentication required"}`,
+    );
+  }
 }
 
-function isNoMatchingModelOutput(output: string): boolean {
-  return /no\s+models?\s+(?:found\s+)?matching\b/i.test(output);
+export function modelCatalogPortFromHostRegistry(value: unknown): ModelCatalogPort | undefined {
+  if (!isHostModelRegistry(value)) return undefined;
+  return {
+    async lookup(model) {
+      const all = value.getAll();
+      const match = all.find((entry) => `${entry.provider}/${entry.id}` === model);
+      if (!match) return undefined;
+      const available = (await value.getAvailable()).some(
+        (entry) => entry.provider === match.provider && entry.id === match.id,
+      );
+      return {
+        providerName: match.provider,
+        modelId: match.id,
+        available,
+        ...(available
+          ? {}
+          : { unavailableReason: value.getError?.() ?? "authentication required" }),
+      };
+    },
+  };
+}
+
+interface HostModelRegistry {
+  getAvailable():
+    | Array<{ provider: string; id: string }>
+    | Promise<Array<{ provider: string; id: string }>>;
+  getAll(): Array<{ provider: string; id: string }>;
+  getError?(): string | undefined;
+}
+
+function isHostModelRegistry(value: unknown): value is HostModelRegistry {
+  if (!isRecord(value)) return false;
+  return typeof value.getAvailable === "function" && typeof value.getAll === "function";
 }
 
 function unknownErrorMessage(error: unknown): string {
@@ -999,7 +1017,7 @@ function isForeignAgentRoleMarkdown(text: string): boolean {
   const role = topLevel.get("role")?.toLowerCase();
   // `~/.agents/roles` is also used by lightweight subagent specs. They are
   // not Pi RoleSpec files and may legitimately contain fields such as
-  // `model:` or `capabilities:` that Pi roles reserve for separate settings.
+  // `model:` or `capabilities:` that Spark roles reserve for separate settings.
   return role === "subagent";
 }
 

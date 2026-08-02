@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import {
+  attachSparkWorkspaceClient,
+  ensureSparkDaemonWorkspaceSession,
+} from "../apps/spark-tui/src/cli/daemon.ts";
+import { resolveSparkPaths } from "../packages/spark-system/src/paths.ts";
 import {
   evaluateDaemonStabilityChecks,
   extractDaemonStatusContract,
@@ -49,8 +54,17 @@ interface HarnessReport {
     slashCommand?: string;
     ordinaryInput?: string;
     initialCapture?: CommandResult;
+    sizeProbe?: CommandResult;
     capture?: CommandResult;
     cleanup?: CommandResult[];
+    semanticChecks?: {
+      sessionAttached: boolean;
+      appRendered: boolean;
+      slashHandledLocally: boolean;
+      latestMessagePreserved: boolean;
+      terminalSizeFixed: boolean;
+      success: boolean;
+    };
   };
   blockers: string[];
   unsupportedStates: string[];
@@ -71,21 +85,26 @@ for (let index = 2; index < process.argv.length; index += 1) {
   }
 }
 
-const sessionName = String(args.get("session") || "spark");
+const sessionPrefix = String(args.get("session") || "spark-harness")
+  .replace(/[^A-Za-z0-9_-]+/gu, "-")
+  .slice(0, 20);
+const sessionName = `${sessionPrefix || "spark-harness"}-${process.pid}-${Date.now().toString(36)}`;
 const paneId = typeof args.get("pane-id") === "string" ? String(args.get("pane-id")) : undefined;
 const subscribeTimeoutMs = Number(args.get("subscribe-timeout-ms") || 2_000);
 const strict = args.get("strict") === true;
 const exerciseSparkTui = args.get("exercise-spark-tui") === true;
-const exerciseFloating = args.get("exercise-floating") === true;
+const exerciseTiled = args.get("exercise-tiled") === true;
 const exerciseWidth =
-  typeof args.get("exercise-width") === "string" ? String(args.get("exercise-width")) : undefined;
+  typeof args.get("exercise-width") === "string" ? String(args.get("exercise-width")) : "80";
 const exerciseHeight =
-  typeof args.get("exercise-height") === "string" ? String(args.get("exercise-height")) : undefined;
+  typeof args.get("exercise-height") === "string" ? String(args.get("exercise-height")) : "24";
+const exerciseColumns = fixedTerminalDimension(exerciseWidth, "exercise-width");
+const exerciseRows = fixedTerminalDimension(exerciseHeight, "exercise-height");
 const sparkSessionDir =
   typeof args.get("spark-session-dir") === "string"
     ? String(args.get("spark-session-dir"))
     : undefined;
-const sparkSessionId =
+let sparkSessionId =
   typeof args.get("spark-session-id") === "string"
     ? String(args.get("spark-session-id"))
     : undefined;
@@ -104,6 +123,8 @@ const outputPath =
   typeof args.get("output") === "string"
     ? String(args.get("output"))
     : "/tmp/spark-pi-codex-parity-report.json";
+let harnessEnvironment: NodeJS.ProcessEnv = process.env;
+let zellijLayoutPath: string | undefined;
 
 function shellQuote(value: string): string {
   return /[^A-Za-z0-9_./:=+-]/u.test(value) ? JSON.stringify(value) : value;
@@ -115,6 +136,7 @@ async function run(command: string, argv: string[], timeoutMs = 10_000): Promise
     const result = await execFileAsync(command, argv, {
       timeout: timeoutMs,
       maxBuffer: 1024 * 1024,
+      env: harnessEnvironment,
     });
     return { command: label, code: 0, stdout: result.stdout, stderr: result.stderr };
   } catch (error) {
@@ -177,11 +199,17 @@ async function sendLine(pane: string, line: string): Promise<CommandResult[]> {
 }
 
 async function exerciseSparkNativeTui(): Promise<NonNullable<HarnessReport["sparkTuiExercise"]>> {
-  const paneOptions = ["--close-on-exit", "--name", "spark-zellij-probe", "--cwd", process.cwd()];
-  if (exerciseFloating) {
-    paneOptions.push("--floating");
-    if (exerciseWidth) paneOptions.push("--width", exerciseWidth);
-    if (exerciseHeight) paneOptions.push("--height", exerciseHeight);
+  const paneOptions = ["--name", "spark-zellij-probe", "--cwd", process.cwd()];
+  if (!exerciseTiled) {
+    paneOptions.push(
+      "--floating",
+      "--width",
+      String(exerciseColumns),
+      "--height",
+      String(exerciseRows),
+      "--borderless",
+      "true",
+    );
   }
   const sparkTuiArgs = [
     "tui",
@@ -191,13 +219,32 @@ async function exerciseSparkNativeTui(): Promise<NonNullable<HarnessReport["spar
   ];
   const launch = await run(
     "zellij",
-    ["--session", sessionName, "run", ...paneOptions, "--", sparkCli, ...sparkTuiArgs],
+    [
+      "--session",
+      sessionName,
+      "run",
+      ...paneOptions,
+      "--",
+      "/usr/bin/env",
+      `SPARK_HOME=${harnessEnvironment.SPARK_HOME ?? ""}`,
+      sparkCli,
+      ...sparkTuiArgs,
+    ],
     20_000,
   );
   const createdPaneId = parseCreatedPaneId(launch);
   const cleanup: CommandResult[] = [launch];
   if (!createdPaneId) return { cleanup };
   await sleep(2_000);
+  const sizeProbe = await run("zellij", [
+    "--session",
+    sessionName,
+    "action",
+    "list-panes",
+    "--json",
+    "--all",
+    "--state",
+  ]);
   const initialCapture = await subscribeProbe(createdPaneId);
   cleanup.push(...(await sendLine(createdPaneId, slashCommand)));
   if (ordinaryInput !== undefined) {
@@ -218,7 +265,141 @@ async function exerciseSparkNativeTui(): Promise<NonNullable<HarnessReport["spar
       createdPaneId,
     ]),
   );
-  return { paneId: createdPaneId, slashCommand, ordinaryInput, initialCapture, capture, cleanup };
+  const initialText = initialCapture.stdout;
+  const captureText = capture.stdout;
+  const sessionAttached =
+    Boolean(sparkSessionId) &&
+    (initialText.includes("Spark session attached") || initialText.includes(sparkSessionId ?? ""));
+  const appRendered =
+    initialText.includes("Spark native TUI") ||
+    initialText.includes("Type a task") ||
+    (initialText.trimStart().startsWith("Spark") && initialText.includes("Enter submit"));
+  const slashHandledLocally =
+    slashCommand !== "/help" ||
+    captureText.includes("Spark commands") ||
+    captureText.includes("Spark 命令") ||
+    captureText.includes("Spark — start here");
+  const latestMessagePreserved =
+    ordinaryInput === undefined || captureText.includes(ordinaryInput.trim());
+  const terminalSizeFixed = paneHasTerminalSize(
+    sizeProbe.stdout,
+    createdPaneId,
+    exerciseColumns,
+    exerciseRows,
+  );
+  return {
+    paneId: createdPaneId,
+    slashCommand,
+    ordinaryInput,
+    initialCapture,
+    sizeProbe,
+    capture,
+    cleanup,
+    semanticChecks: {
+      sessionAttached,
+      appRendered,
+      slashHandledLocally,
+      latestMessagePreserved,
+      terminalSizeFixed,
+      success:
+        sessionAttached &&
+        appRendered &&
+        slashHandledLocally &&
+        latestMessagePreserved &&
+        terminalSizeFixed,
+    },
+  };
+}
+
+async function createSizedZellijSession(): Promise<CommandResult> {
+  const command = "/usr/bin/expect";
+  if (!existsSync(command)) {
+    return {
+      command,
+      code: 1,
+      stdout: "",
+      stderr: "A PTY-capable `expect` executable is required for fixed-size Zellij sessions.",
+    };
+  }
+  if (!zellijLayoutPath) {
+    return {
+      command,
+      code: 1,
+      stdout: "",
+      stderr: "The isolated Zellij layout was not prepared.",
+    };
+  }
+  const expectProgram = [
+    "set timeout 10",
+    "spawn -noecho /bin/sh",
+    "after 200",
+    `stty rows ${exerciseRows} columns ${exerciseColumns} < $spawn_out(slave,name)`,
+    `send -- "exec zellij --session ${sessionName} --new-session-with-layout ${zellijLayoutPath}\\r"`,
+    "after 2500",
+    'send "\\017d"',
+    "expect eof",
+  ].join("\n");
+  const argv = ["-c", expectProgram];
+  const label = [command, ...argv.map(shellQuote)].join(" ");
+  let stdout = "";
+  let stderr = "";
+  const child = spawn(command, argv, {
+    env: harnessEnvironment,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    stdout = `${stdout}${chunk}`.slice(-2_000);
+  });
+  child.stderr.on("data", (chunk: string) => {
+    stderr = `${stderr}${chunk}`.slice(-2_000);
+  });
+  const exit = new Promise<number>((resolveExit) => {
+    child.on("exit", (code) => resolveExit(code ?? 1));
+    child.on("error", () => resolveExit(1));
+  });
+  let timeout: NodeJS.Timeout | undefined;
+  const code = await Promise.race([
+    exit,
+    new Promise<number>((resolveTimeout) => {
+      timeout = setTimeout(() => {
+        child.kill("SIGTERM");
+        resolveTimeout(1);
+      }, 8_000);
+    }),
+  ]);
+  if (timeout) clearTimeout(timeout);
+  const sessions = await run("zellij", ["list-sessions", "--short", "--no-formatting"]);
+  const sessionVisible = sessions.stdout.split(/\r?\n/u).includes(sessionName);
+  return {
+    command: label,
+    code: sessionVisible && code === 0 ? 0 : 1,
+    stdout: sessionVisible
+      ? `created ${sessionName} at ${exerciseColumns}x${exerciseRows}\n`
+      : stdout,
+    stderr: sessionVisible ? stderr : [stderr, stdout].filter(Boolean).join("\n"),
+  };
+}
+
+function paneHasTerminalSize(
+  panesOutput: string,
+  paneId: string,
+  columns: number,
+  rows: number,
+): boolean {
+  const id = Number(paneId.replace(/^terminal_/u, ""));
+  const parsed = parseJson(panesOutput);
+  if (!Array.isArray(parsed)) return false;
+  return parsed.some((pane) => {
+    const record = pane && typeof pane === "object" ? (pane as Record<string, unknown>) : {};
+    return (
+      record.is_plugin === false &&
+      record.id === id &&
+      record.pane_content_columns === columns &&
+      record.pane_content_rows === rows
+    );
+  });
 }
 
 async function subscribeProbe(id: string): Promise<CommandResult> {
@@ -238,7 +419,10 @@ async function subscribeProbe(id: string): Promise<CommandResult> {
     let stdout = "";
     let stderr = "";
     let settled = false;
-    const child = spawn("zellij", argv, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("zellij", argv, {
+      env: harnessEnvironment,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     const finish = (result: CommandResult) => {
       if (settled) return;
       settled = true;
@@ -682,6 +866,40 @@ function daemonControlInvariants(before: unknown, after: unknown) {
   };
 }
 
+async function prepareIsolatedSparkSession(sparkHome: string): Promise<{
+  sessionId: string;
+  workspaceId: string;
+}> {
+  const runtimeDir = resolveSparkPaths({ app: "daemon", sparkHome }).runtimeDir;
+  const client = {
+    sparkHome,
+    paths: {
+      runtimeDir,
+      socketPath: join(runtimeDir, "daemon.sock"),
+      pidFile: join(runtimeDir, "daemon.pid"),
+      lockPath: join(runtimeDir, "daemon.lock"),
+    },
+  };
+  const handle = await attachSparkWorkspaceClient(client, {
+    kind: "interactive",
+    displayName: "Spark Zellij harness setup",
+    localPath: process.cwd(),
+    heartbeatIntervalMs: false,
+    metadata: { owner: "spark-zellij-harness" },
+  });
+  const sessionId = sparkSessionId ?? `harness-${process.pid}-${Date.now().toString(36)}`;
+  try {
+    await ensureSparkDaemonWorkspaceSession(
+      { sessionId, workspaceId: handle.workspace.id, cwd: process.cwd() },
+      client,
+    );
+  } finally {
+    await handle.release();
+  }
+  sparkSessionId = sessionId;
+  return { sessionId, workspaceId: handle.workspace.id };
+}
+
 async function main(): Promise<void> {
   if (backend === "cue-contract") {
     const { cueContractHarnessExitCode, runSparkCueContractHarness } =
@@ -733,13 +951,64 @@ async function main(): Promise<void> {
     await runZellijSubscribeControlScenario();
     return;
   }
-  const tempDir = await mkdtemp(join(tmpdir(), "spark-zellij-harness-"));
+  const requestedSparkHome =
+    typeof args.get("spark-home") === "string"
+      ? resolve(String(args.get("spark-home")))
+      : undefined;
+  if (requestedSparkHome && existsSync(requestedSparkHome)) {
+    throw new Error(`--spark-home must name a non-existing isolated path: ${requestedSparkHome}`);
+  }
+  const tempDir = await mkdtemp("/tmp/szh-");
+  const socketDir = await mkdtemp("/tmp/sz-");
+  const zellijConfigDir = join(tempDir, "zellij-config");
+  zellijLayoutPath = join(tempDir, "harness-layout.kdl");
+  const sparkHome = requestedSparkHome ?? join(tempDir, "spark-home");
+  await mkdir(socketDir, { recursive: true });
+  await mkdir(sparkHome, { recursive: true });
+  await mkdir(zellijConfigDir, { recursive: true });
+  await writeFile(
+    join(zellijConfigDir, "config.kdl"),
+    "pane_frames false\nshow_release_notes false\nshow_startup_tips false\n",
+    "utf8",
+  );
+  await writeFile(zellijLayoutPath, "layout {\n  pane\n}\n", "utf8");
+  harnessEnvironment = {
+    ...process.env,
+    SPARK_HOME: sparkHome,
+    ZELLIJ_SOCKET_DIR: socketDir,
+    ZELLIJ_CONFIG_DIR: zellijConfigDir,
+    TERM: "xterm-256color",
+  };
   const commands: Record<string, CommandResult> = {};
+  let sessionCreated = false;
+  let daemonStarted = false;
   try {
     commands.whichZellij = await run("which", ["zellij"]);
     commands.zellijVersion = await run("zellij", ["--version"]);
-    commands.ensureSession = await run("zellij", ["attach", sessionName, "--create-background"]);
+    commands.ensureSession = await createSizedZellijSession();
+    sessionCreated = commands.ensureSession.code === 0;
     commands.listSessions = await run("zellij", ["list-sessions", "--short", "--no-formatting"]);
+    commands.daemonStart = await run(sparkCli, ["daemon", "start"], 20_000);
+    daemonStarted = commands.daemonStart.code === 0;
+    if (exerciseSparkTui) {
+      try {
+        const prepared = await prepareIsolatedSparkSession(sparkHome);
+        daemonStarted = true;
+        commands.prepareSparkSession = {
+          command: "prepare isolated daemon workspace session",
+          code: 0,
+          stdout: JSON.stringify(prepared),
+          stderr: "",
+        };
+      } catch (error) {
+        commands.prepareSparkSession = {
+          command: "prepare isolated daemon workspace session",
+          code: 1,
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
     commands.daemonBefore = await run(sparkCli, ["daemon", "status", "--json"], 20_000);
     commands.externalActionListPanes = await run("zellij", [
       "--session",
@@ -765,6 +1034,14 @@ async function main(): Promise<void> {
     if (paneId) commands.subscribeProbe = await subscribeProbe(paneId);
     const sparkTuiExercise = exerciseSparkTui ? await exerciseSparkNativeTui() : undefined;
     commands.daemonAfter = await run(sparkCli, ["daemon", "status", "--json"], 20_000);
+    if (sessionCreated) {
+      commands.killOwnedSession = await run("zellij", ["kill-session", sessionName]);
+      sessionCreated = false;
+    }
+    if (daemonStarted) {
+      commands.stopOwnedDaemon = await run(sparkCli, ["daemon", "stop", "--yes"], 20_000);
+      daemonStarted = false;
+    }
 
     const daemonBefore = redactSecrets(parseJson(commands.daemonBefore.stdout));
     const daemonAfter = redactSecrets(parseJson(commands.daemonAfter.stdout));
@@ -824,20 +1101,35 @@ async function main(): Promise<void> {
       blockers,
       unsupportedStates,
       cleanup: [
-        `zellij list-sessions --short --no-formatting`,
-        `zellij kill-session ${sessionName} # only for isolated harness sessions, not user-owned sessions`,
+        ...(commands.killOwnedSession?.code === 0
+          ? [`killed isolated Zellij session ${sessionName}`]
+          : []),
+        ...(commands.stopOwnedDaemon?.code === 0
+          ? [`stopped isolated daemon under SPARK_HOME=${sparkHome}`]
+          : []),
+        `removed harness temporary roots ${tempDir} and ${socketDir}`,
       ],
     };
 
     console.log(JSON.stringify(report, null, 2));
     const sparkTuiExerciseOk =
-      !exerciseSparkTui ||
-      (sparkTuiExercise?.capture?.code === 0 &&
-        sparkTuiExercise.cleanup?.every((result) => result.code === 0));
+      !exerciseSparkTui || sparkTuiExercise?.semanticChecks?.success === true;
     if (strict && (blockers.length > 0 || !sparkTuiExerciseOk)) process.exitCode = 1;
   } finally {
+    if (sessionCreated) await run("zellij", ["kill-session", sessionName]);
+    if (daemonStarted) await run(sparkCli, ["daemon", "stop", "--yes"], 20_000);
     await rm(tempDir, { recursive: true, force: true });
+    await rm(socketDir, { recursive: true, force: true });
+    if (requestedSparkHome) await rm(requestedSparkHome, { recursive: true, force: true });
   }
+}
+
+function fixedTerminalDimension(value: string, name: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 10 || parsed > 500) {
+    throw new Error(`--${name} must be an integer between 10 and 500`);
+  }
+  return parsed;
 }
 
 await main();

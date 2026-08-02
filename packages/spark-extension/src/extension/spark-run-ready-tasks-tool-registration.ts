@@ -37,7 +37,6 @@ import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registra
 
 interface SparkRunReadyTasksToolDeps {
   ensureWorkflowRunManager: (cwd: string, ctx: SparkToolContext) => Promise<void>;
-  piCommand?: (cwd: string, ctx: SparkToolContext) => string | undefined;
   refreshSparkWidget?: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
   dispatchManagedTaskSessions?: typeof dispatchManagedTaskSessions;
 }
@@ -144,7 +143,6 @@ export function registerSparkRunReadyTasksTool(
             safeTaskRefs: orchestration?.dispatchableTaskRefs,
           })
         : undefined;
-      const piCommand = deps.piCommand?.(cwd, ctx) ?? "pi";
       if (!dryRun) {
         const settingsResult = await ensureRoleModelSettingsForProject({
           graph,
@@ -152,7 +150,6 @@ export function registerSparkRunReadyTasksTool(
           registry,
           cwd,
           ctx,
-          piCommand,
         });
         if (!settingsResult.ready) {
           return {

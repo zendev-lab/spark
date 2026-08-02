@@ -30,6 +30,14 @@ const dependencies = {
   ws: "^8.18.3",
 };
 const externalPackages = Object.keys(dependencies);
+const productBins = {
+  spark: "spark-cli.js",
+  "spark-tui": "spark-tui.js",
+  "spark-daemon": "spark-daemon.js",
+  "spark-cockpit": "spark-cockpit.js",
+  "spark-acp": "spark-acp.js",
+  "spark-update": "spark-update.js",
+};
 
 async function run(command, args, options = {}) {
   try {
@@ -73,7 +81,7 @@ async function writeProductManifest() {
     ...(rootManifest.homepage ? { homepage: rootManifest.homepage } : {}),
     ...(rootManifest.bugs ? { bugs: rootManifest.bugs } : {}),
     type: "module",
-    bin: { spark: "./bin/spark" },
+    bin: Object.fromEntries(Object.keys(productBins).map((name) => [name, `./bin/${name}`])),
     files: ["bin", "dist", "build", "skills", "README.md", "LICENSE"],
     engines: { node: rootManifest.engines.node },
     publishConfig: {
@@ -124,8 +132,8 @@ async function writeBuildInfo() {
   );
 }
 
-async function writeLauncher() {
-  const launcher = `#!/usr/bin/env node
+function launcherPrelude() {
+  return `#!/usr/bin/env node
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -139,16 +147,33 @@ process.env.SPARK_HEADLESS_EXECUTOR_MODULE = resolve(
   productDist,
   "spark-headless-role-executor.js",
 );
+`;
+}
 
+async function writeLaunchers() {
+  const dispatcher = `${launcherPrelude()}
 const { runSparkDispatcher } = await import(
   pathToFileURL(resolve(productDist, "spark-cli.js")).href
 );
 process.exitCode = await runSparkDispatcher(process.argv.slice(2));
 `;
-  const destination = resolve(productDirectory, "bin/spark");
-  await mkdir(dirname(destination), { recursive: true });
-  await writeFile(destination, launcher);
-  await chmod(destination, 0o755);
+  const binDirectory = resolve(productDirectory, "bin");
+  await mkdir(binDirectory, { recursive: true });
+  await Promise.all(
+    Object.entries(productBins).map(async ([name, entry]) => {
+      const launcher =
+        name === "spark"
+          ? dispatcher
+          : `${launcherPrelude()}
+const entry = resolve(productDist, ${JSON.stringify(entry)});
+process.argv[1] = entry;
+await import(pathToFileURL(entry).href);
+`;
+      const destination = resolve(binDirectory, name);
+      await writeFile(destination, launcher);
+      await chmod(destination, 0o755);
+    }),
+  );
 }
 
 async function removeSourceMaps(directory) {
@@ -179,6 +204,7 @@ await Promise.all([
   bundle("apps/spark-cockpit/src/cli-entry.ts", resolve(productDist, "spark-cockpit.js")),
   bundle("apps/spark-cockpit/server/index.ts", resolve(productDist, "spark-cockpit-server.js")),
   bundle("packages/spark-acp/scripts/stdio.ts", resolve(productDist, "spark-acp.js")),
+  bundle("packages/spark-update/src/entry.ts", resolve(productDist, "spark-update.js")),
 ]);
 
 await Promise.all([
@@ -196,6 +222,6 @@ await Promise.all([
   cp(resolve(root, "LICENSE"), resolve(productDirectory, "LICENSE")),
 ]);
 await removeSourceMaps(resolve(productDirectory, "build"));
-await Promise.all([writeProductManifest(), writeBuildInfo(), writeLauncher()]);
+await Promise.all([writeProductManifest(), writeBuildInfo(), writeLaunchers()]);
 
 console.log(`Built npm artifact: ${productDirectory}`);

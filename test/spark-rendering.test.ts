@@ -760,7 +760,7 @@ test("SparkNativeTuiApp /clear keeps the welcome banner and removes old transcri
   assert.doesNotMatch(rendered, /tool:read/);
   assert.doesNotMatch(rendered, /old output/);
   assert.match(rendered, /Transcript cleared/);
-  assert.match(rendered, /Spark native TUI is running/);
+  assert.match(rendered, /Type a task, \/plan for durable work/);
 });
 
 test("SparkNativeTuiApp /stop aborts the active turn and discards late responses", async () => {

@@ -5,25 +5,38 @@ Zellij is the required operator path for real Spark TUI interaction and capture 
 ## Run
 
 ```bash
-node --experimental-strip-types scripts/spark-zellij-harness.mts --session spark
-pnpm exec node --experimental-strip-types scripts/spark-zellij-harness.mts --session spark --strict
+node --experimental-strip-types scripts/spark-zellij-harness.mts
+pnpm exec node --experimental-strip-types scripts/spark-zellij-harness.mts \
+  --exercise-spark-tui \
+  --strict
 ```
 
-Capture an existing pane:
+The harness creates a unique session name, a short socket directory, an
+isolated `SPARK_HOME`, and a real daemon session before launching the TUI. The
+host Zellij session is created through an `expect`-backed PTY at a fixed size;
+the default borderless floating TUI pane is `80x24`. Exercise the release matrix
+with `--exercise-width` and `--exercise-height`:
 
 ```bash
-zellij --session spark action list-panes --json --all --command --state --tab
-zellij --session spark subscribe --pane-id <pane-id> --scrollback 20 --format raw
+pnpm exec node --experimental-strip-types scripts/spark-zellij-harness.mts \
+  --exercise-spark-tui \
+  --exercise-width 60 \
+  --exercise-height 18 \
+  --strict
 ```
 
-The installed control surface uses `subscribe`; `subscript` is not a supported command.
+Use `--exercise-tiled` only when intentionally testing Zellij layout behavior.
+The installed control surface uses `subscribe`; `subscript` is not a supported
+command. On Zellij 0.44.x the harness uses `--new-session-with-layout`;
+`--session` plus `--layout` addresses an existing session and is not a reliable
+creation path.
 
 ## Session resume
 
-Zellij manages the terminal process; the Spark daemon owns durable conversation state:
+Zellij manages the terminal process; the Spark daemon owns durable conversation
+state. The harness selects its prepared session explicitly:
 
 ```bash
-zellij --session spark run -- spark tui
 spark daemon session list --json
 spark tui --session-id <session-id>
 ```
@@ -32,12 +45,12 @@ Session selection is current-workspace scoped. `spark tui --session-id <session-
 
 ## Controlled scenario
 
-The focused scenario creates a temporary pane, sends `/help`, captures visible output, closes only that pane, and compares daemon status before and after:
+The focused scenario creates a temporary pane, sends `/help`, captures visible
+output, closes only that pane, and compares daemon status before and after:
 
 ```bash
 pnpm exec node --experimental-strip-types scripts/spark-zellij-harness.mts \
   --scenario zellij-subscribe-control \
-  --session spark \
   --output /tmp/spark-zellij-subscribe-control-report.json
 ```
 
@@ -45,11 +58,9 @@ For a full native interaction:
 
 ```bash
 pnpm exec node --experimental-strip-types scripts/spark-zellij-harness.mts \
-  --session spark \
   --exercise-spark-tui \
-  --exercise-floating \
-  --exercise-width 90% \
-  --exercise-height 70% \
+  --exercise-width 120 \
+  --exercise-height 30 \
   --slash-command /status
 ```
 
@@ -75,8 +86,14 @@ A valid report includes:
 - pane discovery and the captured visible TUI output;
 - exit codes for launch, input, capture, and cleanup;
 - stable daemon identity and nondecreasing terminal invocation counts;
+- semantic checks for the attached session, locally rendered `/help`, native
+  app surface, and preserved latest input;
 - `blockers: []` for strict success.
 
 ## Cleanup
 
-Never kill a user-owned `spark` session. Close only harness-created panes with `/exit` and `close-pane`. `zellij kill-session` is allowed only for an isolated test session created for that run.
+Never kill a user-owned Zellij session or daemon. The default unique name,
+socket, and `SPARK_HOME` make ownership explicit. Cleanup removes only the
+harness-created pane/session, isolated daemon, socket directory, and temporary
+home. An explicit `--spark-home` must name a non-existing path so cleanup cannot
+erase a pre-existing directory.

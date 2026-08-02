@@ -5,6 +5,7 @@ import { test } from "vitest";
 
 const canonicalRootScripts = [
   "audit",
+  "audit:renderer",
   "build",
   "build:docs",
   "check",

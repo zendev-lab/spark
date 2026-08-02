@@ -3012,6 +3012,14 @@ describe("Spark daemon local RPC", () => {
       diagnostics: [],
     };
     const setApiKey = vi.fn(async () => snapshot);
+    const importPiAuth = vi.fn(async () => ({
+      source: "pi" as const,
+      sourcePath: "~/.pi/agent/auth.json",
+      imported: [{ provider: "openai-codex", type: "oauth" as const }],
+      overwritten: [],
+      skipped: [],
+      totals: { imported: 1, overwritten: 0, skipped: 0 },
+    }));
     const prepareModel = vi.fn(async () => undefined);
     const modelControl = {
       snapshot: vi.fn(async () => snapshot),
@@ -3038,6 +3046,7 @@ describe("Spark daemon local RPC", () => {
         updatedAt: "2026-07-10T00:01:00.000Z",
       })),
       setApiKey,
+      importPiAuth,
       logout: vi.fn(async () => ({ removed: true, snapshot })),
       startOAuth: vi.fn(),
       oauthStatus: vi.fn(),
@@ -3075,6 +3084,29 @@ describe("Spark daemon local RPC", () => {
       );
       expect(credential).toMatchObject({ ok: true });
       expect(setApiKey).toHaveBeenCalledWith("baidu-oneapi", "secret-value");
+
+      const imported = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "auth_import",
+          method: "provider.auth.import.pi",
+          params: { sourcePath: "/tmp/pi/auth.json", overwrite: true },
+        }),
+        paths,
+        db,
+        undefined,
+        { modelControl },
+      );
+      expect(imported).toMatchObject({
+        ok: true,
+        result: {
+          source: "pi",
+          imported: [{ provider: "openai-codex", type: "oauth" }],
+        },
+      });
+      expect(importPiAuth).toHaveBeenCalledWith({
+        sourcePath: "/tmp/pi/auth.json",
+        overwrite: true,
+      });
 
       const submitted = await handleLocalRpcLine(
         JSON.stringify({

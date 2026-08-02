@@ -4,9 +4,10 @@
   "private": true,
   "description": "Spark daemon service for workspace execution.",
   "bin": {
-    "spark-daemon": "./dist/cli.js"
+    "spark-daemon": "./bin/spark-daemon"
   },
   "files": [
+    "bin",
     "dist",
     "package.json",
     "README.md"

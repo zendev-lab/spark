@@ -12,11 +12,6 @@ spark bg [--session <id>] [--json] <prompt>
 spark paths [--json]
 spark doctor
 spark tui [initial message]
-spark --print [--wait] <prompt>
-spark --mode json --print <prompt>
-spark --mode rpc
-spark --list-models [search]
-spark install|remove|update|list|config [resource]
 spark install --managed [--version <version>] [--prefix <path>]
 spark update status|check|apply|rollback|retry|configure
 spark version [--json]
@@ -32,10 +27,6 @@ spark --version
 - `spark bg` submits durable background work.
 - `spark paths` reports effective configuration and state paths.
 - `spark doctor` runs top-level health diagnostics through the daemon CLI.
-- `--print`, `--mode`, and `--list-models` preserve headless/Pi-compatible
-  entrypoints. Prefer `spark run` for new foreground scripts.
-- Resource commands install and configure extensions, providers, skills,
-  prompt templates, and themes.
 - `spark install --managed` creates a managed installation with an immutable launcher.
 - `spark update` owns managed update policy, version switching, and rollback.
 - `spark version` reports exact package and build identity.
@@ -45,33 +36,14 @@ spark --version
 
 Unknown subcommands fail instead of being treated as prompts.
 
-## Resource packages
+## 0.2.0 command cut
 
-```text
-spark install [--extension|--provider|--skill|--prompt-template|--theme] [--local] <source>
-spark remove [--extension|--provider|--skill|--prompt-template|--theme] <source>
-spark uninstall [kind flag] <source>
-spark update <source>
-spark tui update [source]
-spark list [--json]
-spark config [--json]
-```
+Spark 0.2.0 rejects the removed root `session`/`sessions`, `--print`/`-p`,
+`--mode`, `--list-models`, and Pi-style `install`/`remove`/`uninstall`/`list`/
+`config` resource commands. They are not compatibility proxies. Use `spark run`,
+the daemon commands below, or `spark install --managed`.
 
-Sources may be npm packages, Git URLs, or local paths; `--local` forces local
-path handling. On install, Spark infers an omitted kind from recognizable words
-in the source name; use an explicit kind for generic names and paths. Managed
-remove and update operations reuse the kind recorded in the package manifest.
-For config-only entries without a manifest record, repeat the kind when the
-source name is ambiguous.
-`install` copies the package into Spark's managed resource root and adds the
-effective config entry. `remove`/`uninstall` removes that entry and any managed
-copy. `spark update <source>` updates one installed resource;
-`spark tui update` updates all managed resources. `list` shows configured and
-installed-only entries, while `config` prints the effective config and package
-roots.
-
-Bare `spark update` belongs to the managed product updater below. Include a
-resource source, or use `spark tui update`, when updating resource packages.
+See [migrating to 0.2.0](/guides/migration-0.2/) for exact replacements.
 
 ## Interactive work commands
 
@@ -87,6 +59,11 @@ want to change how Spark proceeds:
 /loop [start|status|stop|restart] [objective]
 /repro [start|status|stop|restart] [objective]
 /workflow [run <selector>|list|runs|inspect|pause|resume|stop|restart|save|ack]
+/login [provider]
+/logout <provider>
+/model [provider/model]
+/sessions
+/status
 /help
 /help commands
 /help all
@@ -132,6 +109,32 @@ spark daemon stop
 spark daemon restart [--yes] [--wait]
 spark daemon logs [--follow] [--lines <n>]
 ```
+
+`spark daemon login` authorizes this machine to connect to Cockpit. It never
+configures an AI provider.
+
+## Provider authentication and models
+
+```text
+spark daemon auth status [--json]
+spark daemon auth login [provider]
+spark daemon auth logout <provider> [--json]
+spark daemon auth import pi [--overwrite] [--json]
+spark daemon model list [--all] [--json]
+spark daemon model status [--session <id>] [--json]
+spark daemon model set <provider/model> (--session <id>|--default) [--json]
+```
+
+`auth import pi` reads `PI_CODING_AGENT_DIR/auth.json` when that directory is
+set, otherwise `~/.pi/agent/auth.json`. It does not start Pi, execute shell
+commands, or expand environment references. Existing Spark credentials win
+unless `--overwrite` is explicit. Exit `0` means the transaction completed,
+including an all-skipped report; `1` is a read/parse/store failure and `2` is
+invalid CLI usage.
+
+Provider login exists only under `spark daemon auth login` (or `/login` inside
+the TUI). Reports contain provider IDs, credential kinds, counts, and reason
+codes, never credential values.
 
 ## Sessions and invocations
 

@@ -10,7 +10,9 @@ spark bg --session <session-id> "continue"
 spark doctor
 ```
 
-Compatibility aliases are `spark --print`, `spark -p`, and `spark --mode json --print`. New integrations should use `spark run` and parse only JSON output.
+Spark 0.2 rejects the former `spark --print`, `spark -p`, and
+`spark --mode json --print` aliases. Integrations must use `spark run` and parse
+only JSON output.
 
 ## JSONL acceptance stream
 

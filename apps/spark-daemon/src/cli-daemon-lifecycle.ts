@@ -414,6 +414,33 @@ export async function start(
   }
 }
 
+/** Start the long-running daemon through the platform service boundary. */
+export async function startCommand(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  args: string[],
+  io: CliIo,
+): Promise<number> {
+  prepareSparkDaemonState(paths);
+  const flags = parseFlags(args);
+  clearSparkDaemonRestartFenceForExplicitStart(paths);
+  const service = startSparkDaemonProcess(paths, io);
+  const waitForReadiness = flags.json === "true" || shouldWaitForDaemon(flags);
+  if (waitForReadiness && !service.alreadyRunning) {
+    const readyPid = await waitForDaemonReady(paths, null, io);
+    if (flags.json !== "true") {
+      io.stdout.write(`${service.detail}\nSpark daemon is ready as process ${readyPid}.\n`);
+    }
+  } else if (flags.json !== "true") {
+    io.stdout.write(`${service.detail}\n`);
+  }
+  if (flags.json === "true") {
+    io.stdout.write(
+      `${JSON.stringify({ action: "start", daemon: await buildDaemonStatus(paths, io) }, null, 2)}\n`,
+    );
+  }
+  return 0;
+}
+
 export async function stop(
   paths: ReturnType<typeof resolveSparkPaths>,
   args: string[],

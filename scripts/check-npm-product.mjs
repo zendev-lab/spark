@@ -46,7 +46,18 @@ if (await exists(productManifestPath)) {
   if (manifest.name !== "@zendev-lab/spark")
     failures.push("product name must be @zendev-lab/spark");
   if (manifest.private === true) failures.push("generated npm product must be publishable");
-  if (manifest.bin?.spark !== "./bin/spark") failures.push("product must expose one spark bin");
+  for (const name of [
+    "spark",
+    "spark-tui",
+    "spark-daemon",
+    "spark-cockpit",
+    "spark-acp",
+    "spark-update",
+  ]) {
+    if (manifest.bin?.[name] !== `./bin/${name}`) {
+      failures.push(`product must expose ${name} as a companion executable`);
+    }
+  }
   if (
     manifest.publishConfig?.access !== "public" ||
     manifest.publishConfig?.registry !== "https://registry.npmjs.org/"
@@ -60,11 +71,17 @@ if (await exists(productManifestPath)) {
   }
   for (const asset of [
     "bin/spark",
+    "bin/spark-tui",
+    "bin/spark-daemon",
+    "bin/spark-cockpit",
+    "bin/spark-acp",
+    "bin/spark-update",
     "dist/spark-cli.js",
     "dist/spark-tui.js",
     "dist/spark-daemon.js",
     "dist/spark-headless-role-executor.js",
     "dist/spark-cockpit-server.js",
+    "dist/spark-update.js",
     "dist/migrations/0001_initial.sql",
     "skills/model-reproduction/SKILL.md",
     "skills/model-reproduction/references/known-diffs/catalog.md",

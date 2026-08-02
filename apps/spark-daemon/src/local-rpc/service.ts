@@ -110,6 +110,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "model.catalog",
     "model.default.set",
     "provider.auth.api-key.set",
+    "provider.auth.import.pi",
     "provider.auth.logout",
     "provider.auth.login.start",
     "provider.auth.login.status",

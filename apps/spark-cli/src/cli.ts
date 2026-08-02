@@ -1,19 +1,14 @@
 import { spawn, type SpawnOptions } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { sparkCliDispatcherStrings } from "@zendev-lab/spark-i18n/cli";
 import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-system";
-import {
-  runSparkManagedInstallCommand,
-  runSparkUpdateCommand,
-  runSparkVersionCommand,
-} from "@zendev-lab/spark-update/cli";
 
 const dispatcherStrings = sparkCliDispatcherStrings();
 
-export type SparkDispatcherTarget = "tui" | "daemon" | "cockpit" | "acp";
+export type SparkDispatcherTarget = "tui" | "daemon" | "cockpit" | "acp" | "update";
 
 export type SparkDispatcherCommand =
   | {
@@ -23,9 +18,6 @@ export type SparkDispatcherCommand =
       autoSessionPrefix?: string;
     }
   | { kind: "help" }
-  | { kind: "version"; json?: true }
-  | { kind: "managed-install"; argv: string[] }
-  | { kind: "update"; argv: string[] }
   | { kind: "paths"; json: boolean }
   | { kind: "error"; message: string };
 
@@ -51,18 +43,14 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
     case "-h":
       return { kind: "help" };
     case "version":
-      return parseSparkVersionCommand(rest);
+      return { kind: "dispatch", target: "update", argv: ["version", ...rest] };
     case "--version":
     case "-v":
-      return { kind: "version" };
+      return { kind: "dispatch", target: "update", argv: ["version"] };
     case "install":
-      return rest.includes("--managed")
-        ? { kind: "managed-install", argv: rest }
-        : { kind: "dispatch", target: "tui", argv };
+      return { kind: "dispatch", target: "update", argv: ["install", ...rest] };
     case "update":
-      return isManagedUpdateCommand(rest)
-        ? { kind: "update", argv: rest }
-        : { kind: "dispatch", target: "tui", argv };
+      return { kind: "dispatch", target: "update", argv: ["update", ...rest] };
     case "paths":
       return parseSparkPathsCommand(rest);
     case "run":
@@ -72,7 +60,13 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
     case "doctor":
       return { kind: "dispatch", target: "daemon", argv: ["doctor", ...rest] };
     case "tui":
-      return { kind: "dispatch", target: "tui", argv: rest };
+      return rest.some(
+        (arg) => arg === "--print" || arg === "-p" || arg === "--mode" || arg === "--list-models",
+      )
+        ? errorCommand(
+            'Legacy TUI flags were removed. Use "spark run", "spark acp", or "spark daemon model list".',
+          )
+        : { kind: "dispatch", target: "tui", argv: rest };
     case "daemon":
       return { kind: "dispatch", target: "daemon", argv: rest };
     case "server":
@@ -81,20 +75,9 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
       return { kind: "dispatch", target: "cockpit", argv: rest };
     case "acp":
       return { kind: "dispatch", target: "acp", argv: rest };
-    case "sessions":
-    case "session":
-      return { kind: "dispatch", target: "tui", argv };
     default:
-      return isSparkTuiCompatibilityCommand(first)
-        ? { kind: "dispatch", target: "tui", argv }
-        : errorCommand(dispatcherStrings.unknownSubcommand(first, argv));
+      return errorCommand(dispatcherStrings.unknownSubcommand(first, argv));
   }
-}
-
-function parseSparkVersionCommand(argv: string[]): SparkDispatcherCommand {
-  if (argv.length === 0) return { kind: "version" };
-  if (argv.length === 1 && argv[0] === "--json") return { kind: "version", json: true };
-  return errorCommand('spark version accepts only the optional "--json" flag');
 }
 
 export async function runSparkDispatcher(
@@ -109,18 +92,12 @@ export async function runSparkDispatcher(
     case "help":
       stdout.write(helpText());
       return 0;
-    case "version":
-      return await runSparkVersionCommand(command.json ? ["--json"] : [], { stdout, stderr });
-    case "managed-install":
-      return await runSparkManagedInstallCommand(command.argv, { stdout, stderr });
-    case "update":
-      return await runSparkUpdateCommand(command.argv, { stdout, stderr });
     case "paths": {
       const payload = {
         sparkHome: process.env.SPARK_HOME?.trim() ?? null,
         user: resolveSparkUserPaths(),
-        cockpit: resolveSparkPaths({ app: "cockpit" }),
-        daemon: resolveSparkPaths({ app: "daemon" }),
+        cockpit: publicSparkPaths(resolveSparkPaths({ app: "cockpit" })),
+        daemon: publicSparkPaths(resolveSparkPaths({ app: "daemon" })),
       };
       stdout.write(
         command.json ? `${JSON.stringify(payload, null, 2)}\n` : formatSparkPaths(payload),
@@ -152,32 +129,19 @@ export function helpText(): string {
 }
 
 function parseSparkRunCommand(argv: string[]): SparkDispatcherCommand {
-  const mapped = ["--print"];
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
-    if (arg === "--") {
-      mapped.push(...argv.slice(index));
-      break;
-    }
-    if (arg === "--json") {
-      mapped.push("--mode", "json");
-      continue;
-    }
     if (arg === "--resume") {
       const session = argv[++index];
       if (!session) return errorCommand("spark run --resume requires a session id");
-      mapped.push("--session", session);
       continue;
     }
     if (arg.startsWith("--resume=")) {
       const session = arg.slice("--resume=".length);
       if (!session) return errorCommand("spark run --resume requires a session id");
-      mapped.push("--session", session);
-      continue;
     }
-    mapped.push(arg);
   }
-  return { kind: "dispatch", target: "tui", argv: mapped };
+  return { kind: "dispatch", target: "tui", argv: ["run", ...argv] };
 }
 
 function parseSparkBackgroundCommand(argv: string[]): SparkDispatcherCommand {
@@ -236,8 +200,8 @@ function parseSparkPathsCommand(argv: string[]): SparkDispatcherCommand {
 function formatSparkPaths(payload: {
   sparkHome: string | null;
   user: ReturnType<typeof resolveSparkUserPaths>;
-  cockpit: ReturnType<typeof resolveSparkPaths>;
-  daemon: ReturnType<typeof resolveSparkPaths>;
+  cockpit: Omit<ReturnType<typeof resolveSparkPaths>, "piAgentDir">;
+  daemon: Omit<ReturnType<typeof resolveSparkPaths>, "piAgentDir">;
 }): string {
   const lines = [`SPARK_HOME=${payload.sparkHome ?? "<unset>"}`, "", "user:"];
   for (const [key, value] of Object.entries(payload.user)) lines.push(`  ${key}=${value}`);
@@ -265,55 +229,15 @@ function generatedSessionId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function isSparkTuiCompatibilityCommand(first: string): boolean {
-  return (
-    first === "--print" ||
-    first === "-p" ||
-    first === "--mode" ||
-    first === "--list-models" ||
-    isSparkTuiResourceCommand(first)
-  );
-}
-
-function isManagedUpdateCommand(argv: readonly string[]): boolean {
-  const action = argv[0];
-  return (
-    action === undefined ||
-    action === "status" ||
-    action === "check" ||
-    action === "apply" ||
-    action === "rollback" ||
-    action === "retry" ||
-    action === "configure" ||
-    action === "__tick"
-  );
-}
-
-function isSparkTuiResourceCommand(first: string): boolean {
-  return (
-    first === "install" ||
-    first === "remove" ||
-    first === "uninstall" ||
-    first === "update" ||
-    first === "list" ||
-    first === "config"
-  );
-}
-
 function isSparkTuiHeadlessCompatibilityCommand(argv: readonly string[]): boolean {
-  if (
-    argv.includes("--help") ||
-    argv.includes("-h") ||
-    argv.includes("--print") ||
-    argv.includes("-p") ||
-    argv.includes("--list-models")
-  ) {
-    return true;
-  }
-  const first = argv[0];
-  if (first && isSparkTuiResourceCommand(first)) return true;
-  if (first === "sessions" || first === "session") return true;
-  return argv.some((arg, index) => arg === "--mode" && argv[index + 1] === "rpc");
+  return argv[0] === "run" || argv.includes("--help") || argv.includes("-h");
+}
+
+function publicSparkPaths(
+  paths: ReturnType<typeof resolveSparkPaths>,
+): Omit<ReturnType<typeof resolveSparkPaths>, "piAgentDir"> {
+  const { piAgentDir: _piAgentDir, ...publicPaths } = paths;
+  return publicPaths;
 }
 
 function isInteractiveTerminal(io: SparkDispatcherIo): boolean {
@@ -349,36 +273,15 @@ export function resolveTargetCommand(target: SparkDispatcherTarget): {
   args: string[];
   label: string;
 } {
-  const product = productTargetCommand(target);
-  if (product) {
-    return {
-      command: process.execPath,
-      args: [product, ...(target === "daemon" ? ["daemon"] : [])],
-      label: targetLabel(target),
-    };
-  }
   const local = localTargetCommand(target);
-  if (local && existsSync(local)) {
+  if (local) {
     return {
       command: local,
-      args: target === "daemon" ? ["daemon"] : [],
+      args: [],
       label: targetLabel(target),
     };
   }
-  switch (target) {
-    case "tui":
-      return { command: "spark-tui", args: [], label: targetLabel(target) };
-    case "daemon":
-      // Route the public daemon execution-plane API through spark-tui's CLI
-      // adapter. The adapter delegates legacy daemon service commands
-      // (status/start/stop/logs/workspace) while also owning canonical
-      // session/run/events plane resources.
-      return { command: "spark-tui", args: ["daemon"], label: targetLabel(target) };
-    case "cockpit":
-      return { command: "spark-cockpit", args: [], label: targetLabel(target) };
-    case "acp":
-      return { command: "spark-acp", args: [], label: targetLabel(target) };
-  }
+  return { command: targetExecutable(target), args: [], label: targetLabel(target) };
 }
 
 function targetLabel(target: SparkDispatcherTarget): string {
@@ -386,19 +289,21 @@ function targetLabel(target: SparkDispatcherTarget): string {
 }
 
 function localTargetCommand(target: SparkDispatcherTarget): string | undefined {
-  const specifierByTarget: Record<SparkDispatcherTarget, string> = {
-    tui: "@zendev-lab/spark-tui-app/executable",
-    daemon: "@zendev-lab/spark-tui-app/executable",
-    cockpit: "@zendev-lab/spark-cockpit/executable",
-    acp: "@zendev-lab/spark-acp/executable",
-  };
+  const adjacent = adjacentTargetCommand(target);
+  if (adjacent && existsSync(adjacent)) return realpathSync(adjacent);
+  const sourceExecutable = sourceCheckoutTargetCommand(target);
+  return sourceExecutable && existsSync(sourceExecutable)
+    ? realpathSync(sourceExecutable)
+    : undefined;
+}
+
+function adjacentTargetCommand(target: SparkDispatcherTarget): string | undefined {
+  const argvEntry = process.argv[1];
+  if (!argvEntry) return undefined;
   try {
-    return realpathSync(fileURLToPath(import.meta.resolve(specifierByTarget[target])));
+    return resolve(dirname(realpathSync(argvEntry)), targetExecutable(target));
   } catch {
-    const sourceExecutable = sourceCheckoutTargetCommand(target);
-    return sourceExecutable && existsSync(sourceExecutable)
-      ? realpathSync(sourceExecutable)
-      : undefined;
+    return undefined;
   }
 }
 
@@ -406,24 +311,16 @@ function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | un
   const cliRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const entryByTarget: Record<SparkDispatcherTarget, string> = {
     tui: "../spark-tui/bin/spark-tui",
-    daemon: "../spark-tui/bin/spark-tui",
+    daemon: "../spark-daemon/bin/spark-daemon",
     cockpit: "../spark-cockpit/bin/spark-cockpit",
     acp: "../../packages/spark-acp/scripts/stdio.ts",
+    update: "../../packages/spark-update/bin/spark-update",
   };
   return resolve(cliRoot, entryByTarget[target]);
 }
 
-function productTargetCommand(target: SparkDispatcherTarget): string | undefined {
-  const productDist = process.env.SPARK_PRODUCT_DIST;
-  if (!productDist) return undefined;
-  const entryByTarget: Record<SparkDispatcherTarget, string> = {
-    tui: "spark-tui.js",
-    daemon: "spark-tui.js",
-    cockpit: "spark-cockpit.js",
-    acp: "spark-acp.js",
-  };
-  const productEntry = join(productDist, entryByTarget[target]);
-  return existsSync(productEntry) ? productEntry : undefined;
+function targetExecutable(target: SparkDispatcherTarget): string {
+  return `spark-${target}`;
 }
 
 function isDirectRun(moduleUrl: string, argvEntry: string | undefined): boolean {

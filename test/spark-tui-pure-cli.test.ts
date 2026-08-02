@@ -13,3 +13,14 @@ test("spark-tui rejects the removed server route with Cockpit guidance", () => {
     message: '"server" is not a spark-tui command. Use "spark cockpit" instead.',
   });
 });
+
+test("spark-tui rejects daemon commands owned by spark-daemon", () => {
+  assert.deepEqual(parseSparkCliCommand(["daemon", "restart"]), {
+    kind: "error",
+    message: '"daemon" is not a spark-tui command. Use "spark daemon ..." instead.',
+  });
+  assert.deepEqual(parseSparkCliCommand(["daemon", "--help"]), {
+    kind: "error",
+    message: '"daemon" is not a spark-tui command. Use "spark daemon ..." instead.',
+  });
+});

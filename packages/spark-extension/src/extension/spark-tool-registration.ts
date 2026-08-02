@@ -50,6 +50,8 @@ export interface SparkToolContext {
   /** Command-host bridge for dispatching a turn through an externally owned session runtime. */
   sendUserMessage?: (content: string) => Promise<void>;
   model?: SparkSessionModelRef;
+  /** Daemon-backed model catalog projection supplied by the native host. */
+  modelRegistry?: unknown;
   runRole?: ExtensionRoleRunner;
   sparkActiveLens?: {
     phase: "plan" | "implement";

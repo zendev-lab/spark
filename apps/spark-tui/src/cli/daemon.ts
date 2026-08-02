@@ -9,10 +9,12 @@ import { fileURLToPath } from "node:url";
 import type { ChannelNotifySendResult } from "@zendev-lab/spark-channels";
 import {
   createId,
+  parseSparkModelValue,
   parseSparkDaemonEvent,
   parseSparkInteractionResponse,
   parseSparkSessionView,
   sparkLocalRpcProcedureSchemas,
+  sparkModelValue,
   type SparkAssignment,
   type SparkDaemonEvent,
   type SparkInvocationListResult,
@@ -23,6 +25,8 @@ import {
   type SparkLocalRpcInput,
   type SparkLocalRpcMethod,
   type SparkLocalRpcOutput,
+  type SparkModelControlSnapshot,
+  type SparkModelRef,
   type SparkSessionCreateRequest,
   type SparkSessionListRequest,
   type SparkSessionRegistryRecord,
@@ -104,6 +108,7 @@ export type SparkDaemonCliAction =
   | "channel"
   | "runs"
   | "events"
+  | "model"
   | "service";
 export type SparkDaemonRunState =
   | "queued"
@@ -541,6 +546,15 @@ export interface SparkDaemonEventsCommand extends SparkDaemonCliCommandBase {
   limit?: number;
 }
 
+export interface SparkDaemonModelCommand extends SparkDaemonCliCommandBase {
+  action: "model";
+  subcommand: "list" | "status" | "set";
+  all?: boolean;
+  sessionId?: string;
+  model?: SparkModelRef;
+  target?: "session" | "default";
+}
+
 export interface SparkDaemonStartCommand extends SparkDaemonCliCommandBase {
   action: "start";
 }
@@ -560,6 +574,7 @@ export type SparkDaemonCliCommand =
   | SparkDaemonChannelCommand
   | SparkDaemonRunsCommand
   | SparkDaemonEventsCommand
+  | SparkDaemonModelCommand
   | SparkDaemonStartCommand
   | SparkDaemonServiceCommand;
 
@@ -573,6 +588,7 @@ export type SparkDaemonCliResult =
   | SparkDaemonChannelResult
   | SparkDaemonRunsResult
   | SparkDaemonEventsResult
+  | SparkDaemonModelResult
   | SparkDaemonStartResult;
 
 export interface SparkDaemonStatusResult {
@@ -687,6 +703,19 @@ export interface SparkDaemonRunsResult {
 export interface SparkDaemonEventsResult {
   action: "events";
   result: LocalDaemonEventsWatchResult;
+}
+
+export interface SparkDaemonModelCommandResult {
+  subcommand: "list" | "status" | "set";
+  snapshot: SparkModelControlSnapshot;
+  models?: SparkModelControlSnapshot["providers"][number]["models"];
+  selected?: SparkModelRef;
+  text: string;
+}
+
+export interface SparkDaemonModelResult {
+  action: "model";
+  result: SparkDaemonModelCommandResult;
 }
 
 export interface SparkDaemonStartResult {
@@ -843,12 +872,15 @@ export function parseSparkDaemonCliArgs(argv: string[]): SparkDaemonCliCommand {
       return parseSparkDaemonRunsCommand(parsed, json);
     case "events":
       return parseSparkDaemonEventsCommand(parsed, json);
+    case "model":
+      return parseSparkDaemonModelCommand(parsed, json);
     case "start":
       return { action: "start", json };
     case "stop":
     case "install":
     case "doctor":
     case "login":
+    case "auth":
     case "workspace":
     case "ws":
     case "uplink":
@@ -858,6 +890,70 @@ export function parseSparkDaemonCliArgs(argv: string[]): SparkDaemonCliCommand {
       return { action: "service", argv: ["daemon", ...argv] };
     default:
       throw new Error(STRINGS.unknownCommand(String(action)));
+  }
+}
+
+function parseSparkDaemonModelCommand(
+  parsed: ReturnType<typeof parseSparkCliOptions>,
+  json: boolean,
+): SparkDaemonModelCommand {
+  const [subcommand = "list", modelValue, ...extraPositionals] = parsed.positionals;
+  const sessionId = readStringOption(parsed.options, "session")?.trim();
+  if (subcommand === "list") {
+    assertOnlyModelOptions(parsed.options, ["all", "json"]);
+    if (modelValue || extraPositionals.length > 0 || sessionId) {
+      throw new Error("Usage: spark daemon model list [--all] [--json]");
+    }
+    assertBooleanModelOption(parsed.options, "all");
+    return {
+      action: "model",
+      subcommand,
+      json,
+      all: readBooleanOption(parsed.options, "all"),
+    };
+  }
+  if (subcommand === "status") {
+    assertOnlyModelOptions(parsed.options, ["session", "json"]);
+    if (modelValue || extraPositionals.length > 0) {
+      throw new Error("Usage: spark daemon model status [--session <id>] [--json]");
+    }
+    return { action: "model", subcommand, json, ...(sessionId ? { sessionId } : {}) };
+  }
+  if (subcommand === "set") {
+    assertOnlyModelOptions(parsed.options, ["session", "default", "json"]);
+    assertBooleanModelOption(parsed.options, "default");
+    if (!modelValue || extraPositionals.length > 0) {
+      throw new Error(
+        "Usage: spark daemon model set <provider/model> (--session <id>|--default) [--json]",
+      );
+    }
+    const useDefault = readBooleanOption(parsed.options, "default");
+    if (Boolean(sessionId) === useDefault) {
+      throw new Error("spark daemon model set requires exactly one of --session <id> or --default");
+    }
+    return {
+      action: "model",
+      subcommand,
+      json,
+      model: parseSparkModelValue(modelValue),
+      target: useDefault ? "default" : "session",
+      ...(sessionId ? { sessionId } : {}),
+    };
+  }
+  throw new Error(`unknown spark daemon model command: ${subcommand}`);
+}
+
+function assertOnlyModelOptions(
+  options: Record<string, string | boolean>,
+  allowed: readonly string[],
+): void {
+  const unknown = Object.keys(options).find((name) => !allowed.includes(name));
+  if (unknown) throw new Error(`unknown spark daemon model option: --${unknown}`);
+}
+
+function assertBooleanModelOption(options: Record<string, string | boolean>, name: string): void {
+  if (typeof options[name] === "string") {
+    throw new Error(`--${name} does not accept a value`);
   }
 }
 
@@ -1158,6 +1254,8 @@ export async function handleSparkDaemonCliCommand(
       return { action: "runs", result: await clientRuns(command, client) };
     case "events":
       return { action: "events", result: await clientEvents(command, client) };
+    case "model":
+      return { action: "model", result: await clientModel(command, client) };
     case "start":
       await clientEnsureRunning(client);
       return { action: "start", daemon: await clientStatus(client) };
@@ -1188,7 +1286,8 @@ export async function runSparkDaemonCliCommand(
     (result.action === "sessions" ||
       result.action === "ask" ||
       result.action === "events" ||
-      result.action === "channel") &&
+      result.action === "channel" ||
+      result.action === "model") &&
     !command.json
   ) {
     output.write(result.result.text);
@@ -1204,6 +1303,73 @@ export async function runSparkDaemonCliCommand(
   }
   printSparkCliResult(output, result, { json: command.json });
   return 0;
+}
+
+async function clientModel(
+  command: SparkDaemonModelCommand,
+  client: SparkDaemonClientOptions,
+): Promise<SparkDaemonModelCommandResult> {
+  if (command.subcommand === "set") {
+    if (!command.model || !command.target) {
+      throw new Error("Invalid spark daemon model set command.");
+    }
+    if (command.target === "default") {
+      await requestSparkDaemonControl("model.default.set", { model: command.model }, client);
+    } else {
+      await requestSparkDaemonControl(
+        "session.model.set",
+        { sessionId: command.sessionId!, model: command.model },
+        client,
+      );
+    }
+  }
+
+  const snapshot = await requestSparkDaemonControl(
+    "model.catalog",
+    command.sessionId ? { sessionId: command.sessionId } : {},
+    client,
+  );
+  if (command.subcommand === "list") {
+    const models = snapshot.providers
+      .flatMap((provider) => provider.models)
+      .filter((entry) => command.all || entry.available);
+    const text =
+      models.length === 0
+        ? "No matching Spark models.\n"
+        : `${models
+            .map((entry) => {
+              const marker = modelRefEquals(
+                entry.model,
+                snapshot.session?.model ?? snapshot.defaultModel,
+              )
+                ? "*"
+                : " ";
+              const availability = entry.available
+                ? "available"
+                : `unavailable: ${entry.unavailableReason ?? "authentication required"}`;
+              return `${marker} ${sparkModelValue(entry.model)}  ${availability}`;
+            })
+            .join("\n")}\n`;
+    return { subcommand: command.subcommand, snapshot, models, text };
+  }
+
+  const selected = snapshot.session?.model ?? snapshot.defaultModel;
+  const scope = snapshot.session ? `session ${snapshot.session.sessionId}` : "default";
+  const text = selected
+    ? `${scope}: ${sparkModelValue(selected)}\n`
+    : `${scope}: no model selected\n`;
+  return {
+    subcommand: command.subcommand,
+    snapshot,
+    ...(selected ? { selected } : {}),
+    text,
+  };
+}
+
+function modelRefEquals(left: SparkModelRef, right: SparkModelRef | undefined): boolean {
+  return Boolean(
+    right && left.providerName === right.providerName && left.modelId === right.modelId,
+  );
 }
 
 function renderInvocationResult(result: SparkDaemonInvocationResult["result"]): string {

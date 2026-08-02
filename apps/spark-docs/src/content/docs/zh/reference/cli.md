@@ -12,11 +12,6 @@ spark bg [--session <id>] [--json] <prompt>
 spark paths [--json]
 spark doctor
 spark tui [initial message]
-spark --print [--wait] <prompt>
-spark --mode json --print <prompt>
-spark --mode rpc
-spark --list-models [search]
-spark install|remove|update|list|config [resource]
 spark install --managed [--version <version>] [--prefix <path>]
 spark update status|check|apply|rollback|retry|configure
 spark version [--json]
@@ -32,9 +27,6 @@ spark --version
 - `spark bg` 提交持久后台工作。
 - `spark paths` 报告有效的配置与状态路径。
 - `spark doctor` 通过 daemon CLI 运行顶层健康诊断。
-- `--print`、`--mode` 和 `--list-models` 保留 headless/Pi-compatible
-  入口；新写的前台脚本优先使用 `spark run`。
-- Resource 命令安装和配置 extension、provider、skill、prompt template 与 theme。
 - `spark install --managed` 创建带不变 launcher 的 managed installation。
 - `spark update` 拥有升级策略、版本切换与回滚。
 - `spark version` 报告精确的 package 与 build identity。
@@ -44,29 +36,14 @@ spark --version
 
 未知子命令会失败，不会被解释为 prompt。
 
-## Resource package
+## 0.2.0 命令硬切
 
-```text
-spark install [--extension|--provider|--skill|--prompt-template|--theme] [--local] <source>
-spark remove [--extension|--provider|--skill|--prompt-template|--theme] <source>
-spark uninstall [kind flag] <source>
-spark update <source>
-spark tui update [source]
-spark list [--json]
-spark config [--json]
-```
+Spark 0.2.0 会直接拒绝旧的根级 `session`/`sessions`、`--print`/`-p`、
+`--mode`、`--list-models`，以及 Pi 风格的 `install`/`remove`/`uninstall`/
+`list`/`config` resource 命令；它们不再作为兼容代理。请改用 `spark run`、
+下方 daemon 命令或 `spark install --managed`。
 
-Source 可以是 npm package、Git URL 或本地路径；`--local` 强制按本地路径处理。
-安装时若未指定 kind，Spark 只会根据 source 名称中的可识别关键词推断；通用名称
-或路径应显式传 kind。对已管理的 package，remove 和 update 会复用 manifest
-记录的 kind；没有 manifest 记录的纯配置项若名称含义不明确，删除时应再次传 kind。
-`install` 把 package 复制到 Spark 管理的 resource 根目录，并写入有效配置；
-`remove`/`uninstall` 删除配置项和受管理副本。`spark update <source>` 更新单个已安装 resource；
-`spark tui update` 更新全部受管理 resource。`list` 显示已配置及仅安装的条目，
-`config` 输出有效 config 与 package 根目录。
-
-不带参数的 `spark update` 属于下方的 managed product updater。更新 resource
-package 时应提供 source，或使用 `spark tui update`。
+精确替换方式见 [迁移到 0.2.0](/zh/guides/migration-0.2/)。
 
 ## 交互式工作命令
 
@@ -81,6 +58,11 @@ package 时应提供 source，或使用 `spark tui update`。
 /loop [start|status|stop|restart] [目标]
 /repro [start|status|stop|restart] [目标]
 /workflow [run <selector>|list|runs|inspect|pause|resume|stop|restart|save|ack]
+/login [provider]
+/logout <provider>
+/model [provider/model]
+/sessions
+/status
 /help
 /help commands
 /help all
@@ -121,6 +103,28 @@ spark daemon stop
 spark daemon restart [--yes] [--wait]
 spark daemon logs [--follow] [--lines <n>]
 ```
+
+`spark daemon login` 只授权本机连接 Cockpit，绝不会配置 AI provider。
+
+## Provider 认证与模型
+
+```text
+spark daemon auth status [--json]
+spark daemon auth login [provider]
+spark daemon auth logout <provider> [--json]
+spark daemon auth import pi [--overwrite] [--json]
+spark daemon model list [--all] [--json]
+spark daemon model status [--session <id>] [--json]
+spark daemon model set <provider/model> (--session <id>|--default) [--json]
+```
+
+`auth import pi` 在配置了 `PI_CODING_AGENT_DIR` 时读取其 `auth.json`，否则读取
+`~/.pi/agent/auth.json`。它不会启动 Pi、执行 shell 命令或展开环境变量引用。默认保留
+Spark 已有凭证，只有显式 `--overwrite` 才覆盖。退出码 `0` 表示事务完成（包括全部跳过），
+`1` 表示读取、解析或存储失败，`2` 表示 CLI 用法错误。
+
+Provider 登录只存在于 `spark daemon auth login`（或 TUI 内的 `/login`）。
+报告只包含 provider ID、认证类型、计数和原因码，绝不包含凭证值。
 
 ## 会话与 invocation
 

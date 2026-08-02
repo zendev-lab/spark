@@ -14,6 +14,7 @@ import {
   resolveRoleModelSetting,
   runRole,
   validateRoleModel,
+  modelCatalogPortFromHostRegistry,
   type ResolvedRoleModelSetting,
   type RoleModelSettingsEntry,
   type RoleModelSettingsSource,
@@ -329,7 +330,6 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
         systemPrompt: role.systemPrompt,
         model,
         instruction: p.instruction,
-        piCommand: "pi",
         cwd,
         timeoutMs: p.timeoutMs,
         signal,
@@ -451,7 +451,6 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       model: Type.String({ description: "Concrete Pi model to validate and save." }),
       source: Type.Optional(Type.String({ description: "project | user. Defaults to project." })),
       includeUser: Type.Optional(Type.Boolean({ description: "Also load user roles." })),
-      piCommand: Type.Optional(Type.String({ description: "Pi executable for model validation." })),
     }),
     renderCall(args, theme) {
       return renderToolCall(
@@ -464,10 +463,13 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       const cwd = requiredSparkRolesCwd(ctx, "role model_set");
       const role = await selectRoleForModelAction(cwd, params, "role model_set");
       const model = normalizeRequiredString(params.model, "role model_set model");
+      const catalog = modelCatalogPortFromHostRegistry(
+        (ctx as { modelRegistry?: unknown }).modelRegistry,
+      );
+      if (!catalog) throw new Error("role model_set requires the host model catalog");
       await validateRoleModel({
-        piCommand: normalizeOptionalString(params.piCommand, "role model_set piCommand") ?? "pi",
+        catalog,
         model,
-        cwd,
       });
       const source = normalizeRoleModelSettingsSource(params.source, "role model_set source");
       const store = roleModelSettingsStoreForSource(cwd, source);
@@ -542,9 +544,6 @@ export function registerSparkRolesTools(pi: SparkRolesHostApi): void {
       allowedTools: Type.Optional(Type.Array(Type.String())),
       instruction: Type.Optional(Type.String({ description: "Instruction for call." })),
       launch: Type.Optional(Type.String({ description: "fresh for call." })),
-      piCommand: Type.Optional(
-        Type.String({ description: "Pi executable for model_set validation only." }),
-      ),
       cwd: Type.Optional(Type.String()),
       timeoutMs: Type.Optional(Type.Number()),
       model: Type.Optional(Type.String()),
@@ -745,9 +744,7 @@ function normalizeCallRoleToolParams(params: Record<string, unknown>): CallRoleT
       "call_role dryRun is no longer supported; call_role always launches a daemon-native run",
     );
   if (Object.hasOwn(params, "piCommand"))
-    throw new Error(
-      "call_role piCommand is no longer supported; use role model_set piCommand for model validation",
-    );
+    throw new Error("call_role piCommand is no longer supported; Spark owns model discovery");
   if (Object.hasOwn(params, "forkFromSession"))
     throw new Error("call_role forkFromSession is not public; use the session tool for continuity");
   if (Object.hasOwn(params, "sessionDir"))

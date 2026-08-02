@@ -55,7 +55,7 @@ test("runSparkCli rejects implicit TUI launch in non-interactive terminals", asy
     assert.equal(code, 2);
     assert.equal(ranTui, false);
     assert.match(errors.join("\n"), /requires an interactive terminal/u);
-    assert.match(errors.join("\n"), /spark-tui --print <prompt>/u);
+    assert.match(errors.join("\n"), /spark run <prompt>/u);
   } finally {
     console.error = previousError;
   }
@@ -132,7 +132,7 @@ function fakeHeadlessDaemonClient(
   } satisfies SparkDaemonClientOptions;
 }
 
-test("runSparkCli keeps explicit print mode usable without an interactive terminal", async () => {
+test("runSparkCli keeps native run mode usable without an interactive terminal", async () => {
   const logs: string[] = [];
   const submissions: Array<{
     sessionId: string;
@@ -148,7 +148,7 @@ test("runSparkCli keeps explicit print mode usable without an interactive termin
       logs.push(args.map(String).join(" "));
     };
 
-    const code = await runSparkCli(["--print", "hello", "spark"], {
+    const code = await runSparkCli(["run", "hello", "spark"], {
       daemonClient,
       terminal: { stdinIsTTY: false, stdoutIsTTY: false },
     });
@@ -162,7 +162,7 @@ test("runSparkCli keeps explicit print mode usable without an interactive termin
   }
 });
 
-test("runSparkCli JSON print emits documented JSONL event order", async () => {
+test("runSparkCli JSON run emits documented JSONL event order", async () => {
   const logs: string[] = [];
   const submissions: Array<{
     sessionId: string;
@@ -178,7 +178,7 @@ test("runSparkCli JSON print emits documented JSONL event order", async () => {
       logs.push(args.map(String).join(" "));
     };
 
-    const code = await runSparkCli(["--mode", "json", "--print", "hello", "spark"], {
+    const code = await runSparkCli(["run", "--json", "hello", "spark"], {
       daemonClient,
       terminal: { stdinIsTTY: false, stdoutIsTTY: false },
     });
@@ -1438,27 +1438,27 @@ test("Spark CLI host preserves slash commands and shell input", () => {
 
 // ---- --wait flag tests ----
 
-test("parseSparkCliCommand parses --wait flag into print command options", () => {
-  const cmd = parseSparkCliCommand(["--print", "--wait", "hello"]);
-  assert.equal(cmd.kind, "print");
-  if (cmd.kind === "print") {
+test("parseSparkCliCommand parses --wait flag into run command options", () => {
+  const cmd = parseSparkCliCommand(["run", "--wait", "hello"]);
+  assert.equal(cmd.kind, "run");
+  if (cmd.kind === "run") {
     assert.equal(cmd.prompt, "hello");
     assert.equal(cmd.options?.wait, true);
   }
 });
 
 test("parseSparkCliCommand parses -w short flag", () => {
-  const cmd = parseSparkCliCommand(["-p", "-w", "hello"]);
-  assert.equal(cmd.kind, "print");
-  if (cmd.kind === "print") {
+  const cmd = parseSparkCliCommand(["run", "-w", "hello"]);
+  assert.equal(cmd.kind, "run");
+  if (cmd.kind === "run") {
     assert.equal(cmd.options?.wait, true);
   }
 });
 
 test("parseSparkCliCommand without --wait has no wait option", () => {
-  const cmd = parseSparkCliCommand(["--print", "hello"]);
-  assert.equal(cmd.kind, "print");
-  if (cmd.kind === "print") {
+  const cmd = parseSparkCliCommand(["run", "hello"]);
+  assert.equal(cmd.kind, "run");
+  if (cmd.kind === "run") {
     assert.equal(cmd.options?.wait, undefined);
   }
 });
@@ -1492,7 +1492,7 @@ test("runSparkCli --wait returns 0 on succeeded invocation", async () => {
 
   try {
     console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
-    const code = await runSparkCli(["--print", "--wait", "hello"], {
+    const code = await runSparkCli(["run", "--wait", "hello"], {
       daemonClient,
       terminal: { stdinIsTTY: false, stdoutIsTTY: false },
     });
@@ -1532,7 +1532,7 @@ test("runSparkCli --wait returns 1 on failed invocation", async () => {
 
   try {
     console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
-    const code = await runSparkCli(["--print", "--wait", "hello"], {
+    const code = await runSparkCli(["run", "--wait", "hello"], {
       daemonClient,
       terminal: { stdinIsTTY: false, stdoutIsTTY: false },
     });
@@ -1571,7 +1571,7 @@ test("runSparkCli --wait returns 2 on cancelled invocation", async () => {
 
   try {
     console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
-    const code = await runSparkCli(["--print", "--wait", "hello"], {
+    const code = await runSparkCli(["run", "--wait", "hello"], {
       daemonClient,
       terminal: { stdinIsTTY: false, stdoutIsTTY: false },
     });
@@ -1595,7 +1595,7 @@ test("runSparkCli without --wait still returns queued ACK immediately", async ()
 
   try {
     console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
-    const code = await runSparkCli(["--print", "hello"], {
+    const code = await runSparkCli(["run", "hello"], {
       daemonClient,
       terminal: { stdinIsTTY: false, stdoutIsTTY: false },
     });

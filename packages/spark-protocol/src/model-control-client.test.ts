@@ -20,6 +20,16 @@ describe("spark model control client", () => {
             updatedAt: "2026-07-10T00:01:00.000Z",
           };
         }
+        if (method === "provider.auth.import.pi") {
+          return {
+            source: "pi",
+            sourcePath: "~/.pi/agent/auth.json",
+            imported: [{ provider: "openai-codex", type: "oauth" }],
+            overwritten: [],
+            skipped: [],
+            totals: { imported: 1, overwritten: 0, skipped: 0 },
+          };
+        }
         return {
           providers: [],
           defaultModel: { providerName: "openai", modelId: "gpt" },
@@ -34,14 +44,23 @@ describe("spark model control client", () => {
 
     const snapshot = await client.snapshot();
     const session = await client.setSessionModel({ providerName: "openai", modelId: "gpt" });
+    const imported = await client.importPiAuth({
+      sourcePath: "/tmp/pi/auth.json",
+      overwrite: true,
+    });
 
     expect(snapshot.session?.model).toEqual({ providerName: "openai", modelId: "gpt" });
     expect(session.model).toEqual({ providerName: "openai", modelId: "gpt" });
+    expect(imported.totals.imported).toBe(1);
     expect(calls).toEqual([
       { method: "model.catalog", params: { sessionId: "sess_demo" } },
       {
         method: "session.model.set",
         params: { sessionId: "sess_demo", model: { providerName: "openai", modelId: "gpt" } },
+      },
+      {
+        method: "provider.auth.import.pi",
+        params: { sourcePath: "/tmp/pi/auth.json", overwrite: true },
       },
     ]);
   });

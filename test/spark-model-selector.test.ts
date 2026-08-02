@@ -244,6 +244,34 @@ test("Spark model selector TUI wrapper renders bounded SelectList rows", () => {
   );
 });
 
+test("Spark model selector renders unavailable models as disabled login guidance", () => {
+  const component = createSparkModelSelectorComponent({
+    state: {
+      providers: [],
+      items: [
+        {
+          value: "locked/model-a",
+          providerName: "locked",
+          providerLabel: "Locked",
+          modelId: "model-a",
+          modelLabel: "Model A",
+          description: "Login required",
+          active: false,
+          available: false,
+          unavailableReason: "Login required",
+          loginCommand: "/login locked",
+          reasoning: false,
+        },
+      ],
+    },
+    onSelect: () => assert.fail("unavailable models must not be selectable"),
+  });
+
+  const output = component.render(80).join("\n");
+  assert.match(output, /Unavailable/u);
+  assert.match(output, /Model A — Login required · \/login locked/u);
+});
+
 test("createSparkModelPickerFromCustomUi mounts a SelectList overlay picker", async () => {
   const registry = registryWithModels();
   registry.setActive({ providerName: "fake", modelId: "model-a" });

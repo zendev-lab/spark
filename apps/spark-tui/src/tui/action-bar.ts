@@ -41,6 +41,7 @@ export class SparkTuiActionBarComponent implements Component, Focusable {
   private readonly requestRender?: () => void;
   private selectedIndex = 0;
   private confirmingDangerActionId: string | undefined;
+  private actionInFlight = false;
 
   constructor(options: SparkTuiActionBarComponentOptions) {
     this.view = options.view;
@@ -76,6 +77,7 @@ export class SparkTuiActionBarComponent implements Component, Focusable {
       return;
     }
     if (matchesKey(data, Key.enter)) {
+      if (this.actionInFlight) return;
       const action = this.selectedAction;
       if (!action || this.availability(action).disabled) {
         this.requestRender?.();
@@ -87,7 +89,10 @@ export class SparkTuiActionBarComponent implements Component, Focusable {
         return;
       }
       this.confirmingDangerActionId = undefined;
-      void this.onAction(action);
+      this.actionInFlight = true;
+      void Promise.resolve(this.onAction(action)).finally(() => {
+        this.actionInFlight = false;
+      });
       return;
     }
     if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {

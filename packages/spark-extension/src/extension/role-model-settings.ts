@@ -3,6 +3,8 @@ import {
   defaultUserRoleModelSettingsStore,
   resolveRoleModelSetting,
   validateRoleModel,
+  modelCatalogPortFromHostRegistry,
+  type ModelCatalogPort,
   type ResolvedRoleModelSetting,
   type RoleRegistry,
   type RoleSpec,
@@ -24,6 +26,7 @@ export interface RoleModelSettingsPreflightResult {
 
 interface RoleModelSettingsContext {
   model?: { provider?: unknown; id?: unknown };
+  modelRegistry?: unknown;
   ui?: {
     input?: (title: string, defaultValue?: string) => Promise<string | undefined>;
     notify?: (message: string, level?: "info" | "warning" | "error" | "success") => void;
@@ -36,9 +39,10 @@ export async function ensureRoleModelSettingsForProject(input: {
   registry: RoleRegistry;
   cwd: string;
   ctx: RoleModelSettingsContext;
-  piCommand?: string;
+  modelCatalog?: ModelCatalogPort;
 }): Promise<RoleModelSettingsPreflightResult> {
-  const piCommand = input.piCommand ?? "pi";
+  const modelCatalog =
+    input.modelCatalog ?? modelCatalogPortFromHostRegistry(input.ctx.modelRegistry);
   const roleRefs = uniqueRoleRefs(
     input.graph.readyTasks(input.projectRef).map((task) => sparkTaskExecutorRoleRef(task)),
   );
@@ -74,7 +78,10 @@ export async function ensureRoleModelSettingsForProject(input: {
       continue;
     }
     try {
-      await validateRoleModel({ piCommand, model, cwd: input.cwd });
+      if (!modelCatalog) {
+        throw new Error("Spark model catalog is unavailable in this host context");
+      }
+      await validateRoleModel({ catalog: modelCatalog, model });
       const entry = await userStore.save(roleRef, model);
       boundRoleRefs.push(roleRef);
       resolvedModels.push({

@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+set -eu
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+APP_DIR="$SCRIPT_DIR/.."
+ROOT_DIR="$APP_DIR/../.."
+SPARK_STABLE_LAUNCHER=${SPARK_STABLE_LAUNCHER:-"$APP_DIR/../spark-cli/bin/spark"}
+export SPARK_STABLE_LAUNCHER
+exec "$ROOT_DIR/node_modules/.bin/tsx" "$APP_DIR/src/cli.ts" "$@"

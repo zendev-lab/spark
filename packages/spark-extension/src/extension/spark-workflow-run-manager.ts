@@ -42,13 +42,11 @@ export interface SparkWorkflowRunManagerTickResult {
 export class SparkWorkflowRunManagerController {
   private readonly hooks: {
     refreshSparkWidget: (cwd: string, ctx: SparkWorkflowRunManagerContext) => Promise<void>;
-    piCommand?: (cwd: string, ctx: SparkWorkflowRunManagerContext) => string | undefined;
     driverControl: SparkDaemonDriverControl;
   };
 
   constructor(hooks: {
     refreshSparkWidget: (cwd: string, ctx: SparkWorkflowRunManagerContext) => Promise<void>;
-    piCommand?: (cwd: string, ctx: SparkWorkflowRunManagerContext) => string | undefined;
     driverControl?: SparkDaemonDriverControl;
   }) {
     this.hooks = { ...hooks, driverControl: hooks.driverControl ?? sparkDaemonDriverControl };
@@ -112,14 +110,12 @@ export class SparkWorkflowRunManagerController {
         );
       return { continuePolling: false };
     }
-    const piCommand = this.hooks.piCommand?.(cwd, ctx) ?? "pi";
     const settingsResult = await ensureRoleModelSettingsForProject({
       graph,
       projectRef: currentProject.ref,
       registry,
       cwd,
       ctx,
-      piCommand,
     });
     if (!settingsResult.ready) {
       if (control && currentProject.ref === control.projectRef)
