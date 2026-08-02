@@ -179,6 +179,7 @@ interface PreparedDaemonRuntime {
   invocationStore: SparkInvocationStore;
   driverStore: SparkDriverStore;
   nextDriverGcAtMs: number;
+  nextStorageMaintenanceAtMs: number;
   channelReplyDeliveryStore: ChannelReplyDeliveryStore;
   scheduler: SparkInvocationScheduler | null;
   mailStore: SparkSessionMailStore;
@@ -330,6 +331,7 @@ async function createPreparedDaemonRuntime(
     invocationStore,
     driverStore,
     nextDriverGcAtMs: Date.now() + 60_000,
+    nextStorageMaintenanceAtMs: Date.now(),
     channelReplyDeliveryStore,
     scheduler,
     mailStore,
@@ -525,6 +527,7 @@ async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<
   runtime.scheduler?.activateAdmission();
   runtime.invocationRegistry.activateAdmission();
   runtime.admission.open = true;
+  runStorageMaintenance(runtime);
 }
 
 function startDaemonServingLoops(runtime: PreparedDaemonRuntime): void {
@@ -600,6 +603,9 @@ function commitDaemonServingFence(runtime: PreparedDaemonRuntime): void {
 
 async function runSchedulerLoop(runtime: PreparedDaemonRuntime): Promise<void> {
   while (!runtime.runtimeSignal.aborted) {
+    if (Date.now() >= runtime.nextStorageMaintenanceAtMs) {
+      runStorageMaintenance(runtime);
+    }
     if (runtime.admission.open) await reconcileDriverHiddenSessionGc(runtime);
     const materialized = runtime.admission.open ? materializeDriverDue(runtime) : undefined;
     const didWork = (runtime.scheduler?.processBatch() ?? false) || Boolean(materialized);
@@ -609,6 +615,16 @@ async function runSchedulerLoop(runtime: PreparedDaemonRuntime): Promise<void> {
         runtime.runtimeSignal,
       );
     }
+  }
+}
+
+function runStorageMaintenance(runtime: PreparedDaemonRuntime): void {
+  runtime.nextStorageMaintenanceAtMs = Date.now() + 60 * 60 * 1_000;
+  const before = new Date(Date.now() - 24 * 60 * 60 * 1_000).toISOString();
+  try {
+    runtime.invocationStore.pruneViewEventCache(before, 256);
+  } catch (error) {
+    logDaemonError(runtime.options.config.runtimeId ?? "unknown", error);
   }
 }
 
