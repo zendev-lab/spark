@@ -159,6 +159,7 @@ const DEFAULT_EVENT_PAGE_LIMIT = 100;
 export const MAX_INVOCATION_EVENT_PAGE_LIMIT = 500;
 export const MAX_PERSISTED_INVOCATION_RESULT_BYTES = 512 * 1024;
 export const MAX_PERSISTED_INVOCATION_EVENT_BYTES = 256 * 1024;
+const MAX_PERSISTED_EVENT_SESSION_ID_BYTES = 4 * 1024;
 const MAX_PERSISTED_RESULT_STRING_BYTES = 384 * 1024;
 const MAX_PERSISTED_RESULT_ARRAY_ITEMS = 64;
 const MAX_PERSISTED_RESULT_OBJECT_KEYS = 128;
@@ -1261,7 +1262,11 @@ function persistedInvocationEventPayload(
   ) {
     return bounded as Record<string, unknown>;
   }
-  const sessionId = jsonString(payload, "sessionId") ?? "unknown";
+  const rawSessionId = jsonString(payload, "sessionId");
+  const sessionId =
+    rawSessionId && jsonBytes(rawSessionId) <= MAX_PERSISTED_EVENT_SESSION_ID_BYTES
+      ? rawSessionId
+      : "unknown";
   return {
     version: SPARK_PROTOCOL_VERSION,
     type: "daemon.view_event",

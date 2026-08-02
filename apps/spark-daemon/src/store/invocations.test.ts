@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { migrateSparkDaemonDatabase } from "./schema.ts";
 import {
   MAX_INVOCATION_EVENT_PAGE_LIMIT,
+  MAX_PERSISTED_INVOCATION_EVENT_BYTES,
   MAX_PERSISTED_INVOCATION_RESULT_BYTES,
   SparkInvocationStore,
 } from "./invocations.ts";
@@ -840,6 +841,14 @@ describe("SparkInvocationStore", () => {
         view: { type: "session.message", message: { metadata: { cacheOmitted: true } } },
       });
       expect(Buffer.byteLength(JSON.stringify(event.payload))).toBeLessThanOrEqual(256 * 1024);
+
+      const oversizedIdentity = store.appendEvent(invocation.invocationId, "daemon.view_event", {
+        sessionId: "x".repeat(512 * 1024),
+      });
+      expect(oversizedIdentity.payload.sessionId).toBe("unknown");
+      expect(Buffer.byteLength(JSON.stringify(oversizedIdentity.payload))).toBeLessThanOrEqual(
+        MAX_PERSISTED_INVOCATION_EVENT_BYTES,
+      );
     } finally {
       db.close();
     }
