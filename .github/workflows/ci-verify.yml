@@ -98,6 +98,7 @@ jobs:
       - name: Smoke Cockpit container
         run: |
           container_id="$(docker run --detach \
+            --env HOST=127.0.0.1 \
             --env SPARK_COCKPIT_PUBLIC_URL=https://spark.example.test \
             --env SPARK_COCKPIT_TRUST_PROXY=loopback \
             spark-cockpit:ci)"
