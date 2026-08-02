@@ -40,6 +40,7 @@ ENV NODE_ENV=production \
 WORKDIR /opt/spark
 
 COPY --from=build /src/dist/release/spark-v*.tgz /tmp/spark.tgz
+COPY --from=build --chown=node:node /src/scripts/container-healthcheck.mjs /opt/spark/container-healthcheck.mjs
 
 RUN npm install --prefix /opt/spark --omit=dev --ignore-scripts /tmp/spark.tgz \
     && npm cache clean --force \
@@ -53,6 +54,6 @@ EXPOSE 5173
 STOPSIGNAL SIGTERM
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:5173/api/v1/health').then(async (response) => { const body = await response.json(); if (!response.ok || body.service !== 'spark-cockpit' || body.status !== 'ok') process.exit(1); }).catch(() => process.exit(1))"]
+  CMD ["node", "/opt/spark/container-healthcheck.mjs"]
 
 CMD ["node", "/opt/spark/node_modules/@zendev-lab/spark/dist/spark-cockpit-server.js"]
