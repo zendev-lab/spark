@@ -190,7 +190,88 @@ export type SparkAgentStreamFunction = (
 
 export type SparkAgentLoopState = "idle" | "streaming" | "tooling" | "aborting";
 export type SparkAgentPhase = "plan" | "implement";
-export type SparkAgentLifecycleSource = "agentLoop" | "triggerTurn";
+export type SparkAgentLifecycleSource = "agentLoop" | "triggerTurn" | "restartResume";
+
+export const SPARK_TURN_RESTART_YIELD_ERROR_CODE = "SPARK_TURN_RESTART_YIELD";
+
+/**
+ * Internal control-flow signal used after a daemon has durably requeued a turn
+ * at a restart checkpoint. It is intentionally not a failed/aborted run
+ * outcome: the successor daemon still owns the same invocation.
+ */
+export class SparkTurnRestartYieldError extends Error {
+  readonly code = SPARK_TURN_RESTART_YIELD_ERROR_CODE;
+
+  constructor() {
+    super("Spark turn yielded at a durable daemon restart checkpoint");
+    this.name = "SparkTurnRestartYieldError";
+  }
+}
+
+export function isSparkTurnRestartYieldError(error: unknown): error is SparkTurnRestartYieldError {
+  return (
+    error instanceof SparkTurnRestartYieldError ||
+    (error instanceof Error &&
+      (error as Error & { code?: unknown }).code === SPARK_TURN_RESTART_YIELD_ERROR_CODE)
+  );
+}
+
+export interface SparkBeforeToolCallsCheckpoint {
+  toolCalls: readonly ToolCall[];
+  promptItems: readonly SparkPromptItem[];
+  roundtrips: number;
+}
+
+export interface SparkAgentLoopRunHooks {
+  /**
+   * Awaited after the assistant tool-call message is in the host prompt log
+   * and turn_end has settled, but before any pending tool is dispatched.
+   */
+  beforeToolCalls?: (checkpoint: SparkBeforeToolCallsCheckpoint) => void | Promise<void>;
+}
+
+/** Durable payload owned by a daemon invocation while it is between model and tool execution. */
+export interface SparkTurnResumeCheckpoint {
+  version: 1;
+  phase: "before_tool_calls";
+  createdAt: string;
+  /** Last persisted session entry observed before the transient turn began. */
+  baseSessionEntryId: string | null;
+  /** Prompt item count derived from that persisted base, including compaction lowering. */
+  basePromptItemCount: number;
+  /** Unpersisted user/runtime/assistant items through the pending assistant tool-call message. */
+  promptItems: SparkPromptItem[];
+  /** Exact calls emitted by the assistant and not yet dispatched. */
+  toolCalls: ToolCall[];
+}
+
+export const MAX_SPARK_TURN_RESUME_CHECKPOINT_BYTES = 4 * 1024 * 1024;
+
+export function isSparkTurnResumeCheckpointPersistable(value: unknown): boolean {
+  try {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const promptItems = (value as { promptItems?: unknown }).promptItems;
+    if (
+      !Array.isArray(promptItems) ||
+      promptItems.some(
+        (item) =>
+          !item ||
+          typeof item !== "object" ||
+          Array.isArray(item) ||
+          (item as { persistence?: unknown }).persistence !== "session",
+      )
+    ) {
+      return false;
+    }
+    const serialized = JSON.stringify(value);
+    return (
+      typeof serialized === "string" &&
+      new TextEncoder().encode(serialized).byteLength <= MAX_SPARK_TURN_RESUME_CHECKPOINT_BYTES
+    );
+  } catch {
+    return false;
+  }
+}
 
 export interface SparkTurnOutboxEnvelope {
   kind: "custom" | "user";
@@ -566,7 +647,10 @@ export class SparkAgentLoop {
   }
 
   /** Submit a user turn and retain the reason the loop terminated. */
-  async submitWithOutcome(content: SparkTurnUserContent): Promise<SparkRunOutcome> {
+  async submitWithOutcome(
+    content: SparkTurnUserContent,
+    hooks: SparkAgentLoopRunHooks = {},
+  ): Promise<SparkRunOutcome> {
     if (this.state !== "idle" || this.triggerTurnRunning) {
       // The TUI handles queueing; the loop refuses to interleave.
       throw new Error(
@@ -590,7 +674,31 @@ export class SparkAgentLoop {
     this.publish({ type: "user_message", message: userMessage });
     this.currentAbortReason = undefined;
 
-    return this.runTurns();
+    return this.runTurns({ hooks });
+  }
+
+  /**
+   * Resume a checkpointed assistant tool-call turn without resubmitting the
+   * preceding user prompt or asking the model to recreate the tool calls.
+   */
+  async resumeToolCallsWithOutcome(
+    toolCalls: readonly ToolCall[],
+    hooks: SparkAgentLoopRunHooks = {},
+  ): Promise<SparkRunOutcome> {
+    if (this.state !== "idle" || this.triggerTurnRunning) {
+      throw new Error(
+        `SparkAgentLoop.resumeToolCalls refused: agent is not idle (state=${this.state}).`,
+      );
+    }
+    if (toolCalls.length === 0) {
+      throw new Error("SparkAgentLoop.resumeToolCalls requires at least one pending tool call");
+    }
+
+    this.lastOutcome = undefined;
+    this.lastPromptManifest = undefined;
+    this.startViewRun("daemon restart resume");
+    this.currentAbortReason = undefined;
+    return this.runTurns({ initialToolCalls: toolCalls, hooks });
   }
 
   /** Cancel the in-flight stream/tool, marking the agent idle again. */
@@ -632,10 +740,13 @@ export class SparkAgentLoop {
     options: {
       skipInitialLifecycle?: boolean;
       lifecycleSource?: SparkAgentLifecycleSource;
+      initialToolCalls?: readonly ToolCall[];
+      hooks?: SparkAgentLoopRunHooks;
     } = {},
   ): Promise<SparkRunOutcome> {
     let lastAssistant: AssistantMessage | undefined;
     let roundtrips = 0;
+    let suspendedForRestart = false;
     let agentEndPayload:
       | { messages: AssistantMessage[]; errorMessage?: string; outcome?: SparkRunOutcome }
       | undefined;
@@ -682,6 +793,22 @@ export class SparkAgentLoop {
     };
 
     try {
+      if (options.initialToolCalls?.length) {
+        await this.host.emit("turn_start", { source: "restartResume" });
+        this.transition("tooling");
+        const abortController = new AbortController();
+        this.currentAbort = abortController;
+        const toolResults = await this.dispatchToolCalls(
+          [...options.initialToolCalls],
+          abortController.signal,
+        );
+        for (const result of toolResults) {
+          this.promptItems.push(asProviderMessageItem(result));
+          this.publish({ type: "tool_result", message: result });
+          this.publishEntityViewsForToolResult(result);
+        }
+        this.drainOutboxIntoMessages();
+      }
       let skipLifecycle = options.skipInitialLifecycle ?? false;
       const lifecycleSource = options.lifecycleSource ?? "agentLoop";
       while (true) {
@@ -834,6 +961,11 @@ export class SparkAgentLoop {
           continue;
         }
 
+        await options.hooks?.beforeToolCalls?.({
+          toolCalls,
+          promptItems: this.getPromptItems(),
+          roundtrips,
+        });
         this.transition("tooling");
         const toolResults = await this.dispatchToolCalls(toolCalls, abortController.signal);
         for (const result of toolResults) {
@@ -853,6 +985,10 @@ export class SparkAgentLoop {
       this.publish({ type: "error", message });
       return fail(message);
     } catch (error) {
+      if (isSparkTurnRestartYieldError(error)) {
+        suspendedForRestart = true;
+        throw error;
+      }
       const message = error instanceof Error ? error.message : String(error);
       if (this.state === "aborting" || this.currentAbortReason) {
         return abort(this.currentAbortReason ?? message);
@@ -863,10 +999,12 @@ export class SparkAgentLoop {
       this.currentAbort = undefined;
       this.currentAbortReason = undefined;
       this.transition("idle");
-      await this.host.emit(
-        "agent_end",
-        agentEndPayload ?? (lastAssistant ? { messages: [lastAssistant] } : { messages: [] }),
-      );
+      if (!suspendedForRestart) {
+        await this.host.emit(
+          "agent_end",
+          agentEndPayload ?? (lastAssistant ? { messages: [lastAssistant] } : { messages: [] }),
+        );
+      }
     }
   }
 

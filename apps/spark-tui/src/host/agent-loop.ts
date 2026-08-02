@@ -10,6 +10,7 @@
 import {
   SparkAgentLoop as SparkTurnAgentLoop,
   type SparkAgentLoopOptions as SparkTurnAgentLoopOptions,
+  type SparkAgentLoopRunHooks,
   type SparkRunOutcome,
   type SparkTurnUserContent,
 } from "@zendev-lab/spark-turn";
@@ -33,10 +34,13 @@ export class SparkAgentLoop extends SparkTurnAgentLoop {
     this.finishUserSubmit = finishUserSubmit;
   }
 
-  override async submitWithOutcome(content: SparkTurnUserContent): Promise<SparkRunOutcome> {
+  override async submitWithOutcome(
+    content: SparkTurnUserContent,
+    hooks: SparkAgentLoopRunHooks = {},
+  ): Promise<SparkRunOutcome> {
     // Let the core loop produce its canonical busy error without mutating the
     // prompt of the in-flight turn.
-    if (this.getState() !== "idle") return await super.submitWithOutcome(content);
+    if (this.getState() !== "idle") return await super.submitWithOutcome(content, hooks);
     if (this.preparingUserSubmit) {
       throw new Error(
         "SparkAgentLoop.submit refused: agent is not idle (state=preparing). " +
@@ -50,7 +54,7 @@ export class SparkAgentLoop extends SparkTurnAgentLoop {
     this.preparingUserSubmit = true;
     try {
       await this.prepareUserSubmit?.(userContentText(content));
-      return await super.submitWithOutcome(content);
+      return await super.submitWithOutcome(content, hooks);
     } finally {
       try {
         await this.finishUserSubmit?.();

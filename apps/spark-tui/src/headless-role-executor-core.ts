@@ -17,6 +17,7 @@ import type {
   ToolConfig,
   ToolEffect,
 } from "@zendev-lab/spark-core";
+import type { SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
 
 import type {
   SparkCliHostDiagnostic,
@@ -102,6 +103,10 @@ export interface SparkHeadlessSessionRunInput {
   sessionPurpose?: "driver_tick";
   /** Continue a turn after daemon/process interrupt using persisted session state. */
   resumeFromInterrupt?: boolean;
+  /** Exact pending tool-call continuation captured by a planned daemon restart. */
+  restartCheckpoint?: SparkTurnResumeCheckpoint;
+  /** Persist and yield when a restart is pending; otherwise return normally. */
+  yieldForRestartIfRequested?: (checkpoint: SparkTurnResumeCheckpoint) => void;
   signal?: AbortSignal;
   timeoutMs?: number;
   sparkHome?: string;
@@ -243,6 +248,10 @@ export async function runSparkHeadlessSession(
         sessionVisibility: input.sessionVisibility,
         sessionPurpose: input.sessionPurpose,
         ...(input.resumeFromInterrupt ? { resumeFromInterrupt: true } : {}),
+        ...(input.restartCheckpoint ? { restartCheckpoint: input.restartCheckpoint } : {}),
+        ...(input.yieldForRestartIfRequested
+          ? { yieldForRestartIfRequested: input.yieldForRestartIfRequested }
+          : {}),
         ...(input.messageMetadata ? { messageMetadata: input.messageMetadata } : {}),
       }),
       input.timeoutMs,

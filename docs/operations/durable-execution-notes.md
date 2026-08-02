@@ -25,10 +25,10 @@ Key property: **side effects happen once**; control flow can be replayed safely 
 | Durable concept | Closest Spark surface | Gap |
 | --- | --- | --- |
 | Run identity | Invocation id (`inv_*`), workflow run refs, dynamic workflow run refs | Multiple id namespaces; not one “execution id” across loop/workflow/turn |
-| Step checkpoint | Dynamic workflow **event-sourced** store (v2); workflow-run snapshots; stage/journal entries in workflow runtime | Workflow JSON snapshots can reconcile after crash, but agent-loop *tool turns* are not step-memoized |
+| Step checkpoint | Dynamic workflow **event-sourced** store (v2); workflow-run snapshots; stage/journal entries in workflow runtime; invocation-owned `before_tool_calls` checkpoint for planned daemon restart | Workflow JSON snapshots can reconcile after crash. Planned restart can continue an undispatched tool batch, but completed/in-flight tool side effects are not generally step-memoized |
 | Event log | `invocation_events` (+ log chunks) in Cockpit DB; protocol event cursor | Projection/mirror oriented; not a replayable execution journal for daemon turn engines |
 | Pause / resume | `spark-loop` / goal `paused` + resume | Loop state is coarse (whole loop), not per-step |
-| Retry | Invocation `attemptCount` / `retryOfInvocationId`; workflow parallel retry options | Retry usually restarts a turn/run rather than “continue after last durable step” |
+| Retry | Invocation `attemptCount` / `retryOfInvocationId`; workflow parallel retry options | Retry usually restarts a turn/run. Only the planned-restart `before_tool_calls` checkpoint continues an exact pending batch |
 | Sleep / wait for human | Ask/approval waits in protocol / channels | Wait is interactive, not a durable timer that survives process death with automatic resume scheduling |
 
 Rough layering today:

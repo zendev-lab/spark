@@ -13,7 +13,11 @@ import {
   type SparkCliHostServicesOptions,
   type SparkConfig,
 } from "../host/index.ts";
-import { SPARK_PROMPT_ITEM_METADATA_KEY } from "@zendev-lab/spark-turn";
+import {
+  SPARK_PROMPT_ITEM_METADATA_KEY,
+  SparkTurnRestartYieldError,
+  type SparkTurnResumeCheckpoint,
+} from "@zendev-lab/spark-turn";
 import { assistantMessageToFinalAnswerText } from "../host/agent-session.ts";
 import { createSparkHeadlessRoleExecutor } from "../headless-role-executor.ts";
 import {
@@ -227,6 +231,107 @@ test("SparkAgentSession persists and resumes JSONL sessions", async () => {
       ),
       true,
     );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("SparkAgentSession restores a restart checkpoint without replaying its prompt", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-restart-checkpoint-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    let toolExecutions = 0;
+    const fake = {
+      streamSimple: () => {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          return {
+            ...assistant(""),
+            content: [
+              {
+                type: "toolCall",
+                id: "restart-tool-call",
+                name: "restart_probe",
+                arguments: { value: "checkpoint" },
+              },
+            ],
+            stopReason: "toolUse",
+          } as unknown as AssistantMessage;
+        }
+        return assistant("continued after restart");
+      },
+    };
+    const registerTool = (services: SparkCliHostServices) => {
+      services.runtime.registerTool({
+        name: "restart_probe",
+        description: "restart checkpoint probe",
+        parameters: { type: "object" },
+        async execute(_id, parameters) {
+          toolExecutions += 1;
+          return {
+            content: [
+              {
+                type: "text",
+                text: `executed:${(parameters as { value?: string }).value ?? ""}`,
+              },
+            ],
+          };
+        },
+      });
+      services.runtime.setActiveTools([
+        ...new Set([...services.runtime.getActiveTools(), "restart_probe"]),
+      ]);
+    };
+
+    const predecessorServices = await makeFakeServices({ cwd, sparkHome }, fake);
+    registerTool(predecessorServices);
+    let checkpoint: SparkTurnResumeCheckpoint | undefined;
+    await assert.rejects(
+      new SparkAgentSession(predecessorServices).run({
+        sessionId: "restart-checkpoint-session",
+        prompt: "run once",
+        messageMetadata: { request: "restart-checkpoint" },
+        yieldForRestartIfRequested: (candidate) => {
+          checkpoint = candidate;
+          throw new SparkTurnRestartYieldError();
+        },
+      }),
+      (error: unknown) => error instanceof SparkTurnRestartYieldError,
+    );
+    assert.ok(checkpoint);
+    assert.equal(toolExecutions, 0);
+    assert.equal(providerCalls, 1);
+
+    const successorServices = await makeFakeServices({ cwd, sparkHome }, fake);
+    registerTool(successorServices);
+    const result = await new SparkAgentSession(successorServices).run({
+      sessionId: "restart-checkpoint-session",
+      prompt: "run once",
+      resumeFromInterrupt: true,
+      restartCheckpoint: checkpoint,
+      messageMetadata: { request: "restart-checkpoint" },
+    });
+
+    assert.equal(result.outcome?.status, "completed");
+    assert.equal(result.assistantText, "continued after restart");
+    assert.equal(providerCalls, 2);
+    assert.equal(toolExecutions, 1);
+    const record = await successorServices.sessionStore.load(result.sessionPath);
+    const messages = record.entries.filter((entry) => entry.type === "message");
+    assert.deepEqual(
+      messages.map((entry) => entry.message.role),
+      ["user", "assistant", "toolResult", "assistant"],
+    );
+    assert.equal(
+      messages.filter(
+        (entry) => entry.message.role === "user" && entry.message.content === "run once",
+      ).length,
+      1,
+    );
+    assert.deepEqual(messages[0]?.message.metadata, { request: "restart-checkpoint" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -7,6 +7,12 @@ import {
   type SparkJsonObject,
 } from "@zendev-lab/spark-protocol";
 import {
+  SparkTurnRestartYieldError,
+  isSparkTurnRestartYieldError,
+  isSparkTurnResumeCheckpointPersistable,
+  type SparkTurnResumeCheckpoint,
+} from "@zendev-lab/spark-turn";
+import {
   SPARK_INVOCATION_INTERRUPTED_ERROR_CODE,
   SPARK_INVOCATION_INTERRUPTED_ERROR_MESSAGE,
   SparkInvocationStore,
@@ -61,6 +67,8 @@ export interface SparkInvocationSchedulerOptions {
   abortDrainMs?: number;
   /** Keep durable claims closed until the owning daemon commits its serving fence. */
   initiallyAccepting?: boolean;
+  /** Restart-only signal used to cooperatively yield at model-to-tool boundaries. */
+  restartRequestedSignal?: AbortSignal;
 }
 
 export class SparkInvocationScheduler {
@@ -73,6 +81,7 @@ export class SparkInvocationScheduler {
   private readonly workerId: string;
   private readonly concurrency: number;
   private readonly taskTimeoutMs: number;
+  private readonly restartRequestedSignal?: AbortSignal;
   private readonly active = new Map<string, ActiveInvocation>();
   private readonly activeSessions = new Set<string>();
   private accepting: boolean;
@@ -93,6 +102,7 @@ export class SparkInvocationScheduler {
       options.taskTimeoutMs,
       DEFAULT_INVOCATION_TASK_TIMEOUT_MS,
     );
+    this.restartRequestedSignal = options.restartRequestedSignal;
     this.accepting = options.initiallyAccepting !== false;
   }
 
@@ -241,6 +251,13 @@ export class SparkInvocationScheduler {
 
   private launch(invocation: SparkInvocationRecord): void {
     const task = validateSparkDaemonTask(invocation.task);
+    if (
+      task.type === "session.run" &&
+      task.restartCheckpoint &&
+      !this.store.hasRestartCheckpoint(invocation.invocationId)
+    ) {
+      throw new Error("restartCheckpoint is daemon-internal and lacks a durable checkpoint event");
+    }
     const controller = new AbortController();
     const sessionId = getSparkDaemonTaskSessionId(task);
     let executorSettled: Promise<unknown> | undefined;
@@ -268,6 +285,7 @@ export class SparkInvocationScheduler {
     timeout.start();
     let executorSettled: Promise<unknown> | undefined;
     let streamedEventCount = 0;
+    let restartYieldCommitted = false;
     try {
       const context = {
         invocationId: invocation.invocationId,
@@ -275,6 +293,18 @@ export class SparkInvocationScheduler {
         timeoutMs: this.taskTimeoutMs,
         withPausedTimeout: async <T>(operation: () => Promise<T>) =>
           await timeout.runPaused(operation),
+        yieldForRestartIfRequested: (checkpoint: SparkTurnResumeCheckpoint) => {
+          if (!this.restartRequestedSignal?.aborted) return;
+          if (!isSparkTurnResumeCheckpointPersistable(checkpoint)) return;
+          if (controller.signal.aborted) {
+            throw abortReason(controller.signal, new Error("invocation aborted"));
+          }
+          const persisted = this.store.require(invocation.invocationId);
+          if (persisted.cancelReason) throw new InvocationCancelledError(persisted.cancelReason);
+          this.store.requeueAtRestartCheckpoint(invocation.invocationId, checkpoint);
+          restartYieldCommitted = true;
+          throw new SparkTurnRestartYieldError();
+        },
         emitEvent: (event: SparkDaemonEvent) => {
           streamedEventCount += 1;
           return this.emitPersisted(
@@ -297,6 +327,7 @@ export class SparkInvocationScheduler {
       this.completeInvocation(invocation, task, { status: "succeeded", result });
       this.emit(lifecycleEvent(invocation.invocationId, task, "succeeded"));
     } catch (error) {
+      if (restartYieldCommitted && isSparkTurnRestartYieldError(error)) return;
       const reason = abortReason(controller.signal, error);
       if (reason instanceof InvocationCancelledError) {
         this.completeInvocation(invocation, task, {

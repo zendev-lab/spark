@@ -2,6 +2,10 @@ import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import {
+  isSparkTurnResumeCheckpointPersistable,
+  type SparkTurnResumeCheckpoint,
+} from "@zendev-lab/spark-turn";
 import { SparkDaemonControlError } from "../control-error.ts";
 import { buildPendingDeliveriesQuery } from "./invocation-delivery-query.ts";
 
@@ -709,6 +713,83 @@ export class SparkInvocationStore {
     return this.require(invocationId);
   }
 
+  /**
+   * Atomically hand a running invocation to the restart successor before any
+   * pending assistant tool call is dispatched.
+   */
+  requeueAtRestartCheckpoint(
+    invocationId: string,
+    checkpoint: SparkTurnResumeCheckpoint,
+    now = new Date().toISOString(),
+  ): SparkInvocationRecord {
+    if (!isSparkTurnResumeCheckpointPersistable(checkpoint)) {
+      throw new Error("Invocation restart checkpoint is not safe for durable storage");
+    }
+    const current = this.require(invocationId);
+    if (current.status !== "running") {
+      throw new Error(
+        `Invocation restart checkpoint conflict: ${invocationId} is ${current.status}`,
+      );
+    }
+    assertTransition(current.status, "queued");
+    const nextTask = markTaskForRestartCheckpoint(current.task, checkpoint);
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const changes = Number(
+        this.db
+          .prepare(
+            `UPDATE invocations
+             SET status = 'queued',
+                 worker_id = NULL,
+                 claimed_at = NULL,
+                 started_at = NULL,
+                 finished_at = NULL,
+                 cancel_reason = NULL,
+                 error_code = NULL,
+                 error_message = NULL,
+                 result_json = NULL,
+                 source_kind = ?,
+                 task_json = ?,
+                 updated_at = ?
+             WHERE id = ? AND status = 'running'`,
+          )
+          .run(SPARK_INVOCATION_RESUME_SOURCE_KIND, JSON.stringify(nextTask), now, invocationId)
+          .changes,
+      );
+      if (changes !== 1) {
+        throw new Error(`Invocation restart checkpoint conflict: ${invocationId}`);
+      }
+      this.appendEventInTransaction(
+        invocationId,
+        "invocation.restart_checkpoint_queued",
+        {
+          phase: checkpoint.phase,
+          checkpointVersion: checkpoint.version,
+          pendingToolCallCount: checkpoint.toolCalls.length,
+        },
+        now,
+      );
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return this.require(invocationId);
+  }
+
+  hasRestartCheckpoint(invocationId: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1
+           FROM invocation_events
+           WHERE invocation_id = ? AND kind = 'invocation.restart_checkpoint_queued'
+           LIMIT 1`,
+        )
+        .get(invocationId),
+    );
+  }
+
   complete(invocationId: string, input: CompleteSparkInvocationInput): SparkInvocationRecord {
     const current = this.require(invocationId);
     assertTransition(current.status, input.status);
@@ -747,47 +828,46 @@ export class SparkInvocationStore {
     this.require(invocationId);
     this.db.exec("BEGIN IMMEDIATE");
     try {
-      const cursor = this.db
-        .prepare(
-          `SELECT event_cursor AS sequence
-           FROM invocations
-           WHERE id = ?`,
-        )
-        .get(invocationId) as { sequence: number } | undefined;
-      const sequence = Number(cursor?.sequence ?? 0) + 1;
-      const persistedPayload = persistedInvocationEventPayload(
-        invocationId,
-        sequence,
-        kind,
-        payload,
-      );
-      this.db
-        .prepare(
-          `INSERT INTO invocation_events
-            (invocation_id, sequence, kind, payload_json, created_at)
-           VALUES (?, ?, ?, ?, ?)`,
-        )
-        .run(invocationId, sequence, kind, JSON.stringify(persistedPayload), now);
-      this.db
-        .prepare(
-          `UPDATE invocations
-           SET event_cursor = ?,
-               updated_at = ?
-           WHERE id = ?`,
-        )
-        .run(sequence, now, invocationId);
+      const event = this.appendEventInTransaction(invocationId, kind, payload, now);
       this.db.exec("COMMIT");
-      return {
-        invocationId,
-        sequence,
-        kind,
-        payload: persistedPayload as Record<string, unknown>,
-        createdAt: now,
-      };
+      return event;
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  private appendEventInTransaction(
+    invocationId: string,
+    kind: string,
+    payload: Record<string, unknown>,
+    now: string,
+  ): SparkInvocationEvent {
+    const cursor = this.db
+      .prepare(
+        `SELECT event_cursor AS sequence
+         FROM invocations
+         WHERE id = ?`,
+      )
+      .get(invocationId) as { sequence: number } | undefined;
+    const sequence = Number(cursor?.sequence ?? 0) + 1;
+    const persistedPayload = persistedInvocationEventPayload(invocationId, sequence, kind, payload);
+    this.db
+      .prepare(
+        `INSERT INTO invocation_events
+          (invocation_id, sequence, kind, payload_json, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(invocationId, sequence, kind, JSON.stringify(persistedPayload), now);
+    this.db
+      .prepare(
+        `UPDATE invocations
+         SET event_cursor = ?,
+             updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(sequence, now, invocationId);
+    return { invocationId, sequence, kind, payload: persistedPayload, createdAt: now };
   }
 
   previousEvent(
@@ -962,7 +1042,7 @@ export class SparkInvocationStore {
       sessionId: original.sessionId,
       idempotencyKey: `invocation.retry:${invocationId}`,
       prompt: original.prompt,
-      task: original.task,
+      task: taskForExplicitRetry(original.task),
       sourceKind: "invocation.retry",
       sourceRef: invocationId,
       retryOfInvocationId: invocationId,
@@ -1531,6 +1611,27 @@ export function isRetryableInvocationError(errorCode: string | undefined): boole
 function markTaskForResume(task: unknown): unknown {
   if (!task || typeof task !== "object" || Array.isArray(task)) return task;
   return { ...(task as Record<string, unknown>), resumeFromInterrupt: true };
+}
+
+function markTaskForRestartCheckpoint(
+  task: unknown,
+  checkpoint: SparkTurnResumeCheckpoint,
+): Record<string, unknown> {
+  if (!task || typeof task !== "object" || Array.isArray(task)) {
+    throw new Error("Invocation restart checkpoint requires a durable task");
+  }
+  return {
+    ...(task as Record<string, unknown>),
+    resumeFromInterrupt: true,
+    restartCheckpoint: checkpoint,
+  };
+}
+
+function taskForExplicitRetry(task: unknown): unknown {
+  if (!task || typeof task !== "object" || Array.isArray(task)) return task;
+  const retryTask = { ...(task as Record<string, unknown>) };
+  delete retryTask.restartCheckpoint;
+  return retryTask;
 }
 
 function isInvocationStatus(value: string): value is SparkInvocationStatus {

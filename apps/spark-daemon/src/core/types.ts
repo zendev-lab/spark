@@ -19,12 +19,16 @@ import {
   type ChannelMessageReference,
   type InfoflowAttachment,
 } from "@zendev-lab/spark-channels";
+import {
+  isSparkTurnResumeCheckpointPersistable,
+  type SparkTurnResumeCheckpoint,
+} from "@zendev-lab/spark-turn";
 
 export type SparkDaemonTask = SparkDaemonSessionRunTask | SparkDaemonDriverTickTask;
 
 export interface SparkDaemonDriverTickTask extends Omit<
   SparkDaemonSessionRunTask,
-  "type" | "sessionId" | "cwd"
+  "type" | "sessionId" | "cwd" | "restartCheckpoint"
 > {
   type: "driver.tick";
   /** Compatibility alias used by generic invocation/session projections. */
@@ -76,6 +80,8 @@ export interface SparkDaemonSessionRunTask {
   reset?: boolean;
   /** Set when a successor daemon resumes an interrupted running turn. */
   resumeFromInterrupt?: boolean;
+  /** Exact model-to-tool continuation point captured by a planned daemon restart. */
+  restartCheckpoint?: SparkTurnResumeCheckpoint;
   actor?: string;
   note?: string;
   input?: string;
@@ -111,6 +117,11 @@ export interface SparkDaemonTaskExecutionContext {
   timeoutMs?: number;
   /** Pause the task wall-clock timeout while waiting on an explicit human decision. */
   withPausedTimeout?<T>(operation: () => Promise<T>): Promise<T>;
+  /**
+   * Persist and yield at this checkpoint when the daemon has a pending
+   * restart. A normal return means no restart is currently requested.
+   */
+  yieldForRestartIfRequested?(checkpoint: SparkTurnResumeCheckpoint): void;
   emitEvent?: SparkDaemonEventSink;
 }
 
@@ -140,6 +151,16 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
   if (typeof task.prompt !== "string" || task.prompt.trim().length === 0) {
     throw new Error("session.run task requires prompt");
   }
+  const restartCheckpoint = parseRestartCheckpoint(task.restartCheckpoint);
+  const channelReply = parseChannelReply(task.channelReply);
+  if (
+    restartCheckpoint &&
+    (task.reset === true || task.hiddenExecution === true || channelReply !== undefined)
+  ) {
+    throw new Error(
+      "session.run restartCheckpoint requires a persistent non-reset local/web session",
+    );
+  }
   return {
     type: "session.run",
     sessionId: task.sessionId.trim(),
@@ -152,6 +173,7 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
     reset: typeof task.reset === "boolean" ? task.reset : undefined,
     resumeFromInterrupt:
       typeof task.resumeFromInterrupt === "boolean" ? task.resumeFromInterrupt : undefined,
+    ...(restartCheckpoint ? { restartCheckpoint } : {}),
     actor: nonEmptyString(task.actor),
     note: nonEmptyString(task.note),
     input: nonEmptyString(task.input),
@@ -166,9 +188,7 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
     ...(task.attachments === undefined
       ? {}
       : { attachments: sparkTurnAttachmentsSchema.parse(task.attachments) }),
-    ...(parseChannelReply(task.channelReply)
-      ? { channelReply: parseChannelReply(task.channelReply) }
-      : {}),
+    ...(channelReply ? { channelReply } : {}),
     ...(parseChannelContext(task.channelContext)
       ? { channelContext: parseChannelContext(task.channelContext) }
       : {}),
@@ -327,6 +347,104 @@ function parseInfoflowAttachments(value: unknown): InfoflowAttachment[] {
       },
     ];
   });
+}
+
+function parseRestartCheckpoint(value: unknown): SparkTurnResumeCheckpoint | undefined {
+  if (value === undefined) return undefined;
+  const checkpoint = requiredRecord(value, "restartCheckpoint");
+  if (!isSparkTurnResumeCheckpointPersistable(checkpoint)) {
+    throw new Error("daemon task restartCheckpoint is not safe for durable storage");
+  }
+  if (checkpoint.version !== 1 || checkpoint.phase !== "before_tool_calls") {
+    throw new Error("daemon task restartCheckpoint has an unsupported version or phase");
+  }
+  if (
+    !nonEmptyString(checkpoint.createdAt) ||
+    !Number.isFinite(Date.parse(checkpoint.createdAt as string))
+  ) {
+    throw new Error("daemon task restartCheckpoint requires createdAt");
+  }
+  if (
+    checkpoint.baseSessionEntryId !== null &&
+    nonEmptyString(checkpoint.baseSessionEntryId) === undefined
+  ) {
+    throw new Error("daemon task restartCheckpoint requires baseSessionEntryId");
+  }
+  if (
+    !Number.isInteger(checkpoint.basePromptItemCount) ||
+    Number(checkpoint.basePromptItemCount) < 0
+  ) {
+    throw new Error("daemon task restartCheckpoint requires basePromptItemCount");
+  }
+  if (!Array.isArray(checkpoint.promptItems) || checkpoint.promptItems.length === 0) {
+    throw new Error("daemon task restartCheckpoint requires promptItems");
+  }
+  for (const item of checkpoint.promptItems) validateRestartPromptItem(item);
+  if (!Array.isArray(checkpoint.toolCalls) || checkpoint.toolCalls.length === 0) {
+    throw new Error("daemon task restartCheckpoint requires toolCalls");
+  }
+  for (const toolCall of checkpoint.toolCalls) validateRestartToolCall(toolCall);
+  return structuredClone(checkpoint) as unknown as SparkTurnResumeCheckpoint;
+}
+
+function validateRestartPromptItem(value: unknown): void {
+  const item = requiredRecord(value, "restartCheckpoint.promptItems[]");
+  if (
+    item.authority !== "system" &&
+    item.authority !== "developer" &&
+    item.authority !== "runtime_control" &&
+    item.authority !== "runtime_data" &&
+    item.authority !== "user" &&
+    item.authority !== "assistant" &&
+    item.authority !== "tool"
+  ) {
+    throw new Error("daemon task restartCheckpoint has invalid prompt authority");
+  }
+  if (item.trust !== "trusted" && item.trust !== "untrusted") {
+    throw new Error("daemon task restartCheckpoint has invalid prompt trust");
+  }
+  if (item.visibility !== "visible" && item.visibility !== "hidden") {
+    throw new Error("daemon task restartCheckpoint has invalid prompt visibility");
+  }
+  if (item.persistence !== "session" && item.persistence !== "transient") {
+    throw new Error("daemon task restartCheckpoint has invalid prompt persistence");
+  }
+  if (typeof item.timestamp !== "number" || !Number.isFinite(item.timestamp)) {
+    throw new Error("daemon task restartCheckpoint has invalid prompt timestamp");
+  }
+  const content = requiredRecord(item.content, "restartCheckpoint.promptItems[].content");
+  if (content.kind === "provider_message") {
+    const message = requiredRecord(
+      content.message,
+      "restartCheckpoint.promptItems[].content.message",
+    );
+    if (!nonEmptyString(message.role)) {
+      throw new Error("daemon task restartCheckpoint has invalid provider message");
+    }
+    return;
+  }
+  if (
+    content.kind !== "runtime" ||
+    (typeof content.value !== "string" && !Array.isArray(content.value))
+  ) {
+    throw new Error("daemon task restartCheckpoint has invalid prompt content");
+  }
+}
+
+function validateRestartToolCall(value: unknown): void {
+  const toolCall = requiredRecord(value, "restartCheckpoint.toolCalls[]");
+  if (
+    toolCall.type !== "toolCall" ||
+    !nonEmptyString(toolCall.name) ||
+    !toolCall.arguments ||
+    typeof toolCall.arguments !== "object" ||
+    Array.isArray(toolCall.arguments)
+  ) {
+    throw new Error("daemon task restartCheckpoint has invalid tool call");
+  }
+  if (toolCall.id !== undefined && !nonEmptyString(toolCall.id)) {
+    throw new Error("daemon task restartCheckpoint has invalid tool call id");
+  }
 }
 
 function requiredRecord(value: unknown, field: string): Record<string, unknown> {

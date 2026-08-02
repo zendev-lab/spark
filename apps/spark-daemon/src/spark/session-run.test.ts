@@ -8,9 +8,11 @@ import {
 } from "@zendev-lab/spark-channels";
 import type { SparkHostDriverContext } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
+import type { SparkHeadlessSessionRunInput } from "@zendev-lab/spark-host/headless-loader";
 import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
 import { SPARK_PROTOCOL_VERSION, type SparkDaemonEvent } from "@zendev-lab/spark-protocol";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
+import { SparkTurnRestartYieldError, type SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
 import type {
   SparkDaemonDriverTickTask,
   SparkDaemonSessionRunTask,
@@ -1834,6 +1836,89 @@ describe("daemon native session execution", () => {
         }),
       }),
     ]);
+  });
+
+  it("passes planned restart checkpoints through without settling the session as failed", async () => {
+    const emitted: SparkDaemonEvent[] = [];
+    const recordTurnQueued = vi.fn(async () => ({}) as never);
+    const recordTurnSettled = vi.fn(async () => ({}) as never);
+    const checkpoint: SparkTurnResumeCheckpoint = {
+      version: 1,
+      phase: "before_tool_calls",
+      createdAt: "2026-07-31T00:00:00.000Z",
+      baseSessionEntryId: null,
+      basePromptItemCount: 0,
+      promptItems: [
+        {
+          authority: "assistant",
+          trust: "trusted",
+          visibility: "visible",
+          persistence: "session",
+          content: {
+            kind: "provider_message",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "toolCall",
+                  id: "restart-call",
+                  name: "inspect",
+                  arguments: {},
+                },
+              ],
+            },
+          },
+          timestamp: 1,
+        },
+      ],
+      toolCalls: [
+        {
+          type: "toolCall",
+          id: "restart-call",
+          name: "inspect",
+          arguments: {},
+        },
+      ],
+    };
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_restart_checkpoint",
+      prompt: "inspect after restart",
+    };
+    const yieldForRestartIfRequested = vi.fn((_checkpoint: SparkTurnResumeCheckpoint) => {
+      throw new SparkTurnRestartYieldError();
+    });
+    const executeSession = vi.fn(async (input: SparkHeadlessSessionRunInput) => {
+      input.yieldForRestartIfRequested?.(checkpoint);
+      throw new Error("restart checkpoint callback did not yield");
+    });
+    const executor = createSparkDaemonTaskExecutor({
+      paths,
+      sessionRegistry: {
+        recordTurnQueued,
+        recordTurnSettled,
+        recordRun: vi.fn(async () => ({}) as never),
+      },
+      createSparkHeadlessSessionExecutor: () => executeSession,
+    });
+    const executionContext: SparkDaemonTaskExecutionContext = {
+      ...context(task, emitted),
+      yieldForRestartIfRequested,
+    };
+
+    await expect(executor(task, executionContext)).rejects.toBeInstanceOf(
+      SparkTurnRestartYieldError,
+    );
+
+    expect(executeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        yieldForRestartIfRequested: expect.any(Function),
+      }),
+    );
+    expect(yieldForRestartIfRequested).toHaveBeenCalledWith(checkpoint);
+    expect(recordTurnQueued).toHaveBeenCalledWith(task.sessionId);
+    expect(recordTurnSettled).not.toHaveBeenCalled();
+    expect(emitted).toEqual([]);
   });
 
   it("runs fresh driver ticks in a hidden reset session without indexing the owner transcript", async () => {
