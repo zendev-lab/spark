@@ -61,6 +61,11 @@ source monorepo and its workspaces stay private implementation boundaries; they
 are compiled into the published product rather than becoming separate public
 packages.
 
+For a central Linux deployment, the root `Dockerfile` packages Cockpit only;
+workstation daemons remain native. Build, persistence, health, and reverse-proxy
+constraints are documented in
+[`docs/operations/container.md`](./docs/operations/container.md).
+
 ## Development
 
 ```text

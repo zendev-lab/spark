@@ -9,6 +9,7 @@ export type SparkInstallMethod =
   | "yarn"
   | "bun"
   | "npm"
+  | "container"
   | "source"
   | "unknown";
 
