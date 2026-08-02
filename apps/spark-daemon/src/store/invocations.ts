@@ -2,7 +2,10 @@ import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
-import type { SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
+import {
+  isSparkTurnResumeCheckpointPersistable,
+  type SparkTurnResumeCheckpoint,
+} from "@zendev-lab/spark-turn";
 import { SparkDaemonControlError } from "../control-error.ts";
 import { buildPendingDeliveriesQuery } from "./invocation-delivery-query.ts";
 
@@ -719,6 +722,9 @@ export class SparkInvocationStore {
     checkpoint: SparkTurnResumeCheckpoint,
     now = new Date().toISOString(),
   ): SparkInvocationRecord {
+    if (!isSparkTurnResumeCheckpointPersistable(checkpoint)) {
+      throw new Error("Invocation restart checkpoint is not safe for durable storage");
+    }
     const current = this.require(invocationId);
     if (current.status !== "running") {
       throw new Error(
@@ -845,12 +851,7 @@ export class SparkInvocationStore {
       )
       .get(invocationId) as { sequence: number } | undefined;
     const sequence = Number(cursor?.sequence ?? 0) + 1;
-    const persistedPayload = persistedInvocationEventPayload(
-      invocationId,
-      sequence,
-      kind,
-      payload,
-    );
+    const persistedPayload = persistedInvocationEventPayload(invocationId, sequence, kind, payload);
     this.db
       .prepare(
         `INSERT INTO invocation_events

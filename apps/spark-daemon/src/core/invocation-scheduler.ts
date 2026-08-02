@@ -9,6 +9,7 @@ import {
 import {
   SparkTurnRestartYieldError,
   isSparkTurnRestartYieldError,
+  isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
 } from "@zendev-lab/spark-turn";
 import {
@@ -294,6 +295,7 @@ export class SparkInvocationScheduler {
           await timeout.runPaused(operation),
         yieldForRestartIfRequested: (checkpoint: SparkTurnResumeCheckpoint) => {
           if (!this.restartRequestedSignal?.aborted) return;
+          if (!isSparkTurnResumeCheckpointPersistable(checkpoint)) return;
           if (controller.signal.aborted) {
             throw abortReason(controller.signal, new Error("invocation aborted"));
           }

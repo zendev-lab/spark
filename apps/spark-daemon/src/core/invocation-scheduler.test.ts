@@ -1,7 +1,11 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import type { SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
+import {
+  MAX_SPARK_TURN_RESUME_CHECKPOINT_BYTES,
+  isSparkTurnResumeCheckpointPersistable,
+  type SparkTurnResumeCheckpoint,
+} from "@zendev-lab/spark-turn";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";
 import {
@@ -111,6 +115,10 @@ describe("SparkInvocationScheduler", () => {
         },
       ],
     };
+    expect(isSparkTurnResumeCheckpointPersistable(checkpoint)).toBe(true);
+    const transientCheckpoint = structuredClone(checkpoint);
+    transientCheckpoint.promptItems[0]!.persistence = "transient";
+    expect(isSparkTurnResumeCheckpointPersistable(transientCheckpoint)).toBe(false);
     const { db, store, scheduler } = harness(
       async (_task, context) => {
         context.yieldForRestartIfRequested?.(checkpoint);
@@ -168,6 +176,66 @@ describe("SparkInvocationScheduler", () => {
         attemptCount: 2,
         result: { resumed: true },
       });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("drains oversized restart checkpoints without persisting them", async () => {
+    const restart = new AbortController();
+    restart.abort(new Error("planned restart"));
+    const toolCall = {
+      type: "toolCall" as const,
+      id: "call-too-large",
+      name: "inspect",
+      arguments: { payload: "x".repeat(MAX_SPARK_TURN_RESUME_CHECKPOINT_BYTES) },
+    };
+    const checkpoint: SparkTurnResumeCheckpoint = {
+      version: 1,
+      phase: "before_tool_calls",
+      createdAt: "2026-07-31T00:00:00.000Z",
+      baseSessionEntryId: null,
+      basePromptItemCount: 0,
+      promptItems: [
+        {
+          authority: "assistant",
+          trust: "trusted",
+          visibility: "visible",
+          persistence: "session",
+          content: {
+            kind: "provider_message",
+            message: { role: "assistant", content: [toolCall] },
+          },
+          timestamp: 1,
+        },
+      ],
+      toolCalls: [toolCall],
+    };
+    const { db, store, scheduler } = harness(
+      async (_task, context) => {
+        context.yieldForRestartIfRequested?.(checkpoint);
+        return { drained: true };
+      },
+      { restartRequestedSignal: restart.signal },
+    );
+    try {
+      const invocation = store.submit({
+        sessionId: "oversized-checkpoint-session",
+        prompt: "drain without checkpoint",
+        task: {
+          type: "session.run",
+          sessionId: "oversized-checkpoint-session",
+          prompt: "drain without checkpoint",
+        },
+      });
+
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait();
+      expect(store.require(invocation.invocationId)).toMatchObject({
+        status: "succeeded",
+        result: { drained: true },
+      });
+      expect(store.hasRestartCheckpoint(invocation.invocationId)).toBe(false);
     } finally {
       db.close();
     }

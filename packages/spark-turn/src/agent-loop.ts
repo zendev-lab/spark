@@ -245,6 +245,34 @@ export interface SparkTurnResumeCheckpoint {
   toolCalls: ToolCall[];
 }
 
+export const MAX_SPARK_TURN_RESUME_CHECKPOINT_BYTES = 4 * 1024 * 1024;
+
+export function isSparkTurnResumeCheckpointPersistable(value: unknown): boolean {
+  try {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const promptItems = (value as { promptItems?: unknown }).promptItems;
+    if (
+      !Array.isArray(promptItems) ||
+      promptItems.some(
+        (item) =>
+          !item ||
+          typeof item !== "object" ||
+          Array.isArray(item) ||
+          (item as { persistence?: unknown }).persistence !== "session",
+      )
+    ) {
+      return false;
+    }
+    const serialized = JSON.stringify(value);
+    return (
+      typeof serialized === "string" &&
+      new TextEncoder().encode(serialized).byteLength <= MAX_SPARK_TURN_RESUME_CHECKPOINT_BYTES
+    );
+  } catch {
+    return false;
+  }
+}
+
 export interface SparkTurnOutboxEnvelope {
   kind: "custom" | "user";
   sessionId?: string;

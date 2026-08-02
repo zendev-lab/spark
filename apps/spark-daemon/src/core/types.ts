@@ -19,7 +19,10 @@ import {
   type ChannelMessageReference,
   type InfoflowAttachment,
 } from "@zendev-lab/spark-channels";
-import type { SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
+import {
+  isSparkTurnResumeCheckpointPersistable,
+  type SparkTurnResumeCheckpoint,
+} from "@zendev-lab/spark-turn";
 
 export type SparkDaemonTask = SparkDaemonSessionRunTask | SparkDaemonDriverTickTask;
 
@@ -349,6 +352,9 @@ function parseInfoflowAttachments(value: unknown): InfoflowAttachment[] {
 function parseRestartCheckpoint(value: unknown): SparkTurnResumeCheckpoint | undefined {
   if (value === undefined) return undefined;
   const checkpoint = requiredRecord(value, "restartCheckpoint");
+  if (!isSparkTurnResumeCheckpointPersistable(checkpoint)) {
+    throw new Error("daemon task restartCheckpoint is not safe for durable storage");
+  }
   if (checkpoint.version !== 1 || checkpoint.phase !== "before_tool_calls") {
     throw new Error("daemon task restartCheckpoint has an unsupported version or phase");
   }
