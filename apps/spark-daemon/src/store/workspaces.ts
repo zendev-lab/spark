@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import {
@@ -46,8 +46,22 @@ export interface SparkDaemonWorkspace {
   sessionCount?: number;
   lastSessionAt?: string;
   recentSessions?: SparkDaemonWorkspaceRecentSession[];
+  lifecycle?: WorkspaceLifecycleState;
   updatedAt: string;
 }
+
+export type WorkspaceLifecycleState =
+  | {
+      state: "merged";
+      mergedIntoWorkspaceId: string;
+      previousLocalPath: string;
+      changedAt: string;
+    }
+  | {
+      state: "unregistered";
+      previousLocalPath: string;
+      changedAt: string;
+    };
 
 export interface SparkDaemonWorkspaceClient {
   id: string;
@@ -175,6 +189,27 @@ export interface StopWorkspaceOptions {
   now?: string;
 }
 
+export type WorkspaceLifecycleMutation =
+  | { action: "unregister"; workspaceId: string }
+  | { action: "move"; workspaceId: string; localPath: string }
+  | {
+      action: "merge";
+      targetWorkspaceId: string;
+      sourceWorkspaceIds?: string[];
+      localPath: string;
+      allNested?: boolean;
+    };
+
+export interface WorkspaceLifecycleMutationResult {
+  action: WorkspaceLifecycleMutation["action"];
+  applied: boolean;
+  workspace: SparkDaemonWorkspace;
+  sources: SparkDaemonWorkspace[];
+  previousLocalPath: string;
+  localPath: string;
+  changedAt?: string;
+}
+
 export interface AttachWorkspaceOptions {
   id: string;
   now?: string;
@@ -259,6 +294,9 @@ export function registerWorkspace(
 
   return withSparkDaemonTransaction(db, () => {
     if (planned.existingWorkspaceId) {
+      db.prepare("DELETE FROM workspace_lifecycle WHERE workspace_id = ?").run(
+        planned.existingWorkspaceId,
+      );
       db.prepare(
         `UPDATE workspaces
          SET server_url = ?,
@@ -373,14 +411,26 @@ export function planWorkspaceRegistration(
   const localWorkspaceKey = options.localWorkspaceKey ?? workspaceKeyForName(displayName);
   const workspaceName = options.workspaceName ?? displayName;
   const workspaceSlug = options.workspaceSlug ?? localWorkspaceKey;
-  const pathMatches = listWorkspaces(db).filter((workspace) => workspace.localPath === localPath);
+  const pathMatches = listWorkspaces(db, { includeInactive: true }).filter(
+    (workspace) => workspace.localPath === localPath,
+  );
   const existingPath = pathMatches.find((workspace) => workspace.serverUrl === serverUrl);
-  const existingKey = getWorkspaceByKey(db, serverUrl, localWorkspaceKey);
+  const existingKey = getWorkspaceByKeyWithLifecycle(db, serverUrl, localWorkspaceKey, true);
   const pathRebindWorkspace =
     options.allowLocalPathRebind && existingKey?.localPath !== localPath ? existingKey : undefined;
   const rebindWorkspace =
     existingPath ?? pathRebindWorkspace ?? (pathMatches.length === 1 ? pathMatches[0] : undefined);
-  if (existingPath && existingPath.localWorkspaceKey !== localWorkspaceKey) {
+  if (rebindWorkspace?.lifecycle?.state === "merged") {
+    throw new WorkspacePathConflictError(
+      `Workspace ${rebindWorkspace.localWorkspaceKey} was merged into ${rebindWorkspace.lifecycle.mergedIntoWorkspaceId}. Move or unregister the merged target before registering this path again.`,
+      "nested",
+    );
+  }
+  if (
+    existingPath &&
+    existingPath.localWorkspaceKey !== localWorkspaceKey &&
+    !options.allowLocalPathRebind
+  ) {
     throw new WorkspacePathConflictError(
       `Workspace path ${localPath} is already registered as ${existingPath.localWorkspaceKey} on ${formatServerUrl(serverUrl)}.`,
       "same-path",
@@ -702,7 +752,14 @@ export interface SparkDaemonWorkspaceClaimTarget {
 
 export function listWorkspaceClaimTargets(db: DatabaseSync): SparkDaemonWorkspaceClaimTarget[] {
   return db
-    .prepare("SELECT id, local_path AS localPath FROM daemon_workspaces ORDER BY id")
+    .prepare(
+      `SELECT dw.id, dw.local_path AS localPath
+       FROM daemon_workspaces dw
+       WHERE NOT EXISTS (
+         SELECT 1 FROM workspace_lifecycle lifecycle WHERE lifecycle.workspace_id = dw.id
+       )
+       ORDER BY dw.id`,
+    )
     .all() as unknown as SparkDaemonWorkspaceClaimTarget[];
 }
 
@@ -710,35 +767,44 @@ export function requireWorkspaceClaimTarget(
   db: DatabaseSync,
   workspaceId: string,
 ): SparkDaemonWorkspaceClaimTarget {
-  const target = db
-    .prepare("SELECT id, local_path AS localPath FROM daemon_workspaces WHERE id = ? LIMIT 1")
-    .get(workspaceId) as SparkDaemonWorkspaceClaimTarget | undefined;
+  const activeWorkspaceId = resolveActiveWorkspaceId(db, workspaceId);
+  const target = activeWorkspaceId
+    ? (db
+        .prepare("SELECT id, local_path AS localPath FROM daemon_workspaces WHERE id = ? LIMIT 1")
+        .get(activeWorkspaceId) as SparkDaemonWorkspaceClaimTarget | undefined)
+    : undefined;
   if (!target) {
     throw new SparkDaemonControlError("workspace_not_found", `Unknown workspace: ${workspaceId}`);
   }
   return target;
 }
 
-export function listWorkspaces(db: DatabaseSync): SparkDaemonWorkspace[] {
+export function listWorkspaces(
+  db: DatabaseSync,
+  options: { includeInactive?: boolean } = {},
+): SparkDaemonWorkspace[] {
   const rows = db
     .prepare(
-      `SELECT id,
-              server_url AS serverUrl,
-              local_workspace_key AS localWorkspaceKey,
-              display_name AS displayName,
-              local_path AS localPath,
-              status,
-              capabilities_json AS capabilitiesJson,
-              diagnostics_json AS diagnosticsJson,
-              profile_source_kind AS profileSourceKind,
-              profile_ref AS profileRef,
-              profile_commit AS profileCommit,
-              profile_imported_at AS profileImportedAt,
-              updated_at AS updatedAt
-       FROM workspaces
-       ORDER BY display_name ASC`,
+      `SELECT w.id,
+              w.server_url AS serverUrl,
+              w.local_workspace_key AS localWorkspaceKey,
+              w.display_name AS displayName,
+              w.local_path AS localPath,
+              w.status,
+              w.capabilities_json AS capabilitiesJson,
+              w.diagnostics_json AS diagnosticsJson,
+              w.profile_source_kind AS profileSourceKind,
+              w.profile_ref AS profileRef,
+              w.profile_commit AS profileCommit,
+              w.profile_imported_at AS profileImportedAt,
+              w.updated_at AS updatedAt
+       FROM workspaces w
+       WHERE ? = 1 OR NOT EXISTS (
+         SELECT 1 FROM workspace_lifecycle lifecycle WHERE lifecycle.workspace_id = w.id
+       )
+       ORDER BY w.display_name ASC`,
     )
-    .all() as unknown as WorkspaceRow[];
+    .all(options.includeInactive ? 1 : 0) as unknown as WorkspaceRow[];
   return rows.map((row) => mapWorkspaceRow(row, db));
 }
 
@@ -761,6 +827,9 @@ export function workspaceBindingBelongsToServer(
          FROM workspaces w
          LEFT JOIN daemon_workspaces dw ON dw.id = w.id
          WHERE (w.id = ? OR dw.server_binding_id = ?) AND w.server_url = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM workspace_lifecycle lifecycle WHERE lifecycle.workspace_id = w.id
+           )
          LIMIT 1`,
       )
       .get(workspaceBindingId, workspaceBindingId, serverUrl),
@@ -797,7 +866,7 @@ export function resolveWorkspaceLocalPath(
   db: DatabaseSync,
   workspaceId: string,
 ): string | undefined {
-  const direct = getWorkspaceById(db, workspaceId);
+  const direct = resolveActiveWorkspace(db, workspaceId);
   if (direct) return direct.localPath;
 
   const serverMatches = db
@@ -806,6 +875,9 @@ export function resolveWorkspaceLocalPath(
        FROM workspaces w
        JOIN daemon_workspaces dw ON dw.id = w.id
        WHERE dw.server_workspace_id = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM workspace_lifecycle lifecycle WHERE lifecycle.workspace_id = w.id
+         )
        LIMIT 2`,
     )
     .all(workspaceId) as Array<{ localPath: string }>;
@@ -828,7 +900,7 @@ export function resolveWorkspaceBindingId(
   db: DatabaseSync,
   workspaceId: string,
 ): string | undefined {
-  const direct = getWorkspaceById(db, workspaceId);
+  const direct = resolveActiveWorkspace(db, workspaceId);
   if (direct) return direct.serverBindingId ?? direct.id;
 
   const serverMatches = listWorkspaces(db).filter(
@@ -846,31 +918,88 @@ export function resolveWorkspaceBindingId(
     : undefined;
 }
 
+function resolveActiveWorkspace(
+  db: DatabaseSync,
+  workspaceId: string,
+): SparkDaemonWorkspace | null {
+  const activeWorkspaceId = resolveActiveWorkspaceId(db, workspaceId);
+  return activeWorkspaceId ? getWorkspaceById(db, activeWorkspaceId) : null;
+}
+
+function resolveActiveWorkspaceId(db: DatabaseSync, workspaceId: string): string | null {
+  const direct = db
+    .prepare(
+      `SELECT w.id
+       FROM workspaces w
+       LEFT JOIN daemon_workspaces dw ON dw.id = w.id
+       WHERE w.id = ? OR dw.server_binding_id = ?
+       LIMIT 1`,
+    )
+    .get(workspaceId, workspaceId) as { id: string } | undefined;
+  let currentId = direct?.id;
+  const visited = new Set<string>();
+  while (currentId) {
+    if (visited.has(currentId)) {
+      throw new SparkDaemonControlError(
+        "workspace_lifecycle_conflict",
+        `Workspace merge cycle detected at ${currentId}.`,
+      );
+    }
+    visited.add(currentId);
+    const lifecycle = db
+      .prepare(
+        `SELECT state, merged_into_workspace_id AS mergedIntoWorkspaceId
+         FROM workspace_lifecycle
+         WHERE workspace_id = ?
+         LIMIT 1`,
+      )
+      .get(currentId) as
+      | { state: "merged" | "unregistered"; mergedIntoWorkspaceId: string | null }
+      | undefined;
+    if (!lifecycle) return currentId;
+    if (lifecycle.state === "unregistered") return null;
+    currentId = lifecycle.mergedIntoWorkspaceId ?? undefined;
+  }
+  return null;
+}
+
 export function getWorkspaceByKey(
   db: DatabaseSync,
   serverUrl: string,
   localWorkspaceKey: string,
 ): SparkDaemonWorkspace | null {
+  return getWorkspaceByKeyWithLifecycle(db, serverUrl, localWorkspaceKey, false);
+}
+
+function getWorkspaceByKeyWithLifecycle(
+  db: DatabaseSync,
+  serverUrl: string,
+  localWorkspaceKey: string,
+  includeInactive: boolean,
+): SparkDaemonWorkspace | null {
   const row = db
     .prepare(
-      `SELECT id,
-              server_url AS serverUrl,
-              local_workspace_key AS localWorkspaceKey,
-              display_name AS displayName,
-              local_path AS localPath,
-              status,
-              capabilities_json AS capabilitiesJson,
-              diagnostics_json AS diagnosticsJson,
-              profile_source_kind AS profileSourceKind,
-              profile_ref AS profileRef,
-              profile_commit AS profileCommit,
-              profile_imported_at AS profileImportedAt,
-              updated_at AS updatedAt
-       FROM workspaces
-       WHERE server_url = ? AND local_workspace_key = ?
+      `SELECT w.id,
+              w.server_url AS serverUrl,
+              w.local_workspace_key AS localWorkspaceKey,
+              w.display_name AS displayName,
+              w.local_path AS localPath,
+              w.status,
+              w.capabilities_json AS capabilitiesJson,
+              w.diagnostics_json AS diagnosticsJson,
+              w.profile_source_kind AS profileSourceKind,
+              w.profile_ref AS profileRef,
+              w.profile_commit AS profileCommit,
+              w.profile_imported_at AS profileImportedAt,
+              w.updated_at AS updatedAt
+       FROM workspaces w
+       WHERE w.server_url = ? AND w.local_workspace_key = ?
+         AND (? = 1 OR NOT EXISTS (
+           SELECT 1 FROM workspace_lifecycle lifecycle WHERE lifecycle.workspace_id = w.id
+         ))
        LIMIT 1`,
     )
-    .get(serverUrl, localWorkspaceKey) as WorkspaceRow | undefined;
+    .get(serverUrl, localWorkspaceKey, includeInactive ? 1 : 0) as WorkspaceRow | undefined;
   return row ? mapWorkspaceRow(row, db) : null;
 }
 
@@ -951,6 +1080,258 @@ function findPathCollision(
   return null;
 }
 
+export function planWorkspaceLifecycleMutation(
+  db: DatabaseSync,
+  mutation: WorkspaceLifecycleMutation,
+): WorkspaceLifecycleMutationResult {
+  if (mutation.action === "unregister") {
+    const workspace = requireWorkspaceForLifecycle(db, mutation.workspaceId);
+    if (workspace.lifecycle?.state === "merged") {
+      throw lifecycleConflict(
+        `Workspace ${workspace.id} is already merged into ${workspace.lifecycle.mergedIntoWorkspaceId}.`,
+      );
+    }
+    if (!workspace.lifecycle) assertWorkspaceLifecycleIdle(db, workspace);
+    return {
+      action: mutation.action,
+      applied: false,
+      workspace,
+      sources: [],
+      previousLocalPath: workspace.localPath,
+      localPath: workspace.localPath,
+    };
+  }
+
+  if (mutation.action === "move") {
+    const workspace = requireActiveWorkspaceForLifecycle(db, mutation.workspaceId);
+    const localPath = requireWorkspaceLifecyclePath(mutation.localPath);
+    if (localPath === resolve("/")) {
+      throw lifecycleConflict("Refusing to move a workspace to the filesystem root.");
+    }
+    assertWorkspaceLifecycleIdle(db, workspace);
+    assertWorkspaceSlotAvailable(
+      db,
+      workspace.serverUrl,
+      localPath,
+      workspace.localWorkspaceKey,
+      workspace.id,
+    );
+    return {
+      action: mutation.action,
+      applied: false,
+      workspace,
+      sources: [],
+      previousLocalPath: workspace.localPath,
+      localPath,
+    };
+  }
+
+  const target = requireActiveWorkspaceForLifecycle(db, mutation.targetWorkspaceId);
+  const localPath = requireWorkspaceLifecyclePath(mutation.localPath);
+  if (localPath === resolve("/")) {
+    throw lifecycleConflict("Refusing to merge workspaces into the filesystem root.");
+  }
+  if (!pathContains(localPath, target.localPath)) {
+    throw lifecycleConflict(
+      `Merge path ${localPath} must contain target workspace ${target.localPath}.`,
+    );
+  }
+
+  const sourcesById = new Map<string, SparkDaemonWorkspace>();
+  for (const sourceId of mutation.sourceWorkspaceIds ?? []) {
+    const source = requireWorkspaceForLifecycle(db, sourceId);
+    if (source.id === target.id) {
+      throw lifecycleConflict(`Workspace ${target.id} cannot be merged into itself.`);
+    }
+    if (
+      source.lifecycle?.state === "merged" &&
+      source.lifecycle.mergedIntoWorkspaceId !== target.id
+    ) {
+      throw lifecycleConflict(
+        `Workspace ${source.id} is already merged into ${source.lifecycle.mergedIntoWorkspaceId}.`,
+      );
+    }
+    sourcesById.set(source.id, source);
+  }
+  if (mutation.allNested) {
+    for (const candidate of listWorkspaces(db, { includeInactive: true })) {
+      if (candidate.id !== target.id && pathContains(localPath, candidate.localPath)) {
+        sourcesById.set(candidate.id, candidate);
+      }
+    }
+  }
+
+  const sources = [...sourcesById.values()];
+  if (sources.length === 0) {
+    throw lifecycleConflict(
+      "No nested source workspaces selected. Use workspace move when only the path changes.",
+    );
+  }
+  for (const source of sources) {
+    const sourcePath = source.lifecycle?.previousLocalPath ?? source.localPath;
+    if (!pathContains(localPath, sourcePath)) {
+      throw lifecycleConflict(
+        `Merge path ${localPath} does not contain source workspace ${sourcePath}.`,
+      );
+    }
+    if (!source.lifecycle && source.serverUrl) {
+      throw lifecycleConflict(
+        `Workspace ${source.id} is still bound to ${source.serverUrl}. Unregister it before merging.`,
+      );
+    }
+    if (!source.lifecycle) assertWorkspaceLifecycleIdle(db, source);
+  }
+  assertWorkspaceLifecycleIdle(db, target);
+
+  const selectedIds = new Set([target.id, ...sources.map((source) => source.id)]);
+  for (const candidate of listWorkspaces(db)) {
+    if (selectedIds.has(candidate.id)) continue;
+    if (
+      pathContains(localPath, candidate.localPath) ||
+      pathContains(candidate.localPath, localPath)
+    ) {
+      throw new WorkspacePathConflictError(
+        `Merge path ${localPath} still conflicts with workspace ${candidate.localWorkspaceKey} at ${candidate.localPath}. Include it explicitly or pass --all-nested.`,
+        "nested",
+      );
+    }
+  }
+
+  return {
+    action: mutation.action,
+    applied: false,
+    workspace: target,
+    sources,
+    previousLocalPath: target.localPath,
+    localPath,
+  };
+}
+
+export function applyWorkspaceLifecycleMutation(
+  db: DatabaseSync,
+  mutation: WorkspaceLifecycleMutation,
+  now = new Date().toISOString(),
+): WorkspaceLifecycleMutationResult {
+  const plan = planWorkspaceLifecycleMutation(db, mutation);
+  if (mutation.action === "unregister" && plan.workspace.lifecycle?.state === "unregistered") {
+    return { ...plan, applied: true, changedAt: plan.workspace.lifecycle.changedAt };
+  }
+
+  withSparkDaemonTransaction(db, () => {
+    if (mutation.action === "unregister") {
+      writeWorkspaceLifecycle(db, plan.workspace, "unregistered", undefined, now);
+      const diagnostics = {
+        ...plan.workspace.diagnostics,
+        userUnregistered: true,
+        unregisteredAt: now,
+      };
+      db.prepare(
+        `UPDATE workspaces
+         SET status = 'unavailable', diagnostics_json = ?, updated_at = ?
+         WHERE id = ?`,
+      ).run(JSON.stringify(diagnostics), now, plan.workspace.id);
+      updateSparkDaemonWorkspaceStatus(db, plan.workspace.id, "unavailable", diagnostics, now);
+      return;
+    }
+
+    db.prepare("UPDATE workspaces SET local_path = ?, updated_at = ? WHERE id = ?").run(
+      plan.localPath,
+      now,
+      plan.workspace.id,
+    );
+    db.prepare("UPDATE daemon_workspaces SET local_path = ? WHERE id = ?").run(
+      plan.localPath,
+      plan.workspace.id,
+    );
+    if (mutation.action === "merge") {
+      for (const source of plan.sources) {
+        writeWorkspaceLifecycle(db, source, "merged", plan.workspace.id, now);
+      }
+    }
+  });
+
+  const workspace = getWorkspaceById(db, plan.workspace.id);
+  if (!workspace) {
+    throw new Error(`Workspace ${plan.workspace.id} disappeared during lifecycle mutation.`);
+  }
+  const sources = plan.sources.map((source) => getWorkspaceById(db, source.id) ?? source);
+  return { ...plan, applied: true, workspace, sources, changedAt: now };
+}
+
+function writeWorkspaceLifecycle(
+  db: DatabaseSync,
+  workspace: SparkDaemonWorkspace,
+  state: "merged" | "unregistered",
+  mergedIntoWorkspaceId: string | undefined,
+  changedAt: string,
+): void {
+  db.prepare(
+    `INSERT INTO workspace_lifecycle
+      (workspace_id, state, merged_into_workspace_id, previous_local_path, changed_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(workspace_id) DO UPDATE SET
+       state = excluded.state,
+       merged_into_workspace_id = excluded.merged_into_workspace_id,
+       previous_local_path = excluded.previous_local_path,
+       changed_at = excluded.changed_at`,
+  ).run(
+    workspace.id,
+    state,
+    mergedIntoWorkspaceId ?? null,
+    workspace.lifecycle?.previousLocalPath ?? workspace.localPath,
+    changedAt,
+  );
+}
+
+function requireWorkspaceForLifecycle(db: DatabaseSync, workspaceId: string): SparkDaemonWorkspace {
+  const workspace = getWorkspaceById(db, workspaceId);
+  if (!workspace) {
+    throw new SparkDaemonControlError("workspace_not_found", `Unknown workspace: ${workspaceId}`);
+  }
+  return workspace;
+}
+
+function requireActiveWorkspaceForLifecycle(
+  db: DatabaseSync,
+  workspaceId: string,
+): SparkDaemonWorkspace {
+  const workspace = requireWorkspaceForLifecycle(db, workspaceId);
+  if (workspace.lifecycle) {
+    throw lifecycleConflict(
+      `Workspace ${workspace.id} is ${workspace.lifecycle.state}; choose an active workspace.`,
+    );
+  }
+  return workspace;
+}
+
+function requireWorkspaceLifecyclePath(localPath: string): string {
+  const normalized = normalizeLocalPath(localPath);
+  if (!existsSync(normalized) || !statSync(normalized).isDirectory()) {
+    throw new SparkDaemonControlError(
+      "workspace_registration_invalid",
+      `Workspace path is not a directory: ${normalized}`,
+    );
+  }
+  return normalized;
+}
+
+function assertWorkspaceLifecycleIdle(db: DatabaseSync, workspace: SparkDaemonWorkspace): void {
+  const activeInvocations = activeInvocationCount(db, workspace.id);
+  const ownedIds = new Set(workspaceOwnedIds(db, workspace.id));
+  const connectedClients = listWorkspaceClients(db).filter(
+    (client) => ownedIds.has(client.workspaceId) && client.status === "connected",
+  ).length;
+  if (activeInvocations > 0 || connectedClients > 0) {
+    throw lifecycleConflict(
+      `Workspace ${workspace.id} is busy (${activeInvocations} active invocation(s), ${connectedClients} connected client(s)). Stop active work before changing its lifecycle.`,
+    );
+  }
+}
+
+function lifecycleConflict(message: string): SparkDaemonControlError {
+  return new SparkDaemonControlError("workspace_lifecycle_conflict", message);
+}
+
 export function stopWorkspace(
   db: DatabaseSync,
   options: StopWorkspaceOptions,
@@ -960,6 +1341,11 @@ export function stopWorkspace(
     throw new SparkDaemonControlError(
       "workspace_not_found",
       `Unknown workspace connection: ${options.id}`,
+    );
+  }
+  if (workspace.lifecycle) {
+    throw lifecycleConflict(
+      `Workspace ${workspace.id} is ${workspace.lifecycle.state} and cannot be paused.`,
     );
   }
 
@@ -997,6 +1383,11 @@ export function attachWorkspace(
       `Unknown workspace connection: ${options.id}`,
     );
   }
+  if (workspace.lifecycle) {
+    throw lifecycleConflict(
+      `Workspace ${workspace.id} is ${workspace.lifecycle.state} and cannot be attached.`,
+    );
+  }
 
   const now = options.now ?? new Date().toISOString();
   db.prepare(
@@ -1025,6 +1416,11 @@ export function attachWorkspaceClient(
     throw new SparkDaemonControlError(
       "workspace_not_found",
       `Unknown workspace connection: ${options.workspaceId}`,
+    );
+  }
+  if (workspace.lifecycle) {
+    throw lifecycleConflict(
+      `Workspace ${workspace.id} is ${workspace.lifecycle.state}; attach the merged target instead.`,
     );
   }
 
@@ -1461,10 +1857,49 @@ function workspaceServerProjection(
   };
 }
 
+function workspaceLifecycleProjection(
+  db: DatabaseSync,
+  workspaceId: string,
+): WorkspaceLifecycleState | undefined {
+  const row = db
+    .prepare(
+      `SELECT state,
+              merged_into_workspace_id AS mergedIntoWorkspaceId,
+              previous_local_path AS previousLocalPath,
+              changed_at AS changedAt
+       FROM workspace_lifecycle
+       WHERE workspace_id = ?
+       LIMIT 1`,
+    )
+    .get(workspaceId) as
+    | {
+        state: "merged" | "unregistered";
+        mergedIntoWorkspaceId: string | null;
+        previousLocalPath: string;
+        changedAt: string;
+      }
+    | undefined;
+  if (!row) return undefined;
+  if (row.state === "merged" && row.mergedIntoWorkspaceId) {
+    return {
+      state: "merged",
+      mergedIntoWorkspaceId: row.mergedIntoWorkspaceId,
+      previousLocalPath: row.previousLocalPath,
+      changedAt: row.changedAt,
+    };
+  }
+  return {
+    state: "unregistered",
+    previousLocalPath: row.previousLocalPath,
+    changedAt: row.changedAt,
+  };
+}
+
 function mapWorkspaceRow(row: WorkspaceRow, db?: DatabaseSync): SparkDaemonWorkspace {
   const projection = db ? workspaceInvocationProjection(db, row.id) : {};
   const clientProjection = db ? workspaceClientStateProjection(db, row.id) : {};
   const serverProjection = db ? workspaceServerProjection(db, row.id) : {};
+  const lifecycle = db ? workspaceLifecycleProjection(db, row.id) : undefined;
   return {
     id: row.id,
     ...serverProjection,
@@ -1481,6 +1916,7 @@ function mapWorkspaceRow(row: WorkspaceRow, db?: DatabaseSync): SparkDaemonWorks
     ...profileFromRow(row),
     ...projection,
     ...clientProjection,
+    ...(lifecycle ? { lifecycle } : {}),
     updatedAt: row.updatedAt,
   };
 }
@@ -1489,20 +1925,24 @@ function workspaceInvocationProjection(
   db: DatabaseSync,
   workspaceId: string,
 ): Pick<SparkDaemonWorkspace, "sessionCount" | "lastSessionAt" | "recentSessions"> {
+  const ownedIds = workspaceOwnedIds(db, workspaceId);
+  const placeholders = ownedIds.map(() => "?").join(", ");
   const count = db
-    .prepare("SELECT COUNT(*) AS count FROM invocations WHERE workspace_binding_id = ?")
-    .get(workspaceId) as { count: number };
+    .prepare(
+      `SELECT COUNT(*) AS count FROM invocations WHERE workspace_binding_id IN (${placeholders})`,
+    )
+    .get(...ownedIds) as { count: number };
   const rows = db
     .prepare(
       `SELECT id,
               status,
               updated_at AS updatedAt
        FROM invocations
-       WHERE workspace_binding_id = ?
+       WHERE workspace_binding_id IN (${placeholders})
        ORDER BY updated_at DESC, created_at DESC
        LIMIT 5`,
     )
-    .all(workspaceId) as Array<{
+    .all(...ownedIds) as Array<{
     id: string;
     status: string;
     updatedAt: string;
@@ -1668,12 +2108,34 @@ function executorProjectionForClient(
 }
 
 function activeInvocationCount(db: DatabaseSync, workspaceId: string): number {
+  const ownedIds = workspaceOwnedIds(db, workspaceId);
+  const placeholders = ownedIds.map(() => "?").join(", ");
   const row = db
     .prepare(
-      "SELECT COUNT(*) AS count FROM invocations WHERE workspace_binding_id = ? AND status IN ('queued', 'running')",
+      `SELECT COUNT(*) AS count
+       FROM invocations
+       WHERE workspace_binding_id IN (${placeholders})
+         AND status IN ('queued', 'running')`,
     )
-    .get(workspaceId) as { count: number };
+    .get(...ownedIds) as { count: number };
   return row.count;
+}
+
+function workspaceOwnedIds(db: DatabaseSync, workspaceId: string): string[] {
+  const rows = db
+    .prepare(
+      `WITH RECURSIVE owned(id) AS (
+         SELECT ?
+         UNION
+         SELECT lifecycle.workspace_id
+         FROM workspace_lifecycle lifecycle
+         JOIN owned ON lifecycle.merged_into_workspace_id = owned.id
+         WHERE lifecycle.state = 'merged'
+       )
+       SELECT id FROM owned`,
+    )
+    .all(workspaceId) as Array<{ id: string }>;
+  return rows.map((row) => row.id);
 }
 
 function getWorkspaceClientById(

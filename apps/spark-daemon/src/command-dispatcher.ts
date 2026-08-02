@@ -267,6 +267,16 @@ function localRpcRoute(method: string, params: unknown): Partial<SparkCommand["r
   ) {
     return { workspaceBindingId: params.id };
   }
+  if (method === "workspace.lifecycle") {
+    return {
+      ...(typeof params.workspaceId === "string"
+        ? { workspaceBindingId: params.workspaceId }
+        : typeof params.targetWorkspaceId === "string"
+          ? { workspaceBindingId: params.targetWorkspaceId }
+          : {}),
+      ...(typeof params.localPath === "string" ? { workspaceLocalPath: params.localPath } : {}),
+    };
+  }
   return {};
 }
 

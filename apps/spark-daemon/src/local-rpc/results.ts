@@ -495,10 +495,41 @@ export function sparkDaemonWorkspace(value: unknown): SparkDaemonWorkspace {
     ...(Array.isArray(value.recentSessions)
       ? { recentSessions: value.recentSessions.map(sparkDaemonWorkspaceRecentSession) }
       : {}),
+    ...workspaceLifecycleState(value.lifecycle),
     updatedAt: value.updatedAt,
   };
   const profile = workspaceProfile(value.profile);
   return profile ? { ...workspace, profile } : workspace;
+}
+
+function workspaceLifecycleState(value: unknown): Pick<SparkDaemonWorkspace, "lifecycle"> {
+  if (
+    !isRecord(value) ||
+    typeof value.previousLocalPath !== "string" ||
+    typeof value.changedAt !== "string"
+  ) {
+    return {};
+  }
+  if (value.state === "merged" && typeof value.mergedIntoWorkspaceId === "string") {
+    return {
+      lifecycle: {
+        state: "merged",
+        mergedIntoWorkspaceId: value.mergedIntoWorkspaceId,
+        previousLocalPath: value.previousLocalPath,
+        changedAt: value.changedAt,
+      },
+    };
+  }
+  if (value.state === "unregistered") {
+    return {
+      lifecycle: {
+        state: "unregistered",
+        previousLocalPath: value.previousLocalPath,
+        changedAt: value.changedAt,
+      },
+    };
+  }
+  return {};
 }
 
 export function parseBorrowedState(

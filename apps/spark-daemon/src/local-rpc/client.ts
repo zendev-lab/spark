@@ -35,6 +35,8 @@ import {
   type LocalWorkspaceRegisterRequest,
   type LocalWorkspaceRelocateRequest,
   type LocalWorkspaceRelocateResult,
+  type LocalWorkspaceLifecycleMutation,
+  type LocalWorkspaceLifecycleMutationResult,
   type WorkspaceListResult,
 } from "./types.ts";
 import {
@@ -64,8 +66,11 @@ import { localRpcRequest } from "./client-transport.ts";
 
 export { localRpcRequest } from "./client-transport.ts";
 
-export async function requestWorkspaceList(paths: SparkPaths): Promise<WorkspaceListResult> {
-  return workspaceList(await localRpcRequest(paths, "workspace.list", {}));
+export async function requestWorkspaceList(
+  paths: SparkPaths,
+  params: { includeInactive?: boolean } = {},
+): Promise<WorkspaceListResult> {
+  return workspaceList(await localRpcRequest(paths, "workspace.list", params));
 }
 
 export async function requestDaemonStatus(paths: SparkPaths): Promise<LocalDaemonStatusResult> {
@@ -314,6 +319,13 @@ export async function requestWorkspaceStop(
   id: string,
 ): Promise<SparkDaemonWorkspace> {
   return sparkDaemonWorkspace(await localRpcRequest(paths, "workspace.stop", { id }));
+}
+
+export async function requestWorkspaceLifecycle(
+  paths: SparkPaths,
+  mutation: LocalWorkspaceLifecycleMutation,
+): Promise<LocalWorkspaceLifecycleMutationResult> {
+  return localRpcRequest(paths, "workspace.lifecycle", mutation);
 }
 
 export async function requestWorkspaceClientAttach(

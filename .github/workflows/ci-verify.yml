@@ -98,18 +98,25 @@ jobs:
       - name: Smoke Cockpit container
         run: |
           container_id="$(docker run --detach \
+            --env HOST=127.0.0.1 \
             --env SPARK_COCKPIT_PUBLIC_URL=https://spark.example.test \
             --env SPARK_COCKPIT_TRUST_PROXY=loopback \
             spark-cockpit:ci)"
           test -n "${container_id}"
           trap 'test -z "${container_id:-}" || docker rm --force "${container_id}" >/dev/null' EXIT
-          for attempt in $(seq 1 30); do
+          status=starting
+          for _ in {1..30}; do
             status="$(docker inspect --format '{{.State.Health.Status}}' "${container_id}")"
-            test "${status}" != unhealthy
             test "${status}" != healthy || break
+            running="$(docker inspect --format '{{.State.Running}}' "${container_id}")"
+            test "${running}" = true || break
             sleep 1
           done
-          test "${status}" = healthy
+          if test "${status}" != healthy; then
+            docker inspect --format '{{json .State}}' "${container_id}"
+            docker logs "${container_id}"
+            exit 1
+          fi
           docker exec "${container_id}" node -e '
             const response = await fetch("http://127.0.0.1:5173/workspaces/new", {
               headers: {

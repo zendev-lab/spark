@@ -125,7 +125,9 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       ),
     },
     workspace: {
-      list: os.workspace.list.handler(async () => invoke("workspace.list", {})),
+      list: os.workspace.list.handler(async ({ input: params }) =>
+        invoke("workspace.list", params),
+      ),
       register: os.workspace.register.handler(async ({ input: params }) =>
         invoke("workspace.register", params),
       ),
@@ -140,6 +142,9 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       ),
       stop: os.workspace.stop.handler(async ({ input: params }) =>
         invoke("workspace.stop", params),
+      ),
+      lifecycle: os.workspace.lifecycle.handler(async ({ input: params }) =>
+        invoke("workspace.lifecycle", params),
       ),
       client: {
         attach: os.workspace.client.attach.handler(async ({ input: params }) =>

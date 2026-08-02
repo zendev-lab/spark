@@ -32,6 +32,8 @@ export {
   type LocalWorkspaceRegisterRequest,
   type LocalWorkspaceRelocateRequest,
   type LocalWorkspaceRelocateResult,
+  type LocalWorkspaceLifecycleMutation,
+  type LocalWorkspaceLifecycleMutationResult,
   type SparkDaemonLocalEventBus,
   type WorkspaceListResult,
 } from "./types.ts";
@@ -79,6 +81,7 @@ export {
   requestWorkspaceEnsureLocal,
   requestWorkspaceExecutorEnsure,
   requestWorkspaceList,
+  requestWorkspaceLifecycle,
   requestWorkspaceRegister,
   requestWorkspaceRelocate,
   requestWorkspaceStop,

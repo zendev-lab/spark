@@ -282,6 +282,7 @@ export const sparkLocalRpcWorkspaceOrpcErrors = {
   workspace_not_found: { status: 404 },
   workspace_client_not_found: { status: 404 },
   workspace_client_conflict: { status: 409 },
+  workspace_lifecycle_conflict: { status: 409 },
   workspace_registration_failed: { status: 502 },
   workspace_registration_invalid: { status: 422 },
   workspace_registration_unavailable: { status: 503 },
@@ -616,6 +617,13 @@ const sparkLocalRpcWorkspaceMutationOrpcErrors = {
   workspace_not_found: sparkLocalRpcWorkspaceOrpcErrors.workspace_not_found,
 } as const;
 
+const sparkLocalRpcWorkspaceLifecycleOrpcErrors = {
+  ...sparkLocalRpcWorkspaceMutationOrpcErrors,
+  workspace_path_conflict: sparkLocalRpcWorkspaceOrpcErrors.workspace_path_conflict,
+  workspace_lifecycle_conflict: sparkLocalRpcWorkspaceOrpcErrors.workspace_lifecycle_conflict,
+  workspace_registration_invalid: sparkLocalRpcWorkspaceOrpcErrors.workspace_registration_invalid,
+} as const;
+
 const sparkLocalRpcWorkspaceClientAttachOrpcErrors = {
   ...sparkLocalRpcWorkspaceMutationOrpcErrors,
   workspace_client_conflict: sparkLocalRpcWorkspaceOrpcErrors.workspace_client_conflict,
@@ -921,6 +929,20 @@ export const sparkLocalRpcWorkspaceProfileSchema = z.object({
   importedAt: isoDateTimeSchema,
 });
 
+const sparkLocalRpcWorkspaceLifecycleStateSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("merged"),
+    mergedIntoWorkspaceId: z.string().min(1),
+    previousLocalPath: z.string().min(1),
+    changedAt: isoDateTimeSchema,
+  }),
+  z.object({
+    state: z.literal("unregistered"),
+    previousLocalPath: z.string().min(1),
+    changedAt: isoDateTimeSchema,
+  }),
+]);
+
 export const sparkLocalRpcWorkspaceSchema = z.object({
   id: z.string().min(1),
   serverWorkspaceId: z.string().min(1).optional(),
@@ -951,7 +973,40 @@ export const sparkLocalRpcWorkspaceSchema = z.object({
       }),
     )
     .optional(),
+  lifecycle: sparkLocalRpcWorkspaceLifecycleStateSchema.optional(),
   updatedAt: isoDateTimeSchema,
+});
+
+const sparkLocalRpcWorkspaceLifecycleMutationSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("unregister"),
+    workspaceId: z.string().min(1),
+    dryRun: z.boolean().optional(),
+  }),
+  z.object({
+    action: z.literal("move"),
+    workspaceId: z.string().min(1),
+    localPath: z.string().min(1),
+    dryRun: z.boolean().optional(),
+  }),
+  z.object({
+    action: z.literal("merge"),
+    targetWorkspaceId: z.string().min(1),
+    sourceWorkspaceIds: z.array(z.string().min(1)).optional(),
+    localPath: z.string().min(1),
+    allNested: z.boolean().optional(),
+    dryRun: z.boolean().optional(),
+  }),
+]);
+
+const sparkLocalRpcWorkspaceLifecycleMutationResultSchema = z.object({
+  action: z.enum(["unregister", "move", "merge"]),
+  applied: z.boolean(),
+  workspace: sparkLocalRpcWorkspaceSchema,
+  sources: z.array(sparkLocalRpcWorkspaceSchema),
+  previousLocalPath: z.string().min(1),
+  localPath: z.string().min(1),
+  changedAt: isoDateTimeSchema.optional(),
 });
 
 export const sparkLocalRpcWorkspaceRegisterRequestSchema = z.object({
@@ -1234,7 +1289,7 @@ export const sparkLocalRpcProcedureSchemas = {
     output: sparkDriverMutationResultSchema,
   },
   "workspace.list": {
-    input: sparkLocalRpcEmptyInputSchema,
+    input: z.object({ includeInactive: z.boolean().optional() }),
     output: z.object({
       workspaces: z.array(sparkLocalRpcWorkspaceSchema),
       observedAt: isoDateTimeSchema,
@@ -1257,6 +1312,10 @@ export const sparkLocalRpcProcedureSchemas = {
     output: sparkLocalRpcWorkspaceSchema,
   },
   "workspace.stop": { input: workspaceIdMutationInputSchema, output: sparkLocalRpcWorkspaceSchema },
+  "workspace.lifecycle": {
+    input: sparkLocalRpcWorkspaceLifecycleMutationSchema,
+    output: sparkLocalRpcWorkspaceLifecycleMutationResultSchema,
+  },
   "workspace.client.attach": {
     input: sparkLocalRpcWorkspaceClientAttachRequestSchema,
     output: sparkLocalRpcWorkspaceClientResultSchema,
@@ -1623,6 +1682,12 @@ export const sparkLocalRpcOrpcContract = {
       "/workspace/stop",
       p["workspace.stop"],
       sparkLocalRpcWorkspaceMutationOrpcErrors,
+    ),
+    lifecycle: procedure(
+      "POST",
+      "/workspace/lifecycle",
+      p["workspace.lifecycle"],
+      sparkLocalRpcWorkspaceLifecycleOrpcErrors,
     ),
     client: {
       attach: procedure(

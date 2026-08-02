@@ -266,6 +266,11 @@ const workspaceInvokers = {
       sparkLocalRpcProcedureSchemas["workspace.stop"].output,
       client.workspace.stop(input, options),
     ),
+  "workspace.lifecycle": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["workspace.lifecycle"].output,
+      client.workspace.lifecycle(input, options),
+    ),
   "workspace.client.attach": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["workspace.client.attach"].output,
@@ -304,6 +309,7 @@ const workspaceInvokers = {
   | "workspace.ensure-local"
   | "workspace.attach"
   | "workspace.stop"
+  | "workspace.lifecycle"
   | "workspace.client.attach"
   | "workspace.client.heartbeat"
   | "workspace.client.release"

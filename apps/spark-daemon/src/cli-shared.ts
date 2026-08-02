@@ -16,6 +16,7 @@ import {
   requestTurnSubmit,
   requestWorkspaceAttach,
   requestWorkspaceList,
+  requestWorkspaceLifecycle,
   requestWorkspaceRegister,
   requestWorkspaceRelocate,
   requestWorkspaceStop,
@@ -37,6 +38,7 @@ export interface CliIo {
   humanInteractionRespondFromService?: typeof requestHumanInteractionRespond;
   providerAuthImportPiInService?: typeof requestProviderAuthImportPi;
   listWorkspacesFromService?: typeof requestWorkspaceList;
+  mutateWorkspaceLifecycleInService?: typeof requestWorkspaceLifecycle;
   registerWorkspaceInService?: typeof requestWorkspaceRegister;
   relocateWorkspaceInService?: typeof requestWorkspaceRelocate;
   attachWorkspaceInService?: typeof requestWorkspaceAttach;
@@ -247,6 +249,9 @@ Commands:
   ls [--json] [--all] [--full]
   show [id] [--workspace <id>] [--json]
   stop <id> [--workspace <id>] [--yes]
+  unregister <id> [--workspace <id>] [--dry-run] [--yes] [--json]
+  move <id> <path> [--workspace <id>] [--to <path>] [--dry-run] [--yes] [--json]
+  merge [source ...] --into <target> [--path <parent>] [--all-nested] [--dry-run] [--yes] [--json]
 
 Registration may print a one-time browser key for /{slug}/login.
 Mint additional keys on the Cockpit host (workspace id is the marker):
@@ -255,6 +260,7 @@ Name is display-only; prefer --workspace <id> for commands.
 
 Example:
   spark daemon workspace ls --json
+  spark daemon workspace merge --into spark --path "$HOME" --all-nested --dry-run
 `);
 }
 

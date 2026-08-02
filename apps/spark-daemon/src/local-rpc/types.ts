@@ -117,6 +117,8 @@ export interface LocalWorkspaceRegisterRequest extends RegisterWorkspaceOptions 
 
 export type LocalWorkspaceRelocateRequest = SparkDaemonRelocationRequest;
 export type LocalWorkspaceRelocateResult = SparkDaemonRelocationResult;
+export type LocalWorkspaceLifecycleMutation = SparkLocalRpcParsedInput<"workspace.lifecycle">;
+export type LocalWorkspaceLifecycleMutationResult = SparkLocalRpcOutput<"workspace.lifecycle">;
 
 export interface LocalWorkspaceEnsureLocalRequest {
   localPath: string;
