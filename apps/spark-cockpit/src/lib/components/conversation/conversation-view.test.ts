@@ -490,6 +490,68 @@ describe("Cockpit conversation view adapter", () => {
     ]);
     expect(JSON.stringify(parts)).not.toContain("must-not-render");
   });
+
+  it("handles parser aliases, unknown values, invalid records, and empty parts deterministically", () => {
+    const parts = conversationPartsFromMessage(
+      message({
+        text: "",
+        parts: [
+          null,
+          {},
+          { type: "text", text: "" },
+          { type: "thinking", summary: "Thinking alias", status: "complete" },
+          { type: "reasoning", summary: "Reasoning alias", status: "complete" },
+          { type: "future-part-with-a-long-but-bounded-label" },
+        ] as unknown as SparkMessageView["parts"],
+      }),
+    );
+
+    expect(parts).toEqual([
+      { type: "reasoning", summary: "Thinking alias", state: "complete", redacted: false },
+      { type: "reasoning", summary: "Reasoning alias", state: "complete", redacted: false },
+      { type: "unknown", label: "future-part-with-a-long-but-bounded-label" },
+    ]);
+  });
+
+  it("keeps anonymous structured part identities unique and in daemon order", () => {
+    const parts = conversationPartsFromMessage(
+      message({
+        id: "message-anonymous",
+        text: "",
+        parts: [
+          { type: "tool", name: "first", status: "running" },
+          { type: "tool", name: "second", status: "running" },
+          { type: "task", title: "Task one" },
+          { type: "task", title: "Task two" },
+          { type: "approval", title: "Approval one" },
+          { type: "approval", title: "Approval two" },
+          { type: "artifact", title: "Artifact one" },
+          { type: "artifact", title: "Artifact two" },
+        ] as unknown as SparkMessageView["parts"],
+      }),
+    );
+
+    expect(parts.map((part) => part.type)).toEqual([
+      "tool",
+      "tool",
+      "task",
+      "task",
+      "approval",
+      "approval",
+      "artifact",
+      "artifact",
+    ]);
+    expect(parts).toMatchObject([
+      { type: "tool", callId: "message-anonymous:tool:0", name: "first" },
+      { type: "tool", callId: "message-anonymous:tool:1", name: "second" },
+      { type: "task", taskRef: "message-anonymous:task:2" },
+      { type: "task", taskRef: "message-anonymous:task:3" },
+      { type: "approval", requestId: "message-anonymous:approval:4" },
+      { type: "approval", requestId: "message-anonymous:approval:5" },
+      { type: "artifact", artifactRef: "message-anonymous:artifact:6" },
+      { type: "artifact", artifactRef: "message-anonymous:artifact:7" },
+    ]);
+  });
 });
 
 function message(

@@ -107,6 +107,7 @@ export async function createSparkCliHostServices(
     sessionManager: options.sessionManager,
     keybindings,
   });
+  if (options.sessionLease) runtime.setSessionLeaseProvider(() => options.sessionLease);
   // Registered before extensions so request-scoped prompt state is cleared
   // before any extension's agent_end handler can enqueue a background turn.
   let clearRequestSkillSelection: () => void = () => undefined;

@@ -54,11 +54,17 @@ spark daemon start
 spark cockpit
 ```
 
-Node `>=26 <27` is required. A normal npm/pnpm install remains usable, but it
-only reports exact upgrade commands and never mutates its package-manager
-installation or a source checkout. The source monorepo and its workspaces stay
-private implementation boundaries; they are compiled into the published
-product rather than becoming separate public packages.
+Node `>=26 <27` is required. Global installs owned by npm, pnpm, Yarn, Bun, or
+Vite+ remain package-manager-owned: Spark detects the owner and delegates exact
+version updates and rollback to it. Source checkouts are never modified. The
+source monorepo and its workspaces stay private implementation boundaries; they
+are compiled into the published product rather than becoming separate public
+packages.
+
+For a central Linux deployment, the root `Dockerfile` packages Cockpit only;
+workstation daemons remain native. Build, persistence, health, and reverse-proxy
+constraints are documented in
+[`docs/operations/container.md`](./docs/operations/container.md).
 
 ## Development
 

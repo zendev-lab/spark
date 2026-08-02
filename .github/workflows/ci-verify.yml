@@ -72,6 +72,26 @@ jobs:
       - name: Cockpit browser tests
         run: pnpm run test:browser:cockpit
 
+  container:
+    name: container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Build Cockpit container
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          pull: true
+          build-args: |
+            SPARK_BUILD_GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=spark-cockpit
+          cache-to: type=gha,mode=max,scope=spark-cockpit,ignore-error=true
+
   required:
     name: required
     if: ${{ always() }}
@@ -79,6 +99,7 @@ jobs:
       - checks
       - tests
       - smoke
+      - container
     runs-on: ubuntu-latest
     steps:
       - name: Require every CI lane

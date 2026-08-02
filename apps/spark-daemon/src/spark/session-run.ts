@@ -10,7 +10,7 @@ import {
   type SparkInteractionRequest,
   type SparkInteractionResponse,
 } from "@zendev-lab/spark-protocol";
-import type { SparkHostDriverContext } from "@zendev-lab/spark-core";
+import type { SparkHostDriverContext, SparkSessionLeaseIdentity } from "@zendev-lab/spark-core";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import {
   loadSparkHeadlessSessionModule,
@@ -93,6 +93,18 @@ export interface SparkDaemonTaskExecutorOptions {
   > &
     Partial<Pick<DaemonSessionRegistry, "bindTranscriptPath" | "get" | "setRoleIfMissing">>;
   createSparkHeadlessSessionExecutor?: CreateSparkHeadlessSessionExecutorFn;
+  sessionLeaseControl?: {
+    acquire(
+      task: SparkDaemonSessionRunTask,
+      context: SparkDaemonTaskExecutionContext,
+    ): Promise<
+      | {
+          identity: SparkSessionLeaseIdentity;
+          release(): void | Promise<void>;
+        }
+      | undefined
+    >;
+  };
   driverControl?: {
     schedule(
       task: SparkDaemonDriverTickTask,
@@ -158,7 +170,14 @@ export function createSparkDaemonTaskExecutor(
           return context.emitEvent?.(projected);
         },
       };
+      let sessionLease:
+        | {
+            identity: SparkSessionLeaseIdentity;
+            release(): void | Promise<void>;
+          }
+        | undefined;
       try {
+        sessionLease = await options.sessionLeaseControl?.acquire(sessionTask, trackedContext);
         await options.sessionRegistry?.recordTurnQueued(sessionTask.sessionId);
         const effectiveTask = await withEffectiveTaskModel(sessionTask, options.modelControl);
         const result = await executeSparkDaemonSessionRunTask(
@@ -167,6 +186,7 @@ export function createSparkDaemonTaskExecutor(
           {
             ...options,
             executeSession: await getSessionExecutor(),
+            ...(sessionLease ? { sessionLease: sessionLease.identity } : {}),
           },
           driverTask ? driverContextForTask(driverTask, options.driverControl) : undefined,
         );
@@ -190,6 +210,15 @@ export function createSparkDaemonTaskExecutor(
         await settleFailedSessionRun(sessionTask.sessionId, options.sessionRegistry);
         await wakeTaskExecutionOwner(sessionTask.sessionId, options);
         throw error;
+      } finally {
+        try {
+          await sessionLease?.release();
+        } catch (error) {
+          console.error(
+            `[spark-daemon] failed to release Task Session lease for ${sessionTask.sessionId}`,
+            error,
+          );
+        }
       }
     }
     throw new Error(
@@ -793,7 +822,10 @@ function sessionExecutionPolicy(
 export async function executeSparkDaemonSessionRunTask(
   task: SparkDaemonSessionRunTask,
   context: SparkDaemonTaskExecutionContext,
-  options: SparkDaemonTaskExecutorOptions & { executeSession: SparkHeadlessSessionExecutor },
+  options: SparkDaemonTaskExecutorOptions & {
+    executeSession: SparkHeadlessSessionExecutor;
+    sessionLease?: SparkSessionLeaseIdentity;
+  },
   driver?: SparkHostDriverContext,
 ): Promise<unknown> {
   const sessionContext = await sessionContextForTask(
@@ -829,6 +861,7 @@ export async function executeSparkDaemonSessionRunTask(
     ...(messageMetadata ? { messageMetadata } : {}),
     ...sessionExecutionPolicy(task, sessionContext, binding, driver),
     invocationId: context.invocationId,
+    ...(options.sessionLease ? { sessionLease: options.sessionLease } : {}),
     ...(interaction ? { interaction } : {}),
     onEvent: (event) => emitHeadlessEvent(event, task, context),
   });

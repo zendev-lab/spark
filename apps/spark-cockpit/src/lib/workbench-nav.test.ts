@@ -5,6 +5,7 @@ import {
   isWorkbenchNavItemActive,
   settingsHubHref,
   workspaceSwitcherHref,
+  workspaceSwitcherHrefForPage,
   type WorkbenchNavLabels,
   type WorkbenchPageLabels,
 } from "./workbench-nav";
@@ -118,6 +119,23 @@ describe("workbench nav", () => {
         workspacePath,
       }),
     ).toBe("/other/inbox");
+  });
+
+  it("adapts page URL and workspace records to the switcher contract", () => {
+    expect(
+      workspaceSwitcherHrefForPage({
+        url: new URL("http://127.0.0.1:5173/local/inbox"),
+        activeWorkspacePath: "/local",
+        workspacePath,
+      })({ slug: "other" }),
+    ).toBe("/other/inbox");
+    expect(
+      workspaceSwitcherHrefForPage({
+        url: new URL("http://127.0.0.1:5173/settings/models"),
+        activeWorkspacePath: "/local",
+        workspacePath,
+      })({ slug: "other" }),
+    ).toBe("/settings/models?workspace=other");
   });
 
   it("builds one settings hub link while preserving the active workspace context", () => {

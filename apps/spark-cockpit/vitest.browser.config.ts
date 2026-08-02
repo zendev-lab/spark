@@ -1,14 +1,16 @@
 import { sveltekit } from "@sveltejs/kit/vite";
 import { playwright } from "@vitest/browser-playwright";
-import { defineConfig } from "vitest/config";
+import { defineConfig, type ViteUserConfig } from "vitest/config";
 
 /**
  * Browser project for Cockpit interaction and DOM behavior.
  * Requires: `pnpm exec playwright install chromium`
  * Run from the repository root: `pnpm run test:browser:cockpit`
  */
-export default defineConfig({
-  plugins: [sveltekit()],
+const plugins = await sveltekit();
+
+const config = {
+  plugins,
   optimizeDeps: {
     exclude: ["@lucide/svelte", "bits-ui", "svelte-streamdown"],
     include: ["bits-ui > style-to-object"],
@@ -27,4 +29,6 @@ export default defineConfig({
       instances: [{ browser: "chromium" }],
     },
   },
-});
+} as unknown as ViteUserConfig;
+
+export default defineConfig(config);

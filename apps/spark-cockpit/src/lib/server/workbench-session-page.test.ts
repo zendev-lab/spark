@@ -37,9 +37,7 @@ vi.mock("$lib/server/model-control", () => ({
 vi.mock("$lib/server/submission-idempotency", () => ({
   createCockpitSubmissionId: () => "generated-browser-submission",
 }));
-vi.mock("../../routes/(workbench)/sessions/+page.server", () => ({ actions: {} }));
-
-import { _loadSessionPage } from "../../routes/(workbench)/sessions/[sessionId]/+page.server";
+import { loadSessionPage as _loadSessionPage } from "./session-detail-route";
 
 const workspaceSession = {
   sessionId: "sess_workspace",

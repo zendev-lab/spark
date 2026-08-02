@@ -11,6 +11,7 @@ export interface SparkThemeColors {
   muted: string;
   border: string;
   accent: string;
+  selected: string;
   success: string;
   warning: string;
   error: string;
@@ -67,6 +68,7 @@ export const BUILTIN_SPARK_THEMES: readonly SparkTheme[] = [
       muted: "#8b949e",
       border: "#52525b",
       accent: "#7dd3fc",
+      selected: "#f0abfc",
       success: "#86efac",
       warning: "#fde68a",
       error: "#fca5a5",
@@ -93,6 +95,7 @@ export const BUILTIN_SPARK_THEMES: readonly SparkTheme[] = [
       muted: "#71717a",
       border: "#a1a1aa",
       accent: "#0369a1",
+      selected: "#7c3aed",
       success: "#15803d",
       warning: "#a16207",
       error: "#b91c1c",
@@ -221,12 +224,16 @@ function ansiBg(color: string, text: string): string {
 }
 
 function ansiColorCode(color: string, background: boolean): string | undefined {
-  const hex = /^#?([0-9a-f]{6})$/iu.exec(color.trim())?.[1];
+  const hex = parseAnsiHexColor(color);
   if (!hex) return undefined;
   const r = Number.parseInt(hex.slice(0, 2), 16);
   const g = Number.parseInt(hex.slice(2, 4), 16);
   const b = Number.parseInt(hex.slice(4, 6), 16);
   return `\x1b[${background ? 48 : 38};2;${r};${g};${b}m`;
+}
+
+function parseAnsiHexColor(value: string): string | undefined {
+  return /^#?([0-9a-f]{6})$/iu.exec(value.trim())?.[1];
 }
 
 async function discoverThemeFiles(
@@ -293,7 +300,7 @@ function parseThemeColors(value: unknown, fallback: SparkThemeColors): SparkThem
   const colors = { ...fallback };
   for (const key of Object.keys(colors) as Array<keyof SparkThemeColors>) {
     const next = stringField(record[key]);
-    if (next) colors[key] = next;
+    if (next && parseAnsiHexColor(next)) colors[key] = next;
   }
   return colors;
 }

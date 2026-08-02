@@ -65,7 +65,9 @@ describe("Spark daemon local RPC", () => {
     });
     await sessionRegistry.create({
       sessionId: "session:driver-owner",
-      scope: { kind: "daemon" },
+      scope: { kind: "workspace", workspaceId: "workspace-driver" },
+      workspaceId: "workspace-driver",
+      cwd: root,
     });
     const eventBus = createSparkDaemonLocalEventBus();
     const events: unknown[] = [];
@@ -1136,7 +1138,12 @@ describe("Spark daemon local RPC", () => {
       daemonId: "cancel-test",
       daemonCwd: root,
     });
-    await sessionRegistry.create({ sessionId: "session-a", scope: { kind: "daemon" } });
+    await sessionRegistry.create({
+      sessionId: "session-a",
+      scope: { kind: "workspace", workspaceId: "workspace-cancel" },
+      workspaceId: "workspace-cancel",
+      cwd: root,
+    });
 
     try {
       const submitted = await handleLocalRpcLine(
@@ -1380,7 +1387,12 @@ describe("Spark daemon local RPC", () => {
       daemonId: "socket-test",
       daemonCwd: root,
     });
-    await sessionRegistry.create({ sessionId: "event-session", scope: { kind: "daemon" } });
+    await sessionRegistry.create({
+      sessionId: "event-session",
+      scope: { kind: "workspace", workspaceId: "workspace-events" },
+      workspaceId: "workspace-events",
+      cwd: root,
+    });
     const server = await startLocalRpcServer({
       paths,
       sparkHome: join(root, ".spark"),
@@ -1512,8 +1524,18 @@ describe("Spark daemon local RPC", () => {
       daemonId: "invocation-list-test",
       daemonCwd: root,
     });
-    await sessionRegistry.create({ sessionId: "session:selected", scope: { kind: "daemon" } });
-    await sessionRegistry.create({ sessionId: "session:other", scope: { kind: "daemon" } });
+    await sessionRegistry.create({
+      sessionId: "session:selected",
+      scope: { kind: "workspace", workspaceId: "workspace-diagnostics" },
+      workspaceId: "workspace-diagnostics",
+      cwd: root,
+    });
+    await sessionRegistry.create({
+      sessionId: "session:other",
+      scope: { kind: "workspace", workspaceId: "workspace-diagnostics" },
+      workspaceId: "workspace-diagnostics",
+      cwd: root,
+    });
     const insert = db.prepare(
       `INSERT INTO invocations
         (id, session_id, status, prompt, task_json, attempt_count, error_code, error_message,
@@ -2066,7 +2088,7 @@ describe("Spark daemon local RPC", () => {
     }
   });
 
-  it("injects daemon ownership and freezes owner cwd on submitted turns", async () => {
+  it("rejects daemon ownership and freezes workspace cwd on submitted turns", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-session-scope-"));
     const daemonCwd = join(root, "daemon-base");
     const workspaceCwd = join(root, "workspace");
@@ -2102,19 +2124,17 @@ describe("Spark daemon local RPC", () => {
       );
 
     try {
-      const global = await request("create_global", "session.create", {
+      const retiredDaemonScope = await request("create_global", "session.create", {
         sessionId: "sess_global",
         scope: { kind: "daemon" },
       });
-      expect(global).toMatchObject({
-        ok: true,
-        result: {
-          sessionId: "sess_global",
-          scope: { kind: "daemon", daemonId: "install-scope-test" },
-          cwd: daemonCwd,
+      expect(retiredDaemonScope).toMatchObject({
+        ok: false,
+        error: {
+          code: "invalid_scope",
+          message: "New top-level sessions must belong to a workspace.",
         },
       });
-      expect(global).not.toHaveProperty("result.workspaceId");
 
       const workspaceSession = await request("create_workspace", "session.create", {
         sessionId: "sess_workspace",
@@ -2138,37 +2158,9 @@ describe("Spark daemon local RPC", () => {
         error: { code: "workspace_cwd_unavailable" },
       });
 
-      const globalList = await request("list_global", "session.list", {
-        scope: { kind: "daemon" },
-      });
-      expect(globalList).toMatchObject({
-        ok: true,
-        result: [{ sessionId: "sess_global" }],
-      });
-
-      const globalTurn = await request("turn_global", "turn.submit", {
-        sessionId: "sess_global",
-        prompt: "global work",
-      });
-      expect(globalTurn).toMatchObject({
-        ok: true,
-        result: { invocationId: expect.stringMatching(/^inv_/u), status: "queued" },
-      });
-      const globalInvocation = new SparkInvocationStore(db).require(
-        (globalTurn as { result: { invocationId: string } }).result.invocationId,
-      );
-      expect(globalInvocation.task).toMatchObject({ sessionId: "sess_global", cwd: daemonCwd });
-      expect(globalInvocation.task).not.toHaveProperty("workspaceId");
-      expect(
-        await request("get_global_running", "session.get", { sessionId: "sess_global" }),
-      ).toMatchObject({
-        ok: true,
-        result: { status: "ready" },
-      });
-
       await request("create_question", "session.create", {
         sessionId: "sess_question",
-        scope: { kind: "daemon" },
+        workspaceId: workspace.id,
       });
       const questionInput = {
         sessionId: "sess_question",
@@ -2233,11 +2225,11 @@ describe("Spark daemon local RPC", () => {
       });
 
       const spoofed = await request("turn_spoofed", "turn.submit", {
-        sessionId: "sess_global",
+        sessionId: "sess_workspace",
         prompt: "wrong owner",
         assignment: {
           goal: "wrong owner",
-          target: { sessionId: "sess_global", workspaceId: workspace.id },
+          target: { sessionId: "sess_workspace", workspaceId: "ws_other" },
           source: { kind: "cockpit" },
         },
       });

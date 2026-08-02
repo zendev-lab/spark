@@ -71,7 +71,7 @@ Default policy:
 ```toml
 policy = "notify"
 channel = "latest"
-checkIntervalHours = 6
+checkIntervalHours = 24
 ```
 
 `SPARK_UPDATE_POLICY` and `SPARK_UPDATE_CHANNEL` override the file. `manual`
@@ -87,7 +87,7 @@ spark update check
 spark update apply 0.1.1 --yes --wait
 spark update rollback --yes --wait
 spark update retry 0.1.1 --yes
-spark update configure --policy notify --channel latest
+spark update configure --policy notify --channel latest --interval-hours 24
 spark version --json
 ```
 
@@ -96,6 +96,13 @@ under an isolated `SPARK_HOME`, switches `current` atomically, and fences daemon
 restart to the target build fingerprint. Three matching health checks are
 required. Failure switches back to the rollback version and quarantines the
 candidate; retry requires an explicit command or a newer version.
+
+For global npm, pnpm, Yarn, Bun, and Vite+ installs, the package manager remains
+the installation owner. Spark delegates an exact-version install, verifies the
+new build through the stable command, safely hands off the daemon, and restarts
+Cockpit only when its background web service was already running. The single
+launchd tick wakes periodically, while `checkIntervalHours` gates registry
+traffic to the configured daily cadence.
 
 Database migrations eligible for automatic update must be expand-only and
 readable by N-1. Destructive migrations require manual confirmation. Rollback

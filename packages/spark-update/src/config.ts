@@ -11,7 +11,7 @@ import type {
 export const DEFAULT_SPARK_UPDATE_CONFIG: SparkUpdateConfig = {
   policy: "notify",
   channel: "latest",
-  checkIntervalHours: 6,
+  checkIntervalHours: 24,
 };
 
 export async function readSparkUpdateConfig(

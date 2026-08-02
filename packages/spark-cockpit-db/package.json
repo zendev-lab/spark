@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@zendev-lab/spark-system": "workspace:*",
-    "kysely": "^0.28.7"
+    "kysely": "^0.29.0"
   },
   "devDependencies": {
     "@stryker-mutator/core": "catalog:",

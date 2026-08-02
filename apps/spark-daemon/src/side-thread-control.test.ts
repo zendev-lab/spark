@@ -642,7 +642,12 @@ async function createFixture() {
     daemonId: "side-thread-test",
     daemonCwd: root,
   });
-  await sessionRegistry.create({ sessionId: parentSessionId, scope: { kind: "daemon" } });
+  await sessionRegistry.create({
+    sessionId: parentSessionId,
+    scope: { kind: "workspace", workspaceId: "workspace-side-thread" },
+    workspaceId: "workspace-side-thread",
+    cwd: root,
+  });
   await sessionRegistry.recordRun({ sessionId: parentSessionId, sessionPath: parentRecord.path });
   const options = {
     paths,

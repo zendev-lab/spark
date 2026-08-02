@@ -3,14 +3,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   notifySessionRequestCompletion,
+  reconcileSessionRequestCompletions,
   renderSessionRequestCompletionPrompt,
   SESSION_REQUEST_COMPLETION_SOURCE_KIND,
 } from "./session-request-completion-notify.ts";
+import { SessionRequestCompletionDeliveryStore } from "./store/session-request-completion-deliveries.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { migrateSparkDaemonDatabase } from "./store/schema.ts";
 
@@ -208,6 +211,230 @@ describe("session request completion notify", () => {
     }
   });
 
+  it("persists one completion mail and retries sender wake after restart or unavailability", async () => {
+    const harness = createHarness();
+    const sender = localSession("sess_sender_retry", harness.cwd);
+    const target = localSession("sess_target_retry", harness.cwd);
+    const mailStore = new SparkSessionMailStore({ sparkHome: harness.cwd });
+    const deliveryStore = new SessionRequestCompletionDeliveryStore(harness.db);
+    const source = harness.store.submit({
+      sessionId: target.sessionId,
+      prompt: "delegated work",
+      task: requestMailTask(sender.sessionId, target.sessionId, true),
+    });
+    harness.store.claimNext("completion-worker");
+    harness.store.complete(source.invocationId, {
+      status: "succeeded",
+      result: { assistantText: "durable result" },
+    });
+    deliveryStore.enqueue(source.invocationId);
+    deliveryStore.enqueue(source.invocationId);
+    let senderAvailable = false;
+    const recordTurnQueued = vi.fn(async () => sender);
+    const deps = {
+      invocationStore: harness.store,
+      deliveryStore,
+      mailStore,
+      sessionRegistry: {
+        get: async (sessionId: string) =>
+          sessionId === sender.sessionId ? (senderAvailable ? sender : undefined) : target,
+        recordTurnQueued,
+      },
+    };
+
+    try {
+      await expect(reconcileSessionRequestCompletions(deps)).resolves.toEqual({
+        attempted: 1,
+        delivered: 0,
+        failed: 1,
+      });
+      expect(await mailStore.list(sender.sessionId, { includeAcked: true })).toHaveLength(1);
+      expect(harness.store.listPendingForSession(sender.sessionId)).toHaveLength(0);
+
+      senderAvailable = true;
+      const restartedStore = new SessionRequestCompletionDeliveryStore(harness.db);
+      await expect(
+        reconcileSessionRequestCompletions({ ...deps, deliveryStore: restartedStore }),
+      ).resolves.toEqual({ attempted: 1, delivered: 1, failed: 0 });
+      expect(await mailStore.list(sender.sessionId, { includeAcked: true })).toHaveLength(1);
+      expect(harness.store.listPendingForSession(sender.sessionId)).toHaveLength(1);
+      expect(recordTurnQueued).toHaveBeenCalledOnce();
+
+      await expect(
+        reconcileSessionRequestCompletions({ ...deps, deliveryStore: restartedStore }),
+      ).resolves.toEqual({ attempted: 0, delivered: 0, failed: 0 });
+      expect(harness.store.listPendingForSession(sender.sessionId)).toHaveLength(1);
+      expect(recordTurnQueued).toHaveBeenCalledOnce();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("retries a persisted wake when turn queue projection fails without resubmitting", async () => {
+    const harness = createHarness();
+    const sender = localSession("sess_sender_wake_retry", harness.cwd);
+    const target = localSession("sess_target_wake_retry", harness.cwd);
+    const mailStore = new SparkSessionMailStore({ sparkHome: harness.cwd });
+    const deliveryStore = new SessionRequestCompletionDeliveryStore(harness.db);
+    const source = harness.store.submit({
+      sessionId: target.sessionId,
+      prompt: "delegated work",
+      task: requestMailTask(sender.sessionId, target.sessionId, true),
+    });
+    harness.store.claimNext("completion-worker");
+    harness.store.complete(source.invocationId, {
+      status: "succeeded",
+      result: { assistantText: "done" },
+    });
+    deliveryStore.enqueue(source.invocationId);
+    let failWake = true;
+    const recordTurnQueued = vi.fn(async () => {
+      if (failWake) throw new Error("sender unavailable");
+      return sender;
+    });
+    const deps = {
+      invocationStore: harness.store,
+      deliveryStore,
+      mailStore,
+      sessionRegistry: {
+        get: async () => sender,
+        recordTurnQueued,
+      },
+    };
+
+    try {
+      await expect(reconcileSessionRequestCompletions(deps)).resolves.toEqual({
+        attempted: 1,
+        delivered: 0,
+        failed: 1,
+      });
+      expect(harness.store.listPendingForSession(sender.sessionId)).toHaveLength(1);
+      failWake = false;
+      await expect(reconcileSessionRequestCompletions(deps)).resolves.toEqual({
+        attempted: 1,
+        delivered: 1,
+        failed: 0,
+      });
+      expect(harness.store.listPendingForSession(sender.sessionId)).toHaveLength(1);
+      expect(await mailStore.list(sender.sessionId, { includeAcked: true })).toHaveLength(1);
+      expect(recordTurnQueued).toHaveBeenCalledTimes(2);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("atomically claims one delivery across two reconcilers and delivers side effects once", async () => {
+    const harness = createHarness();
+    const sender = localSession("sess_sender_concurrent", harness.cwd);
+    const target = localSession("sess_target_concurrent", harness.cwd);
+    const mailStore = new SparkSessionMailStore({ sparkHome: harness.cwd });
+    const firstStore = new SessionRequestCompletionDeliveryStore(harness.db);
+    const secondStore = new SessionRequestCompletionDeliveryStore(harness.db);
+    const source = completedRequest(harness, sender.sessionId, target.sessionId, "concurrent");
+    firstStore.enqueue(source.invocationId);
+    let senderWakeCount = 0;
+    const deps = {
+      invocationStore: harness.store,
+      mailStore,
+      sessionRegistry: {
+        get: async () => sender,
+        recordTurnQueued: async () => {
+          senderWakeCount += 1;
+          return sender;
+        },
+      },
+    };
+
+    try {
+      const [first, second] = await Promise.all([
+        reconcileSessionRequestCompletions({ ...deps, deliveryStore: firstStore }),
+        reconcileSessionRequestCompletions({ ...deps, deliveryStore: secondStore }),
+      ]);
+      expect(first.attempted + second.attempted).toBe(1);
+      expect(first.delivered + second.delivered).toBe(1);
+      expect(await mailStore.list(sender.sessionId, { includeAcked: true })).toHaveLength(1);
+      expect(harness.store.listPendingForSession(sender.sessionId)).toHaveLength(1);
+      expect(senderWakeCount).toBe(1);
+      expect(firstStore.require(source.invocationId).status).toBe("delivered");
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("recovers an expired claim after restart without duplicating completion effects", async () => {
+    const harness = createHarness();
+    const sender = localSession("sess_sender_expired", harness.cwd);
+    const target = localSession("sess_target_expired", harness.cwd);
+    const mailStore = new SparkSessionMailStore({ sparkHome: harness.cwd });
+    let now = new Date("2026-07-29T00:00:00.000Z");
+    const firstStore = new SessionRequestCompletionDeliveryStore(harness.db, () => now);
+    const source = completedRequest(harness, sender.sessionId, target.sessionId, "expired");
+    firstStore.enqueue(source.invocationId);
+    expect(firstStore.claim(source.invocationId, 1_000)?.status).toBe("processing");
+    now = new Date("2026-07-29T00:00:02.000Z");
+    const restartedStore = new SessionRequestCompletionDeliveryStore(harness.db, () => now);
+    let senderWakeCount = 0;
+
+    try {
+      await expect(
+        reconcileSessionRequestCompletions({
+          invocationStore: harness.store,
+          deliveryStore: restartedStore,
+          mailStore,
+          sessionRegistry: {
+            get: async () => sender,
+            recordTurnQueued: async () => {
+              senderWakeCount += 1;
+              return sender;
+            },
+          },
+        }),
+      ).resolves.toEqual({ attempted: 1, delivered: 1, failed: 0 });
+      expect(await mailStore.list(sender.sessionId, { includeAcked: true })).toHaveLength(1);
+      expect(harness.store.listPendingForSession(sender.sessionId)).toHaveLength(1);
+      expect(senderWakeCount).toBe(1);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("lets immediate notify and reconciliation race without duplicate target or wake execution", async () => {
+    const harness = createHarness();
+    const sender = localSession("sess_sender_immediate", harness.cwd);
+    const target = localSession("sess_target_immediate", harness.cwd);
+    const mailStore = new SparkSessionMailStore({ sparkHome: harness.cwd });
+    const deliveryStore = new SessionRequestCompletionDeliveryStore(harness.db);
+    const source = completedRequest(harness, sender.sessionId, target.sessionId, "immediate");
+    deliveryStore.enqueue(source.invocationId);
+    let senderWakeCount = 0;
+    const deps = {
+      invocationStore: harness.store,
+      deliveryStore,
+      mailStore,
+      sessionRegistry: {
+        get: async () => sender,
+        recordTurnQueued: async () => {
+          senderWakeCount += 1;
+          return sender;
+        },
+      },
+    };
+
+    try {
+      const [immediate, loop] = await Promise.all([
+        reconcileSessionRequestCompletions(deps, 1, source.invocationId),
+        reconcileSessionRequestCompletions(deps),
+      ]);
+      expect(immediate.attempted + loop.attempted).toBe(1);
+      expect(await mailStore.list(sender.sessionId, { includeAcked: true })).toHaveLength(1);
+      expect(harness.store.listPendingForSession(sender.sessionId)).toHaveLength(1);
+      expect(senderWakeCount).toBe(1);
+      expect(deliveryStore.require(source.invocationId).status).toBe("delivered");
+    } finally {
+      harness.close();
+    }
+  });
+
   it("renders a synthesis prompt with failure details", () => {
     const prompt = renderSessionRequestCompletionPrompt({
       mail: {
@@ -230,6 +457,25 @@ describe("session request completion notify", () => {
     expect(prompt).toContain("Do not claim the delegated work is still running");
   });
 });
+
+function completedRequest(
+  harness: ReturnType<typeof createHarness>,
+  senderSessionId: string,
+  targetSessionId: string,
+  suffix: string,
+) {
+  const source = harness.store.submit({
+    sessionId: targetSessionId,
+    prompt: `delegated work ${suffix}`,
+    task: requestMailTask(senderSessionId, targetSessionId, true),
+  });
+  harness.store.claimNext(`target-worker-${suffix}`);
+  harness.store.complete(source.invocationId, {
+    status: "succeeded",
+    result: { assistantText: `done ${suffix}` },
+  });
+  return harness.store.require(source.invocationId);
+}
 
 function createHarness() {
   const cwd = mkdtempSync(join(tmpdir(), "spark-session-request-completion-"));

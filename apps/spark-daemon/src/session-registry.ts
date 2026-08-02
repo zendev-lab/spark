@@ -73,9 +73,9 @@ export type DaemonSessionListRequest = SparkSessionListRequest & {
 };
 
 export interface CreateDaemonSessionRegistryOptions {
-  /** Stable daemon installation identity. Never accepted from a create client. */
+  /** Stable daemon installation identity used only to filter archived legacy records. */
   daemonId?: string;
-  /** Base cwd used by daemon-global sessions. */
+  /** @deprecated Ignored; daemon-global creation is rejected. */
   daemonCwd?: string;
   /** Resolve a daemon-local path for a canonical or legacy workspace id. */
   resolveWorkspaceCwd?: (workspaceId: string) => string | undefined;
@@ -193,26 +193,10 @@ function resolveCreateRequest(
   };
   if (!scope) return resolveRegistryCreateInput(createInput, options);
   if (scope.kind === "daemon") {
-    const daemonId = options.daemonId?.trim();
-    if (!daemonId) {
-      throw new SparkSessionRegistryError(
-        "daemon_identity_unavailable",
-        "daemon-global session creation requires a configured installationId",
-      );
-    }
-    const daemonCwd = options.daemonCwd?.trim();
-    if (!daemonCwd) {
-      throw new SparkSessionRegistryError(
-        "daemon_cwd_unavailable",
-        "daemon-global session creation requires a daemon execution directory",
-      );
-    }
-    const { workspaceId: _workspaceId, cwd: _cwd, ...rest } = createInput;
-    return {
-      ...rest,
-      scope: { kind: "daemon", daemonId },
-      cwd: daemonCwd,
-    };
+    throw new SparkSessionRegistryError(
+      "invalid_scope",
+      "New top-level sessions must belong to a workspace.",
+    );
   }
   return resolveRegistryCreateInput(
     {
@@ -235,20 +219,10 @@ function resolveRegistryCreateInput(
       : undefined);
   if (!scope) return input;
   if (scope.kind === "daemon") {
-    const daemonId = options.daemonId?.trim() || scope.daemonId;
-    const daemonCwd = options.daemonCwd?.trim() || input.cwd?.trim();
-    if (!daemonCwd) {
-      throw new SparkSessionRegistryError(
-        "daemon_cwd_unavailable",
-        "daemon-global session creation requires a daemon execution directory",
-      );
-    }
-    const { workspaceId: _workspaceId, ...rest } = input;
-    return {
-      ...rest,
-      scope: { kind: "daemon", daemonId },
-      cwd: daemonCwd,
-    };
+    throw new SparkSessionRegistryError(
+      "invalid_scope",
+      "New top-level sessions must belong to a workspace.",
+    );
   }
   const resolvedWorkspaceCwd = options.resolveWorkspaceCwd?.(scope.workspaceId)?.trim();
   if (options.resolveWorkspaceCwd && !resolvedWorkspaceCwd) {

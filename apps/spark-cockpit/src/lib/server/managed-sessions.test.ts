@@ -330,16 +330,16 @@ describe("managed sessions for cockpit", () => {
     expect(client.archive).toHaveBeenCalledWith("sess_a");
   });
 
-  it("does not create native-TUI-only daemon sessions", async () => {
+  it("rejects the retired daemon-global creation scope", async () => {
     const client = daemonClient();
 
     await expect(
       createManagedSessionForCockpit(
         {
           runtimeId: "runtime-a",
-          scope: { kind: "daemon" },
-          title: "TUI only",
-        },
+          scope: { kind: "daemon" } as never,
+          title: "Legacy daemon session",
+        } as never,
         client,
       ),
     ).rejects.toThrow("workspace-scoped sessions only");

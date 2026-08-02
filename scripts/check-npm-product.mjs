@@ -64,6 +64,7 @@ if (await exists(productManifestPath)) {
     "dist/spark-tui.js",
     "dist/spark-daemon.js",
     "dist/spark-headless-role-executor.js",
+    "dist/spark-cockpit-server.js",
     "dist/migrations/0001_initial.sql",
     "skills/model-reproduction/SKILL.md",
     "skills/model-reproduction/references/known-diffs/catalog.md",

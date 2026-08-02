@@ -40,7 +40,7 @@ import { createCockpitRuntimeSessionClient } from "./cockpit-runtime-session-cli
 
 const now = "2026-07-15T00:00:00.000Z";
 
-test("remote Cockpit controls both session scopes without a daemon socket", async () => {
+test("remote Cockpit controls workspace sessions without a daemon socket", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-remote-session-control-"));
   const nonexistentSocket = join(root, "cockpit-host", "daemon.sock");
   const paths = resolveSparkPaths({
@@ -130,7 +130,7 @@ test("remote Cockpit controls both session scopes without a daemon socket", asyn
     const bridges = [bridge];
     const client = createCockpitRuntimeSessionClient(cockpitDb);
     const workspaceSessionId = createId("sess");
-    const daemonSessionId = createId("sess");
+    const secondSessionId = createId("sess");
     const workspaceCreate = {
       sessionId: workspaceSessionId,
       scope: { kind: "workspace", workspaceId: cockpitWorkspace.id },
@@ -140,23 +140,26 @@ test("remote Cockpit controls both session scopes without a daemon socket", asyn
     } as const;
     const workspaceSession = await client.create(workspaceCreate);
     const workspaceSessionReplay = await client.create(workspaceCreate);
-    const daemonSession = await client.create({
-      runtimeId,
-      sessionId: daemonSessionId,
-      scope: { kind: "daemon" },
-      title: "Daemon round",
+    const secondSession = await client.create({
+      sessionId: secondSessionId,
+      scope: { kind: "workspace", workspaceId: cockpitWorkspace.id },
+      workspaceId: cockpitWorkspace.id,
+      title: "Workspace round two",
     });
     assert.equal(workspaceSession.scope.kind, "workspace");
     assert.deepEqual(workspaceSessionReplay, workspaceSession);
-    assert.deepEqual(daemonSession.scope, { kind: "daemon", daemonId: installationId });
+    assert.deepEqual(secondSession.scope, {
+      kind: "workspace",
+      workspaceId: cockpitWorkspace.id,
+    });
     await assert.rejects(
       client.create({
         runtimeId,
         sessionId: createId("sess"),
         scope: { kind: "daemon" },
         cwd: "/tmp/remote-path-injection",
-      }),
-      /cannot select daemon-local cwd, sessionPath, or task execution/u,
+      } as never),
+      /workspace-scoped sessions only/u,
     );
 
     const bound = await client.bind({
@@ -170,26 +173,30 @@ test("remote Cockpit controls both session scopes without a daemon socket", asyn
     });
     assert.equal(unbound.bindings.length, 0);
     const listed = await client.list({ includeArchived: true });
-    assert.deepEqual(listed.map(({ sessionId }) => sessionId).sort(), [workspaceSessionId]);
+    assert.deepEqual(
+      listed.map(({ sessionId }) => sessionId).sort(),
+      [workspaceSessionId, secondSessionId].sort(),
+    );
 
-    const additionalDaemonSessions = await Promise.all(
+    const additionalWorkspaceSessions = await Promise.all(
       Array.from({ length: 101 }, (_, index) =>
         registry.create({
           sessionId: createId("sess"),
-          scope: { kind: "daemon" },
-          title: `Paged daemon session ${index} ${"x".repeat(400)}`,
+          scope: { kind: "workspace", workspaceId: cockpitWorkspace.id },
+          workspaceId: cockpitWorkspace.id,
+          title: `Paged workspace session ${index} ${"x".repeat(400)}`,
         }),
       ),
     );
-    const pagedDaemonSessions = await client.list({
-      runtimeId,
-      scope: { kind: "daemon" },
+    const pagedWorkspaceSessions = await client.list({
+      scope: { kind: "workspace", workspaceId: cockpitWorkspace.id },
+      workspaceId: cockpitWorkspace.id,
       includeArchived: true,
     });
-    assert.equal(pagedDaemonSessions.length, 102);
+    assert.equal(pagedWorkspaceSessions.length, 103);
     assert.ok(
-      additionalDaemonSessions.every(({ sessionId }) =>
-        pagedDaemonSessions.some((session) => session.sessionId === sessionId),
+      additionalWorkspaceSessions.every(({ sessionId }) =>
+        pagedWorkspaceSessions.some((session) => session.sessionId === sessionId),
       ),
     );
 
@@ -207,15 +214,15 @@ test("remote Cockpit controls both session scopes without a daemon socket", asyn
     insertInvocationEvents(daemonDb, workspaceTurn.invocationId, 10_000);
 
     bridge.dropNextTerminalFor("turn.submit.request");
-    const daemonTurnPromise = client.submit({
-      sessionId: daemonSessionId,
-      prompt: "Daemon round two",
-      assignment: assignment(daemonSessionId, "Daemon round two"),
+    const secondTurnPromise = client.submit({
+      sessionId: secondSessionId,
+      prompt: "Workspace round two",
+      assignment: assignment(secondSessionId, "Workspace round two", cockpitWorkspace.id),
       idempotencyKey: createId("idem"),
     });
     const droppedCommand = await waitForCockpitCommand(cockpitDb, {
       kind: "turn.submit.request",
-      sessionId: daemonSessionId,
+      sessionId: secondSessionId,
       status: "accepted",
     });
     await waitFor(() =>
@@ -224,15 +231,15 @@ test("remote Cockpit controls both session scopes without a daemon socket", asyn
     bridge.close(1006, "drop accepted command terminal before Cockpit ingest");
     bridge = connectRuntime(cockpitDb, context, bindingId);
     bridges.push(bridge);
-    const daemonTurn = await daemonTurnPromise;
+    const secondTurn = await secondTurnPromise;
 
     const replayedReceipt = runtimeCommandReceipt(daemonDb, droppedCommand.commandId);
     assert.equal(replayedReceipt?.deliveryCount, 2);
     assert.equal(
-      invocationStore.listPage({ sessionId: daemonSessionId, limit: 100 }).invocations.length,
+      invocationStore.listPage({ sessionId: secondSessionId, limit: 100 }).invocations.length,
       1,
     );
-    assert.notEqual(daemonTurn.invocationId, workspaceTurn.invocationId);
+    assert.notEqual(secondTurn.invocationId, workspaceTurn.invocationId);
 
     const cancel = await client.cancel({
       sessionId: workspaceSessionId,
@@ -283,37 +290,37 @@ test("remote Cockpit controls both session scopes without a daemon socket", asyn
       .get(workspaceTurn.invocationId) as { count: number };
     assert.equal(Number(projectedCursorCount.count), 1);
 
-    const queuedDaemonCancellation = await client.cancel({
-      sessionId: daemonSessionId,
-      invocationId: daemonTurn.invocationId,
-      reason: "Settle daemon test turn.",
+    const queuedSecondCancellation = await client.cancel({
+      sessionId: secondSessionId,
+      invocationId: secondTurn.invocationId,
+      reason: "Settle second workspace test turn.",
     });
-    assert.equal(queuedDaemonCancellation.status, "cancelled");
+    assert.equal(queuedSecondCancellation.status, "cancelled");
 
     const workspaceTranscript = join(root, "workspace-round.jsonl");
-    const daemonTranscript = join(root, "daemon-round.jsonl");
+    const secondTranscript = join(root, "workspace-round-two.jsonl");
     await Promise.all([
       writeTranscript(workspaceTranscript, workspaceSessionId, root, "Workspace round one"),
-      writeTranscript(daemonTranscript, daemonSessionId, root, "Daemon round two"),
+      writeTranscript(secondTranscript, secondSessionId, root, "Workspace round two"),
     ]);
     await Promise.all([
       registry.recordRun({ sessionId: workspaceSessionId, sessionPath: workspaceTranscript }),
-      registry.recordRun({ sessionId: daemonSessionId, sessionPath: daemonTranscript }),
+      registry.recordRun({ sessionId: secondSessionId, sessionPath: secondTranscript }),
     ]);
-    const [workspaceSnapshot, daemonSnapshot] = await Promise.all([
+    const [workspaceSnapshot, secondSnapshot] = await Promise.all([
       client.snapshot(workspaceSessionId),
-      client.snapshot(daemonSessionId),
+      client.snapshot(secondSessionId),
     ]);
     assert.deepEqual(
       workspaceSnapshot.snapshot.messages.map(({ text }) => text),
       ["Workspace round one", "Workspace round one complete"],
     );
     assert.deepEqual(
-      daemonSnapshot.snapshot.messages.map(({ text }) => text),
-      ["Daemon round two", "Daemon round two complete"],
+      secondSnapshot.snapshot.messages.map(({ text }) => text),
+      ["Workspace round two", "Workspace round two complete"],
     );
 
-    await client.archive(daemonSessionId);
+    await client.archive(secondSessionId);
 
     const terminalProjectionCount = cockpitDb
       .prepare(
@@ -329,7 +336,7 @@ test("remote Cockpit controls both session scopes without a daemon socket", asyn
          GROUP BY session_id
          ORDER BY session_id`,
       )
-      .all(workspaceSessionId, daemonSessionId) as Array<{ sessionId: string; count: number }>;
+      .all(workspaceSessionId, secondSessionId) as Array<{ sessionId: string; count: number }>;
     assert.deepEqual(
       invocationRows.map(({ count }) => Number(count)),
       [1, 1],
@@ -349,8 +356,8 @@ test("remote Cockpit controls both session scopes without a daemon socket", asyn
         transport: { page: "https", runtime: "wss" },
         conversationSurface: {
           path: "/sessions/[sessionId]",
-          workspaceSessionCreated: true,
-          daemonSessionCreated: true,
+          workspaceSessionsCreated: 2,
+          daemonSessionCreationRejected: true,
           listPaged: true,
           bindUnbindArchived: true,
           turnSubmitted: true,
@@ -361,18 +368,18 @@ test("remote Cockpit controls both session scopes without a daemon socket", asyn
         runtimeId,
         workspaceId: cockpitWorkspace.id,
         workspaceSessionId,
-        daemonSessionId,
+        secondSessionId,
         workspaceInvocationId: workspaceTurn.invocationId,
-        daemonInvocationId: daemonTurn.invocationId,
+        secondInvocationId: secondTurn.invocationId,
         reconnectDeliveryCount: replayedReceipt?.deliveryCount,
         cancelRequested: cancel.cancelRequested,
         cancellationStatus: terminalStatus.status,
         cursor: stream.nextCursor,
         projectedTerminalCount: terminalProjectionCount.count,
-        daemonInvocationCounts: invocationRows,
+        workspaceInvocationCounts: invocationRows,
         transcriptMessages:
-          workspaceSnapshot.snapshot.messages.length + daemonSnapshot.snapshot.messages.length,
-        pagedDaemonSessionCount: pagedDaemonSessions.length,
+          workspaceSnapshot.snapshot.messages.length + secondSnapshot.snapshot.messages.length,
+        pagedWorkspaceSessionCount: pagedWorkspaceSessions.length,
         maxPayloadBytes,
         daemonSocketUsed: existsSync(nonexistentSocket),
       }),

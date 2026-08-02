@@ -14,13 +14,13 @@ import {
 import type { SparkSessionRegistryErrorCode } from "@zendev-lab/spark-protocol/session-errors";
 import type { SparkModelRef, SparkThinkingLevel } from "@zendev-lab/spark-protocol/model-control";
 
-const LEGACY_REGISTRY_VERSIONS = new Set([1, 2]);
-const REGISTRY_VERSION = 3 as const;
+const LEGACY_REGISTRY_VERSIONS = new Set([1, 2, 3]);
+export const SPARK_SESSION_REGISTRY_VERSION = 4 as const;
 
 export type SparkSessionUnboundPolicy = "reject" | "create";
 
 export interface SparkSessionRegistryFile {
-  version: typeof REGISTRY_VERSION;
+  version: typeof SPARK_SESSION_REGISTRY_VERSION;
   sessions: SparkSessionRegistryRecord[];
 }
 
@@ -800,7 +800,7 @@ export class SparkSessionRegistry {
       return parseRegistryFile(raw);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return { version: REGISTRY_VERSION, sessions: [] };
+        return { version: SPARK_SESSION_REGISTRY_VERSION, sessions: [] };
       }
       throw error;
     }
@@ -854,7 +854,7 @@ function parseRegistryFile(value: unknown): SparkSessionRegistryFile {
   }
   const record = value as Record<string, unknown>;
   if (
-    record.version !== REGISTRY_VERSION &&
+    record.version !== SPARK_SESSION_REGISTRY_VERSION &&
     !LEGACY_REGISTRY_VERSIONS.has(Number(record.version))
   ) {
     throw new SparkSessionRegistryError(
@@ -866,7 +866,7 @@ function parseRegistryFile(value: unknown): SparkSessionRegistryFile {
     throw new SparkSessionRegistryError("invalid_registry", "sessions must be an array");
   }
   return {
-    version: REGISTRY_VERSION,
+    version: SPARK_SESSION_REGISTRY_VERSION,
     sessions: record.sessions.map((session) => parseSparkSessionRegistryRecord(session)),
   };
 }
@@ -877,10 +877,13 @@ function createSessionId(): string {
 
 function createScope(input: CreateSparkSessionInput): SparkSessionScope {
   if (input.scope) {
-    if (
-      input.workspaceId &&
-      (input.scope.kind !== "workspace" || input.scope.workspaceId !== input.workspaceId)
-    ) {
+    if (input.scope.kind !== "workspace") {
+      throw new SparkSessionRegistryError(
+        "invalid_scope",
+        "New top-level sessions must belong to a workspace.",
+      );
+    }
+    if (input.workspaceId && input.scope.workspaceId !== input.workspaceId) {
       throw new SparkSessionRegistryError(
         "invalid_scope",
         "workspaceId must match workspace session scope",

@@ -1,8 +1,9 @@
 <script lang="ts">
   import Icon from "$lib/Icon.svelte";
+  import TokenManagementSurface from "$lib/TokenManagementSurface.svelte";
   import { daemonDisplayStatus, type DaemonDisplayStatus } from "$lib/daemon-status";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
-  import { Button, Field, Input, PageHeader } from "$lib/ui";
+  import { Button, PageHeader } from "$lib/ui";
 
   let { data, form } = $props();
 
@@ -83,48 +84,37 @@
     {:else if data.insecureRemoteServerOrigin}
       <p class="loopback-warning" role="note">{t.enrollment.insecureHttpWarning}</p>
     {/if}
-    <form class="token-form" method="POST" action="?/createEnrollmentToken">
-      <Field id="enrollment-label" label={t.enrollment.label} reserveMeta={false}>
-        <Input id="enrollment-label" name="label" placeholder={t.enrollment.labelPlaceholder} />
-      </Field>
-      <Button type="submit">
-        <Icon name="plus" size={16} stroke={2.4} />
-        <span>{t.enrollment.createToken}</span>
-      </Button>
-    </form>
-
-    {#if form?.intent === "runnerEnrollment" && form?.enrollCommand}
-      <div class="token-created" aria-label={t.enrollment.tokenCreatedAria}>
-        <div>
-          <strong>{t.enrollment.tokenCreatedTitle}</strong>
-          <p>{form.message}</p>
-          <p>{t.enrollment.tokenCreatedHint}</p>
-        </div>
-        <div class="token-display">
-          <span>{t.enrollment.commandLabel}</span>
-          <pre>{form.enrollCommand}</pre>
-        </div>
-        <small>{t.enrollment.expiresPrefix} {formatRelative(form.enrollmentExpiresAt ?? null)}</small>
-      </div>
-    {:else if form?.intent === "runnerEnrollment" && form?.message}
-      <p class="form-message" role="alert">{form.message}</p>
-    {/if}
-
-    <article class="token-table">
-      <div class="table-heading">
-        <h3>{t.enrollment.tableTitle}</h3>
-        <span>{data.enrollmentTokens.length} {t.enrollment.tableCount}</span>
-      </div>
-      {#if data.enrollmentTokens.length === 0}
-        <div class="empty-state">
-          <Icon name="play" size={20} />
-          <div>
-            <strong>{t.enrollment.emptyTitle}</strong>
-            <p>{t.enrollment.emptyBody}</p>
-          </div>
-        </div>
-      {:else}
-        <div class="token-list">
+      <TokenManagementSurface
+        formAction="?/createEnrollmentToken"
+        fieldId="enrollment-label"
+        fieldLabel={t.enrollment.label}
+        fieldPlaceholder={t.enrollment.labelPlaceholder}
+        submitLabel={t.enrollment.createToken}
+        message={form?.intent === "runnerEnrollment" ? form?.message : null}
+        tableTitle={t.enrollment.tableTitle}
+        tableCount={`${data.enrollmentTokens.length} ${t.enrollment.tableCount}`}
+        emptyIcon="play"
+        emptyTitle={t.enrollment.emptyTitle}
+        emptyBody={t.enrollment.emptyBody}
+        hasTokens={data.enrollmentTokens.length > 0}
+      >
+        {#if form?.intent === "runnerEnrollment" && form?.enrollCommand}
+          {#snippet created()}
+            <div class="token-created" aria-label={t.enrollment.tokenCreatedAria}>
+              <div>
+                <strong>{t.enrollment.tokenCreatedTitle}</strong>
+                <p>{form.message}</p>
+                <p>{t.enrollment.tokenCreatedHint}</p>
+              </div>
+              <div class="token-display">
+                <span>{t.enrollment.commandLabel}</span>
+                <pre>{form.enrollCommand}</pre>
+              </div>
+              <small>{t.enrollment.expiresPrefix} {formatRelative(form.enrollmentExpiresAt ?? null)}</small>
+            </div>
+          {/snippet}
+        {/if}
+        {#snippet tokens()}
           {#each data.enrollmentTokens as token}
             {@const status = enrollmentStatus(token)}
             <div class="token-row">
@@ -132,18 +122,9 @@
                 <strong>{token.label ?? t.enrollment.defaultTokenLabel}</strong>
               </div>
               <span class="status-pill {status}">{statusLabel(status)}</span>
-              <span>
-                <small>{t.enrollment.runner}</small>
-                {token.runtimeName ?? t.enrollment.notUsed}
-              </span>
-              <time>
-                <small>{t.enrollment.created}</small>
-                {formatRelative(token.createdAt)}
-              </time>
-              <time>
-                <small>{t.enrollment.expires}</small>
-                {formatRelative(token.expiresAt)}
-              </time>
+              <span><small>{t.enrollment.runner}</small>{token.runtimeName ?? t.enrollment.notUsed}</span>
+              <time><small>{t.enrollment.created}</small>{formatRelative(token.createdAt)}</time>
+              <time><small>{t.enrollment.expires}</small>{formatRelative(token.expiresAt)}</time>
               <form method="POST" action="?/revokeEnrollmentToken">
                 <input type="hidden" name="tokenId" value={token.id} />
                 <Button variant="secondary" size="compact" type="submit" disabled={status !== "ready"}>
@@ -152,9 +133,9 @@
               </form>
             </div>
           {/each}
-        </div>
-      {/if}
-    </article>
+        {/snippet}
+      </TokenManagementSurface>
+
     </section>
   </details>
 
@@ -260,7 +241,6 @@
   }
 
   h2,
-  h3,
   p {
     margin: 0;
   }
@@ -271,11 +251,6 @@
     line-height: 1.3;
   }
 
-  h3 {
-    color: var(--color-ink);
-    font-size: 15px;
-    line-height: 1.35;
-  }
 
   .empty-state p,
   .token-created p,
@@ -475,12 +450,6 @@
     overflow: hidden;
   }
 
-  .token-table > .table-heading {
-    background: var(--color-canvas);
-    border-bottom: 1px solid var(--color-border);
-    min-height: 38px;
-    padding: 0 12px;
-  }
 
   .token-list,
   .runner-list {

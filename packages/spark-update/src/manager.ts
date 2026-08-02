@@ -17,8 +17,13 @@ import { basename, dirname, join, relative } from "node:path";
 
 import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
 
-import { isSparkBuildInfo } from "./build-info.ts";
+import { isSparkBuildInfo, readSparkBuildInfo } from "./build-info.ts";
 import { readSparkUpdateConfig, writeSparkUpdateConfig } from "./config.ts";
+import {
+  detectSparkInstallation,
+  isPackageManagerMethod,
+  packageManagerUpdateCommand,
+} from "./installation.ts";
 import {
   nextUpdateRetryAt,
   readSparkUpdateState,
@@ -28,6 +33,7 @@ import {
 } from "./state.ts";
 import type {
   SparkBuildInfo,
+  SparkInstallation,
   SparkQuarantinedVersion,
   SparkUpdateConfig,
   SparkUpdatePaths,
@@ -48,6 +54,10 @@ export interface SparkUpdateManagerOptions {
   fetch?: typeof globalThis.fetch;
   now?: () => Date;
   run?: typeof runCommand;
+  buildInfo?: SparkBuildInfo;
+  productRoot?: string;
+  commandPath?: string;
+  platform?: NodeJS.Platform;
 }
 
 export interface SparkAvailableRelease {
@@ -59,12 +69,21 @@ export interface SparkAvailableRelease {
   notModified?: boolean;
 }
 
+interface CockpitServiceSnapshot {
+  running: boolean;
+  url?: string;
+}
+
 export class SparkUpdateManager {
   readonly paths: SparkUpdatePaths;
   readonly #env: NodeJS.ProcessEnv;
   readonly #fetch: typeof globalThis.fetch;
   readonly #now: () => Date;
   readonly #run: typeof runCommand;
+  #buildInfo: SparkBuildInfo;
+  readonly #productRoot: string | undefined;
+  readonly #commandPath: string | undefined;
+  readonly #platform: NodeJS.Platform;
 
   constructor(options: SparkUpdateManagerOptions = {}) {
     this.#env = options.env ?? process.env;
@@ -76,6 +95,28 @@ export class SparkUpdateManager {
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#now = options.now ?? (() => new Date());
     this.#run = options.run ?? runCommand;
+    this.#buildInfo = options.buildInfo ?? readSparkBuildInfo({ env: this.#env, cwd: options.cwd });
+    this.#productRoot =
+      options.productRoot ??
+      (this.#env.SPARK_PRODUCT_DIST ? dirname(this.#env.SPARK_PRODUCT_DIST) : undefined);
+    this.#commandPath = options.commandPath;
+    this.#platform = options.platform ?? process.platform;
+  }
+
+  private resolveInstallation(
+    managed: boolean,
+    channel: SparkUpdateConfig["channel"],
+    managedVersion?: string,
+  ): SparkInstallation {
+    return detectSparkInstallation({
+      managed,
+      version: managed ? managedVersion : this.#buildInfo.version,
+      channel,
+      env: this.#env,
+      productRoot: this.#productRoot,
+      commandPath: managed ? this.paths.launcherPath : this.#commandPath,
+      platform: this.#platform,
+    });
   }
 
   async status(): Promise<SparkUpdateStatus> {
@@ -84,13 +125,25 @@ export class SparkUpdateManager {
       readSparkUpdateState(this.paths),
     ]);
     const managed = await isManagedCurrentLink(this.paths);
+    const installation = this.resolveInstallation(managed, config.channel, state.currentVersion);
+    const usesRuntimeBuild =
+      installation.method === "container" || isPackageManagerMethod(installation.method);
+    const effectiveState =
+      usesRuntimeBuild && installation.version
+        ? {
+            ...state,
+            currentVersion: installation.version,
+            currentFingerprint: this.#buildInfo.fingerprint,
+          }
+        : state;
     const status: SparkUpdateStatus = {
       managed,
+      installation,
       config,
-      state,
+      state: effectiveState,
       paths: this.paths,
     };
-    if (!managed) {
+    if (installation.method === "source" || installation.method === "unknown") {
       status.repairCommand = `spark install --managed --prefix ${JSON.stringify(dirname(dirname(this.paths.launcherPath)))}`;
     }
     return status;
@@ -100,7 +153,7 @@ export class SparkUpdateManager {
     const current = await readSparkUpdateConfig(this.paths, this.#env);
     const next = { ...current, ...change };
     await writeSparkUpdateConfig(this.paths, next);
-    if (process.platform === "darwin") await this.installMacUpdaterJob(next);
+    if (this.#platform === "darwin") await this.installMacUpdaterJob(next);
     return next;
   }
 
@@ -112,6 +165,11 @@ export class SparkUpdateManager {
     const config = await readSparkUpdateConfig(this.paths, this.#env);
     if (options.background && config.policy === "manual") return await this.status();
     const state = await readSparkUpdateState(this.paths);
+    const managed = await isManagedCurrentLink(this.paths);
+    const installation = this.resolveInstallation(managed, config.channel, state.currentVersion);
+    const usesRuntimeBuild =
+      installation.method === "container" || isPackageManagerMethod(installation.method);
+    const currentVersion = usesRuntimeBuild ? installation.version : state.currentVersion;
     if (options.background && !isNetworkCheckDue(config, state, this.#now())) {
       return await this.status();
     }
@@ -124,19 +182,22 @@ export class SparkUpdateManager {
     }
     let nextState: SparkUpdateState = {
       ...state,
+      ...(currentVersion ? { currentVersion } : {}),
+      ...(usesRuntimeBuild && currentVersion
+        ? { currentFingerprint: this.#buildInfo.fingerprint }
+        : {}),
       lastCheckAt: this.#now().toISOString(),
       ...(release.etag ? { registryEtag: release.etag } : {}),
       failure: undefined,
     };
     if (!release.notModified) {
-      nextState.availableVersion =
-        release.version === state.currentVersion ? undefined : release.version;
+      nextState.availableVersion = release.version === currentVersion ? undefined : release.version;
     }
     if (
       options.background &&
       config.policy === "notify" &&
       release.version &&
-      release.version !== state.currentVersion &&
+      release.version !== currentVersion &&
       state.lastAvailableNotifiedVersion !== release.version &&
       (await this.notifyAvailableVersion(release.version))
     ) {
@@ -150,13 +211,25 @@ export class SparkUpdateManager {
     if (
       options.background &&
       config.policy === "auto" &&
-      (await isManagedCurrentLink(this.paths)) &&
       release.version &&
-      release.version !== state.currentVersion &&
-      canAutomaticallyApply(state.currentVersion, release.version) &&
+      release.version !== currentVersion &&
+      canAutomaticallyApply(currentVersion, release.version) &&
       !isQuarantined(nextState, release.version)
     ) {
-      return await this.applyLocked(release.version, { automatic: true, wait: true });
+      if (managed) {
+        return await this.applyLocked(release.version, { automatic: true, wait: true });
+      }
+      if (
+        installation.automaticUpdates &&
+        installation.commandPath &&
+        isPackageManagerMethod(installation.method) &&
+        (await this.daemonIsProvablyIdle(installation.commandPath))
+      ) {
+        return await this.applyPackageManagerLocked(release.version, installation, {
+          automatic: true,
+          wait: true,
+        });
+      }
     }
     return await this.status();
   }
@@ -167,7 +240,7 @@ export class SparkUpdateManager {
     const config = await readSparkUpdateConfig(this.paths, this.#env);
     const target = version ?? (await this.queryRegistry(config.channel)).version;
     await this.apply(target, { initialInstall: true, wait: true });
-    if (process.platform === "darwin") {
+    if (this.#platform === "darwin") {
       await this.installMacUpdaterJob(config);
     }
     return await this.status();
@@ -177,10 +250,18 @@ export class SparkUpdateManager {
     requestedVersion?: string,
     options: { automatic?: boolean; initialInstall?: boolean; wait?: boolean } = {},
   ): Promise<SparkUpdateStatus> {
-    return await withSparkUpdateLock(
-      this.paths,
-      async () => await this.applyLocked(requestedVersion, options),
-    );
+    return await withSparkUpdateLock(this.paths, async () => {
+      if (options.initialInstall || (await isManagedCurrentLink(this.paths))) {
+        return await this.applyLocked(requestedVersion, options);
+      }
+      const status = await this.status();
+      if (status.installation.commandPath && isPackageManagerMethod(status.installation.method)) {
+        return await this.applyPackageManagerLocked(requestedVersion, status.installation, options);
+      }
+      throw new Error(
+        "This Spark installation cannot update itself. Use the reported package-manager command or run `spark install --managed`.",
+      );
+    });
   }
 
   private async applyLocked(
@@ -213,6 +294,123 @@ export class SparkUpdateManager {
     } catch (error) {
       await this.quarantine(version, error);
       await this.recordFailure("update_apply_failed", error, version);
+      throw error;
+    }
+  }
+
+  private async applyPackageManagerLocked(
+    requestedVersion: string | undefined,
+    installation: SparkInstallation,
+    options: { automatic?: boolean; wait?: boolean },
+  ): Promise<SparkUpdateStatus> {
+    if (!installation.commandPath || !isPackageManagerMethod(installation.method)) {
+      throw new Error("Spark cannot locate the package-manager installation command");
+    }
+    const config = await readSparkUpdateConfig(this.paths, this.#env);
+    const state = await readSparkUpdateState(this.paths);
+    const currentVersion = installation.version;
+    if (!currentVersion) throw new Error("Spark cannot identify the installed version");
+    const release = requestedVersion
+      ? await this.queryExactVersion(requestedVersion)
+      : await this.queryRegistry(config.channel);
+    const version = release.version;
+    requireExactVersion(version);
+    if (version === currentVersion) {
+      await writeSparkUpdateState(this.paths, {
+        ...state,
+        currentVersion,
+        currentFingerprint: this.#buildInfo.fingerprint,
+        availableVersion: undefined,
+        pendingVersion: undefined,
+        pendingFingerprint: undefined,
+      });
+      return await this.status();
+    }
+    if (isQuarantined(state, version)) {
+      throw new Error(
+        `Spark ${version} is quarantined. Run \`spark update retry ${version} --yes\` before applying it again.`,
+      );
+    }
+    if (options.automatic && !canAutomaticallyApply(currentVersion, version)) {
+      await writeSparkUpdateState(this.paths, { ...state, availableVersion: version });
+      return await this.status();
+    }
+    if (options.automatic && !(await this.daemonIsProvablyIdle(installation.commandPath))) {
+      await writeSparkUpdateState(this.paths, { ...state, availableVersion: version });
+      return await this.status();
+    }
+
+    const cockpit = await this.readCockpitService(installation.commandPath);
+    const previousFingerprint = this.#buildInfo.fingerprint;
+    let packageChanged = false;
+    await writeSparkUpdateState(this.paths, {
+      ...state,
+      currentVersion,
+      currentFingerprint: this.#buildInfo.fingerprint,
+      availableVersion: version,
+      pendingVersion: version,
+    });
+    try {
+      const update = packageManagerUpdateCommand(
+        installation.method,
+        version,
+        installation.commandPath,
+      );
+      const result = await this.#run(update.command, update.args, {
+        env: this.#env,
+        timeoutMs: 120_000,
+      });
+      if (result.code !== 0) {
+        throw new Error(`${installation.method} update failed: ${result.stderr.trim()}`);
+      }
+      packageChanged = true;
+      const build = await this.readBuildInfoFromLauncher(installation.commandPath);
+      if (build.version !== version) {
+        throw new Error(
+          `${installation.method} installed Spark ${build.version}, expected ${version}`,
+        );
+      }
+      this.#buildInfo = build;
+      await writeSparkUpdateState(this.paths, {
+        ...(await readSparkUpdateState(this.paths)),
+        currentVersion: version,
+        currentFingerprint: build.fingerprint,
+        rollbackVersion: currentVersion,
+        rollbackFingerprint: previousFingerprint,
+      });
+      if (options.wait !== false) {
+        await this.syncDaemon(build, installation.commandPath);
+        const cockpitUrl = await this.restartCockpitService(installation.commandPath, cockpit);
+        await this.healthCheck(build, installation.commandPath);
+        await this.healthCheckCockpit(cockpitUrl);
+      }
+      await writeSparkUpdateState(this.paths, {
+        ...(await readSparkUpdateState(this.paths)),
+        currentVersion: version,
+        currentFingerprint: build.fingerprint,
+        lastGoodVersion: version,
+        lastGoodFingerprint: build.fingerprint,
+        rollbackVersion: currentVersion,
+        rollbackFingerprint: previousFingerprint,
+        availableVersion: undefined,
+        pendingVersion: undefined,
+        pendingFingerprint: undefined,
+        failure: undefined,
+      });
+      return await this.status();
+    } catch (error) {
+      if (packageChanged) {
+        try {
+          await this.restorePackageManagerVersion(installation, currentVersion, cockpit);
+        } catch (rollbackError) {
+          error = new AggregateError(
+            [error, rollbackError],
+            `Spark ${version} failed and restoring ${currentVersion} also failed`,
+          );
+        }
+      }
+      await this.quarantine(version, error);
+      await this.recordFailure("package_manager_update_failed", error, version);
       throw error;
     }
   }
@@ -273,6 +471,7 @@ export class SparkUpdateManager {
     if (options.automatic && !(await this.daemonIsProvablyIdle())) {
       return await this.status();
     }
+    const cockpit = await this.readCockpitService(this.paths.launcherPath);
     const previousVersion = state.currentVersion;
     const previousFingerprint = state.currentFingerprint;
     await this.activateVersion(version);
@@ -285,9 +484,15 @@ export class SparkUpdateManager {
     };
     await writeSparkUpdateState(this.paths, state);
     try {
-      await this.verifyCandidateWhenRequested(candidate, options.wait);
+      await this.verifyCandidateWhenRequested(candidate, options.wait, cockpit);
     } catch (error) {
-      await this.restoreAfterFailedActivation(error, version, previousVersion, previousFingerprint);
+      await this.restoreAfterFailedActivation(
+        error,
+        version,
+        previousVersion,
+        previousFingerprint,
+        cockpit,
+      );
       throw error;
     }
     await writeSparkUpdateState(this.paths, {
@@ -308,11 +513,13 @@ export class SparkUpdateManager {
   private async verifyCandidateWhenRequested(
     candidate: SparkBuildInfo,
     wait: boolean | undefined,
+    cockpit: CockpitServiceSnapshot,
   ): Promise<void> {
     if (wait === false) return;
     await this.syncDaemon(candidate);
+    const cockpitUrl = await this.restartCockpitService(this.paths.launcherPath, cockpit);
     await this.healthCheck(candidate);
-    await this.healthCheckCockpit();
+    await this.healthCheckCockpit(cockpitUrl);
   }
 
   private async restoreAfterFailedActivation(
@@ -320,6 +527,7 @@ export class SparkUpdateManager {
     failedVersion: string,
     previousVersion: string | undefined,
     previousFingerprint: string | undefined,
+    cockpit: CockpitServiceSnapshot,
   ): Promise<void> {
     if (!previousVersion) {
       await this.stopFailedInitialInstall();
@@ -336,8 +544,9 @@ export class SparkUpdateManager {
     });
     try {
       await this.syncDaemon(previousBuild);
+      const cockpitUrl = await this.restartCockpitService(this.paths.launcherPath, cockpit);
       await this.healthCheck(previousBuild);
-      await this.healthCheckCockpit();
+      await this.healthCheckCockpit(cockpitUrl);
     } catch (rollbackError) {
       throw new AggregateError(
         [error, rollbackError],
@@ -368,8 +577,35 @@ export class SparkUpdateManager {
         state.rollbackVersion ??
         (state.lastGoodVersion !== state.currentVersion ? state.lastGoodVersion : undefined);
       if (!target) throw new Error("No rollback Spark version is available");
+      if (!(await isManagedCurrentLink(this.paths))) {
+        const status = await this.status();
+        const installation = status.installation;
+        if (!installation.commandPath || !isPackageManagerMethod(installation.method)) {
+          throw new Error("This Spark installation cannot roll back automatically");
+        }
+        const previousVersion = installation.version;
+        const previousFingerprint = status.state.currentFingerprint;
+        const cockpit = await this.readCockpitService(installation.commandPath);
+        const build = await this.restorePackageManagerVersion(installation, target, cockpit, {
+          verify: options.wait !== false,
+        });
+        await writeSparkUpdateState(this.paths, {
+          ...state,
+          currentVersion: target,
+          currentFingerprint: build.fingerprint,
+          lastGoodVersion: target,
+          lastGoodFingerprint: build.fingerprint,
+          ...(previousVersion ? { rollbackVersion: previousVersion } : {}),
+          ...(previousFingerprint ? { rollbackFingerprint: previousFingerprint } : {}),
+          pendingVersion: undefined,
+          pendingFingerprint: undefined,
+          failure: undefined,
+        });
+        return await this.status();
+      }
       const previousVersion = state.currentVersion;
       const previousFingerprint = state.currentFingerprint;
+      const cockpit = await this.readCockpitService(this.paths.launcherPath);
       const build = await readInstalledBuildInfo(this.paths, target);
       await this.activateVersion(target);
       await writeSparkUpdateState(this.paths, {
@@ -382,8 +618,9 @@ export class SparkUpdateManager {
       try {
         if (options.wait !== false) {
           await this.syncDaemon(build);
+          const cockpitUrl = await this.restartCockpitService(this.paths.launcherPath, cockpit);
           await this.healthCheck(build);
-          await this.healthCheckCockpit();
+          await this.healthCheckCockpit(cockpitUrl);
         }
       } catch (error) {
         if (!previousVersion) throw error;
@@ -392,8 +629,9 @@ export class SparkUpdateManager {
         await writeSparkUpdateState(this.paths, state);
         try {
           await this.syncDaemon(previousBuild);
+          const cockpitUrl = await this.restartCockpitService(this.paths.launcherPath, cockpit);
           await this.healthCheck(previousBuild);
-          await this.healthCheckCockpit();
+          await this.healthCheckCockpit(cockpitUrl);
         } catch (restoreError) {
           const aggregate = new AggregateError(
             [error, restoreError],
@@ -428,23 +666,30 @@ export class SparkUpdateManager {
         quarantined: state.quarantined.filter((entry) => entry.version !== target),
         failure: state.failure?.version === target ? undefined : state.failure,
       });
-      return await this.applyLocked(target, { wait: true });
+      if (await isManagedCurrentLink(this.paths)) {
+        return await this.applyLocked(target, { wait: true });
+      }
+      const status = await this.status();
+      if (status.installation.commandPath && isPackageManagerMethod(status.installation.method)) {
+        return await this.applyPackageManagerLocked(target, status.installation, { wait: true });
+      }
+      throw new Error("This Spark installation cannot retry an update automatically");
     });
   }
 
   async tick(): Promise<SparkUpdateStatus> {
-    const [config, state] = await Promise.all([
-      readSparkUpdateConfig(this.paths, this.#env),
-      readSparkUpdateState(this.paths),
-    ]);
+    const status = await this.status();
+    const { config, state, installation } = status;
+    const target = state.pendingVersion ?? state.availableVersion;
     if (
       config.policy === "auto" &&
-      state.pendingVersion &&
-      !isQuarantined(state, state.pendingVersion) &&
-      canAutomaticallyApply(state.currentVersion, state.pendingVersion) &&
-      (await this.daemonIsProvablyIdle())
+      target &&
+      !isQuarantined(state, target) &&
+      canAutomaticallyApply(state.currentVersion, target) &&
+      installation.commandPath &&
+      (await this.daemonIsProvablyIdle(installation.commandPath))
     ) {
-      return await this.apply(state.pendingVersion, { automatic: true, wait: true });
+      return await this.apply(target, { automatic: true, wait: true });
     }
     return await this.check({ background: true });
   }
@@ -621,9 +866,26 @@ child.on("exit", (code, signal) => {
   }
 
   private async installMacUpdaterJob(config: SparkUpdateConfig): Promise<void> {
-    if (process.platform !== "darwin") return;
+    if (this.#platform !== "darwin") return;
+    const status = await this.status();
+    const launcher = status.installation.commandPath;
     await mkdir(dirname(this.paths.updaterLaunchAgentPath), { recursive: true });
     const disabled = config.policy === "manual";
+    const domain = `gui/${process.getuid?.() ?? 0}`;
+    if (!launcher || !status.installation.automaticUpdates) {
+      await this.#run("launchctl", ["bootout", domain, this.paths.updaterLaunchAgentPath], {
+        env: this.#env,
+        timeoutMs: 15_000,
+      }).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+      if (disabled) {
+        await rm(this.paths.updaterLaunchAgentPath, { force: true });
+        return;
+      }
+      throw new Error(
+        "Background updates require a managed or globally installed Spark command on PATH",
+      );
+    }
+    const updaterPath = [dirname(launcher), this.#env.PATH].filter(Boolean).join(":");
     const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -631,10 +893,12 @@ child.on("exit", (code, signal) => {
   <key>Label</key><string>dev.spark.updater</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${escapeXml(this.paths.launcherPath)}</string>
+    <string>${escapeXml(launcher)}</string>
     <string>update</string>
     <string>__tick</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>${escapeXml(updaterPath)}</string></dict>
   <key>StartInterval</key><integer>900</integer>
   <key>RunAtLoad</key><${disabled ? "false" : "true"}/>
   <key>ProcessType</key><string>Background</string>
@@ -644,7 +908,6 @@ child.on("exit", (code, signal) => {
     const temporary = `${this.paths.updaterLaunchAgentPath}.${process.pid}.tmp`;
     await writeFile(temporary, plist);
     await rename(temporary, this.paths.updaterLaunchAgentPath);
-    const domain = `gui/${process.getuid?.() ?? 0}`;
     await this.#run("launchctl", ["bootout", domain, this.paths.updaterLaunchAgentPath], {
       env: this.#env,
       timeoutMs: 15_000,
@@ -661,15 +924,14 @@ child.on("exit", (code, signal) => {
     }
   }
 
-  private async syncDaemon(build: SparkBuildInfo): Promise<void> {
-    const result = await this.#run(
-      this.paths.launcherPath,
-      ["daemon", "sync", "--wait", "--json"],
-      {
-        env: this.#env,
-        timeoutMs: 90_000,
-      },
-    );
+  private async syncDaemon(
+    build: SparkBuildInfo,
+    launcher = this.paths.launcherPath,
+  ): Promise<void> {
+    const result = await this.#run(launcher, ["daemon", "sync", "--wait", "--json"], {
+      env: this.#env,
+      timeoutMs: 90_000,
+    });
     if (result.code !== 0) throw new Error(`Daemon handoff failed: ${result.stderr.trim()}`);
     const payload = parseJsonOutput(result.stdout);
     const runningFingerprint = nestedString(payload, ["status", "build", "runningFingerprint"]);
@@ -680,9 +942,12 @@ child.on("exit", (code, signal) => {
     }
   }
 
-  private async healthCheck(build: SparkBuildInfo): Promise<void> {
+  private async healthCheck(
+    build: SparkBuildInfo,
+    launcher = this.paths.launcherPath,
+  ): Promise<void> {
     for (let index = 0; index < HEALTH_CHECK_COUNT; index += 1) {
-      const result = await this.#run(this.paths.launcherPath, ["daemon", "status", "--json"], {
+      const result = await this.#run(launcher, ["daemon", "status", "--json"], {
         env: this.#env,
         timeoutMs: 30_000,
       });
@@ -699,8 +964,8 @@ child.on("exit", (code, signal) => {
     }
   }
 
-  private async daemonIsProvablyIdle(): Promise<boolean> {
-    const result = await this.#run(this.paths.launcherPath, ["daemon", "status", "--json"], {
+  private async daemonIsProvablyIdle(launcher = this.paths.launcherPath): Promise<boolean> {
+    const result = await this.#run(launcher, ["daemon", "status", "--json"], {
       env: this.#env,
       timeoutMs: 15_000,
     });
@@ -715,8 +980,8 @@ child.on("exit", (code, signal) => {
     return running === 0 && queued === 0;
   }
 
-  private async healthCheckCockpit(): Promise<void> {
-    const healthUrl = this.#env.SPARK_COCKPIT_HEALTH_URL?.trim();
+  private async healthCheckCockpit(cockpitUrl?: string): Promise<void> {
+    const healthUrl = cockpitUrl ?? this.#env.SPARK_COCKPIT_HEALTH_URL?.trim();
     if (!healthUrl) return;
     const response = await this.#fetch(healthUrl, {
       headers: { accept: "application/json" },
@@ -726,6 +991,106 @@ child.on("exit", (code, signal) => {
     if (!response.ok || body.service !== "spark-cockpit" || body.status !== "ok") {
       throw new Error(`Spark Cockpit health check failed at ${healthUrl}`);
     }
+  }
+
+  private async readBuildInfoFromLauncher(launcher: string): Promise<SparkBuildInfo> {
+    const result = await this.#run(launcher, ["version", "--json"], {
+      env: this.#env,
+      timeoutMs: 30_000,
+    });
+    if (result.code !== 0) {
+      throw new Error(`Updated Spark version check failed: ${result.stderr.trim()}`);
+    }
+    const parsed = parseJsonOutput(result.stdout);
+    if (!isSparkBuildInfo(parsed)) throw new Error("Updated Spark returned invalid build metadata");
+    return parsed;
+  }
+
+  private async readCockpitService(launcher: string): Promise<CockpitServiceSnapshot> {
+    try {
+      const result = await this.#run(launcher, ["cockpit", "web", "status", "--json"], {
+        env: this.#env,
+        timeoutMs: 15_000,
+      });
+      if (result.code !== 0) return { running: false };
+      const parsed = parseJsonOutput(result.stdout);
+      if (!parsed || typeof parsed !== "object") return { running: false };
+      const record = parsed as Record<string, unknown>;
+      return {
+        running: record.running === true,
+        ...(typeof record.url === "string" ? { url: record.url } : {}),
+      };
+    } catch {
+      return { running: false };
+    }
+  }
+
+  private async restartCockpitService(
+    launcher: string,
+    previous: CockpitServiceSnapshot,
+  ): Promise<string | undefined> {
+    if (!previous.running) return undefined;
+    const stopped = await this.#run(launcher, ["cockpit", "web", "stop", "--json"], {
+      env: this.#env,
+      timeoutMs: 30_000,
+    });
+    if (stopped.code !== 0) {
+      throw new Error(`Spark Cockpit stop failed: ${stopped.stderr.trim()}`);
+    }
+    const started = await this.#run(launcher, ["cockpit", "web", "start", "--json"], {
+      env: this.#env,
+      timeoutMs: 30_000,
+    });
+    if (started.code !== 0) {
+      throw new Error(`Spark Cockpit start failed: ${started.stderr.trim()}`);
+    }
+    const parsed = parseJsonOutput(started.stdout);
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      (parsed as Record<string, unknown>).running !== true
+    ) {
+      throw new Error("Spark Cockpit did not report a running replacement");
+    }
+    const url = (parsed as Record<string, unknown>).url;
+    return typeof url === "string" ? url : previous.url;
+  }
+
+  private async restorePackageManagerVersion(
+    installation: SparkInstallation,
+    version: string,
+    cockpit: CockpitServiceSnapshot,
+    options: { verify?: boolean } = {},
+  ): Promise<SparkBuildInfo> {
+    if (!installation.commandPath || !isPackageManagerMethod(installation.method)) {
+      throw new Error("Spark cannot restore this package-manager installation");
+    }
+    const update = packageManagerUpdateCommand(
+      installation.method,
+      version,
+      installation.commandPath,
+    );
+    const result = await this.#run(update.command, update.args, {
+      env: this.#env,
+      timeoutMs: 120_000,
+    });
+    if (result.code !== 0) {
+      throw new Error(`${installation.method} rollback failed: ${result.stderr.trim()}`);
+    }
+    const build = await this.readBuildInfoFromLauncher(installation.commandPath);
+    if (build.version !== version) {
+      throw new Error(
+        `${installation.method} restored Spark ${build.version}, expected ${version}`,
+      );
+    }
+    this.#buildInfo = build;
+    if (options.verify !== false) {
+      await this.syncDaemon(build, installation.commandPath);
+      const cockpitUrl = await this.restartCockpitService(installation.commandPath, cockpit);
+      await this.healthCheck(build, installation.commandPath);
+      await this.healthCheckCockpit(cockpitUrl);
+    }
+    return build;
   }
 
   private async notifyAvailableVersion(version: string): Promise<boolean> {

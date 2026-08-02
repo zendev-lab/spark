@@ -25,7 +25,7 @@ describe("cockpit browser access page", () => {
     expect(server).toContain("listCockpitAccessTokens");
     expect(server).toContain('new URL("/login"');
     expect(server).not.toContain("createWorkspaceAccessToken");
-    expect(page).toContain('action="?/createAccessToken"');
+    expect(page).toMatch(/<TokenManagementSurface\s+[\s\S]*?formAction="\?\/createAccessToken"/);
     expect(page).toContain("form.accessToken");
     expect(page).toContain("t.access.title");
   });

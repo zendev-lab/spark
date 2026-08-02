@@ -31,6 +31,9 @@ test("Cockpit reads a bounded updater projection without installation paths", as
 
   await expect(readCockpitUpdateProjection({ env })).resolves.toMatchObject({
     managed: false,
+    installation: "source",
+    automaticUpdates: false,
+    checkIntervalHours: 24,
     policy: "notify",
     channel: "latest",
     current: "0.1.0",

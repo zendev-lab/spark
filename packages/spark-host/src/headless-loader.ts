@@ -5,6 +5,7 @@ import type {
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
   SparkHostDriverContext,
+  SparkSessionLeaseIdentity,
   ToolEffect,
 } from "@zendev-lab/spark-core";
 
@@ -37,6 +38,8 @@ export interface SparkHeadlessSessionRunInput {
   sparkHome?: string;
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
+  /** Daemon-issued lease for the exact persistent session running this turn. */
+  sessionLease?: SparkSessionLeaseIdentity;
   channelBinding?: {
     adapter: "feishu" | "infoflow" | "qqbot";
     externalKey: string;

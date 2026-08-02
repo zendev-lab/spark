@@ -46,9 +46,16 @@ describe("Side Thread local-rpc oRPC integration", () => {
     try {
       const handle = await createSparkDaemonOrpcClient({ paths });
       try {
+        const workspace = await invokeSparkDaemonOrpcLiveMethod(
+          handle.client,
+          "workspace.ensure-local",
+          { localPath: root },
+        );
         await invokeSparkDaemonOrpcLiveMethod(handle.client, "session.create", {
           sessionId: "parent-session",
-          scope: { kind: "daemon" },
+          scope: { kind: "workspace", workspaceId: workspace.id },
+          workspaceId: workspace.id,
+          cwd: root,
         });
 
         const ensured = sparkSideThreadSnapshotSchema.parse(

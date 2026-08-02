@@ -63,7 +63,9 @@ $XDG_CACHE_HOME/spark/update/
 ```
 
 可用 `SPARK_UPDATE_POLICY` 与 `SPARK_UPDATE_CHANNEL` 临时覆盖策略。运行
-`spark update status --json` 查看有效策略与 transaction 状态。
+`spark update status --json` 查看有效策略与 transaction 状态。持久化的
+`checkIntervalHours` 默认为 `24`，可通过
+`spark update configure --interval-hours <hours>` 修改。
 
 ## Workspace 与 agent 定义
 

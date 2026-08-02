@@ -20,7 +20,8 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "setup:browser": "playwright install --with-deps chromium",
     "test": "vp test run",
-    "test:browser": "vp test run --config vitest.browser.config.ts"
+    "test:e2e:cockpit": "tsx e2e/legacy-route-navigation.ts",
+    "test:browser": "vp test run --config vitest.browser.config.ts && tsx e2e/legacy-route-navigation.ts"
   },
   "dependencies": {
     "@lucide/svelte": "^1.16.0",
@@ -51,7 +52,7 @@
     "@types/web-push": "^3.6.4",
     "@types/ws": "catalog:",
     "@vitest/browser-playwright": "4.1.10",
-    "playwright": "1.61.1",
+    "playwright": "1.62.1",
     "svelte-check": "^4.3.1",
     "tsx": "^4.20.5",
     "typescript": "catalog:",

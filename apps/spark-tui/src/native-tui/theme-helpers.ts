@@ -21,8 +21,8 @@ export const SPARK_APP_KEYS = new Set([
 export function createEditorTheme(theme: SparkTheme) {
   const renderTheme = createSparkHostRenderTheme(theme);
   const editorSelectListTheme: SelectListTheme = {
-    selectedPrefix: (text) => renderTheme.fg("accent", text),
-    selectedText: (text) => renderTheme.fg("foreground", text),
+    selectedPrefix: (text) => renderTheme.fg("selected", text),
+    selectedText: (text) => renderTheme.fg("selected", text),
     description: (text) => renderTheme.fg("muted", text),
     scrollInfo: (text) => renderTheme.fg("muted", text),
     noMatch: (text) => renderTheme.fg("warning", text),

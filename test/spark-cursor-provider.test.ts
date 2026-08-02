@@ -505,7 +505,7 @@ function mockCursorRuntime(options: MockCursorRuntimeOptions): CursorSdkRuntime 
         return {
           agentId: "agent-mock",
           model: createOptions.model,
-          async send(message, sendOptions) {
+          async send(message: CursorSendMessage, sendOptions?: CursorSendOptions) {
             options.onSend?.(message, sendOptions);
             for (const update of options.updates ?? []) {
               await sendOptions?.onDelta?.({ update });
@@ -521,7 +521,7 @@ function mockCursorRuntime(options: MockCursorRuntimeOptions): CursorSdkRuntime 
           async downloadArtifact() {
             return Buffer.alloc(0);
           },
-        } as CursorSdkAgent;
+        } as unknown as CursorSdkAgent;
       },
     },
   };

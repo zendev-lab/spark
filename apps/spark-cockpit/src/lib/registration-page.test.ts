@@ -32,7 +32,9 @@ describe("workspace registration page contract", () => {
   it("keeps daemon registration without workspace browser-access minting", () => {
     const source = readFileSync(pagePath, "utf8");
 
-    expect(source).toContain('action="?/createEnrollmentToken"');
+    expect(source).toMatch(
+      /<TokenManagementSurface\s+[\s\S]*?formAction="\?\/createEnrollmentToken"/,
+    );
     expect(source).not.toContain('action="?/createWorkspaceAccessToken"');
     expect(source).not.toContain("form.workspaceAccessToken");
     expect(source).not.toContain("t.access.");
