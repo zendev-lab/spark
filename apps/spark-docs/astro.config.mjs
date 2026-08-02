@@ -26,13 +26,13 @@ export default defineConfig({
       tagline: "User documentation for the Spark coding-agent suite.",
       favicon: "/spark.svg",
       editLink: {
-        baseUrl: "https://github.com/zrr1999/spark/edit/main/apps/spark-docs/",
+        baseUrl: "https://github.com/zendev-lab/spark/edit/main/apps/spark-docs/",
       },
       social: [
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/zrr1999/spark",
+          href: "https://github.com/zendev-lab/spark",
         },
       ],
       locales: {
