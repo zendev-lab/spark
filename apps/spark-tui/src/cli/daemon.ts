@@ -1444,6 +1444,8 @@ export interface SparkDaemonNativeResponderOptions {
   waitForCompletion?: boolean;
   pollIntervalMs?: number;
   timeoutMs?: number;
+  /** Let protocol view events own conversation rendering instead of text-only chunks. */
+  conversationProjection?: "assistant-chunks" | "view-events";
   onViewEvent?: (event: SparkViewModelEvent) => void;
   onInteractionRequest?: (
     request: SparkInteractionRequest,
@@ -1538,11 +1540,13 @@ export function createSparkDaemonNativeResponder(
       context,
       options.onViewEvent,
       options.onInteractionRequest,
+      options.conversationProjection ?? "assistant-chunks",
     );
     if (live.onEvent) {
       await pollInvocationEvents(admission.invocationId, client, {
         signal: context?.signal,
         timeoutMs: options.timeoutMs,
+        pollIntervalMs: options.pollIntervalMs,
         onEvent: live.onEvent,
       });
     }
@@ -1601,6 +1605,7 @@ function createDaemonLiveAssistantRenderer(
         context: { signal?: AbortSignal },
       ) => void | Promise<void>)
     | undefined,
+  conversationProjection: "assistant-chunks" | "view-events",
 ): {
   streamed: boolean;
   onEvent?: (event: SparkDaemonEvent) => void | Promise<void>;
@@ -1615,7 +1620,16 @@ function createDaemonLiveAssistantRenderer(
       return streamed;
     },
     async onEvent(event) {
-      if (event.type === "daemon.view_event") onViewEvent?.(event.view);
+      if (event.type === "daemon.view_event") {
+        onViewEvent?.(event.view);
+        if (
+          conversationProjection === "view-events" &&
+          event.view.type === "session.message" &&
+          event.view.message.role === "assistant"
+        ) {
+          streamed = true;
+        }
+      }
       if (event.type === "daemon.interaction.request") {
         await onInteractionRequest?.(
           event.request,
@@ -1625,6 +1639,7 @@ function createDaemonLiveAssistantRenderer(
       }
       const text = assistantTextFromDaemonViewEvent(event);
       if (text === undefined) return;
+      if (conversationProjection === "view-events") return;
       const chunk = text.startsWith(lastText) ? text.slice(lastText.length) : text;
       lastText = text;
       if (!chunk) return;
@@ -2907,6 +2922,7 @@ async function pollInvocationEvents(
     onEvent?: (event: SparkDaemonEvent) => void | Promise<void>;
     signal?: AbortSignal;
     timeoutMs?: number;
+    pollIntervalMs?: number;
   },
 ): Promise<void> {
   let cursor = 0;
@@ -2915,6 +2931,8 @@ async function pollInvocationEvents(
   const deadlineError = new TurnReadDeadlineError();
   const streamTimeoutError = () =>
     new Error(`Timed out while streaming invocation ${invocationId}`);
+  const pollIntervalMs = Math.max(25, handlers.pollIntervalMs ?? 100);
+  let idleDelayMs = pollIntervalMs;
   while (true) {
     throwIfAborted(handlers.signal);
     try {
@@ -2939,6 +2957,7 @@ async function pollInvocationEvents(
         }
         await handlers.onEvent?.(parsed);
       }
+      if (page.events.length > 0) idleDelayMs = pollIntervalMs;
       cursor = page.nextCursor;
       if (now() >= deadline) throw deadlineError;
       const status = await retryTurnTransportRead(
@@ -2963,7 +2982,8 @@ async function pollInvocationEvents(
       if (!page.hasMore) {
         const remainingMs = deadline - now();
         if (remainingMs <= 0) throw deadlineError;
-        await delay(Math.min(25, remainingMs), undefined, { signal: handlers.signal });
+        await delay(Math.min(idleDelayMs, remainingMs), undefined, { signal: handlers.signal });
+        idleDelayMs = Math.min(pollIntervalMs * 4, idleDelayMs * 2);
       }
     } catch (error) {
       if (handlers.signal?.aborted) throwIfAborted(handlers.signal);

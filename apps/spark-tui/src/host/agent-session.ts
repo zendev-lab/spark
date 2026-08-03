@@ -863,13 +863,13 @@ function branchEntriesForLeaf(entries: SparkSessionEntry[]): SparkSessionEntry[]
   const leaf = entries.at(-1);
   if (!leaf) return [];
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
-  const path: SparkSessionEntry[] = [];
+  const pathNewestFirst: SparkSessionEntry[] = [];
   let current: SparkSessionEntry | undefined = leaf;
   while (current) {
-    path.unshift(current);
+    pathNewestFirst.push(current);
     current = current.parentId ? byId.get(current.parentId) : undefined;
   }
-  return path;
+  return pathNewestFirst.reverse();
 }
 
 function entriesToPromptItems(entries: SparkSessionEntry[]): SparkPromptItem[] {
