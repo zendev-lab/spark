@@ -8,8 +8,7 @@
     isConsoleNavItemActive,
     isControlPlanePath,
   } from "$lib/console-nav";
-  import "$lib/shell/shell-nav-link.css";
-  import CockpitTopbar from "$lib/shell/CockpitTopbar.svelte";
+  import CockpitShell from "$lib/shell/CockpitShell.svelte";
   import type { CockpitSearchSession } from "$lib/shell/cockpit-search";
   import { workspaceSwitcherHrefForPage } from "$lib/workbench-nav";
   import { workspacePath } from "$lib/workspace-routes";
@@ -20,8 +19,6 @@
   let consoleMessages = $derived(data.messages.console);
   let workspaceOptions = $derived(data.workspaces ?? []);
   let searchSessions = $derived((data.sessions ?? []) as CockpitSearchSession[]);
-  let mobileNavigationOpen = $state(false);
-  let lastConsolePath = $state("");
   let isControlPlane = $derived(
     data.isGlobalConsole ?? isControlPlanePath(page.url.pathname),
   );
@@ -55,14 +52,6 @@
     }),
   );
 
-  $effect(() => {
-    const pathname = page.url.pathname;
-    if (lastConsolePath !== pathname) {
-      lastConsolePath = pathname;
-      mobileNavigationOpen = false;
-    }
-  });
-
   function isActive(href: string) {
     return isConsoleNavItemActive({ pathname: page.url.pathname, href });
   }
@@ -70,136 +59,89 @@
   let workspaceSwitcherHref = $derived(
     workspaceSwitcherHrefForPage({ url: page.url, activeWorkspacePath, workspacePath }),
   );
-
-  function closeMobileNavigation() {
-    mobileNavigationOpen = false;
-  }
-
-  function handleWindowKeydown(event: KeyboardEvent) {
-    if (event.key === "Escape" && mobileNavigationOpen) closeMobileNavigation();
-  }
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
+{#snippet navigation(closeNavigation: () => void)}
+  <div class="console-navigation">
+    <nav>
+      {#each navGroups as group}
+        <section class="nav-group" aria-labelledby={`console-nav-${group.id}`}>
+          <h2 class="nav-group-label" id={`console-nav-${group.id}`}>{group.label}</h2>
+          <div class="nav-group-items">
+            {#each group.items as item}
+              <a
+                class="shell-nav-link"
+                class:active={isActive(item.href)}
+                href={item.href}
+                onclick={closeNavigation}
+              >
+                <Icon name={item.icon} size={18} />
+                <span>{item.label}</span>
+              </a>
+            {/each}
+          </div>
+        </section>
+      {/each}
+    </nav>
 
-<div class="console-shell">
-  <CockpitTopbar
-    activeWorkspace={isControlPlane ? null : data.activeWorkspace}
-    common={data.messages.common}
-    layout={t}
-    navigationControls="console-navigation"
-    navigationExpanded={mobileNavigationOpen}
-    onToggleNavigation={() => (mobileNavigationOpen = !mobileNavigationOpen)}
-    sessions={searchSessions}
-    sessionMessages={data.messages.sessions}
-    showWorkspaceMenu={!isControlPlane}
-    workspaceHref={workspaceSwitcherHref}
-    workspaces={workspaceOptions}
-  />
-
-  <div class="console-body">
-    {#if mobileNavigationOpen}
-      <button
-        class="shell-mobile-navigation-backdrop"
-        type="button"
-        aria-label={t.aria.closeWorkspaceNavigation}
-        onclick={closeMobileNavigation}
-      ></button>
-    {/if}
-
-    <aside
-      class="console-nav shell-mobile-navigation"
-      class:mobile-open={mobileNavigationOpen}
-      id="console-navigation"
-      aria-label={consoleMessages.ariaNavigation}
-    >
-      <nav>
-        {#each navGroups as group}
-          <section class="nav-group" aria-labelledby={`console-nav-${group.id}`}>
-            <h2 class="nav-group-label" id={`console-nav-${group.id}`}>{group.label}</h2>
-            <div class="nav-group-items">
-              {#each group.items as item}
-                <a
-                  class="shell-nav-link"
-                  class:active={isActive(item.href)}
-                  href={item.href}
-                  onclick={closeMobileNavigation}
-                >
-                  <Icon name={item.icon} size={18} />
-                  <span>{item.label}</span>
-                </a>
-              {/each}
-            </div>
-          </section>
-        {/each}
-      </nav>
-
-      {#if !isControlPlane && hasActiveWorkspace}
-        <div class="console-nav-footer">
-          <a
-            class="shell-nav-link cockpit-settings-link"
-            href={COCKPIT_SETTINGS_HREF}
-            onclick={closeMobileNavigation}
-          >
-            <Icon name="settings" size={18} />
-            <span>{consoleMessages.openCockpitSettings}</span>
-          </a>
-        </div>
-      {/if}
-    </aside>
-
-    <div class="console-main">
-      <div class="console-contextbar">
-        <nav class="breadcrumb" aria-label={t.aria.breadcrumb}>
-          <span>{consoleMessages.badge}</span>
-          <Icon name="chevron" size={14} stroke={2.2} />
-          {#if data.activeWorkspace && !isControlPlane}
-            <a href={activeWorkspacePath}>{data.activeWorkspace.name}</a>
-            <Icon name="chevron" size={14} stroke={2.2} />
-          {/if}
-          <span>{currentConsolePageLabel({ pathname: page.url.pathname, nav: navLabels })}</span>
-        </nav>
+    {#if !isControlPlane && hasActiveWorkspace}
+      <div class="console-nav-footer">
+        <a
+          class="shell-nav-link cockpit-settings-link"
+          href={COCKPIT_SETTINGS_HREF}
+          onclick={closeNavigation}
+        >
+          <Icon name="settings" size={18} />
+          <span>{consoleMessages.openCockpitSettings}</span>
+        </a>
       </div>
-
-      <main class="console-content">
-        {@render children()}
-      </main>
-    </div>
+    {/if}
   </div>
-</div>
+{/snippet}
+
+{#snippet contextBar()}
+  <nav class="breadcrumb" aria-label={t.aria.breadcrumb}>
+    <span>{consoleMessages.badge}</span>
+    <Icon name="chevron" size={14} stroke={2.2} />
+    {#if data.activeWorkspace && !isControlPlane}
+      <a href={activeWorkspacePath}>{data.activeWorkspace.name}</a>
+      <Icon name="chevron" size={14} stroke={2.2} />
+    {/if}
+    <span>{currentConsolePageLabel({ pathname: page.url.pathname, nav: navLabels })}</span>
+  </nav>
+{/snippet}
+
+<CockpitShell
+  activeWorkspace={isControlPlane ? null : data.activeWorkspace}
+  {children}
+  closeNavigationLabel={t.aria.closeWorkspaceNavigation}
+  common={data.messages.common}
+  contentMode="padded"
+  {contextBar}
+  layout={t}
+  {navigation}
+  navigationAriaLabel={consoleMessages.ariaNavigation}
+  navigationId="console-navigation"
+  navigationSize="compact"
+  pathname={page.url.pathname}
+  sessions={searchSessions}
+  sessionMessages={data.messages.sessions}
+  showWorkspaceMenu={!isControlPlane}
+  workspaceHref={workspaceSwitcherHref}
+  workspaces={workspaceOptions}
+/>
 
 <style>
-  :global(body) {
-    background: var(--color-canvas);
-    color: var(--color-ink);
-    font-family: var(--font-sans);
-  }
-
-  .console-shell {
-    --shell-mobile-navigation-width: 280px;
-    display: grid;
-    grid-template-rows: var(--shell-topbar-height) minmax(0, 1fr);
-    height: 100dvh;
-    overflow: hidden;
-  }
-
-  .console-body {
-    display: grid;
-    grid-template-columns: var(--shell-sidebar-width-compact) minmax(0, 1fr);
-    min-height: 0;
-  }
-
-  .console-nav {
-    background: var(--color-surface);
-    border-right: 1px solid var(--color-border);
+  .console-navigation {
     display: flex;
     flex-direction: column;
+    height: 100%;
     min-height: 0;
     overflow-y: auto;
     padding: 18px 14px;
   }
 
-  .console-nav > nav {
+  .console-navigation > nav {
     flex: 1 1 auto;
     min-height: 0;
   }
@@ -232,22 +174,6 @@
     gap: 2px;
   }
 
-
-  .console-main {
-    display: grid;
-    grid-template-rows: 42px minmax(0, 1fr);
-    min-height: 0;
-    min-width: 0;
-  }
-
-  .console-contextbar {
-    align-items: center;
-    background: var(--color-surface);
-    border-bottom: 1px solid var(--color-border);
-    display: flex;
-    padding: 0 24px;
-  }
-
   .breadcrumb {
     align-items: center;
     color: var(--color-ink-disabled);
@@ -262,8 +188,8 @@
     color: var(--color-ink-subtle);
     min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
     text-decoration: none;
+    text-overflow: ellipsis;
   }
 
   .breadcrumb a:hover {
@@ -276,27 +202,4 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-
-  .console-content {
-    min-height: 0;
-    overflow-y: auto;
-    padding: var(--spacing-xl) var(--spacing-xxl) var(--spacing-section);
-  }
-
-  @media (max-width: 900px) {
-    .console-body {
-      grid-template-columns: minmax(0, 1fr);
-    }
-  }
-
-  @media (max-width: 640px) {
-    .console-contextbar {
-      padding-inline: var(--spacing-md);
-    }
-
-    .console-content {
-      padding: var(--spacing-lg) var(--spacing-md) var(--spacing-xxl);
-    }
-  }
-
 </style>
