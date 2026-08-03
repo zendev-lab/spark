@@ -52,6 +52,28 @@ test("daemon-owned repro lifecycle fails closed without settle and recovers afte
     };
     const tools = new Map<string, Tool>();
     const host: any = {
+      driverControl: {
+        async start(input: Parameters<SparkDriverStore["start"]>[0]) {
+          return drivers.mutationResult(drivers.start(input));
+        },
+        async list(input: Parameters<SparkDriverStore["list"]>[0]) {
+          return drivers.listResult(input);
+        },
+        async stop(input: { driverId: string; reason?: string }) {
+          return drivers.mutationResult(drivers.stop(input.driverId, input.reason));
+        },
+        async restart(input: { driverId: string; reason?: string }) {
+          return drivers.mutationResult(drivers.restart(input.driverId, input.reason));
+        },
+        async wake(input: { driverId: string; prompt?: string; reason?: string }) {
+          return drivers.mutationResult(
+            drivers.wake(input.driverId, { prompt: input.prompt, reason: input.reason }),
+          );
+        },
+        async schedule(input: Parameters<SparkDriverStore["schedule"]>[0]) {
+          return drivers.mutationResult(drivers.schedule(input));
+        },
+      },
       registerTool: (tool: Tool) => tools.set(tool.name, tool),
       registerInternalTool: (tool: Tool) => tools.set(tool.name, tool),
       registerCommand() {},
