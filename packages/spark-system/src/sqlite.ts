@@ -8,12 +8,27 @@ export const SPARK_SQLITE_SOFT_HEAP_LIMIT_BYTES = 256 * 1024 * 1024;
 export const SPARK_SQLITE_HARD_HEAP_LIMIT_BYTES = 384 * 1024 * 1024;
 export const SPARK_SQLITE_WAL_LIMIT_BYTES = 64 * 1024 * 1024;
 
-export function openSqliteDatabase(path: string): DatabaseSync {
+export interface OpenSqliteDatabaseOptions {
+  autoVacuum?: "incremental";
+}
+
+export function openSqliteDatabase(
+  path: string,
+  options: OpenSqliteDatabaseOptions = {},
+): DatabaseSync {
   const databasePath = resolve(path);
   mkdirSync(dirname(databasePath), { recursive: true });
   const db = new DatabaseSync(databasePath);
-  applySqlitePragmas(db);
-  return db;
+  try {
+    if (options.autoVacuum === "incremental") {
+      db.exec("PRAGMA auto_vacuum = INCREMENTAL");
+    }
+    applySqlitePragmas(db);
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
 }
 
 export function openMemorySqliteDatabase(): DatabaseSync {

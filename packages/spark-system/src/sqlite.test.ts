@@ -48,8 +48,11 @@ describe("Spark SQLite mechanism", () => {
 
   it("creates the parent directory for a file-backed database", () => {
     const root = mkdtempSync(join(tmpdir(), "spark-system-sqlite-"));
-    const db = openSqliteDatabase(join(root, "nested", "spark.sqlite"));
+    const db = openSqliteDatabase(join(root, "nested", "spark.sqlite"), {
+      autoVacuum: "incremental",
+    });
     try {
+      expect(db.prepare("PRAGMA auto_vacuum").get()).toEqual({ auto_vacuum: 2 });
       applyDaemonSqliteResourceLimits(db);
       expect(db.prepare("PRAGMA mmap_size").get()).toEqual({
         mmap_size: SPARK_SQLITE_MMAP_LIMIT_BYTES,
