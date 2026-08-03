@@ -1,31 +1,57 @@
 import assert from "node:assert/strict";
-import { test } from "vitest";
+import { join } from "node:path";
+import { expect, test } from "vitest";
 
+import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
 import { visibleWidth } from "@zendev-lab/spark-tui/text";
 import type { Component } from "../tui/pi-tui-adapter.ts";
 import {
-  CREATE_SPARK_SESSION_SELECTION,
   createSparkSessionSelectorComponent,
   formatSparkSessionListByWorkspace,
   isSelectableSparkSession,
   selectSparkSessionFromCustomUi,
+  type SparkSessionSelectorSelection,
+  type SparkSessionSelectorWorkspace,
 } from "../tui/session-selector.ts";
-import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
 import type {
   SparkModelSelectorCustomUi,
   SparkModelSelectorTheme,
   SparkModelSelectorTuiLike,
 } from "../tui/model-selector.ts";
 
-const sessions = [
+const workspaces: SparkSessionSelectorWorkspace[] = [
+  {
+    id: "workspace-1",
+    canonicalId: "workspace-1",
+    displayName: "spark",
+    localPath: "/workspace/spark",
+    registration: "registered",
+  },
+  {
+    id: "spark",
+    canonicalId: "workspace-1",
+    displayName: "spark",
+    localPath: "/workspace/spark",
+    registration: "registered",
+  },
+  {
+    id: "workspace-2",
+    canonicalId: "workspace-2",
+    displayName: "spore",
+    localPath: "/workspace/other",
+    registration: "registered",
+  },
+];
+
+const sessions: SparkSessionRegistryRecord[] = [
   {
     sessionId: "session-recent",
     title: "Recent conversation",
-    scope: { kind: "workspace" as const, workspaceId: "workspace-1" },
+    scope: { kind: "workspace", workspaceId: "workspace-1" },
     workspaceId: "workspace-1",
-    status: "ready" as const,
+    status: "ready",
     model: { providerName: "openai", modelId: "gpt-5" },
-    thinkingLevel: "high" as const,
+    thinkingLevel: "high",
     bindings: [],
     createdAt: "2026-07-13T00:00:00.000Z",
     updatedAt: "2026-07-13T01:00:00.000Z",
@@ -110,16 +136,16 @@ const daemonSession: SparkSessionRegistryRecord = {
   updatedAt: "2026-07-13T04:00:00.000Z",
 };
 
-test("Spark session selector renders new and daemon-managed session choices", () => {
-  const selected: string[] = [];
+test("Spark session selector renders explicit workspace creation and managed session choices", () => {
+  const selected: SparkSessionSelectorSelection[] = [];
   const component = createSparkSessionSelectorComponent({
     sessions,
-    workspaceId: "workspace-1",
-    workspaceLabel: "spark • /workspace/spark",
+    workspaces,
+    suggestedWorkspaceId: "workspace-1",
     onSelect: (value) => selected.push(value),
   });
 
-  const lines = component.render(72);
+  const lines = component.render(96);
   assert.equal(
     lines.some((line) => line.includes("Open Spark Session")),
     true,
@@ -137,23 +163,23 @@ test("Spark session selector renders new and daemon-managed session choices", ()
     true,
   );
   assert.equal(
-    lines.every((line) => visibleWidth(line) <= 72),
+    lines.every((line) => visibleWidth(line) <= 96),
     true,
   );
 
   component.handleInput?.("\r");
-  assert.deepEqual(selected, [CREATE_SPARK_SESSION_SELECTION]);
+  assert.deepEqual(selected, [{ kind: "create", workspaceId: "workspace-1" }]);
 });
 
 test("Spark session selector uses the Cockpit fallback for untitled sessions", () => {
   const component = createSparkSessionSelectorComponent({
     sessions: [untitledSession],
-    workspaceId: "workspace-1",
-    workspaceLabel: "spark • /workspace/spark",
+    workspaces,
+    suggestedWorkspaceId: "workspace-1",
     onSelect: () => undefined,
   });
 
-  const lines = component.render(72);
+  const lines = component.render(96);
   assert.equal(
     lines.some((line) => line.includes("New conversation")),
     true,
@@ -165,10 +191,10 @@ test("Spark session selector uses the Cockpit fallback for untitled sessions", (
 });
 
 test("Spark session selector switches workspace groups horizontally", () => {
-  const selected: string[] = [];
+  const selected: SparkSessionSelectorSelection[] = [];
   const component = createSparkSessionSelectorComponent({
     sessions: [
-      ...(sessions as SparkSessionRegistryRecord[]),
+      ...sessions,
       archivedSession,
       channelBindingSession,
       channelTitleSession,
@@ -176,27 +202,13 @@ test("Spark session selector switches workspace groups horizontally", () => {
       legacyWorkspaceSession,
       daemonSession,
     ],
-    workspaceId: "workspace-1",
-    workspaceLabel: "spark • /workspace/spark",
-    workspaces: [
-      {
-        id: "workspace-2",
-        canonicalId: "workspace-2",
-        displayName: "spore",
-        localPath: "/workspace/spark",
-      },
-      {
-        id: "spark",
-        canonicalId: "workspace-1",
-        displayName: "spark",
-        localPath: "/workspace/spark",
-      },
-    ],
+    workspaces,
+    suggestedWorkspaceId: "workspace-1",
     maxVisible: 20,
     onSelect: (value) => selected.push(value),
   });
 
-  let lines = component.render(96);
+  let lines = component.render(120);
   assert.equal(
     lines.some((line) => line.includes("[spark (4)]")),
     true,
@@ -233,13 +245,9 @@ test("Spark session selector switches workspace groups horizontally", () => {
     lines.some((line) => line.includes("Other workspace")),
     false,
   );
-  assert.equal(
-    lines.some((line) => line.includes("Daemon conversation")),
-    false,
-  );
 
   component.handleInput?.("\u001b[C");
-  lines = component.render(96);
+  lines = component.render(120);
   assert.equal(
     lines.some((line) => line.includes("[spore (1)]")),
     true,
@@ -254,20 +262,16 @@ test("Spark session selector switches workspace groups horizontally", () => {
   );
 
   component.handleInput?.("\u001b[C");
-  lines = component.render(96);
+  lines = component.render(120);
   assert.equal(
     lines.some((line) => line.includes("[spark (4)]")),
     true,
-  );
-  assert.equal(
-    lines.some((line) => line.includes("Daemon conversation")),
-    false,
   );
   assert.deepEqual(selected, []);
 });
 
 test("isSelectableSparkSession admits active workspace sessions only", () => {
-  assert.equal(isSelectableSparkSession(sessions[0] as SparkSessionRegistryRecord), true);
+  assert.equal(isSelectableSparkSession(sessions[0]!), true);
   assert.equal(isSelectableSparkSession(archivedSession), false);
   assert.equal(isSelectableSparkSession(channelBindingSession), true);
   assert.equal(isSelectableSparkSession(channelTitleSession), true);
@@ -276,34 +280,26 @@ test("isSelectableSparkSession admits active workspace sessions only", () => {
 
 test("Spark session list text uses the same workspace groups as the selector", () => {
   const text = formatSparkSessionListByWorkspace({
-    sessions: [
-      ...(sessions as SparkSessionRegistryRecord[]),
-      channelBindingSession,
-      otherWorkspaceSession,
-      daemonSession,
-    ],
-    workspaceId: "workspace-1",
-    workspaceLabel: "spark • /workspace/spark",
-    workspaces: [
-      {
-        id: "workspace-2",
-        canonicalId: "workspace-2",
-        displayName: "spore",
-        localPath: "/workspace/spark",
-      },
-    ],
+    sessions: [...sessions, channelBindingSession, otherWorkspaceSession, daemonSession],
+    workspaces,
+    suggestedWorkspaceId: "workspace-1",
   });
 
   assert.match(text, /^Spark workspace sessions:/u);
   assert.match(text, /spark • \/workspace\/spark \(2\)/u);
-  assert.match(text, /spore • \/workspace\/spark \(1\)/u);
+  assert.match(text, /spore • \/workspace\/other \(1\)/u);
   assert.doesNotMatch(text, /Daemon conversation/u);
-  assert.match(text, /Ops room • session-channel-bound • feishu/u);
+  assert.match(text, /Ops room • status=ready • session-channel-bound • feishu/u);
 });
 
 test("Spark session selector custom UI returns an existing workspace session", async () => {
   let overlayEnabled = false;
   let rendered = false;
+  const selected = {
+    kind: "session" as const,
+    sessionId: "session-recent",
+    workspaceId: "workspace-1",
+  };
   const customUi: SparkModelSelectorCustomUi = {
     custom<T>(
       factory: (
@@ -324,17 +320,132 @@ test("Spark session selector custom UI returns an existing workspace session", a
         undefined,
         (_value: T) => undefined,
       );
-      rendered = component.render(72).some((line) => line.includes("Recent conversation"));
-      return "session-recent" as T;
+      rendered = component.render(96).some((line) => line.includes("Recent conversation"));
+      return selected as T;
     },
   };
 
   const selection = await selectSparkSessionFromCustomUi(customUi, {
     sessions,
-    workspaceId: "workspace-1",
-    workspaceLabel: "spark • /workspace/spark",
+    workspaces,
+    suggestedWorkspaceId: "workspace-1",
   });
   assert.equal(rendered, true);
   assert.equal(overlayEnabled, true);
-  assert.equal(selection, "session-recent");
+  assert.deepEqual(selection, selected);
 });
+
+const hierarchySessions: SparkSessionRegistryRecord[] = [
+  sessionRecord("parent-alpha", "Parent Alpha", "2026-07-20T05:00:00.000Z"),
+  sideThreadRecord("alpha-context", "Context research", "parent-alpha", 1, "contextual"),
+  sideThreadRecord("alpha-tangent", "Tangent spike", "parent-alpha", 2, "tangent"),
+  sessionRecord("parent-beta", "Parent Beta", "2026-07-20T04:00:00.000Z"),
+  sideThreadRecord("beta-context", "Verification thread", "parent-beta", 1, "contextual"),
+  {
+    ...sideThreadRecord("alpha-archived", "Archived thread", "parent-alpha", 3, "tangent"),
+    status: "archived",
+  },
+];
+
+test("Spark session selector renders parent and Side Thread hierarchy snapshot", async () => {
+  const component = createSparkSessionSelectorComponent({
+    sessions: hierarchySessions,
+    workspaces: [workspaces[0]!],
+    suggestedWorkspaceId: "workspace-1",
+    maxVisible: 20,
+    onSelect: () => undefined,
+  });
+  const rendered = `${component.render(180).join("\n")}\n`;
+  await expect(rendered).toMatchFileSnapshot(
+    join(import.meta.dirname, "snapshots", "spark-session-selector-hierarchy.md"),
+  );
+  assert.match(rendered, /\[spark \(5\)\]/u);
+  assert.match(
+    rendered,
+    /└─ Context research.*parent=parent-alpha.*mode=contextual.*generation=1.*status=ready/u,
+  );
+  assert.ok(rendered.indexOf("Parent Alpha") < rendered.indexOf("Context research"));
+  assert.ok(rendered.indexOf("Context research") < rendered.indexOf("Tangent spike"));
+  assert.ok(rendered.indexOf("Parent Beta") < rendered.indexOf("Verification thread"));
+});
+
+test("Spark session selector Show archived toggles 5 to 6 to 5 without breaking hierarchy", () => {
+  const component = createSparkSessionSelectorComponent({
+    sessions: hierarchySessions,
+    workspaces: [workspaces[0]!],
+    suggestedWorkspaceId: "workspace-1",
+    maxVisible: 20,
+    onSelect: () => undefined,
+  });
+
+  let rendered = component.render(180).join("\n");
+  assert.match(rendered, /\[spark \(5\)\]/u);
+  assert.match(rendered, /Show archived \(1\)/u);
+  assert.doesNotMatch(rendered, /Archived thread/u);
+
+  component.handleInput?.("a");
+  rendered = component.render(180).join("\n");
+  assert.match(rendered, /\[spark \(6\)\]/u);
+  assert.match(rendered, /Archived thread \[archived\]/u);
+  assert.match(rendered, /status=archived/u);
+  assert.ok(rendered.indexOf("Tangent spike") < rendered.indexOf("Archived thread"));
+  assert.ok(rendered.indexOf("Archived thread") < rendered.indexOf("Parent Beta"));
+
+  component.handleInput?.("a");
+  rendered = component.render(180).join("\n");
+  assert.match(rendered, /\[spark \(5\)\]/u);
+  assert.doesNotMatch(rendered, /Archived thread/u);
+});
+
+test("Spark session selector isolates orphan Side Threads in a diagnostic group", () => {
+  const orphan = sideThreadRecord(
+    "orphan-thread",
+    "Orphan thread",
+    "missing-parent",
+    1,
+    "contextual",
+  );
+  const component = createSparkSessionSelectorComponent({
+    sessions: [...hierarchySessions, orphan],
+    workspaces: [workspaces[0]!],
+    suggestedWorkspaceId: "workspace-1",
+    maxVisible: 20,
+    onSelect: () => undefined,
+  });
+  let rendered = component.render(180).join("\n");
+  assert.match(rendered, /Orphans \(1\)/u);
+  component.handleInput?.("\u001b[C");
+  rendered = component.render(180).join("\n");
+  assert.match(rendered, /\[Orphans \(1\)\]/u);
+  assert.match(rendered, /orphan=missing-parent/u);
+});
+
+function sessionRecord(
+  sessionId: string,
+  title: string,
+  updatedAt: string,
+): SparkSessionRegistryRecord {
+  return {
+    sessionId,
+    title,
+    scope: { kind: "workspace", workspaceId: "workspace-1" },
+    workspaceId: "workspace-1",
+    status: "ready",
+    bindings: [],
+    createdAt: "2026-07-20T00:00:00.000Z",
+    updatedAt,
+  };
+}
+
+function sideThreadRecord(
+  sessionId: string,
+  title: string,
+  parentSessionId: string,
+  generation: number,
+  mode: "contextual" | "tangent",
+): SparkSessionRegistryRecord {
+  return {
+    ...sessionRecord(sessionId, title, `2026-07-20T0${generation}:00:00.000Z`),
+    relation: { kind: "side_thread", parentSessionId, generation, mode },
+  };
+}

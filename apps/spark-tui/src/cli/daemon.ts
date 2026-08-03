@@ -427,6 +427,9 @@ export interface AttachSparkWorkspaceClientOptions {
   kind: SparkWorkspaceClientKind;
   clientId?: string;
   displayName?: string;
+  /** Attach an already-registered workspace without ensuring the launch cwd. */
+  workspaceId?: string;
+  /** Explicitly selected local path to ensure before attach. Mutually exclusive with workspaceId. */
   localPath?: string;
   leaseTtlMs?: number;
   heartbeatIntervalMs?: number | false;
@@ -1708,10 +1711,13 @@ export async function attachSparkWorkspaceClient(
   options: AttachSparkWorkspaceClientOptions,
 ): Promise<SparkWorkspaceClientHandle> {
   await clientEnsureRunning(client);
-  const workspace = await clientEnsureLocalWorkspace(
-    { localPath: options.localPath ?? process.cwd() },
-    client,
-  );
+  const workspaceId = options.workspaceId?.trim();
+  if (workspaceId && options.localPath) {
+    throw new Error("Spark workspace client attach accepts workspaceId or localPath, not both.");
+  }
+  const ensuredWorkspace = workspaceId
+    ? undefined
+    : await clientEnsureLocalWorkspace({ localPath: options.localPath ?? process.cwd() }, client);
   const leaseTtlMs = options.leaseTtlMs ?? 60_000;
   const metadata =
     options.kind === "interactive"
@@ -1719,7 +1725,7 @@ export async function attachSparkWorkspaceClient(
       : options.metadata;
   const attached = await clientWorkspaceClientAttach(
     {
-      workspaceId: workspace.id,
+      workspaceId: workspaceId ?? ensuredWorkspace!.id,
       ...(options.clientId ? { clientId: options.clientId } : {}),
       kind: options.kind,
       displayName: options.displayName ?? defaultWorkspaceClientDisplayName(options.kind),
@@ -1728,6 +1734,7 @@ export async function attachSparkWorkspaceClient(
     },
     client,
   );
+  const workspace = attached.workspace;
   let released = false;
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
   let transferPollTimer: ReturnType<typeof setInterval> | undefined;
