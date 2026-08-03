@@ -55,7 +55,7 @@
 
   let navigationOpen = $state(false);
   let navigationElement = $state<HTMLElement | null>(null);
-  let lastPathname = $state(pathname);
+  let lastPathname = $state<string | null>(null);
 
   $effect(() => {
     const nextPathname = pathname;
