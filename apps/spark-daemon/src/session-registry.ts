@@ -81,6 +81,10 @@ export interface CreateDaemonSessionRegistryOptions {
   daemonCwd?: string;
   /** Resolve a daemon-local path for a canonical or legacy workspace id. */
   resolveWorkspaceCwd?: (workspaceId: string) => string | undefined;
+  /** Resolve canonical workspace aliases for role-owner uniqueness. */
+  canonicalWorkspaceId?: (workspaceId: string) => string;
+  /** Return true for running/driver-owned sessions that must not be displaced. */
+  isSessionRoleOwnerProtected?: (sessionId: string) => boolean | Promise<boolean>;
 }
 
 /**
@@ -158,7 +162,8 @@ export function createDaemonSessionRegistry(
       await registry.unbind(sessionId, externalKey, adapterAccountIdentity),
     archive: async (input) => await registry.archive(input),
     restore: async (sessionId) => await registry.restore(sessionId),
-    setRoleIfMissing: async (sessionId, role) => await registry.setRoleIfMissing(sessionId, role),
+    setRoleIfMissing: async (sessionId, role) =>
+      await convergeRoleOwner(registry, options, sessionId, role),
     setTitleIfMissing: async (sessionId, title) =>
       await registry.setTitleIfMissing(sessionId, title),
     setModel: async (sessionId, model) => await registry.setModel(sessionId, model),
@@ -179,6 +184,63 @@ export function createDaemonSessionRegistry(
       }),
   };
   return createSerializedDaemonSessionRegistry(ownedRegistry);
+}
+
+async function convergeRoleOwner(
+  registry: SparkSessionRegistry,
+  options: CreateDaemonSessionRegistryOptions,
+  sessionId: string,
+  role: string,
+): Promise<SparkSessionRegistryRecord> {
+  const target = await registry.get(sessionId);
+  const owner = target ? await findRoleOwner(registry, options, target, role) : undefined;
+  if (owner && owner.sessionId !== sessionId) {
+    if (await options.isSessionRoleOwnerProtected?.(owner.sessionId)) {
+      throw new SparkSessionRegistryError(
+        "session_role_conflict",
+        `session role ${JSON.stringify(role.trim())} already belongs to ${owner.sessionId}; reuse that session or archive it first`,
+      );
+    }
+    await registry.archive({
+      sessionId: owner.sessionId,
+      source: "role-convergence",
+      reason: `role owner superseded by ${sessionId}`,
+      tags: ["policy:stable-role-reuse", `superseded-by:${sessionId}`],
+    });
+  }
+  return await registry.setRoleIfMissing(sessionId, role);
+}
+
+async function findRoleOwner(
+  registry: SparkSessionRegistry,
+  options: CreateDaemonSessionRegistryOptions,
+  target: SparkSessionRegistryRecord,
+  role: string,
+): Promise<SparkSessionRegistryRecord | undefined> {
+  const normalizedRole = normalizeRole(role);
+  if (!normalizedRole || target.scope.kind !== "workspace") return undefined;
+  const canonicalTarget =
+    options.canonicalWorkspaceId?.(target.scope.workspaceId) ?? target.scope.workspaceId;
+  const sessions = await registry.list({ includeArchived: false });
+  return sessions.find((session) => {
+    if (
+      session.sessionId === target.sessionId ||
+      session.status !== "ready" ||
+      session.relation ||
+      session.bindings.length > 0
+    ) {
+      return false;
+    }
+    if (session.scope.kind !== "workspace") return false;
+    const canonicalSession =
+      options.canonicalWorkspaceId?.(session.scope.workspaceId) ?? session.scope.workspaceId;
+    return canonicalSession === canonicalTarget && normalizeRole(session.role) === normalizedRole;
+  });
+}
+
+function normalizeRole(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/\s+/gu, " ").trim();
+  return normalized || undefined;
 }
 
 function resolveCreateRequest(

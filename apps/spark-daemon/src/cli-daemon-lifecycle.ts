@@ -55,8 +55,10 @@ import {
   startLocalRpcServer,
 } from "./local-rpc.js";
 import { migrateLegacyQueueHistory } from "./store/legacy-queue-migration.ts";
+import { SparkDriverStore } from "./store/drivers.ts";
+import { SparkInvocationStore } from "./store/invocations.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
-import { listWorkspaces, resolveWorkspaceLocalPath } from "./store/workspaces.js";
+import { getWorkspaceById, listWorkspaces, resolveWorkspaceLocalPath } from "./store/workspaces.js";
 import {
   cancelSparkDaemonRestartSuccessor,
   clearSparkDaemonRestartFenceForExplicitStart,
@@ -177,9 +179,15 @@ export async function start(
     ? readSparkDaemonConfig(paths)
     : defaultSparkDaemonConfig();
   if (!existsSync(paths.configFile)) writeSparkDaemonConfig(paths, config);
+  const roleInvocationStore = new SparkInvocationStore(db);
+  const roleDriverStore = new SparkDriverStore(db, roleInvocationStore);
   const sessionRegistry = createDaemonSessionRegistry(sparkHome, {
     daemonId: config.installationId,
     resolveWorkspaceCwd: (workspaceId) => resolveWorkspaceLocalPath(db, workspaceId),
+    canonicalWorkspaceId: (workspaceId) => getWorkspaceById(db, workspaceId)?.id ?? workspaceId,
+    isSessionRoleOwnerProtected: (sessionId) =>
+      roleInvocationStore.sessionActivity(sessionId).active ||
+      roleDriverStore.list({ ownerSessionId: sessionId }).length > 0,
   });
   const modelControl = createSparkDaemonModelControl({
     providerControl: createSparkProviderControl({
@@ -1215,9 +1223,10 @@ export async function daemonAsk(
   const [subcommand = "list", interactionRequestId] = positionalArgs(args);
   const list = io.humanInteractionListFromService ?? requestHumanInteractionList;
   if (subcommand === "list") {
-    const result: LocalHumanInteractionListResult = await list(paths, {
-      ...(flags.session?.trim() ? { sessionId: flags.session.trim() } : {}),
-    });
+    const result: LocalHumanInteractionListResult = await list(
+      paths,
+      flags.session?.trim() ? { sessionId: flags.session.trim() } : {},
+    );
     if (flags.json === "true") {
       io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     } else {

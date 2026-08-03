@@ -9,6 +9,7 @@ export const sparkSessionArchiveSourceOptions = [
   "manual",
   "retention",
   "role-convergence",
+  "role-reuse",
   "migration",
 ] as const;
 export const sparkSessionArchiveSourceSchema = z.enum(sparkSessionArchiveSourceOptions);
