@@ -29,6 +29,7 @@ import {
   truncateLine,
 } from "./truncate.ts";
 import { resolveToCwd } from "./path-utils.ts";
+import { resolveArtifactFileRoot } from "./artifact-root.ts";
 
 const FILE_SEARCH_POLICY = {
   effect: "read",
@@ -46,6 +47,12 @@ function toPosix(value: string): string {
 
 const grepSchema = Type.Object({
   pattern: Type.String({ description: "Search pattern (regex or literal string)" }),
+  artifactRef: Type.Optional(
+    Type.String({
+      description:
+        "Optional git_change Artifact ref. Relative paths resolve from its attached worktree; absolute paths remain absolute.",
+    }),
+  ),
   path: Type.Optional(
     Type.String({ description: "Directory or file to search (default: current directory)" }),
   ),
@@ -88,7 +95,8 @@ export function createGrepToolConfig(): ToolConfig {
     executionMode: FILE_SEARCH_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const cwd = resolveToolCwd(ctx);
+      const root = await resolveArtifactFileRoot(resolveToolCwd(ctx), params.artifactRef);
+      const cwd = root.cwd;
       const pattern = stringParam(params.pattern);
       const searchPath = resolveToCwd(
         typeof params.path === "string" && params.path ? params.path : ".",
@@ -190,7 +198,9 @@ export function createGrepToolConfig(): ToolConfig {
         maxLines: Number.MAX_SAFE_INTEGER,
       });
       let output = truncation.content;
-      const details: Record<string, unknown> = {};
+      const details: Record<string, unknown> = {
+        ...(root.artifactRef ? { artifactRef: root.artifactRef } : {}),
+      };
       if (groupedOutput.grouped) details.grouped = "by_file";
       const notices: string[] = [];
       if (matchLimitReached) {
@@ -224,6 +234,12 @@ const findSchema = Type.Object({
   pattern: Type.String({
     description: "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'",
   }),
+  artifactRef: Type.Optional(
+    Type.String({
+      description:
+        "Optional git_change Artifact ref. Relative paths resolve from its attached worktree; absolute paths remain absolute.",
+    }),
+  ),
   path: Type.Optional(
     Type.String({ description: "Directory to search in (default: current directory)" }),
   ),
@@ -244,7 +260,8 @@ export function createFindToolConfig(): ToolConfig {
     executionMode: FILE_SEARCH_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const cwd = resolveToolCwd(ctx);
+      const root = await resolveArtifactFileRoot(resolveToolCwd(ctx), params.artifactRef);
+      const cwd = root.cwd;
       const pattern = stringParam(params.pattern);
       const searchPath = resolveToCwd(
         typeof params.path === "string" && params.path ? params.path : ".",
@@ -283,7 +300,9 @@ export function createFindToolConfig(): ToolConfig {
         maxLines: Number.MAX_SAFE_INTEGER,
       });
       let output = truncation.content;
-      const details: Record<string, unknown> = {};
+      const details: Record<string, unknown> = {
+        ...(root.artifactRef ? { artifactRef: root.artifactRef } : {}),
+      };
       if (groupedOutput.grouped) details.grouped = "by_directory";
       const notices: string[] = [];
       if (resultLimitReached) {

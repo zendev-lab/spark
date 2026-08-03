@@ -8,41 +8,26 @@ import type {
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import {
   ARTIFACT_KINDS,
-  applyWorktreeToPrBody,
-  attachPrWorktree,
   defaultArtifactStore,
   isArtifactBody,
   isArtifactKind,
   issueBodyFromSnapshot,
   parseForgeUrl,
-  prBodyFromSnapshot,
   projectArtifact,
-  removePrWorktree,
   syncForgeIssue,
-  syncForgePr,
-  type PreviewArtifactBody,
-  type PreviewContentFormat,
   type Artifact,
   type ArtifactKind,
+  type ArtifactProgress,
   type ArtifactRef,
-  type PrArtifactBody,
+  type DocumentArtifactBody,
 } from "./index.ts";
-import { previewFormatAsArtifactFormat } from "./preview-renderer.ts";
 import { startTemporaryArtifactPreview } from "./preview-server.ts";
 
 export interface PiArtifactsExtensionApi {
   registerTool(config: ToolConfig): void;
 }
 
-type ArtifactAction =
-  | "create"
-  | "update"
-  | "list"
-  | "read"
-  | "sync"
-  | "attach_worktree"
-  | "remove_worktree"
-  | "open_preview";
+type ArtifactAction = "create" | "update" | "list" | "read" | "sync" | "open_preview";
 
 class ToolCallText implements ToolRenderComponent {
   private readonly text: string;
@@ -57,14 +42,13 @@ class ToolCallText implements ToolRenderComponent {
 }
 
 const ARTIFACT_KIND_DESCRIPTION =
-  "Artifact kind is one of: issue (forge-tracked issue), pr (forge pull/merge request; prefer worktree), preview (md/mdx/html/a2ui/spark-ui deliverable with continuous progress updates).";
+  "issue (forge issue), git_change (one worktree plus its native PR stack), or document (typed content).";
 
 const ARTIFACT_PROMPT_GUIDELINES = [
-  "Use artifact for user-facing ISSUE / PR / preview only. Internal evidence (document/record/trace/knowledge) uses the evidence tool.",
-  "Artifact refs may use an unambiguous prefix (for example artifact:ebf25150). Use open_preview directly when only a preview is requested; do not call read first.",
-  "When producing a webpage, MDX, or Markdown deliverable, create a preview artifact and keep updating it as work progresses — do not leave progress only in chat or local files.",
-  "When working on a PR artifact, attach and use its git worktree; do not mutate the main working tree by default.",
-  "Sync ISSUE/PR state from GitHub (gh) or GitLab (glab) with action=sync so Cockpit stays accurate.",
+  "Artifact is for user-facing atomic work products. Internal verification uses evidence.",
+  "Use git({ action }) to create or mutate git_change artifacts; artifact only reads them.",
+  "Document format is content metadata, while preview is a view opened with action=open_preview.",
+  "Sync issue state with action=sync. Refresh or sync a git_change through git({ action: 'refresh' | 'sync' }).",
   ARTIFACT_KIND_DESCRIPTION,
 ];
 
@@ -72,41 +56,37 @@ export function registerArtifactTool(pi: PiArtifactsExtensionApi): void {
   pi.registerTool({
     name: "artifact",
     label: "Artifact",
-    description:
-      "Create, update, list, read, sync, or attach worktrees for artifacts: issue, pr, and preview.",
+    description: "Create, update, list, read, sync, or preview atomic Spark artifacts.",
     promptGuidelines: ARTIFACT_PROMPT_GUIDELINES,
     parameters: Type.Object({
       action: Type.String({
-        description:
-          "create | update | list | read | sync | attach_worktree | remove_worktree | open_preview",
+        description: "create | update | list | read | sync | open_preview",
       }),
       artifactRef: Type.Optional(
-        Type.String({
-          description: "Artifact ref or unambiguous prefix (artifact:…).",
-        }),
+        Type.String({ description: "Artifact ref or unambiguous prefix (artifact:…)." }),
       ),
       kind: Type.Optional(
-        Type.String({
-          description: "issue | pr | preview. " + ARTIFACT_KIND_DESCRIPTION,
-        }),
+        Type.String({ description: `issue | git_change | document. ${ARTIFACT_KIND_DESCRIPTION}` }),
       ),
       title: Type.Optional(Type.String({ description: "Title for create/update." })),
-      body: Type.Optional(Type.Any({ description: "Typed body for create/update." })),
-      url: Type.Optional(Type.String({ description: "Forge issue/PR URL for create/sync." })),
+      body: Type.Optional(Type.Any({ description: "Canonical typed body for update." })),
+      url: Type.Optional(Type.String({ description: "Forge issue URL for create/sync." })),
       forge: Type.Optional(Type.String({ description: "github | gitlab" })),
       repo: Type.Optional(Type.String({ description: "owner/repo or GitLab path" })),
-      number: Type.Optional(Type.Number({ description: "Issue or PR number" })),
-      content: Type.Optional(Type.String({ description: "Preview content for create/update." })),
+      number: Type.Optional(Type.Number({ description: "Issue number" })),
+      content: Type.Optional(Type.String({ description: "Document content." })),
+      mediaType: Type.Optional(Type.String({ description: "Document media type." })),
       format: Type.Optional(
-        Type.String({ description: "Preview format: md | mdx | html | a2ui | spark-ui" }),
+        Type.String({
+          description: "Compatibility shorthand: md | mdx | html | a2ui | spark-ui | text | json.",
+        }),
       ),
       updateMode: Type.Optional(
-        Type.String({ description: "Preview update mode: replace | append. Default replace." }),
+        Type.String({ description: "Document update mode: replace | append. Default replace." }),
       ),
       progress: Type.Optional(
-        Type.Any({ description: "Preview progress: { label?, percent?, stage? }" }),
+        Type.Any({ description: "Document progress: { label?, percent?, stage? }" }),
       ),
-      force: Type.Optional(Type.Boolean({ description: "Force worktree remove." })),
       limit: Type.Optional(Type.Number({ description: "Max rows for list. Default 20." })),
     }),
     renderCall(args, theme) {
@@ -127,7 +107,7 @@ export function registerArtifactTool(pi: PiArtifactsExtensionApi): void {
         const newest = artifacts.toReversed().slice(0, limit);
         const lines = [
           `Artifacts: ${artifacts.length}${newest.length < artifacts.length ? ` (showing ${newest.length})` : ""}`,
-          ...newest.map((artifact) => renderListLine(artifact)),
+          ...newest.map(renderListLine),
         ];
         if (newest.length === 0) lines.push("- No artifacts.");
         return toolResult(action, lines.join("\n"), {
@@ -141,10 +121,10 @@ export function registerArtifactTool(pi: PiArtifactsExtensionApi): void {
         if (action === "read") {
           return toolResult(action, renderDetail(artifact), { artifact: compactDetail(artifact) });
         }
-        if (artifact.kind !== "preview" || artifact.body.kind !== "preview") {
-          throw new Error("open_preview requires a preview artifact");
+        if (artifact.body.kind !== "document") {
+          throw new Error("open_preview requires a document artifact");
         }
-        return openArtifactPreview(artifact as Artifact<PreviewArtifactBody>, ctx);
+        return openArtifactPreview(artifact as Artifact<DocumentArtifactBody>, ctx);
       }
 
       if (action === "create") {
@@ -166,68 +146,11 @@ export function registerArtifactTool(pi: PiArtifactsExtensionApi): void {
         });
       }
 
-      if (action === "sync") {
-        const synced = await syncArtifact(store, cwd, params);
-        return toolResult(action, `Synced ${synced.ref} [${synced.kind}] ${synced.title}`, {
-          changed: true,
-          refs: { artifactRef: synced.ref },
-          artifact: compactDetail(synced),
-        });
-      }
-
-      if (action === "attach_worktree") {
-        const existing = await resolveArtifact(store, params.artifactRef);
-        if (existing.kind !== "pr" || existing.body.kind !== "pr") {
-          throw new Error("attach_worktree requires a pr artifact");
-        }
-        const attached = await attachPrWorktree({
-          cwd,
-          forge: existing.body.forge,
-          repo: existing.body.repo,
-          number: existing.body.number,
-          headRef: existing.body.headRef,
-          baseRef: existing.body.baseRef,
-        });
-        const body = applyWorktreeToPrBody(existing.body, attached);
-        const updated = await store.update(existing.ref, { body });
-        const statusLine =
-          attached.worktreeStatus === "attached"
-            ? `Attached worktree ${attached.worktreePath}`
-            : `Worktree attach ${attached.worktreeStatus}: ${attached.worktreeError ?? "unknown error"}`;
-        return toolResult(action, `${statusLine} for ${updated.ref}`, {
-          changed: true,
-          refs: { artifactRef: updated.ref },
-          worktreePath: attached.worktreePath,
-          worktreeStatus: attached.worktreeStatus,
-          artifact: compactDetail(updated),
-        });
-      }
-
-      // remove_worktree
-      const existing = await resolveArtifact(store, params.artifactRef);
-      if (existing.kind !== "pr" || existing.body.kind !== "pr") {
-        throw new Error("remove_worktree requires a pr artifact");
-      }
-      if (!existing.body.worktreePath) {
-        throw new Error("pr artifact has no worktreePath");
-      }
-      const removed = await removePrWorktree({
-        cwd,
-        worktreePath: existing.body.worktreePath,
-        force: params.force === true,
-      });
-      const body: PrArtifactBody = {
-        ...existing.body,
-        worktreeStatus: removed.worktreeStatus,
-        worktreeError: removed.worktreeError,
-        worktreePath: removed.worktreeStatus === "removed" ? undefined : existing.body.worktreePath,
-      };
-      const updated = await store.update(existing.ref, { body });
-      return toolResult(action, `Worktree ${removed.worktreeStatus} for ${updated.ref}`, {
+      const synced = await syncArtifact(store, cwd, params);
+      return toolResult(action, `Synced ${synced.ref} [${synced.kind}] ${synced.title}`, {
         changed: true,
-        refs: { artifactRef: updated.ref },
-        worktreeStatus: removed.worktreeStatus,
-        artifact: compactDetail(updated),
+        refs: { artifactRef: synced.ref },
+        artifact: compactDetail(synced),
       });
     },
   });
@@ -238,16 +161,18 @@ export function registerSparkArtifactTools(pi: SparkHostAPI): void {
   registerArtifactTool({ registerTool: (config) => pi.registerTool?.(config) });
 }
 
-async function openArtifactPreview(artifact: Artifact<PreviewArtifactBody>, ctx: SparkHostContext) {
-  const format = artifact.body.format;
+async function openArtifactPreview(
+  artifact: Artifact<DocumentArtifactBody>,
+  ctx: SparkHostContext,
+) {
   const previewBase = {
     artifactRef: artifact.ref,
     title: artifact.title,
-    format,
+    mediaType: artifact.body.mediaType,
   };
-  if (format === "md" && ctx.sessionSource === "tui") {
+  if (artifact.body.mediaType === "text/markdown" && ctx.sessionSource === "tui") {
     return toolResult("open_preview", artifact.body.content, {
-      artifact: compactPreviewArtifact(artifact),
+      artifact: compactDetail(artifact),
       preview: { ...previewBase, target: "tui", supported: true },
     });
   }
@@ -256,19 +181,16 @@ async function openArtifactPreview(artifact: Artifact<PreviewArtifactBody>, ctx:
     ctx.sessionSource === "web" ||
     (ctx.hasUI === true && ctx.sessionSource !== "tui" && ctx.sessionSurface !== "channel");
   if (!cockpitCapable) {
-    const message =
-      format === "md"
-        ? "Markdown preview requires an attached TUI or Cockpit session."
-        : `${format} preview is available only from local Cockpit; no reachable browser surface is attached.`;
+    const message = "Document preview requires an attached local TUI or Cockpit surface.";
     return toolResult("open_preview", message, {
-      artifact: compactPreviewArtifact(artifact),
+      artifact: compactDetail(artifact),
       preview: { ...previewBase, target: "unsupported", supported: false, reason: message },
     });
   }
 
   const opened = await startTemporaryArtifactPreview(artifact);
   return toolResult("open_preview", `Preview ready: ${opened.url}\nExpires: ${opened.expiresAt}`, {
-    artifact: compactPreviewArtifact(artifact, opened.url),
+    artifact: { ...compactDetail(artifact), preview: opened.url },
     preview: {
       ...previewBase,
       target: "browser",
@@ -279,70 +201,51 @@ async function openArtifactPreview(artifact: Artifact<PreviewArtifactBody>, ctx:
   });
 }
 
-function compactPreviewArtifact(
-  artifact: Artifact<PreviewArtifactBody>,
-  preview?: string,
-): Record<string, unknown> {
-  return {
-    ref: artifact.ref,
-    kind: artifact.kind,
-    title: artifact.title,
-    format: artifact.format,
-    projection: projectArtifact(artifact),
-    ...(preview ? { preview } : {}),
-    createdAt: artifact.createdAt,
-    updatedAt: artifact.updatedAt,
-  };
-}
-
 async function createArtifact(
   store: ReturnType<typeof defaultArtifactStore>,
   cwd: string,
   params: Record<string, unknown>,
 ): Promise<Artifact> {
   const kind = normalizeKind(params.kind, "kind");
-  if (kind === "preview") {
-    const format = normalizePreviewFormat(params.format);
-    const content = typeof params.content === "string" ? params.content : "";
-    const title = normalizeRequiredString(params.title ?? "Preview", "title");
-    const body: PreviewArtifactBody = {
-      schemaVersion: 1,
-      kind: "preview",
-      format,
-      content,
-      version: 1,
+  if (kind === "git_change") {
+    throw new Error(
+      "git_change lifecycle is managed by git({ action: 'init' | 'checkout' | 'adopt' })",
+    );
+  }
+  if (kind === "document") {
+    const body: DocumentArtifactBody = {
+      schemaVersion: 2,
+      kind: "document",
+      mediaType: normalizeMediaType(params.mediaType, params.format),
+      content: typeof params.content === "string" ? params.content : "",
+      revision: 1,
       progress: normalizeProgress(params.progress),
     };
-    return store.put({ kind, title, format: previewFormatAsArtifactFormat(format), body });
+    return store.put({
+      kind,
+      title: normalizeRequiredString(params.title ?? "Document", "title"),
+      body,
+    });
   }
 
   const fromUrl = typeof params.url === "string" ? parseForgeUrl(params.url) : undefined;
-  const number = normalizePositiveInt(params.number ?? fromUrl?.number, "number");
-  const forge = normalizeForge(params.forge ?? fromUrl?.forge);
-  const repo =
-    typeof params.repo === "string" && params.repo.trim() ? params.repo.trim() : fromUrl?.repo;
-  if (kind === "issue") {
-    const snapshot = await syncForgeIssue({ cwd, forge, repo, number });
-    const body = issueBodyFromSnapshot(snapshot);
-    const title = normalizeRequiredString(params.title ?? body.title, "title");
-    return store.put({ kind, title, format: "json", body });
+  if (fromUrl?.kind === "pr") {
+    throw new Error("PR URLs belong to git_change; use git({ action: 'checkout' | 'adopt' })");
   }
-
-  const snapshot = await syncForgePr({ cwd, forge, repo, number });
-  let body = prBodyFromSnapshot(snapshot);
-  const title = normalizeRequiredString(params.title ?? body.title, "title");
-  const created = await store.put({ kind: "pr", title, format: "json", body });
-  // PR create prefers attaching a worktree immediately.
-  const attached = await attachPrWorktree({
+  const snapshot = await syncForgeIssue({
     cwd,
-    forge: body.forge,
-    repo: body.repo,
-    number: body.number,
-    headRef: body.headRef,
-    baseRef: body.baseRef,
+    forge: normalizeForge(params.forge ?? fromUrl?.forge),
+    repo:
+      typeof params.repo === "string" && params.repo.trim() ? params.repo.trim() : fromUrl?.repo,
+    number: normalizePositiveInt(params.number ?? fromUrl?.number, "number"),
   });
-  body = applyWorktreeToPrBody(body, attached);
-  return store.update(created.ref, { body });
+  const body = issueBodyFromSnapshot(snapshot);
+  return store.put({
+    kind,
+    title: normalizeRequiredString(params.title ?? body.title, "title"),
+    format: "json",
+    body,
+  });
 }
 
 async function updateArtifact(
@@ -350,42 +253,46 @@ async function updateArtifact(
   existing: Artifact,
   params: Record<string, unknown>,
 ): Promise<Artifact> {
-  if (existing.kind === "preview" && existing.body.kind === "preview") {
+  if (existing.body.kind === "git_change") {
+    throw new Error("git_change mutations must use git({ action })");
+  }
+  if (existing.body.kind === "document") {
     const mode = params.updateMode === "append" ? "append" : "replace";
-    let nextContent = existing.body.content;
-    if (typeof params.content === "string") {
-      nextContent =
-        mode === "append" ? `${existing.body.content}${params.content}` : params.content;
-    }
-    const format = normalizePreviewFormat(params.format ?? existing.body.format);
-    const body: PreviewArtifactBody = {
+    const nextContent =
+      typeof params.content === "string"
+        ? mode === "append"
+          ? `${existing.body.content}${params.content}`
+          : params.content
+        : existing.body.content;
+    const body: DocumentArtifactBody = {
       ...existing.body,
-      format,
+      mediaType:
+        params.mediaType !== undefined || params.format !== undefined
+          ? normalizeMediaType(params.mediaType, params.format)
+          : existing.body.mediaType,
       content: nextContent,
-      version: existing.body.version + 1,
+      revision: existing.body.revision + 1,
       progress: normalizeProgress(params.progress) ?? existing.body.progress,
     };
     return store.update(existing.ref, {
       title: typeof params.title === "string" ? params.title : existing.title,
-      format: previewFormatAsArtifactFormat(format),
       body,
     });
   }
 
   if (params.body !== undefined) {
-    if (!isArtifactBody(params.body) || params.body.kind !== existing.kind) {
-      throw new Error("body must match existing artifact kind");
+    if (!isArtifactBody(params.body) || params.body.kind !== "issue") {
+      throw new Error("body must be a canonical issue body");
     }
     return store.update(existing.ref, {
       title: typeof params.title === "string" ? params.title : existing.title,
       body: params.body,
     });
   }
-
   if (typeof params.title === "string") {
     return store.update(existing.ref, { title: params.title });
   }
-  throw new Error("update requires content/progress (preview), body, or title");
+  throw new Error("update requires document content/progress, a canonical body, or title");
 }
 
 async function syncArtifact(
@@ -393,41 +300,24 @@ async function syncArtifact(
   cwd: string,
   params: Record<string, unknown>,
 ): Promise<Artifact> {
-  if (typeof params.artifactRef === "string") {
-    const existing = await store.get(normalizeRef(params.artifactRef, "artifactRef"));
-    if (existing.kind === "preview") throw new Error("sync does not apply to preview artifacts");
-    if (existing.body.kind === "issue") {
-      const snapshot = await syncForgeIssue({
-        cwd,
-        forge: existing.body.forge,
-        repo: existing.body.repo,
-        number: existing.body.number,
-      });
-      const body = issueBodyFromSnapshot(snapshot);
-      return store.update(existing.ref, { title: body.title, body });
-    }
-    if (existing.body.kind === "pr") {
-      const snapshot = await syncForgePr({
-        cwd,
-        forge: existing.body.forge,
-        repo: existing.body.repo,
-        number: existing.body.number,
-      });
-      const body: PrArtifactBody = {
-        ...prBodyFromSnapshot(snapshot),
-        worktreePath: existing.body.worktreePath,
-        worktreeBranch: existing.body.worktreeBranch,
-        worktreeStatus: existing.body.worktreeStatus,
-        worktreeError: existing.body.worktreeError,
-      };
-      return store.update(existing.ref, { title: body.title, body });
-    }
+  if (typeof params.artifactRef !== "string") {
+    return createArtifact(store, cwd, { ...params, kind: params.kind ?? "issue" });
   }
-
-  const fromUrl = typeof params.url === "string" ? parseForgeUrl(params.url) : undefined;
-  const kind = normalizeKind(params.kind ?? fromUrl?.kind, "kind");
-  if (kind === "preview") throw new Error("sync does not apply to preview artifacts");
-  return createArtifact(store, cwd, { ...params, kind });
+  const existing = await resolveArtifact(store, params.artifactRef);
+  if (existing.body.kind === "git_change") {
+    throw new Error("use git({ action: 'refresh' | 'sync' }) for git_change artifacts");
+  }
+  if (existing.body.kind === "document") {
+    throw new Error("sync does not apply to document artifacts");
+  }
+  const snapshot = await syncForgeIssue({
+    cwd,
+    forge: existing.body.forge,
+    repo: existing.body.repo,
+    number: existing.body.number,
+  });
+  const body = issueBodyFromSnapshot(snapshot);
+  return store.update(existing.ref, { title: body.title, body });
 }
 
 function renderDetail(artifact: Artifact): string {
@@ -436,9 +326,9 @@ function renderDetail(artifact: Artifact): string {
     `format=${artifact.format} updated=${artifact.updatedAt}`,
     "",
   ];
-  if (artifact.body.kind === "preview") {
+  if (artifact.body.kind === "document") {
     lines.push(
-      `version=${artifact.body.version} previewFormat=${artifact.body.format}`,
+      `revision=${artifact.body.revision} mediaType=${artifact.body.mediaType}`,
       artifact.body.progress
         ? `progress=${JSON.stringify(artifact.body.progress)}`
         : "progress=(none)",
@@ -452,13 +342,12 @@ function renderDetail(artifact: Artifact): string {
 }
 
 function renderListLine(artifact: Artifact): string {
-  if (artifact.body.kind === "preview") {
+  if (artifact.body.kind === "document") {
     const progress = artifact.body.progress?.label ?? artifact.body.progress?.stage ?? "";
-    return `- [preview] ${artifact.ref}: ${artifact.title} v${artifact.body.version}${progress ? ` (${progress})` : ""}`;
+    return `- [document] ${artifact.ref}: ${artifact.title} r${artifact.body.revision}${progress ? ` (${progress})` : ""}`;
   }
-  if (artifact.body.kind === "pr") {
-    const wt = artifact.body.worktreeStatus ? ` worktree=${artifact.body.worktreeStatus}` : "";
-    return `- [pr] ${artifact.ref}: ${artifact.title} ${artifact.body.repo}#${artifact.body.number}${wt}`;
+  if (artifact.body.kind === "git_change") {
+    return `- [git_change] ${artifact.ref}: ${artifact.title} layers=${artifact.body.stack.entries.length} lifecycle=${artifact.body.lifecycle}`;
   }
   return `- [issue] ${artifact.ref}: ${artifact.title} ${artifact.body.repo}#${artifact.body.number}`;
 }
@@ -503,15 +392,11 @@ function normalizeAction(value: unknown): ArtifactAction {
     value === "list" ||
     value === "read" ||
     value === "sync" ||
-    value === "attach_worktree" ||
-    value === "remove_worktree" ||
     value === "open_preview"
   ) {
     return value;
   }
-  throw new Error(
-    "artifact.action must be create, update, list, read, sync, attach_worktree, remove_worktree, or open_preview",
-  );
+  throw new Error("artifact.action must be create, update, list, read, sync, or open_preview");
 }
 
 function normalizeKind(value: unknown, field: string): ArtifactKind {
@@ -542,20 +427,14 @@ async function resolveArtifact(
   const requestedRef = normalizeRef(value, "artifactRef");
   const exact = await store.tryGet(requestedRef);
   if (exact) return exact;
-
-  const artifacts = await store.list();
-  const matches = artifacts.filter((artifact) => artifact.ref.startsWith(requestedRef));
-  if (matches.length === 0) {
-    throw new Error(`artifact not found: ${requestedRef}`);
-  }
+  const matches = (await store.list()).filter((artifact) => artifact.ref.startsWith(requestedRef));
+  if (matches.length === 0) throw new Error(`artifact not found: ${requestedRef}`);
   if (matches.length > 1) {
     throw new Error(
       `artifactRef is ambiguous: ${requestedRef} matches ${matches.length} artifacts`,
     );
   }
-  const match = matches[0];
-  if (!match) throw new Error(`artifact not found: ${requestedRef}`);
-  return store.get(match.ref);
+  return matches[0]!;
 }
 
 function normalizeRequiredString(value: unknown, field: string): string {
@@ -584,26 +463,45 @@ function normalizeForge(value: unknown): "github" | "gitlab" | undefined {
   throw new Error("forge must be github or gitlab");
 }
 
-function normalizePreviewFormat(value: unknown): PreviewContentFormat {
-  if (value === undefined || value === null) return "mdx";
-  if (
-    value === "md" ||
-    value === "mdx" ||
-    value === "html" ||
-    value === "a2ui" ||
-    value === "spark-ui"
-  ) {
-    return value;
+function normalizeMediaType(mediaType: unknown, format: unknown): string {
+  if (typeof mediaType === "string" && mediaType.trim()) return mediaType.trim();
+  switch (format) {
+    case undefined:
+    case null:
+    case "md":
+      return "text/markdown";
+    case "mdx":
+      return "text/mdx";
+    case "html":
+      return "text/html";
+    case "a2ui":
+      return "application/vnd.a2ui+json";
+    case "spark-ui":
+      return "application/vnd.spark-ui+json";
+    case "text":
+      return "text/plain";
+    case "json":
+      return "application/json";
+    default:
+      throw new Error("format must be md, mdx, html, a2ui, spark-ui, text, or json");
   }
-  throw new Error("format must be md, mdx, html, a2ui, or spark-ui");
 }
 
-function normalizeProgress(value: unknown): PreviewArtifactBody["progress"] | undefined {
+function normalizeProgress(value: unknown): ArtifactProgress | undefined {
   if (value === undefined || value === null) return undefined;
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("progress must be an object");
   }
   const record = value as Record<string, unknown>;
+  if (
+    record.percent !== undefined &&
+    (typeof record.percent !== "number" ||
+      !Number.isFinite(record.percent) ||
+      record.percent < 0 ||
+      record.percent > 100)
+  ) {
+    throw new Error("progress.percent must be a number from 0 to 100");
+  }
   return {
     label: typeof record.label === "string" ? record.label : undefined,
     percent: typeof record.percent === "number" ? record.percent : undefined,
@@ -613,8 +511,6 @@ function normalizeProgress(value: unknown): PreviewArtifactBody["progress"] | un
 
 function requireCwd(ctx: { cwd?: string } | undefined, tool: string): string {
   const cwd = ctx?.cwd;
-  if (typeof cwd !== "string" || !cwd.trim()) {
-    throw new Error(`${tool} requires ctx.cwd`);
-  }
+  if (typeof cwd !== "string" || !cwd.trim()) throw new Error(`${tool} requires ctx.cwd`);
   return cwd;
 }

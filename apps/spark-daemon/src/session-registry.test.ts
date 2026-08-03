@@ -149,6 +149,68 @@ describe("daemon session registry cwd ownership", () => {
     ).rejects.toMatchObject({ code: "workspace_cwd_unavailable" });
   });
 
+  it("converges an idle role owner into History before classification takeover", async () => {
+    const sparkHome = await mkdtemp(join(tmpdir(), "spark-daemon-role-convergence-"));
+    roots.push(sparkHome);
+    const registry = createDaemonSessionRegistry(sparkHome, {
+      resolveWorkspaceCwd: () => "/Users/demo/workspace/role-convergence",
+    });
+    const owner = await registry.create({
+      sessionId: "sess_role_owner",
+      scope: { kind: "workspace", workspaceId: "ws_role" },
+      workspaceId: "ws_role",
+      role: "Quality Verification",
+    });
+    const candidate = await registry.create({
+      sessionId: "sess_role_candidate",
+      scope: { kind: "workspace", workspaceId: "ws_role" },
+      workspaceId: "ws_role",
+    });
+
+    const classified = await registry.setRoleIfMissing?.(
+      candidate.sessionId,
+      " Quality   Verification ",
+    );
+
+    expect(classified).toMatchObject({
+      sessionId: candidate.sessionId,
+      role: "Quality Verification",
+    });
+    await expect(registry.get(owner.sessionId)).resolves.toMatchObject({
+      status: "archived",
+      tags: expect.arrayContaining([
+        "policy:stable-role-reuse",
+        "superseded-by:sess_role_candidate",
+      ]),
+      archiveHistory: [expect.objectContaining({ source: "role-convergence" })],
+    });
+  });
+
+  it("does not displace a protected role owner during classification", async () => {
+    const sparkHome = await mkdtemp(join(tmpdir(), "spark-daemon-role-protected-"));
+    roots.push(sparkHome);
+    const registry = createDaemonSessionRegistry(sparkHome, {
+      resolveWorkspaceCwd: () => "/Users/demo/workspace/role-protected",
+      isSessionRoleOwnerProtected: (sessionId) => sessionId === "sess_protected_owner",
+    });
+    await registry.create({
+      sessionId: "sess_protected_owner",
+      scope: { kind: "workspace", workspaceId: "ws_role" },
+      workspaceId: "ws_role",
+      role: "Quality Verification",
+    });
+    await registry.create({
+      sessionId: "sess_protected_candidate",
+      scope: { kind: "workspace", workspaceId: "ws_role" },
+      workspaceId: "ws_role",
+    });
+
+    await expect(
+      registry.setRoleIfMissing?.("sess_protected_candidate", "Quality Verification"),
+    ).rejects.toMatchObject({ code: "session_role_conflict" });
+    await expect(registry.get("sess_protected_owner")).resolves.toMatchObject({ status: "ready" });
+  });
+
   it("authors and persists task-execution relations from the internal create binding", async () => {
     const sparkHome = await mkdtemp(join(tmpdir(), "spark-daemon-task-session-"));
     roots.push(sparkHome);

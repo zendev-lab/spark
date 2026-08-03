@@ -33,6 +33,7 @@ import {
   prepareSparkDaemonDriverOwner,
   type SparkDaemonDriverControl,
 } from "./spark-daemon-driver-client.ts";
+import { requireGoalLensPasses } from "./spark-lens-completion-gate.ts";
 
 export type SparkGoalToolAction =
   | "status"
@@ -164,6 +165,7 @@ export function registerSparkGoalTool(
           details: { found: false, action, error: "no_goal" },
         };
       if (action === "complete") {
+        await requireGoalLensPasses(cwd, graph ?? undefined);
         const completion = await requestGoalCompletionReview(
           ctx,
           deps,

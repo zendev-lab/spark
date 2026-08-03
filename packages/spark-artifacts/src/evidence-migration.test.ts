@@ -450,15 +450,15 @@ describe("Evidence namespace migration", () => {
     });
     const product = await defaultArtifactStore(root).put({
       ref: "artifact:review-like-product" as never,
-      kind: "preview",
+      kind: "document",
       title: "Review-like product",
       format: "markdown",
       body: {
-        schemaVersion: 1,
-        kind: "preview",
-        format: "md",
+        schemaVersion: 2,
+        kind: "document",
+        mediaType: "text/markdown",
         content: "product",
-        version: 1,
+        revision: 1,
       },
     });
     const cachePath = join(root, ".spark", "other", "reviews", "cache.json");
@@ -565,15 +565,15 @@ async function workspaceFixture(name: string): Promise<WorkspaceFixture> {
   const artifact = await defaultArtifactStore(root)
     .put({
       ref: "artifact:product-preview" as never,
-      kind: "preview",
+      kind: "document",
       title: "Preserved preview",
       format: "markdown",
       body: {
-        schemaVersion: 1,
-        kind: "preview",
-        format: "md",
+        schemaVersion: 2,
+        kind: "document",
+        mediaType: "text/markdown",
         content: "Product body contains artifact:legacy-a and must remain byte-identical.",
-        version: 1,
+        revision: 1,
       },
     })
     .finally(() => dateNow.mockRestore());

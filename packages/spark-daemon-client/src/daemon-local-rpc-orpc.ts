@@ -99,6 +99,32 @@ async function parseSparkDaemonOrpcOutput<TOutput>(
   return schema.parse(await output);
 }
 
+const toolExecutionInvokers = {
+  "file.execute": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["file.execute"].output,
+      client.file.execute(input, options),
+    ),
+  "artifact.execute": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["artifact.execute"].output,
+      client.artifact.execute(input, options),
+    ),
+  "git.execute": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["git.execute"].output,
+      client.git.execute(input, options),
+    ),
+  "lens.execute": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["lens.execute"].output,
+      client.lens.execute(input, options),
+    ),
+} satisfies Pick<
+  SparkDaemonOrpcProcedureInvokerMap,
+  "file.execute" | "artifact.execute" | "git.execute" | "lens.execute"
+>;
+
 const daemonChannelTurnInvokers = {
   "daemon.status": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
@@ -380,6 +406,11 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.archive"].output,
       client.session.archive(input, options),
     ),
+  "session.restore": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.restore"].output,
+      client.session.restore(input, options),
+    ),
   "session.send": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.send"].output,
@@ -424,6 +455,7 @@ const sessionInvokers = {
   | "session.bind"
   | "session.unbind"
   | "session.archive"
+  | "session.restore"
   | "session.send"
   | "session.inbox"
   | "session.mail.read"
@@ -567,6 +599,7 @@ const taskClaimInvokers = {
 >;
 
 const sparkDaemonOrpcProcedureInvokers = {
+  ...toolExecutionInvokers,
   ...daemonChannelTurnInvokers,
   ...invocationDriverInvokers,
   ...workspaceInvokers,

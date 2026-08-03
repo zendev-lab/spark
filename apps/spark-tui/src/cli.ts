@@ -26,6 +26,7 @@ import {
   clientGetManagedSessionSnapshot,
   clientListDaemonWorkspaces,
   clientListManagedSessions,
+  clientRestoreManagedSession,
   clientTurnStatus,
   createSparkDaemonNativeCommands,
   createSparkDaemonNativeResponder,
@@ -387,7 +388,7 @@ async function selectSparkCliWorkspaceSession(
   launchCwd: string,
 ): Promise<SparkCliControlPlaneSelection> {
   const [sessions, registeredWorkspaces] = await Promise.all([
-    clientListManagedSessions({}, daemonClient),
+    clientListManagedSessions({ includeArchived: true }, daemonClient),
     listSparkSessionSelectorWorkspaces(daemonClient),
   ]);
   const target = requestedSparkCliSessionTarget(runtimeOptions);
@@ -399,14 +400,24 @@ async function selectSparkCliWorkspaceSession(
       daemonClient,
     );
     if (session) {
-      if (session.status === "archived")
-        throw new Error(`Spark TUI session is archived: ${target}`);
       if (session.scope.kind !== "workspace") {
         throw new Error(`Spark TUI session has no workspace owner: ${target}`);
       }
+      const activeSession =
+        session.status === "archived"
+          ? await clientRestoreManagedSession(session.sessionId, daemonClient)
+          : session;
+      if (
+        activeSession.sessionId !== session.sessionId ||
+        activeSession.scope.kind !== "workspace" ||
+        activeSession.scope.workspaceId !== session.scope.workspaceId ||
+        activeSession.status === "archived"
+      ) {
+        throw new Error(`Spark TUI session restore returned an invalid record: ${target}`);
+      }
       return {
-        workspace: requireSelectorWorkspace(registeredWorkspaces, session.scope.workspaceId),
-        session,
+        workspace: requireSelectorWorkspace(registeredWorkspaces, activeSession.scope.workspaceId),
+        session: activeSession,
       };
     }
     const legacy = await resolveLegacySparkCliSessionTarget(
@@ -434,19 +445,30 @@ async function selectSparkCliWorkspaceSession(
   if (selection.kind === "create") return { workspace, create: true };
 
   const session = requireSelectedManagedSession(sessions, selection.sessionId);
-  if (session.status === "archived") {
-    throw new Error(`Selected Spark session is archived: ${selection.sessionId}`);
-  }
   if (session.scope.kind !== "workspace") {
     throw new Error(`Selected Spark session has no workspace owner: ${selection.sessionId}`);
   }
-  const sessionWorkspace = requireSelectorWorkspace(workspaces, session.scope.workspaceId);
+  const sessionWorkspaceId = session.scope.workspaceId;
+  const sessionWorkspace = requireSelectorWorkspace(workspaces, sessionWorkspaceId);
   if (sessionWorkspace.canonicalId !== workspace.canonicalId) {
     throw new Error(
       `Selected Spark session workspace mismatch: ${sessionWorkspace.canonicalId} != ${workspace.canonicalId}`,
     );
   }
-  return { workspace, session };
+  if (session.status !== "archived") return { workspace, session };
+
+  const activeSession = await clientRestoreManagedSession(session.sessionId, daemonClient);
+  if (
+    activeSession.sessionId !== session.sessionId ||
+    activeSession.scope.kind !== "workspace" ||
+    activeSession.scope.workspaceId !== sessionWorkspaceId ||
+    activeSession.status === "archived"
+  ) {
+    throw new Error(
+      `Selected Spark session restore returned an invalid record: ${selection.sessionId}`,
+    );
+  }
+  return { workspace, session: activeSession };
 }
 
 function assertSparkSessionSelectorSelection(

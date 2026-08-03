@@ -2265,7 +2265,7 @@ test("native TUI session gate exits without creating an implicit session", async
   }
 });
 
-test("native TUI selects an existing daemon session and restores its snapshot", async () => {
+test("native TUI selects a History Session, restores it, and loads its snapshot", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-cli-session-select-"));
   try {
     const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
@@ -2275,12 +2275,21 @@ test("native TUI selects an existing daemon session and restores its snapshot", 
       title: "Existing conversation",
       scope: { kind: "workspace" as const, workspaceId: "workspace-current" },
       workspaceId: "workspace-current",
-      status: "ready" as const,
+      status: "archived" as const,
+      tags: ["policy:inactive-unassigned-30d"],
+      archiveHistory: [
+        {
+          archivedAt: now,
+          source: "retention" as const,
+          tags: ["policy:inactive-unassigned-30d"],
+        },
+      ],
       bindings: [],
       createdAt: now,
       updatedAt: now,
       cwd: dir,
     };
+    let restoreCalls = 0;
     const daemonClient: SparkDaemonClientOptions = {
       ...base.daemonClient,
       managedSessions: {
@@ -2291,7 +2300,12 @@ test("native TUI selects an existing daemon session and restores its snapshot", 
         get: async () => existing,
         bind: async () => existing,
         unbind: async () => existing,
-        archive: async () => ({ ...existing, status: "archived" as const }),
+        archive: async () => existing,
+        restore: async (sessionId) => {
+          assert.equal(sessionId, existing.sessionId);
+          restoreCalls += 1;
+          return { ...existing, status: "ready" as const };
+        },
       },
       controlRequest: async (method, params) => {
         assert.equal(method, "session.snapshot");
@@ -2362,6 +2376,7 @@ test("native TUI selects an existing daemon session and restores its snapshot", 
       selectedOptions?.sessions.map((session) => session.sessionId),
       [existing.sessionId],
     );
+    assert.equal(restoreCalls, 1);
     assert.match(rendered, /Restored from daemon/u);
     assert.match(rendered, /Existing conversation/u);
   } finally {
@@ -2622,7 +2637,7 @@ test("native TUI lists all daemon sessions and routes a cross-workspace selectio
       0,
     );
 
-    assert.deepEqual(listRequests, [{}]);
+    assert.deepEqual(listRequests, [{ includeArchived: true }]);
     assert.deepEqual(selectorSessionIds, [current.sessionId, other.sessionId]);
   } finally {
     await rm(dir, { recursive: true, force: true });

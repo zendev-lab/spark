@@ -3,7 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { createServer, type Server } from "node:http";
 
-import type { PreviewArtifactBody, Artifact } from "./types.ts";
+import type { Artifact, DocumentArtifactBody, PreviewContentFormat } from "./types.ts";
 import { renderArtifactPreviewDocument } from "./preview-renderer.ts";
 
 export interface TemporaryArtifactPreview {
@@ -25,7 +25,7 @@ const minimumPreviewTtlMs = 60_000;
 const maximumPreviewTtlMs = 2 * 60 * 60 * 1_000;
 
 export async function startTemporaryArtifactPreview(
-  artifact: Artifact<PreviewArtifactBody>,
+  artifact: Artifact<DocumentArtifactBody>,
   options: { ttlMs?: number } = {},
 ): Promise<TemporaryArtifactPreview> {
   evictOldPreviews();
@@ -34,7 +34,7 @@ export async function startTemporaryArtifactPreview(
   const path = `/preview/${token}`;
   const rendered = renderArtifactPreviewDocument({
     title: artifact.title,
-    format: artifact.body.format,
+    format: previewFormatForMediaType(artifact.body.mediaType),
     content: artifact.body.content,
   });
   const body = Buffer.from(rendered.html, "utf8");
@@ -84,6 +84,23 @@ export async function startTemporaryArtifactPreview(
     url: `http://127.0.0.1:${address.port}${path}`,
     expiresAt: new Date(active.expiresAt).toISOString(),
   };
+}
+
+function previewFormatForMediaType(mediaType: string): PreviewContentFormat {
+  switch (mediaType) {
+    case "text/markdown":
+      return "md";
+    case "text/mdx":
+      return "mdx";
+    case "text/html":
+      return "html";
+    case "application/vnd.a2ui+json":
+      return "a2ui";
+    case "application/vnd.spark-ui+json":
+      return "spark-ui";
+    default:
+      throw new Error(`document media type is not previewable: ${mediaType}`);
+  }
 }
 
 export function closeTemporaryArtifactPreviews(): void {

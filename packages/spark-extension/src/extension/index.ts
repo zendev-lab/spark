@@ -68,6 +68,8 @@ import {
   type ReviewerRunner,
 } from "./reviewer-runner.ts";
 import { registerSparkReflectionCommands } from "./reflection-in-session-scheduler.ts";
+import { createSparkLensToolConfig } from "./spark-lens-tool.ts";
+import { createTaskArtifactHandler } from "./spark-task-artifact.ts";
 import { sparkActiveLensPhase } from "./spark-drive-state.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { readSessionRepro } from "./spark-session-repro.ts";
@@ -298,6 +300,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkWorkflowRunTool(registerSparkTool, { refreshSparkWidget });
 
   registerSparkAskTools(registerSparkImplementationTool);
+  registerSparkImplementationTool(createSparkLensToolConfig());
 
   if (pi.registerTool) {
     const genericToolRegistrar = {
@@ -359,6 +362,8 @@ function createSparkTaskHandlers(resolveTool: SparkImplementationResolver): Spar
     finish: direct("impl_finish_task"),
     recover: direct("impl_recover_task_claim"),
     release: direct("impl_release_task_claim"),
+    artifact_link: createTaskArtifactHandler("artifact_link"),
+    artifact_unlink: createTaskArtifactHandler("artifact_unlink"),
     plan_update: ({ toolCallId, params, signal, onUpdate, ctx }) => {
       normalizeTaskPlanUpdateScope(params.scope);
       return executeSparkImplementationTool(resolveTool, "impl_update_task_plan_items", {

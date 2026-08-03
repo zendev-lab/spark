@@ -887,7 +887,7 @@ describe("session activity projection", () => {
         view: {
           type: "artifact.update",
           artifact: {
-            ref: "artifact:reload-report",
+            ref: "evidence:reload-report",
             title: "Reload report",
             kind: "document",
             format: "markdown",
@@ -1006,7 +1006,7 @@ describe("session activity projection", () => {
         artifactFormat: "mdx",
       },
       {
-        id: "artifact:reload-report",
+        id: "evidence:reload-report",
         kind: "evidence.update",
         title: "Reload report",
         text: "The persisted activity projection is available.",

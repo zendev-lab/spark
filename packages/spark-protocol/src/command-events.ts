@@ -79,6 +79,7 @@ export const sparkCommandKindOptions = [
   "session.bind.request",
   "session.unbind.request",
   "session.archive.request",
+  "session.restore.request",
   "session.send.request",
   "session.inbox.request",
   "session.mail.read.request",
@@ -103,6 +104,10 @@ export const sparkCommandKindOptions = [
   "provider.auth.login.cancel.request",
   "invocation.cancel.request",
   "artifact.content.request",
+  "file.execute.request",
+  "artifact.execute.request",
+  "git.execute.request",
+  "lens.execute.request",
   "human.request.list.request",
   "human.response.deliver.request",
   "diagnostics.request",
@@ -315,6 +320,7 @@ export const localRpcMethodToSparkCommandKind = {
   "session.bind": "session.bind.request",
   "session.unbind": "session.unbind.request",
   "session.archive": "session.archive.request",
+  "session.restore": "session.restore.request",
   "session.send": "session.send.request",
   "session.inbox": "session.inbox.request",
   "session.mail.read": "session.mail.read.request",
@@ -339,6 +345,10 @@ export const localRpcMethodToSparkCommandKind = {
   "provider.auth.login.cancel": "provider.auth.login.cancel.request",
   "human.interaction.list": "human.request.list.request",
   "human.interaction.respond": "human.response.deliver.request",
+  "file.execute": "file.execute.request",
+  "artifact.execute": "artifact.execute.request",
+  "git.execute": "git.execute.request",
+  "lens.execute": "lens.execute.request",
 } as const satisfies Record<string, SparkCommandKind>;
 
 export const runtimeServerCommandKindOptions = [
@@ -358,6 +368,7 @@ export const runtimeServerCommandKindOptions = [
   "session.bind.request",
   "session.unbind.request",
   "session.archive.request",
+  "session.restore.request",
   "turn.submit.request",
   "turn.cancel.request",
   "turn.status.request",
@@ -423,6 +434,7 @@ export const runtimeServerCommandSpecifications = {
   "session.bind.request": sessionCommand("mutation"),
   "session.unbind.request": sessionCommand("mutation"),
   "session.archive.request": sessionCommand("mutation"),
+  "session.restore.request": sessionCommand("mutation"),
   "turn.submit.request": sessionCommand("mutation"),
   "turn.cancel.request": sessionCommand("mutation", {
     allowBorrowed: true,

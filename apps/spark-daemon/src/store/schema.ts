@@ -194,6 +194,103 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS lens_provider_results (
+      provider_id TEXT NOT NULL,
+      capability TEXT NOT NULL,
+      revision_digest TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      produced_at TEXT NOT NULL,
+      PRIMARY KEY (provider_id, capability, revision_digest)
+    );
+
+    CREATE TABLE IF NOT EXISTS lens_observations (
+      observation_ref TEXT PRIMARY KEY,
+      workspace_root TEXT NOT NULL,
+      revision_digest TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS lens_patch_proposals (
+      proposal_ref TEXT PRIMARY KEY,
+      workspace_root TEXT NOT NULL,
+      base_revision_digest TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('proposed', 'applied', 'stale', 'rejected')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS lens_observation_dispositions (
+      observation_ref TEXT PRIMARY KEY,
+      workspace_root TEXT NOT NULL,
+      revision_digest TEXT NOT NULL,
+      disposition TEXT NOT NULL CHECK (
+        disposition IN ('false_positive', 'deferred', 'flagged', 'suppressed')
+      ),
+      patch_proposal_ref TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS lens_provider_processes (
+      process_key TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      worktree_root TEXT NOT NULL,
+      project_root TEXT NOT NULL,
+      config_digest TEXT NOT NULL,
+      executable_digest TEXT NOT NULL,
+      daemon_instance_id TEXT NOT NULL,
+      process_marker TEXT NOT NULL,
+      pid INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('running', 'stopped', 'crashed', 'recovered')),
+      started_at TEXT NOT NULL,
+      last_heartbeat_at TEXT NOT NULL,
+      exited_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS lens_code_symbols (
+      workspace_root TEXT NOT NULL,
+      symbol_id TEXT NOT NULL,
+      revision_digest TEXT NOT NULL,
+      path TEXT NOT NULL,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      start_line INTEGER NOT NULL,
+      end_line INTEGER NOT NULL,
+      source TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      PRIMARY KEY (workspace_root, symbol_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS lens_code_graph_meta (
+      workspace_root TEXT PRIMARY KEY,
+      revision_digest TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS lens_code_files (
+      workspace_root TEXT NOT NULL,
+      path TEXT NOT NULL,
+      revision_digest TEXT NOT NULL,
+      content_digest TEXT NOT NULL,
+      PRIMARY KEY (workspace_root, path)
+    );
+
+    CREATE TABLE IF NOT EXISTS lens_code_edges (
+      workspace_root TEXT NOT NULL,
+      edge_id TEXT NOT NULL,
+      revision_digest TEXT NOT NULL,
+      from_path TEXT NOT NULL,
+      to_path TEXT,
+      from_symbol TEXT,
+      to_symbol TEXT,
+      kind TEXT NOT NULL,
+      source TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      PRIMARY KEY (workspace_root, edge_id)
+    );
+
     CREATE INDEX IF NOT EXISTS invocations_status_idx ON invocations(status, created_at);
     CREATE INDEX IF NOT EXISTS driver_wakeups_due_idx
       ON driver_wakeups(status, due_at, updated_at)
@@ -223,6 +320,24 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       ON runtime_command_receipts(terminal_acked_at, completed_at)
       WHERE terminal_json IS NOT NULL;
     CREATE INDEX IF NOT EXISTS daemon_human_waits_status_idx ON daemon_human_waits(status, created_at);
+    CREATE INDEX IF NOT EXISTS lens_provider_results_revision_idx
+      ON lens_provider_results(revision_digest, capability);
+    CREATE INDEX IF NOT EXISTS lens_observations_revision_idx
+      ON lens_observations(workspace_root, revision_digest);
+    CREATE INDEX IF NOT EXISTS lens_patch_proposals_revision_idx
+      ON lens_patch_proposals(workspace_root, base_revision_digest, status);
+    CREATE INDEX IF NOT EXISTS lens_observation_dispositions_revision_idx
+      ON lens_observation_dispositions(workspace_root, revision_digest);
+    CREATE INDEX IF NOT EXISTS lens_provider_processes_status_idx
+      ON lens_provider_processes(status, last_heartbeat_at);
+    CREATE INDEX IF NOT EXISTS lens_code_symbols_search_idx
+      ON lens_code_symbols(workspace_root, revision_digest, name);
+    CREATE INDEX IF NOT EXISTS lens_code_symbols_path_idx
+      ON lens_code_symbols(workspace_root, revision_digest, path);
+    CREATE INDEX IF NOT EXISTS lens_code_edges_from_idx
+      ON lens_code_edges(workspace_root, revision_digest, from_path);
+    CREATE INDEX IF NOT EXISTS lens_code_edges_to_idx
+      ON lens_code_edges(workspace_root, revision_digest, to_path);
   `);
   migrateSessionRequestCompletionDeliverySchema(db);
   migrateChannelDeliverySchema(db);

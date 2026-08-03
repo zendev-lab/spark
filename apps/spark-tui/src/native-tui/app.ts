@@ -1100,7 +1100,14 @@ export class SparkNativeTuiApp implements Component, Focusable {
     if (view.runs.length === 0) this.recordActiveRunStatus();
     for (const task of view.tasks) this.cockpit.tasks.set(task.ref, task);
     for (const artifact of view.artifacts) {
-      if (artifact.kind === "issue" || artifact.kind === "pr" || artifact.kind === "preview") {
+      if (
+        artifact.ref.startsWith("artifact:") &&
+        (artifact.kind === "issue" ||
+          artifact.kind === "git_change" ||
+          artifact.kind === "document" ||
+          artifact.kind === "pr" ||
+          artifact.kind === "preview")
+      ) {
         this.cockpit.artifacts.set(artifact.ref, artifact);
       } else {
         this.cockpit.evidence.set(artifact.ref, {
@@ -1484,7 +1491,8 @@ export class SparkNativeTuiApp implements Component, Focusable {
       status === "succeeded" &&
       stringFromRecord(message.details ?? {}, "action") === "open_preview" &&
       stringFromRecord(previewDetails ?? {}, "target") === "tui" &&
-      stringFromRecord(previewDetails ?? {}, "format") === "md";
+      (stringFromRecord(previewDetails ?? {}, "mediaType") === "text/markdown" ||
+        stringFromRecord(previewDetails ?? {}, "format") === "md");
     if (isMarkdownPreview) {
       const id = message.toolCallId ? this.renderTheme.fg("dim", ` · ${message.toolCallId}`) : "";
       const innerWidth = Math.max(1, width - 2);

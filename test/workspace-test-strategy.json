@@ -251,22 +251,22 @@
         }
       ]
     },
+    "@zendev-lab/spark-lens": {
+      "path": "packages/spark-lens",
+      "strategy": "local-test",
+      "primaryGate": {
+        "command": "pnpm --filter @zendev-lab/spark-lens run check",
+        "paths": ["packages/spark-lens/src/**/*.test.ts"],
+        "rules": []
+      },
+      "supplementalGates": []
+    },
     "@zendev-lab/spark-loop": {
       "path": "packages/spark-loop",
       "strategy": "local-test",
       "primaryGate": {
         "command": "pnpm --filter @zendev-lab/spark-loop run check",
         "paths": ["packages/spark-loop/src/**/*.test.ts"],
-        "rules": []
-      },
-      "supplementalGates": []
-    },
-    "@zendev-lab/spark-mcp-spike": {
-      "path": "packages/spark-mcp-spike",
-      "strategy": "local-test",
-      "primaryGate": {
-        "command": "pnpm --filter @zendev-lab/spark-mcp-spike run check",
-        "paths": ["packages/spark-mcp-spike/src/index.test.ts"],
         "rules": []
       },
       "supplementalGates": []

@@ -264,7 +264,8 @@ function isServerWorkspaceMutation(kind: ServerCommandPayload["kind"]): boolean 
     kind === "session.create.request" ||
     kind === "session.bind.request" ||
     kind === "session.unbind.request" ||
-    kind === "session.archive.request"
+    kind === "session.archive.request" ||
+    kind === "session.restore.request"
   );
 }
 

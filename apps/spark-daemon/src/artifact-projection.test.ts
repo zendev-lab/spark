@@ -117,11 +117,13 @@ describe("Artifact daemon projection", () => {
 
         const parsed = artifactProjectionEnvelopeSchema.parse(envelope);
         expect(parsed.payload).toMatchObject({
-          kind: "preview",
-          title: "Preview",
+          kind: "document",
+          title: "Document",
           format: "markdown",
           contentRef: {
             artifactRef: artifact.ref,
+            mediaType: "text/markdown",
+            revision: 1,
             previewFormat: "md",
             inlineMarkdown: "# Durable",
           },
@@ -229,11 +231,11 @@ describe("Artifact daemon projection", () => {
 
       await store.update(artifact.ref, {
         body: {
-          schemaVersion: 1,
-          kind: "preview",
-          format: "md",
+          schemaVersion: 2,
+          kind: "document",
+          mediaType: "text/markdown",
           content: "# V2",
-          version: 2,
+          revision: 2,
         },
       });
       const second = await reconciler.collect(target);
@@ -249,15 +251,15 @@ describe("Artifact daemon projection", () => {
 async function createPreview(cwd: string, content: string) {
   return defaultArtifactStore(cwd).put({
     ref: "artifact:preview:test",
-    kind: "preview",
-    title: "Preview",
+    kind: "document",
+    title: "Document",
     format: "markdown",
     body: {
-      schemaVersion: 1,
-      kind: "preview",
-      format: "md",
+      schemaVersion: 2,
+      kind: "document",
+      mediaType: "text/markdown",
       content,
-      version: 1,
+      revision: 1,
     },
   });
 }

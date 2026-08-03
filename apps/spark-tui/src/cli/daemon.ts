@@ -495,7 +495,8 @@ export interface SparkDaemonSessionsCommand extends SparkDaemonCliCommandBase {
     | "create"
     | "bind"
     | "unbind"
-    | "archive";
+    | "archive"
+    | "restore";
   sessionId?: string;
   format?: SparkSessionExportFormat;
   leafId?: string | null;
@@ -503,6 +504,8 @@ export interface SparkDaemonSessionsCommand extends SparkDaemonCliCommandBase {
   history?: boolean;
   registry?: boolean;
   includeArchived?: boolean;
+  query?: string;
+  tags?: string[];
   newSessionId?: string;
   inboxAction?: "list" | "read" | "ack";
   messageId?: string;
@@ -633,7 +636,7 @@ export interface SparkDaemonSessionsResult {
 export interface ManagedSessionRegistryResult {
   plane: "daemon";
   resource: "session";
-  subcommand: "create" | "bind" | "unbind" | "archive" | "list";
+  subcommand: "create" | "bind" | "unbind" | "archive" | "restore" | "list";
   sessions?: Array<Record<string, unknown>>;
   session?: Record<string, unknown>;
   text: string;
@@ -760,61 +763,8 @@ export function parseSparkDaemonCliArgs(argv: string[]): SparkDaemonCliCommand {
         reset: readBooleanOption(parsed.options, "reset"),
       };
     }
-    case "invocation": {
-      const [subcommand = "list", positionalInvocationId] = parsed.positionals;
-      if (subcommand === "list") {
-        return {
-          action: "invocation",
-          subcommand,
-          json,
-          status: readInvocationStatus(readStringOption(parsed.options, "status")),
-          sessionId: readStringOption(parsed.options, "session")?.trim(),
-          since: readInvocationSinceOption(parsed.options),
-          limit: readNumberOption(parsed.options, "limit"),
-          offset: readNumberOption(parsed.options, "offset"),
-        };
-      }
-      if (subcommand === "retention") {
-        const before = readIsoDateTimeOption(parsed.options, "before");
-        if (!before) throw new Error("spark daemon invocation retention requires --before <iso>");
-        return {
-          action: "invocation",
-          subcommand,
-          before,
-          limit: readNumberOption(parsed.options, "limit"),
-          json,
-        };
-      }
-      if (
-        subcommand !== "status" &&
-        subcommand !== "result" &&
-        subcommand !== "stream" &&
-        subcommand !== "cancel" &&
-        subcommand !== "retry"
-      ) {
-        throw new Error(`unknown spark daemon invocation command: ${subcommand}`);
-      }
-      const invocationId =
-        readStringOption(parsed.options, "invocation")?.trim() || positionalInvocationId?.trim();
-      if (!invocationId) {
-        throw new Error(`spark daemon invocation ${subcommand} requires <invocation-id>`);
-      }
-      return {
-        action: "invocation",
-        subcommand,
-        invocationId,
-        json,
-        ...(subcommand === "stream"
-          ? {
-              after: readNumberOption(parsed.options, "after"),
-              limit: readNumberOption(parsed.options, "limit"),
-            }
-          : {}),
-        ...(subcommand === "cancel"
-          ? { reason: readStringOption(parsed.options, "reason")?.trim() }
-          : {}),
-      };
-    }
+    case "invocation":
+      return parseSparkDaemonInvocationCommand(parsed, json);
     case "queue":
       throw new Error(STRINGS.unknownCommand("queue"));
     case "session":
@@ -824,52 +774,8 @@ export function parseSparkDaemonCliArgs(argv: string[]): SparkDaemonCliCommand {
     case "human":
       return parseSparkDaemonAskCommand(parsed, json);
     case "channel":
-    case "channels": {
-      const [subcommand = "status"] = parsed.positionals;
-      if (subcommand === "list" || subcommand === "status" || subcommand === "reload") {
-        const workspaceId = readStringOption(parsed.options, "workspace");
-        if (!workspaceId?.trim()) {
-          throw new Error(`spark daemon channel ${subcommand} requires --workspace <workspaceId>`);
-        }
-        return { action: "channel", subcommand, json, workspaceId: workspaceId.trim() };
-      }
-      if (subcommand === "notify") {
-        const notifyActionRaw = readStringOption(parsed.options, "action") ?? "test";
-        if (notifyActionRaw !== "test" && notifyActionRaw !== "send") {
-          throw new Error("spark daemon channel notify --action must be test or send");
-        }
-        const workspaceId = readStringOption(parsed.options, "workspace");
-        if (!workspaceId?.trim()) {
-          throw new Error("spark daemon channel notify requires --workspace <workspaceId>");
-        }
-        return {
-          action: "channel",
-          subcommand: "notify",
-          json,
-          workspaceId: workspaceId.trim(),
-          notifyAction: notifyActionRaw,
-          ...(readStringOption(parsed.options, "route")
-            ? { route: readStringOption(parsed.options, "route") }
-            : {}),
-          ...(readStringOption(parsed.options, "adapter")
-            ? { adapter: readStringOption(parsed.options, "adapter") }
-            : {}),
-          ...(readStringOption(parsed.options, "recipient")
-            ? { recipient: readStringOption(parsed.options, "recipient") }
-            : {}),
-          ...(readStringOption(parsed.options, "text")
-            ? { text: readStringOption(parsed.options, "text") }
-            : {}),
-          ...(readStringOption(parsed.options, "image-url")
-            ? { imageUrl: readStringOption(parsed.options, "image-url") }
-            : {}),
-          ...(readStringOption(parsed.options, "image-type")
-            ? { imageType: readStringOption(parsed.options, "image-type") }
-            : {}),
-        };
-      }
-      throw new Error(`unknown spark daemon channel command: ${subcommand}`);
-    }
+    case "channels":
+      return parseSparkDaemonChannelCommand(parsed, json);
     case "run":
     case "runs":
       return parseSparkDaemonRunsCommand(parsed, json);
@@ -960,6 +866,107 @@ function assertBooleanModelOption(options: Record<string, string | boolean>, nam
   }
 }
 
+function parseSparkDaemonInvocationCommand(
+  parsed: ReturnType<typeof parseSparkCliOptions>,
+  json: boolean,
+): SparkDaemonInvocationCommand {
+  const [subcommand = "list", positionalInvocationId] = parsed.positionals;
+  if (subcommand === "list") {
+    return {
+      action: "invocation",
+      subcommand,
+      json,
+      status: readInvocationStatus(readStringOption(parsed.options, "status")),
+      sessionId: readStringOption(parsed.options, "session")?.trim(),
+      since: readInvocationSinceOption(parsed.options),
+      limit: readNumberOption(parsed.options, "limit"),
+      offset: readNumberOption(parsed.options, "offset"),
+    };
+  }
+  if (subcommand === "retention") {
+    const before = readIsoDateTimeOption(parsed.options, "before");
+    if (!before) throw new Error("spark daemon invocation retention requires --before <iso>");
+    return {
+      action: "invocation",
+      subcommand,
+      before,
+      limit: readNumberOption(parsed.options, "limit"),
+      json,
+    };
+  }
+  if (
+    subcommand !== "status" &&
+    subcommand !== "result" &&
+    subcommand !== "stream" &&
+    subcommand !== "cancel" &&
+    subcommand !== "retry"
+  ) {
+    throw new Error(`unknown spark daemon invocation command: ${subcommand}`);
+  }
+  const invocationId =
+    readStringOption(parsed.options, "invocation")?.trim() || positionalInvocationId?.trim();
+  if (!invocationId) {
+    throw new Error(`spark daemon invocation ${subcommand} requires <invocation-id>`);
+  }
+  return {
+    action: "invocation",
+    subcommand,
+    invocationId,
+    json,
+    ...(subcommand === "stream"
+      ? {
+          after: readNumberOption(parsed.options, "after"),
+          limit: readNumberOption(parsed.options, "limit"),
+        }
+      : {}),
+    ...(subcommand === "cancel"
+      ? { reason: readStringOption(parsed.options, "reason")?.trim() }
+      : {}),
+  };
+}
+
+function parseSparkDaemonChannelCommand(
+  parsed: ReturnType<typeof parseSparkCliOptions>,
+  json: boolean,
+): SparkDaemonChannelCommand {
+  const [subcommand = "status"] = parsed.positionals;
+  if (subcommand === "list" || subcommand === "status" || subcommand === "reload") {
+    const workspaceId = readStringOption(parsed.options, "workspace")?.trim();
+    if (!workspaceId) {
+      throw new Error(`spark daemon channel ${subcommand} requires --workspace <workspaceId>`);
+    }
+    return { action: "channel", subcommand, json, workspaceId };
+  }
+  if (subcommand !== "notify") {
+    throw new Error(`unknown spark daemon channel command: ${subcommand}`);
+  }
+  const notifyAction = readStringOption(parsed.options, "action") ?? "test";
+  if (notifyAction !== "test" && notifyAction !== "send") {
+    throw new Error("spark daemon channel notify --action must be test or send");
+  }
+  const workspaceId = readStringOption(parsed.options, "workspace")?.trim();
+  if (!workspaceId) {
+    throw new Error("spark daemon channel notify requires --workspace <workspaceId>");
+  }
+  const optional = (name: string, key: string) => {
+    const value = readStringOption(parsed.options, name);
+    return value ? { [key]: value } : {};
+  };
+  return {
+    action: "channel",
+    subcommand: "notify",
+    json,
+    workspaceId,
+    notifyAction,
+    ...optional("route", "route"),
+    ...optional("adapter", "adapter"),
+    ...optional("recipient", "recipient"),
+    ...optional("text", "text"),
+    ...optional("image-url", "imageUrl"),
+    ...optional("image-type", "imageType"),
+  };
+}
+
 function readInvocationStatus(value: string | undefined): SparkInvocationStatus | undefined {
   if (!value?.trim()) return undefined;
   const normalized = value.trim();
@@ -1016,6 +1023,11 @@ function parseSparkDaemonSessionsCommand(
   const [subcommand = "list", maybeLeaf] = parsed.positionals;
   if (subcommand === "list") {
     const allWorkspaces = readBooleanOption(parsed.options, "all-workspaces");
+    const query = readStringOption(parsed.options, "query")?.trim();
+    const tagList = readStringOption(parsed.options, "tags")
+      ?.split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
     return {
       action: "sessions",
       subcommand,
@@ -1024,6 +1036,8 @@ function parseSparkDaemonSessionsCommand(
       history: readBooleanOption(parsed.options, "history") || allWorkspaces,
       registry: readBooleanOption(parsed.options, "registry"),
       includeArchived: readBooleanOption(parsed.options, "include-archived"),
+      ...(query ? { query } : {}),
+      ...(tagList?.length ? { tags: tagList } : {}),
       workspaceId: readStringOption(parsed.options, "workspace")?.trim(),
     };
   }
@@ -1054,9 +1068,9 @@ function parseSparkDaemonSessionsCommand(
       externalKey,
     };
   }
-  if (subcommand === "archive") {
+  if (subcommand === "archive" || subcommand === "restore") {
     const sessionId = readStringOption(parsed.options, "session")?.trim() || maybeLeaf?.trim();
-    if (!sessionId) throw new Error("spark daemon session archive requires <session-id>");
+    if (!sessionId) throw new Error(`spark daemon session ${subcommand} requires <session-id>`);
     return { action: "sessions", subcommand, json, sessionId };
   }
   if (subcommand === "inbox") {
@@ -1583,9 +1597,11 @@ function createDaemonLiveAssistantRenderer(
     async onEvent(event) {
       if (event.type === "daemon.view_event") onViewEvent?.(event.view);
       if (event.type === "daemon.interaction.request") {
-        await onInteractionRequest?.(event.request, event, {
-          ...(context?.signal ? { signal: context.signal } : {}),
-        });
+        await onInteractionRequest?.(
+          event.request,
+          event,
+          context?.signal ? { signal: context.signal } : {},
+        );
       }
       const text = assistantTextFromDaemonViewEvent(event);
       if (text === undefined) return;
@@ -1720,9 +1736,7 @@ export async function attachSparkWorkspaceClient(
     : await clientEnsureLocalWorkspace({ localPath: options.localPath ?? process.cwd() }, client);
   const leaseTtlMs = options.leaseTtlMs ?? 60_000;
   const metadata =
-    options.kind === "interactive"
-      ? { surface: "tui", ...(options.metadata ?? {}) }
-      : options.metadata;
+    options.kind === "interactive" ? { surface: "tui", ...options.metadata } : options.metadata;
   const attached = await clientWorkspaceClientAttach(
     {
       workspaceId: workspaceId ?? ensuredWorkspace!.id,
@@ -1883,12 +1897,15 @@ async function clientSessions(
       observedAt: observedAt(client),
     };
   }
-  if (command.subcommand === "archive") {
-    const session = await managedSessions.archive(command.sessionId!);
+  if (command.subcommand === "archive" || command.subcommand === "restore") {
+    const session =
+      command.subcommand === "archive"
+        ? await managedSessions.archive(command.sessionId!)
+        : await restoreManagedSession(managedSessions, command.sessionId!);
     return {
       plane: "daemon",
       resource: "session",
-      subcommand: "archive",
+      subcommand: command.subcommand,
       session,
       text: renderManagedSession(session),
       observedAt: observedAt(client),
@@ -1937,6 +1954,8 @@ async function clientSessions(
     if (command.registry) {
       const sessions = await managedSessions.list({
         includeArchived: command.includeArchived,
+        query: command.query,
+        tags: command.tags,
         workspaceId: command.workspaceId,
       });
       return {
@@ -2028,6 +2047,21 @@ export async function clientCreateManagedSession(
   client: SparkDaemonClientOptions = {},
 ): Promise<SparkSessionRegistryRecord> {
   return await clientManagedSessions(client).create(input);
+}
+
+export async function clientRestoreManagedSession(
+  sessionId: string,
+  client: SparkDaemonClientOptions = {},
+): Promise<SparkSessionRegistryRecord> {
+  return await restoreManagedSession(clientManagedSessions(client), sessionId);
+}
+
+async function restoreManagedSession(
+  managedSessions: SparkDaemonManagedSessionsClient,
+  sessionId: string,
+): Promise<SparkSessionRegistryRecord> {
+  if (!managedSessions.restore) throw new Error("Spark daemon Session restore is not available.");
+  return await managedSessions.restore(sessionId);
 }
 
 export async function clientGetManagedSessionSnapshot(
@@ -2363,7 +2397,7 @@ async function clientInvocation(
   }
   if (command.subcommand === "retention") {
     if (!command.before) {
-      throw new Error("Spark invocation retention preview requires --before.");
+      throw new Error("Spark invocation retention requires --before.");
     }
     return await requestSparkDaemonControl(
       "invocation.retention.preview",
@@ -2923,6 +2957,8 @@ async function clientEnsureLocalWorkspace(
   input: LocalWorkspaceEnsureLocalInput,
   client: SparkDaemonClientOptions,
 ): Promise<SparkDaemonWorkspace> {
+  // Compatibility name: the daemon resolves an explicit registration and
+  // fails closed for unknown paths; this call must not mint a workspace.
   const paths = resolveSparkDaemonClientPaths(client);
   await clientEnsureRunning(client);
   if (client.workspaceEnsureLocal) return await client.workspaceEnsureLocal(paths, input);

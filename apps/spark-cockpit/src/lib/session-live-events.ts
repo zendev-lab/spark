@@ -687,7 +687,13 @@ function applyArtifactUpdateEvent(
 ): SessionLiveEventResult {
   const current = state.view ?? emptySessionView(state.sessionId, event.createdAt);
   const kind = viewEvent.artifact.kind;
-  if (kind === "issue" || kind === "pr" || kind === "preview") {
+  const isProductArtifactKind =
+    kind === "issue" ||
+    kind === "git_change" ||
+    kind === "document" ||
+    kind === "pr" ||
+    kind === "preview";
+  if (viewEvent.artifact.ref.startsWith("artifact:") && isProductArtifactKind) {
     state.view = {
       ...current,
       artifacts: upsertByKey(current.artifacts, viewEvent.artifact, (artifact) => artifact.ref),

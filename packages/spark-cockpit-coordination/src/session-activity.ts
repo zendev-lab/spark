@@ -36,7 +36,7 @@ export interface SessionActivityReport {
   status: string | null;
   createdAt: string;
   /** Artifact kind retained across daemon-event persistence/reload. */
-  artifactKind?: "issue" | "pr" | "preview";
+  artifactKind?: "issue" | "git_change" | "document" | "pr" | "preview";
   /** Artifact display format retained across daemon-event persistence/reload. */
   artifactFormat?: string;
   /** Structured run category; top-level session runs stay out of the chat transcript. */
@@ -542,7 +542,7 @@ function stableReportKey(report: SessionActivityReport) {
   return `${report.kind}:${report.id}`;
 }
 
-const ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
+const ARTIFACT_KINDS = new Set(["issue", "git_change", "document", "pr", "preview"]);
 
 function loadArtifactReportsByCommand(
   db: DatabaseSync,
@@ -570,7 +570,11 @@ function loadArtifactReportsByCommand(
     const contentRef = parseJson(row.contentRefJson);
     const text = stringValue(contentRef, "assistantTextPreview");
     if (!text) return [];
-    const kindPrefix = ARTIFACT_KINDS.has(row.kind) ? "artifact" : "evidence";
+    const isCanonicalArtifact =
+      row.kind === "document"
+        ? stringValue(contentRef, "artifactRef")?.startsWith("artifact:") === true
+        : ARTIFACT_KINDS.has(row.kind);
+    const kindPrefix = isCanonicalArtifact ? "artifact" : "evidence";
     return [
       {
         id: row.id,
@@ -685,8 +689,10 @@ function reportFromDaemonPayload(
       const preview = stringValue(artifact, "preview");
       const artifactKind = stringValue(artifact, "kind");
       const artifactFormat = stringValue(artifact, "format");
-      // Legacy tool side-channels used artifact.update for evidence kinds.
-      if (!ARTIFACT_KINDS.has(artifactKind ?? "")) {
+      // Legacy tool side-channels used artifact.update for evidence refs and kinds.
+      const isCanonicalArtifact =
+        artifactRef?.startsWith("artifact:") === true && ARTIFACT_KINDS.has(artifactKind ?? "");
+      if (!isCanonicalArtifact) {
         return {
           id: artifactRef || row.id,
           kind: "evidence.update",
@@ -705,7 +711,7 @@ function reportFromDaemonPayload(
         role: stringValue(artifact, "producer"),
         status,
         createdAt: row.createdAt,
-        artifactKind: artifactKind as "issue" | "pr" | "preview",
+        artifactKind: artifactKind as "issue" | "git_change" | "document" | "pr" | "preview",
         ...(artifactFormat ? { artifactFormat } : {}),
       };
     }

@@ -82,6 +82,7 @@ describe("SparkCommand vocabulary", () => {
       "session.bind",
       "session.unbind",
       "session.archive",
+      "session.restore",
       "session.send",
       "session.inbox",
       "session.mail.read",
@@ -106,6 +107,10 @@ describe("SparkCommand vocabulary", () => {
       "provider.auth.login.cancel",
       "human.interaction.list",
       "human.interaction.respond",
+      "file.execute",
+      "artifact.execute",
+      "git.execute",
+      "lens.execute",
     ]);
     expect(sparkCommandKindForLocalRpcMethod("turn.submit")).toBe("turn.submit.request");
     expect(sparkCommandKindForLocalRpcMethod("daemon.restart")).toBe("daemon.restart.request");
@@ -163,6 +168,7 @@ describe("SparkCommand vocabulary", () => {
       "session.bind.request",
       "session.unbind.request",
       "session.archive.request",
+      "session.restore.request",
       "turn.submit.request",
       "turn.cancel.request",
       "turn.status.request",

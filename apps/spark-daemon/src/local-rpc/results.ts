@@ -2,6 +2,7 @@ import { SPARK_PROTOCOL_VERSION, sparkTurnSubmitResultSchema } from "@zendev-lab
 import type { DaemonChannelIngressStatus } from "../channels/ingress.ts";
 import type { SparkDaemonLifecycleSnapshot } from "../core/index.ts";
 import type { SparkChannelDeliverySummary } from "../store/channel-deliveries.ts";
+import { SparkDaemonControlError } from "../control-error.ts";
 import { RegistrationGrantRefusedError } from "../registration.js";
 import {
   WorkspacePathConflictError,
@@ -21,12 +22,7 @@ import type {
 export function localRpcResponseError(value: unknown): Error {
   const message =
     isRecord(value) && typeof value.message === "string" ? value.message : "Local RPC failed.";
-  const code =
-    isRecord(value) && value.code === "workspace_path_conflict"
-      ? value.code
-      : isRecord(value) && value.code === "registration_grant_refused"
-        ? value.code
-        : undefined;
+  const code = isRecord(value) ? workspaceResponseErrorCode(value.code) : undefined;
   const kind =
     isRecord(value) &&
     (value.kind === "same-path" || value.kind === "same-key" || value.kind === "nested")
@@ -38,7 +34,23 @@ export function localRpcResponseError(value: unknown): Error {
   if (code === "registration_grant_refused") {
     return new RegistrationGrantRefusedError(message);
   }
+  if (code === "workspace_not_found") {
+    return new SparkDaemonControlError(code, message);
+  }
   return new Error(message);
+}
+
+function workspaceResponseErrorCode(
+  value: unknown,
+): "workspace_path_conflict" | "registration_grant_refused" | "workspace_not_found" | undefined {
+  if (
+    value === "workspace_path_conflict" ||
+    value === "registration_grant_refused" ||
+    value === "workspace_not_found"
+  ) {
+    return value;
+  }
+  return undefined;
 }
 
 export function workspaceList(value: unknown): WorkspaceListResult {

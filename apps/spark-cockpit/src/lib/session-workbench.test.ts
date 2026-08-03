@@ -116,9 +116,10 @@ describe("session workbench projection", () => {
         ],
       },
     ]);
-    expect(view.evidence).toMatchObject([
+    expect(view.artifacts).toMatchObject([
       { id: "report-1", title: "Inspector report", canonicalChange: false },
     ]);
+    expect(view.evidence).toEqual([]);
     expect(view.context).toMatchObject({
       sessionId: "sess-workbench",
       cwd: "/workspace/spark",
@@ -251,10 +252,11 @@ describe("session workbench projection", () => {
     });
 
     expect(view.changes.map((artifact) => artifact.id)).toEqual(["canonical-diff"]);
-    expect(view.evidence.map((artifact) => artifact.id)).toEqual(["looks-like-diff"]);
+    expect(view.artifacts.map((artifact) => artifact.id)).toEqual(["looks-like-diff"]);
+    expect(view.evidence).toEqual([]);
   });
 
-  it("puts issue/pr/preview into session artifacts, not evidence", () => {
+  it("puts canonical and legacy Artifact kinds into session artifacts, not evidence", () => {
     const view = buildSessionWorkbenchView({
       session: session({
         artifacts: [
@@ -546,7 +548,7 @@ describe("session workbench projection", () => {
         artifacts: [
           {
             ref: "artifact:same",
-            title: "Canonical evidence",
+            title: "Canonical document",
             kind: "document",
             format: "markdown",
             preview: "canonical",
@@ -587,8 +589,11 @@ describe("session workbench projection", () => {
 
     expect(view.runs[0]?.latestOutput).toHaveLength(4_000);
     expect(view.runs[0]?.latestOutput?.endsWith("…")).toBe(true);
+    expect(view.artifacts).toMatchObject([
+      { id: "same", title: "Canonical document", source: "session" },
+    ]);
     expect(view.evidence).toMatchObject([
-      { id: "same", title: "Canonical evidence", source: "session" },
+      { id: "same", title: "Fallback evidence", source: "activity" },
     ]);
   });
 });

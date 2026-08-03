@@ -76,6 +76,20 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       stop: os.daemon.stop.handler(async () => invoke("daemon.stop", {})),
       restart: os.daemon.restart.handler(async () => invoke("daemon.restart", {})),
     },
+    file: {
+      execute: os.file.execute.handler(async ({ input: params }) => invoke("file.execute", params)),
+    },
+    artifact: {
+      execute: os.artifact.execute.handler(async ({ input: params }) =>
+        invoke("artifact.execute", params),
+      ),
+    },
+    git: {
+      execute: os.git.execute.handler(async ({ input: params }) => invoke("git.execute", params)),
+    },
+    lens: {
+      execute: os.lens.execute.handler(async ({ input: params }) => invoke("lens.execute", params)),
+    },
     channel: {
       status: os.channel.status.handler(async ({ input: params }) =>
         invoke("channel.status", params),
@@ -209,6 +223,9 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       ),
       archive: os.session.archive.handler(async ({ input: params }) =>
         invoke("session.archive", params),
+      ),
+      restore: os.session.restore.handler(async ({ input: params }) =>
+        invoke("session.restore", params),
       ),
       send: os.session.send.handler(async ({ input: params }) => invoke("session.send", params)),
       inbox: os.session.inbox.handler(async ({ input: params }) => invoke("session.inbox", params)),

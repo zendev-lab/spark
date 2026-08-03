@@ -6,6 +6,7 @@ import {
   parseSparkSessionRegistryRecord,
   parseSparkSessionRegistryRecords,
   parseSparkSessionView,
+  sparkSessionArchiveRequestSchema,
   sparkSessionBindRequestSchema,
   sparkSessionCreateRequestSchema,
   sparkSessionGetRequestSchema,
@@ -26,6 +27,7 @@ import {
   type SparkCommandKind,
   type SparkInvocationStatus,
   type SparkProtocolJsonValue,
+  type SparkSessionCreateRequest,
   type SparkSessionRegistryRecord,
   type SparkSessionView,
 } from "@zendev-lab/spark-protocol";
@@ -69,6 +71,7 @@ export interface SparkDaemonSessionControlRequest {
     | "session.bind.request"
     | "session.unbind.request"
     | "session.archive.request"
+    | "session.restore.request"
     | "turn.submit.request"
     | "turn.cancel.request"
     | "turn.status.request"
@@ -193,18 +196,7 @@ export async function executeSparkDaemonSessionControl(
       }
       assertScopeInput(request, parsed.scope);
       if (parsed.taskExecution) {
-        const owner = await requireSession(options, parsed.taskExecution.ownerSessionId, request);
-        if (
-          owner.scope.kind !== parsed.scope.kind ||
-          (owner.scope.kind === "workspace" &&
-            parsed.scope.kind === "workspace" &&
-            owner.scope.workspaceId !== parsed.scope.workspaceId)
-        ) {
-          throw new SparkSessionRegistryError(
-            "session_scope_mismatch",
-            "task execution session must use the owner session scope",
-          );
-        }
+        await assertTaskExecutionOwner(options, request, parsed);
       }
       const session = parseSparkSessionRegistryRecord(
         projectSessionForRequest(
@@ -249,7 +241,7 @@ export async function executeSparkDaemonSessionControl(
       return { result: data, projection: { kind: "session.detail", data } };
     }
     case "session.archive.request": {
-      const parsed = sparkSessionGetRequestSchema.parse({
+      const parsed = sparkSessionArchiveRequestSchema.parse({
         ...request.payload,
         sessionId: request.sessionId ?? request.payload.sessionId,
       });
@@ -257,9 +249,28 @@ export async function executeSparkDaemonSessionControl(
       const session = parseSparkSessionRegistryRecord(
         projectSessionForRequest(
           options.db,
-          await requireSessionRegistry(options).archive(parsed.sessionId),
+          await requireSessionRegistry(options).archive(parsed),
           request,
         ),
+      );
+      const data = publicObject({ session });
+      return { result: data, projection: { kind: "session.detail", data } };
+    }
+    case "session.restore.request": {
+      const parsed = sparkSessionGetRequestSchema.parse({
+        ...request.payload,
+        sessionId: request.sessionId ?? request.payload.sessionId,
+      });
+      await requireSession(options, parsed.sessionId, request);
+      const registry = requireSessionRegistry(options);
+      if (!registry.restore) {
+        throw new SparkDaemonControlError(
+          "session_registry_unavailable",
+          "Spark daemon session restore is not available.",
+        );
+      }
+      const session = parseSparkSessionRegistryRecord(
+        projectSessionForRequest(options.db, await registry.restore(parsed.sessionId), request),
       );
       const data = publicObject({ session });
       return { result: data, projection: { kind: "session.detail", data } };
@@ -501,7 +512,11 @@ async function listSessionsForRequest(
   const registry = requireSessionRegistry(options);
   if (request.scope !== "workspace") return await registry.list(parsed);
 
-  const sessions = await registry.list({ includeArchived: parsed.includeArchived });
+  const sessions = await registry.list({
+    includeArchived: parsed.includeArchived,
+    query: parsed.query,
+    tags: parsed.tags,
+  });
   return sessions.flatMap((session) => {
     try {
       return [projectSessionForRequest(options.db, session, request)];
@@ -545,6 +560,38 @@ function assertScopeInput(
       );
     }
   }
+}
+
+function assertCreateScopeMatchesOwner(
+  owner: SparkSessionRegistryRecord,
+  create: SparkSessionCreateRequest & {
+    scope: NonNullable<SparkSessionCreateRequest["scope"]>;
+  },
+): void {
+  if (
+    owner.scope.kind === create.scope.kind &&
+    (owner.scope.kind !== "workspace" ||
+      (create.scope.kind === "workspace" && owner.scope.workspaceId === create.scope.workspaceId))
+  ) {
+    return;
+  }
+  throw new SparkSessionRegistryError(
+    "session_scope_mismatch",
+    "task execution session must use the owner session scope",
+  );
+}
+
+async function assertTaskExecutionOwner(
+  options: SparkDaemonSessionControlOptions,
+  request: SparkDaemonSessionControlRequest,
+  create: SparkSessionCreateRequest & {
+    scope: NonNullable<SparkSessionCreateRequest["scope"]>;
+  },
+): Promise<void> {
+  const taskExecution = create.taskExecution;
+  if (!taskExecution) return;
+  const owner = await requireSession(options, taskExecution.ownerSessionId, request);
+  assertCreateScopeMatchesOwner(owner, create);
 }
 
 function projectSessionForRequest(

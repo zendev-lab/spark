@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createDaemonSessionRegistry } from "../session-registry.ts";
 import { openSparkDaemonDatabase } from "../store/schema.ts";
+import { registerWorkspace } from "../store/workspaces.ts";
 import { startLocalRpcServer } from "./transport.ts";
 
 describe("Side Thread local-rpc oRPC integration", () => {
@@ -30,6 +31,7 @@ describe("Side Thread local-rpc oRPC integration", () => {
     });
     const sparkHome = join(root, ".spark");
     const db = openSparkDaemonDatabase(paths);
+    const workspace = registerWorkspace(db, { localPath: root });
     const sessionRegistry = createDaemonSessionRegistry(sparkHome, {
       daemonId: "side-thread-orpc-test",
       daemonCwd: root,
@@ -46,15 +48,16 @@ describe("Side Thread local-rpc oRPC integration", () => {
     try {
       const handle = await createSparkDaemonOrpcClient({ paths });
       try {
-        const workspace = await invokeSparkDaemonOrpcLiveMethod(
+        const resolvedWorkspace = await invokeSparkDaemonOrpcLiveMethod(
           handle.client,
           "workspace.ensure-local",
           { localPath: root },
         );
+        expect(resolvedWorkspace.id).toBe(workspace.id);
         await invokeSparkDaemonOrpcLiveMethod(handle.client, "session.create", {
           sessionId: "parent-session",
-          scope: { kind: "workspace", workspaceId: workspace.id },
-          workspaceId: workspace.id,
+          scope: { kind: "workspace", workspaceId: resolvedWorkspace.id },
+          workspaceId: resolvedWorkspace.id,
           cwd: root,
         });
 

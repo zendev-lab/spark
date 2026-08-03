@@ -2,6 +2,8 @@
 
 The daemon owns persistent conversations. TUI, Cockpit, local RPC, and channel adapters use one registry and invocation scheduler; they do not maintain parallel session state machines.
 
+A workspace identity is created only by the explicit `spark daemon workspace register <path> ...` control path. Starting TUI, headless execution, an ACP client, or a test harness in an unregistered directory fails with `workspace_not_found`; runtime attachment may resolve or re-attach an existing registration but must never mint a workspace implicitly. Git worktrees and temporary directories therefore remain ordinary directories unless an operator deliberately registers them.
+
 ## Session turn admission (dual layer)
 
 - **Daemon `pendingTurns`** is the durable, cross-surface admission truth (`queued` / `running` invocations). Cockpit SessionQueue projects only this list.
@@ -15,7 +17,13 @@ The daemon owns persistent conversations. TUI, Cockpit, local RPC, and channel a
 
 Both use the same headless host and `SparkAgentSession`. `role` must not accept lifecycle, mail, `resource=session`, or `sessionId` inputs.
 
-Local role-managed sessions are named by division of labour, not by the task currently in flight. The registry's `role` field is the canonical stable responsibility and `title` is its compatibility display mirror. Agent-created local sessions must provide that role at creation and reuse the matching session for later tasks. A user-created local session may begin unassigned; its first completed user turn classifies one reusable role and compare-and-set persists both fields. Concrete task text belongs only in `session call` or `session send`.
+Local role-managed sessions are named by division of labour, not by the task currently in flight. The registry's `role` field is the canonical stable responsibility and `title` is its compatibility display mirror. Agent-created local sessions must provide that role at creation and reuse the matching session for later tasks; the registry rejects a second active owner of the same normalized role in one workspace. A user-created local session may begin unassigned; its first completed user turn classifies one reusable role and compare-and-set persists both fields. Concrete task text belongs only in `session call` or `session send`.
+
+Selecting `+ New session` in the TUI allocates a provisional ID only. The daemon persists the Session on the first operation that needs durable state, so opening and immediately closing a blank conversation cannot grow the registry.
+
+The default registry/TUI view is the Active working set. A ready local Session with no role/title, channel binding, managed relation, or active Goal/Repro/Loop/Workflow driver moves to History after 30 days without activity. Retention runs once before daemon admission and then daily; a compare-and-set guard leaves a concurrently changed Session active. History preserves the original Session ID and transcript and is restored explicitly before it can run again. Workspace aliases affect only canonical grouping; they never merge Session records or transcripts.
+
+Every archive operation appends a durable `archiveHistory` event and searchable tags. The registry always adds archive source, archive month, original scope/workspace, role state, and relation tags; retention also adds `policy:inactive-unassigned-30d`, `retention-days:30`, and `last-active:YYYY-MM`. Tags survive restore. Operators can search History with `session list includeArchived=true query=...`, exact `tags=[...]`, or `spark daemon sessions list --registry --include-archived --query ... --tags ...`; `session restore` and `spark daemon sessions restore <session-id>` reactivate one identity without copying its transcript.
 
 Message-platform channel sessions are outside generic role management. Message-platform settings own their creation policy, technical identity title, binding, credentials, and retirement; generic first-turn role classification must ignore channel-bound or platform-titled sessions.
 
