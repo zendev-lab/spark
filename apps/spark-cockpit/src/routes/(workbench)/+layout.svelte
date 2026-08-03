@@ -49,7 +49,7 @@
       nav: t.nav,
     }),
   );
-  let contentMode = $derived(
+  let contentMode: "flush" | "padded" = $derived(
     !isWorkspaceDirectory && page.url.pathname.includes("/sessions") ? "flush" : "padded",
   );
 
