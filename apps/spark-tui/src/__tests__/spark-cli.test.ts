@@ -7,6 +7,7 @@ import {
   normalizeBaiduOneApiMessage,
   normalizeBaiduOneApiStream,
   remapBaiduOneApiPayload,
+  repairBaiduOneApiSseLine,
   resolveBaiduOneApiKey,
   streamBaiduOneApiAnthropic,
   streamBaiduOneApiOpenAIResponses,
@@ -501,8 +502,7 @@ const malformedResponsesSse = `data: ${JSON.stringify({
 })}\n\n`;
 const truncatedResponsesSse =
   'data: {"type":"response.in_progress","response":{"id":"resp_truncated","status":"in_progress","instructions":"cons\n\n';
-
-const completedResponsesSse = `data: ${JSON.stringify({
+const completedResponseEvent = {
   type: "response.completed",
   response: {
     id: "resp_ok",
@@ -515,7 +515,9 @@ const completedResponsesSse = `data: ${JSON.stringify({
       output_tokens_details: { reasoning_tokens: 0 },
     },
   },
-})}\n\n`;
+};
+const completedResponsesSse = `data: ${JSON.stringify(completedResponseEvent)}\n\n`;
+const trailingColonResponsesSse = `data: ${JSON.stringify(completedResponseEvent)}:\n\n`;
 
 function responsesSse(body: string): Response {
   return new Response(body, {
@@ -546,6 +548,49 @@ test("Baidu OneAPI sends the system prompt once as top-level Responses instructi
     assert.equal(requestPayload?.instructions, systemPrompt);
     assert.doesNotMatch(JSON.stringify(requestPayload?.input), new RegExp(systemPrompt, "u"));
     assert.equal(JSON.stringify(requestPayload).split(systemPrompt).length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Baidu OneAPI SSE repair removes only the observed trailing colon from a complete response event", () => {
+  const event = {
+    type: "response.in_progress",
+    response: { id: "resp_wire", status: "in_progress", sequence_number: 1 },
+  };
+  const malformed = `data: ${JSON.stringify(event)}:`;
+  assert.equal(repairBaiduOneApiSseLine(malformed), `data: ${JSON.stringify(event)}`);
+  assert.equal(
+    repairBaiduOneApiSseLine('data: {"type":"response.in_progress"}:junk:'),
+    'data: {"type":"response.in_progress"}:junk:',
+  );
+  assert.equal(
+    repairBaiduOneApiSseLine('data: {"type":"other.event"}:'),
+    'data: {"type":"other.event"}:',
+  );
+});
+
+test("Baidu OneAPI direct Responses stream repairs the observed trailing-colon SSE defect", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return responsesSse(trailingColonResponsesSse);
+  }) as typeof fetch;
+
+  try {
+    const stream = streamBaiduOneApiOpenAIResponses(
+      baiduTestModel(),
+      { messages: [], tools: [] },
+      { apiKey: "test-key", maxRetries: 0, maxRetryDelayMs: 1 },
+    );
+    const eventTypes: string[] = [];
+    for await (const event of stream) eventTypes.push(event.type);
+
+    const result = await stream.result();
+    assert.equal(fetchCalls, 1);
+    assert.deepEqual(eventTypes, ["start", "done"]);
+    assert.equal(result.stopReason, "stop");
   } finally {
     globalThis.fetch = originalFetch;
   }

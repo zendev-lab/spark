@@ -359,6 +359,7 @@ function streamBaiduOneApiOpenAIResponsesWith(
         transports.openAIResponses.streamSimple(transportModel, transportContext, {
           ...options,
           ...(apiKey !== undefined ? { apiKey } : {}),
+          fetch: repairBaiduOneApiResponsesFetch(options?.fetch),
           async onPayload(payload: unknown) {
             const remapped = remapOpenAIResponsesModel(payload, gatewayModel);
             const instructed = isRecord(remapped) ? { ...remapped, instructions } : remapped;
@@ -378,6 +379,80 @@ function streamBaiduOneApiOpenAIResponsesWith(
 
 function remapOpenAIResponsesModel(payload: unknown, gatewayModel: string): unknown {
   return isRecord(payload) ? { ...payload, model: gatewayModel } : payload;
+}
+
+/**
+ * Baidu OneAPI occasionally appends a single colon after an otherwise complete
+ * OpenAI Responses SSE JSON value (`data: {...}:`). The OpenAI SDK correctly
+ * rejects that wire value. Repair only this observed gateway defect: the
+ * suffix must be exactly one colon and removing it must produce a complete
+ * `response.*` event object. Every other malformed envelope remains unchanged
+ * and is handled by the bounded retry/failure policy.
+ */
+export function repairBaiduOneApiResponsesFetch(
+  upstreamFetch: typeof globalThis.fetch | undefined,
+): typeof globalThis.fetch {
+  return async (input, init) => {
+    const response = await (upstreamFetch ?? globalThis.fetch)(input, init);
+    if (!response.body || !isEventStreamResponse(response)) return response;
+    const headers = new Headers(response.headers);
+    headers.delete("content-length");
+    headers.delete("content-encoding");
+    return new Response(response.body.pipeThrough(createBaiduOneApiSseRepairStream()), {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  };
+}
+
+function isEventStreamResponse(response: Response): boolean {
+  return response.headers.get("content-type")?.toLowerCase().includes("text/event-stream") === true;
+}
+
+function createBaiduOneApiSseRepairStream(): TransformStream<Uint8Array, Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffered = "";
+  return new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      buffered += decoder.decode(chunk, { stream: true });
+      let newline = buffered.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffered.slice(0, newline);
+        buffered = buffered.slice(newline + 1);
+        controller.enqueue(encoder.encode(`${repairBaiduOneApiSseLine(line)}\n`));
+        newline = buffered.indexOf("\n");
+      }
+    },
+    flush(controller) {
+      buffered += decoder.decode();
+      if (buffered) controller.enqueue(encoder.encode(repairBaiduOneApiSseLine(buffered)));
+    },
+  });
+}
+
+export function repairBaiduOneApiSseLine(line: string): string {
+  const carriageReturn = line.endsWith("\r") ? "\r" : "";
+  const content = carriageReturn ? line.slice(0, -1) : line;
+  if (!content.startsWith("data:") || !content.endsWith(":")) return line;
+  const separator = content.indexOf(":");
+  const prefix = content.slice(0, separator + 1);
+  const data = content.slice(separator + 1);
+  const repairedData = data.slice(0, -1);
+  try {
+    const parsed = JSON.parse(repairedData.trim()) as unknown;
+    if (
+      !isRecord(parsed) ||
+      typeof parsed.type !== "string" ||
+      !parsed.type.startsWith("response.")
+    ) {
+      return line;
+    }
+  } catch {
+    return line;
+  }
+  return prefix + repairedData + carriageReturn;
 }
 
 function registerBaiduOneApiProvider(
