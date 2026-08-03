@@ -74,6 +74,40 @@ describe("SparkInvocationScheduler", () => {
     }
   });
 
+  it("recovers running work without hydrating malformed terminal result JSON", () => {
+    const { db, store, scheduler } = harness(async () => ({ ok: true }));
+    try {
+      const historical = store.submit({
+        sessionId: "historical-session",
+        prompt: "historical",
+        task: { type: "session.run", sessionId: "historical-session", prompt: "historical" },
+      });
+      expect(store.claimNext("historical-worker")?.invocationId).toBe(historical.invocationId);
+      store.complete(historical.invocationId, { status: "succeeded" });
+      db.prepare("UPDATE invocations SET result_json = ? WHERE id = ?").run(
+        "{invalid terminal result",
+        historical.invocationId,
+      );
+
+      const interrupted = store.submit({
+        sessionId: "resume-session",
+        prompt: "resume",
+        task: { type: "session.run", sessionId: "resume-session", prompt: "resume" },
+      });
+      expect(store.claimNext("dead-worker")?.invocationId).toBe(interrupted.invocationId);
+
+      expect(scheduler.recover("2026-07-30T00:00:00.000Z")).toBe(1);
+      expect(store.getSummary(historical.invocationId)).toMatchObject({ status: "succeeded" });
+      expect(store.require(interrupted.invocationId)).toMatchObject({
+        status: "queued",
+        sourceKind: "invocation.resume",
+      });
+      expect(() => store.get(historical.invocationId)).toThrow(/Invalid persisted JSON/u);
+    } finally {
+      db.close();
+    }
+  });
+
   it("durably yields at a planned restart checkpoint and lets the successor continue it", async () => {
     const restart = new AbortController();
     restart.abort(new Error("planned restart"));
@@ -335,6 +369,83 @@ describe("SparkInvocationScheduler", () => {
       db.close();
     }
   });
+
+  it(
+    "persists streamed events while bounding the terminal result payload",
+    { timeout: 20_000 },
+    async () => {
+      const jsonEvents = Array.from({ length: 10_000 }, (_, index) => ({
+        type: "view_event",
+        event: { index },
+      }));
+      const { db, store, scheduler } = harness(async (_task, context) => {
+        for (let index = 0; index < jsonEvents.length; index += 1) {
+          void context.emitEvent?.({
+            version: 1,
+            type: "daemon.view_event",
+            source: "daemon",
+            emittedAt: "2026-07-30T00:00:00.000Z",
+            invocationId: context.invocationId,
+            view: { index },
+          } as never);
+        }
+        return {
+          sessionId: "session-streamed",
+          sessionPath: "/tmp/session-streamed.jsonl",
+          newMessageCount: 1,
+          assistantText: "done",
+          stderr: "",
+          jsonEvents,
+          eventsStreamed: true,
+        };
+      });
+      try {
+        const invocation = store.submit({
+          sessionId: "session-streamed",
+          prompt: "stream",
+          task: { type: "session.run", sessionId: "session-streamed", prompt: "stream" },
+        });
+        expect(scheduler.processBatch()).toBe(true);
+        await scheduler.wait({ timeoutMs: 15_000 });
+
+        let cursor = 0;
+        let streamedCount = 0;
+        let lifecycleCount = 0;
+        const sequences: number[] = [];
+        while (true) {
+          const page = store.eventPage(invocation.invocationId, cursor, 500);
+          streamedCount += page.events.filter((event) => event.kind === "daemon.view_event").length;
+          lifecycleCount += page.events.filter(
+            (event) => event.kind === "daemon.task.lifecycle",
+          ).length;
+          sequences.push(...page.events.map((event) => event.sequence));
+          cursor = page.nextCursor;
+          if (!page.hasMore) break;
+        }
+        expect(streamedCount).toBe(10_000);
+        expect(lifecycleCount).toBe(2);
+        expect(sequences).toHaveLength(10_002);
+        expect(new Set(sequences).size).toBe(10_002);
+
+        const persisted = db
+          .prepare(
+            `SELECT length(result_json) AS bytes,
+                  instr(result_json, 'jsonEvents') AS contains_json_events
+           FROM invocations WHERE id = ?`,
+          )
+          .get(invocation.invocationId) as { bytes: number; contains_json_events: number };
+        expect(persisted.bytes).toBeLessThanOrEqual(524_288);
+        expect(persisted.contains_json_events).toBe(0);
+        expect(store.require(invocation.invocationId).result).toMatchObject({
+          assistantText: "done",
+          jsonEventCount: 10_000,
+          eventsStreamed: true,
+        });
+      } finally {
+        db.close();
+      }
+    },
+  );
 
   it("serializes the same session while allowing bounded unrelated work", async () => {
     const gate = deferred<void>();

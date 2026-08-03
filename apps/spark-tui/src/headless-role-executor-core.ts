@@ -222,7 +222,7 @@ export async function runSparkHeadlessSession(
   }
 
   const recordEvent = (event: unknown) => {
-    jsonEvents.push(event);
+    if (!input.onEvent) jsonEvents.push(event);
     void input.onEvent?.(event);
   };
   const unsubscribe = services.agentLoop.onEvent((event) => {

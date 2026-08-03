@@ -4,12 +4,14 @@ import {
   SparkDaemonUnavailableError,
 } from "@zendev-lab/spark-daemon-client";
 
-const { requestSparkDaemonMock } = vi.hoisted(() => ({
+const { ensureSparkDaemonRunningMock, requestSparkDaemonMock } = vi.hoisted(() => ({
+  ensureSparkDaemonRunningMock: vi.fn(),
   requestSparkDaemonMock: vi.fn(),
 }));
 
 vi.mock("@zendev-lab/spark-daemon-client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@zendev-lab/spark-daemon-client")>()),
+  ensureSparkDaemonRunning: ensureSparkDaemonRunningMock,
   requestSparkDaemon: requestSparkDaemonMock,
 }));
 
@@ -29,6 +31,7 @@ const ownerSession = {
 
 describe("Spark daemon Pi owner compatibility", () => {
   beforeEach(() => {
+    ensureSparkDaemonRunningMock.mockReset().mockResolvedValue(undefined);
     requestSparkDaemonMock.mockReset();
   });
 
@@ -45,11 +48,22 @@ describe("Spark daemon Pi owner compatibility", () => {
     await expect(
       sparkDaemonDriverControl.ensureOwnerSession?.(ownerInput),
     ).resolves.toBeUndefined();
+    expect(ensureSparkDaemonRunningMock).toHaveBeenCalledOnce();
     expect(requestSparkDaemonMock.mock.calls.map(([method]) => method)).toEqual([
       "workspace.ensure-local",
       "session.create",
       "session.get",
     ]);
+  });
+
+  it("does not register owner state when daemon startup fails", async () => {
+    const unavailable = new Error("daemon failed to start");
+    ensureSparkDaemonRunningMock.mockRejectedValue(unavailable);
+
+    await expect(sparkDaemonDriverControl.ensureOwnerSession?.(ownerInput)).rejects.toBe(
+      unavailable,
+    );
+    expect(requestSparkDaemonMock).not.toHaveBeenCalled();
   });
 
   it("does not misclassify facade unavailable errors as an existing session", async () => {

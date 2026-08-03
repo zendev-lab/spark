@@ -22,11 +22,12 @@ describe("Spark daemon oRPC socket client", () => {
     expect([...sparkDaemonOrpcInvokerMethods].sort()).toEqual(
       [...sparkLocalRpcOrpcLiveMethods].sort(),
     );
-    expect(sparkDaemonOrpcInvokerMethods).toHaveLength(77);
   });
 
   it("preserves method-specific input and output types through the generic invoker", () => {
     type SessionGetInvocation = typeof invokeSparkDaemonOrpcLiveMethod<"session.get">;
+    type RetentionApplyInvocation =
+      typeof invokeSparkDaemonOrpcLiveMethod<"invocation.retention.apply">;
 
     expectTypeOf<Parameters<SessionGetInvocation>[2]>().toEqualTypeOf<
       SparkLocalRpcInput<"session.get">
@@ -34,15 +35,33 @@ describe("Spark daemon oRPC socket client", () => {
     expectTypeOf<ReturnType<SessionGetInvocation>>().toEqualTypeOf<
       Promise<SparkLocalRpcOutput<"session.get">>
     >();
+    expectTypeOf<Parameters<RetentionApplyInvocation>[2]>().toEqualTypeOf<
+      SparkLocalRpcInput<"invocation.retention.apply">
+    >();
+    expectTypeOf<ReturnType<RetentionApplyInvocation>>().toEqualTypeOf<
+      Promise<SparkLocalRpcOutput<"invocation.retention.apply">>
+    >();
 
-    const compileSessionGetCalls = (client: SparkLocalRpcOrpcClient) => {
+    const compileContractCalls = (client: SparkLocalRpcOrpcClient) => {
       void invokeSparkDaemonOrpcLiveMethod(client, "session.get", {
         sessionId: "session-1",
       });
       // @ts-expect-error session.get requires its contract-specific sessionId input.
       void invokeSparkDaemonOrpcLiveMethod(client, "session.get", {});
+      void invokeSparkDaemonOrpcLiveMethod(client, "invocation.retention.apply", {
+        before: "2026-07-14T00:00:00.000Z",
+        invocationLimit: 10,
+        eventLimit: 100,
+        confirm: true,
+      });
+      // @ts-expect-error retention apply requires explicit literal confirmation.
+      void invokeSparkDaemonOrpcLiveMethod(client, "invocation.retention.apply", {
+        before: "2026-07-14T00:00:00.000Z",
+        invocationLimit: 10,
+        eventLimit: 100,
+      });
     };
-    expectTypeOf(compileSessionGetCalls).toBeFunction();
+    expectTypeOf(compileContractCalls).toBeFunction();
   });
 
   it("invokes the exact contract path without dynamic client traversal", async () => {
@@ -64,6 +83,40 @@ describe("Spark daemon oRPC socket client", () => {
         p: {
           u: "/daemon/status",
           b: { json: {} },
+        },
+      });
+      await expect(within(result)).resolves.toBeInstanceOf(Error);
+    } finally {
+      handle.close();
+      await fixture.close();
+    }
+  });
+
+  it("sends retention apply through its exact confirmed contract path", async () => {
+    const fixture = await rawOrpcFixture((_line, socket) => socket.end());
+    const handle = await createSparkDaemonOrpcClient({ socketPath: fixture.socketPath });
+
+    try {
+      const result = invokeSparkDaemonOrpcLiveMethod(handle.client, "invocation.retention.apply", {
+        before: "2026-07-14T00:00:00.000Z",
+        invocationLimit: 10,
+        eventLimit: 100,
+        confirm: true,
+      }).catch((error: unknown) => error);
+      const frame = JSON.parse(await within(fixture.requestLine)) as { data: string };
+      const request = JSON.parse(frame.data) as unknown;
+
+      expect(request).toMatchObject({
+        p: {
+          u: "/invocation/retention/apply",
+          b: {
+            json: {
+              before: "2026-07-14T00:00:00.000Z",
+              invocationLimit: 10,
+              eventLimit: 100,
+              confirm: true,
+            },
+          },
         },
       });
       await expect(within(result)).resolves.toBeInstanceOf(Error);

@@ -1760,6 +1760,65 @@ describe("Spark daemon local RPC", () => {
         dryRun: true,
       });
       expect(retention.invocationIds).toHaveLength(10);
+
+      const missingConfirm = await handleLocalRpcLine(
+        JSON.stringify({
+          id: "retention_apply_missing_confirm",
+          method: "invocation.retention.apply",
+          params: {
+            before: "2026-07-01T00:01:00.000Z",
+            invocationLimit: 1,
+            eventLimit: 100,
+          },
+        }),
+        paths,
+        db,
+        undefined,
+      );
+      expect(missingConfirm).toMatchObject({
+        id: "retention_apply_missing_confirm",
+        ok: false,
+        error: { message: expect.stringMatching(/invalid_value[\s\S]*confirm/iu) },
+      });
+
+      const applied = await requestSparkDaemonLocalRpcWire<{
+        before: string;
+        touchedInvocationIds: string[];
+        retainedInvocationIds: string[];
+        deletedEventCount: number;
+        retainedInvocationCount: number;
+        clearedResultCount: number;
+        blockedByDeliveryCount: number;
+        hasMore: boolean;
+        appliedAt: string;
+      }>(
+        {
+          id: "retention_apply",
+          method: "invocation.retention.apply",
+          params: {
+            before: "2026-07-01T00:01:00.000Z",
+            invocationLimit: 1,
+            eventLimit: 100,
+            confirm: true,
+          },
+        },
+        { paths },
+      );
+      expect(applied).toMatchObject({
+        before: "2026-07-01T00:01:00.000Z",
+        touchedInvocationIds: [expect.stringMatching(/^inv_history/u)],
+        retainedInvocationIds: [expect.stringMatching(/^inv_history/u)],
+        deletedEventCount: 0,
+        retainedInvocationCount: 1,
+        clearedResultCount: 0,
+        blockedByDeliveryCount: 0,
+        hasMore: true,
+        appliedAt: expect.any(String),
+      });
+      console.info(
+        "SPARK_INVOCATION_RETENTION_RPC_TRANSCRIPT",
+        JSON.stringify({ missingConfirm, applied }),
+      );
     } finally {
       await server.close();
       db.close();

@@ -407,6 +407,8 @@ export function registerSparkCommands(
       return;
     }
 
+    const ownerSessionId = await prepareSparkDaemonDriverOwner(ctx, deps.driverControl);
+    const previousRepro = await readSessionRepro(ctx.cwd, ctx);
     await stopDriverForKind(ctx, "goal", "replaced by repro");
     await stopDriverForKind(ctx, "loop", "replaced by repro");
     await clearSessionGoal(ctx.cwd, ctx);
@@ -439,17 +441,33 @@ export function registerSparkCommands(
     if (repro !== active) await writeSessionRepro(ctx.cwd, repro, ctx);
 
     const stage = currentReproStage(repro);
-    ctx.sparkActiveLens = sparkActiveLens(repro.currentPhase, "repro");
-    await deps.refreshSparkWidget(ctx.cwd, ctx);
     const objectivePrefix = repro.objective ? `${compactInline(repro.objective)} · ` : "";
     const visible = `Spark repro active: ${objectivePrefix}${stage.title} (${repro.currentStageIndex + 1}/${repro.stages.length}), phase=${repro.currentPhase}`;
+    try {
+      await startDriver(
+        ctx,
+        {
+          driverId: repro.reproId,
+          kind: "repro",
+          prompt: renderReproTickInstruction(repro),
+          reason: "repro started",
+        },
+        ownerSessionId,
+      );
+    } catch (error) {
+      if (action === "restart" || previousRepro?.status !== "active") {
+        await clearSessionRepro(ctx.cwd, ctx);
+        ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan", "assist");
+      } else {
+        await writeSessionRepro(ctx.cwd, previousRepro, ctx);
+        ctx.sparkActiveLens = sparkActiveLens(previousRepro.currentPhase, "repro");
+      }
+      await deps.refreshSparkWidget(ctx.cwd, ctx);
+      throw error;
+    }
+    ctx.sparkActiveLens = sparkActiveLens(repro.currentPhase, "repro");
+    await deps.refreshSparkWidget(ctx.cwd, ctx);
     ctx.ui?.notify?.(visible, "info");
-    await startDriver(ctx, {
-      driverId: repro.reproId,
-      kind: "repro",
-      prompt: renderReproTickInstruction(repro),
-      reason: "repro started",
-    });
   }
 
   async function handleSparkGoalCommand(
@@ -839,8 +857,10 @@ export function registerSparkCommands(
       prompt: string;
       reason?: string;
     },
+    preparedOwnerSessionId?: string,
   ): Promise<SparkDriverView> {
-    const ownerSessionId = await prepareSparkDaemonDriverOwner(ctx, deps.driverControl);
+    const ownerSessionId =
+      preparedOwnerSessionId ?? (await prepareSparkDaemonDriverOwner(ctx, deps.driverControl));
     const result = await deps.driverControl.start({
       ...input,
       ownerSessionId,

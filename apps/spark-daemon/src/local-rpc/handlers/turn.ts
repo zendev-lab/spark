@@ -1,4 +1,5 @@
 import {
+  sparkInvocationRetentionApplyResultSchema,
   sparkInvocationRetentionPreviewResultSchema,
   sparkInvocationRetryResultSchema,
 } from "@zendev-lab/spark-protocol";
@@ -28,7 +29,8 @@ type TurnRequest = Extract<
       | "turn.cancel"
       | "invocation.list"
       | "invocation.retry"
-      | "invocation.retention.preview";
+      | "invocation.retention.preview"
+      | "invocation.retention.apply";
   }
 >;
 
@@ -97,6 +99,18 @@ export async function handleTurnRequest(
         ...preview,
         dryRun: true,
         observedAt: new Date().toISOString(),
+      });
+    }
+    case "invocation.retention.apply": {
+      const appliedAt = new Date().toISOString();
+      const result = new SparkInvocationStore(db).retentionApply(request.params.before, {
+        invocationLimit: request.params.invocationLimit,
+        eventLimit: request.params.eventLimit,
+        now: appliedAt,
+      });
+      return sparkInvocationRetentionApplyResultSchema.parse({
+        ...result,
+        appliedAt,
       });
     }
     case "turn.stream": {

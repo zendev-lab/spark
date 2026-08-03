@@ -1296,6 +1296,46 @@ test("parseSparkDaemonCliArgs normalizes bounded relative invocation windows", (
       },
     );
     assert.throws(
+      () =>
+        parseSparkDaemonCliArgs([
+          "invocation",
+          "retention",
+          "apply",
+          "--before",
+          "2026-07-01T00:00:00Z",
+        ]),
+      /retention apply requires --confirm/u,
+    );
+    assert.throws(
+      () => parseSparkDaemonCliArgs(["invocation", "retention", "apply", "--confirm"]),
+      /retention requires --before <iso>/u,
+    );
+    assert.deepEqual(
+      parseSparkDaemonCliArgs([
+        "invocation",
+        "retention",
+        "apply",
+        "--before",
+        "2026-07-01T00:00:00Z",
+        "--limit",
+        "10",
+        "--event-limit",
+        "100",
+        "--confirm",
+        "--json",
+      ]),
+      {
+        action: "invocation",
+        subcommand: "retention",
+        retentionAction: "apply",
+        before: "2026-07-01T00:00:00.000Z",
+        limit: 10,
+        eventLimit: 100,
+        confirm: true,
+        json: true,
+      },
+    );
+    assert.throws(
       () => parseSparkDaemonCliArgs(["invocation", "list", "--since", "0h"]),
       /duration must be between 1s and 365d/u,
     );

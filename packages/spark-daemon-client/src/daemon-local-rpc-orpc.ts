@@ -218,6 +218,11 @@ const invocationDriverInvokers = {
       sparkLocalRpcProcedureSchemas["invocation.retention.preview"].output,
       client.invocation.retention.preview(input, options),
     ),
+  "invocation.retention.apply": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["invocation.retention.apply"].output,
+      client.invocation.retention.apply(input, options),
+    ),
   "driver.start": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["driver.start"].output,
@@ -253,6 +258,7 @@ const invocationDriverInvokers = {
   | "invocation.list"
   | "invocation.retry"
   | "invocation.retention.preview"
+  | "invocation.retention.apply"
   | "driver.start"
   | "driver.status"
   | "driver.stop"

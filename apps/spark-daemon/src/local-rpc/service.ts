@@ -59,6 +59,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "invocation.list",
     "invocation.retry",
     "invocation.retention.preview",
+    "invocation.retention.apply",
   ],
   driver: [
     "driver.start",
