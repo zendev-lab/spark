@@ -43,9 +43,9 @@ describe("side-thread local RPC parsing", () => {
     }
   });
 
-  it("recognizes exactly the 72 protocol-owned methods", () => {
+  it("recognizes exactly the 73 protocol-owned methods", () => {
     const methods = Object.keys(sparkLocalRpcProcedureSchemas);
-    expect(methods).toHaveLength(72);
+    expect(methods).toHaveLength(73);
     expect(methods.every(isSparkLocalRpcMethod)).toBe(true);
     expect(() =>
       parseLocalRpcRequest(JSON.stringify({ id: "unknown", method: "legacy.unknown", params: {} })),

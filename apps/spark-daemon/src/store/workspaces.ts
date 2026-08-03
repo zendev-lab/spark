@@ -382,23 +382,27 @@ export function rebindWorkspaceServerUrl(
   });
 }
 
+/**
+ * Resolve an explicitly registered local workspace for runtime attachment.
+ *
+ * This compatibility-named lookup never creates a workspace. Registration is
+ * an explicit CLI/control-plane operation so temporary directories and Git
+ * worktrees cannot silently become durable workspace identities.
+ */
 export function ensureLocalWorkspace(
   db: DatabaseSync,
   options: EnsureLocalWorkspaceOptions,
 ): SparkDaemonWorkspace {
   const localPath = normalizeLocalPath(options.localPath);
   const existing = getWorkspaceByPath(db, localPath);
-  if (existing) {
-    return isUserDetachedWorkspace(existing) ? attachWorkspace(db, { id: existing.id }) : existing;
+  if (!existing) {
+    throw new SparkDaemonControlError(
+      "workspace_not_found",
+      `Workspace is not registered: ${localPath}. Register it explicitly with spark daemon workspace register <path> --server-url <url> --token <token> --name <name>.`,
+    );
   }
 
-  return registerWorkspace(db, {
-    serverUrl: "",
-    localPath,
-    ...(options.displayName ? { displayName: options.displayName } : {}),
-    ...(options.localWorkspaceKey ? { localWorkspaceKey: options.localWorkspaceKey } : {}),
-    ...(options.now ? { now: options.now } : {}),
-  });
+  return isUserDetachedWorkspace(existing) ? attachWorkspace(db, { id: existing.id }) : existing;
 }
 
 export function planWorkspaceRegistration(

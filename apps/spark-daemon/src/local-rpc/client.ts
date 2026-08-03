@@ -298,6 +298,7 @@ export async function requestUplinkStatus(
   return localRpcRequest(paths, "uplink.status", {});
 }
 
+/** Resolve or re-attach an explicitly registered local workspace; never creates one. */
 export async function requestWorkspaceEnsureLocal(
   paths: SparkPaths,
   params: LocalWorkspaceEnsureLocalRequest,

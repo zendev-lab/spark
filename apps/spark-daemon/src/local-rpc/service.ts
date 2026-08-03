@@ -92,6 +92,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "session.bind",
     "session.unbind",
     "session.archive",
+    "session.restore",
     "session.send",
     "session.inbox",
     "session.mail.read",

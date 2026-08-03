@@ -63,29 +63,20 @@ export async function handleWorkspaceRequest(
         observedAt: new Date().toISOString(),
       });
     case "workspace.ensure-local":
+      // Compatibility method name: resolve/re-attach an explicit registration only.
       return parseLocalRpcServiceOutput(request.method, ensureLocalWorkspace(db, request.params));
     case "workspace.relocate":
-      return await (options.relocateSparkDaemonCockpit ?? relocateSparkDaemonCockpit)(
+      return (options.relocateSparkDaemonCockpit ?? relocateSparkDaemonCockpit)(
         paths,
         db,
         request.params,
         { onUplinkReconfigure: options.onUplinkReconfigure },
       );
-    case "workspace.transfer.pending": {
-      const transfers = options.leaseTransfers;
-      const pending = !transfers
-        ? []
-        : request.params.workspaceId
-          ? (() => {
-              const item = transfers.pendingForWorkspace(request.params.workspaceId!);
-              return item ? [item] : [];
-            })()
-          : transfers.listPending();
+    case "workspace.transfer.pending":
       return {
-        pending,
+        pending: pendingWorkspaceTransfers(options.leaseTransfers, request.params.workspaceId),
         observedAt: new Date().toISOString(),
       };
-    }
     case "workspace.transfer.respond": {
       const transfers = options.leaseTransfers;
       if (!transfers) {
@@ -244,5 +235,21 @@ export async function handleWorkspaceRequest(
       const client = ensureWorkspaceExecutorClient(db, request.params);
       return parseLocalRpcServiceOutput(request.method, workspaceClientResult(db, client));
     }
+    default:
+      return unreachableWorkspaceRequest(request);
   }
+}
+
+function unreachableWorkspaceRequest(request: never): never {
+  throw new Error(`Unsupported workspace RPC request: ${String(request)}`);
+}
+
+function pendingWorkspaceTransfers(
+  transfers: LocalRpcDispatchContext["options"]["leaseTransfers"],
+  workspaceId?: string,
+) {
+  if (!transfers) return [];
+  if (!workspaceId) return transfers.listPending();
+  const item = transfers.pendingForWorkspace(workspaceId);
+  return item ? [item] : [];
 }

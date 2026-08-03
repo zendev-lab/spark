@@ -143,6 +143,83 @@ describe("SparkSessionRegistry", () => {
     expect(await registry.list({ includeArchived: true })).toHaveLength(1);
   });
 
+  it("keeps one active reusable Session per workspace role", async () => {
+    const registry = await tempRegistry();
+    const first = await registry.create({ workspaceId: "ws_roles", role: "质量验证" });
+
+    await expect(
+      registry.create({ workspaceId: "ws_roles", role: " 质量验证 " }),
+    ).rejects.toMatchObject({
+      code: "session_role_conflict",
+      message: expect.stringContaining(first.sessionId),
+    } satisfies Partial<SparkSessionRegistryError>);
+
+    const unassigned = await registry.create({ workspaceId: "ws_roles" });
+    await expect(registry.setRoleIfMissing(unassigned.sessionId, "质量验证")).rejects.toMatchObject(
+      {
+        code: "session_role_conflict",
+        message: expect.stringContaining(first.sessionId),
+      } satisfies Partial<SparkSessionRegistryError>,
+    );
+
+    await expect(
+      registry.create({ workspaceId: "ws_other", role: "质量验证" }),
+    ).resolves.toMatchObject({ scope: { kind: "workspace", workspaceId: "ws_other" } });
+
+    await registry.archive(first.sessionId);
+    await expect(
+      registry.create({ workspaceId: "ws_roles", role: "质量验证" }),
+    ).resolves.toMatchObject({ role: "质量验证" });
+  });
+
+  it("persists searchable archive tags and preserves them after restore", async () => {
+    const registry = await tempRegistry();
+    const created = await registry.create({
+      workspaceId: "ws_history",
+      role: "Quality Verification",
+      now: new Date("2026-07-01T00:00:00.000Z"),
+    });
+    const archived = await registry.archive({
+      sessionId: created.sessionId,
+      source: "retention",
+      reason: "inactive unassigned session exceeded 30 days",
+      tags: ["policy:inactive-unassigned-30d", "cohort:2026-q3"],
+      now: new Date("2026-08-15T00:00:00.000Z"),
+    });
+
+    expect(archived).toMatchObject({
+      status: "archived",
+      tags: expect.arrayContaining([
+        "archive-source:retention",
+        "archived:2026-08",
+        "workspace:ws_history",
+        "role:Quality%20Verification",
+        "policy:inactive-unassigned-30d",
+      ]),
+      archiveHistory: [
+        expect.objectContaining({
+          archivedAt: "2026-08-15T00:00:00.000Z",
+          source: "retention",
+          reason: "inactive unassigned session exceeded 30 days",
+        }),
+      ],
+    });
+    await expect(
+      registry.list({ includeArchived: true, tags: ["policy:inactive-unassigned-30d"] }),
+    ).resolves.toEqual([archived]);
+    await expect(
+      registry.list({ includeArchived: true, query: "quality archive-source:retention" }),
+    ).resolves.toEqual([archived]);
+
+    const restored = await registry.restore(
+      created.sessionId,
+      new Date("2026-08-16T00:00:00.000Z"),
+    );
+    expect(restored.status).toBe("ready");
+    expect(restored.tags).toEqual(expect.arrayContaining(["lifecycle:restored", "cohort:2026-q3"]));
+    expect(restored.archiveHistory).toEqual(archived.archiveHistory);
+  });
+
   it("rejects binding conflicts and unbound resolve by default", async () => {
     const registry = await tempRegistry();
     const first = await registry.create({ workspaceId: "ws_a", title: "A" });

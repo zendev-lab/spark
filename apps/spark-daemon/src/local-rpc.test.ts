@@ -30,11 +30,9 @@ import { SparkInvocationStore } from "./store/invocations.ts";
 import { SparkChannelDeliveryStore } from "./store/channel-deliveries.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
 import {
-  ensureLocalWorkspace,
   listWorkspaces,
   registerWorkspace,
   resolveWorkspaceLocalPath,
-  WorkspacePathConflictError,
 } from "./store/workspaces.js";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import { SparkDaemonLifecycle } from "./core/lifecycle.ts";
@@ -1339,7 +1337,7 @@ describe("Spark daemon local RPC", () => {
     }
   });
 
-  it("ensures implicit local workspaces idempotently before client attach", async () => {
+  it("resolves an explicitly registered local workspace idempotently before client attach", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-"));
     const paths = resolveSparkPaths({
       app: "daemon",
@@ -1356,6 +1354,7 @@ describe("Spark daemon local RPC", () => {
     try {
       const workspacePath = join(root, "workspace");
       mkdirSync(workspacePath);
+      const registered = registerWorkspace(db, { localPath: workspacePath });
       const first = await handleLocalRpcLine(
         JSON.stringify({
           id: "ensure_local_1",
@@ -1381,7 +1380,11 @@ describe("Spark daemon local RPC", () => {
 
       expect(first).toMatchObject({
         ok: true,
-        result: { serverUrl: "", localPath: realpathSync(workspacePath), status: "available" },
+        result: {
+          id: registered.id,
+          localPath: realpathSync(workspacePath),
+          status: "available",
+        },
       });
       expect(second).toMatchObject({ ok: true, result: { id: workspaceId } });
 
@@ -1415,10 +1418,10 @@ describe("Spark daemon local RPC", () => {
     }
   });
 
-  it("preserves structured workspace conflict errors through the shared unary transport", async () => {
+  it("requires explicit workspace registration through the shared unary transport", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-client-"));
     const workspacePath = join(root, "workspace");
-    const nestedPath = join(workspacePath, "nested");
+    const unregisteredPath = join(root, "unregistered");
     const paths = resolveSparkPaths({
       app: "daemon",
       env: { HOME: root },
@@ -1430,7 +1433,9 @@ describe("Spark daemon local RPC", () => {
       },
     });
     const db = openSparkDaemonDatabase(paths);
-    mkdirSync(nestedPath, { recursive: true });
+    mkdirSync(workspacePath, { recursive: true });
+    mkdirSync(unregisteredPath, { recursive: true });
+    registerWorkspace(db, { localPath: workspacePath });
     const server = await startLocalRpcServer({
       paths,
       sparkHome: join(root, ".spark"),
@@ -1438,10 +1443,15 @@ describe("Spark daemon local RPC", () => {
     });
 
     try {
-      await requestWorkspaceEnsureLocal(paths, { localPath: workspacePath });
       await expect(
-        requestWorkspaceEnsureLocal(paths, { localPath: nestedPath }),
-      ).rejects.toBeInstanceOf(WorkspacePathConflictError);
+        requestWorkspaceEnsureLocal(paths, { localPath: workspacePath }),
+      ).resolves.toMatchObject({
+        localPath: realpathSync(workspacePath),
+      });
+      await expect(
+        requestWorkspaceEnsureLocal(paths, { localPath: unregisteredPath }),
+      ).rejects.toMatchObject({ code: "workspace_not_found" });
+      expect(listWorkspaces(db)).toHaveLength(1);
     } finally {
       await server.close();
       db.close();
@@ -2030,7 +2040,7 @@ describe("Spark daemon local RPC", () => {
     }
   });
 
-  it("owns managed session create/list/get/bind/unbind/archive behind local RPC", async () => {
+  it("owns managed session lifecycle, archive tags, search, and restore behind local RPC", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-session-"));
     const paths = resolveSparkPaths({
       app: "daemon",
@@ -2147,11 +2157,42 @@ describe("Spark daemon local RPC", () => {
       expect(unbound).toMatchObject({ ok: true, result: { bindings: [] } });
       const archived = await request("session_archive", "session.archive", {
         sessionId: "sess_a",
+        reason: "completed manual lifecycle cleanup",
+        tags: ["topic:managed-session-rpc"],
       });
-      expect(archived).toMatchObject({ ok: true, result: { status: "archived" } });
+      expect(archived).toMatchObject({
+        ok: true,
+        result: {
+          status: "archived",
+          tags: expect.arrayContaining(["archive-source:manual", "topic:managed-session-rpc"]),
+          archiveHistory: [
+            expect.objectContaining({
+              source: "manual",
+              reason: "completed manual lifecycle cleanup",
+            }),
+          ],
+        },
+      });
+      expect(
+        await request("session_search_archived", "session.list", {
+          includeArchived: true,
+          query: "managed-session-rpc cleanup",
+          tags: ["topic:managed-session-rpc"],
+        }),
+      ).toMatchObject({ ok: true, result: [{ sessionId: "sess_a", status: "archived" }] });
       expect(
         await request("session_get_archived", "session.get", { sessionId: "sess_a" }),
       ).toMatchObject({ ok: true, result: { sessionId: "sess_a", status: "archived" } });
+      expect(
+        await request("session_restore", "session.restore", { sessionId: "sess_a" }),
+      ).toMatchObject({
+        ok: true,
+        result: {
+          sessionId: "sess_a",
+          status: "ready",
+          tags: expect.arrayContaining(["topic:managed-session-rpc", "lifecycle:restored"]),
+        },
+      });
 
       const missing = await request("session_missing", "session.get", {
         sessionId: "sess_missing",
@@ -2184,7 +2225,7 @@ describe("Spark daemon local RPC", () => {
       },
     });
     const db = openSparkDaemonDatabase(paths);
-    const workspace = ensureLocalWorkspace(db, {
+    const workspace = registerWorkspace(db, {
       localPath: workspaceCwd,
       localWorkspaceKey: "scope-workspace",
     });
@@ -2470,7 +2511,7 @@ describe("Spark daemon local RPC", () => {
       { id: "qq-main", type: "qqbot" },
     ]);
     const notify = vi.fn(
-      async (workspaceId: string, input: ChannelNotifyInput): Promise<ChannelNotifyResult> => {
+      async (_workspaceId: string, input: ChannelNotifyInput): Promise<ChannelNotifyResult> => {
         if (!input.adapter || !input.recipient) throw new Error("missing delivery target");
         return {
           action: "send",

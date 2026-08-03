@@ -37,6 +37,7 @@ type SessionRequest = Extract<
       | "session.bind"
       | "session.unbind"
       | "session.archive"
+      | "session.restore"
       | "session.send"
       | "session.inbox"
       | "session.mail.read"
@@ -128,11 +129,13 @@ export async function handleSessionRequest(
     }
     case "session.bind":
     case "session.unbind":
-    case "session.archive": {
+    case "session.archive":
+    case "session.restore": {
       const kind = `${request.method}.request` as
         | "session.bind.request"
         | "session.unbind.request"
-        | "session.archive.request";
+        | "session.archive.request"
+        | "session.restore.request";
       const executed = await executeSparkDaemonSessionControl(
         sessionControlOptions(paths, db, options),
         {

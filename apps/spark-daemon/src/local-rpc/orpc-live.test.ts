@@ -19,7 +19,7 @@ import { SparkDaemonControlError } from "../control-error.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";
 import { openSparkDaemonDatabase } from "../store/schema.js";
-import { ensureLocalWorkspace } from "../store/workspaces.js";
+import { registerWorkspace } from "../store/workspaces.js";
 import { handleLocalRpcLine } from "./dispatch.ts";
 import { startLocalRpcOrpcServer } from "./orpc-server.ts";
 import { startLocalRpcServer } from "./transport.ts";
@@ -49,7 +49,7 @@ describe("local-rpc direct oRPC service", () => {
       overrides: { runtimeDir: join(dir, "r") },
     });
     const db = openSparkDaemonDatabase(paths);
-    ensureLocalWorkspace(db, { localPath: join(dir, "workspace") });
+    registerWorkspace(db, { localPath: join(dir, "workspace") });
 
     const server = await startLocalRpcOrpcServer({
       paths,

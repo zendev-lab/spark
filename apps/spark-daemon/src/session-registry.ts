@@ -12,6 +12,7 @@ import {
   defaultSparkSessionRegistryRoot,
   SparkSessionRegistry,
   SparkSessionRegistryError,
+  type ArchiveSparkSessionInput,
   type ConfigureSparkSideThreadInput,
   type CreateSparkSessionInput,
   type EnsureSparkSideThreadInput,
@@ -34,7 +35,8 @@ export interface DaemonSessionRegistry {
     externalKey: string,
     adapterAccountIdentity?: string,
   ): Promise<SparkSessionRegistryRecord>;
-  archive(sessionId: SparkSessionGetRequest["sessionId"]): Promise<SparkSessionRegistryRecord>;
+  archive(input: string | ArchiveSparkSessionInput): Promise<SparkSessionRegistryRecord>;
+  restore?(sessionId: SparkSessionGetRequest["sessionId"]): Promise<SparkSessionRegistryRecord>;
   setRoleIfMissing?(sessionId: string, role: string): Promise<SparkSessionRegistryRecord>;
   /** @deprecated Compatibility alias for older daemon collaborators. */
   setTitleIfMissing?(sessionId: string, title: string): Promise<SparkSessionRegistryRecord>;
@@ -109,7 +111,10 @@ export function createSerializedDaemonSessionRegistry(
     bind: (input) => mutate(() => registry.bind(input)),
     unbind: (sessionId, externalKey, adapterAccountIdentity) =>
       mutate(() => registry.unbind(sessionId, externalKey, adapterAccountIdentity)),
-    archive: (sessionId) => mutate(() => registry.archive(sessionId)),
+    archive: (input) => mutate(() => registry.archive(input)),
+    ...(registry.restore
+      ? { restore: (sessionId: string) => mutate(() => registry.restore!(sessionId)) }
+      : {}),
     ...(registry.setRoleIfMissing
       ? {
           setRoleIfMissing: (sessionId: string, role: string) =>
@@ -151,7 +156,8 @@ export function createDaemonSessionRegistry(
     bind: async (input) => await registry.bind(input),
     unbind: async (sessionId, externalKey, adapterAccountIdentity) =>
       await registry.unbind(sessionId, externalKey, adapterAccountIdentity),
-    archive: async (sessionId) => await registry.archive(sessionId),
+    archive: async (input) => await registry.archive(input),
+    restore: async (sessionId) => await registry.restore(sessionId),
     setRoleIfMissing: async (sessionId, role) => await registry.setRoleIfMissing(sessionId, role),
     setTitleIfMissing: async (sessionId, title) =>
       await registry.setTitleIfMissing(sessionId, title),
@@ -255,6 +261,8 @@ function resolveListRequest(
 ): {
   includeArchived?: boolean;
   includeSideThreads?: boolean;
+  query?: string;
+  tags?: string[];
   scope?: SparkSessionScope;
   workspaceId?: string;
 } {
@@ -265,6 +273,8 @@ function resolveListRequest(
       ...(input.includeSideThreads !== undefined
         ? { includeSideThreads: input.includeSideThreads }
         : {}),
+      ...(input.query ? { query: input.query } : {}),
+      ...(input.tags?.length ? { tags: input.tags } : {}),
       scope: input.scope,
     };
   }
@@ -280,6 +290,8 @@ function resolveListRequest(
     ...(input.includeSideThreads !== undefined
       ? { includeSideThreads: input.includeSideThreads }
       : {}),
+    ...(input.query ? { query: input.query } : {}),
+    ...(input.tags?.length ? { tags: input.tags } : {}),
     scope: { kind: "daemon", daemonId },
   };
 }
