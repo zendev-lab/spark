@@ -193,6 +193,7 @@ export function registerSparkReproTool(
       ctx: SparkToolContext,
     ) {
       const cwd = ctx.cwd;
+      const stateCwd = sparkStateCwd(cwd, ctx);
       const action = normalizeReproAction(params.action);
 
       if (action === "status") {
@@ -317,7 +318,7 @@ export function registerSparkReproTool(
         }
         const verifier =
           input.status === "done"
-            ? await verifyReproStepEvidence(cwd, repro, currentStep, input.evidenceRefs ?? [])
+            ? await verifyReproStepEvidence(stateCwd, repro, currentStep, input.evidenceRefs ?? [])
             : undefined;
         if (input.status === "done" && verifier?.verdict !== "Pass") {
           return {
@@ -342,7 +343,7 @@ export function registerSparkReproTool(
           };
         }
         const step = updated.plan.steps.find((candidate) => candidate.id === stepId)!;
-        await validateReproStepEvidence(cwd, step);
+        await validateReproStepEvidence(stateCwd, step);
         await writeSessionRepro(cwd, updated, ctx);
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
@@ -367,7 +368,7 @@ export function registerSparkReproTool(
           action === "record"
             ? normalizeReproProof(params.proof)
             : legacyEvidenceProof(params.evidenceRef);
-        const proof = await validateReproProofEvidence(cwd, unverifiedProof);
+        const proof = await validateReproProofEvidence(stateCwd, unverifiedProof);
         const updated = recordReproRequirementProof(repro, requirementId, proof);
         if (!updated) {
           return {

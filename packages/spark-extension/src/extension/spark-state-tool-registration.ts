@@ -12,6 +12,7 @@ import {
   sanitizeStoreScope,
   sparkSessionKey,
   sparkSessionOwnerKey,
+  sparkStateCwd,
   type SparkSessionContext,
 } from "./session-state.ts";
 import {
@@ -161,6 +162,7 @@ export function registerSparkStateTool(
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = ctx.cwd;
+      const stateCwd = sparkStateCwd(cwd, ctx);
       const action = normalizeSparkStateAction((params as { action?: unknown }).action);
       const dryRun = normalizeEvidenceBoolean(
         (params as { dryRun?: unknown }).dryRun,
@@ -206,9 +208,9 @@ export function registerSparkStateTool(
         false,
         "includeBroken",
       );
-      await deps.ensureSparkStateForActiveWorkspace(cwd, ctx);
+      await deps.ensureSparkStateForActiveWorkspace(stateCwd, ctx);
       if (action === "store_v2_migrate") {
-        const migration = await migrateStoreV2(cwd, ctx, { dryRun });
+        const migration = await migrateStoreV2(stateCwd, ctx, { dryRun });
         const lines = [`Spark store V2 migration ${dryRun ? "dry-run" : "apply"}:`];
         lines.push(`Actions: ${migration.actions.length}`);
         if (migration.backupDir) lines.push(`Backup: ${migration.backupDir}`);
@@ -234,7 +236,7 @@ export function registerSparkStateTool(
         };
       if (action === "state_status") {
         const summary = await collectSparkStateHousekeeping(
-          cwd,
+          stateCwd,
           sparkStateSessionScopes(ctx),
           graph,
         );
@@ -246,7 +248,7 @@ export function registerSparkStateTool(
         };
       }
       if (action === "state_doctor") {
-        const diagnostics = await collectSparkStateDiagnostics(cwd, graph);
+        const diagnostics = await collectSparkStateDiagnostics(stateCwd, graph);
         const lines = ["Spark state diagnostics (read-only):"];
         appendSparkStateDiagnosticsLines(lines, diagnostics);
         return {
@@ -255,7 +257,7 @@ export function registerSparkStateTool(
         };
       }
       if (action === "workflow_run_prune") {
-        const runStore = defaultSparkWorkflowRunStore(cwd);
+        const runStore = defaultSparkWorkflowRunStore(stateCwd);
         const prune = await runStore.pruneRuns({
           dryRun,
           olderThanDays,
@@ -271,7 +273,7 @@ export function registerSparkStateTool(
         };
       }
       if (action === "role_run_evidence_compact") {
-        const retention = await collectRoleRunEvidenceRetentionPlan(cwd, {
+        const retention = await collectRoleRunEvidenceRetentionPlan(stateCwd, {
           dryRun,
           thresholdBytes,
           tailBytes,
@@ -286,14 +288,15 @@ export function registerSparkStateTool(
           details: { found: true, action, retention },
         };
       }
-      const plan = await collectSparkStateCleanupPlan(cwd, sparkStateSessionScopes(ctx), graph, {
-        dryRun,
-        olderThanDays,
-        includeBroken,
-      });
+      const plan = await collectSparkStateCleanupPlan(
+        stateCwd,
+        sparkStateSessionScopes(ctx),
+        graph,
+        { dryRun, olderThanDays, includeBroken },
+      );
       if (!dryRun) {
         for (const candidate of plan.candidates)
-          await rm(join(cwd, candidate.path), { force: true });
+          await rm(join(stateCwd, candidate.path), { force: true });
         plan.deleted = [...plan.candidates];
       }
       const lines: string[] = [];

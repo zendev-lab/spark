@@ -161,8 +161,23 @@ export async function getClient(
   owner: CueClientOwner,
 ): Promise<CueClient> {
   if (ctx?.cueClient) return ctx.cueClient;
-  const transport = await resolveCueTransport();
-  const session = cueSessionOptionsFromContext(ctx);
+  const transport = ctx?.cueResolvedTransport ?? (await resolveCueTransport());
+  const sessionContext =
+    transport.transport === "ssh"
+      ? (() => {
+          const remoteCwd =
+            ctx?.cueRemoteCwd?.trim() ||
+            ctx?.env?.SPARK_CUE_REMOTE_CWD?.trim() ||
+            process.env.SPARK_CUE_REMOTE_CWD?.trim();
+          if (!remoteCwd) {
+            throw new Error(
+              `cue profile \`${transport.profile_name}\` uses SSH; provide an explicit remote cwd instead of reusing the local session cwd.`,
+            );
+          }
+          return { ...ctx, cwd: remoteCwd };
+        })()
+      : ctx;
+  const session = cueSessionOptionsFromContext(sessionContext);
   const key = `${cueTransportKey(transport)}|session:${session.sessionId}`;
   let entry = clientRegistry.get(key);
   if (entry?.client?.isClosed) {

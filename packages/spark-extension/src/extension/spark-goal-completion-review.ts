@@ -2,6 +2,7 @@ import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   nowIso,
+  sparkStateCwd,
   type EvidenceRef,
   type JsonValue,
   type ProjectRef,
@@ -78,6 +79,7 @@ export async function requestGoalCompletionReview(
     unresolved?: string[];
   },
 ): Promise<GoalCompletionReviewOutcome> {
+  const stateCwd = sparkStateCwd(ctx.cwd, ctx);
   const reviewContext = await goalReviewContext(ctx, active);
   const evidenceRefs = [
     ...new Set([
@@ -89,7 +91,7 @@ export async function requestGoalCompletionReview(
     evidenceRefs.length === reviewContext.evidenceRefs.length &&
     evidenceRefs.every((ref, index) => ref === reviewContext.evidenceRefs[index])
       ? reviewContext.evidencePreviews
-      : await goalReviewEvidencePreviews(ctx.cwd, evidenceRefs);
+      : await goalReviewEvidencePreviews(stateCwd, evidenceRefs);
   const explicitRequirements = (options.requirements?.length ?? 0) > 0;
   const unfinishedProjectTasks = reviewContext.projectStatus?.unfinishedTasks ?? [];
   const unfinishedProjectCount =
@@ -229,7 +231,7 @@ export async function requestGoalCompletionReview(
   }
   const review = leasedReview.result;
   const verdict = review.verdict as GoalReviewVerdict;
-  const evidence = await recordGoalReviewEvidence(ctx.cwd, active, review, reviewInput);
+  const evidence = await recordGoalReviewEvidence(stateCwd, active, review, reviewInput);
   const reviewedAt = review.record.finishedAt || nowIso();
   const postReviewBlocker = goalCompletionDeterministicBlocker(
     active.goal.objective,
@@ -369,10 +371,11 @@ async function goalReviewContext(
   evidenceRefs: EvidenceRef[];
   evidencePreviews: GoalReviewEvidencePreview[];
 }> {
+  const stateCwd = sparkStateCwd(ctx.cwd, ctx);
   const project = goalReviewEvidenceProject(active);
   const evidenceRefs =
     project && active.graph
-      ? await projectGoalEvidenceRefs(ctx.cwd, active.graph, project.ref)
+      ? await projectGoalEvidenceRefs(stateCwd, active.graph, project.ref)
       : [];
   return {
     projectRef: project?.ref,
@@ -381,7 +384,7 @@ async function goalReviewContext(
     projectStatus:
       project && active.graph ? projectGoalReviewStatus(active.graph, project) : undefined,
     evidenceRefs,
-    evidencePreviews: await goalReviewEvidencePreviews(ctx.cwd, evidenceRefs),
+    evidencePreviews: await goalReviewEvidencePreviews(stateCwd, evidenceRefs),
   };
 }
 

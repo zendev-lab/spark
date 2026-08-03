@@ -104,6 +104,8 @@ export function createSessionFormEnhancers(deps: FormEnhancerDeps): {
     }
     const context = deps.startConversationContext({
       workspaceId: formString(formData, "workspaceId") || deps.getActiveWorkspaceId(),
+      cwd: formString(formData, "cwd"),
+      cwdArtifactRef: formString(formData, "cwdArtifactRef"),
       message: formString(formData, "message"),
       model: formString(formData, "model"),
       thinkingLevel: formString(formData, "thinkingLevel"),

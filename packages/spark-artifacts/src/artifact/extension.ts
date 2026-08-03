@@ -1,9 +1,10 @@
 import { Type } from "typebox";
-import type {
-  SparkHostAPI,
-  SparkHostContext,
-  ToolConfig,
-  ToolRenderComponent,
+import {
+  sparkStateCwd,
+  type SparkHostAPI,
+  type SparkHostContext,
+  type ToolConfig,
+  type ToolRenderComponent,
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import {
@@ -97,7 +98,7 @@ export function registerArtifactTool(pi: PiArtifactsExtensionApi): void {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = requireCwd(ctx, "artifact");
-      const store = defaultArtifactStore(cwd);
+      const store = defaultArtifactStore(sparkStateCwd(cwd, ctx));
       const action = normalizeAction(params.action);
 
       if (action === "list") {

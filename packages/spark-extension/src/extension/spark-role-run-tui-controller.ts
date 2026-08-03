@@ -3,7 +3,7 @@ import type { ProjectRef, TaskRef } from "@zendev-lab/spark-core";
 import { activeSparkRoleRunProcessesForCwd } from "./background-runs.ts";
 import { loadRoleRunActivityEvents } from "./role-run-activity-events.ts";
 import { ensureLocalSparkDirectory } from "./spark-activation.ts";
-import { currentSparkProject, loadSparkGraph } from "./session-state.ts";
+import { currentSparkProject, loadSparkGraph, sparkStateCwd } from "./session-state.ts";
 import {
   buildSparkRoleRunRegistry,
   serializeSparkRoleRunRegistry,
@@ -57,7 +57,8 @@ export class SparkRoleRunTuiController {
   }
 
   async refresh(cwd: string, ctx?: SparkToolContext): Promise<void> {
-    await ensureLocalSparkDirectory(cwd);
+    const stateCwd = sparkStateCwd(cwd, ctx);
+    await ensureLocalSparkDirectory(stateCwd);
     const graph = await loadSparkGraph(cwd, ctx);
     const project = graph ? await currentSparkProject(cwd, ctx, graph) : undefined;
     if (!graph || !project) {
@@ -69,7 +70,7 @@ export class SparkRoleRunTuiController {
       graph,
       projectRef: project.ref,
       activeProcesses: activeSparkRoleRunProcessesForCwd(cwd),
-      activityEvents: await loadRoleRunActivityEvents(cwd),
+      activityEvents: await loadRoleRunActivityEvents(stateCwd),
     });
     const taskInfoByRef: SparkRoleRunTaskInfoByRef = Object.fromEntries(
       graph.tasks(project.ref).map((task) => [task.ref, { name: task.name, title: task.title }]),

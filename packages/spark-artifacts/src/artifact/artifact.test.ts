@@ -335,6 +335,32 @@ describe("artifact kinds", () => {
     expect(summaries[0]).not.toHaveProperty("projection");
   });
 
+  it("keeps Artifact state in the owning workspace while executing from another cwd", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "spark-artifact-state-owner-"));
+    const executionCwd = join(workspace, "worktree", "packages", "app");
+    await mkdir(executionCwd, { recursive: true });
+    let tool: ToolConfig | undefined;
+    registerArtifactTool({ registerTool: (config) => (tool = config) });
+    if (!tool) throw new Error("artifact tool was not registered");
+
+    await tool.execute(
+      "workspace-owned-artifact",
+      {
+        action: "create",
+        kind: "document",
+        title: "Workspace owned",
+        format: "md",
+        content: "# State owner",
+      },
+      new AbortController().signal,
+      () => undefined,
+      { cwd: executionCwd, sparkStateRoot: join(workspace, ".spark") },
+    );
+
+    expect(await defaultArtifactStore(workspace).list()).toHaveLength(1);
+    expect(await defaultArtifactStore(executionCwd).list()).toHaveLength(0);
+  });
+
   it("parses forge issue and PR URLs", () => {
     expect(parseForgeUrl("https://github.com/acme/app/issues/12")).toEqual({
       forge: "github",

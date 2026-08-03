@@ -1,6 +1,6 @@
-import { basename, dirname, join } from "node:path";
+import { sparkStateCwd, sparkStateRootPath, stableId } from "@zendev-lab/spark-core";
 
-import { stableId } from "@zendev-lab/spark-core";
+export { sparkStateCwd, sparkStateRootPath } from "@zendev-lab/spark-core";
 
 export interface SparkSessionContext {
   cwd?: string;
@@ -45,15 +45,6 @@ export function sparkSessionKey(ctx?: SparkSessionContext): string {
 
 export function sparkSessionOwnerKey(ctx?: SparkSessionContext): string {
   return sparkSessionKey(ctx);
-}
-
-export function sparkStateRootPath(cwd: string, ctx?: SparkSessionContext): string {
-  return ctx?.sparkStateRoot?.trim() || join(cwd, ".spark");
-}
-
-export function sparkStateCwd(cwd: string, ctx?: SparkSessionContext): string {
-  const root = sparkStateRootPath(cwd, ctx);
-  return basename(root) === ".spark" ? dirname(root) : cwd;
 }
 
 export function sanitizeStoreScope(scope: string): string {

@@ -16,6 +16,7 @@ import type { SparkDaemonLeaseTransferBroker } from "../core/lease-transfer.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";
 import type { SessionNotificationDeliveryQueue } from "../session-notification-delivery.ts";
 import { createDaemonSessionRegistry, type DaemonSessionRegistry } from "../session-registry.ts";
+import { resolveSessionCwdForWorkspaceId } from "../session-cwd.ts";
 import { SparkChannelDeliveryStore } from "../store/channel-deliveries.ts";
 import { resolveWorkspaceLocalPath } from "../store/workspaces.js";
 import { handleLocalRpcLine } from "./dispatch.ts";
@@ -83,6 +84,7 @@ export async function startLocalRpcServer(options: {
     createDaemonSessionRegistry(options.sparkHome, {
       daemonId: config.installationId,
       resolveWorkspaceCwd: (workspaceId) => resolveWorkspaceLocalPath(options.db, workspaceId),
+      resolveSessionCwd: (input) => resolveSessionCwdForWorkspaceId(options.db, input),
     });
   const mailStore =
     options.mailStore ?? new SparkSessionMailStore({ sparkHome: options.sparkHome });

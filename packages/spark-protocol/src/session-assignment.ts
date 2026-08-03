@@ -102,6 +102,11 @@ const sparkSessionRegistryRecordBaseSchema = z.object({
   /** Canonical long-lived division of labour; concrete tasks do not belong here. */
   role: z.string().min(1).optional(),
   cwd: z.string().min(1).optional(),
+  /** GitChange root that authorized a cwd outside the owning workspace tree. */
+  cwdArtifactRef: z
+    .string()
+    .regex(/^artifact:.+/u)
+    .optional(),
   sessionPath: z.string().min(1).optional(),
   model: sparkModelRefSchema.optional(),
   thinkingLevel: sparkThinkingLevelSchema.optional(),
@@ -154,6 +159,12 @@ const sparkSessionCreateRequestBaseSchema = z.object({
   /** Stable division of labour chosen at creation for non-user sessions. */
   role: z.string().trim().min(1).optional(),
   cwd: z.string().trim().min(1).optional(),
+  /** Optional GitChange root for relative cwd resolution and ownership validation. */
+  cwdArtifactRef: z
+    .string()
+    .trim()
+    .regex(/^artifact:.+/u)
+    .optional(),
   sessionPath: z.string().trim().min(1).optional(),
   status: sparkSessionStatusSchema.optional(),
   /** Internal Task scheduler binding; the daemon authors relation.kind=task_execution. */

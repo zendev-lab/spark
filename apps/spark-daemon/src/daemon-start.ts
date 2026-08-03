@@ -53,6 +53,7 @@ import {
 } from "./core/index.ts";
 import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
+import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
 import { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
 import { recoverInterruptedRuntimeCommandReceipts } from "./runtime-command-receipts.ts";
 import {
@@ -819,6 +820,8 @@ function createDaemonScheduler(input: {
       createChannelAwareTaskExecutor({
         paths: options.paths,
         cwd: process.cwd(),
+        resolveWorkspaceCwd: (workspaceId) => resolveWorkspaceLocalPath(options.db, workspaceId),
+        resolveSessionCwd: (request) => resolveSessionCwdForWorkspaceId(options.db, request),
         controlSparkHome: input.controlSparkHome,
         channelsSparkHome: input.channelsSparkHome,
         ...(options.modelControl ? { modelControl: options.modelControl } : {}),

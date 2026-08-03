@@ -64,6 +64,7 @@ describe("SparkCommand vocabulary", () => {
       "uplink.prefer",
       "uplink.status",
       "workspace.ensure-local",
+      "workspace.resolve-session-cwd",
       "workspace.attach",
       "workspace.stop",
       "workspace.lifecycle",

@@ -7,7 +7,7 @@ import {
   type SessionTodoEntry,
   type TaskTodoOp,
 } from "@zendev-lab/spark-tasks";
-import { currentSparkProject, sparkSessionKey } from "./session-state.ts";
+import { currentSparkProject, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
 import { loadIndependentTodos, saveIndependentTodos } from "./session-todos.ts";
 import { NO_SPARK_PROJECT_FOUND_HINT } from "./spark-project-guidance.ts";
 import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
@@ -137,7 +137,7 @@ export function registerSparkTodoTools(
           content: [{ type: "text", text: "plan item ops are required." }],
           details: { found: true, error: "missing_ops" },
         };
-      const store = defaultTaskGraphStore(cwd);
+      const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
       const updated = await store.update(
         async (graph) => {
           const project = await currentSparkProject(cwd, ctx, graph);

@@ -86,6 +86,7 @@
     ModelControlState,
     SessionActivity,
     SessionRecord,
+    SessionCwdRootOption,
     WorkspaceOption,
   } from "$lib/sessions-workspace/types";
 
@@ -100,6 +101,7 @@
   type Props = {
     sessions: SessionRecord[];
     workspaces: WorkspaceOption[];
+    cwdRoots?: SessionCwdRootOption[];
     selectedSessionId: string | null;
     startSubmissionIdSeed?: string;
     sendSubmissionIdSeed?: string;
@@ -123,6 +125,7 @@
   let {
     sessions,
     workspaces,
+    cwdRoots = [],
     selectedSessionId,
     startSubmissionIdSeed = "",
     sendSubmissionIdSeed = "",
@@ -722,11 +725,14 @@
         {messages}
         {copy}
         {activeWorkspace}
+        {cwdRoots}
         {canAssign}
         startState={composer.startState}
         startFeedback={composer.startFeedback}
         bind:startMessage={composer.startMessage}
         startSubmissionId={composer.startSubmissionId}
+        bind:startCwd={composer.startCwd}
+        bind:startCwdArtifactRef={composer.startCwdArtifactRef}
         bind:startModel={composer.startModel}
         bind:startThinkingLevel={composer.startThinkingLevel}
         {startModelReady}

@@ -7,7 +7,12 @@ import {
   runSparkTask,
 } from "@zendev-lab/spark-runtime";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
-import { loadSparkGraph, saveSparkGraphAndTodos, sparkSessionOwnerKey } from "./session-state.ts";
+import {
+  loadSparkGraph,
+  saveSparkGraphAndTodos,
+  sparkSessionOwnerKey,
+  sparkStateCwd,
+} from "./session-state.ts";
 import { createSparkRoleRegistry } from "./spark-role-registry.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 import { mergeTaskProgressIntoStore } from "./task-progress-store.ts";
@@ -23,7 +28,8 @@ export async function cleanupOwnedBackgroundSubroles(
   reason: string,
   options: Pick<SparkBackgroundSubroleLifecycleOptions, "refreshSparkWidget"> = {},
 ): Promise<number> {
-  const store = defaultTaskGraphStore(cwd);
+  const stateCwd = sparkStateCwd(cwd, ctx);
+  const store = defaultTaskGraphStore(stateCwd);
   const graph = await loadSparkGraph(cwd, ctx);
   if (!graph) return 0;
   const ownerSessionId = sparkSessionOwnerKey(ctx);
@@ -77,14 +83,15 @@ export async function resumeOwnedBackgroundSubroles(
   ctx: SparkToolContext,
   options: Pick<SparkBackgroundSubroleLifecycleOptions, "runTask"> = {},
 ): Promise<number> {
-  const store = defaultTaskGraphStore(cwd);
+  const stateCwd = sparkStateCwd(cwd, ctx);
+  const store = defaultTaskGraphStore(stateCwd);
   const graph = await loadSparkGraph(cwd, ctx);
   if (!graph) return 0;
   const ownerSessionId = sparkSessionOwnerKey(ctx);
   const resumable = findResumableBackgroundRoleRunTasks(graph, ownerSessionId);
   if (resumable.length === 0) return 0;
-  const registry = await createSparkRoleRegistry(cwd);
-  const evidenceStore = defaultEvidenceStore(cwd);
+  const registry = await createSparkRoleRegistry(stateCwd);
+  const evidenceStore = defaultEvidenceStore(stateCwd);
   let resumed = 0;
   for (const task of resumable) {
     const runName = task.claim?.runName;

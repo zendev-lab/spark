@@ -38,7 +38,7 @@ import { deriveTaskRoleLabel, isClaimOwnedBySession, taskClaimedBy } from "./tas
 export type { SparkWidgetControllerContext };
 
 const piExtensionWidgetControllerDeps: SparkWidgetControllerDeps = {
-  ensureLocalSparkDirectory,
+  ensureLocalSparkDirectory: (cwd, ctx) => ensureLocalSparkDirectory(sparkStateCwd(cwd, ctx)),
   defaultTaskGraphStore: (cwd, ctx) => defaultTaskGraphStore(sparkStateCwd(cwd, ctx)),
   loadSparkGraph: (cwd, ctx) => loadSparkGraph(cwd, ctx),
   ensureSparkGraphInvariants,
@@ -47,10 +47,10 @@ const piExtensionWidgetControllerDeps: SparkWidgetControllerDeps = {
   sparkSessionKey: (ctx) => sparkSessionKey(ctx),
   sparkSessionOwnerKey: (ctx) => sparkSessionOwnerKey(ctx),
   activeSparkRoleRunProcessesForCwd,
-  defaultSparkWorkflowRunStore: (cwd) => defaultSparkWorkflowRunStore(cwd),
-  listDynamicWorkflowRuns: async (cwd) =>
+  defaultSparkWorkflowRunStore: (cwd, ctx) => defaultSparkWorkflowRunStore(sparkStateCwd(cwd, ctx)),
+  listDynamicWorkflowRuns: async (cwd, ctx) =>
     projectSparkDynamicWorkflowRuns({
-      runs: await defaultSparkDynamicWorkflowEventStore(cwd).listRuns(),
+      runs: await defaultSparkDynamicWorkflowEventStore(sparkStateCwd(cwd, ctx)).listRuns(),
       includeHistory: false,
     }),
   loadTodoDisplayNumberState: (cwd, ctx) => loadTodoDisplayNumberState(cwd, ctx),

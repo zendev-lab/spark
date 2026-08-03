@@ -7,6 +7,7 @@ import {
   sanitizeStoreScope,
   sessionTodoDisplayNumberStorePath,
   sparkSessionKey,
+  sparkStateRootPath,
   type SparkSessionContext,
 } from "@zendev-lab/spark-loop";
 import {
@@ -18,7 +19,11 @@ import {
 import { JsonStoreFormatError, readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 
 function independentTodoStorePath(cwd: string, ctx: SparkSessionContext | undefined): string {
-  return join(cwd, ".spark", "session-todos", `${sanitizeStoreScope(sparkSessionKey(ctx))}.json`);
+  return join(
+    sparkStateRootPath(cwd, ctx),
+    "session-todos",
+    `${sanitizeStoreScope(sparkSessionKey(ctx))}.json`,
+  );
 }
 
 interface TodoDisplayNumberState {

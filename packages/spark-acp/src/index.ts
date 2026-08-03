@@ -41,10 +41,15 @@ export interface SparkAcpSessionRecord {
 }
 
 export interface SparkAcpDaemon {
-  ensureWorkspace(input: { cwd: string }): Promise<{ id: string }>;
+  resolveWorkspace(input: { cwd: string }): Promise<{
+    id: string;
+    cwd: string;
+    cwdArtifactRef?: string;
+  }>;
   createSession(input: {
     cwd: string;
     workspaceId: string;
+    cwdArtifactRef?: string;
     title?: string;
   }): Promise<{ sessionId: string; createdAt: string }>;
   submitTurn(input: {
@@ -105,15 +110,16 @@ export function createSparkAcpAgent(options: SparkAcpAgentOptions = {}): SparkAc
       const cwd =
         typeof ctx.params.cwd === "string" && ctx.params.cwd.trim() ? ctx.params.cwd : defaultCwd;
       const control = await daemon();
-      const workspace = await control.ensureWorkspace({ cwd });
+      const workspace = await control.resolveWorkspace({ cwd });
       const created = await control.createSession({
-        cwd,
+        cwd: workspace.cwd,
         workspaceId: workspace.id,
+        ...(workspace.cwdArtifactRef ? { cwdArtifactRef: workspace.cwdArtifactRef } : {}),
         title: "ACP session",
       });
       const record: SparkAcpSessionRecord = {
         sparkSessionId: created.sessionId,
-        cwd,
+        cwd: workspace.cwd,
         createdAt: created.createdAt,
         activeInvocationId: undefined,
         cursor: 0,
@@ -427,16 +433,27 @@ function orpcDaemon(handle: SparkDaemonOrpcClientHandle): SparkAcpDaemon {
   const invoke = (method: Parameters<typeof invokeSparkDaemonOrpcLiveMethod>[1], params: unknown) =>
     invokeSparkDaemonOrpcLiveMethod(handle.client, method, params);
   return {
-    async ensureWorkspace(input) {
-      const workspace = await invoke("workspace.ensure-local", { localPath: input.cwd });
+    async resolveWorkspace(input) {
+      const resolution = await invoke("workspace.resolve-session-cwd", { cwd: input.cwd });
+      if (!resolution || typeof resolution !== "object" || Array.isArray(resolution)) {
+        throw new Error("Spark daemon returned an invalid workspace.resolve-session-cwd result");
+      }
+      const record = resolution as Record<string, unknown>;
+      const workspace = record.workspace;
+      const resolvedCwd = record.cwd;
       if (!workspace || typeof workspace !== "object" || Array.isArray(workspace)) {
-        throw new Error("Spark daemon returned an invalid workspace.ensure-local result");
+        throw new Error("Spark daemon returned an invalid workspace.resolve-session-cwd result");
       }
       const id = (workspace as Record<string, unknown>).id;
-      if (typeof id !== "string" || !id.trim()) {
-        throw new Error("Spark daemon returned an invalid workspace.ensure-local result");
+      if (typeof id !== "string" || !id.trim() || typeof resolvedCwd !== "string") {
+        throw new Error("Spark daemon returned an invalid workspace.resolve-session-cwd result");
       }
-      return { id: id.trim() };
+      const cwdArtifactRef = record.cwdArtifactRef;
+      return {
+        id: id.trim(),
+        cwd: resolvedCwd,
+        ...(typeof cwdArtifactRef === "string" ? { cwdArtifactRef } : {}),
+      };
     },
     async createSession(input) {
       const session = parseSparkSessionRegistryRecord(
@@ -444,6 +461,7 @@ function orpcDaemon(handle: SparkDaemonOrpcClientHandle): SparkAcpDaemon {
           scope: { kind: "workspace", workspaceId: input.workspaceId },
           workspaceId: input.workspaceId,
           cwd: input.cwd,
+          ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
           title: input.title,
         }),
       );

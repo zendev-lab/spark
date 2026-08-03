@@ -50,6 +50,12 @@ function proxyFileTool(config: ToolConfig): ToolConfig {
           operationId: `file:${config.name}:${toolCallId}`,
           tool: config.name as "read" | "write" | "edit" | "grep" | "find",
           params: toJsonObject(params),
+          hostContext: {
+            ...(ctx.workspaceId === undefined ? {} : { workspaceId: ctx.workspaceId }),
+            ...(ctx.sessionSource === undefined ? {} : { sessionSource: ctx.sessionSource }),
+            ...(ctx.sessionSurface === undefined ? {} : { sessionSurface: ctx.sessionSurface }),
+            ...(ctx.hasUI === undefined ? {} : { hasUI: ctx.hasUI }),
+          },
         },
         { cwd, signal },
       );

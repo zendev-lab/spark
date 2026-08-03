@@ -91,6 +91,9 @@ export interface SparkHeadlessRoleInstructionResult {
 
 export interface SparkHeadlessSessionRunInput {
   cwd: string;
+  workspaceId?: string;
+  /** Trusted workspace-owned state root; execution cwd may be a subdir/worktree. */
+  sparkStateRoot?: string;
   sessionId: string;
   /** Daemon-authoritative native transcript path for this session generation. */
   sessionPath?: string;
@@ -181,11 +184,12 @@ export async function runSparkHeadlessSession(
   const createServices = options.createServices;
   const services = await createServices({
     cwd: input.cwd,
+    workspaceId: input.workspaceId,
+    sparkStateRoot: input.sparkStateRoot,
     sparkHome: options.sparkHome ?? input.sparkHome,
     ...controlPlaneServicePaths(options.controlSparkHome),
-    // Keep workspace business state under cwd/.spark so TUI slash commands and
-    // daemon-owned tool turns share projects/goals/phases. controlSparkHome only
-    // supplies shared config/auth paths via controlPlaneServicePaths.
+    // Workspace business state stays under sparkStateRoot even when cwd points
+    // at a workspace subdirectory or an attached GitChange worktree.
     sessionSurface: input.sessionSurface,
     sessionSource: input.sessionSource,
     sessionLease: input.sessionLease,

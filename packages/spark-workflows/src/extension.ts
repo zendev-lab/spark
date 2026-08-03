@@ -1,5 +1,10 @@
 import { Type } from "typebox";
-import type { ToolConfig, ToolRenderComponent, ToolRenderTheme } from "@zendev-lab/spark-core";
+import {
+  sparkStateCwd,
+  type ToolConfig,
+  type ToolRenderComponent,
+  type ToolRenderTheme,
+} from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import { listSavedWorkflows, readSavedWorkflow, type WorkflowDescriptor } from "./index.ts";
 
@@ -49,7 +54,7 @@ export function registerSparkWorkflowTool(pi: SparkWorkflowHostApi): void {
       return renderWorkflowCall(args, theme);
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const cwd = requiredCwd(ctx);
+      const cwd = sparkStateCwd(requiredCwd(ctx), ctx);
       const action = normalizeWorkflowAction(params.action);
       const includeUser = normalizeBoolean(params.includeUser, true, "includeUser");
       if (action === "list") {

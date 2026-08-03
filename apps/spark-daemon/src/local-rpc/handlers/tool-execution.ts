@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { registerArtifactTool, registerGitLifecycleTool } from "@zendev-lab/spark-artifacts";
 import type { ToolConfig } from "@zendev-lab/spark-core";
 import {
@@ -8,6 +9,9 @@ import {
   createWriteToolConfig,
 } from "@zendev-lab/spark-files";
 import { executeDaemonLensTool } from "../../lens/tool.ts";
+import { SparkDaemonControlError } from "../../control-error.ts";
+import { resolveSessionCwdForWorkspaceId, SessionCwdResolutionError } from "../../session-cwd.ts";
+import { resolveWorkspaceLocalPath } from "../../store/workspaces.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
 import type { LocalRpcServiceOutput, LocalRpcServiceRequest } from "../types.ts";
 
@@ -81,8 +85,32 @@ async function executeToolRequest(
   context: LocalRpcDispatchContext,
   request: ToolExecutionRequest,
 ): Promise<LocalRpcServiceOutput<ToolExecutionRequest>> {
+  const workspaceId = request.params.hostContext?.workspaceId;
+  let cwd = request.params.cwd;
+  let sparkStateRoot: string | undefined;
+  let stateCwd = cwd;
+  if (workspaceId) {
+    try {
+      const resolved = await resolveSessionCwdForWorkspaceId(context.db, {
+        workspaceId,
+        cwd,
+      });
+      cwd = resolved.cwd;
+      const workspaceRoot = resolveWorkspaceLocalPath(context.db, workspaceId);
+      if (!workspaceRoot) {
+        throw new SessionCwdResolutionError(`Workspace ${workspaceId} is unavailable.`);
+      }
+      sparkStateRoot = join(workspaceRoot, ".spark");
+      stateCwd = workspaceRoot;
+    } catch (error) {
+      if (error instanceof SessionCwdResolutionError) {
+        throw new SparkDaemonControlError("workspace_cwd_invalid", error.message);
+      }
+      throw error;
+    }
+  }
   if (request.method === "lens.execute") {
-    return await executeDaemonLensTool(request, context.db);
+    return await executeDaemonLensTool(request, context.db, cwd, stateCwd);
   }
   const config =
     request.method === "file.execute"
@@ -100,7 +128,9 @@ async function executeToolRequest(
     new AbortController().signal,
     () => {},
     {
-      cwd: request.params.cwd,
+      cwd,
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+      ...(sparkStateRoot === undefined ? {} : { sparkStateRoot }),
       hasUI: request.params.hostContext?.hasUI ?? false,
       sessionSurface: request.params.hostContext?.sessionSurface ?? "local",
       sessionSource: request.params.hostContext?.sessionSource ?? "daemon",

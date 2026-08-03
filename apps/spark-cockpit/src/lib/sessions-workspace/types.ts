@@ -35,10 +35,19 @@ export type WorkspaceOption = {
   id: string;
   slug: string;
   name: string;
+  localPath?: string | null;
+};
+
+export type SessionCwdRootOption = {
+  artifactRef: string;
+  label: string;
+  path: string;
 };
 
 export type FormValues = {
   workspaceId?: string;
+  cwd?: string;
+  cwdArtifactRef?: string;
   sessionId?: string;
   message?: string;
   model?: string;

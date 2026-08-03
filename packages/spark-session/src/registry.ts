@@ -40,6 +40,7 @@ export interface CreateSparkSessionInput {
   title?: string;
   role?: string;
   cwd?: string;
+  cwdArtifactRef?: string;
   sessionPath?: string;
   status?: SparkSessionStatus;
   /** Daemon-authored managed relation; never accepted as a raw public relation field. */
@@ -175,6 +176,7 @@ export class SparkSessionRegistry {
       // without enrolling that session in generic role management.
       ...(role ? { title: role, role } : legacyTitle ? { title: legacyTitle } : {}),
       ...(input.cwd ? { cwd: input.cwd } : {}),
+      ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
       ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
       ...(input.relation ? { relation: input.relation } : {}),
     };
@@ -214,6 +216,7 @@ export class SparkSessionRegistry {
       createdAt: now,
       updatedAt: now,
       ...(parent.cwd ? { cwd: parent.cwd } : {}),
+      ...(parent.cwdArtifactRef ? { cwdArtifactRef: parent.cwdArtifactRef } : {}),
       ...(path ? { sessionPath: path } : {}),
       relation: {
         kind: "side_thread",

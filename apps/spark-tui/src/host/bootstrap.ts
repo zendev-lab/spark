@@ -92,6 +92,7 @@ export async function createSparkCliHostServices(
 
   const runtime = new SparkHostRuntime({
     cwd,
+    workspaceId: options.workspaceId,
     sparkStateRoot: options.sparkStateRoot,
     sessionSurface: options.sessionSurface,
     sessionSource: options.sessionSource,

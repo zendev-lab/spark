@@ -24,7 +24,12 @@ import {
   taskCompletionReadiness,
   TaskGraph,
 } from "@zendev-lab/spark-tasks";
-import { currentSparkProject, saveCurrentProjectRef, sparkSessionKey } from "./session-state.ts";
+import {
+  currentSparkProject,
+  saveCurrentProjectRef,
+  sparkSessionKey,
+  sparkStateCwd,
+} from "./session-state.ts";
 import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
 import { compactTaskDetail, normalizeOptionalToolString } from "./task-plan-tool.ts";
 import { compactLearningDetail } from "./learning-tools.ts";
@@ -273,8 +278,9 @@ export function registerSparkFinishTaskTool(
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = ctx.cwd;
+      const stateCwd = sparkStateCwd(cwd, ctx);
       const input = normalizeSparkFinishTaskInput(params);
-      const store = defaultTaskGraphStore(cwd);
+      const store = defaultTaskGraphStore(stateCwd);
       let reviewEvidence: EvidenceRecord<JsonValue> | undefined;
       let reviewResult: ReviewerRunResult | undefined;
       let finishEvidenceRefs = input.evidenceRefs;
@@ -292,9 +298,9 @@ export function registerSparkFinishTaskTool(
             details: { found: true, error: "no_matching_claimed_task" },
           };
         }
-        await requireTaskLensPasses(cwd, candidate.task);
+        await requireTaskLensPasses(stateCwd, candidate.task);
         const followUpDisposition = await checkResearchFollowUpDisposition(
-          cwd,
+          stateCwd,
           candidate.task,
           input.summary,
         );
@@ -338,7 +344,7 @@ export function registerSparkFinishTaskTool(
         }
         if (input.evidence) {
           generatedEvidence = await recordTaskFinishEvidence(
-            cwd,
+            stateCwd,
             candidate.projectRef,
             candidate.persistedTask,
             input,
@@ -357,7 +363,10 @@ export function registerSparkFinishTaskTool(
           requestedStatus: "done",
           summary: input.summary,
           evidenceRefs: candidate.task.outputEvidenceRefs,
-          evidencePreviews: await buildTaskEvidencePreviews(cwd, candidate.task.outputEvidenceRefs),
+          evidencePreviews: await buildTaskEvidencePreviews(
+            stateCwd,
+            candidate.task.outputEvidenceRefs,
+          ),
           sessionKey: sparkSessionKey(ctx),
           forkFromSession: ctx.sessionManager?.getSessionFile?.(),
         };
@@ -382,7 +391,7 @@ export function registerSparkFinishTaskTool(
         }
         const verdict = reviewResult.verdict as TaskReviewVerdict;
         reviewEvidence = await recordTaskReviewEvidence(
-          cwd,
+          stateCwd,
           candidate.projectRef,
           candidate.task,
           reviewResult,
@@ -468,7 +477,7 @@ export function registerSparkFinishTaskTool(
       if (input.status === "done" && input.summary) {
         try {
           learningCandidate = await recordTaskLearningCandidate(
-            cwd,
+            stateCwd,
             finishedResult.task,
             input.summary,
           );

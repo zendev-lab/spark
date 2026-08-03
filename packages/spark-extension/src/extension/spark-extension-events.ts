@@ -10,7 +10,12 @@ import {
 } from "./spark-background-subrole-lifecycle.ts";
 import { ensureSparkGraphInvariants } from "./spark-graph-invariants.ts";
 import { ensureLocalSparkDirectory } from "./spark-activation.ts";
-import { loadSparkGraph, saveSparkGraphAndTodos, sparkSessionOwnerKey } from "./session-state.ts";
+import {
+  loadSparkGraph,
+  saveSparkGraphAndTodos,
+  sparkSessionOwnerKey,
+  sparkStateCwd,
+} from "./session-state.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import {
   collectUnreadHiddenRoleRunInbox,
@@ -146,7 +151,7 @@ export function registerSparkExtensionEvents(
     };
   });
   pi.on?.("turn_start", async (_event: unknown, ctx: SparkToolContext) => {
-    await ensureLocalSparkDirectory(ctx.cwd);
+    await ensureLocalSparkDirectory(sparkStateCwd(ctx.cwd, ctx));
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await syncGoalAskAutoAnswerPolicy(ctx);
     await syncGoalInteractiveToolAvailability(pi, ctx, goalToolBaselines);
@@ -169,7 +174,7 @@ export function registerSparkExtensionEvents(
   pi.on?.("session_start", async (_event: unknown, ctx: SparkToolContext) => {
     deps.turnContextController?.reset(ctx);
     await deps.sessionHeartbeatController?.start(ctx);
-    await ensureLocalSparkDirectory(ctx.cwd);
+    await ensureLocalSparkDirectory(sparkStateCwd(ctx.cwd, ctx));
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await resumeOwnedBackgroundSubroles(ctx.cwd, ctx);
     await deps.ensureActiveReproDriver?.(ctx);
@@ -200,10 +205,11 @@ export function registerSparkExtensionEvents(
   pi.on?.("session_switch", async (_event: unknown, ctx: SparkToolContext) => {
     agentEndReconciliation.reset(ctx);
     deps.turnContextController?.reset(ctx);
-    await ensureLocalSparkDirectory(ctx.cwd);
+    const stateCwd = sparkStateCwd(ctx.cwd, ctx);
+    await ensureLocalSparkDirectory(stateCwd);
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await resumeOwnedBackgroundSubroles(ctx.cwd, ctx);
-    const store = defaultTaskGraphStore(ctx.cwd);
+    const store = defaultTaskGraphStore(stateCwd);
     const graph = await loadSparkGraph(ctx.cwd, ctx);
     if (!graph) return;
     if (ensureSparkGraphInvariants(graph)) await saveSparkGraphAndTodos(ctx.cwd, graph, ctx, store);

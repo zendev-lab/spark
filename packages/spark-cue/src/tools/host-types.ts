@@ -2,7 +2,7 @@
 
 import type { ToolEffect, ToolExecutionMode, ToolPolicy } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-tui/text";
-import type { CueClient } from "../client/cue-client.ts";
+import type { CueClient, CueResolvedTransport } from "../client/cue-client.ts";
 
 export interface SparkCueHostApi {
   registerTool(config: SparkCueToolConfig): void;
@@ -22,6 +22,10 @@ export interface SparkCueToolContext {
   };
   env?: Record<string, string | undefined>;
   cueClient?: CueClient;
+  /** Internal resolved transport used to keep SSH cwd selection explicit. */
+  cueResolvedTransport?: CueResolvedTransport;
+  /** Explicit remote cwd; local session paths are never mapped onto SSH hosts. */
+  cueRemoteCwd?: string;
   ui?: { notify?: (msg: string, level: SparkCueNotifyLevel) => void };
 }
 

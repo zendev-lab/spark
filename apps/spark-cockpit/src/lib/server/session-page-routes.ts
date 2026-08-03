@@ -77,6 +77,7 @@ export async function loadSessionsPage(
     startSubmissionIdSeed: createId("idem"),
     sessionActivity: null,
     modelControl,
+    sessionCwdRoots: workspaceId ? loadSessionCwdRoots(getDatabase(), workspaceId) : [],
     submissionId: createCockpitSubmissionId(),
   };
 }
@@ -86,6 +87,43 @@ interface SessionActionEvent {
   params: Record<string, string | undefined>;
   request: Request;
   url: URL;
+}
+
+export function loadSessionCwdRoots(
+  db: ReturnType<typeof getDatabase>,
+  workspaceId: string,
+): Array<{ artifactRef: string; label: string; path: string }> {
+  if (typeof db?.prepare !== "function") return [];
+  const rows = db
+    .prepare(
+      `SELECT title, content_ref_json AS contentRefJson
+       FROM artifacts
+       WHERE workspace_id = ? AND kind = 'git_change'
+       ORDER BY updated_at DESC`,
+    )
+    .all(workspaceId) as Array<{ title: string; contentRefJson: string }>;
+  return rows.flatMap((row) => {
+    try {
+      const contentRef = JSON.parse(row.contentRefJson) as Record<string, unknown>;
+      const inlineJson = contentRef.inlineJson;
+      const artifactRef = contentRef.artifactRef;
+      if (!inlineJson || typeof inlineJson !== "object" || Array.isArray(inlineJson)) return [];
+      const worktree = (inlineJson as Record<string, unknown>).worktree;
+      if (!worktree || typeof worktree !== "object" || Array.isArray(worktree)) return [];
+      const path = (worktree as Record<string, unknown>).path;
+      const status = (worktree as Record<string, unknown>).status;
+      if (
+        typeof artifactRef !== "string" ||
+        typeof path !== "string" ||
+        (status !== "attached" && status !== "cleanup_blocked")
+      ) {
+        return [];
+      }
+      return [{ artifactRef, label: row.title, path }];
+    } catch {
+      return [];
+    }
+  });
 }
 
 export const actions = {
@@ -99,9 +137,19 @@ export const actions = {
     const message = formText(formData, "message").trim();
     const model = formText(formData, "model").trim();
     const thinkingLevel = formText(formData, "thinkingLevel").trim();
+    const cwd = formText(formData, "cwd").trim();
+    const cwdArtifactRef = formText(formData, "cwdArtifactRef").trim();
     const submittedId = formText(formData, "submissionId").trim();
     const submissionId = submittedId || createCockpitSubmissionId();
-    const values = { workspaceId, message, model, thinkingLevel, submissionId };
+    const values = {
+      workspaceId,
+      cwd,
+      cwdArtifactRef,
+      message,
+      model,
+      thinkingLevel,
+      submissionId,
+    };
 
     if (!workspaceId) {
       return fail(400, {
@@ -135,13 +183,16 @@ export const actions = {
 
     let session;
     let deterministicSessionId: string | undefined;
+    const cwdContext = cwdArtifactRef || cwd ? JSON.stringify([cwdArtifactRef, cwd]) : "";
     try {
-      deterministicSessionId = conversationStartSessionId(workspaceId, submissionId);
+      deterministicSessionId = conversationStartSessionId(workspaceId, submissionId, cwdContext);
       session = await createManagedSessionForCockpit({
         scope: { kind: "workspace", workspaceId },
         workspaceId,
+        ...(cwd ? { cwd } : {}),
+        ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
         ...(deterministicSessionId ? { sessionId: deterministicSessionId } : {}),
-        idempotencyKey: cockpitSubmissionIdempotencyKey(submissionId, "session.create"),
+        idempotencyKey: cockpitSubmissionIdempotencyKey(submissionId, "session.create", cwdContext),
       });
     } catch (caught) {
       if (deterministicSessionId) {
@@ -149,7 +200,8 @@ export const actions = {
         if (
           existing &&
           existing.status !== "archived" &&
-          workspaceIdForWorkbenchSession(existing) === workspaceId
+          workspaceIdForWorkbenchSession(existing) === workspaceId &&
+          (existing.cwdArtifactRef ?? "") === cwdArtifactRef
         ) {
           session = existing;
         }

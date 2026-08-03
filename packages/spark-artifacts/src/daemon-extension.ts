@@ -35,6 +35,7 @@ function proxyDaemonTool(config: ToolConfig, method: SparkDaemonToolMethod): Too
           operationId: `${config.name}:${toolCallId}`,
           params: toJsonObject(params),
           hostContext: {
+            ...(ctx.workspaceId === undefined ? {} : { workspaceId: ctx.workspaceId }),
             ...(ctx.sessionSource === undefined ? {} : { sessionSource: ctx.sessionSource }),
             ...(ctx.sessionSurface === undefined ? {} : { sessionSurface: ctx.sessionSurface }),
             ...(ctx.hasUI === undefined ? {} : { hasUI: ctx.hasUI }),

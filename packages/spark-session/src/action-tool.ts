@@ -64,6 +64,7 @@ export type SparkSessionAction =
 
 export interface SparkSessionToolContext {
   cwd?: string;
+  workspaceId?: string;
   sessionId?: string;
   sparkStateRoot?: string;
   sessionSurface?: "local" | "channel";
@@ -77,6 +78,7 @@ export interface SparkSessionToolContext {
     adapterAccountIdentity?: string;
   };
   invocationId?: string;
+  sessionLease?: () => { workspaceId: string } | undefined;
   sessionManager?: {
     getSessionFile?: () => string | undefined;
   };
@@ -540,11 +542,13 @@ async function sessionCreateRequest(
     "session create requires role as a stable division of labour",
   );
   const cwd = optionalString(params.cwd, "cwd") ?? ctx.cwd;
+  const cwdArtifactRef = optionalString(params.cwdArtifactRef, "cwdArtifactRef");
   const common = {
     ...(sessionId ? { sessionId } : {}),
     title: role,
     role,
     ...(cwd ? { cwd } : {}),
+    ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
   };
   if (scope === "daemon") {
     throw new Error("session create supports workspace scope only");
@@ -564,6 +568,10 @@ async function currentWorkspaceId(
   request: SparkSessionDaemonRequest,
   signal: AbortSignal,
 ): Promise<string> {
+  const workspaceId = ctx.workspaceId?.trim();
+  if (workspaceId) return workspaceId;
+  const leasedWorkspaceId = ctx.sessionLease?.()?.workspaceId.trim();
+  if (leasedWorkspaceId) return leasedWorkspaceId;
   const cwd = requiredString(ctx.cwd, "session action requires ctx.cwd");
   const result = await request("workspace.ensure-local", { localPath: cwd }, { signal });
   if (!isRecord(result) || typeof result.id !== "string" || !result.id.trim())

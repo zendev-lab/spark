@@ -154,6 +154,9 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       ensureLocal: os.workspace.ensureLocal.handler(async ({ input: params }) =>
         invoke("workspace.ensure-local", params),
       ),
+      resolveSessionCwd: os.workspace.resolveSessionCwd.handler(async ({ input: params }) =>
+        invoke("workspace.resolve-session-cwd", params),
+      ),
       attach: os.workspace.attach.handler(async ({ input: params }) =>
         invoke("workspace.attach", params),
       ),

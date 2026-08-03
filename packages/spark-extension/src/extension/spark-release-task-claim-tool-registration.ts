@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import type { Task, TaskClaim } from "@zendev-lab/spark-core";
 import { defaultTaskGraphStore, isUnfinishedTaskStatus } from "@zendev-lab/spark-tasks";
-import { currentSparkProject, sparkSessionKey } from "./session-state.ts";
+import { currentSparkProject, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
 import { normalizeOptionalToolString } from "./task-plan-tool.ts";
 import { isClaimOwnedBySession } from "./task-ownership.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
@@ -80,7 +80,7 @@ async function releaseSparkTaskClaim(
   input: NormalizedSparkReleaseTaskClaimInput,
   sessionKey: string,
 ): Promise<SparkReleaseTaskClaimOutcome> {
-  const released = await defaultTaskGraphStore(cwd).update(
+  const released = await defaultTaskGraphStore(sparkStateCwd(cwd, ctx)).update(
     async (graph): Promise<SparkReleaseTaskClaimOutcome> => {
       const project = input.projectSelector
         ? resolveReleaseProject(graph.projects(), input.projectSelector)

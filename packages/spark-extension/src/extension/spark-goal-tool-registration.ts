@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import { nowIso, type EvidenceRef, type JsonValue, type RoleRef } from "@zendev-lab/spark-core";
+import { sparkStateCwd } from "@zendev-lab/spark-loop";
 import { currentSparkProject, loadSparkGraph, sparkSessionKey } from "./session-state.ts";
 import {
   requestGoalCompletionReview,
@@ -113,6 +114,7 @@ export function registerSparkGoalTool(
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const action = normalizeSparkGoalAction(params.action);
       const cwd = ctx.cwd;
+      const stateCwd = sparkStateCwd(cwd, ctx);
       const graph = await loadSparkGraph(cwd, ctx);
       const project = graph ? await currentSparkProject(cwd, ctx, graph) : undefined;
 
@@ -165,7 +167,7 @@ export function registerSparkGoalTool(
           details: { found: false, action, error: "no_goal" },
         };
       if (action === "complete") {
-        await requireGoalLensPasses(cwd, graph ?? undefined);
+        await requireGoalLensPasses(stateCwd, graph ?? undefined);
         const completion = await requestGoalCompletionReview(
           ctx,
           deps,
@@ -487,7 +489,7 @@ async function reviewedEditCurrentSessionGoal(
   const review = await runGoalReviewer(cwd, ctx, reviewerRunner, reviewInput, signal);
   const verdict = review.verdict as GoalReviewVerdict;
   const evidence = await recordGoalTransitionReviewEvidence(
-    cwd,
+    sparkStateCwd(cwd, ctx),
     existingGoal,
     review,
     reviewInput,
@@ -531,7 +533,7 @@ export async function reviewedPauseCurrentSessionGoal(
   const review = await runGoalReviewer(cwd, ctx, reviewerRunner, reviewInput, signal);
   const verdict = review.verdict as GoalReviewVerdict;
   const evidence = await recordGoalTransitionReviewEvidence(
-    cwd,
+    sparkStateCwd(cwd, ctx),
     existingGoal,
     review,
     reviewInput,

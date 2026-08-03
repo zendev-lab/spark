@@ -14,11 +14,12 @@ export function createCockpitSubmissionId(): string {
 export function cockpitSubmissionIdempotencyKey(
   submissionId: string,
   phase: CockpitSubmissionPhase,
+  context = "",
 ): string {
   const normalized = submissionId.trim();
   if (!normalized) throw new Error("Cockpit submission id is required.");
   const digest = createHash("sha256")
-    .update(`spark.cockpit.submission.v1\0${phase}\0${normalized}`)
+    .update(`spark.cockpit.submission.v1\0${phase}\0${normalized}\0${context.trim()}`)
     .digest("hex")
     .slice(0, 32);
   return `idem_${digest}`;

@@ -18,6 +18,7 @@
     SessionsMessages,
     SessionsWorkbenchCopy,
     SubmissionState,
+    SessionCwdRootOption,
     WorkspaceOption,
   } from "./types";
 
@@ -25,11 +26,14 @@
     messages: SessionsMessages;
     copy: SessionsWorkbenchCopy;
     activeWorkspace: WorkspaceOption | null;
+    cwdRoots: SessionCwdRootOption[];
     canAssign: boolean;
     startState: SubmissionState;
     startFeedback: string | null;
     startMessage: string;
     startSubmissionId: string;
+    startCwd: string;
+    startCwdArtifactRef: string;
     startModel: string;
     startThinkingLevel: string;
     startModelReady: boolean;
@@ -57,11 +61,14 @@
     messages,
     copy,
     activeWorkspace,
+    cwdRoots,
     canAssign,
     startState,
     startFeedback,
     startMessage = $bindable(),
     startSubmissionId,
+    startCwd = $bindable(),
+    startCwdArtifactRef = $bindable(),
     startModel = $bindable(),
     startThinkingLevel = $bindable(),
     startModelReady,
@@ -117,6 +124,31 @@
         <input type="hidden" name="workspaceId" value={activeWorkspace.id} />
       {/if}
       <input type="hidden" name="submissionId" value={startSubmissionId} />
+      <div class="cwd-picker">
+        <label>
+          <span>Execution root</span>
+          <select
+            name="cwdArtifactRef"
+            bind:value={startCwdArtifactRef}
+            disabled={!canAssign || startState === "submitting"}
+          >
+            <option value="">Workspace · {activeWorkspace.localPath ?? activeWorkspace.name}</option>
+            {#each cwdRoots as root}
+              <option value={root.artifactRef}>{root.label} · {root.path}</option>
+            {/each}
+          </select>
+        </label>
+        <label>
+          <span>Subdirectory</span>
+          <input
+            name="cwd"
+            bind:value={startCwd}
+            placeholder="."
+            autocomplete="off"
+            disabled={!canAssign || startState === "submitting"}
+          />
+        </label>
+      </div>
       <Composer
         id="start-conversation-message"
         rows={2}
@@ -215,6 +247,31 @@
   .start-composer {
     max-width: 720px;
     width: 100%;
+  }
+
+  .cwd-picker {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) minmax(140px, 0.45fr);
+    margin-bottom: 10px;
+  }
+
+  .cwd-picker label {
+    color: var(--color-ink-subtle);
+    display: grid;
+    font-size: 11px;
+    gap: 4px;
+  }
+
+  .cwd-picker input,
+  .cwd-picker select {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    color: var(--color-ink);
+    font: inherit;
+    min-width: 0;
+    padding: 8px 10px;
   }
 
   .start-heading {

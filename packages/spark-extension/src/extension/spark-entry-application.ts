@@ -7,6 +7,7 @@ import { initializeSparkIdea } from "./spark-initialization.ts";
 import {
   loadSparkGraph,
   saveCurrentProjectRef,
+  sparkStateCwd,
   type SparkPlanningModeSource,
 } from "./session-state.ts";
 import {
@@ -95,7 +96,7 @@ async function startSparkNewProject(
     nextAction: "analyze_then_targeted_ask",
   } satisfies SparkInitClarificationData;
 
-  const result = await initializeSparkIdea(ctx.cwd, idea, {
+  const result = await initializeSparkIdea(sparkStateCwd(ctx.cwd, ctx), idea, {
     projectTitle: clarification.workingTitle,
     outputLanguage: clarification.outputLanguage,
     clarification,

@@ -263,6 +263,33 @@ describe("session conversation actions", () => {
     expect(mocks.archiveManagedSessionForCockpit).not.toHaveBeenCalled();
   });
 
+  it("binds a new conversation to the selected GitChange subdirectory", async () => {
+    await expect(
+      requireAction("startConversation")(
+        actionEvent({
+          workspaceId: "ws_demo",
+          cwdArtifactRef: "artifact:git:change",
+          cwd: "packages/app",
+          message: "Inspect this worktree package.",
+          submissionId: "cwd-selection",
+        }),
+      ),
+    ).rejects.toMatchObject({ status: 303 });
+
+    expect(mocks.createManagedSessionForCockpit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "ws_demo",
+        cwdArtifactRef: "artifact:git:change",
+        cwd: "packages/app",
+        sessionId: conversationStartSessionId(
+          "ws_demo",
+          "cwd-selection",
+          JSON.stringify(["artifact:git:change", "packages/app"]),
+        ),
+      }),
+    );
+  });
+
   it("reuses a deterministic session and turn when the first-message response is retried", async () => {
     const submissionId = "idem_start_018f";
     const deterministicSessionId = conversationStartSessionId("ws_demo", submissionId)!;

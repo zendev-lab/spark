@@ -1,4 +1,5 @@
 import { registerSparkAskAutoAnswerProvider } from "@zendev-lab/spark-ask";
+import { sparkStateCwd } from "@zendev-lab/spark-core";
 import {
   createSparkContextRegistry,
   registerSparkContextTool,
@@ -198,7 +199,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     const provided = await pi.createReviewerRunner?.(cwd, ctx);
     if (provided) return provided;
     return new SparkRolesReviewerRunner({
-      registry: await createSparkRoleRegistry(cwd),
+      registry: await createSparkRoleRegistry(sparkStateCwd(cwd, ctx)),
       cwd,
       sessionModel: sessionModelName(ctx.model),
       reviewerThinkingLevel: capReviewerThinkingLevel(pi.getThinkingLevel?.()),

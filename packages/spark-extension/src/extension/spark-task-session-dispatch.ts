@@ -476,6 +476,7 @@ async function ensureTaskExecutionSession(input: {
           : { kind: "daemon" },
       role: input.roleRef,
       ...(owner.cwd ? { cwd: owner.cwd } : {}),
+      ...(owner.cwdArtifactRef ? { cwdArtifactRef: owner.cwdArtifactRef } : {}),
       taskExecution: {
         ownerSessionId: input.execution.ownerSessionId,
         projectRef: input.projectRef,

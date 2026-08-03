@@ -9,6 +9,7 @@ import { sparkSessionKey } from "@zendev-lab/spark-extension/host-support";
 import { sparkTuiCliStrings, sparkTuiPiParityStrings } from "@zendev-lab/spark-i18n/cli";
 import { isTaskStatus } from "@zendev-lab/spark-core";
 import {
+  createId,
   SPARK_PROTOCOL_VERSION,
   type SparkSessionRegistryRecord,
   type SparkSessionView,
@@ -26,6 +27,7 @@ import {
   clientGetManagedSessionSnapshot,
   clientListDaemonWorkspaces,
   clientListManagedSessions,
+  clientResolveSessionCwd,
   clientRestoreManagedSession,
   clientTurnStatus,
   createSparkDaemonNativeCommands,
@@ -36,6 +38,7 @@ import {
   handleSparkDaemonCliCommand,
   type SparkDaemonClientOptions,
   type SparkDaemonWorkspace,
+  type SparkSessionCwdResolution,
 } from "./cli/daemon.ts";
 import {
   createSparkNativeLocalControlSlashCommands,
@@ -136,10 +139,25 @@ export interface RunSparkCliOptions {
   selectSession?: (
     options: SparkSessionSelectorOptions,
   ) => Promise<SparkSessionSelectorSelection | null>;
+  selectSessionCwd?: (
+    options: SparkSessionCwdSelectorOptions,
+  ) => Promise<SparkSessionCwdSelection | null>;
   createHostServices?: SparkCliHostServicesFactory;
   /** Test/embedding override; production uses process.cwd() as a non-mutating selector suggestion. */
   launchCwd?: string;
   terminal?: SparkCliTerminalState;
+}
+
+export interface SparkSessionCwdSelection {
+  cwd?: string;
+  cwdArtifactRef?: string;
+}
+
+export interface SparkSessionCwdSelectorOptions {
+  currentCwd: string;
+  currentCwdArtifactRef?: string;
+  workspaceRoot: string;
+  gitChanges: Array<{ artifactRef: string; title: string }>;
 }
 
 type SparkCliHostServicesFactory = (
@@ -377,6 +395,7 @@ interface SparkCliControlPlaneSelection {
   legacySession?: SparkCliLegacySessionTarget;
   create?: boolean;
   cancelled?: boolean;
+  cwdSuggestion?: SparkSessionCwdResolution;
 }
 
 async function selectSparkCliWorkspaceSession(
@@ -387,9 +406,10 @@ async function selectSparkCliWorkspaceSession(
   ) => Promise<SparkSessionSelectorSelection | null>,
   launchCwd: string,
 ): Promise<SparkCliControlPlaneSelection> {
-  const [sessions, registeredWorkspaces] = await Promise.all([
+  const [sessions, registeredWorkspaces, resolvedLaunchCwd] = await Promise.all([
     clientListManagedSessions({ includeArchived: true }, daemonClient),
     listSparkSessionSelectorWorkspaces(daemonClient),
+    clientResolveSessionCwd(launchCwd, daemonClient).catch(() => undefined),
   ]);
   const target = requestedSparkCliSessionTarget(runtimeOptions);
   if (target) {
@@ -433,6 +453,7 @@ async function selectSparkCliWorkspaceSession(
   const { workspaces, suggestedWorkspaceId } = workspaceOptionsForLaunchCwd(
     registeredWorkspaces,
     launchCwd,
+    resolvedLaunchCwd?.workspace.id,
   );
   const selection = await selectSession({
     sessions: sessions.filter((session) => session.scope.kind === "workspace"),
@@ -442,7 +463,15 @@ async function selectSparkCliWorkspaceSession(
   if (!selection) return { cancelled: true };
   assertSparkSessionSelectorSelection(selection);
   const workspace = requireSelectorWorkspace(workspaces, selection.workspaceId);
-  if (selection.kind === "create") return { workspace, create: true };
+  if (selection.kind === "create") {
+    const cwdSuggestion =
+      resolvedLaunchCwd &&
+      requireSelectorWorkspace(workspaces, resolvedLaunchCwd.workspace.id).canonicalId ===
+        workspace.canonicalId
+        ? resolvedLaunchCwd
+        : undefined;
+    return { workspace, create: true, ...(cwdSuggestion ? { cwdSuggestion } : {}) };
+  }
 
   const session = requireSelectedManagedSession(sessions, selection.sessionId);
   if (session.scope.kind !== "workspace") {
@@ -488,7 +517,15 @@ function assertSparkSessionSelectorSelection(
 function workspaceOptionsForLaunchCwd(
   registeredWorkspaces: SparkSessionSelectorWorkspace[],
   launchCwd: string,
+  resolvedWorkspaceId?: string,
 ): { workspaces: SparkSessionSelectorWorkspace[]; suggestedWorkspaceId: string } {
+  if (resolvedWorkspaceId) {
+    return {
+      workspaces: registeredWorkspaces,
+      suggestedWorkspaceId: requireSelectorWorkspace(registeredWorkspaces, resolvedWorkspaceId)
+        .canonicalId,
+    };
+  }
   const canonicalWorkspaces = uniqueSelectorWorkspaces(registeredWorkspaces);
   const resolvedLaunchCwd = safeRealpath(launchCwd) ?? launchCwd;
   const matchingWorkspace = canonicalWorkspaces
@@ -831,6 +868,74 @@ async function listSparkSessionSelectorWorkspaces(
   );
 }
 
+async function listWorkspaceGitChanges(
+  lease: Awaited<ReturnType<typeof attachSparkWorkspaceClient>>,
+  daemonClient: SparkDaemonClientOptions,
+): Promise<Array<{ artifactRef: string; title: string }>> {
+  try {
+    const result = await requestSparkDaemonControl(
+      "artifact.execute",
+      {
+        cwd: lease.workspace.localPath,
+        toolCallId: createId("cmd"),
+        operationId: createId("idem"),
+        params: { action: "list", kind: "git_change" },
+        hostContext: { workspaceId: lease.workspace.id, sessionSource: "tui", hasUI: true },
+      },
+      daemonClient,
+    );
+    const artifacts = result.details?.artifacts;
+    if (!Array.isArray(artifacts)) return [];
+    return artifacts.flatMap((artifact) => {
+      if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) return [];
+      const artifactRef = (artifact as Record<string, unknown>).ref;
+      const title = (artifact as Record<string, unknown>).title;
+      return typeof artifactRef === "string" && typeof title === "string"
+        ? [{ artifactRef, title }]
+        : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+async function runNativeSparkSessionCwdSelector(
+  options: SparkSessionCwdSelectorOptions,
+): Promise<SparkSessionCwdSelection | null> {
+  const roots = [
+    { label: `Current cwd · ${options.currentCwd}`, kind: "current" as const },
+    { label: `Workspace root · ${options.workspaceRoot}`, kind: "workspace" as const },
+    ...options.gitChanges.map((change) => ({
+      label: `GitChange · ${change.title} · ${change.artifactRef}`,
+      kind: "artifact" as const,
+      artifactRef: change.artifactRef,
+    })),
+  ];
+  console.error("\nSelect execution root:");
+  roots.forEach((root, index) => console.error(`  ${index + 1}. ${root.label}`));
+  const readline = createInterface({ input: processStdin, output: processStdout });
+  try {
+    const answer = (await readline.question("Root [1], or q to cancel: ")).trim();
+    if (answer.toLowerCase() === "q") return null;
+    const index = answer ? Number.parseInt(answer, 10) - 1 : 0;
+    const selected = roots[index];
+    if (!selected) return null;
+    if (selected.kind === "current") {
+      return {
+        cwd: options.currentCwd,
+        ...(options.currentCwdArtifactRef ? { cwdArtifactRef: options.currentCwdArtifactRef } : {}),
+      };
+    }
+    const cwd = (await readline.question("Relative subdirectory [.]: ")).trim();
+    return {
+      ...(cwd && cwd !== "." ? { cwd } : {}),
+      ...(selected.kind === "artifact" ? { cwdArtifactRef: selected.artifactRef } : {}),
+    };
+  } finally {
+    readline.close();
+  }
+}
+
 async function resolveSparkWorkspaceBindingId(
   workspaceId: string,
   controlPlaneWorkspace: SparkDaemonWorkspace,
@@ -1059,7 +1164,8 @@ export async function runSparkCli(
           {
             sessionId,
             workspaceId: lease.workspace.id,
-            cwd: lease.workspace.localPath,
+            cwd: lease.cwd,
+            ...(lease.cwdArtifactRef ? { cwdArtifactRef: lease.cwdArtifactRef } : {}),
           },
           daemonClient,
         );
@@ -1150,6 +1256,10 @@ export async function runSparkCli(
           initialMessage,
           hasLaunchedTui,
         });
+        if (result.cancelled) {
+          selectionOptions = currentSessionOptions;
+          continue;
+        }
         currentSessionOptions = runtimeOptionsForSparkSession(command.options, result.sessionId);
         initialMessage = undefined;
         hasLaunchedTui = true;
@@ -1160,10 +1270,9 @@ export async function runSparkCli(
   }
 }
 
-interface SparkCliTuiSelectionResult {
-  sessionId: string;
-  sessionSelectorRequested: boolean;
-}
+type SparkCliTuiSelectionResult =
+  | { cancelled: true }
+  | { cancelled?: false; sessionId: string; sessionSelectorRequested: boolean };
 
 async function runSparkCliTuiSelection(input: {
   command: Extract<SparkCliCommand, { kind: "tui" }>;
@@ -1190,12 +1299,38 @@ async function runSparkCliTuiSelection(input: {
     },
   });
   try {
+    const suggestedCwd = selection.cwdSuggestion ?? {
+      workspace: lease.workspace,
+      cwd: lease.workspace.localPath,
+    };
+    const selectSessionCwd =
+      options.selectSessionCwd ??
+      (options.selectSession ? undefined : runNativeSparkSessionCwdSelector);
+    const cwdSelection = selection.create
+      ? selectSessionCwd
+        ? await selectSessionCwd({
+            currentCwd: suggestedCwd.cwd,
+            ...(suggestedCwd.cwdArtifactRef
+              ? { currentCwdArtifactRef: suggestedCwd.cwdArtifactRef }
+              : {}),
+            workspaceRoot: lease.workspace.localPath,
+            gitChanges: await listWorkspaceGitChanges(lease, daemonClient),
+          })
+        : {
+            cwd: suggestedCwd.cwd,
+            ...(suggestedCwd.cwdArtifactRef ? { cwdArtifactRef: suggestedCwd.cwdArtifactRef } : {}),
+          }
+      : undefined;
+    if (selection.create && !cwdSelection) return { cancelled: true };
     const selectedManagedSession = selection.create
       ? await clientCreateManagedSession(
           {
             scope: { kind: "workspace", workspaceId: lease.workspace.id },
             workspaceId: lease.workspace.id,
-            cwd: lease.workspace.localPath,
+            ...(cwdSelection?.cwd ? { cwd: cwdSelection.cwd } : {}),
+            ...(cwdSelection?.cwdArtifactRef
+              ? { cwdArtifactRef: cwdSelection.cwdArtifactRef }
+              : {}),
           },
           daemonClient,
         )
@@ -1222,11 +1357,14 @@ async function runSparkCliTuiSelection(input: {
     }
     const currentSessionId = selectedManagedSession.sessionId;
     const currentSessionIdentity = sparkSessionKey({ sessionId: currentSessionId });
+    const sessionCwd = selectedManagedSession.cwd ?? lease.workspace.localPath;
     const createHostServices = options.createHostServices ?? createDefaultSparkCliHostServices;
     let pendingNativeUiTransport: ReturnType<typeof createSparkNativeUiTransport> | undefined;
     const services = await createHostServices({
       ...(await hostServiceOptionsFromRuntime(command.options)),
-      cwd: lease.workspace.localPath,
+      cwd: sessionCwd,
+      workspaceId: sessionWorkspaceId,
+      sparkStateRoot: join(lease.workspace.localPath, ".spark"),
       sessionSource: "tui",
       hasUI: true,
       modelPicker: (state, ctx) =>
@@ -1248,7 +1386,12 @@ async function runSparkCliTuiSelection(input: {
       lease.workspace.id,
     );
     const snapshot = await managedSessionSnapshotIfAvailable(currentSessionId, daemonClient);
-    services.runtime.setSessionId(currentSessionIdentity);
+    services.runtime.setSessionContext({
+      sessionId: currentSessionIdentity,
+      cwd: sessionCwd,
+      workspaceId: sessionWorkspaceId,
+      sparkStateRoot: join(lease.workspace.localPath, ".spark"),
+    });
     registerSparkSessionsCommand(services.runtime, {
       store: services.sessionStore,
       getNavigationState: () => undefined,
@@ -1320,7 +1463,7 @@ async function runSparkCliTuiSelection(input: {
           sessionId: currentSessionId,
           identitySessionId: currentSessionIdentity,
           workspaceId: sessionWorkspaceId,
-          cwd: services.cwd,
+          cwd: sessionCwd,
           ensureSession: ensureCurrentSession,
           conversationProjection: "view-events",
           onViewEvent: (event) => {
@@ -1351,7 +1494,7 @@ async function runSparkCliTuiSelection(input: {
             sessionSelectorRequested = true;
           },
         ),
-        autocompleteBasePath: services.cwd,
+        autocompleteBasePath: sessionCwd,
         keybindings: services.keybindings,
         statusContext: {
           activeProvider: () => sessionStatusModel?.providerName,

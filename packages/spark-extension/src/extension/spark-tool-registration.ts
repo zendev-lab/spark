@@ -41,6 +41,8 @@ export interface SparkSessionModelRef {
 
 export interface SparkToolContext {
   cwd: string;
+  workspaceId?: string;
+  sparkStateRoot?: string;
   sessionId?: string;
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";

@@ -3,13 +3,14 @@ import { defaultArtifactStore, type Artifact, type ArtifactRef } from "@zendev-l
 export async function resolveArtifactFileRoot(
   cwd: string,
   value: unknown,
+  stateCwd: string = cwd,
 ): Promise<{ cwd: string; artifactRef?: ArtifactRef }> {
   if (value === undefined || value === null) return { cwd };
   if (typeof value !== "string" || !value.startsWith("artifact:")) {
     throw new Error("artifactRef must be an artifact: ref");
   }
   const requested = value as ArtifactRef;
-  const store = defaultArtifactStore(cwd);
+  const store = defaultArtifactStore(stateCwd);
   const exact = await store.tryGet(requested);
   if (exact) return gitChangeRoot(exact, requested);
 
