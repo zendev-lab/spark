@@ -142,7 +142,6 @@ export function parseSparkMemoryApprovalAuthorization(
   return sparkMemoryApprovalAuthorizationSchema.parse(value);
 }
 
-
 export function parseSparkMemoryRevisionCommit(value: unknown): SparkMemoryRevisionCommit {
   return sparkMemoryRevisionCommitSchema.parse(value);
 }

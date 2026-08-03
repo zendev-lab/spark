@@ -267,24 +267,25 @@ export class SparkMemoryStore {
         lifecycle,
       };
       snapshot.entries.push(entry);
-      const journal = finalize && input.authorization
-        ? await prepareMemoryMutationJournal(
-            this.journalPath,
-            memoryMutationJournalInput({
-              operation: input.authorization.proof.operation,
-              recordRef: id,
-              transactionId: input.authorization.transactionId,
-              proposalDigest: input.authorization.proposal.proposalDigest,
-              content,
-              workspaceId: this.requiredWorkspaceId(),
-              scope,
-              expectedRevision: input.authorization.proposal.expectedRevision,
-              proposalId: input.authorization.proposal.proposalId,
-              proposal: input.authorization.proposal,
-              proof: input.authorization.proof,
-            }),
-          )
-        : undefined;
+      const journal =
+        finalize && input.authorization
+          ? await prepareMemoryMutationJournal(
+              this.journalPath,
+              memoryMutationJournalInput({
+                operation: input.authorization.proof.operation,
+                recordRef: id,
+                transactionId: input.authorization.transactionId,
+                proposalDigest: input.authorization.proposal.proposalDigest,
+                content,
+                workspaceId: this.requiredWorkspaceId(),
+                scope,
+                expectedRevision: input.authorization.proposal.expectedRevision,
+                proposalId: input.authorization.proposal.proposalId,
+                proposal: input.authorization.proposal,
+                proof: input.authorization.proof,
+              }),
+            )
+          : undefined;
       await this.saveSnapshot(snapshot);
       if (journal) await markMemoryMutationPersisted(this.journalPath, journal);
       await finalize?.();
@@ -341,24 +342,25 @@ export class SparkMemoryStore {
         lifecycle,
       };
       snapshot.entries[index] = entry;
-      const journal = finalize && authorization
-        ? await prepareMemoryMutationJournal(
-            this.journalPath,
-            memoryMutationJournalInput({
-              operation: authorization.proof.operation,
-              recordRef: id,
-              transactionId: authorization.transactionId,
-              proposalDigest: authorization.proposal.proposalDigest,
-              content,
-              workspaceId: this.requiredWorkspaceId(),
-              scope: current.scope,
-              expectedRevision: authorization.proposal.expectedRevision,
-              proposalId: authorization.proposal.proposalId,
-              proposal: authorization.proposal,
-              proof: authorization.proof,
-            }),
-          )
-        : undefined;
+      const journal =
+        finalize && authorization
+          ? await prepareMemoryMutationJournal(
+              this.journalPath,
+              memoryMutationJournalInput({
+                operation: authorization.proof.operation,
+                recordRef: id,
+                transactionId: authorization.transactionId,
+                proposalDigest: authorization.proposal.proposalDigest,
+                content,
+                workspaceId: this.requiredWorkspaceId(),
+                scope: current.scope,
+                expectedRevision: authorization.proposal.expectedRevision,
+                proposalId: authorization.proposal.proposalId,
+                proposal: authorization.proposal,
+                proof: authorization.proof,
+              }),
+            )
+          : undefined;
       await this.saveSnapshot(snapshot);
       if (journal) await markMemoryMutationPersisted(this.journalPath, journal);
       await finalize?.();
@@ -431,10 +433,13 @@ export class SparkMemoryStore {
     await recoverMemoryMutationJournal(this.journalPath, this.options.verifier, async (journal) => {
       const snapshot = await this.loadSnapshot();
       const entry = snapshot.entries.find((candidate) => candidate.id === journal.recordRef);
-      return entry !== undefined && assertMemoryMutationJournalTarget(
-        { recordRef: entry.id, ...entry.lifecycle },
-        memoryEntryRevisionContent(entry),
-        journal,
+      return (
+        entry !== undefined &&
+        assertMemoryMutationJournalTarget(
+          { recordRef: entry.id, ...entry.lifecycle },
+          memoryEntryRevisionContent(entry),
+          journal,
+        )
       );
     });
   }

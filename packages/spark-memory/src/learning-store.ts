@@ -734,24 +734,25 @@ export class LearningStore {
     authorization: MemoryMutationAuthorization | undefined,
     finalize: (() => Promise<void>) | undefined,
   ): Promise<EvidenceRecord<LearningRecord>> {
-    const journal = authorization && finalize
-      ? await prepareMemoryMutationJournal(
-          this.journalPath,
-          memoryMutationJournalInput({
-            operation: authorization.proof.operation,
-            recordRef: record.id,
-            transactionId: authorization.transactionId,
-            proposalDigest: authorization.proposal.proposalDigest,
-            content: learningRevisionContent(record),
-            workspaceId: this.requiredWorkspaceId(),
-            scope: learningLifecycleScope(this.location),
-            expectedRevision: authorization.proposal.expectedRevision,
-            proposalId: authorization.proposal.proposalId,
-            proposal: authorization.proposal,
-            proof: authorization.proof,
-          }),
-        )
-      : undefined;
+    const journal =
+      authorization && finalize
+        ? await prepareMemoryMutationJournal(
+            this.journalPath,
+            memoryMutationJournalInput({
+              operation: authorization.proof.operation,
+              recordRef: record.id,
+              transactionId: authorization.transactionId,
+              proposalDigest: authorization.proposal.proposalDigest,
+              content: learningRevisionContent(record),
+              workspaceId: this.requiredWorkspaceId(),
+              scope: learningLifecycleScope(this.location),
+              expectedRevision: authorization.proposal.expectedRevision,
+              proposalId: authorization.proposal.proposalId,
+              proposal: authorization.proposal,
+              proof: authorization.proof,
+            }),
+          )
+        : undefined;
     const stored = await this.evidenceStore.put({
       ref,
       kind: "knowledge",
@@ -769,7 +770,9 @@ export class LearningStore {
 
   private async recoverPendingJournal(): Promise<void> {
     await recoverMemoryMutationJournal(this.journalPath, this.options.verifier, async (journal) => {
-      const stored = await this.evidenceStore.tryGet<LearningRecord>(learningRef(journal.recordRef));
+      const stored = await this.evidenceStore.tryGet<LearningRecord>(
+        learningRef(journal.recordRef),
+      );
       if (!stored) return false;
       const record = normalizeLearningEvidence(stored, this.location).body;
       return assertMemoryMutationJournalTarget(

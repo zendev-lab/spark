@@ -291,7 +291,9 @@ export function validateMemoryLifecycle(
       validateMemoryRevision(revisionValue, `${label}.revisionHistory[${index}]`);
       const revision = revisionValue as unknown as MemoryRevision;
       if (seenRevisionRefs.has(revision.revisionRef)) {
-        throw new Error(`${label}.revisionHistory contains duplicate revisionRef ${revision.revisionRef}`);
+        throw new Error(
+          `${label}.revisionHistory contains duplicate revisionRef ${revision.revisionRef}`,
+        );
       }
       seenRevisionRefs.add(revision.revisionRef);
       if (revision.version !== index + 1) {
@@ -313,14 +315,18 @@ export function validateMemoryLifecycle(
         !revision.transactionId.startsWith("system:") &&
         revision.proofRef === null
       ) {
-        throw new Error(`${label}.revisionHistory[${index}] must bind transactionId and proofRef together`);
+        throw new Error(
+          `${label}.revisionHistory[${index}] must bind transactionId and proofRef together`,
+        );
       }
       if (
         revision.transactionId !== null &&
         !revision.transactionId.startsWith("system:") &&
         revision.proposalDigest === null
       ) {
-        throw new Error(`${label}.revisionHistory[${index}] must bind proposalDigest with its approval proof`);
+        throw new Error(
+          `${label}.revisionHistory[${index}] must bind proposalDigest with its approval proof`,
+        );
       }
     });
     const latest = lifecycle.revisionHistory.at(-1)!;

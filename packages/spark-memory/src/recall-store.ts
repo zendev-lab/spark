@@ -292,24 +292,25 @@ export class RecallStore {
       };
       delete candidate.rejectedReason;
       snapshot.candidates[index] = candidate;
-      const journal = finalize && authorization
-        ? await prepareMemoryMutationJournal(
-            this.journalPath,
-            memoryMutationJournalInput({
-              operation: authorization.proof.operation,
-              recordRef: id,
-              transactionId: authorization.transactionId,
-              proposalDigest: authorization.proposal.proposalDigest,
-              content,
-              workspaceId: this.requiredWorkspaceId(),
-              scope: current.scope,
-              expectedRevision: authorization.proposal.expectedRevision,
-              proposalId: authorization.proposal.proposalId,
-              proposal: authorization.proposal,
-              proof: authorization.proof,
-            }),
-          )
-        : undefined;
+      const journal =
+        finalize && authorization
+          ? await prepareMemoryMutationJournal(
+              this.journalPath,
+              memoryMutationJournalInput({
+                operation: authorization.proof.operation,
+                recordRef: id,
+                transactionId: authorization.transactionId,
+                proposalDigest: authorization.proposal.proposalDigest,
+                content,
+                workspaceId: this.requiredWorkspaceId(),
+                scope: current.scope,
+                expectedRevision: authorization.proposal.expectedRevision,
+                proposalId: authorization.proposal.proposalId,
+                proposal: authorization.proposal,
+                proof: authorization.proof,
+              }),
+            )
+          : undefined;
       await this.saveSnapshot(snapshot);
       if (journal) await markMemoryMutationPersisted(this.journalPath, journal);
       await finalize?.();
@@ -397,24 +398,25 @@ export class RecallStore {
         snapshot.candidates[index] = candidate;
         restored.push(candidate);
       }
-      const journal = authorization && requested.length === 1
-        ? await prepareMemoryMutationJournal(
-            this.journalPath,
-            memoryMutationJournalInput({
-              operation: authorization.proof.operation,
-              recordRef: requested[0]!,
-              transactionId: authorization.transactionId,
-              proposalDigest: authorization.proposal.proposalDigest,
-              content: recallCandidateRevisionContent(restored[0]!),
-              workspaceId: this.requiredWorkspaceId(),
-              scope: restored[0]!.scope,
-              expectedRevision: authorization.proposal.expectedRevision,
-              proposalId: authorization.proposal.proposalId,
-              proposal: authorization.proposal,
-              proof: authorization.proof,
-            }),
-          )
-        : undefined;
+      const journal =
+        authorization && requested.length === 1
+          ? await prepareMemoryMutationJournal(
+              this.journalPath,
+              memoryMutationJournalInput({
+                operation: authorization.proof.operation,
+                recordRef: requested[0]!,
+                transactionId: authorization.transactionId,
+                proposalDigest: authorization.proposal.proposalDigest,
+                content: recallCandidateRevisionContent(restored[0]!),
+                workspaceId: this.requiredWorkspaceId(),
+                scope: restored[0]!.scope,
+                expectedRevision: authorization.proposal.expectedRevision,
+                proposalId: authorization.proposal.proposalId,
+                proposal: authorization.proposal,
+                proof: authorization.proof,
+              }),
+            )
+          : undefined;
       await this.saveSnapshot(snapshot);
       if (journal) await markMemoryMutationPersisted(this.journalPath, journal);
       for (const finalize of finalizers) await finalize();
@@ -444,10 +446,13 @@ export class RecallStore {
     await recoverMemoryMutationJournal(this.journalPath, this.options.verifier, async (journal) => {
       const snapshot = await this.loadSnapshot();
       const candidate = snapshot.candidates.find((item) => item.id === journal.recordRef);
-      return candidate !== undefined && assertMemoryMutationJournalTarget(
-        { recordRef: candidate.id, ...candidate.lifecycle },
-        recallCandidateRevisionContent(candidate),
-        journal,
+      return (
+        candidate !== undefined &&
+        assertMemoryMutationJournalTarget(
+          { recordRef: candidate.id, ...candidate.lifecycle },
+          recallCandidateRevisionContent(candidate),
+          journal,
+        )
       );
     });
   }

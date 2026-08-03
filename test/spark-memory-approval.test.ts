@@ -569,12 +569,18 @@ test("persisted mutation recovers after ledger commit failure without duplicate 
     };
     assert.equal(journal.state, "persisted");
     assert.equal(journal.transactionId, approval.transactionId);
-    const journalPayload = JSON.parse(await readFile(journalPath, "utf8")) as Record<string, unknown>;
+    const journalPayload = JSON.parse(await readFile(journalPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
     await writeFile(
       journalPath,
       JSON.stringify({
         ...journalPayload,
-        proposal: { ...(journalPayload.proposal as Record<string, unknown>), contentDigest: "0".repeat(64) },
+        proposal: {
+          ...(journalPayload.proposal as Record<string, unknown>),
+          contentDigest: "0".repeat(64),
+        },
       }),
       "utf8",
     );
