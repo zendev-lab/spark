@@ -17,6 +17,32 @@ test("daemon headless loader resolves the real worker module and provider depend
   assert.equal(typeof headless.createSparkHeadlessSessionExecutor, "function");
 });
 
+test("runSparkHeadlessSession streams events without retaining a duplicate event array", async () => {
+  let streamedCount = 0;
+  const streamed = await runSparkHeadlessSession(
+    {
+      cwd: process.cwd(),
+      sessionId: "session-streamed-events",
+      prompt: "stream",
+      onEvent: () => {
+        streamedCount += 1;
+      },
+    },
+    { createServices: async () => eventfulHeadlessServices(10_000) as never },
+  );
+
+  assert.equal(streamedCount, 10_000);
+  assert.equal(streamed.eventsStreamed, true);
+  assert.deepEqual(streamed.jsonEvents, []);
+
+  const buffered = await runSparkHeadlessSession(
+    { cwd: process.cwd(), sessionId: "session-buffered-events", prompt: "buffer" },
+    { createServices: async () => eventfulHeadlessServices(3) as never },
+  );
+  assert.equal(buffered.eventsStreamed, undefined);
+  assert.equal(buffered.jsonEvents.length, 3);
+});
+
 test("runSparkHeadlessSession times out a never-resolving agent turn", async () => {
   const unsubscribed: string[] = [];
   let abortedReason: string | undefined;
@@ -487,6 +513,28 @@ function terminalOutcome(assistant: ReturnType<typeof terminalAssistant>): Spark
         roundtrips: 0,
         errorMessage: assistant.errorMessage,
       };
+}
+
+function eventfulHeadlessServices(eventCount: number) {
+  let listener: ((event: never) => void) | undefined;
+  const base = headlessServices(async () => {
+    for (let index = 0; index < eventCount; index += 1) {
+      listener?.({ type: "runtime_message", item: { index } } as never);
+    }
+    return successfulOutcome("done");
+  });
+  return {
+    ...base,
+    agentLoop: {
+      ...base.agentLoop,
+      onEvent: (next: (event: never) => void) => {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+    },
+  };
 }
 
 function headlessServices(submitWithOutcome: () => Promise<SparkRunOutcome>) {

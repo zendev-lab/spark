@@ -122,6 +122,9 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
         preview: os.invocation.retention.preview.handler(async ({ input: params }) =>
           invoke("invocation.retention.preview", params),
         ),
+        apply: os.invocation.retention.apply.handler(async ({ input: params }) =>
+          invoke("invocation.retention.apply", params),
+        ),
       },
     },
     driver: {
