@@ -1279,6 +1279,10 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkLocalRpcToolExecutionBaseInputSchema,
     output: sparkLocalRpcToolExecutionResultSchema,
   },
+  "lens.execute": {
+    input: sparkLocalRpcToolExecutionBaseInputSchema,
+    output: sparkLocalRpcToolExecutionResultSchema,
+  },
   "channel.status": { input: workspaceIdInputSchema, output: sparkLocalRpcChannelStatusSchema },
   "channel.configure": {
     input: z.object({
@@ -1600,6 +1604,9 @@ export const sparkLocalRpcOrpcContract = {
   },
   git: {
     execute: procedure("POST", "/git/execute", p["git.execute"]),
+  },
+  lens: {
+    execute: procedure("POST", "/lens/execute", p["lens.execute"]),
   },
   channel: {
     status: procedure(

@@ -115,9 +115,14 @@ const toolExecutionInvokers = {
       sparkLocalRpcProcedureSchemas["git.execute"].output,
       client.git.execute(input, options),
     ),
+  "lens.execute": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["lens.execute"].output,
+      client.lens.execute(input, options),
+    ),
 } satisfies Pick<
   SparkDaemonOrpcProcedureInvokerMap,
-  "file.execute" | "artifact.execute" | "git.execute"
+  "file.execute" | "artifact.execute" | "git.execute" | "lens.execute"
 >;
 
 const daemonChannelTurnInvokers = {

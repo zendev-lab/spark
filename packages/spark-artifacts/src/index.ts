@@ -1160,3 +1160,5 @@ export {
   registerSparkGitLifecycleTool,
   type GitLifecycleExtensionApi,
 } from "./git/extension.ts";
+
+export { requireCurrentLensPass } from "./git/verification-gate.ts";

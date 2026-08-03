@@ -87,6 +87,9 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
     git: {
       execute: os.git.execute.handler(async ({ input: params }) => invoke("git.execute", params)),
     },
+    lens: {
+      execute: os.lens.execute.handler(async ({ input: params }) => invoke("lens.execute", params)),
+    },
     channel: {
       status: os.channel.status.handler(async ({ input: params }) =>
         invoke("channel.status", params),

@@ -7,12 +7,13 @@ import {
   createReadToolConfig,
   createWriteToolConfig,
 } from "@zendev-lab/spark-files";
+import { executeDaemonLensTool } from "../../lens/tool.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
 import type { LocalRpcServiceOutput, LocalRpcServiceRequest } from "../types.ts";
 
 type ToolExecutionRequest = Extract<
   LocalRpcServiceRequest,
-  { method: "file.execute" | "artifact.execute" | "git.execute" }
+  { method: "file.execute" | "artifact.execute" | "git.execute" | "lens.execute" }
 >;
 
 const fileTools = new Map(
@@ -49,7 +50,7 @@ const operationResults = new Map<
 const MAX_OPERATION_RESULTS = 1_000;
 
 export async function handleToolExecutionRequest(
-  _context: LocalRpcDispatchContext,
+  context: LocalRpcDispatchContext,
   request: ToolExecutionRequest,
 ): Promise<LocalRpcServiceOutput<ToolExecutionRequest>> {
   const signature = JSON.stringify({
@@ -70,15 +71,19 @@ export async function handleToolExecutionRequest(
     return await existing.result;
   }
 
-  const result = executeToolRequest(request);
+  const result = executeToolRequest(context, request);
   operationResults.set(request.params.operationId, { signature, result });
   trimOperationResults();
   return await result;
 }
 
 async function executeToolRequest(
+  context: LocalRpcDispatchContext,
   request: ToolExecutionRequest,
 ): Promise<LocalRpcServiceOutput<ToolExecutionRequest>> {
+  if (request.method === "lens.execute") {
+    return await executeDaemonLensTool(request, context.db);
+  }
   const config =
     request.method === "file.execute"
       ? fileTools.get(request.params.tool)

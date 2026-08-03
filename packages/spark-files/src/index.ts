@@ -34,5 +34,6 @@ export {
   type TruncationResult,
 } from "./truncate.ts";
 export { pathExists, resolveReadPath, resolveReadPathSync, resolveToCwd } from "./path-utils.ts";
+export { resolveArtifactFileRoot } from "./artifact-root.ts";
 export { walkTree, type WalkEntry, type WalkOptions } from "./gitignore-walker.ts";
 export type { ToolExecResult, ToolTextContent } from "./shared.ts";

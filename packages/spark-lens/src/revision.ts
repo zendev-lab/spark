@@ -50,6 +50,7 @@ async function hashUntrackedFiles(workspaceRoot: string): Promise<string> {
     "ls-files",
     "--others",
     "--exclude-standard",
+    "--exclude=.spark/**",
     "-z",
   ]);
   const paths = output

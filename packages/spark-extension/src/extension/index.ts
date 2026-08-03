@@ -68,6 +68,7 @@ import {
   type ReviewerRunner,
 } from "./reviewer-runner.ts";
 import { registerSparkReflectionCommands } from "./reflection-in-session-scheduler.ts";
+import { createSparkLensToolConfig } from "./spark-lens-tool.ts";
 import { createTaskArtifactHandler } from "./spark-task-artifact.ts";
 import { sparkActiveLensPhase } from "./spark-drive-state.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
@@ -299,6 +300,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkWorkflowRunTool(registerSparkTool, { refreshSparkWidget });
 
   registerSparkAskTools(registerSparkImplementationTool);
+  registerSparkImplementationTool(createSparkLensToolConfig());
 
   if (pi.registerTool) {
     const genericToolRegistrar = {

@@ -6645,6 +6645,13 @@ test("active session goal keeps canonical ask but disables raw ask tools before 
   }
 });
 
+test("lens is registered internally and remains inactive by default", () => {
+  const run = registerSparkToolsForTest();
+
+  assert.ok(run.tools.has("lens"));
+  assert.ok(!run.getActiveToolNames().includes("lens"));
+});
+
 test("active session goal preserves tools disabled by other extensions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-goal-preserve-disabled-"));
   try {
