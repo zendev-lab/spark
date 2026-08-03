@@ -290,6 +290,10 @@ test("SparkNativeTuiApp labels daemon-owned admission and queue state explicitly
 
   await session.submit("first", { submissionId: "idem_render_first" });
   await new Promise((resolve) => setImmediate(resolve));
+  const singleTurnRendered = stripAnsi(app.render(120).join("\n"));
+  assert.doesNotMatch(singleTurnRendered, /Daemon turn queue/u);
+  assert.doesNotMatch(singleTurnRendered, /daemon queued · first/u);
+
   await session.submit("second", {
     mode: "followUp",
     submissionId: "idem_render_second",
@@ -298,9 +302,9 @@ test("SparkNativeTuiApp labels daemon-owned admission and queue state explicitly
   await new Promise((resolve) => setImmediate(resolve));
 
   const rendered = stripAnsi(app.render(120).join("\n"));
-  assert.match(rendered, /queue steer=0 follow-up=0 daemon=2/u);
-  assert.match(rendered, /◆ Daemon turn queue · admitting 0 · admitted 2/u);
-  assert.match(rendered, /daemon queued · first/u);
+  assert.match(rendered, /queue steer=0 follow-up=0 daemon=1/u);
+  assert.match(rendered, /◆ Daemon turn queue · admitting 0 · waiting 1/u);
+  assert.doesNotMatch(rendered, /daemon queued · first/u);
   assert.match(rendered, /daemon queued · second/u);
   assert.match(rendered, /daemon owns execution · Esc cancels the active invocation/u);
   assert.match(rendered, /Enter queue next • Esc cancel active/u);
@@ -666,6 +670,37 @@ test("SparkNativeTuiApp dispatches app keybindings before editor input", async (
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(picked, 1);
+});
+
+test("SparkNativeTuiApp contains async keybinding failures and stays interactive", async () => {
+  const session = new SparkNativeSession();
+  const keybindings = new SparkKeybindings();
+  let attempts = 0;
+  keybindings.register({
+    id: "app.thinking.cycle",
+    defaultKey: "shift+tab",
+    description: "Cycle thinking level",
+    handler: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new Error("Spark daemon is not reachable: connect ENOENT daemon.sock");
+      }
+    },
+  });
+  const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined, { keybindings });
+
+  app.handleInput("\x1b[Z");
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(attempts, 1);
+  assert.match(
+    stripAnsi(app.render(100).join("\n")),
+    /Shortcut action failed: Spark daemon is not reachable: connect ENOENT daemon\.sock/u,
+  );
+
+  app.handleInput("\x1b[Z");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(attempts, 2);
 });
 
 test("SparkNativeTuiApp installs Ctrl+O/Ctrl+T and cockpit keybindings", async () => {

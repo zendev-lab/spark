@@ -2,7 +2,7 @@
 description: "spark：以 Pi SDK 为内核，统一 TUI / Cockpit / 消息平台的本地智能开发编排"
 owner: zrr1999
 created: 2026-05-18
-updated: 2026-07-31
+updated: 2026-08-03
 inspired_by:
   - pi-sdk
   - cue-shell
@@ -29,6 +29,7 @@ inspired_by:
 ## 目标
 
 - 以 daemon 为持久会话与调用调度真源；TUI、Cockpit、消息通道、本地 RPC 共用一套 registry 与 invocation，不维护并行会话状态机。
+- 以 Spark Hub 作为同一 Hub 内跨 workspace 的逻辑协调真源；Hub 持有 registry、委托状态、投递幂等、审计和有限回执，目标 daemon/workspace 始终持有执行、工具副作用与本地成果真相，Cockpit 只负责呈现和收集决策。
 - 本地 daemon 控制面以 `spark-protocol` 类型化契约和 oRPC 为唯一主路径；兼容传输只翻译旧 wire，不拥有业务语义或状态。
 - 以 daemon 为 `goal | loop | repro | workflow` 定时驱动的唯一自治运行时；计时、generation、重试、恢复和 fresh 隐藏执行均进入 SQLite 与现有 invocation scheduler，前端只发控制命令并展示投影。`implement` 阶段与 session TODO 延续由 `spark-extension` 的受限 `agent_end` hook 协调，每个用户输入周期至多追加一次 follow-up，不进入 daemon tick。
 - 在 `spark-protocol` 中沉淀跨表面交互协议（ask 判定、slash/action catalog、session status / pending turns、可展示错误），各表面只保留呈现与执行胶水。
@@ -64,6 +65,7 @@ inspired_by:
 - 不引入独立 Workstream aggregate，不在 Spark 内复制可写 PR 拓扑；`gh stack` 是 GitHub stack 的唯一可写 topology authority。
 - 不用 Temporal、Restate、Inngest 等外部 durable engine 替换当前 daemon/SQLite 调度真相；只有隔离实验能证明本地 step journal 无法满足需求时才重新评估。
 - 不实现 root 跨 Unix 用户 supervisor；多用户部署采用每个 Unix 用户独立运行一个 Spark daemon。
+- Hub v1 不实现 `WorkspaceLink`、Artifact 复制/导入、直接控制目标 session 或跨 Hub Federation；同 Hub 默认互信只授予路由能力，目标主 session 仍可追问或拒绝。
 
 ## 成功信号
 
@@ -76,6 +78,8 @@ inspired_by:
 - CI failure、review comment 与 merge conflict 能以幂等反馈事件回到创建该 change/PR 的原 session，并带可审查 evidence，而不是要求用户手工复制终端输出。
 - 用户能以一个 `git_change` Artifact 查看、提交、同步并保守清理一个完整 PR stack；默认创建 draft PR，不产生重复进度评论或“stacked/tested”样板文本。
 - Project-bound 命令、任务图、ask、roles、cue 的既有成功信号仍成立，并通过测试与 `vp check` / `prek` 守门。
+- 每个活跃 workspace 都有唯一、重启稳定且禁止普通归档的 `workspace_main` session；跨 workspace 文本以不可信外部输入进入目标主 session，只有结构化 `delegation({ action })` 事件能推进委托状态。
+- 两个同 Hub workspace 可完成 create → delivery → ask/reply → complete/reject/cancel 闭环；离线恢复复用原消息幂等键，最多四跳且拒绝 workspace 循环，回执仅公开目标 `artifact:` refs 与有限验证摘要。
 
 ## 当前开放问题
 
@@ -97,6 +101,7 @@ inspired_by:
 - 会话队列双层收敛：TUI 乐观层 ↔ daemon `pendingTurns` 真相；Cockpit 继续只投影 daemon。
 - 自治 driver 硬切完成后，以它替代 marrow-core 的核心运行时；systemd 安装、自检/doctor、独立更新器、外部服务托管、profile 导入完善与日志保留作为非阻塞运维 TODO，且不得形成第二个运行时 owner。
 - `memory` owns durable scoped memory, recall candidates (`recall` tool), the `LearningStore` / `learning` tool, and reflection pipelines (`.spark/memory/reflections/`).
+- Hub v1 先留在现有 `spark-cockpit-coordination` / `spark-cockpit-db` owner 内：完成逻辑 Hub CLI、workspace 主 session、委托协议/状态机/outbox、Cockpit 委托视图和旧 Cockpit CLI 迁移提示；物理 package/数据库目录改名作为独立迁移。
 
 ## 修订记录
 
@@ -119,3 +124,4 @@ inspired_by:
 - 2026-07-23：将 goal/loop/repro/implement/workflow/session TODO 的计时、generation、重试、恢复与 fresh continuity 硬切到 daemon；确定每个 Unix 用户独立 daemon，并将 marrow-core 的非核心运维便利能力转为 Spark TODO。
 - 2026-07-27：确定本地 RPC 以类型化 oRPC 为主路径，并以已发布 0.1.x 兼容验证作为 0.2 删除 `daemon.sock` 的退出门禁。
 - 2026-07-31：将 Git 工作流内化为 `git_change` Artifact（一个 worktree + 一个原生 PR stack），Task 增加耐久 `artifactRefs`，Document 取代 preview kind；不引入 Workstream，封存 Graft 为 opt-in。
+- 2026-08-03：交付 Spark Hub v1 同 Hub 跨 workspace 智能委托：新增受保护的 workspace 主 session、类型化 delegation 工具与事件、Hub SQLite 状态机/幂等 outbox/Artifact 所属校验、`spark hub` CLI 及 Cockpit 委托视图；不新增 package，不做 WorkspaceLink、Artifact 导入或 Federation。

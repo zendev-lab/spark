@@ -7,6 +7,7 @@ export interface SparkNativeRenderedSections {
   detailActive?: boolean;
   auxiliary?: readonly string[];
   transcript: readonly string[];
+  pinnedStatus?: readonly string[];
   queue?: readonly string[];
   composer: readonly string[];
   footer: readonly string[];
@@ -34,12 +35,13 @@ export function composeSparkNativeFrame(input: SparkNativeLayoutInput): string[]
   const detail = input.sections.detailActive ? clean(input.sections.detail) : [];
   const auxiliary = clean(input.sections.auxiliary);
   const transcript = clean(input.sections.transcript);
+  const pinnedStatus = clean(input.sections.pinnedStatus);
   const queue = clean(input.sections.queue);
   const composer = clean(input.sections.composer);
   const footer = clean(input.sections.footer);
   const runtimeFooter = clean(input.sections.runtimeFooter);
 
-  const bottom = allocateBottom({ composer, footer, runtimeFooter, height });
+  const bottom = allocateBottom({ pinnedStatus, composer, footer, runtimeFooter, height });
   let remaining = height - bottom.length;
   const top = [...header, ...context].slice(0, remaining);
   remaining -= top.length;
@@ -51,26 +53,41 @@ export function composeSparkNativeFrame(input: SparkNativeLayoutInput): string[]
   const extras = allocateExtras({ detail, auxiliary, queue, budget: remaining });
   remaining -= extras.length;
   const olderVisible = olderTranscript.slice(-remaining);
+  const upper = [...top, ...extras, ...olderVisible, ...latestTranscript];
+  const padding = input.sections.detailActive
+    ? []
+    : Array.from({ length: Math.max(0, height - upper.length - bottom.length) }, () => "");
 
-  return [...top, ...extras, ...olderVisible, ...latestTranscript, ...bottom].slice(-height);
+  return [...upper, ...padding, ...bottom].slice(-height);
 }
 
 function allocateBottom(input: {
+  pinnedStatus: string[];
   composer: string[];
   footer: string[];
   runtimeFooter: string[];
   height: number;
 }): string[] {
   if (input.height <= 0) return [];
-  const complete = [...input.composer, ...input.footer, ...input.runtimeFooter];
+  const complete = [
+    ...input.pinnedStatus,
+    ...input.composer,
+    ...input.footer,
+    ...input.runtimeFooter,
+  ];
   if (complete.length <= input.height) return complete;
 
+  // The composer is the only indispensable surface. Keep its active line first,
+  // then controls/runtime identity, and use the remaining rows for the leading
+  // durable status projection (session, Goal/Phase, workflows, and projects).
   const composer = input.composer.length > 0 ? input.composer.slice(-1) : [];
   let remaining = input.height - composer.length;
   const footer = input.footer.slice(0, remaining);
   remaining -= footer.length;
   const runtimeFooter = input.runtimeFooter.slice(0, remaining);
-  return [...composer, ...footer, ...runtimeFooter];
+  remaining -= runtimeFooter.length;
+  const pinnedStatus = input.pinnedStatus.slice(0, remaining);
+  return [...pinnedStatus, ...composer, ...footer, ...runtimeFooter];
 }
 
 function allocateExtras(input: {

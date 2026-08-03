@@ -15,6 +15,7 @@ import {
   sparkDaemonServerStatusSummaries,
 } from "./store/workspaces.ts";
 import type { MessageContext, ServerSocket } from "./daemon-runtime-contract.ts";
+import { getWorkspaceMainSession } from "./workspace-main-session.ts";
 
 export function commandRoute(
   runtimeId: string,
@@ -57,6 +58,7 @@ export function workspaceSnapshotPayloadForDaemon(
   workspace: NonNullable<ReturnType<typeof getWorkspaceById>>,
 ): Parameters<typeof workspaceSnapshot>[0] {
   const mutationBlocked = isMutationBlockingBorrowedWorkspace(db, workspace.id);
+  const mainSession = getWorkspaceMainSession(db, workspace.id);
   return {
     displayName: workspace.displayName,
     status: workspace.status,
@@ -67,6 +69,9 @@ export function workspaceSnapshotPayloadForDaemon(
     ...(workspace.borrowed ? { borrowed: workspace.borrowed } : {}),
     workspaceClients: workspace.workspaceClients ?? [],
     ...(workspace.executor ? { executor: workspace.executor } : {}),
+    ...(mainSession
+      ? { mainSession: { sessionId: mainSession.sessionId, generation: mainSession.generation } }
+      : {}),
     control: {
       mode: mutationBlocked ? "snapshot_only" : "full",
       ...(mutationBlocked ? { reason: "borrowed" } : {}),

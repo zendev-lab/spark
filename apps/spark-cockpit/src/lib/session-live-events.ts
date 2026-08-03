@@ -477,6 +477,8 @@ const daemonEventHandlers = {
   "daemon.interaction.request": refreshActivityForDaemonEvent,
   "daemon.interaction.response": refreshActivityForDaemonEvent,
   "daemon.artifact.projected": refreshActivityForDaemonEvent,
+  "daemon.delegation.requested": refreshActivityForDaemonEvent,
+  "daemon.delegation.responded": refreshActivityForDaemonEvent,
 } satisfies { [K in DaemonEventType]: DaemonEventHandler<K> };
 
 const viewEventHandlers = {

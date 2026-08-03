@@ -199,6 +199,65 @@ export interface RuntimeWorkspaceBindingsTable {
   last_snapshot_at: string | null;
   created_at: string;
   updated_at: string;
+  main_session_id: string | null;
+  main_session_generation: number | null;
+}
+
+export interface WorkspaceDelegationsTable {
+  id: string;
+  source_workspace_id: string;
+  target_workspace_id: string;
+  goal: string;
+  constraints_json: string;
+  requested_role: string | null;
+  actor_kind: "hub_owner" | "workspace_main_session";
+  actor_id: string;
+  actor_session_id: string | null;
+  lineage_json: string;
+  hop_count: number;
+  idempotency_key: string;
+  status:
+    | "queued"
+    | "retry_wait"
+    | "delivering"
+    | "running"
+    | "awaiting_source"
+    | "cancelling"
+    | "completed"
+    | "rejected"
+    | "failed"
+    | "cancelled";
+  version: number;
+  next_message_sequence: number;
+  target_session_id: string | null;
+  target_session_generation: number | null;
+  target_invocation_id: string | null;
+  receipt_json: string | null;
+  failure_code: string | null;
+  failure_message: string | null;
+  created_at: string;
+  updated_at: string;
+  terminal_at: string | null;
+}
+
+export interface WorkspaceDelegationMessagesTable {
+  delegation_id: string;
+  sequence: number;
+  kind: "request" | "question" | "reply" | "receipt" | "cancel";
+  from_workspace_id: string;
+  to_workspace_id: string;
+  payload_json: string;
+  runtime_control_command_id: string | null;
+  delivery_status:
+    | "queued"
+    | "delivered"
+    | "accepted"
+    | "succeeded"
+    | "failed"
+    | "rejected"
+    | "cancelled";
+  created_at: string;
+  updated_at: string;
 }
 
 export interface RuntimeMessageReceiptsTable {
@@ -514,6 +573,8 @@ export interface SparkDatabase {
   runtime_device_authorizations: RuntimeDeviceAuthorizationsTable;
   runtime_sessions: RuntimeSessionsTable;
   runtime_workspace_bindings: RuntimeWorkspaceBindingsTable;
+  workspace_delegations: WorkspaceDelegationsTable;
+  workspace_delegation_messages: WorkspaceDelegationMessagesTable;
   runtime_message_receipts: RuntimeMessageReceiptsTable;
   workspace_leases: WorkspaceLeasesTable;
   workspace_profile_sources: WorkspaceProfileSourcesTable;

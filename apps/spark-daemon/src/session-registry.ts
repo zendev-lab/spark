@@ -37,6 +37,7 @@ export interface DaemonSessionRegistry {
   ): Promise<SparkSessionRegistryRecord>;
   archive(input: string | ArchiveSparkSessionInput): Promise<SparkSessionRegistryRecord>;
   restore?(sessionId: SparkSessionGetRequest["sessionId"]): Promise<SparkSessionRegistryRecord>;
+  ensureWorkspaceMain(workspaceId: string): Promise<SparkSessionRegistryRecord>;
   setRoleIfMissing?(sessionId: string, role: string): Promise<SparkSessionRegistryRecord>;
   /** @deprecated Compatibility alias for older daemon collaborators. */
   setTitleIfMissing?(sessionId: string, title: string): Promise<SparkSessionRegistryRecord>;
@@ -119,6 +120,7 @@ export function createSerializedDaemonSessionRegistry(
     ...(registry.restore
       ? { restore: (sessionId: string) => mutate(() => registry.restore!(sessionId)) }
       : {}),
+    ensureWorkspaceMain: (workspaceId) => mutate(() => registry.ensureWorkspaceMain(workspaceId)),
     ...(registry.setRoleIfMissing
       ? {
           setRoleIfMissing: (sessionId: string, role: string) =>
@@ -162,6 +164,16 @@ export function createDaemonSessionRegistry(
       await registry.unbind(sessionId, externalKey, adapterAccountIdentity),
     archive: async (input) => await registry.archive(input),
     restore: async (sessionId) => await registry.restore(sessionId),
+    ensureWorkspaceMain: async (workspaceId) => {
+      const cwd = options.resolveWorkspaceCwd?.(workspaceId)?.trim();
+      if (options.resolveWorkspaceCwd && !cwd) {
+        throw new SparkSessionRegistryError(
+          "workspace_cwd_unavailable",
+          `workspace ${workspaceId} has no daemon-local execution directory`,
+        );
+      }
+      return await registry.ensureWorkspaceMain({ workspaceId, ...(cwd ? { cwd } : {}) });
+    },
     setRoleIfMissing: async (sessionId, role) =>
       await convergeRoleOwner(registry, options, sessionId, role),
     setTitleIfMissing: async (sessionId, title) =>

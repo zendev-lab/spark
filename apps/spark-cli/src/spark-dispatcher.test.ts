@@ -27,11 +27,16 @@ test("parseSparkDispatcherArgs routes canonical planes and rejects removed alias
   });
   const removedServer = parseSparkDispatcherArgs(["server", "status"]);
   assert.equal(removedServer.kind, "error");
-  assert.match(removedServer.kind === "error" ? removedServer.message : "", /spark cockpit/u);
+  assert.match(removedServer.kind === "error" ? removedServer.message : "", /spark hub/u);
   assert.deepEqual(parseSparkDispatcherArgs(["cockpit", "--port", "5174"]), {
     kind: "dispatch",
     target: "cockpit",
     argv: ["--port", "5174"],
+  });
+  assert.deepEqual(parseSparkDispatcherArgs(["hub", "delegation", "list"]), {
+    kind: "dispatch",
+    target: "hub",
+    argv: ["delegation", "list"],
   });
   assert.deepEqual(parseSparkDispatcherArgs(["acp"]), {
     kind: "dispatch",
@@ -170,6 +175,9 @@ test("dispatcher resolves source companion executables without importing app CLI
   const cockpit = resolveTargetCommand("cockpit");
   assert.match(cockpit.command, /apps\/spark-cockpit\/bin\/spark-cockpit$/u);
   assert.deepEqual(cockpit.args, []);
+  const hub = resolveTargetCommand("hub");
+  assert.match(hub.command, /apps\/spark-cockpit\/bin\/spark-cockpit$/u);
+  assert.deepEqual(hub.args, ["hub"]);
   const acp = resolveTargetCommand("acp");
   assert.match(acp.command, /packages\/spark-acp\/scripts\/stdio\.ts$/u);
   assert.deepEqual(acp.args, []);
@@ -179,7 +187,9 @@ test("dispatcher resolves source companion executables without importing app CLI
 });
 
 test("spark-cli package depends only on shared libraries", () => {
-  const manifest = JSON.parse(readFileSync("apps/spark-cli/package.json", "utf8")) as {
+  const manifest = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  ) as {
     dependencies?: Record<string, string>;
   };
   for (const dependency of Object.keys(manifest.dependencies ?? {})) {
@@ -218,7 +228,10 @@ test("runSparkDispatcher fails fast for non-TTY TUI while preserving canonical h
     },
   };
   const launcher = {
-    run: async (target: "tui" | "daemon" | "cockpit" | "acp" | "update", argv: string[]) => {
+    run: async (
+      target: "tui" | "daemon" | "hub" | "cockpit" | "acp" | "update",
+      argv: string[],
+    ) => {
       calls.push({ target, argv });
       return 0;
     },

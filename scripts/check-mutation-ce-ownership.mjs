@@ -90,7 +90,8 @@ export function validateMutationOwnership({
       const config = readJson(configPath);
       if (config.testRunner !== "vitest" || !Array.isArray(config.mutate) || !config.mutate.length)
         errors.push(name + " Stryker config must use Vitest with explicit mutate paths");
-      const files = walk(join(root, entry.path));
+      const packageRoot = join(root, entry.path);
+      const files = walk(join(packageRoot, "src"), packageRoot);
       const positiveMutate = (config.mutate ?? []).filter((value) => !value.startsWith("!"));
       if (!positiveMutate.some((pattern) => files.some((file) => globRegex(pattern).test(file))))
         errors.push(name + " mutate paths match no workspace files");

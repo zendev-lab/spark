@@ -27,7 +27,12 @@ export function isSelectableSparkSession(session: SparkSessionRegistryRecord): b
 }
 
 function isUserFacingWorkspaceSession(session: SparkSessionRegistryRecord): boolean {
-  return session.scope.kind === "workspace" && session.relation?.kind !== "task_execution";
+  return (
+    session.scope.kind === "workspace" &&
+    session.relation?.kind !== "task_execution" &&
+    session.role?.trim() !== "role:builtin-worker" &&
+    session.title?.trim() !== "role:builtin-worker"
+  );
 }
 
 const plain = (text: string): string => text;

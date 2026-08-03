@@ -11,17 +11,20 @@ spark <plane> <resource> <verb> [args...]
 | Namespace | Role | Owns | Does not own |
 | --- | --- | --- | --- |
 | `spark daemon` | daemon execution plane | persistent sessions, channel listeners, SQLite invocations, autonomous driver timing/retry/recovery, events, logs, process state | domain goal/review/task definitions |
-| `spark cockpit` | coordination plane and web UI host | project, task, goal, review, evidence, workflow, workspace coordination, assign, and Cockpit UI | daemon execution or autonomous timers, local process logs, TUI rendering |
+| `spark hub` | logical coordination plane | workspace registry, cross-workspace delegation state, delivery outbox, idempotency, audit, and bounded receipts | target execution state, local repositories, internal evidence bodies, or UI state |
+| `spark cockpit` | Web presentation host | Cockpit Web lifecycle and presentation-local state | coordination policy, authorization, daemon execution, or autonomous timers |
 | `spark tui` | tui local control plane | interactive terminal UI, attach/resume, visible transcript, theme, export | canonical business-state ownership |
 | `spark acp` | ACP stdio adapter | protocol translation for new/prompt/cancel/permission | durable sessions, invocations, provider policy, or execution truth |
 | slash `system` | TUI kernel command source | `/help`, `/exit`, `/quit`, `/clear`, `/reload` | project/task/goal/session/workflow commands |
 | slash `extension` | extension command source | extension-owned resource commands | TUI kernel lifecycle |
 
-`spark cockpit` is both the coordination CLI and the web UI host; it is not a second daemon execution plane. `spark acp` is a stateless adapter: its session id is the canonical daemon session id and only connection-local active-invocation routing is retained.
+Hub is currently a logical module inside the existing Cockpit coordination/database owners; this first version deliberately does not rename package or database paths and does not add a workspace package. Cockpit consumes Hub queries and commands as one replaceable human client. Legacy `spark cockpit` coordination commands remain hidden aliases for one version and print a migration hint; they do not define the canonical command placement.
+
+`spark acp` is a stateless adapter: its session id is the canonical daemon session id and only connection-local active-invocation routing is retained.
 
 ## Boundary invariants
 
-- Every stateful domain has exactly one authoritative owner. `packages/spark-cockpit-coordination` owns server coordination plus Cockpit query/projection APIs, but its projections are never execution truth for tasks, runs, artifacts, asks, reviews, or invocations.
+- Every stateful domain has exactly one authoritative owner. The Hub modules in `packages/spark-cockpit-coordination` and `packages/spark-cockpit-db` own cross-workspace coordination facts, but their projections are never execution truth for tasks, runs, artifacts, asks, reviews, or invocations.
 - Transports and app adapters translate through owner APIs; they do not duplicate execution or policy, and they must not read or write another owner's store. Typed oRPC is the primary local control path; the 0.1.x `daemon.sock` adapter only preserves N-1 wire compatibility and receives no new product behavior. Cockpit may cache or project Spark state, but it must not mutate local Spark stores directly.
 - Reusable capability and runtime behavior belongs in `packages/spark-*`; executable apps retain bootstrap, presentation, and compatibility glue. Boundary regressions are enforced by the dependency-cruiser stage of `pnpm run check`.
 
@@ -34,6 +37,7 @@ spark <plane> <resource> <verb> [args...]
 | model/tool turn execution and effect policy | `spark-turn` and `spark-host` | daemon and native host runners provide session context |
 | cross-surface schemas and semantics | `spark-protocol` | each transport performs validation and translation only |
 | projects, tasks, goals, reviews, workflows, and evidence coordination | `spark-cockpit-coordination` and the capability package named for the domain | Cockpit routes and UI are replaceable projections |
+| cross-workspace delegation, routing, and bounded receipts | logical Hub modules in `spark-cockpit-coordination` / `spark-cockpit-db` | Cockpit and `spark hub`; target daemon retains execution truth |
 | terminal presentation and interaction | `apps/spark-tui` behind `spark-tui` / `spark-text` boundaries | no durable business-state ownership |
 | extension composition | `spark-extension` | compatible loaders may call the same host-neutral contract; no second facade owns behavior |
 
@@ -84,9 +88,19 @@ spark daemon invocation retention --before <iso-time> --limit 100 --json
 spark daemon channel status --json
 spark daemon events watch --json
 
-spark cockpit status --json
-spark cockpit task list --project <project-ref> --json
-spark cockpit assign --session <session-id> --goal "..." --json
+spark hub status --json
+spark hub workspace list --json
+spark hub delegation create --source <workspace> --target <workspace> --goal "..." --json
+spark hub delegation list --workspace <workspace> --json
+spark hub delegation show <delegation-id> --json
+spark hub delegation reply <delegation-id> --text "..." --json
+spark hub delegation cancel <delegation-id> --reason "..." --json
+spark hub access list --json
+spark hub instance status --json
+
+spark cockpit
+spark cockpit web start --json
+spark cockpit web status --json
 
 spark tui attach <session-id>
 spark tui --help
@@ -109,5 +123,22 @@ spark cockpit session create
 spark tui task list
 spark gateway ...
 ```
+
+## Workspace main sessions and delegation
+
+Each active daemon workspace has exactly one protected `workspace_main` session binding with a monotonic generation. Registration, daemon restart, and delivery admission all ensure the binding idempotently. Ordinary archive operations cannot remove it. A recovered binding gets a new generation and is projected to Hub; an ordinary session cannot create or settle a delegation by claiming the same workspace route.
+
+All same-Hub workspaces form the v1 routing trust domain. This permits delivery only: target main sessions still apply normal daemon tool permissions, Ask policy, and external-side-effect policy, and may ask or reject. Cross-Hub federation does not inherit same-Hub trust.
+
+The authoritative delegation states are:
+
+```text
+queued | retry_wait | delivering | running | awaiting_source | cancelling
+completed | rejected | failed | cancelled
+```
+
+Hub delivers each message through the existing runtime control outbox with one stable `delegationId + messageSequence` idempotency identity. Offline targets remain durable in `retry_wait`; replay cannot create a second target turn. Target completion requires the `delegation({ action })` tool to emit a structured `ask`, `complete`, or `reject` event. Assistant prose is audit text only and never changes Hub completion state. A source `reply` resumes the same delegation, while a running cancellation remains `cancelling` until the target daemon reports a terminal invocation.
+
+Receipts contain only a bounded summary, target-owned `artifact:` refs, and bounded verification summaries. Hub verifies each returned Artifact projection belongs to the target workspace and never exposes or aliases the target's internal evidence store. Delegation lineage permits at most four hops and rejects repeated workspaces, including self-delegation.
 
 State commands must provide stable `--json` output. Human-readable output is not an automation contract. CLI owns canonical placement; slash commands are interactive aliases. Zellij is an operator validation tool, never a runtime dependency.

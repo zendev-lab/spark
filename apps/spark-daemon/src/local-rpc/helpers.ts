@@ -82,6 +82,7 @@ export function sessionControlOptions(
     db,
     sessionRegistry: options.sessionRegistry,
     modelControl: options.modelControl,
+    onInvocationQueued: options.onInvocationQueued,
     actor: "spark-daemon-local-rpc" as const,
   };
 }

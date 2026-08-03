@@ -210,6 +210,12 @@ export const workspaceSnapshotPayloadSchema = z.object({
   borrowed: workspaceBorrowedStateSchema.optional(),
   workspaceClients: z.array(workspaceClientProjectionSchema).optional(),
   executor: executorClientProjectionSchema.optional(),
+  mainSession: z
+    .object({
+      sessionId: z.string().min(1),
+      generation: z.number().int().positive(),
+    })
+    .optional(),
   control: z
     .object({
       mode: z.enum(["full", "snapshot_only"]),
