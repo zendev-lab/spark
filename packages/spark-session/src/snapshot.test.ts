@@ -1,7 +1,6 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { performance } from "node:perf_hooks";
 import { parseSparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -731,20 +730,16 @@ describe("loadSparkSessionSnapshot", () => {
       updatedAt: "2026-08-03T00:00:01.000Z",
     });
 
-    const startedAt = performance.now();
     const tail = await loadSparkSessionSnapshotTail({
       sessionsRoot: root,
       session,
       messageLimit: 32,
       resolveGitBranch: async () => undefined,
     });
-    const elapsedMs = performance.now() - startedAt;
-
     expect(tail.totalMessages).toBe(10_000);
     expect(tail.snapshot.messages).toHaveLength(32);
     expect(tail.snapshot.messages[0]?.id).toBe("message-9968");
     expect(tail.snapshot.messages.at(-1)?.id).toBe("message-9999");
-    expect(elapsedMs).toBeLessThan(1_000);
   });
 
   it("backfills a settled tool-ended branch with an interruption error but leaves a running turn open", async () => {

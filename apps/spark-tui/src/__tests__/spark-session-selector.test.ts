@@ -190,7 +190,7 @@ test("Spark session selector uses the Cockpit fallback for untitled sessions", (
   );
 });
 
-test("Spark session selector replaces technical role refs with user-readable labels", () => {
+test("Spark session selector humanizes user-facing roles and hides task execution sessions", () => {
   const roleSession = {
     ...sessionRecord("technical-role", "role:builtin-worker", "2026-07-20T06:00:00.000Z"),
     role: "role:builtin-worker",
@@ -220,8 +220,10 @@ test("Spark session selector replaces technical role refs with user-readable lab
 
   const rendered = component.render(160).join("\n");
   assert.match(rendered, /Worker session/u);
-  assert.match(rendered, /Task execution · Worker/u);
+  assert.doesNotMatch(rendered, /Task execution/u);
+  assert.doesNotMatch(rendered, /task-execution/u);
   assert.doesNotMatch(rendered, /role:builtin-worker/u);
+  assert.equal(isSelectableSparkSession(taskExecution), false);
 });
 
 test("Spark session selector switches workspace groups horizontally", () => {

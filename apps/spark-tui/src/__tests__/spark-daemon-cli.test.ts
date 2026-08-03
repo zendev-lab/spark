@@ -3985,6 +3985,56 @@ test("Spark native responder streams daemon view events as assistant chunks", as
   );
 });
 
+test("Spark native responder can project complete message views without duplicate chunks", async () => {
+  const chunks: string[] = [];
+  const viewEvents: unknown[] = [];
+  const responder = createSparkDaemonNativeResponder(
+    {
+      turnSubmit: async () => ({
+        invocationId: "inv_view_projection",
+        status: "running" as const,
+        acceptedAt: "2026-06-19T00:00:00.000Z",
+      }),
+      turnStream: async () => ({
+        invocationId: "inv_view_projection",
+        events: [
+          {
+            invocationId: "inv_view_projection",
+            sequence: 1,
+            kind: "daemon.view_event",
+            payload: daemonViewEventFixture("assistant-view", "complete view"),
+            createdAt: "2026-06-19T00:00:00.000Z",
+          },
+        ],
+        nextCursor: 1,
+        hasMore: false,
+      }),
+      turnStatus: async () => ({
+        invocationId: "inv_view_projection",
+        sessionId: "native-session",
+        status: "succeeded" as const,
+        createdAt: "2026-06-19T00:00:00.000Z",
+        updatedAt: "2026-06-19T00:00:01.000Z",
+        finishedAt: "2026-06-19T00:00:01.000Z",
+        eventCursor: 1,
+      }),
+    },
+    {
+      sessionId: "native-session",
+      conversationProjection: "view-events",
+      onViewEvent: (event) => viewEvents.push(event),
+    },
+  );
+
+  const output = await responder("hello", {
+    appendAssistantChunk: (chunk) => chunks.push(chunk),
+  });
+
+  assert.equal(output, "");
+  assert.deepEqual(chunks, []);
+  assert.equal(viewEvents.length, 1);
+});
+
 test("Spark native responder pauses event polling for a visible interaction handler", async () => {
   const requests: string[] = [];
   let interactionFinished = false;

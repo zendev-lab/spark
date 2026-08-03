@@ -23,7 +23,11 @@ const ORPHAN_GROUP_KEY = "diagnostic:orphan-side-threads";
 
 /** Native selection exposes active workspace sessions only. */
 export function isSelectableSparkSession(session: SparkSessionRegistryRecord): boolean {
-  return session.status !== "archived" && session.scope.kind === "workspace";
+  return session.status !== "archived" && isUserFacingWorkspaceSession(session);
+}
+
+function isUserFacingWorkspaceSession(session: SparkSessionRegistryRecord): boolean {
+  return session.scope.kind === "workspace" && session.relation?.kind !== "task_execution";
 }
 
 const plain = (text: string): string => text;
@@ -325,7 +329,7 @@ function sessionSelectionGroups(
 
   const visibleSessions = options.sessions.filter(
     (session) =>
-      session.scope.kind === "workspace" && (includeArchived || session.status !== "archived"),
+      isUserFacingWorkspaceSession(session) && (includeArchived || session.status !== "archived"),
   );
   const orphans: SparkSessionSelectionItem[] = [];
   for (const workspace of workspaces) {
@@ -413,7 +417,7 @@ function isCreateSelection(selection: SparkSessionSelectorSelection): boolean {
 
 function archivedSessionCount(options: SparkSessionSelectorOptions): number {
   return options.sessions.filter(
-    (session) => session.scope.kind === "workspace" && session.status === "archived",
+    (session) => isUserFacingWorkspaceSession(session) && session.status === "archived",
   ).length;
 }
 
@@ -456,14 +460,9 @@ function sessionDisplayTitle(session: SparkSessionRegistryRecord): string {
   const title = session.title?.trim();
   if (!title) return UNTITLED_SESSION_LABEL;
   if (!title.startsWith("role:")) return title;
-  const roleRef =
-    session.relation?.kind === "task_execution"
-      ? session.relation.roleRef
-      : session.role?.trim() || title;
+  const roleRef = session.role?.trim() || title;
   const role = humanizeTechnicalRole(roleRef);
-  return session.relation?.kind === "task_execution"
-    ? `Task execution · ${role}`
-    : `${role} session`;
+  return `${role} session`;
 }
 
 function humanizeTechnicalRole(roleRef: string): string {

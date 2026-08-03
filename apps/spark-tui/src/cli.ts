@@ -1322,8 +1322,9 @@ async function runSparkCliTuiSelection(input: {
           workspaceId: sessionWorkspaceId,
           cwd: services.cwd,
           ensureSession: ensureCurrentSession,
+          conversationProjection: "view-events",
           onViewEvent: (event) => {
-            if (event.type === "run.update") pendingNativeUiTransport?.publishView?.(event);
+            pendingNativeUiTransport?.publishView?.(event);
           },
           onInteractionRequest: async (request, event, interactionContext) => {
             const interaction = pendingNativeUiTransport?.interaction;
