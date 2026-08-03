@@ -19,7 +19,9 @@ export {
 export {
   loadSparkSessionMediaChunk,
   loadSparkSessionSnapshot,
+  loadSparkSessionSnapshotTail,
   type LoadSparkSessionSnapshotInput,
+  type SparkSessionSnapshotTail,
 } from "./snapshot.ts";
 export {
   executePersistentSessionCall,

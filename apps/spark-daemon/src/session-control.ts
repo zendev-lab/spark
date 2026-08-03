@@ -34,6 +34,7 @@ import {
 import {
   loadSparkSessionMediaChunk,
   loadSparkSessionSnapshot,
+  loadSparkSessionSnapshotTail,
   SparkSessionRegistryError,
 } from "@zendev-lab/spark-session";
 import type { SparkPaths } from "@zendev-lab/spark-system";
@@ -141,14 +142,29 @@ export async function executeSparkDaemonSessionControl(
           "Spark daemon native session storage is not available.",
         );
       }
-      const snapshot = projectPendingSessionTurns(
-        options.db,
-        await loadSparkSessionSnapshot({
-          sessionsRoot: join(options.paths.piAgentDir, "sessions"),
-          session,
-        }),
-      );
-      const window = boundedSessionSnapshot(snapshot, parsed);
+      const snapshotInput = {
+        sessionsRoot: join(options.paths.piAgentDir, "sessions"),
+        session,
+      };
+      const window = parsed.beforeMessageId
+        ? boundedSessionSnapshot(
+            projectPendingSessionTurns(options.db, await loadSparkSessionSnapshot(snapshotInput)),
+            parsed,
+          )
+        : await (async () => {
+            const requestedLimit = parsed.messageLimit ?? defaultSessionSnapshotMessages;
+            const tail = await loadSparkSessionSnapshotTail({
+              ...snapshotInput,
+              messageLimit: requestedLimit,
+            });
+            const snapshot = projectPendingSessionTurns(options.db, tail.snapshot);
+            const pendingMessages = snapshot.messages.length - tail.snapshot.messages.length;
+            return boundedLatestSessionSnapshot(
+              snapshot,
+              tail.totalMessages + pendingMessages,
+              requestedLimit,
+            );
+          })();
       const data = publicObject(window);
       return { result: data, projection: { kind: "session.snapshot", data } };
     }
@@ -914,10 +930,47 @@ function boundedSessionSnapshot(
       `session snapshot cursor is no longer available: ${request.beforeMessageId}`,
     );
   }
-  let limit = Math.min(request.messageLimit ?? defaultSessionSnapshotMessages, end);
-  while (limit > 0 || end === 0) {
-    const start = Math.max(0, end - limit);
-    const messages = snapshot.messages.slice(start, end);
+  return boundedSessionSnapshotWindow(snapshot, {
+    totalMessages,
+    availableStart: 0,
+    end,
+    requestedLimit: request.messageLimit ?? defaultSessionSnapshotMessages,
+  });
+}
+
+function boundedLatestSessionSnapshot(
+  snapshot: SparkSessionView,
+  totalMessages: number,
+  requestedLimit: number,
+) {
+  return boundedSessionSnapshotWindow(snapshot, {
+    totalMessages,
+    availableStart: Math.max(0, totalMessages - snapshot.messages.length),
+    end: totalMessages,
+    requestedLimit,
+  });
+}
+
+function boundedSessionSnapshotWindow(
+  snapshot: SparkSessionView,
+  window: {
+    totalMessages: number;
+    availableStart: number;
+    end: number;
+    requestedLimit: number;
+  },
+) {
+  const availableEnd = window.availableStart + snapshot.messages.length;
+  if (window.end < window.availableStart || window.end > availableEnd) {
+    throw new Error("Session snapshot window is outside the loaded transcript tail.");
+  }
+  let limit = Math.min(window.requestedLimit, window.end - window.availableStart);
+  while (limit > 0 || window.end === 0) {
+    const start = window.end - limit;
+    const messages = snapshot.messages.slice(
+      start - window.availableStart,
+      window.end - window.availableStart,
+    );
     const toolCallIds = new Set(
       messages.flatMap((message) =>
         [
@@ -936,11 +989,11 @@ function boundedSessionSnapshot(
     const result = sparkSessionSnapshotPageSchema.parse({
       snapshot: projected,
       history: {
-        totalMessages,
+        totalMessages: window.totalMessages,
         loadedMessages: messages.length,
-        hiddenMessages: totalMessages - messages.length,
+        hiddenMessages: window.totalMessages - messages.length,
         earlierMessages: start,
-        laterMessages: totalMessages - end,
+        laterMessages: window.totalMessages - window.end,
         hasEarlierMessages: start > 0,
         ...(start > 0 && messages[0] ? { nextBeforeMessageId: messages[0].id } : {}),
       },

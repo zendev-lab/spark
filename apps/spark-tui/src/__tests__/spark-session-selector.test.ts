@@ -190,6 +190,40 @@ test("Spark session selector uses the Cockpit fallback for untitled sessions", (
   );
 });
 
+test("Spark session selector replaces technical role refs with user-readable labels", () => {
+  const roleSession = {
+    ...sessionRecord("technical-role", "role:builtin-worker", "2026-07-20T06:00:00.000Z"),
+    role: "role:builtin-worker",
+  };
+  const taskExecution = {
+    ...sessionRecord("task-execution", "role:builtin-worker", "2026-07-20T07:00:00.000Z"),
+    role: "role:builtin-worker",
+    relation: {
+      kind: "task_execution" as const,
+      ownerSessionId: "owner-session",
+      projectRef: "proj:session-performance",
+      taskRef: "task:session-performance",
+      runRef: "run:session-performance",
+      sessionGoalId: "goal-session-performance",
+      roleRef: "role:builtin-worker",
+      jobId: "job-session-performance",
+      attempt: 1,
+    },
+  };
+  const component = createSparkSessionSelectorComponent({
+    sessions: [roleSession, taskExecution],
+    workspaces: [workspaces[0]!],
+    suggestedWorkspaceId: "workspace-1",
+    maxVisible: 10,
+    onSelect: () => undefined,
+  });
+
+  const rendered = component.render(160).join("\n");
+  assert.match(rendered, /Worker session/u);
+  assert.match(rendered, /Task execution · Worker/u);
+  assert.doesNotMatch(rendered, /role:builtin-worker/u);
+});
+
 test("Spark session selector switches workspace groups horizontally", () => {
   const selected: SparkSessionSelectorSelection[] = [];
   const component = createSparkSessionSelectorComponent({

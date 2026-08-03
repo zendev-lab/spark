@@ -434,7 +434,7 @@ function sessionSelectionItem(
       sessionId: session.sessionId,
       workspaceId: session.scope.workspaceId,
     },
-    label: `${sideThread ? "  └─ " : ""}${session.title?.trim() || UNTITLED_SESSION_LABEL}${archived}`,
+    label: `${sideThread ? "  └─ " : ""}${sessionDisplayTitle(session)}${archived}`,
     description: [
       sideThread ? `parent=${sideThread.parentSessionId}` : undefined,
       sideThread ? `mode=${sideThread.mode}` : undefined,
@@ -450,6 +450,29 @@ function sessionSelectionItem(
       .filter(Boolean)
       .join(" • "),
   };
+}
+
+function sessionDisplayTitle(session: SparkSessionRegistryRecord): string {
+  const title = session.title?.trim();
+  if (!title) return UNTITLED_SESSION_LABEL;
+  if (!title.startsWith("role:")) return title;
+  const roleRef =
+    session.relation?.kind === "task_execution"
+      ? session.relation.roleRef
+      : session.role?.trim() || title;
+  const role = humanizeTechnicalRole(roleRef);
+  return session.relation?.kind === "task_execution"
+    ? `Task execution · ${role}`
+    : `${role} session`;
+}
+
+function humanizeTechnicalRole(roleRef: string): string {
+  const roleId = roleRef
+    .replace(/^role:/u, "")
+    .replace(/^(?:builtin|extension|project|user)-/u, "");
+  const words = roleId.split(/[-_/]+/u).filter(Boolean);
+  if (words.length === 0) return "Managed";
+  return words.map((word) => `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`).join(" ");
 }
 
 function compareSessions(
