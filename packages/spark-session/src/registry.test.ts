@@ -61,6 +61,31 @@ describe("SparkSessionRegistry", () => {
     });
   });
 
+  it("ensures one stable protected main session and advances generation after corruption", async () => {
+    const registry = await tempRegistry();
+    const first = await registry.ensureWorkspaceMain({ workspaceId: "ws_main", cwd: "/repo" });
+    const replay = await registry.ensureWorkspaceMain({ workspaceId: "ws_main", cwd: "/repo" });
+    expect(replay).toEqual(first);
+    expect(first).toMatchObject({
+      scope: { kind: "workspace", workspaceId: "ws_main" },
+      relation: { kind: "workspace_main", generation: 1 },
+      role: "Workspace Coordinator",
+    });
+    await expect(registry.archive(first.sessionId)).rejects.toMatchObject({
+      code: "workspace_main_session_mutation_forbidden",
+    });
+
+    const persisted = JSON.parse(await readFile(registry.filePath, "utf8")) as {
+      sessions: Array<{ sessionId: string; status: string }>;
+    };
+    persisted.sessions.find((session) => session.sessionId === first.sessionId)!.status =
+      "archived";
+    await writeFile(registry.filePath, `${JSON.stringify(persisted)}\n`, "utf8");
+    const recovered = await registry.ensureWorkspaceMain({ workspaceId: "ws_main", cwd: "/repo" });
+    expect(recovered.sessionId).not.toBe(first.sessionId);
+    expect(recovered.relation).toEqual({ kind: "workspace_main", generation: 2 });
+  });
+
   it("reads legacy daemon-global sessions but rejects new top-level creation", async () => {
     const registry = await tempRegistry();
     const global = {
@@ -170,6 +195,29 @@ describe("SparkSessionRegistry", () => {
     await expect(
       registry.create({ workspaceId: "ws_roles", role: "质量验证" }),
     ).resolves.toMatchObject({ role: "质量验证" });
+  });
+
+  it("keeps task execution RoleRefs out of the user-facing title", async () => {
+    const registry = await tempRegistry();
+    const created = await registry.create({
+      sessionId: "sess_task_worker",
+      workspaceId: "ws_demo",
+      role: "role:builtin-worker",
+      relation: {
+        kind: "task_execution",
+        ownerSessionId: "sess_owner",
+        projectRef: "proj:demo",
+        taskRef: "task:demo",
+        runRef: "run:demo",
+        sessionGoalId: "goal-demo",
+        roleRef: "role:builtin-worker",
+        jobId: "job-demo",
+        attempt: 1,
+      },
+    });
+
+    expect(created.role).toBe("role:builtin-worker");
+    expect(created).not.toHaveProperty("title");
   });
 
   it("persists searchable archive tags and preserves them after restore", async () => {

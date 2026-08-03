@@ -2,6 +2,10 @@ import { z } from "zod";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
 import { sparkSessionPendingTurnSchema } from "./session-assignment.ts";
 import { sparkDriverKindSchema, sparkDriverViewSchema } from "./driver.ts";
+import {
+  workspaceDelegationReceiptSchema,
+  workspaceDelegationRequestSchema,
+} from "./workspace-delegation.ts";
 
 export * from "./action-bars.ts";
 export * from "./ask-semantics.ts";
@@ -29,6 +33,7 @@ export * from "./session-mail.ts";
 export * from "./side-thread.ts";
 export * from "./state-ownership.ts";
 export * from "./tool-display.ts";
+export * from "./workspace-delegation.ts";
 export { SPARK_PROTOCOL_VERSION } from "./version.ts";
 export type {
   SparkProtocolVersion,
@@ -968,6 +973,20 @@ export const sparkDaemonArtifactProjectedEventSchema = sparkDaemonEventBaseSchem
     }
   });
 
+export const sparkDaemonDelegationRequestedEventSchema = sparkDaemonEventBaseSchema.extend({
+  type: z.literal("daemon.delegation.requested"),
+  request: workspaceDelegationRequestSchema,
+});
+
+export const sparkDaemonDelegationRespondedEventSchema = sparkDaemonEventBaseSchema.extend({
+  type: z.literal("daemon.delegation.responded"),
+  delegationId: z.string().regex(/^dlg_[a-f0-9]{32}$/u),
+  action: z.enum(["ask", "reply", "complete", "reject", "cancel"]),
+  messageSequence: z.number().int().nonnegative(),
+  text: z.string().trim().min(1).max(16_384).optional(),
+  receipt: workspaceDelegationReceiptSchema.optional(),
+});
+
 export const sparkDaemonEventSchema = z.discriminatedUnion("type", [
   sparkDaemonTaskLifecycleEventSchema,
   sparkDaemonViewEventSchema,
@@ -975,6 +994,8 @@ export const sparkDaemonEventSchema = z.discriminatedUnion("type", [
   sparkDaemonInteractionResponseEventSchema,
   sparkDaemonSessionUpdatedEventSchema,
   sparkDaemonArtifactProjectedEventSchema,
+  sparkDaemonDelegationRequestedEventSchema,
+  sparkDaemonDelegationRespondedEventSchema,
 ]);
 
 export type SparkViewModelStatus = z.infer<typeof sparkViewModelStatusSchema>;
@@ -1031,6 +1052,12 @@ export type SparkDaemonInteractionResponseEvent = z.infer<
 export type SparkDaemonSessionUpdatedEvent = z.infer<typeof sparkDaemonSessionUpdatedEventSchema>;
 export type SparkDaemonArtifactProjectedEvent = z.infer<
   typeof sparkDaemonArtifactProjectedEventSchema
+>;
+export type SparkDaemonDelegationRequestedEvent = z.infer<
+  typeof sparkDaemonDelegationRequestedEventSchema
+>;
+export type SparkDaemonDelegationRespondedEvent = z.infer<
+  typeof sparkDaemonDelegationRespondedEventSchema
 >;
 export type SparkDaemonEvent = z.infer<typeof sparkDaemonEventSchema>;
 

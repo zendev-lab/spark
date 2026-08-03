@@ -72,6 +72,7 @@ describe("SparkCommand vocabulary", () => {
       "workspace.client.heartbeat",
       "workspace.client.release",
       "workspace.executor.ensure",
+      "delegation.execute",
       "task.claim.acquire",
       "task.claim.release",
       "task.claim.recover",
@@ -156,6 +157,7 @@ describe("SparkCommand vocabulary", () => {
     expect(Object.keys(runtimeServerCommandKindToSparkCommandKind)).toEqual([
       "daemon.status.request",
       "workspace.snapshot.request",
+      "workspace.delegation.deliver.request",
       "workspace.client.attach.request",
       "workspace.client.heartbeat.request",
       "workspace.client.release.request",

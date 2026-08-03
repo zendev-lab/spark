@@ -610,6 +610,14 @@ const taskClaimInvokers = {
   "task.claim.acquire" | "task.claim.release" | "task.claim.recover"
 >;
 
+const delegationInvokers = {
+  "delegation.execute": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["delegation.execute"].output,
+      client.delegation.execute(input, options),
+    ),
+} satisfies Pick<SparkDaemonOrpcProcedureInvokerMap, "delegation.execute">;
+
 const sparkDaemonOrpcProcedureInvokers = {
   ...toolExecutionInvokers,
   ...daemonChannelTurnInvokers,
@@ -619,6 +627,7 @@ const sparkDaemonOrpcProcedureInvokers = {
   ...sessionInvokers,
   ...sideThreadInvokers,
   ...taskClaimInvokers,
+  ...delegationInvokers,
   ...modelProviderHumanInvokers,
 } satisfies SparkDaemonOrpcProcedureInvokerMap;
 

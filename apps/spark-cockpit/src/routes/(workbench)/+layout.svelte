@@ -223,6 +223,14 @@
               <span>{item.label}</span>
             </a>
           {/each}
+          <a
+            class="shell-nav-link workbench-nav-link"
+            class:active={page.url.pathname === "/delegations" || page.url.pathname.endsWith("/delegations")}
+            href={activeWorkspacePath ? `${activeWorkspacePath}/delegations` : "/delegations"}
+          >
+            <Icon name="users" size={18} />
+            <span>{t.nav.delegations}</span>
+          </a>
           <a class="shell-nav-link workbench-nav-link" href={settingsHref}>
             <Icon name="settings" size={18} stroke={2.2} />
             <span>{t.user.settings}</span>

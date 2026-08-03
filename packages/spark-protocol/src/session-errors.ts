@@ -49,6 +49,7 @@ export const sparkSessionRegistryDomainErrorCodeOptions = [
   "session_transcript_conflict",
   "side_thread_config_empty",
   "workspace_cwd_unavailable",
+  "workspace_main_session_mutation_forbidden",
 ] as const;
 
 /** Complete typed error vocabulary emitted by the durable session subsystem. */

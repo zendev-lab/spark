@@ -57,24 +57,16 @@ test("parseSparkCockpitCliArgs routes Cockpit coordination resources", () => {
   );
 });
 
-test("spark cockpit help documents surface, coordination, and excludes daemon execution controls", () => {
+test("spark cockpit help documents only the Web presentation lifecycle", () => {
   const help = sparkCockpitHelpText();
-  assert.match(help, /spark cockpit - Spark cross-daemon coordination and Web cockpit/u);
+  assert.match(help, /spark cockpit - Spark Cockpit Web presentation host/u);
   assert.match(help, /spark cockpit web start/u);
-  assert.match(help, /spark cockpit project list/u);
-  assert.match(help, /spark cockpit task list/u);
-  assert.match(help, /spark cockpit goal status/u);
-  assert.match(help, /spark cockpit artifact list/u);
-  assert.match(help, /spark cockpit review list/u);
-  assert.match(help, /spark cockpit workflow list/u);
-  assert.match(help, /spark cockpit instance backup/u);
-  assert.match(help, /spark cockpit access create/u);
-  assert.match(help, /spark cockpit workspace access create/u);
-  assert.match(help, /spark cockpit instance inspect/u);
-  assert.match(help, /spark cockpit instance restore/u);
-  assert.match(help, /spark cockpit instance status/u);
-  assert.match(help, /access\s+Mint, list, or revoke/u);
-  assert.match(help, /workspace access\s+Mint, list, or revoke/u);
+  assert.match(help, /spark cockpit web status/u);
+  assert.match(help, /spark cockpit web stop/u);
+  assert.match(help, /spark cockpit web logs/u);
+  assert.match(help, /coordination aliases remain accepted for one version/u);
+  assert.doesNotMatch(help, /spark cockpit project list/u);
+  assert.doesNotMatch(help, /spark cockpit access create/u);
   assert.doesNotMatch(help, /spark cockpit queue/u);
   assert.doesNotMatch(help, /spark cockpit events watch/u);
 });
@@ -126,13 +118,12 @@ test("spark-cockpit thin bin routes through the TypeScript surface entry", async
   const bin = fileURLToPath(new URL("../../bin/spark-cockpit", import.meta.url));
   const help = await runBin(bin, ["--help"]);
   assert.equal(help.code, 0);
-  assert.match(help.stdout, /spark cockpit access create/u);
-  assert.match(help.stdout, /spark cockpit workspace access create/u);
   assert.match(help.stdout, /spark cockpit web start/u);
-  assert.match(help.stdout, /access\s+Mint, list, or revoke/u);
+  assert.doesNotMatch(help.stdout, /spark cockpit access create/u);
 
   const unknown = await runBin(bin, ["access", "not-a-real-op", "--json"]);
   assert.notEqual(unknown.code, 0);
+  assert.match(unknown.stderr, /Deprecated: coordination commands moved to "spark hub"/u);
   assert.doesNotMatch(unknown.stderr, /Unknown spark cockpit command: access/u);
   assert.match(
     `${unknown.stdout}${unknown.stderr}`,

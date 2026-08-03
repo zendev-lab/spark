@@ -79,6 +79,7 @@ import {
   type SparkDaemonDriverControl,
 } from "./spark-daemon-driver-client.ts";
 import { registerSparkReproRoles } from "./spark-repro-roles.ts";
+import { registerSparkDelegationTool } from "./spark-delegation-tool-registration.ts";
 
 interface SparkProductFacadeApi extends SparkCommandApi {
   /** Host/test override; production defaults to the daemon local RPC client. */
@@ -301,6 +302,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkWorkflowRunTool(registerSparkTool, { refreshSparkWidget });
 
   registerSparkAskTools(registerSparkImplementationTool);
+  registerSparkDelegationTool(registerSparkTool);
   registerSparkImplementationTool(createSparkLensToolConfig());
 
   if (pi.registerTool) {

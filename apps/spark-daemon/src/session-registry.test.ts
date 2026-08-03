@@ -57,6 +57,8 @@ describe("daemon session registry", () => {
       recordRun: (input) => track(() => backing.recordRun(input)),
       bindTranscriptPath: (input) => track(() => backing.bindTranscriptPath(input)),
       relocateTranscriptPath: (input) => track(() => backing.relocateTranscriptPath(input)),
+      ensureWorkspaceMain: (workspaceId) =>
+        track(() => backing.ensureWorkspaceMain({ workspaceId })),
       ensureSideThread: (input) => track(() => backing.ensureSideThread(input)),
       resetSideThread: (input) => track(() => backing.resetSideThread(input)),
       configureSideThread: (input) => track(() => backing.configureSideThread(input)),
@@ -111,6 +113,40 @@ describe("daemon session registry", () => {
 });
 
 describe("daemon session registry cwd ownership", () => {
+  it("ensures one stable workspace main session under concurrent delivery preparation", async () => {
+    const sparkHome = await mkdtemp(join(tmpdir(), "spark-daemon-main-session-"));
+    roots.push(sparkHome);
+    const registry = createDaemonSessionRegistry(sparkHome, {
+      resolveWorkspaceCwd: () => "/Users/demo/workspace/main",
+    });
+
+    const ensured = await Promise.all(
+      Array.from({ length: 12 }, () => registry.ensureWorkspaceMain("ws_main")),
+    );
+
+    expect(new Set(ensured.map((session) => session.sessionId)).size).toBe(1);
+    expect(ensured).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          relation: { kind: "workspace_main", generation: 1 },
+          scope: { kind: "workspace", workspaceId: "ws_main" },
+        }),
+      ]),
+    );
+    const sessions = await registry.list({ includeArchived: true });
+    expect(
+      sessions.filter(
+        (session) =>
+          session.scope.kind === "workspace" &&
+          session.scope.workspaceId === "ws_main" &&
+          session.relation?.kind === "workspace_main",
+      ),
+    ).toHaveLength(1);
+    await expect(registry.archive(ensured[0]!.sessionId)).rejects.toMatchObject({
+      code: "workspace_main_session_mutation_forbidden",
+    });
+  });
+
   it("freezes the validated requested cwd and its GitChange provenance", async () => {
     const sparkHome = await mkdtemp(join(tmpdir(), "spark-daemon-session-cwd-"));
     roots.push(sparkHome);

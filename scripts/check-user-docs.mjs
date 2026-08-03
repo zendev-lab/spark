@@ -85,7 +85,8 @@ if (help.status !== 0) {
     "spark daemon <command> [args...]",
     "spark daemon auth <status|login|logout|import> [args...]",
     "spark daemon model <list|status|set> [args...]",
-    "spark cockpit [command] [args...]",
+    "spark hub [command] [args...]",
+    "spark cockpit web <start|status|stop|logs> [args...]",
   ];
   for (const line of requiredHelpLines) {
     if (!help.stdout.includes(line)) failures.push(`spark --help no longer exposes: ${line}`);
@@ -110,6 +111,7 @@ for (const page of ["reference/cli.md", "zh/reference/cli.md"]) {
     "spark daemon model list",
     "spark daemon model status",
     "spark daemon model set",
+    "spark hub",
     "spark cockpit",
   ]) {
     if (!source.includes(command)) failures.push(`${page} does not document ${command}`);
@@ -297,9 +299,18 @@ for (const { surface, args, requiredLines } of [
     surface: "cockpit",
     args: ["cockpit", "--help"],
     requiredLines: [
+      "spark cockpit web start",
       "spark cockpit web status",
-      "spark cockpit workflow list",
-      "spark cockpit instance backup",
+      "spark cockpit web stop",
+    ],
+  },
+  {
+    surface: "hub",
+    args: ["hub", "--help"],
+    requiredLines: [
+      "spark hub workspace list",
+      "spark hub delegation create",
+      "spark hub instance <status|backup|restore>",
     ],
   },
 ]) {

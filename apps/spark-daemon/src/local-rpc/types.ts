@@ -173,6 +173,8 @@ export interface LocalRpcHandlerOptions {
   respondHumanInteraction?: SparkDaemonHumanInteractionResponder;
   leaseTransfers?: SparkDaemonLeaseTransferBroker;
   onHumanRequestOutboxReady?: () => void;
+  /** Wake the daemon scheduler after local turn admission instead of waiting for its poll interval. */
+  onInvocationQueued?: () => void;
   getRuntimeIdForServer?: (serverUrl: string) => string | undefined;
   mailStore?: LocalRpcMailStore;
   notificationDeliveryQueue?: SessionNotificationDeliveryQueue;

@@ -7,6 +7,7 @@ import {
 import { startCockpitProductionHost } from "./cli/production-start.ts";
 import { helpFlagRequested } from "./cli/shared.ts";
 import { runCockpitWebCli } from "./cli/web-cli.ts";
+import { runSparkHubCli } from "./cli/hub.ts";
 
 /**
  * Single surface entry for `spark cockpit`.
@@ -32,10 +33,18 @@ export async function runSparkCockpitCli(
         process.stdout.write(sparkCockpitHelpText());
         return 0;
       }
+      process.stderr.write(
+        'Deprecated: use "spark cockpit web start" for Cockpit Web lifecycle.\n',
+      );
       return await startCockpitProductionHost(rest);
     case "web":
       return await runCockpitWebCli(rest);
+    case "hub":
+      return await runSparkHubCli(rest);
     default:
+      process.stderr.write(
+        `Deprecated: coordination commands moved to "spark hub". Use "spark hub ${argv.join(" ")}".\n`,
+      );
       return await runSparkCockpitCliCommand(parseSparkCockpitCliArgs(argv), undefined, options);
   }
 }

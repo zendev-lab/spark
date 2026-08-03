@@ -65,6 +65,7 @@ import type { SparkCliHostServices, SparkCliHostServicesOptions } from "./host/b
 import {
   formatSelection as formatSparkModelSelection,
   resolveSparkModelSelectionById,
+  sparkModelSelectionValue,
   SPARK_MODEL_CYCLE_NEXT_BINDING_ID,
   SPARK_MODEL_CYCLE_PREV_BINDING_ID,
   SPARK_MODEL_PICKER_BINDING_ID,
@@ -1322,7 +1323,7 @@ async function runSparkCliTuiSelection(input: {
           }
       : undefined;
     if (selection.create && !cwdSelection) return { cancelled: true };
-    const selectedManagedSession = selection.create
+    let selectedManagedSession = selection.create
       ? await clientCreateManagedSession(
           {
             scope: { kind: "workspace", workspaceId: lease.workspace.id },
@@ -1374,6 +1375,28 @@ async function runSparkCliTuiSelection(input: {
             )(state, ctx)
           : undefined,
     });
+    if (selection.create) {
+      const defaults = createSparkDaemonModelAuthClient(daemonClient, {
+        sessionId: selectedManagedSession.sessionId,
+      });
+      const model = services.modelSelector.getActive();
+      if (model) {
+        try {
+          selectedManagedSession = await defaults.setSessionModel(model);
+        } catch {
+          // A stale local model preference must not block opening a new session.
+        }
+      }
+      if (services.config.activeThinkingLevel) {
+        try {
+          selectedManagedSession = await defaults.setSessionThinkingLevel(
+            services.config.activeThinkingLevel,
+          );
+        } catch {
+          // Preference initialization is best-effort; turn admission remains usable.
+        }
+      }
+    }
     const baseState = {
       workspaceDir: services.cwd,
       workspaceHash: services.sessionStore.workspaceHash,
@@ -1385,7 +1408,8 @@ async function runSparkCliTuiSelection(input: {
       selectedManagedSession,
       lease.workspace.id,
     );
-    const snapshot = await managedSessionSnapshotIfAvailable(currentSessionId, daemonClient);
+    const loadSnapshot = async () =>
+      await managedSessionSnapshotIfAvailable(currentSessionId, daemonClient);
     services.runtime.setSessionContext({
       sessionId: currentSessionIdentity,
       cwd: sessionCwd,
@@ -1411,8 +1435,9 @@ async function runSparkCliTuiSelection(input: {
         ? undefined
         : renderSparkFirstRunOnboarding(services);
     let sessionStatusModel =
-      modelRefToSelection(snapshot?.model) ?? services.modelSelector.getActive();
-    let sessionStatusThinkingLevel = snapshot?.thinkingLevel ?? services.config.activeThinkingLevel;
+      modelRefToSelection(selectedManagedSession.model) ?? services.modelSelector.getActive();
+    let sessionStatusThinkingLevel =
+      selectedManagedSession.thinkingLevel ?? services.config.activeThinkingLevel;
     const daemonModelControl = createSparkDaemonModelAuthClient(daemonClient, {
       sessionId: currentSessionId,
       ensureSession: ensureCurrentSession,
@@ -1436,6 +1461,7 @@ async function runSparkCliTuiSelection(input: {
       setSessionThinkingLevel: async (thinkingLevel) => {
         const session = await daemonModelControl.setSessionThinkingLevel(thinkingLevel);
         sessionStatusThinkingLevel = session.thinkingLevel ?? thinkingLevel;
+        await persistThinkingLevel(services, sessionStatusThinkingLevel);
         return session;
       },
     };
@@ -1520,13 +1546,16 @@ async function runSparkCliTuiSelection(input: {
           pendingNativeUiTransport = createSparkNativeUiTransport(app, session);
           services.runtime.setUiTransport(pendingNativeUiTransport);
           app.setWorkspaceSession(workspaceSession.state);
-          if (snapshot) {
+          void loadSnapshot().then((snapshot) => {
+            if (!snapshot || session.hasSubmittedInput) return;
+            sessionStatusModel = modelRefToSelection(snapshot.model) ?? sessionStatusModel;
+            sessionStatusThinkingLevel = snapshot.thinkingLevel ?? sessionStatusThinkingLevel;
             app.applyViewModelEvent({
               version: SPARK_PROTOCOL_VERSION,
               type: "session.snapshot",
               session: snapshot,
             });
-          }
+          });
           if (workspaceSession.attachMatchesControlPlane) {
             await hydrateNativeCockpitFromTaskRead(services, app, workspaceSession.state);
           }
@@ -1661,8 +1690,7 @@ export async function handleSparkNativeModelCommand(
       if (!active) throw new Error(tuiCliStrings.noActiveModel);
       return active;
     }
-    await modelControl.setSessionModel(selection);
-    synchronizeLocalModelSelection(services, selection);
+    await persistDaemonModelSelection(services, modelControl, selection);
     return selection;
   }
   const query = args.trim();
@@ -1697,8 +1725,7 @@ function registerSparkDaemonModelKeybindings(
         ctx,
       );
       if (!selection) return;
-      await modelControl.setSessionModel(selection);
-      synchronizeLocalModelSelection(services, selection);
+      await persistDaemonModelSelection(services, modelControl, selection);
       notify(selection);
     },
   });
@@ -1728,6 +1755,7 @@ function registerSparkDaemonModelKeybindings(
         snapshot.session?.thinkingLevel ?? services.config.activeThinkingLevel,
       );
       await modelControl.setSessionThinkingLevel(next);
+      await persistThinkingLevel(services, next);
       services.runtime
         .makeContext()
         .ui?.notify?.(sparkTuiPiParityStrings().thinkingLevelSet(next), "info");
@@ -1765,11 +1793,32 @@ function registerDaemonModelCycleKeybinding(
           : (activeIndex + step + items.length) % items.length;
       const item = items[index]!;
       const selection = { providerName: item.providerName, modelId: item.modelId };
-      await modelControl.setSessionModel(selection);
-      synchronizeLocalModelSelection(services, selection);
+      await persistDaemonModelSelection(services, modelControl, selection);
       notify(selection);
     },
   });
+}
+
+async function persistDaemonModelSelection(
+  services: SparkCliHostServices,
+  modelControl: SparkDaemonModelAuthClient,
+  selection: SparkActiveSelection,
+): Promise<void> {
+  await modelControl.setSessionModel(selection);
+  await modelControl.setDefaultModel(selection);
+  services.config.activeModelId = sparkModelSelectionValue(selection);
+  delete services.config.activeProvider;
+  delete services.config.activeModel;
+  synchronizeLocalModelSelection(services, selection);
+  await services.saveConfig?.(services.config);
+}
+
+async function persistThinkingLevel(
+  services: SparkCliHostServices,
+  thinkingLevel: SparkThinkingLevel,
+): Promise<void> {
+  services.config.activeThinkingLevel = thinkingLevel;
+  await services.saveConfig?.(services.config);
 }
 
 function synchronizeLocalModelSelection(

@@ -59,6 +59,11 @@ export interface ArchiveSparkSessionInput {
   now?: Date;
 }
 
+export interface EnsureSparkWorkspaceMainSessionInput {
+  workspaceId: string;
+  cwd?: string;
+  now?: Date;
+}
 export interface EnsureSparkSideThreadInput {
   parentSessionId: string;
   mode: SparkSideThreadMode;
@@ -171,10 +176,15 @@ export class SparkSessionRegistry {
       archiveHistory: [],
       createdAt: now,
       updatedAt: now,
-      // Local role-managed sessions mirror role into title for compatibility.
-      // Platform-owned channel creation may still provide a technical title
-      // without enrolling that session in generic role management.
-      ...(role ? { title: role, role } : legacyTitle ? { title: legacyTitle } : {}),
+      // Task execution sessions are internal run records. Keep their RoleRef
+      // for attribution, but never mirror it into a user-facing title.
+      ...(role && input.relation?.kind !== "task_execution"
+        ? { title: role, role }
+        : role
+          ? { role }
+          : legacyTitle
+            ? { title: legacyTitle }
+            : {}),
       ...(input.cwd ? { cwd: input.cwd } : {}),
       ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
       ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
@@ -224,6 +234,66 @@ export class SparkSessionRegistry {
         generation: 1,
         mode: input.mode,
       },
+    };
+    file.sessions.push(record);
+    await this.saveFile(file);
+    return record;
+  }
+
+  async ensureWorkspaceMain(
+    input: EnsureSparkWorkspaceMainSessionInput,
+  ): Promise<SparkSessionRegistryRecord> {
+    const workspaceId = input.workspaceId.trim();
+    if (!workspaceId) {
+      throw new SparkSessionRegistryError(
+        "invalid_scope",
+        "workspace main session requires workspaceId",
+      );
+    }
+    const file = await this.loadFile();
+    const matching = file.sessions.filter(
+      (session) =>
+        session.scope.kind === "workspace" &&
+        session.scope.workspaceId === workspaceId &&
+        session.relation?.kind === "workspace_main" &&
+        session.status !== "archived",
+    );
+    if (matching.length > 1) {
+      throw new SparkSessionRegistryError(
+        "invalid_registry",
+        `workspace ${workspaceId} has multiple active main sessions`,
+      );
+    }
+    if (matching[0]) return matching[0];
+
+    const generation =
+      Math.max(
+        0,
+        ...file.sessions
+          .filter(
+            (session) =>
+              session.scope.kind === "workspace" &&
+              session.scope.workspaceId === workspaceId &&
+              session.relation?.kind === "workspace_main",
+          )
+          .map((session) =>
+            session.relation?.kind === "workspace_main" ? session.relation.generation : 0,
+          ),
+      ) + 1;
+    const now = (input.now ?? new Date()).toISOString();
+    const sessionId = createSessionId();
+    const record: SparkSessionRegistryRecord = {
+      sessionId,
+      scope: { kind: "workspace", workspaceId },
+      workspaceId,
+      status: "ready",
+      role: "Workspace Coordinator",
+      title: "Workspace Coordinator",
+      bindings: [],
+      createdAt: now,
+      updatedAt: now,
+      ...(input.cwd?.trim() ? { cwd: input.cwd.trim() } : {}),
+      relation: { kind: "workspace_main", generation },
     };
     file.sessions.push(record);
     await this.saveFile(file);
@@ -517,6 +587,12 @@ export class SparkSessionRegistry {
       throw new SparkSessionRegistryError(
         "side_thread_mutation_forbidden",
         `side thread ${sessionId} is archived only with its parent`,
+      );
+    }
+    if (current.relation?.kind === "workspace_main") {
+      throw new SparkSessionRegistryError(
+        "workspace_main_session_mutation_forbidden",
+        `workspace main session ${sessionId} cannot be archived`,
       );
     }
     if (current.bindings.some((binding) => binding.kind === "channel")) {

@@ -54,6 +54,7 @@ export async function startLocalRpcServer(options: {
   respondHumanInteraction?: SparkDaemonHumanInteractionResponder;
   leaseTransfers?: SparkDaemonLeaseTransferBroker;
   onHumanRequestOutboxReady?: () => void;
+  onInvocationQueued?: () => void;
   getRuntimeIdForServer?: (serverUrl: string) => string | undefined;
   mailStore?: LocalRpcMailStore;
 }): Promise<LocalRpcServer> {
@@ -108,6 +109,7 @@ export async function startLocalRpcServer(options: {
     ...(options.onHumanRequestOutboxReady
       ? { onHumanRequestOutboxReady: options.onHumanRequestOutboxReady }
       : {}),
+    ...(options.onInvocationQueued ? { onInvocationQueued: options.onInvocationQueued } : {}),
     ...(options.getRuntimeIdForServer
       ? { getRuntimeIdForServer: options.getRuntimeIdForServer }
       : {}),
