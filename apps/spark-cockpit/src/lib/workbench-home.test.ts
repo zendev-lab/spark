@@ -92,7 +92,6 @@ describe("workbench home workspace directory", () => {
     const ast = parse(readFileSync(path, "utf8"), { modern: true });
     const derived = new Map<string, string>();
     const componentAttributes = new Map<string, Map<string, string>>();
-    const classDirectives: Array<[string, string]> = [];
     walk(ast, (node) => {
       if (node.type === "VariableDeclarator") {
         const id = node.id as { name?: unknown } | undefined;
@@ -110,19 +109,18 @@ describe("workbench home workspace directory", () => {
         }
         componentAttributes.set(node.name, attributes);
       }
-      if (node.type === "ClassDirective" && typeof node.name === "string") {
-        classDirectives.push([node.name, expressionText(node.expression)]);
-      }
     });
 
     expect(derived.get("isWorkspaceDirectory")).toBe('page.url.pathname === "/"');
-    expect(componentAttributes.get("CockpitTopbar")?.get("showNavigationToggle")).toBe(
+    expect(componentAttributes.get("CockpitShell")?.get("showNavigation")).toBe(
       "!isWorkspaceDirectory",
     );
-    expect(componentAttributes.get("CockpitTopbar")?.get("showWorkspaceMenu")).toBe(
+    expect(componentAttributes.get("CockpitShell")?.get("showNavigationToggle")).toBe(
       "!isWorkspaceDirectory",
     );
-    expect(classDirectives).toContainEqual(["directory-mode", "isWorkspaceDirectory"]);
+    expect(componentAttributes.get("CockpitShell")?.get("showWorkspaceMenu")).toBe(
+      "!isWorkspaceDirectory",
+    );
   });
 });
 
