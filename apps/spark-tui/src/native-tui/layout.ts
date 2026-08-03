@@ -41,7 +41,7 @@ export function composeSparkNativeFrame(input: SparkNativeLayoutInput): string[]
   const footer = clean(input.sections.footer);
   const runtimeFooter = clean(input.sections.runtimeFooter);
 
-  const bottom = allocateBottom({ pinnedStatus, queue, composer, footer, runtimeFooter, height });
+  const bottom = allocateBottom({ pinnedStatus, composer, footer, runtimeFooter, height });
   let remaining = height - bottom.length;
   const top = [...header, ...context].slice(0, remaining);
   remaining -= top.length;
@@ -50,21 +50,19 @@ export function composeSparkNativeFrame(input: SparkNativeLayoutInput): string[]
   remaining -= latestTranscript.length;
 
   const olderTranscript = transcript.slice(0, -latestTranscript.length || transcript.length);
-  const extras = allocateExtras({ detail, auxiliary, budget: remaining });
+  const extras = allocateExtras({ detail, auxiliary, queue, budget: remaining });
   remaining -= extras.length;
   const olderVisible = olderTranscript.slice(-remaining);
   const upper = [...top, ...extras, ...olderVisible, ...latestTranscript];
-  const padding = Array.from(
-    { length: Math.max(0, height - upper.length - bottom.length) },
-    () => "",
-  );
+  const padding = input.sections.detailActive
+    ? []
+    : Array.from({ length: Math.max(0, height - upper.length - bottom.length) }, () => "");
 
   return [...upper, ...padding, ...bottom].slice(-height);
 }
 
 function allocateBottom(input: {
   pinnedStatus: string[];
-  queue: string[];
   composer: string[];
   footer: string[];
   runtimeFooter: string[];
@@ -73,7 +71,6 @@ function allocateBottom(input: {
   if (input.height <= 0) return [];
   const complete = [
     ...input.pinnedStatus,
-    ...input.queue,
     ...input.composer,
     ...input.footer,
     ...input.runtimeFooter,
@@ -89,18 +86,17 @@ function allocateBottom(input: {
   remaining -= footer.length;
   const runtimeFooter = input.runtimeFooter.slice(0, remaining);
   remaining -= runtimeFooter.length;
-  const queue = input.queue.slice(0, remaining);
-  remaining -= queue.length;
   const pinnedStatus = input.pinnedStatus.slice(0, remaining);
-  return [...pinnedStatus, ...queue, ...composer, ...footer, ...runtimeFooter];
+  return [...pinnedStatus, ...composer, ...footer, ...runtimeFooter];
 }
 
 function allocateExtras(input: {
   detail: string[];
   auxiliary: string[];
+  queue: string[];
   budget: number;
 }): string[] {
-  const sources = [input.detail, input.auxiliary];
+  const sources = [input.detail, input.auxiliary, input.queue];
   const offsets = sources.map(() => 0);
   const result: string[] = [];
   while (result.length < input.budget) {
