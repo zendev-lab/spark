@@ -13,6 +13,7 @@
   "type": "module",
   "exports": {
     "./extension": "./src/extension/index.ts",
+    "./extension/memory-approval-verifier": "./src/extension/memory-approval-verifier.ts",
     "./host-support": "./src/host-support.ts"
   },
   "scripts": {

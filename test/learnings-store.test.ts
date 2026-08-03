@@ -12,12 +12,28 @@ import {
   parseLearningExportMarkdown,
   renderLearningExportMarkdown,
 } from "@zendev-lab/spark-memory";
+import { createLegacyMemoryFixturePermit } from "../packages/spark-memory/src/legacy-fixture.ts";
 import { newRef } from "@zendev-lab/spark-core";
+
+function legacyLearningStore(
+  options: ConstructorParameters<typeof LearningStore>[0],
+): LearningStore {
+  return new LearningStore({ ...options, legacyFixturePermit: createLegacyMemoryFixturePermit() });
+}
+
+function legacyDefaultLearningStore(
+  cwd: string,
+  location?: Parameters<typeof defaultLearningStore>[1],
+): LearningStore {
+  return defaultLearningStore(cwd, location, {
+    legacyFixturePermit: createLegacyMemoryFixturePermit(),
+  });
+}
 
 test("learning store records active learnings and searches by content", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-"));
   try {
-    const store = new LearningStore({ evidenceStore: new EvidenceStore({ rootDir: dir }) });
+    const store = legacyLearningStore({ evidenceStore: new EvidenceStore({ rootDir: dir }) });
     const evidenceRef = newRef("evidence", "evidence-plan");
     const recorded = await store.record({
       title: "Prefer explicit export for shared knowledge",
@@ -52,7 +68,7 @@ test("learning store records active learnings and searches by content", async ()
 test("learning store hydrates compacted Evidence metadata for list and search", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-compacted-"));
   try {
-    const store = new LearningStore({
+    const store = legacyLearningStore({
       evidenceStore: new EvidenceStore({ rootDir: dir, inlineBodyThresholdBytes: 64 }),
     });
     const recorded = await store.record({
@@ -77,7 +93,7 @@ test("learning store skips malformed persisted learning evidence with diagnostic
   const mismatchDir = await mkdtemp(join(tmpdir(), "spark-memory-learning-kind-mismatch-"));
   try {
     const malformedEvidenceStore = new EvidenceStore({ rootDir: malformedDir });
-    const malformedStore = new LearningStore({ evidenceStore: malformedEvidenceStore });
+    const malformedStore = legacyLearningStore({ evidenceStore: malformedEvidenceStore });
     const valid = await malformedStore.record({
       id: "valid-learning-survives",
       title: "Valid learning survives",
@@ -120,7 +136,7 @@ test("learning store skips malformed persisted learning evidence with diagnostic
     assert.equal(listed.diagnostics.length, 2);
     assert.match(
       listed.diagnostics.map((diagnostic) => diagnostic.message).join("\n"),
-      /learning id must be a string/,
+      /recordRef must be a non-empty string/,
     );
     assert.match(
       listed.diagnostics.map((diagnostic) => diagnostic.message).join("\n"),
@@ -135,7 +151,7 @@ test("learning store skips malformed persisted learning evidence with diagnostic
     assert.equal(searched.diagnostics.length, 2);
 
     const mismatchEvidenceStore = new EvidenceStore({ rootDir: mismatchDir });
-    const mismatchStore = new LearningStore({ evidenceStore: mismatchEvidenceStore });
+    const mismatchStore = legacyLearningStore({ evidenceStore: mismatchEvidenceStore });
     const candidate = await mismatchStore.record({
       id: "candidate-kind-contract",
       title: "Candidate kind contract",
@@ -167,7 +183,7 @@ test("learning store skips malformed persisted learning evidence with diagnostic
 test("learning export markdown round-trips and rejects malformed blocks", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-export-format-"));
   try {
-    const store = new LearningStore({ evidenceStore: new EvidenceStore({ rootDir: dir }) });
+    const store = legacyLearningStore({ evidenceStore: new EvidenceStore({ rootDir: dir }) });
     const recorded = await store.record({
       id: "learning-export-format",
       title: "Learning export format is package-owned",
@@ -228,7 +244,7 @@ test("learning export markdown round-trips and rejects malformed blocks", async 
 test("learning store keeps candidates out of default active recall", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-candidate-"));
   try {
-    const store = new LearningStore({ evidenceStore: new EvidenceStore({ rootDir: dir }) });
+    const store = legacyLearningStore({ evidenceStore: new EvidenceStore({ rootDir: dir }) });
     const candidate = await store.record({
       title: "Candidate task lesson",
       statement: "Only promote task-derived lessons after review.",
@@ -262,7 +278,7 @@ test("repository gitignore keeps local .spark stores untracked", async () => {
 test("default learning store writes to .spark/memory/learnings outside git workspaces", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-location-"));
   try {
-    const store = defaultLearningStore(dir);
+    const store = legacyDefaultLearningStore(dir);
     assert.equal(store.location, "workspace");
     await store.record({
       id: "learning-location-path",
@@ -283,7 +299,7 @@ test("default learning store treats git workspaces as repo learnings", async () 
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-repo-location-"));
   try {
     await mkdir(join(dir, ".git"));
-    const store = defaultLearningStore(join(dir, "subdir"));
+    const store = legacyDefaultLearningStore(join(dir, "subdir"));
     assert.equal(store.location, "repo");
     await store.record({
       id: "learning-repo-location-path",
@@ -306,7 +322,7 @@ test("default learning store uses child repo .spark/memory/learnings over parent
   try {
     await mkdir(join(workspace, ".spark", "memory", "learnings"), { recursive: true });
     await mkdir(join(repo, ".git"), { recursive: true });
-    const store = defaultLearningStore(join(repo, "src"));
+    const store = legacyDefaultLearningStore(join(repo, "src"));
     assert.equal(store.location, "repo");
     await store.record({
       id: "learning-child-repo-location-path",
@@ -335,7 +351,7 @@ test("default learning store writes user learnings under SPARK_HOME", async () =
   const previous = process.env.SPARK_HOME;
   process.env.SPARK_HOME = dir;
   try {
-    const store = defaultLearningStore(dir, "user");
+    const store = legacyDefaultLearningStore(dir, "user");
     assert.equal(store.location, "user");
     await store.record({
       id: "learning-user-location-path",
@@ -355,7 +371,7 @@ test("default learning store writes user learnings under SPARK_HOME", async () =
 test("learning store supports stale, rejected, and superseded lifecycle states", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-learning-lifecycle-"));
   try {
-    const store = defaultLearningStore(dir);
+    const store = legacyDefaultLearningStore(dir);
     const oldLearning = await store.record({
       id: "learning-old-export-rule",
       title: "Old export rule",

@@ -1,10 +1,3 @@
-import {
-  defaultEvidenceStore,
-  type EvidenceRef,
-  type EvidenceStore,
-} from "@zendev-lab/spark-artifacts";
-
-import { defaultSparkMemoryStore, type SparkMemoryEntry, type SparkMemoryStore } from "./index.ts";
 import { defaultRecallStore, type RecallCandidate, type RecallStore } from "./recall-store.ts";
 
 export type SparkCompactionCandidateKind = "stable_fact" | "open_item";
@@ -34,8 +27,6 @@ export interface SparkCompactionMemoryCandidate {
 
 export interface SparkCompactionCandidatePipelineResult {
   candidates: RecallCandidate[];
-  writtenMemory: SparkMemoryEntry[];
-  rejectedForEvidence: number;
   failures: string[];
 }
 
@@ -45,13 +36,9 @@ export interface SparkCompactionCandidatePipelineOptions {
   summary: unknown;
   details?: unknown;
   candidateStore?: Pick<RecallStore, "list" | "record">;
-  memoryStore?: Pick<SparkMemoryStore, "list" | "remember">;
-  evidenceStore?: Pick<EvidenceStore, "tryGet">;
-  reviewCandidate?: (candidate: SparkCompactionMemoryCandidate) => Promise<"accept" | "reject">;
 }
 
 const EVIDENCE_REF_PATTERN = /\bevidence:[A-Za-z0-9][A-Za-z0-9._-]*(?![:A-Za-z0-9._-])/gu;
-const VALID_EVIDENCE_REF_PATTERN = /^evidence:[A-Za-z0-9][A-Za-z0-9._-]*$/u;
 
 /**
  * Extract only evidence-linked durable claims from the structured Smart summary.
@@ -92,23 +79,18 @@ export function extractSparkCompactionCandidates(
 }
 
 /**
- * Run candidate persistence and evidence-gated Memory promotion independently
- * of the foreground compact request. Each candidate is isolated so one bad
- * Evidence record, reviewer, or store cannot prevent the remaining candidates.
+ * Persist evidence-linked compaction output as review candidates only. Automated
+ * compaction must never activate or create durable memory.
  */
 export async function runSparkCompactionCandidatePipeline(
   options: SparkCompactionCandidatePipelineOptions,
 ): Promise<SparkCompactionCandidatePipelineResult> {
   const candidateStore = options.candidateStore ?? defaultRecallStore(options.cwd, "workspace");
-  const memoryStore = options.memoryStore ?? defaultSparkMemoryStore(options.cwd, "workspace");
-  const evidenceStore = options.evidenceStore ?? defaultEvidenceStore(options.cwd);
   const extracted = extractSparkCompactionCandidates(options.details ?? options.summary, {
     sessionId: options.sessionId,
   });
   const persisted: RecallCandidate[] = [];
-  const writtenMemory: SparkMemoryEntry[] = [];
   const failures: string[] = [];
-  let rejectedForEvidence = 0;
 
   for (const candidate of extracted) {
     let stored: RecallCandidate | undefined;
@@ -134,41 +116,9 @@ export async function runSparkCompactionCandidatePipeline(
       failures.push(`candidate ${candidate.kind} persistence failed: ${errorMessage(error)}`);
       continue;
     }
-
-    if (candidate.kind !== "stable_fact") continue;
-    try {
-      const review = options.reviewCandidate ? await options.reviewCandidate(candidate) : "accept";
-      if (review !== "accept") continue;
-      const validEvidenceRefs = await resolveValidEvidenceRefs(
-        evidenceStore,
-        candidate.evidenceRefs,
-      );
-      if (validEvidenceRefs.length === 0) {
-        rejectedForEvidence += 1;
-        continue;
-      }
-      const existingMemory = (await memoryStore.list()).find(
-        (entry) =>
-          entry.status === "active" &&
-          entry.text === candidate.text &&
-          sameStrings(entry.evidenceRefs, validEvidenceRefs),
-      );
-      if (existingMemory) continue;
-      const memory = await memoryStore.remember({
-        scope: "workspace",
-        category: "insight",
-        text: candidate.text,
-        reason: candidate.reason,
-        evidenceRefs: validEvidenceRefs,
-        tags: ["compaction", "stable-fact"],
-      });
-      writtenMemory.push(memory);
-    } catch (error) {
-      failures.push(`candidate ${stored.id} review or Memory write failed: ${errorMessage(error)}`);
-    }
   }
 
-  return { candidates: persisted, writtenMemory, rejectedForEvidence, failures };
+  return { candidates: persisted, failures };
 }
 
 function normalizeStructuredSummary(value: unknown): SparkCompactionStructuredSummary | undefined {
@@ -200,22 +150,6 @@ function normalizeStructuredSummary(value: unknown): SparkCompactionStructuredSu
 
 function refsInText(text: string): string[] {
   return uniqueNonEmpty([...text.matchAll(EVIDENCE_REF_PATTERN)].map((match) => match[0]));
-}
-
-async function resolveValidEvidenceRefs(
-  store: Pick<EvidenceStore, "tryGet">,
-  refs: readonly string[],
-): Promise<string[]> {
-  const valid: string[] = [];
-  for (const ref of uniqueNonEmpty([...refs])) {
-    if (!VALID_EVIDENCE_REF_PATTERN.test(ref)) continue;
-    try {
-      if (await store.tryGet(ref as EvidenceRef)) valid.push(ref);
-    } catch {
-      // A malformed or unreadable Evidence record fails closed for this candidate.
-    }
-  }
-  return valid;
 }
 
 function validChangedFileArray(value: unknown): boolean {
@@ -267,10 +201,6 @@ function isStringArray(value: unknown): value is string[] {
 
 function uniqueNonEmpty(values: readonly string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-}
-
-function sameStrings(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

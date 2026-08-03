@@ -5,18 +5,22 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import {
+  MemoryApprovalError,
   SparkMemorySecretError,
   defaultSparkMemoryStore,
   renderSparkMemoryCheckpoint,
   renderSparkMemoryPolicy,
 } from "@zendev-lab/spark-memory";
+import { createLegacyMemoryFixturePermit } from "../packages/spark-memory/src/legacy-fixture.ts";
 import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
 import type { ToolConfig } from "@zendev-lab/spark-core";
 
 test("spark memory stores, searches, and forgets explicit scoped entries", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-store-"));
   try {
-    const store = defaultSparkMemoryStore(dir, "workspace");
+    const store = defaultSparkMemoryStore(dir, "workspace", undefined, {
+      legacyFixturePermit: createLegacyMemoryFixturePermit(),
+    });
     const entry = await store.remember({
       scope: "workspace",
       category: "preference",
@@ -72,27 +76,48 @@ test("spark memory extension registers only the canonical memory tool by default
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-tool-"));
   try {
     const api = new FakeApi();
-    sparkMemoryExtension(api, { storePaths: { workspace: join(dir, "memory.json") } });
+    const memoryPath = join(dir, "memory.json");
+    await defaultSparkMemoryStore(
+      dir,
+      "workspace",
+      { workspace: memoryPath },
+      { legacyFixturePermit: createLegacyMemoryFixturePermit() },
+    ).remember({
+      scope: "workspace",
+      category: "correction",
+      text: "Do not call task finish before validation output is attached.",
+      reason: "Corrects a prior workflow mistake.",
+    });
+    sparkMemoryExtension(api, {
+      storePaths: { workspace: memoryPath },
+    });
     assert.deepEqual([...api.tools.keys()], ["memory"]);
     const tool = api.tools.get("memory");
     assert.ok(tool);
     assert.match(tool.promptGuidelines?.join("\n") ?? "", /policy-only/i);
     assert.match(renderSparkMemoryPolicy(), /explicit/);
 
-    const remember = await tool.execute(
-      "call-1",
-      {
-        action: "remember",
-        scope: "workspace",
-        category: "correction",
-        text: "Do not call task finish before validation output is attached.",
-        reason: "Corrects a prior workflow mistake.",
+    await assert.rejects(
+      () =>
+        tool.execute(
+          "call-1",
+          {
+            action: "remember",
+            scope: "workspace",
+            category: "correction",
+            text: "An unapproved durable mutation.",
+            reason: "Production extension must fail closed.",
+          },
+          new AbortController().signal,
+          () => {},
+          { cwd: dir },
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof MemoryApprovalError);
+        assert.equal(error.code, "MEMORY_APPROVAL_REQUIRED");
+        return true;
       },
-      new AbortController().signal,
-      () => {},
-      { cwd: dir },
     );
-    assert.match(remember.content[0]?.text ?? "", /Remembered memory:/);
 
     const search = await tool.execute(
       "call-2",
@@ -271,14 +296,37 @@ test("spark memory extension covers pi-memory compatibility workflows", async ()
       { cwd: dir },
     );
     assert.match(preview.content[0]?.text ?? "", /import preview/);
-    const imported = await memory.execute(
-      "import-apply",
-      { action: "import_legacy", apply: true, scope: "workspace", reason: "Explicit test import." },
-      new AbortController().signal,
-      () => {},
-      { cwd: dir },
+    await assert.rejects(
+      () =>
+        memory.execute(
+          "import-apply",
+          {
+            action: "import_legacy",
+            apply: true,
+            scope: "workspace",
+            reason: "Explicit test import.",
+          },
+          new AbortController().signal,
+          () => {},
+          { cwd: dir },
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof MemoryApprovalError);
+        assert.equal(error.code, "MEMORY_APPROVAL_REQUIRED");
+        return true;
+      },
     );
-    assert.match(imported.content[0]?.text ?? "", /Imported/);
+    await defaultSparkMemoryStore(
+      dir,
+      "workspace",
+      { workspace: join(dir, "spark-memory.json") },
+      { legacyFixturePermit: createLegacyMemoryFixturePermit() },
+    ).remember({
+      scope: "workspace",
+      category: "insight",
+      text: "Seeded compatibility fixture.",
+      reason: "Direct test-only fixture setup.",
+    });
 
     const status = await api.tools
       .get("memory_status")!

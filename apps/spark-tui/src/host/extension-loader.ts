@@ -1,5 +1,7 @@
 /** Builtin extension loader for the native Spark TUI host. */
 
+import { resolve } from "node:path";
+
 import type { SparkHostAPI } from "@zendev-lab/spark-core";
 
 import sparkAskExtension from "@zendev-lab/spark-ask/extension";
@@ -7,7 +9,9 @@ import sparkArtifactsExtension from "@zendev-lab/spark-artifacts/extension";
 import sparkCueExtension from "@zendev-lab/spark-cue/extension";
 import sparkFilesExtension from "@zendev-lab/spark-files/extension";
 import sparkFusionExtension from "@zendev-lab/spark-fusion/extension";
-import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
+import sparkMemoryExtension, {
+  type SparkMemoryExtensionApi,
+} from "@zendev-lab/spark-memory/extension";
 import sparkRolesExtension from "@zendev-lab/spark-roles/extension";
 import sparkSessionExtension from "@zendev-lab/spark-session/extension";
 import sparkWebExtension from "@zendev-lab/spark-web/extension";
@@ -18,6 +22,7 @@ import { DEFAULT_SPARK_EXTENSION_SPECS } from "./extension-specs.ts";
 export { DEFAULT_SPARK_EXTENSION_SPECS } from "./extension-specs.ts";
 import sparkModelsExtension from "@zendev-lab/spark-ai/models-extension";
 import sparkExtension from "@zendev-lab/spark-extension/extension";
+import { createAskBackedMemoryApprovalVerifier } from "@zendev-lab/spark-extension/extension/memory-approval-verifier";
 
 export type SparkBuiltinExtensionName =
   | "@zendev-lab/spark-ask"
@@ -94,7 +99,7 @@ const BUILTIN_EXTENSION_FACTORIES: readonly SparkBuiltinCapabilityFactory[] = [
   {
     name: "@zendev-lab/spark-memory",
     specifier: "@zendev-lab/spark-memory/extension",
-    factory: sparkMemoryExtension as SparkCapabilityFactory,
+    factory: loadSparkMemoryExtension,
   },
   {
     name: "@zendev-lab/spark-roles",
@@ -127,6 +132,24 @@ const BUILTIN_EXTENSION_FACTORIES: readonly SparkBuiltinCapabilityFactory[] = [
     factory: sparkExtension as SparkCapabilityFactory,
   },
 ];
+
+async function loadSparkMemoryExtension(api: SparkHostAPI): Promise<void> {
+  if (!api.registerTool) throw new Error("Spark host does not support tool registration");
+  const memoryApi: SparkMemoryExtensionApi = {
+    registerTool: (config) => api.registerTool!(config),
+    ...(api.getAllTools ? { getAllTools: () => api.getAllTools!() } : {}),
+    ...(api.on
+      ? { on: (event, handler) => api.on!(event, (payload, ctx) => handler(payload, ctx)) }
+      : {}),
+    ...(api.sendMessage
+      ? { sendMessage: (message, options) => api.sendMessage!(message, options) }
+      : {}),
+  };
+  sparkMemoryExtension(memoryApi, {
+    createApprovalVerifier: (cwd) => createAskBackedMemoryApprovalVerifier(cwd),
+    workspaceId: (cwd) => resolve(cwd),
+  });
+}
 
 async function loadSparkGraftExtension(api: SparkHostAPI): Promise<void> {
   // Graft is an optional compatibility package. Keep module evaluation off the

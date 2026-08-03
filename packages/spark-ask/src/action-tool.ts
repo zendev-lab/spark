@@ -8,7 +8,9 @@ import type {
   ToolRenderTheme,
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-text";
+import { parseSparkMemoryApprovalBinding } from "@zendev-lab/spark-protocol";
 import {
+  isExplicitMemoryApprovalEvidenceBody,
   isUserAnsweredAskEvidenceBody,
   recordCanonicalAskEvidenceReceipt,
   type SparkAskEvidenceBody,
@@ -142,6 +144,7 @@ export function registerSparkAskActionTool(
         Type.String({ description: "blocking | async. Defaults to blocking." }),
       ),
       context: Type.Optional(Type.String()),
+      approvalBinding: Type.Optional(Type.Any()),
       flow: Type.Optional(Type.String({ description: "Stable flow identifier for ask_flow." })),
       questions: Type.Array(
         Type.Object({
@@ -175,6 +178,7 @@ export function registerSparkAskActionTool(
       return renderAskCall(args, theme);
     },
     async execute(toolCallId, params, signal, onUpdate, ctx) {
+      params = canonicalizeMemoryApprovalAsk(params);
       const action = normalizeAskAction(params.action);
       const autoAnswer = normalizeAskAutoAnswerMode(
         params.autoAnswer ?? contextAutoAnswerMode(ctx),
@@ -224,6 +228,61 @@ export function registerSparkAskActionTool(
       return annotateAutoAnswerResult(result, autoAnswered, waitTimeoutMs);
     },
   });
+}
+
+function canonicalizeMemoryApprovalAsk(params: Record<string, unknown>): Record<string, unknown> {
+  if (params.approvalBinding === undefined) return params;
+  const binding = parseSparkMemoryApprovalBinding(params.approvalBinding);
+  if (params.recordAsEvidence !== true || params.mode !== "approval") {
+    throw new Error("ask.approvalBinding requires mode=approval and recordAsEvidence=true");
+  }
+  const questions = Array.isArray(params.questions) ? params.questions : [];
+  const approvalIndex = questions.findIndex(
+    (question) => isRecord(question) && question.id === "approval",
+  );
+  if (approvalIndex < 0) {
+    throw new Error('ask.approvalBinding requires a question with id="approval"');
+  }
+  const canonicalQuestion = {
+    id: "approval",
+    prompt: `Approve memory ${binding.operation} for ${binding.recordRef}?`,
+    type: "single",
+    required: true,
+    defaultValues: ["deny"],
+    options: [
+      {
+        value: "approve",
+        label: "Approve",
+        description: "Authorize this exact proposal once before its expiry.",
+      },
+      {
+        value: "deny",
+        label: "Deny",
+        description: "Do not mutate durable memory.",
+      },
+    ],
+  };
+  const canonicalContext = [
+    optionalString(params.context)?.trim(),
+    "Memory mutation approval",
+    `operation=${binding.operation}`,
+    `record=${binding.recordRef}`,
+    `scope=${binding.scope}`,
+    `expectedRevision=${binding.expectedRevision}`,
+    `proposal=${binding.proposalId}`,
+    `proposalDigest=${binding.proposalDigest}`,
+    `expiresAt=${binding.expiresAt}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return {
+    ...params,
+    context: canonicalContext,
+    approvalBinding: binding,
+    questions: questions.map((question, index) =>
+      index === approvalIndex ? canonicalQuestion : question,
+    ),
+  };
 }
 
 function normalizeAskAction(value: unknown): SparkAskAction {
@@ -370,6 +429,9 @@ async function maybeRecordAskEvidence(
         "or continue with work that does not depend on this decision; never substitute a prior or synthesized approval.",
     );
   }
+  if (params.approvalBinding && !isExplicitMemoryApprovalEvidenceBody(body)) {
+    throw new Error("ask.approvalBinding requires the user to select approve");
+  }
   let evidenceBody: JsonValue;
   try {
     evidenceBody = JSON.parse(JSON.stringify(body)) as JsonValue;
@@ -402,6 +464,10 @@ function decodeAutoAnswerRequest(params: Record<string, unknown>): SparkAskAutoA
     title: optionalString(params.title),
     mode: optionalString(params.mode),
     context: optionalString(params.context),
+    approvalBinding:
+      params.approvalBinding === undefined
+        ? undefined
+        : parseSparkMemoryApprovalBinding(params.approvalBinding),
     flow: optionalString(params.flow),
     questions: Array.isArray(params.questions)
       ? params.questions.map((question) => decodeAutoAnswerQuestion(question))

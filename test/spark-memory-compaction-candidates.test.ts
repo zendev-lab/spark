@@ -4,12 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { defaultEvidenceStore, type EvidenceRef } from "@zendev-lab/spark-artifacts";
+import {
+  createMemoryLifecycle,
+  defaultRecallStore,
+  defaultSparkMemoryStore,
+  type RecallCandidate,
+} from "@zendev-lab/spark-memory";
 import {
   extractSparkCompactionCandidates,
   runSparkCompactionCandidatePipeline,
 } from "@zendev-lab/spark-memory/compaction-candidates";
-import { defaultRecallStore } from "@zendev-lab/spark-memory";
 import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
 import type {
   SparkCompactionCandidatePipelineOptions,
@@ -82,68 +86,19 @@ test("post-compact extraction fails closed for malformed or non-Smart details", 
   assert.deepEqual(extractSparkCompactionCandidates(malformedRefDetails), []);
 });
 
-test("post-compact pipeline persists candidates but writes Memory only with resolvable evidence", async () => {
+test("post-compact pipeline persists candidates without writing durable Memory", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-memory-compact-candidates-"));
   try {
-    await defaultEvidenceStore(dir).put({
-      ref: "evidence:delivery-proof" as EvidenceRef,
-      kind: "record",
-      title: "Delivery validation",
-      format: "json",
-      body: { passed: true },
-      provenance: { producer: "spark" },
-    });
-    const written: Array<{ text: string; evidenceRefs?: string[] }> = [];
-    const memories: Array<{
-      id: string;
-      scope: "workspace";
-      category: "insight";
-      text: string;
-      reason: string;
-      evidenceRefs: string[];
-      tags: string[];
-      status: "active";
-      createdAt: string;
-      updatedAt: string;
-    }> = [];
     const result = await runSparkCompactionCandidatePipeline({
       cwd: dir,
       sessionId: "session:compact",
       summary: "rendered summary",
       details: structuredSummary,
-      memoryStore: {
-        async list() {
-          return memories;
-        },
-        async remember(input) {
-          written.push({ text: input.text, evidenceRefs: input.evidenceRefs });
-          const memory = {
-            id: `memory:${written.length}`,
-            scope: "workspace" as const,
-            category: "insight" as const,
-            text: input.text,
-            reason: input.reason,
-            evidenceRefs: input.evidenceRefs ?? [],
-            tags: input.tags ?? [],
-            status: "active" as const,
-            createdAt: "2026-07-21T00:00:00.000Z",
-            updatedAt: "2026-07-21T00:00:00.000Z",
-          };
-          memories.push(memory);
-          return memory;
-        },
-      },
     });
 
     assert.equal(result.candidates.length, 1);
-    assert.equal(result.writtenMemory.length, 1);
-    assert.equal(result.rejectedForEvidence, 0);
-    assert.deepEqual(written, [
-      {
-        text: "Validated durable delivery (evidence:delivery-proof).",
-        evidenceRefs: ["evidence:delivery-proof"],
-      },
-    ]);
+    assert.equal(result.failures.length, 0);
+    assert.equal((await defaultSparkMemoryStore(dir, "workspace").status()).total, 0);
     const replay = await runSparkCompactionCandidatePipeline({
       cwd: dir,
       sessionId: "session:compact",
@@ -159,8 +114,9 @@ test("post-compact pipeline persists candidates but writes Memory only with reso
   }
 });
 
-test("candidate review and Memory write failures are isolated from remaining candidates", async () => {
-  let reviewCount = 0;
+test("candidate persistence failures are isolated from remaining candidates", async () => {
+  const candidateStore = new InMemoryCandidateStore();
+  let recordCount = 0;
   const result = await runSparkCompactionCandidatePipeline({
     cwd: "/unused",
     summary: "rendered summary",
@@ -183,32 +139,19 @@ test("candidate review and Memory write failures are isolated from remaining can
         memoryRefs: [],
       },
     },
-    candidateStore: new InMemoryCandidateStore(),
-    evidenceStore: {
-      async tryGet() {
-        return {} as never;
-      },
-    },
-    async reviewCandidate() {
-      reviewCount += 1;
-      if (reviewCount === 1) throw new Error("review unavailable");
-      return "accept";
-    },
-    memoryStore: {
-      async list() {
-        return [];
-      },
-      async remember() {
-        throw new Error("memory unavailable");
+    candidateStore: {
+      list: () => candidateStore.list(),
+      async record(input) {
+        recordCount += 1;
+        if (recordCount === 1) throw new Error("candidate store unavailable");
+        return candidateStore.record(input);
       },
     },
   });
 
-  assert.equal(result.candidates.length, 2);
-  assert.equal(result.writtenMemory.length, 0);
-  assert.equal(result.failures.length, 2);
-  assert.match(result.failures[0] ?? "", /review unavailable/);
-  assert.match(result.failures[1] ?? "", /memory unavailable/);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.failures.length, 1);
+  assert.match(result.failures[0] ?? "", /candidate store unavailable/);
 });
 
 test("session_compact schedules candidate work after returning and ignores failed or non-full events", async () => {
@@ -309,7 +252,7 @@ class InMemoryCandidateStore {
 
   async record(input: Parameters<ReturnType<typeof defaultRecallStore>["record"]>[0]) {
     const now = "2026-07-21T00:00:00.000Z";
-    const candidate = {
+    const candidate: RecallCandidate = {
       id: `recall:${this.candidates.length + 1}`,
       scope: input.scope,
       text: input.text,
@@ -320,6 +263,27 @@ class InMemoryCandidateStore {
       status: "candidate" as const,
       createdAt: now,
       updatedAt: now,
+      lifecycle: createMemoryLifecycle({
+        recordRef: `recall:${this.candidates.length + 1}`,
+        kind: input.kind === "open_item" ? "episodic" : "semantic",
+        state: "candidate",
+        scope: input.scope,
+        evidenceRefs: input.evidenceRefs ?? [],
+        sourceKind: input.kind === "explicit" ? "user_intent" : "compaction",
+        capturedAt: now,
+        legacyUnverified: false,
+        approvalStatus: "not_required",
+        content: {
+          text: input.text,
+          reason: input.reason,
+          evidenceRefs: input.evidenceRefs ?? [],
+          kind: input.kind ?? "explicit",
+          sourceSessionId: input.sourceSessionId?.trim() || null,
+          status: "candidate",
+          promotedTo: null,
+          rejectedReason: null,
+        },
+      }),
     };
     this.candidates.push(candidate);
     return candidate;
@@ -372,5 +336,5 @@ class FakeApi {
 }
 
 function emptyPipelineResult(): SparkCompactionCandidatePipelineResult {
-  return { candidates: [], writtenMemory: [], rejectedForEvidence: 0, failures: [] };
+  return { candidates: [], failures: [] };
 }

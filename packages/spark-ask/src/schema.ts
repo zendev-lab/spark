@@ -1,4 +1,5 @@
 import { Type, type Static } from "typebox";
+import type { SparkMemoryApprovalBinding } from "@zendev-lab/spark-protocol";
 
 import type { SparkAskAnswerSource } from "./answer-source.ts";
 
@@ -98,12 +99,14 @@ export const SparkAskFlowRequestSchema = Type.Object({
   mode: Type.Optional(SparkAskFlowMode),
   delivery: Type.Optional(SparkAskDeliverySchema),
   timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_ASK_TIMEOUT_MS })),
+  approvalBinding: Type.Optional(Type.Any()),
   questions: Type.Array(SparkAskFlowQuestionSchema, { minItems: 1, maxItems: MAX_QUESTIONS }),
   behaviour: Type.Optional(SparkAskFlowBehaviourSchema),
 });
 
 export interface SparkAskFlowRequest extends Static<typeof SparkAskFlowRequestSchema> {
   flow?: string;
+  approvalBinding?: SparkMemoryApprovalBinding;
 }
 
 // ---- Answer types ----

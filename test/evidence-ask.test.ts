@@ -1140,23 +1140,35 @@ test("ask action tool can persist receipt-backed user decision evidence", async 
       {
         action: "ask",
         recordAsEvidence: true,
-        title: "Choose implementation strategy",
-        mode: "decision",
+        title: "Approve durable memory mutation",
+        mode: "approval",
+        approvalBinding: {
+          workspaceId: "workspace:test",
+          recordRef: "memory:ask-approved",
+          proposalId: "proposal:ask-approved",
+          operation: "remember",
+          proposalDigest: "a".repeat(64),
+          scope: "workspace",
+          expectedRevision: 0,
+          nonce: "nonce:ask-approved",
+          expiresAt: "2099-07-30T13:00:00.000Z",
+        },
         questions: [
           {
-            id: "strategy",
-            prompt: "Reuse or implement anew?",
+            id: "approval",
+            prompt: "Approve this exact memory proposal?",
             type: "single",
+            required: true,
             options: [
-              { value: "reuse", label: "Reuse" },
-              { value: "new", label: "New implementation" },
+              { value: "approve", label: "Approve" },
+              { value: "deny", label: "Deny" },
             ],
           },
         ],
       },
       new AbortController().signal,
       () => undefined,
-      { cwd: dir, ui: { select: async () => "Reuse" } },
+      { cwd: dir, ui: { select: async () => "Approve" } },
     );
 
     assert.equal(result.details.answerSource, "user");
@@ -1181,7 +1193,101 @@ test("ask action tool can persist receipt-backed user decision evidence", async 
       }),
       false,
     );
-    assert.deepEqual((await verifyCanonicalAskEvidence(dir, evidence))?.selectedValues, ["reuse"]);
+    const verified = await verifyCanonicalAskEvidence(dir, evidence);
+    assert.deepEqual(verified?.selectedValues, ["approve"]);
+    assert.deepEqual(verified?.approvalProof, {
+      schema: "spark.memory.approval-proof/v1",
+      proofRef: evidence.ref,
+      workspaceId: "workspace:test",
+      recordRef: "memory:ask-approved",
+      proposalId: "proposal:ask-approved",
+      operation: "remember",
+      proposalDigest: "a".repeat(64),
+      scope: "workspace",
+      expectedRevision: 0,
+      issuedAt: verified?.approvalProof?.issuedAt,
+      expiresAt: "2099-07-30T13:00:00.000Z",
+      nonce: "nonce:ask-approved",
+      answerDigest: verified?.answersHash,
+    });
+
+    const approvalBinding = (
+      evidence.body as { request: { approvalBinding: Record<string, unknown> } }
+    ).request.approvalBinding;
+    await assert.rejects(
+      () =>
+        tool.execute(
+          "ask-evidence-unrelated-decision",
+          {
+            action: "ask",
+            recordAsEvidence: true,
+            title: "Unrelated decision",
+            mode: "decision",
+            approvalBinding,
+            questions: [
+              {
+                id: "approval",
+                prompt: "Choose a strategy?",
+                type: "single",
+                options: [
+                  { value: "approve", label: "Approve" },
+                  { value: "deny", label: "Deny" },
+                ],
+              },
+            ],
+          },
+          new AbortController().signal,
+          () => undefined,
+          { cwd: dir, ui: { select: async () => "Approve" } },
+        ),
+      /requires mode=approval/u,
+    );
+
+    const evidenceCountBeforeDenial = (await defaultEvidenceStore(dir).list()).length;
+    await assert.rejects(
+      () =>
+        tool.execute(
+          "ask-evidence-denied-approval",
+          {
+            action: "ask",
+            recordAsEvidence: true,
+            title: "Deny durable memory mutation",
+            mode: "approval",
+            approvalBinding,
+            questions: [
+              {
+                id: "approval",
+                prompt: "Approve this exact memory proposal?",
+                type: "single",
+                required: true,
+                options: [
+                  { value: "approve", label: "Approve" },
+                  { value: "deny", label: "Deny" },
+                ],
+              },
+            ],
+          },
+          new AbortController().signal,
+          () => undefined,
+          { cwd: dir, ui: { select: async () => "Deny" } },
+        ),
+      /requires the user to select approve/u,
+    );
+    assert.equal((await defaultEvidenceStore(dir).list()).length, evidenceCountBeforeDenial);
+
+    const tamperedBody = structuredClone(evidence.body) as {
+      request: { approvalBinding: { expectedRevision: number } };
+    };
+    tamperedBody.request.approvalBinding.expectedRevision = 1;
+    const tampered = await defaultEvidenceStore(dir).put({
+      ref: evidence.ref,
+      kind: "record",
+      title: evidence.title,
+      format: "json",
+      body: tamperedBody as JsonValue,
+      provenance: { producer: "ask" },
+    });
+    assert.equal(await verifyCanonicalAskEvidence(dir, tampered), undefined);
 
     const forged = await defaultEvidenceStore(dir).put({
       kind: "record",
