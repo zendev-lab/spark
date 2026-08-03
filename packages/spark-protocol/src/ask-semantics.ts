@@ -113,6 +113,23 @@ export function hasSparkAskAnswerContent(answer: SparkAskAnswerValuesLike | unde
   );
 }
 
+export function missingRequiredSparkAskGateAnswerIds(
+  mode: unknown,
+  questions: readonly SparkGateQuestionLike[],
+  answers: Record<string, SparkAskAnswerValuesLike>,
+): string[] {
+  return requiredGateQuestions(mode, questions).flatMap((question) =>
+    hasSparkAskAnswerContent(answers[question.id]) ? [] : [question.id],
+  );
+}
+
+export function missingRequiredSparkAskAnswerIds(
+  request: SparkAskRequestLike,
+  answers: Record<string, SparkAskAnswerValuesLike>,
+): string[] {
+  return missingRequiredSparkAskGateAnswerIds(request.mode, request.questions, answers);
+}
+
 export function hasSubmittedRequiredSparkAskGateAnswers(
   mode: unknown,
   questions: readonly SparkGateQuestionLike[],
@@ -120,7 +137,7 @@ export function hasSubmittedRequiredSparkAskGateAnswers(
 ): boolean {
   const required = requiredGateQuestions(mode, questions);
   if (required.length === 0) return Object.keys(answers).length > 0;
-  return required.every((question) => hasSparkAskAnswerContent(answers[question.id]));
+  return missingRequiredSparkAskGateAnswerIds(mode, questions, answers).length === 0;
 }
 
 export function hasSubmittedRequiredSparkAskAnswers(

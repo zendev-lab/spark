@@ -12,6 +12,8 @@ import {
   hasSubmittedRequiredSparkAskGateAnswers,
   inferSparkAskSubmitStatus,
   isSparkAskGateMode,
+  missingRequiredSparkAskAnswerIds,
+  missingRequiredSparkAskGateAnswerIds,
   nextActionForSparkAskSubmit,
   parseSparkAskChoice,
   requiresExplicitSparkAskGateSelection,
@@ -87,5 +89,7 @@ export const hasSubmittedRequiredAskAnswers = hasSubmittedRequiredSparkAskAnswer
 export const hasRequiredGateSelections = hasRequiredSparkAskGateSelections;
 export const hasRequiredAskSelections = hasRequiredSparkAskSelections;
 export const inferAskSubmitStatus = inferSparkAskSubmitStatus;
+export const missingRequiredAskAnswerIds = missingRequiredSparkAskAnswerIds;
+export const missingRequiredGateAnswerIds = missingRequiredSparkAskGateAnswerIds;
 export const nextActionForAskSubmit = nextActionForSparkAskSubmit;
 export const formatAskAnswerForDisplay = formatSparkAskAnswerForDisplay;

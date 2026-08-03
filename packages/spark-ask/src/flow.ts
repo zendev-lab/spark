@@ -721,11 +721,13 @@ export function normalizeSparkAskFlowResult(
   if (normalized.status === "pending") return normalized;
   if (!request || !isGateMode(request.mode)) return normalized;
 
+  const submittedRequiredAnswers = hasSubmittedRequiredGateAnswers(request, normalized.answers);
   const status =
-    normalized.status === "no_selection" &&
-    hasSubmittedRequiredGateAnswers(request, normalized.answers)
+    normalized.status === "no_selection" && submittedRequiredAnswers
       ? "answered"
-      : normalized.status;
+      : normalized.status === "answered" && !submittedRequiredAnswers
+        ? "no_selection"
+        : normalized.status;
   const blocked = isSparkAskFlowGateBlocked({ ...normalized, status }, request);
   return {
     ...normalized,

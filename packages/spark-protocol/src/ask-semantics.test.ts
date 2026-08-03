@@ -6,6 +6,7 @@ import {
   hasSparkAskAnswerContent,
   hasSubmittedRequiredSparkAskAnswers,
   inferSparkAskSubmitStatus,
+  missingRequiredSparkAskAnswerIds,
   nextActionForSparkAskSubmit,
   parseSparkAskChoice,
   projectInboxItemStatus,
@@ -82,8 +83,20 @@ describe("ask semantics", () => {
 
     const unanswered = {};
     expect(hasSubmittedRequiredSparkAskAnswers(request, unanswered)).toBe(false);
+    expect(missingRequiredSparkAskAnswerIds(request, unanswered)).toEqual(["q1"]);
     expect(inferSparkAskSubmitStatus(request, unanswered)).toBe("no_selection");
     expect(nextActionForSparkAskSubmit(request, unanswered, "answered")).toBe("block");
+
+    const partiallyAnswered = {
+      q0: { values: ["mvp"] },
+    };
+    const multiQuestionRequest = {
+      ...request,
+      questions: [{ id: "q0", type: "single" as const, required: true }, ...request.questions],
+    };
+    expect(missingRequiredSparkAskAnswerIds(multiQuestionRequest, partiallyAnswered)).toEqual([
+      "q1",
+    ]);
 
     const answered = { q1: { values: ["mvp"] } };
     expect(hasSubmittedRequiredSparkAskAnswers(request, answered)).toBe(true);
