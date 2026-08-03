@@ -303,6 +303,14 @@ test("Spark session selector switches workspace groups horizontally", () => {
     lines.some((line) => line.includes("[spark (4)]")),
     true,
   );
+  assert.equal(
+    lines.some((line) => line.includes("Archived conversation")),
+    false,
+  );
+  assert.equal(
+    lines.some((line) => line.includes("Recent conversation")),
+    true,
+  );
   assert.deepEqual(selected, []);
 });
 

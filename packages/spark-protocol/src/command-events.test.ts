@@ -45,6 +45,7 @@ describe("SparkCommand vocabulary", () => {
       "invocation.list",
       "invocation.retry",
       "invocation.retention.preview",
+      "invocation.retention.apply",
       "driver.start",
       "driver.status",
       "driver.stop",

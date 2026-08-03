@@ -28,6 +28,8 @@ import type {
 import {
   sparkInvocationListRequestSchema,
   sparkInvocationListResultSchema,
+  sparkInvocationRetentionApplyRequestSchema,
+  sparkInvocationRetentionApplyResultSchema,
   sparkInvocationRetentionPreviewRequestSchema,
   sparkInvocationRetentionPreviewResultSchema,
   sparkInvocationRetryRequestSchema,
@@ -1320,6 +1322,10 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkInvocationRetentionPreviewRequestSchema,
     output: sparkInvocationRetentionPreviewResultSchema,
   },
+  "invocation.retention.apply": {
+    input: sparkInvocationRetentionApplyRequestSchema,
+    output: sparkInvocationRetentionApplyResultSchema,
+  },
   "driver.start": { input: sparkDriverStartRequestSchema, output: sparkDriverMutationResultSchema },
   "driver.status": { input: sparkDriverStatusRequestSchema, output: sparkDriverListResultSchema },
   "driver.stop": {
@@ -1670,6 +1676,12 @@ export const sparkLocalRpcOrpcContract = {
     ),
     retention: {
       preview: procedure("GET", "/invocation/retention/preview", p["invocation.retention.preview"]),
+      apply: procedure(
+        "POST",
+        "/invocation/retention/apply",
+        p["invocation.retention.apply"],
+        sparkLocalRpcNoOrpcErrors,
+      ),
     },
   },
   driver: {

@@ -100,6 +100,64 @@ describe("SparkInvocationStore", () => {
     }
   });
 
+  it("compacts streamed terminal results without rehydrating the previous result", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({
+        sessionId: "session-compact-result",
+        prompt: "compact",
+        task: { type: "session.run", sessionId: "session-compact-result", prompt: "compact" },
+      });
+      expect(store.claimNext("worker")?.invocationId).toBe(invocation.invocationId);
+      db.prepare("UPDATE invocations SET result_json = ? WHERE id = ?").run(
+        "{invalid previous result",
+        invocation.invocationId,
+      );
+
+      const completed = store.complete(invocation.invocationId, {
+        status: "succeeded",
+        result: {
+          sessionId: "session-compact-result",
+          sessionPath: "/tmp/session-compact-result.jsonl",
+          newMessageCount: 1,
+          assistantText: '"'.repeat(262_144),
+          stderr: "\\".repeat(65_536),
+          jsonEvents: Array.from({ length: 10_000 }, (_, index) => ({ index })),
+          eventsStreamed: true,
+        },
+      });
+
+      expect(completed.result).toMatchObject({
+        sessionId: "session-compact-result",
+        jsonEventCount: 10_000,
+        eventsStreamed: true,
+      });
+      expect(completed.result).not.toHaveProperty("jsonEvents");
+      expect(
+        (completed.result as { assistantText: string }).assistantText.length,
+      ).toBeLessThanOrEqual(262_144);
+      const persisted = db
+        .prepare(
+          `SELECT length(result_json) AS bytes,
+                  instr(result_json, 'jsonEvents') AS contains_json_events
+           FROM invocations WHERE id = ?`,
+        )
+        .get(invocation.invocationId) as { bytes: number; contains_json_events: number };
+      expect(persisted.bytes).toBeLessThanOrEqual(524_288);
+      expect(persisted.contains_json_events).toBe(0);
+      console.info(
+        "SPARK_INVOCATION_RESULT_COMPACTION_TRANSCRIPT",
+        JSON.stringify({
+          inputEventCount: 10_000,
+          resultBytes: persisted.bytes,
+          containsJsonEvents: persisted.contains_json_events,
+        }),
+      );
+    } finally {
+      db.close();
+    }
+  });
+
   it("makes duplicate idempotent submits stable and rejects conflicting retries", () => {
     const { db, store } = createStore();
     try {
@@ -161,6 +219,38 @@ describe("SparkInvocationStore", () => {
         }),
       ]);
       expect(store.latestEventSequence(first.invocationId)).toBe(25);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps summary, cancellation, and delivery reads independent of terminal result JSON", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({
+        sessionId: "session-invalid-result",
+        prompt: "invalid result",
+        task: { type: "session.run", sessionId: "session-invalid-result", prompt: "run" },
+      });
+      expect(store.claimNext("worker")?.invocationId).toBe(invocation.invocationId);
+      store.appendEvent(invocation.invocationId, "daemon.task.lifecycle", { status: "running" });
+      store.complete(invocation.invocationId, { status: "succeeded" });
+      db.prepare("UPDATE invocations SET result_json = ? WHERE id = ?").run(
+        "{invalid terminal result",
+        invocation.invocationId,
+      );
+
+      expect(store.getSummary(invocation.invocationId)).toMatchObject({
+        invocationId: invocation.invocationId,
+        status: "succeeded",
+        eventCursor: 1,
+      });
+      expect(store.listSummaryPage({ limit: 10 }).invocations).toHaveLength(1);
+      expect(store.requestCancellation(invocation.invocationId, "too late")).toBe("terminal");
+      const pending = store.pendingDeliveries("cockpit:invalid-result", 1)[0];
+      expect(pending?.event.sequence).toBe(1);
+      expect(pending?.invocation.result).toBeUndefined();
+      expect(() => store.get(invocation.invocationId)).toThrow(/Invalid persisted JSON/u);
     } finally {
       db.close();
     }
@@ -635,6 +725,7 @@ describe("SparkInvocationStore", () => {
         attemptCount: 0,
       });
       expect(retried.invocationId).not.toBe(original.invocationId);
+      expect(retried.task).toEqual(original.task);
       expect(store.retry(original.invocationId)).toEqual(retried);
       expect(store.require(original.invocationId)).toMatchObject({
         status: "failed",
@@ -688,13 +779,283 @@ describe("SparkInvocationStore", () => {
         errorMessage: "recent failure",
         now: "2026-07-15T00:00:00.000Z",
       });
+      const running = store.submit({
+        prompt: "running",
+        now: "2026-07-12T00:00:00.000Z",
+      });
+      expect(store.claimNext("worker-running")?.invocationId).toBe(running.invocationId);
+      const queued = store.submit({ prompt: "queued", now: "2026-07-12T00:01:00.000Z" });
 
-      expect(store.retentionPreview("2026-07-14T00:00:00.000Z", 100)).toEqual({
-        before: "2026-07-14T00:00:00.000Z",
+      const before = "2026-07-14T00:00:00.000Z";
+      const excludedRows = () =>
+        db
+          .prepare(
+            `SELECT i.id, i.status, i.event_cursor, i.retained_at, LENGTH(i.result_json) AS result_bytes,
+                    (SELECT COUNT(*) FROM invocation_events e WHERE e.invocation_id = i.id) AS event_count
+             FROM invocations i
+             WHERE i.id IN (?, ?, ?, ?)
+             ORDER BY i.id`,
+          )
+          .all(
+            blocked.invocationId,
+            recent.invocationId,
+            running.invocationId,
+            queued.invocationId,
+          );
+      const excludedBeforeApply = excludedRows();
+      expect(store.retentionPreview(before, 100)).toEqual({
+        before,
         invocationIds: [eligible.invocationId],
         eventCount: 1,
         blockedByDeliveryCount: 1,
       });
+      expect(
+        store.retentionApply(before, {
+          invocationLimit: 10,
+          eventLimit: 100,
+          now: "2026-07-16T00:00:00.000Z",
+        }),
+      ).toEqual({
+        before,
+        touchedInvocationIds: [eligible.invocationId],
+        retainedInvocationIds: [eligible.invocationId],
+        deletedEventCount: 1,
+        retainedInvocationCount: 1,
+        clearedResultCount: 0,
+        blockedByDeliveryCount: 1,
+        hasMore: false,
+      });
+      expect(store.getSummary(eligible.invocationId)).toMatchObject({
+        invocationId: eligible.invocationId,
+        status: "succeeded",
+      });
+      const excludedAfterApply = excludedRows() as unknown as Array<{
+        id: string;
+        status: string;
+        event_cursor: number;
+        retained_at: string | null;
+        result_bytes: number | null;
+        event_count: number;
+      }>;
+      expect(excludedAfterApply).toEqual(excludedBeforeApply);
+      const excludedById = new Map(excludedAfterApply.map((row) => [row.id, row]));
+      expect(excludedById.get(blocked.invocationId)).toMatchObject({
+        status: "succeeded",
+        event_cursor: 2,
+        retained_at: null,
+        result_bytes: null,
+        event_count: 2,
+      });
+      expect(excludedById.get(queued.invocationId)).toMatchObject({
+        status: "queued",
+        event_cursor: 0,
+        retained_at: null,
+        result_bytes: null,
+        event_count: 0,
+      });
+      expect(excludedById.get(recent.invocationId)).toMatchObject({
+        status: "failed",
+        event_cursor: 0,
+        retained_at: null,
+        result_bytes: null,
+        event_count: 0,
+      });
+      expect(excludedById.get(running.invocationId)).toMatchObject({
+        status: "running",
+        event_cursor: 0,
+        retained_at: null,
+        result_bytes: null,
+        event_count: 0,
+      });
+      console.info(
+        "SPARK_INVOCATION_RETENTION_MATRIX",
+        JSON.stringify({ before: excludedBeforeApply, after: excludedAfterApply }),
+      );
+      expect(store.retentionPreview(before, 100)).toEqual({
+        before,
+        invocationIds: [],
+        eventCount: 0,
+        blockedByDeliveryCount: 1,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("applies retention in resumable event chunks without parsing legacy result payloads", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({
+        sessionId: "session-retention",
+        prompt: "retain me",
+        task: { type: "session.run", sessionId: "session-retention", prompt: "retain me" },
+        now: "2026-07-12T00:00:00.000Z",
+      });
+      expect(store.claimNext("worker-retention", "2026-07-12T00:00:01.000Z")?.invocationId).toBe(
+        invocation.invocationId,
+      );
+      for (let index = 0; index < 251; index += 1) {
+        store.appendEvent(
+          invocation.invocationId,
+          "daemon.view_event",
+          { type: "text_delta", delta: String(index) },
+          "2026-07-12T00:00:02.000Z",
+        );
+      }
+      store.complete(invocation.invocationId, {
+        status: "failed",
+        errorCode: "EXECUTOR_TIMEOUT",
+        errorMessage: "deadline exceeded",
+        now: "2026-07-12T00:00:03.000Z",
+      });
+      const retry = store.retry(invocation.invocationId, "2026-07-12T00:00:04.000Z");
+      db.prepare(
+        `INSERT INTO driver_wakeups
+          (driver_id, kind, lane, owner_session_id, continuity, status, generation,
+           last_invocation_id, prompt, route_json, created_at, updated_at)
+         VALUES ('retention-driver', 'goal', 'foreground', 'owner-session', 'session',
+                 'stopped', 1, ?, 'retain', '{}', ?, ?)`,
+      ).run(invocation.invocationId, "2026-07-12T00:00:05.000Z", "2026-07-12T00:00:05.000Z");
+      db.prepare(
+        `INSERT INTO driver_hidden_sessions
+          (execution_session_id, driver_id, generation, invocation_id, status, created_at)
+         VALUES ('retention-hidden-session', 'retention-driver', 1, ?, 'archived', ?)`,
+      ).run(invocation.invocationId, "2026-07-12T00:00:05.000Z");
+      db.prepare("UPDATE invocations SET result_json = ? WHERE id = ?").run(
+        "x".repeat(16 * 1024 * 1024),
+        invocation.invocationId,
+      );
+      const before = "2026-07-14T00:00:00.000Z";
+      const eventCount = () =>
+        Number(
+          (
+            db
+              .prepare("SELECT COUNT(*) AS count FROM invocation_events WHERE invocation_id = ?")
+              .get(invocation.invocationId) as { count: number }
+          ).count,
+        );
+      const retentionState = () =>
+        db
+          .prepare(
+            "SELECT retained_at, LENGTH(result_json) AS result_bytes FROM invocations WHERE id = ?",
+          )
+          .get(invocation.invocationId);
+
+      const first = store.retentionApply(before, { eventLimit: 100, invocationLimit: 10 });
+      expect(first).toMatchObject({
+        touchedInvocationIds: [invocation.invocationId],
+        retainedInvocationIds: [],
+        deletedEventCount: 100,
+        retainedInvocationCount: 0,
+        clearedResultCount: 0,
+        hasMore: true,
+      });
+      expect(eventCount()).toBe(151);
+      const firstState = retentionState();
+      expect(firstState).toEqual({ retained_at: null, result_bytes: 16 * 1024 * 1024 });
+
+      const second = store.retentionApply(before, { eventLimit: 100, invocationLimit: 10 });
+      expect(second).toMatchObject({
+        deletedEventCount: 100,
+        retainedInvocationCount: 0,
+        hasMore: true,
+      });
+      expect(eventCount()).toBe(51);
+      const secondState = retentionState();
+      expect(secondState).toEqual({ retained_at: null, result_bytes: 16 * 1024 * 1024 });
+
+      const third = store.retentionApply(before, {
+        eventLimit: 100,
+        invocationLimit: 10,
+        now: "2026-07-16T00:00:00.000Z",
+      });
+      expect(third).toMatchObject({
+        retainedInvocationIds: [invocation.invocationId],
+        deletedEventCount: 51,
+        retainedInvocationCount: 1,
+        clearedResultCount: 1,
+        hasMore: false,
+      });
+      expect(eventCount()).toBe(0);
+      const finalState = db
+        .prepare("SELECT result_json, retained_at FROM invocations WHERE id = ?")
+        .get(invocation.invocationId);
+      expect(finalState).toEqual({ result_json: null, retained_at: "2026-07-16T00:00:00.000Z" });
+      expect(store.getSummary(invocation.invocationId)).toMatchObject({
+        invocationId: invocation.invocationId,
+        sessionId: "session-retention",
+        status: "failed",
+        errorCode: "EXECUTOR_TIMEOUT",
+        eventCursor: 251,
+      });
+      expect(store.require(retry.invocationId)).toMatchObject({
+        retryOfInvocationId: invocation.invocationId,
+        task: { type: "session.run", sessionId: "session-retention", prompt: "retain me" },
+      });
+      expect(
+        db
+          .prepare("SELECT last_invocation_id FROM driver_wakeups WHERE driver_id = ?")
+          .get("retention-driver"),
+      ).toEqual({ last_invocation_id: invocation.invocationId });
+      expect(
+        db
+          .prepare(
+            "SELECT invocation_id FROM driver_hidden_sessions WHERE execution_session_id = ?",
+          )
+          .get("retention-hidden-session"),
+      ).toEqual({ invocation_id: invocation.invocationId });
+
+      const fourth = store.retentionApply(before, { eventLimit: 100, invocationLimit: 10 });
+      expect(fourth).toMatchObject({
+        touchedInvocationIds: [],
+        retainedInvocationIds: [],
+        deletedEventCount: 0,
+        retainedInvocationCount: 0,
+        clearedResultCount: 0,
+        hasMore: false,
+      });
+      const queryPlan = db
+        .prepare(
+          `EXPLAIN QUERY PLAN
+           SELECT id
+           FROM invocations INDEXED BY invocations_retention_idx
+           WHERE retained_at IS NULL
+             AND status IN ('succeeded', 'failed', 'cancelled')
+             AND finished_at IS NOT NULL
+             AND finished_at < ?
+           ORDER BY finished_at, id
+           LIMIT ?`,
+        )
+        .all(before, 10) as unknown as Array<{ detail: string }>;
+      expect(queryPlan.map((row) => row.detail).join("\n")).toContain("invocations_retention_idx");
+      const eventQueryPlan = db
+        .prepare(
+          `EXPLAIN QUERY PLAN
+           SELECT rowid
+           FROM invocation_events
+           WHERE invocation_id = ?
+           ORDER BY sequence
+           LIMIT ?`,
+        )
+        .all(invocation.invocationId, 100) as unknown as Array<{ detail: string }>;
+      expect(eventQueryPlan.map((row) => row.detail).join("\n")).toMatch(
+        /sqlite_autoindex_invocation_events_1|invocation_events_cursor_idx/u,
+      );
+      console.info(
+        "SPARK_INVOCATION_RETENTION_TRANSCRIPT",
+        JSON.stringify({
+          chunks: [first, second, third, fourth].map((result) => ({
+            deletedEventCount: result.deletedEventCount,
+            retainedInvocationCount: result.retainedInvocationCount,
+            clearedResultCount: result.clearedResultCount,
+            hasMore: result.hasMore,
+          })),
+          incompleteStates: [firstState, secondState],
+          finalState,
+          invocationPlan: queryPlan.map((row) => row.detail),
+          eventPlan: eventQueryPlan.map((row) => row.detail),
+        }),
+      );
     } finally {
       db.close();
     }
@@ -758,6 +1119,50 @@ describe("SparkInvocationStore", () => {
       expect(store.require(invocation.invocationId).result).toMatchObject({
         unknownOutput: { truncated: true },
       });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("does not hydrate historical oversized result JSON into process memory", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({ prompt: "legacy oversized result" });
+      const legacyResult = JSON.stringify({ output: "x".repeat(768 * 1024) });
+      db.prepare("UPDATE invocations SET result_json = ? WHERE id = ?").run(
+        legacyResult,
+        invocation.invocationId,
+      );
+
+      expect(store.require(invocation.invocationId).result).toEqual({
+        legacyOversizedResult: true,
+        originalBytes: Buffer.byteLength(legacyResult),
+        truncated: true,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("marks assistant output truncation instead of silently presenting a complete result", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({ prompt: "oversized assistant output" });
+      store.claimNext("worker-oversized-assistant");
+      const assistantText = "x".repeat(512 * 1024);
+      const completed = store.complete(invocation.invocationId, {
+        status: "succeeded",
+        result: { assistantText, jsonEvents: [] },
+      });
+
+      expect(completed.result).toMatchObject({
+        assistantTextOriginalBytes: Buffer.byteLength(JSON.stringify(assistantText)),
+        assistantTextTruncated: true,
+        jsonEventCount: 0,
+      });
+      expect((completed.result as { assistantText: string }).assistantText.length).toBeLessThan(
+        assistantText.length,
+      );
     } finally {
       db.close();
     }
@@ -838,15 +1243,23 @@ describe("SparkInvocationStore", () => {
       expect(() => parseSparkDaemonEvent(event.payload)).not.toThrow();
       expect(event.payload).toMatchObject({
         type: "daemon.view_event",
+        view: { type: "session.message", message: { text: "x".repeat(512 * 1024) } },
+      });
+      const persisted = store.eventPage(invocation.invocationId).events[0];
+      expect(() => parseSparkDaemonEvent(persisted?.payload)).not.toThrow();
+      expect(persisted?.payload).toMatchObject({
+        type: "daemon.view_event",
         view: { type: "session.message", message: { metadata: { cacheOmitted: true } } },
       });
-      expect(Buffer.byteLength(JSON.stringify(event.payload))).toBeLessThanOrEqual(256 * 1024);
+      expect(Buffer.byteLength(JSON.stringify(persisted?.payload))).toBeLessThanOrEqual(256 * 1024);
 
       const oversizedIdentity = store.appendEvent(invocation.invocationId, "daemon.view_event", {
         sessionId: "x".repeat(512 * 1024),
       });
-      expect(oversizedIdentity.payload.sessionId).toBe("unknown");
-      expect(Buffer.byteLength(JSON.stringify(oversizedIdentity.payload))).toBeLessThanOrEqual(
+      expect(oversizedIdentity.payload.sessionId).toBe("x".repeat(512 * 1024));
+      const persistedIdentity = store.eventPage(invocation.invocationId).events[1];
+      expect(persistedIdentity?.payload.sessionId).toBe("unknown");
+      expect(Buffer.byteLength(JSON.stringify(persistedIdentity?.payload))).toBeLessThanOrEqual(
         MAX_PERSISTED_INVOCATION_EVENT_BYTES,
       );
     } finally {

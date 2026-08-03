@@ -18,6 +18,7 @@ import {
   type SparkAssignment,
   type SparkDaemonEvent,
   type SparkInvocationListResult,
+  type SparkInvocationRetentionApplyResult,
   type SparkInvocationRetentionPreviewResult,
   type SparkInvocationRetryResult,
   type SparkInvocationStatus,
@@ -303,6 +304,7 @@ export type LocalTurnResult = SparkTurnResult;
 export type LocalInvocationListResult = SparkInvocationListResult;
 export type LocalInvocationRetryResult = SparkInvocationRetryResult;
 export type LocalInvocationRetentionPreviewResult = SparkInvocationRetentionPreviewResult;
+export type LocalInvocationRetentionApplyResult = SparkInvocationRetentionApplyResult;
 
 export interface LocalDaemonSessionListResult {
   sessions: SparkSessionInfo[];
@@ -478,6 +480,9 @@ export interface SparkDaemonInvocationCommand extends SparkDaemonCliCommandBase 
   offset?: number;
   after?: number;
   limit?: number;
+  eventLimit?: number;
+  retentionAction?: "preview" | "apply";
+  confirm?: boolean;
   reason?: string;
 }
 
@@ -616,7 +621,8 @@ export interface SparkDaemonInvocationResult {
     | LocalTurnStreamResult
     | LocalTurnCancelResult
     | LocalInvocationRetryResult
-    | LocalInvocationRetentionPreviewResult;
+    | LocalInvocationRetentionPreviewResult
+    | LocalInvocationRetentionApplyResult;
 }
 
 export interface SparkDaemonSessionsResult {
@@ -884,14 +890,28 @@ function parseSparkDaemonInvocationCommand(
     };
   }
   if (subcommand === "retention") {
+    const retentionAction = positionalInvocationId ?? "preview";
+    if (retentionAction !== "preview" && retentionAction !== "apply") {
+      throw new Error(`unknown spark daemon invocation retention command: ${retentionAction}`);
+    }
     const before = readIsoDateTimeOption(parsed.options, "before");
     if (!before) throw new Error("spark daemon invocation retention requires --before <iso>");
+    if (retentionAction === "apply" && !readBooleanOption(parsed.options, "confirm")) {
+      throw new Error("spark daemon invocation retention apply requires --confirm");
+    }
     return {
       action: "invocation",
       subcommand,
       before,
       limit: readNumberOption(parsed.options, "limit"),
       json,
+      ...(retentionAction === "apply"
+        ? {
+            retentionAction,
+            eventLimit: readNumberOption(parsed.options, "event-limit"),
+            confirm: true,
+          }
+        : {}),
     };
   }
   if (
@@ -2413,6 +2433,21 @@ async function clientInvocation(
   if (command.subcommand === "retention") {
     if (!command.before) {
       throw new Error("Spark invocation retention requires --before.");
+    }
+    if (command.retentionAction === "apply") {
+      if (!command.confirm) {
+        throw new Error("Spark invocation retention apply requires --confirm.");
+      }
+      return await requestSparkDaemonControl(
+        "invocation.retention.apply",
+        {
+          before: command.before,
+          ...(command.limit !== undefined ? { invocationLimit: command.limit } : {}),
+          ...(command.eventLimit !== undefined ? { eventLimit: command.eventLimit } : {}),
+          confirm: true,
+        },
+        client,
+      );
     }
     return await requestSparkDaemonControl(
       "invocation.retention.preview",

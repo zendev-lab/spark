@@ -1,9 +1,14 @@
 import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
-import { openSqliteDatabase, type SparkPaths } from "@zendev-lab/spark-system";
+import {
+  applyDaemonSqliteResourceLimits,
+  openSqliteDatabase,
+  type SparkPaths,
+} from "@zendev-lab/spark-system";
 
 export function openSparkDaemonDatabase(paths: SparkPaths): DatabaseSync {
-  const db = openSqliteDatabase(paths.databasePath);
+  const db = openSqliteDatabase(paths.databasePath, { autoVacuum: "incremental" });
+  applyDaemonSqliteResourceLimits(db);
   migrateSparkDaemonDatabase(db);
   return db;
 }
@@ -40,7 +45,8 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       updated_at TEXT NOT NULL,
       claimed_at TEXT,
       started_at TEXT,
-      finished_at TEXT
+      finished_at TEXT,
+      retained_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS invocation_events (
@@ -616,6 +622,7 @@ function addMissingInvocationColumns(db: DatabaseSync): void {
     ["claimed_at", "TEXT"],
     ["started_at", "TEXT"],
     ["finished_at", "TEXT"],
+    ["retained_at", "TEXT"],
   ] as const;
   for (const [name, type] of additions) {
     if (!columns.has(name)) db.exec(`ALTER TABLE invocations ADD COLUMN ${name} ${type}`);
@@ -646,6 +653,10 @@ function addMissingInvocationColumns(db: DatabaseSync): void {
       ON invocations(session_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS invocations_created_at_idx
       ON invocations(created_at DESC);
+    CREATE INDEX IF NOT EXISTS invocations_retention_idx
+      ON invocations(finished_at, id)
+      WHERE retained_at IS NULL
+        AND status IN ('succeeded', 'failed', 'cancelled');
     CREATE UNIQUE INDEX IF NOT EXISTS invocations_idempotency_idx
       ON invocations(idempotency_key)
       WHERE idempotency_key IS NOT NULL;
