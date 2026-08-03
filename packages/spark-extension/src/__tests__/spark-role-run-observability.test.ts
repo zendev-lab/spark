@@ -48,6 +48,7 @@ function graphWithRuns(runs: TaskRun[]): TaskGraph {
     status: "running",
     roleRef,
     supersededBy: [],
+    artifactRefs: [],
     inputEvidenceRefs: [],
     outputEvidenceRefs: [],
     createdAt: now,

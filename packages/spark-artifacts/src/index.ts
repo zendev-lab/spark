@@ -51,7 +51,7 @@ export interface EvidenceProvenance {
 
 /**
  * Agent-internal evidence kinds (not Cockpit/user content). Artifacts are
- * issue|pr|preview in `./artifact/`.
+ * issue|git_change|document in `./artifact/`.
  *
  * Prefer compact JSON `record` notes. Keep `trace` for prunable raw output.
  * `knowledge` is owned by the learning capability; `document` is rare long prose.
@@ -550,7 +550,7 @@ function evidenceListDiagnostic(filePath: string, error: unknown): EvidenceListD
 
 /**
  * Internal evidence store used by the `evidence` tool. New writes go to
- * `.spark/evidence`. Artifact issue/pr/preview live under `.spark/artifacts`
+ * `.spark/evidence`. Artifact issue/git_change/document live under `.spark/artifacts`
  * and are never scanned by this store.
  */
 export function defaultEvidenceStore(cwd: string): EvidenceStore {
@@ -567,13 +567,6 @@ export async function readEvidenceMetadataFile(filePath: string): Promise<Eviden
       filePath,
       `invalid JSON: ${unknownErrorMessage(error)}`,
       "invalid_json",
-    );
-  }
-  if (isRecord(raw) && isArtifactKind(raw.kind)) {
-    throw new EvidenceStoreFormatError(
-      filePath,
-      `kind must be a valid Evidence kind (Artifact kind ${String(raw.kind)} skipped)`,
-      "invalid_metadata",
     );
   }
   const metadata = normalizePersistedEvidenceMetadata(raw);
@@ -1081,8 +1074,12 @@ export {
   isArtifactBody,
   isArtifactFormat,
   isArtifactKind,
+  isLegacyArtifactBody,
+  isStoredArtifactBody,
+  isStoredArtifactKind,
   issueBodyFromSnapshot,
   newArtifactRef,
+  normalizeLegacyArtifactBody,
   parseForgeUrl,
   prBodyFromSnapshot,
   previewFormatAsArtifactFormat,
@@ -1098,10 +1095,23 @@ export {
   type AttachPrWorktreeResult,
   type CommandRunner,
   type ForgeHost,
+  type ArtifactProgress,
+  type DocumentArtifactBody,
+  type GitChangeArtifactBody,
+  type GitChangeEntry,
+  type GitChangeLifecycle,
+  type GitChangeRepository,
+  type GitChangeStack,
+  type GitChangeWorktreeStatus,
+  type GitPullRequestSnapshot,
   type ForgeIssueSnapshot,
   type ForgePrSnapshot,
   type ForgeSyncOptions,
   type IssueArtifactBody,
+  type LegacyArtifactBody,
+  type LegacyIssueArtifactBody,
+  type LegacyPrArtifactBody,
+  type LegacyPreviewArtifactBody,
   type PrArtifactBody,
   type PreviewArtifactBody,
   type PreviewContentFormat,
@@ -1119,7 +1129,34 @@ export {
   type ArtifactRef,
   type ArtifactStoreOptions,
   type PutArtifactInput,
+  type StoredArtifactBody,
+  type StoredArtifactKind,
   type TemporaryArtifactPreview,
   type WorktreeCommandRunner,
   type WorktreeStatus,
 } from "./artifact/index.ts";
+
+export {
+  registerArtifactTool,
+  registerSparkArtifactTools,
+  type PiArtifactsExtensionApi,
+} from "./artifact/extension.ts";
+
+export {
+  GitLifecycleError,
+  GitLifecycleService,
+  defaultGitCommandRunner,
+  type AdoptGitChangeInput,
+  type CheckoutGitChangeInput,
+  type CommitGitChangeInput,
+  type CreateGitChangeInput,
+  type GitCommandRunner,
+  type GitLifecycleAction,
+  type GitLifecycleServiceOptions,
+} from "./git/lifecycle.ts";
+
+export {
+  registerGitLifecycleTool,
+  registerSparkGitLifecycleTool,
+  type GitLifecycleExtensionApi,
+} from "./git/extension.ts";

@@ -1,5 +1,5 @@
 {
-  "legacyFieldNames": ["inputArtifacts", "outputArtifacts", "artifactRefs"],
+  "legacyFieldNames": ["inputArtifacts", "outputArtifacts"],
   "taskFields": {
     "inputArtifacts": ["artifact:legacy-input", "evidence:already-input"],
     "outputArtifacts": ["artifact:legacy-output"]

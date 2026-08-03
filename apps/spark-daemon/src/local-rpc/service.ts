@@ -20,6 +20,7 @@ import { handleModelRequest } from "./handlers/model.ts";
 import { handleSessionRequest } from "./handlers/session.ts";
 import { handleSideThreadRequest } from "./handlers/side-thread.ts";
 import { handleTaskClaimRequest } from "./handlers/task-claim.ts";
+import { handleToolExecutionRequest } from "./handlers/tool-execution.ts";
 import { handleTurnRequest } from "./handlers/turn.ts";
 import { handleUplinkRequest } from "./handlers/uplink.ts";
 import { handleWorkspaceRequest } from "./handlers/workspace.ts";
@@ -46,6 +47,7 @@ export interface LocalRpcServiceOptions {
  */
 export const localRpcServiceHandlerMethodGroups = {
   daemon: ["daemon.status", "daemon.stop", "daemon.restart"],
+  toolExecution: ["file.execute", "artifact.execute", "git.execute"],
   channel: ["channel.status", "channel.configure", "channel.reload", "channel.notify"],
   human: ["human.interaction.list", "human.interaction.respond"],
   turn: [
@@ -208,6 +210,9 @@ async function dispatchLocalRpcServiceRequest(
 ): Promise<LocalRpcServiceOutput<LocalRpcServiceRequest>> {
   if (requestBelongsToHandlerGroup(request, "daemon")) {
     return handleDaemonRequest(context, request);
+  }
+  if (requestBelongsToHandlerGroup(request, "toolExecution")) {
+    return handleToolExecutionRequest(context, request);
   }
   if (requestBelongsToHandlerGroup(request, "channel")) {
     return handleChannelRequest(context, request);

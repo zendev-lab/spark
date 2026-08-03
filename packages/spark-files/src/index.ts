@@ -11,6 +11,7 @@ export {
   type SparkFilesHostApi,
   type SparkFilesOptions,
 } from "./extension.ts";
+export { registerDaemonSparkFilesTools } from "./daemon-extension.ts";
 export {
   applyEditsToNormalizedContent,
   detectLineEnding,

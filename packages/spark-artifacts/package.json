@@ -2,7 +2,7 @@
   "name": "@zendev-lab/spark-artifacts",
   "version": "0.1.0",
   "private": true,
-  "description": "Artifacts (issue/pr/preview) and internal evidence storage for Spark capability hosts.",
+  "description": "Atomic issue/git_change/document Artifacts, Git lifecycle, and internal evidence storage for Spark hosts.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [
@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-daemon-client": "workspace:^",
     "@zendev-lab/spark-text": "workspace:^",
     "marked": "^18.0.7",
     "sanitize-html": "^2.17.6",

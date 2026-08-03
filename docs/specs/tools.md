@@ -99,13 +99,25 @@ generation, retry, or next-turn continuation. The full runtime contract is in
 - Fusion failure is non-blocking: continue SOLO. Its result may recommend one cheap
   single-variable experiment, but the main repro session remains the sole writer and executor.
   Fusion cannot confirm a runtime claim, emit a verdict, satisfy proof or a gate, or create
-  evidence or an Artifact; Artifact kinds remain exactly `issue | pr | preview`.
+  evidence or an Artifact; Artifact kinds remain exactly
+  `issue | git_change | document`.
 
 ## Evidence and context
 
 - `ask` is the only structured question surface; cancellation is not approval.
 - `evidence` is an **agent-internal ledger** (not Cockpit/user UI): compact provenance-backed `record | trace | knowledge | document` notes. Prefer `format=json` bodies `{ summary, data? }`. Tool-result side channels publish `evidence.update` (not `artifact.update`).
-- `artifact` owns product-facing deliverables only: `issue | pr | preview` (forge-backed ISSUE/PR; continuous `md | mdx | html | a2ui | spark-ui` preview). All safe formats embed in the Cockpit artifact page; Markdown can also render directly in the attached TUI, while `open_preview` gives richer formats an expiring loopback page only when a local Cockpit/browser surface is reachable. MDX/Spark UI is declarative and non-executable, HTML is sanitized and network-disabled, and A2UI v0.9.x starts read-only against the basic catalog. PR work prefers an attached git worktree under `.spark/worktrees/`. Product tool results publish `artifact.update`.
+- `artifact` owns product-facing atomic deliverables only:
+  `issue | git_change | document`. `git_change` is one aggregate containing
+  one owning worktree and one native GitHub PR stack; stack entries are not
+  separate Artifact refs. Its lifecycle is mutated only through
+  `git({ action })`, with `gh stack` as topology authority. `document` owns
+  typed content and revision/progress metadata; preview is a view opened with
+  `artifact({ action: "open_preview" })`, not an Artifact kind. Legacy v1
+  `pr`/`preview` records are normalized lazily on read without destructive
+  bulk migration. Product tool results publish `artifact.update`.
+- `task_write({ action: "artifact_link" | "artifact_unlink" })` maintains
+  durable, idempotent `Task.artifactRefs`. This slice deliberately adds no
+  `Workstream` aggregate and no Task parent/subtask relation.
 - `memory` is the only public memory tool: `memory({ action, kind? })` with `kind: "entry" | "learning" | "candidate"` (default `entry`). Durable entries, evidence learnings, and recall candidates share this surface. Pi-memory aliases (`memory_write`/`memory_read`/`scratchpad`/`memory_search`/`memory_status`) are opt-in (`enablePiCompatAliases`; Pi product entry on, Spark native off). Reflection pipelines also live in `@zendev-lab/spark-memory` (under `.spark/memory/reflections/`).
 - `context` lists/previews registered bounded providers and accepts no arbitrary provider prompt.
 
@@ -123,13 +135,26 @@ Both call paths share one headless host and `SparkAgentSession`. Full policy is 
 
 `script_run`/`script_eval` support cue-shell and Python. Python uses `uv run --script <path>` or `uv run --script -`; `venv` is python-only, and `scope` is not a `script_run`/`script_eval` parameter. Cue-shell scripts use `RunScript { path, input }` in a fresh isolated scope.
 
-`spark-files` provides bounded `read`, `write`, `edit`, `ls`, `grep`, and `find`. `read` has one UTF-8 text protocol: it always renders the raw-content SHA-256 version and stable `LINE#HASH:text` anchors for the returned window, with matching structured metadata; the byte limit applies to this final rendered output, including anchors. Read pagination accepts positive integers only; LF, CRLF, CR-only, mixed separators, and a UTF-8 BOM are reported as metadata, while invalid UTF-8 fails explicitly. `write` has no blind compatibility path: `expectedVersion` is required and must be the version returned by `read`, or `missing` for create-only intent. It uses a same-directory temporary file plus fsync/rename and rejects stale rewrites. Spark serializes writes by canonical target path inside one process (including symlinked parent aliases), rejects direct symbolic-link targets, and therefore gives same-version in-process Spark writers one winner. `edit` commits through the same atomic content-version check. Cross-process and non-cooperating external writers remain an optimistic-concurrency race; atomic replacement also detaches the replaced name from any sibling hard links rather than mutating their shared inode.
+`spark-files` provides bounded `read`, `write`, `edit`, `grep`, and `find`; `ls` is not registered by default. `read` has one UTF-8 text protocol: it always renders the raw-content SHA-256 version and stable `LINE#HASH:text` anchors for the returned window, with matching structured metadata; the byte limit applies to this final rendered output, including anchors. Read pagination accepts positive integers only; LF, CRLF, CR-only, mixed separators, and a UTF-8 BOM are reported as metadata, while invalid UTF-8 fails explicitly. `write` has no blind compatibility path: `expectedVersion` is required and must be the version returned by `read`, or `missing` for create-only intent. It uses a same-directory temporary file plus fsync/rename and rejects stale rewrites. Spark serializes writes by canonical target path inside one process (including symlinked parent aliases), rejects direct symbolic-link targets, and therefore gives same-version in-process Spark writers one winner. `edit` commits through the same atomic content-version check. Supplying a `git_change` `artifactRef` routes relative paths to its attached worktree without restricting absolute paths. Cross-process and non-cooperating external writers remain an optimistic-concurrency race; atomic replacement also detaches the replaced name from any sibling hard links rather than mutating their shared inode.
 
-These are working-tree mechanisms, not Graft state. Scratch graphs, candidates, daemon lifecycle, and promotion remain in `@zendev-lab/spark-graft` via the canonical `graft({ action })` surface (opt-in; not loaded by Spark's default extension profile or base prompt).
+Spark-native hosts execute file, Artifact, and Git tools in process. Compatible
+external Pi loaders use typed daemon RPC; they may start the daemon once and
+retry only a failure proven to occur before dispatch. A post-dispatch mutation
+failure is never replayed through typed or legacy transports.
+
+These are working-tree mechanisms, not Graft state. Graft remains sealed and
+opt-in; it is not loaded by Spark's default extension profile or base prompt,
+and its source is unchanged by the Git workflow refactor.
 
 ## Tool execution policy
 
-Tool owners declare one canonical `policy` with `effect`, sibling-call `executionMode`, domains, phases, and approval. The host resolves and freezes that policy at registration. Legacy top-level effect/execution/approval fields remain compatibility inputs, but conflicts or malformed declarations fail closed to unknown effect, sequential execution, and required approval.
+Tool owners declare one canonical `policy` with `effect`, sibling-call
+`executionMode`, domains, phases, and approval. A tool may refine that
+conservative registration envelope with argument-aware `resolvePolicy`; the
+host resolves the concrete call policy before scheduling or approval. Legacy
+top-level effect/execution/approval fields remain compatibility inputs, but
+conflicts or malformed declarations fail closed to unknown effect, sequential
+execution, and required approval.
 
 Registered tools and active tools are distinct. Only active tools enter the model schema or prompt manifest. A batch executes concurrently only when every call resolves to an active, approval-free `read` tool with `executionMode=parallel`; mixed, unknown, write-capable, or policy-changing batches stay sequential. Parallel results are committed to the transcript in the model's original call order, with a default concurrency limit of four.
 

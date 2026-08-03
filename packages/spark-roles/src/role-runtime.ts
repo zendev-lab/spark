@@ -213,7 +213,7 @@ export interface DefaultRoleRegistryOptions {
   now?: string;
 }
 
-const ROLE_READ_TOOLS = ["read", "grep", "find", "ls", "context"] as const;
+const ROLE_READ_TOOLS = ["read", "grep", "find", "context"] as const;
 const ROLE_NET_TOOLS = [
   "web_search",
   "code_search",

@@ -29,6 +29,7 @@ import {
   type FileVersionState,
 } from "./file-version.ts";
 import { pathExists, resolveReadPath, resolveToCwd } from "./path-utils.ts";
+import { resolveArtifactFileRoot } from "./artifact-root.ts";
 import {
   errorMessage,
   resolveToolCwd,
@@ -68,6 +69,12 @@ const readSchema = Type.Object(
     path: Type.String({
       description: "Path to the UTF-8 text file to read (relative or absolute)",
     }),
+    artifactRef: Type.Optional(
+      Type.String({
+        description:
+          "Optional git_change Artifact ref. Relative paths resolve from its attached worktree; absolute paths remain absolute.",
+      }),
+    ),
     offset: Type.Optional(
       Type.Integer({ minimum: 1, description: "Line number to start reading from (1-indexed)" }),
     ),
@@ -93,7 +100,8 @@ export function createReadToolConfig(): ToolConfig {
     executionMode: FILE_READ_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const cwd = resolveToolCwd(ctx);
+      const root = await resolveArtifactFileRoot(resolveToolCwd(ctx), params.artifactRef);
+      const cwd = root.cwd;
       const rawPath = stringParam(params.path);
       const offset = positiveIntegerParam(params.offset);
       if (params.offset !== undefined && offset === undefined) {
@@ -232,7 +240,7 @@ export function createReadToolConfig(): ToolConfig {
       }
       return {
         content: [text(outputText)],
-        details: { ...details, path: rawPath, ...metadata },
+        details: { ...details, path: rawPath, artifactRef: root.artifactRef, ...metadata },
       };
     },
   };
@@ -245,6 +253,12 @@ const writeSchema = Type.Object(
     path: Type.String({
       description: "Path to the UTF-8 text file to write (relative or absolute)",
     }),
+    artifactRef: Type.Optional(
+      Type.String({
+        description:
+          "Optional git_change Artifact ref. Relative paths resolve from its attached worktree; absolute paths remain absolute.",
+      }),
+    ),
     content: Type.String({
       description: "Complete literal UTF-8 file content without read anchors",
     }),
@@ -274,7 +288,8 @@ export function createWriteToolConfig(): ToolConfig {
     executionMode: FILE_WRITE_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const cwd = resolveToolCwd(ctx);
+      const root = await resolveArtifactFileRoot(resolveToolCwd(ctx), params.artifactRef);
+      const cwd = root.cwd;
       const rawPath = stringParam(params.path);
       if (typeof params.content !== "string") {
         return errorResult(`Could not write file: ${rawPath}. content must be a string.`, {
@@ -322,6 +337,7 @@ export function createWriteToolConfig(): ToolConfig {
         ],
         details: {
           path: rawPath,
+          artifactRef: root.artifactRef,
           version: result.version,
           previousVersion: result.previousVersion,
           sizeBytes: result.sizeBytes,
@@ -348,6 +364,12 @@ const replaceEditSchema = Type.Object(
 const editSchema = Type.Object(
   {
     path: Type.String({ description: "Path to the file to edit (relative or absolute)" }),
+    artifactRef: Type.Optional(
+      Type.String({
+        description:
+          "Optional git_change Artifact ref. Relative paths resolve from its attached worktree; absolute paths remain absolute.",
+      }),
+    ),
     edits: Type.Array(replaceEditSchema, {
       description:
         "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead.",
@@ -374,7 +396,8 @@ export function createEditToolConfig(): ToolConfig {
     executionMode: FILE_WRITE_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const cwd = resolveToolCwd(ctx);
+      const root = await resolveArtifactFileRoot(resolveToolCwd(ctx), params.artifactRef);
+      const cwd = root.cwd;
       const rawPath = stringParam(params.path);
       const edits = normalizeEdits(params.edits);
       if (edits.length === 0) {
@@ -448,6 +471,7 @@ export function createEditToolConfig(): ToolConfig {
         ],
         details: {
           path: rawPath,
+          artifactRef: root.artifactRef,
           diff: diffResult.diff,
           patch,
           firstChangedLine: diffResult.firstChangedLine,

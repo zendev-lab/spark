@@ -103,6 +103,9 @@ export const sparkCommandKindOptions = [
   "provider.auth.login.cancel.request",
   "invocation.cancel.request",
   "artifact.content.request",
+  "file.execute.request",
+  "artifact.execute.request",
+  "git.execute.request",
   "human.request.list.request",
   "human.response.deliver.request",
   "diagnostics.request",
@@ -339,6 +342,9 @@ export const localRpcMethodToSparkCommandKind = {
   "provider.auth.login.cancel": "provider.auth.login.cancel.request",
   "human.interaction.list": "human.request.list.request",
   "human.interaction.respond": "human.response.deliver.request",
+  "file.execute": "file.execute.request",
+  "artifact.execute": "artifact.execute.request",
+  "git.execute": "git.execute.request",
 } as const satisfies Record<string, SparkCommandKind>;
 
 export const runtimeServerCommandKindOptions = [

@@ -1,3 +1,3 @@
-import piFilesExtension from "./extension.ts";
+import piFilesExtension from "./daemon-extension.ts";
 
 export default piFilesExtension;

@@ -11,7 +11,8 @@ profile 或排查能力为何不可用时，再查看本页。
 | 意图 | Canonical 工具 | 效果 |
 | --- | --- | --- |
 | 请求决策 | `ask` | 暂停并等待结构化用户输入 |
-| 读取和修改文件 | `read`, `write`, `edit`, `ls`, `grep`, `find` | 读取或 workspace 写入 |
+| 读取和修改文件 | `read`, `write`, `edit`, `grep`, `find` | 读取或 workspace 写入 |
+| 管理代码交付 | `git` | worktree、原生 PR stack、commit、submit、sync 与 cleanup 生命周期 |
 | 搜索和获取网页 | `web_search`, `code_search`, `fetch_content`, `get_search_content` | 外部读取；获取的文本不可信 |
 | 查看和修改工作 | `task_read`, `task_write`, `assign`, `todo` | Task/session 状态；assign 可能执行工作 |
 | 保存结果 | `artifact`, `evidence`, `memory`, `context` | 产品产物、内部账本、记忆和受限上下文 |
@@ -20,9 +21,10 @@ profile 或排查能力为何不可用时，再查看本页。
 | 自主续跑 | `goal`, `loop`, `repro`, `drive`, `driver`, `phase` | Daemon driver 或 session mode 状态 |
 | 发现和运行流程 | `workflow`, `workflow_run` | 读取 saved workflow 或执行已选流程 |
 
-`artifact` 面向用户，只包含 Issue、PR 和 preview。`evidence` 是 agent 内部账本，
-不会作为产品产物展示。`context` 只能列出或预览已注册的受限 provider，不能接收
-任意 prompt。
+`artifact` 面向用户，只包含 Issue、GitChange 和 Document。一个 GitChange 拥有一个
+worktree 和一个 GitHub 原生 PR stack，由 `git({ action })` 管理生命周期；preview
+只是 Document 的视图，不是 Artifact kind。`evidence` 是 agent 内部账本，不会作为
+产品产物展示。`context` 只能列出或预览已注册的受限 provider，不能接收任意 prompt。
 
 ## Shell 与脚本工具
 
@@ -45,7 +47,9 @@ profile 或排查能力为何不可用时，再查看本页。
 
 - 消息平台 Channel 只开放 `session`、`ask`、`context` 和 `todo`。
 - `fusion` 是显式启用的受限多模型 deliberation，不负责写最终答案，也不能证明运行结果。
-- `graft` 是显式启用的 scratch/candidate/patch 能力。
+- `graft` 是已封存、显式启用的 scratch/candidate/patch 能力，不属于当前 Git 工作流。
+- `ls` 只保留给显式配置的兼容 profile，原生默认 profile 不注册它；文件发现使用
+  `find`，内容搜索使用 `grep`。
 - 兼容 host 可以启用 Pi alias，但原生默认 profile 会隐藏它们。
 
 私有实现与编排 helper 不会出现在公开目录中。

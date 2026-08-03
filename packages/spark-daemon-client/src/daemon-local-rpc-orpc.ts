@@ -99,6 +99,27 @@ async function parseSparkDaemonOrpcOutput<TOutput>(
   return schema.parse(await output);
 }
 
+const toolExecutionInvokers = {
+  "file.execute": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["file.execute"].output,
+      client.file.execute(input, options),
+    ),
+  "artifact.execute": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["artifact.execute"].output,
+      client.artifact.execute(input, options),
+    ),
+  "git.execute": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["git.execute"].output,
+      client.git.execute(input, options),
+    ),
+} satisfies Pick<
+  SparkDaemonOrpcProcedureInvokerMap,
+  "file.execute" | "artifact.execute" | "git.execute"
+>;
+
 const daemonChannelTurnInvokers = {
   "daemon.status": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
@@ -567,6 +588,7 @@ const taskClaimInvokers = {
 >;
 
 const sparkDaemonOrpcProcedureInvokers = {
+  ...toolExecutionInvokers,
   ...daemonChannelTurnInvokers,
   ...invocationDriverInvokers,
   ...workspaceInvokers,

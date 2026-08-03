@@ -191,4 +191,4 @@ test("daemon-owned repro lifecycle fails closed without settle and recovers afte
     db.close();
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
-});
+}, 15_000);

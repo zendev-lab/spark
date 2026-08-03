@@ -4,7 +4,7 @@ import {
   type RoleSpec,
 } from "@zendev-lab/spark-roles";
 
-const READ_TOOLS = ["read", "grep", "find", "ls", "context"];
+const READ_TOOLS = ["read", "grep", "find", "context"];
 const EXEC_TOOLS = [
   ...READ_TOOLS,
   "cue_exec",

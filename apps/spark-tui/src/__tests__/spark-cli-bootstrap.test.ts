@@ -724,13 +724,14 @@ test("native host registers spark-files working-tree tools via the builtin exten
     });
 
     const fileToolNames = services.runtime.getAllTools().map((tool) => tool.name);
-    for (const name of ["read", "write", "edit", "ls", "grep", "find"]) {
+    for (const name of ["read", "write", "edit", "grep", "find"]) {
       assert.equal(
         fileToolNames.includes(name),
         true,
         `expected file tool ${name} to be registered`,
       );
     }
+    assert.equal(fileToolNames.includes("ls"), false);
     assert.equal(
       services.extensionLoadResult.outcomes.find(
         (outcome) => outcome.specifier === "@zendev-lab/spark-files/extension",

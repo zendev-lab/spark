@@ -34,7 +34,7 @@ describe("stored Artifact preview rendering", () => {
 
   it.each(cases)("uses contentRef.previewFormat to render %s", (previewFormat, text) => {
     const html = renderStoredArtifactPreview({
-      kind: "preview",
+      kind: "document",
       title: "Persisted preview",
       contentRef: { artifactRef: "artifact:preview:test", previewFormat },
       body: { text, truncated: false },
@@ -64,6 +64,17 @@ describe("stored Artifact preview rendering", () => {
         contentRef: { previewFormat: "javascript" },
       }),
     ).toBeNull();
+  });
+
+  it("retains read compatibility for legacy preview projections", () => {
+    expect(
+      renderStoredArtifactPreview({
+        kind: "preview",
+        title: "Legacy preview",
+        contentRef: { previewFormat: "md" },
+        body: { text: "# legacy", truncated: false },
+      }),
+    ).toContain("Content-Security-Policy");
   });
 
   it("extracts only supported preview formats", () => {
