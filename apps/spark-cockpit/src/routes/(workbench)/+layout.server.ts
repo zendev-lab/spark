@@ -34,7 +34,7 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
     return loadWorkspaceRailShell({
       cookies,
       workspaceIdParam,
-      protocol: url.protocol,
+      url,
       authorizedWorkspaceId: locals?.workspaceId ?? null,
     });
   }
@@ -83,6 +83,7 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
     : null;
   return {
     ...layout,
+    ...sessionRailArchivedState(url),
     pendingAsk,
     sessions,
     sessionsAvailable: managedSessions.available,
@@ -93,13 +94,13 @@ export const load: LayoutServerLoad = async ({ cookies, locals, url, params }) =
 async function loadWorkspaceRailShell(input: {
   cookies: Parameters<LayoutServerLoad>[0]["cookies"];
   workspaceIdParam: string;
-  protocol: string;
+  url: URL;
   authorizedWorkspaceId: string | null;
 }) {
   const layout = loadShellWorkspaceLayout({
     cookies: input.cookies,
     pathname: `/${encodeURIComponent(input.workspaceIdParam)}`,
-    protocol: input.protocol,
+    protocol: input.url.protocol,
     preferredWorkspaceId: null,
     preferredWorkspaceSlug: input.workspaceIdParam,
     authorizedWorkspaceId: input.authorizedWorkspaceId,
@@ -118,6 +119,7 @@ async function loadWorkspaceRailShell(input: {
     : null;
   return {
     ...layout,
+    ...sessionRailArchivedState(input.url),
     pendingAsk,
     sessions,
     sessionsAvailable: managedSessions.available,
@@ -126,7 +128,11 @@ async function loadWorkspaceRailShell(input: {
 }
 
 async function loadWorkbenchManagedSessions(workspaceId: string) {
-  const projected = listProjectedManagedSessionsForCockpit({ workspaceId });
+  const projected = listProjectedManagedSessionsForCockpit({
+    workspaceId,
+    includeArchived: true,
+    related: true,
+  });
   // Prefer the local rail for every workbench navigation/invalidation. Waiting
   // on live `session.list` (up to WORKBENCH_SESSION_LIST_TIMEOUT_MS) made each
   // session switch feel like a full reload whenever layout re-ran.
@@ -134,8 +140,21 @@ async function loadWorkbenchManagedSessions(workspaceId: string) {
   const live = await listManagedSessionsForCockpit({
     scope: { kind: "workspace", workspaceId },
     workspaceId,
+    includeArchived: true,
+    related: true,
     timeoutMs: WORKBENCH_SESSION_LIST_TIMEOUT_MS,
   });
   if (live.available || live.sessions.length > 0) return live;
   return projected;
+}
+
+function sessionRailArchivedState(url: URL) {
+  const showArchived = url.searchParams.get("archived") === "1";
+  const toggle = new URL(url);
+  if (showArchived) toggle.searchParams.delete("archived");
+  else toggle.searchParams.set("archived", "1");
+  return {
+    sessionRailShowArchived: showArchived,
+    sessionRailArchivedToggleHref: `${toggle.pathname}${toggle.search}${toggle.hash}`,
+  };
 }

@@ -490,7 +490,16 @@ function upsertRuntimeSession(
   session: SparkSessionRegistryRecord,
   projectedAt: string,
 ): void {
-  assertSessionCommandRoute(command, session);
+  upsertRuntimeSessionProjection(db, command, session, projectedAt);
+}
+
+function upsertRuntimeSessionProjection(
+  db: DatabaseSync,
+  route: RuntimeSessionRoute,
+  session: SparkSessionRegistryRecord,
+  projectedAt: string,
+): void {
+  assertSessionCommandRoute(route, session);
   db.prepare(
     `INSERT INTO runtime_session_projections
       (runtime_id, session_id, scope, workspace_id, runtime_workspace_binding_id, status,
@@ -504,15 +513,57 @@ function upsertRuntimeSession(
        record_json = excluded.record_json,
        projected_at = excluded.projected_at`,
   ).run(
-    command.runtimeId,
+    route.runtimeId,
     session.sessionId,
-    command.scope,
-    command.workspaceId ?? null,
-    command.runtimeWorkspaceBindingId ?? null,
+    route.scope,
+    route.workspaceId ?? null,
+    route.runtimeWorkspaceBindingId ?? null,
     session.status,
     JSON.stringify(session),
     projectedAt,
   );
+}
+
+/** Atomically replace the hierarchy-only Side Thread projection for one workspace parent. */
+export function replaceRuntimeSideThreadProjection(
+  db: DatabaseSync,
+  route: RuntimeSessionRoute,
+  parentSessionId: string,
+  session: SparkSessionRegistryRecord | null,
+  projectedAt: string,
+): void {
+  if (route.scope !== "workspace" || !route.workspaceId) {
+    throw new RuntimeControlCommandError(
+      "Side Thread projections require a workspace runtime route.",
+      "SESSION_ROUTE_MISMATCH",
+    );
+  }
+  if (
+    session &&
+    (session.relation?.kind !== "side_thread" ||
+      session.relation.parentSessionId !== parentSessionId)
+  ) {
+    throw new RuntimeControlCommandError(
+      "Side Thread projection does not belong to the requested parent.",
+      "SESSION_ROUTE_MISMATCH",
+    );
+  }
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare(
+      `DELETE FROM runtime_session_projections
+       WHERE runtime_id = ?
+         AND scope = 'workspace'
+         AND workspace_id = ?
+         AND json_extract(record_json, '$.relation.kind') = 'side_thread'
+         AND json_extract(record_json, '$.relation.parentSessionId') = ?`,
+    ).run(route.runtimeId, route.workspaceId, parentSessionId);
+    if (session) upsertRuntimeSessionProjection(db, route, session, projectedAt);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 function updateRuntimeSessionSnapshot(
@@ -720,7 +771,7 @@ function updateRuntimeInvocationCancellation(
 }
 
 function assertSessionCommandRoute(
-  command: RuntimeControlCommandRecord,
+  command: RuntimeSessionRoute,
   session: SparkSessionRegistryRecord,
 ): void {
   if (command.scope === "daemon" && session.scope.kind !== "daemon") {

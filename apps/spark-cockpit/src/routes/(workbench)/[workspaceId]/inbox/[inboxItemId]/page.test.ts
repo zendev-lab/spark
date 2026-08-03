@@ -29,6 +29,8 @@ describe("inbox response detail", () => {
           pendingAsk: null,
           sessionsAvailable: true,
           sessionControlAvailable: true,
+          sessionRailShowArchived: false,
+          sessionRailArchivedToggleHref: "/spark/inbox",
           item: {
             id: "inbox_compact",
             workspaceId: "ws_spore",

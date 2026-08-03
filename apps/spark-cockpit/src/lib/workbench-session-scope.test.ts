@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSessionRailTree,
   isSessionVisibleInWorkbenchRail,
   workbenchSessionScope,
   workspaceSessionsForWorkbench,
@@ -66,5 +67,52 @@ describe("workbench session scope", () => {
         "ws_current",
       ),
     ).toEqual([workspaceSession, channelSession]);
+  });
+
+  it("builds adjacent parent and Side Thread rows without promoting orphans", () => {
+    const parentA = { sessionId: "parent-a", status: "ready" };
+    const parentB = { sessionId: "parent-b", status: "ready" };
+    const child = {
+      sessionId: "child-a",
+      status: "ready",
+      relation: {
+        kind: "side_thread",
+        parentSessionId: parentA.sessionId,
+        generation: 2,
+        mode: "contextual",
+      },
+    };
+    const archived = {
+      ...child,
+      sessionId: "child-archived",
+      status: "archived",
+    };
+    const orphan = {
+      ...child,
+      sessionId: "child-orphan",
+      relation: { ...child.relation, parentSessionId: "missing-parent" },
+    };
+
+    expect(buildSessionRailTree([parentA, child, parentB, archived, orphan])).toEqual([
+      { session: parentA, ariaLevel: 1, orphaned: false },
+      {
+        session: child,
+        ariaLevel: 2,
+        parentSessionId: parentA.sessionId,
+        orphaned: false,
+      },
+      { session: parentB, ariaLevel: 1, orphaned: false },
+      {
+        session: orphan,
+        ariaLevel: 2,
+        parentSessionId: "missing-parent",
+        orphaned: true,
+      },
+    ]);
+    expect(
+      buildSessionRailTree([parentA, child, parentB, archived], { includeArchived: true }).map(
+        ({ session }) => session.sessionId,
+      ),
+    ).toEqual(["parent-a", "child-a", "child-archived", "parent-b"]);
   });
 });

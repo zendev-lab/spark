@@ -85,18 +85,24 @@ describe("workbench session layout scope", () => {
         preferredWorkspaceId: workspace.id,
       }),
     );
-    expect(mocks.projectedList).toHaveBeenCalledWith({ workspaceId: workspace.id });
+    expect(mocks.projectedList).toHaveBeenCalledWith({
+      workspaceId: workspace.id,
+      includeArchived: true,
+      related: true,
+    });
     expect(mocks.list).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       activeWorkspace: workspace,
       sessions: [cachedSession],
       sessionsAvailable: true,
       sessionControlAvailable: false,
+      sessionRailShowArchived: false,
+      sessionRailArchivedToggleHref: "/sessions/sess_cached?archived=1",
     });
   });
 
   it("loads the session rail from workspaceId without depending on the session path", async () => {
-    const url = new URL("http://localhost:5173/cached/sessions/sess_cached");
+    const url = new URL("http://localhost:5173/cached/sessions/sess_cached?archived=1");
     const result = await load({
       cookies: {},
       url,
@@ -116,6 +122,8 @@ describe("workbench session layout scope", () => {
       sessions: [cachedSession],
       sessionsAvailable: true,
       sessionControlAvailable: false,
+      sessionRailShowArchived: true,
+      sessionRailArchivedToggleHref: "/cached/sessions/sess_cached",
     });
   });
 
@@ -143,6 +151,8 @@ describe("workbench session layout scope", () => {
     expect(mocks.list).toHaveBeenCalledWith({
       scope: { kind: "workspace", workspaceId: workspace.id },
       workspaceId: workspace.id,
+      includeArchived: true,
+      related: true,
       timeoutMs: 800,
     });
     expect(result).toMatchObject({

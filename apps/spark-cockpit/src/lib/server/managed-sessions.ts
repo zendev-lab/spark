@@ -94,7 +94,7 @@ export type CockpitManagedSessionsList = {
  * before a live owner `session.list` round-trip finishes.
  */
 export function listProjectedManagedSessionsForCockpit(
-  options: { workspaceId: string; includeArchived?: boolean },
+  options: { workspaceId: string; includeArchived?: boolean; related?: boolean },
   database: DatabaseSync = getDatabase(),
 ): CockpitManagedSessionsList {
   const workspaceId = options.workspaceId.trim();
@@ -107,7 +107,7 @@ export function listProjectedManagedSessionsForCockpit(
     includeArchived: options.includeArchived,
   })
     .map((projection) => projection.session)
-    .filter(isCockpitWorkspaceSession);
+    .filter((session) => isCockpitWorkspaceSession(session, options));
   const controlAvailable = listRuntimeSessionRoutes(database).some(
     (route) => route.scope === "workspace" && route.workspaceId === workspaceId,
   );
@@ -131,7 +131,7 @@ export async function listManagedSessionsForCockpit(
     return {
       available: true,
       controlAvailable: listed.controlAvailable,
-      sessions: listed.sessions.filter(isCockpitWorkspaceSession),
+      sessions: listed.sessions.filter((session) => isCockpitWorkspaceSession(session, options)),
     };
   } catch (error) {
     if (error instanceof CockpitRuntimeSessionUnavailableError) {
@@ -401,10 +401,17 @@ export async function archiveManagedSessionForCockpit(
 
 function isCockpitWorkspaceSession(
   session: SparkSessionRegistryRecord,
+  options: {
+    includeArchived?: boolean;
+    related?: boolean;
+    scope?: CockpitRuntimeSessionListRequest["scope"];
+    workspaceId?: string;
+  } = {},
 ): session is SparkSessionRegistryRecord & { scope: { kind: "workspace"; workspaceId: string } } {
-  // The daemon normally omits these from `session.list`, but keep the Cockpit
-  // rail defensive when a stale projection or a diagnostic list response
-  // contains a related child. Children are visible only through the parent
-  // detail's nested Side Thread panel.
-  return session.scope.kind === "workspace" && session.relation?.kind !== "side_thread";
+  if (session.scope.kind !== "workspace") return false;
+  const requestedWorkspaceId =
+    options.scope?.kind === "workspace" ? options.scope.workspaceId : options.workspaceId;
+  if (requestedWorkspaceId && session.scope.workspaceId !== requestedWorkspaceId) return false;
+  if (!options.includeArchived && session.status === "archived") return false;
+  return options.related === true || session.relation?.kind !== "side_thread";
 }

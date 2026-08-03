@@ -11,6 +11,24 @@ export interface WorkbenchSessionScopeLike {
     | null;
 }
 
+export interface WorkbenchSessionRailLike extends WorkbenchSessionScopeLike {
+  sessionId: string;
+  status?: string;
+  relation?: {
+    kind: string;
+    parentSessionId?: string;
+    generation?: number;
+    mode?: string;
+  };
+}
+
+export interface WorkbenchSessionRailRow<T extends WorkbenchSessionRailLike> {
+  session: T;
+  ariaLevel: 1 | 2;
+  parentSessionId?: string;
+  orphaned: boolean;
+}
+
 /**
  * Read the canonical scope when present and fall back to the legacy
  * workspaceId field. A legacy record is never guessed to be daemon-global:
@@ -67,4 +85,55 @@ export function workspaceSessionsForWorkbench<T extends WorkbenchSessionScopeLik
     const scope = workbenchSessionScope(session);
     return scope.kind === "workspace" && scope.workspaceId === activeWorkspaceId;
   });
+}
+
+/**
+ * Flatten parent conversations and their Side Threads into a stable ARIA tree.
+ * Orphans remain diagnostic rows and are never promoted to a parent control surface.
+ */
+export function buildSessionRailTree<T extends WorkbenchSessionRailLike>(
+  sessions: readonly T[],
+  options: { includeArchived?: boolean } = {},
+): WorkbenchSessionRailRow<T>[] {
+  const visible = sessions.filter(
+    (session) => options.includeArchived || session.status !== "archived",
+  );
+  const parents = visible.filter((session) => session.relation?.kind !== "side_thread");
+  const parentIds = new Set(parents.map((session) => session.sessionId));
+  const childrenByParent = new Map<string, T[]>();
+  const orphans: T[] = [];
+
+  for (const session of visible) {
+    if (session.relation?.kind !== "side_thread") continue;
+    const parentSessionId = session.relation.parentSessionId?.trim();
+    if (!parentSessionId || !parentIds.has(parentSessionId)) {
+      orphans.push(session);
+      continue;
+    }
+    const children = childrenByParent.get(parentSessionId) ?? [];
+    children.push(session);
+    childrenByParent.set(parentSessionId, children);
+  }
+
+  const rows: WorkbenchSessionRailRow<T>[] = [];
+  for (const parent of parents) {
+    rows.push({ session: parent, ariaLevel: 1, orphaned: false });
+    for (const child of childrenByParent.get(parent.sessionId) ?? []) {
+      rows.push({
+        session: child,
+        ariaLevel: 2,
+        parentSessionId: parent.sessionId,
+        orphaned: false,
+      });
+    }
+  }
+  for (const orphan of orphans) {
+    rows.push({
+      session: orphan,
+      ariaLevel: 2,
+      parentSessionId: orphan.relation?.parentSessionId,
+      orphaned: true,
+    });
+  }
+  return rows;
 }

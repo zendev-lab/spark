@@ -5,6 +5,7 @@ import {
   listRuntimeSessionProjections,
   listRuntimeSessionRoutes,
   reconcileRuntimeSessionListProjection,
+  replaceRuntimeSideThreadProjection,
   runRuntimeSessionControlCommand,
   runtimeSessionRouteForSession,
   runtimeSessionRouteForWorkspace,
@@ -57,8 +58,12 @@ import {
 
 import { getDatabase } from "./db.ts";
 
+const SIDE_THREAD_RAIL_CONCURRENCY = 8;
+
 export type CockpitRuntimeSessionListRequest = SparkSessionListRequest & {
   runtimeId?: string;
+  /** Include Side Thread relation records for hierarchy-only Cockpit surfaces. */
+  related?: boolean;
   /** Bound how long Cockpit waits for a live owner list before using projections. */
   timeoutMs?: number;
 };
@@ -213,7 +218,8 @@ async function listSessionsWithControlState(
   db: DatabaseSync,
   options: CockpitRuntimeSessionListRequest = {},
 ): Promise<CockpitRuntimeSessionListResult> {
-  const { runtimeId, timeoutMs, ...request } = options;
+  const { runtimeId, timeoutMs, related = false, ...request } = options;
+  const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
   const parsed = sparkSessionListRequestSchema.parse(request);
   if (parsed.scope?.kind === "daemon") {
     throw new Error("Cockpit session lists support workspace scope only.");
@@ -222,12 +228,12 @@ async function listSessionsWithControlState(
   try {
     routes = routesForList(db, parsed);
   } catch (error) {
-    const stale = projectedSessions(db, parsed, runtimeId);
+    const stale = projectedSessions(db, parsed, runtimeId, related);
     if (stale.length > 0) return { sessions: stale, controlAvailable: false };
     throw unavailableFrom(error);
   }
   if (routes.length === 0) {
-    const stale = projectedSessions(db, parsed, runtimeId);
+    const stale = projectedSessions(db, parsed, runtimeId, related);
     if (stale.length > 0) return { sessions: stale, controlAvailable: false };
     throw new CockpitRuntimeSessionUnavailableError(
       "No connected Spark daemon runtime is available for session control.",
@@ -235,10 +241,10 @@ async function listSessionsWithControlState(
   }
 
   const results = await Promise.allSettled(
-    routes.map((route) => listRouteSessions(db, route, parsed, timeoutMs)),
+    routes.map((route) => listRouteSessions(db, route, parsed, deadline)),
   );
   if (results.every((result) => result.status === "rejected")) {
-    const stale = projectedSessions(db, parsed, runtimeId);
+    const stale = projectedSessions(db, parsed, runtimeId, related);
     // Only an explicit response timeout preserves the connected owner's
     // control state. Protocol, authorization, and routing failures must fail
     // closed instead of turning a stale projection into a writable surface.
@@ -247,10 +253,125 @@ async function listSessionsWithControlState(
     }
     throw unavailableFrom(results[0]!.reason);
   }
+  const sessions = projectedSessions(db, parsed, runtimeId, related);
   return {
-    sessions: projectedSessions(db, parsed, runtimeId),
+    sessions: related ? await appendLiveSideThreads(db, sessions, deadline) : sessions,
     controlAvailable: results.some((result) => result.status === "fulfilled"),
   };
+}
+
+async function appendLiveSideThreads(
+  db: DatabaseSync,
+  sessions: SparkSessionRegistryRecord[],
+  deadline: number | undefined,
+): Promise<SparkSessionRegistryRecord[]> {
+  const parentSessions = sessions.filter((session) => session.relation?.kind !== "side_thread");
+  const sideThreadsByParent = new Map(
+    sessions.flatMap((session) =>
+      session.relation?.kind === "side_thread"
+        ? [[session.relation.parentSessionId, session] as const]
+        : [],
+    ),
+  );
+  const parents = parentSessions.filter((session) => session.scope.kind === "workspace");
+  for (let offset = 0; offset < parents.length; offset += SIDE_THREAD_RAIL_CONCURRENCY) {
+    if (deadline !== undefined && Date.now() >= deadline) break;
+    const snapshots = await Promise.allSettled(
+      parents.slice(offset, offset + SIDE_THREAD_RAIL_CONCURRENCY).map(async (parent) => ({
+        parent,
+        snapshot: await getSideThreadSnapshot(
+          db,
+          parent.sessionId,
+          {},
+          remainingTimeoutMs(deadline),
+        ),
+      })),
+    );
+    for (const [index, result] of snapshots.entries()) {
+      // A hierarchy-only read must never make the parent rail unavailable.
+      // Timeouts and incompatible children retain the last safe projection for the next refresh.
+      if (result.status === "rejected") {
+        if (!isMissingSideThread(result.reason)) continue;
+        const parent = parents[offset + index];
+        if (!parent) continue;
+        replaceRuntimeSideThreadProjection(
+          db,
+          runtimeSessionRouteForSession(db, parent.sessionId),
+          parent.sessionId,
+          null,
+          new Date().toISOString(),
+        );
+        sideThreadsByParent.delete(parent.sessionId);
+        continue;
+      }
+      const { parent, snapshot } = result.value;
+      const relatedSession = sideThreadRegistryRecord(parent, snapshot);
+      replaceRuntimeSideThreadProjection(
+        db,
+        runtimeSessionRouteForSession(db, parent.sessionId),
+        parent.sessionId,
+        relatedSession,
+        new Date().toISOString(),
+      );
+      sideThreadsByParent.set(parent.sessionId, relatedSession);
+    }
+  }
+  return [...parentSessions, ...sideThreadsByParent.values()];
+}
+
+function sideThreadRegistryRecord(
+  parent: SparkSessionRegistryRecord,
+  snapshot: SparkSideThreadSnapshot,
+): SparkSessionRegistryRecord {
+  if (parent.scope.kind !== "workspace") {
+    throw new RuntimeControlCommandError(
+      "Cockpit Side Thread rail projection requires a workspace parent.",
+      "session_scope_mismatch",
+    );
+  }
+  return {
+    sessionId: snapshot.sessionId,
+    scope: parent.scope,
+    workspaceId: parent.scope.workspaceId,
+    ...(parent.cwd ? { cwd: parent.cwd } : {}),
+    title: snapshot.mode === "contextual" ? "Context Side Thread" : "Tangent Side Thread",
+    status:
+      parent.status === "archived"
+        ? "archived"
+        : snapshot.status === "running"
+          ? "running"
+          : "ready",
+    bindings: [],
+    relation: {
+      kind: "side_thread",
+      parentSessionId: parent.sessionId,
+      generation: snapshot.generation,
+      mode: snapshot.mode,
+    },
+    createdAt: parent.createdAt,
+    updatedAt: parent.updatedAt,
+  };
+}
+
+function isMissingSideThread(error: unknown): boolean {
+  return (
+    error instanceof RuntimeControlCommandError &&
+    ["side_thread_not_found", "SIDE_THREAD_NOT_FOUND", "SESSION_NOT_FOUND"].includes(
+      error.reasonCode,
+    )
+  );
+}
+
+function remainingTimeoutMs(deadline: number | undefined): number | undefined {
+  if (deadline === undefined) return undefined;
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) {
+    throw new RuntimeControlCommandError(
+      "Spark runtime session list exceeded its response deadline.",
+      "COMMAND_RESULT_TIMEOUT",
+    );
+  }
+  return remaining;
 }
 
 export function shouldRetainControlForStaleProjection(
@@ -273,7 +394,7 @@ async function listRouteSessions(
   db: DatabaseSync,
   route: RuntimeSessionRoute,
   request: ReturnType<typeof sparkSessionListRequestSchema.parse>,
-  timeoutMs?: number,
+  deadline: number | undefined,
 ): Promise<SparkSessionRegistryRecord[]> {
   if (route.scope !== "workspace" || !route.workspaceId) {
     throw new Error("Cockpit session lists require a workspace route.");
@@ -283,7 +404,9 @@ async function listRouteSessions(
     scope: route.scope,
     ...(route.workspaceId ? { workspaceId: route.workspaceId } : {}),
     includeArchived: true,
-  }).map((projection) => projection.session.sessionId);
+  })
+    .filter((projection) => projection.session.relation?.kind !== "side_thread")
+    .map((projection) => projection.session.sessionId);
   const sessions: SparkSessionRegistryRecord[] = [];
   let cursor: string | undefined;
   while (true) {
@@ -300,7 +423,7 @@ async function listRouteSessions(
           limit: 100,
         },
       },
-      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      ...(deadline !== undefined ? { timeoutMs: remainingTimeoutMs(deadline) } : {}),
     });
     const page = parseSessionListPage(result);
     sessions.push(...page.sessions);
@@ -406,6 +529,7 @@ async function getSideThreadSnapshot(
   db: DatabaseSync,
   parentSessionId: string,
   options: { beforeExchangeId?: string; limit?: number } = {},
+  timeoutMs?: number,
 ): Promise<SparkSideThreadSnapshot> {
   const request = sparkSideThreadSnapshotRequestSchema.parse({
     parentSessionId,
@@ -419,6 +543,7 @@ async function getSideThreadSnapshot(
       kind: "side-thread.snapshot.request",
       payload: publicJsonObject(request),
     },
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
   });
   return sparkSideThreadSnapshotSchema.parse(result);
 }
@@ -584,6 +709,13 @@ async function submitTurn(
     idempotencyKey?: string;
   },
 ): Promise<SparkTurnSubmitResult> {
+  const projected = getRuntimeSessionProjection(db, input.sessionId)?.session;
+  if (projected?.relation?.kind === "side_thread") {
+    throw new RuntimeControlCommandError(
+      "Side Threads accept prompts only through their parent-authorized controller.",
+      "side_thread_direct_submit_forbidden",
+    );
+  }
   const route = requireOnlineRoute(db, runtimeSessionRouteForSession(db, input.sessionId));
   const result = await runRuntimeSessionControlCommand(db, {
     route,
@@ -688,7 +820,8 @@ function routesForList(
 function projectedSessions(
   db: DatabaseSync,
   request: ReturnType<typeof sparkSessionListRequestSchema.parse>,
-  runtimeId?: string,
+  runtimeId: string | undefined,
+  related: boolean,
 ): SparkSessionRegistryRecord[] {
   return parseSparkSessionRegistryRecords(
     listRuntimeSessionProjections(db, {
@@ -700,7 +833,7 @@ function projectedSessions(
           : { scope: "workspace" as const }),
       includeArchived: request.includeArchived,
     }).map(({ session }) => session),
-  );
+  ).filter((session) => related || session.relation?.kind !== "side_thread");
 }
 
 function requireProjectedSession(
