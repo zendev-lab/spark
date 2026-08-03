@@ -11,7 +11,7 @@ import {
   renderSparkMemoryCheckpoint,
   renderSparkMemoryPolicy,
 } from "@zendev-lab/spark-memory";
-import { createLegacyMemoryFixturePermit } from "../packages/spark-memory/src/legacy-fixture.ts";
+import { createLegacyMemoryFixturePermit } from "@zendev-lab/spark-memory/legacy-fixture";
 import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
 import type { ToolConfig } from "@zendev-lab/spark-core";
 

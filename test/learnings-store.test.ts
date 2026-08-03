@@ -12,7 +12,7 @@ import {
   parseLearningExportMarkdown,
   renderLearningExportMarkdown,
 } from "@zendev-lab/spark-memory";
-import { createLegacyMemoryFixturePermit } from "../packages/spark-memory/src/legacy-fixture.ts";
+import { createLegacyMemoryFixturePermit } from "@zendev-lab/spark-memory/legacy-fixture";
 import { newRef } from "@zendev-lab/spark-core";
 
 function legacyLearningStore(

@@ -4,8 +4,8 @@ import { isAbsolute, join, resolve } from "node:path";
 
 import { writeTextFileAtomic } from "@zendev-lab/spark-core";
 
-import type { SparkMemoryScope } from "./index.ts";
-import { normalizeRecallStoreSnapshot, type RecallScope } from "./recall-store.ts";
+import type { RecallScope } from "./recall-store.ts";
+import { normalizeRecallStoreSnapshot } from "./recall-store.ts";
 import { normalizeLearningRecordForMigration, type LearningLocation } from "./learning-store.ts";
 
 export const MEMORY_SCHEMA_MIGRATION_VERSION = 1 as const;
@@ -46,7 +46,7 @@ export interface MemorySchemaMigrationPlan {
 export interface MemorySchemaMigrationOptions {
   rootDir: string;
   entryPath?: string;
-  entryScope?: SparkMemoryScope;
+  entryScope?: "user" | "workspace" | "repo";
   recallPath?: string;
   recallScope?: RecallScope;
   learningRoot?: string;

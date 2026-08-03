@@ -718,7 +718,6 @@ export * from "./approval-consumption.ts";
 export * from "./approval.ts";
 export * from "./learning-store.ts";
 export * from "./lifecycle.ts";
-export * from "./schema-migration.ts";
 export * from "./migrate-layout.ts";
 export * from "./reflection-candidate-inbox.ts";
 export * from "./reflection-in-session-scheduler.ts";

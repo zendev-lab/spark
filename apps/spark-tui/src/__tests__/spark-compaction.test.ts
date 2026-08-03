@@ -35,7 +35,7 @@ import {
 import { createSparkPiParitySlashCommands } from "../cli/pi-parity-commands.ts";
 import { SparkNativeSession } from "../native-tui.ts";
 import { defaultSparkMemoryStore } from "@zendev-lab/spark-memory";
-import { createLegacyMemoryFixturePermit } from "../../../../packages/spark-memory/src/legacy-fixture.ts";
+import { createLegacyMemoryFixturePermit } from "@zendev-lab/spark-memory/legacy-fixture";
 import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
 import { SPARK_PROMPT_ITEM_METADATA_KEY } from "@zendev-lab/spark-turn";
 

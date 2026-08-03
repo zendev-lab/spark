@@ -9,7 +9,7 @@ import {
   applyMemorySchemaMigration,
   createMemorySchemaMigrationPlan,
   rollbackMemorySchemaMigration,
-} from "@zendev-lab/spark-memory";
+} from "@zendev-lab/spark-memory/schema-migration";
 
 function digest(text: string): string {
   return createHash("sha256").update(text).digest("hex");

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "vitest";
 
 import type { ToolConfig } from "@zendev-lab/spark-core";
-import sparkMemoryExtension from "../packages/spark-memory/src/extension.ts";
+import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
 
 import { EvidenceStore } from "@zendev-lab/spark-artifacts";
 import type {
