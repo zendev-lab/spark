@@ -508,10 +508,10 @@ test("native TUI defaults to workspace session selector when no session target i
   assert.match(rendered, /workspace: \/workspaces\/current/);
   assert.match(rendered, /workspace hash: hash-current/);
   assert.match(rendered, /control-plane session: client-current/);
-  assert.doesNotMatch(rendered, /Spark zellij-native control and Pi replacement validation/);
+  assert.doesNotMatch(rendered, /Spark daemon session validation/);
 });
 
-test("native TUI keeps Pi-like project UI placement when session selector is shown", () => {
+test("native TUI keeps project UI placement when session selector is shown", () => {
   const harness = createSparkNativeTuiHarness({
     cols: 180,
     workspaceSession: {
@@ -522,16 +522,16 @@ test("native TUI keeps Pi-like project UI placement when session selector is sho
     },
   });
   harness.app.setWidget("project", [
-    "Project: Spark daemon-first session UX and Pi/Codex parity hardening",
-    "Goal: daemon-first session UX and parity hardening",
-    "Ready: @pi-like-project-ui-placement",
+    "Project: Spark daemon session UX",
+    "Goal: improve the session workflow",
+    "Ready: @project-ui-placement",
   ]);
 
   const lines = stripAnsi(harness.render()).split("\n");
   const sessionLines = markerIndexes(lines, /Select Spark session/);
-  const projectLine = firstMarkerIndex(lines, /Project: Spark daemon-first/);
-  const goalLine = firstMarkerIndex(lines, /Goal: daemon-first/);
-  const readyLine = firstMarkerIndex(lines, /Ready: @pi-like-project-ui-placement/);
+  const projectLine = firstMarkerIndex(lines, /Project: Spark daemon session UX/);
+  const goalLine = firstMarkerIndex(lines, /Goal: improve the session workflow/);
+  const readyLine = firstMarkerIndex(lines, /Ready: @project-ui-placement/);
 
   assert.equal(sessionLines.length, 1);
   assert.equal(sessionLines[0], projectLine - 1);
@@ -539,7 +539,7 @@ test("native TUI keeps Pi-like project UI placement when session selector is sho
   assert.equal(readyLine, goalLine + 1);
 });
 
-test("native TUI renders compact session status before Pi-like project UI", () => {
+test("native TUI renders compact session status before project UI", () => {
   const harness = createSparkNativeTuiHarness({
     cols: 180,
     workspaceSession: {
@@ -551,15 +551,15 @@ test("native TUI renders compact session status before Pi-like project UI", () =
     },
   });
   harness.app.setWidget("project", [
-    "Project: Spark daemon-first session UX and Pi/Codex parity hardening",
-    "Goal: daemon-first session UX and parity hardening",
-    "Ready: @zellij-driven-spark-pi-codex-parity-harness",
+    "Project: Spark daemon session UX",
+    "Goal: improve the session workflow",
+    "Ready: @zellij-driven-session-harness",
   ]);
 
   assert.equal(harness.state.exited, false);
   const lines = stripAnsi(harness.render()).split("\n");
   const sessionLine = firstMarkerIndex(lines, /Spark session attached/);
-  const projectLine = firstMarkerIndex(lines, /Project: Spark daemon-first/);
+  const projectLine = firstMarkerIndex(lines, /Project: Spark daemon session UX/);
   assert.equal(projectLine, sessionLine + 1);
   assert.equal(
     lines.filter((line) =>

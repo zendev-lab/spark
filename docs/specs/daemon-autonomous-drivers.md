@@ -185,17 +185,17 @@ implementation phase and session TODOs, but that hook has no cadence, retry, or
 persistent driver state. Architecture tests enforce this boundary and prevent
 daemon code from importing a product frontend facade.
 
-## marrow-core replacement boundary
+## Supported runtime boundary
 
-This runtime replaces the autonomy-critical marrow-core behavior: persistent
-cadence, one-shot wake, retries, cancellation, recovery, per-session
-non-overlap, fresh execution, and frontend-independent operation.
+The daemon owns persistent cadence, one-shot wake, retries, cancellation,
+recovery, per-session non-overlap, fresh execution, and frontend-independent
+operation. These are supported Spark behaviors, not a claim of feature parity
+with another runtime.
 
 Spark's deployment model is one daemon per Unix user. A root process that
 impersonates several users is deliberately out of scope.
 
-The following operational conveniences are follow-up work, not archive
-blockers:
+The following operational capabilities remain follow-up work:
 
 - a first-class Linux systemd installer;
 - periodic self-check and richer doctor output;

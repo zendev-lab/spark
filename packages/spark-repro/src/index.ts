@@ -286,7 +286,7 @@ export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
       ),
       evidenceRequirement(
         "competitor-baseline-availability-researched",
-        "Runnable competitor/reference baseline availability verified (typically Megatron)",
+        "Runnable reference implementation availability verified",
         "plan",
       ),
       decisionRequirement(

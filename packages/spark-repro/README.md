@@ -4,6 +4,10 @@
 provide persistence, evidence lookup, canonical user interaction, scheduling,
 and rendering.
 
+Spark does not bundle a model-specific reproduction skill. The reproduction
+workspace owns its methodology, templates, and project-specific diagnostics;
+Spark supplies the generic state, scheduling, and evidence boundaries.
+
 The protocol keeps the fixed `setup → scaffold → reproduce → scale → deliver`
 evidence gates and adds four durable structures:
 
@@ -45,10 +49,10 @@ Stored v1/v2/v3 snapshots migrate to v4. Invalid legacy proof is removed,
 affected contracts/steps/gates reopen, and no legacy boolean is promoted into a
 user decision or passing validation.
 
-The setup stage first verifies whether a runnable competitor/reference baseline
-already exists (typically a Megatron implementation). Missing baselines are a
-blocking user decision: ask how to construct or obtain them before any baseline
-probe, and do not invent a substitute. It then researches reuse/adapt/new
+The setup stage first verifies whether the reference implementation named in
+the contract is runnable. An unavailable reference is a blocking user decision:
+ask how to construct or obtain it before any baseline probe, and do not invent
+a substitute. Setup then researches reuse/adapt/new
 implementation options and real-module/eager alignment paths before recording
 the corresponding user decisions. Eager execution is a diagnostic path by
 default, not silent evidence that the real module path is aligned.

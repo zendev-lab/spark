@@ -84,3 +84,6 @@ explicitly exported. Legacy `.learnings/` directories are also ignored if
 present.
 
 Contracts, including state ownership and adapter boundaries, are indexed in [`docs/README.md`](./docs/README.md). Contributor and automation constraints are in [`AGENTS.md`](./AGENTS.md).
+
+Spark is MIT-licensed. Source-derived component notices are in
+[`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).

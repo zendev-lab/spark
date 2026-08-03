@@ -1,6 +1,6 @@
 # Cockpit instance relocation
 
-This is a feature-only procedure for moving one logical Cockpit instance to a new HTTPS origin. It is not an independent Cockpit registration and it is not an origin-lease transfer. The daemon owns the workspace directory; Cockpit only holds an exclusive **active origin lease** while sessions **occupy** that directory. Relocation does not authorize an operator to upload, restore, deploy, or switch the current `marrow-paddle` instance.
+This is a feature-only procedure for moving one logical Cockpit instance to a new HTTPS origin. It is not an independent Cockpit registration and it is not an origin-lease transfer. The daemon owns the workspace directory; Cockpit only holds an exclusive **active origin lease** while sessions **occupy** that directory. Relocation does not authorize an operator to upload, restore, deploy, or switch any existing deployment.
 
 ## Stop conditions
 
@@ -97,7 +97,9 @@ Remote browser authority is progressive. After restore, mint a fresh Cockpit key
 curl --fail --silent --show-error "$TARGET_URL/api/v1/runtime/relocation/metadata"
 ```
 
-Expected: HTTPS response, restored `instanceId`, and runtime endpoint upgrades to WSS. HTTP is rejection-only. The current `http://marrow-paddle.bcc-szzj.baidu.com:8080/` is not eligible for full cutover until an HTTPS/WSS endpoint and offline restore access exist.
+Expected: HTTPS response, restored `instanceId`, and runtime endpoint upgrades to WSS. HTTP is
+rejection-only. A legacy endpoint such as `http://legacy-cockpit.example.com:8080/` is not eligible
+for full cutover until HTTPS/WSS and offline restore access exist.
 
 ## 5. Relocate the daemon uplink
 
@@ -173,4 +175,4 @@ Do not reuse ordinary registration or relocate/preflight for temporary borrow. W
 
 ## Evidence record
 
-Save secret-free command exit codes, JSON field summaries, snapshot SHA-256 values, source/target heartbeat counts, daemon PID, invocation terminal result, lease query, marker scan counts, and rollback summary hashes. Mark the operation complete only when every acceptance check passes. This document validates reusable capability only; it does not state that `marrow-paddle` was changed.
+Save secret-free command exit codes, JSON field summaries, snapshot SHA-256 values, source/target heartbeat counts, daemon PID, invocation terminal result, lease query, marker scan counts, and rollback summary hashes. Mark the operation complete only when every acceptance check passes. This document validates reusable capability only; it does not record a production deployment change.

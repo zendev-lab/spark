@@ -667,7 +667,7 @@ const PI_PARITY_DESCRIPTIONS = {
   copy: "copy/show the last Spark assistant message",
   name: "set or show the current Spark session display name",
   session: "show Spark native session info and transcript stats",
-  changelog: "show Spark parity changelog highlights",
+  changelog: "show Spark native TUI capability highlights",
   hotkeys: "show all Spark keyboard shortcuts",
   fork: "fork the current visible transcript into a new Spark session record",
   clone: "clone the current visible transcript into a new Spark session record",
@@ -686,7 +686,7 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
     descriptions: PI_PARITY_DESCRIPTIONS,
     noAssistantMessage: "No assistant message to copy yet.",
     changelog: [
-      "Spark native TUI parity highlights:",
+      "Spark native TUI capabilities:",
       "- daemon-first native pi-tui host",
       "- slash autocomplete and /model selection",
       "- native widget factory rendering",
@@ -724,7 +724,7 @@ const PI_PARITY_STRINGS: Record<SparkLanguage, SparkTuiPiParityStrings> = {
     descriptions: PI_PARITY_DESCRIPTIONS,
     noAssistantMessage: "还没有可复制的 assistant 消息。",
     changelog: [
-      "Spark native TUI parity highlights:",
+      "Spark native TUI capabilities:",
       "- daemon-first native pi-tui host",
       "- slash autocomplete and /model selection",
       "- native widget factory rendering",

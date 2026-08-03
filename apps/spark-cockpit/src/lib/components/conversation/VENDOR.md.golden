@@ -2,6 +2,7 @@
 
 - Upstream: <https://github.com/SikandarJODD/ai-elements>
 - Upstream commit: `fa4bc217f84bc571378bc371332a154106772614`
+- Relationship: upstream describes itself as an unofficial Svelte port of Vercel AI Elements
 - License: MIT; the required upstream notice is retained in `UPSTREAM-LICENSE.txt`
 - Imported: 2026-07-13
 - Last reviewed upstream commit: `fa4bc217f84bc571378bc371332a154106772614`

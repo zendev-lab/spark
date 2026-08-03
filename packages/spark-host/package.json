@@ -8,7 +8,6 @@
   "files": [
     "src/**/*.ts",
     "!src/**/*.test.ts",
-    "skills/**/*",
     "README.md"
   ],
   "type": "module",

@@ -2,6 +2,7 @@
 
 - Upstream: <https://github.com/SikandarJODD/ai-elements>
 - Upstream commit: `fa4bc217f84bc571378bc371332a154106772614`
+- Relationship: upstream describes itself as an unofficial Svelte port of Vercel AI Elements
 - Original registry: <https://svelte-ai-elements.vercel.app/r/model-selector.json>
 - Original files: `src/lib/components/ai-elements/model-selector/*`
 - License: MIT; retained in `UPSTREAM-LICENSE.txt`

@@ -24,13 +24,11 @@ import {
   renderPersistentSessionRolePrompt,
   renderSparkChannelSurfacePrompt,
 } from "@zendev-lab/spark-host/system-prompt";
-import { SparkSessionStore } from "@zendev-lab/spark-host/session-store";
 import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
 import {
   isSparkTurnRestartYieldError,
   type SparkTurnResumeCheckpoint,
 } from "@zendev-lab/spark-turn";
-import { renderModelReproductionSkillAutoloadPrompt } from "@zendev-lab/spark-host/builtin-skills";
 import {
   channelDeliveryFailureOutcome,
   channelDeliveryOutcomeUnknown,
@@ -880,13 +878,7 @@ export async function executeSparkDaemonSessionRunTask(
     sessionContext.role,
     sessionContext.sideThread,
   );
-  const reproSkillId = await reproSkillToAutoload(
-    driver,
-    sessionContext.sessionPath,
-    task.cwd ?? options.cwd ?? process.cwd(),
-    options.paths.piAgentDir,
-  );
-  const messageMetadata = sessionRunMessageMetadata(task, context.invocationId, reproSkillId);
+  const messageMetadata = sessionRunMessageMetadata(task, context.invocationId);
   const binding = completeChannelBinding(task);
   const interaction = interactionForSessionRun(options, task, context);
   const checkpointRestart =
@@ -897,7 +889,7 @@ export async function executeSparkDaemonSessionRunTask(
     !driver && !task.reset && !task.hiddenExecution && !binding && Boolean(checkpointRestart);
   return await options.executeSession({
     ...(await sessionExecutionIdentity(task, options, sessionContext)),
-    prompt: await sessionRunPrompt(task, options.paths, context.invocationId, reproSkillId),
+    prompt: await sessionRunPrompt(task, options.paths, context.invocationId),
     signal: context.signal,
     // The daemon scheduler is the single execution-time budget owner. It can
     // pause that budget while awaiting a human response; adding the headless
@@ -948,7 +940,6 @@ async function sessionRunPrompt(
   task: SparkDaemonSessionRunTask,
   paths: SparkPaths,
   invocationId: string,
-  reproSkillId?: string,
 ): Promise<Parameters<SparkHeadlessSessionExecutor>[0]["prompt"]> {
   const browserImages = (task.attachments ?? []).filter(
     (attachment) => attachment.kind === "image",
@@ -957,9 +948,7 @@ async function sessionRunPrompt(
   const files = (task.attachments ?? []).filter((attachment) => attachment.kind === "file");
   const filePrompt = materializeTurnFiles(files, paths, invocationId);
   const taskPrompt = filePrompt ? `${task.prompt}\n\n${filePrompt}` : task.prompt;
-  const text = reproSkillId
-    ? `${await renderModelReproductionSkillAutoloadPrompt(reproSkillId)}\n\n${taskPrompt}`
-    : taskPrompt;
+  const text = taskPrompt;
   if (browserImages.length === 0 && channelImages.length === 0) return text;
   return [
     { type: "text", text },
@@ -1013,7 +1002,6 @@ function safePathSegment(value: string): string {
 function sessionRunMessageMetadata(
   task: SparkDaemonSessionRunTask,
   invocationId: string,
-  reproSkillId?: string,
 ): Record<string, unknown> {
   const source = sessionSourceForTask(task);
   const baseMetadata = {
@@ -1059,14 +1047,6 @@ function sessionRunMessageMetadata(
     // correlation so projections can reconcile those two identities without
     // collapsing legitimate repeated prompts by text.
     invocationId,
-    ...(reproSkillId
-      ? {
-          sparkReproSkillCheckpoint: {
-            skillName: "model-reproduction",
-            reproId: reproSkillId,
-          },
-        }
-      : {}),
   };
 }
 
@@ -1234,31 +1214,6 @@ async function systemPromptForSession(
     return composeAgentSystemPrompt([DEFAULT_SPARK_IDENTITY_PROMPT, rolePrompt, sideThreadPrompt]);
   }
   return undefined;
-}
-
-async function reproSkillToAutoload(
-  driver: SparkHostDriverContext | undefined,
-  sessionPath: string | undefined,
-  cwd: string,
-  sparkHome: string | undefined,
-): Promise<string | undefined> {
-  if (driver?.kind !== "repro" || driver.generation !== 1 || driver.driverId.trim().length === 0) {
-    return undefined;
-  }
-  if (!sessionPath) return driver.driverId;
-  const record = await new SparkSessionStore({ cwd, sparkHome }).load(sessionPath);
-  const alreadyLoaded = record.entries.some((entry) => {
-    if (entry.type !== "message" || entry.message.role !== "user") return false;
-    const checkpoint = objectRecord(objectRecord(entry.message.metadata).sparkReproSkillCheckpoint);
-    return checkpoint.skillName === "model-reproduction" && checkpoint.reproId === driver.driverId;
-  });
-  return alreadyLoaded ? undefined : driver.driverId;
-}
-
-function objectRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 async function loadInfoflowAdapterConfig(

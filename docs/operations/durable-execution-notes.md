@@ -1,66 +1,45 @@
-# Durable execution notes (Inngest / Restate → Spark)
+# Durable execution checkpoint notes
 
-Status: **notes only** — no code changes in this spike. Cross-check against current Spark storage:
+Status: design notes only. This is a mechanism comparison, not an adoption recommendation.
 
-- `packages/spark-workflows` — workflow-run JSON stores + dynamic workflow event store
-- `packages/spark-loop` — loop/goal continuation state (`active | paused | complete`)
-- `packages/spark-protocol` invocation lifecycle + Cockpit SQLite `mirrored_invocations` / `invocation_events` / `invocation_log_chunks`
+## External mechanisms
 
-## What Inngest / Restate optimize for
-
-Both treat a long-running workflow as a **deterministic function of durable step results**:
-
-| Idea | Inngest-ish | Restate-ish |
+| System | Durable boundary | Retry caveat |
 | --- | --- | --- |
-| Step barrier | `step.run(id, fn)` memoizes output | journaled handler invocations |
-| Replay | After crash, skip completed steps | Replay journal; skip completed side effects |
-| Sleep / wait | Durable timers / events | Durable awakeables / timers |
-| Idempotency | Step id + run id | Invocation id + journal index |
-| Failure | Retry policy per step; run status | Retry + suspension without losing progress |
+| [Inngest](https://www.inngest.com/docs/learn/how-functions-are-executed) | successful `step.run` results are persisted and reused; waits and timers are durable | a failed step can run again, so Inngest requires retried side effects to be idempotent |
+| [Restate](https://docs.restate.dev/guides/request-lifecycle) | Context operations and results are journaled; replay skips committed operations | `ctx.run` has retry policy; exactly-once claims depend on Restate-mediated invocation, journal, and communication boundaries |
 
-Key property: **side effects happen once**; control flow can be replayed safely because completed steps return cached results.
+These mechanisms do not provide an unqualified guarantee for every external effect. Any Spark design
+must name the checkpoint, deduplication key, retry boundary, and external-system contract.
 
-## How Spark looks today (mapping)
+## Current Spark mapping
 
-| Durable concept | Closest Spark surface | Gap |
+| Concept | Current owner | Remaining gap |
 | --- | --- | --- |
-| Run identity | Invocation id (`inv_*`), workflow run refs, dynamic workflow run refs | Multiple id namespaces; not one “execution id” across loop/workflow/turn |
-| Step checkpoint | Dynamic workflow **event-sourced** store (v2); workflow-run snapshots; stage/journal entries in workflow runtime; invocation-owned `before_tool_calls` checkpoint for planned daemon restart | Workflow JSON snapshots can reconcile after crash. Planned restart can continue an undispatched tool batch, but completed/in-flight tool side effects are not generally step-memoized |
-| Event log | `invocation_events` (+ log chunks) in Cockpit DB; protocol event cursor | Projection/mirror oriented; not a replayable execution journal for daemon turn engines |
-| Pause / resume | `spark-loop` / goal `paused` + resume | Loop state is coarse (whole loop), not per-step |
-| Retry | Invocation `attemptCount` / `retryOfInvocationId`; workflow parallel retry options | Retry usually restarts a turn/run. Only the planned-restart `before_tool_calls` checkpoint continues an exact pending batch |
-| Sleep / wait for human | Ask/approval waits in protocol / channels | Wait is interactive, not a durable timer that survives process death with automatic resume scheduling |
+| execution identity | daemon invocation id; workflow and loop refs are parent scopes | no single step identity across every execution surface |
+| checkpoint | workflow events/snapshots and invocation restart checkpoints | general tool/model side effects are not step-memoized |
+| event history | daemon invocation events and Cockpit projections | projections are not a replay journal for the turn engine |
+| retry | daemon invocation attempts and workflow retry policy | most retries restart the owning turn or run |
+| wait | ask/approval lifecycle and driver scheduling | no general durable timer/await record for arbitrary work |
 
-Rough layering today:
+The daemon remains the execution owner. Cockpit data is a projection, and `spark-loop` remains
+continuation policy rather than a second execution journal.
 
-```text
-spark-loop     → continuation policy (keep going / pause / complete)
-spark-workflows→ scripted multi-stage / multi-agent orchestration + run stores
-daemon turn    → one prompt→tools→model invocation with event stream
-cockpit SQLite → mirrored invocation projection for UI/history
-```
+## Small validation slice
 
-None of these currently implement full **step-memoized replay** the way Restate journals do.
+Before proposing a new journal or external engine, test one daemon-owned operation with:
 
-## 3–5 follow-ups worth doing later
+1. a stable execution and step key;
+2. persisted input hash, status, and bounded result metadata;
+3. crash points before dispatch, after dispatch, and after result persistence;
+4. a documented rule for whether each crash retries, resumes, or fails closed;
+5. an idempotent or deduplicated external effect.
 
-1. **Introduce an explicit `execution_step` journal for daemon turns**
-   Persist `{ invocationId, stepKey, kind, inputHash, output, status, finishedAt }` for tool calls and model segments. On resume/retry, skip steps whose `stepKey` already succeeded. Start behind a feature flag; keep current event stream as the UI projection.
+Only extend the design if this slice demonstrates a recovery gap that existing invocation and
+workflow state cannot represent.
 
-2. **Unify “run id” vocabulary in protocol**
-   Document (then enforce) one primary execution id for agent turns, with workflow-run and loop state as *parents/scopes* rather than parallel opaque ids. Map Cockpit `mirrored_invocations.runtime_invocation_id` cleanly onto that id.
+## Non-goals
 
-3. **Promote dynamic-workflow event store patterns to saved-script workflow runs**
-   The v2 event-sourced dynamic store already leans durable. Prefer append-only events + fold for orchestrator workflow runs over large mutable snapshots where crash recovery currently reconciles by “no child process ⇒ mark failed/stale”.
-
-4. **Make loop/goal pause a durable await, not only in-memory host state**
-   When a loop pauses for human review or a timer, write an await record (reason, wake condition, deadline) next to loop state so daemon restart can rehydrate and resume tick scheduling—closer to Inngest sleep/wait.
-
-5. **Idempotent `turn.submit` with step-aware resume**
-   Protocol already has optional `idempotencyKey`. Extend so a retry with the same key resumes from the last durable step instead of always forking `retryOfInvocationId` when safe. Gate on deterministic step keys from (1).
-
-## Non-goals right now
-
-- Do not import Inngest/Restate SDKs into Spark.
-- Do not rewrite `spark-turn` agent-loop for replay in this phase.
-- Do not migrate Cockpit SQLite schemas until the journal shape is spike-proven in daemon unit tests.
+- Do not add Inngest or Restate as a production dependency from these notes.
+- Do not claim general exactly-once execution for Spark.
+- Do not migrate Cockpit schemas before a daemon-owned journal shape is validated.

@@ -11,7 +11,15 @@ This file names stable agent-facing capabilities. Schemas and result types live 
 - `/workflow` executes a selected saved workflow; `/ultracode` explicitly opts into approval-gated fan-out.
 - `/btw` opens and controls the daemon-owned, read-only Side Thread associated with the current parent session.
 
-Session operating phases are only `plan` and `implement`. `plan` covers investigation, explanation, review, and durable planning without requiring durable writes for ordinary answers. Research remains a task kind and workflow capability, not a separate session phase. Repro v4 adds a durable Goal Contract, a complete typed Step plan, append-only Plan Revisions, and a semantic Stop Guard around the existing five evidence-gated stages. Each step has one goal, explicit `doneWhen` and `evidenceRequired`, an authority class (`safe_local`, `ask_decision`, or `ask_approval`), and optional dependencies. Plan difficulty is an integer from 1 to 10 and enforces adaptive minimum step budgets of 4, 6, 8, 11, or 13 while retaining coverage of every fixed stage. Setup remains research-first: freeze the reproduction contract, verify whether a runnable competitor/reference baseline already exists (typically Megatron), ask the user how to construct or obtain it when missing, inspect reusable implementation and extension boundaries, compare real-module and eager alignment paths, record the implementation and alignment decisions through user-answered canonical asks, and pass a minimum baseline probe against an available or user-approved constructed baseline. Readiness and gates are derived from evidence; no caller can force-pass them with a bare boolean. Repro ticks are dormant by default and must call `repro settle` to continue; three unchanged settlements require a Recover Ask instead of looping. Goal and repro prefer the main session for scheduling and execution, and must call `ask` when blocked by a missing user decision or another problem the user can unblock rather than guessing or defaulting to role/session/workflow fan-out. Goal mode also adopts the conservative research-first policy: inspect discoverable facts and run focused probes before sending a still-material decision to reviewer auto-answer.
+Session phases are `plan` and `implement`; research is a task/workflow capability, not a third
+phase. Repro adds a Goal Contract, typed steps, explicit plan revisions, and evidence-derived gates.
+Setup verifies the reference implementation named in the contract, asks how to obtain or construct
+it when unavailable, and probes only an available or user-approved baseline. No caller can pass a
+gate with a bare boolean.
+
+Goal and repro keep planning and reconciliation in the main session. They call `ask` for material
+user decisions instead of guessing. Repro ticks are dormant by default: `repro settle` schedules a
+continuation only after semantic progress, and three unchanged settlements require a Recover Ask.
 
 ### Native `/btw`
 

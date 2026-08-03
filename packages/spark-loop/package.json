@@ -9,7 +9,8 @@
     "src/**/*.ts",
     "!src/**/*.test.ts",
     "README.md",
-    "VENDOR.md"
+    "VENDOR.md",
+    "UPSTREAM-LICENSE.txt"
   ],
   "type": "module",
   "exports": {

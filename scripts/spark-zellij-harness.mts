@@ -122,7 +122,7 @@ const sparkCli = resolve(
 const outputPath =
   typeof args.get("output") === "string"
     ? String(args.get("output"))
-    : "/tmp/spark-pi-codex-parity-report.json";
+    : "/tmp/spark-zellij-harness-report.json";
 let harnessEnvironment: NodeJS.ProcessEnv = process.env;
 let zellijLayoutPath: string | undefined;
 
@@ -490,7 +490,7 @@ async function runParityPane(input: {
       "run",
       "--close-on-exit",
       "--name",
-      `spark-parity-${input.key}`,
+      `spark-capability-${input.key}`,
       "--cwd",
       process.cwd(),
       "--",
@@ -519,11 +519,11 @@ function sourceRef(section: string, capture: ParityPaneCapture): string {
   return `${section}:${capture.dumpPath}`;
 }
 
-async function runSparkPiCodexParityScenario(): Promise<void> {
-  const dumpDir = "/tmp/spark-pi-codex-parity-dumps";
+async function runCliCapabilitySnapshotScenario(): Promise<void> {
+  const dumpDir = "/tmp/spark-cli-capability-snapshot-dumps";
   await rm(dumpDir, { recursive: true, force: true });
   await mkdir(dumpDir, { recursive: true });
-  const cleanupPath = "/tmp/spark-pi-codex-parity-cleanup.json";
+  const cleanupPath = "/tmp/spark-cli-capability-snapshot-cleanup.json";
   const commands: Record<string, CommandResult> = {};
   commands.ensureSession = await run("zellij", ["attach", sessionName, "--create-background"]);
 
@@ -536,7 +536,7 @@ async function runSparkPiCodexParityScenario(): Promise<void> {
         "exec",
         "node",
         "--experimental-strip-types",
-        "/tmp/spark-pi-like-project-ui-placement-dump.mts",
+        "/tmp/spark-project-ui-placement-dump.mts",
       ],
     }),
     sparkAttach: await runParityPane({
@@ -581,7 +581,7 @@ async function runSparkPiCodexParityScenario(): Promise<void> {
   };
 
   const selectorJson = parseJson(
-    (await readFileIfExists("/tmp/spark-pi-like-project-ui-placement-zellij.json")) ?? "",
+    (await readFileIfExists("/tmp/spark-project-ui-placement-zellij.json")) ?? "",
   ) as Record<string, unknown> | undefined;
   const defaultRender =
     typeof selectorJson?.defaultRender === "string"
@@ -607,8 +607,7 @@ async function runSparkPiCodexParityScenario(): Promise<void> {
       defaultSessionSelector: {
         ...captures.sparkDefault,
         includesSelectorText: /Select Spark session/u.test(defaultRender),
-        includesCompletedProjectTree:
-          /Spark zellij-native control and Pi replacement validation/u.test(defaultRender),
+        includesProjectTree: /Spark daemon session validation/u.test(defaultRender),
         workspaceHashEqualsControlPlane: true,
       },
       explicitAttach: {
@@ -626,13 +625,13 @@ async function runSparkPiCodexParityScenario(): Promise<void> {
       help: captures.codexHelp,
       execHelp: captures.codexExecHelp,
     },
-    comparisonRows: [
+    observations: [
       {
         key: "sessionModel",
         spark:
           "daemon-managed persistent sessions are workspace-dir/hash bound; anonymous reviewer sessions do not persist",
-        pi: "Pi CLI session behavior is direct TUI/session oriented",
-        codex: "Codex exec exposes resumable non-interactive sessions",
+        pi: "The inspected Pi help lists direct TUI and session options",
+        codex: "The inspected Codex exec help lists non-interactive session options",
         sparkSourceRefs: [
           sourceRef("spark.defaultSessionSelector", captures.sparkDefault),
           sourceRef("spark.explicitAttach", captures.sparkAttach),
@@ -643,8 +642,8 @@ async function runSparkPiCodexParityScenario(): Promise<void> {
       {
         key: "executionModel",
         spark: "Spark uses daemon/control-plane and native role executor path",
-        pi: "Pi command surface is direct CLI/TUI",
-        codex: "Codex exec is non-interactive command runner",
+        pi: "The inspected Pi help presents a direct CLI/TUI entrypoint",
+        codex: "The inspected Codex help presents the exec command",
         sparkSourceRefs: [sourceRef("spark.nativeDelegation", captures.sparkDelegation)],
         piSourceRefs: [sourceRef("pi.help", captures.piHelp)],
         codexSourceRefs: [sourceRef("codex.execHelp", captures.codexExecHelp)],
@@ -652,9 +651,8 @@ async function runSparkPiCodexParityScenario(): Promise<void> {
       {
         key: "taskGoalEvidenceSupport",
         spark: "Spark has task/goal/evidence graph and reviewer-gated completion",
-        pi: "Pi is baseline interactive coding agent without this Spark task graph in help probe",
-        codex:
-          "Codex exec supports prompt/command execution but not Spark task graph in help probe",
+        pi: "The help probe does not test an equivalent Spark task schema",
+        codex: "The help probe does not test an equivalent Spark task schema",
         sparkSourceRefs: [sourceRef("spark.nativeDelegation", captures.sparkDelegation)],
         piSourceRefs: [sourceRef("pi.help", captures.piHelp)],
         codexSourceRefs: [sourceRef("codex.help", captures.codexHelp)],
@@ -676,15 +674,6 @@ async function runSparkPiCodexParityScenario(): Promise<void> {
         codex: "Codex exec accepts --model but help does not prove Spark provider availability",
         sparkSourceRefs: [sourceRef("spark.explicitAttach", captures.sparkAttach)],
         piSourceRefs: [sourceRef("pi.modelProbe", captures.piModelProbe)],
-        codexSourceRefs: [sourceRef("codex.execHelp", captures.codexExecHelp)],
-      },
-      {
-        key: "bestFitUseCase",
-        spark: "Daemon-first project/task/goal automation with evidence and native TUI",
-        pi: "Interactive coding agent workflow",
-        codex: "Non-interactive Codex command/review execution",
-        sparkSourceRefs: [sourceRef("spark.defaultSessionSelector", captures.sparkDefault)],
-        piSourceRefs: [sourceRef("pi.help", captures.piHelp)],
         codexSourceRefs: [sourceRef("codex.execHelp", captures.codexExecHelp)],
       },
     ],
@@ -943,8 +932,8 @@ async function main(): Promise<void> {
       process.exitCode = 0;
     }
   }
-  if (scenario === "spark-pi-codex-parity") {
-    await runSparkPiCodexParityScenario();
+  if (scenario === "cli-capability-snapshot") {
+    await runCliCapabilitySnapshotScenario();
     return;
   }
   if (scenario === "zellij-subscribe-control") {

@@ -31,6 +31,16 @@ const retiredInvocationPatterns = [
   },
 ];
 const invocationQueueTermPattern = /\bqueue\b|legacy-queue|QueueRoot/iu;
+const privateEnvironmentPatterns = [
+  { pattern: /\/root\/paddlejob\//u, label: "private remote workspace path" },
+  { pattern: /\/Users\/zhanrongrui\//u, label: "developer-local workspace path" },
+  { pattern: /\.bcc-szzj\.baidu\.com\b/iu, label: "internal deployment hostname" },
+  { pattern: /\bmarrow-paddle\b/iu, label: "internal deployment name" },
+  {
+    pattern: /\b(?:model-repro-bench|minimax-workspace)\b/iu,
+    label: "private source name",
+  },
+];
 const skippedActiveDocumentationPattern = /^docs\/archive\//u;
 const violations = [];
 const classifiedQueueTerms = [];
@@ -44,6 +54,13 @@ for (const relativePath of await listTerminologyFiles()) {
       violations.push(
         `${relativePath}:${index + 1}: retired product terminology in active documentation`,
       );
+    }
+    for (const privateEnvironment of privateEnvironmentPatterns) {
+      if (privateEnvironment.pattern.test(line)) {
+        violations.push(
+          `${relativePath}:${index + 1}: ${privateEnvironment.label} in active documentation`,
+        );
+      }
     }
 
     const classification = invocationQueueClassification(relativePath, lines, index);
@@ -117,6 +134,8 @@ async function listTerminologyFiles() {
   await appendKnownFile(files, "apps/spark-tui/README.md");
   await appendKnownFile(files, "packages/spark-protocol/README.md");
   await appendKnownFile(files, "packages/spark-i18n/src/cli.ts");
+  await appendKnownFile(files, "packages/spark-i18n/src/paraglide/README.md");
+  await appendFiles(files, "packages/spark-host/skills", (path) => path.endsWith(".md"));
   await appendFiles(files, "packages/spark-protocol/src/fixtures", (path) =>
     path.endsWith(".json"),
   );

@@ -204,7 +204,7 @@ const setup: ReproStageBlueprint = {
       "Architecture and prior art",
       "Map real reference and target computation paths.",
       [
-        "Novel components, cross-layer dependencies, reuse boundaries, and known differences cite source evidence.",
+        "Novel components, cross-layer dependencies, reuse boundaries, and diagnostic hypotheses cite current evidence.",
       ],
     ),
     roadmap(
@@ -326,7 +326,7 @@ const setup: ReproStageBlueprint = {
     task(
       "research-prior-art-and-known-diffs",
       "architecture",
-      "Research prior art and known numerical differences",
+      "Research prior art and diagnostic categories",
       {
         roleRef: researcher,
         dependsOn: ["map-model-novel-components"],

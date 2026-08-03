@@ -29,6 +29,33 @@ async function countFiles(directory) {
 
 const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
 const failures = [];
+const thirdPartyNoticePath = resolve(root, "THIRD_PARTY_NOTICES.md");
+if (!(await exists(thirdPartyNoticePath))) {
+  failures.push("source tree must include THIRD_PARTY_NOTICES.md");
+} else {
+  const notices = await readFile(thirdPartyNoticePath, "utf8");
+  for (const required of [
+    "Sikandar Bhide",
+    "fa4bc217f84bc571378bc371332a154106772614",
+    "Mitch Fultz",
+    "cc2ac14d6a1e2bdf6baa1ee635bda0e08452bdd8",
+  ]) {
+    if (!notices.includes(required)) failures.push(`third-party notices must retain ${required}`);
+  }
+}
+if (!(await exists(resolve(root, "packages/spark-loop/UPSTREAM-LICENSE.txt")))) {
+  failures.push("spark-loop must retain its upstream MIT license");
+}
+const modelReproductionSkillDirectory = resolve(
+  root,
+  "packages/spark-host/skills/model-reproduction",
+);
+if (
+  (await exists(modelReproductionSkillDirectory)) &&
+  (await countFiles(modelReproductionSkillDirectory)) > 0
+) {
+  failures.push("Spark must not embed the model-reproduction domain skill");
+}
 if (rootManifest.private !== true) failures.push("source monorepo root must remain private");
 for (const workspaceRoot of ["apps", "packages"]) {
   for (const entry of await readdir(resolve(root, workspaceRoot), { withFileTypes: true })) {
@@ -71,6 +98,9 @@ if (await exists(productManifestPath)) {
       failures.push(`product must retain root ${field} metadata`);
     }
   }
+  if (!manifest.files?.includes("THIRD_PARTY_NOTICES.md")) {
+    failures.push("product files must include THIRD_PARTY_NOTICES.md");
+  }
   const expectedDependencies = await resolveProductRuntimeDependencies(root, productDirectory);
   if (JSON.stringify(manifest.dependencies) !== JSON.stringify(expectedDependencies)) {
     failures.push("product dependencies must match the generated runtime closure");
@@ -90,15 +120,15 @@ if (await exists(productManifestPath)) {
     "dist/spark-cockpit-web-service.js",
     "dist/spark-update.js",
     "dist/migrations/0001_initial.sql",
-    "skills/model-reproduction/SKILL.md",
-    "skills/model-reproduction/references/known-diffs/catalog.md",
-    "skills/model-reproduction/references/known-diffs/source-notes.md",
-    "skills/model-reproduction/references/provenance.md",
     "skills/spark-cue/SKILL.md",
+    "THIRD_PARTY_NOTICES.md",
     "build/handler.js",
   ]) {
     if (!(await exists(resolve(productDirectory, asset))))
       failures.push(`missing product asset: ${asset}`);
+  }
+  if (await exists(resolve(productDirectory, "skills/model-reproduction"))) {
+    failures.push("generated product must not include the model-reproduction domain skill");
   }
   const sourceMaps = await (async function countSourceMaps(directory) {
     let count = 0;

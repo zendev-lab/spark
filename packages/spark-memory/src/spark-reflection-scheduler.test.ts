@@ -18,7 +18,7 @@ test("runReflectionOnce scans incrementally, writes cursor/candidates/report, an
   const dir = await mkdtemp(join(tmpdir(), "spark-reflection-run-"));
   try {
     const sessionRoot = join(dir, "sessions");
-    const sessionDir = join(sessionRoot, "--Users-zhanrongrui-workspace-demo--");
+    const sessionDir = join(sessionRoot, "--workspaces-demo--");
     await mkdir(sessionDir, { recursive: true });
     await writeFile(
       join(sessionDir, "2026-06-18T00-00-00-000Z_session-one.jsonl"),
@@ -26,7 +26,7 @@ test("runReflectionOnce scans incrementally, writes cursor/candidates/report, an
         JSON.stringify({
           type: "session",
           id: "session-one",
-          cwd: "/Users/zhanrongrui/workspace/demo",
+          cwd: "/workspaces/demo",
         }),
         JSON.stringify({
           type: "message",
@@ -75,11 +75,7 @@ test("runReflectionOnce reads the unified Spark session root by default", async 
   const previous = process.env.SPARK_HOME;
   process.env.SPARK_HOME = join(dir, "spark-home");
   try {
-    const sessionDir = join(
-      process.env.SPARK_HOME,
-      "sessions",
-      "--Users-zhanrongrui-workspace-demo--",
-    );
+    const sessionDir = join(process.env.SPARK_HOME, "sessions", "--workspaces-demo--");
     await mkdir(sessionDir, { recursive: true });
     await writeFile(
       join(sessionDir, "2026-06-18T00-00-00-000Z_session-one.jsonl"),
@@ -87,7 +83,7 @@ test("runReflectionOnce reads the unified Spark session root by default", async 
         JSON.stringify({
           type: "session",
           id: "session-one",
-          cwd: "/Users/zhanrongrui/workspace/demo",
+          cwd: "/workspaces/demo",
         }),
         JSON.stringify({
           type: "message",
@@ -111,14 +107,14 @@ test("/reflect command runs once and session-local scheduler starts/stops safely
   const dir = await mkdtemp(join(tmpdir(), "spark-reflection-command-"));
   try {
     const sessionRoot = join(dir, "sessions");
-    const sessionDir = join(sessionRoot, "--Users-zhanrongrui-workspace-demo--");
+    const sessionDir = join(sessionRoot, "--workspaces-demo--");
     await mkdir(sessionDir, { recursive: true });
     await writeFile(
       join(sessionDir, "2026-06-18T00-00-00-000Z_session-one.jsonl"),
       JSON.stringify({
         type: "session",
         id: "session-one",
-        cwd: "/Users/zhanrongrui/workspace/demo",
+        cwd: "/workspaces/demo",
       }) +
         "\n" +
         JSON.stringify({
@@ -167,14 +163,14 @@ test("reflection run lock skips overlapping runs for the same workspace", async 
   const dir = await mkdtemp(join(tmpdir(), "spark-reflection-lock-"));
   try {
     const sessionRoot = join(dir, "sessions");
-    const sessionDir = join(sessionRoot, "--Users-zhanrongrui-workspace-demo--");
+    const sessionDir = join(sessionRoot, "--workspaces-demo--");
     await mkdir(sessionDir, { recursive: true });
     await writeFile(
       join(sessionDir, "2026-06-18T00-00-00-000Z_session-one.jsonl"),
       JSON.stringify({
         type: "session",
         id: "session-one",
-        cwd: "/Users/zhanrongrui/workspace/demo",
+        cwd: "/workspaces/demo",
       }) +
         "\n" +
         JSON.stringify({

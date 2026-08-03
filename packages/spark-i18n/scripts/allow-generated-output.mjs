@@ -8,6 +8,7 @@ for (const path of ["src/paraglide/.gitignore", "src/paraglide/.prettierignore"]
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
+await sanitizeGeneratedReadme();
 await stripTrailingWhitespace(new URL("../src/paraglide/", import.meta.url));
 formatGeneratedOutput();
 await stripTrailingWhitespace(new URL("../src/paraglide/", import.meta.url));
@@ -21,6 +22,16 @@ function formatGeneratedOutput() {
   if (result.status !== 0) {
     throw new Error(`failed to format generated Paraglide output (exit ${result.status})`);
   }
+}
+
+async function sanitizeGeneratedReadme() {
+  const readmeUrl = new URL("../src/paraglide/README.md", import.meta.url);
+  const source = await readFile(readmeUrl, "utf8");
+  const sanitized = source.replace(
+    /^Compiled from: .*$/mu,
+    "Compiled from: `packages/spark-i18n/project.inlang`",
+  );
+  if (sanitized !== source) await writeFile(readmeUrl, sanitized);
 }
 
 async function stripTrailingWhitespace(rootUrl) {

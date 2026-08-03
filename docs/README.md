@@ -12,7 +12,7 @@ map for internal contracts and operator procedures.
 - [`specs/compact-v2.md`](./specs/compact-v2.md): compaction thresholds, token sources, repeated-overflow bounds, and Memory handoff.
 - [`specs/tools.md`](./specs/tools.md): public agent-facing tools and commands.
 - [`specs/sessions-and-channels.md`](./specs/sessions-and-channels.md): persistent sessions, daemon-owned Side Threads, origins, mail, and channel policy.
-- [`specs/daemon-autonomous-drivers.md`](./specs/daemon-autonomous-drivers.md): daemon-owned goal/loop/repro/implement/workflow cadence, retry, recovery, fresh continuity, and the marrow-core replacement boundary.
+- [`specs/daemon-autonomous-drivers.md`](./specs/daemon-autonomous-drivers.md): daemon-owned driver cadence, retry, recovery, and runtime boundaries.
 - [`specs/human-interaction.md`](./specs/human-interaction.md): ask/approval waits, status vocabulary, and correlation.
 - [`specs/cockpit-product-design.md`](./specs/cockpit-product-design.md): daemon-truth, Work-first session hierarchy, interaction boundaries, and reachable-state UI verification.
 - [`specs/turn.md`](./specs/turn.md): daemon command and event vocabulary.
