@@ -8,16 +8,18 @@
     "build": "astro build",
     "build:cloudflare": "pnpm run check:deploy && pnpm run check",
     "preview": "astro preview --port 4322",
+    "test:locale": "node --test src/lib/docs-locale.test.mjs",
     "check:content": "node ../../scripts/check-user-docs.mjs",
     "check:deploy": "node ../../scripts/require-docs-deploy-env.mjs",
     "check:dist": "node ../../scripts/check-user-docs.mjs --dist",
-    "check": "pnpm run check:content && astro check && astro build && pnpm run check:dist",
+    "check": "pnpm run test:locale && pnpm run check:content && astro check && astro build && pnpm run check:dist",
     "deploy": "pnpm run build:cloudflare && pnpm run deploy:cloudflare",
     "deploy:cloudflare": "wrangler deploy"
   },
   "dependencies": {
     "@astrojs/starlight": "0.41.6",
-    "astro": "7.1.6"
+    "astro": "7.1.6",
+    "starlight-versions": "0.9.1"
   },
   "devDependencies": {
     "@astrojs/check": "0.9.10",

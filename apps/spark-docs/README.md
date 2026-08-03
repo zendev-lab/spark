@@ -49,3 +49,33 @@ Cloudflare deployment credentials; its docs lane only checks the site and runs
 The fallback `https://spark-docs.invalid` URL exists only so local and pull
 request builds can generate canonical and sitemap output. It must never be
 deployed.
+
+## Documentation versions
+
+Unversioned routes (`/` and `/zh/`) are **Latest**. Archived releases use a
+minor-version slug after the locale: `/0.2/` and `/zh/0.2/`. The version picker
+keeps the current language and page whenever the destination exists, and search
+on an archived page is limited to that version.
+
+Archive one minor version at a time:
+
+1. Add exactly one version to the `starlight-versions` configuration.
+2. Run `pnpm run build:docs` locally once. The plugin snapshots English and
+   Chinese content plus the sidebar under `src/content/`.
+3. Review every generated page, locale pair, internal link, and copied asset,
+   then include the snapshot in version control.
+4. Run `pnpm run check:docs` and run a second docs build. The second build must
+   not create or change source files.
+
+Use minor versions such as `0.2`, not patch versions such as `0.2.1`, for
+archives. Once archived, fix an old version by editing that version's snapshot
+directly; do not regenerate it from Latest. Keep the early-development
+`starlight-versions` dependency pinned to an exact version.
+
+## Language selection
+
+The language picker stores an explicit `root` or `zh` preference under
+`spark-docs-locale`. On a first visit to exactly `/`, and only when storage is
+available with no explicit preference, a browser language whose primary tag is
+`zh` routes to `/zh/`. This inference is not stored. Deep links and archived
+version roots are never redirected automatically.

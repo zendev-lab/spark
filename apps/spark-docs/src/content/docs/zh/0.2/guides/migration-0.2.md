@@ -1,7 +1,7 @@
 ---
 title: 迁移到 Spark 0.2.0
 description: 替换已删除的 Pi 风格 CLI 别名、导入 Pi 认证，并验证 Spark 原生界面。
-slug: zh/guides/migration-0.2
+slug: zh/0.2/guides/migration-0.2
 ---
 
 Spark 0.2.0 对命令面做硬切。旧别名会以用法错误退出码 `2` 失败；Spark 不会静默
