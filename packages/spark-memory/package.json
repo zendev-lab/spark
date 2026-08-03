@@ -19,6 +19,7 @@
     "./compaction-candidates": "./src/compaction-candidates.ts",
     "./legacy-fixture": "./src/legacy-fixture.ts",
     "./mutation-lock": "./src/mutation-lock.ts",
+    "./proposals": "./src/proposals.ts",
     "./schema-migration": "./src/schema-migration.ts",
     "./reflection-candidate-inbox": "./src/reflection-candidate-inbox.ts",
     "./reflection-in-session-scheduler": "./src/reflection-in-session-scheduler.ts",

@@ -11,6 +11,7 @@ export type MemoryLifecycleState =
   | "rejected"
   | "forgotten"
   | "stale"
+  | "merged"
   | "superseded"
   | "quarantined";
 export type MemoryLifecycleScope = "user" | "workspace" | "repo" | "project" | "agent";
@@ -52,6 +53,7 @@ export interface MemoryRevision extends Record<string, JsonValue> {
 export interface MemoryLineage extends Record<string, JsonValue> {
   predecessors: string[];
   mergedFrom: string[];
+  mergedInto: string[];
   supersedes: string[];
   supersededBy: string[];
 }
@@ -128,6 +130,7 @@ const MEMORY_LIFECYCLE_STATES: readonly MemoryLifecycleState[] = [
   "rejected",
   "forgotten",
   "stale",
+  "merged",
   "superseded",
   "quarantined",
 ];
@@ -190,6 +193,7 @@ export function createMemoryLifecycle(input: MemoryLifecycleInput): MemoryLifecy
     lineage: {
       predecessors: [],
       mergedFrom: [],
+      mergedInto: [],
       supersedes: uniqueStrings(input.supersedes ?? []),
       supersededBy: uniqueStrings(input.supersededBy ?? []),
     },
@@ -237,6 +241,10 @@ function normalizeRevisionContract(value: unknown): unknown {
   normalizedRevision.proposalDigest ??= null;
   normalizedRevision.proofRef ??= null;
   lifecycle.revisionHistory ??= [structuredClone(normalizedRevision)];
+  const lineage = lifecycle.lineage;
+  if (lineage && typeof lineage === "object" && !Array.isArray(lineage)) {
+    (lineage as Record<string, unknown>).mergedInto ??= [];
+  }
   return lifecycle;
 }
 
@@ -345,6 +353,7 @@ export function validateMemoryLifecycle(
   const lineage = recordValue(lifecycle.lineage, `${label}.lineage`);
   assertStringArray(lineage.predecessors, `${label}.lineage.predecessors`);
   assertStringArray(lineage.mergedFrom, `${label}.lineage.mergedFrom`);
+  assertStringArray(lineage.mergedInto, `${label}.lineage.mergedInto`);
   assertStringArray(lineage.supersedes, `${label}.lineage.supersedes`);
   assertStringArray(lineage.supersededBy, `${label}.lineage.supersededBy`);
 
