@@ -26,6 +26,10 @@ export function applySqlitePragmas(db: DatabaseSync): void {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA busy_timeout = 5000");
+}
+
+/** Apply daemon-specific bounds without imposing process-global limits on Cockpit SQLite. */
+export function applyDaemonSqliteResourceLimits(db: DatabaseSync): void {
   // Negative cache_size is a KiB ceiling. Keep SQLite's page cache and mmap
   // well below the 1 GiB process budget, and force temporary query state to
   // disk so a large database cannot turn an accidental sort into an OOM.
