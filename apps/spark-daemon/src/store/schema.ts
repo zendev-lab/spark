@@ -194,6 +194,24 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS lens_provider_results (
+      provider_id TEXT NOT NULL,
+      capability TEXT NOT NULL,
+      revision_digest TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      produced_at TEXT NOT NULL,
+      PRIMARY KEY (provider_id, capability, revision_digest)
+    );
+
+    CREATE TABLE IF NOT EXISTS lens_observations (
+      observation_ref TEXT PRIMARY KEY,
+      workspace_root TEXT NOT NULL,
+      revision_digest TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS invocations_status_idx ON invocations(status, created_at);
     CREATE INDEX IF NOT EXISTS driver_wakeups_due_idx
       ON driver_wakeups(status, due_at, updated_at)
@@ -223,6 +241,10 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       ON runtime_command_receipts(terminal_acked_at, completed_at)
       WHERE terminal_json IS NOT NULL;
     CREATE INDEX IF NOT EXISTS daemon_human_waits_status_idx ON daemon_human_waits(status, created_at);
+    CREATE INDEX IF NOT EXISTS lens_provider_results_revision_idx
+      ON lens_provider_results(revision_digest, capability);
+    CREATE INDEX IF NOT EXISTS lens_observations_revision_idx
+      ON lens_observations(workspace_root, revision_digest);
   `);
   migrateSessionRequestCompletionDeliverySchema(db);
   migrateChannelDeliverySchema(db);

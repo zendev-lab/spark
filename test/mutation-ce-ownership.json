@@ -206,19 +206,19 @@
       "riskReason": "extension-host runtime behavior is outside the current mutation CE set",
       "alternateGate": "pnpm --filter @zendev-lab/spark-host run check"
     },
+    "@zendev-lab/spark-lens": {
+      "path": "packages/spark-lens",
+      "status": "deferred",
+      "risk": "high",
+      "riskReason": "revision-safe provider and verification behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-lens run check"
+    },
     "@zendev-lab/spark-loop": {
       "path": "packages/spark-loop",
       "status": "deferred",
       "risk": "high",
       "riskReason": "goals capability behavior is outside the current mutation CE set",
       "alternateGate": "pnpm --filter @zendev-lab/spark-loop run check"
-    },
-    "@zendev-lab/spark-mcp-spike": {
-      "path": "packages/spark-mcp-spike",
-      "status": "deferred",
-      "risk": "medium",
-      "riskReason": "protocol-experiments experiment behavior is outside the current mutation CE set",
-      "alternateGate": "pnpm --filter @zendev-lab/spark-mcp-spike run check"
     },
     "@zendev-lab/spark-memory": {
       "path": "packages/spark-memory",
