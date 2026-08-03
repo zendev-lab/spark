@@ -503,13 +503,14 @@ function stopWithoutPid(
   io: CliIo,
   cancelledRestart: boolean,
 ): number {
-  // The service label remains the source of truth during a managed handoff.
+  // The service implementation decides whether launchd or a detached process
+  // owns this daemon. Its result is more reliable than probing launchd twice.
   if (process.platform === "darwin") {
-    return reportStoppedService(
-      paths,
-      io,
-      "Failed to unregister the Spark daemon launchd service; it may remain registered.\n",
-    );
+    const service = (io.stopService ?? stopSparkDaemonService)(paths);
+    if (service) {
+      io.stdout.write(`${service.detail}\n`);
+      return 0;
+    }
   }
   io.stdout.write(
     cancelledRestart
@@ -525,11 +526,11 @@ function reportStoppedDaemon(
   io: CliIo,
 ): number {
   if (process.platform === "darwin") {
-    return reportStoppedService(
-      paths,
-      io,
-      "Spark daemon stopped accepting RPC, but its launchd service may remain registered.\n",
-    );
+    const service = (io.stopService ?? stopSparkDaemonService)(paths);
+    if (service) {
+      io.stdout.write(`${service.detail}\n`);
+      return 0;
+    }
   }
   io.stdout.write(`Stopped Spark daemon process ${pid}.\n`);
   return 0;

@@ -63,7 +63,12 @@ describe("channel settings page contract", () => {
     expect(functions.has("startConnectPlatform")).toBe(true);
     expect(calls.has("freshMessagePlatformFormValues")).toBe(true);
     expect(calls.has("freshPlatformValues")).toBe(true);
-    expect(actions).toEqual(["?/savePlatform"]);
+    expect(actions).toEqual([
+      "?/savePlatform",
+      "?/startQqbotQrAuth",
+      "?/qqbotQrAuthStatus",
+      "?/cancelQqbotQrAuth",
+    ]);
     expect(clickHandlers).toEqual(new Set(["startConnectPlatform"]));
   });
 
@@ -126,11 +131,27 @@ describe("channel settings page contract", () => {
     visit(server);
 
     expect(actionNames.has("savePlatform")).toBe(true);
+    expect(actionNames.has("startQqbotQrAuth")).toBe(true);
+    expect(actionNames.has("qqbotQrAuthStatus")).toBe(true);
+    expect(actionNames.has("cancelQqbotQrAuth")).toBe(true);
     expect(calls.has("saveChannelsConfigForCockpit")).toBe(true);
     expect(calls.has("requireSecretRequestContext")).toBe(true);
     expect(calls.has("createManagedSessionForCockpit")).toBe(false);
     expect(calls.has("bindManagedSessionForCockpit")).toBe(false);
     expect(calls.has("archiveManagedSessionForCockpit")).toBe(false);
     expect(calls.has("createChannelExternalKey")).toBe(false);
+  });
+
+  it("renders QR locally while keeping returned QQ secrets daemon-owned", () => {
+    const page = source(pagePath);
+    const server = source(serverPath);
+
+    expect(page).toContain("qqbotQrImageAlt");
+    expect(page).toContain("?/qqbotQrAuthStatus");
+    expect(server).toContain("renderSVG(flow.qrCodeUrl");
+    expect(server).toContain("createCockpitRuntimeModelChannelClient().startQqbotQrAuth");
+    expect(server).toContain("appId: flow.appId");
+    expect(server).not.toContain("clientSecret: flow");
+    expect(server).not.toContain("appSecret: flow");
   });
 });

@@ -1,5 +1,10 @@
 import { error as kitError, fail } from "@sveltejs/kit";
-import { loadWorkspaceSettings } from "@zendev-lab/spark-cockpit-coordination/cockpit-queries";
+import {
+  getCurrentUserIdBySessionToken,
+  loadWorkspaceSettings,
+} from "@zendev-lab/spark-cockpit-coordination/cockpit-queries";
+import type { SparkQqbotQrAuthFlow } from "@zendev-lab/spark-protocol";
+import { renderSVG } from "uqr";
 import {
   isMessagePlatformAdapter,
   workspaceMessagePlatformConnections,
@@ -19,6 +24,7 @@ import {
   type MessagePlatformCredentialPatch,
 } from "$lib/server/channel-status";
 import { getDatabase } from "$lib/server/db";
+import { createCockpitRuntimeModelChannelClient } from "$lib/server/cockpit-runtime-model-channel-client";
 import { requireSecretRequestContext } from "$lib/server/secret-request-context";
 import { workspacePath } from "$lib/workspace-routes";
 import type { Actions, PageServerLoad } from "./$types";
@@ -80,7 +86,95 @@ export const actions: Actions = {
       values,
     };
   },
+  startQqbotQrAuth: async (event) => {
+    const workspace = requireWorkspace(event.params.workspaceId);
+    const t = channelMessages(event);
+    try {
+      const flow = await createCockpitRuntimeModelChannelClient().startQqbotQrAuth({
+        workspaceId: workspace.id,
+        requestedByUserId: currentUserId(event.locals.sessionToken),
+      });
+      return qqbotQrActionResult(flow);
+    } catch {
+      return fail(500, { intent: "qqbotQrAuth", message: t.qqbotQrStartFailed });
+    }
+  },
+  qqbotQrAuthStatus: async (event) => {
+    const workspace = requireWorkspace(event.params.workspaceId);
+    const flowId = formText(await event.request.formData(), "flowId");
+    if (!flowId) {
+      return fail(400, { intent: "qqbotQrAuth", message: channelMessages(event).qqbotQrNotFound });
+    }
+    try {
+      const flow = await createCockpitRuntimeModelChannelClient().qqbotQrAuthStatus({
+        workspaceId: workspace.id,
+        flowId,
+      });
+      return qqbotQrActionResult(flow);
+    } catch {
+      return fail(404, {
+        intent: "qqbotQrAuth",
+        message: channelMessages(event).qqbotQrNotFound,
+      });
+    }
+  },
+  cancelQqbotQrAuth: async (event) => {
+    const workspace = requireWorkspace(event.params.workspaceId);
+    const flowId = formText(await event.request.formData(), "flowId");
+    if (!flowId) {
+      return fail(400, { intent: "qqbotQrAuth", message: channelMessages(event).qqbotQrNotFound });
+    }
+    try {
+      const flow = await createCockpitRuntimeModelChannelClient().cancelQqbotQrAuth({
+        workspaceId: workspace.id,
+        flowId,
+        requestedByUserId: currentUserId(event.locals.sessionToken),
+      });
+      return qqbotQrActionResult(flow);
+    } catch {
+      return fail(404, {
+        intent: "qqbotQrAuth",
+        message: channelMessages(event).qqbotQrNotFound,
+      });
+    }
+  },
 };
+
+function requireWorkspace(workspaceId: string) {
+  const workspace = loadWorkspaceSettings(getDatabase(), workspaceId);
+  if (!workspace) throw kitError(404, "Workspace not found.");
+  return workspace;
+}
+
+function currentUserId(sessionToken: string | null): string | undefined {
+  return getCurrentUserIdBySessionToken(getDatabase(), sessionToken) ?? undefined;
+}
+
+function channelMessages(event: Parameters<NonNullable<Actions[string]>>[0]) {
+  return getRequestDictionary({
+    cookieLocale: event.cookies.get(localeCookieName),
+    acceptLanguage: event.request.headers.get("accept-language"),
+  }).channelsSettings;
+}
+
+function qqbotQrActionResult(flow: SparkQqbotQrAuthFlow) {
+  return {
+    intent: "qqbotQrAuth" as const,
+    flow: {
+      id: flow.id,
+      status: flow.status,
+      ...(flow.appId ? { appId: flow.appId } : {}),
+      ...(flow.reason ? { reason: flow.reason } : {}),
+    },
+    ...(flow.qrCodeUrl
+      ? {
+          qrCodeDataUrl: `data:image/svg+xml;base64,${Buffer.from(
+            renderSVG(flow.qrCodeUrl, { ecc: "M", border: 2 }),
+          ).toString("base64")}`,
+        }
+      : {}),
+  };
+}
 
 async function saveMessagePlatformCredentials(
   workspaceId: string,

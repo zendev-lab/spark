@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
+  import { invalidateAll } from "$app/navigation";
   import {
     freshMessagePlatformFormValues,
     type MessagePlatformAdapter,
@@ -9,8 +10,16 @@
   import Icon from "$lib/Icon.svelte";
   import { statusLabel } from "$lib/i18n";
   import { Button, Field, Input, PageHeader, Select } from "$lib/ui";
-  import type { SubmitFunction } from "@sveltejs/kit";
-  import { untrack } from "svelte";
+  import type { ActionResult, SubmitFunction } from "@sveltejs/kit";
+  import type { SparkQqbotQrAuthReason, SparkQqbotQrAuthStatus } from "@zendev-lab/spark-protocol";
+  import { onDestroy, untrack } from "svelte";
+
+  type QqbotQrFlowView = {
+    id: string;
+    status: SparkQqbotQrAuthStatus;
+    appId?: string;
+    reason?: SparkQqbotQrAuthReason;
+  };
 
   let { data, form } = $props();
   let t = $derived(data.messages.channelsSettings);
@@ -41,6 +50,19 @@
   let errorMessage = $state<string | null>(null);
   let statusMessage = $state<string | null>(null);
   let editorSection: HTMLElement | null = $state(null);
+  let qrStartForm: HTMLFormElement | null = $state(null);
+  let qrStatusForm: HTMLFormElement | null = $state(null);
+  let qrCancelForm: HTMLFormElement | null = $state(null);
+  let qrFlow: QqbotQrFlowView | null = $state(null);
+  let qrCodeDataUrl: string | null = $state(null);
+  let qrStarting = $state(false);
+  let qrPollTimer: ReturnType<typeof setTimeout> | undefined;
+
+  let qrActive = $derived(isActiveQqbotQrFlow(qrFlow));
+
+  function isActiveQqbotQrFlow(flow: QqbotQrFlowView | null): boolean {
+    return flow?.status === "pending" || flow?.status === "saving";
+  }
 
   $effect(() => {
     if (form?.values) {
@@ -110,6 +132,98 @@
       values.qqbotSandbox = editor.qqbotSandbox;
     }
   }
+
+  function clearQrPoll() {
+    if (qrPollTimer) clearTimeout(qrPollTimer);
+    qrPollTimer = undefined;
+  }
+
+  function scheduleQrPoll() {
+    clearQrPoll();
+    if (!qrActive) return;
+    qrPollTimer = setTimeout(() => qrStatusForm?.requestSubmit(), 1_500);
+  }
+
+  function qrFailureMessage(reason?: SparkQqbotQrAuthReason): string {
+    switch (reason) {
+      case "expired":
+        return t.qqbotQrExpired;
+      case "binding_failed":
+        return t.qqbotQrBindingFailed;
+      case "credentials_invalid":
+        return t.qqbotQrCredentialsInvalid;
+      case "configuration_failed":
+        return t.qqbotQrConfigurationFailed;
+      case "start_failed":
+      case undefined:
+        return t.qqbotQrStartFailed;
+    }
+  }
+
+  function applyQrActionResult(result: ActionResult) {
+    if (result.type === "failure" || result.type === "error") {
+      const payload = result.type === "failure" ? (result.data as { message?: string }) : undefined;
+      errorMessage = payload?.message ?? t.qqbotQrStartFailed;
+      qrStarting = false;
+      clearQrPoll();
+      return;
+    }
+    if (result.type !== "success") return;
+    const payload = result.data as {
+      flow?: QqbotQrFlowView;
+      qrCodeDataUrl?: string;
+      message?: string;
+    };
+    if (!payload.flow) {
+      errorMessage = payload.message ?? t.qqbotQrStartFailed;
+      qrStarting = false;
+      clearQrPoll();
+      return;
+    }
+    qrFlow = payload.flow;
+    qrCodeDataUrl = payload.qrCodeDataUrl ?? null;
+    qrStarting = false;
+    errorMessage = null;
+
+    if (qrFlow.status === "succeeded") {
+      values.qqbotAppId = qrFlow.appId ?? values.qqbotAppId;
+      values.qqbotClientSecret = "";
+      values.qqbotSandbox = false;
+      statusMessage = t.qqbotQrSucceeded;
+      clearQrPoll();
+      void invalidateAll();
+    } else if (qrFlow.status === "failed") {
+      errorMessage = qrFailureMessage(qrFlow.reason);
+      clearQrPoll();
+    } else if (qrFlow.status === "cancelled") {
+      statusMessage = t.qqbotQrCancelled;
+      clearQrPoll();
+    } else {
+      scheduleQrPoll();
+    }
+  }
+
+  const handleQrStartEnhance: SubmitFunction = () => {
+    qrStarting = true;
+    qrFlow = null;
+    qrCodeDataUrl = null;
+    errorMessage = null;
+    statusMessage = null;
+    clearQrPoll();
+    return async ({ result }) => applyQrActionResult(result);
+  };
+
+  const handleQrStatusEnhance: SubmitFunction = () => {
+    clearQrPoll();
+    return async ({ result }) => applyQrActionResult(result);
+  };
+
+  const handleQrCancelEnhance: SubmitFunction = () => {
+    clearQrPoll();
+    return async ({ result }) => applyQrActionResult(result);
+  };
+
+  onDestroy(clearQrPoll);
 
   function fillCredentialsFromEditor(adapter: MessagePlatformAdapter) {
     if (adapter === "feishu") {
@@ -388,6 +502,42 @@
           </div>
         </div>
       {:else}
+        <section class="qqbot-qr-panel" aria-labelledby="qqbot-qr-title">
+          <div class="credentials-heading">
+            <h3 id="qqbot-qr-title">{t.qqbotQrTitle}</h3>
+            <p>{t.qqbotQrHint}</p>
+          </div>
+          {#if qrCodeDataUrl && qrFlow?.status === "pending"}
+            <img src={qrCodeDataUrl} alt={t.qqbotQrImageAlt} width="280" height="280" />
+          {/if}
+          {#if qrFlow?.status === "pending"}
+            <p class="qr-status" aria-live="polite">{t.qqbotQrWaiting}</p>
+          {:else if qrFlow?.status === "saving"}
+            <p class="qr-status" aria-live="polite">{t.qqbotQrSaving}</p>
+          {:else if qrFlow?.status === "succeeded"}
+            <p class="qr-status success" aria-live="polite">{t.qqbotQrSucceeded}</p>
+          {:else if qrFlow?.status === "cancelled"}
+            <p class="qr-status" aria-live="polite">{t.qqbotQrCancelled}</p>
+          {:else if qrFlow?.status === "failed"}
+            <p class="qr-status error" aria-live="polite">{qrFailureMessage(qrFlow.reason)}</p>
+          {/if}
+          <div class="qr-actions">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={qrStarting || qrActive}
+              onclick={() => qrStartForm?.requestSubmit()}
+            >
+              {qrStarting ? t.connectingPlatform : t.qqbotQrStart}
+            </Button>
+            {#if qrActive}
+              <Button type="button" variant="ghost" onclick={() => qrCancelForm?.requestSubmit()}>
+                {t.qqbotQrCancel}
+              </Button>
+            {/if}
+          </div>
+          <p class="manual-hint">{t.qqbotQrManual}</p>
+        </section>
         <div class="field-grid credentials-grid">
           <Field id="qqbot-app-id" label={t.qqbotAppId} required={!credentialsReady}>
             <Input
@@ -433,6 +583,32 @@
         </Button>
       {/if}
     </div>
+  </form>
+
+  <form
+    class="visually-hidden"
+    method="POST"
+    action="?/startQqbotQrAuth"
+    use:enhance={handleQrStartEnhance}
+    bind:this={qrStartForm}
+  ></form>
+  <form
+    class="visually-hidden"
+    method="POST"
+    action="?/qqbotQrAuthStatus"
+    use:enhance={handleQrStatusEnhance}
+    bind:this={qrStatusForm}
+  >
+    <input type="hidden" name="flowId" value={qrFlow?.id ?? ""} />
+  </form>
+  <form
+    class="visually-hidden"
+    method="POST"
+    action="?/cancelQqbotQrAuth"
+    use:enhance={handleQrCancelEnhance}
+    bind:this={qrCancelForm}
+  >
+    <input type="hidden" name="flowId" value={qrFlow?.id ?? ""} />
   </form>
 
   <details class="diagnostics">
@@ -498,6 +674,58 @@
 </section>
 
 <style>
+  .visually-hidden {
+    display: none;
+  }
+
+  .qqbot-qr-panel {
+    align-items: flex-start;
+    background: var(--color-surface-soft);
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+  }
+
+  .qqbot-qr-panel img {
+    background: white;
+    border: 1px solid var(--color-border);
+    border-radius: var(--rounded-sm);
+    height: min(280px, 100%);
+    max-width: 100%;
+    object-fit: contain;
+  }
+
+  .qqbot-qr-panel h3,
+  .qqbot-qr-panel p {
+    margin: 0;
+  }
+
+  .qr-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+  }
+
+  .qr-status {
+    color: var(--color-ink-muted);
+    font-size: var(--text-caption);
+  }
+
+  .qr-status.success {
+    color: var(--color-success);
+  }
+
+  .qr-status.error {
+    color: var(--color-danger);
+  }
+
+  .manual-hint {
+    color: var(--color-ink-muted);
+    font-size: var(--text-caption);
+  }
   .create-channel {
     display: grid;
     gap: var(--spacing-md);

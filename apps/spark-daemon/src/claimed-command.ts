@@ -294,8 +294,20 @@ function sendWorkspaceSnapshotResult({
 }
 
 async function handleModelChannelCommand(input: ClaimedCommandExecution): Promise<void> {
-  const { ws, command, context, route, sparkCommand } = input;
+  const { ws, command, context, route, commandWorkspace, sparkCommand } = input;
   if (!isSparkDaemonModelChannelPublicKind(sparkCommand.kind)) return;
+  // Cockpit routes workspace commands with both its workspace projection id
+  // and the daemon-owned binding id. Channel state is daemon-local, so execute
+  // channel operations against the local binding instead of creating a
+  // parallel $SPARK_DATA_ROOT/workspaces/<cockpit-workspace-id> tree. Model
+  // operations keep the Cockpit id because daemon session scopes retain that
+  // public workspace identity.
+  const localizeWorkspace = commandWorkspace && sparkCommand.kind.startsWith("channel.");
+  const workspaceId = localizeWorkspace ? commandWorkspace.id : command.workspaceId;
+  const payload =
+    workspaceId && typeof sparkCommand.payload.workspaceId === "string"
+      ? { ...sparkCommand.payload, workspaceId }
+      : sparkCommand.payload;
   const executed = await executeSparkDaemonModelChannelPublicControl(
     {
       modelControl: context.modelControl,
@@ -306,23 +318,56 @@ async function handleModelChannelCommand(input: ClaimedCommandExecution): Promis
     {
       kind: sparkCommand.kind,
       scope: command.workspaceBindingId ? "workspace" : "daemon",
-      workspaceId: command.workspaceId,
-      payload: sparkCommand.payload,
+      workspaceId,
+      payload,
     },
   );
+  const externalWorkspaceId = localizeWorkspace ? command.workspaceId : undefined;
+  const result = externalWorkspaceId
+    ? externalizeModelChannelWorkspaceResult(executed.result, externalWorkspaceId)
+    : executed.result;
+  const projection =
+    externalWorkspaceId && executed.projection
+      ? {
+          ...executed.projection,
+          data:
+            typeof executed.projection.data.workspaceId === "string"
+              ? { ...executed.projection.data, workspaceId: externalWorkspaceId }
+              : executed.projection.data,
+        }
+      : executed.projection;
   sendJson(ws, commandAck({ accepted: true }, route));
   sendJson(
     ws,
     commandResult(
       {
         status: "succeeded",
-        result: executed.result,
-        ...(executed.projection ? { projection: executed.projection } : {}),
+        result,
+        ...(projection ? { projection } : {}),
         completedAt: new Date().toISOString(),
       },
       route,
     ),
   );
+}
+
+function externalizeModelChannelWorkspaceResult(
+  result: Record<string, SparkProtocolJsonValue>,
+  workspaceId: string,
+): Record<string, SparkProtocolJsonValue> {
+  const external = { ...result };
+  for (const key of ["snapshot", "flow"] as const) {
+    const value = external[key];
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value) &&
+      typeof value.workspaceId === "string"
+    ) {
+      external[key] = { ...value, workspaceId };
+    }
+  }
+  return external;
 }
 
 async function handleRuntimeSessionControlCommand(input: ClaimedCommandExecution): Promise<void> {

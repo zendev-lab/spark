@@ -15,6 +15,7 @@ import {
   cancelSparkDaemonRestartSuccessor,
   clearSparkDaemonProcessOwnership,
   completeSparkDaemonRestartSuccessor,
+  isSparkDaemonGuiDomainAvailable,
   isSparkDaemonRestartHelperDefinitelyDead,
   isSparkDaemonRestartPredecessorAlive,
   isSparkDaemonRestartArmed,
@@ -29,6 +30,8 @@ import {
   rotateSparkDaemonServiceLogs,
   runSparkDaemonRestartSuccessor,
   scheduleSparkDaemonRestartSuccessor,
+  startSparkDaemonService,
+  stopSparkDaemonService,
   stopSparkDaemonLaunchdLabel,
   stopSparkDaemonPidFileProcess,
   stopSparkDaemonRestartStartedService,
@@ -395,6 +398,70 @@ describe("Spark daemon restart successor", () => {
       }),
     ).toBe(false);
     expect(isSparkDaemonSupervisorRegistered({ platform: "linux", uid: 501, run })).toBe(false);
+  });
+
+  it("uses launchd only when the macOS GUI domain is available", () => {
+    const run = vi.fn((args: string[]) => ({
+      status: args[1] === "gui/501" ? 0 : 1,
+      stdout: "",
+      stderr: "",
+    }));
+
+    expect(isSparkDaemonGuiDomainAvailable({ platform: "darwin", uid: 501, run })).toBe(true);
+    expect(run).toHaveBeenCalledWith(["print", "gui/501"]);
+    expect(
+      isSparkDaemonGuiDomainAvailable({
+        platform: "darwin",
+        uid: 502,
+        run: () => ({ status: 125, stdout: "", stderr: "unsupported domain" }),
+      }),
+    ).toBe(false);
+    expect(isSparkDaemonGuiDomainAvailable({ platform: "linux", uid: 501, run })).toBe(false);
+  });
+
+  it("falls back to detached service ownership for a headless macOS user", () => {
+    const startLaunchd = vi.fn(() => ({
+      kind: "launchd" as const,
+      alreadyRunning: false,
+      detail: "launchd",
+    }));
+    const startDetached = vi.fn(() => ({
+      kind: "detached" as const,
+      alreadyRunning: false,
+      detail: "detached",
+    }));
+    const stopLaunchd = vi.fn(() => ({
+      kind: "launchd" as const,
+      alreadyRunning: false,
+      detail: "launchd stopped",
+    }));
+    const stopDetached = vi.fn(() => ({
+      kind: "detached" as const,
+      alreadyRunning: false,
+      detail: "detached stopped",
+    }));
+
+    expect(
+      startSparkDaemonService(paths, {
+        platform: "darwin",
+        guiDomainAvailable: () => false,
+        startLaunchd,
+        startDetached,
+      }).kind,
+    ).toBe("detached");
+    expect(startLaunchd).not.toHaveBeenCalled();
+    expect(startDetached).toHaveBeenCalledOnce();
+
+    expect(
+      stopSparkDaemonService(paths, {
+        platform: "darwin",
+        supervisorRegistered: () => false,
+        stopLaunchd,
+        stopDetached,
+      })?.kind,
+    ).toBe("detached");
+    expect(stopLaunchd).not.toHaveBeenCalled();
+    expect(stopDetached).toHaveBeenCalledOnce();
   });
 
   it("starts exactly one replacement when no supervisor appears", async () => {
