@@ -43,7 +43,7 @@ interface ToolConfig {
     params: Record<string, unknown>,
     signal: AbortSignal | undefined,
     onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void,
-    ctx: { cwd?: string },
+    ctx: { cwd?: string; sparkStateRoot?: string },
   ): Promise<ToolResult>;
 }
 
@@ -131,6 +131,9 @@ test("batch CAS checks every file before promoting any content", async () => {
 
 test("relative paths route through an attached git_change Artifact worktree", async () => {
   await withTempDir(async (dir) => {
+    const sessionCwd = join(dir, "packages", "session");
+    await mkdir(sessionCwd, { recursive: true });
+    await writeFile(join(sessionCwd, "selected.txt"), "from selected cwd\n", "utf8");
     const worktree = join(dir, "managed-worktree");
     await mkdir(worktree);
     await writeFile(join(worktree, "artifact.txt"), "from artifact worktree\n", "utf8");
@@ -172,10 +175,19 @@ test("relative paths route through an attached git_change Artifact worktree", as
       { path: "artifact.txt", artifactRef: artifact.ref },
       undefined,
       noop,
-      { cwd: dir },
+      { cwd: sessionCwd, sparkStateRoot: join(dir, ".spark") },
     );
     assert.match(text(result), /from artifact worktree/u);
     assert.equal(result.details?.artifactRef, artifact.ref);
+
+    const selected = await read.execute(
+      "selected-cwd-read",
+      { path: "selected.txt" },
+      undefined,
+      noop,
+      { cwd: sessionCwd, sparkStateRoot: join(dir, ".spark") },
+    );
+    assert.match(text(selected), /from selected cwd/u);
   });
 });
 

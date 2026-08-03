@@ -66,6 +66,7 @@ export const sparkUplinkRpcErrorCodeOptions = [
 
 export const sparkWorkspaceRpcErrorCodeOptions = [
   "workspace_path_conflict",
+  "workspace_cwd_invalid",
   "registration_grant_refused",
   "relocation_target_unchanged",
   "relocation_target_invalid",

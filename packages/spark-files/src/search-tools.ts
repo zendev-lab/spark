@@ -17,6 +17,7 @@ import { walkTree } from "./gitignore-walker.ts";
 import {
   errorMessage,
   resolveToolCwd,
+  resolveToolStateCwd,
   text,
   throwIfAborted,
   type ToolExecResult,
@@ -95,7 +96,11 @@ export function createGrepToolConfig(): ToolConfig {
     executionMode: FILE_SEARCH_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const root = await resolveArtifactFileRoot(resolveToolCwd(ctx), params.artifactRef);
+      const root = await resolveArtifactFileRoot(
+        resolveToolCwd(ctx),
+        params.artifactRef,
+        resolveToolStateCwd(ctx),
+      );
       const cwd = root.cwd;
       const pattern = stringParam(params.pattern);
       const searchPath = resolveToCwd(
@@ -260,7 +265,11 @@ export function createFindToolConfig(): ToolConfig {
     executionMode: FILE_SEARCH_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const root = await resolveArtifactFileRoot(resolveToolCwd(ctx), params.artifactRef);
+      const root = await resolveArtifactFileRoot(
+        resolveToolCwd(ctx),
+        params.artifactRef,
+        resolveToolStateCwd(ctx),
+      );
       const cwd = root.cwd;
       const pattern = stringParam(params.pattern);
       const searchPath = resolveToCwd(

@@ -86,6 +86,12 @@ export interface CreateDaemonSessionRegistryOptions {
   canonicalWorkspaceId?: (workspaceId: string) => string;
   /** Return true for running/driver-owned sessions that must not be displaced. */
   isSessionRoleOwnerProtected?: (sessionId: string) => boolean | Promise<boolean>;
+  /** Validate and freeze a session cwd against its owning workspace/GitChange roots. */
+  resolveSessionCwd?: (input: {
+    workspaceId: string;
+    cwd?: string;
+    cwdArtifactRef?: string;
+  }) => Promise<{ cwd: string; cwdArtifactRef?: string }>;
 }
 
 /**
@@ -156,7 +162,7 @@ export function createDaemonSessionRegistry(
     rootDir: defaultSparkSessionRegistryRoot(sparkHome),
   });
   const ownedRegistry: DaemonSessionRegistry = {
-    create: async (input) => await registry.create(resolveCreateRequest(input, options)),
+    create: async (input) => await registry.create(await resolveCreateRequest(input, options)),
     list: async (request = {}) => await registry.list(resolveListRequest(request, options)),
     get: async (sessionId) => await registry.get(sessionId),
     bind: async (input) => await registry.bind(input),
@@ -189,11 +195,15 @@ export function createDaemonSessionRegistry(
     ensureSideThread: async (input) => await registry.ensureSideThread(input),
     resetSideThread: async (input) => await registry.resetSideThread(input),
     configureSideThread: async (input) => await registry.configureSideThread(input),
-    resolveBinding: async (input) =>
-      await registry.resolveBinding({
+    resolveBinding: async (input) => {
+      const create = input.create
+        ? await resolveRegistryCreateInput(input.create, options)
+        : undefined;
+      return await registry.resolveBinding({
         ...input,
-        ...(input.create ? { create: resolveRegistryCreateInput(input.create, options) } : {}),
-      }),
+        ...(create ? { create } : {}),
+      });
+    },
   };
   return createSerializedDaemonSessionRegistry(ownedRegistry);
 }
@@ -255,10 +265,10 @@ function normalizeRole(value: string | undefined): string | undefined {
   return normalized || undefined;
 }
 
-function resolveCreateRequest(
+async function resolveCreateRequest(
   input: SparkSessionCreateRequest,
   options: CreateDaemonSessionRegistryOptions,
-): CreateSparkSessionInput {
+): Promise<CreateSparkSessionInput> {
   const taskExecution = "taskExecution" in input ? input.taskExecution : undefined;
   const {
     taskExecution: _taskExecution,
@@ -271,14 +281,14 @@ function resolveCreateRequest(
     ...ordinaryInput,
     ...(taskExecution ? { relation: { kind: "task_execution", ...taskExecution } } : {}),
   };
-  if (!scope) return resolveRegistryCreateInput(createInput, options);
+  if (!scope) return await resolveRegistryCreateInput(createInput, options);
   if (scope.kind === "daemon") {
     throw new SparkSessionRegistryError(
       "invalid_scope",
       "New top-level sessions must belong to a workspace.",
     );
   }
-  return resolveRegistryCreateInput(
+  return await resolveRegistryCreateInput(
     {
       ...createInput,
       scope,
@@ -288,10 +298,10 @@ function resolveCreateRequest(
   );
 }
 
-function resolveRegistryCreateInput(
+async function resolveRegistryCreateInput(
   input: CreateSparkSessionInput,
   options: CreateDaemonSessionRegistryOptions,
-): CreateSparkSessionInput {
+): Promise<CreateSparkSessionInput> {
   const scope =
     input.scope ??
     (input.workspaceId
@@ -302,6 +312,35 @@ function resolveRegistryCreateInput(
     throw new SparkSessionRegistryError(
       "invalid_scope",
       "New top-level sessions must belong to a workspace.",
+    );
+  }
+  if (options.resolveSessionCwd) {
+    let resolved;
+    try {
+      resolved = await options.resolveSessionCwd({
+        workspaceId: scope.workspaceId,
+        ...(input.cwd ? { cwd: input.cwd } : {}),
+        ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
+      });
+    } catch (error) {
+      if (error instanceof SparkSessionRegistryError) throw error;
+      throw new SparkSessionRegistryError(
+        "workspace_cwd_unavailable",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    return {
+      ...input,
+      scope,
+      workspaceId: scope.workspaceId,
+      cwd: resolved.cwd,
+      ...(resolved.cwdArtifactRef ? { cwdArtifactRef: resolved.cwdArtifactRef } : {}),
+    };
+  }
+  if (input.cwdArtifactRef) {
+    throw new SparkSessionRegistryError(
+      "workspace_cwd_unavailable",
+      "GitChange cwd validation is unavailable on this daemon.",
     );
   }
   const resolvedWorkspaceCwd = options.resolveWorkspaceCwd?.(scope.workspaceId)?.trim();

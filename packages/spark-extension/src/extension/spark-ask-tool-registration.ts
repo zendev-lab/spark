@@ -1,6 +1,6 @@
 import { Type } from "typebox";
 import { replaySparkAskTool, runSparkAskTool, type SparkAskToolParams } from "./spark-ask-tool.ts";
-import type { EvidenceRef } from "@zendev-lab/spark-core";
+import { sparkStateCwd, type EvidenceRef } from "@zendev-lab/spark-core";
 import { normalizeEvidenceRef } from "./evidence-tools.ts";
 import { sparkAskUi } from "./spark-ask-ui.ts";
 import type { SparkToolRegistrar } from "./spark-tool-registration.ts";
@@ -73,7 +73,7 @@ export function registerSparkAskTools(registerSparkTool: SparkToolRegistrar): vo
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return runSparkAskTool(params as unknown as SparkAskToolParams, {
-        cwd: ctx.cwd,
+        cwd: sparkStateCwd(ctx.cwd, ctx),
         ui: sparkAskUi(ctx),
       });
     },
@@ -89,7 +89,7 @@ export function registerSparkAskTools(registerSparkTool: SparkToolRegistrar): vo
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       return replaySparkAskTool({
-        cwd: ctx.cwd,
+        cwd: sparkStateCwd(ctx.cwd, ctx),
         evidenceRef: normalizeSparkAskReplayEvidenceRef(params.evidenceRef),
         ui: sparkAskUi(ctx),
       });

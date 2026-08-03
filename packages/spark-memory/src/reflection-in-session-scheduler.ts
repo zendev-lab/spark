@@ -2,6 +2,7 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { sparkStateCwd } from "@zendev-lab/spark-core";
 
 import {
   emptyReflectionScanCursor,
@@ -24,6 +25,7 @@ import {
 
 export interface ReflectionCommandContext {
   cwd: string;
+  sparkStateRoot?: string;
 }
 
 export interface ReflectionCommandApi {
@@ -134,13 +136,14 @@ export function registerSparkReflectionCommands(pi: ReflectionCommandApi): void 
 }
 
 export async function runReflectionOnce(
-  ctx: Pick<ReflectionCommandContext, "cwd">,
+  ctx: Pick<ReflectionCommandContext, "cwd" | "sparkStateRoot">,
   options: ReflectionRunOptions = {},
 ): Promise<ReflectionRunSummary> {
-  const cursorPath = options.cursorPath ?? reflectionScanCursorPath(ctx.cwd);
-  const candidateStorePath = options.candidateStorePath ?? reflectionCandidateStorePath(ctx.cwd);
+  const stateCwd = sparkStateCwd(ctx.cwd, ctx);
+  const cursorPath = options.cursorPath ?? reflectionScanCursorPath(stateCwd);
+  const candidateStorePath = options.candidateStorePath ?? reflectionCandidateStorePath(stateCwd);
   const reportPath =
-    options.reportPath ?? join(ctx.cwd, ".spark", "memory", "reflections", "latest-report.md");
+    options.reportPath ?? join(stateCwd, ".spark", "memory", "reflections", "latest-report.md");
   const sessionRoot = options.sessionRoot ?? resolveSparkUserPaths().sessionsDir;
   const key = reflectionSessionKey(ctx);
   if (activeReflectionRuns.has(key)) {
@@ -340,8 +343,10 @@ async function writeAtomicText(path: string, content: string): Promise<void> {
   await rename(tmp, path);
 }
 
-function reflectionSessionKey(ctx: Pick<ReflectionCommandContext, "cwd">): string {
-  return ctx.cwd;
+function reflectionSessionKey(
+  ctx: Pick<ReflectionCommandContext, "cwd" | "sparkStateRoot">,
+): string {
+  return sparkStateCwd(ctx.cwd, ctx);
 }
 
 function positiveInteger(value: string): number | undefined {

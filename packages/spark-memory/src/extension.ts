@@ -5,6 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { Type } from "typebox";
 import {
   callLeafOrDegrade,
+  sparkStateCwd,
   type SparkHostContext,
   type ToolConfig,
   type ToolRenderComponent,
@@ -265,7 +266,7 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
       return renderMemoryCall(args, theme);
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const cwd = requiredCwd(ctx);
+      const cwd = requiredStateCwd(ctx);
       await migrateSparkMemoryLayout({ cwd });
       const kind = normalizeMemoryKind(params.kind);
       if (kind === "candidate") {
@@ -593,7 +594,7 @@ function memoryStatusTool(options: SparkMemoryToolOptions): ToolConfig {
       sourceDir: Type.Optional(Type.String({ description: "Override compatibility memory dir" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const cwd = optionalCwd(ctx) ?? process.cwd();
+      const cwd = optionalStateCwd(ctx) ?? process.cwd();
       const store = defaultSparkMemoryStore(cwd, "workspace", options.storePaths);
       const sparkStatus = await store.status();
       const sourceDir = resolveCompatMemoryDir(options, params.sourceDir);
@@ -639,7 +640,7 @@ export function registerSparkMemoryCheckpointEvents(
   options: SparkMemoryToolOptions = {},
 ): void {
   pi.on?.("session_start", async (_event, ctx) => {
-    const cwd = optionalCwd(ctx);
+    const cwd = optionalStateCwd(ctx);
     if (!cwd) return;
     await migrateSparkMemoryLayout({ cwd });
     pi.sendMessage?.(
@@ -659,7 +660,7 @@ export function registerSparkMemoryCheckpointEvents(
   });
 
   pi.on?.("session_before_compact", async (_event, ctx) => {
-    const cwd = optionalCwd(ctx);
+    const cwd = optionalStateCwd(ctx);
     if (!cwd) return;
     const checkpoint = await defaultSparkMemoryStore(
       cwd,
@@ -689,7 +690,7 @@ export function registerSparkMemoryCheckpointEvents(
   });
 
   pi.on?.("session_compact", (event, ctx) => {
-    const cwd = optionalCwd(ctx);
+    const cwd = optionalStateCwd(ctx);
     const compact = successfulFullCompaction(event);
     if (!cwd || !compact) return;
     const runPipeline =
@@ -913,6 +914,18 @@ function optionalCwd(ctx: unknown): string | undefined {
 
 function requiredCwd(ctx: unknown): string {
   const cwd = optionalCwd(ctx);
+  if (!cwd) throw new Error("memory requires ctx.cwd");
+  return cwd;
+}
+
+function optionalStateCwd(ctx: unknown): string | undefined {
+  const cwd = optionalCwd(ctx);
+  if (!cwd) return undefined;
+  return sparkStateCwd(cwd, ctx as { sparkStateRoot?: string });
+}
+
+function requiredStateCwd(ctx: unknown): string {
+  const cwd = optionalStateCwd(ctx);
   if (!cwd) throw new Error("memory requires ctx.cwd");
   return cwd;
 }

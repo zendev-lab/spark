@@ -20,6 +20,28 @@ function registerTool(
 }
 
 describe("SparkHostRuntime effect contract", () => {
+  it("atomically rebinds session cwd and workspace state root", () => {
+    const host = new SparkHostRuntime({
+      cwd: "/workspace",
+      workspaceId: "ws_one",
+      sparkStateRoot: "/workspace/.spark",
+    });
+
+    host.setSessionContext({
+      sessionId: "session:worktree",
+      cwd: "/worktrees/change/packages/app",
+      workspaceId: "ws_one",
+      sparkStateRoot: "/workspace/.spark",
+    });
+
+    expect(host.makeContext()).toMatchObject({
+      sessionId: "session:worktree",
+      cwd: "/worktrees/change/packages/app",
+      workspaceId: "ws_one",
+      sparkStateRoot: "/workspace/.spark",
+    });
+  });
+
   it("keeps internal tools inactive unless an explicit allowlist selects them", () => {
     const ordinary = new SparkHostRuntime({
       cwd: "/tmp/spark-host-runtime-internal-ordinary",

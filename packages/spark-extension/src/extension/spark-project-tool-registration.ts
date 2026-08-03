@@ -1,7 +1,12 @@
 import { Type } from "typebox";
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { clarifyProjectPurposeIfNeeded } from "../flows/project-purpose-flow.ts";
-import { currentSparkProject, loadSparkGraph, saveCurrentProjectRef } from "./session-state.ts";
+import {
+  currentSparkProject,
+  loadSparkGraph,
+  saveCurrentProjectRef,
+  sparkStateCwd,
+} from "./session-state.ts";
 import { ensureLocalSparkDirectory } from "./spark-activation.ts";
 import { sparkAskUi } from "./spark-ask-ui.ts";
 import { requireKnownSparkProjectKind } from "./project-kind-registry.ts"; // deprecated no-op
@@ -103,7 +108,7 @@ export function registerSparkProjectTools(
           isError: true,
         };
 
-      const store = defaultTaskGraphStore(cwd);
+      const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
       const updated = await store.update(
         async (graph) => {
           const project = projectSelector?.trim()
@@ -169,8 +174,8 @@ export function registerSparkProjectTools(
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = ctx.cwd;
-      await ensureLocalSparkDirectory(cwd);
-      const store = defaultTaskGraphStore(cwd);
+      await ensureLocalSparkDirectory(sparkStateCwd(cwd, ctx));
+      const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
       let graph = await loadSparkGraph(cwd, ctx);
       graph ??= new TaskGraph();
       const input = normalizeSparkNewProjectInput(params);
@@ -227,7 +232,7 @@ export function registerSparkProjectTools(
           kindState: input.kindState,
         });
         created = true;
-        await saveProjectPurposeTrace(cwd, project.ref, clarification);
+        await saveProjectPurposeTrace(sparkStateCwd(cwd, ctx), project.ref, clarification);
       } else if (input.kind && input.kind !== (project.kind ?? "generic")) {
         project = graph.updateProject(project.ref, {
           kind: input.kind,

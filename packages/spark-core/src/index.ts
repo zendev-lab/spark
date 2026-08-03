@@ -763,6 +763,8 @@ export interface SparkSessionLeaseIdentity {
 
 export interface SparkHostContext {
   cwd?: string;
+  /** Durable workspace owner for state and daemon routing. */
+  workspaceId?: string;
   /** Current Spark view/session identity for session-scoped extension state. */
   sessionId?: string;
   /** Optional absolute path to the Spark state root directory (`.../.spark`). */
@@ -795,6 +797,21 @@ export interface SparkHostContext {
    * this instead of spawning a nested `pi` process and fail loudly when absent.
    */
   runRole?: ExtensionRoleRunner;
+}
+
+export interface SparkStateRootContext {
+  sparkStateRoot?: string;
+}
+
+/** Resolve the durable workspace-owned Spark state directory for a host context. */
+export function sparkStateRootPath(cwd: string, ctx?: SparkStateRootContext): string {
+  return ctx?.sparkStateRoot?.trim() || join(cwd, ".spark");
+}
+
+/** Convert the explicit `.spark` state root back to the owning workspace directory. */
+export function sparkStateCwd(cwd: string, ctx?: SparkStateRootContext): string {
+  const root = sparkStateRootPath(cwd, ctx);
+  return basename(root) === ".spark" ? dirname(root) : cwd;
 }
 
 export interface SparkHostCommandContext extends SparkHostContext {

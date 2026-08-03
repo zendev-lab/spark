@@ -7,6 +7,7 @@ import {
   loadSparkGraph,
   loadSparkPhase,
   saveSparkGraphAndTodos,
+  sparkStateCwd,
   sparkSessionKey,
   type SparkSessionContext,
   type SparkSessionPhase,
@@ -68,11 +69,12 @@ async function renderActiveSparkContextWithLanguage(
   cwd: string,
   ctx?: SparkSessionContext,
 ): Promise<ActiveSparkContextSummary | undefined> {
+  const stateCwd = sparkStateCwd(cwd, ctx);
   const graph = await loadSparkGraph(cwd, ctx);
   if (!graph) return undefined;
-  const store = defaultTaskGraphStore(cwd);
+  const store = defaultTaskGraphStore(stateCwd);
   if (ensureSparkGraphInvariants(graph)) await saveSparkGraphAndTodos(cwd, graph, ctx, store);
-  const sparkMd = await readActiveSparkMd(cwd);
+  const sparkMd = await readActiveSparkMd(stateCwd);
   const project = await currentSparkProject(cwd, ctx, graph);
   const sessionKey = sparkSessionKey(ctx);
   const sessionGoal = await loadSessionGoal(cwd, ctx);
@@ -104,7 +106,7 @@ export async function ensureSparkStateForActiveWorkspace(
   cwd: string,
   ctx?: SparkSessionContext,
 ): Promise<TaskGraph | null> {
-  await ensureLocalSparkDirectory(cwd);
+  await ensureLocalSparkDirectory(sparkStateCwd(cwd, ctx));
   return loadSparkGraph(cwd, ctx);
 }
 

@@ -4,7 +4,7 @@ import {
   type EvidenceFormat,
   type JsonValue,
 } from "@zendev-lab/spark-artifacts";
-import { type EvidenceRef, type RoleRef, type RunRef } from "@zendev-lab/spark-core";
+import { sparkStateCwd, type EvidenceRef, type RoleRef, type RunRef } from "@zendev-lab/spark-core";
 import {
   parseWorkflowScript,
   readSavedWorkflow,
@@ -180,6 +180,7 @@ export function registerSparkWorkflowRunTool(
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const p = params as SparkWorkflowRunParams;
       const cwd = ctx.cwd;
+      const stateCwd = sparkStateCwd(cwd, ctx);
       const scriptInput = normalizeOptionalWorkflowString(p.script, "script");
       const selector = normalizeOptionalWorkflowString(p.selector, "selector");
       const resumeRunRef = normalizeOptionalRunRef(p.resumeRunRef ?? p.runRef, "runRef");
@@ -189,13 +190,15 @@ export function registerSparkWorkflowRunTool(
       if (!scriptInput && !selector && !resumeRunRef)
         throw new Error("workflow_run requires selector, script, or runRef");
 
-      const dynamicStore = (deps.dynamicRunStore ?? defaultSparkDynamicWorkflowEventStore)(cwd);
+      const dynamicStore = (deps.dynamicRunStore ?? defaultSparkDynamicWorkflowEventStore)(
+        stateCwd,
+      );
       await dynamicStore.reconcileStale({ now: deps.now?.() });
       const existingRun = resumeRunRef ? await dynamicStore.get(resumeRunRef) : undefined;
       if (resumeRunRef && !existingRun)
         throw new Error(`dynamic workflow run not found: ${resumeRunRef}`);
       const source = await resolveDynamicWorkflowRunSource({
-        cwd,
+        cwd: stateCwd,
         scriptInput,
         selector,
         existingRun,
@@ -214,7 +217,7 @@ export function registerSparkWorkflowRunTool(
           cwd,
         }));
       const approval = await ensureWorkflowRunApproval({
-        cwd,
+        cwd: stateCwd,
         ctx,
         signal,
         deps,
@@ -273,11 +276,11 @@ export function registerSparkWorkflowRunTool(
           agent,
           runWorkflow: deps.runWorkflow ?? runWorkflowScript,
           evidenceRecord: (record: WorkflowEvidenceRecordInput) =>
-            recordWorkflowEvidence(cwd, record, deps),
+            recordWorkflowEvidence(stateCwd, record, deps),
           webSearch: (request: WorkflowWebSearchInput) => webSearchAdapter({ cwd, request }),
           fetchContent: (request: WorkflowFetchContentInput) =>
             fetchContentAdapter({ cwd, request }),
-          loadWorkflowScript: (selector: string) => resolveNestedWorkflowScript(cwd, selector),
+          loadWorkflowScript: (selector: string) => resolveNestedWorkflowScript(stateCwd, selector),
           restartInput: ({
             abortController: nextAbortController,
             run: nextRun,
@@ -780,7 +783,7 @@ async function createSparkWorkflowAgentRunner(input: {
   signal: AbortSignal;
   base?: SparkDynamicWorkflowRunBaseMetadata;
 }): Promise<WorkflowAgentRunner> {
-  const registry = await createSparkRoleRegistry(input.cwd);
+  const registry = await createSparkRoleRegistry(sparkStateCwd(input.cwd, input.ctx));
   const runRole = async (request: SparkWorkflowRoleRunRequest) => {
     const roleResult = await runRoleInstructionOnly(
       registry,
@@ -848,7 +851,7 @@ async function createSparkWorkflowWebSearchAdapter(input: {
   ctx: SparkToolContext;
   signal: AbortSignal;
 }): Promise<(requestInput: { cwd: string; request: WorkflowWebSearchInput }) => Promise<unknown>> {
-  const registry = await createSparkRoleRegistry(input.cwd);
+  const registry = await createSparkRoleRegistry(sparkStateCwd(input.cwd, input.ctx));
   return async ({ request }) => {
     const roleResult = await runRoleInstructionOnly(
       registry,
@@ -880,7 +883,7 @@ async function createSparkWorkflowFetchContentAdapter(input: {
 }): Promise<
   (requestInput: { cwd: string; request: WorkflowFetchContentInput }) => Promise<unknown>
 > {
-  const registry = await createSparkRoleRegistry(input.cwd);
+  const registry = await createSparkRoleRegistry(sparkStateCwd(input.cwd, input.ctx));
   return async ({ request }) => {
     const roleResult = await runRoleInstructionOnly(
       registry,

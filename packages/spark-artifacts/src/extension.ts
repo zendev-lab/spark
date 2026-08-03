@@ -1,9 +1,11 @@
 import { Type } from "typebox";
-import type {
-  SparkHostAPI,
-  ToolConfig,
-  ToolRenderComponent,
-  ToolRenderTheme,
+import {
+  sparkStateCwd,
+  type SparkHostAPI,
+  type SparkHostContext,
+  type ToolConfig,
+  type ToolRenderComponent,
+  type ToolRenderTheme,
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import {
@@ -188,7 +190,7 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
         throw new Error("artifactRef is not accepted by evidence; use evidenceRef");
       }
       const cwd = requireCwd(ctx, "evidence");
-      const store = defaultEvidenceStore(cwd);
+      const store = defaultEvidenceStore(sparkStateCwd(cwd, ctx));
       const action = normalizeAction(params.action);
 
       if (action === "list") {
@@ -809,7 +811,7 @@ function truncateBlock(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars)}\n… truncated ${text.length - maxChars} char(s)`;
 }
 
-function requireCwd(ctx: { cwd?: string }, tool: string): string {
+function requireCwd(ctx: SparkHostContext, tool: string): string {
   if (!ctx.cwd) throw new Error(`${tool} requires ctx.cwd`);
   return ctx.cwd;
 }

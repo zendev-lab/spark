@@ -86,6 +86,7 @@ import type {
 
 export interface SparkHostRuntimeOptions {
   cwd: string;
+  workspaceId?: string;
   sparkStateRoot?: string;
   sessionSurface?: "local" | "channel";
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
@@ -146,8 +147,9 @@ function resolveHookEffects(
 }
 
 export class SparkHostRuntime implements SparkHostAPI {
-  readonly cwd: string;
-  readonly sparkStateRoot: string | undefined;
+  cwd: string;
+  workspaceId: string | undefined;
+  sparkStateRoot: string | undefined;
   readonly sessionSurface: "local" | "channel" | undefined;
   readonly sessionSource: "tui" | "web" | "channel" | "daemon" | "session" | undefined;
   readonly channelBinding:
@@ -188,6 +190,7 @@ export class SparkHostRuntime implements SparkHostAPI {
 
   constructor(options: SparkHostRuntimeOptions) {
     this.cwd = options.cwd;
+    this.workspaceId = options.workspaceId?.trim() || undefined;
     this.sparkStateRoot = options.sparkStateRoot;
     this.sessionSurface = options.sessionSurface;
     this.sessionSource = options.sessionSource;
@@ -538,6 +541,21 @@ export class SparkHostRuntime implements SparkHostAPI {
     this.sessionId = normalized || undefined;
   }
 
+  /** Atomically bind execution and durable-state roots when the active session changes. */
+  setSessionContext(input: {
+    sessionId?: string;
+    cwd: string;
+    workspaceId?: string;
+    sparkStateRoot?: string;
+  }): void {
+    const sessionId = input.sessionId?.trim();
+    const workspaceId = input.workspaceId?.trim();
+    this.sessionId = sessionId || undefined;
+    this.cwd = input.cwd;
+    this.workspaceId = workspaceId || undefined;
+    this.sparkStateRoot = input.sparkStateRoot?.trim() || undefined;
+  }
+
   /**
    * Build a fresh SparkHostContext with the current UI transport and
    * sessionManager view bound. Each call returns a new object so the host can
@@ -549,6 +567,7 @@ export class SparkHostRuntime implements SparkHostAPI {
   } {
     return {
       cwd: this.cwd,
+      ...(this.workspaceId ? { workspaceId: this.workspaceId } : {}),
       ...(this.stateOwnerSessionId || this.sessionId
         ? { sessionId: this.stateOwnerSessionId ?? this.sessionId }
         : {}),

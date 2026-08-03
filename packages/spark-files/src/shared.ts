@@ -5,7 +5,7 @@
  * structured `details`, and the host renders them.
  */
 
-import type { SparkHostContext } from "@zendev-lab/spark-core";
+import { sparkStateCwd, type SparkHostContext } from "@zendev-lab/spark-core";
 
 export interface ToolTextContent {
   type: "text";
@@ -26,6 +26,12 @@ export function text(value: string): ToolTextContent {
 export function resolveToolCwd(ctx: SparkHostContext | undefined): string {
   const cwd = ctx?.cwd;
   return typeof cwd === "string" && cwd.length > 0 ? cwd : process.cwd();
+}
+
+/** Resolve the workspace directory that owns .spark state for this tool call. */
+export function resolveToolStateCwd(ctx: SparkHostContext | undefined): string {
+  const cwd = resolveToolCwd(ctx);
+  return sparkStateCwd(cwd, ctx);
 }
 
 export function throwIfAborted(signal: AbortSignal | undefined): void {

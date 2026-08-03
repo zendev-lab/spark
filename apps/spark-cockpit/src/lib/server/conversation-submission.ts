@@ -28,11 +28,12 @@ export function conversationTurnIdempotencyKey(
 export function conversationStartSessionId(
   workspaceId: string,
   submissionId: string | undefined,
+  cwdContext = "",
 ): string | undefined {
   const normalized = normalizeConversationSubmissionId(submissionId);
   if (!normalized) return undefined;
   const digest = createHash("sha256")
-    .update(JSON.stringify([1, workspaceId.trim(), normalized]))
+    .update(JSON.stringify([1, workspaceId.trim(), normalized, cwdContext.trim()]))
     .digest("hex")
     .slice(0, 32);
   return `sess_cockpit_${digest}`;

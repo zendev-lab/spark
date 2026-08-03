@@ -16,7 +16,12 @@ import {
   attachRoadmapPlanningRefs,
   roadmapPlanningContext,
 } from "../flows/roadmap-flow.ts";
-import { currentSparkProject, loadSparkGraph, saveSparkGraphAndTodos } from "./session-state.ts";
+import {
+  currentSparkProject,
+  loadSparkGraph,
+  saveSparkGraphAndTodos,
+  sparkStateCwd,
+} from "./session-state.ts";
 import { createSparkRoleRegistry } from "./spark-role-registry.ts";
 import { NO_SPARK_PROJECT_FOUND_HINT } from "./spark-project-guidance.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
@@ -130,7 +135,7 @@ export function registerSparkPlanTasksTool(
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = ctx.cwd;
-      const store = defaultTaskGraphStore(cwd);
+      const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
       const graph = await loadSparkGraph(cwd, ctx);
       if (!graph)
         return {
@@ -156,7 +161,7 @@ export function registerSparkPlanTasksTool(
           ],
           details: { found: false, error: projectSelector ? "project_not_found" : undefined },
         };
-      const registry = await createSparkRoleRegistry(cwd);
+      const registry = await createSparkRoleRegistry(sparkStateCwd(cwd, ctx));
       const normalizedTasks = normalizeSparkPlanTaskInputs(params, registry);
       if (!normalizedTasks)
         return {

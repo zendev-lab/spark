@@ -181,6 +181,10 @@ export interface SparkDaemonClientOptions {
     paths: SparkDaemonClientPaths,
     input: LocalWorkspaceEnsureLocalInput,
   ) => Promise<SparkDaemonWorkspace>;
+  workspaceResolveSessionCwd?: (
+    paths: SparkDaemonClientPaths,
+    input: SparkLocalRpcInput<"workspace.resolve-session-cwd">,
+  ) => Promise<SparkSessionCwdResolution>;
   workspaceClientAttach?: (
     paths: SparkDaemonClientPaths,
     input: LocalWorkspaceClientAttachInput,
@@ -419,8 +423,16 @@ export interface LocalWorkspaceClientResult {
 export interface SparkWorkspaceClientHandle {
   client: SparkWorkspaceClientLease;
   workspace: SparkDaemonWorkspace;
+  cwd: string;
+  cwdArtifactRef?: string;
   heartbeat(): Promise<LocalWorkspaceClientResult>;
   release(): Promise<LocalWorkspaceClientResult | null>;
+}
+
+export interface SparkSessionCwdResolution {
+  workspace: SparkDaemonWorkspace;
+  cwd: string;
+  cwdArtifactRef?: string;
 }
 
 export type { AttachSparkWorkspaceSessionClientOptions } from "./daemon-session-heartbeat.ts";
@@ -1766,15 +1778,21 @@ export async function attachSparkWorkspaceClient(
   if (workspaceId && options.localPath) {
     throw new Error("Spark workspace client attach accepts workspaceId or localPath, not both.");
   }
-  const ensuredWorkspace = workspaceId
+  const requestedCwd = options.localPath ?? process.cwd();
+  const resolvedCwd = workspaceId
     ? undefined
-    : await clientEnsureLocalWorkspace({ localPath: options.localPath ?? process.cwd() }, client);
+    : client.workspaceEnsureLocal && !client.workspaceResolveSessionCwd
+      ? {
+          workspace: await clientEnsureLocalWorkspace({ localPath: requestedCwd }, client),
+          cwd: requestedCwd,
+        }
+      : await clientResolveSessionCwd(requestedCwd, client);
   const leaseTtlMs = options.leaseTtlMs ?? 60_000;
   const metadata =
     options.kind === "interactive" ? { surface: "tui", ...options.metadata } : options.metadata;
   const attached = await clientWorkspaceClientAttach(
     {
-      workspaceId: workspaceId ?? ensuredWorkspace!.id,
+      workspaceId: workspaceId ?? resolvedCwd!.workspace.id,
       ...(options.clientId ? { clientId: options.clientId } : {}),
       kind: options.kind,
       displayName: options.displayName ?? defaultWorkspaceClientDisplayName(options.kind),
@@ -1847,7 +1865,14 @@ export async function attachSparkWorkspaceClient(
     void pollTransfer();
   }
 
-  return { client: attached.client, workspace: attached.workspace, heartbeat, release };
+  return {
+    client: attached.client,
+    workspace: attached.workspace,
+    cwd: resolvedCwd?.cwd ?? attached.workspace.localPath,
+    ...(resolvedCwd?.cwdArtifactRef ? { cwdArtifactRef: resolvedCwd.cwdArtifactRef } : {}),
+    heartbeat,
+    release,
+  };
 }
 
 export async function attachSparkWorkspaceSessionClient(
@@ -3020,6 +3045,18 @@ async function clientEnsureLocalWorkspace(
   return await localRpcRequest(paths, "workspace.ensure-local", input);
 }
 
+export async function clientResolveSessionCwd(
+  cwd: string,
+  client: SparkDaemonClientOptions = {},
+): Promise<SparkSessionCwdResolution> {
+  const paths = resolveSparkDaemonClientPaths(client);
+  await clientEnsureRunning(client);
+  if (client.workspaceResolveSessionCwd) {
+    return await client.workspaceResolveSessionCwd(paths, { cwd });
+  }
+  return await localRpcRequest(paths, "workspace.resolve-session-cwd", { cwd });
+}
+
 async function clientWorkspaceClientAttach(
   input: LocalWorkspaceClientAttachInput,
   client: SparkDaemonClientOptions,
@@ -3068,6 +3105,7 @@ async function clientEnsureRunning(client: SparkDaemonClientOptions): Promise<vo
     client.turnCancel ||
     client.workspaceList ||
     client.workspaceEnsureLocal ||
+    client.workspaceResolveSessionCwd ||
     client.workspaceClientAttach
   ) {
     client.startService?.(paths);

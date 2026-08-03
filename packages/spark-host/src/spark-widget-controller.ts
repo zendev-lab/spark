@@ -15,7 +15,7 @@ export interface SparkWidgetControllerContext {
 }
 
 export interface SparkWidgetControllerDeps {
-  ensureLocalSparkDirectory: (cwd: string) => Promise<void>;
+  ensureLocalSparkDirectory: (cwd: string, ctx?: any) => Promise<void>;
   defaultTaskGraphStore: (cwd: string, ctx?: any) => unknown;
   loadSparkGraph: (cwd: string, ctx?: any) => Promise<any>;
   ensureSparkGraphInvariants: (graph: any) => boolean;
@@ -23,11 +23,14 @@ export interface SparkWidgetControllerDeps {
   sparkSessionKey: (ctx?: any) => string;
   sparkSessionOwnerKey: (ctx?: any) => string;
   activeSparkRoleRunProcessesForCwd: (cwd: string) => Array<{ runRef?: string }>;
-  defaultSparkWorkflowRunStore: (cwd: string) => {
+  defaultSparkWorkflowRunStore: (
+    cwd: string,
+    ctx?: any,
+  ) => {
     reconcile(input: any): Promise<unknown>;
     status(): Promise<WorkflowRunStatusSummary>;
   };
-  listDynamicWorkflowRuns: (cwd: string) => Promise<SparkDynamicWorkflowRunProjection[]>;
+  listDynamicWorkflowRuns: (cwd: string, ctx?: any) => Promise<SparkDynamicWorkflowRunProjection[]>;
   loadTodoDisplayNumberState: (cwd: string, ctx?: any) => Promise<any>;
   saveTodoDisplayNumberState: (cwd: string, ctx: any, state: any) => Promise<void>;
   loadIndependentTodos: (cwd: string, ctx?: any) => Promise<SessionTodoEntry[]>;
@@ -98,7 +101,7 @@ export class SparkWidgetController {
       this.ctx = ctx;
     }
 
-    await this.deps.ensureLocalSparkDirectory(cwd);
+    await this.deps.ensureLocalSparkDirectory(cwd, ctx);
     const store = this.deps.defaultTaskGraphStore(cwd, ctx);
     const graph = await this.deps.loadSparkGraph(cwd, ctx);
     if (graph && this.deps.ensureSparkGraphInvariants(graph))
@@ -111,11 +114,11 @@ export class SparkWidgetController {
         .map((process) => process.runRef)
         .filter((runRef): runRef is string => typeof runRef === "string"),
     );
-    const runStore = this.deps.defaultSparkWorkflowRunStore(cwd);
+    const runStore = this.deps.defaultSparkWorkflowRunStore(cwd, ctx);
     if (graph && activeRunRefs.size > 0) await runStore.reconcile({ graph, activeRunRefs });
     const workflowRunStatus = await runStore.status();
     const dynamicWorkflowRuns = await this.deps
-      .listDynamicWorkflowRuns(cwd)
+      .listDynamicWorkflowRuns(cwd, ctx)
       .catch(() => [] as SparkDynamicWorkflowRunProjection[]);
     const dynamicWorkflowRun = sparkDynamicWorkflowRunWidgetEntry(dynamicWorkflowRuns);
     const todoDisplayNumbers = await this.deps.loadTodoDisplayNumberState(cwd, ctx);

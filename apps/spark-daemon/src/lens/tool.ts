@@ -37,6 +37,8 @@ export async function closeDaemonLensToolService(db: DatabaseSync): Promise<void
 export async function executeDaemonLensTool(
   request: LensExecuteRequest,
   db: DatabaseSync,
+  cwd = request.params.cwd,
+  stateCwd = cwd,
 ): Promise<LocalRpcServiceOutput<LensExecuteRequest>> {
   const params = request.params.params;
   const action = stringParam(params.action, "action");
@@ -60,7 +62,7 @@ export async function executeDaemonLensTool(
   const artifactRef = optionalString(params.artifactRef, "artifactRef");
   const service = serviceFor(db);
   if (action === "health") {
-    const health = await service.health(request.params.cwd, artifactRef);
+    const health = await service.health(cwd, artifactRef);
     const available = health.providers.filter((provider) => provider.available).length;
     return result(
       `Lens profile=${health.profile} providers=${available}/${health.providers.length}`,
@@ -68,7 +70,7 @@ export async function executeDaemonLensTool(
     );
   }
   if (action === "propose_patch" || action === "apply_patch" || action === "triage") {
-    const root = await resolveArtifactFileRoot(request.params.cwd, artifactRef);
+    const root = await resolveArtifactFileRoot(cwd, artifactRef, stateCwd);
     const patchService = patchServiceFor(db);
     if (action === "propose_patch") {
       const edits = patchEditsParam(params.edits);
@@ -130,7 +132,7 @@ export async function executeDaemonLensTool(
     action === "structural_search" ||
     action === "impact"
   ) {
-    const root = await resolveArtifactFileRoot(request.params.cwd, artifactRef);
+    const root = await resolveArtifactFileRoot(cwd, artifactRef, stateCwd);
     const revision = await captureWorkspaceRevision({
       workspaceRoot: root.cwd,
       profile: { id: "revisioned-code-intelligence-v1", astGrep: "0.45.0" },
@@ -173,7 +175,7 @@ export async function executeDaemonLensTool(
   const path = optionalString(params.path, "path");
   const maxFindings = optionalInteger(params.maxFindings, "maxFindings");
   const input = {
-    cwd: request.params.cwd,
+    cwd,
     ...(artifactRef === undefined ? {} : { artifactRef }),
     ...(path === undefined ? {} : { path }),
     ...(maxFindings === undefined ? {} : { maxFindings: Math.min(maxFindings, 1_000) }),

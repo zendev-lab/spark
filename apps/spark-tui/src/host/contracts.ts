@@ -54,6 +54,7 @@ export interface SparkCliHostServices {
 
 export interface SparkCliHostServicesOptions {
   cwd?: string;
+  workspaceId?: string;
   sparkHome?: string;
   sparkStateRoot?: string;
   sessionSurface?: "local" | "channel";

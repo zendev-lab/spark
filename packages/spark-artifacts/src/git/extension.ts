@@ -1,5 +1,11 @@
 import { Type } from "typebox";
-import type { SparkHostAPI, ToolConfig, ToolRenderComponent } from "@zendev-lab/spark-core";
+import {
+  sparkStateCwd,
+  type SparkHostAPI,
+  type SparkHostContext,
+  type ToolConfig,
+  type ToolRenderComponent,
+} from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import {
   defaultArtifactStore,
@@ -133,7 +139,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = requireCwd(ctx);
-      const store = defaultArtifactStore(cwd);
+      const store = defaultArtifactStore(sparkStateCwd(cwd, ctx));
       const service = new GitLifecycleService({ cwd, store });
       const action = normalizeGitAction(params.action);
 
@@ -295,7 +301,7 @@ function stringArrayOrUndefined(value: unknown, field: string): string[] | undef
   return value.map((entry) => entry.trim()).filter(Boolean);
 }
 
-function requireCwd(ctx: { cwd?: string } | undefined): string {
+function requireCwd(ctx: SparkHostContext | undefined): string {
   if (typeof ctx?.cwd !== "string" || !ctx.cwd.trim()) throw new Error("git requires ctx.cwd");
   return ctx.cwd;
 }

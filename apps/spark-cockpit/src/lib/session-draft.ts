@@ -15,6 +15,8 @@ export interface SessionPendingSubmission {
 
 export interface StartConversationSubmissionContext {
   workspaceId: string;
+  cwd: string;
+  cwdArtifactRef: string;
   message: string;
   model: string;
   thinkingLevel: string;
@@ -35,6 +37,8 @@ function normalizeStartConversationSubmissionContext(
 ): StartConversationSubmissionContext {
   return {
     workspaceId: context.workspaceId.trim(),
+    cwd: context.cwd.trim(),
+    cwdArtifactRef: context.cwdArtifactRef.trim(),
     message: context.message.trim(),
     model: context.model.trim(),
     thinkingLevel: context.thinkingLevel.trim(),
@@ -50,6 +54,8 @@ export function startConversationSubmissionContextKey(
   // value and is compared exactly before a nonce can be reused.
   return JSON.stringify([
     normalized.workspaceId,
+    normalized.cwd,
+    normalized.cwdArtifactRef,
     normalized.message,
     normalized.model,
     normalized.thinkingLevel,
@@ -75,6 +81,8 @@ export function readStartConversationPendingSubmission(
     if (
       !value ||
       typeof value.workspaceId !== "string" ||
+      typeof value.cwd !== "string" ||
+      typeof value.cwdArtifactRef !== "string" ||
       typeof value.message !== "string" ||
       typeof value.model !== "string" ||
       typeof value.thinkingLevel !== "string" ||
@@ -84,6 +92,8 @@ export function readStartConversationPendingSubmission(
     }
     const normalized = normalizeStartConversationSubmissionContext({
       workspaceId: value.workspaceId,
+      cwd: value.cwd,
+      cwdArtifactRef: value.cwdArtifactRef,
       message: value.message,
       model: value.model,
       thinkingLevel: value.thinkingLevel,

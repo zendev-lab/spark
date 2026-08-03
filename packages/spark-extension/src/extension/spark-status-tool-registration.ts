@@ -9,6 +9,7 @@ import {
   currentSparkProject,
   loadSparkGraph,
   saveSparkGraphAndTodos,
+  sparkStateCwd,
   sparkSessionKey,
 } from "./session-state.ts";
 import {
@@ -91,12 +92,13 @@ export function registerSparkStatusTool(
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = ctx.cwd;
-      await deps.ensureSparkStateForActiveWorkspace(cwd, ctx);
+      const stateCwd = sparkStateCwd(cwd, ctx);
+      await deps.ensureSparkStateForActiveWorkspace(stateCwd, ctx);
       const format = normalizeSparkStatusFormat(params);
       const scope = normalizeSparkStatusScope(params);
       const view = normalizeSparkStatusView(params);
       const explicitLimit = normalizeSparkStatusLimit(params);
-      const store = defaultTaskGraphStore(cwd);
+      const store = defaultTaskGraphStore(stateCwd);
       const graph = await loadSparkGraph(cwd, ctx);
       if (!graph) {
         const details = { found: false, active: false, format, scope, view };
@@ -120,10 +122,10 @@ export function registerSparkStatusTool(
         scope === "workspace"
           ? (explicitLimit ?? (view === "summary" ? DEFAULT_SPARK_STATUS_ACTIVE_LIMIT : undefined))
           : undefined;
-      const runStore = defaultSparkWorkflowRunStore(cwd);
+      const runStore = defaultSparkWorkflowRunStore(stateCwd);
       await reconcileSparkWorkflowRunsWithActiveProcesses(runStore, graph, cwd);
       const workflowRunStatus = await runStore.status();
-      const dynamicWorkflowRuns = await defaultSparkDynamicWorkflowEventStore(cwd)
+      const dynamicWorkflowRuns = await defaultSparkDynamicWorkflowEventStore(stateCwd)
         .listRuns()
         .catch(() => []);
       const runControl = await runStore.loadControl();
@@ -167,7 +169,7 @@ export function registerSparkStatusTool(
               limit: DEFAULT_SPARK_STATUS_RECENT_COMPLETIONS_LIMIT,
             });
       const state = includeStateSummary
-        ? await collectSparkStateHousekeeping(cwd, sparkStateSessionScopes(ctx), graph)
+        ? await collectSparkStateHousekeeping(stateCwd, sparkStateSessionScopes(ctx), graph)
         : undefined;
       const rendered = renderSparkStatus({
         graph,

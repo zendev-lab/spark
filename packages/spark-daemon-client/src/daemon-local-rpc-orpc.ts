@@ -288,6 +288,11 @@ const workspaceInvokers = {
       sparkLocalRpcProcedureSchemas["workspace.ensure-local"].output,
       client.workspace.ensureLocal(input, options),
     ),
+  "workspace.resolve-session-cwd": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["workspace.resolve-session-cwd"].output,
+      client.workspace.resolveSessionCwd(input, options),
+    ),
   "workspace.attach": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["workspace.attach"].output,
@@ -339,6 +344,7 @@ const workspaceInvokers = {
   | "workspace.register"
   | "workspace.relocate"
   | "workspace.ensure-local"
+  | "workspace.resolve-session-cwd"
   | "workspace.attach"
   | "workspace.stop"
   | "workspace.lifecycle"

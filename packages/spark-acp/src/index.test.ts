@@ -18,13 +18,24 @@ class FakeDaemon implements SparkAcpDaemon {
   pages: SparkTurnStreamPage[] = [];
   status: "running" | "succeeded" | "failed" | "cancelled" = "succeeded";
   assistantText = "daemon answer";
+  resolvedCwd: string | undefined;
+  resolvedArtifactRef: string | undefined;
 
-  async ensureWorkspace(input: { cwd: string }) {
+  async resolveWorkspace(input: { cwd: string }) {
     this.ensuredWorkspaces.push(input.cwd);
-    return { id: "workspace-acp" };
+    return {
+      id: "workspace-acp",
+      cwd: this.resolvedCwd ?? input.cwd,
+      ...(this.resolvedArtifactRef ? { cwdArtifactRef: this.resolvedArtifactRef } : {}),
+    };
   }
 
-  async createSession(input: { cwd: string; workspaceId: string; title?: string }) {
+  async createSession(input: {
+    cwd: string;
+    workspaceId: string;
+    cwdArtifactRef?: string;
+    title?: string;
+  }) {
     this.createdSessions.push(input);
     return { sessionId: "sess_acp_canonical", createdAt: "2026-07-27T00:00:00.000Z" };
   }
@@ -169,6 +180,26 @@ function testClient(updates: SessionUpdate[], permission?: RequestPermissionResp
 }
 
 describe("spark-acp daemon adapter", () => {
+  it("creates the session with the daemon-normalized worktree cwd", async () => {
+    const daemon = new FakeDaemon();
+    daemon.resolvedCwd = "/worktrees/change/packages/app";
+    daemon.resolvedArtifactRef = "artifact:git:change";
+    const handle = createSparkAcpAgent({ daemon });
+
+    await testClient([]).connectWith(handle.app, async (agentCtx) => {
+      await agentCtx.buildSession("/worktrees/change/packages/app").withSession(async () => {});
+    });
+
+    expect(daemon.createdSessions).toEqual([
+      {
+        cwd: "/worktrees/change/packages/app",
+        cwdArtifactRef: "artifact:git:change",
+        workspaceId: "workspace-acp",
+        title: "ACP session",
+      },
+    ]);
+  });
+
   it("initializes conservatively and forwards a canonical daemon turn", async () => {
     const daemon = new FakeDaemon();
     daemon.pages = [messagePage()];

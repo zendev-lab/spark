@@ -33,6 +33,7 @@ import { resolveArtifactFileRoot } from "./artifact-root.ts";
 import {
   errorMessage,
   resolveToolCwd,
+  resolveToolStateCwd,
   text,
   throwIfAborted,
   type ToolExecResult,
@@ -100,7 +101,11 @@ export function createReadToolConfig(): ToolConfig {
     executionMode: FILE_READ_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const root = await resolveArtifactFileRoot(resolveToolCwd(ctx), params.artifactRef);
+      const root = await resolveArtifactFileRoot(
+        resolveToolCwd(ctx),
+        params.artifactRef,
+        resolveToolStateCwd(ctx),
+      );
       const cwd = root.cwd;
       const rawPath = stringParam(params.path);
       const offset = positiveIntegerParam(params.offset);
@@ -288,7 +293,11 @@ export function createWriteToolConfig(): ToolConfig {
     executionMode: FILE_WRITE_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const root = await resolveArtifactFileRoot(resolveToolCwd(ctx), params.artifactRef);
+      const root = await resolveArtifactFileRoot(
+        resolveToolCwd(ctx),
+        params.artifactRef,
+        resolveToolStateCwd(ctx),
+      );
       const cwd = root.cwd;
       const rawPath = stringParam(params.path);
       if (typeof params.content !== "string") {
@@ -396,7 +405,11 @@ export function createEditToolConfig(): ToolConfig {
     executionMode: FILE_WRITE_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
       throwIfAborted(signal);
-      const root = await resolveArtifactFileRoot(resolveToolCwd(ctx), params.artifactRef);
+      const root = await resolveArtifactFileRoot(
+        resolveToolCwd(ctx),
+        params.artifactRef,
+        resolveToolStateCwd(ctx),
+      );
       const cwd = root.cwd;
       const rawPath = stringParam(params.path);
       const edits = normalizeEdits(params.edits);

@@ -1,5 +1,6 @@
 import { driverUpdateEvent, SparkDriverStore } from "../../store/drivers.ts";
 import { SparkDaemonControlError } from "../../control-error.ts";
+import { resolveWorkspaceLocalPath } from "../../store/workspaces.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
 import type { LocalRpcServiceOutput, LocalRpcServiceRequest } from "../types.ts";
 
@@ -30,7 +31,25 @@ export async function handleDriverRequest(
           `Driver owner session is archived: ${request.params.ownerSessionId}`,
         );
       }
-      return mutation(store.start(request.params));
+      if (!session) return mutation(store.start(request.params));
+      const cwd =
+        session.cwd?.trim() ||
+        (session.scope.kind === "workspace"
+          ? resolveWorkspaceLocalPath(ctx.db, session.scope.workspaceId)
+          : undefined);
+      if (!cwd) {
+        throw new SparkDaemonControlError(
+          "driver_owner_not_found",
+          `Driver owner session has no execution cwd: ${request.params.ownerSessionId}`,
+        );
+      }
+      return mutation(
+        store.start({
+          ...request.params,
+          cwd,
+          ...(session.scope.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
+        }),
+      );
     }
     case "driver.status":
       return store.listResult(request.params);

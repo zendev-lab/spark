@@ -36,6 +36,8 @@ function startConversationContext(
 ): StartConversationSubmissionContext {
   return {
     workspaceId: context.workspaceId.trim(),
+    cwd: context.cwd.trim(),
+    cwdArtifactRef: context.cwdArtifactRef.trim(),
     message: context.message.trim(),
     model: context.model.trim(),
     thinkingLevel: context.thinkingLevel.trim(),
@@ -48,6 +50,12 @@ export function createComposerController(sources: ComposerSources) {
 
   let startModel = $state(
     untrack(() => (formIntent === "startConversation" ? (formValues?.model ?? "") : "")),
+  );
+  let startCwd = $state(
+    untrack(() => (formIntent === "startConversation" ? (formValues?.cwd ?? "") : "")),
+  );
+  let startCwdArtifactRef = $state(
+    untrack(() => (formIntent === "startConversation" ? (formValues?.cwdArtifactRef ?? "") : "")),
   );
   let startSlashActiveIndex = $state(0);
   let sessionSlashActiveIndex = $state(0);
@@ -99,6 +107,9 @@ export function createComposerController(sources: ComposerSources) {
       const intent = sources.getFormIntent();
       const values = sources.getFormValues();
       startMessage = intent === "startConversation" ? (values?.message ?? "") : startMessage;
+      startCwd = intent === "startConversation" ? (values?.cwd ?? "") : startCwd;
+      startCwdArtifactRef =
+        intent === "startConversation" ? (values?.cwdArtifactRef ?? "") : startCwdArtifactRef;
       if (intent === "startConversation" && values?.submissionId) {
         startSubmissionId = values.submissionId;
       }
@@ -129,6 +140,8 @@ export function createComposerController(sources: ComposerSources) {
     if (intent === "startConversation" && values?.submissionId && values.message?.trim()) {
       const context = startConversationContext({
         workspaceId,
+        cwd: values.cwd ?? startCwd,
+        cwdArtifactRef: values.cwdArtifactRef ?? startCwdArtifactRef,
         message: values.message,
         model: values.model ?? startModel,
         thinkingLevel: values.thinkingLevel ?? startThinkingLevel,
@@ -145,6 +158,8 @@ export function createComposerController(sources: ComposerSources) {
     const pending = readStartConversationPendingSubmission(window.sessionStorage, workspaceId);
     if (pending) {
       startMessage = pending.message;
+      startCwd = pending.cwd;
+      startCwdArtifactRef = pending.cwdArtifactRef;
       startModel = pending.model;
       startThinkingLevel = pending.thinkingLevel;
       startSubmissionId = pending.submissionId;
@@ -161,6 +176,8 @@ export function createComposerController(sources: ComposerSources) {
     if (!workspaceId || workspaceId !== startPendingWorkspaceId) return;
     const currentContext = startConversationContext({
       workspaceId,
+      cwd: startCwd,
+      cwdArtifactRef: startCwdArtifactRef,
       message: startMessage,
       model: startModel,
       thinkingLevel: startThinkingLevel,
@@ -312,6 +329,18 @@ export function createComposerController(sources: ComposerSources) {
     },
     get startModelPickerOpen() {
       return startModelPickerOpen;
+    },
+    get startCwd() {
+      return startCwd;
+    },
+    set startCwd(value: string) {
+      startCwd = value;
+    },
+    get startCwdArtifactRef() {
+      return startCwdArtifactRef;
+    },
+    set startCwdArtifactRef(value: string) {
+      startCwdArtifactRef = value;
     },
     set startModelPickerOpen(value: boolean) {
       startModelPickerOpen = value;

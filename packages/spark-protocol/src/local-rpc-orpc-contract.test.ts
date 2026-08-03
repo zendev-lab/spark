@@ -98,6 +98,10 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       "workspace",
       "ensureLocal",
     ]);
+    expect(sparkLocalRpcOrpcMethodPaths["workspace.resolve-session-cwd"]).toEqual([
+      "workspace",
+      "resolveSessionCwd",
+    ]);
     expect(sparkLocalRpcOrpcMethodPaths["provider.auth.api-key.set"]).toEqual([
       "provider",
       "auth",

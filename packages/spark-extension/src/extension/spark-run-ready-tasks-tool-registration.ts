@@ -20,6 +20,7 @@ import {
   loadSparkGraph,
   saveSparkGraphAndTodos,
   sparkRunStrategyForMaxConcurrency,
+  sparkStateCwd,
 } from "./session-state.ts";
 import { defaultSparkWorkflowRunStore } from "./spark-workflow-run-store.ts";
 import { sessionModelName } from "./session-model.ts";
@@ -105,7 +106,7 @@ export function registerSparkRunReadyTasksTool(
         "assign timeoutMs",
       );
       const requestedTaskRefs = normalizeSparkRunReadyTaskRefs(params.taskRefs);
-      const store = defaultTaskGraphStore(cwd);
+      const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
       const graph = await loadSparkGraph(cwd, ctx);
       if (!graph)
         return {
@@ -124,7 +125,7 @@ export function registerSparkRunReadyTasksTool(
           ],
           details: { found: false, error: "no_current_project" },
         };
-      const registry = await createSparkRoleRegistry(cwd);
+      const registry = await createSparkRoleRegistry(sparkStateCwd(cwd, ctx));
       const repro = await readSessionRepro(cwd, ctx);
       const orchestration =
         repro?.projectRef === project.ref
@@ -225,7 +226,7 @@ export function registerSparkRunReadyTasksTool(
             },
           };
         }
-        const runStore = defaultSparkWorkflowRunStore(cwd);
+        const runStore = defaultSparkWorkflowRunStore(sparkStateCwd(cwd, ctx));
         const existingControl = await runStore.loadControl();
         const focus =
           existingControl?.projectRef === project.ref ? existingControl.focus : undefined;
@@ -259,7 +260,7 @@ export function registerSparkRunReadyTasksTool(
         };
       }
 
-      const evidenceStore = defaultEvidenceStore(cwd);
+      const evidenceStore = defaultEvidenceStore(sparkStateCwd(cwd, ctx));
       const resourceInventory = await discoverTaskResourceInventory();
       const runtimeRunner = createSparkRuntimeReadyTaskRunner({
         registry,

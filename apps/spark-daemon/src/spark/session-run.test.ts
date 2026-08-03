@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -237,6 +237,7 @@ describe("daemon native session execution", () => {
   it("does not duplicate a persisted repro skill checkpoint when generation one resumes", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-repro-skill-checkpoint-"));
     const cwd = join(root, "workspace");
+    mkdirSync(cwd);
     const sparkHome = join(root, "pi-agent");
     const sessionId = "sess_repro_checkpointed";
     const store = new SparkSessionStore({ cwd, sparkHome });
@@ -1764,6 +1765,7 @@ describe("daemon native session execution", () => {
   });
 
   it("indexes the durable transcript and preserves task routing on streamed view events", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "spark-session-cwd-streamed-"));
     const emitted: SparkDaemonEvent[] = [];
     const recordTurnQueued = vi.fn(async () => ({}) as never);
     const recordTurnSettled = vi.fn(async () => ({}) as never);
@@ -1772,7 +1774,7 @@ describe("daemon native session execution", () => {
       type: "session.run",
       sessionId: "sess_streamed",
       prompt: "hello",
-      cwd: "/workspace/frozen",
+      cwd,
       workspaceBindingId: "binding-1",
       workspaceId: "workspace-1",
       projectId: "project-1",
@@ -1816,9 +1818,7 @@ describe("daemon native session execution", () => {
       sessionPath: "/daemon/sessions/sess_streamed.jsonl",
     });
     expect(recordTurnSettled).not.toHaveBeenCalled();
-    expect(executeSession).toHaveBeenCalledWith(
-      expect.objectContaining({ cwd: "/workspace/frozen" }),
-    );
+    expect(executeSession).toHaveBeenCalledWith(expect.objectContaining({ cwd }));
     expect(emitted).toEqual([
       expect.objectContaining({
         type: "daemon.view_event",
@@ -1836,6 +1836,73 @@ describe("daemon native session execution", () => {
         }),
       }),
     ]);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("injects workspace state root and refuses a disappeared fixed cwd", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "spark-session-state-root-"));
+    const cwd = join(workspaceRoot, "packages", "app");
+    mkdirSync(cwd, { recursive: true });
+    const executeSession = vi.fn(async () => ({ assistantText: "done" }));
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_fixed_cwd",
+      workspaceId: "workspace-fixed",
+      cwd,
+      prompt: "pwd",
+    };
+    const resolveSessionCwd = vi.fn(async () => ({
+      cwd,
+      cwdArtifactRef: "artifact:change",
+    }));
+    const executor = createSparkDaemonTaskExecutor({
+      paths,
+      resolveWorkspaceCwd: () => workspaceRoot,
+      resolveSessionCwd,
+      sessionRegistry: {
+        recordRun: vi.fn(async () => ({}) as never),
+        recordTurnQueued: vi.fn(async () => ({}) as never),
+        recordTurnSettled: vi.fn(async () => ({}) as never),
+        get: vi.fn(
+          async () =>
+            ({
+              sessionId: task.sessionId,
+              cwd,
+              cwdArtifactRef: "artifact:change",
+              scope: { kind: "workspace", workspaceId: "workspace-fixed" },
+              bindings: [],
+              status: "active",
+            }) as never,
+        ),
+      },
+      createSparkHeadlessSessionExecutor: () => executeSession,
+    });
+
+    await executor(task, context(task));
+    expect(executeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd,
+        workspaceId: "workspace-fixed",
+        sparkStateRoot: join(workspaceRoot, ".spark"),
+      }),
+    );
+    expect(resolveSessionCwd).toHaveBeenCalledWith({
+      workspaceId: "workspace-fixed",
+      cwd,
+      cwdArtifactRef: "artifact:change",
+    });
+
+    resolveSessionCwd.mockRejectedValueOnce(new Error("GitChange artifact is no longer attached"));
+    await expect(executor(task, context(task))).rejects.toThrow(
+      "GitChange artifact is no longer attached",
+    );
+
+    rmSync(cwd, { recursive: true, force: true });
+    await expect(executor(task, context(task))).rejects.toThrow(
+      `Session cwd is no longer available: ${cwd}`,
+    );
+    expect(executeSession).toHaveBeenCalledTimes(1);
+    rmSync(workspaceRoot, { recursive: true, force: true });
   });
 
   it("passes planned restart checkpoints through without settling the session as failed", async () => {
@@ -1922,6 +1989,7 @@ describe("daemon native session execution", () => {
   });
 
   it("runs fresh driver ticks in a hidden reset session without indexing the owner transcript", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "spark-session-cwd-fresh-"));
     const emitted: SparkDaemonEvent[] = [];
     const recordTurnQueued = vi.fn(async () => ({}) as never);
     const recordTurnSettled = vi.fn(async () => ({}) as never);
@@ -1935,7 +2003,7 @@ describe("daemon native session execution", () => {
       generation: 4,
       continuity: "fresh",
       prompt: "fresh tick",
-      cwd: "/workspace/fresh",
+      cwd,
       executionSessionId: "driver_fresh-loop_4",
       stateOwnerSessionId: "owner-session",
       reset: true,
@@ -2047,9 +2115,11 @@ describe("daemon native session execution", () => {
         }),
       }),
     ]);
+    rmSync(cwd, { recursive: true, force: true });
   });
 
   it("allows only workflow_driver for a daemon-owned workflow tick", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "spark-session-cwd-workflow-"));
     const task: SparkDaemonDriverTickTask = {
       type: "driver.tick",
       sessionId: "owner-session",
@@ -2060,7 +2130,7 @@ describe("daemon native session execution", () => {
       generation: 2,
       continuity: "session",
       prompt: "workflow tick",
-      cwd: "/workspace/workflow",
+      cwd,
     };
     const executeSession = vi.fn(async () => ({ assistantText: "advanced" }));
     const executor = createSparkDaemonTaskExecutor({
@@ -2089,6 +2159,7 @@ describe("daemon native session execution", () => {
         },
       }),
     );
+    rmSync(cwd, { recursive: true, force: true });
   });
 
   it("assigns a user session role only after its completed transcript is indexed", async () => {

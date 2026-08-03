@@ -76,6 +76,8 @@ describe("session draft storage", () => {
     const storage = memoryStorage();
     const pending = {
       workspaceId: "ws_one",
+      cwd: "packages/runtime",
+      cwdArtifactRef: "artifact:git:one",
       message: "retry the first message",
       model: "provider/model",
       thinkingLevel: "high",
@@ -102,6 +104,8 @@ describe("session draft storage", () => {
   it("persists an unsent first-message draft and rotates only when its context changes", () => {
     const context = {
       workspaceId: "ws_one",
+      cwd: "",
+      cwdArtifactRef: "",
       message: "draft before send",
       model: "provider/model",
       thinkingLevel: "medium",
@@ -160,6 +164,8 @@ describe("session draft storage", () => {
     const storage = memoryStorage();
     const first = {
       workspaceId: "ws:one/two",
+      cwd: "packages/app",
+      cwdArtifactRef: "artifact:git:one",
       message: "message | with separators",
       model: "provider/model",
       thinkingLevel: "medium",

@@ -107,6 +107,7 @@ export function createSparkLensToolConfig(): SparkRegisteredToolConfig & {
           operationId: `lens:${toolCallId}`,
           params: JSON.parse(JSON.stringify(params)) as Record<string, never>,
           hostContext: {
+            ...(ctx.workspaceId === undefined ? {} : { workspaceId: ctx.workspaceId }),
             ...(ctx.sessionSource === undefined ? {} : { sessionSource: ctx.sessionSource }),
             ...(ctx.sessionSurface === undefined ? {} : { sessionSurface: ctx.sessionSurface }),
             ...(ctx.hasUI === undefined ? {} : { hasUI: ctx.hasUI }),

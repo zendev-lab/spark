@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   SPARK_PROTOCOL_VERSION,
@@ -85,6 +85,14 @@ class ChannelReplyTerminalPresentedError extends Error {
 export interface SparkDaemonTaskExecutorOptions {
   paths: SparkPaths;
   cwd?: string;
+  /** Resolve the current daemon-local root for workspace-owned state. */
+  resolveWorkspaceCwd?: (workspaceId: string) => string | undefined;
+  /** Revalidate a frozen session cwd and any owning GitChange before execution. */
+  resolveSessionCwd?: (input: {
+    workspaceId: string;
+    cwd?: string;
+    cwdArtifactRef?: string;
+  }) => Promise<{ cwd: string; cwdArtifactRef?: string }>;
   /** Global provider/auth control root; daemon session files remain isolated. */
   controlSparkHome?: string;
   /** Workspace channels config data root; defaults to controlSparkHome. */
@@ -773,13 +781,30 @@ function interactionForSessionRun(
   };
 }
 
-function sessionExecutionIdentity(
+async function sessionExecutionIdentity(
   task: SparkDaemonSessionRunTask,
   options: SparkDaemonTaskExecutorOptions,
   sessionContext: Awaited<ReturnType<typeof sessionContextForTask>>,
 ) {
+  let cwd = sessionContext.cwd ?? task.cwd ?? options.cwd ?? process.cwd();
+  const workspaceId = sessionContext.workspaceId ?? task.workspaceId;
+  if (workspaceId && options.resolveSessionCwd) {
+    const resolved = await options.resolveSessionCwd({
+      workspaceId,
+      cwd,
+      ...(sessionContext.cwdArtifactRef ? { cwdArtifactRef: sessionContext.cwdArtifactRef } : {}),
+    });
+    cwd = resolved.cwd;
+  }
+  assertSessionExecutionCwd(cwd);
+  const workspaceRoot = workspaceId ? options.resolveWorkspaceCwd?.(workspaceId) : undefined;
+  if (workspaceId && options.resolveWorkspaceCwd && !workspaceRoot) {
+    throw new Error(`Workspace ${workspaceId} has no daemon-local state root.`);
+  }
   return {
-    cwd: task.cwd ?? options.cwd ?? process.cwd(),
+    cwd,
+    ...(workspaceId ? { workspaceId } : {}),
+    ...(workspaceRoot ? { sparkStateRoot: join(workspaceRoot, ".spark") } : {}),
     sparkHome: options.paths.piAgentDir,
     sessionId: task.executionSessionId ?? task.sessionId,
     ...(!task.hiddenExecution && sessionContext.sessionPath
@@ -796,6 +821,16 @@ function sessionExecutionIdentity(
       : {}),
     ...(task.resumeFromInterrupt ? { resumeFromInterrupt: true } : {}),
   };
+}
+
+function assertSessionExecutionCwd(cwd: string): void {
+  let info;
+  try {
+    info = statSync(cwd);
+  } catch {
+    throw new Error(`Session cwd is no longer available: ${cwd}`);
+  }
+  if (!info.isDirectory()) throw new Error(`Session cwd is not a directory: ${cwd}`);
 }
 
 function sessionExecutionPolicy(
@@ -861,7 +896,7 @@ export async function executeSparkDaemonSessionRunTask(
   const canCheckpointRestart =
     !driver && !task.reset && !task.hiddenExecution && !binding && Boolean(checkpointRestart);
   return await options.executeSession({
-    ...sessionExecutionIdentity(task, options, sessionContext),
+    ...(await sessionExecutionIdentity(task, options, sessionContext)),
     prompt: await sessionRunPrompt(task, options.paths, context.invocationId, reproSkillId),
     signal: context.signal,
     // The daemon scheduler is the single execution-time budget owner. It can
@@ -1078,6 +1113,9 @@ async function sessionContextForTask(
   role?: string;
   sideThread?: boolean;
   sessionPath?: string;
+  cwd?: string;
+  workspaceId?: string;
+  cwdArtifactRef?: string;
 }> {
   const session = await registry?.get?.(task.sessionId);
   const role = session?.role?.trim();
@@ -1092,6 +1130,9 @@ async function sessionContextForTask(
   if (task.channelReply) {
     return {
       surface: "channel",
+      ...(session?.cwd ? { cwd: session.cwd } : {}),
+      ...(session?.scope?.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
+      ...(session?.cwdArtifactRef ? { cwdArtifactRef: session.cwdArtifactRef } : {}),
       ...(role ? { role } : {}),
       ...(sessionPath ? { sessionPath } : {}),
     };
@@ -1099,6 +1140,9 @@ async function sessionContextForTask(
   if (!session) return {};
   return {
     surface: session.bindings.length > 0 ? "channel" : "local",
+    ...(session.cwd ? { cwd: session.cwd } : {}),
+    ...(session.scope?.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
+    ...(session.cwdArtifactRef ? { cwdArtifactRef: session.cwdArtifactRef } : {}),
     ...(role ? { role } : {}),
     ...(session.relation?.kind === "side_thread" ? { sideThread: true } : {}),
     ...(sessionPath ? { sessionPath } : {}),

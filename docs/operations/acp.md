@@ -20,12 +20,14 @@ stdout contains ACP NDJSON only. If the daemon cannot be reached, the adapter wr
 | ACP method | Spark behavior |
 | --- | --- |
 | `initialize` | Advertises the implemented protocol version and no session-load capability |
-| `session/new` | Calls daemon `session.create`; the canonical Spark session id is also the ACP session id |
+| `session/new` | Resolves standard `cwd` through `workspace.resolve-session-cwd`, then calls daemon `session.create`; the canonical Spark session id is also the ACP session id |
 | `session/prompt` | Calls `turn.submit`, polls `turn.stream`/`turn.status`, and maps assistant/tool events to ACP updates |
 | `session/cancel` | Cancels only the connection-local active invocation for that session |
 | `session/request_permission` | Maps Spark tool approval to ACP allow/reject and writes the answer through `human.interaction.respond` |
 
 The adapter owns no durable state and no second session map. Its only mutable state is the connection-local active invocation and stream cursor needed to route cancel and incremental updates.
+
+ACP may start from a workspace subdirectory or an attached GitChange worktree. The daemon returns the owning workspace, normalized cwd, and optional GitChange ref; ACP forwards all three to creation. It does not register a worktree as a second workspace or map local paths onto SSH hosts.
 
 ```mermaid
 flowchart LR

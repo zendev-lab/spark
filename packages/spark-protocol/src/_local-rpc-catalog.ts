@@ -283,6 +283,7 @@ export const sparkLocalRpcWorkspaceOrpcErrors = {
     status: 409,
     data: z.object({ kind: z.enum(["same-path", "same-key", "nested"]) }),
   },
+  workspace_cwd_invalid: { status: 422 },
   registration_grant_refused: { status: 403 },
   relocation_target_unchanged: { status: 409 },
   relocation_target_invalid: { status: 422 },
@@ -630,6 +631,7 @@ const sparkLocalRpcWorkspaceEnsureOrpcErrors = {
   ...sparkLocalRpcReadinessOrpcErrors,
   workspace_path_conflict: sparkLocalRpcWorkspaceOrpcErrors.workspace_path_conflict,
   workspace_not_found: sparkLocalRpcWorkspaceOrpcErrors.workspace_not_found,
+  workspace_cwd_invalid: sparkLocalRpcWorkspaceOrpcErrors.workspace_cwd_invalid,
 } as const;
 
 const sparkLocalRpcWorkspaceMutationOrpcErrors = {
@@ -1065,6 +1067,19 @@ export const sparkLocalRpcWorkspaceEnsureLocalRequestSchema = z.object({
   localWorkspaceKey: z.string().min(1).optional(),
 });
 
+export const sparkLocalRpcWorkspaceResolveSessionCwdRequestSchema = z.object({
+  cwd: z.string().trim().min(1),
+});
+
+export const sparkLocalRpcWorkspaceResolveSessionCwdResultSchema = z.object({
+  workspace: sparkLocalRpcWorkspaceSchema,
+  cwd: z.string().min(1),
+  cwdArtifactRef: z
+    .string()
+    .regex(/^artifact:.+/u)
+    .optional(),
+});
+
 export const sparkLocalRpcWorkspaceClientSchema = z.object({
   id: z.string().min(1),
   workspaceId: z.string().min(1),
@@ -1254,6 +1269,7 @@ const sparkLocalRpcToolExecutionBaseInputSchema = z.object({
   params: sparkProtocolJsonObjectSchema,
   hostContext: z
     .object({
+      workspaceId: z.string().trim().min(1).optional(),
       sessionSource: z.enum(["tui", "web", "channel", "daemon", "session"]).optional(),
       sessionSurface: z.enum(["local", "channel"]).optional(),
       hasUI: z.boolean().optional(),
@@ -1374,6 +1390,10 @@ export const sparkLocalRpcProcedureSchemas = {
   "workspace.ensure-local": {
     input: sparkLocalRpcWorkspaceEnsureLocalRequestSchema,
     output: sparkLocalRpcWorkspaceSchema,
+  },
+  "workspace.resolve-session-cwd": {
+    input: sparkLocalRpcWorkspaceResolveSessionCwdRequestSchema,
+    output: sparkLocalRpcWorkspaceResolveSessionCwdResultSchema,
   },
   "workspace.attach": {
     input: workspaceIdMutationInputSchema,
@@ -1763,6 +1783,12 @@ export const sparkLocalRpcOrpcContract = {
       "POST",
       "/workspace/ensure-local",
       p["workspace.ensure-local"],
+      sparkLocalRpcWorkspaceEnsureOrpcErrors,
+    ),
+    resolveSessionCwd: procedure(
+      "POST",
+      "/workspace/resolve-session-cwd",
+      p["workspace.resolve-session-cwd"],
       sparkLocalRpcWorkspaceEnsureOrpcErrors,
     ),
     attach: procedure(

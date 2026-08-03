@@ -22,7 +22,12 @@ import { reconcileSparkWorkflowRunsWithActiveProcesses } from "./background-runs
 import { defaultSparkWorkflowRunStore } from "./spark-workflow-run-store.ts";
 import { ensureRoleModelSettingsForProject } from "./role-model-settings.ts";
 import { hasLocalSparkDirectory } from "./spark-activation.ts";
-import { currentSparkProject, loadSparkGraph, sparkSessionOwnerKey } from "./session-state.ts";
+import {
+  currentSparkProject,
+  loadSparkGraph,
+  sparkSessionOwnerKey,
+  sparkStateCwd,
+} from "./session-state.ts";
 import { mergeTaskProgressIntoStore } from "./task-progress-store.ts";
 import { sessionModelName } from "./session-model.ts";
 import { createSparkRuntimeReadyTaskRunner } from "./spark-ready-task-runtime.ts";
@@ -53,13 +58,14 @@ export class SparkWorkflowRunManagerController {
   }
 
   async ensure(cwd: string, ctx: SparkWorkflowRunManagerContext): Promise<void> {
-    if (!(await hasLocalSparkDirectory(cwd))) return;
-    const control = await defaultSparkWorkflowRunStore(cwd).loadControl();
+    const stateCwd = sparkStateCwd(cwd, ctx);
+    if (!(await hasLocalSparkDirectory(stateCwd))) return;
+    const control = await defaultSparkWorkflowRunStore(stateCwd).loadControl();
     if (!control || control.status !== "running") return;
     const ownerSessionId = ctx.sessionId?.trim();
     if (!ownerSessionId) throw new Error("Spark workflow driver requires a daemon-owned session");
     await this.hooks.driverControl.start({
-      driverId: `workflow:${stableId(`${cwd}:${ownerSessionId}`)}`,
+      driverId: `workflow:${stableId(`${stateCwd}:${ownerSessionId}`)}`,
       kind: "workflow",
       ownerSessionId,
       continuity: "session",
@@ -77,13 +83,14 @@ export class SparkWorkflowRunManagerController {
     cwd: string,
     ctx: SparkWorkflowRunManagerContext,
   ): Promise<SparkWorkflowRunManagerTickResult> {
-    const store = defaultTaskGraphStore(cwd);
+    const stateCwd = sparkStateCwd(cwd, ctx);
+    const store = defaultTaskGraphStore(stateCwd);
     const graph = await loadSparkGraph(cwd, ctx);
     if (!graph) return { continuePolling: false };
-    const registry = await createSparkRoleRegistry(cwd);
-    const evidenceStore = defaultEvidenceStore(cwd);
+    const registry = await createSparkRoleRegistry(stateCwd);
+    const evidenceStore = defaultEvidenceStore(stateCwd);
     const touched = new Set<TaskRef>();
-    const runStore = defaultSparkWorkflowRunStore(cwd);
+    const runStore = defaultSparkWorkflowRunStore(stateCwd);
     const currentProject = await currentSparkProject(cwd, ctx, graph);
     const control = await runStore.loadControl();
     if (control && control.status !== "running") return { continuePolling: false };

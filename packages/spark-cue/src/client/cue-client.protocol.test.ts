@@ -1921,6 +1921,38 @@ process.stdin.on("data", (chunk) => {
   );
 });
 
+test("cue_exec refuses to map a local session cwd onto an SSH profile", async () => {
+  await withTempPath(
+    {
+      "cue-client": `#!/bin/sh\nprintf '%s\n' '{"schema_version":1,"profile_name":"remote","transport":"ssh","destination":"devbox","gateway_command":"cued gateway --stdio","start_command":"cued start"}'\n`,
+    },
+    async () => {
+      const execTool = registerCueToolsForProtocolTest().get("cue_exec");
+      assert.ok(execTool);
+      await assert.rejects(
+        execTool.execute(
+          "ssh-local-cwd",
+          { command: "pwd" },
+          new AbortController().signal,
+          () => undefined,
+          { cwd: "/Users/local/workspace" },
+        ),
+        /provide cwd as a path that exists on devbox.*not mapped to remote hosts/u,
+      );
+      await assert.rejects(
+        execTool.execute(
+          "ssh-relative-cwd",
+          { command: "pwd", cwd: "relative/path" },
+          new AbortController().signal,
+          () => undefined,
+          { cwd: "/Users/local/workspace" },
+        ),
+        /SSH cwd must be an absolute remote path/u,
+      );
+    },
+  );
+});
+
 test("implicit CueClient.connect fails ssh profiles without local daemon autostart", async () => {
   await withTempPath(
     {

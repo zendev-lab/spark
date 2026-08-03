@@ -23,6 +23,7 @@ import { SparkSessionMailStore } from "../host/session-mail-store.ts";
 import { SparkSessionStore, workspaceSessionHash } from "../host/session-store.ts";
 import { createSparkNativeTuiHarness } from "../test-support/spark-native-tui-harness.ts";
 import {
+  attachSparkWorkspaceClient,
   clientRespondHumanInteraction,
   createSparkDaemonNativeResponder,
   handleSparkDaemonHumanInteractionRequest,
@@ -1867,6 +1868,166 @@ test("handleSparkRpcLine always routes prompt/state through daemon IPC", async (
     assert.deepEqual(writes[3]?.data, { queuedDaemonMode: true });
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("workspace attachment preserves a resolver-owned GitChange cwd", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-cli-resolved-worktree-"));
+  const worktreeCwd = join(dir, "worktree", "packages", "app");
+  await mkdir(worktreeCwd, { recursive: true });
+  const workspace = {
+    id: "workspace-owner",
+    serverUrl: "",
+    localWorkspaceKey: "workspace",
+    displayName: "Workspace",
+    localPath: join(dir, "workspace"),
+    status: "available",
+  };
+  const resolved: string[] = [];
+  const handle = await attachSparkWorkspaceClient(
+    {
+      paths: testDaemonPaths(dir),
+      daemonStatus: async () => ({
+        observedAt: "2026-08-03T00:00:00.000Z",
+        servers: [],
+        invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
+      }),
+      workspaceResolveSessionCwd: async (_paths, input) => {
+        resolved.push(input.cwd);
+        return {
+          workspace,
+          cwd: worktreeCwd,
+          cwdArtifactRef: "artifact:git:change",
+        };
+      },
+      workspaceClientAttach: async (_paths, input) => ({
+        workspace,
+        observedAt: "2026-08-03T00:00:00.000Z",
+        client: {
+          id: "client-worktree",
+          workspaceId: workspace.id,
+          kind: input.kind,
+          status: "connected" as const,
+          attachedAt: "2026-08-03T00:00:00.000Z",
+          lastSeenAt: "2026-08-03T00:00:00.000Z",
+        },
+      }),
+      workspaceClientRelease: async (_paths, input) => ({
+        workspace,
+        observedAt: "2026-08-03T00:00:01.000Z",
+        client: {
+          id: input.clientId,
+          workspaceId: workspace.id,
+          kind: "headless" as const,
+          status: "disconnected" as const,
+          attachedAt: "2026-08-03T00:00:00.000Z",
+          lastSeenAt: "2026-08-03T00:00:01.000Z",
+        },
+      }),
+    },
+    { kind: "headless", localPath: worktreeCwd, heartbeatIntervalMs: false },
+  );
+
+  assert.deepEqual(resolved, [worktreeCwd]);
+  assert.equal(handle.workspace.id, "workspace-owner");
+  assert.equal(handle.cwd, worktreeCwd);
+  assert.equal(handle.cwdArtifactRef, "artifact:git:change");
+  await handle.release();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("native TUI creation binds a GitChange subdirectory while keeping workspace state", async () => {
+  const workspaceRoot = await mkdtemp(join(tmpdir(), "spark-cli-cwd-create-"));
+  const worktreeRoot = join(workspaceRoot, "registered-worktree");
+  const worktreeCwd = join(worktreeRoot, "packages", "app");
+  await mkdir(worktreeCwd, { recursive: true });
+  try {
+    const base = createWorkspaceAttachTestDeps(workspaceRoot, { existingSessionIds: new Set() });
+    const workspaceList = await base.daemonClient.workspaceList!();
+    const workspace = workspaceList.workspaces[0]!;
+    const created: Array<{ cwd?: string; cwdArtifactRef?: string }> = [];
+    const now = "2026-08-03T00:00:00.000Z";
+    const daemonClient: SparkDaemonClientOptions = {
+      ...base.daemonClient,
+      workspaceResolveSessionCwd: async () => ({
+        workspace,
+        cwd: worktreeRoot,
+        cwdArtifactRef: "artifact:git:cwd",
+      }),
+      managedSessions: {
+        list: async () => [],
+        create: async (input) => {
+          if (input.scope?.kind !== "workspace") {
+            throw new Error("expected workspace session create");
+          }
+          created.push({
+            ...(input.cwd ? { cwd: input.cwd } : {}),
+            ...(input.cwdArtifactRef ? { cwdArtifactRef: input.cwdArtifactRef } : {}),
+          });
+          return {
+            sessionId: "cwd-session",
+            scope: input.scope,
+            workspaceId: workspace.id,
+            cwd: worktreeCwd,
+            cwdArtifactRef: "artifact:git:cwd",
+            status: "ready" as const,
+            bindings: [],
+            createdAt: now,
+            updatedAt: now,
+          };
+        },
+        get: async () => {
+          throw new Error("not used");
+        },
+        bind: async () => {
+          throw new Error("not used");
+        },
+        unbind: async () => {
+          throw new Error("not used");
+        },
+        archive: async () => {
+          throw new Error("not used");
+        },
+      },
+    };
+    let hostOptions: { cwd?: string; workspaceId?: string; sparkStateRoot?: string } | undefined;
+
+    assert.equal(
+      await runSparkCli([], {
+        daemonClient,
+        terminal: { stdinIsTTY: true, stdoutIsTTY: true },
+        launchCwd: worktreeRoot,
+        selectSession: async (options) => ({
+          kind: "create",
+          workspaceId: options.suggestedWorkspaceId!,
+        }),
+        selectSessionCwd: async (options) => {
+          assert.equal(options.currentCwd, worktreeRoot);
+          assert.equal(options.currentCwdArtifactRef, "artifact:git:cwd");
+          assert.equal(options.workspaceRoot, workspaceRoot);
+          return { cwd: "packages/app", cwdArtifactRef: "artifact:git:cwd" };
+        },
+        createHostServices: async (options) => {
+          hostOptions = options;
+          return await base.createHostServices(options);
+        },
+        runTui: async (input) => {
+          assert.equal(typeof input, "object");
+          assert.notEqual(input, null);
+          const options = input as Exclude<typeof input, string | undefined>;
+          assert.equal(options.autocompleteBasePath, worktreeCwd);
+          assert.equal(options.workspaceSession?.workspaceDir, worktreeCwd);
+        },
+      }),
+      0,
+    );
+
+    assert.deepEqual(created, [{ cwd: "packages/app", cwdArtifactRef: "artifact:git:cwd" }]);
+    assert.equal(hostOptions?.cwd, worktreeCwd);
+    assert.equal(hostOptions?.workspaceId, workspace.id);
+    assert.equal(hostOptions?.sparkStateRoot, join(workspaceRoot, ".spark"));
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
   }
 });
 

@@ -1,4 +1,4 @@
-import type { RunRef } from "@zendev-lab/spark-core";
+import { sparkStateCwd, type RunRef } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   dispatchSparkAgentInstruction,
@@ -50,7 +50,7 @@ export async function enterSparkUltracodeDriver(
   focus?: string,
 ): Promise<void> {
   await deps.refreshSparkWidget(ctx.cwd, ctx);
-  const savedWorkflows = await discoverSparkSavedWorkflows(ctx.cwd);
+  const savedWorkflows = await discoverSparkSavedWorkflows(sparkStateCwd(ctx.cwd, ctx));
   ctx.ui?.notify?.("Spark ultracode workflow driver selected.", "info");
   await dispatchSparkAgentInstruction(
     piApi,
@@ -99,7 +99,7 @@ export async function enterSparkWorkflowDriver(
     return;
   }
   ctx.ui?.notify?.("Spark workflow driver selected.", "info");
-  const savedWorkflows = await discoverSparkSavedWorkflows(ctx.cwd);
+  const savedWorkflows = await discoverSparkSavedWorkflows(sparkStateCwd(ctx.cwd, ctx));
   await dispatchSparkAgentInstruction(
     piApi,
     deps,
@@ -122,8 +122,9 @@ async function resolveInteractiveWorkflowSelection(
     return { selector: input.requestedSelector, focus };
   }
 
-  const listing = await listSparkWorkflowRegistry(ctx.cwd);
-  const dynamicStore = defaultSparkDynamicWorkflowEventStore(ctx.cwd);
+  const stateCwd = sparkStateCwd(ctx.cwd, ctx);
+  const listing = await listSparkWorkflowRegistry(stateCwd);
+  const dynamicStore = defaultSparkDynamicWorkflowEventStore(stateCwd);
   await dynamicStore.reconcileStale();
   const dynamicRunViews = await dynamicStore.listRuns();
   if (dynamicRunViews.length > 0) {
@@ -283,7 +284,8 @@ export async function executeDynamicWorkflowNavigatorAction(
   deps: SparkModeEntryDeps,
   selection: { dynamicAction: SparkWorkflowNavigatorAction; runRef: RunRef },
 ): Promise<void> {
-  const store = defaultSparkDynamicWorkflowEventStore(ctx.cwd);
+  const stateCwd = sparkStateCwd(ctx.cwd, ctx);
+  const store = defaultSparkDynamicWorkflowEventStore(stateCwd);
   await store.reconcileStale();
   const existing = await store.get(selection.runRef);
   const manager = defaultSparkDynamicWorkflowManager();
@@ -308,7 +310,7 @@ export async function executeDynamicWorkflowNavigatorAction(
     control = run ? { action: "restart", run } : { action: "restart", missing: selection.runRef };
   } else if (selection.dynamicAction === "save") {
     const savedWorkflow = await store.saveAsWorkspaceWorkflow({
-      cwd: ctx.cwd,
+      cwd: stateCwd,
       runRef: selection.runRef,
     });
     control = {
@@ -345,7 +347,7 @@ async function resolveWorkflowSelector(
     }
   | false
 > {
-  const listing = await listSparkWorkflowRegistry(ctx.cwd);
+  const listing = await listSparkWorkflowRegistry(sparkStateCwd(ctx.cwd, ctx));
   const normalizedRequested = normalizeWorkflowSelector(requested);
   if (
     normalizedRequested &&

@@ -2,7 +2,7 @@ import { Type } from "typebox";
 import type { Task } from "@zendev-lab/spark-core";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { activeSparkRoleRunProcessesForCwd } from "./background-runs.ts";
-import { currentSparkProject, sparkSessionKey } from "./session-state.ts";
+import { currentSparkProject, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
 import { defaultSparkWorkflowRunStore } from "./spark-workflow-run-store.ts";
 import { taskClaimSummary } from "./task-display.ts";
 import { compactTaskDetail, normalizeOptionalToolString } from "./task-plan-tool.ts";
@@ -50,9 +50,10 @@ export function registerSparkRecoverTaskClaimTool(
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = ctx.cwd;
+      const stateCwd = sparkStateCwd(cwd, ctx);
       const input = normalizeSparkRecoverTaskClaimInput(params);
-      const store = defaultTaskGraphStore(cwd);
-      const workflowRunStatus = await defaultSparkWorkflowRunStore(cwd).status();
+      const store = defaultTaskGraphStore(stateCwd);
+      const workflowRunStatus = await defaultSparkWorkflowRunStore(stateCwd).status();
       const activeRoleRunProcesses = activeSparkRoleRunProcessesForCwd(cwd);
       const sessionKey = sparkSessionKey(ctx);
       const graph = await store.load();
@@ -65,7 +66,7 @@ export function registerSparkRecoverTaskClaimTool(
         const task = resolveRecoverTask(graph.tasks(project.ref), input.taskSelector);
         if (!task) return { error: "no_task" as const };
         const decision = await evaluateSparkTaskClaimRecovery({
-          cwd,
+          cwd: stateCwd,
           task,
           projectRef: project.ref,
           currentSessionKey: sessionKey,
@@ -74,7 +75,7 @@ export function registerSparkRecoverTaskClaimTool(
         });
         if (!decision.recoverable) return { error: "not_recoverable" as const, task, decision };
         const evidence = await recordSparkTaskClaimRecoveryEvidence({
-          cwd,
+          cwd: stateCwd,
           task,
           projectRef: project.ref,
           decision,

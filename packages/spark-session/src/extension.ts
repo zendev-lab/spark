@@ -89,6 +89,9 @@ export function registerSparkSessionTool(
         }),
       ),
       cwd: Type.Optional(Type.String({ description: "Optional working directory for create." })),
+      cwdArtifactRef: Type.Optional(
+        Type.String({ description: "Optional GitChange root for create cwd." }),
+      ),
       externalKey: Type.Optional(Type.String()),
       toSessionId: Type.Optional(Type.String({ description: "Target session for send." })),
       kind: Type.Optional(

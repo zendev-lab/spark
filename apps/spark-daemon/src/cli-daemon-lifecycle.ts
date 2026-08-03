@@ -24,6 +24,7 @@ import { createSparkDaemonUplinkControl } from "./daemon.js";
 import { startSparkDaemon } from "./daemon-start.js";
 import { getSparkDaemonServerProfile } from "./server-profiles.js";
 import { createSparkDaemonModelControl } from "./model-control.ts";
+import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
 import { migrateDaemonGlobalSessions } from "./session-scope-migration.ts";
 import { unifyDaemonSessionTranscripts } from "./session-transcript-unification.ts";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
@@ -195,6 +196,7 @@ export async function start(
     isSessionRoleOwnerProtected: (sessionId) =>
       roleInvocationStore.sessionActivity(sessionId).active ||
       roleDriverStore.list({ ownerSessionId: sessionId }).length > 0,
+    resolveSessionCwd: (input) => resolveSessionCwdForWorkspaceId(db, input),
   });
   for (const workspace of listWorkspaces(db)) {
     if (workspace.status !== "archived") {

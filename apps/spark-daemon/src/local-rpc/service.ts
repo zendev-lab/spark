@@ -75,6 +75,7 @@ export const localRpcServiceHandlerMethodGroups = {
   workspace: [
     "workspace.list",
     "workspace.ensure-local",
+    "workspace.resolve-session-cwd",
     "workspace.relocate",
     "workspace.transfer.pending",
     "workspace.transfer.respond",

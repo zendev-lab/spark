@@ -18,7 +18,7 @@ interface ToolConfig {
     params: Record<string, unknown>,
     signal: AbortSignal,
     onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void,
-    ctx: { cwd?: string },
+    ctx: { cwd?: string; sparkStateRoot?: string },
   ): Promise<ToolResult>;
 }
 
@@ -42,11 +42,14 @@ test("workflow tool lists builtins and reads saved workspace scripts from contro
       registerTool: (config) => tools.set(config.name, config as ToolConfig),
     });
 
+    const executionCwd = join(dir, "worktree", "packages", "app");
+    await mkdir(executionCwd, { recursive: true });
     const listed = await executeTool(
       tools,
       "workflow",
       { action: "list", includeUser: false },
-      dir,
+      executionCwd,
+      join(dir, ".spark"),
     );
     assert.match(toolText(listed), /builtin:research/);
     assert.match(toolText(listed), /workspace:release-check/);
@@ -56,7 +59,8 @@ test("workflow tool lists builtins and reads saved workspace scripts from contro
       tools,
       "workflow",
       { action: "read", selector: "workspace:release-check", includeUser: false, maxChars: 80 },
-      dir,
+      executionCwd,
+      join(dir, ".spark"),
     );
     assert.match(toolText(read), /Check release readiness/);
     assert.match(toolText(read), /export const meta/);
@@ -87,10 +91,14 @@ function executeTool(
   name: string,
   params: Record<string, unknown>,
   cwd = "/tmp/spark-workflows-tool-test",
+  sparkStateRoot?: string,
 ): Promise<ToolResult> {
   const tool = tools.get(name);
   assert.ok(tool, `missing ${name} tool`);
-  return tool.execute("tool-call", params, new AbortController().signal, () => undefined, { cwd });
+  return tool.execute("tool-call", params, new AbortController().signal, () => undefined, {
+    cwd,
+    ...(sparkStateRoot ? { sparkStateRoot } : {}),
+  });
 }
 
 function toolText(result: ToolResult): string {

@@ -12,6 +12,7 @@
 <SessionsWorkspace
   sessions={data.sessions}
   workspaces={data.workspaces ?? []}
+  cwdRoots={data.sessionCwdRoots ?? []}
   selectedSessionId={data.selectedSessionId}
   startSubmissionIdSeed={data.startSubmissionIdSeed}
   activeWorkspaceId={data.activeWorkspace?.id ?? null}

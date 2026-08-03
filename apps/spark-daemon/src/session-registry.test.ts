@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -147,12 +147,22 @@ describe("daemon session registry cwd ownership", () => {
     });
   });
 
-  it("freezes workspace sessions to the resolved workspace path and rejects filesystem root", async () => {
+  it("freezes the validated requested cwd and its GitChange provenance", async () => {
     const sparkHome = await mkdtemp(join(tmpdir(), "spark-daemon-session-cwd-"));
     roots.push(sparkHome);
+    const workspace = join(sparkHome, "workspace");
+    const requested = join(workspace, "packages", "demo");
+    await mkdir(requested, { recursive: true });
     const registry = createDaemonSessionRegistry(sparkHome, {
-      resolveWorkspaceCwd: (workspaceId) =>
-        workspaceId === "ws_demo" ? "/Users/demo/workspace/spore" : undefined,
+      resolveWorkspaceCwd: (workspaceId) => (workspaceId === "ws_demo" ? workspace : undefined),
+      resolveSessionCwd: async ({ workspaceId, cwd, cwdArtifactRef }) => {
+        if (workspaceId !== "ws_demo") throw new Error(`Unknown workspace: ${workspaceId}`);
+        if (cwd === "/") throw new Error("filesystem root is forbidden");
+        return {
+          cwd: cwd ?? workspace,
+          ...(cwdArtifactRef ? { cwdArtifactRef } : {}),
+        };
+      },
     });
 
     await expect(
@@ -160,11 +170,13 @@ describe("daemon session registry cwd ownership", () => {
         sessionId: "sess_workspace",
         scope: { kind: "workspace", workspaceId: "ws_demo" },
         workspaceId: "ws_demo",
-        cwd: "/tmp/wrong",
+        cwd: requested,
+        cwdArtifactRef: "artifact:change",
       }),
     ).resolves.toMatchObject({
       sessionId: "sess_workspace",
-      cwd: "/Users/demo/workspace/spore",
+      cwd: requested,
+      cwdArtifactRef: "artifact:change",
     });
 
     await expect(

@@ -6,6 +6,7 @@ import * as nodePath from "node:path";
 import { Type } from "typebox";
 import {
   CueClient,
+  resolveCueTransport,
   type CueOperationKey,
   type JobInfo,
   type JobStatus,
@@ -532,6 +533,44 @@ export function resolveCueWorkingDirectory(
   return nodePath.isAbsolute(requestedCwd) ? requestedCwd : nodePath.resolve(baseCwd, requestedCwd);
 }
 
+async function resolveCueExecTarget(
+  requestedCwd: string | undefined,
+  ctx: SparkCueToolContext,
+): Promise<{ cwd: string; ctx: SparkCueToolContext }> {
+  if (ctx.cueClient) {
+    return { cwd: resolveCueWorkingDirectory(requestedCwd, ctx.cwd), ctx };
+  }
+  const transport = await resolveCueTransport();
+  if (transport.transport === "ssh") {
+    const remoteCwd =
+      requestedCwd ??
+      ctx.cueRemoteCwd?.trim() ??
+      ctx.env?.SPARK_CUE_REMOTE_CWD?.trim() ??
+      process.env.SPARK_CUE_REMOTE_CWD?.trim();
+    if (!remoteCwd) {
+      throw new Error(
+        `cue_exec profile \`${transport.profile_name}\` uses SSH; provide cwd as a path that exists on ${transport.destination}. Local session paths are not mapped to remote hosts.`,
+      );
+    }
+    if (!nodePath.posix.isAbsolute(remoteCwd)) {
+      throw new Error(`cue_exec SSH cwd must be an absolute remote path (got ${remoteCwd}).`);
+    }
+    return {
+      cwd: remoteCwd,
+      ctx: {
+        ...ctx,
+        cwd: remoteCwd,
+        cueRemoteCwd: remoteCwd,
+        cueResolvedTransport: transport,
+      },
+    };
+  }
+  return {
+    cwd: resolveCueWorkingDirectory(requestedCwd, ctx.cwd),
+    ctx: { ...ctx, cueResolvedTransport: transport },
+  };
+}
+
 function normalizeRequiredCueString(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error(`${field} must be a non-empty string`);
@@ -965,10 +1004,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
       const command = normalizeRequiredCueString(params.command, "cue_exec command");
       const background = normalizeCueBoolean(params.background, false, "cue_exec background");
       const pty = normalizeCueBoolean(params.pty, false, "cue_exec pty");
-      const cwd = resolveCueWorkingDirectory(
-        normalizeOptionalCueString(params.cwd, "cue_exec cwd"),
-        ctx.cwd,
-      );
+      const requestedCwd = normalizeOptionalCueString(params.cwd, "cue_exec cwd");
       const tailBytes = normalizeCueTailBytes(
         params.tail_bytes,
         DEFAULT_CUE_TAIL_BYTES,
@@ -981,11 +1017,14 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
         "cue_exec timeout",
       );
       signal.throwIfAborted();
+      const target = await resolveCueExecTarget(requestedCwd, ctx);
+      const cwd = target.cwd;
+      const cueCtx = target.ctx;
 
       if (background) {
-        const operation = cueToolOperation(ctx, toolCallId, "cue_exec/background");
+        const operation = cueToolOperation(cueCtx, toolCallId, "cue_exec/background");
         const result = await withCueIdempotentRetry(
-          ctx,
+          cueCtx,
           clientOwner,
           operation,
           (cued) => cued.startJob(command, { cwd, pty, needs, operation }),
@@ -1016,9 +1055,9 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
         };
       }
 
-      const operation = cueToolOperation(ctx, toolCallId, "cue_exec/foreground");
+      const operation = cueToolOperation(cueCtx, toolCallId, "cue_exec/foreground");
       const result = await withCueIdempotentRetry(
-        ctx,
+        cueCtx,
         clientOwner,
         operation,
         (cued, attempt) =>
@@ -1283,6 +1322,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
       } catch (err) {
         throw new Error(`cue_run failed to read ${resolvedPath}: ${(err as Error).message}`);
       }
+      const target = await resolveCueExecTarget(undefined, ctx);
       return runCueScript(
         {
           resolvedPath,
@@ -1295,7 +1335,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
           signal,
           onUpdate,
         },
-        ctx,
+        target.ctx,
       );
     },
   });
@@ -1370,6 +1410,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
         DEFAULT_CUE_TAIL_BYTES,
         "cue_script tail_bytes",
       );
+      const target = await resolveCueExecTarget(undefined, ctx);
       return runCueScript(
         {
           resolvedPath: pathLabel,
@@ -1382,7 +1423,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
           signal,
           onUpdate,
         },
-        ctx,
+        target.ctx,
       );
     },
   });
@@ -1453,7 +1494,9 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
       const venvParam = normalizeOptionalCueString(params.venv, "script_run venv");
       if (language !== "python" && venvParam)
         throw new Error("script_run venv is only supported for language=python");
-      const baseCwd = resolveCueWorkingDirectory(undefined, ctx.cwd);
+      const target = await resolveCueExecTarget(undefined, ctx);
+      const localBaseCwd = resolveCueWorkingDirectory(undefined, ctx.cwd);
+      const baseCwd = language === "cue-shell" ? localBaseCwd : target.cwd;
       const { isAbsolute, resolve } = await import("node:path");
       const resolvedPath = isAbsolute(pathParam) ? pathParam : resolve(baseCwd, pathParam);
       const venv = venvParam
@@ -1486,13 +1529,13 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
             signal,
             onUpdate,
           },
-          ctx,
+          target.ctx,
         );
       }
 
-      const operation = cueToolOperation(ctx, toolCallId, "script_run/python");
+      const operation = cueToolOperation(target.ctx, toolCallId, "script_run/python");
       return withCueIdempotentRetry(
-        ctx,
+        target.ctx,
         clientOwner,
         operation,
         (cued, attempt) =>
@@ -1581,7 +1624,8 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
       const venvParam = normalizeOptionalCueString(params.venv, "script_eval venv");
       if (language !== "python" && venvParam)
         throw new Error("script_eval venv is only supported for language=python");
-      const baseCwd = resolveCueWorkingDirectory(undefined, ctx.cwd);
+      const target = await resolveCueExecTarget(undefined, ctx);
+      const baseCwd = target.cwd;
       const { isAbsolute, resolve } = await import("node:path");
       const venv = venvParam
         ? isAbsolute(venvParam)
@@ -1601,13 +1645,13 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
             signal,
             onUpdate,
           },
-          ctx,
+          target.ctx,
         );
       }
 
-      const operation = cueToolOperation(ctx, toolCallId, "script_eval/python");
+      const operation = cueToolOperation(target.ctx, toolCallId, "script_eval/python");
       return withCueIdempotentRetry(
-        ctx,
+        target.ctx,
         clientOwner,
         operation,
         (cued, attempt) =>

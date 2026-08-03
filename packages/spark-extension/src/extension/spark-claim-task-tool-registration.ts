@@ -24,7 +24,12 @@ import {
   normalizeTaskStatus,
   taskKindDescription,
 } from "./task-plan-tool.ts";
-import { currentSparkProject, saveCurrentProjectRef, sparkSessionKey } from "./session-state.ts";
+import {
+  currentSparkProject,
+  saveCurrentProjectRef,
+  sparkSessionKey,
+  sparkStateCwd,
+} from "./session-state.ts";
 import { defaultSparkWorkflowRunStore } from "./spark-workflow-run-store.ts";
 import { isGenericInitialTaskTitle } from "./spark-graph-invariants.ts";
 import { findActiveSessionClaim, resolveSessionClaimedTask } from "./task-claim-selection.ts";
@@ -160,7 +165,8 @@ export function registerSparkClaimTaskTool(
           details: { found: true, error: "claim_plan_not_allowed" },
         };
       const cwd = ctx.cwd;
-      const registry = await createSparkRoleRegistry(cwd);
+      const stateCwd = sparkStateCwd(cwd, ctx);
+      const registry = await createSparkRoleRegistry(stateCwd);
       const input = normalizeSparkClaimTaskInput(params, registry);
       if (input.requestedStatus && !isUnfinishedTaskStatus(input.requestedStatus))
         return {
@@ -177,14 +183,14 @@ export function registerSparkClaimTaskTool(
           },
         };
       const status = input.requestedStatus ?? (input.roleRef ? "pending" : "running");
-      const store = defaultTaskGraphStore(cwd);
+      const store = defaultTaskGraphStore(stateCwd);
       const existingGraph = await store.load();
       if (!existingGraph)
         return {
           content: [{ type: "text", text: NO_SPARK_PROJECT_FOUND_HINT }],
           details: { found: false },
         };
-      const workflowRunStatus = await defaultSparkWorkflowRunStore(cwd).status();
+      const workflowRunStatus = await defaultSparkWorkflowRunStore(stateCwd).status();
       const activeRoleRunProcesses = activeSparkRoleRunProcessesForCwd(cwd);
       const claimed = {
         graph: existingGraph,
@@ -209,7 +215,7 @@ export function registerSparkClaimTaskTool(
           let claimRecovery: SparkTaskClaimRecoveryDecision | undefined;
           if (existing && taskClaimedBy(existing) && !isClaimOwnedBySession(existing, sessionKey)) {
             claimRecovery = await evaluateSparkTaskClaimRecovery({
-              cwd,
+              cwd: stateCwd,
               task: existing,
               projectRef: project.ref,
               currentSessionKey: sessionKey,
@@ -225,7 +231,7 @@ export function registerSparkClaimTaskTool(
               };
             recoveredClaimEvidenceRef = (
               await recordSparkTaskClaimRecoveryEvidence({
-                cwd,
+                cwd: stateCwd,
                 task: existing,
                 projectRef: project.ref,
                 decision: claimRecovery,

@@ -4,7 +4,7 @@ import {
   loopContinuationPrompt,
 } from "@zendev-lab/spark-loop";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
-import { type ProjectRef } from "@zendev-lab/spark-core";
+import { sparkStateCwd, type ProjectRef } from "@zendev-lab/spark-core";
 import type {
   SparkDriverContinuity,
   SparkDriverKind,
@@ -217,7 +217,7 @@ export function registerSparkCommands(
     args: string,
     commandLabel = "workflow-runs",
   ): Promise<void> {
-    const store = defaultSparkDynamicWorkflowEventStore(ctx.cwd);
+    const store = defaultSparkDynamicWorkflowEventStore(sparkStateCwd(ctx.cwd, ctx));
     await store.reconcileStale();
     const runRef = args ? parseDynamicWorkflowRunRefArg(commandLabel, args) : undefined;
     const runs = await store.listRuns();

@@ -38,7 +38,12 @@ import {
   type SparkDynamicWorkflowRunControlResult,
   type SparkDynamicWorkflowRunProjection,
 } from "./spark-dynamic-workflow-run-rendering.ts";
-import { currentSparkProject, loadSparkGraph, sparkSessionOwnerKey } from "./session-state.ts";
+import {
+  currentSparkProject,
+  loadSparkGraph,
+  sparkSessionOwnerKey,
+  sparkStateCwd,
+} from "./session-state.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 
 interface SparkWorkflowRunsParams {
@@ -296,8 +301,9 @@ export function registerSparkWorkflowRunsTool(
           details: { background: { error: "missing_task_graph" } },
         };
       }
-      const runStore = defaultSparkWorkflowRunStore(cwd);
-      const dynamicRunStore = defaultSparkDynamicWorkflowEventStore(cwd);
+      const stateCwd = sparkStateCwd(cwd, ctx);
+      const runStore = defaultSparkWorkflowRunStore(stateCwd);
+      const dynamicRunStore = defaultSparkDynamicWorkflowEventStore(stateCwd);
       await dynamicRunStore.reconcileStale();
       const currentProject = await currentSparkProject(cwd, ctx, graph);
       const currentProjectRef = currentProject?.ref;
@@ -677,7 +683,7 @@ export function registerSparkWorkflowRunsTool(
             createdAt: now,
           }),
         ) as JsonValue;
-        const evidence = await defaultEvidenceStore(cwd).put({
+        const evidence = await defaultEvidenceStore(stateCwd).put({
           kind: "record",
           title: `Spark role-run ${action} control for ${target.runRef}`,
           format: "json",
@@ -691,7 +697,7 @@ export function registerSparkWorkflowRunsTool(
         });
         if (delivered) {
           if (action === "reply") {
-            await appendRoleRunActivityEvent(cwd, {
+            await appendRoleRunActivityEvent(stateCwd, {
               runRef: target.runRef,
               type: "waiting_for_user",
               at: now,
@@ -700,7 +706,7 @@ export function registerSparkWorkflowRunsTool(
               evidenceRefs: [evidence.ref],
             });
           }
-          await appendRoleRunActivityEvent(cwd, {
+          await appendRoleRunActivityEvent(stateCwd, {
             runRef: target.runRef,
             type: action === "reply" ? "replied" : "message_activity",
             at: now,

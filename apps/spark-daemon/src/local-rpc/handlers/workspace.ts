@@ -13,6 +13,7 @@ import {
   stopWorkspace,
 } from "../../store/workspaces.js";
 import { SparkDaemonControlError } from "../../control-error.ts";
+import { resolveSessionCwdOwner, SessionCwdResolutionError } from "../../session-cwd.ts";
 import { relocateSparkDaemonCockpit } from "../../relocation.ts";
 import { ensureWorkspaceMainSession } from "../../workspace-main-session.ts";
 import { workspaceClientResult } from "../helpers.ts";
@@ -29,6 +30,7 @@ type WorkspaceRequest = Extract<
     method:
       | "workspace.list"
       | "workspace.ensure-local"
+      | "workspace.resolve-session-cwd"
       | "workspace.relocate"
       | "workspace.transfer.pending"
       | "workspace.transfer.respond"
@@ -71,6 +73,18 @@ export async function handleWorkspaceRequest(
       }
       return parseLocalRpcServiceOutput(request.method, workspace);
     }
+    case "workspace.resolve-session-cwd":
+      try {
+        return parseLocalRpcServiceOutput(
+          request.method,
+          await resolveSessionCwdOwner(db, request.params.cwd),
+        );
+      } catch (error) {
+        if (error instanceof SessionCwdResolutionError) {
+          throw new SparkDaemonControlError("workspace_cwd_invalid", error.message);
+        }
+        throw error;
+      }
     case "workspace.relocate":
       return (options.relocateSparkDaemonCockpit ?? relocateSparkDaemonCockpit)(
         paths,
