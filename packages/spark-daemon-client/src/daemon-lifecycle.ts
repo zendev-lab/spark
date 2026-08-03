@@ -72,7 +72,7 @@ export async function ensureSparkDaemonRunning(
   const sleep =
     options.sleep ??
     ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
-  const deadline = now() + (options.startupTimeoutMs ?? 10_000);
+  const deadline = now() + (options.startupTimeoutMs ?? 30_000);
   let lastError: unknown;
   do {
     try {
@@ -121,7 +121,8 @@ function buildSourceSparkDaemon(daemonAppDir: string, env: NodeJS.ProcessEnv): n
   return spawnSync(process.execPath, [join(daemonAppDir, "scripts", "build-cli.mjs")], {
     cwd: daemonAppDir,
     env,
-    stdio: "inherit",
+    // This helper also runs inside Pi RPC mode, where stdout must remain strict JSONL.
+    stdio: "ignore",
   }).status;
 }
 
