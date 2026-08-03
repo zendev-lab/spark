@@ -209,6 +209,7 @@ export async function start(
   let channelIngress: DaemonChannelIngressRuntime | null = null;
   let respondHumanInteraction: SparkDaemonHumanInteractionResponder | null = null;
   let flushHumanRequestOutbox: (() => void) | undefined;
+  let processInvocationQueue: (() => boolean) | undefined;
   let drainProgress: SparkDaemonDrainProgress | undefined;
   const uplinkControl = createSparkDaemonUplinkControl();
   const buildWatchErrors = createRepeatedErrorReporter(
@@ -326,6 +327,9 @@ export async function start(
       onHumanRequestOutboxReady: () => {
         flushHumanRequestOutbox?.();
       },
+      onInvocationQueued: () => {
+        processInvocationQueue?.();
+      },
       getRuntimeIdForServer: (serverUrl) => {
         try {
           return getSparkDaemonServerProfile(paths, serverUrl)?.runtimeId;
@@ -375,6 +379,7 @@ export async function start(
         channelIngress = runtime.channelIngress;
         respondHumanInteraction = runtime.respondHumanInteraction;
         flushHumanRequestOutbox = runtime.flushHumanRequestOutbox;
+        processInvocationQueue = runtime.processInvocationQueue;
         // Bind status/stop while startup admission remains closed. Binding a
         // socket is not successor readiness: the Claimed fence remains active
         // until every daemon admission loop is live below.

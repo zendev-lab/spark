@@ -172,6 +172,29 @@ describe("SparkSessionRegistry", () => {
     ).resolves.toMatchObject({ role: "质量验证" });
   });
 
+  it("keeps task execution RoleRefs out of the user-facing title", async () => {
+    const registry = await tempRegistry();
+    const created = await registry.create({
+      sessionId: "sess_task_worker",
+      workspaceId: "ws_demo",
+      role: "role:builtin-worker",
+      relation: {
+        kind: "task_execution",
+        ownerSessionId: "sess_owner",
+        projectRef: "proj:demo",
+        taskRef: "task:demo",
+        runRef: "run:demo",
+        sessionGoalId: "goal-demo",
+        roleRef: "role:builtin-worker",
+        jobId: "job-demo",
+        attempt: 1,
+      },
+    });
+
+    expect(created.role).toBe("role:builtin-worker");
+    expect(created).not.toHaveProperty("title");
+  });
+
   it("persists searchable archive tags and preserves them after restore", async () => {
     const registry = await tempRegistry();
     const created = await registry.create({

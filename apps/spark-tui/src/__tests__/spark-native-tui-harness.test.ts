@@ -105,6 +105,17 @@ test("native TUI composes a bounded conversation frame", () => {
     { role: "user", text: "older transcript message" },
     { role: "assistant", text: "recent transcript message" },
   );
+  harness.app.setWidget(
+    "spark-status",
+    [
+      "◆ Phase: plan",
+      "◆ Dynamic workflow error: evidence-independent-reviews · failed · 1/1 nodes",
+      "├─ ◇ Session 与 Evidence 边界治理 · tasks 12/14",
+      "└─ ◇ Memory 生命周期治理 · tasks 2/6 · ready 2",
+      "◆ Goal(●): keep the durable objective visible",
+    ],
+    { placement: "aboveEditor" },
+  );
   harness.app.setEditorText("draft prompt");
   harness.app.invalidate();
 
@@ -117,8 +128,13 @@ test("native TUI composes a bounded conversation frame", () => {
 
   const context = firstMarkerIndex(plain, /Spark session attached/);
   const message = firstMarkerIndex(plain, /recent transcript message/);
+  const phase = firstMarkerIndex(plain, /Phase: plan/);
+  const workflow = firstMarkerIndex(plain, /Dynamic workflow error/);
+  const project = firstMarkerIndex(plain, /Session 与 Evidence 边界治理/);
+  const goal = firstMarkerIndex(plain, /Goal\(●\)/);
   const composer = firstMarkerIndex(plain, /draft prompt/);
-  assert.ok(context < message && message < composer);
+  assert.ok(message < context && context < phase);
+  assert.ok(phase < workflow && workflow < project && project < goal && goal < composer);
 });
 
 test("native TUI invalidates its cached frame when terminal height changes", () => {
@@ -517,10 +533,10 @@ test("native TUI keeps Pi-like project UI placement when session selector is sho
   const goalLine = firstMarkerIndex(lines, /Goal: daemon-first/);
   const readyLine = firstMarkerIndex(lines, /Ready: @pi-like-project-ui-placement/);
 
-  assert.deepEqual(sessionLines, [1]);
-  assert.equal(projectLine, 2);
-  assert.equal(goalLine, 3);
-  assert.equal(readyLine, 4);
+  assert.equal(sessionLines.length, 1);
+  assert.equal(sessionLines[0], projectLine - 1);
+  assert.equal(goalLine, projectLine + 1);
+  assert.equal(readyLine, goalLine + 1);
 });
 
 test("native TUI renders compact session status before Pi-like project UI", () => {
@@ -544,8 +560,7 @@ test("native TUI renders compact session status before Pi-like project UI", () =
   const lines = stripAnsi(harness.render()).split("\n");
   const sessionLine = firstMarkerIndex(lines, /Spark session attached/);
   const projectLine = firstMarkerIndex(lines, /Project: Spark daemon-first/);
-  assert.equal(sessionLine, 1);
-  assert.equal(projectLine, 2);
+  assert.equal(projectLine, sessionLine + 1);
   assert.equal(
     lines.filter((line) =>
       /Spark session attached|workspace hash: hash-current|attach target: session:attached/.test(

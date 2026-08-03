@@ -170,10 +170,15 @@ export class SparkSessionRegistry {
       archiveHistory: [],
       createdAt: now,
       updatedAt: now,
-      // Local role-managed sessions mirror role into title for compatibility.
-      // Platform-owned channel creation may still provide a technical title
-      // without enrolling that session in generic role management.
-      ...(role ? { title: role, role } : legacyTitle ? { title: legacyTitle } : {}),
+      // Task execution sessions are internal run records. Keep their RoleRef
+      // for attribution, but never mirror it into a user-facing title.
+      ...(role && input.relation?.kind !== "task_execution"
+        ? { title: role, role }
+        : role
+          ? { role }
+          : legacyTitle
+            ? { title: legacyTitle }
+            : {}),
       ...(input.cwd ? { cwd: input.cwd } : {}),
       ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
       ...(input.relation ? { relation: input.relation } : {}),

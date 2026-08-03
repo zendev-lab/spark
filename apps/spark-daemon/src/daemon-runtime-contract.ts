@@ -78,6 +78,7 @@ export interface StartSparkDaemonOptions {
     channelIngress: DaemonChannelIngressRuntime | null;
     respondHumanInteraction: SparkDaemonHumanInteractionResponder;
     flushHumanRequestOutbox: () => void;
+    processInvocationQueue: () => boolean;
   }) => void | Promise<void>;
   onDrainProgress?: (progress: SparkDaemonDrainProgress) => void;
   onServing?: () => void;
