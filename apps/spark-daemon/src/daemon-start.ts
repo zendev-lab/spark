@@ -55,6 +55,12 @@ import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
 import { recoverInterruptedRuntimeCommandReceipts } from "./runtime-command-receipts.ts";
+import {
+  DAEMON_RETENTION_DELETE_BATCH_SIZE,
+  DAEMON_STORAGE_MAINTENANCE_ACTIVE_INTERVAL_MS,
+  DAEMON_STORAGE_MAINTENANCE_IDLE_INTERVAL_MS,
+  runBoundedIncrementalVacuum,
+} from "./store/sqlite-maintenance.ts";
 import { SessionRequestCompletionDeliveryStore } from "./store/session-request-completion-deliveries.ts";
 import { migrateLegacyQueueHistory } from "./store/legacy-queue-migration.ts";
 import { SparkChannelDeliveryStore } from "./store/channel-deliveries.ts";
@@ -664,13 +670,24 @@ async function runSchedulerLoop(runtime: PreparedDaemonRuntime): Promise<void> {
 }
 
 function runStorageMaintenance(runtime: PreparedDaemonRuntime): void {
-  runtime.nextStorageMaintenanceAtMs = Date.now() + 60 * 60 * 1_000;
   const before = new Date(Date.now() - 24 * 60 * 60 * 1_000).toISOString();
+  let didWork = false;
   try {
-    runtime.invocationStore.pruneViewEventCache(before, 256);
+    didWork =
+      runtime.invocationStore.pruneViewEventCache(before, DAEMON_RETENTION_DELETE_BATCH_SIZE) > 0;
   } catch (error) {
     logDaemonError(runtime.options.config.runtimeId ?? "unknown", error);
   }
+  try {
+    didWork = runBoundedIncrementalVacuum(runtime.options.db).pagesReclaimed > 0 || didWork;
+  } catch (error) {
+    logDaemonError(runtime.options.config.runtimeId ?? "unknown", error);
+  }
+  runtime.nextStorageMaintenanceAtMs =
+    Date.now() +
+    (didWork
+      ? DAEMON_STORAGE_MAINTENANCE_ACTIVE_INTERVAL_MS
+      : DAEMON_STORAGE_MAINTENANCE_IDLE_INTERVAL_MS);
 }
 
 async function runDaemonOnce(runtime: PreparedDaemonRuntime): Promise<void> {

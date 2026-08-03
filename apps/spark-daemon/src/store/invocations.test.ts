@@ -763,6 +763,50 @@ describe("SparkInvocationStore", () => {
     }
   });
 
+  it("does not hydrate historical oversized result JSON into process memory", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({ prompt: "legacy oversized result" });
+      const legacyResult = JSON.stringify({ output: "x".repeat(768 * 1024) });
+      db.prepare("UPDATE invocations SET result_json = ? WHERE id = ?").run(
+        legacyResult,
+        invocation.invocationId,
+      );
+
+      expect(store.require(invocation.invocationId).result).toEqual({
+        legacyOversizedResult: true,
+        originalBytes: Buffer.byteLength(legacyResult),
+        truncated: true,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("marks assistant output truncation instead of silently presenting a complete result", () => {
+    const { db, store } = createStore();
+    try {
+      const invocation = store.submit({ prompt: "oversized assistant output" });
+      store.claimNext("worker-oversized-assistant");
+      const assistantText = "x".repeat(512 * 1024);
+      const completed = store.complete(invocation.invocationId, {
+        status: "succeeded",
+        result: { assistantText, jsonEvents: [] },
+      });
+
+      expect(completed.result).toMatchObject({
+        assistantTextOriginalBytes: Buffer.byteLength(JSON.stringify(assistantText)),
+        assistantTextTruncated: true,
+        jsonEventCount: 0,
+      });
+      expect((completed.result as { assistantText: string }).assistantText.length).toBeLessThan(
+        assistantText.length,
+      );
+    } finally {
+      db.close();
+    }
+  });
+
   it("prunes only acknowledged terminal view-event cache rows in bounded batches", () => {
     const { db, store } = createStore();
     try {
@@ -838,15 +882,23 @@ describe("SparkInvocationStore", () => {
       expect(() => parseSparkDaemonEvent(event.payload)).not.toThrow();
       expect(event.payload).toMatchObject({
         type: "daemon.view_event",
+        view: { type: "session.message", message: { text: "x".repeat(512 * 1024) } },
+      });
+      const persisted = store.eventPage(invocation.invocationId).events[0];
+      expect(() => parseSparkDaemonEvent(persisted?.payload)).not.toThrow();
+      expect(persisted?.payload).toMatchObject({
+        type: "daemon.view_event",
         view: { type: "session.message", message: { metadata: { cacheOmitted: true } } },
       });
-      expect(Buffer.byteLength(JSON.stringify(event.payload))).toBeLessThanOrEqual(256 * 1024);
+      expect(Buffer.byteLength(JSON.stringify(persisted?.payload))).toBeLessThanOrEqual(256 * 1024);
 
       const oversizedIdentity = store.appendEvent(invocation.invocationId, "daemon.view_event", {
         sessionId: "x".repeat(512 * 1024),
       });
-      expect(oversizedIdentity.payload.sessionId).toBe("unknown");
-      expect(Buffer.byteLength(JSON.stringify(oversizedIdentity.payload))).toBeLessThanOrEqual(
+      expect(oversizedIdentity.payload.sessionId).toBe("x".repeat(512 * 1024));
+      const persistedIdentity = store.eventPage(invocation.invocationId).events[1];
+      expect(persistedIdentity?.payload.sessionId).toBe("unknown");
+      expect(Buffer.byteLength(JSON.stringify(persistedIdentity?.payload))).toBeLessThanOrEqual(
         MAX_PERSISTED_INVOCATION_EVENT_BYTES,
       );
     } finally {
