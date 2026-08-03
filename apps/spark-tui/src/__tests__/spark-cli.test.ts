@@ -26,7 +26,7 @@ import {
   type SparkNativeResponder,
   type SparkNativeResponderContext,
 } from "../native-tui.ts";
-import type { SparkTurnSubmitResult } from "@zendev-lab/spark-protocol";
+import { SPARK_PROTOCOL_VERSION, type SparkTurnSubmitResult } from "@zendev-lab/spark-protocol";
 import sparkCliHostExtension from "../spark-host-extension.ts";
 
 test("parseSparkCliArgs treats positional args as the initial message", () => {
@@ -844,8 +844,7 @@ test("Spark native session admits busy input to the daemon before observing it",
     ["idem_first", "idem_second", "idem_third"],
   );
   assert.equal(admitted[0]?.prompt, "first");
-  assert.match(admitted[1]?.prompt ?? "", /^Steering update for the previous Spark turn\./u);
-  assert.match(admitted[1]?.prompt ?? "", /Steering 1:\nsecond/u);
+  assert.equal(admitted[1]?.prompt, "second");
   assert.equal(admitted[2]?.prompt, "third");
   assert.deepEqual(observed, ["inv_1"]);
   assert.deepEqual(session.queuedInputs, []);
@@ -860,6 +859,86 @@ test("Spark native session admits busy input to the daemon before observing it",
   }
 
   assert.deepEqual(observed, ["inv_1", "inv_2", "inv_3"]);
+  assert.equal(session.isProcessing, false);
+  assert.deepEqual(session.daemonPending, []);
+});
+
+test("Spark native session resumes snapshot-owned invocations without resubmitting them", async () => {
+  const admitted: string[] = [];
+  const observed: string[] = [];
+  const releases = new Map<string, () => void>();
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async (prompt: string) => {
+        admitted.push(prompt);
+        throw new Error("attached work must not be resubmitted");
+      },
+      observe: async (admission: SparkTurnSubmitResult) => {
+        observed.push(admission.invocationId);
+        await new Promise<void>((resolve) => releases.set(admission.invocationId, resolve));
+        return "";
+      },
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      }),
+      status: async (invocationId: string) => ({
+        invocationId,
+        sessionId: "attached",
+        status: "succeeded" as const,
+        createdAt: "2026-07-28T00:00:00.000Z",
+        updatedAt: "2026-07-28T00:00:03.000Z",
+        finishedAt: "2026-07-28T00:00:03.000Z",
+        eventCursor: 0,
+      }),
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+  session.applySessionView({
+    ...session.toSessionView("attached"),
+    messages: [
+      {
+        version: SPARK_PROTOCOL_VERSION,
+        id: "attached-user",
+        role: "user",
+        text: "already durable",
+        status: "done",
+        metadata: {},
+      },
+    ],
+    pendingTurns: [
+      {
+        invocationId: "inv_queued",
+        prompt: "queued next",
+        status: "queued",
+        createdAt: "2026-07-28T00:00:01.000Z",
+      },
+      {
+        invocationId: "inv_running",
+        prompt: "already durable",
+        status: "running",
+        createdAt: "2026-07-28T00:00:02.000Z",
+      },
+    ],
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(admitted, []);
+  assert.deepEqual(observed, ["inv_running"]);
+  assert.equal(session.messages.filter(({ role }) => role === "user").length, 1);
+
+  releases.get("inv_running")?.();
+  for (let index = 0; index < 3; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.deepEqual(observed, ["inv_running", "inv_queued"]);
+
+  releases.get("inv_queued")?.();
+  for (let index = 0; index < 3; index += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
   assert.equal(session.isProcessing, false);
   assert.deepEqual(session.daemonPending, []);
 });

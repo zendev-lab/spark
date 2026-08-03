@@ -131,6 +131,7 @@ export class SparkNativeSession {
   private daemonObserverRunning = false;
   private activeDaemonObservation: SparkNativeDaemonObservation | undefined;
   private readonly daemonCancellationRequests = new Map<string, Promise<void>>();
+  private readonly observedDaemonInvocationIds = new Set<string>();
   private readonly reportedDaemonFailures = new Set<string>();
   private daemonDetached = false;
   private readonly responder: SparkNativeResponder;
@@ -220,7 +221,9 @@ export class SparkNativeSession {
 
     if (hasDaemonQueueCapabilities(this.responder)) {
       const queued = this.isProcessing || this.daemonObservations.length > 0;
-      this.enqueueDaemonObservation(text, options.mode ?? "steer", submissionId, queued);
+      // turn.submit is a durable next-turn admission. Until the daemon exposes
+      // a real mid-turn input RPC, never label or rewrite it as steering.
+      this.enqueueDaemonObservation(text, "followUp", submissionId, queued);
       return queued ? "queued" : "started";
     }
 
@@ -326,6 +329,7 @@ export class SparkNativeSession {
     this.messages.splice(0, this.messages.length, ...messages);
     if (view.pendingTurns !== undefined) {
       this.daemonPendingTurns = view.pendingTurns.map((turn) => ({ ...turn }));
+      this.resumeDaemonPendingObservations();
     }
     this.sortMessagesChronologically();
     this.trimTranscript();
@@ -502,7 +506,7 @@ export class SparkNativeSession {
     this.removeFailedAdmission(submissionId);
     const observation: SparkNativeDaemonObservation = {
       text,
-      effectivePrompt: queued && mode === "steer" ? formatSteeringSubmission([text]) : text,
+      effectivePrompt: text,
       mode,
       submissionId,
     };
@@ -529,6 +533,48 @@ export class SparkNativeSession {
       void this.drainDaemonObservations();
     }
     this.emitChange();
+  }
+
+  /**
+   * Resume daemon-owned work already present when a TUI attaches. Snapshot
+   * hydration must observe existing invocations without admitting new turns or
+   * redisplaying their durable user messages.
+   */
+  private resumeDaemonPendingObservations(): void {
+    if (!hasDaemonQueueCapabilities(this.responder) || this.daemonDetached) return;
+    const pending = [...(this.daemonPendingTurns ?? [])].sort((left, right) => {
+      if (left.status !== right.status) return left.status === "running" ? -1 : 1;
+      return left.createdAt.localeCompare(right.createdAt);
+    });
+    for (const turn of pending) {
+      if (this.observedDaemonInvocationIds.has(turn.invocationId)) continue;
+      if (
+        this.daemonObservations.some(
+          (observation) => observation.admission?.invocationId === turn.invocationId,
+        )
+      ) {
+        continue;
+      }
+      const admission: SparkTurnSubmitResult = {
+        invocationId: turn.invocationId,
+        status: turn.status,
+        acceptedAt: turn.createdAt,
+      };
+      const observation: SparkNativeDaemonObservation = {
+        text: turn.prompt,
+        effectivePrompt: turn.prompt,
+        mode: "followUp",
+        submissionId: `attached:${turn.invocationId}`,
+        admission,
+        admissionPromise: Promise.resolve(admission),
+        userMessageDisplayed: true,
+      };
+      this.observedDaemonInvocationIds.add(turn.invocationId);
+      this.daemonObservations.push(observation);
+    }
+    if (this.daemonObservations.length > 0 && !this.daemonObserverRunning) {
+      void this.drainDaemonObservations();
+    }
   }
 
   private async admitDaemonObservation(
@@ -576,6 +622,7 @@ export class SparkNativeSession {
       observation.admissionAbort = undefined;
     }
     observation.admission = admission;
+    this.observedDaemonInvocationIds.add(admission.invocationId);
     this.removeOptimisticInput(observation.submissionId);
     this.removeFailedAdmission(observation.submissionId);
     if (admission.status === "queued" || admission.status === "running") {

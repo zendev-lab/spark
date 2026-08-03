@@ -66,6 +66,10 @@ export interface StartSparkDaemonOptions {
   channelIngress?: DaemonChannelIngressRuntime;
   mailStore?: SparkSessionMailStore;
   notificationReconcileIntervalMs?: number;
+  /** Testable clock and cadence for daemon-owned inactive Session retention. */
+  sessionRetentionNow?: () => string;
+  sessionRetentionMs?: number;
+  sessionRetentionReconcileIntervalMs?: number;
   channelDeliveryReconcileIntervalMs?: number;
   /** Testable clock for daemon-owned main task claim reconciliation. */
   taskClaimNow?: () => string;

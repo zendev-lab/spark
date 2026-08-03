@@ -303,6 +303,8 @@ test("SparkNativeTuiApp labels daemon-owned admission and queue state explicitly
   assert.match(rendered, /daemon queued · first/u);
   assert.match(rendered, /daemon queued · second/u);
   assert.match(rendered, /daemon owns execution · Esc cancels the active invocation/u);
+  assert.match(rendered, /Enter queue next • Esc cancel active/u);
+  assert.doesNotMatch(rendered, /Enter steer/u);
   assert.doesNotMatch(rendered, /Alt\+Up restore/u);
 
   app.dispose();

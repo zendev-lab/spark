@@ -17,6 +17,7 @@ export interface SparkDaemonManagedSessionsClient {
   bind(sessionId: string, externalKey: string): Promise<SparkSessionRegistryRecord>;
   unbind(sessionId: string, externalKey: string): Promise<SparkSessionRegistryRecord>;
   archive(sessionId: string): Promise<SparkSessionRegistryRecord>;
+  restore?(sessionId: string): Promise<SparkSessionRegistryRecord>;
 }
 
 /** Client-side adapter only. Session persistence and mutation stay behind the
@@ -30,7 +31,8 @@ export function createDaemonManagedSessionsClient(
       | "session.get"
       | "session.bind"
       | "session.unbind"
-      | "session.archive",
+      | "session.archive"
+      | "session.restore",
   >(
     method: M,
     params: SparkLocalRpcInput<M>,
@@ -51,6 +53,7 @@ export function createDaemonManagedSessionsClient(
         externalKey,
       } satisfies SparkSessionUnbindRequest),
     archive: async (sessionId) => await requestRecord("session.archive", { sessionId }),
+    restore: async (sessionId) => await requestRecord("session.restore", { sessionId }),
   };
 }
 
@@ -59,7 +62,8 @@ export function renderManagedSession(record: SparkSessionRegistryRecord): string
     record.bindings.length === 0
       ? "none"
       : record.bindings.map((binding) => binding.externalKey).join(", ");
+  const tags = record.tags?.length ? ` tags=${JSON.stringify(record.tags)}` : "";
   return `${record.sessionId} ${record.status} workspace=${record.workspaceId} bindings=${bindings}${
     record.title ? ` title=${JSON.stringify(record.title)}` : ""
-  }\n`;
+  }${tags}\n`;
 }

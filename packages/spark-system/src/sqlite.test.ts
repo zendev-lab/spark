@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  applyDaemonSqliteResourceLimits,
   openMemorySqliteDatabase,
   openSqliteDatabase,
   SPARK_SQLITE_CACHE_LIMIT_KIB,
@@ -18,6 +19,15 @@ describe("Spark SQLite mechanism", () => {
     try {
       expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
       expect(db.prepare("PRAGMA busy_timeout").get()).toEqual({ timeout: 5000 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("applies daemon resource limits only when explicitly requested", () => {
+    const db = openMemorySqliteDatabase();
+    try {
+      applyDaemonSqliteResourceLimits(db);
       expect(db.prepare("PRAGMA cache_size").get()).toEqual({
         cache_size: -SPARK_SQLITE_CACHE_LIMIT_KIB,
       });
@@ -38,8 +48,12 @@ describe("Spark SQLite mechanism", () => {
 
   it("creates the parent directory for a file-backed database", () => {
     const root = mkdtempSync(join(tmpdir(), "spark-system-sqlite-"));
-    const db = openSqliteDatabase(join(root, "nested", "spark.sqlite"));
+    const db = openSqliteDatabase(join(root, "nested", "spark.sqlite"), {
+      autoVacuum: "incremental",
+    });
     try {
+      expect(db.prepare("PRAGMA auto_vacuum").get()).toEqual({ auto_vacuum: 2 });
+      applyDaemonSqliteResourceLimits(db);
       expect(db.prepare("PRAGMA mmap_size").get()).toEqual({
         mmap_size: SPARK_SQLITE_MMAP_LIMIT_BYTES,
       });

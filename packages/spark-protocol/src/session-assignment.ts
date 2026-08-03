@@ -5,6 +5,27 @@ import { isoDateTimeSchema } from "./refs.ts";
 export const sparkSessionStatusOptions = ["ready", "running", "archived"] as const;
 export const sparkSessionStatusSchema = z.enum(sparkSessionStatusOptions);
 
+export const sparkSessionArchiveSourceOptions = [
+  "manual",
+  "retention",
+  "role-convergence",
+  "role-reuse",
+  "migration",
+] as const;
+export const sparkSessionArchiveSourceSchema = z.enum(sparkSessionArchiveSourceOptions);
+export const sparkSessionTagSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .regex(/^[^\s\u0000-\u001f\u007f]+$/u, "session tag must not contain whitespace or controls");
+export const sparkSessionArchiveEventSchema = z.object({
+  archivedAt: isoDateTimeSchema,
+  source: sparkSessionArchiveSourceSchema,
+  reason: z.string().trim().min(1).max(256).optional(),
+  tags: z.array(sparkSessionTagSchema).max(32).default([]),
+});
+
 export const sparkChannelAdapterOptions = ["feishu", "infoflow", "qqbot"] as const;
 export const sparkChannelAdapterSchema = z.enum(sparkChannelAdapterOptions);
 
@@ -86,6 +107,9 @@ const sparkSessionRegistryRecordBaseSchema = z.object({
   thinkingLevel: sparkThinkingLevelSchema.optional(),
   relation: sparkSessionRelationSchema.optional(),
   bindings: z.array(sparkSessionChannelBindingSchema).default([]),
+  /** Searchable lifecycle labels. Archive tags remain after restore. */
+  tags: z.array(sparkSessionTagSchema).max(64).optional(),
+  archiveHistory: z.array(sparkSessionArchiveEventSchema).optional(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
 });
@@ -166,6 +190,8 @@ export const sparkSessionCreateRequestSchema = z.preprocess(
 
 const sparkSessionListRequestBaseSchema = z.object({
   includeArchived: z.boolean().optional(),
+  query: z.string().trim().min(1).max(256).optional(),
+  tags: z.array(sparkSessionTagSchema).max(16).optional(),
   cursor: z.string().trim().min(1).optional(),
   limit: z.number().int().min(1).max(100).optional(),
 });
@@ -201,6 +227,14 @@ export const sparkSessionListRequestSchema = z.preprocess(
 export const sparkSessionGetRequestSchema = z.object({
   sessionId: z.string().trim().min(1),
 });
+
+export const sparkSessionArchiveRequestSchema = sparkSessionGetRequestSchema.extend({
+  source: sparkSessionArchiveSourceSchema.optional(),
+  reason: z.string().trim().min(1).max(256).optional(),
+  tags: z.array(sparkSessionTagSchema).max(32).optional(),
+});
+
+export const sparkSessionRestoreRequestSchema = sparkSessionGetRequestSchema;
 
 /**
  * Read one bounded transcript page. `beforeMessageId` is an exclusive cursor:
@@ -325,6 +359,8 @@ export const sparkAssignmentSchema = z.object({
 });
 
 export type SparkSessionStatus = z.infer<typeof sparkSessionStatusSchema>;
+export type SparkSessionArchiveSource = z.infer<typeof sparkSessionArchiveSourceSchema>;
+export type SparkSessionArchiveEvent = z.infer<typeof sparkSessionArchiveEventSchema>;
 export type SparkChannelAdapter = z.infer<typeof sparkChannelAdapterSchema>;
 export type SparkSessionChannelBinding = z.infer<typeof sparkSessionChannelBindingSchema>;
 export type SparkSessionScope = z.infer<typeof sparkSessionScopeSchema>;
@@ -348,10 +384,14 @@ export type SparkSessionListRequest =
       scope?: undefined;
       workspaceId?: string;
       includeArchived?: boolean;
+      query?: string;
+      tags?: string[];
       cursor?: string;
       limit?: number;
     };
 export type SparkSessionGetRequest = z.infer<typeof sparkSessionGetRequestSchema>;
+export type SparkSessionArchiveRequest = z.infer<typeof sparkSessionArchiveRequestSchema>;
+export type SparkSessionRestoreRequest = z.infer<typeof sparkSessionRestoreRequestSchema>;
 export type SparkSessionSnapshotRequest = z.infer<typeof sparkSessionSnapshotRequestSchema>;
 export type SparkSessionMediaReadRequest = z.infer<typeof sparkSessionMediaReadRequestSchema>;
 export type SparkSessionMediaReadResult = z.infer<typeof sparkSessionMediaReadResultSchema>;

@@ -31,10 +31,16 @@ export class SparkDaemonLocalRpcError extends Error {
 export class SparkDaemonLocalRpcRemoteError extends SparkDaemonLocalRpcError {
   override readonly name = "SparkDaemonLocalRpcRemoteError";
   readonly payload: unknown;
+  readonly code?: string;
+  readonly status?: number;
 
   constructor(message: string, payload: unknown) {
     super(message);
     this.payload = payload;
+    if (isRecord(payload)) {
+      if (typeof payload.code === "string") this.code = payload.code;
+      if (typeof payload.status === "number") this.status = payload.status;
+    }
   }
 }
 
