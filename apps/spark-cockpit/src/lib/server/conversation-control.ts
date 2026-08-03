@@ -1,3 +1,4 @@
+import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
 import {
   parseSparkAssignment,
   sparkTurnCancelResultSchema,
@@ -8,6 +9,8 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { createCockpitRuntimeSessionClient } from "./cockpit-runtime-session-client";
 import { conversationTurnIdempotencyKey } from "./conversation-submission";
+
+const cockpitMemoryDirectIntentAuthority = createSparkMemoryDirectIntentTurnAuthority();
 
 export interface SubmitCockpitConversationTurnInput {
   workspaceId?: string;
@@ -73,6 +76,17 @@ export async function submitConversationTurnForCockpit(
     source: { kind: "cockpit" },
   });
   const idempotencyKey = conversationTurnIdempotencyKey(input.sessionId, input.submissionId);
+  const directIntentTurnId = input.submissionId ?? globalThis.crypto.randomUUID();
+  const memoryDirectIntent = input.workspaceId
+    ? await cockpitMemoryDirectIntentAuthority.issue({
+        surface: "cockpit",
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+        turnId: `turn:${directIntentTurnId}`,
+        messageId: `message:${directIntentTurnId}`,
+        prompt: input.prompt,
+      })
+    : undefined;
   const result = await client.submit({
     sessionId: input.sessionId,
     prompt: input.prompt,
@@ -81,6 +95,7 @@ export async function submitConversationTurnForCockpit(
     ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     messageMetadata: {
       origin: { kind: "user", host: "web", surface: "local" },
+      ...(memoryDirectIntent ? { memoryDirectIntent } : {}),
       ...(input.attachments?.length
         ? {
             attachments: input.attachments.map(({ kind, name, mediaType, size }) => ({

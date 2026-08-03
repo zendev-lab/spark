@@ -1,12 +1,21 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
+import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
 import { SPARK_CHANNEL_ALLOWED_TOOLS } from "@zendev-lab/spark-host/system-prompt";
-import { createMemoryProposal, MemoryApprovalError } from "@zendev-lab/spark-memory";
-import type { SparkMemoryApprovalProof } from "@zendev-lab/spark-protocol";
+import {
+  createMemoryProposal,
+  defaultSparkMemoryStore,
+  MemoryApprovalError,
+} from "@zendev-lab/spark-memory";
+import {
+  SPARK_MEMORY_DIRECT_INTENT_REASON,
+  type SparkMemoryApprovalProof,
+} from "@zendev-lab/spark-protocol";
 import {
   DEFAULT_SPARK_EXTENSION_SPECS,
   SparkExtensionLoader,
@@ -23,6 +32,17 @@ import {
 } from "../native-tui.ts";
 import { catalogSparkNativeCommands } from "../native-tui/command-presentation.ts";
 import { nativeKernelSlashCommandEntries } from "../native-tui/slash-commands.ts";
+
+async function memorySnapshotDigest(cwd: string): Promise<string> {
+  try {
+    return createHash("sha256")
+      .update(await readFile(join(cwd, ".spark", "memory", "memory.json")))
+      .digest("hex");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return createHash("sha256").update("<missing>").digest("hex");
+  }
+}
 
 test("loadBuiltinExtensionFactories exposes the retained Spark CLI builtin extension set", () => {
   const builtinExpected = [
@@ -127,6 +147,276 @@ test("native memory loader injects the Ask-backed verifier", async () => {
     );
   } finally {
     await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("native memory loader accepts one exact host-signed direct remember intent", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "spark-memory-loader-direct-intent-"));
+  try {
+    const sessionId = "session:loader-direct-intent";
+    const authority = createSparkMemoryDirectIntentTurnAuthority();
+    const receipt = await authority.issue({
+      surface: "tui",
+      workspaceId: cwd,
+      sessionId,
+      turnId: "turn:loader-direct-intent",
+      messageId: "message:loader-direct-intent",
+      prompt: "remember: use pnpm for this workspace",
+    });
+    assert.ok(receipt);
+    const host = new SparkHostRuntime({ cwd, memoryDirectIntentAuthority: authority });
+    host.setSessionId(sessionId);
+    const loaded = await new SparkExtensionLoader({
+      api: host,
+      extensions: ["@zendev-lab/spark-memory/extension"],
+    }).load();
+    assert.equal(loaded.outcomes[0]?.ok, true);
+    const memory = host.getTool("memory")?.config;
+    assert.ok(memory);
+
+    const result = await memory.execute(
+      "memory-loader-direct-intent",
+      {
+        action: "remember",
+        text: "use pnpm for this workspace",
+      },
+      new AbortController().signal,
+      () => {},
+      host.makeContext(),
+    );
+
+    assert.equal(result.isError, undefined);
+    const entries = await defaultSparkMemoryStore(cwd, "workspace", undefined, {
+      workspaceId: cwd,
+    }).list();
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0]?.id, receipt.recordRef);
+    assert.equal(entries[0]?.text, "use pnpm for this workspace");
+    assert.equal(entries[0]?.lifecycle.approval.proofRef, receipt.receiptId);
+    assert.equal(JSON.stringify(memory.parameters).includes("memoryDirectIntent"), false);
+    assert.equal(JSON.stringify(memory.parameters).includes("publicKey"), false);
+    assert.equal(JSON.stringify(memory.parameters).includes("signature"), false);
+
+    const forgetReceipt = await authority.issue({
+      surface: "tui",
+      workspaceId: cwd,
+      sessionId,
+      turnId: "turn:loader-direct-forget",
+      messageId: "message:loader-direct-forget",
+      prompt: `forget ${receipt.recordRef}`,
+    });
+    assert.ok(forgetReceipt);
+    const storePath = join(cwd, ".spark", "memory", "memory.json");
+    const beforeReasonDrift = createHash("sha256")
+      .update(await readFile(storePath))
+      .digest("hex");
+    await assert.rejects(
+      async () =>
+        await memory.execute(
+          "memory-loader-direct-forget-reason-drift",
+          { action: "forget", id: receipt.recordRef, reason: "model-selected reason" },
+          new AbortController().signal,
+          () => {},
+          host.makeContext(),
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof MemoryApprovalError);
+        assert.equal(error.code, "MEMORY_APPROVAL_PROPOSAL_MISMATCH");
+        return true;
+      },
+    );
+    assert.equal(
+      createHash("sha256")
+        .update(await readFile(storePath))
+        .digest("hex"),
+      beforeReasonDrift,
+    );
+    await memory.execute(
+      "memory-loader-direct-forget",
+      { action: "forget", id: receipt.recordRef },
+      new AbortController().signal,
+      () => {},
+      host.makeContext(),
+    );
+    const forgotten = (
+      await defaultSparkMemoryStore(cwd, "workspace", undefined, { workspaceId: cwd }).list({
+        includeForgotten: true,
+      })
+    )[0];
+    assert.equal(forgotten?.status, "forgotten");
+    assert.equal(forgotten?.lifecycle.approval.proofRef, forgetReceipt.receiptId);
+
+    const beforeReplay = createHash("sha256")
+      .update(await readFile(storePath))
+      .digest("hex");
+    authority.clear();
+    await assert.rejects(
+      async () =>
+        await memory.execute(
+          "memory-loader-direct-intent-cross-turn-retry",
+          {
+            action: "forget",
+            id: receipt.recordRef,
+            reason: SPARK_MEMORY_DIRECT_INTENT_REASON,
+          },
+          new AbortController().signal,
+          () => {},
+          host.makeContext(),
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof MemoryApprovalError);
+        assert.equal(error.code, "MEMORY_APPROVAL_REQUIRED");
+        return true;
+      },
+    );
+    const afterReplay = createHash("sha256")
+      .update(await readFile(storePath))
+      .digest("hex");
+    assert.equal(afterReplay, beforeReplay);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test("native memory loader rejects invalid direct-intent vectors without durable mutation", async () => {
+  const cases = [
+    "ambiguous",
+    "stale-message",
+    "proposal-drift",
+    "cross-turn-session",
+    "operation-mismatch",
+    "high-risk-supersede",
+    "tampered-signature",
+    "foreign-key",
+    "turn-id-drift",
+    "message-id-drift",
+    "nonce-drift",
+    "expiry-drift",
+  ] as const;
+
+  for (const name of cases) {
+    const cwd = await mkdtemp(join(tmpdir(), `spark-memory-direct-${name}-`));
+    try {
+      const sessionId = "session:invalid-direct-intent";
+      const authority = createSparkMemoryDirectIntentTurnAuthority();
+      let hostSessionId = sessionId;
+      let params: Record<string, unknown> = { action: "remember", text: "exact" };
+      let expectedCode: MemoryApprovalError["code"] = "MEMORY_APPROVAL_INVALID";
+      let receipt;
+
+      if (name === "ambiguous") {
+        receipt = await authority.issue({
+          surface: "tui",
+          workspaceId: cwd,
+          sessionId,
+          turnId: "turn:ambiguous",
+          messageId: "message:ambiguous",
+          prompt: "remember: one and forget memory:two",
+        });
+        params = {
+          action: "remember",
+          scope: "workspace",
+          category: "insight",
+          text: "one",
+          reason: SPARK_MEMORY_DIRECT_INTENT_REASON,
+        };
+        expectedCode = "MEMORY_APPROVAL_REQUIRED";
+      } else {
+        const prompt =
+          name === "operation-mismatch"
+            ? "forget memory:not-authorized-for-create"
+            : name === "high-risk-supersede"
+              ? "remember: cannot authorize supersede"
+              : name === "foreign-key"
+                ? "remember: local authority"
+                : name === "stale-message"
+                  ? "remember: stale"
+                  : "remember: exact";
+        receipt = await authority.issue({
+          surface: "tui",
+          workspaceId: cwd,
+          sessionId,
+          turnId: `turn:${name}`,
+          messageId: `message:${name}`,
+          prompt,
+          ...(name === "stale-message"
+            ? { now: new Date("2000-01-01T00:00:00.000Z"), ttlMs: 1 }
+            : {}),
+        });
+        assert.ok(receipt);
+      }
+
+      let contextReceipt = receipt;
+      if (name === "proposal-drift") {
+        params = { action: "remember", text: "changed" };
+        expectedCode = "MEMORY_APPROVAL_PROPOSAL_MISMATCH";
+      } else if (name === "cross-turn-session") {
+        hostSessionId = "session:different-turn";
+        expectedCode = "MEMORY_APPROVAL_SCOPE_MISMATCH";
+      } else if (name === "operation-mismatch") {
+        params = { action: "remember", text: "not authorized" };
+        expectedCode = "MEMORY_CANONICAL_ASK_REQUIRED";
+      } else if (name === "high-risk-supersede") {
+        params = {
+          kind: "learning",
+          action: "supersede",
+          id: "learning:old",
+          supersededBy: ["learning:new"],
+        };
+        expectedCode = "MEMORY_CANONICAL_ASK_REQUIRED";
+      } else if (name === "tampered-signature") {
+        contextReceipt = { ...receipt!, signature: "tampered" };
+      } else if (name === "foreign-key") {
+        const foreignAuthority = createSparkMemoryDirectIntentTurnAuthority();
+        contextReceipt = await foreignAuthority.issue({
+          surface: "tui",
+          workspaceId: cwd,
+          sessionId,
+          turnId: "turn:foreign",
+          messageId: "message:foreign",
+          prompt: "remember: exact",
+        });
+      } else if (name === "turn-id-drift") {
+        contextReceipt = { ...receipt!, turnId: "turn:tampered" };
+      } else if (name === "message-id-drift") {
+        contextReceipt = { ...receipt!, messageId: "message:tampered" };
+      } else if (name === "nonce-drift") {
+        contextReceipt = { ...receipt!, nonce: "tampered" };
+      } else if (name === "expiry-drift") {
+        contextReceipt = { ...receipt!, expiresAt: "2099-01-01T00:00:00.000Z" };
+      }
+
+      const host = new SparkHostRuntime({ cwd, memoryDirectIntentAuthority: authority });
+      host.setSessionId(hostSessionId);
+      await new SparkExtensionLoader({
+        api: host,
+        extensions: ["@zendev-lab/spark-memory/extension"],
+      }).load();
+      const memory = host.getTool("memory")?.config;
+      assert.ok(memory);
+      const before = await memorySnapshotDigest(cwd);
+      const context = contextReceipt
+        ? host.makeContext({ memoryDirectIntent: contextReceipt })
+        : host.makeContext();
+      await assert.rejects(
+        async () =>
+          await memory.execute(
+            `invalid-${name}`,
+            params,
+            new AbortController().signal,
+            () => {},
+            context,
+          ),
+        (error: unknown) => {
+          assert.ok(error instanceof MemoryApprovalError);
+          assert.equal(error.code, expectedCode);
+          return true;
+        },
+      );
+      assert.equal(await memorySnapshotDigest(cwd), before);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   }
 });
 

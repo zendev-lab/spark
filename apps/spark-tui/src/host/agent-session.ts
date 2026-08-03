@@ -122,52 +122,87 @@ export class SparkAgentSession {
     const record = await this.loadOrCreateRecord(options, Boolean(options.restartCheckpoint));
     this.services.runtime.setSessionId(record.header.id);
     this.services.agentLoop.setViewSessionId(record.header.id);
-    if (options.restartCheckpoint) {
-      return await this.resumeFromRestartCheckpoint(record, options, options.restartCheckpoint);
-    }
-    const prompt = promptWithResumeNotice(options.prompt, options.resumeFromInterrupt);
-    await this.tryPreflightCompaction(record, prompt);
-    let beforeCount = this.loadPromptItems(record);
-    let outcome = await this.services.agentLoop.submitWithOutcome(
-      prompt,
-      this.restartHooks(record, beforeCount, options),
-    );
+    const promptText = typeof options.prompt === "string" ? options.prompt : undefined;
+    const directIntentAuthority = this.services.memoryDirectIntentAuthority;
+    directIntentAuthority?.clear();
+    const runtimeContext = this.services.runtime.makeContext();
+    const turnIdentity = this.services.runtime.invocationId ?? globalThis.crypto.randomUUID();
+    const directIntentReceipt =
+      promptText && directIntentAuthority
+        ? await directIntentAuthority.issue({
+            surface:
+              this.services.runtime.sessionSurface === "channel"
+                ? "channel"
+                : this.services.runtime.sessionSource === "web"
+                  ? "cockpit"
+                  : "tui",
+            workspaceId:
+              runtimeContext.sessionLease?.()?.workspaceId ??
+              this.services.runtime.channelBinding?.workspaceId ??
+              this.services.cwd,
+            sessionId: record.header.id,
+            turnId: `turn:${turnIdentity}`,
+            messageId: `message:${turnIdentity}`,
+            prompt: promptText,
+          })
+        : undefined;
+    const messageMetadata = directIntentReceipt
+      ? { ...recordMetadata(options.messageMetadata), memoryDirectIntent: directIntentReceipt }
+      : options.messageMetadata;
+    try {
+      if (options.restartCheckpoint) {
+        return await this.resumeFromRestartCheckpoint(
+          record,
+          { ...options, messageMetadata },
+          options.restartCheckpoint,
+        );
+      }
+      const prompt = promptWithResumeNotice(options.prompt, options.resumeFromInterrupt);
+      await this.tryPreflightCompaction(record, prompt);
+      let beforeCount = this.loadPromptItems(record);
+      let outcome = await this.services.agentLoop.submitWithOutcome(
+        prompt,
+        this.restartHooks(record, beforeCount, options),
+      );
 
-    let compactAttempt = 0;
-    while (
-      outcome.status === "failed" &&
-      classifyProviderFailure(outcome.errorMessage).failureClass === "context_overflow" &&
-      compactAttempt < MAX_CONTEXT_OVERFLOW_COMPACTIONS
-    ) {
-      await delay(CONTEXT_OVERFLOW_COMPACT_BACKOFF_MS[compactAttempt] ?? 10_000);
-      if (!(await this.tryCompact(record, "context_overflow", true, true))) break;
-      compactAttempt += 1;
-      // The failed attempt only exists in the loop's transient prompt state.
-      // Reload from the persisted compacted record so the user prompt and
-      // provider error are neither duplicated nor written into session history.
-      beforeCount = this.loadPromptItems(record);
-      outcome = await this.services.agentLoop.submitWithOutcome(
-        prompt,
-        this.restartHooks(record, beforeCount, options),
-      );
+      let compactAttempt = 0;
+      while (
+        outcome.status === "failed" &&
+        classifyProviderFailure(outcome.errorMessage).failureClass === "context_overflow" &&
+        compactAttempt < MAX_CONTEXT_OVERFLOW_COMPACTIONS
+      ) {
+        await delay(CONTEXT_OVERFLOW_COMPACT_BACKOFF_MS[compactAttempt] ?? 10_000);
+        if (!(await this.tryCompact(record, "context_overflow", true, true))) break;
+        compactAttempt += 1;
+        // The failed attempt only exists in the loop's transient prompt state.
+        // Reload from the persisted compacted record so the user prompt and
+        // provider error are neither duplicated nor written into session history.
+        beforeCount = this.loadPromptItems(record);
+        outcome = await this.services.agentLoop.submitWithOutcome(
+          prompt,
+          this.restartHooks(record, beforeCount, options),
+        );
+      }
+      let rateLimitAttempt = 0;
+      while (
+        outcome.status === "failed" &&
+        classifyProviderFailure(outcome.errorMessage).failureClass === "rate_limit" &&
+        rateLimitAttempt < MAX_RATE_LIMIT_RETRIES
+      ) {
+        await delay(RATE_LIMIT_BACKOFF_MS[rateLimitAttempt] ?? 20_000);
+        rateLimitAttempt += 1;
+        // Same as overflow recovery: drop the failed transient turn and resubmit
+        // from the last persisted session snapshot.
+        beforeCount = this.loadPromptItems(record);
+        outcome = await this.services.agentLoop.submitWithOutcome(
+          prompt,
+          this.restartHooks(record, beforeCount, options),
+        );
+      }
+      return await this.persistRunOutcome(record, beforeCount, outcome, messageMetadata);
+    } finally {
+      directIntentAuthority?.clear();
     }
-    let rateLimitAttempt = 0;
-    while (
-      outcome.status === "failed" &&
-      classifyProviderFailure(outcome.errorMessage).failureClass === "rate_limit" &&
-      rateLimitAttempt < MAX_RATE_LIMIT_RETRIES
-    ) {
-      await delay(RATE_LIMIT_BACKOFF_MS[rateLimitAttempt] ?? 20_000);
-      rateLimitAttempt += 1;
-      // Same as overflow recovery: drop the failed transient turn and resubmit
-      // from the last persisted session snapshot.
-      beforeCount = this.loadPromptItems(record);
-      outcome = await this.services.agentLoop.submitWithOutcome(
-        prompt,
-        this.restartHooks(record, beforeCount, options),
-      );
-    }
-    return await this.persistRunOutcome(record, beforeCount, outcome, options.messageMetadata);
   }
 
   private async resumeFromRestartCheckpoint(

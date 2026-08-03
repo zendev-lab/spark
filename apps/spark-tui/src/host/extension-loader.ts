@@ -3,6 +3,7 @@
 import { resolve } from "node:path";
 
 import type { SparkHostAPI } from "@zendev-lab/spark-core";
+import { sparkMemoryDirectIntentReceiptSchema } from "@zendev-lab/spark-protocol";
 
 import sparkAskExtension from "@zendev-lab/spark-ask/extension";
 import sparkArtifactsExtension from "@zendev-lab/spark-artifacts/extension";
@@ -146,8 +147,13 @@ async function loadSparkMemoryExtension(api: SparkHostAPI): Promise<void> {
       : {}),
   };
   sparkMemoryExtension(memoryApi, {
-    createApprovalVerifier: (cwd) => createAskBackedMemoryApprovalVerifier(cwd),
-    workspaceId: (cwd) => resolve(cwd),
+    createApprovalVerifier: (cwd, ctx) => createAskBackedMemoryApprovalVerifier(cwd, ctx),
+    workspaceId: (cwd, ctx) => {
+      const directIntent = sparkMemoryDirectIntentReceiptSchema.safeParse(ctx.memoryDirectIntent);
+      return directIntent.success
+        ? directIntent.data.workspaceId
+        : (ctx.sessionLease?.()?.workspaceId ?? resolve(cwd));
+    },
   });
 }
 

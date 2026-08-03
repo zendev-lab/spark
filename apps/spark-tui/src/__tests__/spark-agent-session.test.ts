@@ -236,6 +236,41 @@ test("SparkAgentSession persists and resumes JSONL sessions", async () => {
   }
 });
 
+test("SparkAgentSession signs and persists one exact local direct-memory turn", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-direct-intent-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    const services = await makeFakeServices({ cwd, sparkHome });
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "session-direct-intent",
+      prompt: "remember: keep this exact local intent",
+    });
+
+    const record = await services.sessionStore.load(result.sessionPath);
+    const user = record.entries.find(
+      (entry) => entry.type === "message" && entry.message.role === "user",
+    );
+    assert.equal(user?.type, "message");
+    const receipt =
+      user?.type === "message"
+        ? (user.message.metadata as Record<string, unknown> | undefined)?.memoryDirectIntent
+        : undefined;
+    const receiptRecord = receipt as Record<string, unknown>;
+    assert.equal(receiptRecord.surface, "tui");
+    assert.equal(receiptRecord.workspaceId, cwd);
+    assert.equal(receiptRecord.sessionId, "session-direct-intent");
+    assert.equal(receiptRecord.operation, "remember");
+    assert.match(String(receiptRecord.keyId), /^[a-f0-9]{64}$/u);
+    assert.equal(typeof receiptRecord.signature, "string");
+    assert.equal(JSON.stringify(receipt).includes("keep this exact local intent"), false);
+    assert.equal(services.runtime.makeContext().memoryDirectIntent, undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("SparkAgentSession restores a restart checkpoint without replaying its prompt", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-restart-checkpoint-"));
   try {

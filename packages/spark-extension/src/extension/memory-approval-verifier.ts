@@ -2,23 +2,34 @@ import { join, resolve } from "node:path";
 
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { verifyCanonicalAskEvidence } from "@zendev-lab/spark-ask";
-import type { EvidenceRef } from "@zendev-lab/spark-core";
+import type { EvidenceRef, SparkHostContext } from "@zendev-lab/spark-core";
 import {
   createFileMemoryApprovalProofCommitter,
   createFileMemoryApprovalProofReserver,
   createMemoryApprovalVerifier,
   type MemoryApprovalVerifier,
 } from "@zendev-lab/spark-memory";
-import type { SparkMemoryApprovalProof } from "@zendev-lab/spark-protocol";
+import {
+  sparkMemoryDirectIntentAnswerDigest,
+  sparkMemoryDirectIntentReceiptSchema,
+  type SparkMemoryApprovalProof,
+} from "@zendev-lab/spark-protocol";
 
 const verifierByWorkspace = new Map<string, MemoryApprovalVerifier>();
 
-export function createAskBackedMemoryApprovalVerifier(cwd: string): MemoryApprovalVerifier {
+export function createAskBackedMemoryApprovalVerifier(
+  cwd: string,
+  ctx?: SparkHostContext,
+): MemoryApprovalVerifier {
   const workspaceRoot = resolve(cwd);
-  const existing = verifierByWorkspace.get(workspaceRoot);
+  const directReceipt = sparkMemoryDirectIntentReceiptSchema.safeParse(ctx?.memoryDirectIntent);
+  const existing = directReceipt.success ? undefined : verifierByWorkspace.get(workspaceRoot);
   if (existing) return existing;
   const verifier = createMemoryApprovalVerifier({
-    authenticateProof: async (proof) => await proofMatchesCanonicalAsk(workspaceRoot, proof),
+    authenticateProof: async (proof) =>
+      directReceipt.success && proof.proofRef === directReceipt.data.receiptId
+        ? await proofMatchesDirectIntent(ctx, directReceipt.data, proof)
+        : await proofMatchesCanonicalAsk(workspaceRoot, proof),
     reserveProof: createFileMemoryApprovalProofReserver(
       join(workspaceRoot, ".spark", "memory", "approval-consumptions.json"),
     ),
@@ -26,8 +37,30 @@ export function createAskBackedMemoryApprovalVerifier(cwd: string): MemoryApprov
       join(workspaceRoot, ".spark", "memory", "approval-consumptions.json"),
     ),
   });
-  verifierByWorkspace.set(workspaceRoot, verifier);
+  if (!directReceipt.success) verifierByWorkspace.set(workspaceRoot, verifier);
   return verifier;
+}
+
+async function proofMatchesDirectIntent(
+  ctx: SparkHostContext | undefined,
+  receipt: ReturnType<typeof sparkMemoryDirectIntentReceiptSchema.parse>,
+  proof: SparkMemoryApprovalProof,
+): Promise<boolean> {
+  if (!(await ctx?.verifyMemoryDirectIntent?.(receipt))) return false;
+  if (ctx?.sessionId !== receipt.sessionId) return false;
+  if (ctx?.sessionSurface === "channel" && receipt.surface !== "channel") return false;
+  if (ctx?.sessionSurface === "local" && receipt.surface === "channel") return false;
+  if (proof.proofRef !== receipt.receiptId) return false;
+  if (proof.workspaceId !== receipt.workspaceId) return false;
+  if (proof.recordRef !== receipt.recordRef) return false;
+  if (proof.operation !== receipt.operation) return false;
+  if (proof.scope !== receipt.scope) return false;
+  if (proof.nonce !== receipt.nonce) return false;
+  if (proof.issuedAt !== receipt.issuedAt || proof.expiresAt !== receipt.expiresAt) return false;
+  if (receipt.expectedRevision !== null && proof.expectedRevision !== receipt.expectedRevision) {
+    return false;
+  }
+  return proof.answerDigest === (await sparkMemoryDirectIntentAnswerDigest(receipt));
 }
 
 async function proofMatchesCanonicalAsk(

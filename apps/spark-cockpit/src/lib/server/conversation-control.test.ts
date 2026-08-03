@@ -45,6 +45,40 @@ describe("Cockpit conversation control", () => {
     });
   });
 
+  it("attaches a signed one-turn receipt for one exact direct memory command", async () => {
+    const submit = vi.fn().mockResolvedValue({
+      invocationId: "inv_001",
+      status: "queued",
+      acceptedAt: "2026-08-03T08:00:00.000Z",
+    });
+
+    await submitConversationTurnForCockpit(
+      {
+        workspaceId: "ws_direct_intent",
+        sessionId: "sess_direct_intent",
+        prompt: "remember: keep Cockpit intent exact",
+        title: "Remember preference",
+        submissionId: "submission-direct-intent",
+      },
+      { submit },
+    );
+
+    const metadata = submit.mock.calls[0]?.[0].messageMetadata;
+    const receipt = metadata?.memoryDirectIntent;
+    expect(receipt).toMatchObject({
+      schema: "spark.memory.direct-intent-receipt/v1",
+      surface: "cockpit",
+      workspaceId: "ws_direct_intent",
+      sessionId: "sess_direct_intent",
+      turnId: "turn:submission-direct-intent",
+      messageId: "message:submission-direct-intent",
+      operation: "remember",
+      keyId: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      signature: expect.any(String),
+    });
+    expect(JSON.stringify(metadata)).not.toContain("keep Cockpit intent exact");
+  });
+
   it("forwards a browser submission nonce as a stable daemon idempotency key", async () => {
     const submit = vi.fn().mockResolvedValue({
       invocationId: "inv_nonce",

@@ -1,3 +1,4 @@
+import type { SparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
 import type { SparkSessionLeaseIdentity, ToolEffect } from "@zendev-lab/spark-core";
 import type { SparkConfig } from "./config.ts";
 import type { SparkExtensionLoadResult } from "./extension-loader.ts";
@@ -34,6 +35,7 @@ export interface SparkCliHostServices {
   config: SparkConfig;
   saveConfig?: (config: SparkConfig) => Promise<void>;
   runtime: SparkHostRuntime;
+  memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
   keybindings: SparkKeybindings;
   providerRegistry: SparkProviderRegistry;
   authStore?: SparkAuthStore;
@@ -61,6 +63,8 @@ export interface SparkCliHostServicesOptions {
   sessionLease?: SparkSessionLeaseIdentity;
   channelBinding?: SparkHostRuntimeOptions["channelBinding"];
   invocationId?: string;
+  /** Host-private test/bootstrap seam; never exposed to extensions or model tools. */
+  memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
   stateOwnerSessionId?: string;
   driver?: SparkHostRuntimeOptions["driver"];
   sessionQuestionChain?: readonly string[];

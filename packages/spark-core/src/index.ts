@@ -775,6 +775,13 @@ export interface SparkHostContext {
   sessionLease?: () => SparkSessionLeaseIdentity | undefined;
   /** Current daemon invocation, available only in daemon-owned headless turns. */
   invocationId?: string;
+  /**
+   * Host-signed, current-turn direct-memory intent receipt. Hosts keep the
+   * signer private and expose only this verification input to capability code.
+   */
+  memoryDirectIntent?: unknown;
+  /** Host-private verification closure for the exact active turn receipt. */
+  verifyMemoryDirectIntent?: (value: unknown) => Promise<boolean> | boolean;
   /** Present only inside a daemon-owned autonomous driver tick. */
   driver?: SparkHostDriverContext;
   /** Session IDs already participating in a synchronous question chain. */

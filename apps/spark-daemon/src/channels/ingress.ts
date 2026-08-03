@@ -34,15 +34,19 @@ import {
   type IncomingMessage,
   type RoutedChannelInteractionEvent,
 } from "@zendev-lab/spark-channels";
+import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
 import {
   parseSparkAssignment,
   type SparkAssignment,
+  type SparkMemoryDirectIntentReceipt,
   type SparkMessageView,
   type SparkSessionRegistryRecord,
 } from "@zendev-lab/spark-protocol";
 import { loadSparkSessionSnapshot } from "@zendev-lab/spark-session";
 import { resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
 import { createHash, randomUUID } from "node:crypto";
+
+const channelMemoryDirectIntentAuthority = createSparkMemoryDirectIntentTurnAuthority();
 import { mkdir, readdir, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createDaemonSessionRegistry, type DaemonSessionRegistry } from "../session-registry.ts";
@@ -69,6 +73,8 @@ export interface ChannelIngressAssignment {
   };
   /** Platform facts for this inbound turn, kept out of the canonical user message body. */
   channelContext?: SparkDaemonChannelContext;
+  /** Host-signed direct memory intent bound to this exact platform message. */
+  memoryDirectIntent?: SparkMemoryDirectIntentReceipt;
 }
 
 export interface ChannelIngressHooks {
@@ -445,6 +451,15 @@ export function createChannelIngressController(input: {
       },
     });
     let admission: void | "duplicate";
+    const directIntentMessageId = enrichedMessage.messageId?.trim() || randomUUID();
+    const memoryDirectIntent = await channelMemoryDirectIntentAuthority.issue({
+      surface: "channel",
+      workspaceId: input.workspaceId,
+      sessionId: session.sessionId,
+      turnId: `turn:${directIntentMessageId}`,
+      messageId: `message:${directIntentMessageId}`,
+      prompt: rawGoal,
+    });
     try {
       admission = await input.hooks.onAssignment({
         sessionId: session.sessionId,
@@ -465,6 +480,7 @@ export function createChannelIngressController(input: {
           recipient: replyRecipient,
         },
         channelContext: channelContextFromIncoming(enrichedMessage),
+        ...(memoryDirectIntent ? { memoryDirectIntent } : {}),
       });
     } catch (error) {
       try {

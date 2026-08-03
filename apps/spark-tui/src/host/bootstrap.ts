@@ -9,6 +9,7 @@ import {
   createProviderRegistryWorkflowModelRunner,
   type Model,
 } from "@zendev-lab/spark-ai";
+import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
 import {
   DEFAULT_SPARK_IDENTITY_PROMPT,
   renderAgentRuntimeContextPrompt,
@@ -90,6 +91,8 @@ export async function createSparkCliHostServices(
     });
   }
 
+  const memoryDirectIntentAuthority =
+    options.memoryDirectIntentAuthority ?? createSparkMemoryDirectIntentTurnAuthority();
   const runtime = new SparkHostRuntime({
     cwd,
     sparkStateRoot: options.sparkStateRoot,
@@ -97,6 +100,7 @@ export async function createSparkCliHostServices(
     sessionSource: options.sessionSource,
     channelBinding: options.channelBinding,
     invocationId: options.invocationId,
+    memoryDirectIntentAuthority,
     stateOwnerSessionId: options.stateOwnerSessionId,
     driver: options.driver,
     sessionQuestionChain: options.sessionQuestionChain,
@@ -384,6 +388,7 @@ export async function createSparkCliHostServices(
     config,
     saveConfig: saveLoadedConfig,
     runtime,
+    memoryDirectIntentAuthority,
     keybindings,
     providerRegistry,
     authStore,

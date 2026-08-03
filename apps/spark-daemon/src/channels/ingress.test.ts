@@ -432,6 +432,59 @@ describe("channel ingress", () => {
     expect(controller.status().configured).toBe(true);
   });
 
+  it("signs one exact channel direct-memory command with platform message identity", async () => {
+    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-direct-intent-"));
+    roots.push(sparkHome);
+    const registry = new SparkSessionRegistry({
+      rootDir: defaultSparkSessionRegistryRoot(sparkHome),
+    });
+    const session = await registry.create({ workspaceId: "ws_direct", title: "Direct" });
+    await registry.bind({
+      sessionId: session.sessionId,
+      externalKey: "feishu:chat:oc_direct",
+    });
+    const assignments: ChannelIngressAssignment[] = [];
+    const transport = new FakeChannelTransport();
+    const controller = createChannelIngressController({
+      sparkHome,
+      config: parseChannelsConfig({
+        adapters: { feishu: { type: "feishu" } },
+        routes: {},
+        ingress: { enabled: true, on_unbound: "reject" },
+      }),
+      hooks: {
+        onAssignment: async (assignment) => {
+          assignments.push(assignment);
+        },
+      },
+      sessionRegistry: registry,
+      workspaceId: "ws_direct",
+      createTransport: () => transport,
+    });
+
+    await controller.start();
+    transport.emitInbound({
+      chat_id: "oc_direct",
+      text: "remember: preserve channel intent",
+      message_id: "message-direct",
+    });
+    await vi.waitFor(() => expect(assignments).toHaveLength(1));
+    await controller.stop();
+
+    const receipt = assignments[0]?.memoryDirectIntent;
+    expect(receipt).toMatchObject({
+      surface: "channel",
+      workspaceId: "ws_direct",
+      sessionId: session.sessionId,
+      turnId: "turn:message-direct",
+      messageId: "message:message-direct",
+      operation: "remember",
+      keyId: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      signature: expect.any(String),
+    });
+    expect(JSON.stringify(receipt)).not.toContain("preserve channel intent");
+  });
+
   it("waits for already-received inbound admission before stopping", async () => {
     const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-drain-"));
     roots.push(sparkHome);
