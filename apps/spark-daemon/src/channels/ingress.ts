@@ -314,7 +314,13 @@ export async function migrateLegacyChannelsConfig(
     throw error;
   }
 
-  parseChannelsConfig(JSON.parse(raw) as unknown);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch (error) {
+    throw new Error(`invalid legacy channels config: ${legacy}`, { cause: error });
+  }
+  parseChannelsConfig(parsed);
   await mkdir(dirname(dest), { recursive: true });
   writePrivateFile(dest, raw.endsWith("\n") ? raw : `${raw}\n`);
   try {

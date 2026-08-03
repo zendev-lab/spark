@@ -781,6 +781,20 @@ describe("channel ingress", () => {
     expect(await migrateLegacyChannelsConfig(sparkHome, "ws_spore")).toBe(false);
   });
 
+  it("rejects malformed legacy channel config before creating a workspace copy", async () => {
+    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-migrate-invalid-"));
+    roots.push(sparkHome);
+    await mkdir(join(sparkHome, "channels"), { recursive: true });
+    await writeFile(join(sparkHome, "channels", "config.json"), "{not-json\n");
+
+    await expect(migrateLegacyChannelsConfig(sparkHome, "ws_invalid")).rejects.toThrow(
+      /invalid legacy channels config/u,
+    );
+    await expect(
+      readFile(workspaceChannelsConfigPath(sparkHome, "ws_invalid"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("configures channel ingress per workspace and stores credentials privately", async () => {
     const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-runtime-"));
     roots.push(sparkHome);
