@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 
 import type {
-  PreviewContentFormat,
-  PreviewProgress,
   Artifact,
   ArtifactBody,
+  ArtifactProgress,
   ArtifactRef,
+  PreviewContentFormat,
 } from "./types.ts";
 
 /** Keep Artifact projections within Cockpit's inline-preview budget. */
@@ -26,9 +26,12 @@ export interface ArtifactProjectionContentRef {
   inlineJson?: Record<string, unknown>;
   inlineMarkdown?: string;
   inlineText?: string;
+  mediaType?: string;
+  revision?: number;
+  /** Compatibility projection for protocol v1/Cockpit consumers. */
   previewFormat?: PreviewContentFormat;
   version?: number;
-  progress?: PreviewProgress | null;
+  progress?: ArtifactProgress | null;
 }
 
 export interface ArtifactProjection {
@@ -45,20 +48,22 @@ export interface ArtifactProjection {
  * consumed by daemon and Cockpit projections.
  */
 export function projectArtifact(artifact: Artifact): ArtifactProjection {
-  if (artifact.body.kind === "preview") {
+  if (artifact.body.kind === "document") {
     const content = artifact.body.content;
     const sizeBytes = Buffer.byteLength(content, "utf8");
-    const isMarkdown = artifact.body.format === "md";
+    const isMarkdown = artifact.body.mediaType === "text/markdown";
     return {
       schemaVersion: 1,
       format: isMarkdown ? "markdown" : "text",
-      mime: isMarkdown ? "text/markdown; charset=utf-8" : "text/plain; charset=utf-8",
+      mime: artifact.body.mediaType,
       sizeBytes,
       hash: sha256(content),
       contentRef: {
         artifactRef: artifact.ref,
-        previewFormat: artifact.body.format,
-        version: artifact.body.version,
+        mediaType: artifact.body.mediaType,
+        revision: artifact.body.revision,
+        previewFormat: compatibilityPreviewFormat(artifact.body.mediaType),
+        version: artifact.body.revision,
         progress: artifact.body.progress ?? null,
         ...(sizeBytes <= ARTIFACT_PROJECTION_MAX_INLINE_BYTES
           ? isMarkdown
@@ -88,6 +93,23 @@ export function projectArtifact(artifact: Artifact): ArtifactProjection {
         : {}),
     },
   };
+}
+
+function compatibilityPreviewFormat(mediaType: string): PreviewContentFormat | undefined {
+  switch (mediaType) {
+    case "text/markdown":
+      return "md";
+    case "text/mdx":
+      return "mdx";
+    case "text/html":
+      return "html";
+    case "application/vnd.a2ui+json":
+      return "a2ui";
+    case "application/vnd.spark-ui+json":
+      return "spark-ui";
+    default:
+      return undefined;
+  }
 }
 
 function serializeBody(body: ArtifactBody): string {

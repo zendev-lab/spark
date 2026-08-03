@@ -34,7 +34,7 @@ const columns = [
   { id: "other", label: "Other" },
 ] as const;
 
-const ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
+const ARTIFACT_KINDS = new Set(["issue", "git_change", "document", "pr", "preview"]);
 
 export function buildProjectTaskBoard(input: {
   tasks: readonly ProjectTaskBoardTask[];
@@ -47,7 +47,7 @@ export function buildProjectTaskBoard(input: {
     const columnId = columns.some((column) => column.id === task.statusGroup)
       ? task.statusGroup
       : "other";
-    // Only artifacts (issue/pr/preview) are user-visible; internal evidence stays off the board.
+    // Only Artifacts (issue/git_change/document) are user-visible; evidence stays off the board.
     const artifacts = [...(task.outputArtifactIds ?? []), ...(task.inputArtifactIds ?? [])]
       .flatMap((artifactId) => artifactById.get(artifactId) ?? [])
       .filter((artifact) => ARTIFACT_KINDS.has(artifact.kind))

@@ -50,6 +50,7 @@ const legacyDaemonClientCompatibilitySources = new Set([
 
 function runArchitectureRatchets() {
   const failures = [];
+  const sealedPackagePaths = new Set(architecture.sealedPackagePaths ?? []);
   const workspacePackages = ["apps", "packages"].flatMap((workspaceDir) =>
     readdirSync(join(root, workspaceDir), { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -57,12 +58,22 @@ function runArchitectureRatchets() {
       .map((entry) => {
         const path = `${workspaceDir}/${entry.name}`;
         return { path, manifest: readJson(join(root, path, "package.json")) };
-      }),
+      })
+      .filter(({ path }) => !sealedPackagePaths.has(path)),
   );
   const workspaceByName = new Map(
     workspacePackages.map((workspacePackage) => [workspacePackage.manifest.name, workspacePackage]),
   );
   const declaredPackages = architecture.packages ?? {};
+
+  for (const sealedPath of sealedPackagePaths) {
+    if (!isFile(join(root, sealedPath, "package.json"))) {
+      failures.push(`sealed package ${sealedPath} must retain its source manifest`);
+    }
+    if (Object.values(declaredPackages).some((declaration) => declaration.path === sealedPath)) {
+      failures.push(`sealed package ${sealedPath} must not remain in the package inventory`);
+    }
+  }
 
   if (workspacePackages.length > architecture.maxWorkspacePackages) {
     failures.push(

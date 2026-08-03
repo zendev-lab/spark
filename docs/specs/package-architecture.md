@@ -65,8 +65,12 @@ state; Cockpit owns its coordination database and projections.
   capability or foundation package before daemon/native reuse.
 - `spark-acp` is the supported stateless ACP adapter. It depends on
   `spark-daemon-client` and `spark-protocol`, while daemon session/invocation
-  stores remain the only writers. `spark-mcp-spike` remains experimental until
-  it has a production owner, default lifecycle, and validation contract.
+  stores remain the only writers.
+- `spark-lens` owns provider, capability-route, observation, verdict, and
+  workspace-revision primitives. It performs no durable writes; the daemon owns
+  provider sessions, cancellation, caches, and persisted Lens state.
+- `spark-mcp-spike` source remains in place as a sealed experiment, but it is
+  excluded from the workspace and package inventory.
 - `spark-context` was removed after all callers converged on
   `spark-host/context`; compatibility-only re-export packages are not permanent
   architecture.

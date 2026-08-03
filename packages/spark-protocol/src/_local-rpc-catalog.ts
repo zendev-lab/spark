@@ -1227,6 +1227,31 @@ const providerNameInputSchema = z.object({ providerName: z.string().trim().min(1
 const flowIdInputSchema = z.object({ flowId: z.string().trim().min(1) });
 const workspaceIdMutationInputSchema = z.object({ id: z.string().min(1) });
 
+const sparkLocalRpcToolExecutionBaseInputSchema = z.object({
+  cwd: z.string().trim().min(1),
+  toolCallId: z.string().trim().min(1),
+  operationId: z.string().trim().min(1),
+  params: sparkProtocolJsonObjectSchema,
+  hostContext: z
+    .object({
+      sessionSource: z.enum(["tui", "web", "channel", "daemon", "session"]).optional(),
+      sessionSurface: z.enum(["local", "channel"]).optional(),
+      hasUI: z.boolean().optional(),
+    })
+    .optional(),
+});
+
+export const sparkLocalRpcToolExecutionResultSchema = z.object({
+  content: z.array(
+    z.object({
+      type: z.literal("text"),
+      text: z.string(),
+    }),
+  ),
+  details: sparkProtocolJsonObjectSchema.optional(),
+  isError: z.boolean().optional(),
+});
+
 export const sparkLocalRpcProcedureSchemas = {
   "daemon.status": {
     input: sparkLocalRpcEmptyInputSchema,
@@ -1239,6 +1264,24 @@ export const sparkLocalRpcProcedureSchemas = {
   "daemon.restart": {
     input: sparkLocalRpcEmptyInputSchema,
     output: sparkLocalRpcDaemonRestartResultSchema,
+  },
+  "file.execute": {
+    input: sparkLocalRpcToolExecutionBaseInputSchema.extend({
+      tool: z.enum(["read", "write", "edit", "grep", "find"]),
+    }),
+    output: sparkLocalRpcToolExecutionResultSchema,
+  },
+  "artifact.execute": {
+    input: sparkLocalRpcToolExecutionBaseInputSchema,
+    output: sparkLocalRpcToolExecutionResultSchema,
+  },
+  "git.execute": {
+    input: sparkLocalRpcToolExecutionBaseInputSchema,
+    output: sparkLocalRpcToolExecutionResultSchema,
+  },
+  "lens.execute": {
+    input: sparkLocalRpcToolExecutionBaseInputSchema,
+    output: sparkLocalRpcToolExecutionResultSchema,
   },
   "channel.status": { input: workspaceIdInputSchema, output: sparkLocalRpcChannelStatusSchema },
   "channel.configure": {
@@ -1552,6 +1595,18 @@ export const sparkLocalRpcOrpcContract = {
       p["daemon.restart"],
       sparkLocalRpcReadinessDaemonOrpcErrors,
     ),
+  },
+  file: {
+    execute: procedure("POST", "/file/execute", p["file.execute"]),
+  },
+  artifact: {
+    execute: procedure("POST", "/artifact/execute", p["artifact.execute"]),
+  },
+  git: {
+    execute: procedure("POST", "/git/execute", p["git.execute"]),
+  },
+  lens: {
+    execute: procedure("POST", "/lens/execute", p["lens.execute"]),
   },
   channel: {
     status: procedure(

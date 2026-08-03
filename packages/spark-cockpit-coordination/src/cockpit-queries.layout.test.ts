@@ -342,7 +342,7 @@ describe("workspace settings slug guards", () => {
 });
 
 describe("artifact conversation provenance", () => {
-  it("lists only issue/pr/preview on the workspace artifacts page", () => {
+  it("lists only canonical and legacy Artifact kinds on the workspace artifacts page", () => {
     const { db, workspace, bindingId } = setupWorkspace("spore");
     const now = "2026-07-09T04:00:00.000Z";
     db.prepare(
@@ -354,6 +354,10 @@ describe("artifact conversation provenance", () => {
          ('art_trace', ?, NULL, 'workspace', 'trace', 'Run dump', 'json',
           'runtime', ?, NULL, NULL, '{}', '{}', ?, ?),
          ('art_doc', ?, NULL, 'workspace', 'document', 'Plan', 'markdown',
+          'runtime', ?, NULL, NULL,
+          '{"artifactRef":"artifact:plan","mediaType":"text/markdown"}',
+          '{"artifactRef":"artifact:plan"}', ?, ?),
+         ('art_evidence_doc', ?, NULL, 'workspace', 'document', 'Run notes', 'markdown',
           'runtime', ?, NULL, NULL, '{}', '{}', ?, ?),
          ('art_preview', ?, NULL, 'workspace', 'preview', 'UI draft', 'markdown',
           'runtime', ?, NULL, NULL, '{}', '{}', ?, ?)`,
@@ -370,10 +374,17 @@ describe("artifact conversation provenance", () => {
       bindingId,
       now,
       now,
+      workspace.id,
+      bindingId,
+      now,
+      now,
     );
 
     const page = loadArtifactsPage(db, "spore");
-    expect(page?.artifacts.map((artifact) => artifact.id)).toEqual(["art_preview"]);
+    expect(page?.artifacts.map((artifact) => artifact.id).sort()).toEqual([
+      "art_doc",
+      "art_preview",
+    ]);
     db.close();
   });
 

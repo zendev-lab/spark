@@ -17,6 +17,8 @@ export type SparkTaskWriteAction =
   | "finish"
   | "recover"
   | "release"
+  | "artifact_link"
+  | "artifact_unlink"
   | "plan_update"
   | "cache_cleanup";
 export type SparkTaskAssignAction = "assign";
@@ -103,6 +105,8 @@ const TASK_WRITE_ACTIONS: readonly SparkTaskWriteAction[] = [
   "finish",
   "recover",
   "release",
+  "artifact_link",
+  "artifact_unlink",
   "plan_update",
   "cache_cleanup",
 ];
@@ -209,19 +213,23 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
       "Use task_write for project/task graph mutations.",
       "Creating or claiming a task is plan-locked: every task must have a bound high-bar task.plan before claim/creation completes; objectives, success criteria, evidence, and plan items must be concrete and objectively verifiable.",
       "Use action=release to give up this session's unfinished task claim without finishing or cancelling the task; use action=plan_update to refine claimed task plan items.",
+      "Use artifact_link/artifact_unlink to maintain the task's durable product Artifact references.",
       "Use the session-bound todo tool for standalone session checklists.",
       "Use assign for explicit role-run spawning; task_write does not expose run_ready or run_control.",
     ],
     parameters: Type.Object({
       action: Type.String({
         description:
-          "project_use | project_rename | project_metadata_update | claim | plan | finish | recover | release | plan_update | cache_cleanup",
+          "project_use | project_rename | project_metadata_update | claim | plan | finish | recover | release | artifact_link | artifact_unlink | plan_update | cache_cleanup",
       }),
       scope: Type.Optional(Type.String({ description: "For plan_update: task plan items only." })),
       project: Type.Optional(Type.String({ description: "Project selector/ref/title." })),
       projectRef: Type.Optional(Type.String({ description: "Project ref filter or selector." })),
       task: Type.Optional(Type.String({ description: "Task selector/ref/name/title." })),
       taskRef: Type.Optional(Type.String({ description: "Task ref/name/title selector." })),
+      artifactRef: Type.Optional(
+        Type.String({ description: "Artifact ref/prefix for artifact_link/artifact_unlink." }),
+      ),
       title: Type.Optional(Type.String({ description: "Project/task title." })),
       description: Type.Optional(Type.String({ description: "Project/task description." })),
       purpose: Type.Optional(Type.String({ description: "Project purpose." })),

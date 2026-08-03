@@ -2,7 +2,7 @@
 description: "spark：以 Pi SDK 为内核，统一 TUI / Cockpit / 消息平台的本地智能开发编排"
 owner: zrr1999
 created: 2026-05-18
-updated: 2026-07-27
+updated: 2026-07-31
 inspired_by:
   - pi-sdk
   - cue-shell
@@ -12,6 +12,7 @@ inspired_by:
   - agent-orchestrator
   - agent-deck
   - coder-mux
+  - gh-stack
 ---
 
 # `spark` 项目意图
@@ -34,6 +35,7 @@ inspired_by:
 - 保持 Pi SDK 为内核：模型流、provider、终端 UI 原语继续建立在 `pi-ai` / `pi-tui`（经 `spark-ai` / `spark-tui` 边界）之上，不把“退场 Pi 产品”误解为剥离 SDK。
 - 由 `spark-extension` 统一拥有产品 extension 组合；`package.json#pi` 仅保留指向同一实现的兼容发现元数据，不保留第二套 facade 或 `pi-coding-agent` 运行时依赖。
 - 将 side conversation、worktree/change/PR/CI/review feedback 与 provider runtime 建模为可组合的领域契约：产品表面消费同一状态与反馈闭环，而不是各自维护一套按钮、轮询器或终端启发式。
+- 将用户成果收敛为原子 `issue | git_change | document` Artifact：`git_change` 内聚一个 owning worktree 与一个原生 GitHub PR stack，Task 只通过耐久 `artifactRefs` 组织成果；preview 是 Document 的视图，不是独立 kind。
 - 为 invocation、provider、tool、delivery 与代码交付保留隐私安全的关联观测边界；执行真相仍在 daemon/SQLite，可选 exporter 或外部观察面不得成为状态所有者。
 - 将 command policy 与实际执行隔离逐步对齐，在不改变 local-first 语义的前提下，为支持平台提供显式、fail-closed 的 sandbox runner。
 - 让 Spark 在没有 `.spark/` 或 `SPARK.md` 预置状态时也能默认进行轻量调查，并让 project-bound 命令在需要时从用户意图创建或恢复本地 Spark 状态。
@@ -59,6 +61,7 @@ inspired_by:
 - 不复制 OpenSpec/OpenArc 的完整文件树或重型流程。
 - 不让结构化提问成为用户必须直接操作的独立产品面。
 - 不把竞品的 agent dashboard、terminal mux、worktree manager 或 provider gateway 整套嵌入 Spark；只吸收能进入现有 owner 边界的领域闭环。
+- 不引入独立 Workstream aggregate，不在 Spark 内复制可写 PR 拓扑；`gh stack` 是 GitHub stack 的唯一可写 topology authority。
 - 不用 Temporal、Restate、Inngest 等外部 durable engine 替换当前 daemon/SQLite 调度真相；只有隔离实验能证明本地 step journal 无法满足需求时才重新评估。
 - 不实现 root 跨 Unix 用户 supervisor；多用户部署采用每个 Unix 用户独立运行一个 Spark daemon。
 
@@ -71,6 +74,7 @@ inspired_by:
 - Spark 原生 TUI 与 Cockpit 通过同一 daemon controller 运行只读 Side Thread、恢复隔离历史并将全文或紧凑摘要显式 handoff 回主会话；TUI 使用单一 `/btw` 命令，Cockpit 提供同一组 ensure、ask、reset、model、thinking 与 handoff 操作，两个表面都不加载 `pi-coding-agent`。
 - 用户可从 npm 安装单一 `@zendev-lab/spark` 产品包并获得 `spark` 命令；发布物只包含编译后的 JavaScript、声明过的运行时依赖以及 daemon migrations、TUI 和 Cockpit 资产，不暴露内部 workspace 包图。
 - CI failure、review comment 与 merge conflict 能以幂等反馈事件回到创建该 change/PR 的原 session，并带可审查 evidence，而不是要求用户手工复制终端输出。
+- 用户能以一个 `git_change` Artifact 查看、提交、同步并保守清理一个完整 PR stack；默认创建 draft PR，不产生重复进度评论或“stacked/tested”样板文本。
 - Project-bound 命令、任务图、ask、roles、cue 的既有成功信号仍成立，并通过测试与 `vp check` / `prek` 守门。
 
 ## 当前开放问题
@@ -88,6 +92,8 @@ inspired_by:
 - Spark v0.1 通过生成的自包含 `@zendev-lab/spark` 产物发布 npm；源码 workspace 保持 private，完整 check 校验公开产品与内部 owner 分类，`pnpm run smoke` 在仓库外安装 tarball 并验证 dispatcher、TUI、daemon migrations/lifecycle 与 Cockpit health。
 - 本地 RPC 分两阶段收敛：0.1.x 将一方调用迁到统一 oRPC client，`daemon.sock` 只服务已发布的 N-1 客户端且不再承接新行为；仅在迁移版已发布、双向跨版本 IPC、精确 tarball smoke 与 updater/rollback 门禁通过后，0.2 才删除 legacy socket/client/adapter。
 - 将现有 PR/CI 读取能力收敛成 change delivery feedback 事件，先完成“失败反馈回原 session”，再考虑 GitHub Checks 回写。
+- Artifact v2 已收敛到 `issue | git_change | document`；旧 `pr`/`preview` 记录仅在读取时保持同 ref 懒归一化。`git({ action })` 管理 worktree/stack 生命周期，Task 通过 `artifactRefs` 幂等链接成果。
+- `spark-files` 默认只注册 `read | write | edit | grep | find`，保留版本/SHA/LINE#HASH/CAS/原子写语义；`artifactRef` 可把相对路径路由到 `git_change` worktree。外部 Pi 兼容入口经 typed daemon RPC 执行，且只允许分发前自动启动并重试一次。
 - 会话队列双层收敛：TUI 乐观层 ↔ daemon `pendingTurns` 真相；Cockpit 继续只投影 daemon。
 - 自治 driver 硬切完成后，以它替代 marrow-core 的核心运行时；systemd 安装、自检/doctor、独立更新器、外部服务托管、profile 导入完善与日志保留作为非阻塞运维 TODO，且不得形成第二个运行时 owner。
 - `memory` owns durable scoped memory, recall candidates (`recall` tool), the `LearningStore` / `learning` tool, and reflection pipelines (`.spark/memory/reflections/`).
@@ -112,3 +118,4 @@ inspired_by:
 - 2026-07-23：将 `pi-extension` 完整并入 `spark-extension`，原生与兼容加载器共用单一组合根；继续保留 `pi-ai` / `pi-tui` SDK 内核。
 - 2026-07-23：将 goal/loop/repro/implement/workflow/session TODO 的计时、generation、重试、恢复与 fresh continuity 硬切到 daemon；确定每个 Unix 用户独立 daemon，并将 marrow-core 的非核心运维便利能力转为 Spark TODO。
 - 2026-07-27：确定本地 RPC 以类型化 oRPC 为主路径，并以已发布 0.1.x 兼容验证作为 0.2 删除 `daemon.sock` 的退出门禁。
+- 2026-07-31：将 Git 工作流内化为 `git_change` Artifact（一个 worktree + 一个原生 PR stack），Task 增加耐久 `artifactRefs`，Document 取代 preview kind；不引入 Workstream，封存 Graft 为 opt-in。

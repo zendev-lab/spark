@@ -10,10 +10,15 @@ test("Spark identity prompt does not imply work continues after a final response
   assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /Each invocation ends/u);
   assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /durable background task/u);
   assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /completed work, active durable work/u);
-  assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /Artifacts are only issue, pr, and preview/u);
+  assert.match(
+    DEFAULT_SPARK_IDENTITY_PROMPT,
+    /User-facing Artifacts are issue, git_change, and document/u,
+  );
   assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /agent-internal compact ledger/u);
-  assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /continuously update/u);
-  assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /git worktree/u);
+  assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /Continuously update/u);
+  assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /one owning worktree/u);
+  assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /submit drafts by default/u);
+  assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /do not post routine duplicate PR comments/u);
 });
 
 test("persistent session role prompt keeps work grouped by division of labour", () => {

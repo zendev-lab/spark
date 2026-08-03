@@ -80,6 +80,8 @@ import {
   watchSparkDaemonBuild,
 } from "./build-reload.ts";
 import { createRepeatedErrorReporter } from "./repeated-error-reporter.ts";
+import { closeDaemonLensBroker, prepareDaemonLensBroker } from "./lens/broker-lifecycle.ts";
+import { closeDaemonLensToolService } from "./lens/tool.ts";
 import {
   type CliIo,
   STRINGS,
@@ -148,7 +150,9 @@ export async function start(
     // The daemon process lock is held and the registry owner does not exist yet,
     // so the migration has exclusive mutation authority over registry.json.
     await migrateDaemonGlobalSessions({ sparkHome, workspaces: listWorkspaces(db) });
+    await prepareDaemonLensBroker(db);
   } catch (error) {
+    await closeDaemonLensBroker(db);
     db.close();
     await lock.release();
     throw error;
@@ -405,6 +409,8 @@ export async function start(
     buildWatchErrors.flush();
     serviceLogErrors.flush();
     await localRpc?.close();
+    await closeDaemonLensToolService(db);
+    await closeDaemonLensBroker(db);
     db.close();
     process.off("SIGINT", onSigint);
     process.off("SIGTERM", onSigterm);

@@ -12,7 +12,8 @@ building a host profile, or diagnosing why a capability is unavailable.
 | Intent | Canonical tools | Effect |
 | --- | --- | --- |
 | Ask for a decision | `ask` | Pauses for structured user input |
-| Read and change files | `read`, `write`, `edit`, `ls`, `grep`, `find` | Read or workspace write |
+| Read and change files | `read`, `write`, `edit`, `grep`, `find` | Read or workspace write |
+| Manage code delivery | `git` | Worktree, native PR-stack, commit, submit, sync, and cleanup lifecycle |
 | Search and fetch the Web | `web_search`, `code_search`, `fetch_content`, `get_search_content` | External read; fetched text is untrusted |
 | Inspect and change work | `task_read`, `task_write`, `assign`, `todo` | Task/session state; assignment may execute work |
 | Preserve results | `artifact`, `evidence`, `memory`, `context` | Product output, internal ledger, memory, bounded context |
@@ -21,7 +22,10 @@ building a host profile, or diagnosing why a capability is unavailable.
 | Continue autonomously | `goal`, `loop`, `repro`, `drive`, `driver`, `phase` | Daemon driver or session-mode state |
 | Discover and run procedures | `workflow`, `workflow_run` | Read saved workflows or execute a selected workflow |
 
-`artifact` is user-facing and limited to Issue, PR, and preview deliverables.
+`artifact` is user-facing and limited to Issue, GitChange, and Document
+deliverables. GitChange owns one worktree and one native GitHub PR stack;
+`git({ action })` owns that lifecycle. Preview is a view of a Document, not an
+Artifact kind.
 `evidence` is an agent-internal ledger and is not shown as a artifact.
 `context` can only list or preview registered bounded providers; it does not
 accept an arbitrary prompt.
@@ -50,7 +54,11 @@ Unknown or conflicting policy fails closed.
   `todo`.
 - `fusion` is opt-in bounded multi-model deliberation. It does not write the
   final answer or prove a runtime claim.
-- `graft` is an opt-in scratch/candidate/patch capability.
+- `graft` is a sealed, opt-in scratch/candidate/patch capability and is not
+  part of the active Git workflow.
+- `ls` remains available only to an explicitly configured compatibility
+  profile; it is not registered in the native default profile. Use `find` for
+  file discovery and `grep` for content search.
 - Pi compatibility aliases can be enabled by compatible hosts but are hidden
   from the native default profile.
 

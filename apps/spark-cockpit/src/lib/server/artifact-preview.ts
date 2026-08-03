@@ -14,7 +14,12 @@ export interface StoredArtifactPreviewInput {
  * render the canonical Artifact document after durable projection.
  */
 export function renderStoredArtifactPreview(input: StoredArtifactPreviewInput): string | null {
-  if (input.kind !== "preview" || !input.body || input.body.text === null || input.body.truncated) {
+  if (
+    (input.kind !== "document" && input.kind !== "preview") ||
+    !input.body ||
+    input.body.text === null ||
+    input.body.truncated
+  ) {
     return null;
   }
   const format = previewFormatFromContentRef(input.contentRef);

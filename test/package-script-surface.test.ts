@@ -83,6 +83,7 @@ test("root package exposes one compact validation and release surface", async ()
     "pnpm --filter @zendev-lab/spark-docs exec astro sync",
     "node scripts/check-architecture-ratchets.mjs",
     "node scripts/check-npm-product.mjs",
+    "node --experimental-strip-types scripts/check-lens-release.mts",
     "pnpm run check:evidence-surface",
     "pnpm run check:boundaries",
     "pnpm run check:test-quality",

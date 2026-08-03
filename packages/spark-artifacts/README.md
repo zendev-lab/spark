@@ -1,22 +1,37 @@
 # spark-artifacts
 
-Artifacts (`issue` / `pr` / `preview`) for users, plus an **agent-internal evidence ledger** that is not shown in Cockpit.
+Atomic Artifacts (`issue` / `git_change` / `document`) for users, plus an
+**agent-internal evidence ledger** that is not shown in Cockpit.
 
 ## Two surfaces
 
 | Surface | Tool | Kinds | User-visible? | On-disk |
 |---|---|---|---|---|
-| **Artifacts** | `artifact` | `issue`, `pr`, `preview` | Yes (Cockpit `/artifacts`) | `.spark/artifacts/` |
+| **Artifacts** | `artifact`, `git` | `issue`, `git_change`, `document` | Yes (Cockpit `/artifacts`) | `.spark/artifacts/` |
 | **Internal evidence** | `evidence` | `record` (default), `trace`, `knowledge`, `document` | No | `.spark/evidence/` |
 
-- ISSUE/PR sync from GitHub (`gh`) or GitLab (`glab`).
-- PR create prefers a git worktree under `.spark/worktrees/pr-…`.
-- Preview artifacts are continuously updated (version + progress).
-- Preview formats are `md`, safe `mdx` (Spark's declarative `mdx-lite`), sanitized `html`, read-only A2UI v0.9.x, and `spark-ui` (`SparkUiDocumentV1` or `mdx-lite` source).
-- Cockpit artifact pages embed the safe preview document. `artifact action=open_preview` renders Markdown directly in an attached TUI; other formats require a local Cockpit/browser surface and receive an expiring, tokenized `127.0.0.1` URL. Channel, remote, and headless sessions report the preview as unsupported instead of claiming it opened.
+- `issue` represents a forge issue.
+- `git_change` contains one owning worktree and one native GitHub PR stack.
+  Stack layers are child entries, not separate Artifact refs. `git({ action })`
+  owns init, checkout/adopt, layer, commit, refresh, submit, sync, and cleanup.
+  Managed worktrees live under
+  `~/.agents/worktrees/<forge>/<owner>/<repo>/<artifact-id>`.
+- `gh stack` is the sole writable topology authority. Submissions are draft by
+  default; Spark does not add routine PR comments or boilerplate saying a PR
+  is stacked/tested.
+- `document` owns typed content, revision, and optional progress. Preview is a
+  view opened with `artifact({ action: "open_preview" })`, not an Artifact
+  kind.
+- Cockpit artifact pages embed safe document views. Markdown can render in an
+  attached TUI; other supported media receive an expiring, tokenized
+  `127.0.0.1` URL only on a local browser-capable surface.
 - HTML previews run with scripts, forms, external media, framing, and network loads disabled. A2UI accepts only the official v0.9/v0.9.1 basic catalog and does not dispatch actions in the initial read-only implementation.
 
 Google's GenUI SDK is a Flutter A2UI renderer, so it is not a separate Spark wire format. Web producers should emit `a2ui`; Spark's older declarative format remains available as `spark-ui` for compatibility.
+
+Persisted v1 `pr` and `preview` bodies are accepted read-only and lazily
+normalized to `git_change` and `document` with the same `artifact:` ref.
+Canonical writes are v2 only; there is no destructive bulk migration.
 
 ### Evidence (agent-only)
 

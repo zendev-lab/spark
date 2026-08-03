@@ -6,7 +6,7 @@ const MAX_PREVIEW_CHARS = 8_000;
 export type SessionInspectorTab = "summary" | "artifacts" | "changes" | "tasks";
 
 /** User-facing Artifact kinds shown in the session sidebar. */
-export const SESSION_ARTIFACT_KINDS = new Set(["issue", "pr", "preview"]);
+export const SESSION_ARTIFACT_KINDS = new Set(["issue", "git_change", "document", "pr", "preview"]);
 
 export interface SessionWorkbenchActivityCommand {
   id: string;
@@ -32,7 +32,7 @@ export interface SessionWorkbenchActivityReport {
   role: string | null;
   status: string | null;
   createdAt: string;
-  artifactKind?: "issue" | "pr" | "preview";
+  artifactKind?: "issue" | "git_change" | "document" | "pr" | "preview";
   artifactFormat?: string;
   runKind?: string;
   interaction?: {
@@ -132,7 +132,7 @@ export interface SessionWorkbenchContext {
 export interface SessionWorkbenchView {
   runs: SessionWorkbenchRun[];
   tasks: SessionWorkbenchTask[];
-  /** Artifacts (issue / pr / preview) bound to this session. */
+  /** Artifacts (issue / git_change / document plus legacy pr / preview) bound to this session. */
   artifacts: SessionWorkbenchArtifact[];
   changes: SessionWorkbenchArtifact[];
   /** Agent-internal evidence; not rendered in the session sidebar. */

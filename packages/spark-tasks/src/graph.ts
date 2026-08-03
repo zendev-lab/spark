@@ -3,6 +3,7 @@ import {
   NotFoundError,
   newRef,
   nowIso,
+  type ArtifactRef,
   type EvidenceRef,
   type Project,
   type ProjectRef,
@@ -50,6 +51,7 @@ import {
   isUnfinishedTaskStatus,
   materializeTodos,
   normalizeProject,
+  normalizeArtifactRefs,
   normalizeRoleRef,
   normalizeTask,
   normalizeTaskCancellation,
@@ -148,6 +150,7 @@ export class TaskGraph {
           : undefined,
       supersededBy,
       claim: isUnfinishedTaskStatus(status) ? input.claim : undefined,
+      artifactRefs: normalizeArtifactRefs(input.artifactRefs),
       inputEvidenceRefs: input.inputEvidenceRefs ?? [],
       outputEvidenceRefs: [],
       plan,
@@ -446,6 +449,7 @@ export class TaskGraph {
         | "cancellation"
         | "supersededBy"
         | "claim"
+        | "artifactRefs"
         | "plan"
       >
     >,
@@ -483,6 +487,10 @@ export class TaskGraph {
       cancellation,
       supersededBy,
       claim: isUnfinishedTaskStatus(status) ? (patch.claim ?? task.claim) : undefined,
+      artifactRefs:
+        patch.artifactRefs === undefined
+          ? task.artifactRefs
+          : normalizeArtifactRefs(patch.artifactRefs),
       plan: normalizeTaskPlan(
         patch.plan ?? task.plan,
         patch.description ?? task.description,
@@ -496,6 +504,22 @@ export class TaskGraph {
     if (!updated.description.trim()) throw new Error("task description is required");
     this.#tasks.set(taskRef, updated);
     return updated;
+  }
+
+  linkTaskArtifact(taskRef: TaskRef, artifactRef: ArtifactRef): Task {
+    const task = this.getTask(taskRef);
+    if (task.artifactRefs.includes(artifactRef)) return task;
+    return this.updateTask(taskRef, {
+      artifactRefs: [...task.artifactRefs, artifactRef],
+    });
+  }
+
+  unlinkTaskArtifact(taskRef: TaskRef, artifactRef: ArtifactRef): Task {
+    const task = this.getTask(taskRef);
+    if (!task.artifactRefs.includes(artifactRef)) return task;
+    return this.updateTask(taskRef, {
+      artifactRefs: task.artifactRefs.filter((candidate) => candidate !== artifactRef),
+    });
   }
 
   attachOutputEvidence(taskRef: TaskRef, evidenceRef: EvidenceRef): Task {

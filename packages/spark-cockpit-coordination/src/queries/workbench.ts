@@ -114,7 +114,7 @@ export function loadWorkbenchHome(
        LEFT JOIN inbox_items ii ON ii.workspace_id = w.id
        LEFT JOIN artifacts a
          ON a.workspace_id = w.id
-        AND a.kind IN ('issue', 'pr', 'preview')
+        AND a.kind IN ('issue', 'git_change', 'document', 'pr', 'preview')
        LEFT JOIN workspace_leases wob
          ON wob.workspace_id = w.id
         AND wob.ended_at IS NULL
@@ -207,7 +207,7 @@ export function loadProjectsPage(db: DatabaseSync, workspaceRouteId: string) {
        LEFT JOIN mirrored_invocations mi ON mi.project_id = p.id
        LEFT JOIN artifacts a
          ON a.project_id = p.id
-        AND a.kind IN ('issue', 'pr', 'preview')
+        AND a.kind IN ('issue', 'git_change', 'document', 'pr', 'preview')
        WHERE p.workspace_id = ?
        GROUP BY p.id
        ORDER BY p.updated_at DESC, p.created_at DESC`,

@@ -1,7 +1,8 @@
 /**
  * spark-files extension — registers working-tree file tools on a Pi host.
  *
- * Registers read / write / edit / ls / grep / find via `pi.registerTool`.
+ * Registers read / write / edit / grep / find via `pi.registerTool`.
+ * `ls` remains available only as an explicit compatibility opt-in.
  * Intentionally omits a `bash` tool: Spark uses `cue_exec` for shell
  * execution and spark-cue disables bash by policy.
  */
@@ -19,7 +20,7 @@ export interface SparkFilesHostApi {
 }
 
 export interface SparkFilesOptions {
-  /** Tool names to register. Defaults to all six. */
+  /** Tool names to register. Defaults to read/write/edit/grep/find; ls is opt-in. */
   tools?: ReadonlyArray<"read" | "write" | "edit" | "ls" | "grep" | "find">;
 }
 
@@ -27,7 +28,7 @@ export function registerSparkFilesTools(
   pi: SparkFilesHostApi,
   options: SparkFilesOptions = {},
 ): void {
-  const enabled = new Set(options.tools ?? ["read", "write", "edit", "ls", "grep", "find"]);
+  const enabled = new Set(options.tools ?? ["read", "write", "edit", "grep", "find"]);
   if (enabled.has("read")) pi.registerTool(createReadToolConfig());
   if (enabled.has("write")) pi.registerTool(createWriteToolConfig());
   if (enabled.has("edit")) pi.registerTool(createEditToolConfig());

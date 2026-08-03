@@ -4684,7 +4684,10 @@ test("split task tools dispatch read, write, and assign actions", async () => {
     assert.doesNotMatch(taskParameters, /Preferred role ref/);
     assert.doesNotMatch(taskParameters, /run_ready/);
     assert.doesNotMatch(taskParameters, /run_control/);
-    assert.match(taskParameters, /recover \| release \| plan_update/);
+    assert.match(
+      taskParameters,
+      /recover \| release \| artifact_link \| artifact_unlink \| plan_update/,
+    );
     const taskReadParameters = JSON.stringify(tools.get("task_read")?.parameters);
     assert.match(taskReadParameters, /task_status/);
     assert.match(taskReadParameters, /project_status/);
@@ -6644,6 +6647,13 @@ test("active session goal keeps canonical ask but disables raw ask tools before 
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("lens is registered internally and remains inactive by default", () => {
+  const run = registerSparkToolsForTest();
+
+  assert.ok(run.tools.has("lens"));
+  assert.ok(!run.getActiveToolNames().includes("lens"));
 });
 
 test("active session goal preserves tools disabled by other extensions", async () => {

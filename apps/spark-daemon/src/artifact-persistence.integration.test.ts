@@ -79,15 +79,15 @@ describe("Artifact persistent Cockpit preview", () => {
       const store = defaultArtifactStore(workspacePath);
       const v1 = await store.put({
         ref: "artifact:preview:persistent",
-        kind: "preview",
-        title: "Persistent preview",
+        kind: "document",
+        title: "Persistent document",
         format: "mdx",
         body: {
-          schemaVersion: 1,
-          kind: "preview",
-          format: "mdx",
+          schemaVersion: 2,
+          kind: "document",
+          mediaType: "text/mdx",
           content: '<Callout tone="success">Version one</Callout>',
-          version: 1,
+          revision: 1,
         },
       });
       const v1MessageId = createId("msg");
@@ -138,8 +138,8 @@ describe("Artifact persistent Cockpit preview", () => {
       expect(persisted.body?.toString("utf8")).toContain("Version one");
       expect(
         renderStoredArtifactPreview({
-          kind: "preview",
-          title: "Persistent preview",
+          kind: "document",
+          title: "Persistent document",
           contentRef: JSON.parse(beforeRestart.contentRefJson) as unknown,
           body: {
             text: persisted.body?.toString("utf8") ?? null,
@@ -150,11 +150,11 @@ describe("Artifact persistent Cockpit preview", () => {
 
       const v2 = await store.update(v1.ref, {
         body: {
-          schemaVersion: 1,
-          kind: "preview",
-          format: "mdx",
+          schemaVersion: 2,
+          kind: "document",
+          mediaType: "text/mdx",
           content: '<Callout tone="warning">Version two</Callout>',
-          version: 2,
+          revision: 2,
         },
       });
       socket = connectRuntime({

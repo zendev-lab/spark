@@ -21,6 +21,7 @@ vi.mock("./daemon-local-rpc-orpc.js", () => ({
 import {
   createSparkDaemonClient,
   requestSparkDaemon,
+  SparkDaemonPreDispatchUnavailableError,
   SparkDaemonRemoteError,
   SparkDaemonRpcError,
 } from "./daemon-client.js";
@@ -104,6 +105,20 @@ describe("protocol-aware Spark daemon client", () => {
     await expect(requestSparkDaemon("uplink.status", {})).rejects.toThrow();
     expect(transportMocks.createOrpc).toHaveBeenCalledOnce();
     expect(transportMocks.requestLegacy).toHaveBeenCalledOnce();
+  });
+
+  it("never routes daemon-owned tool execution through the legacy transport", async () => {
+    transportMocks.createOrpc.mockRejectedValueOnce(new Error("ENOENT"));
+
+    await expect(
+      requestSparkDaemon("git.execute", {
+        cwd: "/tmp/workspace",
+        toolCallId: "call-1",
+        operationId: "git:call-1",
+        params: { action: "inspect" },
+      }),
+    ).rejects.toBeInstanceOf(SparkDaemonPreDispatchUnavailableError);
+    expect(transportMocks.requestLegacy).not.toHaveBeenCalled();
   });
 
   it("does not replay a remote failure after oRPC has connected", async () => {

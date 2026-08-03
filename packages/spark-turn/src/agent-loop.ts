@@ -1058,9 +1058,11 @@ export class SparkAgentLoop {
   private isParallelReadToolCall(toolCall: ToolCall): boolean {
     const tool = this.host.getTool(toolCall.name);
     if (!tool || !this.isToolAvailable(tool)) return false;
-    const policy = resolvedRegisteredToolPolicy(tool);
+    const policy = resolvedRegisteredToolPolicy(tool, toolCall.arguments);
     return (
-      policy.effect === "read" && policy.executionMode === "parallel" && !toolRequiresApproval(tool)
+      policy.effect === "read" &&
+      policy.executionMode === "parallel" &&
+      !toolRequiresApproval(tool, toolCall.arguments)
     );
   }
 
@@ -1289,7 +1291,7 @@ export class SparkAgentLoop {
     tool: SparkTurnRegisteredTool,
     signal: AbortSignal,
   ): Promise<{ approved: true } | { approved: false; message: string }> {
-    if (!toolRequiresApproval(tool)) return { approved: true };
+    if (!toolRequiresApproval(tool, toolCall.arguments)) return { approved: true };
 
     const reason = `Tool "${toolCall.name}" requires approval before execution.`;
     switch (this.approvalMethod) {

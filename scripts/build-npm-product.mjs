@@ -24,6 +24,7 @@ let rootManifest;
 // dependency manifest is derived from every generated JS file below, including
 // SvelteKit's lazy server chunks, and pinned to the versions installed by pnpm.
 const externalPackages = [
+  "@ast-grep/napi",
   "@core-workspace/infoflow-sdk-nodejs",
   "@cursor/sdk",
   "@earendil-works/pi-ai",

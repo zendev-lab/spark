@@ -34,7 +34,9 @@ browser timers.
   fallback; there is no global Ask modal.
 - Consequential actions state their effect. Multiline composers use Enter for a
   newline and Command/Control+Enter to submit; IME composition never submits.
-- Artifacts remain exactly `issue | pr | preview`. Verification
+- Artifacts remain exactly `issue | git_change | document`. A GitChange
+  projects one owning worktree and its native PR stack; a Document projects
+  typed content, while preview remains a view rather than a kind. Verification
   receipts may expose proof summaries and evidence references, but never the
   internal evidence ledger body.
 - Artifacts use `artifact:…` refs and `.spark/artifacts/`; internal

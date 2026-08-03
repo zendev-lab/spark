@@ -458,6 +458,50 @@ test("default task graph store writes V2 project/task file tree without legacy p
   }
 });
 
+test("task Artifact links are durable and idempotent", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-task-artifact-links-"));
+  try {
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Artifact project", description: "links" });
+    const task = graph.createTask({
+      projectRef: project.ref,
+      title: "Link product",
+      description: "Link a product Artifact",
+      plan: executionReadyPlan("Link product"),
+    });
+    const artifactRef = "artifact:git-change" as never;
+    graph.linkTaskArtifact(task.ref, artifactRef);
+    graph.linkTaskArtifact(task.ref, artifactRef);
+    assert.deepEqual(graph.getTask(task.ref).artifactRefs, [artifactRef]);
+    graph.unlinkTaskArtifact(task.ref, artifactRef);
+    graph.unlinkTaskArtifact(task.ref, artifactRef);
+    assert.deepEqual(graph.getTask(task.ref).artifactRefs, []);
+
+    graph.linkTaskArtifact(task.ref, artifactRef);
+    const store = defaultTaskGraphStore(dir);
+    await store.save(graph);
+    const taskPath = join(
+      dir,
+      ".spark",
+      "projects",
+      project.ref.replace(":", "-"),
+      "tasks",
+      task.ref.replace(":", "-"),
+      "task.json",
+    );
+    assert.match(await readFile(taskPath, "utf8"), /"version": 3/u);
+    assert.deepEqual((await store.load())?.getTask(task.ref).artifactRefs, [artifactRef]);
+
+    const raw = JSON.parse(await readFile(taskPath, "utf8")) as Record<string, unknown>;
+    delete raw.artifactRefs;
+    raw.version = 2;
+    await writeFile(taskPath, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+    assert.deepEqual((await store.load())?.getTask(task.ref).artifactRefs, []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("task graph store migrates v1 evidence fields once without losing record data", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-task-evidence-v2-migration-"));
   try {
@@ -568,7 +612,7 @@ test("task graph store migrates v1 evidence fields once without losing record da
     await store.save(loaded);
     const taskAfterFirstSave = await readFile(taskPath, "utf8");
     const runAfterFirstSave = await readFile(runPath, "utf8");
-    assert.match(taskAfterFirstSave, /"version": 2/);
+    assert.match(taskAfterFirstSave, /"version": 3/);
     assert.match(runAfterFirstSave, /"version": 2/);
     for (const legacyField of legacyFixture.legacyFieldNames) {
       assert.doesNotMatch(
@@ -578,6 +622,10 @@ test("task graph store migrates v1 evidence fields once without losing record da
     }
     assert.match(taskAfterFirstSave, /"inputEvidenceRefs"/);
     assert.match(runAfterFirstSave, /"evidenceRefs"/);
+    assert.doesNotMatch(
+      JSON.stringify(JSON.parse(runAfterFirstSave).completionSummary),
+      /"artifactRefs"/,
+    );
 
     const reloaded = await store.load();
     assert.ok(reloaded);
