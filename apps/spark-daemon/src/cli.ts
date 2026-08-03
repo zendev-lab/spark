@@ -68,9 +68,11 @@ import {
   type RegisterWorkspaceOptions,
   type SparkDaemonWorkspace,
   type WorkspaceProfileRegistration,
+  planWorkspaceRegistration,
   workspaceNameForPath,
   WorkspacePathConflictError,
 } from "./store/workspaces.js";
+import { openSparkDaemonDatabase } from "./store/schema.js";
 import { migrateEvidenceWorkspaceCommand } from "./evidence-migration-cli.js";
 import { readRunningPid } from "./service.js";
 import {
@@ -878,10 +880,6 @@ async function registerWorkspaceCommand(
   }
   const displayName =
     flags.name ?? (interactive ? await promptWorkspaceName(localPath, io) : undefined);
-  const profile = await resolveWorkspaceProfile(localPath, flags, io, {
-    allowDetectedPrompt: interactive,
-  });
-
   const workspaceOptions: WorkspaceRegistrationRequest = {
     serverUrl,
     localPath,
@@ -893,8 +891,12 @@ async function registerWorkspaceCommand(
     ...(displayName ? { displayName } : {}),
     ...(flags["workspace-name"] ? { workspaceName: flags["workspace-name"] } : {}),
     ...(flags["workspace-slug"] ? { workspaceSlug: flags["workspace-slug"] } : {}),
-    ...(profile ? { profile } : {}),
   };
+  preflightWorkspaceRegistration(paths, workspaceOptions);
+  const profile = await resolveWorkspaceProfile(localPath, flags, io, {
+    allowDetectedPrompt: interactive,
+  });
+  if (profile) workspaceOptions.profile = profile;
   const added = await registerWorkspaceForCli(paths, workspaceOptions, io);
   io.stdout.write(
     `✓ workspace '${added.displayName}' registered\n` +
@@ -910,6 +912,22 @@ async function registerWorkspaceCommand(
     io.stdout.write("Spark daemon is running.\n");
   }
   return 0;
+}
+
+function preflightWorkspaceRegistration(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  options: WorkspaceRegistrationRequest,
+): void {
+  const db = openSparkDaemonDatabase(paths);
+  try {
+    const { registrationToken, ...registration } = options;
+    planWorkspaceRegistration(db, {
+      ...registration,
+      ...(registrationToken ? { allowLocalPathRebind: true } : {}),
+    });
+  } finally {
+    db.close();
+  }
 }
 
 function workspaceAuthorizationText(workspace: SparkDaemonWorkspace, serverUrl: string): string {
