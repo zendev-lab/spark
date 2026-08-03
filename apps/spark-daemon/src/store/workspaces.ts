@@ -1183,9 +1183,9 @@ export function planWorkspaceLifecycleMutation(
         `Workspace ${source.id} is still bound to ${source.serverUrl}. Unregister it before merging.`,
       );
     }
-    if (!source.lifecycle) assertWorkspaceLifecycleIdle(db, source);
+    if (!source.lifecycle) assertWorkspaceLifecycleIdle(db, source, { allowClientRebind: true });
   }
-  assertWorkspaceLifecycleIdle(db, target);
+  assertWorkspaceLifecycleIdle(db, target, { allowClientRebind: true });
 
   const selectedIds = new Set([target.id, ...sources.map((source) => source.id)]);
   for (const candidate of listWorkspaces(db)) {
@@ -1249,6 +1249,9 @@ export function applyWorkspaceLifecycleMutation(
     );
     if (mutation.action === "merge") {
       for (const source of plan.sources) {
+        db.prepare(
+          "UPDATE daemon_workspace_clients SET workspace_id = ? WHERE workspace_id = ?",
+        ).run(plan.workspace.id, source.id);
         writeWorkspaceLifecycle(db, source, "merged", plan.workspace.id, now);
       }
     }
@@ -1319,12 +1322,18 @@ function requireWorkspaceLifecyclePath(localPath: string): string {
   return normalized;
 }
 
-function assertWorkspaceLifecycleIdle(db: DatabaseSync, workspace: SparkDaemonWorkspace): void {
+function assertWorkspaceLifecycleIdle(
+  db: DatabaseSync,
+  workspace: SparkDaemonWorkspace,
+  options: { allowClientRebind?: boolean } = {},
+): void {
   const activeInvocations = activeInvocationCount(db, workspace.id);
   const ownedIds = new Set(workspaceOwnedIds(db, workspace.id));
-  const connectedClients = listWorkspaceClients(db).filter(
-    (client) => ownedIds.has(client.workspaceId) && client.status === "connected",
-  ).length;
+  const connectedClients = options.allowClientRebind
+    ? 0
+    : listWorkspaceClients(db).filter(
+        (client) => ownedIds.has(client.workspaceId) && client.status === "connected",
+      ).length;
   if (activeInvocations > 0 || connectedClients > 0) {
     throw lifecycleConflict(
       `Workspace ${workspace.id} is busy (${activeInvocations} active invocation(s), ${connectedClients} connected client(s)). Stop active work before changing its lifecycle.`,
@@ -1415,16 +1424,17 @@ export function attachWorkspaceClient(
   db: DatabaseSync,
   options: AttachWorkspaceClientOptions,
 ): SparkDaemonWorkspaceClient {
-  const workspace = getWorkspaceById(db, options.workspaceId);
-  if (!workspace) {
+  const requestedWorkspace = getWorkspaceById(db, options.workspaceId);
+  if (!requestedWorkspace) {
     throw new SparkDaemonControlError(
       "workspace_not_found",
       `Unknown workspace connection: ${options.workspaceId}`,
     );
   }
-  if (workspace.lifecycle) {
+  const workspace = resolveActiveWorkspace(db, requestedWorkspace.id);
+  if (!workspace) {
     throw lifecycleConflict(
-      `Workspace ${workspace.id} is ${workspace.lifecycle.state}; attach the merged target instead.`,
+      `Workspace ${requestedWorkspace.id} is ${requestedWorkspace.lifecycle?.state ?? "inactive"} and cannot be attached.`,
     );
   }
 
@@ -1443,7 +1453,11 @@ export function attachWorkspaceClient(
         leaseFence: string | null;
       }
     | undefined;
-  if (existing && existing.workspaceId !== workspace.id) {
+  if (
+    existing &&
+    resolveActiveWorkspaceId(db, existing.workspaceId) !==
+      resolveActiveWorkspaceId(db, workspace.id)
+  ) {
     throw new SparkDaemonControlError(
       "workspace_client_conflict",
       `Workspace client ${clientId} is already bound to workspace ${existing.workspaceId}.`,
@@ -1608,9 +1622,12 @@ export function requireFencedSessionWorkspaceClient(
   now = new Date().toISOString(),
 ): SparkDaemonWorkspaceClient {
   const client = getWorkspaceClientById(db, identity.clientId);
+  const clientWorkspaceId = client ? resolveActiveWorkspaceId(db, client.workspaceId) : undefined;
+  const identityWorkspaceId = resolveActiveWorkspaceId(db, identity.workspaceId);
   if (
     !client ||
-    client.workspaceId !== identity.workspaceId ||
+    !clientWorkspaceId ||
+    clientWorkspaceId !== identityWorkspaceId ||
     client.sessionId !== identity.sessionId ||
     client.kind !== "interactive"
   ) {

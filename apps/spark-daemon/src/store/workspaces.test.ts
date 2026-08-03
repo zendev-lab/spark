@@ -28,6 +28,7 @@ import {
   rebindWorkspaceServerUrl,
   registerWorkspace,
   releaseWorkspaceClient,
+  requireFencedSessionWorkspaceClient,
   resolveWorkspaceBindingId,
   resolveWorkspaceLocalPath,
   sparkDaemonServerStatusSummaries,
@@ -142,6 +143,14 @@ describe("Spark daemon workspace store", () => {
       mkdirSync(resumePath, { recursive: true });
       const target = registerWorkspace(db, { localPath: sparkPath, displayName: "spark" });
       const source = registerWorkspace(db, { localPath: resumePath, displayName: "resume" });
+      const sourceClient = attachWorkspaceClient(db, {
+        workspaceId: source.id,
+        clientId: "wcl-resume-pi",
+        kind: "interactive",
+        displayName: "Pi session",
+        sessionId: "session:resume",
+        metadata: { surface: "tui", cwd: resumePath },
+      });
       expect(() =>
         planWorkspaceRegistration(db, {
           localPath: root,
@@ -182,6 +191,34 @@ describe("Spark daemon workspace store", () => {
       expect(resolveWorkspaceLocalPath(db, source.id)).toBe(realpathSync(root));
       expect(resolveWorkspaceBindingId(db, source.id)).toBe(target.id);
       expect(
+        heartbeatWorkspaceClient(db, {
+          clientId: sourceClient.id,
+          leaseFence: sourceClient.leaseFence,
+        }),
+      ).toMatchObject({ workspaceId: target.id, status: "connected" });
+      expect(
+        requireFencedSessionWorkspaceClient(db, {
+          workspaceId: source.id,
+          clientId: sourceClient.id,
+          leaseFence: sourceClient.leaseFence!,
+          sessionId: "session:resume",
+        }),
+      ).toMatchObject({ workspaceId: target.id });
+      expect(
+        attachWorkspaceClient(db, {
+          workspaceId: source.id,
+          clientId: "wcl-resume-reconnected",
+          kind: "interactive",
+          sessionId: "session:resume-reconnected",
+        }),
+      ).toMatchObject({ workspaceId: target.id });
+      expect(listWorkspaceClients(db, target.id)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: sourceClient.id, workspaceId: target.id }),
+          expect.objectContaining({ id: "wcl-resume-reconnected", workspaceId: target.id }),
+        ]),
+      );
+      expect(
         planWorkspaceRegistration(db, {
           localPath: root,
           displayName: "personal",
@@ -207,6 +244,38 @@ describe("Spark daemon workspace store", () => {
          VALUES ('inv_busy', ?, 'running', ?, ?)`,
       ).run(workspace.id, "2026-08-02T00:00:00.000Z", "2026-08-02T00:00:00.000Z");
 
+      expectControlError(
+        () =>
+          applyWorkspaceLifecycleMutation(db, {
+            action: "unregister",
+            workspaceId: workspace.id,
+          }),
+        "workspace_lifecycle_conflict",
+      );
+    });
+  });
+
+  it("still refuses move and unregister while a workspace client is connected", () => {
+    withSparkDaemonWorkspaceStore(({ db, root }) => {
+      const workspacePath = join(root, "workspace");
+      const movedPath = join(root, "moved");
+      mkdirSync(workspacePath);
+      mkdirSync(movedPath);
+      const workspace = registerWorkspace(db, { localPath: workspacePath, displayName: "busy" });
+      attachWorkspaceClient(db, {
+        workspaceId: workspace.id,
+        kind: "interactive",
+      });
+
+      expectControlError(
+        () =>
+          applyWorkspaceLifecycleMutation(db, {
+            action: "move",
+            workspaceId: workspace.id,
+            localPath: movedPath,
+          }),
+        "workspace_lifecycle_conflict",
+      );
       expectControlError(
         () =>
           applyWorkspaceLifecycleMutation(db, {
