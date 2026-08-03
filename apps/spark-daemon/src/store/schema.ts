@@ -212,6 +212,22 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS lens_provider_processes (
+      process_key TEXT PRIMARY KEY,
+      provider_id TEXT NOT NULL,
+      worktree_root TEXT NOT NULL,
+      project_root TEXT NOT NULL,
+      config_digest TEXT NOT NULL,
+      executable_digest TEXT NOT NULL,
+      daemon_instance_id TEXT NOT NULL,
+      process_marker TEXT NOT NULL,
+      pid INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('running', 'stopped', 'crashed', 'recovered')),
+      started_at TEXT NOT NULL,
+      last_heartbeat_at TEXT NOT NULL,
+      exited_at TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS invocations_status_idx ON invocations(status, created_at);
     CREATE INDEX IF NOT EXISTS driver_wakeups_due_idx
       ON driver_wakeups(status, due_at, updated_at)
@@ -245,6 +261,8 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       ON lens_provider_results(revision_digest, capability);
     CREATE INDEX IF NOT EXISTS lens_observations_revision_idx
       ON lens_observations(workspace_root, revision_digest);
+    CREATE INDEX IF NOT EXISTS lens_provider_processes_status_idx
+      ON lens_provider_processes(status, last_heartbeat_at);
   `);
   migrateSessionRequestCompletionDeliverySchema(db);
   migrateChannelDeliverySchema(db);

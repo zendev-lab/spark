@@ -1,5 +1,7 @@
 export * from "./revision.ts";
 export * from "./routes.ts";
+export * from "./trust.ts";
 export * from "./types.ts";
+export * from "./typescript-profile.ts";
 export * from "./verdict.ts";
 export * from "./verification.ts";
