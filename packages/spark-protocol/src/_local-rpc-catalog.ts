@@ -28,6 +28,8 @@ import type {
 import {
   sparkInvocationListRequestSchema,
   sparkInvocationListResultSchema,
+  sparkInvocationRetentionApplyRequestSchema,
+  sparkInvocationRetentionApplyResultSchema,
   sparkInvocationRetentionPreviewRequestSchema,
   sparkInvocationRetentionPreviewResultSchema,
   sparkInvocationRetryRequestSchema,
@@ -61,6 +63,7 @@ import {
 import { workspaceBrowserAuthorizationSchema } from "./runtime-v1/registration.ts";
 import {
   sparkAssignmentSchema,
+  sparkSessionArchiveRequestSchema,
   sparkSessionBindRequestSchema,
   sparkSessionCreateRequestSchema,
   sparkSessionGetRequestSchema,
@@ -145,6 +148,7 @@ export const sparkLocalRpcSessionOrpcErrors = {
   invalid_scope: { status: 422 },
   invalid_session_path: { status: 422 },
   invalid_session_role: { status: 422 },
+  invalid_session_tag: { status: 422 },
   invalid_session_snapshot: { status: 500 },
   session_archived: { status: 409 },
   session_channel_bound: { status: 409 },
@@ -152,6 +156,7 @@ export const sparkLocalRpcSessionOrpcErrors = {
   session_exists: { status: 409 },
   session_local_path_forbidden: { status: 403 },
   session_list_cursor_not_found: { status: 404 },
+  session_role_conflict: { status: 409 },
   session_mail_not_found: { status: 404 },
   session_mail_not_channel_delivery: { status: 422 },
   session_mail_not_notification: { status: 422 },
@@ -610,6 +615,7 @@ const sparkLocalRpcWorkspaceRelocateOrpcErrors = {
 const sparkLocalRpcWorkspaceEnsureOrpcErrors = {
   ...sparkLocalRpcReadinessOrpcErrors,
   workspace_path_conflict: sparkLocalRpcWorkspaceOrpcErrors.workspace_path_conflict,
+  workspace_not_found: sparkLocalRpcWorkspaceOrpcErrors.workspace_not_found,
 } as const;
 
 const sparkLocalRpcWorkspaceMutationOrpcErrors = {
@@ -1316,6 +1322,10 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkInvocationRetentionPreviewRequestSchema,
     output: sparkInvocationRetentionPreviewResultSchema,
   },
+  "invocation.retention.apply": {
+    input: sparkInvocationRetentionApplyRequestSchema,
+    output: sparkInvocationRetentionApplyResultSchema,
+  },
   "driver.start": { input: sparkDriverStartRequestSchema, output: sparkDriverMutationResultSchema },
   "driver.status": { input: sparkDriverStatusRequestSchema, output: sparkDriverListResultSchema },
   "driver.stop": {
@@ -1346,6 +1356,7 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkLocalRpcWorkspaceRelocateRequestSchema,
     output: sparkLocalRpcWorkspaceRelocateResultSchema,
   },
+  // Compatibility wire name: lookup/re-attach only. It must never create a workspace.
   "workspace.ensure-local": {
     input: sparkLocalRpcWorkspaceEnsureLocalRequestSchema,
     output: sparkLocalRpcWorkspaceSchema,
@@ -1440,7 +1451,11 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkSessionUnbindRequestSchema,
     output: sparkSessionRegistryRecordSchema,
   },
-  "session.archive": { input: sessionIdInputSchema, output: sparkSessionRegistryRecordSchema },
+  "session.archive": {
+    input: sparkSessionArchiveRequestSchema,
+    output: sparkSessionRegistryRecordSchema,
+  },
+  "session.restore": { input: sessionIdInputSchema, output: sparkSessionRegistryRecordSchema },
   "session.send": { input: sparkSessionSendRequestSchema, output: sparkSessionSendResultSchema },
   "session.inbox": { input: sparkSessionInboxRequestSchema, output: sparkSessionInboxResultSchema },
   "session.mail.read": {
@@ -1661,6 +1676,12 @@ export const sparkLocalRpcOrpcContract = {
     ),
     retention: {
       preview: procedure("GET", "/invocation/retention/preview", p["invocation.retention.preview"]),
+      apply: procedure(
+        "POST",
+        "/invocation/retention/apply",
+        p["invocation.retention.apply"],
+        sparkLocalRpcNoOrpcErrors,
+      ),
     },
   },
   driver: {
@@ -1856,6 +1877,12 @@ export const sparkLocalRpcOrpcContract = {
       "POST",
       "/session/archive",
       p["session.archive"],
+      sparkLocalRpcSessionArchiveOrpcErrors,
+    ),
+    restore: procedure(
+      "POST",
+      "/session/restore",
+      p["session.restore"],
       sparkLocalRpcSessionArchiveOrpcErrors,
     ),
     send: procedure("POST", "/session/send", p["session.send"], sparkLocalRpcSessionSendOrpcErrors),

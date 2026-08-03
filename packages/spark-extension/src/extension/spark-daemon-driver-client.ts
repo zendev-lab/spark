@@ -10,7 +10,11 @@ import {
   type SparkDriverStatusRequest,
   type SparkDriverWakeRequest,
 } from "@zendev-lab/spark-protocol";
-import { requestSparkDaemon, SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
+import {
+  ensureSparkDaemonRunning,
+  requestSparkDaemon,
+  SparkDaemonRemoteError,
+} from "@zendev-lab/spark-daemon-client";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 
 export interface SparkDaemonDriverControl {
@@ -67,6 +71,7 @@ async function ensureSparkDaemonOwnerSession(input: {
   sessionId: string;
   cwd: string;
 }): Promise<void> {
+  await ensureSparkDaemonRunning();
   const workspace = await requestSparkDaemon("workspace.ensure-local", {
     localPath: input.cwd,
   });

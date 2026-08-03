@@ -1034,7 +1034,7 @@ describe("Spark daemon workspace store", () => {
 
   it("consolidates legacy same-path workspace duplicates onto the Cockpit-bound identity", () => {
     withSparkDaemonWorkspaceStore(({ db, root }) => {
-      const local = ensureLocalWorkspace(db, {
+      const local = registerWorkspace(db, {
         localPath: root,
         displayName: "zendev-lab",
       });
@@ -1095,7 +1095,7 @@ describe("Spark daemon workspace store", () => {
 
   it("binds an existing local workspace in place and keeps its daemon identity", () => {
     withSparkDaemonWorkspaceStore(({ db, root }) => {
-      const local = ensureLocalWorkspace(db, {
+      const local = registerWorkspace(db, {
         localPath: root,
         displayName: "spark",
       });

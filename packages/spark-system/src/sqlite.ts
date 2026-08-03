@@ -8,12 +8,27 @@ export const SPARK_SQLITE_SOFT_HEAP_LIMIT_BYTES = 256 * 1024 * 1024;
 export const SPARK_SQLITE_HARD_HEAP_LIMIT_BYTES = 384 * 1024 * 1024;
 export const SPARK_SQLITE_WAL_LIMIT_BYTES = 64 * 1024 * 1024;
 
-export function openSqliteDatabase(path: string): DatabaseSync {
+export interface OpenSqliteDatabaseOptions {
+  autoVacuum?: "incremental";
+}
+
+export function openSqliteDatabase(
+  path: string,
+  options: OpenSqliteDatabaseOptions = {},
+): DatabaseSync {
   const databasePath = resolve(path);
   mkdirSync(dirname(databasePath), { recursive: true });
   const db = new DatabaseSync(databasePath);
-  applySqlitePragmas(db);
-  return db;
+  try {
+    if (options.autoVacuum === "incremental") {
+      db.exec("PRAGMA auto_vacuum = INCREMENTAL");
+    }
+    applySqlitePragmas(db);
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
 }
 
 export function openMemorySqliteDatabase(): DatabaseSync {
@@ -26,6 +41,10 @@ export function applySqlitePragmas(db: DatabaseSync): void {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA busy_timeout = 5000");
+}
+
+/** Apply daemon-specific bounds without imposing process-global limits on Cockpit SQLite. */
+export function applyDaemonSqliteResourceLimits(db: DatabaseSync): void {
   // Negative cache_size is a KiB ceiling. Keep SQLite's page cache and mmap
   // well below the 1 GiB process budget, and force temporary query state to
   // disk so a large database cannot turn an accidental sort into an OOM.

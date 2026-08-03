@@ -56,6 +56,7 @@ export type SparkSessionAction =
   | "bind"
   | "unbind"
   | "archive"
+  | "restore"
   | "send"
   | "inbox"
   | "read"
@@ -184,10 +185,34 @@ export async function executeSparkSessionAction(
       const sessionId = requiredString(params.sessionId, "session archive requires sessionId");
       const session = projectSession(
         parseSparkSessionRegistryRecord(
-          await request("session.archive", { sessionId }, { signal }),
+          await request(
+            "session.archive",
+            {
+              sessionId,
+              ...(optionalString(params.reason, "reason")
+                ? { reason: optionalString(params.reason, "reason") }
+                : {}),
+              ...(optionalStringArray(params.tags, "tags").length
+                ? { tags: optionalStringArray(params.tags, "tags") }
+                : {}),
+            },
+            { signal },
+          ),
         ),
       );
       return sessionResult(`Archived persistent Spark session.\n${renderSession(session)}`, {
+        action,
+        session,
+      });
+    }
+    case "restore": {
+      const sessionId = requiredString(params.sessionId, "session restore requires sessionId");
+      const session = projectSession(
+        parseSparkSessionRegistryRecord(
+          await request("session.restore", { sessionId }, { signal }),
+        ),
+      );
+      return sessionResult(`Restored persistent Spark session.\n${renderSession(session)}`, {
         action,
         session,
       });
@@ -469,6 +494,13 @@ async function listRequest(
   channelWorkspaceId?: string,
 ): Promise<SparkSessionListRequest> {
   const includeArchived = optionalBoolean(params.includeArchived, false, "includeArchived");
+  const query = optionalString(params.query, "query");
+  const tags = optionalStringArray(params.tags, "tags");
+  const filters = {
+    includeArchived,
+    ...(query ? { query } : {}),
+    ...(tags.length ? { tags } : {}),
+  };
   const workspaceId = optionalString(params.workspaceId, "workspaceId");
   const scope = optionalScope(params.scope);
   if (channelWorkspaceId) {
@@ -478,7 +510,7 @@ async function listRequest(
     return {
       scope: { kind: "workspace", workspaceId: channelWorkspaceId },
       workspaceId: channelWorkspaceId,
-      includeArchived,
+      ...filters,
     };
   }
   if (scope === "daemon") {
@@ -488,7 +520,7 @@ async function listRequest(
   return {
     scope: { kind: "workspace", workspaceId: resolvedWorkspaceId },
     workspaceId: resolvedWorkspaceId,
-    includeArchived,
+    ...filters,
   };
 }
 
@@ -786,6 +818,14 @@ function optionalString(value: unknown, field: string): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") throw new Error(`session ${field} must be a string`);
   return value.trim() || undefined;
+}
+
+function optionalStringArray(value: unknown, field: string): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    throw new Error(`session ${field} must be an array of strings`);
+  }
+  return value.map((entry) => entry.trim()).filter(Boolean);
 }
 
 function optionalMessageBody(value: unknown): string | undefined {

@@ -90,6 +90,7 @@ export interface SparkInvocationSummaryRecord {
   retryOfInvocationId?: string;
   status: SparkInvocationStatus;
   attemptCount: number;
+  cancelReason?: string;
   errorCode?: string;
   errorMessage?: string;
   eventCursor: number;
@@ -116,6 +117,23 @@ export interface SparkInvocationRetentionPreview {
   invocationIds: string[];
   eventCount: number;
   blockedByDeliveryCount: number;
+}
+
+export interface SparkInvocationRetentionApplyInput {
+  invocationLimit?: number;
+  eventLimit?: number;
+  now?: string;
+}
+
+export interface SparkInvocationRetentionApplyResult {
+  before: string;
+  touchedInvocationIds: string[];
+  retainedInvocationIds: string[];
+  deletedEventCount: number;
+  retainedInvocationCount: number;
+  clearedResultCount: number;
+  blockedByDeliveryCount: number;
+  hasMore: boolean;
 }
 
 export interface SparkInvocationPendingDelivery {
@@ -186,6 +204,7 @@ interface InvocationRow {
   prompt: string | null;
   task_json: string | null;
   result_json: string | null;
+  result_json_bytes: number;
   source_kind: string | null;
   source_ref: string | null;
   retry_of_invocation_id: string | null;
@@ -207,6 +226,7 @@ interface InvocationSummaryRow {
   retry_of_invocation_id: string | null;
   status: string;
   attempt_count: number;
+  cancel_reason: string | null;
   error_code: string | null;
   error_message: string | null;
   event_cursor: number;
@@ -372,6 +392,19 @@ export class SparkInvocationStore {
     return row ? invocationRecord(row) : undefined;
   }
 
+  getSummary(invocationId: string): SparkInvocationSummaryRecord | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT id, session_id, retry_of_invocation_id, status, attempt_count,
+                cancel_reason, error_code, error_message, event_cursor, created_at, updated_at,
+                started_at, finished_at
+         FROM invocations
+         WHERE id = ?`,
+      )
+      .get(invocationId) as InvocationSummaryRow | undefined;
+    return row ? invocationSummaryRecord(row) : undefined;
+  }
+
   require(invocationId: string): SparkInvocationRecord {
     const record = this.get(invocationId);
     if (!record) {
@@ -446,6 +479,7 @@ export class SparkInvocationStore {
                 i.retry_of_invocation_id,
                 i.status,
                 i.attempt_count,
+                i.cancel_reason,
                 i.error_code,
                 i.error_message,
                 i.event_cursor,
@@ -630,7 +664,7 @@ export class SparkInvocationStore {
     reason: string,
     now = new Date().toISOString(),
   ): "cancelled" | "requested" | "terminal" | "not-found" {
-    const current = this.get(invocationId);
+    const current = this.getSummary(invocationId);
     if (!current) return "not-found";
     if (current.status === "queued") {
       this.complete(invocationId, { status: "cancelled", cancelReason: reason, now });
@@ -791,7 +825,16 @@ export class SparkInvocationStore {
   }
 
   complete(invocationId: string, input: CompleteSparkInvocationInput): SparkInvocationRecord {
-    const current = this.require(invocationId);
+    const row = this.db
+      .prepare(`SELECT ${invocationSelectColumns(undefined, false)} FROM invocations WHERE id = ?`)
+      .get(invocationId) as InvocationRow | undefined;
+    if (!row) {
+      throw new SparkDaemonControlError(
+        "invocation_not_found",
+        `Unknown Spark invocation: ${invocationId}`,
+      );
+    }
+    const current = invocationRecord(row);
     assertTransition(current.status, input.status);
     const now = input.now ?? new Date().toISOString();
     const result = compactInvocationResult(input.result);
@@ -830,7 +873,7 @@ export class SparkInvocationStore {
     try {
       const event = this.appendEventInTransaction(invocationId, kind, payload, now);
       this.db.exec("COMMIT");
-      return event;
+      return { ...event, payload };
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
@@ -932,7 +975,7 @@ export class SparkInvocationStore {
           )`
       : "";
     const invocationRows = this.db
-      .prepare(buildPendingDeliveriesQuery(invocationSelectColumns("i"), bindingFilter))
+      .prepare(buildPendingDeliveriesQuery(invocationSelectColumns("i", false), bindingFilter))
       .all(
         ...(normalizedBindings ? ["legacy", "legacy"] : [null, null]),
         normalizedDestination,
@@ -1075,6 +1118,7 @@ export class SparkInvocationStore {
          FROM invocations i
          LEFT JOIN invocation_events e ON e.invocation_id = i.id
          WHERE i.status IN ('succeeded', 'failed', 'cancelled')
+           AND i.retained_at IS NULL
            AND i.finished_at IS NOT NULL
            AND i.finished_at < ?
          GROUP BY i.id, i.finished_at
@@ -1123,6 +1167,164 @@ export class SparkInvocationStore {
         )
         .run(before, normalizedLimit).changes,
     );
+  }
+
+  retentionApply(
+    before: string,
+    input: SparkInvocationRetentionApplyInput = {},
+  ): SparkInvocationRetentionApplyResult {
+    const invocationLimit = Math.max(1, Math.min(100, Math.floor(input.invocationLimit ?? 10)));
+    const eventLimit = Math.max(1, Math.min(10_000, Math.floor(input.eventLimit ?? 100)));
+    const retainedAt = input.now ?? new Date().toISOString();
+    const candidateRows = this.db
+      .prepare(
+        `SELECT i.id
+         FROM invocations i INDEXED BY invocations_retention_idx
+         WHERE i.retained_at IS NULL
+           AND i.status IN ('succeeded', 'failed', 'cancelled')
+           AND i.finished_at IS NOT NULL
+           AND i.finished_at < ?
+           AND NOT EXISTS (
+             SELECT 1
+             FROM invocation_event_delivery_consumers known
+             LEFT JOIN invocation_event_deliveries d
+               ON d.destination = known.destination
+              AND d.invocation_id = i.id
+             WHERE COALESCE(d.sequence, 0) < i.event_cursor
+           )
+         ORDER BY i.finished_at, i.id
+         LIMIT ?`,
+      )
+      .all(before, invocationLimit) as unknown as Array<{ id: string }>;
+    const touchedInvocationIds: string[] = [];
+    const retainedInvocationIds: string[] = [];
+    let deletedEventCount = 0;
+    let clearedResultCount = 0;
+
+    for (const candidate of candidateRows) {
+      if (deletedEventCount >= eventLimit) break;
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        const eligible = this.db
+          .prepare(
+            `SELECT 1
+             FROM invocations i
+             WHERE i.id = ?
+               AND i.retained_at IS NULL
+               AND i.status IN ('succeeded', 'failed', 'cancelled')
+               AND i.finished_at IS NOT NULL
+               AND i.finished_at < ?
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM invocation_event_delivery_consumers known
+                 LEFT JOIN invocation_event_deliveries d
+                   ON d.destination = known.destination
+                  AND d.invocation_id = i.id
+                 WHERE COALESCE(d.sequence, 0) < i.event_cursor
+               )`,
+          )
+          .get(candidate.id, before);
+        if (!eligible) {
+          this.db.exec("COMMIT");
+          continue;
+        }
+        touchedInvocationIds.push(candidate.id);
+        const deleted = Number(
+          this.db
+            .prepare(
+              `DELETE FROM invocation_events
+               WHERE rowid IN (
+                 SELECT rowid
+                 FROM invocation_events
+                 WHERE invocation_id = ?
+                 ORDER BY sequence
+                 LIMIT ?
+               )`,
+            )
+            .run(candidate.id, eventLimit - deletedEventCount).changes,
+        );
+        deletedEventCount += deleted;
+        const hasEvents = Boolean(
+          this.db
+            .prepare("SELECT 1 FROM invocation_events WHERE invocation_id = ? LIMIT 1")
+            .get(candidate.id),
+        );
+        if (!hasEvents) {
+          const cleared = this.db
+            .prepare(
+              `UPDATE invocations
+               SET result_json = NULL
+               WHERE id = ? AND retained_at IS NULL AND result_json IS NOT NULL`,
+            )
+            .run(candidate.id);
+          const retained = this.db
+            .prepare(
+              `UPDATE invocations
+               SET retained_at = ?
+               WHERE id = ? AND retained_at IS NULL`,
+            )
+            .run(retainedAt, candidate.id);
+          if (Number(retained.changes) === 1) {
+            retainedInvocationIds.push(candidate.id);
+            clearedResultCount += Number(cleared.changes);
+          }
+        }
+        this.db.exec("COMMIT");
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
+    }
+
+    const blockedRow = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM invocations i INDEXED BY invocations_retention_idx
+         WHERE i.retained_at IS NULL
+           AND i.status IN ('succeeded', 'failed', 'cancelled')
+           AND i.finished_at IS NOT NULL
+           AND i.finished_at < ?
+           AND EXISTS (
+             SELECT 1
+             FROM invocation_event_delivery_consumers known
+             LEFT JOIN invocation_event_deliveries d
+               ON d.destination = known.destination
+              AND d.invocation_id = i.id
+             WHERE COALESCE(d.sequence, 0) < i.event_cursor
+           )`,
+      )
+      .get(before) as { count: number };
+    const hasMore = Boolean(
+      this.db
+        .prepare(
+          `SELECT 1
+           FROM invocations i INDEXED BY invocations_retention_idx
+           WHERE i.retained_at IS NULL
+             AND i.status IN ('succeeded', 'failed', 'cancelled')
+             AND i.finished_at IS NOT NULL
+             AND i.finished_at < ?
+             AND NOT EXISTS (
+               SELECT 1
+               FROM invocation_event_delivery_consumers known
+               LEFT JOIN invocation_event_deliveries d
+                 ON d.destination = known.destination
+                AND d.invocation_id = i.id
+               WHERE COALESCE(d.sequence, 0) < i.event_cursor
+             )
+           LIMIT 1`,
+        )
+        .get(before),
+    );
+    return {
+      before,
+      touchedInvocationIds,
+      retainedInvocationIds,
+      deletedEventCount,
+      retainedInvocationCount: retainedInvocationIds.length,
+      clearedResultCount,
+      blockedByDeliveryCount: Number(blockedRow.count),
+      hasMore,
+    };
   }
 
   oldestActive(): { queued?: string; running?: string } {
@@ -1177,38 +1379,45 @@ export class SparkInvocationStore {
 const invocationSelect = `SELECT ${invocationSelectColumns()}
   FROM invocations`;
 
-function invocationSelectColumns(alias?: string): string {
+function invocationSelectColumns(alias?: string, includeResult = true): string {
   const prefix = alias ? `${alias}.` : "";
+  const column = (name: string) => `${prefix}${name} AS ${name}`;
   return [
-    "id",
-    "command_id",
-    "workspace_binding_id",
-    "session_id",
-    "idempotency_key",
-    "status",
-    "prompt",
-    "task_json",
-    "result_json",
-    "source_kind",
-    "source_ref",
-    "retry_of_invocation_id",
-    "worker_id",
-    "attempt_count",
-    "cancel_reason",
-    "error_code",
-    "error_message",
-    "created_at",
-    "updated_at",
-    "claimed_at",
-    "started_at",
-    "finished_at",
-  ]
-    .map((column) => `${prefix}${column} AS ${column}`)
-    .join(", ");
+    ...[
+      "id",
+      "command_id",
+      "workspace_binding_id",
+      "session_id",
+      "idempotency_key",
+      "status",
+      "prompt",
+      "task_json",
+    ].map(column),
+    includeResult
+      ? `CASE WHEN COALESCE(octet_length(${prefix}result_json), 0) <= ${MAX_PERSISTED_INVOCATION_RESULT_BYTES} THEN ${prefix}result_json ELSE NULL END AS result_json`
+      : "NULL AS result_json",
+    `COALESCE(octet_length(${prefix}result_json), 0) AS result_json_bytes`,
+    ...[
+      "source_kind",
+      "source_ref",
+      "retry_of_invocation_id",
+      "worker_id",
+      "attempt_count",
+      "cancel_reason",
+      "error_code",
+      "error_message",
+      "created_at",
+      "updated_at",
+      "claimed_at",
+      "started_at",
+      "finished_at",
+    ].map(column),
+  ].join(", ");
 }
 
 function invocationRecord(row: InvocationRow): SparkInvocationRecord {
   if (!isInvocationStatus(row.status)) throw new Error(`Invalid invocation status: ${row.status}`);
+  const result = persistedResult(row);
   return {
     invocationId: row.id,
     ...(row.command_id ? { commandId: row.command_id } : {}),
@@ -1218,7 +1427,7 @@ function invocationRecord(row: InvocationRow): SparkInvocationRecord {
     status: row.status,
     ...(row.prompt !== null ? { prompt: row.prompt } : {}),
     ...(row.task_json !== null ? { task: parseJson(row.task_json) } : {}),
-    ...(row.result_json !== null ? { result: parseJson(row.result_json) } : {}),
+    ...(result !== undefined ? { result } : {}),
     ...(row.source_kind ? { sourceKind: row.source_kind } : {}),
     ...(row.source_ref ? { sourceRef: row.source_ref } : {}),
     ...(row.retry_of_invocation_id ? { retryOfInvocationId: row.retry_of_invocation_id } : {}),
@@ -1235,6 +1444,16 @@ function invocationRecord(row: InvocationRow): SparkInvocationRecord {
   };
 }
 
+function persistedResult(row: InvocationRow): unknown {
+  if (row.result_json !== null) return parseJson(row.result_json);
+  if (row.result_json_bytes <= MAX_PERSISTED_INVOCATION_RESULT_BYTES) return undefined;
+  return {
+    legacyOversizedResult: true,
+    originalBytes: row.result_json_bytes,
+    truncated: true,
+  };
+}
+
 function invocationSummaryRecord(row: InvocationSummaryRow): SparkInvocationSummaryRecord {
   if (!isInvocationStatus(row.status)) throw new Error(`Invalid invocation status: ${row.status}`);
   return {
@@ -1243,6 +1462,7 @@ function invocationSummaryRecord(row: InvocationSummaryRow): SparkInvocationSumm
     ...(row.retry_of_invocation_id ? { retryOfInvocationId: row.retry_of_invocation_id } : {}),
     status: row.status,
     attemptCount: Number(row.attempt_count),
+    ...(row.cancel_reason ? { cancelReason: row.cancel_reason } : {}),
     ...(row.error_code ? { errorCode: row.error_code } : {}),
     ...(row.error_message ? { errorMessage: row.error_message } : {}),
     eventCursor: Number(row.event_cursor),
@@ -1416,6 +1636,10 @@ function compactInvocationResult(result: unknown): unknown {
   if (result && typeof result === "object" && !Array.isArray(result)) {
     const record = result as Record<string, unknown>;
     if (Object.hasOwn(record, "jsonEvents")) {
+      const assistantTextJsonBytes =
+        typeof record.assistantText === "string"
+          ? Buffer.byteLength(JSON.stringify(record.assistantText))
+          : undefined;
       const registryPersistence = compactRegistryPersistence(
         jsonObject(record.registryPersistence),
       );
@@ -1430,7 +1654,15 @@ function compactInvocationResult(result: unknown): unknown {
           ? { newMessageCount: record.newMessageCount }
           : {}),
         ...(typeof record.assistantText === "string"
-          ? { assistantText: truncateJsonString(record.assistantText, 384 * 1_024) }
+          ? {
+              assistantText: truncateJsonString(record.assistantText, 384 * 1_024),
+              ...(assistantTextJsonBytes !== undefined && assistantTextJsonBytes > 384 * 1_024
+                ? {
+                    assistantTextOriginalBytes: assistantTextJsonBytes,
+                    assistantTextTruncated: true,
+                  }
+                : {}),
+            }
           : {}),
         ...(typeof record.stderr === "string"
           ? { stderr: truncateJsonString(record.stderr, 64 * 1_024) }

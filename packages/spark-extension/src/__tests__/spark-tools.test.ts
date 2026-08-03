@@ -5852,6 +5852,80 @@ test("native Pi session context starts goal and repro daemon drivers", async () 
   }
 });
 
+test("native Pi /repro waits for daemon owner readiness before persisting active state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-native-pi-repro-readiness-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "native-pi-readiness");
+    (ctx as { sessionId?: string }).sessionId = undefined;
+    ctx.sessionManager.getSessionId = () => "pi-readiness-session-uuid";
+    const run = registerSparkToolsForTest();
+    run.driverControl.ensureOwnerSession = async () => {
+      throw new Error("daemon failed to start");
+    };
+    const reproCommand = run.commands.get("repro");
+    assert.ok(reproCommand, "missing /repro command");
+
+    await assert.rejects(
+      async () => await reproCommand.handler("start must not fake activation", ctx),
+      /daemon failed to start/u,
+    );
+
+    assert.equal(await readSessionRepro(dir, ctx), undefined);
+    assert.equal(activeTestDriver(run, "repro"), undefined);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("/repro rolls back newly persisted active state when driver start fails", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-start-rollback-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "repro-start-rollback");
+    const run = registerSparkToolsForTest();
+    run.driverControl.start = async () => {
+      throw new Error("driver start failed");
+    };
+    const reproCommand = run.commands.get("repro");
+    assert.ok(reproCommand, "missing /repro command");
+
+    await assert.rejects(
+      async () => await reproCommand.handler("start rollback probe", ctx),
+      /driver start failed/u,
+    );
+
+    assert.equal(await readSessionRepro(dir, ctx), undefined);
+    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "assist" });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("repro tool reports driver startup failure and clears new active state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-tool-start-rollback-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "repro-tool-start-rollback");
+    const run = registerSparkToolsForTest();
+    run.driverControl.start = async () => {
+      throw new Error("tool driver start failed");
+    };
+
+    const result = await executeSparkTool(run.tools, "repro", ctx, {
+      action: "start",
+      objective: "tool rollback probe",
+    });
+
+    assert.equal(result.isError, true);
+    assert.match(toolText(result), /Repro drive did not start: tool driver start failed/u);
+    assert.equal(await readSessionRepro(dir, ctx), undefined);
+    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "assist" });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("native Pi ephemeral sessions cannot start durable goal or repro drivers", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-native-pi-ephemeral-"));
   try {

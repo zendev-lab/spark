@@ -140,6 +140,8 @@ export class SparkKeybindings {
    */
   private readonly registrationOrder: SparkKeybindingId[] = [];
   private readonly overrides: Record<string, string> = {};
+  /** Serialize repeated async invocations of one binding without blocking other hotkeys. */
+  private readonly executionTails = new Map<SparkKeybindingId, Promise<void>>();
 
   constructor(options: SparkKeybindingsOptions = {}) {
     const defaults = options.defaults ?? DEFAULT_BINDINGS;
@@ -196,7 +198,18 @@ export class SparkKeybindings {
     }
     if (candidates.length === 0) return false;
     const winner = candidates[candidates.length - 1]!;
-    await winner.handler(ctx);
+    const previous = this.executionTails.get(winner.id) ?? Promise.resolve();
+    const execution = previous.then(async () => await winner.handler(ctx));
+    const tail = execution.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.executionTails.set(winner.id, tail);
+    try {
+      await execution;
+    } finally {
+      if (this.executionTails.get(winner.id) === tail) this.executionTails.delete(winner.id);
+    }
     return true;
   }
 

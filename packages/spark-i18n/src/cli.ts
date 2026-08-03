@@ -184,7 +184,7 @@ export interface SparkNativeTuiStrings {
   };
   appTitle: string;
   footer: string;
-  busyFooter: (hasQueuedInput: boolean) => string;
+  busyFooter: (hasQueuedInput: boolean, daemonOwnsQueue?: boolean) => string;
   statusLine: (input: {
     session: string;
     model?: string;
@@ -392,8 +392,10 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     },
     appTitle: "Spark",
     footer: "Enter submit • /help commands • Ctrl+C/Ctrl+D exit",
-    busyFooter: (hasQueuedInput) =>
-      `Enter steer • Alt+Enter follow-up • Esc cancel active${hasQueuedInput ? " • Alt+Up restore queue" : ""}`,
+    busyFooter: (hasQueuedInput, daemonOwnsQueue) =>
+      daemonOwnsQueue
+        ? "Enter queue next • Esc cancel active"
+        : `Enter steer • Alt+Enter follow-up • Esc cancel active${hasQueuedInput ? " • Alt+Up restore queue" : ""}`,
     statusLine: ({ session, model, thinkingLevel, state, queue }) =>
       [
         `session ${session}`,
@@ -504,8 +506,10 @@ const NATIVE_TUI: Record<SparkLanguage, SparkNativeTuiStrings> = {
     },
     appTitle: "Spark",
     footer: "Enter 提交 • /help 命令 • Ctrl+C/Ctrl+D 退出",
-    busyFooter: (hasQueuedInput) =>
-      `Enter 引导当前运行 • Alt+Enter 排队下一轮 • Esc 取消当前 invocation${hasQueuedInput ? " • Alt+Up 恢复本地队列" : ""}`,
+    busyFooter: (hasQueuedInput, daemonOwnsQueue) =>
+      daemonOwnsQueue
+        ? "Enter 排队下一轮 • Esc 取消当前 invocation"
+        : `Enter 引导当前运行 • Alt+Enter 排队下一轮 • Esc 取消当前 invocation${hasQueuedInput ? " • Alt+Up 恢复本地队列" : ""}`,
     statusLine: ({ session, model, thinkingLevel, state, queue }) =>
       [
         `会话 ${session}`,

@@ -230,7 +230,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
     this.editor = new Editor(tui, createEditorTheme(this.theme), { paddingX: 1 });
     this.installAutocompleteProvider(options);
     this.editor.onSubmit = (text) => {
-      void this.submitEditorText(text, { mode: "steer" });
+      void this.submitEditorText(text, { mode: this.primarySubmitMode() });
     };
     this.session.onChange = this.handleSessionChange;
     this.syncWorkingSpinner();
@@ -315,7 +315,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   async submitInput(input: string): Promise<"started" | "queued" | "ignored" | "command"> {
-    return await this.submitPreparedInput(input, { mode: "steer" });
+    return await this.submitPreparedInput(input, { mode: this.primarySubmitMode() });
+  }
+
+  private primarySubmitMode(): SparkNativeQueueMode {
+    return this.session.daemonOwnsQueue ? "followUp" : "steer";
   }
 
   private async submitEditorText(
@@ -1933,7 +1937,10 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   private footerLine(): string {
     return this.session.isProcessing
-      ? `${this.workingSpinner()} Working... • ${nativeTuiStrings.busyFooter(this.session.canRestoreQueuedInput)}`
+      ? `${this.workingSpinner()} Working... • ${nativeTuiStrings.busyFooter(
+          this.session.canRestoreQueuedInput,
+          this.session.daemonOwnsQueue,
+        )}`
       : nativeTuiStrings.footer;
   }
 
