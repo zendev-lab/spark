@@ -16,7 +16,7 @@ import {
   upsertSparkDaemonServerProfile,
 } from "./server-profiles.ts";
 import { openSparkDaemonDatabase } from "./store/schema.ts";
-import { ensureLocalWorkspace, registerWorkspace } from "./store/workspaces.ts";
+import { registerWorkspace } from "./store/workspaces.ts";
 
 const sourceUrl = "http://127.0.0.1:4173/";
 const targetUrl = "https://target.example.test/";
@@ -424,7 +424,7 @@ async function setup(options: SetupOptions = {}): Promise<Harness> {
     },
     now,
   });
-  const local = ensureLocalWorkspace(db, {
+  const local = registerWorkspace(db, {
     localPath: join(root, "local"),
     localWorkspaceKey: "local",
     displayName: "Local",

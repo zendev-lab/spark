@@ -256,6 +256,21 @@ test("Spark session selector switches workspace groups horizontally", () => {
   component.handleInput?.("\u001b[C");
   lines = component.render(96);
   assert.equal(
+    lines.some((line) => line.includes("[spark History (1)]")),
+    true,
+  );
+  assert.equal(
+    lines.some((line) => line.includes("Archived conversation")),
+    true,
+  );
+  assert.equal(
+    lines.some((line) => line.includes("Recent conversation")),
+    false,
+  );
+
+  component.handleInput?.("\u001b[C");
+  lines = component.render(96);
+  assert.equal(
     lines.some((line) => line.includes("[spark (4)]")),
     true,
   );

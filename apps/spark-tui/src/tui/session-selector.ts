@@ -21,9 +21,22 @@ export const CREATE_SPARK_SESSION_SELECTION = "__spark_create_session__";
 
 const UNTITLED_SESSION_LABEL = "New conversation";
 
-/** Native selection exposes active workspace sessions only. */
-export function isSelectableSparkSession(session: SparkSessionRegistryRecord): boolean {
-  return session.status !== "archived" && session.scope.kind === "workspace";
+type WorkspaceScopedSparkSession = SparkSessionRegistryRecord & {
+  scope: Extract<SparkSessionRegistryRecord["scope"], { kind: "workspace" }>;
+};
+
+/** The TUI opens workspace Sessions only; daemon-global records stay hidden. */
+export function isWorkspaceScopedSparkSession(
+  session: SparkSessionRegistryRecord,
+): session is WorkspaceScopedSparkSession {
+  return session.scope.kind === "workspace";
+}
+
+/** Active selector entries exclude archived History records. */
+export function isSelectableSparkSession(
+  session: SparkSessionRegistryRecord,
+): session is WorkspaceScopedSparkSession {
+  return session.status !== "archived" && isWorkspaceScopedSparkSession(session);
 }
 
 const plain = (text: string): string => text;
@@ -265,7 +278,7 @@ function sessionSelectionGroups(
   options: SparkSessionSelectorOptions,
 ): SparkSessionSelectionGroup[] {
   const byKey = new Map<string, SparkSessionSelectionGroup>();
-  const currentKey = `workspace:${options.workspaceId}`;
+  const currentKey = `workspace:${options.workspaceId}:active`;
   byKey.set(currentKey, {
     key: currentKey,
     label: options.workspaceLabel,
@@ -279,19 +292,26 @@ function sessionSelectionGroups(
     ],
   });
 
-  for (const session of options.sessions.filter(isSelectableSparkSession)) {
+  for (const session of options.sessions.filter(isWorkspaceScopedSparkSession)) {
     const identity = sessionGroupIdentity(session, options);
     if (!identity) continue;
-    const group = byKey.get(identity.key) ?? {
-      key: identity.key,
-      label: identity.label,
-      tabLabel: identity.tabLabel,
+    const history = session.status === "archived";
+    const key = `${identity.key}:${history ? "history" : "active"}`;
+    const group = byKey.get(key) ?? {
+      key,
+      label: history ? `${identity.label} • History` : identity.label,
+      tabLabel: history ? `${identity.tabLabel} History` : identity.tabLabel,
       items: [],
     };
     group.items.push(sessionSelectionItem(session));
-    byKey.set(identity.key, group);
+    byKey.set(key, group);
   }
-  return [...byKey.values()];
+  return [...byKey.values()]
+    .filter((group) => group.items.length > 0 || group.key === currentKey)
+    .sort(
+      (left, right) =>
+        Number(left.key.endsWith(":history")) - Number(right.key.endsWith(":history")),
+    );
 }
 
 function sessionGroupCount(group: SparkSessionSelectionGroup): number {
@@ -303,7 +323,7 @@ function currentWorkspaceTabLabel(options: SparkSessionSelectorOptions): string 
 }
 
 function sessionGroupIdentity(
-  session: SparkSessionRegistryRecord,
+  session: WorkspaceScopedSparkSession,
   options: SparkSessionSelectorOptions,
 ): { key: string; label: string; tabLabel: string } | undefined {
   if (session.scope.kind !== "workspace") return undefined;
@@ -346,13 +366,18 @@ function sessionGroupIdentity(
 
 function sessionSelectionItem(session: SparkSessionRegistryRecord): SparkSessionSelectionItem {
   const channel = session.bindings[0];
+  const archiveSource = session.archiveHistory?.at(-1)?.source;
+  let status: string | undefined;
+  if (session.status === "archived") status = "History";
+  else if (session.status === "running") status = session.status;
   return {
     value: session.sessionId,
     label: session.title?.trim() || UNTITLED_SESSION_LABEL,
     description: [
       session.sessionId,
       channel ? channel.adapter : undefined,
-      session.status === "running" ? session.status : undefined,
+      status,
+      archiveSource ? `archived=${archiveSource}` : undefined,
       session.model ? `${session.model.providerName}/${session.model.modelId}` : undefined,
       session.thinkingLevel ? `thinking=${session.thinkingLevel}` : undefined,
       relativeSessionUpdate(session.updatedAt),

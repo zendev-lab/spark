@@ -4,6 +4,8 @@ import {
   channelAdapterFromExternalKey,
   normalizeChannelExternalKey,
   parseSparkSessionRegistryRecord,
+  type SparkSessionArchiveEvent,
+  type SparkSessionArchiveSource,
   type SparkSessionChannelBinding,
   type SparkSessionRegistryRecord,
   type SparkSessionRelation,
@@ -44,6 +46,18 @@ export interface CreateSparkSessionInput {
   relation?: SparkSessionRelation;
   now?: Date;
 }
+export interface ArchiveSparkSessionInput {
+  sessionId: string;
+  source?: SparkSessionArchiveSource;
+  reason?: string;
+  tags?: string[];
+  /** Internal retention CAS; a changed Session is left active. */
+  expectedUpdatedAt?: string;
+  /** Internal retention guard; only a ready, unassigned, unbound primary Session may archive. */
+  requireUnassigned?: boolean;
+  now?: Date;
+}
+
 export interface EnsureSparkSideThreadInput {
   parentSessionId: string;
   mode: SparkSideThreadMode;
@@ -130,6 +144,21 @@ export class SparkSessionRegistry {
     const scope = createScope(input);
     const role = normalizeSessionRole(input.role);
     const legacyTitle = normalizeSessionRole(input.title);
+    if (role && input.status !== "archived" && !input.relation) {
+      const existingRoleOwner = file.sessions.find(
+        (session) =>
+          session.status !== "archived" &&
+          !session.relation &&
+          sameSessionScope(session.scope, scope) &&
+          normalizeSessionRole(session.role) === role,
+      );
+      if (existingRoleOwner) {
+        throw new SparkSessionRegistryError(
+          "session_role_conflict",
+          `session role ${JSON.stringify(role)} already belongs to ${existingRoleOwner.sessionId}; reuse that session or archive it first`,
+        );
+      }
+    }
     const ownership =
       scope.kind === "workspace" ? { scope, workspaceId: scope.workspaceId } : { scope };
     const record: SparkSessionRegistryRecord = {
@@ -137,6 +166,8 @@ export class SparkSessionRegistry {
       ...ownership,
       status: input.status ?? "ready",
       bindings: [],
+      tags: [],
+      archiveHistory: [],
       createdAt: now,
       updatedAt: now,
       // Local role-managed sessions mirror role into title for compatibility.
@@ -178,6 +209,8 @@ export class SparkSessionRegistry {
       ...ownership,
       status: "ready",
       bindings: [],
+      tags: [],
+      archiveHistory: [],
       createdAt: now,
       updatedAt: now,
       ...(parent.cwd ? { cwd: parent.cwd } : {}),
@@ -268,6 +301,8 @@ export class SparkSessionRegistry {
       includeSideThreads?: boolean;
       scope?: SparkSessionScope;
       workspaceId?: string;
+      query?: string;
+      tags?: string[];
     } = {},
   ): Promise<SparkSessionRegistryRecord[]> {
     const file = await this.loadFile();
@@ -281,6 +316,13 @@ export class SparkSessionRegistry {
             ? ({ kind: "workspace", workspaceId: options.workspaceId } as const)
             : undefined);
         if (scope && !sameSessionScope(session.scope, scope)) return false;
+        if (
+          options.tags?.length &&
+          !options.tags.every((tag) => (session.tags ?? []).includes(tag))
+        ) {
+          return false;
+        }
+        if (options.query && !sessionMatchesQuery(session, options.query)) return false;
         return true;
       })
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -451,13 +493,23 @@ export class SparkSessionRegistry {
     return updated;
   }
 
-  async archive(sessionId: string, now = new Date()): Promise<SparkSessionRegistryRecord> {
+  async archive(
+    input: string | ArchiveSparkSessionInput,
+    legacyNow = new Date(),
+  ): Promise<SparkSessionRegistryRecord> {
+    const archiveInput: ArchiveSparkSessionInput =
+      typeof input === "string" ? { sessionId: input, now: legacyNow } : input;
+    const { sessionId } = archiveInput;
     const file = await this.loadFile();
     const index = file.sessions.findIndex((session) => session.sessionId === sessionId);
     if (index < 0) {
       throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
     }
     const current = file.sessions[index]!;
+    if (archiveInput.expectedUpdatedAt && current.updatedAt !== archiveInput.expectedUpdatedAt) {
+      return current;
+    }
+    if (archiveInput.requireUnassigned && !isInactiveRetentionCandidate(current)) return current;
     if (current.relation?.kind === "side_thread") {
       throw new SparkSessionRegistryError(
         "side_thread_mutation_forbidden",
@@ -470,9 +522,14 @@ export class SparkSessionRegistry {
         `cannot archive channel-bound session: ${sessionId}`,
       );
     }
+    if (current.status === "archived") return current;
+    const now = archiveInput.now ?? new Date();
+    const archiveEvent = createArchiveEvent(current, archiveInput, now);
     const updated: SparkSessionRegistryRecord = {
       ...current,
       status: "archived",
+      tags: mergeSessionTags(current.tags ?? [], archiveEvent.tags),
+      archiveHistory: [...(current.archiveHistory ?? []), archiveEvent],
       updatedAt: now.toISOString(),
     };
     file.sessions[index] = updated;
@@ -487,10 +544,69 @@ export class SparkSessionRegistry {
           file.sessions[childIndex] = {
             ...child,
             status: "archived",
+            tags: mergeSessionTags(child.tags ?? [], [
+              ...archiveEvent.tags,
+              `parent:${encodeSessionTagValue(current.sessionId)}`,
+              "relation:side-thread",
+            ]),
+            archiveHistory: [
+              ...(child.archiveHistory ?? []),
+              createArchiveEvent(
+                child,
+                {
+                  source: archiveEvent.source,
+                  reason: `archived with parent ${current.sessionId}`,
+                  tags: archiveEvent.tags,
+                },
+                now,
+              ),
+            ],
             updatedAt: now.toISOString(),
           };
       }
     }
+    await this.saveFile(file);
+    return updated;
+  }
+
+  async restore(sessionId: string, now = new Date()): Promise<SparkSessionRegistryRecord> {
+    const file = await this.loadFile();
+    const index = file.sessions.findIndex((session) => session.sessionId === sessionId);
+    if (index < 0) {
+      throw new SparkSessionRegistryError("session_not_found", `unknown session: ${sessionId}`);
+    }
+    const current = file.sessions[index]!;
+    if (current.relation?.kind === "side_thread") {
+      throw new SparkSessionRegistryError(
+        "side_thread_mutation_forbidden",
+        `side thread ${sessionId} cannot be restored independently`,
+      );
+    }
+    if (current.status !== "archived") return current;
+    const role = normalizeSessionRole(current.role);
+    const existingRoleOwner = role
+      ? file.sessions.find(
+          (session) =>
+            session.sessionId !== sessionId &&
+            session.status !== "archived" &&
+            !session.relation &&
+            sameSessionScope(session.scope, current.scope) &&
+            normalizeSessionRole(session.role) === role,
+        )
+      : undefined;
+    if (existingRoleOwner) {
+      throw new SparkSessionRegistryError(
+        "session_role_conflict",
+        `session role ${JSON.stringify(role)} already belongs to ${existingRoleOwner.sessionId}; archive it before restoring ${sessionId}`,
+      );
+    }
+    const updated: SparkSessionRegistryRecord = {
+      ...current,
+      status: "ready",
+      tags: mergeSessionTags(current.tags ?? [], ["lifecycle:restored"]),
+      updatedAt: now.toISOString(),
+    };
+    file.sessions[index] = updated;
     await this.saveFile(file);
     return updated;
   }
@@ -528,6 +644,20 @@ export class SparkSessionRegistry {
       throw new SparkSessionRegistryError(
         "invalid_session_role",
         `session role must not be blank: ${sessionId}`,
+      );
+    }
+    const existingRoleOwner = file.sessions.find(
+      (session) =>
+        session.sessionId !== sessionId &&
+        session.status !== "archived" &&
+        !session.relation &&
+        sameSessionScope(session.scope, current.scope) &&
+        normalizeSessionRole(session.role) === normalizedRole,
+    );
+    if (existingRoleOwner) {
+      throw new SparkSessionRegistryError(
+        "session_role_conflict",
+        `session role ${JSON.stringify(normalizedRole)} already belongs to ${existingRoleOwner.sessionId}; reuse that session or archive it first`,
       );
     }
     const observedAt = now.toISOString();
@@ -960,6 +1090,83 @@ function sameSessionScope(left: SparkSessionScope, right: SparkSessionScope): bo
 function normalizeSessionRole(value: string | undefined): string | undefined {
   const normalized = value?.replace(/\s+/gu, " ").trim();
   return normalized || undefined;
+}
+
+function isInactiveRetentionCandidate(session: SparkSessionRegistryRecord): boolean {
+  return (
+    session.status === "ready" &&
+    !session.role?.trim() &&
+    !session.title?.trim() &&
+    !session.relation &&
+    session.bindings.length === 0
+  );
+}
+
+function createArchiveEvent(
+  session: SparkSessionRegistryRecord,
+  input: Omit<ArchiveSparkSessionInput, "sessionId" | "now">,
+  now: Date,
+): SparkSessionArchiveEvent {
+  const source = input.source ?? "manual";
+  const tags = [
+    `archive-source:${source}`,
+    `archived:${now.toISOString().slice(0, 7)}`,
+    `scope:${session.scope.kind}`,
+    ...(session.scope.kind === "workspace"
+      ? [`workspace:${encodeSessionTagValue(session.scope.workspaceId)}`]
+      : [`daemon:${encodeSessionTagValue(session.scope.daemonId)}`]),
+    ...(session.role ? [`role:${encodeSessionTagValue(session.role)}`] : ["role:unassigned"]),
+    ...(session.relation ? [`relation:${session.relation.kind}`] : ["relation:primary"]),
+    ...(input.tags ?? []),
+  ];
+  return {
+    archivedAt: now.toISOString(),
+    source,
+    ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+    tags: mergeSessionTags([], tags),
+  };
+}
+
+function mergeSessionTags(current: readonly string[], additions: readonly string[]): string[] {
+  return [...new Set([...current, ...additions].map(normalizeSessionTag))];
+}
+
+function normalizeSessionTag(value: string): string {
+  const tag = value.trim();
+  if (!tag || tag.length > 128 || /[\s\u0000-\u001f\u007f]/u.test(tag)) {
+    throw new SparkSessionRegistryError(
+      "invalid_session_tag",
+      "session tag must be 1-128 characters without whitespace or controls",
+    );
+  }
+  return tag;
+}
+
+function encodeSessionTagValue(value: string): string {
+  return encodeURIComponent(value.trim());
+}
+
+function sessionMatchesQuery(session: SparkSessionRegistryRecord, rawQuery: string): boolean {
+  const terms = rawQuery.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean);
+  if (terms.length === 0) return true;
+  const haystack = [
+    session.sessionId,
+    session.title,
+    session.role,
+    session.cwd,
+    session.sessionPath,
+    session.scope.kind === "workspace" ? session.scope.workspaceId : session.scope.daemonId,
+    ...(session.tags ?? []),
+    ...(session.archiveHistory ?? []).flatMap((event) => [
+      event.source,
+      event.reason,
+      ...event.tags,
+    ]),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join("\n")
+    .toLocaleLowerCase();
+  return terms.every((term) => haystack.includes(term));
 }
 
 function normalizedSessionPath(value: string, sessionId: string): string {

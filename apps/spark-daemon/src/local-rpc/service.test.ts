@@ -9,7 +9,7 @@ import {
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { upsertSparkDaemonServerProfile } from "../server-profiles.ts";
 import { openSparkDaemonDatabase } from "../store/schema.ts";
-import { ensureLocalWorkspace } from "../store/workspaces.ts";
+import { registerWorkspace } from "../store/workspaces.ts";
 import { handleLocalRpcLine } from "./dispatch.ts";
 import { invokeLocalRpcService, localRpcServiceHandlerMethodGroups } from "./service.ts";
 import { parseLocalRpcServiceOutput, SparkDaemonStillStartingError } from "./types.ts";
@@ -29,7 +29,7 @@ describe("transport-neutral local RPC service", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-27T12:00:00.000Z"));
     const { paths, db } = createFixture();
-    ensureLocalWorkspace(db, { localPath: join(paths.dataDir, "workspace") });
+    registerWorkspace(db, { localPath: join(paths.dataDir, "workspace") });
 
     const direct = await invokeLocalRpcService("workspace.list", {}, { paths, db });
     const legacy = await handleLocalRpcLine(
@@ -182,11 +182,11 @@ describe("transport-neutral local RPC service", () => {
     db.close();
   });
 
-  it("exhaustively groups all 76 methods behind their protocol output parser", () => {
+  it("exhaustively groups all 77 methods behind their protocol output parser", () => {
     const groupedMethods = Object.values(localRpcServiceHandlerMethodGroups).flat();
     const catalogMethods = Object.keys(sparkLocalRpcProcedureSchemas) as SparkLocalRpcMethod[];
 
-    expect(groupedMethods).toHaveLength(76);
+    expect(groupedMethods).toHaveLength(77);
     expect(new Set(groupedMethods).size).toBe(groupedMethods.length);
     expect([...groupedMethods].sort()).toEqual([...catalogMethods].sort());
 

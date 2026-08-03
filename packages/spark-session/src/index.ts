@@ -3,6 +3,7 @@ export {
   SparkSessionRegistryError,
   SPARK_SESSION_REGISTRY_VERSION,
   defaultSparkSessionRegistryRoot,
+  type ArchiveSparkSessionInput,
   type BindSparkSessionInput,
   type CreateSparkSessionInput,
   type EnsureSparkSideThreadInput,

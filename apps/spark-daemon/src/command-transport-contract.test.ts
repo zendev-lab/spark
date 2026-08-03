@@ -96,7 +96,7 @@ describe("turn command transport contract", () => {
     expect(status.kind).toBe("workspace.snapshot.request");
   });
 
-  it("normalizes session create/bind/archive and turn submit/cancel across both transports", () => {
+  it("normalizes session create/bind/archive/restore and turn submit/cancel across both transports", () => {
     const sessionId = "sess_transport_contract";
     for (const [method, kind, params] of [
       [
@@ -110,6 +110,7 @@ describe("turn command transport contract", () => {
         { sessionId, externalKey: "infoflow:user:transport" },
       ],
       ["session.archive", "session.archive.request", { sessionId }],
+      ["session.restore", "session.restore.request", { sessionId }],
       ["turn.submit", "turn.submit.request", { sessionId, prompt: "continue" }],
     ] as const) {
       const local = sparkCommandFromLocalRpcRequest({

@@ -29,7 +29,7 @@ export function registerSparkSessionTool(
       "A persistent session represents a long-lived division of labour, never one task. Before create, you MUST list same-workspace local sessions and compare roles semantically; reuse the closest owner with session call/send even when task wording, technology, or language differs.",
       "Cockpit workspace conversations (browser UI under /{workspace}/sessions) are a separate projection. session list/archive only touches the Spark session registry; they will not remove or rename Cockpit chat rows. To clean Cockpit chats, use the page archive control or the runtime session-control API with that page's session IDs.",
       "Use session create only when no existing division of labour owns the responsibility. role must be one concise stable responsibility label in the user's language and existing naming style, such as 运行维护, 前端体验, 质量验证, or Messaging Platforms. Put the concrete task only in session call/send; never use a task slug, implementation name, model name, deliverable, or temporary phase as the role.",
-      "session list is paginated and labels each surface as local or channel plus activity as idle or running; use surface, activity, and adapter filters, then continue with offset when total exceeds the returned page.",
+      "session list is paginated and labels each surface as local or channel plus activity as idle or running; use surface, activity, adapter, query, and tags filters, then continue with offset when total exceeds the returned page. Archived sessions remain searchable with includeArchived=true and can be restored without losing their lifecycle tags.",
       "session send kind=notification persists without triggering the target session; it is the default and cannot wait for completion.",
       "session send kind=request persists and submits one turn to an idle or running local target. wait=accepted is asynchronous and is the default; when the target finishes, the daemon wakes the sender session with a completion summary turn so it can synthesize immediately. wait=completed polls the durable invocation through restart and returns its terminal response without a second wake. After a completed wait times out, call send again with kind=request, wait=completed, and only invocationId/timeoutMs to continue waiting without resubmitting or writing mail.",
       "Message-platform sessions may use only list/get/send/inbox/read/ack. Their list/get/send targets are restricted to the current workspace, and sends require local targets.",
@@ -38,12 +38,12 @@ export function registerSparkSessionTool(
     parameters: Type.Object({
       action: Type.String({
         description:
-          "list | get | create | call | bind | unbind | archive | send | inbox | read | ack",
+          "list | get | create | call | bind | unbind | archive | restore | send | inbox | read | ack",
       }),
       sessionId: Type.Optional(
         Type.String({
           description:
-            "Persistent target for get/call/bind/unbind/archive/inbox/read/ack, or requested id for create.",
+            "Persistent target for get/call/bind/unbind/archive/restore/inbox/read/ack, or requested id for create.",
         }),
       ),
       instruction: Type.Optional(
@@ -58,6 +58,17 @@ export function registerSparkSessionTool(
         }),
       ),
       includeArchived: Type.Optional(Type.Boolean()),
+      query: Type.Optional(
+        Type.String({
+          description: "Case-insensitive Session id, role, path, archive reason, or tag query.",
+        }),
+      ),
+      tags: Type.Optional(
+        Type.Array(Type.String(), {
+          description: "Require all exact lifecycle tags for list; add tags for archive.",
+        }),
+      ),
+      reason: Type.Optional(Type.String({ description: "Optional archive reason." })),
       surface: Type.Optional(
         Type.String({ description: "all | local | channel for list. Defaults to all." }),
       ),
@@ -172,6 +183,7 @@ function normalizeSessionAction(value: unknown): SparkSessionAction {
     value === "bind" ||
     value === "unbind" ||
     value === "archive" ||
+    value === "restore" ||
     value === "send" ||
     value === "inbox" ||
     value === "read" ||
@@ -179,7 +191,7 @@ function normalizeSessionAction(value: unknown): SparkSessionAction {
   )
     return value;
   throw new Error(
-    "session.action must be list, get, create, call, bind, unbind, archive, send, inbox, read, or ack",
+    "session.action must be list, get, create, call, bind, unbind, archive, restore, send, inbox, read, or ack",
   );
 }
 

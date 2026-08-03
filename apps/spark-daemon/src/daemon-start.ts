@@ -92,6 +92,10 @@ import {
   sessionRequestCompletionRequested,
 } from "./session-request-completion-notify.ts";
 import {
+  reconcileInactiveSessionRetention,
+  SESSION_RETENTION_RECONCILE_INTERVAL_MS,
+} from "./session-retention.ts";
+import {
   nextSparkDaemonTokenRefreshDelayMs,
   refreshSparkDaemonCredentials,
   shouldRefreshSparkDaemonToken,
@@ -157,6 +161,7 @@ interface DaemonServingLoops {
   channelReply?: Promise<void>;
   notification?: Promise<void>;
   sessionCompletion?: Promise<void>;
+  sessionRetention?: Promise<void>;
   taskClaims?: Promise<void>;
 }
 
@@ -474,6 +479,7 @@ function createServingLoopGate(): ServingLoopGate {
 async function prepareDaemonServing(runtime: PreparedDaemonRuntime): Promise<void> {
   const { options, runtimeSignal, channelIngress } = runtime;
   await reconcileMainTaskClaimsBeforeAdmission(runtime);
+  await reconcileSessionRetention(runtime);
   if (!runtimeSignal.aborted) {
     await options.onReady?.({
       channelIngress,
@@ -523,6 +529,39 @@ async function runMainTaskClaimReconcileLoop(runtime: PreparedDaemonRuntime): Pr
   }
 }
 
+async function runSessionRetentionReconcileLoop(runtime: PreparedDaemonRuntime): Promise<void> {
+  const intervalMs =
+    runtime.options.sessionRetentionReconcileIntervalMs ?? SESSION_RETENTION_RECONCILE_INTERVAL_MS;
+  while (!runtime.runtimeSignal.aborted) {
+    await delayUnlessAborted(intervalMs, runtime.runtimeSignal);
+    if (runtime.runtimeSignal.aborted) return;
+    await reconcileSessionRetention(runtime);
+  }
+}
+
+async function reconcileSessionRetention(runtime: PreparedDaemonRuntime): Promise<void> {
+  const registry = runtime.options.sessionRegistry;
+  if (!registry) return;
+  try {
+    const result = await reconcileInactiveSessionRetention({
+      registry,
+      driverStore: runtime.driverStore,
+      invocationStore: runtime.invocationStore,
+      now: new Date(runtime.options.sessionRetentionNow?.() ?? Date.now()),
+      ...(runtime.options.sessionRetentionMs === undefined
+        ? {}
+        : { retentionMs: runtime.options.sessionRetentionMs }),
+    });
+    for (const failure of result.failures) {
+      console.error(
+        `[spark-daemon] session retention failed for ${failure.sessionId}: ${failure.error}`,
+      );
+    }
+  } catch (error) {
+    console.error("[spark-daemon] session retention reconcile failed", error);
+  }
+}
+
 function canOpenDaemonAdmission(runtime: PreparedDaemonRuntime): boolean {
   return !runtime.runtimeSignal.aborted && !runtime.options.drainSignal?.aborted;
 }
@@ -543,6 +582,12 @@ function startDaemonServingLoops(runtime: PreparedDaemonRuntime): void {
       if (!committed || runtimeSignal.aborted) return;
       await runMainTaskClaimReconcileLoop(runtime);
     });
+    if (options.sessionRegistry) {
+      loops.sessionRetention = servingGate.promise.then(async (committed) => {
+        if (!committed || runtimeSignal.aborted) return;
+        await runSessionRetentionReconcileLoop(runtime);
+      });
+    }
   }
   if (scheduler && !options.once) {
     loops.scheduler = servingGate.promise.then(async (committed) => {
@@ -742,6 +787,7 @@ async function cleanupPreparedDaemonRuntime(runtime: PreparedDaemonRuntime): Pro
   await runtime.loops.sessionCompletion;
   await runtime.loops.channelReply;
   await runtime.loops.taskClaims;
+  await runtime.loops.sessionRetention;
   if (options.managePidFile !== false && existsSync(options.paths.pidFile)) {
     rmSync(options.paths.pidFile, { force: true });
   }
