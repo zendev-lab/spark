@@ -49,6 +49,7 @@ describe("remote PWA assets", () => {
       readAppFile("src/lib/sessions-workspace/SessionConversationPane.svelte"),
     ].join("\n");
     const workbenchLayout = readAppFile("src/routes/(workbench)/+layout.svelte");
+    const cockpitShell = readAppFile("src/lib/shell/CockpitShell.svelte");
     const cockpitTopbar = readAppFile("src/lib/shell/CockpitTopbar.svelte");
 
     expect(inboxDetail).toContain("@media (max-width: 640px)");
@@ -57,7 +58,8 @@ describe("remote PWA assets", () => {
     expect(inboxDetail).toContain("flex-direction: column");
     expect(conversationDetail).toContain(".mobile-details");
     expect(conversationDetail).toMatch(/@media \(max-width: (640|1200)px\)/);
-    expect(workbenchLayout).toContain("@media (max-width: 900px)");
+    expect(workbenchLayout).toContain('import CockpitShell from "$lib/shell/CockpitShell.svelte"');
+    expect(cockpitShell).toContain("@media (max-width: 900px)");
     expect(cockpitTopbar).toContain("@media (max-width: 560px)");
   });
 });
