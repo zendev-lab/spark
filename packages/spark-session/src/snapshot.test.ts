@@ -1,12 +1,15 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { parseSparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   loadSparkSessionMediaChunk,
   loadSparkSessionSnapshot,
   loadSparkSessionSnapshotTail,
+  refreshSparkSessionSnapshotIndex,
+  sparkSessionSnapshotIndexPath,
 } from "./snapshot.ts";
 
 const roots: string[] = [];
@@ -14,6 +17,46 @@ const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
+
+async function createLinearTranscript(entryCount: number, sessionId: string) {
+  const root = await mkdtemp(join(tmpdir(), "spark-session-indexed-tail-"));
+  roots.push(root);
+  const transcriptPath = join(root, "session.jsonl");
+  const lines = [
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: sessionId,
+      timestamp: "2026-08-03T00:00:00.000Z",
+      cwd: root,
+    }),
+  ];
+  let parentId: string | null = null;
+  for (let index = 0; index < entryCount; index += 1) {
+    const id = `message-${index}`;
+    lines.push(
+      JSON.stringify({
+        type: "message",
+        id,
+        parentId,
+        timestamp: "2026-08-03T00:00:01.000Z",
+        message: { role: "user", content: `消息 ${index}` },
+      }),
+    );
+    parentId = id;
+  }
+  await writeFile(transcriptPath, `${lines.join("\n")}\n`, "utf8");
+  const session = parseSparkSessionRegistryRecord({
+    sessionId,
+    scope: { kind: "workspace", workspaceId: "ws_large" },
+    status: "ready",
+    sessionPath: transcriptPath,
+    bindings: [],
+    createdAt: "2026-08-03T00:00:00.000Z",
+    updatedAt: "2026-08-03T00:00:01.000Z",
+  });
+  return { root, transcriptPath, session };
+}
 
 describe("loadSparkSessionSnapshot", () => {
   it("projects persisted user images without folding bytes into message text", async () => {
@@ -692,54 +735,149 @@ describe("loadSparkSessionSnapshot", () => {
     });
   });
 
-  it("projects only a bounded tail when TUI opens a 10,000-entry transcript", async () => {
-    const root = await mkdtemp(join(tmpdir(), "spark-session-large-tail-"));
-    roots.push(root);
-    const transcriptPath = join(root, "session.jsonl");
-    const lines = [
-      JSON.stringify({
-        type: "session",
-        version: 3,
-        id: "sess_large_tail",
-        timestamp: "2026-08-03T00:00:00.000Z",
-        cwd: root,
-      }),
-    ];
-    let parentId: string | null = null;
-    for (let index = 0; index < 10_000; index += 1) {
-      const id = `message-${index}`;
-      lines.push(
-        JSON.stringify({
-          type: "message",
-          id,
-          parentId,
-          timestamp: "2026-08-03T00:00:01.000Z",
-          message: { role: "user", content: `message ${index}` },
-        }),
-      );
-      parentId = id;
-    }
-    await writeFile(transcriptPath, `${lines.join("\n")}\n`, "utf8");
-    const session = parseSparkSessionRegistryRecord({
-      sessionId: "sess_large_tail",
-      scope: { kind: "workspace", workspaceId: "ws_large" },
-      status: "ready",
-      sessionPath: transcriptPath,
-      bindings: [],
-      createdAt: "2026-08-03T00:00:00.000Z",
-      updatedAt: "2026-08-03T00:00:01.000Z",
+  it("uses an index hit to open only 32 entries from a 10,000-entry transcript", async () => {
+    const fixture = await createLinearTranscript(10_000, "sess_large_tail");
+    const refreshed = await refreshSparkSessionSnapshotIndex({
+      sessionPath: fixture.transcriptPath,
+      sessionId: fixture.session.sessionId,
     });
+    expect(refreshed.messageCount).toBe(10_000);
+    const indexMode = (await stat(refreshed.indexPath)).mode & 0o777;
+    expect(indexMode).toBe(0o600);
+    const persistedIndex = JSON.parse(await readFile(refreshed.indexPath, "utf8")) as {
+      messages: unknown[];
+      totalMessages: number;
+    };
+    expect(persistedIndex.messages).toHaveLength(200);
+    expect(persistedIndex.totalMessages).toBe(10_000);
 
+    const startedAt = performance.now();
     const tail = await loadSparkSessionSnapshotTail({
-      sessionsRoot: root,
-      session,
+      sessionsRoot: fixture.root,
+      session: fixture.session,
       messageLimit: 32,
       resolveGitBranch: async () => undefined,
     });
+    const elapsedMs = performance.now() - startedAt;
+
     expect(tail.totalMessages).toBe(10_000);
     expect(tail.snapshot.messages).toHaveLength(32);
     expect(tail.snapshot.messages[0]?.id).toBe("message-9968");
     expect(tail.snapshot.messages.at(-1)?.id).toBe("message-9999");
+    expect(tail.snapshot.messages.at(-1)?.text).toBe("消息 9999");
+    expect(tail.read).toMatchObject({
+      indexStatus: "hit",
+      indexSaved: true,
+      fullTranscriptRead: false,
+    });
+    expect(tail.read.parsedTranscriptEntries).toBeLessThanOrEqual(32);
+    expect(elapsedMs).toBeLessThan(1_000);
+    console.log(
+      "SPARK_SESSION_LAZY_SNAPSHOT_EVIDENCE",
+      JSON.stringify({
+        transcriptEntries: 10_000,
+        indexDescriptors: persistedIndex.messages.length,
+        indexMode: indexMode.toString(8),
+        totalMessages: tail.totalMessages,
+        loadedMessages: tail.snapshot.messages.length,
+        firstMessageId: tail.snapshot.messages[0]?.id,
+        lastMessageId: tail.snapshot.messages.at(-1)?.id,
+        indexStatus: tail.read.indexStatus,
+        parsedTranscriptEntries: tail.read.parsedTranscriptEntries,
+        fullTranscriptRead: tail.read.fullTranscriptRead,
+        elapsedMs: Number(elapsedMs.toFixed(2)),
+      }),
+    );
+  });
+
+  it("rebuilds a missing snapshot index once and then uses the bounded hit path", async () => {
+    const fixture = await createLinearTranscript(64, "sess_missing_index");
+    const first = await loadSparkSessionSnapshotTail({
+      sessionsRoot: fixture.root,
+      session: fixture.session,
+      messageLimit: 8,
+      resolveGitBranch: async () => undefined,
+    });
+    expect(first.read).toMatchObject({
+      indexStatus: "rebuilt",
+      rebuildReason: "missing",
+      indexSaved: true,
+      fullTranscriptRead: true,
+    });
+    const second = await loadSparkSessionSnapshotTail({
+      sessionsRoot: fixture.root,
+      session: fixture.session,
+      messageLimit: 8,
+      resolveGitBranch: async () => undefined,
+    });
+    expect(second.read).toMatchObject({ indexStatus: "hit", fullTranscriptRead: false });
+  });
+
+  it("rebuilds a corrupt snapshot index without trusting its offsets", async () => {
+    const fixture = await createLinearTranscript(64, "sess_corrupt_index");
+    await refreshSparkSessionSnapshotIndex({
+      sessionPath: fixture.transcriptPath,
+      sessionId: fixture.session.sessionId,
+    });
+    const indexPath = sparkSessionSnapshotIndexPath(fixture.transcriptPath);
+    const index = JSON.parse(await readFile(indexPath, "utf8")) as {
+      messages: Array<{ sha256: string }>;
+    };
+    index.messages.at(-1)!.sha256 = "0".repeat(64);
+    await writeFile(indexPath, `${JSON.stringify(index)}\n`, "utf8");
+    const rebuilt = await loadSparkSessionSnapshotTail({
+      sessionsRoot: fixture.root,
+      session: fixture.session,
+      messageLimit: 8,
+      resolveGitBranch: async () => undefined,
+    });
+    expect(rebuilt.read).toMatchObject({
+      indexStatus: "rebuilt",
+      rebuildReason: "corrupt",
+      indexSaved: true,
+      fullTranscriptRead: true,
+    });
+    expect(rebuilt.snapshot.messages.at(-1)?.id).toBe("message-63");
+  });
+
+  it("rebuilds a checkpoint-stale snapshot index before reading appended history", async () => {
+    const fixture = await createLinearTranscript(64, "sess_stale_index");
+    await refreshSparkSessionSnapshotIndex({
+      sessionPath: fixture.transcriptPath,
+      sessionId: fixture.session.sessionId,
+    });
+    await appendFile(
+      fixture.transcriptPath,
+      `${JSON.stringify({
+        type: "message",
+        id: "message-64",
+        parentId: "message-63",
+        timestamp: "2026-08-03T00:00:02.000Z",
+        message: { role: "user", content: "message 64" },
+      })}\n`,
+      "utf8",
+    );
+    const rebuilt = await loadSparkSessionSnapshotTail({
+      sessionsRoot: fixture.root,
+      session: fixture.session,
+      messageLimit: 8,
+      resolveGitBranch: async () => undefined,
+    });
+    expect(rebuilt.totalMessages).toBe(65);
+    expect(rebuilt.snapshot.messages.at(-1)?.id).toBe("message-64");
+    expect(rebuilt.read).toMatchObject({
+      indexStatus: "rebuilt",
+      rebuildReason: "stale",
+      indexSaved: true,
+      fullTranscriptRead: true,
+    });
+    const second = await loadSparkSessionSnapshotTail({
+      sessionsRoot: fixture.root,
+      session: fixture.session,
+      messageLimit: 8,
+      resolveGitBranch: async () => undefined,
+    });
+    expect(second.read).toMatchObject({ indexStatus: "hit", fullTranscriptRead: false });
   });
 
   it("backfills a settled tool-ended branch with an interruption error but leaves a running turn open", async () => {
@@ -816,6 +954,15 @@ describe("loadSparkSessionSnapshot", () => {
       sessionsRoot: root,
       session: record("running"),
     });
+    await refreshSparkSessionSnapshotIndex({
+      sessionPath: transcriptPath,
+      sessionId: "sess_missing_final",
+    });
+    const settledTail = await loadSparkSessionSnapshotTail({
+      sessionsRoot: root,
+      session: record("ready"),
+      messageLimit: 2,
+    });
 
     expect(settled.messages.at(-1)).toMatchObject({
       id: "tool-result-final-leaf:missing-final-response",
@@ -827,6 +974,16 @@ describe("loadSparkSessionSnapshot", () => {
     expect(running.messages.at(-1)).toMatchObject({
       id: "tool-result-final-leaf",
       role: "tool",
+    });
+    expect(settledTail.snapshot.messages).toHaveLength(2);
+    expect(settledTail.snapshot.messages.at(-1)?.id).toBe(
+      "tool-result-final-leaf:missing-final-response",
+    );
+    expect(settledTail.totalMessages).toBe(4);
+    expect(settledTail.read).toMatchObject({
+      indexStatus: "hit",
+      parsedTranscriptEntries: 2,
+      fullTranscriptRead: false,
     });
   });
 });

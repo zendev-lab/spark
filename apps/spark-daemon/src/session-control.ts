@@ -153,20 +153,11 @@ export async function executeSparkDaemonSessionControl(
             projectPendingSessionTurns(options.db, await loadSparkSessionSnapshot(snapshotInput)),
             parsed,
           )
-        : await (async () => {
-            const requestedLimit = parsed.messageLimit ?? defaultSessionSnapshotMessages;
-            const tail = await loadSparkSessionSnapshotTail({
-              ...snapshotInput,
-              messageLimit: requestedLimit,
-            });
-            const snapshot = projectPendingSessionTurns(options.db, tail.snapshot);
-            const pendingMessages = snapshot.messages.length - tail.snapshot.messages.length;
-            return boundedLatestSessionSnapshot(
-              snapshot,
-              tail.totalMessages + pendingMessages,
-              requestedLimit,
-            );
-          })();
+        : await loadLatestSessionSnapshotWindow(
+            options.db,
+            snapshotInput,
+            parsed.messageLimit ?? defaultSessionSnapshotMessages,
+          );
       const data = publicObject(window);
       return { result: data, projection: { kind: "session.snapshot", data } };
     }
@@ -960,6 +951,24 @@ function boundedLatestSessionSnapshot(
     end: totalMessages,
     requestedLimit,
   });
+}
+
+async function loadLatestSessionSnapshotWindow(
+  db: DatabaseSync,
+  snapshotInput: { sessionsRoot: string; session: SparkSessionRegistryRecord },
+  requestedLimit: number,
+) {
+  const tail = await loadSparkSessionSnapshotTail({
+    ...snapshotInput,
+    messageLimit: requestedLimit,
+  });
+  const snapshot = projectPendingSessionTurns(db, tail.snapshot);
+  const pendingMessages = snapshot.messages.length - tail.snapshot.messages.length;
+  return boundedLatestSessionSnapshot(
+    snapshot,
+    tail.totalMessages + pendingMessages,
+    requestedLimit,
+  );
 }
 
 function boundedSessionSnapshotWindow(

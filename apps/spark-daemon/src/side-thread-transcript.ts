@@ -13,7 +13,11 @@ import {
   type SparkSideThreadMode,
   type SparkSideThreadSnapshot,
 } from "@zendev-lab/spark-protocol";
-import { loadSparkSessionSnapshot, SparkSessionRegistryError } from "@zendev-lab/spark-session";
+import {
+  loadSparkSessionSnapshot,
+  sparkSessionSnapshotIndexPath,
+  SparkSessionRegistryError,
+} from "@zendev-lab/spark-session";
 import { formatSparkSideThreadHandoff } from "@zendev-lab/spark-turn/side-thread";
 
 import type { SparkDaemonModelControl } from "./model-control.ts";
@@ -653,7 +657,10 @@ async function removeVerifiedSideThreadTranscriptArtifacts(
   const record = await store.load(sessionPath);
   if (verifiedSideThreadTranscriptGeneration(record, identity) !== identity.generation) return;
   await unlink(sessionPath);
-  await unlink(sideThreadIndexPath(sessionPath)).catch(() => undefined);
+  await Promise.all([
+    unlink(sideThreadIndexPath(sessionPath)).catch(() => undefined),
+    unlink(sparkSessionSnapshotIndexPath(sessionPath)).catch(() => undefined),
+  ]);
 }
 
 export function renderSparkDaemonSideThreadHandoffPrompt(

@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import {
   SPARK_PROTOCOL_VERSION,
   SPARK_SESSION_MEDIA_MAX_BYTES,
@@ -8,6 +10,7 @@ import {
   sanitizeSparkDisplayError,
   sparkSessionMediaReadRequestSchema,
   sparkSessionMediaReadResultSchema,
+  sparkSessionUsageSchema,
   sparkTextPhaseFromSignature,
   summarizeToolCallArguments,
   summarizeToolResultContent,
@@ -39,11 +42,43 @@ interface NativeSessionEntry {
   message?: Record<string, unknown>;
 }
 
+export interface NativeTranscriptCheckpoint {
+  byteLength: number;
+  modifiedAtMs: number;
+  inode: number;
+}
+
+interface NativeSessionEntryLocation {
+  id: string;
+  offset: number;
+  length: number;
+  sha256: string;
+}
+
 interface NativeSessionRecord {
   path: string;
   header: NativeSessionHeader;
   entries: NativeSessionEntry[];
+  entryLocations: Map<string, NativeSessionEntryLocation>;
+  checkpoint: NativeTranscriptCheckpoint;
   modifiedAt: string;
+}
+
+const SNAPSHOT_INDEX_MESSAGE_LIMIT = 200;
+
+interface NativeSessionSnapshotIndex {
+  version: 1;
+  identity: {
+    sessionId: string;
+    transcriptPath: string;
+  };
+  checkpoint: NativeTranscriptCheckpoint;
+  header: NativeSessionHeader;
+  activeLeafId?: string;
+  messages: NativeSessionEntryLocation[];
+  totalMessages: number;
+  lastMessage?: NativeSessionEntryLocation;
+  usage?: SparkSessionUsage;
 }
 
 interface NativeToolOutcome {
@@ -61,63 +96,188 @@ export interface LoadSparkSessionSnapshotInput {
   resolveGitBranch?: (cwd: string) => Promise<string | undefined>;
 }
 
+export interface SparkSessionSnapshotReadStats {
+  indexStatus: "hit" | "rebuilt";
+  rebuildReason?: "missing" | "stale" | "corrupt" | "raced";
+  indexSaved: boolean;
+  parsedTranscriptEntries: number;
+  fullTranscriptRead: boolean;
+}
+
 export interface SparkSessionSnapshotTail {
   snapshot: SparkSessionView;
   totalMessages: number;
+  read: SparkSessionSnapshotReadStats;
+}
+
+export interface SparkSessionSnapshotIndexRefresh {
+  indexPath: string;
+  messageCount: number;
+  checkpoint: NativeTranscriptCheckpoint;
 }
 
 /** Read the daemon-owned native JSONL transcript and project its active branch. */
 export async function loadSparkSessionSnapshot(
   input: LoadSparkSessionSnapshotInput,
 ): Promise<SparkSessionView> {
-  return (await projectSparkSessionSnapshot(input)).snapshot;
+  const path = input.session.sessionPath;
+  if (!path) {
+    const gitBranch = input.session.cwd
+      ? await (input.resolveGitBranch ?? resolveNativeSessionGitBranch)(input.session.cwd)
+      : undefined;
+    return emptySessionSnapshot(input.session, gitBranch);
+  }
+  const record = await loadNativeSessionRecord(path, input.session.sessionId);
+  const activeNewestFirst = activeBranchEntriesNewestFirst(record.entries);
+  const selectedEntries = activeNewestFirst
+    .filter((entry) => isProjectableMessageEntry(entry))
+    .reverse();
+  return (
+    await projectSparkSessionSnapshot(input, {
+      header: record.header,
+      modifiedAt: record.modifiedAt,
+      activeLeafId: activeNewestFirst[0]?.id,
+      lastMessage: activeNewestFirst.find((entry) => entry.type === "message"),
+      selectedEntries,
+      totalMessages: selectedEntries.length,
+      usage: sessionUsage(record.entries, activeNewestFirst),
+      read: {
+        indexStatus: "rebuilt",
+        indexSaved: false,
+        parsedTranscriptEntries: record.entries.length,
+        fullTranscriptRead: true,
+      },
+    })
+  ).snapshot;
 }
 
-/** Project only the latest display messages while retaining exact history counts. */
+/** Refresh the rebuildable latest-page index after a transcript commit. */
+export async function refreshSparkSessionSnapshotIndex(input: {
+  sessionPath: string;
+  sessionId: string;
+}): Promise<SparkSessionSnapshotIndexRefresh> {
+  const rebuilt = await rebuildSparkSessionSnapshotIndex(input.sessionPath, input.sessionId);
+  if (!rebuilt.saved) {
+    throw new Error(`Failed to persist Spark session snapshot index: ${rebuilt.indexPath}`);
+  }
+  return {
+    indexPath: rebuilt.indexPath,
+    messageCount: rebuilt.index.totalMessages,
+    checkpoint: rebuilt.index.checkpoint,
+  };
+}
+
+/** Project only the latest display messages without parsing the complete transcript on index hit. */
 export async function loadSparkSessionSnapshotTail(
   input: LoadSparkSessionSnapshotInput & { messageLimit: number },
 ): Promise<SparkSessionSnapshotTail> {
   if (!Number.isInteger(input.messageLimit) || input.messageLimit < 1) {
     throw new Error("Spark session snapshot messageLimit must be a positive integer.");
   }
-  return await projectSparkSessionSnapshot(input, input.messageLimit);
-}
-
-async function projectSparkSessionSnapshot(
-  input: LoadSparkSessionSnapshotInput,
-  messageLimit?: number,
-): Promise<SparkSessionSnapshotTail> {
   const path = input.session.sessionPath;
   if (!path) {
     const gitBranch = input.session.cwd
       ? await (input.resolveGitBranch ?? resolveNativeSessionGitBranch)(input.session.cwd)
       : undefined;
-    return { snapshot: emptySessionSnapshot(input.session, gitBranch), totalMessages: 0 };
+    return {
+      snapshot: emptySessionSnapshot(input.session, gitBranch),
+      totalMessages: 0,
+      read: {
+        indexStatus: "hit",
+        indexSaved: true,
+        parsedTranscriptEntries: 0,
+        fullTranscriptRead: false,
+      },
+    };
   }
-  const record = await loadNativeSessionRecord(path, input.session.sessionId);
-  const activeNewestFirst = activeBranchEntriesNewestFirst(record.entries);
-  const interrupted = interruptedTurnMessage(activeNewestFirst, input.session);
-  let selectedEntries: NativeSessionEntry[];
-  let projectedMessageCount = 0;
-  if (messageLimit === undefined) {
-    selectedEntries = [...activeNewestFirst].reverse();
-  } else {
-    const nativeLimit = Math.max(0, messageLimit - (interrupted ? 1 : 0));
-    const selectedNewestFirst: NativeSessionEntry[] = [];
-    for (const entry of activeNewestFirst) {
-      if (!isProjectableMessageEntry(entry)) continue;
-      projectedMessageCount += 1;
-      if (selectedNewestFirst.length < nativeLimit) selectedNewestFirst.push(entry);
-    }
-    selectedEntries = selectedNewestFirst.reverse();
+
+  const loaded = await loadSparkSessionSnapshotIndex(path, input.session.sessionId);
+  let index = loaded.index;
+  let indexStatus: SparkSessionSnapshotReadStats["indexStatus"] = "hit";
+  let fullTranscriptEntries = 0;
+  let indexSaved = true;
+  if (!index) {
+    const rebuilt = await rebuildSparkSessionSnapshotIndex(path, input.session.sessionId);
+    index = rebuilt.index;
+    indexStatus = "rebuilt";
+    fullTranscriptEntries = rebuilt.parsedEntries;
+    indexSaved = rebuilt.saved;
   }
-  const toolOutcomes = collectToolOutcomes(selectedEntries);
-  const projectedMessages = selectedEntries.flatMap((entry) => {
+
+  try {
+    return await projectSparkSessionSnapshotIndexTail(input, index, {
+      indexStatus,
+      ...(loaded.reason ? { rebuildReason: loaded.reason } : {}),
+      indexSaved,
+      parsedTranscriptEntries: fullTranscriptEntries,
+      fullTranscriptRead: fullTranscriptEntries > 0,
+    });
+  } catch {
+    const current = await transcriptCheckpoint(path);
+    const rebuildReason = sameTranscriptCheckpoint(index.checkpoint, current) ? "corrupt" : "raced";
+    const rebuilt = await rebuildSparkSessionSnapshotIndex(path, input.session.sessionId);
+    return await projectSparkSessionSnapshotIndexTail(input, rebuilt.index, {
+      indexStatus: "rebuilt",
+      rebuildReason,
+      indexSaved: rebuilt.saved,
+      parsedTranscriptEntries: rebuilt.parsedEntries,
+      fullTranscriptRead: true,
+    });
+  }
+}
+
+async function projectSparkSessionSnapshotIndexTail(
+  input: LoadSparkSessionSnapshotInput & { messageLimit: number },
+  index: NativeSessionSnapshotIndex,
+  read: SparkSessionSnapshotReadStats,
+): Promise<SparkSessionSnapshotTail> {
+  const path = input.session.sessionPath!;
+  const descriptors = index.messages.slice(-input.messageLimit);
+  const candidates = await readIndexedTranscriptEntries(path, index, descriptors);
+  const lastMessage = index.lastMessage
+    ? candidates.find((entry) => entry.id === index.lastMessage?.id)
+    : undefined;
+  const interrupted = interruptedTurnMessage(lastMessage ? [lastMessage] : [], input.session);
+  const selectedEntries = interrupted ? candidates.slice(1) : candidates;
+  return await projectSparkSessionSnapshot(input, {
+    header: index.header,
+    modifiedAt: new Date(index.checkpoint.modifiedAtMs).toISOString(),
+    activeLeafId: index.activeLeafId,
+    lastMessage,
+    selectedEntries,
+    totalMessages: index.totalMessages,
+    usage: index.usage,
+    read: {
+      ...read,
+      parsedTranscriptEntries: read.parsedTranscriptEntries + candidates.length,
+    },
+  });
+}
+
+async function projectSparkSessionSnapshot(
+  input: LoadSparkSessionSnapshotInput,
+  projection: {
+    header: NativeSessionHeader;
+    modifiedAt: string;
+    activeLeafId?: string;
+    lastMessage?: NativeSessionEntry;
+    selectedEntries: NativeSessionEntry[];
+    totalMessages: number;
+    usage?: SparkSessionUsage;
+    read: SparkSessionSnapshotReadStats;
+  },
+): Promise<SparkSessionSnapshotTail> {
+  const interrupted = interruptedTurnMessage(
+    projection.lastMessage ? [projection.lastMessage] : [],
+    input.session,
+  );
+  const toolOutcomes = collectToolOutcomes(projection.selectedEntries);
+  const projectedMessages = projection.selectedEntries.flatMap((entry) => {
     const message = messageView(entry, toolOutcomes);
     return message ? [message] : [];
   });
   const messages = interrupted ? [...projectedMessages, interrupted] : projectedMessages;
-  const tools = toolCallViews(selectedEntries, toolOutcomes);
+  const tools = toolCallViews(projection.selectedEntries, toolOutcomes);
   const metadata: SparkJsonObject = {
     sessionScope: input.session.scope,
     ...(input.session.scope.kind === "workspace"
@@ -125,34 +285,33 @@ async function projectSparkSessionSnapshot(
       : {}),
     registryStatus: input.session.status,
   };
-  const cwd = record.header.cwd ?? input.session.cwd;
+  const cwd = projection.header.cwd ?? input.session.cwd;
   const gitBranch = cwd
     ? await (input.resolveGitBranch ?? resolveNativeSessionGitBranch)(cwd)
     : undefined;
-  const usage = sessionUsage(record.entries, activeNewestFirst);
   const snapshot = parseSparkSessionView({
     sessionId: input.session.sessionId,
     ...(input.session.title ? { title: input.session.title } : {}),
     ...(cwd ? { cwd } : {}),
-    ...(activeNewestFirst[0]?.id ? { activeLeafId: activeNewestFirst[0].id } : {}),
+    ...(projection.activeLeafId ? { activeLeafId: projection.activeLeafId } : {}),
     status: input.session.status === "running" ? "running" : "idle",
     ...(input.session.model ? { model: input.session.model } : {}),
     ...(input.session.thinkingLevel ? { thinkingLevel: input.session.thinkingLevel } : {}),
     ...(gitBranch ? { gitBranch } : {}),
-    ...(usage ? { usage } : {}),
+    ...(projection.usage ? { usage: projection.usage } : {}),
     messages,
     tools,
-    createdAt: record.header.timestamp,
+    createdAt: projection.header.timestamp,
     updatedAt:
-      input.session.updatedAt > record.modifiedAt ? input.session.updatedAt : record.modifiedAt,
+      input.session.updatedAt > projection.modifiedAt
+        ? input.session.updatedAt
+        : projection.modifiedAt,
     metadata,
   });
   return {
     snapshot,
-    totalMessages:
-      messageLimit === undefined
-        ? snapshot.messages.length
-        : projectedMessageCount + (interrupted ? 1 : 0),
+    totalMessages: projection.totalMessages + (interrupted ? 1 : 0),
+    read: projection.read,
   };
 }
 
@@ -243,29 +402,373 @@ function emptySessionSnapshot(
   });
 }
 
+export function sparkSessionSnapshotIndexPath(sessionPath: string): string {
+  return `${sessionPath}.snapshot-index.json`;
+}
+
+async function loadSparkSessionSnapshotIndex(
+  path: string,
+  expectedSessionId: string,
+): Promise<{
+  index?: NativeSessionSnapshotIndex;
+  status: "hit";
+  reason?: "missing" | "stale" | "corrupt";
+}> {
+  const indexPath = sparkSessionSnapshotIndexPath(path);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await readFile(indexPath, "utf8")) as unknown;
+  } catch (error) {
+    return {
+      status: "hit",
+      reason: (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "corrupt",
+    };
+  }
+  let index: NativeSessionSnapshotIndex;
+  try {
+    index = parseSparkSessionSnapshotIndex(raw, path, expectedSessionId);
+  } catch {
+    return { status: "hit", reason: "corrupt" };
+  }
+  const checkpoint = await transcriptCheckpoint(path);
+  if (!sameTranscriptCheckpoint(index.checkpoint, checkpoint)) {
+    return { status: "hit", reason: "stale" };
+  }
+  return { index, status: "hit" };
+}
+
+async function rebuildSparkSessionSnapshotIndex(path: string, expectedSessionId: string) {
+  const record = await loadNativeSessionRecord(path, expectedSessionId);
+  const index = buildSparkSessionSnapshotIndex(record, expectedSessionId);
+  let saved = false;
+  try {
+    await saveSparkSessionSnapshotIndex(path, index);
+    saved = true;
+  } catch {
+    // The JSONL transcript is authoritative; a read can still use this in-memory index.
+  }
+  return {
+    index,
+    indexPath: sparkSessionSnapshotIndexPath(path),
+    parsedEntries: record.entries.length,
+    saved,
+  };
+}
+
+function buildSparkSessionSnapshotIndex(
+  record: NativeSessionRecord,
+  expectedSessionId: string,
+): NativeSessionSnapshotIndex {
+  const activeNewestFirst = activeBranchEntriesNewestFirst(record.entries);
+  const activeMessages = activeNewestFirst
+    .filter((entry) => isProjectableMessageEntry(entry))
+    .map((entry) => requiredEntryLocation(record, entry.id))
+    .reverse();
+  const messages = activeMessages.slice(-SNAPSHOT_INDEX_MESSAGE_LIMIT);
+  const lastMessage = activeNewestFirst.find((entry) => entry.type === "message");
+  const usage = sessionUsage(record.entries, activeNewestFirst);
+  return {
+    version: 1,
+    identity: {
+      sessionId: expectedSessionId,
+      transcriptPath: resolve(record.path),
+    },
+    checkpoint: record.checkpoint,
+    header: record.header,
+    ...(activeNewestFirst[0]?.id ? { activeLeafId: activeNewestFirst[0].id } : {}),
+    messages,
+    totalMessages: activeMessages.length,
+    ...(lastMessage ? { lastMessage: requiredEntryLocation(record, lastMessage.id) } : {}),
+    ...(usage ? { usage } : {}),
+  };
+}
+
+function requiredEntryLocation(
+  record: NativeSessionRecord,
+  entryId: string,
+): NativeSessionEntryLocation {
+  const location = record.entryLocations.get(entryId);
+  if (!location) throw new Error(`Native transcript entry has no byte location: ${entryId}`);
+  return location;
+}
+
+async function saveSparkSessionSnapshotIndex(
+  path: string,
+  index: NativeSessionSnapshotIndex,
+): Promise<void> {
+  const indexPath = sparkSessionSnapshotIndexPath(path);
+  parseSparkSessionSnapshotIndex(index, path, index.identity.sessionId);
+  const temporaryPath = `${indexPath}.${process.pid}.${randomUUID()}.tmp`;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(temporaryPath, "wx", 0o600);
+    await handle.writeFile(`${JSON.stringify(index)}\n`, "utf8");
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    const checkpoint = await transcriptCheckpoint(path);
+    if (!sameTranscriptCheckpoint(index.checkpoint, checkpoint)) {
+      throw new Error("Native transcript changed before snapshot index publication.");
+    }
+    await rename(temporaryPath, indexPath);
+    await syncDirectory(dirname(indexPath));
+    const mode = (await stat(indexPath)).mode & 0o777;
+    if (mode !== 0o600)
+      throw new Error(`Spark session snapshot index mode is ${mode.toString(8)}.`);
+  } finally {
+    await handle?.close().catch(() => undefined);
+    await unlink(temporaryPath).catch(() => undefined);
+  }
+}
+
+async function syncDirectory(path: string): Promise<void> {
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(path, "r");
+    await handle.sync();
+  } catch {
+    // Directory fsync is best-effort on platforms that do not expose it.
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+function parseSparkSessionSnapshotIndex(
+  value: unknown,
+  path: string,
+  expectedSessionId: string,
+): NativeSessionSnapshotIndex {
+  if (!isRecord(value) || value.version !== 1 || !isRecord(value.identity)) {
+    throw new Error("Invalid Spark session snapshot index.");
+  }
+  if (
+    value.identity.sessionId !== expectedSessionId ||
+    value.identity.transcriptPath !== resolve(path)
+  ) {
+    throw new Error("Spark session snapshot index identity mismatch.");
+  }
+  const checkpoint = parseTranscriptCheckpoint(value.checkpoint);
+  const header = parseHeader(value.header, sparkSessionSnapshotIndexPath(path));
+  if (header.id !== expectedSessionId) {
+    throw new Error("Spark session snapshot index header mismatch.");
+  }
+  if (!Array.isArray(value.messages)) {
+    throw new Error("Spark session snapshot index messages are invalid.");
+  }
+  const messages = value.messages.map((entry) => parseIndexEntryLocation(entry, checkpoint));
+  const totalMessages = nonnegativeInteger(value.totalMessages);
+  if (
+    messages.length > SNAPSHOT_INDEX_MESSAGE_LIMIT ||
+    totalMessages === undefined ||
+    totalMessages < messages.length
+  ) {
+    throw new Error("Spark session snapshot index message summary is invalid.");
+  }
+  let previousEnd = 0;
+  for (const entry of messages) {
+    if (entry.offset < previousEnd) {
+      throw new Error("Spark session snapshot index offsets are not monotonic.");
+    }
+    previousEnd = entry.offset + entry.length;
+  }
+  const lastMessage =
+    value.lastMessage === undefined
+      ? undefined
+      : parseIndexEntryLocation(value.lastMessage, checkpoint);
+  const usage = sparkSessionUsageSchema.safeParse(value.usage);
+  if (value.usage !== undefined && !usage.success) {
+    throw new Error("Spark session snapshot index usage is invalid.");
+  }
+  const activeLeafId = optionalIndexString(value.activeLeafId);
+  return {
+    version: 1,
+    identity: { sessionId: expectedSessionId, transcriptPath: resolve(path) },
+    checkpoint,
+    header,
+    ...(activeLeafId ? { activeLeafId } : {}),
+    messages,
+    totalMessages,
+    ...(lastMessage ? { lastMessage } : {}),
+    ...(usage.success ? { usage: usage.data } : {}),
+  };
+}
+
+function parseTranscriptCheckpoint(value: unknown): NativeTranscriptCheckpoint {
+  if (!isRecord(value)) throw new Error("Spark session snapshot checkpoint is invalid.");
+  const byteLength = nonnegativeInteger(value.byteLength);
+  const modifiedAtMs = nonnegativeNumber(value.modifiedAtMs);
+  const inode = nonnegativeInteger(value.inode);
+  if (byteLength === undefined || modifiedAtMs === undefined || inode === undefined) {
+    throw new Error("Spark session snapshot checkpoint is invalid.");
+  }
+  return { byteLength, modifiedAtMs, inode };
+}
+
+function parseIndexEntryLocation(
+  value: unknown,
+  checkpoint: NativeTranscriptCheckpoint,
+): NativeSessionEntryLocation {
+  if (!isRecord(value)) throw new Error("Spark session snapshot index entry is invalid.");
+  const id = optionalIndexString(value.id);
+  const offset = nonnegativeInteger(value.offset);
+  const length = positiveInteger(value.length);
+  if (
+    !id ||
+    offset === undefined ||
+    length === undefined ||
+    offset + length > checkpoint.byteLength
+  ) {
+    throw new Error("Spark session snapshot index entry is out of bounds.");
+  }
+  const sha256 = optionalIndexString(value.sha256);
+  if (!sha256 || !/^[0-9a-f]{64}$/u.test(sha256)) {
+    throw new Error("Spark session snapshot index entry hash is invalid.");
+  }
+  return { id, offset, length, sha256 };
+}
+
+async function readIndexedTranscriptEntries(
+  path: string,
+  index: NativeSessionSnapshotIndex,
+  descriptors: readonly NativeSessionEntryLocation[],
+): Promise<NativeSessionEntry[]> {
+  const before = await transcriptCheckpoint(path);
+  if (!sameTranscriptCheckpoint(index.checkpoint, before)) {
+    throw new Error("Native transcript changed before indexed read.");
+  }
+  const handle = await open(path, "r");
+  try {
+    const entries: NativeSessionEntry[] = [];
+    for (const descriptor of descriptors) {
+      const buffer = Buffer.alloc(descriptor.length);
+      const { bytesRead } = await handle.read(buffer, 0, descriptor.length, descriptor.offset);
+      if (bytesRead !== descriptor.length)
+        throw new Error("Indexed transcript read was truncated.");
+      if (sha256(buffer) !== descriptor.sha256) {
+        throw new Error("Indexed transcript entry hash mismatch.");
+      }
+      const entry = parseEntry(JSON.parse(buffer.toString("utf8").trim()) as unknown, path);
+      if (entry.id !== descriptor.id)
+        throw new Error("Indexed transcript entry identity mismatch.");
+      entries.push(entry);
+    }
+    const after = await transcriptCheckpoint(path);
+    if (!sameTranscriptCheckpoint(index.checkpoint, after)) {
+      throw new Error("Native transcript changed during indexed read.");
+    }
+    return entries;
+  } finally {
+    await handle.close();
+  }
+}
+
 async function loadNativeSessionRecord(
   path: string,
   expectedSessionId: string,
 ): Promise<NativeSessionRecord> {
-  const lines = (await readFile(path, "utf8"))
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as unknown);
-  const header = parseHeader(lines[0], path);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const before = await transcriptCheckpoint(path);
+    const content = await readFile(path);
+    const after = await transcriptCheckpoint(path);
+    if (content.byteLength !== before.byteLength || !sameTranscriptCheckpoint(before, after)) {
+      continue;
+    }
+    return parseNativeSessionRecord(content, path, expectedSessionId, after);
+  }
+  throw new Error(`Native transcript changed while building its snapshot index: ${path}`);
+}
+
+function parseNativeSessionRecord(
+  content: Buffer,
+  path: string,
+  expectedSessionId: string,
+  checkpoint: NativeTranscriptCheckpoint,
+): NativeSessionRecord {
+  const lines = nativeTranscriptLines(content, path);
+  const header = parseHeader(lines[0]?.value, path);
   if (header.id !== expectedSessionId) {
     throw new SparkSessionRegistryError(
       "session_snapshot_mismatch",
       `native transcript ${path} belongs to ${header.id}, not ${expectedSessionId}`,
     );
   }
-  const entries = lines.slice(1).map((entry) => parseEntry(entry, path));
+  const entries: NativeSessionEntry[] = [];
+  const entryLocations = new Map<string, NativeSessionEntryLocation>();
+  for (const line of lines.slice(1)) {
+    const entry = parseEntry(line.value, path);
+    entries.push(entry);
+    entryLocations.set(entry.id, {
+      id: entry.id,
+      offset: line.offset,
+      length: line.length,
+      sha256: line.sha256,
+    });
+  }
   return {
     path,
     header,
     entries,
-    modifiedAt: (await stat(path)).mtime.toISOString(),
+    entryLocations,
+    checkpoint,
+    modifiedAt: new Date(checkpoint.modifiedAtMs).toISOString(),
   };
+}
+
+function nativeTranscriptLines(content: Buffer, path: string) {
+  const lines: Array<{ value: unknown; offset: number; length: number; sha256: string }> = [];
+  let offset = 0;
+  while (offset < content.byteLength) {
+    const newline = content.indexOf(10, offset);
+    const end = newline < 0 ? content.byteLength : newline;
+    const bytes = content.subarray(offset, end);
+    const raw = bytes.toString("utf8").trim();
+    if (raw) {
+      let value: unknown;
+      try {
+        value = JSON.parse(raw) as unknown;
+      } catch (error) {
+        throw new Error(`Native transcript ${path} contains invalid JSON at byte ${offset}.`, {
+          cause: error,
+        });
+      }
+      lines.push({ value, offset, length: end - offset, sha256: sha256(bytes) });
+    }
+    if (newline < 0) break;
+    offset = newline + 1;
+  }
+  return lines;
+}
+
+async function transcriptCheckpoint(path: string): Promise<NativeTranscriptCheckpoint> {
+  const info = await stat(path);
+  return {
+    byteLength: info.size,
+    modifiedAtMs: info.mtimeMs,
+    inode: Number(info.ino),
+  };
+}
+
+function sameTranscriptCheckpoint(
+  left: NativeTranscriptCheckpoint,
+  right: NativeTranscriptCheckpoint,
+): boolean {
+  return (
+    left.byteLength === right.byteLength &&
+    left.modifiedAtMs === right.modifiedAtMs &&
+    left.inode === right.inode
+  );
+}
+
+function optionalIndexString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function nonnegativeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function parseHeader(value: unknown, path: string): NativeSessionHeader {
@@ -923,6 +1426,10 @@ function entryTimestamp(entry: NativeSessionEntry): string | undefined {
   return typeof messageTimestamp === "number" && Number.isFinite(messageTimestamp)
     ? new Date(messageTimestamp).toISOString()
     : undefined;
+}
+
+function sha256(value: Uint8Array): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function stringField(value: Record<string, unknown>, field: string): string | undefined {

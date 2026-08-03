@@ -20,7 +20,12 @@ export {
   loadSparkSessionMediaChunk,
   loadSparkSessionSnapshot,
   loadSparkSessionSnapshotTail,
+  refreshSparkSessionSnapshotIndex,
+  sparkSessionSnapshotIndexPath,
   type LoadSparkSessionSnapshotInput,
+  type NativeTranscriptCheckpoint,
+  type SparkSessionSnapshotIndexRefresh,
+  type SparkSessionSnapshotReadStats,
   type SparkSessionSnapshotTail,
 } from "./snapshot.ts";
 export {

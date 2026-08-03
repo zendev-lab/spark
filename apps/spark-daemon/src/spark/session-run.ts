@@ -25,6 +25,7 @@ import {
   renderSparkChannelSurfacePrompt,
 } from "@zendev-lab/spark-host/system-prompt";
 import { composeAgentSystemPrompt } from "@zendev-lab/spark-phases";
+import { refreshSparkSessionSnapshotIndex } from "@zendev-lab/spark-session";
 import {
   isSparkTurnRestartYieldError,
   type SparkTurnResumeCheckpoint,
@@ -105,6 +106,7 @@ export interface SparkDaemonTaskExecutorOptions {
   > &
     Partial<Pick<DaemonSessionRegistry, "bindTranscriptPath" | "get" | "setRoleIfMissing">>;
   createSparkHeadlessSessionExecutor?: CreateSparkHeadlessSessionExecutorFn;
+  refreshSessionSnapshotIndex?: typeof refreshSparkSessionSnapshotIndex;
   sessionLeaseControl?: {
     acquire(
       task: SparkDaemonSessionRunTask,
@@ -214,6 +216,7 @@ export function createSparkDaemonTaskExecutor(
           effectiveTask,
           result,
           options.sessionRegistry,
+          options.refreshSessionSnapshotIndex ?? refreshSparkSessionSnapshotIndex,
         );
         await wakeTaskExecutionOwner(effectiveTask.sessionId, options);
         if (completed.indexed) {
@@ -1420,6 +1423,7 @@ async function recordCompletedSessionRun(
   task: SparkDaemonSessionRunTask,
   result: unknown,
   registry: Pick<DaemonSessionRegistry, "recordRun" | "recordTurnSettled"> | undefined,
+  refreshSessionSnapshotIndex: typeof refreshSparkSessionSnapshotIndex,
 ): Promise<{ result: unknown; indexed: boolean }> {
   if (!registry) return { result, indexed: false };
   if (task.hiddenExecution) {
@@ -1442,6 +1446,13 @@ async function recordCompletedSessionRun(
   }
   try {
     await registry.recordRun({ sessionId: task.sessionId, sessionPath });
+    try {
+      await refreshSessionSnapshotIndex({ sessionId: task.sessionId, sessionPath });
+    } catch (error) {
+      console.error(
+        `[spark-daemon] failed to refresh completed session snapshot index for ${task.sessionId}: ${errorMessage(error)}`,
+      );
+    }
     return { result, indexed: true };
   } catch (error) {
     const message = `failed to index completed session ${task.sessionId}: ${errorMessage(error)}`;
