@@ -1,5 +1,48 @@
 import { z } from "zod";
 
+export const SPARK_MEMORY_FEEDBACK_OUTCOMES = ["positive", "negative"] as const;
+export const SPARK_MEMORY_FEEDBACK_ERROR_CODES = [
+  "MEMORY_FEEDBACK_INVALID",
+  "MEMORY_FEEDBACK_EXPIRED",
+  "MEMORY_FEEDBACK_STALE_MESSAGE",
+  "MEMORY_FEEDBACK_CROSS_TURN",
+  "MEMORY_FEEDBACK_PROPOSAL_DRIFT",
+  "MEMORY_FEEDBACK_AMBIGUOUS",
+  "MEMORY_FEEDBACK_REPLAYED",
+] as const;
+export type SparkMemoryFeedbackOutcome = (typeof SPARK_MEMORY_FEEDBACK_OUTCOMES)[number];
+export type SparkMemoryFeedbackErrorCode = (typeof SPARK_MEMORY_FEEDBACK_ERROR_CODES)[number];
+
+export const sparkMemoryFeedbackReceiptSchema = z.object({
+  schema: z.literal("spark.memory.feedback-receipt/v1"),
+  receiptId: z.string().min(1),
+  surface: z.enum(["tui", "cockpit", "channel"]),
+  workspaceId: z.string().min(1),
+  sessionId: z.string().min(1),
+  turnId: z.string().min(1),
+  messageId: z.string().min(1),
+  memoryRef: z.string().regex(/^(?:memory|recall|learning[-:]).+/u),
+  outcome: z.enum(SPARK_MEMORY_FEEDBACK_OUTCOMES),
+  feedbackDigest: z.string().regex(/^[\da-f]{64}$/u),
+  turnHash: z.string().regex(/^[\da-f]{64}$/u),
+  issuedAt: z.string().datetime({ offset: true }),
+  expiresAt: z.string().datetime({ offset: true }),
+  nonce: z.string().min(1),
+  keyId: z.string().regex(/^[\da-f]{64}$/u),
+  signature: z.string().min(1),
+});
+export const sparkMemoryFeedbackReceiptPayloadSchema = sparkMemoryFeedbackReceiptSchema.omit({
+  keyId: true,
+  signature: true,
+});
+export type SparkMemoryFeedbackReceipt = z.infer<typeof sparkMemoryFeedbackReceiptSchema>;
+export type SparkMemoryFeedbackReceiptPayload = z.infer<
+  typeof sparkMemoryFeedbackReceiptPayloadSchema
+>;
+export type SparkMemoryFeedbackVerificationResult =
+  | { ok: true; receipt: SparkMemoryFeedbackReceipt }
+  | { ok: false; code: SparkMemoryFeedbackErrorCode };
+
 export const SPARK_MEMORY_APPROVAL_ERROR_CODES = [
   "MEMORY_APPROVAL_REQUIRED",
   "MEMORY_CANONICAL_ASK_REQUIRED",
@@ -109,6 +152,126 @@ export interface PrepareSparkMemoryDirectIntentReceiptInput {
   now?: Date;
   ttlMs?: number;
   randomId?: () => string;
+}
+
+export function parseSparkMemoryFeedbackCommand(
+  prompt: string,
+): { memoryRef: string; outcome: SparkMemoryFeedbackOutcome } | undefined {
+  const normalized = prompt.trim();
+  if (!normalized || /[\r\n]/u.test(normalized)) return undefined;
+  const match =
+    /^(?:memory\s+feedback|记忆反馈)\s+(positive|negative|正向|负向)\s+((?:memory|recall|learning[-:])[^\s]+)$/iu.exec(
+      normalized,
+    );
+  if (!match) return undefined;
+  return {
+    outcome: match[1] === "positive" || match[1] === "正向" ? "positive" : "negative",
+    memoryRef: match[2]!,
+  };
+}
+
+export async function prepareSparkMemoryFeedbackReceipt(
+  input: PrepareSparkMemoryDirectIntentReceiptInput,
+): Promise<SparkMemoryFeedbackReceiptPayload | undefined> {
+  const command = parseSparkMemoryFeedbackCommand(input.prompt);
+  if (!command) return undefined;
+  const randomId = input.randomId ?? (() => globalThis.crypto.randomUUID());
+  const now = input.now ?? new Date();
+  const issuedAt = now.toISOString();
+  const expiresAt = new Date(now.getTime() + (input.ttlMs ?? 5 * 60_000)).toISOString();
+  const feedbackDigest = await sparkMemoryDirectIntentSha256(command);
+  const turnHash = await sparkMemoryDirectIntentSha256({
+    workspaceId: input.workspaceId,
+    sessionId: input.sessionId,
+    turnId: input.turnId,
+    messageId: input.messageId,
+    prompt: input.prompt,
+  });
+  return sparkMemoryFeedbackReceiptPayloadSchema.parse({
+    schema: "spark.memory.feedback-receipt/v1",
+    receiptId: `feedback:${randomId()}`,
+    surface: input.surface,
+    workspaceId: input.workspaceId,
+    sessionId: input.sessionId,
+    turnId: input.turnId,
+    messageId: input.messageId,
+    memoryRef: command.memoryRef,
+    outcome: command.outcome,
+    feedbackDigest,
+    turnHash,
+    issuedAt,
+    expiresAt,
+    nonce: randomId(),
+  });
+}
+
+export function sparkMemoryFeedbackReceiptSigningPayload(value: unknown): string {
+  const receipt = sparkMemoryFeedbackReceiptSchema.parse(value);
+  const { signature, ...unsigned } = receipt;
+  return canonicalJson(unsigned);
+}
+
+export async function verifySparkMemoryFeedbackReceipt(
+  value: unknown,
+  options: {
+    trustedKeyId: string;
+    verifySignature: (payload: string, signature: string) => Promise<boolean> | boolean;
+    now?: Date;
+  },
+): Promise<SparkMemoryFeedbackVerificationResult> {
+  const parsed = sparkMemoryFeedbackReceiptSchema.safeParse(value);
+  if (!parsed.success || parsed.data.keyId !== options.trustedKeyId) {
+    return { ok: false, code: "MEMORY_FEEDBACK_INVALID" };
+  }
+  const receipt = parsed.data;
+  const now = (options.now ?? new Date()).getTime();
+  if (
+    !Number.isFinite(now) ||
+    Date.parse(receipt.issuedAt) > now ||
+    Date.parse(receipt.expiresAt) <= now
+  ) {
+    return { ok: false, code: "MEMORY_FEEDBACK_EXPIRED" };
+  }
+  try {
+    const valid = await options.verifySignature(
+      sparkMemoryFeedbackReceiptSigningPayload(receipt),
+      receipt.signature,
+    );
+    return valid ? { ok: true, receipt } : { ok: false, code: "MEMORY_FEEDBACK_INVALID" };
+  } catch {
+    return { ok: false, code: "MEMORY_FEEDBACK_INVALID" };
+  }
+}
+
+export function classifySparkMemoryFeedbackCurrentTurn(
+  value: unknown,
+  currentValue: unknown,
+  options: { consumed?: boolean } = {},
+): SparkMemoryFeedbackVerificationResult {
+  const current = sparkMemoryFeedbackReceiptSchema.safeParse(currentValue);
+  if (!current.success) return { ok: false, code: "MEMORY_FEEDBACK_AMBIGUOUS" };
+  const parsed = sparkMemoryFeedbackReceiptSchema.safeParse(value);
+  if (!parsed.success) return { ok: false, code: "MEMORY_FEEDBACK_INVALID" };
+  const receipt = parsed.data;
+  if (receipt.sessionId !== current.data.sessionId || receipt.turnId !== current.data.turnId) {
+    return { ok: false, code: "MEMORY_FEEDBACK_CROSS_TURN" };
+  }
+  if (receipt.messageId !== current.data.messageId) {
+    return { ok: false, code: "MEMORY_FEEDBACK_STALE_MESSAGE" };
+  }
+  if (
+    receipt.memoryRef !== current.data.memoryRef ||
+    receipt.outcome !== current.data.outcome ||
+    receipt.feedbackDigest !== current.data.feedbackDigest
+  ) {
+    return { ok: false, code: "MEMORY_FEEDBACK_PROPOSAL_DRIFT" };
+  }
+  if (options.consumed) return { ok: false, code: "MEMORY_FEEDBACK_REPLAYED" };
+  return { ok: true, receipt };
+}
+
+export function parseSparkMemoryFeedbackReceipt(value: unknown): SparkMemoryFeedbackReceipt {
+  return sparkMemoryFeedbackReceiptSchema.parse(value);
 }
 
 export function parseSparkMemoryDirectIntentCommand(

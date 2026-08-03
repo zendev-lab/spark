@@ -487,6 +487,80 @@ describe("channel ingress", () => {
     expect(JSON.stringify(receipt)).not.toContain("preserve channel intent");
   });
 
+  it.each(["stale-message", "cross-turn", "proposal-drift", "ambiguous", "replayed"] as const)(
+    "rejects channel feedback case %s before trusted telemetry",
+    async (name) => {
+      const sparkHome = await mkdtemp(join(tmpdir(), `spark-channel-feedback-${name}-`));
+      roots.push(sparkHome);
+      const registry = new SparkSessionRegistry({
+        rootDir: defaultSparkSessionRegistryRoot(sparkHome),
+      });
+      const session = await registry.create({ workspaceId: "ws_feedback", title: "Feedback" });
+      await registry.bind({
+        sessionId: session.sessionId,
+        externalKey: `feishu:chat:oc_feedback_${name}`,
+      });
+      const authority = createSparkMemoryDirectIntentTurnAuthority();
+      const writer = vi.fn();
+      const injectedAuthority = {
+        ...authority,
+        async issueFeedback(input: Parameters<typeof authority.issueFeedback>[0]) {
+          if (name === "ambiguous") return undefined;
+          const receipt = await authority.issueFeedback(input);
+          if (!receipt) return undefined;
+          if (name === "replayed") await authority.verifyCurrentFeedback(receipt);
+          if (name === "stale-message") return { ...receipt, messageId: "message:stale" };
+          if (name === "cross-turn") return { ...receipt, turnId: "turn:other" };
+          if (name === "proposal-drift") return { ...receipt, memoryRef: "memory:drift" };
+          return receipt;
+        },
+      };
+      const assignments: ChannelIngressAssignment[] = [];
+      const transport = new FakeChannelTransport();
+      const controller = createChannelIngressController({
+        sparkHome,
+        config: parseChannelsConfig({
+          adapters: { feishu: { type: "feishu" } },
+          routes: {},
+          ingress: { enabled: true, on_unbound: "reject" },
+        }),
+        hooks: {
+          onAssignment: async (assignment) => {
+            assignments.push(assignment);
+          },
+        },
+        sessionRegistry: registry,
+        workspaceId: "ws_feedback",
+        createTransport: () => transport,
+        memoryDirectIntentAuthority: injectedAuthority,
+      });
+      await controller.start();
+      transport.emitInbound({
+        chat_id: `oc_feedback_${name}`,
+        text: "memory feedback positive memory:ranked",
+        message_id: `feedback-${name}`,
+      });
+      await vi.waitFor(() => expect(assignments).toHaveLength(1));
+      await controller.stop();
+      const verified = await authority.verifyCurrentFeedback(assignments[0]?.memoryFeedback);
+      if (verified.ok) writer();
+      expect(verified).toEqual({
+        ok: false,
+        code:
+          name === "stale-message"
+            ? "MEMORY_FEEDBACK_STALE_MESSAGE"
+            : name === "cross-turn"
+              ? "MEMORY_FEEDBACK_CROSS_TURN"
+              : name === "proposal-drift"
+                ? "MEMORY_FEEDBACK_PROPOSAL_DRIFT"
+                : name === "replayed"
+                  ? "MEMORY_FEEDBACK_REPLAYED"
+                  : "MEMORY_FEEDBACK_AMBIGUOUS",
+      });
+      expect(writer).toHaveBeenCalledTimes(0);
+    },
+  );
+
   it.each([
     "ambiguous",
     "multiple-proposals",

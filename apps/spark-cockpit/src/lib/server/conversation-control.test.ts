@@ -176,6 +176,60 @@ describe("Cockpit conversation control", () => {
     expect(await snapshotDigest(snapshotPath)).toBe(before);
   });
 
+  it.each(["stale-message", "cross-turn", "proposal-drift", "ambiguous", "replayed"] as const)(
+    "rejects Cockpit feedback case %s before trusted telemetry",
+    async (name) => {
+      const authority = createSparkMemoryDirectIntentTurnAuthority();
+      const writer = vi.fn();
+      const submit = vi.fn().mockResolvedValue({
+        invocationId: "inv_feedback",
+        status: "queued",
+        acceptedAt: "2026-08-03T08:00:00.000Z",
+      });
+      const injectedAuthority = {
+        ...authority,
+        async issueFeedback(input: Parameters<typeof authority.issueFeedback>[0]) {
+          if (name === "ambiguous") return undefined;
+          const receipt = await authority.issueFeedback(input);
+          if (!receipt) return undefined;
+          if (name === "replayed") await authority.verifyCurrentFeedback(receipt);
+          if (name === "stale-message") return { ...receipt, messageId: "message:stale" };
+          if (name === "cross-turn") return { ...receipt, turnId: "turn:other" };
+          if (name === "proposal-drift") return { ...receipt, memoryRef: "memory:drift" };
+          return receipt;
+        },
+      };
+      await submitConversationTurnForCockpit(
+        {
+          workspaceId: "workspace:feedback",
+          sessionId: "session:feedback",
+          prompt: "memory feedback positive memory:ranked",
+          title: "Feedback",
+          submissionId: `submission-feedback-${name}`,
+        },
+        { submit },
+        { memoryDirectIntentAuthority: injectedAuthority },
+      );
+      const receipt = submit.mock.calls[0]?.[0].messageMetadata?.memoryFeedback;
+      const verified = await authority.verifyCurrentFeedback(receipt);
+      if (verified.ok) writer();
+      expect(verified).toEqual({
+        ok: false,
+        code:
+          name === "stale-message"
+            ? "MEMORY_FEEDBACK_STALE_MESSAGE"
+            : name === "cross-turn"
+              ? "MEMORY_FEEDBACK_CROSS_TURN"
+              : name === "proposal-drift"
+                ? "MEMORY_FEEDBACK_PROPOSAL_DRIFT"
+                : name === "replayed"
+                  ? "MEMORY_FEEDBACK_REPLAYED"
+                  : "MEMORY_FEEDBACK_AMBIGUOUS",
+      });
+      expect(writer).toHaveBeenCalledTimes(0);
+    },
+  );
+
   it("forwards a browser submission nonce as a stable daemon idempotency key", async () => {
     const submit = vi.fn().mockResolvedValue({
       invocationId: "inv_nonce",

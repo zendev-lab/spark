@@ -554,6 +554,7 @@ export class SparkHostRuntime implements SparkHostAPI {
   } {
     const directIntentAuthority = this.#memoryDirectIntentAuthority;
     const directIntentReceipt = directIntentAuthority?.currentReceipt();
+    const feedbackReceipt = directIntentAuthority?.currentFeedbackReceipt();
     return {
       cwd: this.cwd,
       ...(this.stateOwnerSessionId || this.sessionId
@@ -570,6 +571,17 @@ export class SparkHostRuntime implements SparkHostAPI {
             memoryDirectIntent: directIntentReceipt,
             verifyMemoryDirectIntent: async (value: unknown) =>
               await directIntentAuthority.verifyCurrent(value),
+          }
+        : {}),
+      ...(feedbackReceipt && directIntentAuthority
+        ? {
+            memoryFeedback: feedbackReceipt,
+            verifyMemoryFeedback: async (value: unknown) =>
+              await directIntentAuthority.verifyCurrentFeedback(value),
+            commitMemoryFeedback: (value: unknown) =>
+              directIntentAuthority.commitCurrentFeedback(value),
+            releaseMemoryFeedback: (value: unknown) =>
+              directIntentAuthority.releaseCurrentFeedback(value),
           }
         : {}),
       ...(this.driver ? { driver: this.driver } : {}),

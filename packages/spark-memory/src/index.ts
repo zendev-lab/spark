@@ -32,6 +32,7 @@ import {
   recoverMemoryMutationJournal,
 } from "./mutation-journal.ts";
 import { withFileMutationLock } from "./mutation-lock.ts";
+import { RetrievalTelemetryStore, type RetrievalTelemetryRecord } from "./retrieval-telemetry.ts";
 import {
   assertMemoryLineageAuthorizationBound,
   assertMemoryLineageProposalCommittable,
@@ -86,11 +87,26 @@ export interface SparkMemoryStoreOptions {
   workspaceId?: string;
   legacyFixturePermit?: LegacyMemoryFixturePermit;
   proposalStore?: MemoryLineageProposalStore;
+  retrievalTelemetryStore?: Pick<RetrievalTelemetryStore, "list">;
+  now?: () => string;
+  successfulUseBonusCap?: number;
+}
+
+export interface SparkMemoryScoreBreakdown {
+  lexical: number;
+  scope: number;
+  evidence: number;
+  pin: number;
+  freshness: number;
+  successfulUseBonus: number;
+  negativeFeedbackPenalty: number;
+  total: number;
 }
 
 export interface SparkMemorySearchResult {
   entry: SparkMemoryEntry;
   score: number;
+  scoreBreakdown: SparkMemoryScoreBreakdown;
   snippet: string;
 }
 
@@ -608,16 +624,32 @@ export class SparkMemoryStore {
   ): Promise<SparkMemorySearchResult[]> {
     const tokens = tokenize(requiredText(query, "query"));
     const entries = await this.list({ category: options.category });
+    const telemetryByRef = new Map(
+      (await this.retrievalTelemetryStore().list()).map((record) => [record.memoryRef, record]),
+    );
+    const now = this.options.now?.() ?? new Date().toISOString();
+    const successfulUseBonusCap = this.options.successfulUseBonusCap ?? 1;
     return entries
-      .map((entry) => ({
-        entry,
-        score: scoreEntry(entry, tokens),
-        snippet: snippetFor(entry, tokens),
-      }))
-      .filter((result) => result.score > 0)
+      .map((entry) => {
+        const scoreBreakdown = scoreEntry(
+          entry,
+          tokens,
+          telemetryByRef.get(entry.id),
+          now,
+          successfulUseBonusCap,
+        );
+        return {
+          entry,
+          score: scoreBreakdown.lexical,
+          scoreBreakdown,
+          snippet: snippetFor(entry, tokens),
+        };
+      })
+      .filter((result) => result.scoreBreakdown.lexical > 0)
       .sort(
         (left, right) =>
-          right.score - left.score || left.entry.createdAt.localeCompare(right.entry.createdAt),
+          right.scoreBreakdown.total - left.scoreBreakdown.total ||
+          left.entry.createdAt.localeCompare(right.entry.createdAt),
       )
       .slice(0, options.limit ?? 20);
   }
@@ -662,6 +694,13 @@ export class SparkMemoryStore {
       superseded: snapshot.entries.filter((entry) => entry.status === "superseded").length,
       byCategory,
     };
+  }
+
+  private retrievalTelemetryStore(): Pick<RetrievalTelemetryStore, "list"> {
+    return (
+      this.options.retrievalTelemetryStore ??
+      new RetrievalTelemetryStore(join(dirname(this.filePath), "retrieval-telemetry.json"))
+    );
   }
 
   private proposalStore(): MemoryLineageProposalStore {
@@ -802,16 +841,47 @@ function tokenize(value: string): string[] {
     .filter((token) => token.length >= 2);
 }
 
-function scoreEntry(entry: SparkMemoryEntry, tokens: readonly string[]): number {
+function scoreEntry(
+  entry: SparkMemoryEntry,
+  tokens: readonly string[],
+  telemetry: RetrievalTelemetryRecord | undefined,
+  now: string,
+  successfulUseBonusCap: number,
+): SparkMemoryScoreBreakdown {
   const haystack = [entry.category, entry.text, entry.reason, entry.tags.join(" ")]
     .join(" ")
     .toLowerCase();
-  let score = 0;
+  let lexical = 0;
   for (const token of tokens) {
     const occurrences = haystack.split(token).length - 1;
-    if (occurrences > 0) score += occurrences;
+    if (occurrences > 0) lexical += occurrences;
   }
-  return score;
+  if (!Number.isFinite(successfulUseBonusCap) || successfulUseBonusCap < 0) {
+    throw new Error("memory successful-use bonus cap must be a non-negative number");
+  }
+  const scope = entry.scope === "user" ? 0.3 : entry.scope === "workspace" ? 0.2 : 0.1;
+  const evidence = Math.min(entry.evidenceRefs.length * 0.1, 0.3);
+  const pin = entry.tags.some((tag) => tag === "pin" || tag === "pinned") ? 0.5 : 0;
+  const ageDays =
+    Math.max(0, Date.parse(now) - Date.parse(entry.updatedAt)) / (24 * 60 * 60 * 1_000);
+  const freshness = Math.max(0, 0.5 - ageDays / 60);
+  const successfulUseBonus = Math.min(
+    (telemetry?.successfulUseCount ?? 0) * 0.1,
+    successfulUseBonusCap,
+  );
+  const negativeFeedbackPenalty = Math.min((telemetry?.negativeFeedbackCount ?? 0) * 0.1, 1);
+  const total =
+    lexical + scope + evidence + pin + freshness + successfulUseBonus - negativeFeedbackPenalty;
+  return {
+    lexical,
+    scope,
+    evidence,
+    pin,
+    freshness,
+    successfulUseBonus,
+    negativeFeedbackPenalty,
+    total,
+  };
 }
 
 function snippetFor(entry: SparkMemoryEntry, tokens: readonly string[]): string {

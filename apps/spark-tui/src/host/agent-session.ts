@@ -127,15 +127,15 @@ export class SparkAgentSession {
     directIntentAuthority?.clear();
     const runtimeContext = this.services.runtime.makeContext();
     const turnIdentity = this.services.runtime.invocationId ?? globalThis.crypto.randomUUID();
-    const directIntentReceipt =
+    const receiptInput =
       promptText && directIntentAuthority
-        ? await directIntentAuthority.issue({
+        ? {
             surface:
               this.services.runtime.sessionSurface === "channel"
-                ? "channel"
+                ? ("channel" as const)
                 : this.services.runtime.sessionSource === "web"
-                  ? "cockpit"
-                  : "tui",
+                  ? ("cockpit" as const)
+                  : ("tui" as const),
             workspaceId:
               runtimeContext.sessionLease?.()?.workspaceId ??
               this.services.runtime.channelBinding?.workspaceId ??
@@ -144,11 +144,23 @@ export class SparkAgentSession {
             turnId: `turn:${turnIdentity}`,
             messageId: `message:${turnIdentity}`,
             prompt: promptText,
-          })
+          }
         : undefined;
-    const messageMetadata = directIntentReceipt
-      ? { ...recordMetadata(options.messageMetadata), memoryDirectIntent: directIntentReceipt }
-      : options.messageMetadata;
+    const [directIntentReceipt, feedbackReceipt] =
+      receiptInput && directIntentAuthority
+        ? await Promise.all([
+            directIntentAuthority.issue(receiptInput),
+            directIntentAuthority.issueFeedback(receiptInput),
+          ])
+        : [undefined, undefined];
+    const messageMetadata =
+      directIntentReceipt || feedbackReceipt
+        ? {
+            ...recordMetadata(options.messageMetadata),
+            ...(directIntentReceipt ? { memoryDirectIntent: directIntentReceipt } : {}),
+            ...(feedbackReceipt ? { memoryFeedback: feedbackReceipt } : {}),
+          }
+        : options.messageMetadata;
     try {
       if (options.restartCheckpoint) {
         return await this.resumeFromRestartCheckpoint(
