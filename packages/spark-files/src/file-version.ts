@@ -47,6 +47,28 @@ export interface AtomicReplaceConflict {
   actualVersion: FileVersionState;
 }
 
+export interface AtomicTextFileBatchUpdate {
+  filePath: string;
+  content: string;
+  expectedVersion: FileVersionState;
+}
+
+export interface AtomicTextFileBatchResult {
+  ok: true;
+  files: readonly {
+    filePath: string;
+    version: FileContentVersion;
+    previousVersion: FileVersionState;
+  }[];
+}
+
+export interface AtomicTextFileBatchConflict {
+  ok: false;
+  filePath: string;
+  expectedVersion: FileVersionState;
+  actualVersion: FileVersionState;
+}
+
 export interface RegularFileSnapshot {
   bytes: Buffer;
   version: FileContentVersion;
@@ -117,6 +139,84 @@ export async function atomicReplaceTextFile(
 ): Promise<AtomicReplaceResult | AtomicReplaceConflict> {
   return withFileWriteLock(filePath, options.signal, () =>
     atomicReplaceTextFileUnlocked(filePath, content, options),
+  );
+}
+
+/**
+ * Promote a set of text files under one cooperative CAS transaction.
+ *
+ * Every precondition is checked before the first rename. Spark writers cannot
+ * interleave with the transaction; an external race is detected by each
+ * per-file commit and rolls already-promoted files back to their snapshots.
+ */
+export async function atomicReplaceTextFiles(
+  updates: readonly AtomicTextFileBatchUpdate[],
+  options: { signal?: AbortSignal } = {},
+): Promise<AtomicTextFileBatchResult | AtomicTextFileBatchConflict> {
+  if (updates.length === 0) throw new Error("atomic text file batch must not be empty");
+  const entries = await Promise.all(
+    updates.map(async (update) => ({
+      update,
+      key: await canonicalWriteKey(update.filePath),
+    })),
+  );
+  entries.sort((left, right) => left.key.localeCompare(right.key));
+  for (let index = 1; index < entries.length; index += 1) {
+    if (entries[index]!.key === entries[index - 1]!.key) {
+      throw new Error(`atomic text file batch contains duplicate target: ${entries[index]!.key}`);
+    }
+  }
+
+  return await withFileWriteKeys(
+    entries.map((entry) => entry.key),
+    options.signal,
+    async () => {
+      const snapshots = new Map<
+        string,
+        { version: FileVersionState; content?: string; mode?: number }
+      >();
+      for (const { update } of entries) {
+        const snapshot = await readTextFileSnapshot(update.filePath);
+        snapshots.set(update.filePath, snapshot);
+        if (snapshot.version !== update.expectedVersion) {
+          return {
+            ok: false,
+            filePath: update.filePath,
+            expectedVersion: update.expectedVersion,
+            actualVersion: snapshot.version,
+          };
+        }
+      }
+
+      const applied: {
+        update: AtomicTextFileBatchUpdate;
+        result: AtomicReplaceResult;
+      }[] = [];
+      for (const { update } of entries) {
+        const result = await atomicReplaceTextFileUnlocked(update.filePath, update.content, {
+          expectedVersion: update.expectedVersion,
+          signal: options.signal,
+        });
+        if (!result.ok) {
+          await rollbackTextFileBatch(applied, snapshots);
+          return {
+            ok: false,
+            filePath: update.filePath,
+            expectedVersion: result.expectedVersion,
+            actualVersion: result.actualVersion,
+          };
+        }
+        applied.push({ update, result });
+      }
+      return {
+        ok: true,
+        files: applied.map(({ update, result }) => ({
+          filePath: update.filePath,
+          version: result.version,
+          previousVersion: result.previousVersion,
+        })),
+      };
+    },
   );
 }
 
@@ -278,6 +378,50 @@ async function readFileSnapshot(
   }
 }
 
+async function readTextFileSnapshot(
+  filePath: string,
+): Promise<{ version: FileVersionState; content?: string; mode?: number }> {
+  try {
+    const snapshot = await readRegularFileSnapshot(filePath);
+    return {
+      version: snapshot.version,
+      content: snapshot.bytes.toString("utf8"),
+      mode: snapshot.mode,
+    };
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return { version: MISSING_FILE_VERSION };
+    }
+    throw error;
+  }
+}
+
+async function rollbackTextFileBatch(
+  applied: readonly {
+    update: AtomicTextFileBatchUpdate;
+    result: AtomicReplaceResult;
+  }[],
+  snapshots: ReadonlyMap<string, { version: FileVersionState; content?: string; mode?: number }>,
+): Promise<void> {
+  for (const { update, result } of [...applied].reverse()) {
+    const original = snapshots.get(update.filePath)!;
+    if (original.version === MISSING_FILE_VERSION) {
+      const current = await readFileSnapshot(update.filePath);
+      if (current.version !== result.version) {
+        throw new Error(`atomic text file batch rollback lost CAS for ${update.filePath}`);
+      }
+      await rm(update.filePath);
+      continue;
+    }
+    const rollback = await atomicReplaceTextFileUnlocked(update.filePath, original.content!, {
+      expectedVersion: result.version,
+    });
+    if (!rollback.ok) {
+      throw new Error(`atomic text file batch rollback lost CAS for ${update.filePath}`);
+    }
+  }
+}
+
 async function assertTargetIsRegularFile(filePath: string): Promise<void> {
   const info = await lstat(filePath);
   if (info.isSymbolicLink()) throw symbolicLinkError(filePath);
@@ -318,6 +462,26 @@ async function withFileWriteLock<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   const key = await canonicalWriteKey(filePath);
+  return await withFileWriteKey(key, signal, operation);
+}
+
+async function withFileWriteKeys<T>(
+  keys: readonly string[],
+  signal: AbortSignal | undefined,
+  operation: () => Promise<T>,
+  index = 0,
+): Promise<T> {
+  if (index >= keys.length) return await operation();
+  return await withFileWriteKey(keys[index]!, signal, async () => {
+    return await withFileWriteKeys(keys, signal, operation, index + 1);
+  });
+}
+
+async function withFileWriteKey<T>(
+  key: string,
+  signal: AbortSignal | undefined,
+  operation: () => Promise<T>,
+): Promise<T> {
   const previous = fileWriteQueues.get(key) ?? Promise.resolve();
   let release!: () => void;
   const gate = new Promise<void>((resolveGate) => {

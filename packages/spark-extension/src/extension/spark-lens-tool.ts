@@ -5,7 +5,7 @@ import type { SparkRegisteredToolConfig } from "./spark-tool-registration.ts";
 
 export function createSparkLensToolConfig(): SparkRegisteredToolConfig & {
   policy: {
-    effect: "read";
+    effect: "write";
     executionMode: "sequential";
     domains: string[];
     approval: "none";
@@ -21,9 +21,11 @@ export function createSparkLensToolConfig(): SparkRegisteredToolConfig & {
       "A provider error, timeout, silence, conflict, or stale revision is not clean.",
       "Use verify when a completion or Ready transition needs a durable receipt.",
       "Search and outline return versioned read parameters; use read rather than expecting Lens to duplicate source.",
+      "Provider fixes are Patch Proposals. Apply only the selected proposal; create/delete, unsafe, multiple-candidate, and cross-file rename proposals require explicit selection.",
+      "Suppressing a finding requires an applied Patch Proposal for the suppression annotation.",
     ],
     policy: {
-      effect: "read",
+      effect: "write",
       executionMode: "sequential",
       domains: ["workspace", "evidence"],
       approval: "none",
@@ -38,12 +40,55 @@ export function createSparkLensToolConfig(): SparkRegisteredToolConfig & {
         Type.Literal("navigate"),
         Type.Literal("structural_search"),
         Type.Literal("impact"),
+        Type.Literal("propose_patch"),
+        Type.Literal("apply_patch"),
+        Type.Literal("triage"),
       ]),
       artifactRef: Type.Optional(Type.String({ description: "GitChange artifact ref." })),
       path: Type.Optional(Type.String({ description: "Optional finding path filter." })),
       query: Type.Optional(Type.String({ description: "Symbol query for search or navigate." })),
       pattern: Type.Optional(
         Type.String({ description: "ast-grep pattern for structural_search." }),
+      ),
+      provider: Type.Optional(
+        Type.String({ description: "Provider id producing a Patch Proposal." }),
+      ),
+      proposalRef: Type.Optional(Type.String({ description: "Patch Proposal reference." })),
+      edits: Type.Optional(
+        Type.Array(
+          Type.Object({
+            path: Type.String(),
+            startOffset: Type.Integer({ minimum: 0 }),
+            endOffset: Type.Integer({ minimum: 0 }),
+            newText: Type.String(),
+          }),
+          { minItems: 1 },
+        ),
+      ),
+      expectedResolution: Type.Optional(
+        Type.Array(Type.String({ description: "Observation ref expected to disappear." })),
+      ),
+      safetyReasons: Type.Optional(
+        Type.Array(
+          Type.Union([
+            Type.Literal("unsafe"),
+            Type.Literal("create_delete"),
+            Type.Literal("multiple_candidates"),
+            Type.Literal("cross_file_rename"),
+          ]),
+        ),
+      ),
+      explicitSelection: Type.Optional(
+        Type.Boolean({ description: "Required for non-safe Patch Proposals." }),
+      ),
+      observationRef: Type.Optional(Type.String({ description: "Observation to triage." })),
+      disposition: Type.Optional(
+        Type.Union([
+          Type.Literal("false_positive"),
+          Type.Literal("deferred"),
+          Type.Literal("flagged"),
+          Type.Literal("suppressed"),
+        ]),
       ),
       refresh: Type.Optional(
         Type.Boolean({

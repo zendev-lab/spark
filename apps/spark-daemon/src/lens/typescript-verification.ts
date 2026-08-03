@@ -70,6 +70,21 @@ export class TypeScriptLensVerificationService {
       workspaceRoot: root.cwd,
       profile: TYPESCRIPT_DUAL_VERIFICATION_PROFILE,
     });
+    return await this.#diagnosticsForRevision(revision, input, true);
+  }
+
+  async diagnosticsForRevision(
+    revision: LensDiagnosticReport["revision"],
+    input: Pick<RunTypeScriptDiagnosticsInput, "path" | "maxFindings"> = {},
+  ): Promise<TypeScriptVerificationResult> {
+    return await this.#diagnosticsForRevision(revision, input, false);
+  }
+
+  async #diagnosticsForRevision(
+    revision: LensDiagnosticReport["revision"],
+    input: Pick<RunTypeScriptDiagnosticsInput, "path" | "maxFindings">,
+    assertCurrent: boolean,
+  ): Promise<TypeScriptVerificationResult> {
     const request = { capability: "diagnostics" as const, input: {}, revision };
     const [owner, verifier] = await Promise.all([
       this.#runtime.run({
@@ -95,11 +110,13 @@ export class TypeScriptLensVerificationService {
       revision.digest,
       filtered.slice(0, input.maxFindings ?? 100),
     );
-    this.#stateStore.saveObservations(root.cwd, observations);
-    const current = await captureWorkspaceRevision({
-      workspaceRoot: root.cwd,
-      profile: TYPESCRIPT_DUAL_VERIFICATION_PROFILE,
-    });
+    if (assertCurrent) this.#stateStore.saveObservations(revision.workspaceRoot, observations);
+    const current = assertCurrent
+      ? await captureWorkspaceRevision({
+          workspaceRoot: revision.workspaceRoot,
+          profile: TYPESCRIPT_DUAL_VERIFICATION_PROFILE,
+        })
+      : revision;
     const verdict =
       current.digest === revision.digest
         ? evaluateLensVerdict({
