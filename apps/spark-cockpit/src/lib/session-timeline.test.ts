@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { SparkJsonObject } from "@zendev-lab/spark-protocol";
-import { visibleConversationParts } from "./components/conversation/conversation-view";
+import {
+  visibleConversationParts,
+  visibleConversationPartText,
+} from "./components/conversation/conversation-view";
 import { visibleThinkingChainSteps } from "./components/conversation/thinking-chain-view";
 import {
   activeSessionTimelineProcessItemId,
@@ -1177,6 +1180,55 @@ describe("session timeline", () => {
     });
   });
 
+  it("folds a tool preamble into the open thinking chain before the final reply arrives", () => {
+    const timeline = buildSessionTimeline({
+      fallbackTimestamp: "2026-07-10T00:00:00.000Z",
+      messages: [
+        {
+          version: 1 as const,
+          id: "a-running",
+          role: "assistant",
+          text: "我先检查一下。",
+          status: "streaming",
+          createdAt: "2026-07-10T00:00:01.000Z",
+          parts: [
+            {
+              id: "a-running:text",
+              type: "text",
+              status: "streaming",
+              text: "我先检查一下。",
+              metadata: {},
+            },
+            {
+              id: "a-running:call",
+              type: "tool-call",
+              status: "running",
+              toolCallId: "call-running",
+              toolName: "cue_exec",
+              summary: "command=pwd",
+              metadata: {},
+            },
+          ],
+          metadata: {},
+        },
+      ],
+      commands: [],
+      reports: [],
+    });
+
+    expect(timeline[0]?.parts).toMatchObject([
+      {
+        type: "chain",
+        state: "streaming",
+        steps: [
+          { type: "commentary", summary: "我先检查一下。", state: "streaming" },
+          { type: "tool", callId: "call-running", state: "running" },
+        ],
+      },
+    ]);
+    expect(visibleConversationPartText(timeline[0]?.parts ?? [])).toBe("");
+  });
+
   it("merges consecutive spark tool turns into one thinking chain with result text", () => {
     const timeline = buildSessionTimeline({
       fallbackTimestamp: "2026-07-10T00:00:00.000Z",
@@ -1261,7 +1313,7 @@ describe("session timeline", () => {
     });
 
     expect(timeline).toHaveLength(1);
-    expect(timeline[0]?.parts.map((part) => part.type)).toEqual(["chain", "text", "text"]);
+    expect(timeline[0]?.parts.map((part) => part.type)).toEqual(["chain", "text"]);
     const chain = timeline[0]?.parts[0];
     expect(chain).toMatchObject({ type: "chain", state: "complete" });
     if (chain?.type !== "chain") throw new Error("expected chain part");
@@ -1273,6 +1325,11 @@ describe("session timeline", () => {
         redacted: false,
       },
       {
+        type: "commentary",
+        summary: "我来列一下目录。",
+        state: "complete",
+      },
+      {
         type: "tool",
         callId: "call-1",
         name: "cue_exec",
@@ -1280,6 +1337,7 @@ describe("session timeline", () => {
         summary: ".cursor/\n.github/\nREADME.md",
       },
     ]);
+    expect(visibleConversationPartText(timeline[0]?.parts ?? [])).toBe("当前目录内容如上。");
     expect(JSON.stringify(timeline[0]?.parts)).not.toMatch(/call-1\|/);
   });
 });

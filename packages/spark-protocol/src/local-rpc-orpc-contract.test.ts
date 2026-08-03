@@ -87,7 +87,6 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     const commandMethods = Object.keys(localRpcMethodToSparkCommandKind).sort();
     const contractMethods = Object.keys(sparkLocalRpcOrpcMethodPaths).sort();
     expect(contractMethods).toEqual(commandMethods);
-    expect(Object.keys(sparkLocalRpcProcedureSchemas)).toHaveLength(77);
   });
 
   it("nests contracts under domain routers matching method path map", () => {

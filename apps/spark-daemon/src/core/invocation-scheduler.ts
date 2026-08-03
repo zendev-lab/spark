@@ -221,7 +221,7 @@ export class SparkInvocationScheduler {
 
   private applyCancellationRequests(): void {
     for (const active of this.active.values()) {
-      const persisted = this.store.get(active.invocation.invocationId);
+      const persisted = this.store.getSummary(active.invocation.invocationId);
       if (persisted?.status === "running" && persisted.cancelReason) {
         active.controller.abort(new InvocationCancelledError(persisted.cancelReason));
       }
