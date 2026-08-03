@@ -368,7 +368,9 @@ function sessionMailFromTask(task: SparkDaemonTask): SessionMailMetadata | undef
 function completionSummaryText(completion: CompleteSparkInvocationInput): string {
   if (completion.status === "succeeded") {
     const text = assistantTextFromResult(completion.result);
-    return text?.trim() || "(no assistant text returned)";
+    return `${text?.trim() || "(no assistant text returned)"}${resultTruncationNotice(
+      completion.result,
+    )}`;
   }
   if (completion.status === "cancelled") {
     return completion.cancelReason?.trim() || "cancelled";
@@ -377,6 +379,29 @@ function completionSummaryText(completion: CompleteSparkInvocationInput): string
     Boolean,
   );
   return parts.join(": ");
+}
+
+function resultTruncationNotice(result: unknown): string {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return "";
+  const record = result as Record<string, unknown>;
+  const originalBytes =
+    typeof record.assistantTextOriginalBytes === "number" &&
+    Number.isFinite(record.assistantTextOriginalBytes)
+      ? record.assistantTextOriginalBytes
+      : undefined;
+  if (record.assistantTextTruncated === true) {
+    const size =
+      originalBytes === undefined ? " larger than the persisted limit" : ` ${originalBytes} bytes`;
+    return `\n\n[durable result truncated; original assistant output was${size}]`;
+  }
+  if (record.legacyOversizedResult === true) {
+    const size =
+      typeof record.originalBytes === "number" && Number.isFinite(record.originalBytes)
+        ? ` (${record.originalBytes} bytes)`
+        : "";
+    return `\n\n[legacy durable result omitted because it exceeded the safe hydration limit${size}]`;
+  }
+  return "";
 }
 
 function assistantTextFromResult(result: unknown): string | undefined {

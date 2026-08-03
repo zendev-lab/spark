@@ -7,6 +7,7 @@ import type { SparkHostMessageRenderer } from "../host/types.ts";
 import { SparkNativeTuiApp } from "./app.ts";
 import { SparkNativeSession } from "./session.ts";
 import { nativeTuiStrings } from "./strings.ts";
+import { acquireSparkNativeTuiLease } from "./tty-lease.ts";
 import type {
   SparkNativeInteractionHandler,
   SparkNativeResponder,
@@ -66,7 +67,9 @@ export async function runNativeSparkTui(input?: string | RunNativeSparkTuiOption
     stop,
   );
   let started = false;
+  let terminalLease: Awaited<ReturnType<typeof acquireSparkNativeTuiLease>>;
   try {
+    terminalLease = await acquireSparkNativeTuiLease();
     await options.configureApp?.(app, session);
     tui.addChild(app);
     tui.setFocus(app);
@@ -84,7 +87,11 @@ export async function runNativeSparkTui(input?: string | RunNativeSparkTuiOption
     unregisterSignals();
     app.dispose();
     if (started) tui.stop();
-    await terminal.drainInput();
+    try {
+      await terminal.drainInput();
+    } finally {
+      await terminalLease?.release();
+    }
   }
 }
 

@@ -6,6 +6,7 @@ import {
   parseSparkSessionRegistryRecord,
   parseSparkSessionRegistryRecords,
   parseSparkSessionView,
+  sparkSessionArchiveRequestSchema,
   sparkSessionBindRequestSchema,
   sparkSessionCreateRequestSchema,
   sparkSessionGetRequestSchema,
@@ -26,12 +27,14 @@ import {
   type SparkCommandKind,
   type SparkInvocationStatus,
   type SparkProtocolJsonValue,
+  type SparkSessionCreateRequest,
   type SparkSessionRegistryRecord,
   type SparkSessionView,
 } from "@zendev-lab/spark-protocol";
 import {
   loadSparkSessionMediaChunk,
   loadSparkSessionSnapshot,
+  loadSparkSessionSnapshotTail,
   SparkSessionRegistryError,
 } from "@zendev-lab/spark-session";
 import type { SparkPaths } from "@zendev-lab/spark-system";
@@ -69,6 +72,7 @@ export interface SparkDaemonSessionControlRequest {
     | "session.bind.request"
     | "session.unbind.request"
     | "session.archive.request"
+    | "session.restore.request"
     | "turn.submit.request"
     | "turn.cancel.request"
     | "turn.status.request"
@@ -138,14 +142,29 @@ export async function executeSparkDaemonSessionControl(
           "Spark daemon native session storage is not available.",
         );
       }
-      const snapshot = projectPendingSessionTurns(
-        options.db,
-        await loadSparkSessionSnapshot({
-          sessionsRoot: join(options.paths.piAgentDir, "sessions"),
-          session,
-        }),
-      );
-      const window = boundedSessionSnapshot(snapshot, parsed);
+      const snapshotInput = {
+        sessionsRoot: join(options.paths.piAgentDir, "sessions"),
+        session,
+      };
+      const window = parsed.beforeMessageId
+        ? boundedSessionSnapshot(
+            projectPendingSessionTurns(options.db, await loadSparkSessionSnapshot(snapshotInput)),
+            parsed,
+          )
+        : await (async () => {
+            const requestedLimit = parsed.messageLimit ?? defaultSessionSnapshotMessages;
+            const tail = await loadSparkSessionSnapshotTail({
+              ...snapshotInput,
+              messageLimit: requestedLimit,
+            });
+            const snapshot = projectPendingSessionTurns(options.db, tail.snapshot);
+            const pendingMessages = snapshot.messages.length - tail.snapshot.messages.length;
+            return boundedLatestSessionSnapshot(
+              snapshot,
+              tail.totalMessages + pendingMessages,
+              requestedLimit,
+            );
+          })();
       const data = publicObject(window);
       return { result: data, projection: { kind: "session.snapshot", data } };
     }
@@ -193,18 +212,7 @@ export async function executeSparkDaemonSessionControl(
       }
       assertScopeInput(request, parsed.scope);
       if (parsed.taskExecution) {
-        const owner = await requireSession(options, parsed.taskExecution.ownerSessionId, request);
-        if (
-          owner.scope.kind !== parsed.scope.kind ||
-          (owner.scope.kind === "workspace" &&
-            parsed.scope.kind === "workspace" &&
-            owner.scope.workspaceId !== parsed.scope.workspaceId)
-        ) {
-          throw new SparkSessionRegistryError(
-            "session_scope_mismatch",
-            "task execution session must use the owner session scope",
-          );
-        }
+        await assertTaskExecutionOwner(options, request, parsed);
       }
       const session = parseSparkSessionRegistryRecord(
         projectSessionForRequest(
@@ -249,7 +257,7 @@ export async function executeSparkDaemonSessionControl(
       return { result: data, projection: { kind: "session.detail", data } };
     }
     case "session.archive.request": {
-      const parsed = sparkSessionGetRequestSchema.parse({
+      const parsed = sparkSessionArchiveRequestSchema.parse({
         ...request.payload,
         sessionId: request.sessionId ?? request.payload.sessionId,
       });
@@ -257,9 +265,28 @@ export async function executeSparkDaemonSessionControl(
       const session = parseSparkSessionRegistryRecord(
         projectSessionForRequest(
           options.db,
-          await requireSessionRegistry(options).archive(parsed.sessionId),
+          await requireSessionRegistry(options).archive(parsed),
           request,
         ),
+      );
+      const data = publicObject({ session });
+      return { result: data, projection: { kind: "session.detail", data } };
+    }
+    case "session.restore.request": {
+      const parsed = sparkSessionGetRequestSchema.parse({
+        ...request.payload,
+        sessionId: request.sessionId ?? request.payload.sessionId,
+      });
+      await requireSession(options, parsed.sessionId, request);
+      const registry = requireSessionRegistry(options);
+      if (!registry.restore) {
+        throw new SparkDaemonControlError(
+          "session_registry_unavailable",
+          "Spark daemon session restore is not available.",
+        );
+      }
+      const session = parseSparkSessionRegistryRecord(
+        projectSessionForRequest(options.db, await registry.restore(parsed.sessionId), request),
       );
       const data = publicObject({ session });
       return { result: data, projection: { kind: "session.detail", data } };
@@ -501,7 +528,11 @@ async function listSessionsForRequest(
   const registry = requireSessionRegistry(options);
   if (request.scope !== "workspace") return await registry.list(parsed);
 
-  const sessions = await registry.list({ includeArchived: parsed.includeArchived });
+  const sessions = await registry.list({
+    includeArchived: parsed.includeArchived,
+    query: parsed.query,
+    tags: parsed.tags,
+  });
   return sessions.flatMap((session) => {
     try {
       return [projectSessionForRequest(options.db, session, request)];
@@ -545,6 +576,38 @@ function assertScopeInput(
       );
     }
   }
+}
+
+function assertCreateScopeMatchesOwner(
+  owner: SparkSessionRegistryRecord,
+  create: SparkSessionCreateRequest & {
+    scope: NonNullable<SparkSessionCreateRequest["scope"]>;
+  },
+): void {
+  if (
+    owner.scope.kind === create.scope.kind &&
+    (owner.scope.kind !== "workspace" ||
+      (create.scope.kind === "workspace" && owner.scope.workspaceId === create.scope.workspaceId))
+  ) {
+    return;
+  }
+  throw new SparkSessionRegistryError(
+    "session_scope_mismatch",
+    "task execution session must use the owner session scope",
+  );
+}
+
+async function assertTaskExecutionOwner(
+  options: SparkDaemonSessionControlOptions,
+  request: SparkDaemonSessionControlRequest,
+  create: SparkSessionCreateRequest & {
+    scope: NonNullable<SparkSessionCreateRequest["scope"]>;
+  },
+): Promise<void> {
+  const taskExecution = create.taskExecution;
+  if (!taskExecution) return;
+  const owner = await requireSession(options, taskExecution.ownerSessionId, request);
+  assertCreateScopeMatchesOwner(owner, create);
 }
 
 function projectSessionForRequest(
@@ -867,10 +930,47 @@ function boundedSessionSnapshot(
       `session snapshot cursor is no longer available: ${request.beforeMessageId}`,
     );
   }
-  let limit = Math.min(request.messageLimit ?? defaultSessionSnapshotMessages, end);
-  while (limit > 0 || end === 0) {
-    const start = Math.max(0, end - limit);
-    const messages = snapshot.messages.slice(start, end);
+  return boundedSessionSnapshotWindow(snapshot, {
+    totalMessages,
+    availableStart: 0,
+    end,
+    requestedLimit: request.messageLimit ?? defaultSessionSnapshotMessages,
+  });
+}
+
+function boundedLatestSessionSnapshot(
+  snapshot: SparkSessionView,
+  totalMessages: number,
+  requestedLimit: number,
+) {
+  return boundedSessionSnapshotWindow(snapshot, {
+    totalMessages,
+    availableStart: Math.max(0, totalMessages - snapshot.messages.length),
+    end: totalMessages,
+    requestedLimit,
+  });
+}
+
+function boundedSessionSnapshotWindow(
+  snapshot: SparkSessionView,
+  window: {
+    totalMessages: number;
+    availableStart: number;
+    end: number;
+    requestedLimit: number;
+  },
+) {
+  const availableEnd = window.availableStart + snapshot.messages.length;
+  if (window.end < window.availableStart || window.end > availableEnd) {
+    throw new Error("Session snapshot window is outside the loaded transcript tail.");
+  }
+  let limit = Math.min(window.requestedLimit, window.end - window.availableStart);
+  while (limit > 0 || window.end === 0) {
+    const start = window.end - limit;
+    const messages = snapshot.messages.slice(
+      start - window.availableStart,
+      window.end - window.availableStart,
+    );
     const toolCallIds = new Set(
       messages.flatMap((message) =>
         [
@@ -889,11 +989,11 @@ function boundedSessionSnapshot(
     const result = sparkSessionSnapshotPageSchema.parse({
       snapshot: projected,
       history: {
-        totalMessages,
+        totalMessages: window.totalMessages,
         loadedMessages: messages.length,
-        hiddenMessages: totalMessages - messages.length,
+        hiddenMessages: window.totalMessages - messages.length,
         earlierMessages: start,
-        laterMessages: totalMessages - end,
+        laterMessages: window.totalMessages - window.end,
         hasEarlierMessages: start > 0,
         ...(start > 0 && messages[0] ? { nextBeforeMessageId: messages[0].id } : {}),
       },

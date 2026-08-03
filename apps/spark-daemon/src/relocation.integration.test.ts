@@ -44,11 +44,7 @@ import { relocateSparkDaemonCockpit } from "./relocation.ts";
 import { getSparkDaemonServerProfile, listSparkDaemonServerProfiles } from "./server-profiles.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { openSparkDaemonDatabase } from "./store/schema.ts";
-import {
-  ensureLocalWorkspace,
-  registerWorkspace,
-  sparkDaemonServerStatusSummaries,
-} from "./store/workspaces.ts";
+import { registerWorkspace, sparkDaemonServerStatusSummaries } from "./store/workspaces.ts";
 
 const instanceId = "cockpit_11111111111111111111111111111111";
 const installationId = "install-live-relocation";
@@ -159,7 +155,7 @@ test("live daemon relocates between snapshot-restored HTTPS/WSS Cockpits without
       workspaceName: "Source owned",
       workspaceSlug: "source-owned",
     });
-    const localWorkspace = ensureLocalWorkspace(daemonDb, {
+    const localWorkspace = registerWorkspace(daemonDb, {
       localPath: join(root, "local-only"),
       localWorkspaceKey: "local-only",
     });

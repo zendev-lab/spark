@@ -19,6 +19,7 @@ import { sparkActiveLens } from "./spark-drive-state.ts";
 import {
   advanceReproPhase,
   advanceReproStage,
+  clearSessionRepro,
   createReproStepAskBinding,
   encodeReproStepAskBinding,
   currentPhaseAcceptance,
@@ -241,6 +242,9 @@ export function registerSparkReproTool(
             reason: "repro activated by tool",
           });
           await deps.refreshSparkWidget?.(cwd, ctx);
+          if (driverHealth.status === "unreachable") {
+            return reproDriverUnavailableResult(repro, driverHealth);
+          }
           return {
             content: [
               {
@@ -262,6 +266,12 @@ export function registerSparkReproTool(
           forceSchedule: true,
           reason: "repro activated by tool",
         });
+        if (driverHealth.status === "unreachable") {
+          await clearSessionRepro(cwd, ctx);
+          ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan", "assist");
+          await deps.refreshSparkWidget?.(cwd, ctx);
+          return reproDriverUnavailableResult(repro, driverHealth);
+        }
         ctx.sparkActiveLens = sparkActiveLens(repro.currentPhase, "repro");
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
@@ -1121,6 +1131,22 @@ function reproStatusResult(repro: SparkSessionRepro, driverHealth?: SparkReproDr
   return {
     content: [{ type: "text" as const, text: lines.filter(Boolean).join("\n") }],
     details: reproDetails(repro),
+  };
+}
+
+function reproDriverUnavailableResult(
+  repro: SparkSessionRepro,
+  driverHealth: SparkReproDriverHealth,
+) {
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text: `Repro drive did not start: ${driverHealth.error ?? "Spark daemon is unreachable"}`,
+      },
+    ],
+    details: { ...reproDetails(repro), driver: driverHealth },
+    isError: true,
   };
 }
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   sparkInvocationEventSchema,
+  sparkInvocationRetentionApplyRequestSchema,
+  sparkInvocationRetentionApplyResultSchema,
   sparkTurnCancelRequestSchema,
   sparkTurnAttachmentsSchema,
   sparkTurnSubmitRequestSchema,
@@ -119,6 +121,59 @@ describe("invocation lifecycle protocol", () => {
         },
       ]),
     ).toThrow(/canonical base64 matching size/u);
+  });
+
+  it("requires explicit confirmation and bounded chunks for retention apply", () => {
+    expect(
+      sparkInvocationRetentionApplyRequestSchema.parse({
+        before: "2026-07-14T00:00:00.000Z",
+        confirm: true,
+      }),
+    ).toEqual({
+      before: "2026-07-14T00:00:00.000Z",
+      invocationLimit: 10,
+      eventLimit: 100,
+      confirm: true,
+    });
+    const missingConfirm = sparkInvocationRetentionApplyRequestSchema.safeParse({
+      before: "2026-07-14T00:00:00.000Z",
+    });
+    expect(missingConfirm.success).toBe(false);
+    if (!missingConfirm.success) {
+      expect(missingConfirm.error.issues).toEqual([
+        expect.objectContaining({ code: "invalid_value", path: ["confirm"] }),
+      ]);
+    }
+    expect(() =>
+      sparkInvocationRetentionApplyRequestSchema.parse({
+        before: "2026-07-14T00:00:00.000Z",
+        confirm: false,
+      }),
+    ).toThrow();
+    expect(() =>
+      sparkInvocationRetentionApplyRequestSchema.parse({
+        before: "2026-07-14T00:00:00.000Z",
+        eventLimit: 10_001,
+        confirm: true,
+      }),
+    ).toThrow();
+    expect(
+      sparkInvocationRetentionApplyResultSchema.parse({
+        before: "2026-07-14T00:00:00.000Z",
+        touchedInvocationIds: ["inv_0123456789"],
+        retainedInvocationIds: [],
+        deletedEventCount: 100,
+        retainedInvocationCount: 0,
+        clearedResultCount: 0,
+        blockedByDeliveryCount: 2,
+        hasMore: true,
+        appliedAt: "2026-07-16T00:00:00.000Z",
+      }),
+    ).toMatchObject({
+      deletedEventCount: 100,
+      blockedByDeliveryCount: 2,
+      hasMore: true,
+    });
   });
 
   it("rejects queue-shaped ids and oversized event pages", () => {

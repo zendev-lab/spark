@@ -59,6 +59,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "invocation.list",
     "invocation.retry",
     "invocation.retention.preview",
+    "invocation.retention.apply",
   ],
   driver: [
     "driver.start",
@@ -94,6 +95,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "session.bind",
     "session.unbind",
     "session.archive",
+    "session.restore",
     "session.send",
     "session.inbox",
     "session.mail.read",

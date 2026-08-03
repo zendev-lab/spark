@@ -97,13 +97,13 @@ export function getSparkSessionBranch(
   const leaf = byId.get(leafId);
   if (!leaf) throw new Error(`Session entry not found: ${leafId}`);
 
-  const branch: SparkSessionEntry[] = [];
+  const branchNewestFirst: SparkSessionEntry[] = [];
   let current: SparkSessionEntry | undefined = leaf;
   while (current) {
-    branch.unshift(current);
+    branchNewestFirst.push(current);
     current = current.parentId ? byId.get(current.parentId) : undefined;
   }
-  return branch;
+  return branchNewestFirst.reverse();
 }
 
 export function flattenSparkSessionTree(

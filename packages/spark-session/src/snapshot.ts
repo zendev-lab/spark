@@ -61,27 +61,63 @@ export interface LoadSparkSessionSnapshotInput {
   resolveGitBranch?: (cwd: string) => Promise<string | undefined>;
 }
 
+export interface SparkSessionSnapshotTail {
+  snapshot: SparkSessionView;
+  totalMessages: number;
+}
+
 /** Read the daemon-owned native JSONL transcript and project its active branch. */
 export async function loadSparkSessionSnapshot(
   input: LoadSparkSessionSnapshotInput,
 ): Promise<SparkSessionView> {
+  return (await projectSparkSessionSnapshot(input)).snapshot;
+}
+
+/** Project only the latest display messages while retaining exact history counts. */
+export async function loadSparkSessionSnapshotTail(
+  input: LoadSparkSessionSnapshotInput & { messageLimit: number },
+): Promise<SparkSessionSnapshotTail> {
+  if (!Number.isInteger(input.messageLimit) || input.messageLimit < 1) {
+    throw new Error("Spark session snapshot messageLimit must be a positive integer.");
+  }
+  return await projectSparkSessionSnapshot(input, input.messageLimit);
+}
+
+async function projectSparkSessionSnapshot(
+  input: LoadSparkSessionSnapshotInput,
+  messageLimit?: number,
+): Promise<SparkSessionSnapshotTail> {
   const path = input.session.sessionPath;
   if (!path) {
     const gitBranch = input.session.cwd
       ? await (input.resolveGitBranch ?? resolveNativeSessionGitBranch)(input.session.cwd)
       : undefined;
-    return emptySessionSnapshot(input.session, gitBranch);
+    return { snapshot: emptySessionSnapshot(input.session, gitBranch), totalMessages: 0 };
   }
   const record = await loadNativeSessionRecord(path, input.session.sessionId);
-  const activeEntries = activeBranchEntries(record.entries);
-  const toolOutcomes = collectToolOutcomes(activeEntries);
-  const projectedMessages = activeEntries.flatMap((entry) => {
+  const activeNewestFirst = activeBranchEntriesNewestFirst(record.entries);
+  const interrupted = interruptedTurnMessage(activeNewestFirst, input.session);
+  let selectedEntries: NativeSessionEntry[];
+  let projectedMessageCount = 0;
+  if (messageLimit === undefined) {
+    selectedEntries = [...activeNewestFirst].reverse();
+  } else {
+    const nativeLimit = Math.max(0, messageLimit - (interrupted ? 1 : 0));
+    const selectedNewestFirst: NativeSessionEntry[] = [];
+    for (const entry of activeNewestFirst) {
+      if (!isProjectableMessageEntry(entry)) continue;
+      projectedMessageCount += 1;
+      if (selectedNewestFirst.length < nativeLimit) selectedNewestFirst.push(entry);
+    }
+    selectedEntries = selectedNewestFirst.reverse();
+  }
+  const toolOutcomes = collectToolOutcomes(selectedEntries);
+  const projectedMessages = selectedEntries.flatMap((entry) => {
     const message = messageView(entry, toolOutcomes);
     return message ? [message] : [];
   });
-  const interrupted = interruptedTurnMessage(activeEntries, input.session);
   const messages = interrupted ? [...projectedMessages, interrupted] : projectedMessages;
-  const tools = toolCallViews(activeEntries, toolOutcomes);
+  const tools = toolCallViews(selectedEntries, toolOutcomes);
   const metadata: SparkJsonObject = {
     sessionScope: input.session.scope,
     ...(input.session.scope.kind === "workspace"
@@ -93,12 +129,12 @@ export async function loadSparkSessionSnapshot(
   const gitBranch = cwd
     ? await (input.resolveGitBranch ?? resolveNativeSessionGitBranch)(cwd)
     : undefined;
-  const usage = sessionUsage(record.entries, activeEntries);
-  return parseSparkSessionView({
+  const usage = sessionUsage(record.entries, activeNewestFirst);
+  const snapshot = parseSparkSessionView({
     sessionId: input.session.sessionId,
     ...(input.session.title ? { title: input.session.title } : {}),
     ...(cwd ? { cwd } : {}),
-    ...(activeEntries.at(-1)?.id ? { activeLeafId: activeEntries.at(-1)!.id } : {}),
+    ...(activeNewestFirst[0]?.id ? { activeLeafId: activeNewestFirst[0].id } : {}),
     status: input.session.status === "running" ? "running" : "idle",
     ...(input.session.model ? { model: input.session.model } : {}),
     ...(input.session.thinkingLevel ? { thinkingLevel: input.session.thinkingLevel } : {}),
@@ -111,6 +147,13 @@ export async function loadSparkSessionSnapshot(
       input.session.updatedAt > record.modifiedAt ? input.session.updatedAt : record.modifiedAt,
     metadata,
   });
+  return {
+    snapshot,
+    totalMessages:
+      messageLimit === undefined
+        ? snapshot.messages.length
+        : projectedMessageCount + (interrupted ? 1 : 0),
+  };
 }
 
 export async function loadSparkSessionMediaChunk(
@@ -134,7 +177,7 @@ export async function loadSparkSessionMediaChunk(
     );
   }
   const record = await loadNativeSessionRecord(path, input.session.sessionId);
-  const entry = activeBranchEntries(record.entries).find(
+  const entry = activeBranchEntriesNewestFirst(record.entries).find(
     (candidate) => candidate.type === "message" && candidate.id === request.messageId,
   );
   const content = entry?.message?.content;
@@ -266,17 +309,72 @@ function parseEntry(value: unknown, path: string): NativeSessionEntry {
   };
 }
 
-function activeBranchEntries(entries: NativeSessionEntry[]): NativeSessionEntry[] {
+function activeBranchEntriesNewestFirst(entries: NativeSessionEntry[]): NativeSessionEntry[] {
   const byId = new Map(entries.map((entry) => [entry.id, entry]));
   const branch: NativeSessionEntry[] = [];
   const seen = new Set<string>();
   let current = entries.at(-1);
   while (current && !seen.has(current.id)) {
     seen.add(current.id);
-    branch.unshift(current);
+    branch.push(current);
     current = current.parentId ? byId.get(current.parentId) : undefined;
   }
   return branch;
+}
+
+function isProjectableMessageEntry(entry: NativeSessionEntry): boolean {
+  const message = entry.message;
+  if (entry.type !== "message" || !message || !displayRole(message.role)) return false;
+  if (message.role === "toolResult") {
+    return Boolean(stringField(message, "toolCallId") && stringField(message, "toolName"));
+  }
+  const content = message.content;
+  if (typeof content === "string") {
+    return Boolean(content) || isProviderErrorEntry(entry);
+  }
+  if (!Array.isArray(content)) return isProviderErrorEntry(entry);
+  if (content.some((value, index) => isProjectableConversationValue(entry, value, index))) {
+    return true;
+  }
+  return isProviderErrorEntry(entry);
+}
+
+function isProjectableConversationValue(
+  entry: NativeSessionEntry,
+  value: unknown,
+  index: number,
+): boolean {
+  if (!isRecord(value)) return false;
+  if (value.type === "text") return typeof value.text === "string" && Boolean(value.text);
+  if (value.type === "thinking") {
+    return (
+      typeof value.thinking === "string" && (Boolean(value.thinking) || value.redacted === true)
+    );
+  }
+  if (
+    value.type === "image" &&
+    typeof value.data === "string" &&
+    typeof value.mimeType === "string"
+  ) {
+    return sparkImageConversationPartSchema.safeParse({
+      id: conversationPartId(entry.id, index),
+      type: "image",
+      mediaType: value.mimeType,
+      contentIndex: index,
+      ...(typeof value.name === "string" && value.name.trim() ? { name: value.name.trim() } : {}),
+      status: "complete",
+      metadata: {},
+    }).success;
+  }
+  return (
+    value.type === "toolCall" &&
+    Boolean(stringField(value, "id")) &&
+    Boolean(stringField(value, "name"))
+  );
+}
+
+function isProviderErrorEntry(entry: NativeSessionEntry): boolean {
+  return entry.message?.role === "assistant" && entry.message.stopReason === "error";
 }
 
 function messageView(
@@ -324,11 +422,11 @@ function messageView(
 }
 
 function interruptedTurnMessage(
-  activeEntries: readonly NativeSessionEntry[],
+  activeEntriesNewestFirst: readonly NativeSessionEntry[],
   session: SparkSessionRegistryRecord,
 ): SparkMessageView | undefined {
   if (session.status === "running") return undefined;
-  const lastEntry = activeEntries.findLast(
+  const lastEntry = activeEntriesNewestFirst.find(
     (entry) => entry.type === "message" && Boolean(entry.message),
   );
   const toolResultWithoutReply = lastEntry?.message?.role === "toolResult";
@@ -395,7 +493,7 @@ function isRoundtripBudgetError(message: string | undefined): boolean {
 
 function sessionUsage(
   entries: readonly NativeSessionEntry[],
-  activeEntries: readonly NativeSessionEntry[],
+  activeEntriesNewestFirst: readonly NativeSessionEntry[],
 ): SparkSessionUsage | undefined {
   let inputTokens = 0;
   let outputTokens = 0;
@@ -420,15 +518,11 @@ function sessionUsage(
   }
 
   if (!hasUsage) return undefined;
-  const latestCompactionIndex = findLastIndex(
-    activeEntries,
-    (entry) => entry.type === "compaction",
-  );
   let contextTokens: number | undefined;
-  for (let index = activeEntries.length - 1; index > latestCompactionIndex; index -= 1) {
-    const entry = activeEntries[index];
+  for (const entry of activeEntriesNewestFirst) {
+    if (entry.type === "compaction") break;
     if (
-      entry?.type !== "message" ||
+      entry.type !== "message" ||
       entry.message?.role !== "assistant" ||
       entry.message.stopReason === "aborted" ||
       entry.message.stopReason === "error"
@@ -502,13 +596,6 @@ function normalizedAssistantUsage(value: unknown): NormalizedAssistantUsage | un
 
 function nonnegativeNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
-function findLastIndex<T>(items: readonly T[], predicate: (item: T) => boolean): number {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    if (predicate(items[index]!)) return index;
-  }
-  return -1;
 }
 
 async function resolveNativeSessionGitBranch(cwd: string): Promise<string | undefined> {

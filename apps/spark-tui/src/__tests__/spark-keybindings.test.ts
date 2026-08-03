@@ -83,6 +83,29 @@ test("SparkKeybindings most-recent registration wins on the same key (Spark mode
   assert.deepEqual(calls, ["spark", "thinking"], "thinking.cycle takes over when spark inactive");
 });
 
+test("SparkKeybindings serializes repeated async invocations of one binding", async () => {
+  const calls: string[] = [];
+  let current = 0;
+  const kb = new SparkKeybindings({
+    defaults: [
+      {
+        id: "app.thinking.cycle",
+        defaultKey: "shift+tab",
+        description: "thinking cycle",
+        handler: async () => {
+          const observed = current;
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          current = observed + 1;
+          calls.push(String(current));
+        },
+      },
+    ],
+  });
+
+  await Promise.all([kb.executeKey("shift+tab", {}), kb.executeKey("shift+tab", {})]);
+  assert.deepEqual(calls, ["1", "2"]);
+});
+
 test("SparkKeybindings setOverride updates keyFor without re-registering", () => {
   const kb = new SparkKeybindings();
   assert.equal(kb.keyFor("app.exit"), "ctrl+c");

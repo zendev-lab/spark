@@ -218,6 +218,11 @@ const invocationDriverInvokers = {
       sparkLocalRpcProcedureSchemas["invocation.retention.preview"].output,
       client.invocation.retention.preview(input, options),
     ),
+  "invocation.retention.apply": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["invocation.retention.apply"].output,
+      client.invocation.retention.apply(input, options),
+    ),
   "driver.start": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["driver.start"].output,
@@ -253,6 +258,7 @@ const invocationDriverInvokers = {
   | "invocation.list"
   | "invocation.retry"
   | "invocation.retention.preview"
+  | "invocation.retention.apply"
   | "driver.start"
   | "driver.status"
   | "driver.stop"
@@ -406,6 +412,11 @@ const sessionInvokers = {
       sparkLocalRpcProcedureSchemas["session.archive"].output,
       client.session.archive(input, options),
     ),
+  "session.restore": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["session.restore"].output,
+      client.session.restore(input, options),
+    ),
   "session.send": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["session.send"].output,
@@ -450,6 +461,7 @@ const sessionInvokers = {
   | "session.bind"
   | "session.unbind"
   | "session.archive"
+  | "session.restore"
   | "session.send"
   | "session.inbox"
   | "session.mail.read"

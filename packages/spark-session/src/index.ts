@@ -3,6 +3,7 @@ export {
   SparkSessionRegistryError,
   SPARK_SESSION_REGISTRY_VERSION,
   defaultSparkSessionRegistryRoot,
+  type ArchiveSparkSessionInput,
   type BindSparkSessionInput,
   type CreateSparkSessionInput,
   type EnsureSparkSideThreadInput,
@@ -18,7 +19,9 @@ export {
 export {
   loadSparkSessionMediaChunk,
   loadSparkSessionSnapshot,
+  loadSparkSessionSnapshotTail,
   type LoadSparkSessionSnapshotInput,
+  type SparkSessionSnapshotTail,
 } from "./snapshot.ts";
 export {
   executePersistentSessionCall,

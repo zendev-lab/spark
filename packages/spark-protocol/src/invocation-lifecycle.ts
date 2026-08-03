@@ -209,6 +209,25 @@ export const sparkInvocationRetentionPreviewResultSchema = z.object({
   observedAt: isoDateTimeSchema,
 });
 
+export const sparkInvocationRetentionApplyRequestSchema = z.object({
+  before: isoDateTimeSchema,
+  invocationLimit: z.number().int().min(1).max(100).default(10),
+  eventLimit: z.number().int().min(1).max(10_000).default(100),
+  confirm: z.literal(true),
+});
+
+export const sparkInvocationRetentionApplyResultSchema = z.object({
+  before: isoDateTimeSchema,
+  touchedInvocationIds: z.array(sparkInvocationIdSchema).max(100),
+  retainedInvocationIds: z.array(sparkInvocationIdSchema).max(100),
+  deletedEventCount: z.number().int().nonnegative(),
+  retainedInvocationCount: z.number().int().nonnegative(),
+  clearedResultCount: z.number().int().nonnegative(),
+  blockedByDeliveryCount: z.number().int().nonnegative(),
+  hasMore: z.boolean(),
+  appliedAt: isoDateTimeSchema,
+});
+
 export type SparkInvocationStatus = z.infer<typeof sparkInvocationStatusSchema>;
 export type SparkTurnAttachment = z.infer<typeof sparkTurnAttachmentSchema>;
 export type SparkTurnSubmitRequest = z.infer<typeof sparkTurnSubmitRequestSchema>;
@@ -231,6 +250,12 @@ export type SparkInvocationRetentionPreviewRequest = z.infer<
 >;
 export type SparkInvocationRetentionPreviewResult = z.infer<
   typeof sparkInvocationRetentionPreviewResultSchema
+>;
+export type SparkInvocationRetentionApplyRequest = z.infer<
+  typeof sparkInvocationRetentionApplyRequestSchema
+>;
+export type SparkInvocationRetentionApplyResult = z.infer<
+  typeof sparkInvocationRetentionApplyResultSchema
 >;
 
 function decodedBase64Size(value: string): number | null {

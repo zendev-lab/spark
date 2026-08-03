@@ -649,9 +649,13 @@ function runtimeControlState(
 function mergeConsecutiveSparkMessages(items: SessionTimelineItem[]) {
   const result: SessionTimelineItem[] = [];
   for (const item of items) {
+    const itemParts = foldTextBeforeToolContinuation(item.parts);
     const previous = result.at(-1);
     if (previous && shouldMergeSparkTurn(previous, item)) {
-      const mergedParts = mergeToolsInParts([...previous.parts, ...item.parts]);
+      const mergedParts = mergeToolsInParts([
+        ...foldIntermediateAssistantText(previous.parts),
+        ...itemParts,
+      ]);
       previous.parts = mergedParts;
       previous.body = conversationPartText(mergedParts) || previous.body;
       previous.status = laterMessageStatus(previous.status, item.status);
@@ -660,9 +664,45 @@ function mergeConsecutiveSparkMessages(items: SessionTimelineItem[]) {
       if (previous.meta && !item.meta) previous.meta = null;
       continue;
     }
-    result.push({ ...item, parts: [...item.parts] });
+    result.push({ ...item, parts: itemParts });
   }
   return result;
+}
+
+/**
+ * An assistant message followed by another message in the same tool roundtrip is
+ * progress, not the returned answer. Keep it in the execution chain so only the
+ * last assistant message is presented and copied as final output.
+ */
+function foldIntermediateAssistantText(parts: readonly ConversationPart[]): ConversationPart[] {
+  return parts.map((part) =>
+    part.type === "text"
+      ? {
+          type: "commentary",
+          summary: part.text,
+          state: part.streaming ? "streaming" : "complete",
+        }
+      : part,
+  );
+}
+
+/**
+ * A text preamble before a tool call already implies another model roundtrip.
+ * Fold it immediately instead of briefly presenting it as a final answer while
+ * the tool is still running. Text after the last tool remains final output.
+ */
+function foldTextBeforeToolContinuation(parts: readonly ConversationPart[]): ConversationPart[] {
+  const lastToolIndex = parts.findLastIndex((part) => part.type === "tool");
+  if (lastToolIndex < 0) return [...parts];
+  return parts.map((part, index) =>
+    part.type === "text" && index < lastToolIndex
+      ? {
+          type: "commentary",
+          summary: part.text,
+          state: part.streaming ? "streaming" : "complete",
+        }
+      : part,
+  );
 }
 
 function shouldMergeSparkTurn(previous: SessionTimelineItem, next: SessionTimelineItem): boolean {
