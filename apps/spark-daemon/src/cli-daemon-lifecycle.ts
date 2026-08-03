@@ -59,6 +59,7 @@ import { SparkDriverStore } from "./store/drivers.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
 import { getWorkspaceById, listWorkspaces, resolveWorkspaceLocalPath } from "./store/workspaces.js";
+import { ensureWorkspaceMainSession } from "./workspace-main-session.ts";
 import {
   cancelSparkDaemonRestartSuccessor,
   clearSparkDaemonRestartFenceForExplicitStart,
@@ -105,6 +106,8 @@ let logsCommand: (
 ) => Promise<number> = async () => {
   throw new Error("logs command is not bound");
 };
+
+const daemonReadinessTimeoutMs = 60_000;
 
 export function bindCliDaemonLogs(fn: typeof logsCommand): void {
   logsCommand = fn;
@@ -193,6 +196,11 @@ export async function start(
       roleInvocationStore.sessionActivity(sessionId).active ||
       roleDriverStore.list({ ownerSessionId: sessionId }).length > 0,
   });
+  for (const workspace of listWorkspaces(db)) {
+    if (workspace.status !== "archived") {
+      await ensureWorkspaceMainSession(db, sessionRegistry, workspace.id);
+    }
+  }
   const modelControl = createSparkDaemonModelControl({
     providerControl: createSparkProviderControl({
       authPath: userPaths.authFile,
@@ -871,7 +879,8 @@ async function waitForDaemonReady(
 ): Promise<number> {
   const progressIntervalMs = 5_000;
   let nextProgressAt = Date.now() + progressIntervalMs;
-  let replacementDeadline = previousPid === null ? Date.now() + 30_000 : undefined;
+  let replacementDeadline =
+    previousPid === null ? Date.now() + daemonReadinessTimeoutMs : undefined;
   let observedTerminal: ReturnType<typeof readSparkDaemonRestartTerminal> = null;
   let observedLifecycle: SparkDaemonLifecycleSnapshot | undefined;
   while (true) {
@@ -1043,12 +1052,13 @@ function assertReplacementStillExpected(
   ) {
     return replacementDeadline;
   }
-  const deadline = replacementDeadline ?? Date.now() + 30_000;
+  const deadline = replacementDeadline ?? Date.now() + daemonReadinessTimeoutMs;
   if (Date.now() < deadline) return deadline;
+  const timeoutSeconds = daemonReadinessTimeoutMs / 1_000;
   throw new Error(
     previousPid === null
-      ? "Spark daemon did not become ready within 30 seconds."
-      : `Spark daemon process ${previousPid} exited, but its replacement did not become ready within 30 seconds.`,
+      ? `Spark daemon did not become ready within ${timeoutSeconds} seconds.`
+      : `Spark daemon process ${previousPid} exited, but its replacement did not become ready within ${timeoutSeconds} seconds.`,
   );
 }
 

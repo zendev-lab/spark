@@ -89,9 +89,16 @@ export const sparkTaskExecutionSessionRelationSchema = z.object({
   attempt: z.number().int().positive(),
 });
 
+/** Daemon-authored binding for the unique cross-workspace coordinator session. */
+export const sparkWorkspaceMainSessionRelationSchema = z.object({
+  kind: z.literal("workspace_main"),
+  generation: z.number().int().positive(),
+});
+
 export const sparkSessionRelationSchema = z.discriminatedUnion("kind", [
   sparkSideThreadSessionRelationSchema,
   sparkTaskExecutionSessionRelationSchema,
+  sparkWorkspaceMainSessionRelationSchema,
 ]);
 
 const sparkSessionRegistryRecordBaseSchema = z.object({

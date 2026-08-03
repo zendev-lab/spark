@@ -43,6 +43,7 @@ import {
   releaseWorkspaceClient,
   workspaceSummaries,
 } from "./store/workspaces.js";
+import { executeWorkspaceDelegationDelivery } from "./workspace-delegation-control.ts";
 
 type ClaimedCommand = ReturnType<typeof serverCommandEnvelopeSchema.parse>;
 
@@ -150,6 +151,9 @@ async function executeAcceptedClaimedCommand(input: ClaimedCommandExecution): Pr
     case "workspace.snapshot.request":
       sendWorkspaceSnapshotResult(input);
       return;
+    case "workspace.delegation.deliver.request":
+      await handleWorkspaceDelegationCommand(input);
+      return;
     case "workspace.client.attach.request":
     case "workspace.client.heartbeat.request":
     case "workspace.client.release.request":
@@ -179,6 +183,59 @@ async function executeAcceptedClaimedCommand(input: ClaimedCommandExecution): Pr
   }
 
   await handleTaskOrAssignmentCommand(input);
+}
+
+async function handleWorkspaceDelegationCommand(input: ClaimedCommandExecution): Promise<void> {
+  const { ws, command, context, route, sparkCommand, commandWorkspace } = input;
+  if (!commandWorkspace || !command.workspaceId || !command.workspaceBindingId) {
+    sendUnknownWorkspaceReject(ws, route);
+    return;
+  }
+  if (!context.sessionRegistry) {
+    sendJson(
+      ws,
+      commandReject(
+        {
+          reasonCode: "SESSION_REGISTRY_UNAVAILABLE",
+          message: "Workspace delegation requires the daemon session registry.",
+          retryable: true,
+        },
+        route,
+      ),
+    );
+    return;
+  }
+  const executed = await executeWorkspaceDelegationDelivery(
+    {
+      paths: context.paths,
+      db: context.db,
+      sessionRegistry: context.sessionRegistry,
+      ...(context.modelControl ? { modelControl: context.modelControl } : {}),
+    },
+    {
+      localWorkspaceId: commandWorkspace.id,
+      serverWorkspaceId: command.workspaceId,
+      workspaceBindingId: command.workspaceBindingId,
+      payload: sparkCommand.payload,
+    },
+  );
+  const resultRoute = {
+    ...route,
+    sessionId: executed.sessionId,
+    invocationId: executed.invocationId,
+  };
+  sendJson(ws, commandAck({ accepted: true, invocationId: executed.invocationId }, resultRoute));
+  sendJson(
+    ws,
+    commandResult(
+      {
+        status: "succeeded",
+        result: executed.result,
+        completedAt: new Date().toISOString(),
+      },
+      resultRoute,
+    ),
+  );
 }
 
 function sendDaemonStatusResult({ ws, context, route }: ClaimedCommandExecution): void {

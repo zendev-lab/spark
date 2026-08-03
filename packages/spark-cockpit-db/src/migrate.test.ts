@@ -58,6 +58,8 @@ describe("migrations", () => {
       "workspace_access_tokens",
       "cockpit_access_tokens",
       "workspace_leases",
+      "workspace_delegations",
+      "workspace_delegation_messages",
     ]) {
       expect(tableExists(db, table)?.name).toBe(table);
     }
@@ -123,6 +125,7 @@ describe("migrations", () => {
       "0018",
       "0019",
       "0020",
+      "0021",
     ]);
 
     const bindingColumns = db
@@ -131,6 +134,7 @@ describe("migrations", () => {
       name: string;
     }>;
     expect(bindingColumns.map((column) => column.name)).toContain("local_path");
+    expect(bindingColumns.map((column) => column.name)).toContain("main_session_id");
     db.close();
   });
 
@@ -144,7 +148,7 @@ describe("migrations", () => {
       count: number;
     };
 
-    expect(migrationCount.count).toBe(20);
+    expect(migrationCount.count).toBe(21);
     db.close();
   });
 

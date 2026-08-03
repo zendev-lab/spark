@@ -33,6 +33,7 @@
     "./runtime-v1/registration": "./src/runtime-v1/registration.ts",
     "./state-ownership": "./src/state-ownership.ts",
     "./version": "./src/version.ts",
+    "./workspace-delegation": "./src/workspace-delegation.ts",
     "./local-rpc-orpc-contract": "./src/local-rpc-orpc-contract.ts"
   },
   "scripts": {

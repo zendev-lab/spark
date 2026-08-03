@@ -107,6 +107,14 @@ export const sparkHumanRpcErrorCodeOptions = [
   "human_interaction_responder_unavailable",
 ] as const;
 
+export const sparkDelegationRpcErrorCodeOptions = [
+  "workspace_main_session_required",
+  "delegation_action_invalid",
+  "delegation_not_found",
+  "delegation_state_conflict",
+  "delegation_invocation_mismatch",
+] as const;
+
 export const sparkDaemonRpcDomainErrorCodeOptions = [
   ...sparkDaemonLifecycleRpcErrorCodeOptions,
   ...sparkChannelRpcErrorCodeOptions,
@@ -117,6 +125,7 @@ export const sparkDaemonRpcDomainErrorCodeOptions = [
   ...sparkWorkspaceRpcErrorCodeOptions,
   ...sparkTaskClaimRpcErrorCodeOptions,
   ...sparkHumanRpcErrorCodeOptions,
+  ...sparkDelegationRpcErrorCodeOptions,
 ] as const;
 
 export const sparkDaemonRpcDomainErrorCodeSchema = z.enum(sparkDaemonRpcDomainErrorCodeOptions);
@@ -131,6 +140,7 @@ export type SparkUplinkRpcErrorCode = (typeof sparkUplinkRpcErrorCodeOptions)[nu
 export type SparkWorkspaceRpcErrorCode = (typeof sparkWorkspaceRpcErrorCodeOptions)[number];
 export type SparkTaskClaimRpcErrorCode = (typeof sparkTaskClaimRpcErrorCodeOptions)[number];
 export type SparkHumanRpcErrorCode = (typeof sparkHumanRpcErrorCodeOptions)[number];
+export type SparkDelegationRpcErrorCode = (typeof sparkDelegationRpcErrorCodeOptions)[number];
 export type SparkDaemonRpcDomainErrorCode = z.infer<typeof sparkDaemonRpcDomainErrorCodeSchema>;
 
 export function isSparkDaemonRpcDomainErrorCode(

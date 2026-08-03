@@ -14,6 +14,7 @@ import {
 } from "../../store/workspaces.js";
 import { SparkDaemonControlError } from "../../control-error.ts";
 import { relocateSparkDaemonCockpit } from "../../relocation.ts";
+import { ensureWorkspaceMainSession } from "../../workspace-main-session.ts";
 import { workspaceClientResult } from "../helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
 import {
@@ -62,9 +63,14 @@ export async function handleWorkspaceRequest(
         }),
         observedAt: new Date().toISOString(),
       });
-    case "workspace.ensure-local":
+    case "workspace.ensure-local": {
       // Compatibility method name: resolve/re-attach an explicit registration only.
-      return parseLocalRpcServiceOutput(request.method, ensureLocalWorkspace(db, request.params));
+      const workspace = ensureLocalWorkspace(db, request.params);
+      if (options.sessionRegistry) {
+        await ensureWorkspaceMainSession(db, options.sessionRegistry, workspace.id);
+      }
+      return parseLocalRpcServiceOutput(request.method, workspace);
+    }
     case "workspace.relocate":
       return (options.relocateSparkDaemonCockpit ?? relocateSparkDaemonCockpit)(
         paths,
@@ -180,6 +186,9 @@ export async function handleWorkspaceRequest(
         options.onUplinkReconfigure?.(planned.previousServerUrl);
       }
       options.onUplinkReconfigure?.(workspace.serverUrl);
+      if (options.sessionRegistry) {
+        await ensureWorkspaceMainSession(db, options.sessionRegistry, workspace.id);
+      }
       return parseLocalRpcServiceOutput(request.method, {
         ...workspace,
         ...(serviceRegistration.workspaceAuthorization
@@ -190,6 +199,9 @@ export async function handleWorkspaceRequest(
     case "workspace.attach": {
       const workspace = attachWorkspace(db, { id: request.params.id });
       options.onUplinkReconfigure?.(workspace.serverUrl);
+      if (options.sessionRegistry) {
+        await ensureWorkspaceMainSession(db, options.sessionRegistry, workspace.id);
+      }
       return parseLocalRpcServiceOutput(request.method, workspace);
     }
     case "workspace.stop": {

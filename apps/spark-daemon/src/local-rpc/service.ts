@@ -15,6 +15,7 @@ import {
 import { handleChannelRequest } from "./handlers/channel.ts";
 import { handleDaemonRequest } from "./handlers/daemon.ts";
 import { handleDriverRequest } from "./handlers/driver.ts";
+import { handleDelegationRequest } from "./handlers/delegation.ts";
 import { handleHumanRequest } from "./handlers/human.ts";
 import { handleModelRequest } from "./handlers/model.ts";
 import { handleSessionRequest } from "./handlers/session.ts";
@@ -69,6 +70,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "driver.wake",
     "driver.schedule",
   ],
+  delegation: ["delegation.execute"],
   uplink: ["uplink.park", "uplink.unpark", "uplink.prefer", "uplink.status"],
   workspace: [
     "workspace.list",
@@ -227,6 +229,9 @@ async function dispatchLocalRpcServiceRequest(
   }
   if (requestBelongsToHandlerGroup(request, "driver")) {
     return handleDriverRequest(context, request);
+  }
+  if (requestBelongsToHandlerGroup(request, "delegation")) {
+    return handleDelegationRequest(context, request);
   }
   if (requestBelongsToHandlerGroup(request, "uplink")) {
     return handleUplinkRequest(context, request);

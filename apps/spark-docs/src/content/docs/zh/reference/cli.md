@@ -1,6 +1,6 @@
 ---
 title: CLI 参考
-description: 稳定的公开 Spark 分发命令，以及常用 daemon、Cockpit 与 ACP 操作。
+description: 稳定的公开 Spark 分发命令，以及常用 daemon、Hub、Cockpit 与 ACP 操作。
 ---
 
 ## 分发器
@@ -16,7 +16,8 @@ spark install --managed [--version <version>] [--prefix <path>]
 spark update status|check|apply|rollback|retry|configure
 spark version [--json]
 spark daemon <command> [args...]
-spark cockpit [command] [args...]
+spark hub [command] [args...]
+spark cockpit web <start|status|stop|logs> [args...]
 spark acp
 spark --help
 spark --version
@@ -31,7 +32,8 @@ spark --version
 - `spark update` 拥有升级策略、版本切换与回滚。
 - `spark version` 报告精确的 package 与 build identity。
 - `spark daemon` 操作 execution-plane 资源。
-- `spark cockpit` 启动或管理 Web coordination 界面。
+- `spark hub` 操作跨 workspace 协调、访问与 Hub instance 资源。
+- `spark cockpit` 只启动或管理 Web 展示宿主。
 - `spark acp` 在 daemon-owned session 上启动 ACP NDJSON stdio adapter。
 
 未知子命令会失败，不会被解释为 prompt。
@@ -136,6 +138,22 @@ spark daemon invocation stream <invocation-id> --after <cursor> --limit 500 --js
 spark daemon invocation cancel <invocation-id> --reason <text> --json
 ```
 
+## Hub 与 workspace 委托
+
+```text
+spark hub status --json
+spark hub workspace list --json
+spark hub delegation create --source <workspace> --target <workspace> --goal <text> --json
+spark hub delegation list --workspace <workspace> --json
+spark hub delegation show <delegation-id> --json
+spark hub delegation reply <delegation-id> --text <answer> --json
+spark hub delegation cancel <delegation-id> --reason <text> --json
+```
+
+Hub 拥有委托路由、生命周期、审计与有限回执；目标 daemon 在受保护的 workspace
+主 session 中拥有实际执行。回执只公开目标 Artifact 引用和有限验证摘要，不公开目标
+workspace 的内部 evidence store。
+
 ## ACP client
 
 配置 ACP client 启动 `spark acp` 前，应先启动 daemon。当前 adapter 支持
@@ -152,8 +170,8 @@ spark daemon workspace ls --json
 spark daemon workspace move <id> <new-path> --dry-run
 spark daemon workspace unregister <id> --dry-run
 spark daemon workspace merge --into <target-id> --path <parent> --all-nested --dry-run
-spark cockpit access create
-spark cockpit workspace access create --workspace <id>
+spark hub access create
+spark hub workspace access create --workspace <id>
 ```
 
 只应在明确受信任的私有网络中使用 `--allow-insecure-http`。所有非 loopback

@@ -1,6 +1,6 @@
 ---
 title: CLI reference
-description: Stable public Spark dispatcher commands and common daemon, Cockpit, and ACP operations.
+description: Stable public Spark dispatcher commands and common daemon, Hub, Cockpit, and ACP operations.
 ---
 
 ## Dispatcher
@@ -16,7 +16,8 @@ spark install --managed [--version <version>] [--prefix <path>]
 spark update status|check|apply|rollback|retry|configure
 spark version [--json]
 spark daemon <command> [args...]
-spark cockpit [command] [args...]
+spark hub [command] [args...]
+spark cockpit web <start|status|stop|logs> [args...]
 spark acp
 spark --help
 spark --version
@@ -31,7 +32,8 @@ spark --version
 - `spark update` owns managed update policy, version switching, and rollback.
 - `spark version` reports exact package and build identity.
 - `spark daemon` addresses execution-plane resources.
-- `spark cockpit` starts or administers the web coordination surface.
+- `spark hub` addresses cross-workspace coordination, access, and Hub instance resources.
+- `spark cockpit` starts or administers the Web presentation host only.
 - `spark acp` starts the ACP NDJSON stdio adapter over daemon-owned sessions.
 
 Unknown subcommands fail instead of being treated as prompts.
@@ -146,6 +148,23 @@ spark daemon invocation stream <invocation-id> --after <cursor> --limit 500 --js
 spark daemon invocation cancel <invocation-id> --reason <text> --json
 ```
 
+## Hub and workspace delegations
+
+```text
+spark hub status --json
+spark hub workspace list --json
+spark hub delegation create --source <workspace> --target <workspace> --goal <text> --json
+spark hub delegation list --workspace <workspace> --json
+spark hub delegation show <delegation-id> --json
+spark hub delegation reply <delegation-id> --text <answer> --json
+spark hub delegation cancel <delegation-id> --reason <text> --json
+```
+
+Hub owns delegation routing, lifecycle, audit, and bounded receipts. The target
+daemon owns execution in its protected workspace main session. Delegation
+receipts expose target Artifact refs and bounded verification summaries, never
+the target workspace's internal evidence store.
+
 ## ACP clients
 
 Start the daemon before configuring an ACP client to launch `spark acp`. The
@@ -163,8 +182,8 @@ spark daemon workspace ls --json
 spark daemon workspace move <id> <new-path> --dry-run
 spark daemon workspace unregister <id> --dry-run
 spark daemon workspace merge --into <target-id> --path <parent> --all-nested --dry-run
-spark cockpit access create
-spark cockpit workspace access create --workspace <id>
+spark hub access create
+spark hub workspace access create --workspace <id>
 ```
 
 Use `--allow-insecure-http` only for an explicitly trusted private network.

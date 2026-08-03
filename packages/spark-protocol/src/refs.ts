@@ -50,6 +50,7 @@ export const idPrefixSchema = z.enum([
   "idem",
   "eph",
   "asn",
+  "dlg",
 ]);
 
 export type IdPrefix = z.infer<typeof idPrefixSchema>;

@@ -64,6 +64,8 @@ export const sparkCommandKindOptions = [
   "workspace.client.release.request",
   "workspace.executor.ensure.request",
   "workspace.snapshot.request",
+  "workspace.delegation.deliver.request",
+  "workspace.delegation.event.request",
   "workspace.transfer.pending.request",
   "workspace.transfer.respond.request",
   "project.create.request",
@@ -310,6 +312,7 @@ export const localRpcMethodToSparkCommandKind = {
   "workspace.client.heartbeat": "workspace.client.heartbeat.request",
   "workspace.client.release": "workspace.client.release.request",
   "workspace.executor.ensure": "workspace.executor.ensure.request",
+  "delegation.execute": "workspace.delegation.event.request",
   "task.claim.acquire": "task.claim.acquire.request",
   "task.claim.release": "task.claim.release.request",
   "task.claim.recover": "task.claim.recover.request",
@@ -356,6 +359,7 @@ export const localRpcMethodToSparkCommandKind = {
 export const runtimeServerCommandKindOptions = [
   "daemon.status.request",
   "workspace.snapshot.request",
+  "workspace.delegation.deliver.request",
   "workspace.client.attach.request",
   "workspace.client.heartbeat.request",
   "workspace.client.release.request",
@@ -413,6 +417,7 @@ export interface RuntimeServerCommandSpecification {
 export const runtimeServerCommandSpecifications = {
   "daemon.status.request": daemonReadCommand(),
   "workspace.snapshot.request": workspaceReadCommand(),
+  "workspace.delegation.deliver.request": workspaceMutationCommand(),
   "workspace.client.attach.request": workspaceMutationCommand({
     allowBorrowed: true,
     allowDetached: true,
