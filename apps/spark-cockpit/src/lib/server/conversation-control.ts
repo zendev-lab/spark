@@ -1,4 +1,7 @@
-import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
+import {
+  createSparkMemoryDirectIntentTurnAuthority,
+  type SparkMemoryDirectIntentTurnAuthority,
+} from "@zendev-lab/spark-host/memory-direct-intent";
 import {
   parseSparkAssignment,
   sparkTurnCancelResultSchema,
@@ -60,9 +63,15 @@ const runtimeConversationControlClient = createCockpitRuntimeSessionClient();
  * Channel ingress and the Web UI therefore append to the same native session
  * transcript instead of executing through separate Web-only task machinery.
  */
+export interface SubmitCockpitConversationTurnOptions {
+  /** Server-owned injection seam; never accepted from browser or model input. */
+  memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
+}
+
 export async function submitConversationTurnForCockpit(
   input: SubmitCockpitConversationTurnInput,
   client: CockpitConversationControlClient = runtimeConversationControlClient,
+  options: SubmitCockpitConversationTurnOptions = {},
 ): Promise<SubmittedCockpitConversationTurn> {
   const assignment = parseSparkAssignment({
     goal: input.prompt,
@@ -78,7 +87,7 @@ export async function submitConversationTurnForCockpit(
   const idempotencyKey = conversationTurnIdempotencyKey(input.sessionId, input.submissionId);
   const directIntentTurnId = input.submissionId ?? globalThis.crypto.randomUUID();
   const memoryDirectIntent = input.workspaceId
-    ? await cockpitMemoryDirectIntentAuthority.issue({
+    ? await (options.memoryDirectIntentAuthority ?? cockpitMemoryDirectIntentAuthority).issue({
         surface: "cockpit",
         workspaceId: input.workspaceId,
         sessionId: input.sessionId,

@@ -193,9 +193,19 @@ test("native memory loader accepts one exact host-signed direct remember intent"
     assert.equal(entries[0]?.id, receipt.recordRef);
     assert.equal(entries[0]?.text, "use pnpm for this workspace");
     assert.equal(entries[0]?.lifecycle.approval.proofRef, receipt.receiptId);
-    assert.equal(JSON.stringify(memory.parameters).includes("memoryDirectIntent"), false);
-    assert.equal(JSON.stringify(memory.parameters).includes("publicKey"), false);
-    assert.equal(JSON.stringify(memory.parameters).includes("signature"), false);
+    const serializedParameters = JSON.stringify(memory.parameters);
+    for (const forbidden of [
+      "memoryDirectIntent",
+      "publicKey",
+      "privateKey",
+      "keyId",
+      "signature",
+      "signer",
+      "receiptWriter",
+      "issueMemoryDirectIntent",
+    ]) {
+      assert.equal(serializedParameters.includes(forbidden), false, forbidden);
+    }
 
     const forgetReceipt = await authority.issue({
       surface: "tui",
@@ -281,8 +291,11 @@ test("native memory loader accepts one exact host-signed direct remember intent"
 test("native memory loader rejects invalid direct-intent vectors without durable mutation", async () => {
   const cases = [
     "ambiguous",
+    "multiple-proposals",
     "stale-message",
+    "cross-turn-retry",
     "proposal-drift",
+    "message-replay",
     "cross-turn-session",
     "operation-mismatch",
     "high-risk-supersede",
@@ -304,14 +317,17 @@ test("native memory loader rejects invalid direct-intent vectors without durable
       let expectedCode: MemoryApprovalError["code"] = "MEMORY_APPROVAL_INVALID";
       let receipt;
 
-      if (name === "ambiguous") {
+      if (name === "ambiguous" || name === "multiple-proposals") {
         receipt = await authority.issue({
           surface: "tui",
           workspaceId: cwd,
           sessionId,
-          turnId: "turn:ambiguous",
-          messageId: "message:ambiguous",
-          prompt: "remember: one and forget memory:two",
+          turnId: `turn:${name}`,
+          messageId: `message:${name}`,
+          prompt:
+            name === "ambiguous"
+              ? "remember: one and forget memory:two"
+              : "remember: first and remember: second",
         });
         params = {
           action: "remember",
@@ -347,7 +363,18 @@ test("native memory loader rejects invalid direct-intent vectors without durable
       }
 
       let contextReceipt = receipt;
-      if (name === "proposal-drift") {
+      if (name === "cross-turn-retry") {
+        authority.clear();
+      } else if (name === "message-replay") {
+        await authority.issue({
+          surface: "tui",
+          workspaceId: cwd,
+          sessionId,
+          turnId: "turn:message-replay-successor",
+          messageId: "message:message-replay-successor",
+          prompt: "remember: successor turn",
+        });
+      } else if (name === "proposal-drift") {
         params = { action: "remember", text: "changed" };
         expectedCode = "MEMORY_APPROVAL_PROPOSAL_MISMATCH";
       } else if (name === "cross-turn-session") {

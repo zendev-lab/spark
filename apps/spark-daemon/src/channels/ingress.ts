@@ -34,7 +34,10 @@ import {
   type IncomingMessage,
   type RoutedChannelInteractionEvent,
 } from "@zendev-lab/spark-channels";
-import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
+import {
+  createSparkMemoryDirectIntentTurnAuthority,
+  type SparkMemoryDirectIntentTurnAuthority,
+} from "@zendev-lab/spark-host/memory-direct-intent";
 import {
   parseSparkAssignment,
   type SparkAssignment,
@@ -347,6 +350,8 @@ export function createChannelIngressController(input: {
   workspaceId: string;
   createTransport?: ChannelRegistryOptions["createTransport"];
   createWorkspaceTransport?: DaemonChannelTransportFactory;
+  /** Daemon-owned injection seam; never populated from channel input. */
+  memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
 }): ChannelIngressController {
   const sessionRegistry = input.sessionRegistry ?? createDaemonSessionRegistry(input.sparkHome);
   const activeHandlers = new Set<Promise<void>>();
@@ -452,7 +457,9 @@ export function createChannelIngressController(input: {
     });
     let admission: void | "duplicate";
     const directIntentMessageId = enrichedMessage.messageId?.trim() || randomUUID();
-    const memoryDirectIntent = await channelMemoryDirectIntentAuthority.issue({
+    const memoryDirectIntent = await (
+      input.memoryDirectIntentAuthority ?? channelMemoryDirectIntentAuthority
+    ).issue({
       surface: "channel",
       workspaceId: input.workspaceId,
       sessionId: session.sessionId,

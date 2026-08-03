@@ -7,13 +7,11 @@ import {
   parseSparkMemoryDirectIntentCommand,
   prepareSparkMemoryDirectIntentReceipt,
   SPARK_MEMORY_DIRECT_INTENT_HIGH_RISK_OPERATIONS,
-  sparkMemoryDirectIntentOperationDisposition,
   sparkMemoryDirectIntentReceiptSchema,
   sparkMemoryDirectIntentReceiptSigningPayload,
   verifySparkMemoryDirectIntentReceipt,
   type PrepareSparkMemoryDirectIntentReceiptInput,
   type SparkMemoryDirectIntentReceipt,
-  type SparkMemoryMutationOperation,
   type SparkMemoryProposal,
 } from "./memory-approval.ts";
 
@@ -188,16 +186,27 @@ describe("Spark memory direct-intent receipts", () => {
     expect(parseSparkMemoryDirectIntentCommand("please consider remembering this")).toBeUndefined();
   });
 
-  it.each(SPARK_MEMORY_DIRECT_INTENT_HIGH_RISK_OPERATIONS)(
-    "requires canonical Ask for high-risk operation %s without invoking mutation",
-    (operation) => {
-      const mutation = vi.fn();
-      const disposition = sparkMemoryDirectIntentOperationDisposition(
-        operation as SparkMemoryMutationOperation,
+  it("returns MEMORY_CANONICAL_ASK_REQUIRED for every high-risk operation before mutation", async () => {
+    const receipt = await issueReceipt({
+      surface: "tui",
+      workspaceId: "workspace:high-risk",
+      sessionId: "session:high-risk",
+      turnId: "turn:high-risk",
+      messageId: "message:high-risk",
+      prompt: "remember: direct intent cannot authorize high-risk operations",
+      now: NOW,
+      randomId: deterministicIds(),
+    });
+    expect(receipt).toBeDefined();
+    const mutation = vi.fn();
+
+    for (const operation of SPARK_MEMORY_DIRECT_INTENT_HIGH_RISK_OPERATIONS) {
+      const proposal = { ...proposalFor(receipt!), operation };
+      await expect(createSparkMemoryDirectIntentApprovalProof(receipt, proposal)).rejects.toThrow(
+        /MEMORY_CANONICAL_ASK_REQUIRED/u,
       );
-      if (disposition === "allowed") mutation();
-      expect(disposition).toBe("canonical_ask");
-      expect(mutation).toHaveBeenCalledTimes(0);
-    },
-  );
+    }
+
+    expect(mutation).toHaveBeenCalledTimes(0);
+  });
 });

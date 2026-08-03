@@ -61,6 +61,12 @@ describe("host-private memory direct-intent authority", () => {
     expect(await context.verifyMemoryDirectIntent?.(receipt)).toBe(true);
     expect("memoryDirectIntentAuthority" in context).toBe(false);
     expect("issueMemoryDirectIntent" in context).toBe(false);
-    expect(JSON.stringify(context)).not.toContain("privateKey");
+    expect("signMemoryDirectIntent" in context).toBe(false);
+    expect("memoryDirectIntentPrivateKey" in context).toBe(false);
+    expect("memoryDirectIntentReceiptWriter" in context).toBe(false);
+    const serialized = JSON.stringify(context);
+    expect(serialized).not.toContain("privateKey");
+    expect(serialized).not.toContain("receiptWriter");
+    expect(serialized).not.toContain("signMemoryDirectIntent");
   });
 });
