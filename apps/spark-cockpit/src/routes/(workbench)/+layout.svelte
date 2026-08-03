@@ -9,8 +9,7 @@
     shouldInvalidatePendingAsk,
   } from "$lib/pending-ask";
   import WorkbenchSessionRail from "$lib/WorkbenchSessionRail.svelte";
-  import "$lib/shell/shell-nav-link.css";
-  import CockpitTopbar from "$lib/shell/CockpitTopbar.svelte";
+  import CockpitShell from "$lib/shell/CockpitShell.svelte";
   import type { CockpitSearchSession } from "$lib/shell/cockpit-search";
   import {
     buildWorkbenchNavItems,
@@ -36,8 +35,6 @@
   let common = $derived(data.messages.common);
   let workspaceOptions = $derived(data.workspaces ?? []);
   let activeWorkspaceId = $derived(data.activeWorkspace?.id ?? null);
-  let mobileSidebarOpen = $state(false);
-  let lastWorkbenchPath = $state("");
   let activeWorkspacePath = $derived(
     data.activeWorkspace ? workspacePath(data.activeWorkspace) : "",
   );
@@ -52,14 +49,9 @@
       nav: t.nav,
     }),
   );
-
-  $effect(() => {
-    const pathname = page.url.pathname;
-    if (lastWorkbenchPath !== pathname) {
-      lastWorkbenchPath = pathname;
-      mobileSidebarOpen = false;
-    }
-  });
+  let contentMode = $derived(
+    !isWorkspaceDirectory && page.url.pathname.includes("/sessions") ? "flush" : "padded",
+  );
 
   $effect(() => {
     const workspaceId = activeWorkspaceId;
@@ -128,14 +120,6 @@
     workspaceSwitcherHrefForPage({ url: page.url, activeWorkspacePath, workspacePath }),
   );
 
-  function closeMobileSidebar() {
-    mobileSidebarOpen = false;
-  }
-
-  function handleWindowKeydown(event: KeyboardEvent) {
-    if (event.key === "Escape" && mobileSidebarOpen) closeMobileSidebar();
-  }
-
   const pendingAskCursorKey = "spark-cockpit:pending-ask:events-cursor";
 
   function readPendingAskCursor() {
@@ -155,129 +139,93 @@
   }
 </script>
 
-<svelte:window onkeydown={handleWindowKeydown} />
+{#snippet navigation(closeNavigation: () => void)}
+  <div class="workbench-navigation">
+    <WorkbenchSessionRail
+      sessions={sidebarSessions}
+      workspaces={workspaceOptions}
+      activeWorkspaceId={data.activeWorkspace?.id ?? null}
+      selectedSessionId={selectedSessionId}
+      sessionsAvailable={data.sessionsAvailable}
+      sessionControlAvailable={data.sessionControlAvailable}
+      locale={data.locale}
+      {common}
+      messages={{
+        newSession: data.messages.sessions.newSession,
+        searchPlaceholder: data.messages.sessions.searchPlaceholder,
+        emptyTitle: data.messages.sessions.emptyTitle,
+        emptyBody: data.messages.sessions.emptyBody,
+        daemonUnavailableTitle: data.messages.sessions.daemonUnavailableTitle,
+        daemonUnavailableBody: data.messages.sessions.daemonUnavailableBody,
+        listLabel: data.messages.sessions.listLabel,
+        untitledConversation: data.messages.sessions.untitledConversation,
+        unknownWorkspace: data.messages.sessions.unknownWorkspace,
+        channelSessionBadge: data.messages.sessions.channelSessionBadge,
+        channelLabels: data.messages.sessions.channelLabels,
+        sessionTypes: data.messages.sessions.sessionTypes,
+        archiveSubmit: data.messages.sessions.archiveSubmit,
+      }}
+    />
 
-<div class="shell">
-  <CockpitTopbar
-    activeWorkspace={isWorkspaceDirectory ? null : data.activeWorkspace}
-    {common}
-    layout={t}
-    navigationControls="workbench-sidebar"
-    navigationExpanded={mobileSidebarOpen}
-    onToggleNavigation={() => (mobileSidebarOpen = !mobileSidebarOpen)}
-    sessions={sidebarSessions}
-    sessionMessages={data.messages.sessions}
-    showNavigationToggle={!isWorkspaceDirectory}
-    showWorkspaceMenu={!isWorkspaceDirectory}
-    workspaceHref={workspaceSwitcherHref}
-    workspaces={workspaceOptions}
-  />
-
-  <div class="shell-body" class:directory-mode={isWorkspaceDirectory}>
-    {#if !isWorkspaceDirectory}
-      {#if mobileSidebarOpen}
-        <button
-          class="shell-mobile-navigation-backdrop"
-          type="button"
-          aria-label={t.aria.closeWorkspaceNavigation}
-          onclick={closeMobileSidebar}
-        ></button>
-      {/if}
-
-      <aside
-        class="sidebar shell-mobile-navigation"
-        class:mobile-open={mobileSidebarOpen}
-        id="workbench-sidebar"
-        aria-label={t.aria.workspaceNavigation}
+    <nav class="secondary-nav" aria-label={t.aria.workspaceNavigation}>
+      {#each navItems as item}
+        <a
+          class="shell-nav-link workbench-nav-link"
+          class:active={isActive(item.href)}
+          href={item.href}
+          onclick={closeNavigation}
+        >
+          <Icon name={item.icon} size={18} />
+          <span>{item.label}</span>
+        </a>
+      {/each}
+      <a
+        class="shell-nav-link workbench-nav-link"
+        class:active={page.url.pathname === "/delegations" || page.url.pathname.endsWith("/delegations")}
+        href={activeWorkspacePath ? `${activeWorkspacePath}/delegations` : "/delegations"}
+        onclick={closeNavigation}
       >
-        <WorkbenchSessionRail
-          sessions={sidebarSessions}
-          workspaces={workspaceOptions}
-          activeWorkspaceId={data.activeWorkspace?.id ?? null}
-          selectedSessionId={selectedSessionId}
-          sessionsAvailable={data.sessionsAvailable}
-          sessionControlAvailable={data.sessionControlAvailable}
-          locale={data.locale}
-          {common}
-          messages={{
-            newSession: data.messages.sessions.newSession,
-            searchPlaceholder: data.messages.sessions.searchPlaceholder,
-            emptyTitle: data.messages.sessions.emptyTitle,
-            emptyBody: data.messages.sessions.emptyBody,
-            daemonUnavailableTitle: data.messages.sessions.daemonUnavailableTitle,
-            daemonUnavailableBody: data.messages.sessions.daemonUnavailableBody,
-            listLabel: data.messages.sessions.listLabel,
-            untitledConversation: data.messages.sessions.untitledConversation,
-            unknownWorkspace: data.messages.sessions.unknownWorkspace,
-            channelSessionBadge: data.messages.sessions.channelSessionBadge,
-            channelLabels: data.messages.sessions.channelLabels,
-            sessionTypes: data.messages.sessions.sessionTypes,
-            archiveSubmit: data.messages.sessions.archiveSubmit,
-          }}
-        />
-
-        <nav class="secondary-nav" aria-label={t.aria.workspaceNavigation}>
-          {#each navItems as item}
-            <a class="shell-nav-link workbench-nav-link" class:active={isActive(item.href)} href={item.href}>
-              <Icon name={item.icon} size={18} />
-              <span>{item.label}</span>
-            </a>
-          {/each}
-          <a
-            class="shell-nav-link workbench-nav-link"
-            class:active={page.url.pathname === "/delegations" || page.url.pathname.endsWith("/delegations")}
-            href={activeWorkspacePath ? `${activeWorkspacePath}/delegations` : "/delegations"}
-          >
-            <Icon name="users" size={18} />
-            <span>{t.nav.delegations}</span>
-          </a>
-          <a class="shell-nav-link workbench-nav-link" href={settingsHref}>
-            <Icon name="settings" size={18} stroke={2.2} />
-            <span>{t.user.settings}</span>
-          </a>
-        </nav>
-      </aside>
-    {/if}
-
-    <div class="workspace">
-      <main class="content">
-        {@render children()}
-      </main>
-    </div>
+        <Icon name="users" size={18} />
+        <span>{t.nav.delegations}</span>
+      </a>
+      <a
+        class="shell-nav-link workbench-nav-link"
+        href={settingsHref}
+        onclick={closeNavigation}
+      >
+        <Icon name="settings" size={18} stroke={2.2} />
+        <span>{t.user.settings}</span>
+      </a>
+    </nav>
   </div>
-</div>
+{/snippet}
+
+<CockpitShell
+  activeWorkspace={isWorkspaceDirectory ? null : data.activeWorkspace}
+  {children}
+  closeNavigationLabel={t.aria.closeWorkspaceNavigation}
+  {common}
+  {contentMode}
+  layout={t}
+  {navigation}
+  navigationAriaLabel={t.aria.workspaceNavigation}
+  navigationId="workbench-sidebar"
+  pathname={page.url.pathname}
+  sessions={sidebarSessions}
+  sessionMessages={data.messages.sessions}
+  showNavigation={!isWorkspaceDirectory}
+  showNavigationToggle={!isWorkspaceDirectory}
+  showWorkspaceMenu={!isWorkspaceDirectory}
+  workspaceHref={workspaceSwitcherHref}
+  workspaces={workspaceOptions}
+/>
 
 <style>
-  :global(body) {
-    background: var(--color-canvas);
-    color: var(--color-ink);
-    font-family: var(--font-sans);
-  }
-
-  .shell {
-    --shell-mobile-navigation-width: 320px;
-    display: grid;
-    grid-template-rows: var(--shell-topbar-height) minmax(0, 1fr);
-    height: 100dvh;
-    overflow: hidden;
-  }
-
-  .shell-body {
-    display: grid;
-    grid-template-columns: var(--shell-sidebar-width) minmax(0, 1fr);
-    min-height: 0;
-  }
-
-  .shell-body.directory-mode {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .sidebar {
-    background: var(--color-surface);
-    border-right: 1px solid var(--color-border);
+  .workbench-navigation {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    height: 100%;
     min-height: 0;
     padding: 10px;
   }
@@ -293,45 +241,4 @@
   .workbench-nav-link {
     font-weight: 500;
   }
-
-  .workspace {
-    display: grid;
-    grid-template-rows: minmax(0, 1fr);
-    min-height: 0;
-    min-width: 0;
-  }
-
-  .content {
-    container-type: inline-size;
-    min-height: 0;
-    overflow: auto;
-    padding: var(--spacing-xl) var(--spacing-xxl) var(--spacing-section);
-  }
-
-  .content:has(:global(.sessions-stage)) {
-    overflow: hidden;
-    padding: 0;
-  }
-
-  @media (max-width: 1000px) {
-    .shell-body {
-      grid-template-columns: var(--shell-sidebar-width-compact) minmax(0, 1fr);
-    }
-
-  }
-
-  @media (max-width: 900px) {
-    .shell-body {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .content {
-      padding: var(--spacing-lg) var(--spacing-md) var(--spacing-xxl);
-    }
-
-    .content:has(:global(.sessions-stage)) {
-      padding: 0;
-    }
-  }
-
 </style>
