@@ -186,6 +186,7 @@ interface InvocationRow {
   prompt: string | null;
   task_json: string | null;
   result_json: string | null;
+  result_json_bytes: number;
   source_kind: string | null;
   source_ref: string | null;
   retry_of_invocation_id: string | null;
@@ -830,7 +831,7 @@ export class SparkInvocationStore {
     try {
       const event = this.appendEventInTransaction(invocationId, kind, payload, now);
       this.db.exec("COMMIT");
-      return event;
+      return { ...event, payload };
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
@@ -1179,36 +1180,41 @@ const invocationSelect = `SELECT ${invocationSelectColumns()}
 
 function invocationSelectColumns(alias?: string): string {
   const prefix = alias ? `${alias}.` : "";
+  const column = (name: string) => `${prefix}${name} AS ${name}`;
   return [
-    "id",
-    "command_id",
-    "workspace_binding_id",
-    "session_id",
-    "idempotency_key",
-    "status",
-    "prompt",
-    "task_json",
-    "result_json",
-    "source_kind",
-    "source_ref",
-    "retry_of_invocation_id",
-    "worker_id",
-    "attempt_count",
-    "cancel_reason",
-    "error_code",
-    "error_message",
-    "created_at",
-    "updated_at",
-    "claimed_at",
-    "started_at",
-    "finished_at",
-  ]
-    .map((column) => `${prefix}${column} AS ${column}`)
-    .join(", ");
+    ...[
+      "id",
+      "command_id",
+      "workspace_binding_id",
+      "session_id",
+      "idempotency_key",
+      "status",
+      "prompt",
+      "task_json",
+    ].map(column),
+    `CASE WHEN COALESCE(octet_length(${prefix}result_json), 0) <= ${MAX_PERSISTED_INVOCATION_RESULT_BYTES} THEN ${prefix}result_json ELSE NULL END AS result_json`,
+    `COALESCE(octet_length(${prefix}result_json), 0) AS result_json_bytes`,
+    ...[
+      "source_kind",
+      "source_ref",
+      "retry_of_invocation_id",
+      "worker_id",
+      "attempt_count",
+      "cancel_reason",
+      "error_code",
+      "error_message",
+      "created_at",
+      "updated_at",
+      "claimed_at",
+      "started_at",
+      "finished_at",
+    ].map(column),
+  ].join(", ");
 }
 
 function invocationRecord(row: InvocationRow): SparkInvocationRecord {
   if (!isInvocationStatus(row.status)) throw new Error(`Invalid invocation status: ${row.status}`);
+  const result = persistedResult(row);
   return {
     invocationId: row.id,
     ...(row.command_id ? { commandId: row.command_id } : {}),
@@ -1218,7 +1224,7 @@ function invocationRecord(row: InvocationRow): SparkInvocationRecord {
     status: row.status,
     ...(row.prompt !== null ? { prompt: row.prompt } : {}),
     ...(row.task_json !== null ? { task: parseJson(row.task_json) } : {}),
-    ...(row.result_json !== null ? { result: parseJson(row.result_json) } : {}),
+    ...(result !== undefined ? { result } : {}),
     ...(row.source_kind ? { sourceKind: row.source_kind } : {}),
     ...(row.source_ref ? { sourceRef: row.source_ref } : {}),
     ...(row.retry_of_invocation_id ? { retryOfInvocationId: row.retry_of_invocation_id } : {}),
@@ -1232,6 +1238,16 @@ function invocationRecord(row: InvocationRow): SparkInvocationRecord {
     ...(row.claimed_at ? { claimedAt: row.claimed_at } : {}),
     ...(row.started_at ? { startedAt: row.started_at } : {}),
     ...(row.finished_at ? { finishedAt: row.finished_at } : {}),
+  };
+}
+
+function persistedResult(row: InvocationRow): unknown {
+  if (row.result_json !== null) return parseJson(row.result_json);
+  if (row.result_json_bytes <= MAX_PERSISTED_INVOCATION_RESULT_BYTES) return undefined;
+  return {
+    legacyOversizedResult: true,
+    originalBytes: row.result_json_bytes,
+    truncated: true,
   };
 }
 
@@ -1416,6 +1432,10 @@ function compactInvocationResult(result: unknown): unknown {
   if (result && typeof result === "object" && !Array.isArray(result)) {
     const record = result as Record<string, unknown>;
     if (Object.hasOwn(record, "jsonEvents")) {
+      const assistantTextJsonBytes =
+        typeof record.assistantText === "string"
+          ? Buffer.byteLength(JSON.stringify(record.assistantText))
+          : undefined;
       const registryPersistence = compactRegistryPersistence(
         jsonObject(record.registryPersistence),
       );
@@ -1430,7 +1450,15 @@ function compactInvocationResult(result: unknown): unknown {
           ? { newMessageCount: record.newMessageCount }
           : {}),
         ...(typeof record.assistantText === "string"
-          ? { assistantText: truncateJsonString(record.assistantText, 384 * 1_024) }
+          ? {
+              assistantText: truncateJsonString(record.assistantText, 384 * 1_024),
+              ...(assistantTextJsonBytes !== undefined && assistantTextJsonBytes > 384 * 1_024
+                ? {
+                    assistantTextOriginalBytes: assistantTextJsonBytes,
+                    assistantTextTruncated: true,
+                  }
+                : {}),
+            }
           : {}),
         ...(typeof record.stderr === "string"
           ? { stderr: truncateJsonString(record.stderr, 64 * 1_024) }
