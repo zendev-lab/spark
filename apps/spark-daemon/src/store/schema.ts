@@ -1,9 +1,14 @@
 import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
-import { openSqliteDatabase, type SparkPaths } from "@zendev-lab/spark-system";
+import {
+  applyDaemonSqliteResourceLimits,
+  openSqliteDatabase,
+  type SparkPaths,
+} from "@zendev-lab/spark-system";
 
 export function openSparkDaemonDatabase(paths: SparkPaths): DatabaseSync {
-  const db = openSqliteDatabase(paths.databasePath);
+  const db = openSqliteDatabase(paths.databasePath, { autoVacuum: "incremental" });
+  applyDaemonSqliteResourceLimits(db);
   migrateSparkDaemonDatabase(db);
   return db;
 }
