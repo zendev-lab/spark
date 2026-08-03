@@ -107,6 +107,10 @@ describe("SparkCommand vocabulary", () => {
       "provider.auth.login.cancel",
       "human.interaction.list",
       "human.interaction.respond",
+      "file.execute",
+      "artifact.execute",
+      "git.execute",
+      "lens.execute",
     ]);
     expect(sparkCommandKindForLocalRpcMethod("turn.submit")).toBe("turn.submit.request");
     expect(sparkCommandKindForLocalRpcMethod("daemon.restart")).toBe("daemon.restart.request");

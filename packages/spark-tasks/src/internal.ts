@@ -4,6 +4,7 @@ import {
   assertRef,
   nowIso,
   stableId,
+  type ArtifactRef,
   type Project,
   type RoleRef,
   type Task,
@@ -262,6 +263,7 @@ export function normalizeTask(task: Task): Task {
         : undefined,
     supersededBy: normalizeTaskRefs(task.supersededBy),
     claim,
+    artifactRefs: normalizeArtifactRefs(task.artifactRefs),
     inputEvidenceRefs: task.inputEvidenceRefs,
     outputEvidenceRefs: task.outputEvidenceRefs,
     plan: normalizeTaskPlan(task.plan, task.description, task.title),
@@ -922,6 +924,10 @@ export function normalizeTaskRefs(values: readonly string[] | undefined): TaskRe
   return normalizeStringList(values).map((value) => assertRef(value, "task"));
 }
 
+export function normalizeArtifactRefs(values: readonly string[] | undefined): ArtifactRef[] {
+  return normalizeStringList(values).map((value) => assertRef(value, "artifact"));
+}
+
 export function normalizeTaskCancellation(
   cancellation: TaskCancellation | undefined,
   fallbackAt: string,
@@ -1338,6 +1344,7 @@ export function cloneTask(task: Task): Task {
         }
       : undefined,
     supersededBy: [...task.supersededBy],
+    artifactRefs: [...task.artifactRefs],
     inputEvidenceRefs: [...task.inputEvidenceRefs],
     outputEvidenceRefs: [...task.outputEvidenceRefs],
     plan: task.plan ? cloneTaskPlan(task.plan) : undefined,

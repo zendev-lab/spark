@@ -3,6 +3,7 @@
  */
 import {
   resolveToolPolicy,
+  resolveToolPolicyForArgs,
   type ResolvedToolPolicy,
   type ToolConfig,
 } from "@zendev-lab/spark-core";
@@ -146,8 +147,14 @@ export function collectToolCalls(message: AssistantMessage): ToolCall[] {
   return message.content.filter((part): part is ToolCall => part.type === "toolCall");
 }
 
-export function resolvedRegisteredToolPolicy(tool: SparkTurnRegisteredTool): ResolvedToolPolicy {
-  const policy = tool.policy ?? resolveToolPolicy(tool.config);
+export function resolvedRegisteredToolPolicy(
+  tool: SparkTurnRegisteredTool,
+  args?: Readonly<Record<string, unknown>>,
+): ResolvedToolPolicy {
+  const policy =
+    args && tool.config.resolvePolicy
+      ? resolveToolPolicyForArgs(tool.config, args)
+      : (tool.policy ?? resolveToolPolicy(tool.config));
   if (!legacyApprovalPolicyRequiresApproval(tool.config) || policy.approval === "required") {
     return policy;
   }
@@ -158,8 +165,11 @@ export function resolvedRegisteredToolPolicy(tool: SparkTurnRegisteredTool): Res
   });
 }
 
-export function toolRequiresApproval(tool: SparkTurnRegisteredTool): boolean {
-  return resolvedRegisteredToolPolicy(tool).approval === "required";
+export function toolRequiresApproval(
+  tool: SparkTurnRegisteredTool,
+  args?: Readonly<Record<string, unknown>>,
+): boolean {
+  return resolvedRegisteredToolPolicy(tool, args).approval === "required";
 }
 
 export function legacyApprovalPolicyRequiresApproval(config: ToolConfig): boolean {

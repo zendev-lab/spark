@@ -128,7 +128,7 @@ describe("Artifact preview rendering", () => {
       "create-a2ui",
       {
         action: "create",
-        kind: "preview",
+        kind: "document",
         title: "A2UI card",
         format: "a2ui",
         content: simpleA2ui,
@@ -169,22 +169,22 @@ describe("Artifact preview rendering", () => {
 
     const store = defaultArtifactStore(cwd);
     const body = {
-      schemaVersion: 1 as const,
-      kind: "preview" as const,
-      format: "md" as const,
+      schemaVersion: 2 as const,
+      kind: "document" as const,
+      mediaType: "text/markdown",
       content: "# Prefix",
-      version: 1,
+      revision: 1,
     };
     await store.put({
       ref: "artifact:deadbeef-0000-4000-8000-000000000001" as ArtifactRef,
-      kind: "preview",
+      kind: "document",
       title: "First",
       format: "markdown",
       body,
     });
     await store.put({
       ref: "artifact:deadbeef-0000-4000-8000-000000000002" as ArtifactRef,
-      kind: "preview",
+      kind: "document",
       title: "Second",
       format: "markdown",
       body,
@@ -209,7 +209,13 @@ describe("Artifact preview rendering", () => {
     const signal = new AbortController().signal;
     const created = await tool.execute(
       "create-html",
-      { action: "create", kind: "preview", title: "HTML", format: "html", content: "<b>Local</b>" },
+      {
+        action: "create",
+        kind: "document",
+        title: "HTML",
+        format: "html",
+        content: "<b>Local</b>",
+      },
       signal,
       () => undefined,
       { cwd, sessionSource: "channel", hasUI: false },
@@ -225,7 +231,7 @@ describe("Artifact preview rendering", () => {
     );
 
     expect(opened.details?.preview).toMatchObject({ target: "unsupported", supported: false });
-    expect(opened.content[0]?.text).toContain("no reachable browser surface");
+    expect(opened.content[0]?.text).toContain("attached local TUI or Cockpit surface");
   });
 
   it("returns raw markdown only to an attached TUI preview", async () => {
@@ -236,7 +242,7 @@ describe("Artifact preview rendering", () => {
     const signal = new AbortController().signal;
     const created = await tool.execute(
       "create-md",
-      { action: "create", kind: "preview", title: "Markdown", format: "md", content: "# Native" },
+      { action: "create", kind: "document", title: "Markdown", format: "md", content: "# Native" },
       signal,
       () => undefined,
       { cwd, sessionSource: "tui", hasUI: false },
@@ -252,6 +258,10 @@ describe("Artifact preview rendering", () => {
     );
 
     expect(opened.content[0]?.text).toBe("# Native");
-    expect(opened.details?.preview).toMatchObject({ target: "tui", format: "md", supported: true });
+    expect(opened.details?.preview).toMatchObject({
+      target: "tui",
+      mediaType: "text/markdown",
+      supported: true,
+    });
   });
 });

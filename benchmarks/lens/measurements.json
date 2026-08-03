@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-31T00:00:00.000Z",
+  "baseline": {
+    "package": "pi-lens",
+    "version": "3.8.73",
+    "commit": "dc4d6f4d5dfd0d5ddbc6a473efac9e9d1ea84d57"
+  },
+  "protocol": {
+    "sameMachine": null,
+    "fixedModel": null,
+    "fixedPrompt": null,
+    "repetitions": null
+  },
+  "correctness": {
+    "acceptedStaleResults": null,
+    "passesWithoutAffirmativeClean": null,
+    "staleReceiptBypasses": null
+  },
+  "capabilities": {
+    "typescript": {
+      "covered": [],
+      "independentDiagnosticProviders": null
+    },
+    "python": {
+      "covered": [],
+      "independentDiagnosticProviders": null
+    },
+    "rust": {
+      "covered": [],
+      "independentDiagnosticProviders": null
+    }
+  },
+  "concurrency": {
+    "maxProcessesPerProviderWorktree": null,
+    "fourSessionRssRatio": null,
+    "orphanProvidersAfterRestart": null,
+    "acceptedPreRestartResults": null
+  },
+  "performance": {
+    "warmP95Ratio": {
+      "typescript": null,
+      "python": null,
+      "rust": null
+    },
+    "warmGeomeanSpeedup": null,
+    "coldP95Ratio": null,
+    "discoveryHitRate": null,
+    "visibleTokenRatio": null
+  },
+  "agentEffect": {
+    "sparkCompletionRate": null,
+    "baselineCompletionRate": null,
+    "sparkDefectRecall": null,
+    "baselineDefectRecall": null,
+    "sparkFalsePositiveRate": null,
+    "baselineFalsePositiveRate": null,
+    "invalidWorkReduction": null
+  },
+  "evidenceRefs": []
+}

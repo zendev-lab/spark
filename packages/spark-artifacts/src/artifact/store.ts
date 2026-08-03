@@ -1,12 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir } from "node:fs/promises";
-import { join, resolve, relative, isAbsolute } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { writeJsonFileAtomic, writeTextFileAtomic } from "@zendev-lab/spark-core";
 import {
   asJsonValue,
   isArtifactBody,
   isArtifactFormat,
   isArtifactKind,
+  isStoredArtifactBody,
+  isStoredArtifactKind,
   type Artifact,
   type ArtifactBody,
   type ArtifactFormat,
@@ -14,7 +16,16 @@ import {
   type ArtifactQuery,
   type ArtifactRef,
   type ArtifactStoreOptions,
+  type DocumentArtifactBody,
+  type GitChangeArtifactBody,
+  type IssueArtifactBody,
+  type LegacyArtifactBody,
+  type LegacyIssueArtifactBody,
+  type LegacyPrArtifactBody,
+  type LegacyPreviewArtifactBody,
   type PutArtifactInput,
+  type StoredArtifactBody,
+  type StoredArtifactKind,
 } from "./types.ts";
 
 export class ArtifactValidationError extends Error {
@@ -22,6 +33,18 @@ export class ArtifactValidationError extends Error {
     super(message);
     this.name = "ArtifactValidationError";
   }
+}
+
+interface StoredArtifact {
+  ref: ArtifactRef;
+  kind: StoredArtifactKind;
+  title: string;
+  format: ArtifactFormat;
+  body: StoredArtifactBody;
+  hash?: string;
+  blobPath?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export class ArtifactStore {
@@ -47,14 +70,14 @@ export class ArtifactStore {
     if (!isArtifactBody(input.body)) {
       throw new ArtifactValidationError("invalid artifact body");
     }
-    const format = input.format ?? defaultFormatForKind(input.kind);
+    const format = input.format ?? defaultFormatForBody(input.body);
     if (!isArtifactFormat(format)) {
       throw new ArtifactValidationError(`invalid format: ${String(format)}`);
     }
     const ref = input.ref ?? newArtifactRef();
-    const existing = input.ref ? await this.tryGet<T>(input.ref) : null;
+    const existing = input.ref ? await this.tryGet(input.ref) : null;
     const updatedAt = nextArtifactTimestamp(existing?.updatedAt);
-    const serialized = serializeBody(format, input.body);
+    const serialized = serializeBody(input.body);
     const hash = createHash("sha256").update(serialized).digest("hex");
     const blobPath = join("blobs", `${hash}.${extensionForFormat(format)}`);
     const artifact: Artifact<T> = {
@@ -93,17 +116,14 @@ export class ArtifactStore {
 
   async get<T extends ArtifactBody = ArtifactBody>(ref: ArtifactRef): Promise<Artifact<T>> {
     assertArtifactRef(ref);
-    const raw = await readJson(this.pathFor(ref));
-    const artifact = normalizeArtifact<T>(raw);
-    if (artifact.blobPath) {
-      const blobPath = resolveBlobPath(this.rootDir, artifact.blobPath);
-      if (!blobPath) {
-        throw new ArtifactValidationError(`blob path escapes store: ${ref}`);
-      }
-      const serialized = await readFile(blobPath, "utf8");
-      artifact.body = parseBody(artifact.format, serialized) as T;
+    const stored = normalizeStoredArtifactMetadata(await readJson(this.pathFor(ref)));
+    if (stored.blobPath) {
+      const blobPath = resolveBlobPath(this.rootDir, stored.blobPath);
+      if (!blobPath) throw new ArtifactValidationError(`blob path escapes store: ${ref}`);
+      stored.body = parseStoredBody(await readFile(blobPath, "utf8"));
     }
-    return artifact;
+    assertStoredKindMatchesBody(stored.kind, stored.body);
+    return normalizeStoredArtifact(stored) as Artifact<T>;
   }
 
   async tryGet<T extends ArtifactBody = ArtifactBody>(
@@ -123,15 +143,15 @@ export class ArtifactStore {
     const artifacts: Artifact[] = [];
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-      let artifact: Artifact;
       try {
-        artifact = normalizeArtifact(await readJson(join(this.rootDir, entry.name)));
+        const raw = await readJson(join(this.rootDir, entry.name));
+        const stored = normalizeStoredArtifactMetadata(raw);
+        const artifact = await this.get(stored.ref);
+        if (filter.kind && artifact.kind !== filter.kind) continue;
+        artifacts.push(artifact);
       } catch {
-        continue;
+        // A malformed artifact does not make the remainder of the store unreadable.
       }
-      if (!isArtifactKind(artifact.kind)) continue;
-      if (filter.kind && artifact.kind !== filter.kind) continue;
-      artifacts.push(artifact);
     }
     return artifacts.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
@@ -139,12 +159,6 @@ export class ArtifactStore {
   pathFor(ref: ArtifactRef): string {
     assertArtifactRef(ref);
     return join(this.rootDir, `${refId(ref)}.json`);
-  }
-}
-
-function assertArtifactRef(ref: string): asserts ref is ArtifactRef {
-  if (!ref.startsWith("artifact:") || ref.length === "artifact:".length) {
-    throw new ArtifactValidationError("artifact ref must be artifact:…");
   }
 }
 
@@ -159,6 +173,168 @@ export function defaultArtifactStore(cwd: string): ArtifactStore {
   return new ArtifactStore({ rootDir: join(cwd, ".spark", "artifacts") });
 }
 
+export function normalizeLegacyArtifactBody(body: LegacyArtifactBody): ArtifactBody {
+  switch (body.kind) {
+    case "issue":
+      return normalizeLegacyIssue(body);
+    case "pr":
+      return normalizeLegacyPr(body);
+    case "preview":
+      return normalizeLegacyPreview(body);
+  }
+}
+
+function normalizeLegacyIssue(body: LegacyIssueArtifactBody): IssueArtifactBody {
+  return { ...body, schemaVersion: 2 };
+}
+
+function normalizeLegacyPr(body: LegacyPrArtifactBody): GitChangeArtifactBody {
+  const state = body.state.toLowerCase();
+  const terminal = state === "merged" || state === "closed";
+  const removed = body.worktreeStatus === "removed";
+  return {
+    schemaVersion: 2,
+    kind: "git_change",
+    repository: {
+      forge: body.forge,
+      repo: body.repo,
+    },
+    trunk: body.baseRef,
+    worktree: {
+      path: body.worktreePath,
+      branch: body.worktreeBranch ?? body.headRef,
+      ownership: "external",
+      status: removed
+        ? "cleaned"
+        : body.worktreePath && body.worktreeStatus === "attached"
+          ? "attached"
+          : "missing",
+    },
+    stack: {
+      authority: "legacy-unbound",
+      currentBranch: body.headRef,
+      entries: [
+        {
+          branch: body.headRef,
+          base: body.baseRef,
+          isCurrent: true,
+          isMerged: state === "merged",
+          isQueued: false,
+          needsRebase: false,
+          pullRequest: {
+            forge: body.forge,
+            repo: body.repo,
+            number: body.number,
+            url: body.url,
+            state: body.state,
+            title: body.title,
+            labels: body.labels,
+            syncedAt: body.syncedAt,
+            bodyText: body.bodyText,
+            headRef: body.headRef,
+            baseRef: body.baseRef,
+            draft: body.draft,
+            checksSummary: body.checksSummary,
+            diffSummary: body.diffSummary,
+          },
+        },
+      ],
+      observedAt: body.syncedAt,
+    },
+    lifecycle: removed ? "cleaned" : terminal ? "terminal" : "published",
+  };
+}
+
+function normalizeLegacyPreview(body: LegacyPreviewArtifactBody): DocumentArtifactBody {
+  return {
+    schemaVersion: 2,
+    kind: "document",
+    mediaType: legacyPreviewMediaType(body.format),
+    content: body.content,
+    revision: body.version,
+    progress: body.progress,
+  };
+}
+
+function legacyPreviewMediaType(format: LegacyPreviewArtifactBody["format"]): string {
+  switch (format) {
+    case "md":
+      return "text/markdown";
+    case "mdx":
+      return "text/mdx";
+    case "html":
+      return "text/html";
+    case "a2ui":
+      return "application/vnd.a2ui+json";
+    case "spark-ui":
+      return "application/vnd.spark-ui+json";
+  }
+}
+
+function normalizeStoredArtifact(stored: StoredArtifact): Artifact {
+  const body = isArtifactBody(stored.body) ? stored.body : normalizeLegacyArtifactBody(stored.body);
+  return {
+    ref: stored.ref,
+    kind: body.kind,
+    title: stored.title,
+    format: stored.format,
+    body,
+    hash: stored.hash,
+    blobPath: stored.blobPath,
+    createdAt: stored.createdAt,
+    updatedAt: stored.updatedAt,
+  };
+}
+
+function normalizeStoredArtifactMetadata(raw: unknown): StoredArtifact {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new ArtifactValidationError("artifact metadata must be an object");
+  }
+  const record = raw as Record<string, unknown>;
+  if (typeof record.ref !== "string") {
+    throw new ArtifactValidationError("artifact ref must be artifact:…");
+  }
+  assertArtifactRef(record.ref);
+  if (!isStoredArtifactKind(record.kind)) {
+    throw new ArtifactValidationError(
+      "kind must be issue, git_change, document, or a supported legacy kind",
+    );
+  }
+  if (typeof record.title !== "string" || !record.title.trim()) {
+    throw new ArtifactValidationError("title is required");
+  }
+  if (!isArtifactFormat(record.format)) {
+    throw new ArtifactValidationError("invalid format");
+  }
+  if (!isStoredArtifactBody(record.body)) {
+    throw new ArtifactValidationError("invalid body");
+  }
+  assertStoredKindMatchesBody(record.kind, record.body);
+  return {
+    ref: record.ref,
+    kind: record.kind,
+    title: record.title,
+    format: record.format,
+    body: record.body,
+    hash: typeof record.hash === "string" ? record.hash : undefined,
+    blobPath: typeof record.blobPath === "string" ? record.blobPath : undefined,
+    createdAt: typeof record.createdAt === "string" ? record.createdAt : "",
+    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : "",
+  };
+}
+
+function assertStoredKindMatchesBody(kind: StoredArtifactKind, body: StoredArtifactBody): void {
+  if (body.kind !== kind) {
+    throw new ArtifactValidationError("body.kind must match kind");
+  }
+}
+
+function assertArtifactRef(ref: string): asserts ref is ArtifactRef {
+  if (!ref.startsWith("artifact:") || ref.length === "artifact:".length) {
+    throw new ArtifactValidationError("artifact ref must be artifact:…");
+  }
+}
+
 function nextArtifactTimestamp(previous?: string): string {
   const currentTime = Date.now();
   const previousTime = previous ? Date.parse(previous) : Number.NaN;
@@ -167,17 +343,19 @@ function nextArtifactTimestamp(previous?: string): string {
   ).toISOString();
 }
 
-function defaultFormatForKind(kind: ArtifactKind): ArtifactFormat {
-  switch (kind) {
-    case "preview":
+function defaultFormatForBody(body: ArtifactBody): ArtifactFormat {
+  if (body.kind !== "document") return "json";
+  switch (body.mediaType) {
+    case "text/markdown":
+      return "markdown";
+    case "text/mdx":
       return "mdx";
-    case "issue":
-    case "pr":
+    case "text/html":
+      return "html";
+    case "text/plain":
+      return "text";
+    default:
       return "json";
-    default: {
-      const _exhaustive: never = kind;
-      return _exhaustive;
-    }
   }
 }
 
@@ -192,64 +370,24 @@ function extensionForFormat(format: ArtifactFormat): string {
       return "json";
     case "text":
       return "txt";
-    default: {
-      const _exhaustive: never = format;
-      return _exhaustive;
-    }
   }
 }
 
-function serializeBody(_format: ArtifactFormat, body: ArtifactBody): string {
+function serializeBody(body: ArtifactBody): string {
   return JSON.stringify(body, null, 2);
 }
 
-function parseBody(_format: ArtifactFormat, serialized: string): ArtifactBody {
+function parseStoredBody(serialized: string): StoredArtifactBody {
   let parsed: unknown;
   try {
     parsed = JSON.parse(serialized) as unknown;
   } catch {
     throw new ArtifactValidationError("blob is not valid JSON");
   }
-  if (!isArtifactBody(parsed)) {
+  if (!isStoredArtifactBody(parsed)) {
     throw new ArtifactValidationError("blob is not a valid artifact body");
   }
   return parsed;
-}
-
-function normalizeArtifact<T extends ArtifactBody>(raw: unknown): Artifact<T> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new ArtifactValidationError("artifact metadata must be an object");
-  }
-  const record = raw as Record<string, unknown>;
-  if (typeof record.ref !== "string" || !record.ref.startsWith("artifact:")) {
-    throw new ArtifactValidationError("artifact ref must be artifact:…");
-  }
-  if (!isArtifactKind(record.kind)) {
-    throw new ArtifactValidationError("kind must be issue, pr, or preview");
-  }
-  if (typeof record.title !== "string" || !record.title.trim()) {
-    throw new ArtifactValidationError("title is required");
-  }
-  if (!isArtifactFormat(record.format)) {
-    throw new ArtifactValidationError("invalid format");
-  }
-  if (!isArtifactBody(record.body)) {
-    throw new ArtifactValidationError("invalid body");
-  }
-  if (record.body.kind !== record.kind) {
-    throw new ArtifactValidationError("body.kind must match kind");
-  }
-  return {
-    ref: record.ref as ArtifactRef,
-    kind: record.kind,
-    title: record.title,
-    format: record.format,
-    body: record.body as T,
-    hash: typeof record.hash === "string" ? record.hash : undefined,
-    blobPath: typeof record.blobPath === "string" ? record.blobPath : undefined,
-    createdAt: typeof record.createdAt === "string" ? record.createdAt : "",
-    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : "",
-  };
 }
 
 function refId(ref: string): string {

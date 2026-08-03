@@ -473,8 +473,16 @@ export function taskTodoStatus(value: string | undefined): SparkTaskTodoView["st
   return "pending";
 }
 
-export function isArtifactKind(value: string | undefined): value is "issue" | "pr" | "preview" {
-  return value === "issue" || value === "pr" || value === "preview";
+export function isArtifactKind(
+  value: string | undefined,
+): value is "issue" | "git_change" | "document" | "pr" | "preview" {
+  return (
+    value === "issue" ||
+    value === "git_change" ||
+    value === "document" ||
+    value === "pr" ||
+    value === "preview"
+  );
 }
 
 export function evidenceKind(value: string | undefined): SparkEvidenceView["kind"] {

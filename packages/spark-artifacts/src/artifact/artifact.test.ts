@@ -21,69 +21,141 @@ import {
 } from "./index.ts";
 
 describe("artifact kinds", () => {
-  it("keeps the public kind surface limited to issue, pr, and preview", () => {
-    expect(ARTIFACT_KINDS).toEqual(["issue", "pr", "preview"]);
+  it("keeps the public kind surface limited to issue, git_change, and document", () => {
+    expect(ARTIFACT_KINDS).toEqual(["issue", "git_change", "document"]);
   });
 
-  it("stores preview with continuous versioned updates", async () => {
+  it("stores documents with continuous revisioned updates", async () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-artifact-preview-"));
     const store = defaultArtifactStore(dir);
     const created = await store.put({
-      kind: "preview",
+      kind: "document",
       title: "Landing",
       format: "mdx",
       body: {
-        schemaVersion: 1,
-        kind: "preview",
-        format: "mdx",
+        schemaVersion: 2,
+        kind: "document",
+        mediaType: "text/mdx",
         content: "# Draft",
-        version: 1,
+        revision: 1,
         progress: { label: "outline", percent: 10 },
       },
     });
     const updated = await store.update(created.ref, {
       body: {
-        schemaVersion: 1,
-        kind: "preview",
-        format: "mdx",
+        schemaVersion: 2,
+        kind: "document",
+        mediaType: "text/mdx",
         content: "# Draft\n\n## Section",
-        version: 2,
+        revision: 2,
         progress: { label: "sections", percent: 40, stage: "writing" },
       },
     });
-    expect(updated.body.kind).toBe("preview");
-    if (updated.body.kind !== "preview") throw new Error("expected preview");
-    expect(updated.body.version).toBe(2);
+    expect(updated.body.kind).toBe("document");
+    if (updated.body.kind !== "document") throw new Error("expected document");
+    expect(updated.body.revision).toBe(2);
     expect(updated.body.progress?.percent).toBe(40);
     expect(Date.parse(updated.updatedAt)).toBeGreaterThan(Date.parse(created.updatedAt));
-    const listed = await store.list({ kind: "preview" });
+    const listed = await store.list({ kind: "document" });
     expect(listed).toHaveLength(1);
+  });
+
+  it("lazily normalizes legacy pr/preview records without changing their refs", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-artifact-legacy-normalize-"));
+    const store = defaultArtifactStore(dir);
+    await mkdir(store.rootDir, { recursive: true });
+    const createdAt = "2026-07-01T00:00:00.000Z";
+    await writeFile(
+      store.pathFor("artifact:legacy-pr" as ArtifactRef),
+      JSON.stringify({
+        ref: "artifact:legacy-pr",
+        kind: "pr",
+        title: "Legacy PR",
+        format: "json",
+        body: {
+          schemaVersion: 1,
+          kind: "pr",
+          forge: "github",
+          repo: "acme/app",
+          number: 9,
+          url: "https://github.com/acme/app/pull/9",
+          state: "open",
+          title: "Legacy PR",
+          headRef: "feature",
+          baseRef: "main",
+        },
+        createdAt,
+        updatedAt: createdAt,
+      }),
+      "utf8",
+    );
+    await writeFile(
+      store.pathFor("artifact:legacy-preview" as ArtifactRef),
+      JSON.stringify({
+        ref: "artifact:legacy-preview",
+        kind: "preview",
+        title: "Legacy preview",
+        format: "markdown",
+        body: {
+          schemaVersion: 1,
+          kind: "preview",
+          format: "md",
+          content: "# Legacy",
+          version: 4,
+        },
+        createdAt,
+        updatedAt: createdAt,
+      }),
+      "utf8",
+    );
+
+    const pr = await store.get("artifact:legacy-pr" as ArtifactRef);
+    expect(pr.ref).toBe("artifact:legacy-pr");
+    expect(pr.body).toMatchObject({
+      schemaVersion: 2,
+      kind: "git_change",
+      stack: { authority: "legacy-unbound" },
+    });
+    const document = await store.get("artifact:legacy-preview" as ArtifactRef);
+    expect(document.ref).toBe("artifact:legacy-preview");
+    expect(document.body).toMatchObject({
+      schemaVersion: 2,
+      kind: "document",
+      mediaType: "text/markdown",
+      revision: 4,
+    });
+    expect((await store.list()).map((artifact) => artifact.kind)).toEqual([
+      "git_change",
+      "document",
+    ]);
   });
 
   it("projects previews through a bounded coarse transport contract", async () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-artifact-projection-"));
     const store = defaultArtifactStore(dir);
     const markdown = await store.put({
-      kind: "preview",
+      kind: "document",
       title: "Markdown",
       format: "markdown",
       body: {
-        schemaVersion: 1,
-        kind: "preview",
-        format: "md",
+        schemaVersion: 2,
+        kind: "document",
+        mediaType: "text/markdown",
         content: "# Durable",
-        version: 3,
+        revision: 3,
         progress: { stage: "review", percent: 80 },
       },
     });
     expect(projectArtifact(markdown)).toEqual({
       schemaVersion: 1,
       format: "markdown",
-      mime: "text/markdown; charset=utf-8",
+      mime: "text/markdown",
       sizeBytes: Buffer.byteLength("# Durable"),
       hash: createHash("sha256").update("# Durable").digest("hex"),
       contentRef: {
         artifactRef: markdown.ref,
+        mediaType: "text/markdown",
+        revision: 3,
         previewFormat: "md",
         version: 3,
         progress: { stage: "review", percent: 80 },
@@ -92,22 +164,24 @@ describe("artifact kinds", () => {
     });
 
     const rich = await store.put({
-      kind: "preview",
+      kind: "document",
       title: "HTML",
       format: "html",
       body: {
-        schemaVersion: 1,
-        kind: "preview",
-        format: "html",
+        schemaVersion: 2,
+        kind: "document",
+        mediaType: "text/html",
         content: "<main>Durable</main>",
-        version: 1,
+        revision: 1,
       },
     });
     expect(projectArtifact(rich)).toMatchObject({
       format: "text",
-      mime: "text/plain; charset=utf-8",
+      mime: "text/html",
       contentRef: {
         artifactRef: rich.ref,
+        mediaType: "text/html",
+        revision: 1,
         previewFormat: "html",
         version: 1,
         progress: null,
@@ -116,15 +190,15 @@ describe("artifact kinds", () => {
     });
 
     const oversized = await store.put({
-      kind: "preview",
+      kind: "document",
       title: "Oversized",
       format: "mdx",
       body: {
-        schemaVersion: 1,
-        kind: "preview",
-        format: "mdx",
+        schemaVersion: 2,
+        kind: "document",
+        mediaType: "text/mdx",
         content: "x".repeat(ARTIFACT_PROJECTION_MAX_INLINE_BYTES + 1),
-        version: 1,
+        revision: 1,
       },
     });
     const projection = projectArtifact(oversized);
@@ -138,7 +212,7 @@ describe("artifact kinds", () => {
       kind: "issue" as const,
       title: "Issue",
       body: {
-        schemaVersion: 1 as const,
+        schemaVersion: 2 as const,
         kind: "issue" as const,
         forge: "github" as const,
         repo: "acme/app",
@@ -149,19 +223,34 @@ describe("artifact kinds", () => {
       },
     },
     {
-      kind: "pr" as const,
-      title: "PR",
+      kind: "git_change" as const,
+      title: "Change",
       body: {
-        schemaVersion: 1 as const,
-        kind: "pr" as const,
-        forge: "github" as const,
-        repo: "acme/app",
-        number: 8,
-        url: "https://github.com/acme/app/pull/8",
-        state: "open",
-        title: "PR",
-        headRef: "feature",
-        baseRef: "main",
+        schemaVersion: 2 as const,
+        kind: "git_change" as const,
+        repository: { forge: "github" as const, repo: "acme/app" },
+        trunk: "main",
+        worktree: {
+          path: "/tmp/change",
+          branch: "feature",
+          ownership: "external" as const,
+          status: "attached" as const,
+        },
+        stack: {
+          authority: "gh-stack" as const,
+          currentBranch: "feature",
+          entries: [
+            {
+              branch: "feature",
+              base: "base-oid",
+              isCurrent: true,
+              isMerged: false,
+              isQueued: false,
+              needsRebase: false,
+            },
+          ],
+        },
+        lifecycle: "local" as const,
       },
     },
   ])("projects $kind bodies as bounded inline JSON", async ({ kind, title, body }) => {
@@ -198,8 +287,8 @@ describe("artifact kinds", () => {
       "create-preview",
       {
         action: "create",
-        kind: "preview",
-        title: "Cockpit preview",
+        kind: "document",
+        title: "Cockpit document",
         format: "md",
         content: "# Persistent",
       },
@@ -347,14 +436,14 @@ describe("artifact kinds", () => {
     const artifactStore = defaultArtifactStore(dir);
     const evidenceStore = defaultEvidenceStore(dir);
     const artifact = await artifactStore.put({
-      kind: "preview",
+      kind: "document",
       title: "Only Artifact",
       body: {
-        schemaVersion: 1,
-        kind: "preview",
-        format: "md",
+        schemaVersion: 2,
+        kind: "document",
+        mediaType: "text/markdown",
         content: "hi",
-        version: 1,
+        revision: 1,
       },
     });
     const evidence = await evidenceStore.put({

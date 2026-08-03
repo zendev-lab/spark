@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "stale-provider-result",
+      "expected": "stale result rejected and no Pass receipt"
+    },
+    {
+      "id": "provider-timeout",
+      "expected": "inconclusive verdict and no Pass receipt"
+    },
+    {
+      "id": "provider-silence",
+      "expected": "inconclusive verdict and no Pass receipt"
+    },
+    {
+      "id": "verifier-conflict",
+      "expected": "conflicting Observation and inconclusive verdict"
+    },
+    {
+      "id": "file-cas-race",
+      "expected": "promotion rejected without partial write"
+    },
+    {
+      "id": "daemon-restart",
+      "expected": "providers reaped and pre-restart results rejected"
+    },
+    {
+      "id": "orphan-provider",
+      "expected": "orphan process group recovered or terminated"
+    },
+    {
+      "id": "stale-receipt-gate",
+      "expected": "Ready and Task completion gates reject old receipt"
+    }
+  ]
+}
