@@ -9,7 +9,7 @@ const messages = getCockpitDictionary("en");
 const children = createRawSnippet(() => ({
   render: () => '<button type="button">Main content</button>',
 }));
-const navigation = createRawSnippet(() => ({
+const navigation = createRawSnippet((_closeNavigation: () => () => void) => ({
   render: () => '<a href="/target">First navigation item</a>',
 }));
 
