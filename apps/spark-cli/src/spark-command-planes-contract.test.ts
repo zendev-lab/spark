@@ -18,21 +18,24 @@ const DEPRECATIONS_PATH = new URL(
   import.meta.url,
 );
 
-test("root dispatcher reaches Cockpit and rejects the removed server namespace", async () => {
+test("root dispatcher reaches Hub and Cockpit while rejecting the removed server namespace", async () => {
   assert.deepEqual(parseSparkDispatcherArgs(["server", "task", "list"]), {
     kind: "error",
-    message: 'The "spark server" namespace was removed. Use "spark cockpit" instead.',
+    message: 'The "spark server" namespace was removed. Use "spark hub" instead.',
   });
 
   const dispatcher = fileURLToPath(new URL("../bin/spark", import.meta.url));
   const { stdout, stderr } = await execFileAsync(dispatcher, ["cockpit", "--help"]);
-  assert.match(stdout, /spark cockpit - Spark cross-daemon coordination and Web cockpit/u);
+  assert.match(stdout, /spark cockpit - Spark Cockpit Web presentation host/u);
   assert.equal(stderr, "");
+  const hub = await execFileAsync(dispatcher, ["hub", "--help"]);
+  assert.match(hub.stdout, /spark hub - Spark logical coordination plane/u);
+  assert.equal(hub.stderr, "");
 
   await assert.rejects(execFileAsync(dispatcher, ["server", "status"]), (error: unknown) => {
     const failure = error as { code?: number; stderr?: string };
     assert.equal(failure.code, 2);
-    assert.match(failure.stderr ?? "", /Use "spark cockpit" instead/u);
+    assert.match(failure.stderr ?? "", /Use "spark hub" instead/u);
     return true;
   });
   await assert.rejects(
@@ -40,11 +43,11 @@ test("root dispatcher reaches Cockpit and rejects the removed server namespace",
     (error: unknown) => {
       const failure = error as { code?: number; stderr?: string };
       assert.equal(failure.code, 2);
-      assert.match(failure.stderr ?? "", /Use "spark cockpit" instead/u);
+      assert.match(failure.stderr ?? "", /Use "spark hub" instead/u);
       return true;
     },
   );
-});
+}, 30_000);
 
 test("daemon and Cockpit status JSON contracts validate current envelopes", () => {
   const daemon = extractDaemonStatusContract({
@@ -167,7 +170,7 @@ test("deprecation map covers legacy slash aliases and only advertises real CLI t
     assert.match(row?.status ?? "", /deprecated alias|removed/u, `${legacy}.status`);
   }
   assert.equal(byLegacy.get("/sessions")?.canonicalCliTarget, "spark daemon session list");
-  assert.equal(byLegacy.get("/tasks")?.canonicalCliTarget, "spark cockpit task list");
+  assert.equal(byLegacy.get("/tasks")?.canonicalCliTarget, undefined);
   assert.equal(byLegacy.get("/fork")?.canonicalCliTarget, "spark daemon session fork --current");
   assert.equal(byLegacy.get("/workflow-runs")?.canonicalCliTarget, undefined);
   assert.equal(byLegacy.get("/workflow-pause")?.canonicalCliTarget, undefined);

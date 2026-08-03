@@ -33,6 +33,14 @@ import {
   requireRuntimeControlCommand,
 } from "../runtime-control.ts";
 import {
+  dispatchPendingHubDelegationsForRuntime,
+  recordHubWorkspaceDelegationCommandAck,
+  recordHubWorkspaceDelegationCommandReject,
+  recordHubWorkspaceDelegationCommandResult,
+  recordHubWorkspaceDelegationDaemonEvent,
+  recordHubWorkspaceDelegationInvocationUpdate,
+} from "../hub-delegations.ts";
+import {
   resolveWorkspaceDirectoryDisplayName,
   syncWorkspaceIdentityFromLocalPath,
 } from "../workspace-identity.ts";
@@ -137,11 +145,13 @@ export function handleMvpRuntimeMessage(
       return true;
     }
     if (runtimeControl) {
+      const command = requireRuntimeControlCommand(context.db, routed.commandId);
       recordRuntimeControlCommandAck(context.db, {
         runtimeId: context.runtimeId,
         commandId: routed.commandId,
         payload: commandAck.data.payload,
       });
+      recordHubWorkspaceDelegationCommandAck(context.db, command, commandAck.data.payload);
     } else {
       recordCommandAck(context.db, {
         runtimeWorkspaceBindingId: routed.workspaceBindingId,
@@ -171,11 +181,13 @@ export function handleMvpRuntimeMessage(
       return true;
     }
     if (runtimeControl) {
+      const command = requireRuntimeControlCommand(context.db, routed.commandId);
       recordRuntimeControlCommandReject(context.db, {
         runtimeId: context.runtimeId,
         commandId: routed.commandId,
         payload: commandReject.data.payload,
       });
+      recordHubWorkspaceDelegationCommandReject(context.db, command, commandReject.data.payload);
     } else {
       recordCommandReject(context.db, {
         runtimeWorkspaceBindingId: routed.workspaceBindingId,
@@ -217,6 +229,7 @@ export function handleMvpRuntimeMessage(
       project: (command, payload) => {
         recordRuntimeSessionControlProjection(context.db, command, payload);
         recordRuntimeModelChannelProjection(context.db, command, payload);
+        recordHubWorkspaceDelegationCommandResult(context.db, command, payload);
       },
     });
     rememberProcessedRuntimeMessage(context, commandResult.data);
@@ -381,6 +394,12 @@ export function handleMvpRuntimeMessage(
       invocationId: routed.invocationId || null,
       payload: invocationUpdate.data.payload,
     });
+    recordHubWorkspaceDelegationInvocationUpdate(
+      context.db,
+      routed.workspaceId,
+      invocationUpdate.data.payload.runtimeInvocationId,
+      invocationUpdate.data.payload.status,
+    );
     rememberProcessedRuntimeMessage(context, invocationUpdate.data);
     sendIngestAck(
       ws,
@@ -435,6 +454,12 @@ export function handleMvpRuntimeMessage(
       return true;
     }
     const parsedDaemonEvent = parseSparkDaemonEvent(daemonEvent.data.payload);
+    if (
+      parsedDaemonEvent.type === "daemon.delegation.requested" ||
+      parsedDaemonEvent.type === "daemon.delegation.responded"
+    ) {
+      recordHubWorkspaceDelegationDaemonEvent(context.db, routed.workspaceId, parsedDaemonEvent);
+    }
     appendEvent(context.db, {
       workspaceId: routed.workspaceId,
       projectId: routed.projectId ?? null,
@@ -749,10 +774,20 @@ function handleWorkspaceSnapshot(
     context.db
       .prepare(
         `UPDATE runtime_workspace_bindings
-         SET display_name = ?, status = ?, last_snapshot_at = ?, updated_at = ?
+         SET display_name = ?, status = ?, last_snapshot_at = ?, updated_at = ?,
+             main_session_id = ?, main_session_generation = ?
          WHERE id = ? AND runtime_id = ?`,
       )
-      .run(displayName, payload.status, now, now, runtimeWorkspaceBindingId, context.runtimeId);
+      .run(
+        displayName,
+        payload.status,
+        now,
+        now,
+        payload.mainSession?.sessionId ?? null,
+        payload.mainSession?.generation ?? null,
+        runtimeWorkspaceBindingId,
+        context.runtimeId,
+      );
     syncWorkspaceIdentityFromLocalPath(context.db, workspaceId, binding?.localPath, now);
 
     appendEvent(context.db, {
@@ -1073,6 +1108,7 @@ export function flushPendingRuntimeDeliveries(
   ws: WebSocket | RuntimeWebSocketConnection,
   context: RuntimeWebSocketContext,
 ): void {
+  dispatchPendingHubDelegationsForRuntime(context.db, context.runtimeId);
   flushPendingRuntimeControlCommands(ws, context);
   flushPendingCommands(ws, context);
   flushPendingHumanResponses(ws, context);

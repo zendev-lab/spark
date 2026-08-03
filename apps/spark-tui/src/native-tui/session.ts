@@ -163,6 +163,11 @@ export class SparkNativeSession {
     return !this.isProcessing && this.lastSubmittedInput !== undefined;
   }
 
+  /** Startup hydration must not replace input submitted while the snapshot was still loading. */
+  get hasSubmittedInput(): boolean {
+    return this.lastSubmittedInput !== undefined;
+  }
+
   get canStopOrRestore(): boolean {
     return this.isProcessing || this.queuedFollowUps.length > 0 || this.daemonQueuedCount() > 0;
   }
@@ -193,6 +198,16 @@ export class SparkNativeSession {
     return Object.freeze([...(this.daemonPendingTurns ?? [])]);
   }
 
+  /** Daemon-owned turns waiting behind the invocation currently observed by this TUI. */
+  get daemonQueued(): readonly SparkSessionPendingTurn[] {
+    const activeInvocationId =
+      this.activeDaemonObservation?.admission?.invocationId ??
+      this.daemonObservations.find((observation) => observation.admission)?.admission?.invocationId;
+    return Object.freeze(
+      (this.daemonPendingTurns ?? []).filter((turn) => turn.invocationId !== activeInvocationId),
+    );
+  }
+
   get queueSummary(): SparkNativeQueueSummary {
     let steer = 0;
     let followUp = 0;
@@ -200,7 +215,7 @@ export class SparkNativeSession {
       if (input.mode === "steer") steer += 1;
       else followUp += 1;
     }
-    const daemonPending = this.daemonPendingTurns?.length ?? 0;
+    const daemonPending = this.daemonQueued.length;
     return {
       total: steer + followUp + daemonPending,
       steer,

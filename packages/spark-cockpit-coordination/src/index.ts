@@ -5,6 +5,7 @@ export * from "./cockpit-access.ts";
 export * from "./cockpit-queries.ts";
 export * from "./command-submission.ts";
 export * from "./events.ts";
+export * from "./hub-delegations.ts";
 export * from "./liveness.ts";
 export * from "./project-cockpit.ts";
 export * from "./projection-services.ts";

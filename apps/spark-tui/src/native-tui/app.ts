@@ -286,11 +286,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   renderQueueInspection(): string {
     const queued = this.session.queuedInputs;
-    const daemonPending = this.session.daemonPending;
+    const daemonPending = this.session.daemonQueued;
     if (queued.length === 0 && daemonPending.length === 0) return "Turn queue is empty.";
     if (this.session.daemonOwnsQueue) {
       return [
-        `Daemon turn queue: ${queued.length} awaiting admission · ${daemonPending.length} admitted`,
+        `Daemon turn queue: ${queued.length} awaiting admission · ${daemonPending.length} waiting`,
         ...queued.map(
           (input, index) =>
             `${index + 1}. admitting ${input.mode === "followUp" ? "follow-up" : "steer"} — ${compactNativeQueuePreview(input.text)}`,
@@ -1260,12 +1260,21 @@ export class SparkNativeTuiApp implements Component, Focusable {
     const key = parseKey(data) ?? data;
     const keybindings = this.keybindings;
     if (!keybindings || !isSparkAppKey(key)) return false;
-    void keybindings.executeKey(key, this.keybindingContext).then((didHandle) => {
-      if (didHandle) {
+    void keybindings.executeKey(key, this.keybindingContext).then(
+      (didHandle) => {
+        if (didHandle) {
+          this.invalidate();
+          this.tui.requestRender();
+        }
+      },
+      (error: unknown) => {
+        this.session.addSystemMessage(
+          nativeTuiStrings.keybindingFailed(error instanceof Error ? error.message : String(error)),
+        );
         this.invalidate();
         this.tui.requestRender();
-      }
-    });
+      },
+    );
     return true;
   }
 
@@ -1343,10 +1352,8 @@ export class SparkNativeTuiApp implements Component, Focusable {
     ];
     const context = this.renderWorkspaceSessionState(width);
     const detail = this.renderActiveCockpitPanel(width);
-    const auxiliary = [
-      ...this.renderPendingAskPresentations(width),
-      ...this.renderWidgets("aboveEditor", width),
-    ];
+    const pinnedStatus = [...header, ...context, ...this.renderWidgets("aboveEditor", width)];
+    const auxiliary = this.renderPendingAskPresentations(width);
     const transcript = this.session.messages.flatMap((message) =>
       this.renderMessage(message, width),
     );
@@ -1364,12 +1371,13 @@ export class SparkNativeTuiApp implements Component, Focusable {
       width,
       height,
       sections: {
-        header,
-        context,
+        header: [],
+        context: [],
         detail,
         detailActive: detail.length > 0,
         auxiliary,
         transcript,
+        pinnedStatus,
         queue,
         composer,
         footer,
@@ -1404,7 +1412,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   private renderInputQueue(width: number): string[] {
     const queued = this.session.queuedInputs;
-    const daemonPending = this.session.daemonPending;
+    const daemonPending = this.session.daemonQueued;
     if (queued.length === 0 && daemonPending.length === 0) return [];
 
     const visible = queued.slice(0, MAX_NATIVE_QUEUE_ITEMS);
@@ -1415,7 +1423,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
         this.renderTheme.fg(
           "accent",
           daemonOwned
-            ? `◆ Daemon turn queue · admitting ${queued.length} · admitted ${daemonPending.length}`
+            ? `◆ Daemon turn queue · admitting ${queued.length} · waiting ${daemonPending.length}`
             : `◆ Input queue · local ${queued.length}` +
                 (daemonPending.length > 0 ? ` · daemon ${daemonPending.length}` : ""),
         ),

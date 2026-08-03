@@ -109,6 +109,34 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS workspace_main_sessions (
+      workspace_id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL UNIQUE,
+      generation INTEGER NOT NULL CHECK (generation > 0),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS daemon_delegation_projections (
+      delegation_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('source', 'target')),
+      status TEXT NOT NULL CHECK (status IN (
+        'queued', 'retry_wait', 'delivering', 'running', 'awaiting_source',
+        'cancelling', 'completed', 'rejected', 'failed', 'cancelled'
+      )),
+      request_json TEXT NOT NULL,
+      receipt_json TEXT,
+      message_sequence INTEGER NOT NULL DEFAULT 0 CHECK (message_sequence >= 0),
+      invocation_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (delegation_id, workspace_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS daemon_delegation_projections_workspace_status_idx
+      ON daemon_delegation_projections(workspace_id, status, updated_at DESC);
+
     CREATE TABLE IF NOT EXISTS session_request_completion_deliveries (
       source_invocation_id TEXT PRIMARY KEY,
       status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'delivered')),

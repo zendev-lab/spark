@@ -2110,6 +2110,7 @@ test("Spark TUI and headless print attach and release workspace clients", async 
             workspaceSession: options.workspaceSession,
           });
           await options.configureApp?.(harness.app, harness.session);
+          await new Promise((resolve) => setImmediate(resolve));
           await harness.submit("/plan");
           await harness.flush();
           capturedTuiRendered = harness.render(140);
@@ -2271,6 +2272,8 @@ test("native TUI selects an existing daemon session and restores its snapshot", 
       updatedAt: now,
       cwd: dir,
     };
+    const snapshotGate = Promise.withResolvers<void>();
+    let snapshotRequested = false;
     const daemonClient: SparkDaemonClientOptions = {
       ...base.daemonClient,
       managedSessions: {
@@ -2286,6 +2289,8 @@ test("native TUI selects an existing daemon session and restores its snapshot", 
       controlRequest: async (method, params) => {
         assert.equal(method, "session.snapshot");
         assert.deepEqual(params, { sessionId: existing.sessionId });
+        snapshotRequested = true;
+        await snapshotGate.promise;
         return {
           version: 1,
           sessionId: existing.sessionId,
@@ -2331,13 +2336,18 @@ test("native TUI selects an existing daemon session and restores its snapshot", 
           assert.notEqual(input, null);
           const options = input as Exclude<typeof input, string | undefined>;
           assert.equal(options.workspaceSession?.attachTarget, existing.sessionId);
-          assert.equal(options.statusContext?.activeProvider?.(), "session-provider");
-          assert.equal(options.statusContext?.activeModel?.(), "session-model");
-          assert.equal(options.statusContext?.thinkingLevel?.(), "xhigh");
+          assert.equal(snapshotRequested, false);
+          assert.equal(options.statusContext?.activeProvider?.(), undefined);
           const harness = createSparkNativeTuiHarness({
             workspaceSession: options.workspaceSession,
           });
           await options.configureApp?.(harness.app, harness.session);
+          assert.equal(snapshotRequested, true);
+          snapshotGate.resolve();
+          await new Promise((resolve) => setImmediate(resolve));
+          assert.equal(options.statusContext?.activeProvider?.(), "session-provider");
+          assert.equal(options.statusContext?.activeModel?.(), "session-model");
+          assert.equal(options.statusContext?.thinkingLevel?.(), "xhigh");
           rendered = harness.render(140);
         },
       }),
@@ -3082,6 +3092,7 @@ test("native TUI model selection and following turn share one managed session", 
       model?: { providerName: string; modelId: string };
     }> = [];
     const controlCalls: Array<{ method: string; params: unknown }> = [];
+    let defaultModel = { providerName: "provider-a", modelId: "model-a" };
     const submitted: Array<{
       invocationId: string;
       input: { sessionId: string; prompt: string; idempotencyKey?: string };
@@ -3139,13 +3150,17 @@ test("native TUI model selection and following turn share one managed session", 
                 ],
               },
             ],
-            defaultModel: { providerName: "provider-a", modelId: "model-a" },
+            defaultModel,
             session: {
               sessionId: "same-session",
               ...(session?.model ? { model: session.model } : {}),
             },
             diagnostics: [],
           };
+        }
+        if (method === "model.default.set") {
+          defaultModel = (params as { model: typeof defaultModel }).model;
+          return { providers: [], defaultModel, diagnostics: [] };
         }
         if (method === "session.model.set") {
           const request = params as {
@@ -3187,16 +3202,30 @@ test("native TUI model selection and following turn share one managed session", 
       }),
     };
 
+    let savedModelId: string | undefined;
+    const createHostServices = async () => {
+      const services = (await base.createHostServices()) as unknown as SparkCliHostServices;
+      return {
+        ...services,
+        saveConfig: async (config: SparkCliHostServices["config"]) => {
+          savedModelId = config.activeModelId;
+        },
+      };
+    };
     assert.equal(
       await runSparkCli(["--session", sessionPath], {
         daemonClient,
-        createHostServices: base.createHostServices,
+        createHostServices,
         terminal: { stdinIsTTY: true, stdoutIsTTY: true },
         runTui: async (input) => {
           assert.equal(typeof input, "object");
           assert.notEqual(input, null);
           const options = input as Exclude<typeof input, string | undefined>;
           assert.equal(options.workspaceSession?.attachTarget, "same-session");
+          const harness = createSparkNativeTuiHarness({
+            workspaceSession: options.workspaceSession,
+          });
+          await options.configureApp?.(harness.app, harness.session);
           const modelCommand = options.slashCommands?.model as {
             handler: (args: string, context: never) => Promise<unknown>;
           };
@@ -3216,6 +3245,7 @@ test("native TUI model selection and following turn share one managed session", 
       providerName: "provider-a",
       modelId: "model-b",
     });
+    assert.equal(savedModelId, "provider-a/model-b");
     assert.deepEqual(controlCalls, [
       { method: "session.snapshot", params: { sessionId: "same-session" } },
       { method: "model.catalog", params: { sessionId: "same-session" } },
@@ -3225,6 +3255,10 @@ test("native TUI model selection and following turn share one managed session", 
           sessionId: "same-session",
           model: { providerName: "provider-a", modelId: "model-b" },
         },
+      },
+      {
+        method: "model.default.set",
+        params: { model: { providerName: "provider-a", modelId: "model-b" } },
       },
     ]);
     assert.match(submitted[0]?.input.idempotencyKey ?? "", /^turn\.submit:spark_cli_/u);
@@ -3449,6 +3483,7 @@ test("production TUI Shift+Tab overrides extension shortcut and updates session 
     };
     const keybindings = new SparkKeybindings();
     let extensionShortcutCalls = 0;
+    let savedThinkingLevel: SparkCliHostServices["config"]["activeThinkingLevel"];
     const createHostServices = async () => {
       const services = (await base.createHostServices()) as unknown as SparkCliHostServices;
       const runtime = new SparkHostRuntime({ cwd: dir, hasUI: true, keybindings });
@@ -3458,7 +3493,14 @@ test("production TUI Shift+Tab overrides extension shortcut and updates session 
           extensionShortcutCalls += 1;
         },
       });
-      return { ...services, runtime, keybindings };
+      return {
+        ...services,
+        runtime,
+        keybindings,
+        saveConfig: async (config: SparkCliHostServices["config"]) => {
+          savedThinkingLevel = config.activeThinkingLevel;
+        },
+      };
     };
 
     assert.equal(
@@ -3488,6 +3530,7 @@ test("production TUI Shift+Tab overrides extension shortcut and updates session 
     );
 
     assert.equal(extensionShortcutCalls, 0);
+    assert.equal(savedThinkingLevel, "xhigh");
     assert.deepEqual(controlCalls, [
       { method: "session.snapshot", params: { sessionId } },
       { method: "model.catalog", params: { sessionId } },

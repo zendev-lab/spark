@@ -100,6 +100,10 @@ import {
 } from "./task-claim.ts";
 import { sparkSessionViewSchema } from "./protocol.ts";
 import { SPARK_PROTOCOL_VERSION } from "./version.ts";
+import {
+  workspaceDelegationExecuteRequestSchema,
+  workspaceDelegationExecuteResultSchema,
+} from "./workspace-delegation.ts";
 
 export type SparkLocalRpcMethod = keyof typeof localRpcMethodToSparkCommandKind;
 /** @deprecated Prefer {@link SparkLocalRpcMethod}. */
@@ -126,6 +130,15 @@ export const sparkLocalRpcSideThreadOrpcErrors = {
 
 export const sparkLocalRpcReadinessOrpcErrors = {
   daemon_starting: { status: 503 },
+} as const;
+
+export const sparkLocalRpcDelegationOrpcErrors = {
+  ...sparkLocalRpcReadinessOrpcErrors,
+  workspace_main_session_required: { status: 403 },
+  delegation_action_invalid: { status: 422 },
+  delegation_not_found: { status: 404 },
+  delegation_state_conflict: { status: 409 },
+  delegation_invocation_mismatch: { status: 403 },
 } as const;
 
 type SparkLocalRpcErrorSpec = {
@@ -174,6 +187,7 @@ export const sparkLocalRpcSessionOrpcErrors = {
   session_transcript_conflict: { status: 409 },
   side_thread_config_empty: { status: 422 },
   workspace_cwd_unavailable: { status: 422 },
+  workspace_main_session_mutation_forbidden: { status: 403 },
   ...sparkLocalRpcSideThreadOrpcErrors,
 } as const satisfies Record<SparkSessionRegistryErrorCode, { status: number }>;
 
@@ -1375,6 +1389,10 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkLocalRpcWorkspaceExecutorEnsureRequestSchema,
     output: sparkLocalRpcWorkspaceClientResultSchema,
   },
+  "delegation.execute": {
+    input: workspaceDelegationExecuteRequestSchema,
+    output: workspaceDelegationExecuteResultSchema,
+  },
   "task.claim.acquire": {
     input: sparkTaskClaimAcquireRequestSchema,
     output: sparkTaskClaimMutationResultSchema,
@@ -1786,6 +1804,14 @@ export const sparkLocalRpcOrpcContract = {
         sparkLocalRpcWorkspaceTransferOrpcErrors,
       ),
     },
+  },
+  delegation: {
+    execute: procedure(
+      "POST",
+      "/delegation/execute",
+      p["delegation.execute"],
+      sparkLocalRpcDelegationOrpcErrors,
+    ),
   },
   task: {
     claim: {

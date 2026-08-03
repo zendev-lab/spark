@@ -2,7 +2,6 @@
   {
     "legacy": "/tasks",
     "canonicalSlash": "/task list",
-    "canonicalCliTarget": "spark cockpit task list",
     "status": "deprecated alias"
   },
   {

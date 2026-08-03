@@ -13,7 +13,7 @@ export default defineConfig({
     // leaf dependencies are optimized explicitly for browser-compatible
     // default export interop.
     exclude: ["@lucide/svelte", "bits-ui", "svelte-streamdown"],
-    include: ["bits-ui > style-to-object"],
+    include: ["bits-ui > svelte-toolbelt > style-to-object"],
   },
   ssr: {
     // Lucide publishes Svelte source that must pass through the Svelte

@@ -185,6 +185,11 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
         ),
       },
     },
+    delegation: {
+      execute: os.delegation.execute.handler(async ({ input: params }) =>
+        invoke("delegation.execute", params),
+      ),
+    },
     task: {
       claim: {
         acquire: os.task.claim.acquire.handler(async ({ input: params }) =>

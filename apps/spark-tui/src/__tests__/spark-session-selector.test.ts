@@ -99,6 +99,29 @@ const legacyWorkspaceSession: SparkSessionRegistryRecord = {
   updatedAt: "2026-07-13T03:30:00.000Z",
 };
 
+const taskExecutionSession: SparkSessionRegistryRecord = {
+  sessionId: "session-task-worker",
+  title: "role:builtin-worker",
+  role: "role:builtin-worker",
+  scope: { kind: "workspace", workspaceId: "workspace-1" },
+  workspaceId: "workspace-1",
+  status: "ready",
+  bindings: [],
+  relation: {
+    kind: "task_execution",
+    ownerSessionId: "session-recent",
+    projectRef: "proj:demo",
+    taskRef: "task:demo",
+    runRef: "run:demo",
+    sessionGoalId: "goal-demo",
+    roleRef: "role:builtin-worker",
+    jobId: "job-demo",
+    attempt: 1,
+  },
+  createdAt: "2026-07-13T00:00:00.000Z",
+  updatedAt: "2026-07-13T04:00:00.000Z",
+};
+
 const daemonSession: SparkSessionRegistryRecord = {
   sessionId: "session-daemon",
   title: "Daemon conversation",
@@ -162,6 +185,47 @@ test("Spark session selector uses the Cockpit fallback for untitled sessions", (
     lines.some((line) => line.includes("session-untitled")),
     true,
   );
+});
+
+test("Spark session selector hides internal task execution sessions and RoleRefs", () => {
+  const component = createSparkSessionSelectorComponent({
+    sessions: [
+      taskExecutionSession,
+      { ...untitledSession, title: "role:builtin-worker" },
+      untitledSession,
+    ],
+    workspaceId: "workspace-1",
+    workspaceLabel: "spark • /workspace/spark",
+    onSelect: () => undefined,
+  });
+
+  const rendered = component.render(96).join("\n");
+  assert.doesNotMatch(rendered, /session-task-worker/u);
+  assert.doesNotMatch(rendered, /role:builtin-worker/u);
+  assert.match(rendered, /New conversation/u);
+  assert.equal(isSelectableSparkSession(taskExecutionSession), false);
+  assert.equal(
+    isSelectableSparkSession({ ...untitledSession, title: "role:builtin-worker" }),
+    false,
+  );
+});
+
+test("Spark session selector keeps 10,000 internal task transcripts out of the interactive list", () => {
+  const internalSessions = Array.from({ length: 10_000 }, (_, index) => ({
+    ...taskExecutionSession,
+    sessionId: `session-task-worker-${index}`,
+  }));
+  const component = createSparkSessionSelectorComponent({
+    sessions: internalSessions,
+    workspaceId: "workspace-1",
+    workspaceLabel: "spark • /workspace/spark",
+    onSelect: () => undefined,
+  });
+
+  const rendered = component.render(96).join("\n");
+  assert.doesNotMatch(rendered, /session-task-worker/u);
+  assert.doesNotMatch(rendered, /role:builtin-worker/u);
+  assert.match(rendered, /\+ New session/u);
 });
 
 test("Spark session selector switches workspace groups horizontally", () => {

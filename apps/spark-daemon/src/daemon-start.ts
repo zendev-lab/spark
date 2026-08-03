@@ -473,6 +473,8 @@ async function prepareDaemonServing(runtime: PreparedDaemonRuntime): Promise<voi
       channelIngress,
       respondHumanInteraction: (wait, input) => runtime.humanInteractions.respond(wait, input),
       flushHumanRequestOutbox: runtime.flushHumanRequestOutbox,
+      processInvocationQueue: () =>
+        runtime.admission.open ? (runtime.scheduler?.processBatch() ?? false) : false,
     });
   }
   if (channelIngress && canOpenDaemonAdmission(runtime)) {

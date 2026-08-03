@@ -301,7 +301,8 @@ function isInside(directory, file) {
 function sourceFiles(directory) {
   const files = [];
   for (const entry of readdirSync(directory)) {
-    if (["node_modules", ".svelte-kit", "dist", "build", "coverage"].includes(entry)) continue;
+    if (["node_modules", ".svelte-kit", "dist", "build", "coverage", "reports"].includes(entry))
+      continue;
     const path = resolve(directory, entry);
     const stats = lstatSync(path);
     if (stats.isSymbolicLink()) continue;

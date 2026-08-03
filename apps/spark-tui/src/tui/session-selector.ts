@@ -21,9 +21,15 @@ export const CREATE_SPARK_SESSION_SELECTION = "__spark_create_session__";
 
 const UNTITLED_SESSION_LABEL = "New conversation";
 
-/** Native selection exposes active workspace sessions only. */
+/** Native selection exposes active, user-visible workspace sessions only. */
 export function isSelectableSparkSession(session: SparkSessionRegistryRecord): boolean {
-  return session.status !== "archived" && session.scope.kind === "workspace";
+  return (
+    session.status !== "archived" &&
+    session.scope.kind === "workspace" &&
+    session.relation?.kind !== "task_execution" &&
+    session.role?.trim() !== "role:builtin-worker" &&
+    session.title?.trim() !== "role:builtin-worker"
+  );
 }
 
 const plain = (text: string): string => text;
@@ -346,9 +352,10 @@ function sessionGroupIdentity(
 
 function sessionSelectionItem(session: SparkSessionRegistryRecord): SparkSessionSelectionItem {
   const channel = session.bindings[0];
+  const title = userVisibleSessionTitle(session.title);
   return {
     value: session.sessionId,
-    label: session.title?.trim() || UNTITLED_SESSION_LABEL,
+    label: title || UNTITLED_SESSION_LABEL,
     description: [
       session.sessionId,
       channel ? channel.adapter : undefined,
@@ -360,6 +367,12 @@ function sessionSelectionItem(session: SparkSessionRegistryRecord): SparkSession
       .filter(Boolean)
       .join(" • "),
   };
+}
+
+function userVisibleSessionTitle(title: string | undefined): string | undefined {
+  const normalized = title?.trim();
+  if (!normalized || /^role:(?:builtin|project|user)-/u.test(normalized)) return undefined;
+  return normalized;
 }
 
 function relativeSessionUpdate(updatedAt: string): string {

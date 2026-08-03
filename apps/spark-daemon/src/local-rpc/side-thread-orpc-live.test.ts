@@ -88,9 +88,12 @@ describe("Side Thread local-rpc oRPC integration", () => {
           }),
         );
         expect(snapshot).toEqual(repeated);
-        expect(await sessionRegistry.list()).toEqual([
-          expect.objectContaining({ sessionId: "parent-session" }),
-        ]);
+        expect(await sessionRegistry.list()).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ sessionId: "parent-session" }),
+            expect.objectContaining({ relation: { kind: "workspace_main", generation: 1 } }),
+          ]),
+        );
 
         const generationConflict = await invokeSparkDaemonOrpcLiveMethod(
           handle.client,

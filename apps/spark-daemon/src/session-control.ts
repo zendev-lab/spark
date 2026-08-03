@@ -55,6 +55,8 @@ export interface SparkDaemonSessionControlOptions {
   db: DatabaseSync;
   sessionRegistry?: DaemonSessionRegistry;
   modelControl?: SparkDaemonModelControl;
+  /** Wake the owning scheduler immediately after a new durable admission. */
+  onInvocationQueued?: () => void;
   actor: "spark-daemon-local-rpc" | "spark-daemon-runtime-ws";
 }
 
@@ -369,6 +371,7 @@ export async function executeSparkDaemonSessionControl(
         await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
         throw error;
       }
+      options.onInvocationQueued?.();
       if (isTerminalInvocationStatus(store.require(submitted.invocationId).status)) {
         await settleManagedSessionTurn(options.sessionRegistry, parsed.sessionId);
       }

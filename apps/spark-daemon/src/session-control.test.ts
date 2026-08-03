@@ -233,11 +233,13 @@ describe("daemon session control admission", () => {
       idempotencyKey: "idem_10000000000000000000000000000000",
       payload: { sessionId: "session-race", prompt: "admit exactly once" },
     };
+    const onInvocationQueued = vi.fn();
     const options = {
       paths,
       db,
       sessionRegistry,
       modelControl,
+      onInvocationQueued,
       actor: "spark-daemon-runtime-ws" as const,
     };
 
@@ -256,6 +258,7 @@ describe("daemon session control admission", () => {
         task: { model: "provider-b/model-b" },
       });
       expect(await sessionRegistry.get(request.sessionId)).toMatchObject({ status: "running" });
+      expect(onInvocationQueued).toHaveBeenCalledTimes(1);
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });

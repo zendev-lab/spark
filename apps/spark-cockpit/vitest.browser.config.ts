@@ -13,7 +13,7 @@ const config = {
   plugins,
   optimizeDeps: {
     exclude: ["@lucide/svelte", "bits-ui", "svelte-streamdown"],
-    include: ["bits-ui > style-to-object"],
+    include: ["bits-ui > svelte-toolbelt > style-to-object"],
   },
   resolve: {
     conditions: ["browser"],

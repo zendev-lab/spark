@@ -8,7 +8,7 @@ import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-syst
 
 const dispatcherStrings = sparkCliDispatcherStrings();
 
-export type SparkDispatcherTarget = "tui" | "daemon" | "cockpit" | "acp" | "update";
+export type SparkDispatcherTarget = "tui" | "daemon" | "hub" | "cockpit" | "acp" | "update";
 
 export type SparkDispatcherCommand =
   | {
@@ -70,9 +70,11 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
     case "daemon":
       return { kind: "dispatch", target: "daemon", argv: rest };
     case "server":
-      return errorCommand('The "spark server" namespace was removed. Use "spark cockpit" instead.');
+      return errorCommand('The "spark server" namespace was removed. Use "spark hub" instead.');
     case "cockpit":
       return { kind: "dispatch", target: "cockpit", argv: rest };
+    case "hub":
+      return { kind: "dispatch", target: "hub", argv: rest };
     case "acp":
       return { kind: "dispatch", target: "acp", argv: rest };
     default:
@@ -277,11 +279,15 @@ export function resolveTargetCommand(target: SparkDispatcherTarget): {
   if (local) {
     return {
       command: local,
-      args: [],
+      args: target === "hub" ? ["hub"] : [],
       label: targetLabel(target),
     };
   }
-  return { command: targetExecutable(target), args: [], label: targetLabel(target) };
+  return {
+    command: targetExecutable(target),
+    args: target === "hub" ? ["hub"] : [],
+    label: targetLabel(target),
+  };
 }
 
 function targetLabel(target: SparkDispatcherTarget): string {
@@ -312,6 +318,7 @@ function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | un
   const entryByTarget: Record<SparkDispatcherTarget, string> = {
     tui: "../spark-tui/bin/spark-tui",
     daemon: "../spark-daemon/bin/spark-daemon",
+    hub: "../spark-cockpit/bin/spark-cockpit",
     cockpit: "../spark-cockpit/bin/spark-cockpit",
     acp: "../../packages/spark-acp/scripts/stdio.ts",
     update: "../../packages/spark-update/bin/spark-update",
@@ -320,6 +327,7 @@ function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | un
 }
 
 function targetExecutable(target: SparkDispatcherTarget): string {
+  if (target === "hub") return "spark-cockpit";
   return `spark-${target}`;
 }
 
