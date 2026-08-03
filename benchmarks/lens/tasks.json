@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "promptTemplate": "Repair the injected defect, minimize source reads and edits, and finish only after project verification passes.",
+  "tasks": [
+    {
+      "id": "typescript-null-boundary",
+      "language": "typescript",
+      "fixture": "fixtures/typescript",
+      "mutation": {
+        "path": "src/model.ts",
+        "find": "return user.name;",
+        "replace": "return user.nickname;"
+      },
+      "capabilities": [
+        "diagnostics",
+        "navigation",
+        "format",
+        "patch_proposal",
+        "project_verification"
+      ]
+    },
+    {
+      "id": "typescript-impact-rename",
+      "language": "typescript",
+      "fixture": "fixtures/typescript",
+      "mutation": {
+        "path": "src/model.ts",
+        "find": "displayName",
+        "replace": "label"
+      },
+      "capabilities": ["structural_search", "impact", "triage", "patch_proposal"]
+    },
+    {
+      "id": "typescript-stale-fix",
+      "language": "typescript",
+      "fixture": "fixtures/typescript",
+      "faultInjection": "stale-provider-result",
+      "capabilities": ["diagnostics", "patch_proposal", "project_verification"]
+    },
+    {
+      "id": "python-optional-boundary",
+      "language": "python",
+      "fixture": "fixtures/python",
+      "mutation": {
+        "path": "app.py",
+        "find": "return user.name",
+        "replace": "return user.nickname"
+      },
+      "capabilities": [
+        "diagnostics",
+        "navigation",
+        "format",
+        "patch_proposal",
+        "project_verification"
+      ]
+    },
+    {
+      "id": "python-impact-rename",
+      "language": "python",
+      "fixture": "fixtures/python",
+      "mutation": {
+        "path": "models.py",
+        "find": "display_name",
+        "replace": "label"
+      },
+      "capabilities": ["structural_search", "impact", "triage", "patch_proposal"]
+    },
+    {
+      "id": "python-provider-conflict",
+      "language": "python",
+      "fixture": "fixtures/python",
+      "faultInjection": "verifier-conflict",
+      "capabilities": ["diagnostics", "triage", "project_verification"]
+    },
+    {
+      "id": "rust-option-boundary",
+      "language": "rust",
+      "fixture": "fixtures/rust",
+      "mutation": {
+        "path": "src/lib.rs",
+        "find": "&user.name",
+        "replace": "user.nickname.as_deref().unwrap()"
+      },
+      "capabilities": [
+        "diagnostics",
+        "navigation",
+        "format",
+        "patch_proposal",
+        "project_verification"
+      ]
+    },
+    {
+      "id": "rust-impact-rename",
+      "language": "rust",
+      "fixture": "fixtures/rust",
+      "mutation": {
+        "path": "src/lib.rs",
+        "find": "display_name",
+        "replace": "label"
+      },
+      "capabilities": ["structural_search", "impact", "triage", "patch_proposal"]
+    },
+    {
+      "id": "rust-provider-restart",
+      "language": "rust",
+      "fixture": "fixtures/rust",
+      "faultInjection": "daemon-restart",
+      "capabilities": ["diagnostics", "patch_proposal", "project_verification"]
+    }
+  ]
+}
