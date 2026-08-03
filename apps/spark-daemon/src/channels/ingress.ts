@@ -305,7 +305,14 @@ export async function migrateLegacyChannelsConfig(
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 
-  const legacy = legacyChannelsConfigPath(sparkHome);
+  let legacy: string;
+  try {
+    legacy = legacyChannelsConfigPath(sparkHome);
+  } catch (error) {
+    throw new Error(`invalid Spark home for legacy channels config: ${sparkHome}`, {
+      cause: error,
+    });
+  }
   let raw: string;
   try {
     raw = await readFile(legacy, "utf8");
