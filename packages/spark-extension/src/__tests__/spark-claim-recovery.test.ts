@@ -192,3 +192,21 @@ test("stale claim recovery refuses when owner activity is newer than needs_chang
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("terminal task without a claim is recoverable for retry", async () => {
+  const { graph, project, task } = plannedTaskGraph();
+  const failed = graph.setTaskStatus(task.ref, "failed");
+
+  const decision = await evaluateSparkTaskClaimRecovery({
+    cwd: process.cwd(),
+    task: failed,
+    projectRef: project.ref,
+    currentSessionKey: "session:current",
+    workflowRunStatus: IDLE_WORKFLOW_STATUS,
+    activeRoleRunProcesses: [],
+    now: "2026-06-17T00:00:01.000Z",
+  });
+
+  assert.equal(decision.recoverable, true);
+  assert.equal(decision.reason, "terminal_without_claim");
+});

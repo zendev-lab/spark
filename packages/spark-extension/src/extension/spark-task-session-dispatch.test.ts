@@ -5,9 +5,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { requestSparkDaemon, SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
 import type { ProjectRef, TaskRef, TaskResourceAllocation } from "@zendev-lab/spark-core";
-import { loadSessionGoal } from "@zendev-lab/spark-loop";
+import { createSubgoal, loadSessionGoal } from "@zendev-lab/spark-loop";
 import type { SparkTaskExecutionSessionRelation } from "@zendev-lab/spark-protocol";
 import { createSparkSessionRepro } from "@zendev-lab/spark-repro";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { RoleRegistry } from "@zendev-lab/spark-roles";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";
 import {
@@ -193,6 +194,125 @@ describe("managed Task Session dispatch", () => {
     expect(safeSubgoals.every((subgoal) => subgoal.status !== "done")).toBe(true);
   });
 
+  it("issues a bound runtime step-proof when a managed safe_local Task finishes", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-step-proof-"));
+    roots.push(cwd);
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Repro", description: "Repro" });
+    const planned = graph.planTasks(project.ref, [
+      {
+        name: "freeze-inputs",
+        title: "Freeze inputs",
+        description: "Freeze inputs",
+        kind: "research",
+        roleRef: "role:builtin-explorer",
+        plan: normalizeTaskPlan(
+          {
+            objective:
+              "Freeze exact source, model, weight, tokenizer, config, and dataset revisions.",
+            contextRefs: [],
+            constraints: ["Use immutable hashes and revisions."],
+            nonGoals: ["Do not run model training."],
+            successCriteria: [
+              "Evidence records exact revisions and SHA-256 hashes for every immutable input.",
+            ],
+            evidenceRequired: [
+              "Manifest evidence with repositories, model, weights, tokenizer, config, and data.",
+            ],
+            steps: ["Inspect frozen inputs and record exact revisions and hashes."],
+            openQuestions: [],
+            askRefs: [],
+            riskLevel: "normal",
+          },
+          "Freeze exact immutable inputs",
+          "Freeze inputs",
+        ),
+      },
+    ]);
+    const task = planned.created[0]!;
+    const repro = createSparkSessionRepro("sess_owner");
+    const step = repro.plan.steps[0]!;
+    const subgoal = {
+      ...createSubgoal({
+        planRevision: repro.plan.currentRevision,
+        goal: step.goal,
+        doneWhen: step.doneWhen,
+        evidenceRequired: step.evidenceRequired,
+        authority: step.authority,
+        taskRef: task.ref,
+      }),
+      id: step.id,
+      stage: step.stage,
+    };
+    await defaultTaskGraphStore(cwd).save(graph);
+    const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
+      if (method === "session.get" || method === "session.create")
+        return {
+          sessionId: String(input.sessionId),
+          scope: { kind: "workspace", workspaceId: "ws" },
+          workspaceId: "ws",
+          status: "ready",
+          cwd,
+          bindings: [],
+          createdAt: "2026-07-29T00:00:00.000Z",
+          updatedAt: "2026-07-29T00:00:00.000Z",
+        };
+      if (method === "turn.submit")
+        return {
+          invocationId: "inv_step_proof",
+          status: "queued",
+          acceptedAt: "2026-07-29T00:00:00.000Z",
+        };
+      if (method === "turn.status")
+        return {
+          invocationId: String(input.invocationId),
+          status: "succeeded",
+          acceptedAt: "2026-07-29T00:00:00.000Z",
+          completedAt: "2026-07-29T00:01:00.000Z",
+        };
+      throw new Error(`unexpected daemon method: `);
+    }) as typeof requestSparkDaemon;
+    await dispatchManagedTaskSessions({
+      cwd,
+      ctx: { sessionId: "sess_owner" },
+      ownerSessionId: "sess_owner",
+      projectRef: project.ref,
+      taskRefs: [task.ref],
+      registry: new RoleRegistry(),
+      subgoals: [subgoal],
+      daemonRequest,
+    });
+    const output = await defaultEvidenceStore(cwd).put({
+      kind: "record",
+      title: "Manifest",
+      format: "json",
+      body: { ok: true },
+      provenance: { producer: "task", projectRef: project.ref, taskRef: task.ref },
+    });
+    const persisted = await defaultTaskGraphStore(cwd).load();
+    persisted!.attachOutputEvidence(task.ref, output.ref);
+    persisted!.setTaskStatus(task.ref, "done");
+    await defaultTaskGraphStore(cwd).save(persisted!);
+    await reconcileManagedTaskSessions({
+      cwd,
+      ctx: { sessionId: "sess_owner" },
+      projectRef: project.ref,
+      subgoals: [subgoal],
+      repro,
+      daemonRequest,
+    });
+    const finalGraph = await defaultTaskGraphStore(cwd).load();
+    const run = finalGraph!.runs(project.ref)[0]!;
+    expect(run.status).toBe("succeeded");
+    expect(run.outputEvidenceRefs).toHaveLength(2);
+    const proof = await defaultEvidenceStore(cwd).tryGet(run.outputEvidenceRefs[1]!);
+    expect(proof?.body).toMatchObject({
+      schema: "spark.repro.step-proof/v1",
+      stepId: subgoal.id,
+      passed: true,
+    });
+  });
+
   it.each([
     { continuity: "reuse_within_revision" as const, reusesSession: true },
     { continuity: "fresh" as const, reusesSession: false },
@@ -228,7 +348,6 @@ describe("managed Task Session dispatch", () => {
           "Retry task",
         ),
       });
-      graph.setTaskStatus(task.ref, "ready");
       await defaultTaskGraphStore(cwd).save(graph);
       const resourceAllocation: TaskResourceAllocation = {
         leaseId: "resource:retry",

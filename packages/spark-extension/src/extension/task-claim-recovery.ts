@@ -12,7 +12,10 @@ import type { WorkflowRunStatusSummary } from "@zendev-lab/spark-workflows";
 import type { ActiveSparkRoleRunProcess } from "@zendev-lab/spark-runtime";
 import { sessionDirectoryNameForKey } from "@zendev-lab/spark-loop";
 
-export type SparkTaskClaimRecoveryReason = "claim_expired" | "review_needs_changes_owner_inactive";
+export type SparkTaskClaimRecoveryReason =
+  | "claim_expired"
+  | "review_needs_changes_owner_inactive"
+  | "terminal_without_claim";
 
 export type SparkTaskClaimRecoveryRefusalReason =
   | "no_claim"
@@ -61,7 +64,22 @@ export async function evaluateSparkTaskClaimRecovery(input: {
 }): Promise<SparkTaskClaimRecoveryDecision> {
   const now = input.now ?? nowIso();
   const claim = input.task.claim;
-  if (!claim) return refusal("no_claim", "Task has no active claim to recover.", { now });
+  if (!claim) {
+    if (
+      input.task.status === "failed" ||
+      input.task.status === "cancelled" ||
+      input.task.status === "blocked"
+    ) {
+      return {
+        recoverable: true,
+        reason: "terminal_without_claim",
+        guidance:
+          "Task is terminal but has no active claim; it can be reset to pending and retried with recovery evidence.",
+        evidence: baseEvidence(input.task, now),
+      };
+    }
+    return refusal("no_claim", "Task has no active claim to recover.", { now });
+  }
   if (claim.sessionId === input.currentSessionKey || claim.claimedBy === input.currentSessionKey)
     return refusal("current_session_claim", "Task is already claimed by the current session.", {
       now,
