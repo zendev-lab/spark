@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- preserves the 56-block CLI manifest as one owner-local suite. */
 import assert from "node:assert/strict";
+import { realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -19,7 +20,7 @@ import { SparkKeybindings } from "../host/keybindings.ts";
 import type { SparkCliHostServices } from "../host/bootstrap.ts";
 import { SparkHostRuntime } from "../host/runtime.ts";
 import { SparkSessionMailStore } from "../host/session-mail-store.ts";
-import { SparkSessionStore } from "../host/session-store.ts";
+import { SparkSessionStore, workspaceSessionHash } from "../host/session-store.ts";
 import { createSparkNativeTuiHarness } from "../test-support/spark-native-tui-harness.ts";
 import {
   clientRespondHumanInteraction,
@@ -33,7 +34,6 @@ import {
   type SparkDaemonClientOptions,
 } from "../cli/daemon.ts";
 import { SparkNativeAdmissionError } from "../native-tui.ts";
-import { CREATE_SPARK_SESSION_SELECTION } from "../tui/session-selector.ts";
 
 test("source daemon service artifacts are rebuilt before execution", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-daemon-source-artifact-"));
@@ -1910,6 +1910,10 @@ test("Spark TUI and headless print attach and release workspace clients", async 
         servers: [],
         invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
       }),
+      workspaceList: async () => ({
+        workspaces: [workspace],
+        observedAt: "2026-06-19T00:00:00.000Z",
+      }),
       workspaceEnsureLocal: async (_paths, input) => {
         ensures.push(input);
         return workspace;
@@ -2091,6 +2095,7 @@ test("Spark TUI and headless print attach and release workspace clients", async 
       await runSparkCli([], {
         daemonClient,
         terminal: { stdinIsTTY: true, stdoutIsTTY: true },
+        launchCwd: dir,
         createHostServices: async () =>
           ({
             cwd: dir,
@@ -2133,9 +2138,14 @@ test("Spark TUI and headless print attach and release workspace clients", async 
             diagnostics: [],
           }) as never,
         selectSession: async (options) => {
-          assert.equal(options.workspaceLabel, `Workspace • ${dir}`);
+          assert.equal(options.suggestedWorkspaceId, workspace.id);
+          assert.equal(
+            options.workspaces.find((candidate) => candidate.canonicalId === workspace.id)
+              ?.localPath,
+            dir,
+          );
           assert.equal(options.sessions.length, 2);
-          return CREATE_SPARK_SESSION_SELECTION;
+          return { kind: "create", workspaceId: workspace.id };
         },
         runTui: async (input) => {
           capturedTuiOptions = input;
@@ -2227,7 +2237,7 @@ test("Spark TUI and headless print attach and release workspace clients", async 
       "wcl-interactive-4",
       "wcl-interactive-3",
     ]);
-    assert.equal(ensures.length, 3);
+    assert.equal(ensures.length, 2, "registered TUI workspace attach must not ensure launch cwd");
     assert.deepEqual(
       registeredSessions.map((session) => ({
         sessionId: session.sessionId,
@@ -2295,7 +2305,7 @@ test("native TUI session gate exits without creating an implicit session", async
   }
 });
 
-test("native TUI selects an existing daemon session and restores its snapshot", async () => {
+test("native TUI selects a History Session, restores it, and loads its snapshot", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-cli-session-select-"));
   try {
     const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
@@ -2305,12 +2315,21 @@ test("native TUI selects an existing daemon session and restores its snapshot", 
       title: "Existing conversation",
       scope: { kind: "workspace" as const, workspaceId: "workspace-current" },
       workspaceId: "workspace-current",
-      status: "ready" as const,
+      status: "archived" as const,
+      tags: ["policy:inactive-unassigned-30d"],
+      archiveHistory: [
+        {
+          archivedAt: now,
+          source: "retention" as const,
+          tags: ["policy:inactive-unassigned-30d"],
+        },
+      ],
       bindings: [],
       createdAt: now,
       updatedAt: now,
       cwd: dir,
     };
+    let restoreCalls = 0;
     const daemonClient: SparkDaemonClientOptions = {
       ...base.daemonClient,
       managedSessions: {
@@ -2321,7 +2340,12 @@ test("native TUI selects an existing daemon session and restores its snapshot", 
         get: async () => existing,
         bind: async () => existing,
         unbind: async () => existing,
-        archive: async () => ({ ...existing, status: "archived" as const }),
+        archive: async () => existing,
+        restore: async (sessionId) => {
+          assert.equal(sessionId, existing.sessionId);
+          restoreCalls += 1;
+          return { ...existing, status: "ready" as const };
+        },
       },
       controlRequest: async (method, params) => {
         assert.equal(method, "session.snapshot");
@@ -2364,7 +2388,11 @@ test("native TUI selects an existing daemon session and restores its snapshot", 
         terminal: { stdinIsTTY: true, stdoutIsTTY: true },
         selectSession: async (options) => {
           selectedOptions = options;
-          return existing.sessionId;
+          return {
+            kind: "session",
+            sessionId: existing.sessionId,
+            workspaceId: existing.scope.workspaceId,
+          };
         },
         runTui: async (input) => {
           assert.equal(typeof input, "object");
@@ -2388,6 +2416,7 @@ test("native TUI selects an existing daemon session and restores its snapshot", 
       selectedOptions?.sessions.map((session) => session.sessionId),
       [existing.sessionId],
     );
+    assert.equal(restoreCalls, 1);
     assert.match(rendered, /Restored from daemon/u);
     assert.match(rendered, /Existing conversation/u);
   } finally {
@@ -2461,8 +2490,8 @@ test("native /sessions reopens the startup selector and attaches the selected se
       },
     };
     const selectorCalls: Array<{
-      workspaceId: string;
-      workspaceLabel: string;
+      suggestedWorkspaceId: string | undefined;
+      workspaceIds: string[];
       sessionIds: string[];
     }> = [];
     const attachedSessionIds: string[] = [];
@@ -2474,11 +2503,16 @@ test("native /sessions reopens the startup selector and attaches the selected se
         terminal: { stdinIsTTY: true, stdoutIsTTY: true },
         selectSession: async (options) => {
           selectorCalls.push({
-            workspaceId: options.workspaceId,
-            workspaceLabel: options.workspaceLabel,
+            suggestedWorkspaceId: options.suggestedWorkspaceId,
+            workspaceIds: options.workspaces.map((workspace) => workspace.canonicalId),
             sessionIds: options.sessions.map((session) => session.sessionId),
           });
-          return selectorCalls.length === 1 ? sessions[0]!.sessionId : sessions[1]!.sessionId;
+          const selected = selectorCalls.length === 1 ? sessions[0]! : sessions[1]!;
+          return {
+            kind: "session",
+            sessionId: selected.sessionId,
+            workspaceId: selected.scope.workspaceId,
+          };
         },
         runTui: async (input) => {
           assert.equal(typeof input, "object");
@@ -2539,6 +2573,15 @@ test("native TUI lists all daemon sessions and routes a cross-workspace selectio
       createdAt: now,
       updatedAt: now,
     };
+    const otherWorkspace = {
+      id: "workspace-other-binding",
+      serverWorkspaceId: "workspace-other",
+      serverUrl: "http://127.0.0.1:5173/",
+      localWorkspaceKey: "spore",
+      displayName: "spore",
+      localPath: otherDir,
+      status: "active",
+    };
     const listRequests: unknown[] = [];
     const daemonClient: SparkDaemonClientOptions = {
       ...base.daemonClient,
@@ -2565,18 +2608,19 @@ test("native TUI lists all daemon sessions and routes a cross-workspace selectio
             localPath: dir,
             status: "active",
           },
-          {
-            id: "workspace-other-binding",
-            serverWorkspaceId: "workspace-other",
-            serverUrl: "http://127.0.0.1:5173/",
-            localWorkspaceKey: "spore",
-            displayName: "spore",
-            localPath: otherDir,
-            status: "active",
-          },
+          otherWorkspace,
         ],
         observedAt: now,
       }),
+      workspaceClientAttach: async (paths, input) => {
+        const attached = await base.daemonClient.workspaceClientAttach!(paths, input);
+        if (input.workspaceId !== otherWorkspace.id) return attached;
+        return {
+          ...attached,
+          client: { ...attached.client, workspaceId: otherWorkspace.id },
+          workspace: otherWorkspace,
+        };
+      },
       controlRequest: async (method, params) => {
         assert.equal(method, "session.snapshot");
         assert.deepEqual(params, { sessionId: other.sessionId });
@@ -2601,19 +2645,25 @@ test("native TUI lists all daemon sessions and routes a cross-workspace selectio
         daemonClient,
         createHostServices: base.createHostServices,
         terminal: { stdinIsTTY: true, stdoutIsTTY: true },
+        launchCwd: dir,
         selectSession: async (options) => {
-          assert.equal(options.workspaceId, "workspace-current");
+          assert.equal(options.suggestedWorkspaceId, "workspace-current");
           selectorSessionIds = options.sessions.map((session) => session.sessionId);
           assert.deepEqual(
-            options.workspaces?.find((workspace) => workspace.id === "workspace-other"),
+            options.workspaces.find((workspace) => workspace.id === "workspace-other"),
             {
               id: "workspace-other",
               canonicalId: "workspace-other-binding",
               displayName: "spore",
               localPath: otherDir,
+              registration: "registered",
             },
           );
-          return other.sessionId;
+          return {
+            kind: "session",
+            sessionId: other.sessionId,
+            workspaceId: other.scope.workspaceId,
+          };
         },
         runTui: async (input) => {
           assert.equal(typeof input, "object");
@@ -2627,8 +2677,243 @@ test("native TUI lists all daemon sessions and routes a cross-workspace selectio
       0,
     );
 
-    assert.deepEqual(listRequests, [{}]);
+    assert.deepEqual(listRequests, [{ includeArchived: true }]);
     assert.deepEqual(selectorSessionIds, [current.sessionId, other.sessionId]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("does not ensure the launch cwd before session selection", async () => {
+  const sessions = [
+    {
+      sessionId: "existing-session",
+      scope: { kind: "workspace" as const, workspaceId: "registered-workspace" },
+      workspaceId: "registered-workspace",
+      status: "ready" as const,
+      bindings: [] as [],
+      createdAt: "2026-07-31T00:00:00.000Z",
+      updatedAt: "2026-07-31T00:00:00.000Z",
+    },
+  ];
+  let ensureCount = 0;
+  let attachCount = 0;
+  const daemonClient: SparkDaemonClientOptions = {
+    managedSessions: {
+      list: async () => sessions,
+      create: async () => {
+        throw new Error("selector cancellation must not create a session");
+      },
+      get: async () => sessions[0]!,
+      bind: async () => sessions[0]!,
+      unbind: async () => sessions[0]!,
+      archive: async () => ({ ...sessions[0]!, status: "archived" as const }),
+    },
+    workspaceList: async () => ({
+      workspaces: [
+        {
+          id: "registered-workspace",
+          serverUrl: "",
+          localWorkspaceKey: "registered",
+          displayName: "Registered",
+          localPath: "/registered/workspace",
+          status: "active",
+        },
+      ],
+      observedAt: "2026-07-31T00:00:00.000Z",
+    }),
+    workspaceEnsureLocal: async () => {
+      ensureCount += 1;
+      throw new Error("launch cwd was ensured before selection");
+    },
+    workspaceClientAttach: async () => {
+      attachCount += 1;
+      throw new Error("workspace lease was attached before selection");
+    },
+  };
+
+  const beforeRegistryCount = sessions.length;
+  const code = await runSparkCli([], {
+    daemonClient,
+    terminal: { stdinIsTTY: true, stdoutIsTTY: true },
+    launchCwd: "/launch/unregistered",
+    selectSession: async (options) => {
+      assert.equal(options.suggestedWorkspaceId, "__spark_launch_cwd_workspace__");
+      assert.equal(options.sessions.length, beforeRegistryCount);
+      assert.equal(ensureCount, 0);
+      assert.equal(attachCount, 0);
+      return null;
+    },
+    createHostServices: async () => {
+      throw new Error("host services must not be created before selection");
+    },
+    runTui: async () => {
+      throw new Error("cancelled selector must not launch TUI");
+    },
+  });
+
+  assert.equal(code, 0);
+  assert.equal(sessions.length, beforeRegistryCount);
+  assert.equal(ensureCount, 0);
+  assert.equal(attachCount, 0);
+});
+
+test("attaches the selected workspace instead of launch cwd", async () => {
+  const launchDir = await mkdtemp(join(tmpdir(), "spark-cli-control-plane-first-"));
+  const targetDir = join(launchDir, "selected-workspace");
+  await mkdir(targetDir, { recursive: true });
+  try {
+    const base = createWorkspaceAttachTestDeps(launchDir, { existingSessionIds: new Set() });
+    const now = "2026-07-31T00:00:00.000Z";
+    const targetWorkspace = {
+      id: "workspace-target",
+      serverUrl: "",
+      localWorkspaceKey: "target",
+      displayName: "Target",
+      localPath: targetDir,
+      status: "active" as const,
+    };
+    const targetSession = {
+      sessionId: "target-session",
+      scope: { kind: "workspace" as const, workspaceId: targetWorkspace.id },
+      workspaceId: targetWorkspace.id,
+      cwd: targetDir,
+      status: "ready" as const,
+      bindings: [] as [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    let ensureCount = 0;
+    const attaches: Array<{ workspaceId: string; sessionId?: string }> = [];
+    const daemonClient: SparkDaemonClientOptions = {
+      ...base.daemonClient,
+      workspaceList: async () => ({
+        workspaces: [targetWorkspace],
+        observedAt: now,
+      }),
+      workspaceEnsureLocal: async () => {
+        ensureCount += 1;
+        return await base.daemonClient.workspaceEnsureLocal!();
+      },
+      workspaceClientAttach: async (paths, input) => {
+        attaches.push({
+          workspaceId: input.workspaceId,
+          ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+        });
+        const attached = await base.daemonClient.workspaceClientAttach!(paths, input);
+        return {
+          ...attached,
+          client: { ...attached.client, workspaceId: targetWorkspace.id },
+          workspace: targetWorkspace,
+        };
+      },
+      managedSessions: {
+        list: async () => [targetSession],
+        create: async () => {
+          throw new Error("existing target session must not be recreated");
+        },
+        get: async () => targetSession,
+        bind: async () => targetSession,
+        unbind: async () => targetSession,
+        archive: async () => ({ ...targetSession, status: "archived" as const }),
+      },
+    };
+    let hostCwd: string | undefined;
+
+    assert.equal(
+      await runSparkCli([], {
+        daemonClient,
+        terminal: { stdinIsTTY: true, stdoutIsTTY: true },
+        launchCwd: launchDir,
+        selectSession: async (options) => {
+          assert.equal(ensureCount, 0);
+          assert.equal(attaches.length, 0);
+          assert.equal(options.sessions[0]?.scope.kind, "workspace");
+          if (options.sessions[0]?.scope.kind !== "workspace")
+            throw new Error("expected workspace session");
+          assert.equal(options.sessions[0].scope.workspaceId, targetWorkspace.id);
+          return {
+            kind: "session",
+            sessionId: targetSession.sessionId,
+            workspaceId: targetWorkspace.id,
+          };
+        },
+        createHostServices: async (hostOptions) => {
+          hostCwd = hostOptions?.cwd;
+          return await base.createHostServices(hostOptions);
+        },
+        runTui: async (input) => {
+          assert.equal(typeof input, "object");
+          assert.notEqual(input, null);
+          const options = input as Exclude<typeof input, string | undefined>;
+          assert.equal(options.workspaceSession?.workspaceDir, targetDir);
+          assert.equal(options.autocompleteBasePath, targetDir);
+          assert.equal(options.workspaceSession?.attachTarget, targetSession.sessionId);
+        },
+      }),
+      0,
+    );
+
+    assert.equal(ensureCount, 0);
+    assert.equal(hostCwd, targetDir);
+    assert.deepEqual(
+      attaches.map((attach) => attach.workspaceId),
+      [targetWorkspace.id, targetWorkspace.id],
+    );
+    assert.equal(attaches[1]?.sessionId, "session:target-session");
+    assert.equal(targetSession.scope.workspaceId, targetWorkspace.id);
+
+    const attachCount = attaches.length;
+    await assert.rejects(
+      runSparkCli([], {
+        daemonClient,
+        terminal: { stdinIsTTY: true, stdoutIsTTY: true },
+        launchCwd: launchDir,
+        selectSession: async () => ({ kind: "create" }) as never,
+        createHostServices: base.createHostServices,
+        runTui: async () => undefined,
+      }),
+      /explicit workspace/u,
+    );
+    assert.equal(attaches.length, attachCount);
+  } finally {
+    await rm(launchDir, { recursive: true, force: true });
+  }
+});
+
+test("native TUI validates session creation before constructing host services", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-cli-session-create-order-"));
+  try {
+    const base = createWorkspaceAttachTestDeps(dir, { existingSessionIds: new Set() });
+    let hostServiceCreates = 0;
+    let workspaceReleases = 0;
+    const daemonClient: SparkDaemonClientOptions = {
+      ...base.daemonClient,
+      workspaceClientRelease: async (paths, input) => {
+        workspaceReleases += 1;
+        return await base.daemonClient.workspaceClientRelease!(paths, input);
+      },
+    };
+
+    await assert.rejects(
+      runSparkCli([], {
+        daemonClient,
+        terminal: { stdinIsTTY: true, stdoutIsTTY: true },
+        launchCwd: dir,
+        selectSession: async (options) => ({
+          kind: "create",
+          workspaceId: options.suggestedWorkspaceId!,
+        }),
+        createHostServices: async (options) => {
+          hostServiceCreates += 1;
+          return await base.createHostServices(options);
+        },
+        runTui: async () => undefined,
+      }),
+      /not used/u,
+    );
+    assert.equal(hostServiceCreates, 0);
+    assert.equal(workspaceReleases, 1);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -2639,6 +2924,7 @@ test("native TUI explicit session attach requires matching workspace", async () 
   try {
     const { daemonClient, createHostServices } = createWorkspaceAttachTestDeps(dir, {
       existingSessionIds: new Set(["same-session"]),
+      pathSession: { path: "relative-session.jsonl", id: "same-session" },
     });
     const captured: unknown[] = [];
 
@@ -2665,7 +2951,25 @@ test("native TUI explicit session attach requires matching workspace", async () 
     );
 
     assert.equal(
-      await runSparkCli(["--session-id", "other-session"], {
+      await runSparkCli(["--session", "relative-session.jsonl"], {
+        daemonClient,
+        createHostServices,
+        terminal: { stdinIsTTY: true, stdoutIsTTY: true },
+        launchCwd: join(dir, "different-launch-cwd"),
+        runTui: async (input) => {
+          captured.push(input);
+        },
+      }),
+      0,
+    );
+    assert.equal(
+      (captured[1] as { workspaceSession?: { attachTarget?: string } }).workspaceSession
+        ?.attachTarget,
+      "same-session",
+    );
+
+    await assert.rejects(
+      runSparkCli(["--session-id", "other-session"], {
         daemonClient,
         createHostServices,
         terminal: { stdinIsTTY: true, stdoutIsTTY: true },
@@ -2673,15 +2977,9 @@ test("native TUI explicit session attach requires matching workspace", async () 
           captured.push(input);
         },
       }),
-      0,
+      /not found in the daemon registry/u,
     );
-    const mismatch = (
-      captured[1] as {
-        workspaceSession?: { mode?: string; mismatchDiagnostic?: string };
-      }
-    ).workspaceSession;
-    assert.equal(mismatch?.mode, "mismatch");
-    assert.match(mismatch?.mismatchDiagnostic ?? "", /not found in workspace/u);
+    assert.equal(captured.length, 2);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -2761,7 +3059,7 @@ test("native TUI accepts durable session-dir session id and hydrates project coc
     );
     assert.match(capturedRender, /task:current \[running\]/u);
     assert.match(capturedRender, /task:ready \[pending\]/u);
-    assert.match(capturedRender, /Spark durable sessions:/u);
+    assert.match(capturedRender, /Spark workspace sessions:/u);
     assert.doesNotMatch(capturedRender, /No Spark sessions found/u);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -2816,12 +3114,23 @@ function createDurableSessionAttachTestDeps(dir: string, stateRoot: string) {
     localPath: dir,
     status: "active",
   };
+  const managedSession = {
+    sessionId: "durable-session",
+    scope: { kind: "workspace" as const, workspaceId: workspace.id },
+    workspaceId: workspace.id,
+    cwd: dir,
+    status: "ready" as const,
+    bindings: [] as [],
+    createdAt: now,
+    updatedAt: now,
+  };
   const daemonClient = {
     daemonStatus: async () => ({
       observedAt: now,
       servers: [],
       invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
     }),
+    workspaceList: async () => ({ workspaces: [workspace], observedAt: now }),
     workspaceEnsureLocal: async () => workspace,
     workspaceClientAttach: async (_paths, input) => ({
       client: {
@@ -2850,14 +3159,14 @@ function createDurableSessionAttachTestDeps(dir: string, stateRoot: string) {
       observedAt: now,
     }),
     managedSessions: {
-      list: async () => {
-        throw new Error("registry unavailable in durable-session fallback fixture");
-      },
+      list: async () => [managedSession],
       create: async () => {
         throw new Error("not used");
       },
-      get: async () => {
-        throw new Error("registry unavailable in durable-session fallback fixture");
+      get: async (sessionId) => {
+        if (sessionId !== managedSession.sessionId)
+          throw new Error(`unknown session: ${sessionId}`);
+        return managedSession;
       },
       bind: async () => {
         throw new Error("not used");
@@ -2985,48 +3294,136 @@ function createWorkspaceAttachTestDeps(
     status: "active",
   };
   const clientId = options.clientId ?? "workspace-client-current";
+  let sessionClientSequence = 0;
+  const sessionClients = new Map<
+    string,
+    { workspaceId: string; sessionId: string; leaseFence: string }
+  >();
+  const managedSessionIds = new Set(options.existingSessionIds);
+  if (options.pathSession) managedSessionIds.add(options.pathSession.id);
+  const managedSessionRecords = [...managedSessionIds].map((sessionId) => ({
+    sessionId,
+    scope: { kind: "workspace" as const, workspaceId: workspace.id },
+    workspaceId: workspace.id,
+    cwd: dir,
+    ...(options.pathSession?.id === sessionId ? { sessionPath: options.pathSession.path } : {}),
+    status: "ready" as const,
+    bindings: [] as [],
+    createdAt: now,
+    updatedAt: now,
+  }));
   const daemonClient = {
     daemonStatus: async () => ({
       observedAt: now,
       servers: [],
       invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
     }),
+    workspaceList: async () => ({ workspaces: [workspace], observedAt: now }),
     workspaceEnsureLocal: async () => workspace,
-    workspaceClientAttach: async (_paths, input) => ({
-      client: {
-        id: clientId,
+    workspaceClientAttach: async (_paths, input) => {
+      if (!input.sessionId) {
+        return {
+          client: {
+            id: clientId,
+            workspaceId: workspace.id,
+            kind: "interactive" as const,
+            status: "connected" as const,
+            attachedAt: now,
+            lastSeenAt: now,
+          },
+          workspace,
+          observedAt: now,
+        };
+      }
+      sessionClientSequence += 1;
+      const sessionClientId = `${clientId}-session-${sessionClientSequence}`;
+      const leaseFence = `fence-${sessionClientSequence}`;
+      sessionClients.set(sessionClientId, {
         workspaceId: input.workspaceId,
-        kind: "interactive" as const,
-        status: "connected" as const,
         sessionId: input.sessionId,
-        leaseFence: "fence-workspace-client",
-        attachedAt: now,
-        lastSeenAt: now,
+        leaseFence,
+      });
+      return {
+        client: {
+          id: sessionClientId,
+          workspaceId: input.workspaceId,
+          kind: "interactive" as const,
+          status: "connected" as const,
+          attachedAt: now,
+          lastSeenAt: now,
+          sessionId: input.sessionId,
+          leaseFence,
+        },
+        workspace,
+        observedAt: now,
+      };
+    },
+    workspaceClientHeartbeat: async (_paths, input) => {
+      const sessionClient = sessionClients.get(input.clientId);
+      assert.ok(sessionClient, `unknown heartbeat client: ${input.clientId}`);
+      return {
+        client: {
+          id: input.clientId,
+          workspaceId: sessionClient.workspaceId,
+          kind: "interactive" as const,
+          status: "connected" as const,
+          attachedAt: now,
+          lastSeenAt: now,
+          sessionId: sessionClient.sessionId,
+          leaseFence: sessionClient.leaseFence,
+        },
+        workspace,
+        observedAt: now,
+      };
+    },
+    workspaceClientRelease: async (_paths, input) => {
+      const sessionClient = sessionClients.get(input.clientId);
+      return {
+        client: {
+          id: input.clientId,
+          workspaceId: sessionClient?.workspaceId ?? workspace.id,
+          kind: "interactive" as const,
+          status: "disconnected" as const,
+          attachedAt: now,
+          lastSeenAt: now,
+          ...(sessionClient
+            ? { sessionId: sessionClient.sessionId, leaseFence: sessionClient.leaseFence }
+            : {}),
+        },
+        workspace,
+        observedAt: now,
+      };
+    },
+    managedSessions: {
+      list: async () => managedSessionRecords,
+      create: async () => {
+        throw new Error("not used");
       },
-      workspace,
-      observedAt: now,
-    }),
-    workspaceClientRelease: async () => ({
-      client: {
-        id: clientId,
-        workspaceId: workspace.id,
-        kind: "interactive" as const,
-        status: "disconnected" as const,
-        attachedAt: now,
-        lastSeenAt: now,
+      get: async (sessionId) => {
+        const record = managedSessionRecords.find((candidate) => candidate.sessionId === sessionId);
+        if (!record) throw new Error(`unknown managed session: ${sessionId}`);
+        return record;
       },
-      workspace,
-      observedAt: now,
-    }),
+      bind: async () => {
+        throw new Error("not used");
+      },
+      unbind: async () => {
+        throw new Error("not used");
+      },
+      archive: async () => {
+        throw new Error("not used");
+      },
+    },
   } satisfies SparkDaemonClientOptions;
   const emitted: Array<{ event: string; payload?: Record<string, unknown> }> = [];
-  const createHostServices = async () => {
-    const runtime = new SparkHostRuntime({ cwd: dir, hasUI: true });
+  const createHostServices = async (hostOptions: { cwd?: string } = {}) => {
+    const selectedCwd = hostOptions.cwd ?? dir;
+    const runtime = new SparkHostRuntime({ cwd: selectedCwd, hasUI: true });
     runtime.on("session_start", (payload) => {
       emitted.push({ event: "session_start", payload: payload as Record<string, unknown> });
     });
     return {
-      cwd: dir,
+      cwd: selectedCwd,
       runtime,
       config: { extensions: [], providers: [], activeThinkingLevel: "medium" },
       providerRegistry: { listProviders: () => [] },
@@ -3098,17 +3495,22 @@ function createWorkspaceAttachTestDeps(
 test("native TUI model selection and following turn share one managed session", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-cli-session-model-"));
   try {
-    const sessionPath = join(
-      dir,
-      "sessions",
-      "workspace-hash-current",
-      "2026-07-13T00-00-00-000Z_same-session.jsonl",
+    const sessionRoot = join(dir, "sessions", workspaceSessionHash(dir));
+    const sessionPath = join(sessionRoot, "2026-07-13T00-00-00-000Z_same-session.jsonl");
+    await mkdir(sessionRoot, { recursive: true });
+    await writeFile(
+      sessionPath,
+      `${JSON.stringify({
+        type: "session",
+        version: 3,
+        id: "same-session",
+        timestamp: "2026-07-13T00:00:00.000Z",
+        cwd: dir,
+      })}\n`,
+      "utf8",
     );
-    await mkdir(join(dir, "sessions", "workspace-hash-current"), { recursive: true });
-    await writeFile(sessionPath, "{}\n", "utf8");
     const base = createWorkspaceAttachTestDeps(dir, {
       existingSessionIds: new Set(),
-      pathSession: { path: sessionPath, id: "same-session" },
     });
     const managedSessions: Array<{
       sessionId: string;
@@ -3119,6 +3521,7 @@ test("native TUI model selection and following turn share one managed session", 
       createdAt: string;
       updatedAt: string;
       cwd?: string;
+      sessionPath?: string;
       model?: { providerName: string; modelId: string };
     }> = [];
     const controlCalls: Array<{ method: string; params: unknown }> = [];
@@ -3144,11 +3547,16 @@ test("native TUI model selection and following turn share one managed session", 
             createdAt: "2026-07-13T00:00:00.000Z",
             updatedAt: "2026-07-13T00:00:00.000Z",
             ...(input.cwd ? { cwd: input.cwd } : {}),
+            ...(input.sessionPath ? { sessionPath: input.sessionPath } : {}),
           };
           managedSessions.push(record);
           return record;
         },
-        get: async (sessionId) => managedSessions.find((entry) => entry.sessionId === sessionId)!,
+        get: async (sessionId) => {
+          const session = managedSessions.find((entry) => entry.sessionId === sessionId);
+          if (!session) throw new Error(`unknown session: ${sessionId}`);
+          return session;
+        },
         bind: async () => managedSessions[0]!,
         unbind: async () => managedSessions[0]!,
         archive: async () => ({ ...managedSessions[0]!, status: "archived" as const }),
@@ -3228,7 +3636,7 @@ test("native TUI model selection and following turn share one managed session", 
     };
 
     assert.equal(
-      await runSparkCli(["--session", sessionPath], {
+      await runSparkCli(["--session-dir", dir, "--session", sessionPath], {
         daemonClient,
         createHostServices: base.createHostServices,
         terminal: { stdinIsTTY: true, stdoutIsTTY: true },
@@ -3252,6 +3660,9 @@ test("native TUI model selection and following turn share one managed session", 
 
     assert.equal(managedSessions.length, 1);
     assert.equal(managedSessions[0]?.sessionId, "same-session");
+    const importedSessionPath = managedSessions[0]?.sessionPath;
+    assert.ok(importedSessionPath);
+    assert.equal(realpathSync(importedSessionPath), realpathSync(sessionPath));
     assert.deepEqual(managedSessions[0]?.model, {
       providerName: "provider-a",
       modelId: "model-b",
@@ -3506,7 +3917,11 @@ test("production TUI Shift+Tab overrides extension shortcut and updates session 
         daemonClient,
         createHostServices,
         terminal: { stdinIsTTY: true, stdoutIsTTY: true },
-        selectSession: async () => sessionId,
+        selectSession: async () => ({
+          kind: "session",
+          sessionId,
+          workspaceId: managedSession.scope.workspaceId,
+        }),
         runTui: async (input) => {
           assert.equal(typeof input, "object");
           assert.notEqual(input, null);
