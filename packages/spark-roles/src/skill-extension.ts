@@ -68,7 +68,7 @@ const SKILL_DELEGATE_POLICY = {
   effect: "external_write",
   executionMode: "sequential",
   domains: ["skills", "roles"],
-  phases: ["plan", "implement"],
+  phases: ["implement"],
   approval: "none",
 } as const;
 
