@@ -8,6 +8,7 @@ import {
   runtimeCommandResultEnvelopeSchema,
   runtimeEphemeralSecretResultEnvelopeSchema,
   serverEphemeralSecretRequestEnvelopeSchema,
+  serverIngestAckEnvelopeSchema,
   runtimeProtocolVersion,
   runtimeReconcileRequestEnvelopeSchema,
   serverCommandEnvelopeSchema,
@@ -74,6 +75,7 @@ import {
   type SparkDaemonUplinkControl,
   type StartSparkDaemonOptions,
 } from "./daemon-runtime-contract.ts";
+import { parseHubRuntimeMessage } from "./server-message-diagnostics.ts";
 
 export {
   commandRoute,
@@ -154,7 +156,7 @@ export async function handleServerMessage(
   raw: string,
   context: MessageContext,
 ): Promise<void> {
-  const value = JSON.parse(raw) as unknown;
+  const value = parseHubRuntimeMessage(raw);
 
   const helloAck = serverHelloAckEnvelopeSchema.safeParse(value);
   if (helloAck.success) {
@@ -183,11 +185,12 @@ export async function handleServerMessage(
     return;
   }
 
-  if (isServerIngestAck(value)) {
+  const ingestAck = serverIngestAckEnvelopeSchema.safeParse(value);
+  if (ingestAck.success) {
     const route = { runtimeId: context.runtimeId, serverUrl: context.serverUrl ?? null };
-    context.humanWaits?.acknowledgeOutboxForRoute(value.ackOf, route);
-    acknowledgeRuntimeCommandTerminalForRoute(context.db, value.ackOf, route);
-    context.onIngestAck?.(value.ackOf);
+    context.humanWaits?.acknowledgeOutboxForRoute(ingestAck.data.ackOf, route);
+    acknowledgeRuntimeCommandTerminalForRoute(context.db, ingestAck.data.ackOf, route);
+    context.onIngestAck?.(ingestAck.data.ackOf);
     return;
   }
 
@@ -259,7 +262,16 @@ export async function handleServerMessage(
   const reconcileRequest = runtimeReconcileRequestEnvelopeSchema.safeParse(value);
   if (reconcileRequest.success) {
     sendJson(ws, buildReconcileReport(context));
+    return;
   }
+
+  const messageType =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>).type
+      : undefined;
+  throw new Error(
+    `Validated Spark Hub message ${JSON.stringify(messageType ?? "<missing>")} was not handled by the spark-daemon dispatch table. This is a daemon implementation error. Action: capture the message type and daemon build version, then report the missing handler.`,
+  );
 }
 
 function humanResponseRouteFailure(
@@ -387,7 +399,7 @@ function sendEphemeralSecretFailure(
         operation: request.payload.operation,
         status: "failed",
         reasonCode,
-        message: "Spark daemon rejected the ephemeral secret request.",
+        message: `Spark daemon rejected ${JSON.stringify(request.payload.operation)} for request ${JSON.stringify(request.ephemeralRequestId)} with ${reasonCode}. Check the runtime route, browser security context, and request expiry before retrying.`,
         completedAt: new Date().toISOString(),
       },
     }),
@@ -405,7 +417,7 @@ export async function handleCommand(
       commandReject(
         {
           reasonCode: "RUNTIME_ID_MISMATCH",
-          message: "Command was routed to a different Spark daemon runtime.",
+          message: `Command ${JSON.stringify(command.commandId ?? "<missing>")} targeted runtime ${JSON.stringify(command.runtimeId)} but reached ${JSON.stringify(context.runtimeId)}. Reconnect through the correct Hub runtime route before retrying.`,
           retryable: false,
         },
         commandRoute(context.runtimeId, command),
@@ -420,7 +432,7 @@ export async function handleCommand(
       commandReject(
         {
           reasonCode: "COMMAND_ID_REQUIRED",
-          message: "Runtime command requires a command id.",
+          message: `Runtime command ${JSON.stringify(command.payload.kind)} is missing commandId. Fix the Hub command serializer before retrying.`,
           retryable: false,
         },
         commandRoute(context.runtimeId, command),
@@ -438,7 +450,7 @@ export async function handleCommand(
       commandReject(
         {
           reasonCode: "WORKSPACE_ROUTE_MISMATCH",
-          message: "Command workspace route does not belong to this Cockpit uplink.",
+          message: `Command ${JSON.stringify(command.commandId)} uses workspaceBindingId ${JSON.stringify(command.workspaceBindingId)}, which is not owned by Hub ${JSON.stringify(context.serverUrl)}. Refresh workspace bindings or route the command through the owning Hub.`,
           retryable: false,
         },
         commandRoute(context.runtimeId, command),
@@ -454,7 +466,7 @@ export async function handleCommand(
       commandReject(
         {
           reasonCode: "COMMAND_REPLAY_CONFLICT",
-          message: "Command id was replayed with a different typed payload.",
+          message: `Command id ${JSON.stringify(commandId)} was replayed with a different typed payload. Generate a new commandId for the new operation; do not reuse an idempotency identity across payloads.`,
           retryable: false,
         },
         commandRoute(context.runtimeId, command),
@@ -704,16 +716,6 @@ function outboundEnvelopeMatchesServer(
     return true;
   }
   return workspaceBindingBelongsToServer(db, workspaceBindingId, serverUrl);
-}
-
-function isServerIngestAck(value: unknown): value is { type: "server.ingest_ack"; ackOf: string } {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  return (
-    record.type === "server.ingest_ack" &&
-    typeof record.ackOf === "string" &&
-    record.ackOf.trim().length > 0
-  );
 }
 
 export function flushPendingRuntimeCommandTerminals(

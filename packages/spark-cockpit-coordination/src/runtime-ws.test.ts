@@ -652,8 +652,8 @@ describe("runtime WebSocket handling", () => {
         .map((message) => message.payload.code),
     ).toEqual(
       expect.arrayContaining([
-        "unsupported_runtime_message",
-        "unsupported_runtime_message",
+        "invalid_message_schema",
+        "invalid_message_schema",
         "command_route_mismatch",
       ]),
     );
