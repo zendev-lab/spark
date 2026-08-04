@@ -634,8 +634,8 @@ function persistedEvidenceRefs(
   field: string,
   migrateArtifactPrefix: boolean,
 ): import("@zendev-lab/spark-core").EvidenceRef[] {
-  if (!Array.isArray(value))
-    throw new TaskGraphStoreFormatError(filePath, `${field} must be an array`);
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return [];
   return value.map((entry, index) => {
     if (typeof entry !== "string" || !entry.includes(":")) {
       throw new TaskGraphStoreFormatError(filePath, `${field}[${index}] must be a ref`);

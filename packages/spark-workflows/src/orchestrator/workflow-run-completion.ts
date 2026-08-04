@@ -74,8 +74,8 @@ export function workflowRunNextSteps(run: WorkflowRunRecord): WorkflowRunNextSte
 function formatWorkflowRunCompletionDigest(summaries: TaskRunCompletionSummary[]): string {
   const visible = summaries.slice(0, 3).map((summary) => {
     const role = summary.roleRef ? ` role=${summary.roleRef.replace(/^role:/u, "")}` : "";
-    const artifacts =
-      summary.evidenceRefs.length > 0 ? ` evidence=${summary.evidenceRefs.join(",")}` : "";
+    const refs = Array.isArray(summary.evidenceRefs) ? summary.evidenceRefs : [];
+    const artifacts = refs.length > 0 ? ` evidence=${refs.join(",")}` : "";
     return `task=${summary.taskRef} run=${summary.runRef} status=${summary.status}${role}: ${summary.summary}${artifacts}`;
   });
   const hidden = summaries.length - visible.length;

@@ -164,10 +164,11 @@ export function appendRecentRoleRunCompletionLines(
 function formatRoleRunCompletionLine(summary: TaskRunCompletionSummary): string {
   const role = summary.roleRef ? ` role=${shortRoleLabel(summary.roleRef)}` : "";
   const runName = summary.runName ? ` name=${summary.runName}` : "";
-  const visibleEvidenceRefs = summary.evidenceRefs.slice(0, 5);
-  const hiddenEvidenceRefs = summary.evidenceRefs.length - visibleEvidenceRefs.length;
+  const refs = Array.isArray(summary.evidenceRefs) ? summary.evidenceRefs : [];
+  const visibleEvidenceRefs = refs.slice(0, 5);
+  const hiddenEvidenceRefs = refs.length - visibleEvidenceRefs.length;
   const evidence =
-    summary.evidenceRefs.length > 0
+    refs.length > 0
       ? ` evidence=${visibleEvidenceRefs.join(",")}${hiddenEvidenceRefs > 0 ? `,…+${hiddenEvidenceRefs}` : ""}`
       : " evidence=none";
   return `- [${summary.status}] task=${summary.taskRef} run=${summary.runRef}${role}${runName} — ${truncateInline(summary.summary, 180)}${evidence}`;
