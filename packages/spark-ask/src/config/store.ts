@@ -2,6 +2,14 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
+import {
+  SparkVersionedDataError,
+  assertVersionedDataRoot,
+  assertVersionedDataVersion,
+  parseVersionedDataJson,
+  type VersionedDataDiagnostic,
+  type VersionedDataDiagnosticOptions,
+} from "@zendev-lab/spark-protocol/versioned-data";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
 import type { AskConfig, AskConfigStore } from "./schema.ts";
@@ -12,11 +20,14 @@ export interface AskConfigStoreOptions {
 
 export class AskConfigStoreFormatError extends Error {
   readonly filePath: string;
+  readonly diagnostic: VersionedDataDiagnostic | undefined;
 
-  constructor(filePath: string, message: string) {
-    super(`invalid Spark ask config store: ${filePath}: ${message}`);
+  constructor(filePath: string, detail: string | SparkVersionedDataError) {
+    const message = typeof detail === "string" ? `${filePath}: ${detail}` : detail.message;
+    super(`invalid Spark ask config store: ${message}`);
     this.name = "AskConfigStoreFormatError";
     this.filePath = filePath;
+    this.diagnostic = detail instanceof SparkVersionedDataError ? detail.diagnostic : undefined;
   }
 }
 
@@ -47,19 +58,18 @@ export function getDefaultConfig(): AskConfig {
 function parseAskConfig(text: string, filePath: string): AskConfig {
   let raw: unknown;
   try {
-    raw = JSON.parse(text);
+    raw = parseVersionedDataJson(text, askConfigDiagnosticOptions(filePath));
   } catch (error) {
-    throw new AskConfigStoreFormatError(
-      filePath,
-      `not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw wrapAskConfigError(filePath, error);
   }
   return migrateConfig(raw, filePath);
 }
 
 function migrateConfig(raw: unknown, filePath: string): AskConfig {
-  if (!isRecord(raw)) {
-    throw new AskConfigStoreFormatError(filePath, "JSON root must be an object");
+  try {
+    assertVersionedDataRoot(raw, askConfigDiagnosticOptions(filePath));
+  } catch (error) {
+    throw wrapAskConfigError(filePath, error);
   }
   if (raw.schemaVersion === undefined) {
     return getDefaultConfig();
@@ -69,16 +79,28 @@ function migrateConfig(raw: unknown, filePath: string): AskConfig {
 }
 
 function assertAskConfig(value: unknown, filePath: string): asserts value is AskConfig {
-  if (!isRecord(value)) {
-    throw new AskConfigStoreFormatError(filePath, "config must be an object");
-  }
-  if (value.schemaVersion !== 1) {
-    throw new AskConfigStoreFormatError(filePath, "schemaVersion must be 1");
+  try {
+    assertVersionedDataVersion(value, askConfigDiagnosticOptions(filePath));
+  } catch (error) {
+    throw wrapAskConfigError(filePath, error);
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+function askConfigDiagnosticOptions(filePath: string): VersionedDataDiagnosticOptions {
+  return {
+    source: filePath,
+    dataKind: "Spark ask config",
+    supportedVersions: [1],
+    action:
+      "Upgrade Spark to a build that supports this config, or move the file aside so Spark can regenerate defaults.",
+  };
+}
+
+function wrapAskConfigError(filePath: string, error: unknown): AskConfigStoreFormatError {
+  return new AskConfigStoreFormatError(
+    filePath,
+    error instanceof SparkVersionedDataError ? error : unknownErrorMessage(error),
+  );
 }
 
 function writeConfigFileAtomic(filePath: string, config: AskConfig): void {

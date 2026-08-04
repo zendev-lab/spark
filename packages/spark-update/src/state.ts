@@ -2,6 +2,13 @@ import { constants } from "node:fs";
 import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
+import {
+  assertVersionedDataVersion,
+  invalidVersionedDataSchema,
+  parseVersionedDataJson,
+  type VersionedDataDiagnosticOptions,
+  type VersionedDataIssue,
+} from "@zendev-lab/spark-protocol/versioned-data";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
 import {
@@ -70,8 +77,9 @@ export async function readSparkUpdateState(
   paths: Pick<SparkUpdatePaths, "stateFile">,
 ): Promise<SparkUpdateState> {
   try {
-    const parsed = JSON.parse(await readFile(paths.stateFile, "utf8")) as unknown;
-    if (!isSparkUpdateState(parsed)) throw new Error("Unsupported Spark updater state schema");
+    const options = sparkUpdateStateDiagnosticOptions(paths.stateFile, "read");
+    const parsed = parseVersionedDataJson(await readFile(paths.stateFile, "utf8"), options);
+    assertSparkUpdateState(parsed, options);
     return parsed;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptySparkUpdateState();
@@ -83,7 +91,7 @@ export async function writeSparkUpdateState(
   paths: Pick<SparkUpdatePaths, "stateFile">,
   state: SparkUpdateState,
 ): Promise<void> {
-  if (!isSparkUpdateState(state)) throw new Error("Refusing to write invalid Spark updater state");
+  assertSparkUpdateState(state, sparkUpdateStateDiagnosticOptions(paths.stateFile, "write"));
   await mkdir(dirname(paths.stateFile), { recursive: true });
   const temporary = `${paths.stateFile}.${process.pid}.tmp`;
   await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
@@ -126,49 +134,108 @@ export function nextUpdateRetryAt(count: number, now = new Date()): string {
   return new Date(now.getTime() + backoffMinutes * 60_000).toISOString();
 }
 
-function isSparkUpdateState(value: unknown): value is SparkUpdateState {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<SparkUpdateState>;
-  return (
-    candidate.schemaVersion === 1 &&
-    optionalString(candidate.currentVersion) &&
-    optionalString(candidate.currentFingerprint) &&
-    optionalString(candidate.availableVersion) &&
-    optionalString(candidate.pendingVersion) &&
-    optionalString(candidate.pendingFingerprint) &&
-    optionalString(candidate.lastGoodVersion) &&
-    optionalString(candidate.lastGoodFingerprint) &&
-    optionalString(candidate.rollbackVersion) &&
-    optionalString(candidate.rollbackFingerprint) &&
-    optionalString(candidate.lastCheckAt) &&
-    optionalString(candidate.registryEtag) &&
-    optionalString(candidate.lastAvailableNotifiedVersion) &&
-    optionalString(candidate.lastAvailableNotifiedAt) &&
-    Array.isArray(candidate.quarantined) &&
-    candidate.quarantined.every(
-      (entry) =>
-        entry &&
-        typeof entry === "object" &&
-        typeof entry.version === "string" &&
-        typeof entry.reason === "string" &&
-        typeof entry.quarantinedAt === "string",
-    ) &&
-    (candidate.failure === undefined ||
-      (typeof candidate.failure.code === "string" &&
-        typeof candidate.failure.message === "string" &&
-        Number.isInteger(candidate.failure.count) &&
-        candidate.failure.count > 0 &&
-        typeof candidate.failure.firstAt === "string" &&
-        typeof candidate.failure.lastAt === "string" &&
-        typeof candidate.failure.nextRetryAt === "string" &&
-        optionalString(candidate.failure.version) &&
-        optionalString(candidate.failure.lastLoggedAt) &&
-        optionalString(candidate.failure.lastNotifiedAt)))
-  );
+function assertSparkUpdateState(
+  value: unknown,
+  options: VersionedDataDiagnosticOptions,
+): asserts value is SparkUpdateState {
+  assertVersionedDataVersion(value, options);
+  const issues = sparkUpdateStateIssues(value);
+  if (issues.length > 0) {
+    throw invalidVersionedDataSchema(options, issues, value.schemaVersion);
+  }
 }
 
-function optionalString(value: unknown): boolean {
-  return value === undefined || typeof value === "string";
+function sparkUpdateStateIssues(value: Record<string, unknown>): VersionedDataIssue[] {
+  const issues: VersionedDataIssue[] = [];
+  for (const field of [
+    "currentVersion",
+    "currentFingerprint",
+    "availableVersion",
+    "pendingVersion",
+    "pendingFingerprint",
+    "lastGoodVersion",
+    "lastGoodFingerprint",
+    "rollbackVersion",
+    "rollbackFingerprint",
+    "lastCheckAt",
+    "registryEtag",
+    "lastAvailableNotifiedVersion",
+    "lastAvailableNotifiedAt",
+  ] as const) {
+    optionalStringIssue(value[field], `$.${field}`, issues);
+  }
+
+  const quarantined = value.quarantined;
+  if (!Array.isArray(quarantined)) {
+    issues.push({ path: "$.quarantined", message: "expected an array" });
+  } else {
+    quarantined.forEach((entry, index) => {
+      const path = `$.quarantined[${index}]`;
+      if (!isRecord(entry)) {
+        issues.push({ path, message: "expected an object" });
+        return;
+      }
+      requiredStringIssue(entry.version, `${path}.version`, issues);
+      requiredStringIssue(entry.reason, `${path}.reason`, issues);
+      requiredStringIssue(entry.quarantinedAt, `${path}.quarantinedAt`, issues);
+    });
+  }
+
+  if (value.failure !== undefined) {
+    if (!isRecord(value.failure)) {
+      issues.push({ path: "$.failure", message: "expected an object" });
+    } else {
+      const failure = value.failure;
+      requiredStringIssue(failure.code, "$.failure.code", issues);
+      requiredStringIssue(failure.message, "$.failure.message", issues);
+      if (
+        typeof failure.count !== "number" ||
+        !Number.isInteger(failure.count) ||
+        failure.count <= 0
+      ) {
+        issues.push({ path: "$.failure.count", message: "expected a positive integer" });
+      }
+      requiredStringIssue(failure.firstAt, "$.failure.firstAt", issues);
+      requiredStringIssue(failure.lastAt, "$.failure.lastAt", issues);
+      requiredStringIssue(failure.nextRetryAt, "$.failure.nextRetryAt", issues);
+      optionalStringIssue(failure.version, "$.failure.version", issues);
+      optionalStringIssue(failure.lastLoggedAt, "$.failure.lastLoggedAt", issues);
+      optionalStringIssue(failure.lastNotifiedAt, "$.failure.lastNotifiedAt", issues);
+    }
+  }
+
+  return issues;
+}
+
+function sparkUpdateStateDiagnosticOptions(
+  stateFile: string,
+  operation: "read" | "write",
+): VersionedDataDiagnosticOptions {
+  return {
+    source: stateFile,
+    dataKind: "Spark updater state",
+    supportedVersions: [SPARK_UPDATE_STATE_SCHEMA_VERSION],
+    action:
+      operation === "read"
+        ? "Upgrade Spark to a build that supports this state, or move the file aside to reset updater history."
+        : "Fix the updater state producer before retrying; do not persist partial or mixed-version state.",
+  };
+}
+
+function optionalStringIssue(value: unknown, path: string, issues: VersionedDataIssue[]): void {
+  if (value !== undefined && typeof value !== "string") {
+    issues.push({ path, message: "expected a string when present" });
+  }
+}
+
+function requiredStringIssue(value: unknown, path: string, issues: VersionedDataIssue[]): void {
+  if (typeof value !== "string") {
+    issues.push({ path, message: "expected a string" });
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 async function acquireLockFile(path: string): Promise<Awaited<ReturnType<typeof open>>> {
