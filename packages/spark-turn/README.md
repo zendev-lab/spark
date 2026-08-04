@@ -2,7 +2,11 @@
 
 Host-neutral model/tool turn execution for Spark hosts.
 
-The default entry point exports `SparkAgentLoop` and its turn-facing types. Focused entry points expose behavior evaluation, privacy-safe prompt manifests, and side-thread state primitives.
+The default entry point exports `SparkAgentLoop` and its turn-facing types. Focused entry points expose behavior evaluation, repeated-run CE summaries, privacy-safe prompt manifests, and side-thread state primitives.
+
+## Behavior evaluation
+
+`@zendev-lab/spark-turn/behavior-eval` scores one recorded run from observable tool, skill, outcome, roundtrip, and Evidence facts. `@zendev-lab/spark-turn/behavior-ce` summarizes repeated runs without averaging away failures: missing runs, case-inventory drift, duplicate samples, flakes, failure-rate limits, and duration budgets remain explicit.
 
 ## Side-thread boundary
 
