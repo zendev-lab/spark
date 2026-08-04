@@ -33,6 +33,9 @@ import {
   type MemoryQuarantineManifest,
   type MemoryQuarantineProposal,
   type MemoryQuarantineTarget,
+  type MemoryRestoreExecutionState,
+  type MemoryRestoreItemCompletion,
+  type MemoryRestoreItemReceipt,
 } from "@zendev-lab/spark-memory/quarantine";
 
 const roots: string[] = [];
@@ -145,6 +148,24 @@ function purgeProposal(plan: MemoryPurgePlan, expiresAt = "2026-09-02T00:00:00.0
   });
 }
 
+function restoreProposal(
+  plan: ReturnType<typeof createMemoryRestorePlan>,
+  expiresAt = "2026-08-16T00:00:00.000Z",
+) {
+  return createMemoryQuarantineProposal({
+    proposalId: plan.proposalId,
+    operation: "restore",
+    workspaceId: plan.workspaceId,
+    recordRef: "memory:test",
+    scope: "workspace",
+    expectedRevision: 2,
+    manifestDigest: plan.manifestDigest,
+    planDigest: plan.planDigest,
+    createdAt: "2026-08-15T00:00:00.000Z",
+    expiresAt,
+  });
+}
+
 function createStoreAuthorization(
   proposal: ReturnType<typeof createMemoryProposal>,
   now: string,
@@ -191,6 +212,22 @@ function targetCompletion(
     expectedSha256: target.sha256,
     expectedBytes: target.bytes,
     expectedFileVersion: target.fileVersion,
+  };
+}
+
+function restoreCompletion(
+  item: MemoryQuarantineManifest["items"][number],
+  receipt: MemoryRestoreItemReceipt,
+  state: MemoryRestoreItemCompletion["state"] = "completed",
+): MemoryRestoreItemCompletion {
+  return {
+    state,
+    receiptId: receipt.receiptId,
+    itemId: receipt.itemId,
+    planDigest: receipt.planDigest,
+    expectedSha256: item.sha256,
+    expectedBytes: item.bytes,
+    expectedFileVersion: item.fileVersion ?? null,
   };
 }
 
@@ -336,6 +373,46 @@ test("quarantine and restore lifecycle revisions require exact canonical approva
   assert.equal(restored.lifecycle.revision.version, quarantined.lifecycle.revision.version + 1);
   assert.equal((await restoreStore.status()).quarantined, 0);
   await assert.rejects(readFile(`${store.filePath}.mutation-journal.json`));
+});
+
+test("quarantine rejects non-canonical and misordered retention timestamps before mutation", async () => {
+  const root = await temporaryRoot();
+  const store = defaultSparkMemoryStore(root, "workspace", undefined, {
+    legacyFixturePermit: createLegacyMemoryFixturePermit(),
+    now: () => "2026-08-04T00:00:00.000Z",
+  });
+  const entry = await store.remember({
+    id: "memory:quarantine-window",
+    scope: "workspace",
+    category: "insight",
+    text: "Validate retention windows.",
+    reason: "Quarantine timestamp fixture.",
+  });
+  const before = sha256(await readFile(store.filePath));
+  const authorization = undefined as unknown as MemoryMutationAuthorization;
+
+  await assert.rejects(
+    store.quarantine(entry.id, authorization, {
+      expiresAt: "2026-08-05T00:00:00Z",
+      purgeAfter: "2026-08-06T00:00:00.000Z",
+    }),
+    /expiresAt must be a canonical UTC timestamp/u,
+  );
+  await assert.rejects(
+    store.quarantine(entry.id, authorization, {
+      expiresAt: "2026-08-04T00:00:00.000Z",
+      purgeAfter: "2026-08-06T00:00:00.000Z",
+    }),
+    /expiry must follow creation/u,
+  );
+  await assert.rejects(
+    store.quarantine(entry.id, authorization, {
+      expiresAt: "2026-08-06T00:00:00.000Z",
+      purgeAfter: "2026-08-05T00:00:00.000Z",
+    }),
+    /purgeAfter must not precede expiry/u,
+  );
+  assert.equal(sha256(await readFile(store.filePath)), before);
 });
 
 test("quarantine manifest is digest-bound, reversible, and visibility time does not execute purge", async () => {
@@ -696,34 +773,33 @@ test("restore plan is reversible only inside the window and with its exact canon
     workspaceId: "workspace:test",
     now: "2026-08-15T00:00:00.000Z",
   });
-  const proposal = createMemoryQuarantineProposal({
-    proposalId,
-    operation: "restore",
-    workspaceId: "workspace:test",
-    recordRef: "memory:test",
-    scope: "workspace",
-    expectedRevision: 2,
-    manifestDigest: manifest.planDigest,
-    planDigest: plan.planDigest,
-    createdAt: "2026-08-15T00:00:00.000Z",
-    expiresAt: "2026-08-16T00:00:00.000Z",
-  });
+  const proposal = restoreProposal(plan);
   const { authorization, verifier } = createAuthorization(proposal, "2026-08-15T12:00:00.000Z");
   const restored: string[] = [];
+  let state: MemoryRestoreExecutionState | undefined;
   const result = await applyMemoryRestorePlan(plan, authorization, {
     proposal,
     verifier,
+    inspectItem: () => ({ state: "not_started" }),
+    persistState: (next) => {
+      state = structuredClone(next);
+    },
     verifyDestination: async (item) => {
       const content = await readFile(join(root, item.destination));
       return content.byteLength === item.bytes && sha256(content) === item.sha256;
     },
-    executeItem: async (item) => {
+    executeItem: async (item, receipt) => {
       restored.push(item.source);
       await cp(join(root, item.destination), join(root, item.source));
+      return restoreCompletion(item, receipt);
     },
     now: "2026-08-15T12:00:00.000Z",
   });
   assert.equal(result.restored, 2);
+  assert.equal(
+    state?.itemReceipts.every((receipt) => receipt.status === "completed"),
+    true,
+  );
   assert.deepEqual(restored.sort(), manifest.items.map((item) => item.source).sort());
 
   assert.throws(
@@ -737,6 +813,128 @@ test("restore plan is reversible only inside the window and with its exact canon
     (error: unknown) =>
       error instanceof MemoryQuarantineError && error.code === "MEMORY_QUARANTINE_EXPIRED",
   );
+});
+
+test("restore resumes a completed physical effect from its durable pending receipt", async () => {
+  const { manifest } = await fixtureManifest();
+  const plan = createMemoryRestorePlan({
+    manifest,
+    proposalId: "proposal:restore-crash",
+    workspaceId: "workspace:test",
+    now: "2026-08-15T00:00:00.000Z",
+  });
+  const proposal = restoreProposal(plan);
+  const { authorization, verifier } = createAuthorization(proposal, "2026-08-15T12:00:00.000Z");
+  let durableState: MemoryRestoreExecutionState | undefined;
+  let injectCrash = true;
+  const calls = new Map<string, number>();
+  const completions = new Map<string, MemoryRestoreItemCompletion>();
+  const executeItem = (
+    item: MemoryQuarantineManifest["items"][number],
+    receipt: MemoryRestoreItemReceipt,
+  ) => {
+    calls.set(receipt.itemId, (calls.get(receipt.itemId) ?? 0) + 1);
+    const completion = restoreCompletion(item, receipt);
+    completions.set(receipt.itemId, completion);
+    return completion;
+  };
+
+  await assert.rejects(
+    applyMemoryRestorePlan(plan, authorization, {
+      proposal,
+      verifier,
+      inspectItem: () => ({ state: "not_started" }),
+      executeItem,
+      verifyDestination: () => true,
+      persistState: (state) => {
+        if (state.itemReceipts.some((receipt) => receipt.status === "completed") && injectCrash) {
+          injectCrash = false;
+          throw new Error("injected restore receipt persistence crash");
+        }
+        durableState = structuredClone(state);
+      },
+      now: "2026-08-15T12:00:00.000Z",
+    }),
+    /injected restore receipt persistence crash/u,
+  );
+  assert.equal(durableState?.itemReceipts[0]?.status, "pending");
+  const pendingReceiptId = durableState?.itemReceipts[0]?.receiptId;
+
+  const resumed = await applyMemoryRestorePlan(plan, authorization, {
+    proposal,
+    verifier,
+    state: durableState,
+    inspectItem: (_item, receipt) => {
+      const completion = completions.get(receipt.itemId);
+      return completion ? { ...completion, state: "already_completed" } : { state: "not_started" };
+    },
+    executeItem,
+    verifyDestination: () => true,
+    persistState: (state) => {
+      durableState = structuredClone(state);
+    },
+    now: "2026-08-15T13:00:00.000Z",
+  });
+  assert.equal(resumed.state.itemReceipts[0]?.receiptId, pendingReceiptId);
+  assert.equal(
+    resumed.state.itemReceipts.every((receipt) => receipt.status === "completed"),
+    true,
+  );
+  assert.equal(calls.get("restore-item:1"), 1);
+  assert.equal(calls.get("restore-item:2"), 1);
+});
+
+test("restore retries approval commit without replaying completed effects", async () => {
+  const { manifest } = await fixtureManifest();
+  const plan = createMemoryRestorePlan({
+    manifest,
+    proposalId: "proposal:restore-commit",
+    workspaceId: "workspace:test",
+    now: "2026-08-15T00:00:00.000Z",
+  });
+  const proposal = restoreProposal(plan);
+  const approved = createAuthorization(proposal, "2026-08-15T12:00:00.000Z");
+  let rejectCommit = true;
+  const verifier = {
+    verify: (request: Parameters<typeof approved.verifier.verify>[0]) =>
+      approved.verifier.verify(request),
+    async commit(proof: Parameters<typeof approved.verifier.commit>[0], transactionId: string) {
+      if (rejectCommit) {
+        rejectCommit = false;
+        return false;
+      }
+      return await approved.verifier.commit(proof, transactionId);
+    },
+  };
+  let durableState: MemoryRestoreExecutionState | undefined;
+  let executions = 0;
+  const apply = () =>
+    applyMemoryRestorePlan(plan, approved.authorization, {
+      proposal,
+      verifier,
+      state: durableState,
+      inspectItem: () => ({ state: "not_started" }),
+      executeItem: (item, receipt) => {
+        executions += 1;
+        return restoreCompletion(item, receipt);
+      },
+      verifyDestination: () => true,
+      persistState: (state) => {
+        durableState = structuredClone(state);
+      },
+      now: "2026-08-15T12:00:00.000Z",
+    });
+
+  await assert.rejects(apply(), /restore approval could not be committed/u);
+  assert.equal(
+    durableState?.itemReceipts.every((receipt) => receipt.status === "completed"),
+    true,
+  );
+  assert.equal(executions, plan.items.length);
+
+  const resumed = await apply();
+  assert.equal(resumed.restored, plan.items.length);
+  assert.equal(executions, plan.items.length);
 });
 
 const productionAuditManifest =

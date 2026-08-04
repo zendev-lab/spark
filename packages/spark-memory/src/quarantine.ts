@@ -195,11 +195,54 @@ export interface MemoryRestorePlan {
   planDigest: string;
 }
 
+export interface MemoryRestoreItemReceipt {
+  receiptId: string;
+  itemId: string;
+  planDigest: string;
+  manifestDigest: string;
+  source: string;
+  destination: string;
+  expectedSha256: string;
+  expectedBytes: number;
+  expectedFileVersion: string | null;
+  status: MemoryPurgeReceiptStatus;
+  recordedAt: string;
+  error: string | null;
+}
+
+export interface MemoryRestoreExecutionState {
+  itemReceipts: MemoryRestoreItemReceipt[];
+}
+
+export interface MemoryRestoreItemCompletion {
+  state: "completed" | "already_completed";
+  receiptId: string;
+  itemId: string;
+  planDigest: string;
+  expectedSha256: string;
+  expectedBytes: number;
+  expectedFileVersion: string | null;
+}
+
+export type MemoryRestoreItemInspection =
+  | { state: "not_started" }
+  | MemoryRestoreItemCompletion
+  | { state: "conflict"; reason: string };
+
 export interface MemoryRestoreApplyOptions {
   now?: string;
+  state?: MemoryRestoreExecutionState;
   proposal: MemoryQuarantineProposal;
   verifier?: MemoryApprovalVerifier;
-  executeItem: (item: MemoryQuarantineManifestItem) => Promise<void> | void;
+  persistState: (state: MemoryRestoreExecutionState) => Promise<void> | void;
+  inspectItem: (
+    item: MemoryQuarantineManifestItem,
+    receipt: MemoryRestoreItemReceipt,
+  ) => Promise<MemoryRestoreItemInspection> | MemoryRestoreItemInspection;
+  executeItem: (
+    item: MemoryQuarantineManifestItem,
+    receipt: MemoryRestoreItemReceipt,
+  ) => Promise<MemoryRestoreItemCompletion> | MemoryRestoreItemCompletion;
   verifyDestination: (item: MemoryQuarantineManifestItem) => Promise<boolean> | boolean;
 }
 
@@ -789,7 +832,7 @@ export async function applyMemoryRestorePlan(
   planValue: unknown,
   authorization: MemoryMutationAuthorization | undefined,
   options: MemoryRestoreApplyOptions,
-): Promise<{ restored: number; planDigest: string }> {
+): Promise<{ restored: number; planDigest: string; state: MemoryRestoreExecutionState }> {
   const plan = parseMemoryRestorePlan(planValue);
   if (!authorization || !options.verifier) {
     throw new MemoryQuarantineError(
@@ -835,17 +878,81 @@ export async function applyMemoryRestorePlan(
   if (now >= plan.restoreBefore) {
     throw new MemoryQuarantineError("MEMORY_QUARANTINE_EXPIRED", "restore window has expired");
   }
-  let restored = 0;
-  for (const item of plan.items) {
+  const receipts = validatedRestoreReceipts(plan, options.state);
+  for (const [index, item] of plan.items.entries()) {
+    const itemId = restoreItemId(index);
+    const previous = receipts.find((receipt) => receipt.itemId === itemId);
+    if (previous?.status === "completed") continue;
+    const pending: MemoryRestoreItemReceipt = {
+      receiptId: previous?.receiptId ?? `restore-receipt:${randomUUID()}`,
+      itemId,
+      planDigest: plan.planDigest,
+      manifestDigest: plan.manifestDigest,
+      source: item.source,
+      destination: item.destination,
+      expectedSha256: item.sha256,
+      expectedBytes: item.bytes,
+      expectedFileVersion: item.fileVersion ?? null,
+      status: "pending",
+      recordedAt: previous?.recordedAt ?? now,
+      error: null,
+    };
+    let inspection: MemoryRestoreItemInspection;
+    try {
+      inspection = await options.inspectItem(item, pending);
+    } catch (caught) {
+      inspection = {
+        state: "conflict",
+        reason: caught instanceof Error ? caught.message : String(caught),
+      };
+    }
+    if (inspection.state === "conflict") {
+      replaceRestoreReceipt(receipts, {
+        ...pending,
+        status: "failed",
+        error: inspection.reason,
+      });
+      await options.persistState({ itemReceipts: [...receipts] });
+      throw new MemoryQuarantineError(
+        "MEMORY_QUARANTINE_MANIFEST_TAMPERED",
+        `restore target inspection failed: ${item.source}: ${inspection.reason}`,
+      );
+    }
+    if (inspection.state !== "not_started") {
+      const completionError = restoreCompletionError(item, pending, inspection);
+      if (!previous || completionError) {
+        const error = completionError ?? "completed restore target has no durable prior receipt";
+        replaceRestoreReceipt(receipts, { ...pending, status: "failed", error });
+        await options.persistState({ itemReceipts: [...receipts] });
+        throw new MemoryQuarantineError("MEMORY_QUARANTINE_INVALID", error);
+      }
+      replaceRestoreReceipt(receipts, { ...pending, status: "completed", error: null });
+      await options.persistState({ itemReceipts: [...receipts] });
+      continue;
+    }
     if (!(await options.verifyDestination(item))) {
       throw new MemoryQuarantineError(
         "MEMORY_QUARANTINE_MANIFEST_TAMPERED",
         `destination verification failed: ${item.destination}`,
       );
     }
-    await options.executeItem(item);
-    restored += 1;
+    replaceRestoreReceipt(receipts, pending);
+    await options.persistState({ itemReceipts: [...receipts] });
+    try {
+      const completion = await options.executeItem(item, pending);
+      const completionError = restoreCompletionError(item, pending, completion);
+      if (completionError) throw new Error(completionError);
+      replaceRestoreReceipt(receipts, { ...pending, status: "completed", error: null });
+    } catch (caught) {
+      const error = caught instanceof Error ? caught.message : String(caught);
+      replaceRestoreReceipt(receipts, { ...pending, status: "failed", error });
+      await options.persistState({ itemReceipts: [...receipts] });
+      throw caught;
+    }
+    await options.persistState({ itemReceipts: [...receipts] });
   }
+  const state = { itemReceipts: receipts };
+  await options.persistState(state);
   const committed = await options.verifier.commit(authorization.proof, verification.transactionId);
   if (!committed) {
     throw new MemoryQuarantineError(
@@ -853,7 +960,11 @@ export async function applyMemoryRestorePlan(
       "restore approval could not be committed",
     );
   }
-  return { restored, planDigest: plan.planDigest };
+  return {
+    restored: receipts.filter((receipt) => receipt.status === "completed").length,
+    planDigest: plan.planDigest,
+    state,
+  };
 }
 
 export function parseMemoryPurgePlan(value: unknown): MemoryPurgePlan {
@@ -1271,6 +1382,113 @@ function targetCompletionError(
     return "target completion does not bind the exact receipt, plan, hash, and file version";
   }
   return null;
+}
+
+function validatedRestoreReceipts(
+  plan: MemoryRestorePlan,
+  state: MemoryRestoreExecutionState | undefined,
+): MemoryRestoreItemReceipt[] {
+  if (!state) return [];
+  if (
+    !isRecord(state) ||
+    !hasOnlyKeys(state, ["itemReceipts"]) ||
+    !Array.isArray(state.itemReceipts)
+  ) {
+    throw new MemoryQuarantineError("MEMORY_QUARANTINE_INVALID", "invalid restore execution state");
+  }
+  const receiptIds = new Set<string>();
+  const itemIds = new Set<string>();
+  const receipts = state.itemReceipts.map((value, index) => {
+    const item = plan.items[indexForRestoreItem(value, plan.items.length)]!;
+    if (
+      !isRecord(value) ||
+      !hasOnlyKeys(value, [
+        "receiptId",
+        "itemId",
+        "planDigest",
+        "manifestDigest",
+        "source",
+        "destination",
+        "expectedSha256",
+        "expectedBytes",
+        "expectedFileVersion",
+        "status",
+        "recordedAt",
+        "error",
+      ]) ||
+      !isString(value.receiptId) ||
+      receiptIds.has(value.receiptId) ||
+      itemIds.has(value.itemId) ||
+      value.planDigest !== plan.planDigest ||
+      value.manifestDigest !== plan.manifestDigest ||
+      value.source !== item.source ||
+      value.destination !== item.destination ||
+      value.expectedSha256 !== item.sha256 ||
+      value.expectedBytes !== item.bytes ||
+      value.expectedFileVersion !== (item.fileVersion ?? null) ||
+      (value.status !== "pending" && value.status !== "completed" && value.status !== "failed") ||
+      !isTimestamp(value.recordedAt) ||
+      !(value.error === null || typeof value.error === "string")
+    ) {
+      throw new MemoryQuarantineError(
+        "MEMORY_QUARANTINE_INVALID",
+        `invalid restore receipt at index ${index}`,
+      );
+    }
+    receiptIds.add(value.receiptId);
+    itemIds.add(value.itemId);
+    return value as unknown as MemoryRestoreItemReceipt;
+  });
+  return receipts;
+}
+
+function indexForRestoreItem(value: unknown, itemCount: number): number {
+  if (!isRecord(value) || typeof value.itemId !== "string") {
+    throw new MemoryQuarantineError(
+      "MEMORY_QUARANTINE_INVALID",
+      "restore receipt itemId is invalid",
+    );
+  }
+  const match = /^restore-item:(\d+)$/u.exec(value.itemId);
+  const index = match ? Number(match[1]) - 1 : -1;
+  if (!Number.isInteger(index) || index < 0 || index >= itemCount) {
+    throw new MemoryQuarantineError(
+      "MEMORY_QUARANTINE_INVALID",
+      "restore receipt itemId is invalid",
+    );
+  }
+  return index;
+}
+
+function restoreItemId(index: number): string {
+  return `restore-item:${index + 1}`;
+}
+
+function restoreCompletionError(
+  item: MemoryQuarantineManifestItem,
+  receipt: MemoryRestoreItemReceipt,
+  completion: MemoryRestoreItemCompletion,
+): string | null {
+  if (
+    completion.receiptId !== receipt.receiptId ||
+    completion.itemId !== receipt.itemId ||
+    completion.planDigest !== receipt.planDigest ||
+    completion.expectedSha256 !== item.sha256 ||
+    completion.expectedBytes !== item.bytes ||
+    completion.expectedFileVersion !== (item.fileVersion ?? null)
+  ) {
+    return "restore completion does not bind the exact receipt, plan, hash, and file version";
+  }
+  return null;
+}
+
+function replaceRestoreReceipt(
+  receipts: MemoryRestoreItemReceipt[],
+  receipt: MemoryRestoreItemReceipt,
+): void {
+  const previous = receipts.find((candidate) => candidate.itemId === receipt.itemId);
+  if (previous) receipts[receipts.indexOf(previous)] = receipt;
+  else receipts.push(receipt);
 }
 
 function replaceReceipt(

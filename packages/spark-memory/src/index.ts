@@ -378,23 +378,32 @@ export class SparkMemoryStore {
       const index = snapshot.entries.findIndex((entry) => entry.id === id);
       if (index < 0) throw new Error(`memory entry not found: ${id}`);
       const current = snapshot.entries[index]!;
-      const now = new Date().toISOString();
+      const now = requireCanonicalTimestamp(
+        this.options.now?.() ?? new Date().toISOString(),
+        "quarantine now",
+      );
+      const expiresAt = requireCanonicalTimestamp(options.expiresAt, "quarantine expiresAt");
+      const purgeAfter = requireCanonicalTimestamp(options.purgeAfter, "quarantine purgeAfter");
+      if (expiresAt <= now) throw new Error("memory quarantine expiry must follow creation");
+      if (purgeAfter < expiresAt) {
+        throw new Error("memory quarantine purgeAfter must not precede expiry");
+      }
       const content = {
         ...memoryEntryRevisionContent({
           ...current,
           status: "quarantined",
           forgottenReason: options.reason ?? current.forgottenReason,
         }),
-        expiresAt: options.expiresAt,
-        purgeAfter: options.purgeAfter,
+        expiresAt,
+        purgeAfter,
       };
       const pendingLifecycle: MemoryLifecycleEnvelope = {
         ...current.lifecycle,
         state: "quarantined",
         expiry: {
           ...current.lifecycle.expiry,
-          expiresAt: options.expiresAt,
-          purgeAfter: options.purgeAfter,
+          expiresAt,
+          purgeAfter,
         },
       };
       const committed = await commitAuthorizedMemoryMutation({
@@ -981,6 +990,18 @@ export function normalizeSparkMemoryCategory(value: unknown): SparkMemoryCategor
 function requiredText(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`memory.${field} is required`);
   return value.trim();
+}
+
+function requireCanonicalTimestamp(value: unknown, field: string): string {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value) ||
+    !Number.isFinite(Date.parse(value)) ||
+    new Date(value).toISOString() !== value
+  ) {
+    throw new Error(`memory ${field} must be a canonical UTC timestamp`);
+  }
+  return value;
 }
 
 function normalizeStrings(values: string[]): string[] {
