@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { loadMutationLedger } from "./check-mutation-ce-ownership.mjs";
 
 const { includedEntries } = loadMutationLedger();
-const requested = new Set(process.argv.slice(2));
+const requested = new Set(process.argv.slice(2).filter((argument) => argument !== "--"));
 const known = new Set(includedEntries.map((entry) => entry.name));
 const unknown = [...requested].filter((name) => !known.has(name));
 if (unknown.length > 0) {
@@ -29,9 +29,7 @@ for (const entry of selected) {
   });
   if (result.status !== 0) {
     failed += 1;
-    console.error(
-      "\n[mutation] " + entry.name + " exited " + (result.status ?? "signal") + "\n",
-    );
+    console.error("\n[mutation] " + entry.name + " exited " + (result.status ?? "signal") + "\n");
   }
 }
 if (failed > 0) {

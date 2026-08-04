@@ -29,35 +29,34 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.18.0
-          run_install: false
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 26
+          node-version-file: .node-version
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Validate mutation ownership
-        run: pnpm run check:mutation-ce
+        run: node scripts/check-mutation-ce-ownership.mjs
 
       - name: Measure task and TODO mutation score
         run: >-
-          pnpm run test:mutation --
+          pnpm run test:mutation
           @zendev-lab/spark-extension
           @zendev-lab/spark-tasks
 
       - name: Upload mutation reports
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: task-tool-mutation-reports
           if-no-files-found: warn

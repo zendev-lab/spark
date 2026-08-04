@@ -14,7 +14,7 @@ describe("TaskTodoStore.updateSessionTodos", () => {
       const initial = applyIndependentTodoOps([], [{ op: "init", items: ["first item"] }]);
       await store.saveSessionTodos(ownerRef, initial);
 
-      await Promise.all([
+      const updates = await Promise.all([
         store.updateSessionTodos(ownerRef, (todos) =>
           applyIndependentTodoOps(todos, [{ op: "append", items: ["second item"] }]),
         ),
@@ -22,6 +22,11 @@ describe("TaskTodoStore.updateSessionTodos", () => {
           applyIndependentTodoOps(todos, [{ op: "done", item: "first item" }]),
         ),
       ]);
+
+      for (const update of updates) {
+        expect(update.before.length).toBeGreaterThanOrEqual(1);
+        expect(update.todos.length).toBeGreaterThanOrEqual(1);
+      }
 
       const persisted = await store.loadSessionTodos(ownerRef);
       expect(persisted).toHaveLength(2);

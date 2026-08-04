@@ -157,10 +157,10 @@ test("workspace strategy checker fails closed for missing, extra, enum, count, a
   }
 });
 
-test("mutation ledger covers 10 included and 30 deferred workspaces without reports", () => {
+test("mutation ledger covers 12 included and 28 deferred workspaces without reports", () => {
   const result = validateMutationOwnership({ ledger: mutation, architecture, root, runnerSource });
   assert.deepEqual(result.errors, []);
-  assert.deepEqual(result.counts, { included: 10, deferred: 30 });
+  assert.deepEqual(result.counts, { included: 12, deferred: 28 });
   assert.equal(result.total, 40);
   assert.equal(result.unclassified, 0);
 });

@@ -256,7 +256,7 @@
       "risk": "high",
       "riskReason": "task graph persistence and atomic session TODO state transitions",
       "config": "packages/spark-tasks/stryker.config.json",
-      "command": "pnpm --dir packages/spark-extension exec stryker run ../spark-tasks/stryker.config.json",
+      "command": "pnpm exec ./packages/spark-extension/node_modules/.bin/stryker run packages/spark-tasks/stryker.config.json",
       "alternateGate": "pnpm test test/task-resource-scheduler.test.ts test/tasks-store.test.ts test/spark-claim-recovery.test.ts"
     },
     "@zendev-lab/spark-text": {

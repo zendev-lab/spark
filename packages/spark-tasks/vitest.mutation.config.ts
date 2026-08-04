@@ -6,6 +6,11 @@ process.chdir(repositoryRoot);
 
 export default defineConfig({
   root: repositoryRoot,
+  resolve: {
+    alias: {
+      "@zendev-lab/spark-tasks": resolve(repositoryRoot, "packages/spark-tasks/src/index.ts"),
+    },
+  },
   test: {
     environment: "node",
     include: ["test/task-todo-store-atomic.test.ts"],

@@ -42,14 +42,20 @@ function mutationFilePattern(pattern) {
   return pattern.replace(/:\d+(?::\d+)?-\d+(?::\d+)?$/u, "");
 }
 
+function packageRelativeMutationPattern(pattern, packagePath) {
+  const filePattern = mutationFilePattern(pattern);
+  const packagePrefix = `${packagePath}/`;
+  return filePattern.startsWith(packagePrefix)
+    ? filePattern.slice(packagePrefix.length)
+    : filePattern;
+}
+
 function executableGate(command, manifests) {
   if (typeof command !== "string" || !/^(?:pnpm|node)\s/u.test(command)) return false;
   if (/^pnpm(?:\s+--(?:filter|dir)\s+\S+)*\s+exec\s+/u.test(command)) return true;
   const filter = command.match(/pnpm\s+--filter\s+(\S+)/u)?.[1];
   if (filter && !manifests.has(filter)) return false;
-  const script = command.match(
-    /pnpm(?:\s+--(?:filter|dir)\s+\S+)*\s+(?:run\s+)?([\w:-]+)/u,
-  )?.[1];
+  const script = command.match(/pnpm(?:\s+--(?:filter|dir)\s+\S+)*\s+(?:run\s+)?([\w:-]+)/u)?.[1];
   if (!script || ["test", "exec"].includes(script)) return true;
   return Boolean((filter ? manifests.get(filter) : manifests.get("root"))?.scripts?.[script]);
 }
@@ -77,10 +83,7 @@ export function validateMutationOwnership({
   if (ledger?.schemaVersion !== 1) errors.push("mutation ownership schemaVersion must be 1");
   if (ledger?.architectureSource !== "architecture/packages.json")
     errors.push("mutation architectureSource is invalid");
-  if (
-    !Number.isInteger(ledger?.minimumIncludedCount) ||
-    ledger.minimumIncludedCount < 0
-  )
+  if (!Number.isInteger(ledger?.minimumIncludedCount) || ledger.minimumIncludedCount < 0)
     errors.push("mutation minimumIncludedCount must be a non-negative integer");
   for (const name of architectureNames)
     if (!(name in entries)) errors.push("unclassified mutation workspace: " + name);
@@ -123,12 +126,14 @@ export function validateMutationOwnership({
       const positiveMutate = (config.mutate ?? []).filter((value) => !value.startsWith("!"));
       if (
         !positiveMutate.some((pattern) =>
-          files.some((file) => globRegex(mutationFilePattern(pattern)).test(file)),
+          files.some((file) =>
+            globRegex(packageRelativeMutationPattern(pattern, entry.path)).test(file),
+          ),
         )
       )
         errors.push(name + " mutate paths match no workspace files");
       for (const pattern of positiveMutate)
-        if (!mutationFilePattern(pattern).startsWith("src/"))
+        if (!packageRelativeMutationPattern(pattern, entry.path).startsWith("src/"))
           errors.push(name + " mutate path must stay under src/: " + pattern);
       if (
         name === "@zendev-lab/spark-i18n" &&
@@ -136,8 +141,10 @@ export function validateMutationOwnership({
       )
         errors.push("spark-i18n mutation must exclude generated paraglide output");
     } else {
-      if ("config" in entry) errors.push(name + " deferred entry must not declare a Stryker config");
-      if ("command" in entry) errors.push(name + " deferred entry must not declare a mutation command");
+      if ("config" in entry)
+        errors.push(name + " deferred entry must not declare a Stryker config");
+      if ("command" in entry)
+        errors.push(name + " deferred entry must not declare a mutation command");
     }
   }
 

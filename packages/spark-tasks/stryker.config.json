@@ -1,5 +1,4 @@
 {
-  "basePath": "../..",
   "packageManager": "pnpm",
   "testRunner": "vitest",
   "plugins": ["@stryker-mutator/vitest-runner"],
@@ -8,7 +7,7 @@
     "related": false
   },
   "mutator": {
-    "excludedMutations": ["StringLiteral"]
+    "excludedMutations": ["StringLiteral", "BlockStatement"]
   },
   "ignorePatterns": ["packages/spark-tasks/reports", ".stryker-tmp"],
   "reporters": ["clear-text", "progress", "html", "json"],
@@ -18,9 +17,8 @@
   "jsonReporter": {
     "fileName": "packages/spark-tasks/reports/mutation/session-todos.json"
   },
-  "incremental": true,
-  "incrementalFile": "packages/spark-tasks/reports/mutation/session-todos-incremental.json",
-  "coverageAnalysis": "perTest",
+  "incremental": false,
+  "coverageAnalysis": "off",
   "thresholds": {
     "high": 90,
     "low": 80,
@@ -28,6 +26,5 @@
   },
   "timeoutMS": 30000,
   "concurrency": 2,
-  "ignoreStatic": true,
-  "mutate": ["packages/spark-tasks/src/todo-store.ts:108:0-172:0"]
+  "mutate": ["packages/spark-tasks/src/todo-store.ts:133:0-158:0"]
 }

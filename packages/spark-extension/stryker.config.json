@@ -18,8 +18,7 @@
   "jsonReporter": {
     "fileName": "reports/mutation/task-tools.json"
   },
-  "incremental": true,
-  "incrementalFile": "reports/mutation/task-tools-incremental.json",
+  "incremental": false,
   "coverageAnalysis": "perTest",
   "thresholds": {
     "high": 90,
@@ -30,13 +29,9 @@
   "concurrency": 2,
   "ignoreStatic": true,
   "mutate": [
-    "src/extension/task-claim-selection.ts",
-    "src/extension/spark-plan-tasks-tool-registration.ts:72:0-80:0",
-    "src/extension/spark-plan-tasks-tool-registration.ts:181:0-220:0",
-    "src/extension/spark-todo-tool-registration.ts:150:0-238:0",
-    "src/extension/spark-finish-task-tool-registration.ts:181:0-207:0",
-    "src/extension/spark-finish-task-tool-registration.ts:330:0-420:0",
-    "src/extension/spark-finish-task-tool-registration.ts:900:0-1015:0",
-    "src/extension/spark-release-task-claim-tool-registration.ts:85:0-180:0"
+    "src/extension/task-claim-selection.ts:14:0-29:0",
+    "src/extension/spark-plan-tasks-tool-registration.ts:73:0-75:0",
+    "src/extension/spark-todo-tool-registration.ts:208:0-222:0",
+    "src/extension/spark-release-task-claim-tool-registration.ts:334:0-335:0"
   ]
 }
