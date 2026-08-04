@@ -54,6 +54,8 @@ test("skill_delegate runs one exact Skill in a restricted anonymous Worker", asy
       "# Release audit\n\nInspect the requested release and verify its checks.\n",
     );
     const tool = testTool({ builtinDirs: [skillsDir] });
+    assert.deepEqual(tool.policy?.phases, ["implement"]);
+    assert.equal((tool.parameters as { additionalProperties?: unknown }).additionalProperties, false);
     let captured: ExtensionRoleRunRequest | undefined;
 
     const result = await tool.execute(
