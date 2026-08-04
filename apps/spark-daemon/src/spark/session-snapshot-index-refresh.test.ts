@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import type {
   SparkDaemonSessionRunTask,
   SparkDaemonTaskExecutionContext,
 } from "../core/types.ts";
-import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { createSparkDaemonTaskExecutor } from "./session-run.ts";
 
 const paths = resolveSparkPaths({
