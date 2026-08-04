@@ -20,6 +20,8 @@ export type SparkSkillLayer = "builtin" | "workspace" | "user";
 export interface SparkSkill {
   name: string;
   description: string;
+  /** First Markdown heading, retained as bounded routing metadata. */
+  title?: string;
   filePath: string;
   baseDir: string;
   layer: SparkSkillLayer;
@@ -62,8 +64,10 @@ export interface SparkSkillResolveResult {
 
 export interface SparkSkillPromptMatch {
   skill: SparkSkill;
-  /** Present only when a caller explicitly loads the Skill body. */
+  /** Full source for explicit loads, or a bounded title for metadata-only matching. */
   content?: string;
+  /** False when content is routing metadata and must not be rendered as instructions. */
+  promptBody?: boolean;
   score: number;
 }
 
@@ -226,7 +230,12 @@ export function matchSparkSkillsForPrompt(
   limit = 3,
 ): SparkSkillPromptMatch[] {
   return modelInvocableSkills(skills)
-    .map((skill) => ({ skill, score: scoreSkillMatch(skill, request) }))
+    .map((skill) => ({
+      skill,
+      ...(skill.title ? { content: skill.title } : {}),
+      promptBody: false,
+      score: scoreSkillMatch(skill, request),
+    }))
     .filter((match) => match.score > 0)
     .sort((a, b) => b.score - a.score || a.skill.name.localeCompare(b.skill.name))
     .slice(0, Math.max(0, limit));
@@ -242,6 +251,7 @@ export async function loadMatchingSparkSkillsForPrompt(
     matchSparkSkillsForPrompt(skills, request, limit).map(async (match) => ({
       ...match,
       content: await readFile(match.skill.filePath, "utf8"),
+      promptBody: true,
     })),
   );
 }
@@ -267,7 +277,9 @@ export function formatSelectedSparkSkillsForPrompt(
   matches: readonly SparkSkillPromptMatch[],
 ): string {
   if (matches.length === 0) return "";
-  const hasLoadedBodies = matches.some((match) => match.content !== undefined);
+  const hasLoadedBodies = matches.some(
+    (match) => match.promptBody !== false && match.content !== undefined,
+  );
   const lines = [
     "Dynamic context checkpoint: matching skills for current user request.",
     hasLoadedBodies
@@ -281,12 +293,14 @@ export function formatSelectedSparkSkillsForPrompt(
     lines.push(`    <name>${escapeXml(match.skill.name)}</name>`);
     lines.push(`    <description>${escapeXml(match.skill.description)}</description>`);
     lines.push(`    <location>${escapeXml(match.skill.filePath)}</location>`);
-    if (match.content !== undefined) {
+    if (match.promptBody !== false && match.content !== undefined) {
       lines.push("    <content>");
       for (const contentLine of match.content.replace(/\r\n?/gu, "\n").split("\n")) {
         lines.push(`      ${contentLine}`);
       }
       lines.push("    </content>");
+    } else if (match.content !== undefined) {
+      lines.push(`    <title>${escapeXml(match.content)}</title>`);
     }
     lines.push("  </skill>");
   }
@@ -353,7 +367,7 @@ async function loadSkillFromFile(
     return { diagnostics: [{ type: "warning", message: errorMessage(error), path: filePath }] };
   }
 
-  const { frontmatter } = parseSkillFrontmatter(raw);
+  const { frontmatter, body } = parseSkillFrontmatter(raw);
   const description = stringField(frontmatter.description);
   if (!description) {
     diagnostics.push({ type: "warning", message: "description is required", path: filePath });
@@ -374,6 +388,7 @@ async function loadSkillFromFile(
     skill: {
       name,
       description,
+      title: firstMarkdownHeading(body),
       filePath,
       baseDir,
       layer,
@@ -383,6 +398,16 @@ async function loadSkillFromFile(
     },
     diagnostics,
   };
+}
+
+function firstMarkdownHeading(body: string): string | undefined {
+  for (const line of body.replace(/\r\n?/gu, "\n").split("\n")) {
+    const heading = /^(#{1,6})\s+(.+?)\s*$/u.exec(line);
+    if (!heading) continue;
+    const title = heading[2]?.trim();
+    return title ? `${heading[1]} ${title}` : undefined;
+  }
+  return undefined;
 }
 
 function stringField(value: unknown): string | undefined {
