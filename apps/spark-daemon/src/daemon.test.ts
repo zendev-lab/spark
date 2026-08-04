@@ -1001,7 +1001,16 @@ describe("Spark daemon handleCommand task.start.request", () => {
           if (typeof message.payload?.sequence === "number") {
             invocationSequences.push(message.payload.sequence);
           }
-          socket.send(JSON.stringify({ type: "server.ingest_ack", ackOf: message.messageId }));
+          socket.send(
+            JSON.stringify({
+              protocolVersion: runtimeProtocolVersion,
+              messageId: createId("msg"),
+              type: "server.ingest_ack",
+              sentAt: new Date().toISOString(),
+              ackOf: message.messageId,
+              payload: { accepted: true, receivedType: message.type },
+            }),
+          );
           if (
             message.type === "invocation.log_chunk" &&
             message.invocationId === message.payload?.runtimeInvocationId &&
@@ -1238,7 +1247,16 @@ describe("Spark daemon handleCommand task.start.request", () => {
             socket.close();
             return;
           }
-          socket.send(JSON.stringify({ type: "server.ingest_ack", ackOf: message.messageId }));
+          socket.send(
+            JSON.stringify({
+              protocolVersion: runtimeProtocolVersion,
+              messageId: createId("msg"),
+              type: "server.ingest_ack",
+              sentAt: new Date().toISOString(),
+              ackOf: message.messageId,
+              payload: { accepted: true, receivedType: message.type },
+            }),
+          );
           if (current === 1 && sequence === 3) replayed.resolve(undefined);
         });
       });
@@ -2135,8 +2153,15 @@ describe("Spark daemon handleCommand task.start.request", () => {
         prompt: "Continue?",
         questions: [],
       });
-      const outbound = ws.sent[0] as { messageId: string };
-      const ack = JSON.stringify({ type: "server.ingest_ack", ackOf: outbound.messageId });
+      const outbound = ws.sent[0] as { messageId: string; type: string };
+      const ack = JSON.stringify({
+        protocolVersion: runtimeProtocolVersion,
+        messageId: createId("msg"),
+        type: "server.ingest_ack",
+        sentAt: new Date().toISOString(),
+        ackOf: outbound.messageId,
+        payload: { accepted: true, receivedType: outbound.type },
+      });
 
       await handleServerMessage(ws, ack, contextB);
       expect(

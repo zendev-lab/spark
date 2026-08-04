@@ -17,6 +17,11 @@ import {
 import type { DatabaseSync } from "node:sqlite";
 import type { WebSocket } from "ws";
 
+import {
+  parseRuntimeWebSocketMessage,
+  sendRuntimeProtocolDiagnostic,
+  shouldCloseForRuntimeProtocolDiagnostic,
+} from "./diagnostics.ts";
 import type { RuntimeWebSocketContext, RuntimeWebSocketConnection } from "./types.ts";
 import {
   handleMvpRuntimeMessage,
@@ -28,7 +33,6 @@ import {
   flushPendingRuntimeDeliveries,
   markSessionClosed,
   sendError,
-  parseMessage,
   runtimeTokenScopes,
 } from "./protocol.ts";
 
@@ -55,9 +59,12 @@ export function attachRuntimeWebSocket(
   >();
 
   ws.on("message", (data) => {
-    const parsed = parseMessage(data);
+    const parsed = parseRuntimeWebSocketMessage(data);
     if (!parsed.ok) {
-      sendError(ws, "invalid_json", parsed.message);
+      sendRuntimeProtocolDiagnostic(ws, parsed.diagnostic);
+      if (shouldCloseForRuntimeProtocolDiagnostic(parsed.diagnostic)) {
+        ws.close(1002, parsed.diagnostic.code);
+      }
       return;
     }
 
@@ -67,7 +74,7 @@ export function attachRuntimeWebSocket(
         sendError(
           ws,
           "runtime_id_mismatch",
-          "Runtime hello did not match the WebSocket runtime id.",
+          `Runtime hello route mismatch at Hub runtime WebSocket: payload.runtimeId ${JSON.stringify(hello.data.payload.runtimeId)} does not match URL runtimeId ${JSON.stringify(context.runtimeId)}. Action: reconnect using the runtime URL and token returned for this runtime registration.`,
         );
         ws.close(1008, "runtime_id_mismatch");
         return;
@@ -117,7 +124,7 @@ export function attachRuntimeWebSocket(
             if (pendingEphemeralSecrets.has(envelope.ephemeralRequestId)) {
               dispatch.reject(
                 new RuntimeControlCommandError(
-                  "Secret request id is already active.",
+                  `Secret request ${JSON.stringify(envelope.ephemeralRequestId)} is already active on this runtime connection. Wait for the existing request to finish before retrying.`,
                   "SECRET_REPLAY_REJECTED",
                 ),
               );
@@ -134,7 +141,7 @@ export function attachRuntimeWebSocket(
               pendingEphemeralSecrets.delete(envelope.ephemeralRequestId);
               dispatch.reject(
                 new RuntimeControlCommandError(
-                  "Secure runtime connection closed before the secret request was sent.",
+                  `Secure runtime connection closed before secret request ${JSON.stringify(envelope.ephemeralRequestId)} was sent. Reconnect the runtime and retry the original operation.`,
                   "SECRET_RUNTIME_DISCONNECTED",
                 ),
               );
@@ -155,7 +162,7 @@ export function attachRuntimeWebSocket(
         sendError(
           ws,
           "runtime_id_mismatch",
-          "Runtime heartbeat did not match the WebSocket runtime id.",
+          `Runtime heartbeat route mismatch at Hub runtime WebSocket: payload.runtimeId ${JSON.stringify(heartbeat.data.payload.runtimeId)} does not match URL runtimeId ${JSON.stringify(context.runtimeId)}. Action: stop this uplink and reconnect with the registration for the expected runtime.`,
         );
         ws.close(1008, "runtime_id_mismatch");
         return;
@@ -203,7 +210,11 @@ export function attachRuntimeWebSocket(
       const result = ephemeralSecretResult.data;
       const pending = pendingEphemeralSecrets.get(result.ephemeralRequestId);
       if (!pending) {
-        sendError(ws, "unknown_ephemeral_secret_request", "Secret result has no active request.");
+        sendError(
+          ws,
+          "unknown_ephemeral_secret_request",
+          `Secret result ${JSON.stringify(result.ephemeralRequestId)} has no active in-memory request on this Hub connection. The request may have expired, completed, or belonged to a previous connection; retry the original operation instead of replaying the result.`,
+        );
         return;
       }
       if (
@@ -215,7 +226,7 @@ export function attachRuntimeWebSocket(
         pendingEphemeralSecrets.delete(result.ephemeralRequestId);
         pending.reject(
           new RuntimeControlCommandError(
-            "Secret result did not match its in-memory request route.",
+            `Secret result route mismatch for ${JSON.stringify(result.ephemeralRequestId)}: expected runtimeId=${JSON.stringify(context.runtimeId)}, operation=${JSON.stringify(pending.envelope.payload.operation)}, workspaceId=${JSON.stringify(pending.envelope.workspaceId ?? null)}, workspaceBindingId=${JSON.stringify(pending.envelope.workspaceBindingId ?? null)}; received runtimeId=${JSON.stringify(result.runtimeId)}, operation=${JSON.stringify(result.payload.operation)}, workspaceId=${JSON.stringify(result.workspaceId ?? null)}, workspaceBindingId=${JSON.stringify(result.workspaceBindingId ?? null)}. Retry the original operation on the correct runtime connection.`,
             "SECRET_ROUTE_MISMATCH",
           ),
         );
@@ -239,7 +250,16 @@ export function attachRuntimeWebSocket(
       return;
     }
 
-    sendError(ws, "unsupported_runtime_message", "Unsupported runtime WebSocket message.");
+    const messageType =
+      parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+        ? (parsed.value as Record<string, unknown>).type
+        : undefined;
+    sendError(
+      ws,
+      "runtime_dispatch_gap",
+      `Validated Spark runtime message ${JSON.stringify(messageType ?? "<missing>")} was not handled by the Hub dispatch table. This is a Hub implementation error, not a sender schema error. Action: capture the message type and Hub build version, then report the missing handler.`,
+    );
+    ws.close(1011, "runtime_dispatch_gap");
   });
 
   ws.on("close", (_code, reason) => {
@@ -250,7 +270,7 @@ export function attachRuntimeWebSocket(
     for (const pending of pendingEphemeralSecrets.values()) {
       pending.reject(
         new RuntimeControlCommandError(
-          "Secure runtime connection closed; the secret request will not be retried.",
+          `Secure runtime connection closed while secret request ${JSON.stringify(pending.envelope.ephemeralRequestId)} was active; it will not be retried automatically. Reconnect the runtime and retry the original operation.`,
           "SECRET_RUNTIME_DISCONNECTED",
         ),
       );
