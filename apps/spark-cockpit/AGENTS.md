@@ -45,13 +45,17 @@ URL schemes.
 ## Interaction and accessibility
 
 - Every reachable status and control state needs an explicit rendering test.
+- Preserve the distinct Loop states `scheduled`, `running`, `retry_wait`,
+  `dormant`, `paused`, `blocked`, `completed`, and `stopped`; do not merge them
+  for presentation convenience.
 - Preserve keyboard access, focus behavior, semantic roles, labels, and empty,
   loading, unavailable, and error states.
 - Keep optimistic UI bounded and reconcile it with the authoritative projection.
 - Do not hide owner errors behind generic success or silently repair invalid
   protocol data in the browser.
-- Update the Cockpit message catalog rather than embedding user-visible strings.
-  Keep supported locales in sync.
+- Update the explicit `@zendev-lab/spark-i18n/cockpit` message catalog rather
+  than embedding user-visible strings or adding another shared-package
+  catalog. Keep supported locales in sync.
 
 ## Testing
 

@@ -46,6 +46,9 @@ contracts and foundations
   from Spark product and Cockpit composition.
 - Shared packages must not depend on `spark-extension`, the product composition
   root.
+- `spark-ui` is the only package that may directly import Bits UI, Lucide, or
+  `svelte-streamdown`; it is a presentation owner, never an Artifact media type
+  or wire protocol.
 
 Declare every production workspace import in the importing package manifest.
 Do not rely on workspace symlinks or root dependencies to hide missing edges.
