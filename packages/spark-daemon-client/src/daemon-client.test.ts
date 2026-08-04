@@ -103,9 +103,7 @@ describe("protocol-aware Spark daemon client", () => {
       origins: [],
     });
 
-    const failure = await requestSparkDaemon("uplink.status", {}).catch(
-      (error: unknown) => error,
-    );
+    const failure = await requestSparkDaemon("uplink.status", {}).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(SparkDaemonProtocolMismatchError);
     expect(failure).toMatchObject({ method: "uplink.status" });
     expect((failure as Error).message).toContain("did not match client protocol");
@@ -161,9 +159,7 @@ describe("protocol-aware Spark daemon client", () => {
     const handle = connectedHandle(vi.fn().mockRejectedValueOnce(schemaFailure));
     transportMocks.createOrpc.mockResolvedValueOnce(handle);
 
-    const failure = await requestSparkDaemon("daemon.status", {}).catch(
-      (error: unknown) => error,
-    );
+    const failure = await requestSparkDaemon("daemon.status", {}).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(SparkDaemonProtocolMismatchError);
     expect(failure).toMatchObject({ method: "daemon.status", cause: schemaFailure });
     expect((failure as Error).message).toContain("client protocol");
