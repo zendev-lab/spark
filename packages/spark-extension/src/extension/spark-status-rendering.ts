@@ -14,7 +14,6 @@ import type {
 import type { WorkflowRunControl, WorkflowRunStatusSummary } from "@zendev-lab/spark-workflows";
 import { renderSparkProjectKindDisplay } from "./project-kind-registry.ts";
 import { appendRecentRoleRunCompletionLines } from "./role-run-completions.ts";
-import type { SparkDriveMode } from "./spark-drive-state.ts";
 import type { SparkSessionGoal } from "./spark-session-goals.ts";
 import type { SparkSessionLoop } from "./spark-session-loops.ts";
 import { sparkRunStrategyForMaxConcurrency } from "./session-state.ts";
@@ -72,7 +71,6 @@ export interface SparkStatusRenderInput {
   workflowRunStatus: WorkflowRunStatusSummary;
   dynamicWorkflowRuns?: SparkDynamicWorkflowEventRunView[];
   runControl?: WorkflowRunControl;
-  driveMode?: SparkDriveMode;
   sessionGoal?: SparkSessionGoal;
   sessionLoop?: SparkSessionLoop;
   recentRoleRunCompletions: TaskRunCompletionSummary[];
@@ -93,7 +91,6 @@ export function renderSparkStatus(input: SparkStatusRenderInput): {
   const lines = [
     `Spark ${scope === "workspace" ? "tasks" : `${scope} status`} (${input.view} view${typeof input.taskLimit === "number" ? `, limit=${input.taskLimit}` : ""}):`,
   ];
-  if (input.driveMode) lines.push(`Mode: ${input.driveMode} (derived from active drive state).`);
   if (includeWorkspaceSummary && input.runControl)
     lines.push(sparkRunControlStatusLine(input.runControl));
   if (includeWorkspaceSummary)
@@ -139,7 +136,6 @@ export function renderSparkStatus(input: SparkStatusRenderInput): {
       ? { dynamicWorkflowRuns: compactDynamicWorkflowRuns(input.dynamicWorkflowRuns) }
       : {}),
     ...(includeWorkspaceSummary ? { runControl: input.runControl } : {}),
-    driveMode: input.driveMode,
     sessionGoal: input.sessionGoal,
     sessionLoop: input.sessionLoop,
     ...(includeWorkspaceSummary
@@ -197,7 +193,6 @@ function compactSparkStatusDetails(
         : undefined,
       currentClaim: currentClaim ? compactTaskDecisionDetail(input, currentClaim) : undefined,
       ready,
-      driveMode: input.driveMode,
       sessionGoal: input.sessionGoal
         ? {
             status: input.sessionGoal.status,
@@ -239,7 +234,6 @@ function compactSparkStatusDetails(
             : undefined,
         }
       : {}),
-    driveMode: input.driveMode,
     sessionGoal: input.sessionGoal
       ? {
           status: input.sessionGoal.status,

@@ -84,7 +84,7 @@ test("workspace strategy ledger covers architecture with exact classifications",
   });
   for (const packageId of [
     "spark-memory",
-    "spark-modes",
+    "spark-phases",
     "spark-graft",
     "spark-files",
     "spark-workflows",

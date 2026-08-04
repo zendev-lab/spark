@@ -1,7 +1,7 @@
 import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
 
 import type { DaemonSessionRegistry } from "./session-registry.ts";
-import type { SparkDriverStore } from "./store/drivers.ts";
+import type { SparkLoopStore } from "./store/loops.ts";
 import type { SparkInvocationStore } from "./store/invocations.ts";
 
 export const INACTIVE_UNASSIGNED_SESSION_RETENTION_DAYS = 30;
@@ -13,14 +13,14 @@ export interface SessionRetentionReconcileResult {
   examined: number;
   eligible: number;
   archived: string[];
-  skippedActiveDriver: string[];
+  skippedActiveLoop: string[];
   skippedActiveInvocation: string[];
   failures: Array<{ sessionId: string; error: string }>;
 }
 
 export async function reconcileInactiveSessionRetention(input: {
   registry: DaemonSessionRegistry;
-  driverStore: Pick<SparkDriverStore, "list">;
+  loopStore: Pick<SparkLoopStore, "list">;
   invocationStore: Pick<SparkInvocationStore, "sessionActivities">;
   now?: Date;
   retentionMs?: number;
@@ -47,13 +47,13 @@ export async function reconcileInactiveSessionRetention(input: {
   const candidates = inactiveCandidates.filter(
     (session) => !activeInvocationOwners.has(session.sessionId),
   );
-  const skippedActiveDriver = candidates
-    .filter((session) => input.driverStore.list({ ownerSessionId: session.sessionId }).length > 0)
+  const skippedActiveLoop = candidates
+    .filter((session) => input.loopStore.list({ ownerSessionId: session.sessionId }).length > 0)
     .map((session) => session.sessionId);
-  const activeDriverOwners = new Set(skippedActiveDriver);
+  const activeLoopOwners = new Set(skippedActiveLoop);
   const settled = await Promise.allSettled(
     candidates
-      .filter((session) => !activeDriverOwners.has(session.sessionId))
+      .filter((session) => !activeLoopOwners.has(session.sessionId))
       .map(async (session) => {
         const archived = await input.registry.archive({
           sessionId: session.sessionId,
@@ -74,7 +74,7 @@ export async function reconcileInactiveSessionRetention(input: {
   const archived: string[] = [];
   const failures: SessionRetentionReconcileResult["failures"] = [];
   settled.forEach((result, index) => {
-    const session = candidates.filter((candidate) => !activeDriverOwners.has(candidate.sessionId))[
+    const session = candidates.filter((candidate) => !activeLoopOwners.has(candidate.sessionId))[
       index
     ];
     if (!session) return;
@@ -88,7 +88,7 @@ export async function reconcileInactiveSessionRetention(input: {
     examined: sessions.length,
     eligible: inactiveCandidates.length,
     archived,
-    skippedActiveDriver,
+    skippedActiveLoop,
     skippedActiveInvocation,
     failures,
   };

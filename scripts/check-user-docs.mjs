@@ -213,8 +213,6 @@ const publicTools = [
   "goal",
   "loop",
   "repro",
-  "drive",
-  "driver",
   "phase",
   "workflow",
   "workflow_run",
@@ -234,7 +232,7 @@ for (const page of ["reference/tools.md", "zh/reference/tools.md"]) {
   for (const tool of publicTools) {
     if (!source.includes(`\`${tool}\``)) failures.push(`${page} does not catalog ${tool}`);
   }
-  for (const internalName of [/\bimpl_/u, /\bworkflow_driver\b/u]) {
+  for (const internalName of [/\bimpl_/u]) {
     if (internalName.test(source)) failures.push(`${page} exposes internal tool ${internalName}`);
   }
 }

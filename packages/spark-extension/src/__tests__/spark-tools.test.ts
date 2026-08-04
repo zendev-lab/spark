@@ -23,7 +23,7 @@ import {
   newRef,
   stableId,
   type EvidenceRef,
-  type SparkHostDriverContext,
+  type SparkHostLoopContext,
   type ExtensionRoleRunRequest,
   type ExtensionRoleRunResult,
   type ExtensionRoleRunStatus,
@@ -70,7 +70,7 @@ import { REPRO_STAGE_BLUEPRINTS } from "../extension/spark-repro-stage-blueprint
 import { collectReproOrchestrationSnapshot } from "../extension/spark-repro-orchestration.ts";
 import { JsonStoreFormatError } from "../extension/json-store.ts";
 import type { SparkToolContext } from "../extension/spark-tool-registration.ts";
-import type { SparkDaemonDriverControl } from "../extension/spark-daemon-driver-client.ts";
+import type { SparkDaemonLoopControl } from "../extension/spark-daemon-loop-client.ts";
 import type { SparkDaemonUsageControl } from "../extension/spark-daemon-usage-client.ts";
 import type { SparkTaskClaimDaemonClient } from "../extension/spark-task-claim-daemon-client.ts";
 import {
@@ -213,10 +213,10 @@ async function loadLegacyEvidenceFixture<T>(
 function quotedJsonField(field: string): RegExp {
   return new RegExp(`"${field.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`);
 }
-type TestSparkDaemonDriverControl = SparkDaemonDriverControl & {
-  drivers: Map<string, Awaited<ReturnType<SparkDaemonDriverControl["start"]>>["driver"]>;
+type TestSparkDaemonLoopControl = SparkDaemonLoopControl & {
+  loops: Map<string, Awaited<ReturnType<SparkDaemonLoopControl["start"]>>["loop"]>;
   ensuredOwners: Array<{ sessionId: string; cwd: string }>;
-  startInputs: Parameters<SparkDaemonDriverControl["start"]>[0][];
+  startInputs: Parameters<SparkDaemonLoopControl["start"]>[0][];
 };
 
 function executionReadyPlan(objective: string): TaskPlan {
@@ -761,9 +761,6 @@ type TestSparkContext = {
   askReviewerFallbackAfterMs?: number;
   sparkActiveLens?: {
     phase: "plan" | "implement";
-    mode?: "assist" | "loop" | "goal" | "workflow";
-    drive?: "assist" | "loop" | "goal" | "workflow" | "interactive";
-    driver?: "assist" | "loop" | "goal" | "workflow" | "interactive";
   };
   ui: {
     notify: (message: string, level?: "info" | "warning" | "error" | "success") => void;
@@ -809,7 +806,7 @@ test("/automate only prefills an existing canonical automation command", async (
     assert.equal(ctx.editorText, command);
   }
   assert.deepEqual(shownOptions, [...expected.keys()]);
-  assert.equal(run.driverControl.drivers.size, 0);
+  assert.equal(run.loopControl.loops.size, 0);
   assert.equal(run.messages.length, 0);
   assert.equal(run.customMessages.length, 0);
 
@@ -839,7 +836,7 @@ test("/ultracode enters opt-in high-effort workflow generation mode", async () =
     await ultracode.handler("design and validate a workflow parity suite", ctx);
 
     const message = run.customMessages.at(-1);
-    assert.equal(message?.customType, "spark-mode-request");
+    assert.equal(message?.customType, "spark-phase-request");
     assert.equal(message?.display, false);
     assert.equal(run.messages.length, 0);
   } finally {
@@ -863,7 +860,7 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     assert.equal(existsSync(join(existingDir, "SPARK.md")), false);
     assert.equal(existingRun.messages.length, 0);
     assert.equal(existingRun.customMessages.length, 1);
-    assert.equal(existingRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(existingRun.customMessages.at(-1)?.customType, "spark-phase-request");
     assert.equal(existingCtx.sparkActiveLens?.phase, "plan");
 
     await writeEmptySparkProject(initializedDir);
@@ -890,21 +887,20 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     assert.ok(executeCommand, "missing /implement command");
     await executeCommand.handler("Finish the direct execution task", initializedCtx);
     assert.equal(initializedRun.messages.length, 0);
-    assert.equal(initializedRun.driverControl.drivers.size, 0);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.loopControl.loops.size, 0);
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
     assert.match(initializedRun.customMessages.at(-1)?.content ?? "", /Implementation phase/u);
     assert.deepEqual(initializedCtx.sparkActiveLens, {
       phase: "implement",
-      drive: "assist",
     });
 
     initializedCtx.ui.select = async () =>
       assert.fail("/implement should not open a canned implement-strategy ask");
     const implementMessageCount = initializedRun.customMessages.length;
     await executeCommand.handler("keep going until done", initializedCtx);
-    assert.equal(initializedRun.driverControl.drivers.size, 0);
+    assert.equal(initializedRun.loopControl.loops.size, 0);
     assert.equal(initializedRun.customMessages.length, implementMessageCount + 1);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
     const askedGoalState = JSON.parse(
       await readFile(currentProjectStatePath(initializedDir, initializedCtx), "utf8"),
     ) as { projectRef?: string; executionMode?: unknown };
@@ -923,7 +919,7 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     assert.ok(initializedRun.commands.get("workflow:research"));
     assert.ok(initializedRun.commands.get("workflow:review"));
     await goalCommand.handler("Finish the queue until done", initializedCtx);
-    assert.match(activeTestDriver(initializedRun, "goal")?.reason ?? "", /Finish the queue/u);
+    assert.match(activeTestLoop(initializedRun, "goal")?.reason ?? "", /Finish the queue/u);
     const goalSessionStateRaw = await readFile(
       sessionGoalPath(initializedDir, initializedCtx),
       "utf8",
@@ -939,13 +935,13 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     assert.equal(sessionAfterGoal.executionMode, undefined);
 
     await goalCommand.handler("", initializedCtx);
-    assert.equal(activeTestDriver(initializedRun, "goal")?.status, "scheduled");
+    assert.equal(activeTestLoop(initializedRun, "goal")?.status, "scheduled");
     assert.equal(initializedRun.commands.get("workflow:ready"), undefined);
 
     const messagesBeforeLoop = initializedRun.customMessages.length;
     await loopCommand.handler("Continue the queue without completing", initializedCtx);
     assert.equal(initializedRun.customMessages.length, messagesBeforeLoop);
-    assert.equal(activeTestDriver(initializedRun, "loop")?.status, "scheduled");
+    assert.equal(activeTestLoop(initializedRun, "loop")?.status, "scheduled");
     const activeLoop = await loadSessionLoop(initializedDir, initializedCtx);
     assert.equal(activeLoop?.objective, "Continue the queue without completing");
     assert.equal(activeLoop?.status, "active");
@@ -1001,33 +997,30 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     assert.ok(researchWorkflowCommand, "missing /workflow:research command");
     assert.equal(initializedRun.commands.get("workflow:triage"), undefined);
     await workflowCommand.handler("workspace:triage Review with a workflow", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
 
     await workflowCommand.handler("builtin:research Compare design options", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
     assert.deepEqual(initializedCtx.sparkActiveLens, {
       phase: "plan",
-      drive: "workflow",
     });
 
     await workflowCommand.handler(
       "run research Compare canonical workflow actions",
       initializedCtx,
     );
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
     assert.deepEqual(initializedCtx.sparkActiveLens, {
       phase: "plan",
-      drive: "workflow",
     });
 
     await researchWorkflowCommand.handler(
       "Compare default panel and judge behavior",
       initializedCtx,
     );
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
     assert.deepEqual(initializedCtx.sparkActiveLens, {
       phase: "plan",
-      drive: "workflow",
     });
 
     let workflowNavigatorOptions: string[] = [];
@@ -1038,15 +1031,15 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     initializedCtx.selected = "builtin:review";
     initializedCtx.inputValue = "Review the workflow UI direction";
     await workflowCommand.handler("", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
 
     initializedCtx.selected = "builtin:research";
     await workflowCommand.handler("list Canonical navigator focus", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
 
     initializedCtx.selected = "workspace:triage";
     await workflowsCommand.handler("Navigator supplied focus", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
 
     const navigatorStore = defaultSparkDynamicWorkflowEventStore(initializedDir);
     const navigatorRun = await navigatorStore.start({
@@ -1098,7 +1091,7 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
         "```",
       initializedCtx,
     );
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
 
     assert.equal(initializedRun.commands.get("run"), undefined);
     assert.equal(initializedRun.commands.get("run-sequential"), undefined);
@@ -1115,12 +1108,12 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     assert.equal(emptyRun.commands.get("workflow:goal"), undefined);
     await emptyGoalCommand.handler("", emptyCtx);
     assert.equal(emptyRun.customMessages.length, 0);
-    assert.match(activeTestDriver(emptyRun, "goal")?.driverId ?? "", /^goal-infer:/u);
+    assert.match(activeTestLoop(emptyRun, "goal")?.loopId ?? "", /^goal-infer:/u);
     const emptyWorkflowCommand = emptyRun.commands.get("workflow:research");
     assert.ok(emptyWorkflowCommand, "missing /workflow:research command");
     await emptyWorkflowCommand.handler("Investigate standalone workflow usage", emptyCtx);
     assert.equal(emptyRun.customMessages.length, 1);
-    assert.equal(emptyRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(emptyRun.customMessages.at(-1)?.customType, "spark-phase-request");
   } finally {
     await rm(existingDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
     await rm(initializedDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
@@ -1148,7 +1141,7 @@ test("/plan dispatches through an externally owned command turn bridge", async (
     assert.equal(forwarded.length, 1);
     assert.match(forwarded[0] ?? "", /## Planning focus\nTrace the visible turn path/u);
     assert.equal(run.customMessages.length, 0);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "assist" });
+    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1171,7 +1164,7 @@ test("/goal dispatches through an externally owned command turn bridge", async (
     await goalCommand.handler("Trace the daemon goal bridge", ctx);
 
     assert.equal(forwarded.length, 0);
-    assert.match(activeTestDriver(run, "goal")?.reason ?? "", /Trace the daemon goal bridge/u);
+    assert.match(activeTestLoop(run, "goal")?.reason ?? "", /Trace the daemon goal bridge/u);
     assert.equal(run.customMessages.length, 0);
     const goal = await loadSessionGoal(dir, ctx);
     assert.equal(goal?.objective, "Trace the daemon goal bridge");
@@ -1182,7 +1175,7 @@ test("/goal dispatches through an externally owned command turn bridge", async (
 });
 
 test("latest direct Spark mode replaces older pending hidden mode context", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-mode-context-replace-"));
+  const dir = await mkdtemp(join(tmpdir(), "spark-phase-context-replace-"));
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
@@ -1202,9 +1195,8 @@ test("latest direct Spark mode replaces older pending hidden mode context", asyn
     await planCommand.handler("revise the failed task plan", ctx);
 
     const hiddenMessage = run.customMessages.at(-1);
-    assert.equal(hiddenMessage?.customType, "spark-mode-request");
+    assert.equal(hiddenMessage?.customType, "spark-phase-request");
     assert.equal(ctx.sparkActiveLens?.phase, "plan");
-    assert.equal(ctx.sparkActiveLens?.drive, "assist");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1249,8 +1241,8 @@ test("/plan includes active roadmap item context and matches focus to an existin
     await planCommand.handler("Roadmap assisted planning", ctx);
 
     assert.equal(run.messages.length, 0);
-    assert.equal(run.customMessages.at(-1)?.customType, "spark-mode-request");
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "assist" });
+    assert.equal(run.customMessages.at(-1)?.customType, "spark-phase-request");
+    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
     const graph = await defaultTaskGraphStore(dir).load();
     const project = graph?.projects()[0];
     assert.ok(project?.roadmap);
@@ -1718,11 +1710,10 @@ test("/implement continues through the agent-end hook without auto-answering or 
     const executeCommand = run.commands.get("implement");
     assert.ok(executeCommand, "missing /implement command");
     await executeCommand.handler("work through the ready queue", ctx);
-    assert.equal(run.driverControl.drivers.size, 0);
-    assert.equal(run.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(run.loopControl.loops.size, 0);
+    assert.equal(run.customMessages.at(-1)?.customType, "spark-phase-request");
     assert.deepEqual(ctx.sparkActiveLens, {
       phase: "implement",
-      drive: "assist",
     });
 
     await executeSparkTool(run.tools, "impl_claim_task", ctx, {
@@ -1772,10 +1763,9 @@ test("/implement continues through the agent-end hook without auto-answering or 
       .find((message) => message.customType === "spark-agent-end-reconciliation");
     assert.ok(continuation, "ready implementation work should queue one hook continuation");
     assert.match(continuation.content, /@second-ready/u);
-    assert.equal(run.driverControl.drivers.size, 0);
+    assert.equal(run.loopControl.loops.size, 0);
     assert.deepEqual(ctx.sparkActiveLens, {
       phase: "implement",
-      drive: "assist",
     });
 
     const graph = await defaultTaskGraphStore(dir).load();
@@ -1918,7 +1908,7 @@ test("/goal sets a durable session goal instead of execute-mode continuation", a
     assert.ok(goalCommand, "missing /goal command");
     assert.equal(run.commands.get("workflow:goal"), undefined);
     await goalCommand.handler("work through the ready queue until done", ctx);
-    assert.equal(activeTestDriver(run, "goal")?.status, "scheduled");
+    assert.equal(activeTestLoop(run, "goal")?.status, "scheduled");
     const goalState = JSON.parse(await readFile(sessionGoalPath(dir, ctx), "utf8")) as {
       goal?: { objective?: string; status?: string };
     };
@@ -1932,7 +1922,7 @@ test("/goal sets a durable session goal instead of execute-mode continuation", a
     assert.equal(sessionState.executionMode, undefined);
     assert.equal(sessionState.runMode, undefined);
     assert.match(
-      activeTestDriver(run, "goal")?.reason ?? "",
+      activeTestLoop(run, "goal")?.reason ?? "",
       /work through the ready queue until done/u,
     );
   } finally {
@@ -1940,7 +1930,7 @@ test("/goal sets a durable session goal instead of execute-mode continuation", a
   }
 });
 
-test("foreground drivers do not expose selected phases for research-progress objectives", async () => {
+test("foreground loops do not expose selected phases for research-progress objectives", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-foreground-empty-frontier-plan-"));
   try {
     await writeEmptySparkProject(dir);
@@ -1952,7 +1942,7 @@ test("foreground drivers do not expose selected phases for research-progress obj
     const goalCommand = run.commands.get("goal");
     assert.ok(goalCommand, "missing /goal command");
     await goalCommand.handler(objective, ctx);
-    const goalDriver = activeTestDriver(run, "goal");
+    const goalDriver = activeTestLoop(run, "goal");
     assert.match(goalDriver?.reason ?? "", new RegExp(objective));
     assert.doesNotMatch(
       goalDriver?.reason ?? "",
@@ -1962,14 +1952,14 @@ test("foreground drivers do not expose selected phases for research-progress obj
     const loopCommand = run.commands.get("loop");
     assert.ok(loopCommand, "missing /loop command");
     await loopCommand.handler(objective, ctx);
-    const loopDriver = activeTestDriver(run, "loop");
+    const loopDriver = activeTestLoop(run, "loop");
     assert.match(loopDriver?.reason ?? "", /loop started/u);
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
 });
 
-test("foreground drivers keep pure research objectives driver-owned", async () => {
+test("foreground loops keep pure research objectives driver-owned", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-foreground-empty-frontier-research-"));
   try {
     await writeEmptySparkProject(dir);
@@ -1981,7 +1971,7 @@ test("foreground drivers keep pure research objectives driver-owned", async () =
     const goalCommand = run.commands.get("goal");
     assert.ok(goalCommand, "missing /goal command");
     await goalCommand.handler(objective, ctx);
-    const goalDriver = activeTestDriver(run, "goal");
+    const goalDriver = activeTestLoop(run, "goal");
     assert.match(goalDriver?.reason ?? "", new RegExp(objective));
     assert.doesNotMatch(
       goalDriver?.reason ?? "",
@@ -1991,7 +1981,7 @@ test("foreground drivers keep pure research objectives driver-owned", async () =
     const loopCommand = run.commands.get("loop");
     assert.ok(loopCommand, "missing /loop command");
     await loopCommand.handler(objective, ctx);
-    assert.equal(activeTestDriver(run, "loop")?.status, "scheduled");
+    assert.equal(activeTestLoop(run, "loop")?.status, "scheduled");
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
@@ -2010,8 +2000,8 @@ test("/goal without objective dispatches an agent infer instruction without writ
 
     const goal = await loadSessionGoal(dir, ctx);
     assert.equal(goal, undefined);
-    const inferDriver = activeTestDriver(run, "goal");
-    assert.match(inferDriver?.driverId ?? "", /^goal-infer:/u);
+    const inferDriver = activeTestLoop(run, "goal");
+    assert.match(inferDriver?.loopId ?? "", /^goal-infer:/u);
     assert.match(inferDriver?.reason ?? "", /infer goal/u);
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
@@ -2051,7 +2041,7 @@ test("goal status surfaces lifecycle actions, usage, and review state", async ()
     assert.doesNotMatch(statusText, /Usage:/);
     assert.doesNotMatch(statusText, /tokens/);
     assert.match(statusText, /Last review: unrecorded at 2026-06-10T00:00:00.000Z/);
-    assert.match(statusText, /Cadence and retry state are owned by the Spark daemon driver/);
+    assert.match(statusText, /Cadence and retry state are owned by the Spark daemon Loop/);
     assert.match(statusText, /Current project: .* unfinishedTasks=0 readyTasks=0/);
     assert.match(statusText, /Goal\/project relationship: Goal is session-scoped/);
     assert.doesNotMatch(statusText, /project_finish/);
@@ -2103,7 +2093,7 @@ test("/goal restarts without overwriting an existing goal objective", async () =
     const goal = await loadSessionGoal(dir, ctx);
     assert.equal(goal?.status, "active");
     assert.equal(goal?.objective, "finish the original queue");
-    assert.equal(activeTestDriver(run, "goal")?.driverId, goal?.goalId);
+    assert.equal(activeTestLoop(run, "goal")?.loopId, goal?.goalId);
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
@@ -2147,7 +2137,7 @@ test("/goal handles stale inferred project goals after project work has no unfin
     assert.equal(goal?.status, "active");
     assert.equal(goal?.objective, "review 全盘代码进行改进");
     assert.equal(goal?.source, "explicit");
-    assert.equal(activeTestDriver(run, "goal")?.driverId, goal?.goalId);
+    assert.equal(activeTestLoop(run, "goal")?.loopId, goal?.goalId);
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
@@ -2170,7 +2160,7 @@ test("/goal start clears an existing foreground loop", async () => {
     await goalCommand.handler("Goal replaces loop", ctx);
     assert.equal(await loadSessionLoop(dir, ctx), undefined);
     assert.equal((await loadSessionGoal(dir, ctx))?.objective, "Goal replaces loop");
-    assert.equal(activeTestDriver(run, "goal")?.status, "scheduled");
+    assert.equal(activeTestLoop(run, "goal")?.status, "scheduled");
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
@@ -5829,8 +5819,8 @@ test("spark_goal inference describes substantive project outcomes instead of tas
   assert.doesNotMatch(objective ?? "", /Advance project|to completion|unfinished|ready/i);
 });
 
-test("native Pi session context starts goal and repro daemon drivers", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-native-pi-drivers-"));
+test("native Pi session context starts goal and repro daemon loops", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-native-pi-loops-"));
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "native-pi");
@@ -5842,19 +5832,19 @@ test("native Pi session context starts goal and repro daemon drivers", async () 
     const goalCommand = run.commands.get("goal");
     assert.ok(goalCommand, "missing /goal command");
     await goalCommand.handler("Finish from native Pi", ctx);
-    assert.deepEqual(run.driverControl.ensuredOwners, [{ sessionId: piSessionId, cwd: dir }]);
-    assert.equal(activeTestDriver(run, "goal")?.ownerSessionId, piSessionId);
+    assert.deepEqual(run.loopControl.ensuredOwners, [{ sessionId: piSessionId, cwd: dir }]);
+    assert.equal(activeTestLoop(run, "goal")?.ownerSessionId, piSessionId);
     assert.equal((await loadSessionGoal(dir, ctx))?.sessionKey, `session:${piSessionId}`);
 
     await executeSparkTool(run.tools, "repro", ctx, {
       action: "start",
       objective: "Reproduce from native Pi",
     });
-    assert.deepEqual(run.driverControl.ensuredOwners, [
+    assert.deepEqual(run.loopControl.ensuredOwners, [
       { sessionId: piSessionId, cwd: dir },
       { sessionId: piSessionId, cwd: dir },
     ]);
-    assert.equal(activeTestDriver(run, "repro")?.ownerSessionId, piSessionId);
+    assert.equal(activeTestLoop(run, "repro")?.ownerSessionId, piSessionId);
     assert.equal((await readSessionRepro(dir, ctx))?.sessionKey, `session:${piSessionId}`);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -5869,7 +5859,7 @@ test("native Pi /repro waits for daemon owner readiness before persisting active
     (ctx as { sessionId?: string }).sessionId = undefined;
     ctx.sessionManager.getSessionId = () => "pi-readiness-session-uuid";
     const run = registerSparkToolsForTest();
-    run.driverControl.ensureOwnerSession = async () => {
+    run.loopControl.ensureOwnerSession = async () => {
       throw new Error("daemon failed to start");
     };
     const reproCommand = run.commands.get("repro");
@@ -5881,7 +5871,7 @@ test("native Pi /repro waits for daemon owner readiness before persisting active
     );
 
     assert.equal(await readSessionRepro(dir, ctx), undefined);
-    assert.equal(activeTestDriver(run, "repro"), undefined);
+    assert.equal(activeTestLoop(run, "repro"), undefined);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -5893,7 +5883,7 @@ test("/repro rolls back newly persisted active state when driver start fails", a
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "repro-start-rollback");
     const run = registerSparkToolsForTest();
-    run.driverControl.start = async () => {
+    run.loopControl.start = async () => {
       throw new Error("driver start failed");
     };
     const reproCommand = run.commands.get("repro");
@@ -5905,7 +5895,7 @@ test("/repro rolls back newly persisted active state when driver start fails", a
     );
 
     assert.equal(await readSessionRepro(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "assist" });
+    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -5917,7 +5907,7 @@ test("repro tool reports driver startup failure and clears new active state", as
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "repro-tool-start-rollback");
     const run = registerSparkToolsForTest();
-    run.driverControl.start = async () => {
+    run.loopControl.start = async () => {
       throw new Error("tool driver start failed");
     };
 
@@ -5927,15 +5917,15 @@ test("repro tool reports driver startup failure and clears new active state", as
     });
 
     assert.equal(result.isError, true);
-    assert.match(toolText(result), /Repro drive did not start: tool driver start failed/u);
+    assert.match(toolText(result), /Repro did not start: tool driver start failed/u);
     assert.equal(await readSessionRepro(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "assist" });
+    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("native Pi ephemeral sessions cannot start durable goal or repro drivers", async () => {
+test("native Pi ephemeral sessions cannot start durable goal or repro loops", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-native-pi-ephemeral-"));
   try {
     await writeEmptySparkProject(dir);
@@ -5959,7 +5949,7 @@ test("native Pi ephemeral sessions cannot start durable goal or repro drivers", 
       }),
       /persistent Pi session/u,
     );
-    assert.deepEqual(run.driverControl.ensuredOwners, []);
+    assert.deepEqual(run.loopControl.ensuredOwners, []);
     assert.equal(await loadSessionGoal(dir, ctx), undefined);
     assert.equal(await readSessionRepro(dir, ctx), undefined);
   } finally {
@@ -6412,7 +6402,6 @@ test("/implement canonical ask uses UI instead of reviewer auto-answer", async (
     await implementCommand.handler("work until a human decision is needed", ctx);
     assert.deepEqual(ctx.sparkActiveLens, {
       phase: "implement",
-      drive: "assist",
     });
 
     const asked = await executeSparkTool(run.tools, "ask", ctx, {
@@ -6835,7 +6824,8 @@ test("Spark extension exposes canonical tools instead of removed spark_* tools",
   assert.ok(run.tools.has("goal"));
   assert.ok(run.tools.has("loop"));
   assert.ok(run.tools.has("repro"));
-  assert.ok(run.tools.has("drive"));
+  assert.equal(run.tools.has("drive"), false);
+  assert.equal(run.tools.has("driver"), false);
   assert.ok(run.tools.has("phase"));
   assert.equal(run.tools.has("mode"), false);
   assert.deepEqual(
@@ -6879,65 +6869,7 @@ test("phase tool returns requirements and persists session phase", async () => {
   }
 });
 
-test("drive tool derives mode and switches explicit foreground drives", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-drive-tool-"));
-  try {
-    await writeEmptySparkProject(dir);
-    const ctx = testSparkContext(dir, "main");
-    const { tools } = registerSparkToolsForTest();
-    await executeSparkTool(tools, "impl_use_project", ctx, { project: "Tool persistence" });
-
-    const initial = await executeSparkTool(tools, "drive", ctx, { action: "status" });
-    assert.equal((initial.details as { mode?: string }).mode, "assist");
-    assert.match(toolText(initial), /Mode: assist/);
-
-    const reproStarted = await executeSparkTool(tools, "drive", ctx, {
-      action: "start",
-      drive: "repro",
-    });
-    assert.match(toolText(reproStarted), /Drive started: repro/);
-    assert.equal((await readSessionRepro(dir, ctx))?.status, "active");
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "repro" });
-
-    const loopStarted = await executeSparkTool(tools, "drive", ctx, {
-      action: "start",
-      drive: "loop",
-      objective: "Continuously watch low-risk follow-ups",
-    });
-    assert.match(toolText(loopStarted), /Drive started: loop/);
-    assert.equal((await loadSessionLoop(dir, ctx))?.status, "active");
-    assert.equal(await loadSessionGoal(dir, ctx), undefined);
-    assert.equal(await readSessionRepro(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "loop" });
-
-    const goalSwitched = await executeSparkTool(tools, "drive", ctx, {
-      action: "switch",
-      drive: "goal",
-      objective: "Finish Tool persistence with review",
-    });
-    assert.match(toolText(goalSwitched), /Drive switched: goal/);
-    assert.equal((await loadSessionGoal(dir, ctx))?.status, "active");
-    assert.equal(await loadSessionLoop(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "goal" });
-
-    const stopped = await executeSparkTool(tools, "drive", ctx, { action: "stop", drive: "goal" });
-    assert.match(toolText(stopped), /Drive stopped: goal/);
-    assert.equal((stopped.details as { mode?: string }).mode, "assist");
-    assert.equal(await loadSessionGoal(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "assist" });
-
-    const workflow = await executeSparkTool(tools, "drive", ctx, {
-      action: "start",
-      drive: "workflow",
-    });
-    assert.equal(workflow.isError, true);
-    assert.match(toolText(workflow), /Workflow drive is controlled by workflow_run or \/workflow/);
-  } finally {
-    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
-  }
-});
-
-test("/repro command starts, reports, and stops the repro drive", async () => {
+test("/repro command starts, reports, and stops the Repro", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-command-"));
   try {
     await writeEmptySparkProject(dir);
@@ -6952,11 +6884,11 @@ test("/repro command starts, reports, and stops the repro drive", async () => {
     }
     const repro = await readSessionRepro(dir, ctx);
     assert.equal(repro?.status, "active");
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "repro" });
+    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
     assert.equal(ctx.askWaitTimeoutMs, 15 * 60_000);
     assert.equal(ctx.askAutoAnswer, undefined);
-    const driver = activeTestDriver(run, "repro");
-    assert.equal(driver?.driverId, repro?.reproId);
+    const driver = activeTestLoop(run, "repro");
+    assert.equal(driver?.loopId, repro?.reproId);
     assert.equal(driver?.status, "scheduled");
 
     await reproCommand.handler("status", ctx);
@@ -6964,7 +6896,7 @@ test("/repro command starts, reports, and stops the repro drive", async () => {
 
     await reproCommand.handler("stop", ctx);
     assert.equal(await readSessionRepro(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "assist" });
+    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
@@ -6985,8 +6917,8 @@ test("/repro command treats non-action text as the repro objective", async () =>
     const repro = await readSessionRepro(dir, ctx);
     assert.equal(repro?.status, "active");
     assert.equal(repro?.objective, objective);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "repro" });
-    assert.equal(activeTestDriver(run, "repro")?.driverId, repro?.reproId);
+    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
+    assert.equal(activeTestLoop(run, "repro")?.loopId, repro?.reproId);
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Spark repro active:/);
     assert.match(ctx.notifications.at(-1)?.message ?? "", new RegExp(objective));
 
@@ -7008,7 +6940,7 @@ test("repro record without an active drive returns an actionable recovery hint",
     const { tools } = registerSparkToolsForTest();
 
     const status = await executeSparkTool(tools, "repro", ctx, { action: "status" });
-    assert.match(toolText(status), /No repro drive is active\./);
+    assert.match(toolText(status), /No Repro is active\./);
     assert.match(toolText(status), /repro\(\{ action: "start" \}\)/);
     assert.equal((status.details as { active?: boolean }).active, false);
     assert.equal((status.details as { recovery?: string }).recovery, 'repro({ action: "start" })');
@@ -7018,7 +6950,7 @@ test("repro record without an active drive returns an actionable recovery hint",
       requirementId: "repro-contract-frozen",
       proof: { kind: "evidence", evidenceRefs: ["evidence:00000000-0000-4000-8000-000000000000"] },
     });
-    assert.match(toolText(record), /No active repro drive\./);
+    assert.match(toolText(record), /No active Repro\./);
     assert.match(toolText(record), /repro\(\{ action: "start" \}\)/);
     assert.match(toolText(record), /evidence refs stay valid/);
     assert.equal((record.details as { active?: boolean }).active, false);
@@ -7544,9 +7476,9 @@ test("repro plan, step, and settle enforce the typed protocol and bounded contin
 
     const scheduled: Array<{ delayMs?: number; prompt?: string; reason?: string }> = [];
     const stopped: Array<{ reason?: string } | undefined> = [];
-    const driver: SparkHostDriverContext = {
-      driverId: "repro-driver",
-      kind: "repro",
+    const loop: SparkHostLoopContext = {
+      loopId: "repro-driver",
+      binding: { reproId: "repro-driver" },
       generation: 1,
       ownerSessionId: ctx.sessionId,
       stateOwnerSessionId: ctx.sessionId,
@@ -7559,7 +7491,7 @@ test("repro plan, step, and settle enforce the typed protocol and bounded contin
         return input;
       },
     };
-    (ctx as TestSparkContext & { driver: SparkHostDriverContext }).driver = driver;
+    (ctx as TestSparkContext & { loop: SparkHostLoopContext }).loop = loop;
 
     for (let index = 0; index < 3; index += 1) {
       const settled = await executeSparkTool(tools, "repro", ctx, {
@@ -7602,19 +7534,19 @@ test("foreground driver slash commands share status, stop, and restart grammar",
     assert.equal((await loadSessionGoal(dir, ctx))?.objective, "Replace foreground goal grammar");
     await goalCommand.handler("stop", ctx);
     assert.equal(await loadSessionGoal(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan", drive: "assist" });
+    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
 
     await loopCommand.handler("Unify foreground loop grammar", ctx);
     assert.equal((await loadSessionLoop(dir, ctx))?.objective, "Unify foreground loop grammar");
-    assert.equal(activeTestDriver(run, "loop")?.continuity, "session");
+    assert.equal(activeTestLoop(run, "loop")?.continuity, "session");
     await loopCommand.handler("status", ctx);
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Spark loop scheduled: Unify/);
     await loopCommand.handler("fresh Isolate every loop tick", ctx);
     assert.equal((await loadSessionLoop(dir, ctx))?.objective, "Isolate every loop tick");
-    assert.equal(activeTestDriver(run, "loop")?.continuity, "fresh");
+    assert.equal(activeTestLoop(run, "loop")?.continuity, "fresh");
     await loopCommand.handler("start --fresh Isolate the explicit start form", ctx);
     assert.equal((await loadSessionLoop(dir, ctx))?.objective, "Isolate the explicit start form");
-    assert.equal(activeTestDriver(run, "loop")?.continuity, "fresh");
+    assert.equal(activeTestLoop(run, "loop")?.continuity, "fresh");
     await loopCommand.handler("restart Replace foreground loop grammar", ctx);
     assert.equal((await loadSessionLoop(dir, ctx))?.objective, "Replace foreground loop grammar");
     await loopCommand.handler("stop", ctx);
@@ -7736,11 +7668,6 @@ test("structured status and list facades default to compact text summaries", asy
     assertToolTextIsCompactSummary(loopStatus);
     assert.match(toolText(loopStatus), /No active Spark loop|Spark loop/);
     assert.ok(loopStatus.details);
-
-    const driveStatus = await executeSparkTool(tools, "drive", ctx, { action: "status" });
-    assertToolTextIsCompactSummary(driveStatus);
-    assert.match(toolText(driveStatus), /Mode:/);
-    assert.ok(driveStatus.details);
 
     const phaseStatus = await executeSparkTool(tools, "phase", ctx, { action: "status" });
     assertToolTextIsCompactSummary(phaseStatus);
@@ -11864,7 +11791,7 @@ function registerSparkToolsForTest(
   getActiveToolNames: () => string[];
   registerActiveTool: (name: string) => void;
   setActiveTools: (names: string[]) => void;
-  driverControl: TestSparkDaemonDriverControl;
+  loopControl: TestSparkDaemonLoopControl;
 } {
   const tools = new Map<string, SparkToolConfig>();
   const activeToolNames = new Set<string>();
@@ -11885,9 +11812,9 @@ function registerSparkToolsForTest(
     string,
     Array<(event: unknown, ctx: TestSparkContext) => unknown>
   >();
-  const driverControl = createTestDriverControl();
+  const loopControl = createTestDriverControl();
   const pi: SparkHostApiForTest & {
-    driverControl: TestSparkDaemonDriverControl;
+    loopControl: TestSparkDaemonLoopControl;
     usageControl?: SparkDaemonUsageControl;
     taskClaimDaemonClient: SparkTaskClaimDaemonClient;
     getActiveTools: () => string[];
@@ -11895,7 +11822,7 @@ function registerSparkToolsForTest(
     setActiveTools: (names: string[]) => void;
     createReviewerRunner: NonNullable<SparkHostApiForTest["createReviewerRunner"]>;
   } = {
-    driverControl,
+    loopControl,
     ...(options.usageControl ? { usageControl: options.usageControl } : {}),
     taskClaimDaemonClient: options.taskClaimDaemonClient ?? createTestTaskClaimDaemonClient(),
     registerCommand: (name, config) => {
@@ -11978,7 +11905,7 @@ function registerSparkToolsForTest(
       activeToolNames.add(name);
     },
     setActiveTools: (names: string[]) => pi.setActiveTools(names),
-    driverControl,
+    loopControl,
   };
 }
 
@@ -12056,12 +11983,20 @@ function canonicalReportWorkInput(reproId: string): SparkReproWorkSummaryInput {
   };
 }
 
-function activeTestDriver(
+function activeTestLoop(
   run: ReturnType<typeof registerSparkToolsForTest>,
-  kind: Awaited<ReturnType<SparkDaemonDriverControl["start"]>>["driver"]["kind"],
+  domain: "goal" | "loop" | "repro" | "workflow",
 ) {
-  return [...run.driverControl.drivers.values()].find(
-    (driver) => driver.kind === kind && driver.status !== "stopped",
+  return [...run.loopControl.loops.values()].find(
+    (loop) =>
+      loop.status !== "stopped" &&
+      (domain === "goal"
+        ? Boolean(loop.binding.goalId)
+        : domain === "repro"
+          ? Boolean(loop.binding.reproId)
+          : domain === "workflow"
+            ? Boolean(loop.binding.workflowRunId)
+            : !loop.binding.goalId && !loop.binding.reproId && !loop.binding.workflowRunId),
   );
 }
 
@@ -12069,13 +12004,13 @@ async function tryConsumeSparkModeContext(
   run: ReturnType<typeof registerSparkToolsForTest>,
   ctx: TestSparkContext,
 ): Promise<string | undefined> {
-  return tryConsumeSparkRuntimeContext(run, ctx, "spark-mode-context");
+  return tryConsumeSparkRuntimeContext(run, ctx, "spark-phase-context");
 }
 
 async function tryConsumeSparkRuntimeContext(
   run: ReturnType<typeof registerSparkToolsForTest>,
   ctx: TestSparkContext,
-  customType: "spark-mode-context" | "spark-role-run-inbox",
+  customType: "spark-phase-context" | "spark-role-run-inbox",
 ): Promise<string | undefined> {
   for (const handler of run.eventHandlers.get("before_agent_start") ?? []) {
     const result = (await handler({}, ctx)) as
@@ -12170,11 +12105,11 @@ function storeDirNameForTest(ref: string): string {
 
 function reproScheduleSpy(
   ownerSessionId: string,
-  scheduled: Parameters<SparkHostDriverContext["schedule"]>[0][],
-): SparkHostDriverContext {
+  scheduled: Parameters<SparkHostLoopContext["schedule"]>[0][],
+): SparkHostLoopContext {
   return {
-    driverId: "repro-schedule-spy",
-    kind: "repro",
+    loopId: "repro-schedule-spy",
+    binding: { reproId: "repro-schedule-spy" },
     generation: 1,
     ownerSessionId,
     stateOwnerSessionId: ownerSessionId,
@@ -12216,21 +12151,18 @@ function testSparkContext(cwd: string, sessionName: string): TestSparkContext {
   return context;
 }
 
-function createTestDriverControl(): TestSparkDaemonDriverControl {
-  const drivers = new Map<
-    string,
-    Awaited<ReturnType<SparkDaemonDriverControl["start"]>>["driver"]
-  >();
+function createTestDriverControl(): TestSparkDaemonLoopControl {
+  const loops = new Map<string, Awaited<ReturnType<SparkDaemonLoopControl["start"]>>["loop"]>();
   const ensuredOwners: Array<{ sessionId: string; cwd: string }> = [];
-  const startInputs: Parameters<SparkDaemonDriverControl["start"]>[0][] = [];
+  const startInputs: Parameters<SparkDaemonLoopControl["start"]>[0][] = [];
   const observedAt = () => new Date().toISOString();
-  const requireDriver = (driverId: string) => {
-    const driver = drivers.get(driverId);
-    assert.ok(driver, `missing test daemon driver ${driverId}`);
-    return driver;
+  const requireLoop = (loopId: string) => {
+    const loop = loops.get(loopId);
+    assert.ok(loop, `missing test daemon loop ${loopId}`);
+    return loop;
   };
   return {
-    drivers,
+    loops,
     ensuredOwners,
     startInputs,
     async ensureOwnerSession(input) {
@@ -12238,83 +12170,80 @@ function createTestDriverControl(): TestSparkDaemonDriverControl {
     },
     async start(input) {
       startInputs.push(input);
-      for (const [driverId, driver] of drivers) {
-        if (
-          driver.ownerSessionId === input.ownerSessionId &&
-          driver.kind !== "workflow" &&
-          driverId !== input.driverId
-        ) {
-          drivers.set(driverId, { ...driver, status: "stopped", dueAt: undefined });
+      for (const [loopId, loop] of loops) {
+        if (loop.ownerSessionId === input.ownerSessionId && loopId !== input.loopId) {
+          loops.set(loopId, { ...loop, status: "stopped", dueAt: undefined });
         }
       }
-      const driver = {
-        driverId: input.driverId ?? `driver:${drivers.size + 1}`,
-        kind: input.kind,
+      const loop = {
+        loopId: input.loopId ?? `loop:${loops.size + 1}`,
+        binding: input.binding ?? {},
         ownerSessionId: input.ownerSessionId,
         status: "scheduled" as const,
         continuity: input.continuity ?? ("session" as const),
+        generation: 1,
         dueAt: input.dueAt ?? observedAt(),
         attempt: 0,
         reason: input.reason,
       };
-      drivers.set(driver.driverId, driver);
-      return { driver, observedAt: observedAt() };
+      loops.set(loop.loopId, loop);
+      return { loop, observedAt: observedAt() };
     },
     async list(input) {
       return {
-        drivers: [...drivers.values()].filter(
-          (driver) =>
-            (!input.driverId || driver.driverId === input.driverId) &&
-            (!input.ownerSessionId || driver.ownerSessionId === input.ownerSessionId) &&
-            (input.includeStopped || driver.status !== "stopped"),
+        loops: [...loops.values()].filter(
+          (loop) =>
+            (!input.loopId || loop.loopId === input.loopId) &&
+            (!input.ownerSessionId || loop.ownerSessionId === input.ownerSessionId) &&
+            (input.includeTerminal || loop.status !== "stopped"),
         ),
         observedAt: observedAt(),
       };
     },
     async stop(input) {
-      const current = requireDriver(input.driverId);
-      const driver = {
+      const current = requireLoop(input.loopId);
+      const loop = {
         ...current,
         status: "stopped" as const,
         dueAt: undefined,
         reason: input.reason,
       };
-      drivers.set(driver.driverId, driver);
-      return { driver, observedAt: observedAt() };
+      loops.set(loop.loopId, loop);
+      return { loop, observedAt: observedAt() };
     },
     async restart(input) {
-      const current = requireDriver(input.driverId);
-      const driver = {
+      const current = requireLoop(input.loopId);
+      const loop = {
         ...current,
         status: "scheduled" as const,
         dueAt: observedAt(),
         attempt: 0,
         reason: input.reason,
       };
-      drivers.set(driver.driverId, driver);
-      return { driver, observedAt: observedAt() };
+      loops.set(loop.loopId, loop);
+      return { loop, observedAt: observedAt() };
     },
     async wake(input) {
-      const current = requireDriver(input.driverId);
-      const driver = {
+      const current = requireLoop(input.loopId);
+      const loop = {
         ...current,
         status: "scheduled" as const,
         dueAt: observedAt(),
         reason: input.reason,
       };
-      drivers.set(driver.driverId, driver);
-      return { driver, observedAt: observedAt() };
+      loops.set(loop.loopId, loop);
+      return { loop, observedAt: observedAt() };
     },
     async schedule(input) {
-      const current = requireDriver(input.driverId);
-      const driver = {
+      const current = requireLoop(input.loopId);
+      const loop = {
         ...current,
         status: "scheduled" as const,
         dueAt: input.dueAt ?? new Date(Date.now() + Math.max(0, input.delayMs ?? 0)).toISOString(),
         reason: input.reason,
       };
-      drivers.set(driver.driverId, driver);
-      return { driver, observedAt: observedAt() };
+      loops.set(loop.loopId, loop);
+      return { loop, observedAt: observedAt() };
     },
   };
 }
@@ -12722,34 +12651,31 @@ test("impl_plan_tasks enforces concrete experiments for the bound reproduce proj
   }
 });
 
-test("repro entry surfaces start the driver with the canonical rendered prompt", async () => {
+test("repro command and tool start the loop with the canonical rendered prompt", async () => {
   const prompts: string[] = [];
-  for (const entry of ["drive", "command", "tool"] as const) {
+  for (const entry of ["command", "tool"] as const) {
     const dir = await mkdtemp(join(tmpdir(), "spark-repro-prompt-" + entry + "-"));
     try {
       await writeEmptySparkProject(dir);
       const ctx = testSparkContext(dir, entry);
       const run = registerSparkToolsForTest();
-      if (entry === "drive") {
-        await executeSparkTool(run.tools, "drive", ctx, { action: "start", drive: "repro" });
-      } else if (entry === "command") {
+      if (entry === "command") {
         const command = run.commands.get("repro");
         assert.ok(command);
         await command.handler("start", ctx);
       } else {
         await executeSparkTool(run.tools, "repro", ctx, { action: "start" });
       }
-      const started = run.driverControl.startInputs.at(-1);
-      assert.equal(started?.kind, "repro");
+      const started = run.loopControl.startInputs.at(-1);
+      assert.ok(started?.binding?.reproId);
       assert.equal(typeof started?.prompt, "string");
       prompts.push(started.prompt);
     } finally {
       await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
     }
   }
-  assert.equal(prompts.length, 3);
+  assert.equal(prompts.length, 2);
   assert.equal(prompts[0], prompts[1]);
-  assert.equal(prompts[1], prompts[2]);
 });
 
 test("repro start creates a generic project with one task per bound subgoal", async () => {
@@ -12920,7 +12846,7 @@ test("repro settle schedules the safe ready frontier at the default cadence", as
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "ready-frontier") as TestSparkContext & {
-      driver?: SparkHostDriverContext;
+      loop?: SparkHostLoopContext;
     };
     const { tools } = registerSparkToolsForTest();
     await executeSparkTool(tools, "repro", ctx, { action: "start" });
@@ -12930,8 +12856,8 @@ test("repro settle schedules the safe ready frontier at the default cadence", as
     assert.ok(graph);
     assert.ok(graph.readyTasks(repro.projectRef).length > 0);
 
-    const scheduled: Parameters<SparkHostDriverContext["schedule"]>[0][] = [];
-    ctx.driver = reproScheduleSpy(ctx.sessionId, scheduled);
+    const scheduled: Parameters<SparkHostLoopContext["schedule"]>[0][] = [];
+    ctx.loop = reproScheduleSpy(ctx.sessionId, scheduled);
     await executeSparkTool(tools, "repro", ctx, { action: "settle" });
 
     assert.equal(scheduled.length, 1);
@@ -12946,7 +12872,7 @@ test("repro settle keeps a ten second cadence when any safe task run is active",
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "active-run") as TestSparkContext & {
-      driver?: SparkHostDriverContext;
+      loop?: SparkHostLoopContext;
     };
     const { tools } = registerSparkToolsForTest();
     await executeSparkTool(tools, "repro", ctx, { action: "start" });
@@ -12979,8 +12905,8 @@ test("repro settle keeps a ten second cadence when any safe task run is active",
     assert.ok(graph);
     assert.ok(collectReproOrchestrationSnapshot(repro, graph).activeTaskRefs.includes(safeTaskRef));
 
-    const scheduled: Parameters<SparkHostDriverContext["schedule"]>[0][] = [];
-    ctx.driver = reproScheduleSpy(ctx.sessionId, scheduled);
+    const scheduled: Parameters<SparkHostLoopContext["schedule"]>[0][] = [];
+    ctx.loop = reproScheduleSpy(ctx.sessionId, scheduled);
     await executeSparkTool(tools, "repro", ctx, { action: "settle" });
 
     assert.equal(scheduled.length, 1);
@@ -12995,7 +12921,7 @@ test("repro settle leaves the driver dormant while awaiting owner ask authority"
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "awaiting-ask") as TestSparkContext & {
-      driver?: SparkHostDriverContext;
+      loop?: SparkHostLoopContext;
     };
     const { tools } = registerSparkToolsForTest();
     await executeSparkTool(tools, "repro", ctx, { action: "start" });
@@ -13014,13 +12940,13 @@ test("repro settle leaves the driver dormant while awaiting owner ask authority"
       ctx,
     );
 
-    const scheduled: Parameters<SparkHostDriverContext["schedule"]>[0][] = [];
-    ctx.driver = reproScheduleSpy(ctx.sessionId, scheduled);
+    const scheduled: Parameters<SparkHostLoopContext["schedule"]>[0][] = [];
+    ctx.loop = reproScheduleSpy(ctx.sessionId, scheduled);
     const settled = await executeSparkTool(tools, "repro", ctx, { action: "settle" });
 
     assert.equal(scheduled.length, 0);
     assert.equal(settled.details?.dormantReason, "awaiting_ask");
-    assert.match(toolText(settled), /awaiting a canonical ask response.*driver remains dormant/u);
+    assert.match(toolText(settled), /awaiting a canonical ask response.*Loop remains dormant/u);
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
@@ -13031,7 +12957,7 @@ test("repro settle schedules a thirty second repair tick when bound ask tasks ar
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "terminal-ask") as TestSparkContext & {
-      driver?: SparkHostDriverContext;
+      loop?: SparkHostLoopContext;
     };
     const { tools } = registerSparkToolsForTest();
     await executeSparkTool(tools, "repro", ctx, { action: "start" });
@@ -13054,8 +12980,8 @@ test("repro settle schedules a thirty second repair tick when bound ask tasks ar
     await defaultTaskGraphStore(dir).update((graph) => {
       graph.setTaskStatus(taskRef, "done");
     });
-    const scheduled: Parameters<SparkHostDriverContext["schedule"]>[0][] = [];
-    ctx.driver = reproScheduleSpy(ctx.sessionId, scheduled);
+    const scheduled: Parameters<SparkHostLoopContext["schedule"]>[0][] = [];
+    ctx.loop = reproScheduleSpy(ctx.sessionId, scheduled);
     const settled = await executeSparkTool(tools, "repro", ctx, { action: "settle" });
     assert.equal(scheduled.length, 1);
     assert.equal(scheduled[0]?.delayMs, 30_000);
@@ -13104,7 +13030,7 @@ test("repro tool exposes Task-bound planning without a delegate action", () => {
     (config) => {
       tools.set(config.name, config as SparkToolConfig);
     },
-    { driverControl: createTestDriverControl() },
+    { loopControl: createTestDriverControl() },
   );
   const tool = tools.get("repro");
   assert.ok(tool);
@@ -13148,7 +13074,7 @@ test("repro delegation persists the assignment before dispatch and completes onl
         tools.set(config.name, config as SparkToolConfig);
       },
       {
-        driverControl: createTestDriverControl(),
+        loopControl: createTestDriverControl(),
         async sendSessionRequest(input) {
           dispatchedAssignment = input.assignment;
           persistedAtDispatch = await readFile(sessionReproStorePath(dir, ctx), "utf8");
@@ -13231,7 +13157,7 @@ test("repro delegation keeps persisted work pending when receipt revision or dig
           tools.set(config.name, config as SparkToolConfig);
         },
         {
-          driverControl: createTestDriverControl(),
+          loopControl: createTestDriverControl(),
           async sendSessionRequest(input) {
             return encodeSubgoalReceipt({
               subgoalRef: input.assignment.subgoalRef,
@@ -13303,7 +13229,7 @@ test("repro delegation rejects decision authorities in the owner main session", 
           tools.set(config.name, config as SparkToolConfig);
         },
         {
-          driverControl: createTestDriverControl(),
+          loopControl: createTestDriverControl(),
           async sendSessionRequest() {
             dispatched = true;
             throw new Error("decision authority must not dispatch");
@@ -13348,7 +13274,7 @@ test("repro delegation rejects missing evidence before owner completion", async 
         tools.set(config.name, config as SparkToolConfig);
       },
       {
-        driverControl: createTestDriverControl(),
+        loopControl: createTestDriverControl(),
         async sendSessionRequest(input) {
           return encodeSubgoalReceipt({
             subgoalRef: input.assignment.subgoalRef,
@@ -13403,7 +13329,7 @@ test("repro delegation turns malformed receipts and corrupt evidence reads into 
           tools.set(config.name, config as SparkToolConfig);
         },
         {
-          driverControl: createTestDriverControl(),
+          loopControl: createTestDriverControl(),
           async sendSessionRequest(input) {
             return failure === "malformed-receipt"
               ? { schema: "spark.subgoal.receipt/v0", subgoalRef: input.assignment.subgoalRef }

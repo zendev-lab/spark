@@ -14,9 +14,9 @@ import {
 } from "./session-state.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { sparkLanguageForProject, type SparkLanguage } from "./spark-i18n.ts";
-import { renderSparkPhaseSystemPrompt } from "./mode/index.ts";
+import { renderSparkPhaseSystemPrompt } from "./phase/index.ts";
 import { renderBaseSystemPromptsCatalogPrompt } from "@zendev-lab/spark-host/builtin-skills";
-import type { SparkModeEntryDeps, SparkModeMessageApi } from "./spark-mode-entry.ts";
+import type { SparkPhaseEntryDeps, SparkPhaseMessageApi } from "./spark-phase-entry.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 
 interface SparkInputEvent {
@@ -25,8 +25,8 @@ interface SparkInputEvent {
 }
 
 export interface SparkInputModeRouter {
-  piApi: SparkModeMessageApi;
-  deps: SparkModeEntryDeps;
+  piApi: SparkPhaseMessageApi;
+  deps: SparkPhaseEntryDeps;
 }
 
 export async function handleSparkInput(

@@ -49,7 +49,7 @@ describe("Message browser contract", () => {
       item: message([
         {
           type: "runtime",
-          kind: "driver.tick",
+          kind: "loop.tick",
           state: "running",
           request: "advance",
         },
@@ -71,7 +71,7 @@ describe("Message browser contract", () => {
         { type: "text", text: "Visible answer", streaming: false },
         {
           type: "runtime",
-          kind: "driver.tick",
+          kind: "loop.tick",
           state: "completed",
           request: "Private process",
           result: "Private result",

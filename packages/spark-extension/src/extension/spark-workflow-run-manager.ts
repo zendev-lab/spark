@@ -32,10 +32,7 @@ import { mergeTaskProgressIntoStore } from "./task-progress-store.ts";
 import { sessionModelName } from "./session-model.ts";
 import { createSparkRuntimeReadyTaskRunner } from "./spark-ready-task-runtime.ts";
 import { createSparkRoleRegistry } from "./spark-role-registry.ts";
-import {
-  sparkDaemonDriverControl,
-  type SparkDaemonDriverControl,
-} from "./spark-daemon-driver-client.ts";
+import { sparkDaemonLoopControl, type SparkDaemonLoopControl } from "./spark-daemon-loop-client.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 
 export type SparkWorkflowRunManagerContext = SparkToolContext;
@@ -47,14 +44,14 @@ export interface SparkWorkflowRunManagerTickResult {
 export class SparkWorkflowRunManagerController {
   private readonly hooks: {
     refreshSparkWidget: (cwd: string, ctx: SparkWorkflowRunManagerContext) => Promise<void>;
-    driverControl: SparkDaemonDriverControl;
+    loopControl: SparkDaemonLoopControl;
   };
 
   constructor(hooks: {
     refreshSparkWidget: (cwd: string, ctx: SparkWorkflowRunManagerContext) => Promise<void>;
-    driverControl?: SparkDaemonDriverControl;
+    loopControl?: SparkDaemonLoopControl;
   }) {
-    this.hooks = { ...hooks, driverControl: hooks.driverControl ?? sparkDaemonDriverControl };
+    this.hooks = { ...hooks, loopControl: hooks.loopControl ?? sparkDaemonLoopControl };
   }
 
   async ensure(cwd: string, ctx: SparkWorkflowRunManagerContext): Promise<void> {
@@ -63,16 +60,16 @@ export class SparkWorkflowRunManagerController {
     const control = await defaultSparkWorkflowRunStore(stateCwd).loadControl();
     if (!control || control.status !== "running") return;
     const ownerSessionId = ctx.sessionId?.trim();
-    if (!ownerSessionId) throw new Error("Spark workflow driver requires a daemon-owned session");
-    await this.hooks.driverControl.start({
-      driverId: `workflow:${stableId(`${stateCwd}:${ownerSessionId}`)}`,
-      kind: "workflow",
+    if (!ownerSessionId) throw new Error("Spark Workflow requires a daemon-owned session");
+    await this.hooks.loopControl.start({
+      loopId: `workflow:${stableId(`${stateCwd}:${ownerSessionId}`)}`,
+      binding: { workflowRunId: control.projectRef },
       ownerSessionId,
       continuity: "session",
       cwd,
       prompt: [
         "Advance the active Spark workflow scheduler by exactly one daemon-owned tick.",
-        'Call workflow_driver({ action: "tick" }) exactly once.',
+        'Call workflow({ action: "tick" }) exactly once.',
         "Do not wait, sleep, or run a frontend polling loop.",
       ].join("\n"),
       reason: "workflow scheduler active",

@@ -36,7 +36,7 @@
     "@zendev-lab/spark-i18n": "workspace:^",
     "@zendev-lab/spark-lens": "workspace:^",
     "@zendev-lab/spark-loop": "workspace:^",
-    "@zendev-lab/spark-modes": "workspace:^",
+    "@zendev-lab/spark-phases": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-repro": "workspace:^",
     "@zendev-lab/spark-retry": "workspace:^",

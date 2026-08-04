@@ -3,13 +3,13 @@ import type { ChannelNotifyInput, ChannelsConfig } from "@zendev-lab/spark-chann
 import {
   type SparkLocalRpcOutput,
   type SparkSessionView,
-  type SparkDriverListResult,
-  type SparkDriverMutationRequest,
-  type SparkDriverMutationResult,
-  type SparkDriverScheduleRequest,
-  type SparkDriverStartRequest,
-  type SparkDriverStatusRequest,
-  type SparkDriverWakeRequest,
+  type SparkLoopListResult,
+  type SparkLoopMutationRequest,
+  type SparkLoopMutationResult,
+  type SparkLoopScheduleRequest,
+  type SparkLoopStartRequest,
+  type SparkLoopStatusRequest,
+  type SparkLoopWakeRequest,
   type SparkAuthImportReport,
   type SparkAuthFlow,
   type SparkModelControlSnapshot,
@@ -154,46 +154,46 @@ export async function requestHumanInteractionRespond(
   return localRpcRequest(paths, "human.interaction.respond", params);
 }
 
-export async function requestDriverStart(
+export async function requestLoopStart(
   paths: SparkPaths,
-  params: SparkDriverStartRequest,
-): Promise<SparkDriverMutationResult> {
-  return localRpcRequest(paths, "driver.start", params);
+  params: SparkLoopStartRequest,
+): Promise<SparkLoopMutationResult> {
+  return localRpcRequest(paths, "loop.start", params);
 }
 
-export async function requestDriverStatus(
+export async function requestLoopStatus(
   paths: SparkPaths,
-  params: SparkDriverStatusRequest = { includeStopped: false },
-): Promise<SparkDriverListResult> {
-  return localRpcRequest(paths, "driver.status", params);
+  params: SparkLoopStatusRequest = { includeTerminal: false },
+): Promise<SparkLoopListResult> {
+  return localRpcRequest(paths, "loop.status", params);
 }
 
-export async function requestDriverStop(
+export async function requestLoopStop(
   paths: SparkPaths,
-  params: SparkDriverMutationRequest,
-): Promise<SparkDriverMutationResult> {
-  return localRpcRequest(paths, "driver.stop", params);
+  params: SparkLoopMutationRequest,
+): Promise<SparkLoopMutationResult> {
+  return localRpcRequest(paths, "loop.stop", params);
 }
 
-export async function requestDriverRestart(
+export async function requestLoopRestart(
   paths: SparkPaths,
-  params: SparkDriverMutationRequest,
-): Promise<SparkDriverMutationResult> {
-  return localRpcRequest(paths, "driver.restart", params);
+  params: SparkLoopMutationRequest,
+): Promise<SparkLoopMutationResult> {
+  return localRpcRequest(paths, "loop.restart", params);
 }
 
-export async function requestDriverWake(
+export async function requestLoopWake(
   paths: SparkPaths,
-  params: SparkDriverWakeRequest,
-): Promise<SparkDriverMutationResult> {
-  return localRpcRequest(paths, "driver.wake", params);
+  params: SparkLoopWakeRequest,
+): Promise<SparkLoopMutationResult> {
+  return localRpcRequest(paths, "loop.wake", params);
 }
 
-export async function requestDriverSchedule(
+export async function requestLoopSchedule(
   paths: SparkPaths,
-  params: SparkDriverScheduleRequest,
-): Promise<SparkDriverMutationResult> {
-  return localRpcRequest(paths, "driver.schedule", params);
+  params: SparkLoopScheduleRequest,
+): Promise<SparkLoopMutationResult> {
+  return localRpcRequest(paths, "loop.schedule", params);
 }
 
 export async function requestChannelStatus(

@@ -6,7 +6,7 @@ import { test } from "vitest";
 
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { registerSparkExtensionEvents } from "../extension/spark-extension-events.ts";
-import type { SparkModeMessageApi } from "../extension/spark-mode-entry.ts";
+import type { SparkPhaseMessageApi } from "../extension/spark-phase-entry.ts";
 import { saveIndependentTodos } from "../extension/session-todos.ts";
 import {
   currentSparkProject,
@@ -19,8 +19,8 @@ import { createSparkAgentEndReconciliationController } from "../extension/spark-
 import type { SparkToolContext } from "../extension/spark-tool-registration.ts";
 
 type SentMessage = {
-  message: Parameters<SparkModeMessageApi["sendMessage"]>[0];
-  options: Parameters<SparkModeMessageApi["sendMessage"]>[1];
+  message: Parameters<SparkPhaseMessageApi["sendMessage"]>[0];
+  options: Parameters<SparkPhaseMessageApi["sendMessage"]>[1];
 };
 
 test("agent-end TODO reconciliation queues one guarded follow-up per input cycle", async () => {
@@ -79,7 +79,7 @@ test("agent-end reconciliation continues an implement ready frontier without a d
   const ctx: SparkToolContext = {
     cwd,
     sessionId: "implement-reconciliation",
-    sparkActiveLens: { phase: "implement", drive: "assist" },
+    sparkActiveLens: { phase: "implement" },
   };
   const sent: SentMessage[] = [];
   const controller = createSparkAgentEndReconciliationController({
@@ -137,7 +137,7 @@ test("agent-end reconciliation continues an implement ready frontier without a d
     assert.equal(await controller.reconcile(ctx), false, "the follow-up must remain bounded");
 
     await saveSparkPhase(cwd, ctx, { phase: "plan", projectRef: project.ref });
-    ctx.sparkActiveLens = { phase: "plan", drive: "assist" };
+    ctx.sparkActiveLens = { phase: "plan" };
     controller.reset(ctx);
     assert.equal(await controller.reconcile(ctx), false, "plan phase must not auto-implement");
   } finally {

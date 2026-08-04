@@ -288,12 +288,12 @@
         }
       ]
     },
-    "@zendev-lab/spark-modes": {
-      "path": "packages/spark-modes",
+    "@zendev-lab/spark-phases": {
+      "path": "packages/spark-phases",
       "strategy": "local-test",
       "primaryGate": {
-        "command": "pnpm --filter @zendev-lab/spark-modes run check",
-        "paths": ["packages/spark-modes/src/**/*.test.ts"],
+        "command": "pnpm --filter @zendev-lab/spark-phases run check",
+        "paths": ["packages/spark-phases/src/**/*.test.ts"],
         "rules": ["mode ownership"]
       },
       "supplementalGates": []

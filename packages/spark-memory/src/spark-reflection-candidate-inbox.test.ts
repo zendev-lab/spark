@@ -113,7 +113,7 @@ function observation(
       timestamp: "2026-06-18T00:00:00.000Z",
       sessionId: "session-one",
       cwd: "/repo",
-      customType: kind === "custom_message" ? "spark-mode-context" : undefined,
+      customType: kind === "custom_message" ? "spark-phase-context" : undefined,
     },
     text,
     excerpt: text,

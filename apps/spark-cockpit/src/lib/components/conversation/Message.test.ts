@@ -8,7 +8,7 @@ describe("Message projection contract", () => {
       { type: "text" as const, text: "Visible answer", streaming: false },
       {
         type: "runtime" as const,
-        kind: "driver.tick" as const,
+        kind: "loop.tick" as const,
         state: "running" as const,
         request: "advance",
       },
@@ -22,7 +22,7 @@ describe("Message projection contract", () => {
     const parts = [
       {
         type: "runtime" as const,
-        kind: "driver.tick" as const,
+        kind: "loop.tick" as const,
         state: "completed" as const,
         request: "advance",
         result: "done",

@@ -1,4 +1,4 @@
-Spark repro drive tick — Stage 3/5: Reproduce (reproduce), phase=implement.
+Spark Repro tick — Stage 3/5: Reproduce (reproduce), phase=implement.
 Goal Contract (draft): Reproduce the target behavior with inspectable evidence
 Plan revision: 1. Difficulty: 8/10; 8 materialized subgoals. Stop Guard: 0/3 unchanged settlements.
 
@@ -21,7 +21,7 @@ Next: run the smallest real probe for "20+ step BITWISE_PASS reproduction achiev
 
 Stage gate (gate-A): 20+100 step BITWISE_PASS achieved — evaluation is derived from recorded proof and cannot be force-passed.
 
-Repro drive requirements:
+Repro requirements:
 - Operate in the selected phase (implement); use its tool policy for plan or implement work.
 - The main session owns planning and reconciliation; use assign only for the independent safe_local ready frontier, while ask_decision and ask_approval remain owner-only.
 - When blocked by a missing user decision, ambiguous requirement, unclear baseline/source, conflicting evidence, failing validation whose next step is unclear, or any problem the user can unblock, call ask immediately with a concrete question. Do not guess, invent substitutes, or end the turn with only a prose blocker report when ask can resolve it.
@@ -31,7 +31,7 @@ Repro drive requirements:
 - Before ending every repro turn, leave a verifiable checkpoint. If the turn produced a coherent set of repository changes and committing is authorized and safe, create a small git commit promptly. Never include unrelated pre-existing changes.
 - If a safe commit is not appropriate yet, show the work completed in the turn: cite concrete evidence refs or file paths, summarize the relevant diff, report commands/tests and their results, or ask about the exact blocker. Do not end with only a progress claim.
 - If blocked on an external dependency the user cannot resolve, report that blocker; otherwise prefer ask over /repro stop.
-- Before ending this daemon-owned tick, call repro({ action: "settle", reason: "..." }). The driver is dormant by default; only settle may schedule the next tick.
+- Before ending this daemon-owned tick, call repro({ action: "settle", reason: "..." }). The Loop is dormant by default; only settle may schedule the next tick.
 - If settle returns Recover Ask, call canonical ask immediately with one concrete unblock question. Do not schedule around the Ask gate.
 
 Implement-phase guidance:

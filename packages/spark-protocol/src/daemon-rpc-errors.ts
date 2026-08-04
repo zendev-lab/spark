@@ -24,13 +24,13 @@ export const sparkChannelRpcErrorCodeOptions = [
   "channel_delivery_outcome_unknown",
 ] as const;
 
-export const sparkDriverRpcErrorCodeOptions = [
-  "driver_owner_not_found",
-  "driver_owner_archived",
-  "driver_foreground_lane_active",
-  "driver_not_found",
-  "driver_schedule_invalid",
-  "driver_generation_conflict",
+export const sparkLoopRpcErrorCodeOptions = [
+  "loop_owner_not_found",
+  "loop_owner_archived",
+  "loop_active_conflict",
+  "loop_not_found",
+  "loop_schedule_invalid",
+  "loop_generation_conflict",
 ] as const;
 
 export const sparkInvocationRpcErrorCodeOptions = [
@@ -119,7 +119,7 @@ export const sparkDelegationRpcErrorCodeOptions = [
 export const sparkDaemonRpcDomainErrorCodeOptions = [
   ...sparkDaemonLifecycleRpcErrorCodeOptions,
   ...sparkChannelRpcErrorCodeOptions,
-  ...sparkDriverRpcErrorCodeOptions,
+  ...sparkLoopRpcErrorCodeOptions,
   ...sparkInvocationRpcErrorCodeOptions,
   ...sparkModelRpcErrorCodeOptions,
   ...sparkUplinkRpcErrorCodeOptions,
@@ -134,7 +134,7 @@ export const sparkDaemonRpcDomainErrorCodeSchema = z.enum(sparkDaemonRpcDomainEr
 export type SparkDaemonLifecycleRpcErrorCode =
   (typeof sparkDaemonLifecycleRpcErrorCodeOptions)[number];
 export type SparkChannelRpcErrorCode = (typeof sparkChannelRpcErrorCodeOptions)[number];
-export type SparkDriverRpcErrorCode = (typeof sparkDriverRpcErrorCodeOptions)[number];
+export type SparkLoopRpcErrorCode = (typeof sparkLoopRpcErrorCodeOptions)[number];
 export type SparkInvocationRpcErrorCode = (typeof sparkInvocationRpcErrorCodeOptions)[number];
 export type SparkModelRpcErrorCode = (typeof sparkModelRpcErrorCodeOptions)[number];
 export type SparkUplinkRpcErrorCode = (typeof sparkUplinkRpcErrorCodeOptions)[number];

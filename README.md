@@ -10,7 +10,7 @@ spark acp
 ```
 
 - `spark tui` is the interactive terminal host.
-- `spark daemon` owns persistent sessions, SQLite invocations, channels, local execution, and autonomous driver timing/retry/recovery.
+- `spark daemon` owns persistent sessions, SQLite invocations, channels, local execution, and autonomous Loop timing/retry/recovery.
 - `spark cockpit` launches the web control and projection surface; it does not run autonomous timers.
 - `spark acp` runs a stateless ACP stdio adapter over canonical daemon sessions and invocations.
 
@@ -40,7 +40,7 @@ spark cockpit
 spark acp
 ```
 
-Inside an agent host, ordinary input is lightweight by default. `/plan` creates or refines durable tasks, while daemon-owned drivers run `/implement`, `/loop`, `/goal`, `/repro`, and `/workflow` independently of the frontend. `/loop fresh <objective>` resets the hidden execution session for every tick while retaining the logical owner's workspace state. In Spark-native TUI, `/btw` controls a daemon-owned read-only Side Thread using command/status output; its lifecycle and subcommands are specified in [`docs/specs/tools.md`](./docs/specs/tools.md#native-btw).
+Inside an agent host, ordinary input is lightweight by default. `/plan` creates or refines durable tasks, while daemon-owned loops run `/implement`, `/loop`, `/goal`, `/repro`, and `/workflow` independently of the frontend. `/loop fresh <objective>` resets the hidden execution session for every tick while retaining the logical owner's workspace state. In Spark-native TUI, `/btw` controls a daemon-owned read-only Side Thread using command/status output; its lifecycle and subcommands are specified in [`docs/specs/tools.md`](./docs/specs/tools.md#native-btw).
 
 ## Install
 

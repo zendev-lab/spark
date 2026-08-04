@@ -10,7 +10,7 @@ import {
   type SparkInteractionRequest,
   type SparkInteractionResponse,
 } from "@zendev-lab/spark-protocol";
-import type { SparkHostDriverContext, SparkSessionLeaseIdentity } from "@zendev-lab/spark-core";
+import type { SparkHostLoopContext, SparkSessionLeaseIdentity } from "@zendev-lab/spark-core";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import {
   loadSparkHeadlessSessionModule,
@@ -24,7 +24,7 @@ import {
   renderPersistentSessionRolePrompt,
   renderSparkChannelSurfacePrompt,
 } from "@zendev-lab/spark-host/system-prompt";
-import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
+import { composeAgentSystemPrompt } from "@zendev-lab/spark-phases";
 import {
   isSparkTurnRestartYieldError,
   type SparkTurnResumeCheckpoint,
@@ -42,7 +42,7 @@ import type { InfoflowAdapterConfig, QqbotAdapterConfig } from "@zendev-lab/spar
 import { loadDaemonChannelsConfig, type DaemonChannelIngressRuntime } from "../channels/ingress.ts";
 import type {
   SparkDaemonSessionRunTask,
-  SparkDaemonDriverTickTask,
+  SparkDaemonLoopTickTask,
   SparkDaemonTask,
   SparkDaemonTaskExecutionContext,
   SparkDaemonTaskExecutor,
@@ -115,13 +115,13 @@ export interface SparkDaemonTaskExecutorOptions {
       | undefined
     >;
   };
-  driverControl?: {
+  loopControl?: {
     schedule(
-      task: SparkDaemonDriverTickTask,
+      task: SparkDaemonLoopTickTask,
       input: { delayMs?: number; dueAt?: string; reason?: string; prompt?: string },
     ): unknown;
-    stop(task: SparkDaemonDriverTickTask, input?: { reason?: string }): unknown;
-    wakeOwner?(ownerSessionId: string, input: { kind: "repro"; reason: string }): unknown;
+    stop(task: SparkDaemonLoopTickTask, input?: { reason?: string }): unknown;
+    wakeOwner?(ownerSessionId: string, input: { target: "repro"; reason: string }): unknown;
   };
   interact?: (
     request: SparkInteractionRequest,
@@ -163,10 +163,10 @@ export function createSparkDaemonTaskExecutor(
   };
 
   return async (task, context) => {
-    if (task.type === "session.run" || task.type === "driver.tick") {
-      const driverTask = task.type === "driver.tick" ? task : undefined;
+    if (task.type === "session.run" || task.type === "loop.tick") {
+      const loopTask = task.type === "loop.tick" ? task : undefined;
       const sessionTask: SparkDaemonSessionRunTask =
-        task.type === "driver.tick" ? sessionRunTaskFromDriverTick(task) : task;
+        task.type === "loop.tick" ? sessionRunTaskFromLoopTick(task) : task;
       let projectedFailure = false;
       const trackedContext: SparkDaemonTaskExecutionContext = {
         ...context,
@@ -198,7 +198,7 @@ export function createSparkDaemonTaskExecutor(
             executeSession: await getSessionExecutor(),
             ...(sessionLease ? { sessionLease: sessionLease.identity } : {}),
           },
-          driverTask ? driverContextForTask(driverTask, options.driverControl) : undefined,
+          loopTask ? loopContextForTask(loopTask, options.loopControl) : undefined,
         );
         const completed = await recordCompletedSessionRun(
           effectiveTask,
@@ -238,7 +238,7 @@ export function createSparkDaemonTaskExecutor(
   };
 }
 
-function sessionRunTaskFromDriverTick(task: SparkDaemonDriverTickTask): SparkDaemonSessionRunTask {
+function sessionRunTaskFromLoopTick(task: SparkDaemonLoopTickTask): SparkDaemonSessionRunTask {
   return {
     type: "session.run",
     sessionId: task.ownerSessionId,
@@ -259,27 +259,27 @@ function sessionRunTaskFromDriverTick(task: SparkDaemonDriverTickTask): SparkDae
         surface: "local",
       },
       runtimeControl: {
-        kind: "driver.tick",
-        driverId: task.driverId,
-        driverKind: task.kind,
+        kind: "loop.tick",
+        loopId: task.loopId,
+        binding: task.binding,
         generation: task.generation,
       },
     },
-    actor: "spark-daemon-driver",
-    note: `${task.kind}:${task.driverId}:${task.generation}`,
+    actor: "spark-daemon-loop",
+    note: `${task.loopId}:${task.generation}`,
   };
 }
 
-function driverContextForTask(
-  task: SparkDaemonDriverTickTask,
-  control: SparkDaemonTaskExecutorOptions["driverControl"],
-): SparkHostDriverContext {
+function loopContextForTask(
+  task: SparkDaemonLoopTickTask,
+  control: SparkDaemonTaskExecutorOptions["loopControl"],
+): SparkHostLoopContext {
   if (!control) {
-    throw new Error("driver.tick executor requires daemon driverControl");
+    throw new Error("loop.tick executor requires daemon loopControl");
   }
   return {
-    driverId: task.driverId,
-    kind: task.kind,
+    loopId: task.loopId,
+    binding: task.binding,
     generation: task.generation,
     ownerSessionId: task.ownerSessionId,
     stateOwnerSessionId: task.stateOwnerSessionId,
@@ -814,7 +814,7 @@ async function sessionExecutionIdentity(
     ...(task.hiddenExecution
       ? {
           sessionVisibility: "internal" as const,
-          sessionPurpose: "driver_tick" as const,
+          sessionPurpose: "loop_tick" as const,
         }
       : {}),
     ...(task.resumeFromInterrupt ? { resumeFromInterrupt: true } : {}),
@@ -835,14 +835,14 @@ function sessionExecutionPolicy(
   task: SparkDaemonSessionRunTask,
   sessionContext: Awaited<ReturnType<typeof sessionContextForTask>>,
   binding: ReturnType<typeof completeChannelBinding>,
-  driver: SparkHostDriverContext | undefined,
+  loop: SparkHostLoopContext | undefined,
 ) {
   return {
     ...(sessionContext.surface ? { sessionSurface: sessionContext.surface } : {}),
     sessionSource: sessionSourceForTask(task),
     ...(binding ? { channelBinding: binding } : {}),
     ...(task.stateOwnerSessionId ? { stateOwnerSessionId: task.stateOwnerSessionId } : {}),
-    ...(driver ? { driver } : {}),
+    ...(loop ? { loop } : {}),
     ...(sessionQuestionChainForTask(task)
       ? { sessionQuestionChain: sessionQuestionChainForTask(task) }
       : {}),
@@ -853,7 +853,7 @@ function sessionExecutionPolicy(
         }
       : {}),
     ...(sessionContext.sideThread ? { allowedToolEffects: ["read"] as const } : {}),
-    ...(driver?.kind === "workflow" ? { allowedTools: ["workflow_driver"] } : {}),
+    ...(loop?.binding.workflowRunId ? { allowedTools: ["workflow"] } : {}),
   };
 }
 
@@ -864,7 +864,7 @@ export async function executeSparkDaemonSessionRunTask(
     executeSession: SparkHeadlessSessionExecutor;
     sessionLease?: SparkSessionLeaseIdentity;
   },
-  driver?: SparkHostDriverContext,
+  loop?: SparkHostLoopContext,
 ): Promise<unknown> {
   const sessionContext = await sessionContextForTask(
     task,
@@ -886,7 +886,7 @@ export async function executeSparkDaemonSessionRunTask(
       ? (checkpoint: SparkTurnResumeCheckpoint) => context.yieldForRestartIfRequested?.(checkpoint)
       : undefined;
   const canCheckpointRestart =
-    !driver && !task.reset && !task.hiddenExecution && !binding && Boolean(checkpointRestart);
+    !loop && !task.reset && !task.hiddenExecution && !binding && Boolean(checkpointRestart);
   const usageExecutionKind = sessionContext.sideThread
     ? "side_thread"
     : sessionContext.taskSession
@@ -906,7 +906,7 @@ export async function executeSparkDaemonSessionRunTask(
     ...(canCheckpointRestart && checkpointRestart
       ? { yieldForRestartIfRequested: checkpointRestart }
       : {}),
-    ...sessionExecutionPolicy(task, sessionContext, binding, driver),
+    ...sessionExecutionPolicy(task, sessionContext, binding, loop),
     invocationId: context.invocationId,
     ...(context.recordTokenUsage
       ? {
@@ -914,9 +914,9 @@ export async function executeSparkDaemonSessionRunTask(
             ...(context.tokenUsageScope ? { scope: context.tokenUsageScope } : {}),
             executionId: context.invocationId,
             kind: usageExecutionKind,
-            ...(driver ? { detailKind: "driver_tick" } : {}),
+            ...(loop ? { detailKind: "loop_tick" } : {}),
             persistence: task.hiddenExecution ? "anonymous" : "persistent",
-            sessionId: driver?.ownerSessionId ?? task.sessionId,
+            sessionId: loop?.ownerSessionId ?? task.sessionId,
             ...(context.registerTokenUsageExecution
               ? { register: context.registerTokenUsageExecution }
               : {}),
@@ -1321,7 +1321,7 @@ function daemonEventFromHeadlessEvent(
             }
           : view;
       const projectedView = task.hiddenExecution
-        ? projectHiddenDriverView(correlatedView, task.sessionId)
+        ? projectHiddenLoopView(correlatedView, task.sessionId)
         : correlatedView;
       return {
         version: SPARK_PROTOCOL_VERSION,
@@ -1353,7 +1353,7 @@ function daemonEventFromHeadlessEvent(
         task.hiddenExecution && event.type === "daemon.view_event"
           ? {
               ...event,
-              view: projectHiddenDriverView(event.view, task.sessionId),
+              view: projectHiddenLoopView(event.view, task.sessionId),
             }
           : event;
       return {
@@ -1379,7 +1379,7 @@ function daemonEventFromHeadlessEvent(
   return undefined;
 }
 
-function projectHiddenDriverView(
+function projectHiddenLoopView(
   view: ReturnType<typeof parseSparkViewModelEvent>,
   ownerSessionId: string,
 ): ReturnType<typeof parseSparkViewModelEvent> {
@@ -1391,7 +1391,7 @@ function projectHiddenDriverView(
         ...view.message,
         metadata: {
           ...view.message.metadata,
-          driverExecution: true,
+          loopExecution: true,
           stateOwnerSessionId: ownerSessionId,
         },
       },
@@ -1400,7 +1400,7 @@ function projectHiddenDriverView(
   if (view.type === "run.update") {
     return { ...view, sessionId: ownerSessionId };
   }
-  if (view.type === "driver.update") {
+  if (view.type === "loop.update") {
     return { ...view, sessionId: ownerSessionId };
   }
   return view;
@@ -1523,12 +1523,12 @@ async function wakeTaskExecutionOwner(
   sessionId: string,
   options: SparkDaemonTaskExecutorOptions,
 ): Promise<void> {
-  if (!options.sessionRegistry?.get || !options.driverControl?.wakeOwner) return;
+  if (!options.sessionRegistry?.get || !options.loopControl?.wakeOwner) return;
   try {
     const session = await options.sessionRegistry.get(sessionId);
     if (session?.relation?.kind !== "task_execution") return;
-    await options.driverControl.wakeOwner(session.relation.ownerSessionId, {
-      kind: "repro",
+    await options.loopControl.wakeOwner(session.relation.ownerSessionId, {
+      target: "repro",
       reason: `managed Task Session ${sessionId} settled; reconcile ${session.relation.taskRef}`,
     });
   } catch (error) {

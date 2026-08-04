@@ -1,5 +1,6 @@
 import { registerSparkAskAutoAnswerProvider } from "@zendev-lab/spark-ask";
 import { sparkStateCwd } from "@zendev-lab/spark-core";
+import { registerSparkWorkflowTool } from "@zendev-lab/spark-workflows/extension";
 import {
   createSparkContextRegistry,
   registerSparkContextTool,
@@ -24,13 +25,7 @@ import { registerSparkReleaseTaskClaimTool } from "./spark-release-task-claim-to
 import { registerSparkRunReadyTasksTool } from "./spark-run-ready-tasks-tool-registration.ts";
 import { registerSparkGoalTool } from "./spark-goal-tool-registration.ts";
 import { registerSparkLoopTool } from "./spark-loop-tool-registration.ts";
-import {
-  ensureActiveReproDriver,
-  registerSparkReproTool,
-} from "./spark-repro-tool-registration.ts";
-import { registerSparkDriveTool } from "./spark-drive-tool-registration.ts";
-import { registerSparkDriverTool } from "./spark-driver-tool-registration.ts";
-import { registerSparkWorkflowDriverTool } from "./spark-workflow-driver-tool-registration.ts";
+import { ensureActiveReproLoop, registerSparkReproTool } from "./spark-repro-tool-registration.ts";
 import { registerSparkStatusTool } from "./spark-status-tool-registration.ts";
 import { registerSparkPlanTasksTool } from "./spark-plan-tasks-tool-registration.ts";
 import { registerSparkProjectTools } from "./spark-project-tool-registration.ts";
@@ -47,7 +42,7 @@ import {
 import { sessionModelName } from "./session-model.ts";
 import { withSparkToolOperationalNotes } from "./spark-tool-operational-notes.ts";
 import { SparkWorkflowRunManagerController } from "./spark-workflow-run-manager.ts";
-import { registerSparkPhaseTool } from "./mode/index.ts";
+import { registerSparkPhaseTool } from "./phase/index.ts";
 import { sparkSessionKey } from "./session-state.ts";
 import type { SparkRegisteredToolConfig, SparkToolContext } from "./spark-tool-registration.ts";
 import { SparkWidgetController } from "./spark-widget-controller.ts";
@@ -71,13 +66,10 @@ import {
 import { registerSparkReflectionCommands } from "./reflection-in-session-scheduler.ts";
 import { createSparkLensToolConfig } from "./spark-lens-tool.ts";
 import { createTaskArtifactHandler } from "./spark-task-artifact.ts";
-import { sparkActiveLensPhase } from "./spark-drive-state.ts";
+import { sparkActiveLensPhase } from "./spark-phase-state.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { readSessionRepro } from "./spark-session-repro.ts";
-import {
-  sparkDaemonDriverControl,
-  type SparkDaemonDriverControl,
-} from "./spark-daemon-driver-client.ts";
+import { sparkDaemonLoopControl, type SparkDaemonLoopControl } from "./spark-daemon-loop-client.ts";
 import {
   sparkDaemonUsageControl,
   type SparkDaemonUsageControl,
@@ -87,7 +79,7 @@ import { registerSparkDelegationTool } from "./spark-delegation-tool-registratio
 
 interface SparkProductFacadeApi extends SparkCommandApi {
   /** Host/test override; production defaults to the daemon local RPC client. */
-  driverControl?: SparkDaemonDriverControl;
+  loopControl?: SparkDaemonLoopControl;
   /** Host/test override; production reads the daemon-owned token ledger projection. */
   usageControl?: SparkDaemonUsageControl;
   /** Test/compatible-host override; production claim authority remains daemon RPC. */
@@ -120,7 +112,7 @@ interface SparkProductFacadeApi extends SparkCommandApi {
 
 export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkReproRoles();
-  const driverControl = pi.driverControl ?? sparkDaemonDriverControl;
+  const loopControl = pi.loopControl ?? sparkDaemonLoopControl;
   const usageControl = pi.usageControl ?? sparkDaemonUsageControl;
   const widgetController = new SparkWidgetController();
   const roleRunTuiController = new SparkRoleRunTuiController(pi);
@@ -158,7 +150,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
 
   const workflowRunManagerController = new SparkWorkflowRunManagerController({
     refreshSparkWidget,
-    driverControl,
+    loopControl,
   });
 
   registerSparkAskAutoAnswerProvider("spark-goal-reviewer", async (request, rawCtx) => {
@@ -181,9 +173,9 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     sessionHeartbeatController,
     createAskAutoAnswerResolver: (ctx) => (request, askCtx) =>
       answerAskWithReviewer(request, askCtx, ctx),
-    ensureActiveReproDriver: async (ctx) => {
+    ensureActiveReproLoop: async (ctx) => {
       const repro = await readSessionRepro(ctx.cwd, ctx);
-      if (repro?.status === "active") await ensureActiveReproDriver(ctx, driverControl, repro);
+      if (repro?.status === "active") await ensureActiveReproLoop(ctx, loopControl, repro);
     },
   });
 
@@ -240,7 +232,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
       eventHandlers.queueSparkAgentInstruction(ctx, instruction, options),
     refreshSparkWidget,
     ensureWorkflowRunManager: (cwd, ctx) => workflowRunManagerController.ensure(cwd, ctx),
-    driverControl,
+    loopControl,
     createReviewerRunner,
   });
   registerSparkReflectionCommands(pi);
@@ -274,29 +266,56 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkPlanTasksTool(registerSparkImplementationTool, { refreshSparkWidget });
 
   registerSparkGoalTool(registerSparkTool, {
-    driverControl,
+    loopControl,
     refreshSparkWidget,
     syncAskAutoAnswerPolicy: (ctx) => eventHandlers.syncGoalAskAutoAnswerPolicy(ctx),
     createReviewerRunner,
   });
 
-  registerSparkLoopTool(registerSparkTool, { driverControl, refreshSparkWidget });
+  registerSparkLoopTool(registerSparkTool, { loopControl, refreshSparkWidget });
 
   registerSparkReproTool(registerSparkTool, {
-    driverControl,
+    loopControl,
     usageControl,
     refreshSparkWidget,
   });
 
-  registerSparkDriveTool(registerSparkTool, {
-    driverControl,
-    ensureSparkStateForActiveWorkspace,
-    refreshSparkWidget,
-  });
-  registerSparkDriverTool(registerSparkTool, { driverControl });
-  registerSparkWorkflowDriverTool(registerSparkImplementationTool, {
-    workflowRunManager: workflowRunManagerController,
-  });
+  registerSparkWorkflowTool(
+    {
+      registerTool: (config) =>
+        registerSparkImplementationTool(config as SparkRegisteredToolConfig),
+    },
+    {
+      tick: async (hostContext) => {
+        const ctx = hostContext as SparkToolContext;
+        if (!ctx.loop?.binding.workflowRunId)
+          return {
+            content: [
+              { type: "text" as const, text: "workflow tick requires a bound daemon Loop." },
+            ],
+            details: { error: "workflow_tick_context_unavailable" },
+            isError: true,
+          };
+        const result = await workflowRunManagerController.runOnce(ctx.cwd, ctx);
+        if (result.continuePolling) {
+          await ctx.loop.schedule({ delayMs: 1_000, reason: "workflow still has active work" });
+        } else {
+          await ctx.loop.stop({ reason: "workflow reached a terminal or idle state" });
+        }
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: result.continuePolling
+                ? "Advanced the workflow and scheduled the next Loop tick."
+                : "Advanced the workflow and stopped its Loop.",
+            },
+          ],
+          details: { continuePolling: result.continuePolling },
+        };
+      },
+    },
+  );
 
   registerSparkPhaseTool(registerSparkTool);
 

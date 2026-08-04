@@ -27,7 +27,7 @@ import {
 } from "./session-todos.ts";
 import { independentTodoDisplayKey } from "@zendev-lab/spark-tasks";
 import { renderSparkProjectKindDisplay } from "./project-kind-registry.ts";
-import { deriveSparkDriveMode, sparkActiveLens } from "./spark-drive-state.ts";
+import { sparkActiveLens } from "./spark-phase-state.ts";
 import { ensureSparkGraphInvariants, isPlaceholderProjectTitle } from "./spark-graph-invariants.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { clearSessionLoop, loadSessionLoop } from "./spark-session-loops.ts";
@@ -63,7 +63,6 @@ const piExtensionWidgetControllerDeps: SparkWidgetControllerDeps = {
   readSessionRepro: (cwd, ctx) => readSessionRepro(cwd, ctx),
   loadSparkPhase: (cwd, ctx) => loadSparkPhase(cwd, ctx),
   sparkActiveLens,
-  deriveSparkDriveMode,
   renderSparkProjectKindDisplay,
   isPlaceholderProjectTitle,
   latestRunsByTaskRef,

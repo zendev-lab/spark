@@ -143,17 +143,39 @@ describe("migrateSparkDaemonDatabase", () => {
     }
   });
 
-  it("retires hook-owned implement and session TODO driver ticks", () => {
+  it("migrates bound drivers and retires hook-owned legacy kinds", () => {
     const db = new DatabaseSync(":memory:");
     try {
       migrateSparkDaemonDatabase(db);
+      db.exec(`
+        CREATE TABLE driver_wakeups (
+          driver_id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          lane TEXT NOT NULL,
+          owner_session_id TEXT NOT NULL,
+          continuity TEXT NOT NULL,
+          status TEXT NOT NULL,
+          generation INTEGER NOT NULL,
+          due_at TEXT,
+          attempt INTEGER NOT NULL DEFAULT 0,
+          last_invocation_id TEXT,
+          reason TEXT,
+          error TEXT,
+          prompt TEXT NOT NULL,
+          wake_prompt TEXT,
+          route_json TEXT NOT NULL,
+          domain_state_digest TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
       db.prepare(
         `INSERT INTO invocations (
            id, status, task_json, source_kind, created_at, updated_at
-         ) VALUES (?, 'running', ?, 'driver.tick', ?, ?)`,
+         ) VALUES (?, 'running', ?, 'loop.tick', ?, ?)`,
       ).run(
         "inv-implement",
-        JSON.stringify({ type: "driver.tick", kind: "implement" }),
+        JSON.stringify({ type: "loop.tick", kind: "implement" }),
         "2026-07-25T00:00:00.000Z",
         "2026-07-25T00:00:00.000Z",
       );
@@ -174,9 +196,9 @@ describe("migrateSparkDaemonDatabase", () => {
         "2026-07-25T00:00:00.000Z",
       );
       insertDriver.run(
-        "session-todo:session-one",
-        "session_todo",
-        "fallback",
+        "goal-one",
+        "goal",
+        "foreground",
         null,
         route,
         "2026-07-25T00:00:00.000Z",
@@ -185,15 +207,13 @@ describe("migrateSparkDaemonDatabase", () => {
 
       migrateSparkDaemonDatabase(db);
 
-      expect(db.prepare("SELECT driver_id FROM driver_wakeups").all()).toEqual([]);
+      expect(db.prepare("SELECT loop_id, binding_json FROM loop_wakeups").all()).toEqual([
+        { loop_id: "goal-one", binding_json: '{"goalId":"goal-one"}' },
+      ]);
       expect(
         db.prepare("SELECT status, error_code FROM invocations WHERE id = ?").get("inv-implement"),
-      ).toEqual({ status: "cancelled", error_code: "DRIVER_KIND_RETIRED" });
-      expect(
-        db
-          .prepare("SELECT value FROM daemon_meta WHERE key = ?")
-          .get("migration.retire-hook-owned-driver-ticks-v1"),
-      ).toEqual({ value: "complete" });
+      ).toEqual({ status: "cancelled", error_code: "LOOP_BINDING_RETIRED" });
+      expect(columnNames(db, "driver_wakeups")).toEqual([]);
     } finally {
       db.close();
     }
@@ -258,8 +278,8 @@ describe("migrateSparkDaemonDatabase", () => {
       migrateSparkDaemonDatabase(db);
       expect(tableExists(db, "invocations")).toBe(true);
       expect(tableExists(db, "invocation_events")).toBe(true);
-      expect(tableExists(db, "driver_wakeups")).toBe(true);
-      expect(tableExists(db, "driver_hidden_sessions")).toBe(true);
+      expect(tableExists(db, "loop_wakeups")).toBe(true);
+      expect(tableExists(db, "loop_hidden_sessions")).toBe(true);
       expect(tableExists(db, "invocation_event_deliveries")).toBe(true);
       expect(tableExists(db, "invocation_event_delivery_consumers")).toBe(true);
       expect(tableExists(db, "runtime_command_receipts")).toBe(true);
@@ -295,15 +315,15 @@ describe("migrateSparkDaemonDatabase", () => {
           "finished_at",
         ]),
       );
-      expect(columnNames(db, "driver_wakeups")).toEqual(
+      expect(columnNames(db, "loop_wakeups")).toEqual(
         expect.arrayContaining([
-          "driver_id",
-          "kind",
-          "lane",
+          "loop_id",
           "owner_session_id",
+          "binding_json",
           "continuity",
           "status",
           "generation",
+          "cycle_step",
           "due_at",
           "attempt",
           "last_invocation_id",
@@ -311,10 +331,10 @@ describe("migrateSparkDaemonDatabase", () => {
           "wake_prompt",
         ]),
       );
-      expect(indexNames(db, "driver_wakeups")).toEqual(
-        expect.arrayContaining(["driver_wakeups_due_idx", "driver_wakeups_owner_idx"]),
+      expect(indexNames(db, "loop_wakeups")).toEqual(
+        expect.arrayContaining(["loop_wakeups_due_idx", "loop_wakeups_owner_idx"]),
       );
-      expect(indexNames(db, "driver_hidden_sessions")).toContain("driver_hidden_sessions_gc_idx");
+      expect(indexNames(db, "loop_hidden_sessions")).toContain("loop_hidden_sessions_gc_idx");
       expect(indexNames(db, "invocations")).toEqual(
         expect.arrayContaining([
           "invocations_status_idx",
@@ -350,7 +370,7 @@ describe("migrateSparkDaemonDatabase", () => {
     }
   });
 
-  it("adds one-shot wake storage to an existing driver runtime schema", () => {
+  it("migrates an existing driver runtime schema into loop storage", () => {
     const db = new DatabaseSync(":memory:");
     try {
       db.exec(`
@@ -373,11 +393,27 @@ describe("migrateSparkDaemonDatabase", () => {
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
+        INSERT INTO driver_wakeups (
+          driver_id, kind, lane, owner_session_id, continuity, status, generation,
+          due_at, attempt, last_invocation_id, reason, error, prompt, route_json,
+          domain_state_digest, created_at, updated_at
+        ) VALUES (
+          'goal-legacy', 'goal', 'foreground', 'session-legacy', 'session', 'scheduled', 2,
+          '2026-07-01T00:00:00.000Z', 0, NULL, 'legacy', NULL, 'continue', '{}',
+          NULL, '2026-07-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z'
+        );
       `);
 
       migrateSparkDaemonDatabase(db);
 
-      expect(columnNames(db, "driver_wakeups")).toContain("wake_prompt");
+      expect(columnNames(db, "driver_wakeups")).toEqual([]);
+      expect(
+        db.prepare("SELECT loop_id, binding_json, generation FROM loop_wakeups").get(),
+      ).toEqual({
+        loop_id: "goal-legacy",
+        binding_json: '{"goalId":"goal-legacy"}',
+        generation: 2,
+      });
     } finally {
       db.close();
     }

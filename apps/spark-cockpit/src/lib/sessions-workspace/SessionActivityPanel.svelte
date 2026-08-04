@@ -10,11 +10,11 @@
   let hasActivity = $derived(
     Boolean(host.liveSessionView?.cwd) ||
       host.queueItems.length > 0 ||
-      (host.liveSessionView?.drivers?.length ?? 0) > 0 ||
+      (host.liveSessionView?.loops?.length ?? 0) > 0 ||
       Boolean(host.dequeueFeedback),
   );
 
-  function driverIcon(status: string): IconName {
+  function loopIcon(status: string): IconName {
     if (status === "blocked" || status === "retry_wait") return "warning";
     if (status === "stopped") return "check";
     if (status === "running") return "play";
@@ -47,25 +47,25 @@
       />
     {/if}
 
-    {#if (host.liveSessionView?.drivers?.length ?? 0) > 0}
-      <div class="driver-list" aria-label={host.copy.driversHeading}>
-        {#each host.liveSessionView?.drivers ?? [] as driver (driver.driverId)}
-          <article class="driver-row">
-            <div class="driver-copy">
-              <strong>{driver.kind}</strong>
-              <code>{driver.driverId}</code>
-              {#if driver.reason}<p>{driver.reason}</p>{/if}
+    {#if (host.liveSessionView?.loops?.length ?? 0) > 0}
+      <div class="loop-list" aria-label={host.copy.loopsHeading}>
+        {#each host.liveSessionView?.loops ?? [] as loop (loop.loopId)}
+          <article class="loop-row">
+            <div class="loop-copy">
+              <strong>{loop.binding.reproId ? "Repro" : loop.binding.workflowRunId ? "Workflow" : loop.binding.goalId ? "Goal" : "Loop"}</strong>
+              <code>{loop.loopId}</code>
+              {#if loop.reason}<p>{loop.reason}</p>{/if}
             </div>
-            <div class="driver-meta">
+            <div class="loop-meta">
               <span
-                class="driver-status {driver.status}"
-                aria-label={`${driver.kind}: ${host.statusLabel(driver.status)}`}
+                class="loop-status {loop.status}"
+                aria-label={`Loop: ${host.statusLabel(loop.status)}`}
               >
-                <Icon name={driverIcon(driver.status)} size={12} />
-                {host.statusLabel(driver.status)}
+                <Icon name={loopIcon(loop.status)} size={12} />
+                {host.statusLabel(loop.status)}
               </span>
-              <span>{host.copy.driverAttempt} {driver.attempt}</span>
-              {#if driver.dueAt}<span>{host.copy.due} {host.relative(driver.dueAt)}</span>{/if}
+              <span>{host.copy.loopAttempt} {loop.attempt}</span>
+              {#if loop.dueAt}<span>{host.copy.due} {host.relative(loop.dueAt)}</span>{/if}
             </div>
           </article>
         {/each}
@@ -145,12 +145,12 @@
     padding: 0 6px;
   }
 
-  .driver-list {
+  .loop-list {
     display: grid;
     gap: 6px;
   }
 
-  .driver-row {
+  .loop-row {
     align-items: start;
     background: var(--color-surface-soft);
     border: 1px solid var(--color-border-soft);
@@ -161,22 +161,22 @@
     padding: 8px;
   }
 
-  .driver-copy,
-  .driver-meta {
+  .loop-copy,
+  .loop-meta {
     display: grid;
     gap: 3px;
     min-width: 0;
   }
 
-  .driver-copy strong {
+  .loop-copy strong {
     color: var(--color-ink);
     font-size: 12px;
     text-transform: capitalize;
   }
 
-  .driver-copy code,
-  .driver-copy p,
-  .driver-meta > span:not(.driver-status) {
+  .loop-copy code,
+  .loop-copy p,
+  .loop-meta > span:not(.loop-status) {
     color: var(--color-ink-subtle);
     font-size: 10px;
     line-height: 1.4;
@@ -184,7 +184,7 @@
     overflow-wrap: anywhere;
   }
 
-  .driver-status {
+  .loop-status {
     align-items: center;
     color: var(--color-ink-muted);
     display: inline-flex;
@@ -194,12 +194,12 @@
     justify-self: end;
   }
 
-  .driver-status.blocked,
-  .driver-status.retry_wait {
+  .loop-status.blocked,
+  .loop-status.retry_wait {
     color: var(--color-warning-strong);
   }
 
-  .driver-status.running {
+  .loop-status.running {
     color: var(--color-primary);
   }
 

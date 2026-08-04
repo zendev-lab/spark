@@ -17,7 +17,7 @@ spark
 修复登录测试，但不要修改公开 API。验证通过并展示证据后再宣布完成。
 ```
 
-不需要先选择工具、driver 或 command plane。多步骤修改先用 `/plan`，计划确认后
+不需要先选择工具、Loop 或 command plane。多步骤修改先用 `/plan`，计划确认后
 再用 `/implement`。
 
 ## 日常控制

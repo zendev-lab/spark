@@ -42,7 +42,7 @@ import {
   type SparkDynamicWorkflowRunSource,
 } from "./spark-dynamic-workflow-run-store.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
-import { publishDynamicWorkflowRunViews } from "./spark-workflow-driver-entry.ts";
+import { publishDynamicWorkflowRunViews } from "./spark-workflow-loop-entry.ts";
 
 const DEFAULT_WORKFLOW_ROLE_REF = "role:builtin-worker" as RoleRef;
 const WORKFLOW_WEB_TOOL_TIMEOUT_MS = 120_000;

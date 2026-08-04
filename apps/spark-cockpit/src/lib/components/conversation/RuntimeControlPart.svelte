@@ -4,7 +4,7 @@
   import type { ConversationPartLabels } from "./types";
 
   type Props = {
-    driverKind?: string;
+    bindingLabel?: string;
     state: "running" | "completed" | "failed";
     request: string;
     result?: string;
@@ -13,7 +13,7 @@
   };
 
   let {
-    driverKind,
+    bindingLabel,
     state: runtimeState,
     request,
     result,
@@ -22,7 +22,7 @@
   }: Props = $props();
   let expanded = $state(false);
   let title = $derived(
-    `${labels.runtimeControl}${driverKind?.trim() ? ` · ${driverKind.trim()}` : ""} ${labels.runtimeTick}`,
+    `${labels.runtimeControl}${bindingLabel?.trim() ? ` · ${bindingLabel.trim()}` : ""} ${labels.runtimeTick}`,
   );
 </script>
 

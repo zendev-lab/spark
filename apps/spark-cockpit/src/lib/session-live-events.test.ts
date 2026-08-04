@@ -34,14 +34,14 @@ function event(
 }
 
 describe("session live events", () => {
-  it("replays driver updates into the selected session projection", () => {
+  it("replays loop updates into the selected session projection", () => {
     const state = createSessionLiveEventState({
       sessionId: "sess_current",
       workspaceId: "ws_spore",
       view: parseSparkSessionView({
         sessionId: "sess_current",
         status: "idle",
-        drivers: [],
+        loops: [],
       }),
     });
 
@@ -58,14 +58,15 @@ describe("session live events", () => {
           sessionId: "sess_current",
           view: {
             version: 1,
-            type: "driver.update",
+            type: "loop.update",
             sessionId: "sess_current",
-            driver: {
-              driverId: "loop-one",
-              kind: "loop",
+            loop: {
+              loopId: "loop-one",
+              binding: {},
               ownerSessionId: "sess_current",
               status: "scheduled",
               continuity: "fresh",
+              generation: 1,
               dueAt: "2026-07-13T08:00:30.000Z",
               attempt: 0,
             },
@@ -75,9 +76,9 @@ describe("session live events", () => {
     );
 
     expect(result).toEqual({ changed: true, refreshActivity: false });
-    expect(state.view?.drivers).toEqual([
+    expect(state.view?.loops).toEqual([
       expect.objectContaining({
-        driverId: "loop-one",
+        loopId: "loop-one",
         status: "scheduled",
         continuity: "fresh",
       }),

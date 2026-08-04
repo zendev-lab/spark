@@ -202,7 +202,7 @@ const daemonChannelTurnInvokers = {
   | "turn.cancel"
 >;
 
-const invocationDriverInvokers = {
+const invocationLoopInvokers = {
   "invocation.list": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
       sparkLocalRpcProcedureSchemas["invocation.list"].output,
@@ -238,35 +238,35 @@ const invocationDriverInvokers = {
       sparkLocalRpcProcedureSchemas["usage.backfill"].output,
       client.usage.backfill(input, options),
     ),
-  "driver.start": (client, input, options) =>
+  "loop.start": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["driver.start"].output,
-      client.driver.start(input, options),
+      sparkLocalRpcProcedureSchemas["loop.start"].output,
+      client.loop.start(input, options),
     ),
-  "driver.status": (client, input, options) =>
+  "loop.status": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["driver.status"].output,
-      client.driver.status(input, options),
+      sparkLocalRpcProcedureSchemas["loop.status"].output,
+      client.loop.status(input, options),
     ),
-  "driver.stop": (client, input, options) =>
+  "loop.stop": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["driver.stop"].output,
-      client.driver.stop(input, options),
+      sparkLocalRpcProcedureSchemas["loop.stop"].output,
+      client.loop.stop(input, options),
     ),
-  "driver.restart": (client, input, options) =>
+  "loop.restart": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["driver.restart"].output,
-      client.driver.restart(input, options),
+      sparkLocalRpcProcedureSchemas["loop.restart"].output,
+      client.loop.restart(input, options),
     ),
-  "driver.wake": (client, input, options) =>
+  "loop.wake": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["driver.wake"].output,
-      client.driver.wake(input, options),
+      sparkLocalRpcProcedureSchemas["loop.wake"].output,
+      client.loop.wake(input, options),
     ),
-  "driver.schedule": (client, input, options) =>
+  "loop.schedule": (client, input, options) =>
     parseSparkDaemonOrpcOutput(
-      sparkLocalRpcProcedureSchemas["driver.schedule"].output,
-      client.driver.schedule(input, options),
+      sparkLocalRpcProcedureSchemas["loop.schedule"].output,
+      client.loop.schedule(input, options),
     ),
 } satisfies Pick<
   SparkDaemonOrpcProcedureInvokerMap,
@@ -277,12 +277,12 @@ const invocationDriverInvokers = {
   | "usage.summary"
   | "usage.persistence"
   | "usage.backfill"
-  | "driver.start"
-  | "driver.status"
-  | "driver.stop"
-  | "driver.restart"
-  | "driver.wake"
-  | "driver.schedule"
+  | "loop.start"
+  | "loop.status"
+  | "loop.stop"
+  | "loop.restart"
+  | "loop.wake"
+  | "loop.schedule"
 >;
 
 const workspaceInvokers = {
@@ -639,7 +639,7 @@ const delegationInvokers = {
 const sparkDaemonOrpcProcedureInvokers = {
   ...toolExecutionInvokers,
   ...daemonChannelTurnInvokers,
-  ...invocationDriverInvokers,
+  ...invocationLoopInvokers,
   ...workspaceInvokers,
   ...uplinkInvokers,
   ...sessionInvokers,

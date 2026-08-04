@@ -193,6 +193,7 @@ test("runSparkHeadlessSession times out a never-resolving agent turn", async () 
     runtime: {
       onDaemonEvent: () => () => unsubscribed.push("runtime"),
       setSessionId: () => undefined,
+      makeContext: () => ({}),
     },
     sessionStore: {
       createSession: () => record,
@@ -525,6 +526,7 @@ function headlessRoleServices(
     runtime: {
       onDaemonEvent: () => () => undefined,
       setSessionId: () => undefined,
+      makeContext: () => ({}),
       registerTool: (tool: ToolConfig) => tools.set(tool.name, tool),
       getActiveTools: () => [...activeTools],
       setActiveTools: (names: string[]) => {
@@ -746,6 +748,7 @@ function headlessServices(submitWithOutcome: () => Promise<SparkRunOutcome>) {
     runtime: {
       onDaemonEvent: () => () => undefined,
       setSessionId: () => undefined,
+      makeContext: () => ({}),
     },
     sessionStore: {
       createSession: () => record,

@@ -107,16 +107,14 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       recorded_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS driver_wakeups (
-      driver_id TEXT PRIMARY KEY,
-      -- implement and session_todo remain accepted only so historical databases
-      -- can open long enough for retireHookOwnedDriverTicks() to remove them.
-      kind TEXT NOT NULL CHECK (kind IN ('goal', 'loop', 'repro', 'implement', 'workflow', 'session_todo')),
-      lane TEXT NOT NULL CHECK (lane IN ('foreground', 'background', 'fallback')),
+    CREATE TABLE IF NOT EXISTS loop_wakeups (
+      loop_id TEXT PRIMARY KEY,
       owner_session_id TEXT NOT NULL,
+      binding_json TEXT NOT NULL DEFAULT '{}',
       continuity TEXT NOT NULL CHECK (continuity IN ('session', 'fresh')),
-      status TEXT NOT NULL CHECK (status IN ('scheduled', 'running', 'retry_wait', 'dormant', 'blocked', 'stopped')),
+      status TEXT NOT NULL CHECK (status IN ('scheduled', 'running', 'retry_wait', 'dormant', 'paused', 'blocked', 'completed', 'stopped')),
       generation INTEGER NOT NULL CHECK (generation > 0),
+      cycle_step TEXT CHECK (cycle_step IS NULL OR cycle_step IN ('before_tick', 'invoke', 'after_tick', 'settle')),
       due_at TEXT,
       attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
       last_invocation_id TEXT REFERENCES invocations(id),
@@ -130,9 +128,9 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS driver_hidden_sessions (
+    CREATE TABLE IF NOT EXISTS loop_hidden_sessions (
       execution_session_id TEXT PRIMARY KEY,
-      driver_id TEXT NOT NULL REFERENCES driver_wakeups(driver_id) ON DELETE CASCADE,
+      loop_id TEXT NOT NULL REFERENCES loop_wakeups(loop_id) ON DELETE CASCADE,
       generation INTEGER NOT NULL CHECK (generation > 0),
       invocation_id TEXT NOT NULL REFERENCES invocations(id) ON DELETE CASCADE,
       status TEXT NOT NULL CHECK (status IN ('active', 'archived')),
@@ -375,13 +373,13 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
     );
 
     CREATE INDEX IF NOT EXISTS invocations_status_idx ON invocations(status, created_at);
-    CREATE INDEX IF NOT EXISTS driver_wakeups_due_idx
-      ON driver_wakeups(status, due_at, updated_at)
+    CREATE INDEX IF NOT EXISTS loop_wakeups_due_idx
+      ON loop_wakeups(status, due_at, updated_at)
       WHERE status IN ('scheduled', 'retry_wait');
-    CREATE INDEX IF NOT EXISTS driver_wakeups_owner_idx
-      ON driver_wakeups(owner_session_id, status, lane);
-    CREATE INDEX IF NOT EXISTS driver_hidden_sessions_gc_idx
-      ON driver_hidden_sessions(status, gc_after)
+    CREATE INDEX IF NOT EXISTS loop_wakeups_owner_idx
+      ON loop_wakeups(owner_session_id, status);
+    CREATE INDEX IF NOT EXISTS loop_hidden_sessions_gc_idx
+      ON loop_hidden_sessions(status, gc_after)
       WHERE status = 'archived';
     CREATE INDEX IF NOT EXISTS invocation_events_cursor_idx
       ON invocation_events(invocation_id, sequence);
@@ -427,8 +425,8 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
   addMissingRuntimeCommandReceiptColumns(db);
   addMissingInvocationColumns(db);
   addMissingUsageExecutionColumns(db);
-  addMissingDriverColumns(db);
-  retireHookOwnedDriverTicks(db);
+  migrateLegacyDriverTables(db);
+  addMissingLoopColumns(db);
   db.exec(`
     INSERT OR IGNORE INTO invocation_event_delivery_consumers (destination, registered_at)
     SELECT DISTINCT destination, MIN(updated_at)
@@ -505,10 +503,10 @@ function migrateSessionRequestCompletionDeliverySchema(db: DatabaseSync): void {
   `);
 }
 
-function addMissingDriverColumns(db: DatabaseSync): void {
-  const columns = workspaceColumns(db, "driver_wakeups");
+function addMissingLoopColumns(db: DatabaseSync): void {
+  const columns = workspaceColumns(db, "loop_wakeups");
   if (!columns.has("wake_prompt")) {
-    db.exec("ALTER TABLE driver_wakeups ADD COLUMN wake_prompt TEXT");
+    db.exec("ALTER TABLE loop_wakeups ADD COLUMN wake_prompt TEXT");
   }
 }
 
@@ -597,41 +595,99 @@ function migrateChannelDeliverySchema(db: DatabaseSync): void {
   }
 }
 
-/**
- * Implementation phase and session TODO continuation now run at the host
- * agent-end lifecycle boundary. Cancel any attached invocation and remove the
- * historical daemon wakeups so a retained row cannot emit another tick.
- */
-function retireHookOwnedDriverTicks(db: DatabaseSync): void {
+/** One-way hard cut from the legacy kind/lane driver tables to bound loops. */
+function migrateLegacyDriverTables(db: DatabaseSync): void {
   if (!tableExists(db, "driver_wakeups")) return;
   const now = new Date().toISOString();
   db.exec("BEGIN IMMEDIATE");
   try {
+    const legacyColumns = workspaceColumns(db, "driver_wakeups");
+    if (!legacyColumns.has("wake_prompt")) {
+      db.exec("ALTER TABLE driver_wakeups ADD COLUMN wake_prompt TEXT");
+    }
     db.prepare(
       `UPDATE invocations
        SET status = 'cancelled',
-           cancel_reason = COALESCE(cancel_reason, 'continuation moved to agent-end hook'),
-           error_code = COALESCE(error_code, 'DRIVER_KIND_RETIRED'),
-           error_message = COALESCE(error_message, 'implement and session TODO continuation are hook-owned'),
-           updated_at = ?,
-           finished_at = COALESCE(finished_at, ?)
+           cancel_reason = COALESCE(cancel_reason, 'continuation moved to phase lifecycle'),
+           error_code = COALESCE(error_code, 'LOOP_BINDING_RETIRED'),
+           error_message = COALESCE(error_message, 'implement and session TODO are not loop bindings'),
+           updated_at = ?, finished_at = COALESCE(finished_at, ?)
        WHERE status IN ('queued', 'running')
          AND id IN (
-           SELECT last_invocation_id
-           FROM driver_wakeups
+           SELECT last_invocation_id FROM driver_wakeups
            WHERE kind IN ('implement', 'session_todo') AND last_invocation_id IS NOT NULL
          )`,
     ).run(now, now);
     db.exec(`
-      DELETE FROM driver_hidden_sessions
-      WHERE driver_id IN (
-        SELECT driver_id FROM driver_wakeups WHERE kind IN ('implement', 'session_todo')
-      );
-      DELETE FROM driver_wakeups WHERE kind IN ('implement', 'session_todo');
+      INSERT OR IGNORE INTO loop_wakeups (
+        loop_id, owner_session_id, binding_json, continuity, status, generation, cycle_step,
+        due_at, attempt, last_invocation_id, reason, error, prompt, wake_prompt, route_json,
+        domain_state_digest, created_at, updated_at
+      )
+      SELECT driver_id, owner_session_id,
+        CASE kind
+          WHEN 'goal' THEN json_object('goalId', driver_id)
+          WHEN 'repro' THEN json_object('reproId', driver_id)
+          WHEN 'workflow' THEN json_object('workflowRunId', driver_id)
+          ELSE '{}'
+        END,
+        continuity, status, generation,
+        CASE WHEN status = 'running' THEN 'invoke' ELSE NULL END,
+        due_at, attempt, last_invocation_id, reason, error, prompt, wake_prompt, route_json,
+        domain_state_digest, created_at, updated_at
+      FROM driver_wakeups
+      WHERE kind IN ('goal', 'loop', 'repro', 'workflow');
     `);
+    if (tableExists(db, "driver_hidden_sessions")) {
+      db.exec(`
+        INSERT OR IGNORE INTO loop_hidden_sessions (
+          execution_session_id, loop_id, generation, invocation_id, status, session_path,
+          created_at, archived_at, gc_after
+        )
+        SELECT execution_session_id, driver_id, generation, invocation_id, status, session_path,
+          created_at, archived_at, gc_after
+        FROM driver_hidden_sessions
+        WHERE driver_id IN (SELECT loop_id FROM loop_wakeups);
+      `);
+    }
+    const rows = db
+      .prepare(
+        "SELECT id, task_json, source_kind, idempotency_key FROM invocations WHERE source_kind = 'driver.tick'",
+      )
+      .all() as Array<{
+      id: string;
+      task_json: string | null;
+      source_kind: string | null;
+      idempotency_key: string | null;
+    }>;
+    for (const row of rows) {
+      const task = row.task_json ? (JSON.parse(row.task_json) as Record<string, unknown>) : {};
+      const legacyKind = typeof task.kind === "string" ? task.kind : undefined;
+      const loopId = typeof task.driverId === "string" ? task.driverId : task.loopId;
+      if (!legacyKind || !["goal", "loop", "repro", "workflow"].includes(legacyKind)) {
+        continue;
+      }
+      const binding =
+        legacyKind === "goal"
+          ? { goalId: loopId }
+          : legacyKind === "repro"
+            ? { reproId: loopId }
+            : legacyKind === "workflow"
+              ? { workflowRunId: loopId }
+              : {};
+      delete task.driverId;
+      delete task.kind;
+      task.type = "loop.tick";
+      task.loopId = loopId;
+      task.binding = binding;
+      db.prepare(
+        "UPDATE invocations SET task_json = ?, source_kind = 'loop.tick', idempotency_key = REPLACE(idempotency_key, 'driver.tick:', 'loop.tick:') WHERE id = ?",
+      ).run(JSON.stringify(task), row.id);
+    }
+    db.exec("DROP TABLE IF EXISTS driver_hidden_sessions; DROP TABLE driver_wakeups;");
     db.prepare(
       `INSERT INTO daemon_meta (key, value, updated_at)
-       VALUES ('migration.retire-hook-owned-driver-ticks-v1', 'complete', ?)
+       VALUES ('migration.driver-to-loop-v1', 'complete', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
     ).run(now);
     db.exec("COMMIT");

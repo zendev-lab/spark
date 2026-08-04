@@ -1047,8 +1047,8 @@ export class SparkNativeTuiApp implements Component, Focusable {
       case "run.update":
         this.recordRunView(parsed.run);
         break;
-      case "driver.update":
-        this.cockpit.drivers.set(parsed.driver.driverId, parsed.driver);
+      case "loop.update":
+        this.cockpit.loops.set(parsed.loop.loopId, parsed.loop);
         break;
       case "task.update": {
         this.cockpit.tasks.set(parsed.task.ref, parsed.task);
@@ -1096,9 +1096,9 @@ export class SparkNativeTuiApp implements Component, Focusable {
     this.cockpit.tasks.clear();
     this.cockpit.artifacts.clear();
     this.cockpit.evidence.clear();
-    this.cockpit.drivers.clear();
-    for (const driver of view.drivers ?? []) {
-      this.cockpit.drivers.set(driver.driverId, driver);
+    this.cockpit.loops.clear();
+    for (const loop of view.loops ?? []) {
+      this.cockpit.loops.set(loop.loopId, loop);
     }
     for (const run of view.runs) this.recordRunView(run, false);
     if (view.runs.length === 0) this.recordActiveRunStatus();
@@ -1903,13 +1903,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private statusLine(): string {
     const statusSuffix = this.extensionStatusSuffix();
     const commandSuffix = this.commandAvailabilitySuffix();
-    const activeDrivers = [...this.cockpit.drivers.values()].filter(
-      (driver) => driver.status !== "stopped",
+    const activeLoops = [...this.cockpit.loops.values()].filter(
+      (loop) => loop.status !== "stopped" && loop.status !== "completed",
     );
-    const driverSuffix =
-      activeDrivers.length === 0
-        ? ""
-        : ` · driver=${activeDrivers.map((driver) => `${driver.kind}:${driver.status}`).join(",")}`;
+    const loopSuffix =
+      activeLoops.length === 0 ? "" : ` · loop=${activeLoops.map((loop) => loop.status).join(",")}`;
     const sessionLabel =
       this.cockpit.sessionTitle?.trim() ||
       this.cockpit.sessionId?.trim() ||
@@ -1937,7 +1935,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
             }
           : {}),
       }) +
-      driverSuffix +
+      loopSuffix +
       commandSuffix +
       statusSuffix
     );

@@ -92,17 +92,8 @@ export interface SparkProjectKindWidgetEntry {
   panels: SparkProjectKindWidgetPanel[];
 }
 
-export type SparkWidgetDriveModeInput =
-  | "assist"
-  | "workflow"
-  | "goal"
-  | "loop"
-  | "repro"
-  | "interactive";
-
 export interface SparkWidgetActiveLens {
   phase: "plan" | "implement";
-  drive?: SparkWidgetDriveModeInput;
 }
 
 export interface SparkWidgetState {
@@ -270,7 +261,7 @@ export function renderSparkWidgetLines(
   const lines: string[] = [];
   const visibleTasks = state.tasks.filter(isVisibleTaskEntry);
 
-  const goalLine = formatForegroundDriverLine(
+  const goalLine = formatForegroundLoopLine(
     state.repro,
     state.goal,
     state.loop,
@@ -319,7 +310,7 @@ function hasSessionRunningAgent(tasks: TaskEntry[]): boolean {
   );
 }
 
-function formatForegroundDriverLine(
+function formatForegroundLoopLine(
   repro: SparkReproWidgetEntry | undefined,
   goal: SparkGoalWidgetEntry | undefined,
   loop: SparkLoopWidgetEntry | undefined,
@@ -467,21 +458,12 @@ function formatProjectHeaderLine(
   return `${theme.fg("accent", "◆")} ${theme.bold(state.projectTitle)}${suffix ? ` ${suffix}` : ""}`;
 }
 
-function sparkWidgetActiveLensDriveMode(
-  lens: SparkWidgetActiveLens | undefined,
-): SparkWidgetDriveModeInput {
-  if (!lens?.drive || lens.drive === "interactive") return "assist";
-  return lens.drive;
-}
-
 function sparkWidgetActiveLensPhase(lens: SparkWidgetActiveLens | undefined): "plan" | "implement" {
   if (lens?.phase === "plan" || lens?.phase === "implement") return lens.phase;
   return "plan";
 }
 
 function formatPhaseSummary(lens: SparkWidgetActiveLens | undefined): string {
-  const mode = sparkWidgetActiveLensDriveMode(lens);
-  if (mode !== "assist") return `Drive: ${mode}`;
   const phase = sparkWidgetActiveLensPhase(lens);
   return `Phase: ${phase}`;
 }

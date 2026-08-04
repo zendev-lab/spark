@@ -27,7 +27,7 @@ import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { CancelSparkInvocationFn, RunSparkCommandFn } from "./spark/bridge.js";
-import { SparkDriverStore } from "./store/drivers.ts";
+import { SparkLoopStore } from "./store/loops.ts";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
 import { SessionRequestCompletionDeliveryStore } from "./store/session-request-completion-deliveries.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
@@ -388,18 +388,17 @@ describe("Spark daemon handleCommand task.start.request", () => {
   it("DRV-STARTUP-005 keeps production scheduler and channel admission paused when serving fence commit fails", async () => {
     const harness = makeHarness();
     const store = new SparkInvocationStore(harness.db);
-    const drivers = new SparkDriverStore(harness.db, store);
-    drivers.start({
-      driverId: "scheduled-before-ready",
-      kind: "loop",
+    const loops = new SparkLoopStore(harness.db, store);
+    loops.start({
+      loopId: "scheduled-before-ready",
       ownerSessionId: "driver-owner-scheduled",
       cwd: harness.workspace.localPath,
       prompt: "must remain scheduled",
       dueAt: "2026-07-23T00:00:00.000Z",
     });
-    drivers.start({
-      driverId: "retry-before-ready",
-      kind: "goal",
+    loops.start({
+      loopId: "retry-before-ready",
+      binding: { goalId: "retry-before-ready" },
       ownerSessionId: "driver-owner-retry",
       cwd: harness.workspace.localPath,
       prompt: "must remain in retry wait",
@@ -450,13 +449,13 @@ describe("Spark daemon handleCommand task.start.request", () => {
         status: "queued",
         attemptCount: 0,
       });
-      expect(drivers.require("scheduled-before-ready").status).toBe("scheduled");
-      expect(drivers.require("scheduled-before-ready").lastInvocationId).toBeUndefined();
-      expect(drivers.require("retry-before-ready")).toMatchObject({
+      expect(loops.require("scheduled-before-ready").status).toBe("scheduled");
+      expect(loops.require("scheduled-before-ready").lastInvocationId).toBeUndefined();
+      expect(loops.require("retry-before-ready")).toMatchObject({
         status: "retry_wait",
         attempt: 2,
       });
-      expect(drivers.require("retry-before-ready").lastInvocationId).toBeUndefined();
+      expect(loops.require("retry-before-ready").lastInvocationId).toBeUndefined();
       expect(stopIngress).toHaveBeenCalledOnce();
     } finally {
       harness.cleanup();

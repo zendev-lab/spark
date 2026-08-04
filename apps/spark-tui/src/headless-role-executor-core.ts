@@ -15,7 +15,7 @@ import type {
   RoleRunCompletionOutcome,
   RoleRef,
   RunRef,
-  SparkHostDriverContext,
+  SparkHostLoopContext,
   SparkSessionLeaseIdentity,
   ToolConfig,
   ToolEffect,
@@ -106,7 +106,7 @@ export interface SparkHeadlessSessionRunInput {
   reset?: boolean;
   /** Internal transcript metadata for daemon-owned hidden execution. */
   sessionVisibility?: "internal";
-  sessionPurpose?: "driver_tick";
+  sessionPurpose?: "loop_tick";
   /** Continue a turn after daemon/process interrupt using persisted session state. */
   resumeFromInterrupt?: boolean;
   /** Exact pending tool-call continuation captured by a planned daemon restart. */
@@ -130,7 +130,7 @@ export interface SparkHeadlessSessionRunInput {
   };
   invocationId?: string;
   stateOwnerSessionId?: string;
-  driver?: SparkHostDriverContext;
+  loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
   allowedTools?: readonly string[];
   /** Host-enforced effect allowlist; unknown tool effects are denied. */
@@ -202,7 +202,7 @@ export async function runSparkHeadlessSession(
     invocationId: input.invocationId,
     tokenUsage: input.tokenUsage,
     stateOwnerSessionId: input.stateOwnerSessionId,
-    driver: input.driver,
+    loop: input.loop,
     sessionQuestionChain: input.sessionQuestionChain,
     allowedTools: input.allowedTools,
     allowedToolEffects: input.allowedToolEffects,

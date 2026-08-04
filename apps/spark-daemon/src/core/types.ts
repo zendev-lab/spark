@@ -5,8 +5,8 @@ import {
   sparkTurnAttachmentsSchema,
   type SparkAssignment,
   type SparkDaemonEvent,
-  type SparkDriverContinuity,
-  type SparkDriverKind,
+  type SparkLoopBinding,
+  type SparkLoopContinuity,
   type SparkTurnAttachment,
 } from "@zendev-lab/spark-protocol";
 import {
@@ -30,20 +30,20 @@ import type {
   SparkUsageExecutionStatus,
 } from "@zendev-lab/spark-protocol/token-usage";
 
-export type SparkDaemonTask = SparkDaemonSessionRunTask | SparkDaemonDriverTickTask;
+export type SparkDaemonTask = SparkDaemonSessionRunTask | SparkDaemonLoopTickTask;
 
-export interface SparkDaemonDriverTickTask extends Omit<
+export interface SparkDaemonLoopTickTask extends Omit<
   SparkDaemonSessionRunTask,
   "type" | "sessionId" | "cwd" | "restartCheckpoint"
 > {
-  type: "driver.tick";
-  /** Compatibility alias used by generic invocation/session projections. */
+  type: "loop.tick";
+  /** Owner-session alias used by generic invocation/session projections. */
   sessionId: string;
-  driverId: string;
-  kind: SparkDriverKind;
+  loopId: string;
+  binding: SparkLoopBinding;
   ownerSessionId: string;
   generation: number;
-  continuity: SparkDriverContinuity;
+  continuity: SparkLoopContinuity;
   cwd: string;
   executionSessionId?: string;
   stateOwnerSessionId: string;
@@ -72,7 +72,7 @@ export interface SparkDaemonChannelContext {
 export interface SparkDaemonSessionRunTask {
   type: "session.run";
   sessionId: string;
-  /** Daemon-internal transcript identity for a fresh driver tick. */
+  /** Daemon-internal transcript identity for a fresh Loop tick. */
   executionSessionId?: string;
   /** Session-scoped domain state owner when executionSessionId is private. */
   stateOwnerSessionId?: string;
@@ -172,9 +172,9 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("daemon task must be an object");
   }
-  const task = value as Partial<SparkDaemonSessionRunTask | SparkDaemonDriverTickTask>;
-  if (task.type === "driver.tick") {
-    return validateSparkDaemonDriverTickTask(task);
+  const task = value as Partial<SparkDaemonSessionRunTask | SparkDaemonLoopTickTask>;
+  if (task.type === "loop.tick") {
+    return validateSparkDaemonLoopTickTask(task);
   }
   if (task.type !== "session.run") {
     throw new Error(`unsupported daemon task type: ${String((value as { type?: unknown }).type)}`);
@@ -229,44 +229,37 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
   };
 }
 
-function validateSparkDaemonDriverTickTask(
-  task: Partial<SparkDaemonDriverTickTask>,
-): SparkDaemonDriverTickTask {
-  const driverId = nonEmptyString(task.driverId);
+function validateSparkDaemonLoopTickTask(
+  task: Partial<SparkDaemonLoopTickTask>,
+): SparkDaemonLoopTickTask {
+  const loopId = nonEmptyString(task.loopId);
   const ownerSessionId = nonEmptyString(task.ownerSessionId);
   const prompt = nonEmptyString(task.prompt);
   const cwd = nonEmptyString(task.cwd);
   const stateOwnerSessionId = nonEmptyString(task.stateOwnerSessionId);
-  if (!driverId) throw new Error("driver.tick task requires driverId");
-  if (!ownerSessionId) throw new Error("driver.tick task requires ownerSessionId");
-  if (!prompt) throw new Error("driver.tick task requires prompt");
-  if (!cwd) throw new Error("driver.tick task requires cwd");
+  if (!loopId) throw new Error("loop.tick task requires loopId");
+  if (!ownerSessionId) throw new Error("loop.tick task requires ownerSessionId");
+  if (!prompt) throw new Error("loop.tick task requires prompt");
+  if (!cwd) throw new Error("loop.tick task requires cwd");
   if (!stateOwnerSessionId || stateOwnerSessionId !== ownerSessionId) {
-    throw new Error("driver.tick task stateOwnerSessionId must match ownerSessionId");
+    throw new Error("loop.tick task stateOwnerSessionId must match ownerSessionId");
   }
-  if (
-    task.kind !== "goal" &&
-    task.kind !== "loop" &&
-    task.kind !== "repro" &&
-    task.kind !== "workflow"
-  ) {
-    throw new Error("driver.tick task requires a supported driver kind");
-  }
+  const binding = parseLoopBinding(task.binding);
   if (task.continuity !== "session" && task.continuity !== "fresh") {
-    throw new Error("driver.tick task requires continuity");
+    throw new Error("loop.tick task requires continuity");
   }
   if (!Number.isInteger(task.generation) || Number(task.generation) <= 0) {
-    throw new Error("driver.tick task requires a positive generation");
+    throw new Error("loop.tick task requires a positive generation");
   }
   const executionSessionId = nonEmptyString(task.executionSessionId);
   if (task.continuity === "fresh" && !executionSessionId) {
-    throw new Error("fresh driver.tick task requires executionSessionId");
+    throw new Error("fresh loop.tick task requires executionSessionId");
   }
   return {
-    type: "driver.tick",
+    type: "loop.tick",
     sessionId: ownerSessionId,
-    driverId,
-    kind: task.kind,
+    loopId,
+    binding,
     ownerSessionId,
     generation: Number(task.generation),
     continuity: task.continuity,
@@ -284,6 +277,22 @@ function validateSparkDaemonDriverTickTask(
     ...(nonEmptyString(task.workspaceId) ? { workspaceId: nonEmptyString(task.workspaceId)! } : {}),
     ...(nonEmptyString(task.projectId) ? { projectId: nonEmptyString(task.projectId)! } : {}),
   };
+}
+
+function parseLoopBinding(value: unknown): SparkLoopBinding {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("loop.tick task binding must be an object");
+  }
+  const input = value as Record<string, unknown>;
+  const binding: SparkLoopBinding = {};
+  for (const key of ["goalId", "workflowRunId", "reproId"] as const) {
+    if (input[key] === undefined) continue;
+    const ref = nonEmptyString(input[key]);
+    if (!ref) throw new Error(`loop.tick task binding.${key} must be a non-empty string`);
+    binding[key] = ref;
+  }
+  return binding;
 }
 
 function parseChannelReply(value: unknown): SparkDaemonSessionRunTask["channelReply"] | undefined {

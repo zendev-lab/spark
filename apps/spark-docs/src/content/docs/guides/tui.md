@@ -18,7 +18,7 @@ Fix the failing login test without changing the public API. Show validation
 evidence before calling it complete.
 ```
 
-You do not need to select tools, a driver, or a command plane first. Use
+You do not need to select tools, a Loop, or a command plane first. Use
 `/plan` for a multi-step change and `/implement` after the plan is ready.
 
 ## Everyday controls

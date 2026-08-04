@@ -19,7 +19,7 @@
     "./command-events": "./src/command-events.ts",
     "./command-sources": "./src/command-sources.ts",
     "./daemon-rpc-errors": "./src/daemon-rpc-errors.ts",
-    "./driver": "./src/driver.ts",
+    "./loop": "./src/loop.ts",
     "./errors": "./src/errors.ts",
     "./model-control": "./src/model-control.ts",
     "./memory-approval": "./src/memory-approval.ts",

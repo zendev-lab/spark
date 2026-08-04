@@ -51,7 +51,7 @@ test("SparkSessionStore save/load round-trips current Pi JSONL header and entrie
     store.appendModelChange(record, "baidu-oneapi", "claude-opus-4.8");
     store.appendThinkingLevelChange(record, "high");
     store.appendCustomEntry(record, "tools-state", { activeTools: ["read"] });
-    store.appendCustomMessage(record, "spark-mode-request", "continue", true, { source: "test" });
+    store.appendCustomMessage(record, "spark-phase-request", "continue", true, { source: "test" });
 
     await store.save(record);
     const raw = await readFile(record.path, "utf8");

@@ -1,7 +1,7 @@
 /**
  * @deprecated Project kind registry has been removed.
  * Project kinds are no longer a distinct concept; all projects are the same type.
- * The repro drive replaces the reproduction project kind's completion gate behavior.
+ * The Repro replaces the reproduction project kind's completion gate behavior.
  *
  * This file is kept as a thin stub to avoid breaking imports during migration.
  * Remove once all consumers are updated.
@@ -75,7 +75,7 @@ export function evaluateSparkProjectKindCompletionGate(
     kind: normalizeProjectKindId(project.kind),
     gate: "none",
     ok: true,
-    summary: "project kind completion gates have been removed; use repro drive instead",
+    summary: "project kind completion gates have been removed; use Repro instead",
     blockers: [],
   };
 }

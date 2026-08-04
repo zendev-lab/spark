@@ -3,13 +3,13 @@ import { parseSparkSessionView } from "@zendev-lab/spark-protocol";
 
 import {
   defaultSessionPrimaryView,
-  primarySessionDriver,
+  primarySessionLoop,
   requestedSessionPrimaryView,
   sessionWorkStatus,
 } from "./session-work-view";
 
 describe("session work view selection", () => {
-  it("defaults work-backed and driver-backed sessions to Work", () => {
+  it("defaults work-backed and loop-backed sessions to Work", () => {
     expect(
       defaultSessionPrimaryView(
         parseSparkSessionView({
@@ -35,14 +35,15 @@ describe("session work view selection", () => {
     expect(
       defaultSessionPrimaryView(
         parseSparkSessionView({
-          sessionId: "driver",
-          drivers: [
+          sessionId: "loop",
+          loops: [
             {
-              driverId: "driver-1",
-              kind: "goal",
-              ownerSessionId: "driver",
+              loopId: "driver-1",
+              binding: { goalId: "goal-1" },
+              ownerSessionId: "loop",
               status: "dormant",
               continuity: "session",
+              generation: 1,
               attempt: 0,
             },
           ],
@@ -86,17 +87,18 @@ describe("session work view selection", () => {
     );
   });
 
-  it("joins primary work identity back to authoritative driver state", () => {
+  it("joins primary work identity back to authoritative loop state", () => {
     const session = parseSparkSessionView({
       sessionId: "driver",
-      work: { primary: { kind: "repro" as const, driverId: "driver-1" } },
-      drivers: [
+      work: { primary: { loopId: "driver-1" } },
+      loops: [
         {
-          driverId: "driver-1",
-          kind: "repro" as const,
+          loopId: "driver-1",
+          binding: { reproId: "repro-1" },
           ownerSessionId: "driver",
           status: "retry_wait" as const,
           continuity: "session" as const,
+          generation: 2,
           attempt: 2,
         },
       ],
@@ -108,7 +110,7 @@ describe("session work view selection", () => {
       artifacts: [],
       evidence: [],
     });
-    expect(primarySessionDriver(session)?.driverId).toBe("driver-1");
+    expect(primarySessionLoop(session)?.loopId).toBe("driver-1");
     expect(sessionWorkStatus(session)).toBe("retry_wait");
   });
 });

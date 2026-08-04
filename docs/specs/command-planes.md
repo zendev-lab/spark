@@ -10,7 +10,7 @@ spark <plane> <resource> <verb> [args...]
 
 | Namespace | Role | Owns | Does not own |
 | --- | --- | --- | --- |
-| `spark daemon` | daemon execution plane | persistent sessions, channel listeners, SQLite invocations, autonomous driver timing/retry/recovery, events, logs, process state | domain goal/review/task definitions |
+| `spark daemon` | daemon execution plane | persistent sessions, channel listeners, SQLite invocations, autonomous Loop timing/retry/recovery, events, logs, process state | domain goal/review/task definitions |
 | `spark hub` | logical coordination plane | workspace registry, cross-workspace delegation state, delivery outbox, idempotency, audit, and bounded receipts | target execution state, local repositories, internal evidence bodies, or UI state |
 | `spark cockpit` | Web presentation host | Cockpit Web lifecycle and presentation-local state | coordination policy, authorization, daemon execution, or autonomous timers |
 | `spark tui` | tui local control plane | interactive terminal UI, attach/resume, visible transcript, theme, export | canonical business-state ownership |
@@ -33,7 +33,7 @@ Hub is currently a logical module inside the existing Cockpit coordination/datab
 | Domain | Authoritative owner | Adapters and projections |
 | --- | --- | --- |
 | persistent sessions, invocations, Side Threads, channel execution | `apps/spark-daemon` using the shared registry/store contracts | local RPC, runtime WebSocket, TUI, Cockpit, ACP, channel transports |
-| autonomous goal/loop/repro/implement/workflow cadence, retry, and recovery | `apps/spark-daemon`; capability packages provide registered success/retry policy | TUI, Cockpit, and compatible hosts send controls and render `driver.update` |
+| autonomous goal/loop/repro/implement/workflow cadence, retry, and recovery | `apps/spark-daemon`; capability packages provide registered success/retry policy | TUI, Cockpit, and compatible hosts send controls and render `loop.update` |
 | model/tool turn execution and effect policy | `spark-turn` and `spark-host` | daemon and native host runners provide session context |
 | cross-surface schemas and semantics | `spark-protocol` | each transport performs validation and translation only |
 | projects, tasks, goals, reviews, workflows, and evidence coordination | `spark-cockpit-coordination` and the capability package named for the domain | Cockpit routes and UI are replaceable projections |

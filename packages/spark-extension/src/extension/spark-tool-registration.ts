@@ -2,11 +2,10 @@ import type {
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
   ExtensionRoleRunner,
-  SparkHostDriverContext,
+  SparkHostLoopContext,
   SparkSessionLeaseIdentity,
 } from "@zendev-lab/spark-core";
 import type { ToolCallComponent, ToolCallRenderTheme } from "./tool-rendering.ts";
-import type { SparkDriveModeInput } from "./spark-drive-state.ts";
 
 export interface SparkRegisteredToolConfig {
   name: string;
@@ -48,7 +47,7 @@ export interface SparkToolContext {
   sessionSource?: "tui" | "web" | "channel" | "daemon" | "session";
   sessionLease?: () => SparkSessionLeaseIdentity | undefined;
   invocationId?: string;
-  driver?: SparkHostDriverContext;
+  loop?: SparkHostLoopContext;
   /** Command-host bridge for dispatching a turn through an externally owned session runtime. */
   sendUserMessage?: (content: string) => Promise<void>;
   model?: SparkSessionModelRef;
@@ -57,7 +56,6 @@ export interface SparkToolContext {
   runRole?: ExtensionRoleRunner;
   sparkActiveLens?: {
     phase: "plan" | "implement";
-    drive?: SparkDriveModeInput;
   };
   isIdle?: () => boolean;
   sessionManager?: {

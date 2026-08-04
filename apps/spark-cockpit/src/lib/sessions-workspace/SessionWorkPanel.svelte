@@ -2,7 +2,7 @@
   import { Icon } from "@zendev-lab/spark-ui";
   import ReproTokenUsage from "./ReproTokenUsage.svelte";
   import {
-    primarySessionDriver,
+    primarySessionLoop,
     sessionHasProjectedWork,
     sessionWorkObjective,
     sessionWorkStatus,
@@ -16,7 +16,7 @@
   let work = $derived(session?.work);
   let repro = $derived(work?.repro);
   let goal = $derived(work?.goal);
-  let driver = $derived(primarySessionDriver(session));
+  let loop = $derived(primarySessionLoop(session));
   let semanticStatus = $derived(sessionWorkStatus(session));
   let objective = $derived(sessionWorkObjective(session));
   let currentStep = $derived(repro?.plan.currentStep);
@@ -30,11 +30,11 @@
 </script>
 
 <section class="work-view" aria-labelledby="session-work-heading">
-  {#if sessionHasProjectedWork(session) || (session?.drivers?.length ?? 0) > 0}
+  {#if sessionHasProjectedWork(session) || (session?.loops?.length ?? 0) > 0}
     <header class="work-hero">
       <div>
         <p class="work-kicker">
-          {repro ? host.copy.reproMode : goal ? host.copy.goalMode : host.copy.driverMode}
+          {repro ? host.copy.reproMode : goal ? host.copy.goalMode : host.copy.loopMode}
         </p>
         <h2 id="session-work-heading">{objective ?? host.copy.currentWork}</h2>
       </div>
@@ -114,16 +114,16 @@
               <dt>{host.copy.stopGuard}</dt>
               <dd>{repro.stopGuard.decision} · {repro.stopGuard.stagnationCount}/{repro.stopGuard.limit}</dd>
             </div>
-            {#if driver?.dueAt}
+            {#if loop?.dueAt}
               <div>
                 <dt>{host.copy.nextSchedule}</dt>
-                <dd>{host.relative(driver.dueAt)}</dd>
+                <dd>{host.relative(loop.dueAt)}</dd>
               </div>
             {/if}
-            {#if driver?.reason}
+            {#if loop?.reason}
               <div>
                 <dt>{host.copy.reason}</dt>
-                <dd>{driver.reason}</dd>
+                <dd>{loop.reason}</dd>
               </div>
             {/if}
           </dl>
@@ -189,9 +189,9 @@
         </article>
       {:else}
         <article class="work-card current-step">
-          <p class="field-label">{host.copy.driverMode}</p>
-          <h3>{driver ? host.statusLabel(driver.status) : host.copy.currentWork}</h3>
-          {#if driver?.reason}<p>{driver.reason}</p>{/if}
+          <p class="field-label">{host.copy.loopMode}</p>
+          <h3>{loop ? host.statusLabel(loop.status) : host.copy.currentWork}</h3>
+          {#if loop?.reason}<p>{loop.reason}</p>{/if}
         </article>
       {/if}
     </div>

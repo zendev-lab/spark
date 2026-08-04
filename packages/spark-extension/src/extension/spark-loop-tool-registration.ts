@@ -6,12 +6,12 @@ import {
   type SparkSessionLoop,
 } from "./spark-session-loops.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
-import type { SparkDaemonDriverControl } from "./spark-daemon-driver-client.ts";
+import type { SparkDaemonLoopControl } from "./spark-daemon-loop-client.ts";
 
 export type SparkLoopToolAction = "status" | "schedule" | "clear";
 
 interface SparkLoopToolDeps {
-  driverControl: SparkDaemonDriverControl;
+  loopControl: SparkDaemonLoopControl;
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
 }
 
@@ -23,9 +23,9 @@ export function registerSparkLoopTool(
     name: "loop",
     label: "Spark Loop",
     description:
-      'Manage the current session\'s open-ended /loop driver. Actions: status, schedule, clear. During a /loop foreground tick, call loop({ action: "schedule", delayMs, reason }) before ending the turn to choose the next tick time; if the right cadence depends on user preference, call ask first.',
+      'Manage the current session\'s open-ended /loop. Actions: status, schedule, clear. During a /loop foreground tick, call loop({ action: "schedule", delayMs, reason }) before ending the turn to choose the next tick time; if the right cadence depends on user preference, call ask first.',
     promptGuidelines: [
-      "Use loop action=schedule inside /loop driver turns to choose the next tick delay instead of relying on a fixed interval.",
+      "Use loop action=schedule inside /loop ticks to choose the next tick delay instead of relying on a fixed interval.",
       "Choose delayMs from the objective and current context: short for active monitoring, longer for periodic checks, and ask the user when cadence affects cost, latency, or priority.",
       "Do not use loop for reviewer-gated completion; /goal and the goal tool own completion policy.",
     ],
@@ -72,13 +72,13 @@ export function registerSparkLoopTool(
 
       if (action === "clear") {
         await clearSessionLoop(cwd, ctx);
-        if (ctx.driver) {
-          await ctx.driver.stop({
+        if (ctx.loop) {
+          await ctx.loop.stop({
             reason: normalizeOptionalString(params.reason) ?? "loop cleared",
           });
         } else {
-          await deps.driverControl.stop({
-            driverId: existing.loopId,
+          await deps.loopControl.stop({
+            loopId: existing.loopId,
             reason: normalizeOptionalString(params.reason) ?? "loop cleared",
           });
         }
@@ -102,20 +102,20 @@ export function registerSparkLoopTool(
           isError: true,
         };
       }
-      if (!ctx.driver) {
+      if (!ctx.loop) {
         return {
           content: [
             {
               type: "text" as const,
-              text: "Spark daemon driver context is unavailable; loop scheduling was not persisted.",
+              text: "Spark daemon Loop context is unavailable; loop scheduling was not persisted.",
             },
           ],
-          details: { found: true, action, error: "daemon_driver_unavailable", loop: existing },
+          details: { found: true, action, error: "daemon_loop_unavailable", loop: existing },
           isError: true,
         };
       }
       const reason = normalizeOptionalString(params.reason);
-      await ctx.driver.schedule({ delayMs: delayResult.delayMs, reason });
+      await ctx.loop.schedule({ delayMs: delayResult.delayMs, reason });
       await deps.refreshSparkWidget(cwd, ctx);
       return loopToolResult(
         existing,
@@ -164,7 +164,7 @@ function renderLoopStatus(loop: SparkSessionLoop | undefined): string {
   const lines = [
     `Spark loop ${loop.status}.`,
     `Objective: ${oneLine(loop.objective)}`,
-    "Cadence and retry state are owned by the Spark daemon; inspect the driver projection for dueAt and attempt.",
+    "Cadence and retry state are owned by the Spark daemon; inspect the Loop projection for dueAt and attempt.",
   ];
   return lines.filter((line): line is string => Boolean(line)).join("\n");
 }

@@ -18,8 +18,8 @@ its normal check and mutation evaluation can exercise it.
 
 Do not move package unit tests into `test/` merely to share setup. Put reusable fixtures or a
 contract-suite function at the owning package boundary, then run the same contract against each
-implementation. For example, daemon driver stores bind
-`apps/spark-daemon/src/store/drivers.contract.ts` to a fresh implementation harness; process-level
+implementation. For example, daemon Loop stores bind
+`apps/spark-daemon/src/store/loops.contract.ts` to a fresh implementation harness; process-level
 startup and drain checks remain in the daemon integration lane rather than being mocked into that
 store contract.
 

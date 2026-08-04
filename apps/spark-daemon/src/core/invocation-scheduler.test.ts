@@ -27,7 +27,7 @@ function harness(
 }
 
 describe("SparkInvocationScheduler", () => {
-  it("persists explicit repro driver scope and records provider responses through the daemon sink", async () => {
+  it("persists explicit repro loop scope and records provider responses through the daemon sink", async () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
     const store = new SparkInvocationStore(db);
@@ -75,10 +75,10 @@ describe("SparkInvocationScheduler", () => {
         sessionId: "session-repro-driver",
         prompt: "continue repro",
         task: {
-          type: "driver.tick",
+          type: "loop.tick",
           sessionId: "session-repro-driver",
-          driverId: "repro-driver-1",
-          kind: "repro",
+          loopId: "repro-driver-1",
+          binding: { reproId: "repro-driver-1" },
           ownerSessionId: "session-repro-driver",
           stateOwnerSessionId: "session-repro-driver",
           generation: 1,

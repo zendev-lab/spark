@@ -910,15 +910,15 @@ describe("SparkInvocationStore", () => {
       });
       const retry = store.retry(invocation.invocationId, "2026-07-12T00:00:04.000Z");
       db.prepare(
-        `INSERT INTO driver_wakeups
-          (driver_id, kind, lane, owner_session_id, continuity, status, generation,
+        `INSERT INTO loop_wakeups
+          (loop_id, owner_session_id, binding_json, continuity, status, generation,
            last_invocation_id, prompt, route_json, created_at, updated_at)
-         VALUES ('retention-driver', 'goal', 'foreground', 'owner-session', 'session',
+         VALUES ('retention-driver', 'owner-session', '{"goalId":"retention-driver"}', 'session',
                  'stopped', 1, ?, 'retain', '{}', ?, ?)`,
       ).run(invocation.invocationId, "2026-07-12T00:00:05.000Z", "2026-07-12T00:00:05.000Z");
       db.prepare(
-        `INSERT INTO driver_hidden_sessions
-          (execution_session_id, driver_id, generation, invocation_id, status, created_at)
+        `INSERT INTO loop_hidden_sessions
+          (execution_session_id, loop_id, generation, invocation_id, status, created_at)
          VALUES ('retention-hidden-session', 'retention-driver', 1, ?, 'archived', ?)`,
       ).run(invocation.invocationId, "2026-07-12T00:00:05.000Z");
       db.prepare("UPDATE invocations SET result_json = ? WHERE id = ?").run(
@@ -994,14 +994,12 @@ describe("SparkInvocationStore", () => {
       });
       expect(
         db
-          .prepare("SELECT last_invocation_id FROM driver_wakeups WHERE driver_id = ?")
+          .prepare("SELECT last_invocation_id FROM loop_wakeups WHERE loop_id = ?")
           .get("retention-driver"),
       ).toEqual({ last_invocation_id: invocation.invocationId });
       expect(
         db
-          .prepare(
-            "SELECT invocation_id FROM driver_hidden_sessions WHERE execution_session_id = ?",
-          )
+          .prepare("SELECT invocation_id FROM loop_hidden_sessions WHERE execution_session_id = ?")
           .get("retention-hidden-session"),
       ).toEqual({ invocation_id: invocation.invocationId });
 

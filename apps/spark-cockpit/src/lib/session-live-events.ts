@@ -129,10 +129,8 @@ export function sessionViewRevisionKey(view: SparkSessionView | null): string {
     latest?.status ?? "",
     latest?.text ?? "",
     view.runs.length,
-    view.drivers?.length ?? 0,
-    view.drivers
-      ?.map((driver) => `${driver.driverId}:${driver.status}:${driver.dueAt ?? ""}`)
-      .join(",") ?? "",
+    view.loops?.length ?? 0,
+    view.loops?.map((loop) => `${loop.loopId}:${loop.status}:${loop.dueAt ?? ""}`).join(",") ?? "",
     view.tasks.length,
     view.artifacts.length,
     view.mailbox?.length ?? 0,
@@ -485,7 +483,7 @@ const viewEventHandlers = {
   "session.snapshot": applySessionSnapshotEvent,
   "session.message": applySessionMessageEvent,
   "run.update": applyRunUpdateEvent,
-  "driver.update": applyDriverUpdateEvent,
+  "loop.update": applyLoopUpdateEvent,
   "task.update": applyTaskUpdateEvent,
   "artifact.update": applyArtifactUpdateEvent,
   "evidence.update": applyEvidenceUpdateEvent,
@@ -650,17 +648,17 @@ function applyRunUpdateEvent(
   return { changed: true, refreshActivity: false };
 }
 
-function applyDriverUpdateEvent(
+function applyLoopUpdateEvent(
   state: SessionLiveEventState,
   event: SessionSerializedEvent,
   daemonEvent: DaemonEventOf<"daemon.view_event">,
-  viewEvent: ViewEventOf<"driver.update">,
+  viewEvent: ViewEventOf<"loop.update">,
 ): SessionLiveEventResult {
   if (viewEvent.sessionId !== state.sessionId) return { changed: false, refreshActivity: false };
   const current = state.view ?? emptySessionView(state.sessionId, event.createdAt);
   state.view = {
     ...current,
-    drivers: upsertByKey(current.drivers ?? [], viewEvent.driver, (driver) => driver.driverId),
+    loops: upsertByKey(current.loops ?? [], viewEvent.loop, (loop) => loop.loopId),
     updatedAt: daemonEvent.emittedAt ?? event.createdAt,
   };
   return { changed: true, refreshActivity: false };

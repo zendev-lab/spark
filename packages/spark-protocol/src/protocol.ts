@@ -2,7 +2,7 @@ import { z } from "zod";
 import { sparkDocumentMediaTypeSchema } from "./artifact-document.ts";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
 import { sparkSessionPendingTurnSchema } from "./session-assignment.ts";
-import { sparkDriverKindSchema, sparkDriverViewSchema } from "./driver.ts";
+import { sparkLoopViewSchema } from "./loop.ts";
 import {
   sparkTokenUsageAggregateSchema,
   sparkTokenUsageByPersistenceSchema,
@@ -21,7 +21,7 @@ export * from "./command-events.ts";
 export * from "./command-sources.ts";
 export * from "./display-error.ts";
 export * from "./daemon-rpc-errors.ts";
-export * from "./driver.ts";
+export * from "./loop.ts";
 export * from "./errors.ts";
 export * from "./host-events.ts";
 export * from "./human-interaction.ts";
@@ -551,8 +551,7 @@ export const sparkSessionUsageSchema = z.object({
 });
 
 export const sparkSessionPrimaryWorkViewSchema = z.object({
-  kind: sparkDriverKindSchema,
-  driverId: z.string().min(1),
+  loopId: z.string().min(1),
 });
 
 export const sparkSessionGoalWorkViewSchema = z.object({
@@ -635,7 +634,7 @@ export const sparkSessionViewSchema = z.object({
   messages: z.array(sparkMessageViewSchema).default([]),
   tools: z.array(sparkToolCallViewSchema).default([]),
   runs: z.array(sparkRunViewSchema).default([]),
-  drivers: z.array(sparkDriverViewSchema).optional(),
+  loops: z.array(sparkLoopViewSchema).optional(),
   /** Daemon-owned, display-safe projection of durable Goal/Repro work state. */
   work: sparkSessionWorkViewSchema.optional(),
   tasks: z.array(sparkTaskViewSchema).default([]),
@@ -887,9 +886,9 @@ export const sparkViewModelEventSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),
-    type: z.literal("driver.update"),
+    type: z.literal("loop.update"),
     sessionId: z.string().min(1),
-    driver: sparkDriverViewSchema,
+    loop: sparkLoopViewSchema,
   }),
   z.object({
     version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),

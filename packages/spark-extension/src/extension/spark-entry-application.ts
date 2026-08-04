@@ -8,20 +8,20 @@ import {
   loadSparkGraph,
   saveCurrentProjectRef,
   sparkStateCwd,
-  type SparkPlanningModeSource,
+  type SparkPlanningPhaseSource,
 } from "./session-state.ts";
 import {
-  enterSparkImplementationMode,
-  enterSparkPlanningMode,
-  type SparkModeEntryDeps,
-  type SparkModeMessageApi,
-} from "./spark-mode-entry.ts";
+  enterSparkImplementationPhase,
+  enterSparkPlanningPhase,
+  type SparkPhaseEntryDeps,
+  type SparkPhaseMessageApi,
+} from "./spark-phase-entry.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 
-export interface SparkEntryApplicationDeps extends SparkModeEntryDeps {}
+export interface SparkEntryApplicationDeps extends SparkPhaseEntryDeps {}
 
 export async function applySparkEntryResolution(
-  piApi: SparkModeMessageApi,
+  piApi: SparkPhaseMessageApi,
   deps: SparkEntryApplicationDeps,
   ctx: SparkToolContext,
   graph: TaskGraph | null,
@@ -48,7 +48,7 @@ export async function applySparkEntryResolution(
         return;
       }
       if (resolution.phase === "plan")
-        await enterSparkPlanningMode(
+        await enterSparkPlanningPhase(
           piApi,
           deps,
           ctx,
@@ -56,7 +56,7 @@ export async function applySparkEntryResolution(
           resolution.focus,
           resolution.planningSource,
         );
-      else await enterSparkImplementationMode(piApi, deps, ctx, graph, resolution.focus);
+      else await enterSparkImplementationPhase(piApi, deps, ctx, graph, resolution.focus);
       return;
     }
     case "blocked":
@@ -68,13 +68,13 @@ export async function applySparkEntryResolution(
 }
 
 async function startSparkNewProject(
-  piApi: SparkModeMessageApi,
+  piApi: SparkPhaseMessageApi,
   deps: SparkEntryApplicationDeps,
   ctx: SparkToolContext,
   idea: string,
   options: {
     enterPhase?: "plan";
-    planningSource?: SparkPlanningModeSource;
+    planningSource?: SparkPlanningPhaseSource;
     materializeSparkMd?: boolean;
   } = {},
 ): Promise<void> {
@@ -82,7 +82,7 @@ async function startSparkNewProject(
   if (existing) {
     await deps.refreshSparkWidget(ctx.cwd, ctx);
     if (options.enterPhase === "plan")
-      await enterSparkPlanningMode(piApi, deps, ctx, existing, idea, options.planningSource);
+      await enterSparkPlanningPhase(piApi, deps, ctx, existing, idea, options.planningSource);
     return;
   }
 
@@ -109,6 +109,6 @@ async function startSparkNewProject(
 
   if (options.enterPhase === "plan") {
     const graph = await loadSparkGraph(ctx.cwd, ctx);
-    if (graph) await enterSparkPlanningMode(piApi, deps, ctx, graph, idea, options.planningSource);
+    if (graph) await enterSparkPlanningPhase(piApi, deps, ctx, graph, idea, options.planningSource);
   }
 }

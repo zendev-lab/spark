@@ -26,7 +26,7 @@ export function createSparkNativeCockpitState(): SparkNativeCockpitState {
     tasks: new Map(),
     artifacts: new Map(),
     evidence: new Map(),
-    drivers: new Map(),
+    loops: new Map(),
     interactions: new Map(),
   };
 }

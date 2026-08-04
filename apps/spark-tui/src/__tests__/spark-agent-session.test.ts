@@ -432,7 +432,7 @@ test("SparkAgentSession restores a restart checkpoint without replaying its prom
   }
 });
 
-test("SparkAgentSession keeps daemon driver transcripts out of public history", async () => {
+test("SparkAgentSession keeps daemon Loop transcripts out of public history", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-driver-hidden-"));
   try {
     const cwd = join(dir, "repo");
@@ -444,12 +444,12 @@ test("SparkAgentSession keeps daemon driver transcripts out of public history", 
       prompt: "hidden tick",
       reset: true,
       sessionVisibility: "internal",
-      sessionPurpose: "driver_tick",
+      sessionPurpose: "loop_tick",
     });
 
     const record = await services.sessionStore.load(result.sessionPath);
     assert.equal(record.header.visibility, "internal");
-    assert.equal(record.header.purpose, "driver_tick");
+    assert.equal(record.header.purpose, "loop_tick");
     assert.deepEqual(await services.sessionStore.list(), []);
     assert.equal(await services.sessionStore.findById("driver_loop-hidden_1"), undefined);
     await assert.rejects(

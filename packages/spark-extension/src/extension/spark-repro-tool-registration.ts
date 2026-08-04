@@ -1,7 +1,7 @@
 /** Spark repro tool adapter for the host-neutral reproduction contract. */
 
 import { Type } from "typebox";
-import type { SparkDriverView } from "@zendev-lab/spark-protocol";
+import type { SparkLoopView } from "@zendev-lab/spark-protocol";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { verifyCanonicalAskEvidence } from "@zendev-lab/spark-ask";
@@ -16,7 +16,7 @@ import {
 import { syncSparkReproReportArtifact } from "./spark-repro-report.ts";
 import { collectReproOrchestrationSnapshot } from "./spark-repro-orchestration.ts";
 import { reconcileManagedTaskSessions } from "./spark-task-session-dispatch.ts";
-import { sparkActiveLens } from "./spark-drive-state.ts";
+import { sparkActiveLens } from "./spark-phase-state.ts";
 import {
   advanceReproPhase,
   advanceReproStage,
@@ -58,9 +58,9 @@ import {
 } from "./spark-session-repro.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 import {
-  prepareSparkDaemonDriverOwner,
-  type SparkDaemonDriverControl,
-} from "./spark-daemon-driver-client.ts";
+  prepareSparkDaemonLoopOwner,
+  type SparkDaemonLoopControl,
+} from "./spark-daemon-loop-client.ts";
 import {
   sparkDaemonUsageControl,
   type SparkDaemonUsageControl,
@@ -89,7 +89,7 @@ function reproSubgoalPlanSchema() {
 }
 
 interface SparkReproToolDeps {
-  driverControl: SparkDaemonDriverControl;
+  loopControl: SparkDaemonLoopControl;
   /** Host/test override; production reads only the public daemon usage projection. */
   usageControl?: SparkDaemonUsageControl;
   refreshSparkWidget?: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
@@ -121,7 +121,7 @@ export function registerSparkReproTool(
       "Manage the evidence-backed reproduction workflow. Goal contracts and typed step plans are revised explicitly; settle is the only normal path that schedules another tick. satisfy/gate remain fail-closed compatibility aliases.",
     promptGuidelines: [
       "Use repro action=status to inspect the goal contract, current plan revision, typed steps, stable requirement ids, and blockers.",
-      "Use repro action=start to begin the repro drive (clears goal/loop); pass objective for user-supplied reproduction focus.",
+      "Use repro action=start to begin the Repro (clears goal/loop); pass objective for user-supplied reproduction focus.",
       "Use repro action=plan to set difficulty (1-10), revise the Goal Contract, or append/update stage-scoped subgoals. Split each stage by its objective, experiment risk, dependencies, and required evidence; every subgoal needs a stable id, explicit doneWhen/evidenceRequired, and authority.",
       "Use repro action=step to update one step. A done step requires existing evidence that passes a typed StepVerifier; safe_local steps require spark.repro.step-proof/v1, while ask_decision/ask_approval steps require a current bound canonical Ask receipt.",
       "In setup, first verify whether the reference implementation named in the contract is runnable. If it is unavailable, ask how to construct or obtain it before any baseline probe; do not invent a substitute.",
@@ -134,8 +134,8 @@ export function registerSparkReproTool(
       "Use repro action=advance only when requirements and any derived gate are complete.",
       "Use repro action=project_report with canonical workSummary facts. It validates and derives status/progress/technicalGoal, joins daemon-owned usage.summary for this Repro run, and deterministically projects outputs/spark-summary.json plus outputs/report.md without scanning transcripts.",
       "Use repro action=sync_report after project_report. It verifies that outputs/report.md is the exact projection of the typed summary, updates the stable per-run Markdown Document Artifact, and never changes a technical gate.",
-      "Before ending a daemon-owned repro tick, use repro action=settle. It schedules another tick only when semantic progress changed; three unchanged settlements return Recover Ask and leave the driver dormant.",
-      "Use repro action=stop to clear the repro drive.",
+      "Before ending a daemon-owned repro tick, use repro action=settle. It schedules another tick only when semantic progress changed; three unchanged settlements return Recover Ask and leave the Loop dormant.",
+      "Use repro action=stop to clear the Repro.",
     ],
     parameters: Type.Object({
       action: Type.Optional(
@@ -229,15 +229,15 @@ export function registerSparkReproTool(
               {
                 type: "text" as const,
                 text:
-                  'No repro drive is active. Use repro({ action: "start" }) to (re)activate the ' +
+                  'No Repro is active. Use repro({ action: "start" }) to (re)activate the ' +
                   "reproduction contract before recording proof; previously recorded evidence: refs remain valid.",
               },
             ],
             details: { active: false, recovery: 'repro({ action: "start" })' },
           };
         }
-        const driverHealth = await ensureActiveReproDriver(ctx, deps.driverControl, repro);
-        return reproStatusResult(repro, driverHealth);
+        const loopHealth = await ensureActiveReproLoop(ctx, deps.loopControl, repro);
+        return reproStatusResult(repro, loopHealth);
       }
 
       if (action === "sync_report") {
@@ -312,7 +312,7 @@ export function registerSparkReproTool(
       }
 
       if (action === "start") {
-        const ownerSessionId = await prepareSparkDaemonDriverOwner(ctx, deps.driverControl);
+        const ownerSessionId = await prepareSparkDaemonLoopOwner(ctx, deps.loopControl);
         const objective = normalizeOptionalReproObjective(params.objective);
         const requestedReproId = normalizeOptionalReproId(params.reproId);
         const stored = await readSessionRepro(cwd, ctx);
@@ -349,14 +349,14 @@ export function registerSparkReproTool(
                 })
               : existing;
           if (repro !== existing) await writeSessionRepro(cwd, repro, ctx);
-          const driverHealth = await ensureActiveReproDriver(ctx, deps.driverControl, repro, {
+          const loopHealth = await ensureActiveReproLoop(ctx, deps.loopControl, repro, {
             ownerSessionId,
             forceSchedule: true,
             reason: "repro activated by tool",
           });
           await deps.refreshSparkWidget?.(cwd, ctx);
-          if (driverHealth.status === "unreachable") {
-            return reproDriverUnavailableResult(repro, driverHealth);
+          if (loopHealth.status === "unreachable") {
+            return reproLoopUnavailableResult(repro, loopHealth);
           }
           return {
             content: [
@@ -364,11 +364,11 @@ export function registerSparkReproTool(
                 type: "text" as const,
                 text:
                   repro === existing
-                    ? "Repro drive is already active."
-                    : `Repro drive objective updated: ${objective}`,
+                    ? "Repro is already active."
+                    : `Repro objective updated: ${objective}`,
               },
             ],
-            details: { ...reproDetails(repro), driver: driverHealth },
+            details: { ...reproDetails(repro), loop: loopHealth },
           };
         }
         await clearSessionGoal(cwd, ctx);
@@ -377,27 +377,27 @@ export function registerSparkReproTool(
           objective,
           ...(requestedReproId ? { reproId: requestedReproId } : {}),
         });
-        const driverHealth = await ensureActiveReproDriver(ctx, deps.driverControl, repro, {
+        const loopHealth = await ensureActiveReproLoop(ctx, deps.loopControl, repro, {
           ownerSessionId,
           forceSchedule: true,
           reason: "repro activated by tool",
         });
-        if (driverHealth.status === "unreachable") {
+        if (loopHealth.status === "unreachable") {
           await clearSessionRepro(cwd, ctx);
-          ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan", "assist");
+          ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan");
           await deps.refreshSparkWidget?.(cwd, ctx);
-          return reproDriverUnavailableResult(repro, driverHealth);
+          return reproLoopUnavailableResult(repro, loopHealth);
         }
-        ctx.sparkActiveLens = sparkActiveLens(repro.currentPhase, "repro");
+        ctx.sparkActiveLens = sparkActiveLens(repro.currentPhase);
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
           content: [
             {
               type: "text" as const,
-              text: `Repro drive started research-first. Stage: ${repro.stages[0]!.title}, Phase: ${repro.currentPhase}`,
+              text: `Repro started research-first. Stage: ${repro.stages[0]!.title}, Phase: ${repro.currentPhase}`,
             },
           ],
-          details: { ...reproDetails(repro), driver: driverHealth },
+          details: { ...reproDetails(repro), loop: loopHealth },
         };
       }
 
@@ -507,17 +507,17 @@ export function registerSparkReproTool(
       if (action === "settle") {
         const repro = await activeRepro(cwd, ctx);
         if (!repro) return noActiveReproResult();
-        if (!ctx.driver) {
+        if (!ctx.loop) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: "Repro settle requires a daemon-owned driver tick; no continuation was scheduled.",
+                text: "Repro settle requires a daemon-owned Loop tick; no continuation was scheduled.",
               },
             ],
             details: {
               ...reproDetails(repro),
-              error: "daemon_driver_unavailable",
+              error: "daemon_loop_unavailable",
             },
             isError: true,
           };
@@ -538,7 +538,7 @@ export function registerSparkReproTool(
         await writeSessionRepro(cwd, settled.repro, ctx);
         await deps.refreshSparkWidget?.(cwd, ctx);
         if (settled.decision === "continue" && settled.scheduleDelayMs !== undefined) {
-          await ctx.driver.schedule({
+          await ctx.loop.schedule({
             delayMs: settled.scheduleDelayMs,
             prompt: renderReproTickInstruction(settled.repro),
             reason: normalizeOptionalString(params.reason) ?? "repro semantic progress settled",
@@ -563,7 +563,7 @@ export function registerSparkReproTool(
             content: [
               {
                 type: "text" as const,
-                text: "Repro tick is awaiting a canonical ask response; the driver remains dormant.",
+                text: "Repro tick is awaiting a canonical ask response; the Loop remains dormant.",
               },
             ],
             details: {
@@ -574,7 +574,7 @@ export function registerSparkReproTool(
           };
         }
         if (settled.decision === "complete") {
-          await ctx.driver.stop({ reason: "repro completed" });
+          await ctx.loop.stop({ reason: "repro completed" });
           return {
             content: [{ type: "text" as const, text: "Repro tick settled complete." }],
             details: reproDetails(settled.repro),
@@ -586,7 +586,7 @@ export function registerSparkReproTool(
               type: "text" as const,
               text:
                 `Recover Ask required: no semantic progress across ${settled.repro.stopGuard.stagnationCount} settlements. ` +
-                "The driver remains dormant. Ask one concrete user question with canonical ask, record the resulting decision/evidence, then settle again.",
+                "The Loop remains dormant. Ask one concrete user question with canonical ask, record the resulting decision/evidence, then settle again.",
             },
           ],
           details: reproDetails(settled.repro),
@@ -625,7 +625,7 @@ export function registerSparkReproTool(
         const phaseAdvanced = advanceReproPhase(repro);
         if (phaseAdvanced) {
           await writeSessionRepro(cwd, phaseAdvanced, ctx);
-          ctx.sparkActiveLens = sparkActiveLens(phaseAdvanced.currentPhase, "repro");
+          ctx.sparkActiveLens = sparkActiveLens(phaseAdvanced.currentPhase);
           await deps.refreshSparkWidget?.(cwd, ctx);
           return {
             content: [
@@ -645,22 +645,20 @@ export function registerSparkReproTool(
         if (stageAdvanced) {
           await writeSessionRepro(cwd, stageAdvanced, ctx);
           if (stageAdvanced.status === "complete") {
-            if (ctx.driver) await ctx.driver.stop({ reason: "repro completed" });
+            if (ctx.loop) await ctx.loop.stop({ reason: "repro completed" });
             else
-              await deps.driverControl.stop({
-                driverId: stageAdvanced.reproId,
+              await deps.loopControl.stop({
+                loopId: stageAdvanced.reproId,
                 reason: "repro completed",
               });
-            ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan", "assist");
+            ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan");
             await deps.refreshSparkWidget?.(cwd, ctx);
             return {
-              content: [
-                { type: "text" as const, text: "Repro drive complete! All stages passed." },
-              ],
+              content: [{ type: "text" as const, text: "Repro complete! All stages passed." }],
               details: reproDetails(stageAdvanced),
             };
           }
-          ctx.sparkActiveLens = sparkActiveLens(stageAdvanced.currentPhase, "repro");
+          ctx.sparkActiveLens = sparkActiveLens(stageAdvanced.currentPhase);
           await deps.refreshSparkWidget?.(cwd, ctx);
           const nextStage = currentReproStage(stageAdvanced);
           return {
@@ -697,21 +695,21 @@ export function registerSparkReproTool(
         const repro = await readSessionRepro(cwd, ctx);
         if (!repro) {
           return {
-            content: [{ type: "text" as const, text: "No repro drive to stop." }],
+            content: [{ type: "text" as const, text: "No Repro to stop." }],
             details: {},
           };
         }
         await writeSessionRepro(cwd, undefined, ctx);
-        if (ctx.driver) await ctx.driver.stop({ reason: "repro stopped" });
+        if (ctx.loop) await ctx.loop.stop({ reason: "repro stopped" });
         else
-          await deps.driverControl.stop({
-            driverId: repro.reproId,
+          await deps.loopControl.stop({
+            loopId: repro.reproId,
             reason: "repro stopped",
           });
-        ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan", "assist");
+        ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan");
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
-          content: [{ type: "text" as const, text: "Repro drive stopped." }],
+          content: [{ type: "text" as const, text: "Repro stopped." }],
           details: { stopped: true },
         };
       }
@@ -721,43 +719,43 @@ export function registerSparkReproTool(
   });
 }
 
-export interface SparkReproDriverHealth {
-  status: SparkDriverView["status"] | "missing" | "unreachable";
+export interface SparkReproLoopHealth {
+  status: SparkLoopView["status"] | "missing" | "unreachable";
   recovered: boolean;
-  driver?: SparkDriverView;
+  loop?: SparkLoopView;
   error?: string;
 }
 
-export async function ensureActiveReproDriver(
+export async function ensureActiveReproLoop(
   ctx: SparkToolContext,
-  driverControl: SparkDaemonDriverControl,
+  loopControl: SparkDaemonLoopControl,
   repro: SparkSessionRepro,
   options: { ownerSessionId?: string; forceSchedule?: boolean; reason?: string } = {},
-): Promise<SparkReproDriverHealth> {
+): Promise<SparkReproLoopHealth> {
   if (repro.status !== "active") return { status: "missing", recovered: false };
-  let current: SparkDriverView | undefined;
+  let current: SparkLoopView | undefined;
   try {
-    const listed = await driverControl.list({ driverId: repro.reproId, includeStopped: true });
-    current = listed.drivers[0];
+    const listed = await loopControl.list({ loopId: repro.reproId, includeTerminal: true });
+    current = listed.loops[0];
   } catch (error) {
     return { status: "unreachable", recovered: false, error: errorMessage(error) };
   }
   const needsStart =
     options.forceSchedule === true || current === undefined || current.status === "stopped";
-  if (!needsStart) return { status: current.status, recovered: false, driver: current };
+  if (!needsStart) return { status: current.status, recovered: false, loop: current };
   try {
     const ownerSessionId =
-      options.ownerSessionId ?? (await prepareSparkDaemonDriverOwner(ctx, driverControl));
-    const started = await driverControl.start({
-      driverId: repro.reproId,
-      kind: "repro",
+      options.ownerSessionId ?? (await prepareSparkDaemonLoopOwner(ctx, loopControl));
+    const started = await loopControl.start({
+      loopId: repro.reproId,
+      binding: { reproId: repro.reproId },
       ownerSessionId,
       continuity: "session",
       cwd: ctx.cwd,
       prompt: renderReproTickInstruction(repro),
-      reason: options.reason ?? "active repro driver recovered",
+      reason: options.reason ?? "active Repror recovered",
     });
-    return { status: started.driver.status, recovered: true, driver: started.driver };
+    return { status: started.loop.status, recovered: true, loop: started.loop };
   } catch (error) {
     return { status: "unreachable", recovered: false, error: errorMessage(error) };
   }
@@ -1208,7 +1206,7 @@ function noActiveReproResult() {
       {
         type: "text" as const,
         text:
-          'No active repro drive. Recorded proof needs an active drive: call repro({ action: "start" }) ' +
+          'No active Repro. Recorded proof needs an active run: call repro({ action: "start" }) ' +
           "(existing evidence refs stay valid and are re-bound after start), then retry this record/evaluate/advance call.",
       },
     ],
@@ -1216,14 +1214,14 @@ function noActiveReproResult() {
   };
 }
 
-function reproStatusResult(repro: SparkSessionRepro, driverHealth?: SparkReproDriverHealth) {
+function reproStatusResult(repro: SparkSessionRepro, loopHealth?: SparkReproLoopHealth) {
   const stage = currentReproStage(repro);
   const steps = currentReproSteps(repro);
   const lines = [
-    `Repro drive: ${repro.status}`,
-    ...(driverHealth
+    `Repro: ${repro.status}`,
+    ...(loopHealth
       ? [
-          `Driver: ${driverHealth.status}${driverHealth.recovered ? " (recovered)" : ""}${driverHealth.error ? ` — ${driverHealth.error}` : ""}`,
+          `Loop: ${loopHealth.status}${loopHealth.recovered ? " (recovered)" : ""}${loopHealth.error ? ` — ${loopHealth.error}` : ""}`,
         ]
       : []),
     `Goal Contract: ${repro.goalContract.status}`,
@@ -1262,18 +1260,15 @@ function reproStatusResult(repro: SparkSessionRepro, driverHealth?: SparkReproDr
   };
 }
 
-function reproDriverUnavailableResult(
-  repro: SparkSessionRepro,
-  driverHealth: SparkReproDriverHealth,
-) {
+function reproLoopUnavailableResult(repro: SparkSessionRepro, loopHealth: SparkReproLoopHealth) {
   return {
     content: [
       {
         type: "text" as const,
-        text: `Repro drive did not start: ${driverHealth.error ?? "Spark daemon is unreachable"}`,
+        text: `Repro did not start: ${loopHealth.error ?? "Spark daemon is unreachable"}`,
       },
     ],
-    details: { ...reproDetails(repro), driver: driverHealth },
+    details: { ...reproDetails(repro), loop: loopHealth },
     isError: true,
   };
 }
@@ -1347,7 +1342,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
   const nextStep = nextReproStep(repro);
   const gateBlocking = stage.gate && stage.gate.evaluation?.passed !== true;
   const lines = [
-    `Spark repro drive tick — Stage ${repro.currentStageIndex + 1}/${repro.stages.length}: ${stage.title} (${stage.name}), phase=${repro.currentPhase}.`,
+    `Spark Repro tick — Stage ${repro.currentStageIndex + 1}/${repro.stages.length}: ${stage.title} (${stage.name}), phase=${repro.currentPhase}.`,
     `Goal Contract (${repro.goalContract.status}): ${repro.goalContract.objective}`,
     `Plan revision: ${repro.plan.currentRevision}. Difficulty: ${repro.plan.difficulty}/10; ${repro.subgoals.length} materialized subgoals. Stop Guard: ${repro.stopGuard.stagnationCount}/${repro.stopGuard.limit} unchanged settlements.`,
     "",
@@ -1400,7 +1395,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
 
   lines.push(
     "",
-    "Repro drive requirements:",
+    "Repro requirements:",
     `- Operate in the selected phase (${repro.currentPhase}); use its tool policy for plan or implement work.`,
     "- The main session owns planning and reconciliation; use assign only for the independent safe_local ready frontier, while ask_decision and ask_approval remain owner-only.",
     "- When blocked by a missing user decision, ambiguous requirement, unclear baseline/source, conflicting evidence, failing validation whose next step is unclear, or any problem the user can unblock, call ask immediately with a concrete question. Do not guess, invent substitutes, or end the turn with only a prose blocker report when ask can resolve it.",
@@ -1410,7 +1405,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     "- Before ending every repro turn, leave a verifiable checkpoint. If the turn produced a coherent set of repository changes and committing is authorized and safe, create a small git commit promptly. Never include unrelated pre-existing changes.",
     "- If a safe commit is not appropriate yet, show the work completed in the turn: cite concrete evidence refs or file paths, summarize the relevant diff, report commands/tests and their results, or ask about the exact blocker. Do not end with only a progress claim.",
     "- If blocked on an external dependency the user cannot resolve, report that blocker; otherwise prefer ask over /repro stop.",
-    '- Before ending this daemon-owned tick, call repro({ action: "settle", reason: "..." }). The driver is dormant by default; only settle may schedule the next tick.',
+    '- Before ending this daemon-owned tick, call repro({ action: "settle", reason: "..." }). The Loop is dormant by default; only settle may schedule the next tick.',
     "- If settle returns Recover Ask, call canonical ask immediately with one concrete unblock question. Do not schedule around the Ask gate.",
   );
 

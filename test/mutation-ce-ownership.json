@@ -227,12 +227,12 @@
       "riskReason": "memory capability behavior is outside the current mutation CE set",
       "alternateGate": "pnpm test test/spark-memory.test.ts test/spark-memory-layout-migrate.test.ts test/spark-memory-compaction-candidates.test.ts"
     },
-    "@zendev-lab/spark-modes": {
-      "path": "packages/spark-modes",
+    "@zendev-lab/spark-phases": {
+      "path": "packages/spark-phases",
       "status": "deferred",
       "risk": "high",
       "riskReason": "modes capability behavior is outside the current mutation CE set",
-      "alternateGate": "pnpm test test/spark-modes.test.ts test/spark-mode-state.test.ts"
+      "alternateGate": "pnpm test test/spark-phases.test.ts test/spark-session-phase.test.ts"
     },
     "@zendev-lab/spark-roles": {
       "path": "packages/spark-roles",

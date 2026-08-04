@@ -372,7 +372,7 @@
       "baselinePath": "test/spark-daemon-driver-client.test.ts",
       "owners": ["@zendev-lab/spark-extension"],
       "disposition": "owner-local",
-      "currentPath": "packages/spark-extension/src/__tests__/spark-daemon-driver-client.test.ts",
+      "currentPath": "packages/spark-extension/src/__tests__/spark-daemon-loop-client.test.ts",
       "gate": "pnpm --filter @zendev-lab/spark-extension run check",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
@@ -404,7 +404,7 @@
       "baselinePath": "test/spark-drive-state.test.ts",
       "owners": ["@zendev-lab/spark-extension"],
       "disposition": "owner-local",
-      "currentPath": "packages/spark-extension/src/__tests__/spark-drive-state.test.ts",
+      "currentPath": "packages/spark-extension/src/__tests__/spark-phase-state.test.ts",
       "gate": "pnpm --filter @zendev-lab/spark-extension run check",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
@@ -412,15 +412,15 @@
       "baselinePath": "test/spark-driver-ownership-boundary.test.ts",
       "owners": ["@zendev-lab/spark-loop", "@zendev-lab/spark-runtime"],
       "disposition": "root-integration",
-      "currentPath": "test/spark-driver-ownership-boundary.test.ts",
-      "gate": "pnpm test test/spark-driver-ownership-boundary.test.ts",
+      "currentPath": "test/spark-loop-ownership-boundary.test.ts",
+      "gate": "pnpm test test/spark-loop-ownership-boundary.test.ts",
       "reason": "Cross-workspace behavior remains a root integration contract."
     },
     {
       "baselinePath": "test/spark-driver-policy-adapters.test.ts",
       "owners": ["@zendev-lab/spark-extension"],
       "disposition": "owner-local",
-      "currentPath": "packages/spark-extension/src/__tests__/spark-driver-policy-adapters.test.ts",
+      "currentPath": "packages/spark-extension/src/__tests__/spark-loop-policy-adapters.test.ts",
       "gate": "pnpm --filter @zendev-lab/spark-extension run check",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
@@ -625,7 +625,7 @@
       "baselinePath": "test/spark-mode-state.test.ts",
       "owners": ["@zendev-lab/spark-extension"],
       "disposition": "owner-local",
-      "currentPath": "packages/spark-extension/src/__tests__/spark-mode-state.test.ts",
+      "currentPath": "packages/spark-extension/src/__tests__/spark-session-phase.test.ts",
       "gate": "pnpm --filter @zendev-lab/spark-extension run check",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
@@ -647,11 +647,11 @@
     },
     {
       "baselinePath": "test/spark-modes.test.ts",
-      "owners": ["@zendev-lab/spark-modes"],
+      "owners": ["@zendev-lab/spark-phases"],
       "disposition": "owner-local",
-      "currentPath": "packages/spark-modes/src/spark-modes.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-modes run check",
-      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-modes package runner."
+      "currentPath": "packages/spark-phases/src/spark-phases.test.ts",
+      "gate": "pnpm --filter @zendev-lab/spark-phases run check",
+      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-phases package runner."
     },
     {
       "baselinePath": "test/spark-native-side-thread.test.ts",
@@ -777,7 +777,7 @@
       "baselinePath": "test/spark-repro-driver-recovery.test.ts",
       "owners": ["@zendev-lab/spark-extension"],
       "disposition": "owner-local",
-      "currentPath": "packages/spark-extension/src/__tests__/spark-repro-driver-recovery.test.ts",
+      "currentPath": "packages/spark-extension/src/__tests__/spark-repro-loop-recovery.test.ts",
       "gate": "pnpm --filter @zendev-lab/spark-extension run check",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },

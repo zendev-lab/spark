@@ -6,7 +6,7 @@ This file names stable agent-facing capabilities. Schemas and result types live 
 
 - `/plan` researches and creates/refines verifiable tasks without executing them.
 - `/implement` claims and completes ready work.
-- `/loop` starts a daemon-owned recurring driver and must schedule each next tick; `/loop fresh <objective>` resets the hidden execution session for every tick while keeping the logical owner's state.
+- `/loop` starts a daemon-owned recurring Loop and must schedule each next tick; `/loop fresh <objective>` resets the hidden execution session for every tick while keeping the logical owner's state.
 - `/goal` uses reviewer-backed decisions and reviewer-gated completion.
 - `/workflow` executes a selected saved workflow; `/ultracode` explicitly opts into approval-gated fan-out.
 - `/btw` opens and controls the daemon-owned, read-only Side Thread associated with the current parent session.
@@ -69,7 +69,7 @@ TUI and Cockpit use the same daemon-owned Side Thread contract; presentation sta
   with `roleRef`; Role specs still cannot ask, spawn, dispatch Tasks, or promote
   gates.
 - `todo` mutates the session-bound standalone checklist; its current state is projected automatically rather than fetched in normal agent flow.
-- `goal`, `loop`, `drive`, `phase`, and `repro` own their named foreground state machines. Spark native hosts expose the plan/implement switch as `phase({ action })` (`spark-modes` remains the host-neutral lens mechanism that defaults its descriptor name to `mode`).
+- `phase` owns the Session operating state. `goal`, `loop`, `workflow`, and `repro` bind domain contracts to the daemon Loop without creating executor kinds.
 - Repro reporting uses two explicit write actions. External benchmarks first bind identity with `repro({ action: "start", reproId: manifest.run_id })`. `repro({ action: "project_report", workSummary })` then validates canonical work facts, derives status/progress/technical completion, joins only the daemon-owned `usage.summary` projection for that same `reproId`, and writes `outputs/spark-summary.json` plus its deterministic `outputs/report.md` projection; it never scans a transcript. `repro({ action: "sync_report" })` verifies those Markdown bytes against the typed summary before updating the stable per-run Markdown Document Artifact. Missing usage yields a warning and an envelope without `tokenUsage`; it cannot change any technical gate.
 - `workflow` lists/reads controlled selectors; `workflow_run` executes a saved selector or trusted metadata-first script.
 
@@ -83,10 +83,10 @@ Task and goal state may adopt this projection pattern only after their multi-ses
 
 Direct role/session calls do not create task attribution.
 
-These foreground commands and their tools send `driver.*` controls to the
+These commands and their tools send `loop.*` controls to the
 daemon. TUI, Cockpit, and compatible extension hosts never own their timer,
 generation, retry, or next-turn continuation. The full runtime contract is in
-[`daemon-autonomous-drivers.md`](./daemon-autonomous-drivers.md).
+[`daemon-autonomous-loops.md`](./daemon-autonomous-loops.md).
 
 ## Deliberation
 

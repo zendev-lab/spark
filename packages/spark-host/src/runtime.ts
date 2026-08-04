@@ -34,7 +34,7 @@ import {
   type CommandConfig,
   type SparkHostAPI,
   type SparkHostContext,
-  type SparkHostDriverContext,
+  type SparkHostLoopContext,
   type SparkSessionLeaseIdentity,
   type SparkHostRuntimeMessage,
   type SparkHostHookOptions,
@@ -105,7 +105,7 @@ export interface SparkHostRuntimeOptions {
   /** Private current-turn authority supplied by the executable host. */
   memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
   stateOwnerSessionId?: string;
-  driver?: SparkHostDriverContext;
+  loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
   /** When present, this host instance must never activate tools outside this allowlist. */
   allowedTools?: readonly string[];
@@ -167,7 +167,7 @@ export class SparkHostRuntime implements SparkHostAPI {
     | undefined;
   readonly invocationId: string | undefined;
   readonly stateOwnerSessionId: string | undefined;
-  readonly driver: SparkHostDriverContext | undefined;
+  readonly loop: SparkHostLoopContext | undefined;
   readonly sessionQuestionChain: readonly string[] | undefined;
   readonly hasUI: boolean;
   private readonly tools: RegisteredToolMap = new Map();
@@ -202,7 +202,7 @@ export class SparkHostRuntime implements SparkHostAPI {
     this.invocationId = options.invocationId?.trim() || undefined;
     this.#memoryDirectIntentAuthority = options.memoryDirectIntentAuthority;
     this.stateOwnerSessionId = options.stateOwnerSessionId?.trim() || undefined;
-    this.driver = options.driver;
+    this.loop = options.loop;
     this.sessionQuestionChain = options.sessionQuestionChain
       ?.map((entry) => entry.trim())
       .filter(Boolean);
@@ -603,7 +603,7 @@ export class SparkHostRuntime implements SparkHostAPI {
               directIntentAuthority.releaseCurrentFeedback(value),
           }
         : {}),
-      ...(this.driver ? { driver: this.driver } : {}),
+      ...(this.loop ? { loop: this.loop } : {}),
       ...(this.sessionQuestionChain
         ? { sessionQuestionChain: [...this.sessionQuestionChain] }
         : {}),
