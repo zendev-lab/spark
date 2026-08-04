@@ -186,12 +186,7 @@ export function normalizeSparkFinishTaskInput(
   return {
     task: normalizeAliasedOptionalToolString(params.taskRef, params.task, "taskRef", "task"),
     status: normalizeSparkFinishStatus(params.status),
-    summary: normalizeAliasedOptionalToolString(
-      params.summary,
-      params.text,
-      "summary",
-      "text",
-    ),
+    summary: normalizeAliasedOptionalToolString(params.summary, params.text, "summary", "text"),
     evidenceRefs: normalizeFinishEvidenceRefs(params.evidenceRefs),
     evidence: normalizeSparkFinishEvidenceInput(params.evidence),
   };
@@ -206,7 +201,9 @@ function normalizeAliasedOptionalToolString(
   const preferredValue = normalizeOptionalToolString(preferred, preferredPath);
   const aliasValue = normalizeOptionalToolString(alias, aliasPath);
   if (preferredValue && aliasValue && preferredValue !== aliasValue) {
-    throw new Error(`${preferredPath} and ${aliasPath} must select the same value when both are set`);
+    throw new Error(
+      `${preferredPath} and ${aliasPath} must select the same value when both are set`,
+    );
   }
   return preferredValue ?? aliasValue;
 }
@@ -759,12 +756,7 @@ function includesFollowUpTerm(value: string, term: string): boolean {
 function isFollowUpBoundary(char: string | undefined): boolean {
   return (
     !char ||
-    !(
-      (char >= "a" && char <= "z") ||
-      (char >= "0" && char <= "9") ||
-      char === "_" ||
-      char === "-"
-    )
+    !((char >= "a" && char <= "z") || (char >= "0" && char <= "9") || char === "_" || char === "-")
   );
 }
 
@@ -809,7 +801,7 @@ function renderTaskCompletionBlockedMessage(
   return [
     `Task finish blocked by completion readiness: @${task.name}: ${task.title}`,
     ...blocking.map((issue) => `- ${issue.kind}: ${issue.message}`),
-    "The task was not marked done. Attach the required Evidence and disposition every plan item before retrying task_write({ action: \"finish\" }).",
+    'The task was not marked done. Attach the required Evidence and disposition every plan item before retrying task_write({ action: "finish" }).',
   ].join("\n");
 }
 
