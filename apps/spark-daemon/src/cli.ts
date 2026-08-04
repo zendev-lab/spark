@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { DatabaseSync } from "node:sqlite";
 import { resolvePiAuthSourcePath } from "@zendev-lab/spark-ai/control";
 import type { SparkAuthFlow, SparkAuthImportReport } from "@zendev-lab/spark-protocol";
 import { gitCommand, resolveSparkPaths } from "@zendev-lab/spark-system";
@@ -72,7 +73,6 @@ import {
   workspaceNameForPath,
   WorkspacePathConflictError,
 } from "./store/workspaces.js";
-import { openSparkDaemonDatabase } from "./store/schema.js";
 import { migrateEvidenceWorkspaceCommand } from "./evidence-migration-cli.js";
 import { readRunningPid } from "./service.js";
 import {
@@ -918,7 +918,12 @@ function preflightWorkspaceRegistration(
   paths: ReturnType<typeof resolveSparkPaths>,
   options: WorkspaceRegistrationRequest,
 ): void {
-  const db = openSparkDaemonDatabase(paths);
+  if (!existsSync(paths.databasePath)) return;
+
+  // The daemon is the only writer for daemon-local state. The CLI may inspect
+  // an existing schema to reject obvious conflicts before starting the
+  // service, but it must not apply PRAGMAs or schema migrations itself.
+  const db = new DatabaseSync(paths.databasePath, { readOnly: true });
   try {
     const { registrationToken, ...registration } = options;
     planWorkspaceRegistration(db, {

@@ -527,7 +527,8 @@ describe("Spark daemon CLI", () => {
     const code = await withTempSparkEnv(async (root) => {
       mkdirSync(join(root, "checkout"));
       process.env.INIT_CWD = root;
-      return await main(
+      const paths = resolveSparkPaths({ app: "daemon" });
+      const exitCode = await main(
         [
           "ws",
           "register",
@@ -539,6 +540,8 @@ describe("Spark daemon CLI", () => {
         ],
         capture.io,
       );
+      expect(existsSync(paths.databasePath)).toBe(false);
+      return exitCode;
     });
 
     expect(code).toBe(3);

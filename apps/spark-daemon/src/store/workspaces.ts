@@ -411,11 +411,12 @@ export function planWorkspaceRegistration(
   const localWorkspaceKey = options.localWorkspaceKey ?? workspaceKeyForName(displayName);
   const workspaceName = options.workspaceName ?? displayName;
   const workspaceSlug = options.workspaceSlug ?? localWorkspaceKey;
-  const pathMatches = listWorkspaces(db, { includeInactive: true }).filter(
-    (workspace) => workspace.localPath === localPath,
-  );
+  const pathMatches = listWorkspaces(db, {
+    includeInactive: true,
+    reconcileClientLeases: false,
+  }).filter((workspace) => workspace.localPath === localPath);
   const existingPath = pathMatches.find((workspace) => workspace.serverUrl === serverUrl);
-  const existingKey = getWorkspaceByKeyWithLifecycle(db, serverUrl, localWorkspaceKey, true);
+  const existingKey = getWorkspaceByKeyWithLifecycle(db, serverUrl, localWorkspaceKey, true, false);
   const pathRebindWorkspace =
     options.allowLocalPathRebind && existingKey?.localPath !== localPath ? existingKey : undefined;
   const rebindWorkspace =
@@ -448,7 +449,14 @@ export function planWorkspaceRegistration(
       "same-key",
     );
   }
-  assertWorkspaceSlotAvailable(db, serverUrl, localPath, localWorkspaceKey, rebindWorkspace?.id);
+  assertWorkspaceSlotAvailable(
+    db,
+    serverUrl,
+    localPath,
+    localWorkspaceKey,
+    rebindWorkspace?.id,
+    false,
+  );
   return {
     serverUrl,
     localPath,
@@ -781,7 +789,7 @@ export function requireWorkspaceClaimTarget(
 
 export function listWorkspaces(
   db: DatabaseSync,
-  options: { includeInactive?: boolean } = {},
+  options: { includeInactive?: boolean; reconcileClientLeases?: boolean } = {},
 ): SparkDaemonWorkspace[] {
   const rows = db
     .prepare(
@@ -805,7 +813,7 @@ export function listWorkspaces(
        ORDER BY w.display_name ASC`,
     )
     .all(options.includeInactive ? 1 : 0) as unknown as WorkspaceRow[];
-  return rows.map((row) => mapWorkspaceRow(row, db));
+  return rows.map((row) => mapWorkspaceRow(row, db, options.reconcileClientLeases));
 }
 
 export function listWorkspacesForServer(
@@ -967,8 +975,15 @@ export function getWorkspaceByKey(
   db: DatabaseSync,
   serverUrl: string,
   localWorkspaceKey: string,
+  reconcileClientLeases = true,
 ): SparkDaemonWorkspace | null {
-  return getWorkspaceByKeyWithLifecycle(db, serverUrl, localWorkspaceKey, false);
+  return getWorkspaceByKeyWithLifecycle(
+    db,
+    serverUrl,
+    localWorkspaceKey,
+    false,
+    reconcileClientLeases,
+  );
 }
 
 function getWorkspaceByKeyWithLifecycle(
@@ -976,6 +991,7 @@ function getWorkspaceByKeyWithLifecycle(
   serverUrl: string,
   localWorkspaceKey: string,
   includeInactive: boolean,
+  reconcileClientLeases = true,
 ): SparkDaemonWorkspace | null {
   const row = db
     .prepare(
@@ -1000,7 +1016,7 @@ function getWorkspaceByKeyWithLifecycle(
        LIMIT 1`,
     )
     .get(serverUrl, localWorkspaceKey, includeInactive ? 1 : 0) as WorkspaceRow | undefined;
-  return row ? mapWorkspaceRow(row, db) : null;
+  return row ? mapWorkspaceRow(row, db, reconcileClientLeases) : null;
 }
 
 export function getWorkspaceByPath(
@@ -1020,8 +1036,9 @@ function assertWorkspaceSlotAvailable(
   localPath: string,
   localWorkspaceKey: string,
   ignoredWorkspaceId?: string,
+  reconcileClientLeases = true,
 ): void {
-  const existing = getWorkspaceByKey(db, serverUrl, localWorkspaceKey);
+  const existing = getWorkspaceByKey(db, serverUrl, localWorkspaceKey, reconcileClientLeases);
   if (existing && existing.id !== ignoredWorkspaceId && existing.localPath !== localPath) {
     throw new WorkspacePathConflictError(
       `Workspace key ${localWorkspaceKey} is already registered on ${formatServerUrl(serverUrl)} at ${existing.localPath}.`,
@@ -1035,6 +1052,7 @@ function assertWorkspaceSlotAvailable(
     serverUrl,
     localWorkspaceKey,
     ignoredWorkspaceId,
+    reconcileClientLeases,
   );
   if (collision?.kind === "same-path") {
     throw new WorkspacePathConflictError(
@@ -1056,9 +1074,10 @@ function findPathCollision(
   serverUrl: string,
   localWorkspaceKey: string,
   ignoredWorkspaceId?: string,
+  reconcileClientLeases = true,
 ): { kind: "same-path" | "nested"; workspace: SparkDaemonWorkspace } | null {
   const normalizedPath = normalizeLocalPath(localPath);
-  for (const workspace of listWorkspaces(db)) {
+  for (const workspace of listWorkspaces(db, { reconcileClientLeases })) {
     if (workspace.id === ignoredWorkspaceId) continue;
     const sameServer = workspace.serverUrl === serverUrl;
     if (sameServer && workspace.localWorkspaceKey === localWorkspaceKey) {
@@ -1630,8 +1649,9 @@ export function listWorkspaceClients(
   db: DatabaseSync,
   workspaceId?: string,
   now = new Date().toISOString(),
+  reconcileLeases = true,
 ): SparkDaemonWorkspaceClient[] {
-  expireWorkspaceClientLeases(db, now);
+  if (reconcileLeases) expireWorkspaceClientLeases(db, now);
   const sql = `SELECT id,
                       workspace_id AS workspaceId,
                       kind,
@@ -1895,9 +1915,15 @@ function workspaceLifecycleProjection(
   };
 }
 
-function mapWorkspaceRow(row: WorkspaceRow, db?: DatabaseSync): SparkDaemonWorkspace {
+function mapWorkspaceRow(
+  row: WorkspaceRow,
+  db?: DatabaseSync,
+  reconcileClientLeases = true,
+): SparkDaemonWorkspace {
   const projection = db ? workspaceInvocationProjection(db, row.id) : {};
-  const clientProjection = db ? workspaceClientStateProjection(db, row.id) : {};
+  const clientProjection = db
+    ? workspaceClientStateProjection(db, row.id, reconcileClientLeases)
+    : {};
   const serverProjection = db ? workspaceServerProjection(db, row.id) : {};
   const lifecycle = db ? workspaceLifecycleProjection(db, row.id) : undefined;
   return {
@@ -1970,8 +1996,14 @@ function workspaceInvocationProjection(
 function workspaceClientStateProjection(
   db: DatabaseSync,
   workspaceId: string,
+  reconcileClientLeases = true,
 ): Pick<SparkDaemonWorkspace, "borrowed" | "workspaceClients" | "executor"> {
-  const allClients = listWorkspaceClients(db, workspaceId);
+  const allClients = listWorkspaceClients(
+    db,
+    workspaceId,
+    new Date().toISOString(),
+    reconcileClientLeases,
+  );
   const clients = allClients.filter((client) => client.status === "connected");
   const activeInvocations = activeInvocationCount(db, workspaceId);
   if (allClients.length === 0 && activeInvocations === 0) {
