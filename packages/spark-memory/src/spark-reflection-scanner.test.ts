@@ -16,7 +16,7 @@ import {
 test("reflection scanner extracts user/custom/summary observations and tolerates malformed lines", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-reflection-scan-"));
   try {
-    const sessionDir = join(dir, "--Users-zhanrongrui-workspace-demo--");
+    const sessionDir = join(dir, "--workspaces-demo--");
     await mkdir(sessionDir, { recursive: true });
     const file = join(sessionDir, "2026-06-18T00-00-00-000Z_session-one.jsonl");
     await writeFile(
@@ -25,7 +25,7 @@ test("reflection scanner extracts user/custom/summary observations and tolerates
         JSON.stringify({
           type: "session",
           id: "session-one",
-          cwd: "/Users/zhanrongrui/workspace/demo",
+          cwd: "/workspaces/demo",
         }),
         JSON.stringify({
           type: "message",
@@ -83,7 +83,7 @@ test("reflection scanner extracts user/custom/summary observations and tolerates
 test("reflection scanner cursor prevents duplicate scans and recovers appended lines", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-reflection-cursor-"));
   try {
-    const sessionDir = join(dir, "--Users-zhanrongrui-workspace-demo--");
+    const sessionDir = join(dir, "--workspaces-demo--");
     await mkdir(sessionDir, { recursive: true });
     const file = join(sessionDir, "2026-06-18T00-00-00-000Z_session-one.jsonl");
     await writeFile(
@@ -91,7 +91,7 @@ test("reflection scanner cursor prevents duplicate scans and recovers appended l
       JSON.stringify({
         type: "session",
         id: "session-one",
-        cwd: "/Users/zhanrongrui/workspace/demo",
+        cwd: "/workspaces/demo",
       }) +
         "\n" +
         JSON.stringify({

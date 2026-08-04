@@ -3,16 +3,6 @@ description: "spark：以 Pi SDK 为内核，统一 TUI / Cockpit / 消息平台
 owner: zrr1999
 created: 2026-05-18
 updated: 2026-08-03
-inspired_by:
-  - pi-sdk
-  - cue-shell
-  - spark-ask
-  - spark-roles
-  - agetor
-  - agent-orchestrator
-  - agent-deck
-  - coder-mux
-  - gh-stack
 ---
 
 # `spark` 项目意图
@@ -20,11 +10,6 @@ inspired_by:
 ## 起源
 
 `spark` 最初作为面向 Pi 产品的工作流套件起步，通过意图明确的用户命令与规范化工具，将项目意图、任务有向无环图、结构化提问、审查、证据制品、角色执行以及 `cue-shell` 执行能力组织为可追溯的本地工作流。仓库落地后，执行与会话中枢已迁移到 Spark daemon，产品面扩展为原生 TUI、Cockpit Web 与消息通道；**Pi SDK**（`@earendil-works/pi-ai`、`@earendil-works/pi-tui` 及与之对齐的流式/会话形状）仍是模型与终端呈现内核，独立的 Pi 产品 extension facade 已退场，兼容加载器与原生宿主共用 `spark-extension`。
-
-## 当前工作标题
-
-- Spark 本地智能开发编排
-- 统一 TUI / Cockpit / 消息平台，Pi SDK 为内核
 
 ## 目标
 
@@ -61,7 +46,7 @@ inspired_by:
 - 不把 Cockpit 专用 notice/error part 未经设计提升进协议。
 - 不复制 OpenSpec/OpenArc 的完整文件树或重型流程。
 - 不让结构化提问成为用户必须直接操作的独立产品面。
-- 不把竞品的 agent dashboard、terminal mux、worktree manager 或 provider gateway 整套嵌入 Spark；只吸收能进入现有 owner 边界的领域闭环。
+- 不因外部产品的功能表扩张 Spark；只采纳能进入现有 owner 边界、且有本地证据支持的机制。
 - 不引入独立 Workstream aggregate，不在 Spark 内复制可写 PR 拓扑；`gh stack` 是 GitHub stack 的唯一可写 topology authority。
 - 不用 Temporal、Restate、Inngest 等外部 durable engine 替换当前 daemon/SQLite 调度真相；只有隔离实验能证明本地 step journal 无法满足需求时才重新评估。
 - 不实现 root 跨 Unix 用户 supervisor；多用户部署采用每个 Unix 用户独立运行一个 Spark daemon。
@@ -99,29 +84,6 @@ inspired_by:
 - Artifact v2 已收敛到 `issue | git_change | document`；旧 `pr`/`preview` 记录仅在读取时保持同 ref 懒归一化。`git({ action })` 管理 worktree/stack 生命周期，Task 通过 `artifactRefs` 幂等链接成果。
 - `spark-files` 默认只注册 `read | write | edit | grep | find`，保留版本/SHA/LINE#HASH/CAS/原子写语义；`artifactRef` 可把相对路径路由到 `git_change` worktree。外部 Pi 兼容入口经 typed daemon RPC 执行，且只允许分发前自动启动并重试一次。
 - 会话队列双层收敛：TUI 乐观层 ↔ daemon `pendingTurns` 真相；Cockpit 继续只投影 daemon。
-- 自治 driver 硬切完成后，以它替代 marrow-core 的核心运行时；systemd 安装、自检/doctor、独立更新器、外部服务托管、profile 导入完善与日志保留作为非阻塞运维 TODO，且不得形成第二个运行时 owner。
+- 自治 driver 的后续运维工作包括 systemd 安装、自检/doctor、更新、外部服务托管、profile 导入与日志保留；这些能力不得形成第二个运行时 owner。
 - `memory` owns durable scoped memory, recall candidates (`recall` tool), the `LearningStore` / `learning` tool, and reflection pipelines (`.spark/memory/reflections/`).
 - Hub v1 先留在现有 `spark-cockpit-coordination` / `spark-cockpit-db` owner 内：完成逻辑 Hub CLI、workspace 主 session、委托协议/状态机/outbox、Cockpit 委托视图和旧 Cockpit CLI 迁移提示；物理 package/数据库目录改名作为独立迁移。
-
-## 修订记录
-
-- 2026-05-18：早期由兼容入口初始生成占位项目意图。
-- 2026-05-22：根据历史任务审查、`spark-roles` 迁移、结构化提问、任务和 `cue` 边界，以及当时实现状态重建项目意图。
-- 2026-06-05：根据门面切换、实现下沉和 `spark-core`、`spark-tasks`、`spark-learnings`、`spark-goal`、`spark-workflows` 退场更新当前边界。
-- 2026-06-15：统一正式中文表述，保留必要代码标识符和兼容性术语。
-- 2026-06-16：更新默认研究模式、`/implement` 模式命名以及 Spark 组合 Pi 扩展能力的边界表述。
-- 2026-07-17：方向调整为以 Pi SDK 为内核、TUI/Cockpit/消息平台一等；Pi 产品宿主冻结并规划退场；跨表面交互协议以 `spark-protocol` 为源。
-- 2026-07-20：确认会话队列双层模型与 memory 统一吸收 recall/learning。
-- 2026-07-21：reflection 迁入 `spark-memory`；退役 `spark-learnings` / `spark-recall` 工作区包；reflection 落盘改为 `.spark/memory/reflections/`。
-- 2026-07-21：`spark-extension-api` 硬切重命名为 `@zendev-lab/spark-core`（宿主契约 + 轻量 primitives；非复活旧能力袋）。
-- 2026-07-21：清除 `ExtensionAPI` / 目标 `registerPi*` 技术债；宿主契约公开名为 `SparkHostAPI`，ask/tasks/context 注册入口为 `registerSpark*`。
-- 2026-07-22：吸收本地 agent control-plane 竞品的交付闭环，决定将 `pi-btw` 拆为共享 side-thread 契约、Spark 原生 adapter 与冻结 Pi 兼容层；外部 durable engine 不替换 daemon 真相。
-- 2026-07-22：完成 Spark 原生 Side Thread 的 daemon 真相源、TUI 命令与 Cockpit 只读投影首个切片，并将架构增长、开源依赖采纳和发布闭包风险写入正式契约。
-- 2026-07-22：实测发现 Node 不支持在 `node_modules` 内 strip TypeScript，且 daemon bundle 曾遗漏 migration assets；因此 v0.1 收敛为全仓私有源码分发，移除 registry publish 面并增加真实 source build/start smoke。
-- 2026-07-22：真实 TUI/Zellij 验收覆盖 Side Thread 提交、繁忙并行、重启恢复、配置及 full/summary handoff，并修复旧 generation-less 转录在 daemon 升级重启后的兼容读取；决定 `pi-btw` 仅随 Pi 产品宿主整体退场，modal overlay 不作为门禁。
-- 2026-07-23：用户确认恢复 npm 发布、以原生 BTW 完全替代并删除 `pi-btw`、Cockpit 与 TUI 共用 daemon Side Thread controller，同时为早期架构增长 ceiling 留出适度余量；发布面收敛为编译后、自包含的 `@zendev-lab/spark` 产品包，内部 workspace 不成为公共 API。
-- 2026-07-23：将 `pi-extension` 完整并入 `spark-extension`，原生与兼容加载器共用单一组合根；继续保留 `pi-ai` / `pi-tui` SDK 内核。
-- 2026-07-23：将 goal/loop/repro/implement/workflow/session TODO 的计时、generation、重试、恢复与 fresh continuity 硬切到 daemon；确定每个 Unix 用户独立 daemon，并将 marrow-core 的非核心运维便利能力转为 Spark TODO。
-- 2026-07-27：确定本地 RPC 以类型化 oRPC 为主路径，并以已发布 0.1.x 兼容验证作为 0.2 删除 `daemon.sock` 的退出门禁。
-- 2026-07-31：将 Git 工作流内化为 `git_change` Artifact（一个 worktree + 一个原生 PR stack），Task 增加耐久 `artifactRefs`，Document 取代 preview kind；不引入 Workstream，封存 Graft 为 opt-in。
-- 2026-08-03：交付 Spark Hub v1 同 Hub 跨 workspace 智能委托：新增受保护的 workspace 主 session、类型化 delegation 工具与事件、Hub SQLite 状态机/幂等 outbox/Artifact 所属校验、`spark hub` CLI 及 Cockpit 委托视图；不新增 package，不做 WorkspaceLink、Artifact 导入或 Federation。

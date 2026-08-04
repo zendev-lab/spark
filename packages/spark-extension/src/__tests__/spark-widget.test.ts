@@ -193,10 +193,10 @@ test("spark widget shows compact workflow-run progress above project details", (
 test("spark widget keeps goal/project summary free of static evidence review hints", () => {
   const lines = renderSparkWidgetLines(
     widgetState({
-      goal: { status: "active", objective: "replace pi from zellij" },
+      goal: { status: "active", objective: "improve the zellij session workflow" },
       projects: [
         {
-          title: "Spark daemon-first session UX and Pi/Codex parity hardening",
+          title: "Spark daemon session UX",
           totalTasks: 16,
           doneTasks: 14,
           readyTasks: 2,
@@ -205,7 +205,7 @@ test("spark widget keeps goal/project summary free of static evidence review hin
       ],
       tasks: [
         {
-          title: "Expose task/goal/evidence advantage",
+          title: "Expose task and goal status",
           status: "pending",
           todos: [],
         },
@@ -220,7 +220,7 @@ test("spark widget keeps goal/project summary free of static evidence review hin
   assert.match(rendered, /tasks 14\/16 · ready 2/u);
   assert.doesNotMatch(rendered, /Evidence\/review/u);
   const summaryLineCount = lines.filter((line) =>
-    /Goal\(|Spark daemon-first|Expose task\/goal\/evidence/.test(line),
+    /Goal\(|Spark daemon session UX|Expose task and goal status/.test(line),
   ).length;
   assert.ok(summaryLineCount <= 5, `summaryLineCount=${summaryLineCount}\n${rendered}`);
 });

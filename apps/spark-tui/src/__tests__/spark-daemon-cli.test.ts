@@ -3224,10 +3224,7 @@ test("native TUI accepts durable session-dir session id and hydrates project coc
     );
 
     assert.equal(capturedMode, "attached");
-    assert.match(
-      capturedRender,
-      /Project: Spark daemon-first session UX and Pi\/Codex parity hardening/u,
-    );
+    assert.match(capturedRender, /Project: Spark daemon session UX/u);
     assert.match(capturedRender, /task:current \[running\]/u);
     assert.match(capturedRender, /task:ready \[pending\]/u);
     assert.match(capturedRender, /Spark workspace sessions:/u);
@@ -3368,7 +3365,7 @@ function createDurableSessionAttachTestDeps(dir: string, stateRoot: string) {
           found: true,
           selectedProject: {
             ref: "proj:current",
-            title: "Spark daemon-first session UX and Pi/Codex parity hardening",
+            title: "Spark daemon session UX",
           },
           currentClaim: {
             ref: "task:current",
@@ -3388,7 +3385,7 @@ function createDurableSessionAttachTestDeps(dir: string, stateRoot: string) {
             {
               ref: "task:ready",
               name: "ready",
-              title: "Ready competitor benchmark",
+              title: "Ready reference benchmark",
               status: "pending",
               kind: "review",
               projectRef: "proj:current",

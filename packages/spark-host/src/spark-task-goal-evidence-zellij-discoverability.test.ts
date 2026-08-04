@@ -11,18 +11,18 @@ const theme = {
 
 test("spark widget does not show static task goal evidence review hint", () => {
   const state: SparkWidgetState = {
-    projectTitle: "Spark daemon-first session UX and Pi/Codex parity hardening",
-    goal: { status: "active", objective: "replace pi from zellij" },
+    projectTitle: "Spark daemon session UX",
+    goal: { status: "active", objective: "improve the zellij session workflow" },
     projects: [
       {
-        title: "Spark daemon-first session UX and Pi/Codex parity hardening",
+        title: "Spark daemon session UX",
         totalTasks: 16,
         doneTasks: 14,
         readyTasks: 2,
         active: true,
       },
     ],
-    tasks: [{ title: "Expose task/goal/evidence advantage", status: "pending", todos: [] }],
+    tasks: [{ title: "Expose task and goal status", status: "pending", todos: [] }],
     independentTodos: [],
     taskCountTotal: 16,
     taskCountClaimed: 0,
@@ -39,7 +39,7 @@ test("spark widget does not show static task goal evidence review hint", () => {
   assert.match(rendered, /tasks 14\/16 · ready 2/u);
   assert.doesNotMatch(rendered, /Evidence\/review/u);
   const summaryLines = lines.filter((line) =>
-    /Goal\(|Spark daemon-first|Expose task\/goal\/evidence/.test(line),
+    /Goal\(|Spark daemon session UX|Expose task and goal status/.test(line),
   );
   assert.equal(summaryLines.length <= 5, true, rendered);
 });

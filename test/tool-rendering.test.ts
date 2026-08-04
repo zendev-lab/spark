@@ -188,7 +188,7 @@ test("standalone Pi ask, cue, and role tools render parameter-aware tool calls",
     {
       command:
         "pnpm exec node -e \"import('@zendev-lab/spark-tui/text').then(m=>console.log(m.visibleWidth('你好'))).catch(e=>{console.error(e);process.exit(1)})\"",
-      cwd: "/Users/zhanrongrui/workspace/zrr1999/spark",
+      cwd: "/workspace/spark",
     },
     80,
   );

@@ -87,7 +87,7 @@ async function writeProductManifest(dependencies) {
     ...(rootManifest.bugs ? { bugs: rootManifest.bugs } : {}),
     type: "module",
     bin: Object.fromEntries(Object.keys(productBins).map((name) => [name, `./bin/${name}`])),
-    files: ["bin", "dist", "build", "skills", "README.md", "LICENSE"],
+    files: ["bin", "dist", "build", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     engines: { node: rootManifest.engines.node },
     publishConfig: {
       access: "public",
@@ -228,11 +228,9 @@ await Promise.all([
   cp(resolve(root, "apps/spark-cockpit/build"), resolve(productDirectory, "build"), {
     recursive: true,
   }),
-  cp(resolve(root, "packages/spark-host/skills"), resolve(productDirectory, "skills"), {
-    recursive: true,
-  }),
   cp(resolve(root, "README.md"), resolve(productDirectory, "README.md")),
   cp(resolve(root, "LICENSE"), resolve(productDirectory, "LICENSE")),
+  cp(resolve(root, "THIRD_PARTY_NOTICES.md"), resolve(productDirectory, "THIRD_PARTY_NOTICES.md")),
 ]);
 await cp(
   resolve(root, "packages/spark-cue/skills/spark-cue"),

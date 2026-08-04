@@ -1118,7 +1118,7 @@ describe("Spark daemon workspace store", () => {
          VALUES (?, ?, ?, ?, ?, 'available', '{}', '{}', ?, ?)`,
       ).run(
         remoteId,
-        "http://marrow-paddle.bcc-szzj.baidu.com:8080/",
+        "http://legacy-cockpit.example.com:8080/",
         "zendev-lab",
         "zendev-lab",
         local.localPath,
@@ -1128,7 +1128,7 @@ describe("Spark daemon workspace store", () => {
       db.prepare(
         `INSERT INTO daemon_servers (id, server_url, first_registered_at)
          VALUES (?, ?, ?)`,
-      ).run("rnsrv_remote", "http://marrow-paddle.bcc-szzj.baidu.com:8080/", now);
+      ).run("rnsrv_remote", "http://legacy-cockpit.example.com:8080/", now);
       db.prepare(
         `INSERT INTO daemon_workspaces
           (id, server_id, server_workspace_id, server_binding_id, name, slug, local_path,
@@ -1153,7 +1153,7 @@ describe("Spark daemon workspace store", () => {
       expect(reconciled).toHaveLength(1);
       expect(reconciled[0]).toMatchObject({
         id: remoteId,
-        serverUrl: "http://marrow-paddle.bcc-szzj.baidu.com:8080/",
+        serverUrl: "http://legacy-cockpit.example.com:8080/",
         serverWorkspaceId: "ws_aa269169763c4b2c911d19770252b2c5",
       });
       expect(listWorkspaces(db)).toHaveLength(1);

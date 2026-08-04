@@ -13,7 +13,7 @@ Orchestration loop:
 
 Current typed plan steps:
   [ ] [safe_local] repro-contract-frozen — Reproduction claim and acceptance contract frozen; done when: Reproduction claim and acceptance contract frozen; evidence: At least one inspectable evidence ref
-  [ ] [safe_local] competitor-baseline-availability-researched — Runnable competitor/reference baseline availability verified (typically Megatron); done when: Runnable competitor/reference baseline availability verified (typically Megatron); evidence: At least one inspectable evidence ref
+  [ ] [safe_local] competitor-baseline-availability-researched — Runnable reference implementation availability verified; done when: Runnable reference implementation availability verified; evidence: At least one inspectable evidence ref
   [ ] [ask_decision] baseline-construction-strategy-approved — Reuse existing baseline or construction approach approved by the user; done when: Reuse existing baseline or construction approach approved by the user; evidence: Canonical ask decision evidence with the selected value
   [ ] [safe_local] implementation-landscape-researched — Reusable implementation and extension boundaries researched; done when: Reusable implementation and extension boundaries researched; evidence: At least one inspectable evidence ref
   [ ] [safe_local] alignment-paths-researched — Real-module and eager alignment paths compared; done when: Real-module and eager alignment paths compared; evidence: At least one inspectable evidence ref
@@ -23,7 +23,7 @@ Current typed plan steps:
 
 Current evidence-backed requirements:
   [ ] [evidence] repro-contract-frozen — Reproduction claim and acceptance contract frozen
-  [ ] [evidence] competitor-baseline-availability-researched — Runnable competitor/reference baseline availability verified (typically Megatron)
+  [ ] [evidence] competitor-baseline-availability-researched — Runnable reference implementation availability verified
   [ ] [decision] baseline-construction-strategy-approved — Reuse existing baseline or construction approach approved by the user
   [ ] [evidence] implementation-landscape-researched — Reusable implementation and extension boundaries researched
   [ ] [evidence] alignment-paths-researched — Real-module and eager alignment paths compared
@@ -51,8 +51,8 @@ Plan-phase research-first guidance:
 - Reassess difficulty when scope or uncertainty changes, and split dynamic incident work by experiment risk, dependencies, and required evidence rather than a numeric quota.
 - Classify each unknown as fact, reversible choice, material user decision, or validation uncertainty.
 - Research facts from the workspace, dependencies, environment, and primary upstream sources before asking the user.
-- Prioritize whether a runnable competitor/reference baseline already exists (typically a Megatron implementation). Prove availability with concrete paths, entrypoints, or failed-lookup evidence; do not assume a paper or announcement means the baseline is runnable.
-- If that baseline is missing (for example a model whose Megatron path is not landed yet), ask the user how to construct or obtain it before any baseline probe. Do not invent a substitute baseline.
+- Verify whether the reference implementation named in the contract is runnable. Prove availability with concrete paths, entrypoints, or failed-lookup evidence; do not assume a paper or announcement means runnable code exists.
+- If that reference is unavailable, ask the user how to construct or obtain it before any baseline probe. Do not invent a substitute baseline.
 - For implementation strategy, find the owning module and compare reuse, adaptation, and new implementation with concrete code-path evidence.
 - For alignment strategy, inspect the real module path first and compare it with an eager probe. Treat eager as a focused diagnostic unless the evidence or user-approved target makes it the intended path.
 - Run a focused probe for validation uncertainty only after baseline availability or construction strategy is settled; record the command and result evidence.

@@ -3,14 +3,15 @@
 ## Upstream
 
 - Source: https://github.com/fitchmultz/pi-codex-goal
-- Revision: cc2ac14d6a1e2bdf6baa1ee635bda0e08452bdd8 (latest main fetched for M1)
+- Revision: cc2ac14d6a1e2bdf6baa1ee635bda0e08452bdd8
 - Upstream package version at revision: 0.1.21
-- Upstream license: MIT
+- Upstream license: MIT; retained in `UPSTREAM-LICENSE.txt`
 - Upstream copyright: Copyright (c) 2026 Mitch Fultz
 
 ## License notice
 
-The goal-layer source is derived from MIT-licensed pi-codex-goal. Preserve this attribution when redistributing substantial portions of the code: Copyright (c) 2026 Mitch Fultz.
+The goal-layer source is derived from MIT-licensed pi-codex-goal. Redistributions must retain
+`UPSTREAM-LICENSE.txt` or the matching entry in Spark's aggregate `THIRD_PARTY_NOTICES.md`.
 
 ## Copied and renamed
 

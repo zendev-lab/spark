@@ -114,7 +114,7 @@ export function registerSparkReproTool(
       "Use repro action=start to begin the repro drive (clears goal/loop); pass objective for user-supplied reproduction focus.",
       "Use repro action=plan to set difficulty (1-10), revise the Goal Contract, or append/update stage-scoped subgoals. Split each stage by its objective, experiment risk, dependencies, and required evidence; every subgoal needs a stable id, explicit doneWhen/evidenceRequired, and authority.",
       "Use repro action=step to update one step. A done step requires existing evidence that passes a typed StepVerifier; safe_local steps require spark.repro.step-proof/v1, while ask_decision/ask_approval steps require a current bound canonical Ask receipt.",
-      "In setup, first verify whether a runnable competitor/reference baseline exists (typically Megatron). If missing, ask how to construct it before any baseline probe; do not invent a substitute.",
+      "In setup, first verify whether the reference implementation named in the contract is runnable. If it is unavailable, ask how to construct or obtain it before any baseline probe; do not invent a substitute.",
       "The main session owns repro planning and reconciliation; use canonical assign to dispatch the independent safe_local ready task frontier in parallel, while ask_decision and ask_approval tasks stay with the owner and are never dispatched.",
       "When blocked by a missing decision, ambiguity, or a problem the user can unblock, call ask immediately; do not guess or end with only a prose blocker.",
       "Use repro action=record with requirementId and a matching evidence, decision, or validation proof.",
@@ -1295,8 +1295,8 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
       "- Reassess difficulty when scope or uncertainty changes, and split dynamic incident work by experiment risk, dependencies, and required evidence rather than a numeric quota.",
       "- Classify each unknown as fact, reversible choice, material user decision, or validation uncertainty.",
       "- Research facts from the workspace, dependencies, environment, and primary upstream sources before asking the user.",
-      "- Prioritize whether a runnable competitor/reference baseline already exists (typically a Megatron implementation). Prove availability with concrete paths, entrypoints, or failed-lookup evidence; do not assume a paper or announcement means the baseline is runnable.",
-      "- If that baseline is missing (for example a model whose Megatron path is not landed yet), ask the user how to construct or obtain it before any baseline probe. Do not invent a substitute baseline.",
+      "- Verify whether the reference implementation named in the contract is runnable. Prove availability with concrete paths, entrypoints, or failed-lookup evidence; do not assume a paper or announcement means runnable code exists.",
+      "- If that reference is unavailable, ask the user how to construct or obtain it before any baseline probe. Do not invent a substitute baseline.",
       "- For implementation strategy, find the owning module and compare reuse, adaptation, and new implementation with concrete code-path evidence.",
       "- For alignment strategy, inspect the real module path first and compare it with an eager probe. Treat eager as a focused diagnostic unless the evidence or user-approved target makes it the intended path.",
       "- Run a focused probe for validation uncertainty only after baseline availability or construction strategy is settled; record the command and result evidence.",
@@ -1336,7 +1336,7 @@ function renderRequirementNextStep(requirement: SparkReproRequirement): string {
     case "repro-contract-frozen":
       return `Next: make the Goal Contract concrete. Use repro({ action: "plan", reason: "...", goalContract: { objective: "...", constraints: ["..."], nonGoals: ["..."], successCriteria: ["..."], evidenceRequired: ["..."] } }), store the reviewed contract as evidence, then call repro({ action: "record", requirementId: "${requirement.id}", proof: { kind: "evidence", evidenceRefs: ["evidence:..."] } }). Any later Goal Contract change reopens this requirement.`;
     case "competitor-baseline-availability-researched":
-      return `Next: verify whether a runnable competitor/reference baseline already exists (typically Megatron). Record concrete entrypoints/paths if found, or explicit failed-lookup evidence if not (for example the model has no landed Megatron implementation yet). Store findings as evidence, then call repro({ action: "record", requirementId: "${requirement.id}", proof: { kind: "evidence", evidenceRefs: ["evidence:..."] } }).`;
+      return `Next: verify whether the reference implementation named in the contract is runnable. Record concrete entrypoints and paths if found, or explicit failed-lookup evidence if not. Store findings as evidence, then call repro({ action: "record", requirementId: "${requirement.id}", proof: { kind: "evidence", evidenceRefs: ["evidence:..."] } }).`;
     case "baseline-construction-strategy-approved":
       return `Next: if a runnable baseline exists, ask the user to confirm reuse (or an alternate source); if it does not exist, ask how to construct or obtain it before probing. Use ask({ mode: "decision", delivery: "blocking", recordAsEvidence: true, questions: [...] }), then call repro({ action: "record", requirementId: "${requirement.id}", proof: { kind: "decision", decisionRef: "evidence:...", selectedValue: "..." } }).`;
     case "baseline-probe-passed":
