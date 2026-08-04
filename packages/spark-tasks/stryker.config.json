@@ -29,5 +29,5 @@
   "timeoutMS": 30000,
   "concurrency": 2,
   "ignoreStatic": true,
-  "mutate": ["src/todo-store.ts:108-172"]
+  "mutate": ["src/todo-store.ts:108:0-172:0"]
 }
