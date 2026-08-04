@@ -7,12 +7,8 @@ import type {
 } from "@zendev-lab/spark-core";
 import { isUnfinishedTaskStatus, type TaskPlanInput } from "@zendev-lab/spark-tasks";
 
-export function terminalTaskPlanInputs(
-  tasks: readonly TaskPlanInput[],
-): TaskPlanInput[] {
-  return tasks.filter(
-    (task) => task.status !== undefined && !isUnfinishedTaskStatus(task.status),
-  );
+export function terminalTaskPlanInputs(tasks: readonly TaskPlanInput[]): TaskPlanInput[] {
+  return tasks.filter((task) => task.status === "done" || task.status === "failed");
 }
 
 export function firstBlockingCompletionIssue(
@@ -63,9 +59,7 @@ export function preserveTaskPlanItemMetadata(
     return {
       ...item,
       ...(previous.description !== undefined ? { description: previous.description } : {}),
-      ...(previous.evidenceRefs !== undefined
-        ? { evidenceRefs: [...previous.evidenceRefs] }
-        : {}),
+      ...(previous.evidenceRefs !== undefined ? { evidenceRefs: [...previous.evidenceRefs] } : {}),
     };
   });
 }

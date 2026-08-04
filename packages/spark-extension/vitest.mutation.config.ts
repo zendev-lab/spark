@@ -13,6 +13,7 @@ export default defineConfig({
       "src/extension/spark-release-task-claim-tool-registration.test.ts",
       "src/extension/spark-todo-tool-registration.test.ts",
       "src/extension/task-tool-contract.test.ts",
+      "src/extension/task-tool-contracts.test.ts",
     ],
     pool: "forks",
     fileParallelism: false,

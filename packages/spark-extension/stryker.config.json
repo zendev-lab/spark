@@ -30,8 +30,6 @@
   "ignoreStatic": true,
   "mutate": [
     "src/extension/task-claim-selection.ts:14:0-29:0",
-    "src/extension/spark-plan-tasks-tool-registration.ts:73:0-75:0",
-    "src/extension/spark-todo-tool-registration.ts:208:0-222:0",
-    "src/extension/spark-release-task-claim-tool-registration.ts:334:0-335:0"
+    "src/extension/task-tool-contracts.ts"
   ]
 }

@@ -5,15 +5,10 @@ import { describe, expect, it } from "vitest";
 
 import type { TaskPlan } from "@zendev-lab/spark-core";
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
-import {
-  registerSparkPlanTasksTool,
-  terminalTaskPlanInputs,
-} from "./spark-plan-tasks-tool-registration.ts";
-import {
-  preserveTaskPlanItemMetadata,
-  registerSparkTodoTools,
-} from "./spark-todo-tool-registration.ts";
+import { registerSparkPlanTasksTool } from "./spark-plan-tasks-tool-registration.ts";
+import { registerSparkTodoTools } from "./spark-todo-tool-registration.ts";
 import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
+import { preserveTaskPlanItemMetadata, terminalTaskPlanInputs } from "./task-tool-contracts.ts";
 import { saveCurrentProjectRef, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
 import type { SparkRegisteredToolConfig, SparkToolContext } from "./spark-tool-registration.ts";
 

@@ -10,6 +10,7 @@ import {
   type SparkTaskClaimDaemonClient,
 } from "./spark-task-claim-daemon-client.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
+import { releaseProjectionIssue } from "./task-tool-contracts.ts";
 
 interface SparkReleaseTaskClaimToolDependencies {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
@@ -135,20 +136,13 @@ async function executeSparkReleaseTaskClaim(
     });
   }
   const released = persisted?.getTask(task.ref);
-  if (
-    !released ||
-    released.claim ||
-    !isUnfinishedTaskStatus(released.status) ||
-    (task.status === "running" && released.status !== "pending") ||
-    (task.status !== "running" && released.status !== task.status)
-  ) {
+  const projectionIssue = releaseProjectionIssue({ statusBefore: task.status, task: released });
+  if (projectionIssue || !released) {
     return renderReleaseRefusal({
       ok: false,
       error: "daemon_release_projection_mismatch",
       task: released ?? task,
-      message: released
-        ? `expected an unclaimed unfinished projection after releasing ${task.ref}, got status=${released.status} claim=${released.claim ? "present" : "none"}`
-        : `task ${task.ref} disappeared after daemon release`,
+      message: `${projectionIssue} (${task.ref})`,
     });
   }
 

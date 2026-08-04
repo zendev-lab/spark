@@ -3,6 +3,21 @@ import { describe, expect, it } from "vitest";
 import { TaskGraph } from "@zendev-lab/spark-tasks";
 import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
 
+function executionReadyPlan(subject: string) {
+  return {
+    objective: `Validate ${subject}`,
+    contextRefs: [],
+    constraints: [],
+    nonGoals: [],
+    successCriteria: [`pnpm test verifies ${subject} selection with exit code 0.`],
+    evidenceRequired: [`Evidence records the ${subject} test command, output, and exit code.`],
+    steps: [`Validate ${subject}`],
+    riskLevel: "normal" as const,
+    openQuestions: [],
+    askRefs: [],
+  };
+}
+
 function claimedGraph() {
   const graph = new TaskGraph();
   const project = graph.createProject({
@@ -15,6 +30,7 @@ function claimedGraph() {
     name: "validate-alpha",
     title: "Validate API alpha",
     description: "Validate alpha",
+    plan: executionReadyPlan("alpha"),
     status: "running",
   });
   const beta = graph.createTask({
@@ -22,6 +38,7 @@ function claimedGraph() {
     name: "validate-beta",
     title: "Validate API beta",
     description: "Validate beta",
+    plan: executionReadyPlan("beta"),
     status: "running",
   });
   graph.claimTask(alpha.ref, {
@@ -45,7 +62,9 @@ describe("claimed task selection", () => {
   it("prefers exact ref, name, and title over prefix matching", () => {
     const { graph, project, sessionKey, alpha, beta } = claimedGraph();
 
-    expect(resolveSessionClaimedTask(graph, project.ref, sessionKey, alpha.ref)?.ref).toBe(alpha.ref);
+    expect(resolveSessionClaimedTask(graph, project.ref, sessionKey, alpha.ref)?.ref).toBe(
+      alpha.ref,
+    );
     expect(resolveSessionClaimedTask(graph, project.ref, sessionKey, `@${beta.name}`)?.ref).toBe(
       beta.ref,
     );
@@ -60,7 +79,9 @@ describe("claimed task selection", () => {
     expect(resolveSessionClaimedTask(graph, project.ref, sessionKey, "Validate API a")?.ref).toBe(
       alpha.ref,
     );
-    expect(resolveSessionClaimedTask(graph, project.ref, sessionKey, "Validate API")).toBeUndefined();
+    expect(
+      resolveSessionClaimedTask(graph, project.ref, sessionKey, "Validate API"),
+    ).toBeUndefined();
   });
 
   it("uses the current claimed task when no selector is supplied", () => {

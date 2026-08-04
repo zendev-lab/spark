@@ -47,11 +47,7 @@ describe("task tool transition contracts", () => {
       planned("cancelled"),
     ];
 
-    expect(terminalTaskPlanInputs(tasks).map((task) => task.status)).toEqual([
-      "done",
-      "failed",
-      "cancelled",
-    ]);
+    expect(terminalTaskPlanInputs(tasks).map((task) => task.status)).toEqual(["done", "failed"]);
   });
 
   it("selects the first blocking completion issue and ignores warnings", () => {
@@ -129,6 +125,13 @@ describe("task tool transition contracts", () => {
         }),
       ).toContain("no change");
     }
+    expect(
+      finishProjectionIssue({
+        requestedStatus: "done",
+        daemonChanged: true,
+        task: { status: "failed", claim: undefined },
+      }),
+    ).toContain("expected status=done");
   });
 
   it("accepts a release projection only when ownership is cleared and status is preserved or reset", () => {
@@ -149,9 +152,9 @@ describe("task tool transition contracts", () => {
     expect(
       releaseProjectionIssue({ statusBefore: "running", task: { status: "pending", claim } }),
     ).toContain("claim");
-    expect(
-      releaseProjectionIssue({ statusBefore: "running", task: { status: "done" } }),
-    ).toContain("terminal");
+    expect(releaseProjectionIssue({ statusBefore: "running", task: { status: "done" } })).toContain(
+      "terminal",
+    );
     expect(
       releaseProjectionIssue({ statusBefore: "running", task: { status: "ready" } }),
     ).toContain("expected status=pending");

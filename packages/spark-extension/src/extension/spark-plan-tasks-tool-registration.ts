@@ -40,6 +40,7 @@ import {
   normalizeTaskPlanPatch,
 } from "./task-plan-tool.ts";
 import { syncTaskPlanItemsFromPlan } from "./task-plan-items.ts";
+import { terminalTaskPlanInputs } from "./task-tool-contracts.ts";
 import { collectReproExperimentIssues } from "./spark-repro-experiment-lint.ts";
 import { currentReproStage, readSessionRepro } from "./spark-session-repro.ts";
 
@@ -68,10 +69,6 @@ export function normalizeSparkPlanTaskInputs(
   return rawTasks.map((rawTask, index) =>
     normalizeSparkPlanTaskInput(rawTask, registry, index + 1),
   );
-}
-
-export function terminalTaskPlanInputs(tasks: readonly TaskPlanInput[]): TaskPlanInput[] {
-  return tasks.filter((task) => task.status === "done" || task.status === "failed");
 }
 
 export function registerSparkPlanTasksTool(
