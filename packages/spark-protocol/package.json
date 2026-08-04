@@ -31,6 +31,7 @@
     "./side-thread": "./src/side-thread.ts",
     "./task-claim": "./src/task-claim.ts",
     "./token-usage": "./src/token-usage.ts",
+    "./runtime-v1/diagnostics": "./src/runtime-v1/diagnostics.ts",
     "./runtime-v1/envelope": "./src/runtime-v1/envelope.ts",
     "./runtime-v1/ephemeral-secret": "./src/runtime-v1/ephemeral-secret.ts",
     "./runtime-v1/messages": "./src/runtime-v1/messages.ts",
