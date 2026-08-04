@@ -68,7 +68,15 @@ export async function releaseMainTaskClaim(
   const workspace = requireTaskClaimWorkspace(db, input, now);
   const result = await updateTaskGraph(workspace.localPath, (graph) => {
     const task = requireTask(graph, input.taskRef);
-    if (!task.claim) return { task, changed: false };
+    if (!task.claim) {
+      if (input.disposition === "release" || task.status === input.disposition) {
+        return { task, changed: false };
+      }
+      throw new SparkDaemonControlError(
+        "task_claim_conflict",
+        `Task ${input.taskRef} has no active claim and cannot transition from ${task.status} to ${input.disposition}.`,
+      );
+    }
     if (mainClaimSessionId(task) !== input.sessionId) {
       throw new SparkDaemonControlError(
         "task_claim_conflict",
