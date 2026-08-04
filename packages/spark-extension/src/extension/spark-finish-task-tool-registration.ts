@@ -122,6 +122,25 @@ interface FollowUpDispositionCheck {
   undispositioned: FollowUpDispositionSignal[];
 }
 
+class TaskFinishProjectionError extends Error {
+  readonly taskRef: TaskRef;
+  readonly requestedStatus: "done" | "failed" | "cancelled";
+  readonly daemonChanged: boolean;
+
+  constructor(input: {
+    taskRef: TaskRef;
+    requestedStatus: "done" | "failed" | "cancelled";
+    daemonChanged: boolean;
+    message: string;
+  }) {
+    super(input.message);
+    this.name = "TaskFinishProjectionError";
+    this.taskRef = input.taskRef;
+    this.requestedStatus = input.requestedStatus;
+    this.daemonChanged = input.daemonChanged;
+  }
+}
+
 const FOLLOW_UP_DISPOSITIONS = [
   "created_task",
   "already_covered",
@@ -165,12 +184,28 @@ export function normalizeSparkFinishTaskInput(
   params: Record<string, unknown>,
 ): NormalizedSparkFinishTaskInput {
   return {
-    task: normalizeOptionalToolString(params.task, "task"),
+    task: normalizeAliasedOptionalToolString(params.taskRef, params.task, "taskRef", "task"),
     status: normalizeSparkFinishStatus(params.status),
-    summary: normalizeOptionalToolString(params.summary, "summary"),
+    summary: normalizeAliasedOptionalToolString(params.summary, params.text, "summary", "text"),
     evidenceRefs: normalizeFinishEvidenceRefs(params.evidenceRefs),
     evidence: normalizeSparkFinishEvidenceInput(params.evidence),
   };
+}
+
+function normalizeAliasedOptionalToolString(
+  preferred: unknown,
+  alias: unknown,
+  preferredPath: string,
+  aliasPath: string,
+): string | undefined {
+  const preferredValue = normalizeOptionalToolString(preferred, preferredPath);
+  const aliasValue = normalizeOptionalToolString(alias, aliasPath);
+  if (preferredValue && aliasValue && preferredValue !== aliasValue) {
+    throw new Error(
+      `${preferredPath} and ${aliasPath} must select the same value when both are set`,
+    );
+  }
+  return preferredValue ?? aliasValue;
 }
 
 function normalizeFinishEvidenceRefs(value: unknown): EvidenceRef[] {
@@ -253,10 +288,16 @@ export function registerSparkFinishTaskTool(
             "Claimed task ref, @name/name, title, or title prefix. Defaults to current claimed task.",
         }),
       ),
+      taskRef: Type.Optional(
+        Type.String({
+          description: "Claimed task ref/name/title selector; alias for task.",
+        }),
+      ),
       status: Type.Optional(
         Type.String({ description: "done | failed | cancelled. Default: done." }),
       ),
       summary: Type.Optional(Type.String({ description: "Short completion/failure summary." })),
+      text: Type.Optional(Type.String({ description: "Alias for summary." })),
       evidenceRefs: Type.Optional(
         Type.Array(Type.String({ description: "Evidence refs that prove completion." })),
       ),
@@ -285,19 +326,11 @@ export function registerSparkFinishTaskTool(
       let reviewResult: ReviewerRunResult | undefined;
       let finishEvidenceRefs = input.evidenceRefs;
       let generatedEvidence: (EvidenceRecord<JsonValue> & { ref: EvidenceRef }) | undefined;
+
       if (input.status === "done") {
         let candidate = await resolveFinishReviewCandidate(store, cwd, ctx, input);
-        if (isFinishTaskErrorResult(candidate)) {
-          if (candidate.error === "no_project")
-            return {
-              content: [{ type: "text", text: NO_SPARK_PROJECT_FOUND_HINT }],
-              details: { found: false },
-            };
-          return {
-            content: [{ type: "text", text: "No matching claimed task for this session." }],
-            details: { found: true, error: "no_matching_claimed_task" },
-          };
-        }
+        if (isFinishTaskErrorResult(candidate)) return renderFinishLookupError(candidate);
+
         await requireTaskLensPasses(stateCwd, candidate.task);
         const followUpDisposition = await checkResearchFollowUpDisposition(
           stateCwd,
@@ -321,27 +354,29 @@ export function registerSparkFinishTaskTool(
             },
           };
         }
-        const todoReadiness = taskCompletionReadiness(candidate.task);
-        const openTodoIssue = todoReadiness.issues.find(
-          (entry) => entry.kind === "open_plan_items",
+
+        const preEvidenceReadiness = taskCompletionReadiness(candidate.task);
+        const openPlanItems = preEvidenceReadiness.issues.find(
+          (entry) => entry.kind === "open_plan_items" && entry.severity === "blocking",
         );
-        if (openTodoIssue) {
+        if (openPlanItems) {
           await deps.refreshSparkWidget(cwd, ctx);
           return {
             content: [
               {
                 type: "text",
-                text: renderOpenTaskPlanItemBlockedMessage(candidate.task, todoReadiness),
+                text: renderOpenTaskPlanItemBlockedMessage(candidate.task, preEvidenceReadiness),
               },
             ],
             details: {
               found: true,
               error: "open_plan_items",
               task: compactTaskDetail(candidate.task),
-              completionReadiness: todoReadiness,
+              completionReadiness: preEvidenceReadiness,
             },
           };
         }
+
         if (input.evidence) {
           generatedEvidence = await recordTaskFinishEvidence(
             stateCwd,
@@ -355,6 +390,30 @@ export function registerSparkFinishTaskTool(
             task: taskWithFinishEvidenceRefs(candidate.task, [generatedEvidence.ref]),
           };
         }
+
+        const completionReadiness = taskCompletionReadiness(candidate.task);
+        const blockingIssue = completionReadiness.issues.find(
+          (issue) => issue.severity === "blocking",
+        );
+        if (blockingIssue) {
+          await deps.refreshSparkWidget(cwd, ctx);
+          return {
+            content: [
+              {
+                type: "text",
+                text: renderTaskCompletionBlockedMessage(candidate.task, completionReadiness),
+              },
+            ],
+            details: {
+              found: true,
+              error: blockingIssue.kind,
+              task: compactTaskDetail(candidate.task),
+              completionReadiness,
+              generatedEvidenceRef: generatedEvidence?.ref,
+            },
+          };
+        }
+
         const reviewInput: TaskReviewInput = {
           targetKind: "task",
           cwd,
@@ -415,7 +474,7 @@ export function registerSparkFinishTaskTool(
               statusAfter: candidate.persistedTask.status,
               committed: false,
               transitionBlocker: "task_review_failed",
-              completionReadiness: undefined,
+              completionReadiness,
               inputEvidenceRefs: finishEvidenceRefs,
               reviewEvidenceRefs: candidate.task.outputEvidenceRefs,
               reviewRequired: true,
@@ -442,25 +501,36 @@ export function registerSparkFinishTaskTool(
             details: { found: true, error: "task_dependency_error", message: error.message },
           };
         }
+        if (error instanceof TaskFinishProjectionError) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Spark daemon finish projection mismatch: ${error.message}`,
+              },
+            ],
+            details: {
+              found: true,
+              error: "daemon_finish_projection_mismatch",
+              taskRef: error.taskRef,
+              requestedStatus: error.requestedStatus,
+              committed: error.daemonChanged,
+            },
+            isError: true,
+          };
+        }
         throw error;
       }
+
       const finishResult = updated.result as FinishCommitResult;
-      if (!updated.graph)
+      if (!updated.graph) {
         return {
           content: [{ type: "text", text: NO_SPARK_PROJECT_FOUND_HINT }],
           details: { found: false },
         };
-      if (isFinishTaskErrorResult(finishResult)) {
-        if (finishResult.error === "no_project")
-          return {
-            content: [{ type: "text", text: NO_SPARK_PROJECT_FOUND_HINT }],
-            details: { found: false },
-          };
-        return {
-          content: [{ type: "text", text: "No matching claimed task for this session." }],
-          details: { found: true, error: "no_matching_claimed_task" },
-        };
       }
+      if (isFinishTaskErrorResult(finishResult)) return renderFinishLookupError(finishResult);
+
       const finishedResult = finishResult;
       const postCommitWarnings = [...finishedResult.postCommitWarnings];
       try {
@@ -537,18 +607,32 @@ export function registerSparkFinishTaskTool(
   });
 }
 
+function renderFinishLookupError(result: FinishTaskErrorResult) {
+  if (result.error === "no_project") {
+    return {
+      content: [{ type: "text" as const, text: NO_SPARK_PROJECT_FOUND_HINT }],
+      details: { found: false },
+    };
+  }
+  return {
+    content: [{ type: "text" as const, text: "No matching claimed task for this session." }],
+    details: { found: true, error: "no_matching_claimed_task" },
+  };
+}
+
 async function checkResearchFollowUpDisposition(
   cwd: string,
   task: Task,
   summary: string | undefined,
 ): Promise<FollowUpDispositionCheck> {
-  if (!FOLLOW_UP_RESEARCH_KINDS.has(task.kind))
+  if (!FOLLOW_UP_RESEARCH_KINDS.has(task.kind)) {
     return {
       checked: false,
       ready: true,
       allowedDispositions: [...FOLLOW_UP_DISPOSITIONS],
       undispositioned: [],
     };
+  }
 
   const sources: Array<{ source: string; text: string }> = [];
   if (summary) sources.push({ source: "finish summary", text: summary });
@@ -557,8 +641,7 @@ async function checkResearchFollowUpDisposition(
     try {
       sources.push({ source: evidenceRef, text: await evidenceStore.getBody(evidenceRef) });
     } catch {
-      // Missing/unreadable evidence is handled by the existing completion warning path.
-      // This gate only inspects available research/review output text for orphan follow-ups.
+      // Completion readiness and the reviewer own missing/unreadable Evidence handling.
     }
   }
 
@@ -710,6 +793,18 @@ function renderOpenTaskPlanItemBlockedMessage(
   return `Task finish blocked by open task plan items: @${task.name}: ${task.title}\nFinish or disposition (cancel/delete/done) the remaining task plan items before marking the task done.\nOpen plan items (${items.length}):\n${list}\nThe task was not marked done. Update task plan items with task_write({ action: "plan_update", scope: "task", ops: [...] }), then call task_write({ action: "finish" }) again.`;
 }
 
+function renderTaskCompletionBlockedMessage(
+  task: Task,
+  readiness: TaskCompletionReadiness,
+): string {
+  const blocking = readiness.issues.filter((issue) => issue.severity === "blocking");
+  return [
+    `Task finish blocked by completion readiness: @${task.name}: ${task.title}`,
+    ...blocking.map((issue) => `- ${issue.kind}: ${issue.message}`),
+    'The task was not marked done. Attach the required Evidence and disposition every plan item before retrying task_write({ action: "finish" }).',
+  ].join("\n");
+}
+
 function unknownErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -807,7 +902,7 @@ async function commitFinishedTask(
     return await commitRoleRunFinishedTask(store, cwd, ctx, prepared.result.taskRef, input.status);
   }
 
-  await finishSparkTaskClaim(taskClaimDaemonClient, ctx, {
+  const daemonResult = await finishSparkTaskClaim(taskClaimDaemonClient, ctx, {
     taskRef: prepared.result.taskRef,
     status: input.status,
   });
@@ -818,19 +913,46 @@ async function commitFinishedTask(
   let finished = fallbackTask;
   try {
     const persisted = await store.load();
-    if (persisted) {
-      graph = persisted;
-      finished = persisted.getTask(prepared.result.taskRef);
-    } else {
+    if (!persisted) {
+      if (!daemonResult.changed) {
+        throw new TaskFinishProjectionError({
+          taskRef: prepared.result.taskRef,
+          requestedStatus: input.status,
+          daemonChanged: false,
+          message: "daemon reported an idempotent/no-op finish, but the task graph is unavailable",
+        });
+      }
       postCommitWarnings.push(
-        "Task graph reload returned no graph; response uses committed projection.",
+        "Task graph reload returned no graph after an authoritative daemon commit; response uses the committed projection.",
       );
+    } else {
+      const persistedTask = persisted.getTask(prepared.result.taskRef);
+      if (persistedTask.status !== input.status || persistedTask.claim) {
+        throw new TaskFinishProjectionError({
+          taskRef: prepared.result.taskRef,
+          requestedStatus: input.status,
+          daemonChanged: daemonResult.changed,
+          message: `expected status=${input.status} with no claim, got status=${persistedTask.status} claim=${persistedTask.claim ? "present" : "none"}`,
+        });
+      }
+      graph = persisted;
+      finished = persistedTask;
     }
   } catch (error) {
+    if (error instanceof TaskFinishProjectionError) throw error;
+    if (!daemonResult.changed) {
+      throw new TaskFinishProjectionError({
+        taskRef: prepared.result.taskRef,
+        requestedStatus: input.status,
+        daemonChanged: false,
+        message: `cannot verify daemon no-op finish: ${unknownErrorMessage(error)}`,
+      });
+    }
     postCommitWarnings.push(
-      `Task graph reload failed after daemon commit; response uses committed projection: ${unknownErrorMessage(error)}`,
+      `Task graph reload failed after authoritative daemon commit; response uses committed projection: ${unknownErrorMessage(error)}`,
     );
   }
+
   const completionReadiness =
     input.status === "done" ? taskCompletionReadiness(finished) : undefined;
   const progress = finishProjectProgress(graph, prepared.result.projectRef);
@@ -1144,6 +1266,7 @@ function renderFinishNextStepSuffix(
         ". Inspect current status, claim the next ready task, and continue until blocked."
     : '\nNo ready task remains; inspect blockers, plan missing work, or request goal({ action: "complete" }) when the objective is fully evidenced.';
 }
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

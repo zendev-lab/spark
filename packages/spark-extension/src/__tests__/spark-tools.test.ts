@@ -238,6 +238,14 @@ function executionReadyPlan(objective: string): TaskPlan {
   };
 }
 
+function successfulFinishEvidence(title: string) {
+  return {
+    title,
+    notes: "Focused validation passed with exit code 0.",
+    validationCommands: ["pnpm test — pass"],
+  };
+}
+
 type NormalizerAcceptCase = [actual: () => unknown, expected: unknown];
 type NormalizerRejectCase = [actual: () => unknown, error: RegExp];
 
@@ -1736,6 +1744,7 @@ test("/implement continues through the agent-end hook without auto-answering or 
     });
     const finished = await executeSparkTool(run.tools, "impl_finish_task", ctx, {
       summary: "Finished first ready task.",
+      evidence: successfulFinishEvidence("First ready task validation"),
     });
 
     const text = finished.content.map((item) => item.text).join("\n");
@@ -1869,6 +1878,7 @@ test("finish reports committed success when post-daemon graph reload disappears"
     const finished = await executeSparkTool(run.tools, "impl_finish_task", ctx, {
       task: "partial-finish",
       summary: "Daemon terminal mutation committed before projection failure.",
+      evidence: successfulFinishEvidence("Partial finish validation"),
     });
     const details = finished.details as {
       transition?: { committed?: boolean };
@@ -3855,14 +3865,21 @@ test("impl_finish_task completes this session's claimed task", async () => {
     await executeSparkTool(tools, "impl_update_task_plan_items", ctx, {
       ops: [{ op: "done", item: "Run focused finish lifecycle test" }],
     });
-    const completed = await executeSparkTool(tools, "impl_finish_task", ctx, {
+    const missingEvidence = await executeSparkTool(tools, "impl_finish_task", ctx, {
       summary: "Done for test.",
     });
-    assert.match(toolText(completed), /Finished Spark task: \[done\] @finish-me: Finish me/);
-    assert.match(
-      toolText(completed),
-      /Completion evidence warning: Task completion needs Evidence records/,
+    assert.match(toolText(missingEvidence), /Task finish blocked by completion readiness/);
+    assert.equal(
+      (missingEvidence.details as { error?: string } | undefined)?.error,
+      "missing_completion_evidence",
     );
+
+    const completed = await executeSparkTool(tools, "impl_finish_task", ctx, {
+      summary: "Done for test.",
+      evidence: successfulFinishEvidence("Focused finish lifecycle validation"),
+    });
+    assert.match(toolText(completed), /Finished Spark task: \[done\] @finish-me: Finish me/);
+    assert.match(toolText(completed), /Evidence recorded: evidence:/);
     assert.match(
       toolText(completed),
       /Learning candidate: evidence:.* — Candidate from @finish-me/,
@@ -3892,10 +3909,17 @@ test("impl_finish_task completes this session's claimed task", async () => {
     );
     assert.equal(
       (completed.details?.completionReadiness as { ready?: boolean } | undefined)?.ready,
-      false,
+      true,
     );
-    assert.deepEqual((completed.details as { evidenceRefs?: string[] }).evidenceRefs, []);
-    assert.deepEqual((completed.details as { inputEvidenceRefs?: string[] }).inputEvidenceRefs, []);
+    const generatedEvidenceRef = (completed.details as { generatedEvidenceRef?: EvidenceRef })
+      .generatedEvidenceRef;
+    assert.ok(generatedEvidenceRef);
+    assert.deepEqual((completed.details as { evidenceRefs?: string[] }).evidenceRefs, [
+      generatedEvidenceRef,
+    ]);
+    assert.deepEqual((completed.details as { inputEvidenceRefs?: string[] }).inputEvidenceRefs, [
+      generatedEvidenceRef,
+    ]);
     assert.deepEqual(
       (completed.details as { remainingReadyTasks?: unknown[] }).remainingReadyTasks,
       [],
@@ -4004,6 +4028,7 @@ test("impl_finish_task commits a canonical managed role-run claim without main-c
     const completed = await executeSparkTool(tools, "impl_finish_task", ctx, {
       task: task.ref,
       summary: "Managed Task Session completed its assigned role-run.",
+      evidence: successfulFinishEvidence("Managed role-run validation"),
     });
 
     assert.match(toolText(completed), /Finished Spark task: \[done\] @managed-role-run/);
@@ -4295,6 +4320,7 @@ test("impl_finish_task keeps task unfinished when reviewer rejects done transiti
 
     const rejected = await executeSparkTool(tools, "impl_finish_task", ctx, {
       summary: "Pretend complete without validation.",
+      evidence: successfulFinishEvidence("Reviewer rejection fixture validation"),
     });
 
     assert.match(toolText(rejected), /Task finish blocked by reviewer/);
@@ -4396,6 +4422,7 @@ test("impl_finish_task treats malformed reviewer verdict as blocking feedback", 
 
     const blocked = await executeSparkTool(tools, "impl_finish_task", ctx, {
       summary: "Pretend complete with malformed reviewer output.",
+      evidence: successfulFinishEvidence("Malformed reviewer fixture validation"),
     });
 
     assert.match(toolText(blocked), /Task finish blocked by reviewer/);
@@ -4567,6 +4594,7 @@ test("impl_finish_task completes research when follow-ups are dispositioned", as
     const finished = await executeSparkTool(tools, "impl_finish_task", ctx, {
       summary:
         "Research conclusion: route is selected.\nFollow-ups:\n- created_task: @compact-auto-budget covers P1 compaction wiring.\n- deferred: memory scratch/daily remains P2 outside this slice.",
+      evidence: successfulFinishEvidence("Dispositioned research validation"),
     });
 
     assert.match(toolText(finished), /Finished Spark task: \[done\]/);
@@ -4814,6 +4842,7 @@ test("split task tools dispatch read, write, and assign actions", async () => {
     const finished = await executeSparkTool(tools, "task_write", ctx, {
       action: "finish",
       summary: "Canonical task routing works.",
+      evidence: successfulFinishEvidence("Canonical task routing validation"),
     });
     assert.match(toolText(finished), /Finished Spark task/);
 
