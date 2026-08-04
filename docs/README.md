@@ -11,6 +11,7 @@ map for internal contracts and operator procedures.
 - [`specs/configuration-and-paths.md`](./specs/configuration-and-paths.md): `SPARK_HOME` and XDG path layout, precedence, and migration policy.
 - [`specs/compact-v2.md`](./specs/compact-v2.md): compaction thresholds, token sources, repeated-overflow bounds, and Memory handoff.
 - [`specs/tools.md`](./specs/tools.md): public agent-facing tools and commands.
+- [`specs/skill-delegation.md`](./specs/skill-delegation.md): dedicated anonymous Skill Workers, invocation, lifecycle, and authority boundaries.
 - [`specs/sessions-and-channels.md`](./specs/sessions-and-channels.md): persistent sessions, daemon-owned Side Threads, origins, mail, and channel policy.
 - [`specs/daemon-autonomous-loops.md`](./specs/daemon-autonomous-loops.md): daemon-owned Loop cadence, bindings, retry, recovery, and fresh-continuity boundaries.
 - [`specs/human-interaction.md`](./specs/human-interaction.md): ask/approval waits, status vocabulary, and correlation.
