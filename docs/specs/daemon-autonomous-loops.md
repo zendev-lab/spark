@@ -64,6 +64,42 @@ not recurring Loops. Frontends do not contain timers, retry maps, generations,
 or Workflow polling. If daemon control is unavailable, Loop operations fail
 explicitly rather than falling back to browser or TUI scheduling.
 
+## Trusted event preflight
+
+`extension:github-merged-prs` is a fixed-semantics evaluator for workflows that
+react to newly merged GitHub pull requests. It accepts only a validated
+`owner/repository` value and invokes `gh pr list` directly with fixed arguments;
+it never evaluates a Workflow-supplied command or shell fragment. On its first
+`detect` it records a durable baseline and matches a `beforeTick` skip without
+creating an invocation. Later detections expose bounded merge metadata to the
+main tick as explicitly untrusted data. An `ack` at `afterTick` advances the
+watermark only after that main tick succeeds, so evaluator retry cannot replay
+the tick or lose the event.
+
+```yaml
+loop:
+  cadence: 1h
+  beforeTick:
+    - id: skip-without-new-merges
+      when:
+        kind: evaluator
+        selector: extension:github-merged-prs
+        input: { operation: detect, repository: zendev-lab/spark }
+      then: { action: skip, delayMs: 3600000 }
+  afterTick:
+    - id: acknowledge-merged-prs
+      when:
+        kind: evaluator
+        selector: extension:github-merged-prs
+        input: { operation: ack, repository: zendev-lab/spark }
+      then: { action: schedule, delayMs: 3600000 }
+```
+
+Evaluator receipts have trusted structure, but their `inputSummary` can contain
+external titles and refs. The daemon labels this payload as untrusted data when
+injecting it into a tick prompt and bounds the rendered payload; it is never an
+instruction source.
+
 The reusable SQLite contract is in
 `apps/spark-daemon/src/store/loops.contract.ts`; protocol tests cover the public
 schemas, daemon tests cover migration and recovery, and TUI/Cockpit tests render

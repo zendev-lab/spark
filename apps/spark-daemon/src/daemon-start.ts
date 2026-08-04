@@ -79,6 +79,10 @@ import { SparkLoopEvaluatorRegistry } from "./store/loop-evaluators.ts";
 import { migrateLegacyLoopState } from "./store/loop-state-migration.ts";
 import { createGoalLoopCompletionEvaluator } from "./spark/goal-loop-evaluator.ts";
 import {
+  createGitHubMergedPrsLoopEvaluator,
+  GITHUB_MERGED_PRS_LOOP_EVALUATOR,
+} from "./spark/github-merged-prs-loop-evaluator.ts";
+import {
   reproCompletionEvaluator,
   reproPendingDecisionEvaluator,
 } from "./spark/repro-loop-evaluator.ts";
@@ -266,6 +270,9 @@ async function createPreparedDaemonRuntime(
   const invocationStore = new SparkInvocationStore(options.db);
   const userPaths = resolveSparkUserPaths({ sparkHome: options.sparkHome });
   const loopEvaluators = new SparkLoopEvaluatorRegistry({
+    [GITHUB_MERGED_PRS_LOOP_EVALUATOR]: createGitHubMergedPrsLoopEvaluator({
+      stateRoot: userPaths.stateRoot,
+    }),
     "builtin:goal-reviewer": {
       evaluator: createGoalLoopCompletionEvaluator({
         sparkHome: options.paths.piAgentDir,
