@@ -157,9 +157,11 @@ export function registerSparkTodoTools(
             taskSelector,
           );
           if (!task) return { error: "no_matching_claimed_task" as const };
-          const beforeItems = task.plan.items ?? [];
+          const beforeItems = task.plan?.items ?? [];
           const mutated = graph.applyTodoOps(task.ref, ops);
           if (ops.some((op) => op.op === "init")) return { task: mutated };
+          if (!mutated.plan)
+            throw new Error(`Task ${mutated.ref} lost its plan after applying TODO operations.`);
           const items = preserveTaskPlanItemMetadata(beforeItems, mutated.plan.items ?? []);
           const preserved = graph.updateTask(mutated.ref, {
             plan: {
@@ -214,9 +216,7 @@ export function preserveTaskPlanItemMetadata(
     return {
       ...item,
       ...(previous.description !== undefined ? { description: previous.description } : {}),
-      ...(previous.evidenceRefs !== undefined
-        ? { evidenceRefs: [...previous.evidenceRefs] }
-        : {}),
+      ...(previous.evidenceRefs !== undefined ? { evidenceRefs: [...previous.evidenceRefs] } : {}),
     };
   });
 }
@@ -230,7 +230,9 @@ function normalizeAliasedOptionalString(
   const preferredValue = normalizeOptionalToolString(preferred, preferredPath);
   const aliasValue = normalizeOptionalToolString(alias, aliasPath);
   if (preferredValue && aliasValue && preferredValue !== aliasValue) {
-    throw new Error(`${preferredPath} and ${aliasPath} must select the same value when both are set`);
+    throw new Error(
+      `${preferredPath} and ${aliasPath} must select the same value when both are set`,
+    );
   }
   return preferredValue ?? aliasValue;
 }

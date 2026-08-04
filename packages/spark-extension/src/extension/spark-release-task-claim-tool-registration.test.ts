@@ -6,16 +6,9 @@ import { describe, expect, it } from "vitest";
 import { nowIso, type TaskRef } from "@zendev-lab/spark-core";
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { registerSparkReleaseTaskClaimTool } from "./spark-release-task-claim-tool-registration.ts";
-import {
-  saveCurrentProjectRef,
-  sparkSessionKey,
-  sparkStateCwd,
-} from "./session-state.ts";
+import { saveCurrentProjectRef, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
 import type { SparkTaskClaimDaemonClient } from "./spark-task-claim-daemon-client.ts";
-import type {
-  SparkRegisteredToolConfig,
-  SparkToolContext,
-} from "./spark-tool-registration.ts";
+import type { SparkRegisteredToolConfig, SparkToolContext } from "./spark-tool-registration.ts";
 
 function testContext(cwd: string): SparkToolContext {
   const sessionId = "session:release-contract";
@@ -155,7 +148,9 @@ describe("task claim release authority", () => {
       expect(result.isError).toBe(true);
       expect(result.details).toMatchObject({
         error: "daemon_release_projection_mismatch",
-        committed: false,
+        authorityAccepted: true,
+        committed: true,
+        projectionVerified: false,
       });
     } finally {
       await rm(cwd, { recursive: true, force: true });

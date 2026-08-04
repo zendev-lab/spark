@@ -6,15 +6,8 @@ import { describe, expect, it } from "vitest";
 import { nowIso, type EvidenceRef, type TaskPlan } from "@zendev-lab/spark-core";
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { registerSparkTodoTools } from "./spark-todo-tool-registration.ts";
-import {
-  saveCurrentProjectRef,
-  sparkSessionKey,
-  sparkStateCwd,
-} from "./session-state.ts";
-import type {
-  SparkRegisteredToolConfig,
-  SparkToolContext,
-} from "./spark-tool-registration.ts";
+import { saveCurrentProjectRef, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
+import type { SparkRegisteredToolConfig, SparkToolContext } from "./spark-tool-registration.ts";
 
 function testContext(cwd: string): SparkToolContext {
   const sessionId = "session:plan-items";
@@ -144,12 +137,12 @@ describe("task plan item updates", () => {
       );
 
       const persisted = await store.load();
-      const targetItem = persisted?.getTask(target.ref).plan.items?.find(
-        (item) => item.id === "target-item",
-      );
-      const distractorItem = persisted?.getTask(distractor.ref).plan.items?.find(
-        (item) => item.id === "distractor-item",
-      );
+      const targetItem = persisted
+        ?.getTask(target.ref)
+        .plan?.items?.find((item) => item.id === "target-item");
+      const distractorItem = persisted
+        ?.getTask(distractor.ref)
+        .plan?.items?.find((item) => item.id === "distractor-item");
       expect(targetItem).toMatchObject({
         status: "done",
         description: "Execute the focused validation and retain this semantic detail.",

@@ -52,8 +52,7 @@ export function registerSparkReleaseTaskClaimTool(
   registerSparkTool: SparkToolRegistrar,
   deps: SparkReleaseTaskClaimToolDependencies,
 ): void {
-  const taskClaimDaemonClient =
-    deps.taskClaimDaemonClient ?? createSparkTaskClaimDaemonClient();
+  const taskClaimDaemonClient = deps.taskClaimDaemonClient ?? createSparkTaskClaimDaemonClient();
   registerSparkTool({
     name: "impl_release_task_claim",
     label: "Spark Release Task Claim",
@@ -118,15 +117,23 @@ async function executeSparkReleaseTaskClaim(
     const leaseRequired = error instanceof SparkDaemonSessionLeaseRequiredError;
     return renderReleaseRefusal({
       ok: false,
-      error: leaseRequired
-        ? "daemon_session_lease_required"
-        : "daemon_task_release_failed",
+      error: leaseRequired ? "daemon_session_lease_required" : "daemon_task_release_failed",
       task,
       message: error instanceof Error ? error.message : String(error),
     });
   }
 
-  const persisted = await store.load();
+  let persisted: Awaited<ReturnType<typeof store.load>>;
+  try {
+    persisted = await store.load();
+  } catch (error) {
+    return renderReleaseRefusal({
+      ok: false,
+      error: "daemon_release_projection_mismatch",
+      task,
+      message: `daemon accepted the release, but the persisted projection could not be read: ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
   const released = persisted?.getTask(task.ref);
   if (
     !released ||
@@ -188,12 +195,7 @@ export function normalizeSparkReleaseTaskClaimInput(
       "projectRef",
       "project",
     ),
-    taskSelector: normalizeAliasedOptionalString(
-      params.taskRef,
-      params.task,
-      "taskRef",
-      "task",
-    ),
+    taskSelector: normalizeAliasedOptionalString(params.taskRef, params.task, "taskRef", "task"),
   };
 }
 
@@ -206,7 +208,9 @@ function normalizeAliasedOptionalString(
   const preferredValue = normalizeOptionalToolString(preferred, preferredPath);
   const aliasValue = normalizeOptionalToolString(alias, aliasPath);
   if (preferredValue && aliasValue && preferredValue !== aliasValue) {
-    throw new Error(`${preferredPath} and ${aliasPath} must select the same value when both are set`);
+    throw new Error(
+      `${preferredPath} and ${aliasPath} must select the same value when both are set`,
+    );
   }
   return preferredValue ?? aliasValue;
 }
@@ -247,9 +251,7 @@ function renderReleaseSuccess(
   postCommitWarnings: string[],
 ) {
   const warningSuffix =
-    postCommitWarnings.length > 0
-      ? `\nPost-commit warnings: ${postCommitWarnings.join("; ")}`
-      : "";
+    postCommitWarnings.length > 0 ? `\nPost-commit warnings: ${postCommitWarnings.join("; ")}` : "";
   return {
     content: [
       {
@@ -329,6 +331,7 @@ function renderReleaseRefusal(outcome: SparkReleaseTaskClaimFailure) {
         `Daemon release completed without a stable unclaimed task projection: ${outcome.message ?? "unknown mismatch"}`,
         outcome.task,
         outcome.message,
+        { authorityAccepted: true, committed: true, projectionVerified: false },
       );
   }
 }
@@ -338,13 +341,24 @@ function releaseRefusal(
   text: string,
   task?: Task,
   message?: string,
+  authority?: {
+    authorityAccepted: true;
+    committed: true;
+    projectionVerified: false;
+  },
 ) {
   return {
     content: [{ type: "text" as const, text }],
     details: {
       found: error !== "no_project" && error !== "no_task",
       error,
-      committed: false,
+      committed: authority?.committed ?? false,
+      ...(authority
+        ? {
+            authorityAccepted: authority.authorityAccepted,
+            projectionVerified: authority.projectionVerified,
+          }
+        : {}),
       ...(message ? { message } : {}),
       ...(task ? { task: task as unknown as Record<string, unknown> } : {}),
     },
