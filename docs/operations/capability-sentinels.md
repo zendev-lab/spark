@@ -12,11 +12,13 @@ answer two release questions before broader suites finish:
 Run the lane from the repository root:
 
 ```bash
-node scripts/run-capability-sentinels.mjs
+pnpm run test:capability
 ```
 
 The runner selects a bounded set of daemon tests. Those tests also remain part
-of the ordinary daemon suite, so this lane adds no second test owner.
+of the ordinary daemon suite, so this lane adds no second test owner. The
+repeated non-blocking CE lane is documented in
+[`nightly-capability-ce.md`](./nightly-capability-ce.md).
 
 ## Sentinel matrix
 

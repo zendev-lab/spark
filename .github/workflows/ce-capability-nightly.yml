@@ -1,0 +1,72 @@
+name: "CE - Capability Nightly"
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ce-capability-nightly.yml"
+      - "package.json"
+      - "apps/spark-daemon/src/spark-tools-capability-sentinel.test.ts"
+      - "apps/spark-daemon/src/spark-tools-repro-lifecycle.test.ts"
+      - "apps/spark-daemon/src/store/loop-cycle-review.test.ts"
+      - "apps/spark-daemon/src/spark/loop-goal-settlements.test.ts"
+      - "apps/spark-daemon/src/spark/repro-loop-evaluator.test.ts"
+      - "packages/spark-turn/package.json"
+      - "packages/spark-turn/src/behavior-ce.ts"
+      - "packages/spark-turn/src/spark-behavior-ce.test.ts"
+      - "scripts/capability-sentinel-suite.mjs"
+      - "scripts/capability-ce-output-directory.mts"
+      - "scripts/run-capability-sentinels.mjs"
+      - "scripts/run-nightly-capability-ce.mts"
+  schedule:
+    # Daily 18:37 UTC (03:37 JST)
+    - cron: "37 18 * * *"
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "Repeated capability-sentinel runs (1-50)"
+        required: false
+        default: "8"
+
+concurrency:
+  group: ce-capability-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  capability-ce:
+    name: capability-ce
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    env:
+      SPARK_NIGHTLY_CE_RUNS: ${{ github.event_name == 'pull_request' && '2' || inputs.runs || '8' }}
+      SPARK_NIGHTLY_CE_MAX_FAILURE_RATE: "0"
+      SPARK_NIGHTLY_CE_MAX_DURATION_P95_MS: "30000"
+      SPARK_NIGHTLY_CE_RUN_TIMEOUT_MS: "120000"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run repeated capability CE
+        run: pnpm run test:capability:ce
+
+      - name: Upload capability CE report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: capability-ce-report
+          path: reports/capability-ce/
+          if-no-files-found: warn
+          retention-days: 30

@@ -14,6 +14,7 @@ its normal check and mutation evaluation can exercise it.
 | Source process | `pnpm run test:process:source` (`test/process/**/*.test.ts`) | Exact source-distributed executable lifecycle under isolated local state |
 | Browser component | `pnpm run test:browser:cockpit` | Browser-only interaction and DOM behavior |
 | Product process | `pnpm run smoke` | Packed, clean-installed public product lifecycle and Cockpit HTTP/client-asset smoke |
+| Capability CE | `pnpm run test:capability:ce` | Repeated zero-token Goal, Loop, and Repro sentinels, inventory stability, flakes, and duration variance |
 | Mutation CE | `pnpm run test:mutation` | Whether focused package tests detect plausible implementation faults |
 
 Do not move package unit tests into `test/` merely to share setup. Put reusable fixtures or a
@@ -32,6 +33,12 @@ daemon lifecycle harness, but invoke different executable targets. This prevents
 and generated npm product from drifting while keeping failures attributable to distinct named steps.
 `pnpm run check` remains the serial local gate; CI runs grouped checks, tests, and smoke jobs in
 parallel, then requires a single aggregate `required` job.
+
+Continuous-evaluation lanes remain separate from merge gates. Capability CE repeats the exact
+owner tests selected by the deterministic sentinel runner and preserves missing runs, inventory
+drift, flakes, and duration violations as distinct failures. Mutation CE evaluates whether tests
+kill plausible source changes. Both publish reports without weakening the binary contracts used by
+pull-request verification.
 
 ## Ownership and strategy ledgers
 
