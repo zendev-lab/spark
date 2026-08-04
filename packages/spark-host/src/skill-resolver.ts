@@ -204,7 +204,7 @@ export function formatSparkSkillsForPrompt(skills: readonly SparkSkill[]): strin
     "When a skill matches, choose exactly one primary path:",
     "- If skill_delegate is active, call it with a self-contained instruction to let a fresh Worker load and execute the Skill without requiring this session to execute it.",
     "- Use read on the listed file only when this session itself must inspect and follow the skill instructions.",
-    "Do not read a skill before delegating it. Resolve relative references against the listed skill directory.",
+    "Do not explicitly read a Skill before delegating it. Resolve relative references against the listed Skill directory.",
     "",
     "<available_skills>",
   ];
