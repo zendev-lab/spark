@@ -3,8 +3,9 @@
   "architectureSource": "architecture/packages.json",
   "runner": "scripts/run-leaf-mutation.mjs",
   "workspaceCount": 40,
-  "includedCount": 10,
-  "deferredCount": 30,
+  "minimumIncludedCount": 12,
+  "includedCount": 12,
+  "deferredCount": 28,
   "workspaces": {
     "@zendev-lab/spark-retry": {
       "path": "packages/spark-retry",
@@ -173,9 +174,10 @@
     },
     "@zendev-lab/spark-extension": {
       "path": "packages/spark-extension",
-      "status": "deferred",
+      "status": "included",
       "risk": "high",
-      "riskReason": "extension-host composition behavior is outside the current mutation CE set",
+      "riskReason": "task finish, selector, planning, TODO, and daemon projection contracts",
+      "config": "packages/spark-extension/stryker.config.json",
       "alternateGate": "pnpm --filter @zendev-lab/spark-extension run check"
     },
     "@zendev-lab/spark-files": {
@@ -250,9 +252,11 @@
     },
     "@zendev-lab/spark-tasks": {
       "path": "packages/spark-tasks",
-      "status": "deferred",
+      "status": "included",
       "risk": "high",
-      "riskReason": "tasks capability behavior is outside the current mutation CE set",
+      "riskReason": "task graph persistence and atomic session TODO state transitions",
+      "config": "packages/spark-tasks/stryker.config.json",
+      "command": "pnpm exec ./packages/spark-extension/node_modules/.bin/stryker run packages/spark-tasks/stryker.config.json",
       "alternateGate": "pnpm test test/task-resource-scheduler.test.ts test/tasks-store.test.ts test/spark-claim-recovery.test.ts"
     },
     "@zendev-lab/spark-text": {

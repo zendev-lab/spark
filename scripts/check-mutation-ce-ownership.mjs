@@ -6,12 +6,15 @@ import { fileURLToPath } from "node:url";
 const defaultRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const statuses = new Set(["included", "deferred"]);
 const risks = new Set(["low", "medium", "high"]);
+
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
+
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
+
 function walk(path, root = path, output = []) {
   if (!existsSync(path)) return output;
   for (const entry of readdirSync(path)) {
@@ -22,6 +25,7 @@ function walk(path, root = path, output = []) {
   }
   return output;
 }
+
 function globRegex(pattern) {
   const escaped = [...pattern]
     .map((char) => (".+^$()|[]\\".includes(char) ? "\\" + char : char))
@@ -33,20 +37,40 @@ function globRegex(pattern) {
     .replaceAll("\u0000", ".*");
   return new RegExp("^" + escaped + "$", "u");
 }
+
+function mutationFilePattern(pattern) {
+  return pattern.replace(/:\d+(?::\d+)?-\d+(?::\d+)?$/u, "");
+}
+
+function packageRelativeMutationPattern(pattern, packagePath) {
+  const filePattern = mutationFilePattern(pattern);
+  const packagePrefix = `${packagePath}/`;
+  return filePattern.startsWith(packagePrefix)
+    ? filePattern.slice(packagePrefix.length)
+    : filePattern;
+}
+
 function executableGate(command, manifests) {
   if (typeof command !== "string" || !/^(?:pnpm|node)\s/u.test(command)) return false;
+  if (/^pnpm(?:\s+--(?:filter|dir)\s+\S+)*\s+exec\s+/u.test(command)) return true;
   const filter = command.match(/pnpm\s+--filter\s+(\S+)/u)?.[1];
   if (filter && !manifests.has(filter)) return false;
-  const script = command.match(/pnpm(?:\s+--filter\s+\S+)?\s+(?:run\s+)?([\w:-]+)/u)?.[1];
+  const script = command.match(/pnpm(?:\s+--(?:filter|dir)\s+\S+)*\s+(?:run\s+)?([\w:-]+)/u)?.[1];
   if (!script || ["test", "exec"].includes(script)) return true;
   return Boolean((filter ? manifests.get(filter) : manifests.get("root"))?.scripts?.[script]);
 }
+
 function manifests(root, architecture) {
   const map = new Map([["root", readJson(join(root, "package.json"))]]);
   for (const [name, meta] of Object.entries(architecture.packages))
     map.set(name, readJson(join(root, meta.path, "package.json")));
   return map;
 }
+
+function defaultMutationCommand(name) {
+  return `pnpm --filter ${name} exec stryker run`;
+}
+
 export function validateMutationOwnership({
   ledger,
   architecture,
@@ -59,10 +83,13 @@ export function validateMutationOwnership({
   if (ledger?.schemaVersion !== 1) errors.push("mutation ownership schemaVersion must be 1");
   if (ledger?.architectureSource !== "architecture/packages.json")
     errors.push("mutation architectureSource is invalid");
+  if (!Number.isInteger(ledger?.minimumIncludedCount) || ledger.minimumIncludedCount < 0)
+    errors.push("mutation minimumIncludedCount must be a non-negative integer");
   for (const name of architectureNames)
     if (!(name in entries)) errors.push("unclassified mutation workspace: " + name);
   for (const name of Object.keys(entries))
     if (!(name in architecture.packages)) errors.push("extra mutation workspace: " + name);
+
   const counts = { included: 0, deferred: 0 };
   const packageManifests = manifests(root, architecture);
   for (const [name, entry] of Object.entries(entries)) {
@@ -81,7 +108,11 @@ export function validateMutationOwnership({
       errors.push(name + " requires risk and riskReason");
     if (!executableGate(entry.alternateGate, packageManifests))
       errors.push(name + " alternateGate is not executable");
+
     if (entry.status === "included") {
+      const mutationCommand = entry.command ?? defaultMutationCommand(name);
+      if (!executableGate(mutationCommand, packageManifests))
+        errors.push(name + " mutation command is not executable");
       const configPath = join(root, entry.config ?? "");
       if (!existsSync(configPath)) {
         errors.push(name + " is missing Stryker config");
@@ -93,29 +124,43 @@ export function validateMutationOwnership({
       const packageRoot = join(root, entry.path);
       const files = walk(join(packageRoot, "src"), packageRoot);
       const positiveMutate = (config.mutate ?? []).filter((value) => !value.startsWith("!"));
-      if (!positiveMutate.some((pattern) => files.some((file) => globRegex(pattern).test(file))))
+      if (
+        !positiveMutate.some((pattern) =>
+          files.some((file) =>
+            globRegex(packageRelativeMutationPattern(pattern, entry.path)).test(file),
+          ),
+        )
+      )
         errors.push(name + " mutate paths match no workspace files");
       for (const pattern of positiveMutate)
-        if (!pattern.startsWith("src/"))
+        if (!packageRelativeMutationPattern(pattern, entry.path).startsWith("src/"))
           errors.push(name + " mutate path must stay under src/: " + pattern);
       if (
         name === "@zendev-lab/spark-i18n" &&
         (config.mutate ?? []).some((pattern) => pattern.includes("paraglide"))
       )
         errors.push("spark-i18n mutation must exclude generated paraglide output");
-    } else if ("config" in entry)
-      errors.push(name + " deferred entry must not declare a Stryker config");
+    } else {
+      if ("config" in entry)
+        errors.push(name + " deferred entry must not declare a Stryker config");
+      if ("command" in entry)
+        errors.push(name + " deferred entry must not declare a mutation command");
+    }
   }
+
   if (
     ledger.workspaceCount !== architectureNames.length ||
     Object.keys(entries).length !== architectureNames.length
   )
     errors.push("mutation workspace count must equal architecture package count");
-  if (ledger.includedCount !== 10 || counts.included !== 10)
-    errors.push("included mutation count must be 10");
-  const expectedDeferredCount = architectureNames.length - 10;
+  if (ledger.includedCount !== counts.included)
+    errors.push("included mutation count must match classified included workspaces");
+  if (counts.included < (ledger.minimumIncludedCount ?? 0))
+    errors.push("included mutation count is below minimumIncludedCount");
+  const expectedDeferredCount = architectureNames.length - counts.included;
   if (ledger.deferredCount !== expectedDeferredCount || counts.deferred !== expectedDeferredCount)
     errors.push("deferred mutation count must match non-included architecture packages");
+
   const source = runnerSource ?? readFileSync(join(root, ledger.runner ?? ""), "utf8");
   if (!source.includes("loadMutationLedger") || /const\s+packages\s*=\s*\[/u.test(source))
     errors.push(
@@ -129,22 +174,30 @@ export function validateMutationOwnership({
     unclassified: architectureNames.filter((name) => !(name in entries)).length,
   };
 }
+
 export function loadMutationLedger(root = defaultRoot) {
   const ledger = readJson(join(root, "test/mutation-ce-ownership.json"));
   const architecture = readJson(join(root, "architecture/packages.json"));
   const result = validateMutationOwnership({ ledger, architecture, root });
   if (!result.ok) throw new Error(result.errors.join("\n"));
+  const includedEntries = Object.entries(ledger.workspaces)
+    .filter(([, entry]) => entry.status === "included")
+    .map(([name, entry]) => ({
+      name,
+      command: entry.command ?? defaultMutationCommand(name),
+    }));
   return {
     ledger,
     result,
-    includedPackageIds: Object.entries(ledger.workspaces)
-      .filter(([, entry]) => entry.status === "included")
-      .map(([name]) => name),
+    includedEntries,
+    includedPackageIds: includedEntries.map((entry) => entry.name),
   };
 }
+
 export function checkMutationOwnership(root = defaultRoot) {
   return loadMutationLedger(root).result;
 }
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     console.log(JSON.stringify(checkMutationOwnership()));

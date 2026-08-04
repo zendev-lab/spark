@@ -31,6 +31,7 @@ import {
   sparkStateCwd,
 } from "./session-state.ts";
 import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
+import { finishProjectionIssue, firstBlockingCompletionIssue } from "./task-tool-contracts.ts";
 import { compactTaskDetail, normalizeOptionalToolString } from "./task-plan-tool.ts";
 import { compactLearningDetail } from "./learning-tools.ts";
 import { truncateInline } from "./tool-rendering.ts";
@@ -392,9 +393,7 @@ export function registerSparkFinishTaskTool(
         }
 
         const completionReadiness = taskCompletionReadiness(candidate.task);
-        const blockingIssue = completionReadiness.issues.find(
-          (issue) => issue.severity === "blocking",
-        );
+        const blockingIssue = firstBlockingCompletionIssue(completionReadiness);
         if (blockingIssue) {
           await deps.refreshSparkWidget(cwd, ctx);
           return {
@@ -927,12 +926,17 @@ async function commitFinishedTask(
       );
     } else {
       const persistedTask = persisted.getTask(prepared.result.taskRef);
-      if (persistedTask.status !== input.status || persistedTask.claim) {
+      const projectionIssue = finishProjectionIssue({
+        requestedStatus: input.status,
+        daemonChanged: daemonResult.changed,
+        task: persistedTask,
+      });
+      if (projectionIssue) {
         throw new TaskFinishProjectionError({
           taskRef: prepared.result.taskRef,
           requestedStatus: input.status,
           daemonChanged: daemonResult.changed,
-          message: `expected status=${input.status} with no claim, got status=${persistedTask.status} claim=${persistedTask.claim ? "present" : "none"}`,
+          message: projectionIssue,
         });
       }
       graph = persisted;

@@ -31,15 +31,16 @@ import {
   normalizeOptionalToolString,
   normalizeRequiredToolString,
   normalizeTaskKind,
-  normalizeTaskExecutionPolicyPatch,
-  normalizeTaskPlanPatch,
   normalizeTaskStatus,
   normalizeToolStringArray,
   taskKindDescription,
   taskExecutionPolicySchema,
   taskPlanSchema,
+  normalizeTaskExecutionPolicyPatch,
+  normalizeTaskPlanPatch,
 } from "./task-plan-tool.ts";
 import { syncTaskPlanItemsFromPlan } from "./task-plan-items.ts";
+import { terminalTaskPlanInputs } from "./task-tool-contracts.ts";
 import { collectReproExperimentIssues } from "./spark-repro-experiment-lint.ts";
 import { currentReproStage, readSessionRepro } from "./spark-session-repro.ts";
 
@@ -48,6 +49,7 @@ const SPARK_PLAN_TASKS_READINESS_RULES = [
   "Readiness rules:",
   "- Tasks must be concrete executable/review/validation/research work with high-bar, objectively verifiable outcomes; do not create standalone design/planning tasks. Discuss design with the user first, then place the chosen design and rationale inside each concrete task.plan.",
   "- Every task plan must use concrete, checkable objective/success/evidence/item wording and must not lower the bar with basic/minimal/quick/best-effort/if possible/smoke-only style qualifiers.",
+  "- Planning may create or update unfinished work and may cancel obsolete unclaimed work. done and failed are completion transitions owned by task finish/recovery flows and are rejected here.",
   renderTaskPlanReadinessRules(),
   '- dependsOn resolution is active-project scoped and includes both existing project tasks and every task created/updated in the same task_write({ action: "plan" }) batch before dependencies are added. Use a bare task name (displayed as @name, passed without @), exact task title, or task:* ref; unresolved dependencies block the plan, and cross-project dependencies are unsupported.',
 ].join("\n");
@@ -77,7 +79,7 @@ export function registerSparkPlanTasksTool(
     name: "impl_plan_tasks",
     label: "Spark Plan Tasks",
     description: [
-      'Implementation for task_write({ action: "plan" }): create or update multiple durable Spark tasks in the current project from a concrete task plan. Tasks must be concrete executable/review/validation/research work, not standalone design/planning placeholders; design discussion belongs in conversation with the user and in each task.plan after decisions are clear. The tool writes directly once tasks have high-bar objectives, dependencies, objectively verifiable success criteria, concrete evidence requirements, and executable/checkable plan items, so clarify all planning-affecting questions before calling it and refine by calling it again with concrete updates.',
+      'Implementation for task_write({ action: "plan" }): create, update, or cancel durable Spark tasks in the current project from a concrete task plan. Tasks must be concrete executable/review/validation/research work, not standalone design/planning placeholders; design discussion belongs in conversation with the user and in each task.plan after decisions are clear. done and failed statuses are rejected: use task_write({ action: "finish" }) or recovery/retry flows for completion transitions. cancelled remains available here for retiring obsolete unclaimed work and retains dependency safety checks. The tool writes directly once tasks have high-bar objectives, dependencies, objectively verifiable success criteria, concrete evidence requirements, and executable/checkable plan items, so clarify all planning-affecting questions before calling it and refine by calling it again with concrete updates.',
       "",
       SPARK_PLAN_TASKS_READINESS_RULES,
     ].join("\n"),
@@ -108,7 +110,8 @@ export function registerSparkPlanTasksTool(
           ),
           status: Type.Optional(
             Type.String({
-              description: "pending | ready | running | blocked | done | failed | cancelled",
+              description:
+                "Optional status: pending | ready | running | blocked | cancelled. done and failed are rejected; use completion transition flows.",
             }),
           ),
           roleRef: Type.Optional(
@@ -168,6 +171,33 @@ export function registerSparkPlanTasksTool(
           content: [{ type: "text", text: "Task plan is required." }],
           details: { found: true, error: "missing_tasks" },
         };
+      const terminalTasks = terminalTaskPlanInputs(normalizedTasks);
+      if (terminalTasks.length > 0) {
+        const rows = terminalTasks.map(
+          (task) => `- @${task.name ?? "unnamed"}: ${task.title} requested status=${task.status}`,
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text: [
+                'terminal_status_not_allowed: task_write({ action: "plan" }) cannot manufacture completed or failed task state.',
+                ...rows,
+                'Use task_write({ action: "finish", status: "done" | "failed" }) for a claimed task, or the explicit recovery/retry flow when reopening work.',
+              ].join("\n"),
+            },
+          ],
+          details: {
+            found: true,
+            error: "terminal_status_not_allowed",
+            tasks: terminalTasks.map((task) => ({
+              name: task.name,
+              title: task.title,
+              status: task.status,
+            })),
+          },
+        };
+      }
       const roadmapResult = roadmapPlanningContext(graph, project.ref);
       const roadmapContext = roadmapResult?.context;
       const tasks: TaskPlanInput[] = normalizedTasks.map((task) =>

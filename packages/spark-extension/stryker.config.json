@@ -13,20 +13,23 @@
   "ignorePatterns": ["reports", ".stryker-tmp"],
   "reporters": ["clear-text", "progress", "html", "json"],
   "htmlReporter": {
-    "fileName": "reports/mutation/index.html"
+    "fileName": "reports/mutation/task-tools.html"
   },
   "jsonReporter": {
-    "fileName": "reports/mutation/mutation.json"
+    "fileName": "reports/mutation/task-tools.json"
   },
-  "incremental": true,
-  "incrementalFile": "reports/mutation/incremental.json",
+  "incremental": false,
+  "coverageAnalysis": "perTest",
   "thresholds": {
     "high": 90,
-    "low": 70,
-    "break": null
+    "low": 80,
+    "break": 75
   },
-  "timeoutMS": 20000,
-  "concurrency": 4,
+  "timeoutMS": 30000,
+  "concurrency": 2,
   "ignoreStatic": true,
-  "mutate": ["src/extension/spark-status.ts"]
+  "mutate": [
+    "src/extension/task-claim-selection.ts:14:0-29:0",
+    "src/extension/task-tool-contracts.ts"
+  ]
 }

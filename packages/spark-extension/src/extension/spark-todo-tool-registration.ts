@@ -1,5 +1,4 @@
 import { Type } from "typebox";
-import type { TaskPlanItem } from "@zendev-lab/spark-core";
 import {
   applyIndependentTodoOps,
   defaultTaskGraphStore,
@@ -15,6 +14,7 @@ import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
 import { normalizeOptionalToolString, normalizeToolStringArray } from "./task-plan-tool.ts";
 import type { SparkToolContext, SparkToolRegistrar } from "./spark-tool-registration.ts";
 import { SPARK_SESSION_TODO_CONTEXT_PROVIDER_ID } from "./spark-session-todo-context.ts";
+import { preserveTaskPlanItemMetadata } from "./task-tool-contracts.ts";
 
 interface SparkTodoToolDependencies {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
@@ -202,22 +202,6 @@ export function registerSparkTodoTools(
         },
       };
     },
-  });
-}
-
-export function preserveTaskPlanItemMetadata(
-  before: readonly TaskPlanItem[],
-  after: readonly TaskPlanItem[],
-): TaskPlanItem[] {
-  const previousById = new Map(before.map((item) => [item.id, item]));
-  return after.map((item) => {
-    const previous = previousById.get(item.id);
-    if (!previous) return item;
-    return {
-      ...item,
-      ...(previous.description !== undefined ? { description: previous.description } : {}),
-      ...(previous.evidenceRefs !== undefined ? { evidenceRefs: [...previous.evidenceRefs] } : {}),
-    };
   });
 }
 
