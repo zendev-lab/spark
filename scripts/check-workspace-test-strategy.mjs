@@ -186,7 +186,7 @@ export function validateWorkspaceTestStrategy({ ledger, architecture, root = def
     roles.primaryGate?.paths?.length !== 1 ||
     roles.primaryGate.paths[0] !== "packages/spark-roles/src/**/*.test.ts" ||
     readdirSync(join(root, "packages/spark-roles/src")).filter((path) => path.endsWith(".test.ts"))
-      .length !== 6
+      .length !== 7
   )
     fail(errors, "spark-roles must use its package-local check and test path");
   return {
