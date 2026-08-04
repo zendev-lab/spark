@@ -73,7 +73,7 @@ export async function handleToolExecutionRequest(
       return toolErrorResult(
         request,
         "TOOL_OPERATION_ID_CONFLICT",
-        `${toolDisplayName(request)} operation ${request.params.operationId} was reused with different input. No operation was executed; start a new tool call.`,
+        `${toolDisplayName(request)} operation id was reused with different input. No operation was executed; start a new tool call.`,
         "new_tool_call",
       );
     }
@@ -191,12 +191,17 @@ function classifyToolExecutionFailure(error: unknown): {
       retry: "rebind_workspace_cwd",
     };
   }
-  const detail = error instanceof Error ? error.message : String(error);
+  const detail = boundedErrorDetail(error);
   return {
     code: "TOOL_EXECUTION_FAILED",
     message: `The daemon could not execute the tool: ${detail}. Inspect the daemon logs and verify that the client and daemon versions match.`,
     retry: "inspect_daemon_and_version",
   };
+}
+
+function boundedErrorDetail(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return detail.length <= 2_000 ? detail : `${detail.slice(0, 2_000)}…`;
 }
 
 function toolDisplayName(request: ToolExecutionRequest): string {
