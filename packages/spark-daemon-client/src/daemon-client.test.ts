@@ -22,6 +22,7 @@ import {
   createSparkDaemonClient,
   requestSparkDaemon,
   SparkDaemonPreDispatchUnavailableError,
+  SparkDaemonProtocolMismatchError,
   SparkDaemonRemoteError,
   SparkDaemonRpcError,
 } from "./daemon-client.js";
@@ -95,14 +96,18 @@ describe("protocol-aware Spark daemon client", () => {
     );
   });
 
-  it("rejects malformed legacy output without sending another request", async () => {
+  it("diagnoses malformed legacy output as a protocol mismatch without another request", async () => {
     transportMocks.createOrpc.mockRejectedValueOnce(new Error("ENOENT"));
     transportMocks.requestLegacy.mockResolvedValueOnce({
       observedAt: "not-an-iso-date",
       origins: [],
     });
 
-    await expect(requestSparkDaemon("uplink.status", {})).rejects.toThrow();
+    const failure = await requestSparkDaemon("uplink.status", {}).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(SparkDaemonProtocolMismatchError);
+    expect(failure).toMatchObject({ method: "uplink.status" });
+    expect((failure as Error).message).toContain("did not match client protocol");
+    expect((failure as Error).message).toContain("Restart or update the daemon");
     expect(transportMocks.createOrpc).toHaveBeenCalledOnce();
     expect(transportMocks.requestLegacy).toHaveBeenCalledOnce();
   });
@@ -142,6 +147,22 @@ describe("protocol-aware Spark daemon client", () => {
         data: { revision: 4 },
       },
     });
+    expect(transportMocks.requestLegacy).not.toHaveBeenCalled();
+    expect(handle.close).toHaveBeenCalledOnce();
+  });
+
+  it("diagnoses malformed connected output as a protocol mismatch", async () => {
+    const schemaFailure = Object.assign(new Error("invalid daemon response"), {
+      name: "ZodError",
+      issues: [{ path: ["process", "protocolVersion"] }],
+    });
+    const handle = connectedHandle(vi.fn().mockRejectedValueOnce(schemaFailure));
+    transportMocks.createOrpc.mockResolvedValueOnce(handle);
+
+    const failure = await requestSparkDaemon("daemon.status", {}).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(SparkDaemonProtocolMismatchError);
+    expect(failure).toMatchObject({ method: "daemon.status", cause: schemaFailure });
+    expect((failure as Error).message).toContain("client protocol");
     expect(transportMocks.requestLegacy).not.toHaveBeenCalled();
     expect(handle.close).toHaveBeenCalledOnce();
   });

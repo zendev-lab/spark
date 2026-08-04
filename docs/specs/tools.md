@@ -156,10 +156,16 @@ Local Cue execution inherits the immutable session cwd. Relative `cue_exec.cwd` 
 
 `spark-files` provides bounded `read`, `write`, `edit`, `grep`, and `find`; `ls` is not registered by default. Relative paths use the immutable session cwd. `read` has one UTF-8 text protocol: it always renders the raw-content SHA-256 version and stable `LINE#HASH:text` anchors for the returned window, with matching structured metadata; the byte limit applies to this final rendered output, including anchors. Read pagination accepts positive integers only; LF, CRLF, CR-only, mixed separators, and a UTF-8 BOM are reported as metadata, while invalid UTF-8 fails explicitly. `write` has no blind compatibility path: `expectedVersion` is required and must be the version returned by `read`, or `missing` for create-only intent. It uses a same-directory temporary file plus fsync/rename and rejects stale rewrites. Spark serializes writes by canonical target path inside one process (including symlinked parent aliases), rejects direct symbolic-link targets, and therefore gives same-version in-process Spark writers one winner. `edit` commits through the same atomic content-version check. Supplying a `git_change` `artifactRef` resolves the Artifact from the owning workspace store and then routes relative paths to its attached worktree; it never creates a second `.spark` store inside that worktree. Cross-process and non-cooperating external writers remain an optimistic-concurrency race; atomic replacement also detaches the replaced name from any sibling hard links rather than mutating their shared inode.
 
-Spark-native hosts execute file, Artifact, and Git tools in process. Compatible
-external Pi loaders use typed daemon RPC; they may start the daemon once and
-retry only a failure proven to occur before dispatch. A post-dispatch mutation
-failure is never replayed through typed or legacy transports.
+Spark-native hosts execute Files in process. The external Pi product retains its
+own native file and search tools and must not register Spark replacements. The
+explicit daemon Files adapter is migration/test-only, not a supported Pi
+product surface. Remaining additive Pi-compatible Artifact, Git, and Lens tools
+may use typed daemon RPC: they may start the daemon once and retry only a
+failure proven to occur before dispatch. Predictable cwd and operation-id
+failures return structured tool results; a post-dispatch mutation failure is
+never replayed through typed or legacy transports. Full compatibility admission
+and removal rules are in
+[`pi-product-compatibility.md`](./pi-product-compatibility.md).
 
 These are working-tree mechanisms, not Graft state. Graft remains sealed and
 opt-in; it is not loaded by Spark's default extension profile or base prompt,

@@ -1,4 +1,7 @@
-import { requestSparkDaemonToolWithAutoStart } from "@zendev-lab/spark-daemon-client";
+import {
+  createSparkDaemonToolOperationId,
+  requestSparkDaemonToolWithAutoStart,
+} from "@zendev-lab/spark-daemon-client";
 import type { ToolConfig } from "@zendev-lab/spark-core";
 import {
   createEditToolConfig,
@@ -11,6 +14,10 @@ import type { SparkFilesHostApi, SparkFilesOptions } from "./extension.ts";
 
 const DEFAULT_TOOLS = ["read", "write", "edit", "grep", "find"] as const;
 
+/**
+ * Explicit migration/testing adapter only. The published Pi compatibility
+ * surface no longer registers Spark replacements for Pi-native file tools.
+ */
 export function registerDaemonSparkFilesTools(
   pi: SparkFilesHostApi,
   options: SparkFilesOptions = {},
@@ -47,7 +54,15 @@ function proxyFileTool(config: ToolConfig): ToolConfig {
         {
           cwd,
           toolCallId,
-          operationId: `file:${config.name}:${toolCallId}`,
+          operationId: createSparkDaemonToolOperationId({
+            method: "file.execute",
+            tool: config.name,
+            toolCallId,
+            cwd,
+            ...(ctx.workspaceId === undefined ? {} : { workspaceId: ctx.workspaceId }),
+            ...(ctx.sessionSource === undefined ? {} : { sessionSource: ctx.sessionSource }),
+            ...(ctx.sessionSurface === undefined ? {} : { sessionSurface: ctx.sessionSurface }),
+          }),
           tool: config.name as "read" | "write" | "edit" | "grep" | "find",
           params: toJsonObject(params),
           hostContext: {

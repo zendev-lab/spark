@@ -123,7 +123,6 @@
       "./packages/spark-ask/src/extension-entry.ts",
       "./packages/spark-artifacts/src/extension-entry.ts",
       "./packages/spark-cue/src/extension/index.ts",
-      "./packages/spark-files/src/extension-entry.ts",
       "./packages/spark-ai/src/models-extension.ts",
       "./packages/spark-roles/src/extension-entry.ts",
       "./packages/spark-session/src/extension-entry.ts",

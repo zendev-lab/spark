@@ -1,11 +1,11 @@
 # @zendev-lab/spark-files
 
-Working-tree file tools for Spark extension hosts: `read`, `write`, `edit`,
-`grep`, and `find`. These give a Spark host a stable coding-agent file surface
-pi-coding-agent, but the implementation depends only on
-`@zendev-lab/spark-core`, `typebox`, `diff`, `ignore`, and `minimatch` —
-no `@earendil-works/pi-coding-agent` runtime, no `@earendil-works/pi-tui`, and
-no `rg`/`fd`/`bash` subprocess.
+Working-tree file tools for Spark-native extension hosts: `read`, `write`,
+`edit`, `grep`, and `find`. These give a Spark host a stable coding-agent file
+surface without depending on pi-coding-agent; the implementation depends only
+on `@zendev-lab/spark-core`, `typebox`, `diff`, `ignore`, and `minimatch` — no
+`@earendil-works/pi-coding-agent` runtime, no `@earendil-works/pi-tui`, and no
+`rg`/`fd`/`bash` subprocess.
 
 ## Tools
 
@@ -45,7 +45,7 @@ spark-cue disables bash by policy.
 ```ts
 import piFilesExtension, { registerSparkFilesTools } from "@zendev-lab/spark-files";
 
-// As a default extension factory:
+// As a default Spark-native extension factory:
 piFilesExtension(pi);
 
 // Or register a subset:
@@ -58,8 +58,25 @@ Artifact's attached worktree; absolute paths remain absolute. This is routing
 and attribution, not a permission boundary. `ls` remains exported only for
 explicit compatibility registration and is not part of the default tool set.
 
-The sole read/write protocol is versioned: there is no plain read mode and no
-blind write path. The check is content-level optimistic concurrency plus a
+## Pi product compatibility
+
+The published Pi compatibility manifest does not register Spark replacements
+for `read`, `write`, `edit`, `grep`, `find`, or `ls`. External Pi keeps its
+native file and search tools authoritative.
+
+Replacing those built-ins coupled ordinary file access to Spark daemon,
+session, workspace-cwd, protocol-version, and process-lifecycle compatibility
+without adding enough product value. The resulting failure domain was larger
+than the benefit, so this compatibility surface is intentionally removed rather
+than maintained as a second file-tool product.
+
+`daemon-extension.ts` remains only as a bounded migration and integration-test
+adapter. It is not a supported Pi product surface and receives no new
+Pi-specific behavior. See
+[`docs/specs/pi-product-compatibility.md`](../../docs/specs/pi-product-compatibility.md).
+
+The sole Spark read/write protocol is versioned: there is no plain read mode and
+no blind write path. The check is content-level optimistic concurrency plus a
 process-local per-path lock, not a cross-process filesystem transaction or a
 Graft scratch graph. A non-cooperating external writer can still race the final
 check. Atomic replacement creates a new inode: if the old file has sibling hard

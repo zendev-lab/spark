@@ -22,6 +22,12 @@ building a host profile, or diagnosing why a capability is unavailable.
 | Continue autonomously | `phase`, `goal`, `loop`, `workflow`, `repro` | Session phase plus daemon-owned Goal, WorkflowRun, and Loop state |
 | Discover and run procedures | `workflow` | List, read, or run a selected `WORKFLOW.md` definition |
 
+The file tools in this table are the Spark-native surface. The external Pi
+product retains its own file and search tools; Spark does not replace Pi's
+`read`, `write`, `edit`, `grep`, `find`, or `ls` implementations. Pi product
+compatibility is additive and intentionally does not promise full Spark-native
+feature parity.
+
 `artifact` is user-facing and limited to Issue, GitChange, and Document
 deliverables. GitChange owns one worktree and one native GitHub PR stack;
 `git({ action })` owns that lifecycle. Preview is a view of a Document, not an
@@ -65,11 +71,11 @@ Unknown or conflicting policy fails closed.
   final answer or prove a runtime claim.
 - `graft` is a sealed, opt-in scratch/candidate/patch capability and is not
   part of the active Git workflow.
-- `ls` remains available only to an explicitly configured compatibility
-  profile; it is not registered in the native default profile. Use `find` for
-  file discovery and `grep` for content search.
-- Pi compatibility aliases can be enabled by compatible hosts but are hidden
-  from the native default profile.
+- `ls` remains available only to an explicitly configured Spark-native
+  compatibility profile; it is not registered in the native default profile.
+  Use `find` for file discovery and `grep` for content search.
+- External Pi compatibility may expose a smaller additive subset. A capability
+  is removed when its compatibility cost exceeds its retained product value.
 
 Private implementation and orchestration helpers are deliberately absent from
 this public catalog.

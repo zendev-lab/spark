@@ -1,4 +1,5 @@
 import {
+  createSparkDaemonToolOperationId,
   requestSparkDaemonToolWithAutoStart,
   type SparkDaemonToolMethod,
 } from "@zendev-lab/spark-daemon-client";
@@ -32,7 +33,15 @@ function proxyDaemonTool(config: ToolConfig, method: SparkDaemonToolMethod): Too
         {
           cwd,
           toolCallId,
-          operationId: `${config.name}:${toolCallId}`,
+          operationId: createSparkDaemonToolOperationId({
+            method,
+            tool: config.name,
+            toolCallId,
+            cwd,
+            ...(ctx.workspaceId === undefined ? {} : { workspaceId: ctx.workspaceId }),
+            ...(ctx.sessionSource === undefined ? {} : { sessionSource: ctx.sessionSource }),
+            ...(ctx.sessionSurface === undefined ? {} : { sessionSurface: ctx.sessionSurface }),
+          }),
           params: toJsonObject(params),
           hostContext: {
             ...(ctx.workspaceId === undefined ? {} : { workspaceId: ctx.workspaceId }),

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -7,6 +7,35 @@ import { discoverAndLoadExtensions } from "@earendil-works/pi-coding-agent";
 import { test } from "vitest";
 
 const COMPATIBILITY_EXTENSION = resolve("packages/spark-ai/src/baidu-oneapi-compat-extension.ts");
+const FILE_COMPATIBILITY_EXTENSION = resolve("packages/spark-files/src/extension-entry.ts");
+const ROOT_MANIFEST = resolve("package.json");
+const PI_NATIVE_FILE_TOOLS = new Set(["read", "write", "edit", "grep", "find", "ls"]);
+
+test("the production Pi surface keeps Pi-native file tools authoritative", async () => {
+  const manifest = JSON.parse(await readFile(ROOT_MANIFEST, "utf8")) as {
+    pi?: { extensions?: string[] };
+  };
+  assert.equal(
+    manifest.pi?.extensions?.includes("./packages/spark-files/src/extension-entry.ts") ?? false,
+    false,
+  );
+
+  const agentDir = await mkdtemp(join(tmpdir(), "spark-pi-files-loader-"));
+  try {
+    const loaded = await discoverAndLoadExtensions(
+      [FILE_COMPATIBILITY_EXTENSION],
+      process.cwd(),
+      agentDir,
+    );
+    assert.deepEqual(loaded.errors, []);
+    const registeredFileTools = loaded.extensions
+      .flatMap((extension) => [...extension.tools.keys()])
+      .filter((name) => PI_NATIVE_FILE_TOOLS.has(name));
+    assert.deepEqual(registeredFileTools, []);
+  } finally {
+    await rm(agentDir, { recursive: true, force: true });
+  }
+});
 
 test("the production Pi loader executes both Baidu OneAPI lazy transports", async () => {
   const agentDir = await mkdtemp(join(tmpdir(), "spark-pi-loader-"));

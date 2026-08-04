@@ -1,6 +1,9 @@
 import { Type } from "typebox";
 
-import { requestSparkDaemonToolWithAutoStart } from "@zendev-lab/spark-daemon-client";
+import {
+  createSparkDaemonToolOperationId,
+  requestSparkDaemonToolWithAutoStart,
+} from "@zendev-lab/spark-daemon-client";
 import type { SparkRegisteredToolConfig } from "./spark-tool-registration.ts";
 
 export function createSparkLensToolConfig(): SparkRegisteredToolConfig & {
@@ -104,7 +107,15 @@ export function createSparkLensToolConfig(): SparkRegisteredToolConfig & {
         {
           cwd: ctx.cwd,
           toolCallId,
-          operationId: `lens:${toolCallId}`,
+          operationId: createSparkDaemonToolOperationId({
+            method: "lens.execute",
+            tool: "lens",
+            toolCallId,
+            cwd: ctx.cwd,
+            ...(ctx.workspaceId === undefined ? {} : { workspaceId: ctx.workspaceId }),
+            ...(ctx.sessionSource === undefined ? {} : { sessionSource: ctx.sessionSource }),
+            ...(ctx.sessionSurface === undefined ? {} : { sessionSurface: ctx.sessionSurface }),
+          }),
           params: JSON.parse(JSON.stringify(params)) as Record<string, never>,
           hostContext: {
             ...(ctx.workspaceId === undefined ? {} : { workspaceId: ctx.workspaceId }),

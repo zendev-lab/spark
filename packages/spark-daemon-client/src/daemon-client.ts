@@ -5,6 +5,7 @@ import type {
   SparkLocalRpcMethod,
   SparkLocalRpcOutput,
 } from "@zendev-lab/spark-protocol/local-rpc-orpc-contract";
+import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol/version";
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import {
   requestSparkDaemonLocalRpc,
@@ -66,6 +67,22 @@ export class SparkDaemonPreDispatchUnavailableError extends SparkDaemonLocalRpcE
   }
 }
 
+/** A reachable daemon returned bytes that do not match this client's protocol schema. */
+export class SparkDaemonProtocolMismatchError extends SparkDaemonLocalRpcError {
+  override readonly name = "SparkDaemonProtocolMismatchError";
+  readonly method: SparkLocalRpcMethod;
+  readonly protocolVersion = SPARK_PROTOCOL_VERSION;
+
+  constructor(method: SparkLocalRpcMethod, cause: unknown) {
+    const detail = boundedErrorDetail(cause);
+    super(
+      `Spark daemon response for ${method} did not match client protocol ${SPARK_PROTOCOL_VERSION}. Restart or update the daemon so client and daemon versions agree, then retry. ${detail}`,
+      { cause },
+    );
+    this.method = method;
+  }
+}
+
 /**
  * Create the single protocol-aware daemon client facade.
  *
@@ -123,13 +140,17 @@ export async function requestSparkDaemon<M extends SparkLocalRpcMethod>(
       throw new SparkDaemonPreDispatchUnavailableError(method, error);
     }
     const result = await requestSparkDaemonLocalRpc<unknown>(method, input, legacyOptions(options));
-    return sparkLocalRpcProcedureSchemas[method].output.parse(result) as SparkLocalRpcOutput<M>;
+    try {
+      return sparkLocalRpcProcedureSchemas[method].output.parse(result) as SparkLocalRpcOutput<M>;
+    } catch (error) {
+      throw new SparkDaemonProtocolMismatchError(method, error);
+    }
   }
 
   try {
     return await invokeConnected(handle, method, input, options);
   } catch (error) {
-    throw normalizeConnectedError(error, options.signal);
+    throw normalizeConnectedError(error, options.signal, method);
   } finally {
     handle.close();
   }
@@ -207,7 +228,11 @@ function isAbortError(error: unknown): error is Error {
   return error instanceof Error && error.name === "AbortError";
 }
 
-function normalizeConnectedError(error: unknown, callerSignal: AbortSignal | undefined): Error {
+function normalizeConnectedError(
+  error: unknown,
+  callerSignal: AbortSignal | undefined,
+  method: SparkLocalRpcMethod,
+): Error {
   if (
     (isAbortError(error) && callerSignal?.aborted === true) ||
     error instanceof SparkDaemonLocalRpcError
@@ -224,11 +249,27 @@ function normalizeConnectedError(error: unknown, callerSignal: AbortSignal | und
       ...(error.data === undefined ? {} : { data: error.data }),
     });
   }
+  if (isProtocolSchemaError(error)) {
+    return new SparkDaemonProtocolMismatchError(method, error);
+  }
 
-  const detail = error instanceof Error ? error.message : String(error);
+  const detail = boundedErrorDetail(error);
   return new SparkDaemonLocalRpcError(`Spark daemon oRPC transport failed: ${detail}`, {
     cause: error,
   });
+}
+
+function isProtocolSchemaError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "ZodError" ||
+      ("issues" in error && Array.isArray((error as { issues?: unknown }).issues)))
+  );
+}
+
+function boundedErrorDetail(error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  return detail.length <= 2_000 ? detail : `${detail.slice(0, 2_000)}…`;
 }
 
 function abortError(): Error {
