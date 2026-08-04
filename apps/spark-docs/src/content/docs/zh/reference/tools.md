@@ -16,7 +16,7 @@ profile 或排查能力为何不可用时，再查看本页。
 | 搜索和获取网页 | `web_search`, `code_search`, `fetch_content`, `get_search_content` | 外部读取；获取的文本不可信 |
 | 查看和修改工作 | `task_read`, `task_write`, `assign`, `todo` | Task/session 状态；assign 可能执行工作 |
 | 保存结果 | `artifact`, `evidence`, `memory`, `context` | 产品产物、内部账本、记忆和受限上下文 |
-| 协调 agent | `role`, `session` | 定义、调用、持久 session 与 mail |
+| 协调 agent | `role`, `skill_delegate`, `session` | 定义、匿名调用、专属 Skill Worker、持久 session 与 mail |
 | 选择模型 | `models` | 模型目录与选择 |
 | 自主续跑 | `phase`, `goal`, `loop`, `workflow`, `repro` | Session phase 与 daemon-owned Goal、WorkflowRun、Loop 状态 |
 | 发现和运行流程 | `workflow`, `workflow_run` | 读取 saved workflow 或执行已选流程 |
@@ -25,6 +25,12 @@ profile 或排查能力为何不可用时，再查看本页。
 worktree 和一个 GitHub 原生 PR stack，由 `git({ action })` 管理生命周期；preview
 只是 Document 的视图，不是 Artifact kind。`evidence` 是 agent 内部账本，不会作为
 产品产物展示。`context` 只能列出或预览已注册的受限 provider，不能接收任意 prompt。
+
+`skill_delegate({ skill, instruction, inputs? })` 按精确名称解析一个允许模型调用的
+Skill，并使用当前模型启动一个全新匿名 Worker。Worker 只接收 Skill 指令和显式、
+自包含的委派请求，不继承父会话 transcript。它可以使用受限的直接工作工具，但不能
+递归调用 Role 或 Skill、管理持久 Session、修改 Task，或发布 Git、Artifact、Evidence
+状态。只有父会话本身需要查看并遵循 `SKILL.md` 时，才改用 `read`。
 
 ## Shell 与脚本工具
 
