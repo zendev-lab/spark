@@ -1,14 +1,14 @@
 import { resolve } from "node:path";
 import { defineConfig } from "vitest/config";
 
-const packageRoot = resolve(import.meta.dirname);
-process.chdir(packageRoot);
+const repositoryRoot = resolve(import.meta.dirname, "../..");
+process.chdir(repositoryRoot);
 
 export default defineConfig({
-  root: packageRoot,
+  root: repositoryRoot,
   test: {
     environment: "node",
-    include: ["src/todo-store-atomic.test.ts"],
+    include: ["test/task-todo-store-atomic.test.ts"],
     pool: "forks",
     fileParallelism: false,
     maxWorkers: 1,
