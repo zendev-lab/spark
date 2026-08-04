@@ -144,7 +144,17 @@ export function jsonSafe(value: unknown, seen = new WeakSet<object>()): unknown 
 }
 
 export function collectToolCalls(message: AssistantMessage): ToolCall[] {
-  return message.content.filter((part): part is ToolCall => part.type === "toolCall");
+  const toolCalls = message.content.filter((part): part is ToolCall => part.type === "toolCall");
+  const seenIds = new Set<string>();
+  for (const [index, toolCall] of toolCalls.entries()) {
+    const id = typeof toolCall.id === "string" ? toolCall.id.trim() : "";
+    if (!id) {
+      throw new Error(`provider emitted a tool call without a non-empty id at index ${index}`);
+    }
+    if (seenIds.has(id)) throw new Error(`provider emitted duplicate tool call id: ${id}`);
+    seenIds.add(id);
+  }
+  return toolCalls;
 }
 
 export function resolvedRegisteredToolPolicy(
