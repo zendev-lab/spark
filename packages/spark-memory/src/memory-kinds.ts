@@ -1,14 +1,15 @@
-import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import type { ToolConfig } from "@zendev-lab/spark-core";
 
+import { createRecallCandidateGcPlan, type RecallCandidateGcPlan } from "./candidate-lifecycle.ts";
 import {
   MemoryApprovalError,
   type MemoryApprovalVerifier,
   type MemoryMutationAuthorization,
 } from "./approval.ts";
+import { defaultSparkMemoryStore } from "./index.ts";
 import {
   defaultLearningStore,
   parseLearningExportMarkdown,
@@ -81,8 +82,16 @@ export async function executeMemoryCandidateAction(input: {
   }
   if (action === "audit" || action === "gc") {
     const candidates = await store.list();
+    const protectedRecordRefs = (await defaultSparkMemoryStore(cwd, scope).list())
+      .filter((entry) => ["preference", "convention", "correction"].includes(entry.category))
+      .map((entry) => entry.id);
     const olderThanDays = optionalNonNegativeNumber(params.olderThanDays, 7, "olderThanDays");
-    const plan = createRecallCandidateGcPlan(candidates, scope, olderThanDays);
+    const plan = createRecallCandidateGcPlan({
+      candidates,
+      scope,
+      olderThanDays,
+      protectedRecordRefs,
+    });
     if (action === "audit" || !optionalBoolean(params.apply, false, "apply")) {
       return result(renderRecallCandidateGcPlan(plan), { apply: false, plan });
     }
@@ -392,62 +401,6 @@ function normalizeLearningAction(value: unknown): SparkMemoryLearningAction {
 function normalizeRecallScope(value: unknown): RecallScope {
   if (value === "user" || value === "workspace" || value === "repo") return value;
   throw new Error("memory.scope must be user, workspace, or repo");
-}
-
-interface RecallCandidateGcPlanItem {
-  id: string;
-  kind: RecallCandidate["kind"];
-  updatedAt: string;
-  reasonCode: "compaction_open_item" | "compaction_snapshot";
-}
-
-interface RecallCandidateGcPlan {
-  schemaVersion: 1;
-  scope: RecallScope;
-  olderThanDays: number;
-  generatedAt: string;
-  reasonSummary: string;
-  digest: string;
-  items: RecallCandidateGcPlanItem[];
-}
-
-function createRecallCandidateGcPlan(
-  candidates: readonly RecallCandidate[],
-  scope: RecallScope,
-  olderThanDays: number,
-): RecallCandidateGcPlan {
-  const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1_000;
-  const items = candidates
-    .filter(
-      (candidate) =>
-        candidate.scope === scope &&
-        candidate.status === "candidate" &&
-        Boolean(candidate.sourceSessionId) &&
-        Date.parse(candidate.updatedAt) <= cutoff,
-    )
-    .map(
-      (candidate): RecallCandidateGcPlanItem => ({
-        id: candidate.id,
-        kind: candidate.kind,
-        updatedAt: candidate.updatedAt,
-        reasonCode: candidate.kind === "open_item" ? "compaction_open_item" : "compaction_snapshot",
-      }),
-    )
-    .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
-  const reasonSummary =
-    "session-scoped compaction candidates exceeded their recall TTL; explicit candidates remain protected";
-  const digest = createHash("sha256")
-    .update(JSON.stringify({ schemaVersion: 1, scope, olderThanDays, items }))
-    .digest("hex");
-  return {
-    schemaVersion: 1,
-    scope,
-    olderThanDays,
-    generatedAt: new Date().toISOString(),
-    reasonSummary,
-    digest,
-    items,
-  };
 }
 
 function renderRecallCandidateGcPlan(plan: RecallCandidateGcPlan): string {

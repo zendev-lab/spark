@@ -96,6 +96,18 @@ export async function submitConversationTurnForCockpit(
         prompt: input.prompt,
       })
     : undefined;
+  const feedbackReceipt = input.workspaceId
+    ? await (
+        options.memoryDirectIntentAuthority ?? cockpitMemoryDirectIntentAuthority
+      ).issueFeedback({
+        surface: "cockpit",
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+        turnId: `turn:${directIntentTurnId}`,
+        messageId: `message:${directIntentTurnId}`,
+        prompt: input.prompt,
+      })
+    : undefined;
   const result = await client.submit({
     sessionId: input.sessionId,
     prompt: input.prompt,
@@ -105,6 +117,7 @@ export async function submitConversationTurnForCockpit(
     messageMetadata: {
       origin: { kind: "user", host: "web", surface: "local" },
       ...(memoryDirectIntent ? { memoryDirectIntent } : {}),
+      ...(feedbackReceipt ? { memoryFeedback: feedbackReceipt } : {}),
       ...(input.attachments?.length
         ? {
             attachments: input.attachments.map(({ kind, name, mediaType, size }) => ({

@@ -27,11 +27,14 @@ import {
   prepareMemoryMutationJournal,
   recoverMemoryMutationJournal,
 } from "./mutation-journal.ts";
+import { RetrievalTelemetryStore, type RetrievalTelemetryRecord } from "./retrieval-telemetry.ts";
 import { withFileMutationLock } from "./mutation-lock.ts";
 
 export type RecallScope = "user" | "workspace" | "repo";
 export type RecallCandidateStatus = "candidate" | "promoted" | "rejected";
 export type RecallCandidateKind = "explicit" | "stable_fact" | "open_item";
+
+export const RECALL_SESSION_CANDIDATE_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export interface RecallCandidate {
   id: string;
@@ -41,6 +44,7 @@ export interface RecallCandidate {
   evidenceRefs: string[];
   kind?: RecallCandidateKind;
   sourceSessionId?: string;
+  expiresAt?: string;
   status: RecallCandidateStatus;
   createdAt: string;
   updatedAt: string;
@@ -67,10 +71,28 @@ export class RecallStoreFormatError extends Error {
   }
 }
 
+export interface RecallCandidateSearchResult extends RecallCandidate {
+  scoreBreakdown: RecallCandidateScoreBreakdown;
+}
+
+export interface RecallCandidateScoreBreakdown {
+  lexical: number;
+  scope: number;
+  evidence: number;
+  freshness: number;
+  successfulUseBonus: number;
+  negativeFeedbackPenalty: number;
+  total: number;
+}
+
 export interface RecallStoreOptions {
   verifier?: MemoryApprovalVerifier;
   workspaceId?: string;
   legacyFixturePermit?: LegacyMemoryFixturePermit;
+  now?: () => string;
+  sessionCandidateTtlMs?: number;
+  retrievalTelemetryStore?: Pick<RetrievalTelemetryStore, "list">;
+  successfulUseBonusCap?: number;
 }
 
 export class RecallStore {
@@ -101,13 +123,20 @@ export class RecallStore {
   }): Promise<RecallCandidate> {
     return withFileMutationLock(this.lockPath, async () => {
       await this.recoverPendingJournal();
-      const now = new Date().toISOString();
+      const now = this.now();
       const snapshot = await this.loadSnapshot();
       const id = `recall:${randomUUID()}`;
       const text = requiredText(input.text, "text");
       const reason = requiredText(input.reason, "reason");
       const evidenceRefs = input.evidenceRefs ?? [];
       const kind = input.kind ?? "explicit";
+      const sourceSessionId = input.sourceSessionId?.trim() || undefined;
+      const expiresAt = candidateExpiry({
+        kind,
+        sourceSessionId,
+        createdAt: now,
+        ttlMs: this.options.sessionCandidateTtlMs ?? RECALL_SESSION_CANDIDATE_TTL_MS,
+      });
       const candidate: RecallCandidate = {
         id,
         scope: input.scope,
@@ -115,7 +144,8 @@ export class RecallStore {
         reason,
         evidenceRefs,
         kind,
-        ...(input.sourceSessionId?.trim() ? { sourceSessionId: input.sourceSessionId.trim() } : {}),
+        ...(sourceSessionId ? { sourceSessionId } : {}),
+        ...(expiresAt ? { expiresAt } : {}),
         status: "candidate",
         createdAt: now,
         updatedAt: now,
@@ -134,7 +164,8 @@ export class RecallStore {
             reason,
             evidenceRefs,
             kind,
-            sourceSessionId: input.sourceSessionId?.trim() || null,
+            sourceSessionId: sourceSessionId ?? null,
+            ...(expiresAt ? { expiresAt } : {}),
             status: "candidate",
             promotedTo: null,
             rejectedReason: null,
@@ -432,13 +463,43 @@ export class RecallStore {
     );
   }
 
-  async search(query: string): Promise<RecallCandidate[]> {
+  async search(
+    query: string,
+    options: { now?: string } = {},
+  ): Promise<RecallCandidateSearchResult[]> {
     const needle = requiredText(query, "query").toLowerCase();
-    return (await this.list()).filter(
-      (candidate) =>
-        candidate.status === "candidate" &&
-        (candidate.text.toLowerCase().includes(needle) ||
-          candidate.reason.toLowerCase().includes(needle)),
+    const now = options.now ?? this.now();
+    const telemetryByRef = new Map(
+      (await this.retrievalTelemetryStore().list()).map((record) => [record.memoryRef, record]),
+    );
+    return (await this.list())
+      .filter(
+        (candidate) =>
+          candidate.status === "candidate" &&
+          !isRecallCandidateExpired(candidate, now) &&
+          (candidate.text.toLowerCase().includes(needle) ||
+            candidate.reason.toLowerCase().includes(needle)),
+      )
+      .map((candidate) => ({
+        ...candidate,
+        scoreBreakdown: scoreRecallCandidate(
+          candidate,
+          needle,
+          telemetryByRef.get(candidate.id),
+          now,
+          this.options.successfulUseBonusCap ?? 1,
+        ),
+      }))
+      .sort(
+        (left, right) =>
+          right.scoreBreakdown.total - left.scoreBreakdown.total || left.id.localeCompare(right.id),
+      );
+  }
+
+  private retrievalTelemetryStore(): Pick<RetrievalTelemetryStore, "list"> {
+    return (
+      this.options.retrievalTelemetryStore ??
+      new RetrievalTelemetryStore(join(dirname(this.filePath), "retrieval-telemetry.json"))
     );
   }
 
@@ -479,6 +540,10 @@ export class RecallStore {
     await writeJsonFileAtomic(this.filePath, snapshot);
   }
 
+  private now(): string {
+    return normalizeTimestamp(this.options.now?.() ?? new Date().toISOString(), "now");
+  }
+
   private requiredWorkspaceId(): string {
     const workspaceId = this.options.workspaceId?.trim();
     if (!workspaceId) {
@@ -512,6 +577,61 @@ export function defaultRecallStore(
   return new RecallStore(recallStorePath(cwd, scope, paths), options);
 }
 
+export function scoreRecallCandidate(
+  candidate: RecallCandidate,
+  needle: string,
+  telemetry: RetrievalTelemetryRecord | undefined,
+  now: string,
+  successfulUseBonusCap: number,
+): RecallCandidateScoreBreakdown {
+  if (!Number.isFinite(successfulUseBonusCap) || successfulUseBonusCap < 0) {
+    throw new Error("recall successful-use bonus cap must be a non-negative number");
+  }
+  const haystack = `${candidate.text} ${candidate.reason}`.toLowerCase();
+  const lexical = haystack.split(needle).length - 1;
+  const scope = candidate.scope === "user" ? 0.3 : candidate.scope === "workspace" ? 0.2 : 0.1;
+  const evidence = Math.min(candidate.evidenceRefs.length * 0.1, 0.3);
+  const ageDays =
+    Math.max(0, Date.parse(now) - Date.parse(candidate.updatedAt)) / (24 * 60 * 60 * 1_000);
+  const freshness = Math.max(0, 0.5 - ageDays / 60);
+  const successfulUseBonus = Math.min(
+    (telemetry?.successfulUseCount ?? 0) * 0.1,
+    successfulUseBonusCap,
+  );
+  const negativeFeedbackPenalty = Math.min((telemetry?.negativeFeedbackCount ?? 0) * 0.1, 1);
+  return {
+    lexical,
+    scope,
+    evidence,
+    freshness,
+    successfulUseBonus,
+    negativeFeedbackPenalty,
+    total: lexical + scope + evidence + freshness + successfulUseBonus - negativeFeedbackPenalty,
+  };
+}
+
+export function isRecallCandidateExpired(
+  candidate: Pick<RecallCandidate, "expiresAt">,
+  now = new Date().toISOString(),
+): boolean {
+  if (!candidate.expiresAt) return false;
+  return Date.parse(candidate.expiresAt) <= Date.parse(normalizeTimestamp(now, "now"));
+}
+
+function candidateExpiry(input: {
+  kind: RecallCandidateKind;
+  sourceSessionId?: string;
+  createdAt: string;
+  ttlMs: number;
+}): string | undefined {
+  if (input.kind === "explicit" || !input.sourceSessionId?.trim()) return undefined;
+  if (!Number.isFinite(input.ttlMs) || input.ttlMs < 0) {
+    throw new Error("recall session candidate TTL must be a non-negative number");
+  }
+  const createdAt = Date.parse(normalizeTimestamp(input.createdAt, "createdAt"));
+  return new Date(createdAt + input.ttlMs).toISOString();
+}
+
 function hasExactAuthorizationRevision(
   candidate: RecallCandidate,
   authorization: MemoryMutationAuthorization | undefined,
@@ -533,6 +653,7 @@ function recallCandidateRevisionContent(
     | "evidenceRefs"
     | "kind"
     | "sourceSessionId"
+    | "expiresAt"
     | "status"
     | "promotedTo"
     | "rejectedReason"
@@ -544,6 +665,7 @@ function recallCandidateRevisionContent(
     evidenceRefs: candidate.evidenceRefs,
     kind: candidate.kind ?? "explicit",
     sourceSessionId: candidate.sourceSessionId ?? null,
+    ...(candidate.expiresAt ? { expiresAt: candidate.expiresAt } : {}),
     status: candidate.status,
     promotedTo: candidate.promotedTo ?? null,
     rejectedReason: candidate.rejectedReason ?? null,
@@ -552,6 +674,13 @@ function recallCandidateRevisionContent(
 
 function recallMemoryKind(kind: RecallCandidateKind): MemoryContentKind {
   return kind === "open_item" ? "episodic" : "semantic";
+}
+
+function normalizeTimestamp(value: unknown, label: string): string {
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+    throw new Error(`recall ${label} must be an ISO timestamp`);
+  }
+  return new Date(value).toISOString();
 }
 
 function requiredText(value: string, label: string): string {
@@ -584,24 +713,36 @@ export function normalizeRecallStoreSnapshot(
 function normalizeCandidate(value: unknown, filePath: string, index: number): RecallCandidate {
   assertCandidate(value, filePath, index);
   const candidate = value as RecallCandidate;
-  const lifecycle = normalizeMemoryLifecycle(candidate.lifecycle, {
-    recordRef: candidate.id,
-    kind: recallMemoryKind(candidate.kind ?? "explicit"),
-    state: candidate.status,
-    scope: candidate.scope,
-    evidenceRefs: candidate.evidenceRefs,
+  const expiresAt =
+    candidate.expiresAt ??
+    candidateExpiry({
+      kind: candidate.kind ?? "explicit",
+      sourceSessionId: candidate.sourceSessionId,
+      createdAt: candidate.createdAt,
+      ttlMs: RECALL_SESSION_CANDIDATE_TTL_MS,
+    });
+  const normalizedCandidate: RecallCandidate = {
+    ...candidate,
+    ...(expiresAt ? { expiresAt } : {}),
+  };
+  const lifecycle = normalizeMemoryLifecycle(normalizedCandidate.lifecycle, {
+    recordRef: normalizedCandidate.id,
+    kind: recallMemoryKind(normalizedCandidate.kind ?? "explicit"),
+    state: normalizedCandidate.status,
+    scope: normalizedCandidate.scope,
+    evidenceRefs: normalizedCandidate.evidenceRefs,
     sourceKind: "legacy",
-    capturedAt: candidate.createdAt,
+    capturedAt: normalizedCandidate.createdAt,
     legacyUnverified: true,
     approvalStatus: "legacy_unverified",
-    content: recallCandidateRevisionContent(candidate),
+    content: recallCandidateRevisionContent(normalizedCandidate),
   });
   assertMemoryLifecycleProjection(
     lifecycle,
-    { state: candidate.status, scope: candidate.scope },
-    `recall candidate ${candidate.id}`,
+    { state: normalizedCandidate.status, scope: normalizedCandidate.scope },
+    `recall candidate ${normalizedCandidate.id}`,
   );
-  return { ...candidate, lifecycle };
+  return { ...normalizedCandidate, lifecycle };
 }
 
 function assertCandidate(
@@ -669,6 +810,9 @@ function assertCandidate(
   }
   if (candidate.promotedTo !== undefined && typeof candidate.promotedTo !== "string") {
     throw new RecallStoreFormatError(filePath, `candidates[${index}].promotedTo must be a string`);
+  }
+  if (candidate.expiresAt !== undefined) {
+    normalizeTimestamp(candidate.expiresAt, `candidates[${index}].expiresAt`);
   }
   if (typeof candidate.createdAt !== "string" || typeof candidate.updatedAt !== "string") {
     throw new RecallStoreFormatError(filePath, `candidates[${index}] timestamps must be strings`);

@@ -3,15 +3,22 @@ import { createHash, generateKeyPairSync, sign, verify } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  classifySparkMemoryFeedbackCurrentTurn,
   createSparkMemoryDirectIntentApprovalProof,
   parseSparkMemoryDirectIntentCommand,
+  parseSparkMemoryFeedbackCommand,
   prepareSparkMemoryDirectIntentReceipt,
+  prepareSparkMemoryFeedbackReceipt,
   SPARK_MEMORY_DIRECT_INTENT_HIGH_RISK_OPERATIONS,
   sparkMemoryDirectIntentReceiptSchema,
   sparkMemoryDirectIntentReceiptSigningPayload,
+  sparkMemoryFeedbackReceiptSchema,
+  sparkMemoryFeedbackReceiptSigningPayload,
   verifySparkMemoryDirectIntentReceipt,
+  verifySparkMemoryFeedbackReceipt,
   type PrepareSparkMemoryDirectIntentReceiptInput,
   type SparkMemoryDirectIntentReceipt,
+  type SparkMemoryFeedbackReceipt,
   type SparkMemoryProposal,
 } from "./memory-approval.ts";
 
@@ -49,6 +56,24 @@ async function verifyReceipt(receipt: unknown, now = NOW): Promise<boolean> {
   });
 }
 
+async function issueFeedbackReceipt(
+  input: PrepareSparkMemoryDirectIntentReceiptInput,
+): Promise<SparkMemoryFeedbackReceipt | undefined> {
+  const payload = await prepareSparkMemoryFeedbackReceipt(input);
+  if (!payload) return undefined;
+  const unsigned = sparkMemoryFeedbackReceiptSchema.parse({
+    ...payload,
+    keyId: TEST_KEY_ID,
+    signature: "pending",
+  });
+  const signature = sign(
+    null,
+    Buffer.from(sparkMemoryFeedbackReceiptSigningPayload(unsigned)),
+    testKeys.privateKey,
+  ).toString("base64url");
+  return sparkMemoryFeedbackReceiptSchema.parse({ ...payload, keyId: TEST_KEY_ID, signature });
+}
+
 function deterministicIds(): () => string {
   let index = 0;
   return () => ["record", "receipt", "nonce"][index++] ?? `extra-${index}`;
@@ -68,6 +93,86 @@ function proposalFor(receipt: SparkMemoryDirectIntentReceipt): SparkMemoryPropos
     expiresAt: receipt.expiresAt,
   };
 }
+
+describe("Spark memory feedback receipts", () => {
+  it.each(["tui", "cockpit", "channel"] as const)(
+    "binds exact current-turn positive feedback on %s",
+    async (surface) => {
+      const receipt = await issueFeedbackReceipt({
+        surface,
+        workspaceId: "workspace:feedback",
+        sessionId: "session:feedback",
+        turnId: "turn:feedback",
+        messageId: "message:feedback",
+        prompt: "memory feedback positive memory:ranked",
+        now: NOW,
+        randomId: deterministicIds(),
+      });
+      expect(receipt).toMatchObject({
+        surface,
+        memoryRef: "memory:ranked",
+        outcome: "positive",
+      });
+      expect(
+        await verifySparkMemoryFeedbackReceipt(receipt, {
+          trustedKeyId: TEST_KEY_ID,
+          now: NOW,
+          verifySignature: (payload, signature) =>
+            verify(
+              null,
+              Buffer.from(payload),
+              testKeys.publicKey,
+              Buffer.from(signature, "base64url"),
+            ),
+        }),
+      ).toMatchObject({ ok: true });
+    },
+  );
+
+  it("recognizes only an exact single-line feedback command and classifies invalid bindings", async () => {
+    expect(parseSparkMemoryFeedbackCommand("记忆反馈 负向 memory:wrong")).toEqual({
+      memoryRef: "memory:wrong",
+      outcome: "negative",
+    });
+    expect(
+      parseSparkMemoryFeedbackCommand(
+        "memory feedback positive memory:one\nmemory feedback negative memory:two",
+      ),
+    ).toBeUndefined();
+    const current = await issueFeedbackReceipt({
+      surface: "tui",
+      workspaceId: "workspace:feedback",
+      sessionId: "session:feedback",
+      turnId: "turn:feedback",
+      messageId: "message:feedback",
+      prompt: "memory feedback positive memory:ranked",
+      now: NOW,
+      randomId: deterministicIds(),
+    });
+    expect(classifySparkMemoryFeedbackCurrentTurn(undefined, current)).toEqual({
+      ok: false,
+      code: "MEMORY_FEEDBACK_INVALID",
+    });
+    expect(classifySparkMemoryFeedbackCurrentTurn(current, undefined)).toEqual({
+      ok: false,
+      code: "MEMORY_FEEDBACK_AMBIGUOUS",
+    });
+    for (const [mutation, code] of [
+      [{ messageId: "message:stale" }, "MEMORY_FEEDBACK_STALE_MESSAGE"],
+      [{ turnId: "turn:other" }, "MEMORY_FEEDBACK_CROSS_TURN"],
+      [{ memoryRef: "memory:drift" }, "MEMORY_FEEDBACK_PROPOSAL_DRIFT"],
+    ] as const) {
+      expect(classifySparkMemoryFeedbackCurrentTurn({ ...current, ...mutation }, current)).toEqual({
+        ok: false,
+        code,
+      });
+    }
+    expect(classifySparkMemoryFeedbackCurrentTurn(current, current, { consumed: true })).toEqual({
+      ok: false,
+      code: "MEMORY_FEEDBACK_REPLAYED",
+    });
+  });
+});
 
 describe("Spark memory direct-intent receipts", () => {
   it("normalizes one remember vector across TUI, Cockpit, and channel surfaces", async () => {

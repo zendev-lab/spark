@@ -17,6 +17,7 @@ import {
   createSparkMemoryDirectIntentApprovalProof,
   parseSparkMemoryApprovalProof,
   parseSparkMemoryDirectIntentReceipt,
+  parseSparkMemoryFeedbackReceipt,
   parseSparkMemoryProposal,
   SPARK_MEMORY_DIRECT_INTENT_REASON,
 } from "@zendev-lab/spark-protocol";
@@ -57,6 +58,10 @@ import {
   memoryLineageProposalArtifactContentRef,
   type CreateMemoryLineageProposalInput,
 } from "./proposals.ts";
+import {
+  defaultRetrievalTelemetryStore,
+  type RetrievalTelemetryStore,
+} from "./retrieval-telemetry.ts";
 import type { RecallStorePaths } from "./recall-store.ts";
 
 export type SparkMemoryAction =
@@ -65,6 +70,7 @@ export type SparkMemoryAction =
   | "search"
   | "status"
   | "forget"
+  | "feedback"
   | "import_legacy"
   | "record"
   | "record_candidate"
@@ -111,6 +117,9 @@ export interface SparkMemoryToolOptions {
     ctx: SparkHostContext,
   ) => Promise<MemoryApprovalVerifier> | MemoryApprovalVerifier;
   workspaceId?: (cwd: string, ctx: SparkHostContext) => string;
+  createRetrievalTelemetryStore?: (
+    cwd: string,
+  ) => Pick<RetrievalTelemetryStore, "record" | "list" | "reset">;
   /**
    * Register Pi-memory compatibility aliases
    * (`memory_write`, `memory_read`, `scratchpad`, `memory_search`, `memory_status`).
@@ -218,7 +227,7 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
     parameters: Type.Object({
       action: Type.String({
         description:
-          "entry: remember|recall|search|status|forget|import_legacy; learning: record|list|read|search|mark_stale|supersede|reject|export_markdown|import_markdown; lineage (entry/learning): propose_update|propose_merge|propose_supersede|apply_proposal|lineage|get_revision; candidate: record|list|search|audit|gc|promote|restore|reject",
+          "entry: remember|recall|search|status|forget|feedback|import_legacy; learning: record|list|read|search|mark_stale|supersede|reject|export_markdown|import_markdown; lineage (entry/learning): propose_update|propose_merge|propose_supersede|apply_proposal|lineage|get_revision; candidate: record|list|search|audit|gc|promote|restore|reject",
       }),
       kind: Type.Optional(Type.String({ description: "entry (default) | learning | candidate" })),
       scope: Type.Optional(Type.String({ description: "user | workspace | repo" })),
@@ -277,6 +286,9 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
       tag: Type.Optional(Type.String()),
       outputPath: Type.Optional(Type.String()),
       inputPath: Type.Optional(Type.String()),
+      outcome: Type.Optional(
+        Type.String({ description: "Feedback outcome: positive | negative." }),
+      ),
       sourceDir: Type.Optional(
         Type.String({ description: "Legacy pi-memory directory for action=import_legacy." }),
       ),
@@ -320,6 +332,66 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
       let authorization = normalizeMemoryMutationAuthorization(params);
       const verifier = await options.createApprovalVerifier?.(cwd, ctx);
       const workspaceId = options.workspaceId?.(cwd, ctx) ?? cwd;
+      if (params.action === "feedback") {
+        const memoryRef = requiredString(params.ref ?? params.id, "ref");
+        const outcome = requiredFeedbackOutcome(params.outcome);
+        let receipt;
+        try {
+          receipt = parseSparkMemoryFeedbackReceipt(ctx.memoryFeedback);
+        } catch {
+          return result("Feedback observed but not trusted for retrieval ranking.", {
+            trusted: false,
+            code: "MEMORY_FEEDBACK_AMBIGUOUS",
+            mutationPerformed: false,
+          });
+        }
+        if (receipt.memoryRef !== memoryRef || receipt.outcome !== outcome) {
+          return result("Feedback observed but not trusted for retrieval ranking.", {
+            trusted: false,
+            code: "MEMORY_FEEDBACK_PROPOSAL_DRIFT",
+            mutationPerformed: false,
+          });
+        }
+        if (!ctx.verifyMemoryFeedback || !ctx.commitMemoryFeedback || !ctx.releaseMemoryFeedback) {
+          return result("Feedback observed but not trusted for retrieval ranking.", {
+            trusted: false,
+            code: "MEMORY_FEEDBACK_INVALID",
+            mutationPerformed: false,
+          });
+        }
+        const verified = await ctx.verifyMemoryFeedback(receipt);
+        if (!verified?.ok) {
+          return result("Feedback observed but not trusted for retrieval ranking.", {
+            trusted: false,
+            code: verified?.code ?? "MEMORY_FEEDBACK_INVALID",
+            mutationPerformed: false,
+          });
+        }
+        const telemetry =
+          options.createRetrievalTelemetryStore?.(cwd) ?? defaultRetrievalTelemetryStore(cwd);
+        let recorded;
+        try {
+          recorded = await telemetry.record({
+            memoryRef,
+            outcome: outcome === "positive" ? "successful_use" : "negative_feedback",
+            idempotencyKey: receipt.receiptId,
+            at: receipt.issuedAt,
+          });
+        } catch (error) {
+          ctx.releaseMemoryFeedback(receipt);
+          throw error;
+        }
+        if (!ctx.commitMemoryFeedback(receipt)) {
+          throw new Error("MEMORY_FEEDBACK_REPLAYED: feedback reservation was not current");
+        }
+        return result("Trusted current-turn feedback recorded for retrieval ranking.", {
+          trusted: true,
+          memoryRef,
+          outcome,
+          idempotent: recorded.idempotent,
+          mutationPerformed: false,
+        });
+      }
       assertDirectIntentToolActionAllowed(ctx, kind, params.action);
       const lineageAction = normalizeMemoryLineageAction(params.action);
       if (isMemoryLineageProposalAction(lineageAction)) {
@@ -1167,6 +1239,11 @@ function isMemoryLineageProposalAction(
   value: ReturnType<typeof normalizeMemoryLineageAction>,
 ): value is "propose_update" | "propose_merge" | "propose_supersede" {
   return value === "propose_update" || value === "propose_merge" || value === "propose_supersede";
+}
+
+function requiredFeedbackOutcome(value: unknown): "positive" | "negative" {
+  if (value === "positive" || value === "negative") return value;
+  throw new Error("feedback outcome must be positive or negative");
 }
 
 function normalizeMemoryEntryAction(

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 
 import {
   SparkAgentSession,
@@ -13,6 +13,7 @@ import {
   type SparkCliHostServicesOptions,
   type SparkConfig,
 } from "../host/index.ts";
+import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
 import {
   SPARK_PROMPT_ITEM_METADATA_KEY,
   SparkTurnRestartYieldError,
@@ -235,6 +236,65 @@ test("SparkAgentSession persists and resumes JSONL sessions", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test.each(["stale-message", "cross-turn", "proposal-drift", "ambiguous", "replayed"] as const)(
+  "SparkAgentSession rejects local feedback case %s before trusted telemetry",
+  async (name) => {
+    const dir = await mkdtemp(join(tmpdir(), `spark-agent-feedback-${name}-`));
+    try {
+      const cwd = join(dir, "repo");
+      const sparkHome = join(dir, ".spark");
+      await mkdir(cwd, { recursive: true });
+      const services = await makeFakeServices({ cwd, sparkHome });
+      const authority = createSparkMemoryDirectIntentTurnAuthority();
+      const writer = vi.fn();
+      services.memoryDirectIntentAuthority = {
+        ...authority,
+        clear() {},
+        async issueFeedback(input) {
+          if (name === "ambiguous") return undefined;
+          const receipt = await authority.issueFeedback(input);
+          if (!receipt) return undefined;
+          if (name === "replayed") await authority.verifyCurrentFeedback(receipt);
+          if (name === "stale-message") return { ...receipt, messageId: "message:stale" };
+          if (name === "cross-turn") return { ...receipt, turnId: "turn:other" };
+          if (name === "proposal-drift") return { ...receipt, memoryRef: "memory:drift" };
+          return receipt;
+        },
+      };
+      const result = await new SparkAgentSession(services).run({
+        sessionId: `session-feedback-${name}`,
+        prompt: "memory feedback positive memory:ranked",
+      });
+      const session = await services.sessionStore.load(result.sessionPath);
+      const user = session.entries.find(
+        (entry) => entry.type === "message" && entry.message.role === "user",
+      );
+      const receipt =
+        user?.type === "message"
+          ? (user.message.metadata as Record<string, unknown> | undefined)?.memoryFeedback
+          : undefined;
+      const verified = await authority.verifyCurrentFeedback(receipt);
+      if (verified.ok) writer();
+      assert.deepEqual(verified, {
+        ok: false,
+        code:
+          name === "stale-message"
+            ? "MEMORY_FEEDBACK_STALE_MESSAGE"
+            : name === "cross-turn"
+              ? "MEMORY_FEEDBACK_CROSS_TURN"
+              : name === "proposal-drift"
+                ? "MEMORY_FEEDBACK_PROPOSAL_DRIFT"
+                : name === "replayed"
+                  ? "MEMORY_FEEDBACK_REPLAYED"
+                  : "MEMORY_FEEDBACK_AMBIGUOUS",
+      });
+      assert.equal(writer.mock.calls.length, 0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+);
 
 test("SparkAgentSession signs and persists one exact local direct-memory turn", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-direct-intent-"));

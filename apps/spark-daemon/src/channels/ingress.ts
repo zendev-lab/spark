@@ -42,6 +42,7 @@ import {
   parseSparkAssignment,
   type SparkAssignment,
   type SparkMemoryDirectIntentReceipt,
+  type SparkMemoryFeedbackReceipt,
   type SparkMessageView,
   type SparkQqbotQrAuthFlow,
   type SparkSessionRegistryRecord,
@@ -80,6 +81,8 @@ export interface ChannelIngressAssignment {
   channelContext?: SparkDaemonChannelContext;
   /** Host-signed direct memory intent bound to this exact platform message. */
   memoryDirectIntent?: SparkMemoryDirectIntentReceipt;
+  /** Host-signed exact-current-turn positive/negative Memory feedback. */
+  memoryFeedback?: SparkMemoryFeedbackReceipt;
 }
 
 export interface ChannelIngressHooks {
@@ -332,7 +335,11 @@ export async function migrateLegacyChannelsConfig(
   } catch (error) {
     throw new Error(`invalid legacy channels config: ${legacy}`, { cause: error });
   }
-  parseChannelsConfig(parsed);
+  try {
+    parseChannelsConfig(parsed);
+  } catch (error) {
+    throw new Error(`invalid legacy channels config schema: ${legacy}`, { cause: error });
+  }
   await mkdir(dirname(dest), { recursive: true });
   writePrivateFile(dest, raw.endsWith("\n") ? raw : `${raw}\n`);
   try {
@@ -485,6 +492,16 @@ export function createChannelIngressController(input: {
       messageId: `message:${directIntentMessageId}`,
       prompt: rawGoal,
     });
+    const memoryFeedback = await (
+      input.memoryDirectIntentAuthority ?? channelMemoryDirectIntentAuthority
+    ).issueFeedback({
+      surface: "channel",
+      workspaceId: input.workspaceId,
+      sessionId: session.sessionId,
+      turnId: `turn:${directIntentMessageId}`,
+      messageId: `message:${directIntentMessageId}`,
+      prompt: rawGoal,
+    });
     try {
       admission = await input.hooks.onAssignment({
         sessionId: session.sessionId,
@@ -506,6 +523,7 @@ export function createChannelIngressController(input: {
         },
         channelContext: channelContextFromIncoming(enrichedMessage),
         ...(memoryDirectIntent ? { memoryDirectIntent } : {}),
+        ...(memoryFeedback ? { memoryFeedback } : {}),
       });
     } catch (error) {
       try {

@@ -782,6 +782,18 @@ export interface SparkHostContext {
    * signer private and expose only this verification input to capability code.
    */
   memoryDirectIntent?: unknown;
+  /** Host-signed exact-current-turn positive/negative feedback receipt. */
+  memoryFeedback?: unknown;
+  /** Host-private verification closure; successful verification consumes the receipt once. */
+  verifyMemoryFeedback?: (
+    value: unknown,
+  ) =>
+    | Promise<{ ok: boolean; code?: string; receipt?: unknown }>
+    | { ok: boolean; code?: string; receipt?: unknown };
+  /** Host-private commit after the telemetry transaction is durably persisted. */
+  commitMemoryFeedback?: (value: unknown) => boolean;
+  /** Release a verified reservation after telemetry persistence fails. */
+  releaseMemoryFeedback?: (value: unknown) => boolean;
   /** Host-private verification closure for the exact active turn receipt. */
   verifyMemoryDirectIntent?: (value: unknown) => Promise<boolean> | boolean;
   /** Present only inside a daemon-owned autonomous driver tick. */
