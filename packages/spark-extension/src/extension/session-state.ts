@@ -92,9 +92,7 @@ export async function saveSparkGraphAndTodos(
   ctx?: SparkSessionContext,
   store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx)),
 ): Promise<void> {
-  await store.withLock(async () => {
-    await store.save(graph);
-  });
+  await store.save(graph);
 }
 
 export function sparkTodoStore(
