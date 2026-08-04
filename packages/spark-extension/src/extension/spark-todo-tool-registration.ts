@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import type { TaskPlanItem } from "@zendev-lab/spark-core";
 import {
   applyIndependentTodoOps,
   defaultTaskGraphStore,
@@ -8,7 +9,7 @@ import {
   type TaskTodoOp,
 } from "@zendev-lab/spark-tasks";
 import { currentSparkProject, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
-import { loadIndependentTodos, saveIndependentTodos } from "./session-todos.ts";
+import { loadIndependentTodos, updateIndependentTodos } from "./session-todos.ts";
 import { NO_SPARK_PROJECT_FOUND_HINT } from "./spark-project-guidance.ts";
 import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
 import { normalizeOptionalToolString, normalizeToolStringArray } from "./task-plan-tool.ts";
@@ -93,18 +94,17 @@ export function registerSparkTodoTools(
           content: [{ type: "text", text: "todo op is required." }],
           details: { error: "missing_op" },
         };
-      const before = await loadIndependentTodos(cwd, ctx);
-      const todos = applyIndependentTodoOps(before, [op]);
-      await saveIndependentTodos(cwd, ctx, todos);
-      const persisted = await loadIndependentTodos(cwd, ctx);
+      const mutation = await updateIndependentTodos(cwd, ctx, (todos) =>
+        applyIndependentTodoOps(todos, [op]),
+      );
       await deps.refreshSparkWidget(cwd, ctx);
-      return renderTodoMutation(action, before, persisted);
+      return renderTodoMutation(action, mutation.before, mutation.todos);
     },
   });
 
   registerSparkTool({
     name: "impl_update_task_plan_items",
-    label: "Spark Update Task plan items",
+    label: "Spark Update Task Plan Items",
     description:
       "Implementation for task_write({ action: 'plan_update', scope: 'task' }): update plan items attached to this session's one currently claimed unfinished task. Only claimed unfinished tasks can have task plan items modified.",
     parameters: Type.Object({
@@ -113,6 +113,9 @@ export function registerSparkTodoTools(
           description:
             "Claimed task ref, title, or title prefix. Defaults to current claimed task.",
         }),
+      ),
+      taskRef: Type.Optional(
+        Type.String({ description: "Claimed task ref/name/title selector; alias for task." }),
       ),
       ops: Type.Array(
         Type.Object({
@@ -130,7 +133,12 @@ export function registerSparkTodoTools(
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = ctx.cwd;
-      const taskSelector = normalizeOptionalToolString(params.task, "task");
+      const taskSelector = normalizeAliasedOptionalString(
+        params.taskRef,
+        params.task,
+        "taskRef",
+        "task",
+      );
       const ops = normalizeSparkTodoOps(params.ops);
       if (!ops)
         return {
@@ -149,8 +157,18 @@ export function registerSparkTodoTools(
             taskSelector,
           );
           if (!task) return { error: "no_matching_claimed_task" as const };
-          graph.applyTodoOps(task.ref, ops);
-          return { task: graph.getTask(task.ref) };
+          const beforeItems = task.plan.items ?? [];
+          const mutated = graph.applyTodoOps(task.ref, ops);
+          if (ops.some((op) => op.op === "init")) return { task: mutated };
+          const items = preserveTaskPlanItemMetadata(beforeItems, mutated.plan.items ?? []);
+          const preserved = graph.updateTask(mutated.ref, {
+            plan: {
+              ...mutated.plan,
+              items,
+              steps: items.map((item) => item.title),
+            },
+          });
+          return { task: preserved };
         },
         { createIfMissing: false },
       );
@@ -183,6 +201,38 @@ export function registerSparkTodoTools(
       };
     },
   });
+}
+
+export function preserveTaskPlanItemMetadata(
+  before: readonly TaskPlanItem[],
+  after: readonly TaskPlanItem[],
+): TaskPlanItem[] {
+  const previousById = new Map(before.map((item) => [item.id, item]));
+  return after.map((item) => {
+    const previous = previousById.get(item.id);
+    if (!previous) return item;
+    return {
+      ...item,
+      ...(previous.description !== undefined ? { description: previous.description } : {}),
+      ...(previous.evidenceRefs !== undefined
+        ? { evidenceRefs: [...previous.evidenceRefs] }
+        : {}),
+    };
+  });
+}
+
+function normalizeAliasedOptionalString(
+  preferred: unknown,
+  alias: unknown,
+  preferredPath: string,
+  aliasPath: string,
+): string | undefined {
+  const preferredValue = normalizeOptionalToolString(preferred, preferredPath);
+  const aliasValue = normalizeOptionalToolString(alias, aliasPath);
+  if (preferredValue && aliasValue && preferredValue !== aliasValue) {
+    throw new Error(`${preferredPath} and ${aliasPath} must select the same value when both are set`);
+  }
+  return preferredValue ?? aliasValue;
 }
 
 function unfinishedCount(todos: SessionTodoEntry[]): number {
