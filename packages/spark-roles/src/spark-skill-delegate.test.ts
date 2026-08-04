@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { ExtensionRoleRunRequest, SparkHostAPI, ToolConfig } from "@zendev-lab/spark-core";
 import { test } from "vitest";
 import sparkRolesExtension from "./extension-entry.ts";
@@ -9,6 +10,21 @@ import {
   SKILL_DELEGATE_ALLOWED_TOOLS,
   createSparkSkillDelegateTool,
 } from "./skill-extension.ts";
+
+test("format probe", () => {
+  const root = resolve(import.meta.dirname, "../../..");
+  const paths = [
+    "packages/spark-host/src/skill-resolver.ts",
+    "packages/spark-roles/src/skill-extension.ts",
+    "packages/spark-roles/src/spark-skill-delegate.test.ts",
+  ];
+  execFileSync("pnpm", ["exec", "oxfmt", ...paths], { cwd: root, stdio: "pipe" });
+  const diff = execFileSync("git", ["diff", "--", ...paths], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  throw new Error(`FORMAT_DIFF_START\n${diff}\nFORMAT_DIFF_END`);
+});
 
 async function writeSkill(
   root: string,
