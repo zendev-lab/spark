@@ -527,7 +527,8 @@ describe("Spark daemon CLI", () => {
     const code = await withTempSparkEnv(async (root) => {
       mkdirSync(join(root, "checkout"));
       process.env.INIT_CWD = root;
-      return await main(
+      const paths = resolveSparkPaths({ app: "daemon" });
+      const exitCode = await main(
         [
           "ws",
           "register",
@@ -539,6 +540,8 @@ describe("Spark daemon CLI", () => {
         ],
         capture.io,
       );
+      expect(existsSync(paths.databasePath)).toBe(false);
+      return exitCode;
     });
 
     expect(code).toBe(3);
@@ -2292,7 +2295,9 @@ describe("Spark daemon CLI", () => {
         ),
       ).resolves.toBe(0);
 
-      const conflictCapture = createCliIo();
+      const startService = vi.fn();
+      const registerWorkspaceInService = vi.fn();
+      const conflictCapture = createCliIo({ startService, registerWorkspaceInService });
       await expect(
         main(
           [
@@ -2309,6 +2314,8 @@ describe("Spark daemon CLI", () => {
         ),
       ).resolves.toBe(3);
       expect(conflictCapture.stderr()).toContain("cannot be nested with registered workspace");
+      expect(startService).not.toHaveBeenCalled();
+      expect(registerWorkspaceInService).not.toHaveBeenCalled();
     });
   });
 

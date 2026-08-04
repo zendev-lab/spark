@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { DatabaseSync } from "node:sqlite";
 import { resolvePiAuthSourcePath } from "@zendev-lab/spark-ai/control";
 import type { SparkAuthFlow, SparkAuthImportReport } from "@zendev-lab/spark-protocol";
 import { gitCommand, resolveSparkPaths } from "@zendev-lab/spark-system";
@@ -68,6 +69,7 @@ import {
   type RegisterWorkspaceOptions,
   type SparkDaemonWorkspace,
   type WorkspaceProfileRegistration,
+  planWorkspaceRegistration,
   workspaceNameForPath,
   WorkspacePathConflictError,
 } from "./store/workspaces.js";
@@ -878,10 +880,6 @@ async function registerWorkspaceCommand(
   }
   const displayName =
     flags.name ?? (interactive ? await promptWorkspaceName(localPath, io) : undefined);
-  const profile = await resolveWorkspaceProfile(localPath, flags, io, {
-    allowDetectedPrompt: interactive,
-  });
-
   const workspaceOptions: WorkspaceRegistrationRequest = {
     serverUrl,
     localPath,
@@ -893,8 +891,12 @@ async function registerWorkspaceCommand(
     ...(displayName ? { displayName } : {}),
     ...(flags["workspace-name"] ? { workspaceName: flags["workspace-name"] } : {}),
     ...(flags["workspace-slug"] ? { workspaceSlug: flags["workspace-slug"] } : {}),
-    ...(profile ? { profile } : {}),
   };
+  preflightWorkspaceRegistration(paths, workspaceOptions);
+  const profile = await resolveWorkspaceProfile(localPath, flags, io, {
+    allowDetectedPrompt: interactive,
+  });
+  if (profile) workspaceOptions.profile = profile;
   const added = await registerWorkspaceForCli(paths, workspaceOptions, io);
   io.stdout.write(
     `✓ workspace '${added.displayName}' registered\n` +
@@ -910,6 +912,27 @@ async function registerWorkspaceCommand(
     io.stdout.write("Spark daemon is running.\n");
   }
   return 0;
+}
+
+function preflightWorkspaceRegistration(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  options: WorkspaceRegistrationRequest,
+): void {
+  if (!existsSync(paths.databasePath)) return;
+
+  // The daemon is the only writer for daemon-local state. The CLI may inspect
+  // an existing schema to reject obvious conflicts before starting the
+  // service, but it must not apply PRAGMAs or schema migrations itself.
+  const db = new DatabaseSync(paths.databasePath, { readOnly: true });
+  try {
+    const { registrationToken, ...registration } = options;
+    planWorkspaceRegistration(db, {
+      ...registration,
+      ...(registrationToken ? { allowLocalPathRebind: true } : {}),
+    });
+  } finally {
+    db.close();
+  }
 }
 
 function workspaceAuthorizationText(workspace: SparkDaemonWorkspace, serverUrl: string): string {
