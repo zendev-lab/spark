@@ -1,25 +1,25 @@
 {
-  "basePath": "../spark-tasks",
+  "basePath": "../..",
   "packageManager": "pnpm",
   "testRunner": "vitest",
   "plugins": ["@stryker-mutator/vitest-runner"],
   "vitest": {
-    "configFile": "vitest.mutation.config.ts",
+    "configFile": "packages/spark-tasks/vitest.mutation.config.ts",
     "related": false
   },
   "mutator": {
     "excludedMutations": ["StringLiteral"]
   },
-  "ignorePatterns": ["reports", ".stryker-tmp"],
+  "ignorePatterns": ["packages/spark-tasks/reports", ".stryker-tmp"],
   "reporters": ["clear-text", "progress", "html", "json"],
   "htmlReporter": {
-    "fileName": "reports/mutation/session-todos.html"
+    "fileName": "packages/spark-tasks/reports/mutation/session-todos.html"
   },
   "jsonReporter": {
-    "fileName": "reports/mutation/session-todos.json"
+    "fileName": "packages/spark-tasks/reports/mutation/session-todos.json"
   },
   "incremental": true,
-  "incrementalFile": "reports/mutation/session-todos-incremental.json",
+  "incrementalFile": "packages/spark-tasks/reports/mutation/session-todos-incremental.json",
   "coverageAnalysis": "perTest",
   "thresholds": {
     "high": 90,
@@ -29,5 +29,5 @@
   "timeoutMS": 30000,
   "concurrency": 2,
   "ignoreStatic": true,
-  "mutate": ["src/todo-store.ts:108:0-172:0"]
+  "mutate": ["packages/spark-tasks/src/todo-store.ts:108:0-172:0"]
 }
