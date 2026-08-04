@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "description": "Exact debt inventory for weak production version diagnostics. New entries are forbidden; remove entries by making diagnostics actionable.",
+  "violations": [
+    {
+      "path": "apps/spark-cockpit/src/lib/server/workspace-profiles.ts",
+      "fingerprint": "30d7327655c60a7c",
+      "count": 1,
+      "lines": [106],
+      "missing": ["received value", "supported value", "source/boundary", "recovery action"],
+      "message": "Unsupported profile schemaVersion: ${value}"
+    },
+    {
+      "path": "apps/spark-daemon/src/core/types.ts",
+      "fingerprint": "e8a40dacc499532b",
+      "count": 1,
+      "lines": [475],
+      "missing": ["received value", "supported value", "source/boundary", "recovery action"],
+      "message": "daemon task restartCheckpoint has an unsupported version or phase"
+    },
+    {
+      "path": "apps/spark-daemon/src/session-scope-migration.ts",
+      "fingerprint": "23883ee4d0a1ba9a",
+      "count": 1,
+      "lines": [165],
+      "missing": ["received value", "supported value", "source/boundary", "recovery action"],
+      "message": "session registry readback version mismatch: ${value}"
+    },
+    {
+      "path": "apps/spark-daemon/src/session-scope-migration.ts",
+      "fingerprint": "6a0fbd4cc4ba2106",
+      "count": 1,
+      "lines": [107],
+      "missing": ["received value", "supported value", "source/boundary", "recovery action"],
+      "message": "unsupported session registry version: ${value}"
+    },
+    {
+      "path": "packages/spark-ai/src/control/auth.ts",
+      "fingerprint": "2d1cfe4a86d5e5eb",
+      "count": 1,
+      "lines": [571],
+      "missing": ["received value", "supported value", "recovery action"],
+      "message": "Unsupported Spark auth store version: ${value}"
+    },
+    {
+      "path": "packages/spark-artifacts/src/index.ts",
+      "fingerprint": "d3510026e8d11930",
+      "count": 1,
+      "lines": [855],
+      "missing": ["received value", "source/boundary", "recovery action"],
+      "message": "transcriptRetention.schemaVersion must be 1"
+    },
+    {
+      "path": "packages/spark-cue/src/client/cue-client.ts",
+      "fingerprint": "e311b8a1fe6ac1e3",
+      "count": 1,
+      "lines": [1170],
+      "missing": ["received value", "supported value", "source/boundary"],
+      "message": "cue-shell daemon IPC protocol version ${value} is older than required ${value} ; upgrade/restart cued"
+    },
+    {
+      "path": "packages/spark-extension/src/repro-report-summary.ts",
+      "fingerprint": "faf04251dd36bd29",
+      "count": 1,
+      "lines": [38],
+      "missing": ["received value", "supported value", "source/boundary", "recovery action"],
+      "message": "unsupported Repro work summary schema: ${value}"
+    },
+    {
+      "path": "packages/spark-memory/src/lifecycle.ts",
+      "fingerprint": "33be98dda958d6b4",
+      "count": 1,
+      "lines": [270],
+      "missing": ["received value", "source/boundary", "recovery action"],
+      "message": "${value} .schemaVersion must be ${value}"
+    },
+    {
+      "path": "packages/spark-memory/src/quarantine.ts",
+      "fingerprint": "65210cb1a4ba00b3",
+      "count": 1,
+      "lines": [341],
+      "missing": ["received value", "recovery action"],
+      "message": "MEMORY_QUARANTINE_INVALID manifest schemaVersion must be 1"
+    },
+    {
+      "path": "packages/spark-session/src/registry.ts",
+      "fingerprint": "876fea7509c6ba23",
+      "count": 1,
+      "lines": [1069],
+      "missing": ["received value", "supported value", "source/boundary", "recovery action"],
+      "message": "invalid_registry unsupported registry version: ${value}"
+    }
+  ]
+}
