@@ -8,7 +8,12 @@ export default defineConfig({
   root: packageRoot,
   test: {
     environment: "node",
-    include: ["src/extension/spark-status.mutation.test.ts"],
+    include: [
+      "src/extension/spark-finish-task-tool-registration.test.ts",
+      "src/extension/spark-release-task-claim-tool-registration.test.ts",
+      "src/extension/spark-todo-tool-registration.test.ts",
+      "src/extension/task-tool-contract.test.ts",
+    ],
     pool: "forks",
     fileParallelism: false,
     maxWorkers: 1,
