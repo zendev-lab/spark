@@ -26,6 +26,11 @@ export interface TaskTodoLegacyImportResult {
   imported: number;
 }
 
+export interface SessionTodoUpdateResult {
+  before: SessionTodoEntry[];
+  todos: SessionTodoEntry[];
+}
+
 interface TaskTodoRowInput {
   ownerKind: TodoRecordOwnerKind;
   ownerRef: string;
@@ -122,17 +127,31 @@ export class TaskTodoStore {
     todos: SessionTodoEntry[],
     options: { projectRef?: ProjectRef } = {},
   ): Promise<void> {
+    await this.updateSessionTodos(ownerRef, () => todos, options);
+  }
+
+  async updateSessionTodos(
+    ownerRef: string,
+    update: (todos: SessionTodoEntry[]) => SessionTodoEntry[],
+    options: { projectRef?: ProjectRef } = {},
+  ): Promise<SessionTodoUpdateResult> {
     const normalizedOwnerRef = normalizeOwnerRef(ownerRef);
-    const rows = todos.map((todo, index) =>
-      sessionTodoRowInput(normalizedOwnerRef, todo, index, options),
-    );
     const db = await this.openRequiredDatabase();
     try {
-      writeTransaction(db, () => {
+      return writeTransaction(db, () => {
+        const before = selectSessionTodos(db, normalizedOwnerRef, this.filePath);
+        const todos = cloneSessionTodos(update(cloneSessionTodos(before)));
+        const rows = todos.map((todo, index) =>
+          sessionTodoRowInput(normalizedOwnerRef, todo, index, options),
+        );
         db.prepare("DELETE FROM todo_items WHERE owner_kind = 'session' AND owner_ref = ?").run(
           normalizedOwnerRef,
         );
         for (const row of rows) insertTodoRow(db, row, "insert");
+        return {
+          before,
+          todos: selectSessionTodos(db, normalizedOwnerRef, this.filePath),
+        };
       });
     } finally {
       db.close();
@@ -144,14 +163,7 @@ export class TaskTodoStore {
     const db = await this.openDatabase({ create: false });
     if (!db) return [];
     try {
-      return db
-        .prepare(
-          `SELECT * FROM todo_items
-           WHERE owner_kind = 'session' AND owner_ref = ?
-           ORDER BY position, display_number, created_at, id`,
-        )
-        .all(normalizedOwnerRef)
-        .map((row) => rowToSessionTodo(row, this.filePath));
+      return selectSessionTodos(db, normalizedOwnerRef, this.filePath);
     } finally {
       db.close();
     }
@@ -315,6 +327,29 @@ function insertTodoRow(db: DatabaseSync, row: TaskTodoRowInput, mode: "insert" |
     row.updatedAt ?? row.createdAt ?? nowIso(),
     row.deletedAt ?? null,
   );
+}
+
+function selectSessionTodos(
+  db: DatabaseSync,
+  ownerRef: string,
+  filePath: string,
+): SessionTodoEntry[] {
+  return db
+    .prepare(
+      `SELECT * FROM todo_items
+       WHERE owner_kind = 'session' AND owner_ref = ?
+       ORDER BY position, display_number, created_at, id`,
+    )
+    .all(ownerRef)
+    .map((row) => rowToSessionTodo(row, filePath));
+}
+
+function cloneSessionTodos(todos: readonly SessionTodoEntry[]): SessionTodoEntry[] {
+  return todos.map((todo) => ({
+    ...todo,
+    notes: todo.notes ? [...todo.notes] : undefined,
+    blockedBy: todo.blockedBy ? [...todo.blockedBy] : undefined,
+  }));
 }
 
 function rowToTaskTodo(row: unknown, filePath: string): TaskTodo {
