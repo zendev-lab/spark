@@ -4,6 +4,7 @@ import type {
   SparkProviderControlSnapshot,
 } from "@zendev-lab/spark-ai/control";
 import {
+  DEFAULT_SPARK_THINKING_LEVEL,
   parseSparkAuthFlow,
   parseSparkModelControlSnapshot,
   type SparkAuthImportReport,
@@ -172,9 +173,9 @@ class DaemonModelControl implements SparkDaemonModelControl {
   }
 
   async effectiveThinkingLevel(sessionId?: string): Promise<SparkThinkingLevel | undefined> {
-    if (!sessionId) return undefined;
+    if (!sessionId) return DEFAULT_SPARK_THINKING_LEVEL;
     const snapshot = await this.snapshot(sessionId);
-    return snapshot.session?.thinkingLevel;
+    return snapshot.session?.thinkingLevel ?? DEFAULT_SPARK_THINKING_LEVEL;
   }
 
   async prepareModel(model: SparkModelRef): Promise<void> {

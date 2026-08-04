@@ -32,6 +32,7 @@ test("default Spark providers include shared Baidu OneAPI and OpenAI Codex adapt
     DEFAULT_SPARK_CONFIG.extensionProfileVersion,
     CURRENT_SPARK_EXTENSION_PROFILE_VERSION,
   );
+  assert.equal(DEFAULT_SPARK_CONFIG.activeThinkingLevel, "high");
 });
 
 test("Compact V2 config defaults to 40% reduction and current session model", () => {
@@ -226,6 +227,7 @@ test("loadSparkConfig returns default config when file is missing", async () => 
     assert.deepEqual(config.providers, DEFAULT_SPARK_CONFIG.providers);
     assert.equal(config.activeModelId, undefined);
     assert.equal(config.activeProvider, undefined);
+    assert.equal(config.activeThinkingLevel, "high");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -344,6 +346,6 @@ test("mergeSparkConfigWithDefault tolerates missing keys, partial inputs, and bo
   assert.equal(merged.activeModelId, "claude-opus-4.6");
   assert.equal(merged.activeProvider, undefined);
   assert.equal(merged.activeModel, "claude-opus-4.6");
-  assert.equal(merged.activeThinkingLevel, undefined);
+  assert.equal(merged.activeThinkingLevel, "high");
   assert.equal("fusion" in merged, false);
 });
