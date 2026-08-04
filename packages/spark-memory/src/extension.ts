@@ -14,10 +14,14 @@ import {
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import {
+  createSparkMemoryDirectIntentApprovalProof,
   parseSparkMemoryApprovalProof,
+  parseSparkMemoryDirectIntentReceipt,
   parseSparkMemoryProposal,
+  SPARK_MEMORY_DIRECT_INTENT_REASON,
 } from "@zendev-lab/spark-protocol";
 import {
+  createMemoryProposal,
   MemoryApprovalError,
   type MemoryApprovalVerifier,
   type MemoryMutationAuthorization,
@@ -290,9 +294,10 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
       const cwd = requiredStateCwd(ctx);
       await migrateSparkMemoryLayout({ cwd });
       const kind = normalizeMemoryKind(params.kind);
-      const authorization = normalizeMemoryMutationAuthorization(params);
+      let authorization = normalizeMemoryMutationAuthorization(params);
       const verifier = await options.createApprovalVerifier?.(cwd, ctx);
       const workspaceId = options.workspaceId?.(cwd, ctx) ?? cwd;
+      assertDirectIntentToolActionAllowed(ctx, kind, params.action);
       if (kind === "candidate") {
         return executeMemoryCandidateAction({
           params,
@@ -321,14 +326,44 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
       });
 
       if (action === "remember") {
+        const directReceipt = directIntentReceipt(ctx, "remember");
+        const entryScope = normalizeOptionalScope(params.scope) ?? "workspace";
+        const category =
+          params.category === undefined && directReceipt
+            ? "insight"
+            : normalizeSparkMemoryCategory(params.category);
+        const text = requiredString(params.text, "text");
+        const reason =
+          params.reason === undefined && directReceipt
+            ? SPARK_MEMORY_DIRECT_INTENT_REASON
+            : requiredString(params.reason, "reason");
+        const evidenceRefs = normalizeStringArray(params.evidenceRefs, "evidenceRefs");
+        const tags = normalizeStringArray(params.tags, "tags");
+        authorization ??= await directIntentAuthorization({
+          ctx,
+          workspaceId,
+          operation: "remember",
+          scope: entryScope,
+          recordRef: directReceipt?.recordRef,
+          expectedRevision: 0,
+          content: {
+            category,
+            text,
+            reason,
+            evidenceRefs,
+            tags,
+            status: "active",
+            forgottenReason: null,
+          },
+        });
         const entry = await store.remember({
           id: authorization?.proposal.recordRef,
-          scope,
-          category: normalizeSparkMemoryCategory(params.category),
-          text: requiredString(params.text, "text"),
-          reason: requiredString(params.reason, "reason"),
-          evidenceRefs: normalizeStringArray(params.evidenceRefs, "evidenceRefs"),
-          tags: normalizeStringArray(params.tags, "tags"),
+          scope: entryScope,
+          category,
+          text,
+          reason,
+          evidenceRefs,
+          tags,
           authorization,
         });
         return result(`Remembered ${entry.id} (${entry.category}, ${entry.scope}).`, { entry });
@@ -401,11 +436,42 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
       }
 
       if (action === "forget") {
-        const entry = await store.forget(
-          requiredString(params.id, "id"),
-          requiredString(params.reason, "reason"),
-          authorization,
-        );
+        const id = requiredString(params.id, "id");
+        const directReceipt = directIntentReceipt(ctx, "forget");
+        const reason =
+          params.reason === undefined && directReceipt
+            ? SPARK_MEMORY_DIRECT_INTENT_REASON
+            : requiredString(params.reason, "reason");
+        if (directReceipt && reason !== SPARK_MEMORY_DIRECT_INTENT_REASON) {
+          throw new MemoryApprovalError(
+            "MEMORY_APPROVAL_PROPOSAL_MISMATCH",
+            "host direct-intent forget reason does not match the frozen proposal",
+          );
+        }
+        if (!authorization && directReceipt) {
+          const current = (await store.list({ includeForgotten: true })).find(
+            (entry) => entry.id === id,
+          );
+          if (!current) throw new Error(`memory entry not found: ${id}`);
+          authorization = await directIntentAuthorization({
+            ctx,
+            workspaceId,
+            operation: "forget",
+            scope: current.scope,
+            recordRef: id,
+            expectedRevision: current.lifecycle.revision.version,
+            content: {
+              category: current.category,
+              text: current.text,
+              reason: current.reason,
+              evidenceRefs: current.evidenceRefs,
+              tags: current.tags,
+              status: "forgotten",
+              forgottenReason: reason,
+            },
+          });
+        }
+        const entry = await store.forget(id, reason, authorization);
         return result(`Forgot ${entry.id}.`, { entry });
       }
 
@@ -833,6 +899,101 @@ function renderStatus(summary: {
       .map(([category, count]) => `${category}=${count}`)
       .join(", ")}`,
   ].join("\n");
+}
+
+function assertDirectIntentToolActionAllowed(
+  ctx: SparkHostContext,
+  kind: SparkMemoryKind,
+  action: unknown,
+): void {
+  if (ctx.memoryDirectIntent === undefined) return;
+  const normalizedAction = typeof action === "string" ? action.trim() : "";
+  const allowed =
+    kind === "entry"
+      ? ["remember", "forget", "recall", "search", "status"].includes(normalizedAction)
+      : kind === "learning"
+        ? ["list", "read", "search"].includes(normalizedAction)
+        : ["list", "search", "audit"].includes(normalizedAction);
+  if (allowed) return;
+  throw new MemoryApprovalError(
+    "MEMORY_CANONICAL_ASK_REQUIRED",
+    `direct intent cannot authorize memory ${kind}:${normalizedAction || "unknown"}`,
+  );
+}
+
+function directIntentReceipt(ctx: SparkHostContext, operation: "remember" | "forget") {
+  if (ctx.memoryDirectIntent === undefined) return undefined;
+  let receipt;
+  try {
+    receipt = parseSparkMemoryDirectIntentReceipt(ctx.memoryDirectIntent);
+  } catch (error) {
+    throw new MemoryApprovalError(
+      "MEMORY_APPROVAL_INVALID",
+      `host direct-intent receipt is invalid: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (receipt.operation !== operation) {
+    throw new MemoryApprovalError(
+      "MEMORY_CANONICAL_ASK_REQUIRED",
+      `direct intent for ${receipt.operation} cannot authorize ${operation}`,
+    );
+  }
+  return receipt;
+}
+
+async function directIntentAuthorization(input: {
+  ctx: SparkHostContext;
+  workspaceId: string;
+  operation: "remember" | "forget";
+  scope: SparkMemoryScope;
+  recordRef: string | undefined;
+  expectedRevision: number;
+  content: unknown;
+}): Promise<MemoryMutationAuthorization | undefined> {
+  const receipt = directIntentReceipt(input.ctx, input.operation);
+  if (!receipt) return undefined;
+  if (!(await input.ctx.verifyMemoryDirectIntent?.(receipt))) {
+    throw new MemoryApprovalError(
+      "MEMORY_APPROVAL_INVALID",
+      "host direct-intent signature or live turn binding is invalid",
+    );
+  }
+  if (receipt.workspaceId !== input.workspaceId || receipt.sessionId !== input.ctx.sessionId) {
+    throw new MemoryApprovalError(
+      "MEMORY_APPROVAL_SCOPE_MISMATCH",
+      "host direct-intent workspace or session does not match the active tool context",
+    );
+  }
+  if (receipt.scope !== input.scope || receipt.recordRef !== input.recordRef) {
+    throw new MemoryApprovalError(
+      "MEMORY_APPROVAL_PROPOSAL_MISMATCH",
+      "host direct-intent scope or record does not match the proposed mutation",
+    );
+  }
+  const proposal = createMemoryProposal({
+    proposalId: `proposal:${receipt.receiptId}`,
+    operation: input.operation,
+    workspaceId: input.workspaceId,
+    scope: input.scope,
+    recordRef: receipt.recordRef,
+    expectedRevision: input.expectedRevision,
+    content: input.content,
+    expiresAt: receipt.expiresAt,
+  });
+  let proof;
+  try {
+    proof = await createSparkMemoryDirectIntentApprovalProof(receipt, proposal);
+  } catch (error) {
+    throw new MemoryApprovalError(
+      "MEMORY_APPROVAL_PROPOSAL_MISMATCH",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  return {
+    proposal,
+    proof,
+    transactionId: `transaction:${receipt.receiptId}`,
+  };
 }
 
 function normalizeMemoryMutationAuthorization(

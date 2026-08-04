@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, stat, writeFile, mkdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +10,7 @@ import {
   type ChannelReplyStream,
   type ChannelTransport,
 } from "@zendev-lab/spark-channels";
+import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
 import { defaultSparkSessionRegistryRoot, SparkSessionRegistry } from "@zendev-lab/spark-session";
 import {
   CHANNEL_INGRESS_FAILURE_REPLY,
@@ -432,6 +434,161 @@ describe("channel ingress", () => {
     expect(controller.status().configured).toBe(true);
   });
 
+  it("signs one exact channel direct-memory command with platform message identity", async () => {
+    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-direct-intent-"));
+    roots.push(sparkHome);
+    const registry = new SparkSessionRegistry({
+      rootDir: defaultSparkSessionRegistryRoot(sparkHome),
+    });
+    const session = await registry.create({ workspaceId: "ws_direct", title: "Direct" });
+    await registry.bind({
+      sessionId: session.sessionId,
+      externalKey: "feishu:chat:oc_direct",
+    });
+    const assignments: ChannelIngressAssignment[] = [];
+    const transport = new FakeChannelTransport();
+    const controller = createChannelIngressController({
+      sparkHome,
+      config: parseChannelsConfig({
+        adapters: { feishu: { type: "feishu" } },
+        routes: {},
+        ingress: { enabled: true, on_unbound: "reject" },
+      }),
+      hooks: {
+        onAssignment: async (assignment) => {
+          assignments.push(assignment);
+        },
+      },
+      sessionRegistry: registry,
+      workspaceId: "ws_direct",
+      createTransport: () => transport,
+    });
+
+    await controller.start();
+    transport.emitInbound({
+      chat_id: "oc_direct",
+      text: "remember: preserve channel intent",
+      message_id: "message-direct",
+    });
+    await vi.waitFor(() => expect(assignments).toHaveLength(1));
+    await controller.stop();
+
+    const receipt = assignments[0]?.memoryDirectIntent;
+    expect(receipt).toMatchObject({
+      surface: "channel",
+      workspaceId: "ws_direct",
+      sessionId: session.sessionId,
+      turnId: "turn:message-direct",
+      messageId: "message:message-direct",
+      operation: "remember",
+      keyId: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      signature: expect.any(String),
+    });
+    expect(JSON.stringify(receipt)).not.toContain("preserve channel intent");
+  });
+
+  it.each([
+    "ambiguous",
+    "multiple-proposals",
+    "stale-message",
+    "cross-turn-retry",
+    "proposal-drift",
+    "message-replay",
+  ] as const)("fails closed for channel direct-intent case %s", async (name) => {
+    const sparkHome = await mkdtemp(join(tmpdir(), `spark-channel-direct-${name}-`));
+    roots.push(sparkHome);
+    const snapshotPath = join(sparkHome, ".spark", "memory", "memory.json");
+    await mkdir(join(sparkHome, ".spark", "memory"), { recursive: true });
+    await writeFile(snapshotPath, '{"entries":[]}\n', "utf8");
+    const before = createHash("sha256")
+      .update(await readFile(snapshotPath))
+      .digest("hex");
+    const mutation = vi.fn();
+    const registry = new SparkSessionRegistry({
+      rootDir: defaultSparkSessionRegistryRoot(sparkHome),
+    });
+    const session = await registry.create({ workspaceId: "ws_direct", title: "Direct" });
+    await registry.bind({
+      sessionId: session.sessionId,
+      externalKey: `feishu:chat:oc_${name}`,
+    });
+    const authority = createSparkMemoryDirectIntentTurnAuthority();
+    const injectedAuthority = {
+      ...authority,
+      async issue(input: Parameters<typeof authority.issue>[0]) {
+        const receipt = await authority.issue(
+          name === "stale-message"
+            ? { ...input, now: new Date("2000-01-01T00:00:00.000Z"), ttlMs: 1 }
+            : input,
+        );
+        if (!receipt) return undefined;
+        if (name === "cross-turn-retry") authority.clear();
+        if (name === "message-replay") {
+          await authority.issue({
+            ...input,
+            turnId: `${input.turnId}:successor`,
+            messageId: `${input.messageId}:successor`,
+            prompt: "remember: successor channel turn",
+          });
+        }
+        return name === "proposal-drift" ? { ...receipt, contentDigest: "a".repeat(64) } : receipt;
+      },
+    };
+    const assignments: ChannelIngressAssignment[] = [];
+    const transport = new FakeChannelTransport();
+    const controller = createChannelIngressController({
+      sparkHome,
+      config: parseChannelsConfig({
+        adapters: { feishu: { type: "feishu" } },
+        routes: {},
+        ingress: { enabled: true, on_unbound: "reject" },
+      }),
+      hooks: {
+        onAssignment: async (assignment) => {
+          assignments.push(assignment);
+        },
+      },
+      sessionRegistry: registry,
+      workspaceId: "ws_direct",
+      createTransport: () => transport,
+      memoryDirectIntentAuthority: injectedAuthority,
+    });
+    const prompt =
+      name === "ambiguous"
+        ? "remember: one and forget memory:two"
+        : name === "multiple-proposals"
+          ? "remember: first and remember: second"
+          : "remember: preserve channel intent";
+
+    await controller.start();
+    transport.emitInbound({
+      chat_id: `oc_${name}`,
+      text: prompt,
+      message_id: `message-${name}`,
+    });
+    await vi.waitFor(() => expect(assignments).toHaveLength(1));
+    await controller.stop();
+
+    const receipt = assignments[0]?.memoryDirectIntent;
+    const errorCode = receipt
+      ? (await authority.verifyCurrent(receipt))
+        ? undefined
+        : "MEMORY_APPROVAL_INVALID"
+      : "MEMORY_APPROVAL_REQUIRED";
+    if (!errorCode) mutation();
+    expect(errorCode).toBe(
+      name === "ambiguous" || name === "multiple-proposals"
+        ? "MEMORY_APPROVAL_REQUIRED"
+        : "MEMORY_APPROVAL_INVALID",
+    );
+    expect(mutation).toHaveBeenCalledTimes(0);
+    expect(
+      createHash("sha256")
+        .update(await readFile(snapshotPath))
+        .digest("hex"),
+    ).toBe(before);
+  });
+
   it("waits for already-received inbound admission before stopping", async () => {
     const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-drain-"));
     roots.push(sparkHome);
@@ -622,6 +779,20 @@ describe("channel ingress", () => {
     const loaded = await loadDaemonChannelsConfig(sparkHome, "ws_spore");
     expect(loaded.config?.adapters.infoflow?.type).toBe("infoflow");
     expect(await migrateLegacyChannelsConfig(sparkHome, "ws_spore")).toBe(false);
+  });
+
+  it("rejects malformed legacy channel config before creating a workspace copy", async () => {
+    const sparkHome = await mkdtemp(join(tmpdir(), "spark-channel-migrate-invalid-"));
+    roots.push(sparkHome);
+    await mkdir(join(sparkHome, "channels"), { recursive: true });
+    await writeFile(join(sparkHome, "channels", "config.json"), "{not-json\n");
+
+    await expect(migrateLegacyChannelsConfig(sparkHome, "ws_invalid")).rejects.toThrow(
+      /invalid legacy channels config/u,
+    );
+    await expect(
+      readFile(workspaceChannelsConfigPath(sparkHome, "ws_invalid"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("configures channel ingress per workspace and stores credentials privately", async () => {

@@ -261,6 +261,9 @@ importers:
       '@zendev-lab/spark-daemon-client':
         specifier: workspace:*
         version: link:../../packages/spark-daemon-client
+      '@zendev-lab/spark-host':
+        specifier: workspace:*
+        version: link:../../packages/spark-host
       '@zendev-lab/spark-i18n':
         specifier: workspace:*
         version: link:../../packages/spark-i18n

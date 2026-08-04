@@ -35,8 +35,13 @@ import {
   type RoutedChannelInteractionEvent,
 } from "@zendev-lab/spark-channels";
 import {
+  createSparkMemoryDirectIntentTurnAuthority,
+  type SparkMemoryDirectIntentTurnAuthority,
+} from "@zendev-lab/spark-host/memory-direct-intent";
+import {
   parseSparkAssignment,
   type SparkAssignment,
+  type SparkMemoryDirectIntentReceipt,
   type SparkMessageView,
   type SparkQqbotQrAuthFlow,
   type SparkSessionRegistryRecord,
@@ -44,6 +49,8 @@ import {
 import { loadSparkSessionSnapshot } from "@zendev-lab/spark-session";
 import { resolveSparkPaths, writePrivateFile } from "@zendev-lab/spark-system";
 import { createHash, randomUUID } from "node:crypto";
+
+const channelMemoryDirectIntentAuthority = createSparkMemoryDirectIntentTurnAuthority();
 import { mkdir, readdir, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createDaemonSessionRegistry, type DaemonSessionRegistry } from "../session-registry.ts";
@@ -71,6 +78,8 @@ export interface ChannelIngressAssignment {
   };
   /** Platform facts for this inbound turn, kept out of the canonical user message body. */
   channelContext?: SparkDaemonChannelContext;
+  /** Host-signed direct memory intent bound to this exact platform message. */
+  memoryDirectIntent?: SparkMemoryDirectIntentReceipt;
 }
 
 export interface ChannelIngressHooks {
@@ -301,7 +310,14 @@ export async function migrateLegacyChannelsConfig(
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 
-  const legacy = legacyChannelsConfigPath(sparkHome);
+  let legacy: string;
+  try {
+    legacy = legacyChannelsConfigPath(sparkHome);
+  } catch (error) {
+    throw new Error(`invalid Spark home for legacy channels config: ${sparkHome}`, {
+      cause: error,
+    });
+  }
   let raw: string;
   try {
     raw = await readFile(legacy, "utf8");
@@ -310,7 +326,13 @@ export async function migrateLegacyChannelsConfig(
     throw error;
   }
 
-  parseChannelsConfig(JSON.parse(raw) as unknown);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch (error) {
+    throw new Error(`invalid legacy channels config: ${legacy}`, { cause: error });
+  }
+  parseChannelsConfig(parsed);
   await mkdir(dirname(dest), { recursive: true });
   writePrivateFile(dest, raw.endsWith("\n") ? raw : `${raw}\n`);
   try {
@@ -346,6 +368,8 @@ export function createChannelIngressController(input: {
   workspaceId: string;
   createTransport?: ChannelRegistryOptions["createTransport"];
   createWorkspaceTransport?: DaemonChannelTransportFactory;
+  /** Daemon-owned injection seam; never populated from channel input. */
+  memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
 }): ChannelIngressController {
   const sessionRegistry = input.sessionRegistry ?? createDaemonSessionRegistry(input.sparkHome);
   const activeHandlers = new Set<Promise<void>>();
@@ -450,6 +474,17 @@ export function createChannelIngressController(input: {
       },
     });
     let admission: void | "duplicate";
+    const directIntentMessageId = enrichedMessage.messageId?.trim() || randomUUID();
+    const memoryDirectIntent = await (
+      input.memoryDirectIntentAuthority ?? channelMemoryDirectIntentAuthority
+    ).issue({
+      surface: "channel",
+      workspaceId: input.workspaceId,
+      sessionId: session.sessionId,
+      turnId: `turn:${directIntentMessageId}`,
+      messageId: `message:${directIntentMessageId}`,
+      prompt: rawGoal,
+    });
     try {
       admission = await input.hooks.onAssignment({
         sessionId: session.sessionId,
@@ -470,6 +505,7 @@ export function createChannelIngressController(input: {
           recipient: replyRecipient,
         },
         channelContext: channelContextFromIncoming(enrichedMessage),
+        ...(memoryDirectIntent ? { memoryDirectIntent } : {}),
       });
     } catch (error) {
       try {

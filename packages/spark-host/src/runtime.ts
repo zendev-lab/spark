@@ -59,6 +59,7 @@ import {
   type SparkViewModelEvent,
 } from "@zendev-lab/spark-protocol";
 
+import type { SparkMemoryDirectIntentTurnAuthority } from "./memory-direct-intent.js";
 import {
   SparkKeybindings,
   type SparkKeybindingContext,
@@ -101,6 +102,8 @@ export interface SparkHostRuntimeOptions {
     adapterAccountIdentity?: string;
   };
   invocationId?: string;
+  /** Private current-turn authority supplied by the executable host. */
+  memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
   stateOwnerSessionId?: string;
   driver?: SparkHostDriverContext;
   sessionQuestionChain?: readonly string[];
@@ -183,6 +186,7 @@ export class SparkHostRuntime implements SparkHostAPI {
   private modelRegistry: SparkHostModelRegistryLike | undefined;
   private leafRunner: LeafCapabilityRunner | undefined;
   private roleRunner: ExtensionRoleRunner | undefined;
+  readonly #memoryDirectIntentAuthority: SparkMemoryDirectIntentTurnAuthority | undefined;
   private sessionLeaseProvider: (() => SparkSessionLeaseIdentity | undefined) | undefined;
   private sessionId: string | undefined;
   private idle = true;
@@ -196,6 +200,7 @@ export class SparkHostRuntime implements SparkHostAPI {
     this.sessionSource = options.sessionSource;
     this.channelBinding = options.channelBinding;
     this.invocationId = options.invocationId?.trim() || undefined;
+    this.#memoryDirectIntentAuthority = options.memoryDirectIntentAuthority;
     this.stateOwnerSessionId = options.stateOwnerSessionId?.trim() || undefined;
     this.driver = options.driver;
     this.sessionQuestionChain = options.sessionQuestionChain
@@ -565,6 +570,8 @@ export class SparkHostRuntime implements SparkHostAPI {
     sessionManager?: SparkHostSessionManagerStub;
     modelRegistry?: SparkHostModelRegistryLike;
   } {
+    const directIntentAuthority = this.#memoryDirectIntentAuthority;
+    const directIntentReceipt = directIntentAuthority?.currentReceipt();
     return {
       cwd: this.cwd,
       ...(this.workspaceId ? { workspaceId: this.workspaceId } : {}),
@@ -577,6 +584,13 @@ export class SparkHostRuntime implements SparkHostAPI {
       ...(this.sessionLeaseProvider ? { sessionLease: this.sessionLeaseProvider } : {}),
       ...(this.channelBinding ? { channelBinding: this.channelBinding } : {}),
       ...(this.invocationId ? { invocationId: this.invocationId } : {}),
+      ...(directIntentReceipt && directIntentAuthority
+        ? {
+            memoryDirectIntent: directIntentReceipt,
+            verifyMemoryDirectIntent: async (value: unknown) =>
+              await directIntentAuthority.verifyCurrent(value),
+          }
+        : {}),
       ...(this.driver ? { driver: this.driver } : {}),
       ...(this.sessionQuestionChain
         ? { sessionQuestionChain: [...this.sessionQuestionChain] }

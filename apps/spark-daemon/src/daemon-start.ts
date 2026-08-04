@@ -1296,6 +1296,9 @@ function prepareChannelIngress(
               adapterAccountIdentity: assignment.adapterAccountIdentity,
             },
             ...(assignment.channelContext ? { channelContext: assignment.channelContext } : {}),
+            ...(assignment.memoryDirectIntent
+              ? { messageMetadata: { memoryDirectIntent: assignment.memoryDirectIntent } }
+              : {}),
           };
           submitChannelInboundInvocation(invocationStore, assignment, task);
         },

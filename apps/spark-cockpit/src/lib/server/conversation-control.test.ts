@@ -1,10 +1,30 @@
-import { describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cancelConversationTurnForCockpit,
   submitConversationTurnForCockpit,
   type CockpitConversationCancelClient,
   type CockpitConversationControlClient,
 } from "./conversation-control";
+
+const directIntentRoots: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    directIntentRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
+
+async function snapshotDigest(path: string): Promise<string> {
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
+}
 
 describe("Cockpit conversation control", () => {
   it("submits Web messages through the daemon-owned turn surface", async () => {
@@ -43,6 +63,117 @@ describe("Cockpit conversation control", () => {
         origin: { kind: "user", host: "web", surface: "local" },
       },
     });
+  });
+
+  it("attaches a signed one-turn receipt for one exact direct memory command", async () => {
+    const submit = vi.fn().mockResolvedValue({
+      invocationId: "inv_001",
+      status: "queued",
+      acceptedAt: "2026-08-03T08:00:00.000Z",
+    });
+
+    await submitConversationTurnForCockpit(
+      {
+        workspaceId: "ws_direct_intent",
+        sessionId: "sess_direct_intent",
+        prompt: "remember: keep Cockpit intent exact",
+        title: "Remember preference",
+        submissionId: "submission-direct-intent",
+      },
+      { submit },
+    );
+
+    const metadata = submit.mock.calls[0]?.[0].messageMetadata;
+    const receipt = metadata?.memoryDirectIntent;
+    expect(receipt).toMatchObject({
+      schema: "spark.memory.direct-intent-receipt/v1",
+      surface: "cockpit",
+      workspaceId: "ws_direct_intent",
+      sessionId: "sess_direct_intent",
+      turnId: "turn:submission-direct-intent",
+      messageId: "message:submission-direct-intent",
+      operation: "remember",
+      keyId: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      signature: expect.any(String),
+    });
+    expect(JSON.stringify(metadata)).not.toContain("keep Cockpit intent exact");
+  });
+
+  it.each([
+    "ambiguous",
+    "multiple-proposals",
+    "stale-message",
+    "cross-turn-retry",
+    "proposal-drift",
+    "message-replay",
+  ] as const)("fails closed for Cockpit direct-intent case %s", async (name) => {
+    const root = await mkdtemp(join(tmpdir(), `spark-cockpit-direct-${name}-`));
+    directIntentRoots.push(root);
+    const snapshotPath = join(root, ".spark", "memory", "memory.json");
+    await mkdir(join(root, ".spark", "memory"), { recursive: true });
+    await writeFile(snapshotPath, '{"entries":[]}\n', "utf8");
+    const before = await snapshotDigest(snapshotPath);
+    const mutation = vi.fn();
+    const authority = createSparkMemoryDirectIntentTurnAuthority();
+    const prompt =
+      name === "ambiguous"
+        ? "remember: one and forget memory:two"
+        : name === "multiple-proposals"
+          ? "remember: first and remember: second"
+          : "remember: keep Cockpit intent exact";
+    const submit = vi.fn().mockResolvedValue({
+      invocationId: "inv_001",
+      status: "queued",
+      acceptedAt: "2026-08-03T08:00:00.000Z",
+    });
+    const injectedAuthority = {
+      ...authority,
+      async issue(input: Parameters<typeof authority.issue>[0]) {
+        const receipt = await authority.issue(
+          name === "stale-message"
+            ? { ...input, now: new Date("2000-01-01T00:00:00.000Z"), ttlMs: 1 }
+            : input,
+        );
+        if (!receipt) return undefined;
+        if (name === "cross-turn-retry") authority.clear();
+        if (name === "message-replay") {
+          await authority.issue({
+            ...input,
+            turnId: `${input.turnId}:successor`,
+            messageId: `${input.messageId}:successor`,
+            prompt: "remember: successor Cockpit turn",
+          });
+        }
+        return name === "proposal-drift" ? { ...receipt, contentDigest: "a".repeat(64) } : receipt;
+      },
+    };
+
+    await submitConversationTurnForCockpit(
+      {
+        workspaceId: root,
+        sessionId: "sess_direct_invalid",
+        prompt,
+        title: "Invalid direct intent",
+        submissionId: `submission-${name}`,
+      },
+      { submit },
+      { memoryDirectIntentAuthority: injectedAuthority },
+    );
+
+    const receipt = submit.mock.calls[0]?.[0].messageMetadata?.memoryDirectIntent;
+    const errorCode = receipt
+      ? (await authority.verifyCurrent(receipt))
+        ? undefined
+        : "MEMORY_APPROVAL_INVALID"
+      : "MEMORY_APPROVAL_REQUIRED";
+    if (!errorCode) mutation();
+    expect(errorCode).toBe(
+      name === "ambiguous" || name === "multiple-proposals"
+        ? "MEMORY_APPROVAL_REQUIRED"
+        : "MEMORY_APPROVAL_INVALID",
+    );
+    expect(mutation).toHaveBeenCalledTimes(0);
+    expect(await snapshotDigest(snapshotPath)).toBe(before);
   });
 
   it("forwards a browser submission nonce as a stable daemon idempotency key", async () => {

@@ -1,4 +1,8 @@
 import {
+  createSparkMemoryDirectIntentTurnAuthority,
+  type SparkMemoryDirectIntentTurnAuthority,
+} from "@zendev-lab/spark-host/memory-direct-intent";
+import {
   parseSparkAssignment,
   sparkTurnCancelResultSchema,
   sparkTurnSubmitResultSchema,
@@ -8,6 +12,8 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { createCockpitRuntimeSessionClient } from "./cockpit-runtime-session-client";
 import { conversationTurnIdempotencyKey } from "./conversation-submission";
+
+const cockpitMemoryDirectIntentAuthority = createSparkMemoryDirectIntentTurnAuthority();
 
 export interface SubmitCockpitConversationTurnInput {
   workspaceId?: string;
@@ -57,9 +63,15 @@ const runtimeConversationControlClient = createCockpitRuntimeSessionClient();
  * Channel ingress and the Web UI therefore append to the same native session
  * transcript instead of executing through separate Web-only task machinery.
  */
+export interface SubmitCockpitConversationTurnOptions {
+  /** Server-owned injection seam; never accepted from browser or model input. */
+  memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
+}
+
 export async function submitConversationTurnForCockpit(
   input: SubmitCockpitConversationTurnInput,
   client: CockpitConversationControlClient = runtimeConversationControlClient,
+  options: SubmitCockpitConversationTurnOptions = {},
 ): Promise<SubmittedCockpitConversationTurn> {
   const assignment = parseSparkAssignment({
     goal: input.prompt,
@@ -73,6 +85,17 @@ export async function submitConversationTurnForCockpit(
     source: { kind: "cockpit" },
   });
   const idempotencyKey = conversationTurnIdempotencyKey(input.sessionId, input.submissionId);
+  const directIntentTurnId = input.submissionId ?? globalThis.crypto.randomUUID();
+  const memoryDirectIntent = input.workspaceId
+    ? await (options.memoryDirectIntentAuthority ?? cockpitMemoryDirectIntentAuthority).issue({
+        surface: "cockpit",
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+        turnId: `turn:${directIntentTurnId}`,
+        messageId: `message:${directIntentTurnId}`,
+        prompt: input.prompt,
+      })
+    : undefined;
   const result = await client.submit({
     sessionId: input.sessionId,
     prompt: input.prompt,
@@ -81,6 +104,7 @@ export async function submitConversationTurnForCockpit(
     ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     messageMetadata: {
       origin: { kind: "user", host: "web", surface: "local" },
+      ...(memoryDirectIntent ? { memoryDirectIntent } : {}),
       ...(input.attachments?.length
         ? {
             attachments: input.attachments.map(({ kind, name, mediaType, size }) => ({

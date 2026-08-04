@@ -94,6 +94,7 @@ export interface MemoryRevisionCommitResult {
 export class MemoryApprovalError extends Error {
   readonly code:
     | "MEMORY_APPROVAL_REQUIRED"
+    | "MEMORY_CANONICAL_ASK_REQUIRED"
     | "MEMORY_APPROVAL_INVALID"
     | "MEMORY_APPROVAL_EXPIRED"
     | "MEMORY_APPROVAL_REPLAYED"
