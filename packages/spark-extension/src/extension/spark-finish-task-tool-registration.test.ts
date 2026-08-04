@@ -15,16 +15,9 @@ import {
 import type { ReviewerRunner, TaskReviewInput } from "@zendev-lab/spark-roles/reviewer-runner";
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { registerSparkFinishTaskTool } from "./spark-finish-task-tool-registration.ts";
-import {
-  saveCurrentProjectRef,
-  sparkSessionKey,
-  sparkStateCwd,
-} from "./session-state.ts";
+import { saveCurrentProjectRef, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
 import type { SparkTaskClaimDaemonClient } from "./spark-task-claim-daemon-client.ts";
-import type {
-  SparkRegisteredToolConfig,
-  SparkToolContext,
-} from "./spark-tool-registration.ts";
+import type { SparkRegisteredToolConfig, SparkToolContext } from "./spark-tool-registration.ts";
 
 function executionReadyPlan(objective: string): TaskPlan {
   return {
@@ -190,7 +183,9 @@ test("finish honors taskRef and text instead of finishing the current claimed ta
       },
       release: async (_ctx, input) => {
         const disposition = input.disposition;
-        if (disposition === "release") throw new Error("finish must use a terminal disposition");
+        if (disposition === "release") {
+          throw new Error("finish must use a terminal disposition");
+        }
         daemonCalls.push(input.taskRef as TaskRef);
         const committed = await store.update((mutable) =>
           mutable.setTaskStatus(input.taskRef as TaskRef, disposition),
@@ -319,9 +314,7 @@ test("finish never reports committed when daemon no-op leaves the task unfinishe
       sessionId: sessionKey,
       leaseMs: 60_000,
     });
-    graph.applyTodoOps(task.ref, [
-      { op: "done", item: "verify the authoritative projection" },
-    ]);
+    graph.applyTodoOps(task.ref, [{ op: "done", item: "verify the authoritative projection" }]);
     await addCompletionEvidence(stateCwd, graph, task.ref);
     graph.setCurrentTask(project.ref, task.ref);
     await store.save(graph);
