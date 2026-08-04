@@ -43,6 +43,23 @@ TUI, Cockpit, and ACP all use this contract. Starting TUI/ACP below a workspace 
 
 Registry records and bindings are authoritative. Adapter liveness comes from daemon `channel.status`.
 
+## Repro Workbench interaction
+
+Cockpit mounts a native A2UI renderer inside the owning Repro Session only when
+the current daemon Session snapshot binds the exact Workbench Artifact ref,
+revision, Loop id, generation, and live lifecycle. Artifact pages and ordinary
+Agent-authored A2UI remain read-only. Form state stays browser-local until an
+explicit action is submitted.
+
+The only interactive actions are `pause`, `resume`, `run_now`,
+`retry_checkpoint`, and confirmed `stop`. Cockpit sends the official A2UI v0.9
+action envelope through the runtime command route; the daemon then rechecks the
+managed Document hash/revision, binding provenance, Loop generation, owning
+Session, and idempotency receipt before applying typed Loop control. A stale or
+untrusted projection fails closed, and the UI waits for the newly returned Loop
+generation before enabling controls again. No A2UI event becomes a generic tool
+invocation.
+
 ## Side threads
 
 A Side Thread is a daemon-owned, read-only child conversation attached to one persistent parent session. The daemon registry, native transcript, and invocation scheduler are the only state owners; TUI and Cockpit are control/projection adapters.

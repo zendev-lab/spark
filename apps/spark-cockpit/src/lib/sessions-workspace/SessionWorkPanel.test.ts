@@ -44,6 +44,17 @@ describe("SessionWorkPanel", () => {
           status: "blocked",
           continuity: "session",
           generation: 2,
+          cycleStep: "after_tick",
+          checkpoint: {
+            cycleId: "cycle-2",
+            generation: 2,
+            step: "after_tick",
+            startedAt: "2026-07-28T00:00:00.000Z",
+            updatedAt: "2026-07-28T00:01:00.000Z",
+            receipts: [],
+            beforeAttempt: 0,
+            afterAttempt: 1,
+          },
           policy: {},
           counters: {},
           attempt: 2,
@@ -76,6 +87,13 @@ describe("SessionWorkPanel", () => {
             },
           },
           stopGuard: { decision: "ask", stagnationCount: 3, limit: 3 },
+          workbench: {
+            artifactRef: "artifact:workbench-repro-1",
+            revision: 4,
+            lifecycle: "live",
+            loopId: "repro-driver",
+            generation: 2,
+          },
           latestVerification: {
             stepId: "baseline-probe",
             proofKind: "evidence",
@@ -134,6 +152,9 @@ describe("SessionWorkPanel", () => {
     expect(body).toContain("Temporary sessions");
     expect(body).toContain("27,431 ·");
     expect(body).toContain("Persistent sessions");
+    expect(body).toContain("Loading trusted Repro Workbench");
+    expect(body).toContain("Cycle checkpoint");
+    expect(body).toContain("after_tick");
     expect(body).not.toContain("lastProgressDigest");
   });
 

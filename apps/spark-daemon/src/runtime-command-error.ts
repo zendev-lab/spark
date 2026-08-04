@@ -1,5 +1,6 @@
 import { sparkSideThreadErrorCodeOptions } from "@zendev-lab/spark-protocol";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
+import { SparkDaemonControlError } from "./control-error.ts";
 
 const sideThreadErrorCodes = new Set<string>(sparkSideThreadErrorCodeOptions);
 
@@ -10,6 +11,9 @@ export function runtimeCommandFailure(error: unknown): {
 } {
   const message = error instanceof Error ? error.message : String(error);
   if (error instanceof SparkSessionRegistryError && sideThreadErrorCodes.has(error.code)) {
+    return { reasonCode: error.code, message };
+  }
+  if (error instanceof SparkDaemonControlError) {
     return { reasonCode: error.code, message };
   }
   return { reasonCode: "COMMAND_EXECUTION_FAILED", message };

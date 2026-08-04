@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
 
 import {
   getRuntimeSessionProjection,
@@ -20,6 +21,8 @@ import {
   sparkSessionMediaReadRequestSchema,
   sparkSessionMediaReadResultSchema,
   sparkSessionSnapshotRequestSchema,
+  sparkLoopControlRequestSchema,
+  sparkLoopMutationResultSchema,
   sparkSideThreadConfigureRequestSchema,
   sparkSideThreadEnsureRequestSchema,
   sparkSideThreadHandoffRequestSchema,
@@ -42,6 +45,8 @@ import {
   type SparkSessionMediaReadResult,
   type SparkSessionRegistryRecord,
   type SparkSessionSnapshotRequest,
+  type SparkLoopControlRequest,
+  type SparkLoopMutationResult,
   type SparkSideThreadSnapshot,
   type SparkSideThreadSubmitResult,
   type SparkSideThreadHandoffResult,
@@ -166,6 +171,10 @@ export interface CockpitRuntimeSessionClient {
     after?: number;
     limit?: number;
   }): Promise<SparkTurnStreamPage>;
+  controlWorkbench(
+    sessionId: string,
+    request: SparkLoopControlRequest,
+  ): Promise<SparkLoopMutationResult>;
 }
 
 export class CockpitRuntimeSessionUnavailableError extends Error {
@@ -211,6 +220,8 @@ export function createCockpitRuntimeSessionClient(
     cancel: async (input) => await cancelTurn(database(), input),
     status: async (input) => await getTurnStatus(database(), input),
     stream: async (input) => await getTurnStream(database(), input),
+    controlWorkbench: async (sessionId, request) =>
+      await controlWorkbenchLoop(database(), sessionId, request),
   };
 }
 
@@ -802,6 +813,29 @@ async function getTurnStream(
     },
   });
   return sparkTurnStreamPageSchema.parse(result);
+}
+
+async function controlWorkbenchLoop(
+  db: DatabaseSync,
+  sessionId: string,
+  request: SparkLoopControlRequest,
+): Promise<SparkLoopMutationResult> {
+  const parsed = sparkLoopControlRequestSchema.parse(request);
+  const route = requireOnlineRoute(db, runtimeSessionRouteForSession(db, sessionId));
+  const result = await runRuntimeSessionControlCommand(db, {
+    route,
+    sessionId,
+    idempotencyKey: runtimeIdempotencyKey(parsed.action.context.idempotencyKey),
+    payload: {
+      kind: "loop.control.request",
+      payload: publicJsonObject(parsed),
+    },
+  });
+  return sparkLoopMutationResultSchema.parse(result);
+}
+
+function runtimeIdempotencyKey(actionIdempotencyKey: string): `idem_${string}` {
+  return `idem_${createHash("sha256").update(actionIdempotencyKey).digest("hex").slice(0, 32)}`;
 }
 
 function routesForList(

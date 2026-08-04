@@ -23,6 +23,11 @@
       "svelte": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./a2ui": {
+      "types": "./src/a2ui.ts",
+      "svelte": "./src/a2ui.ts",
+      "default": "./src/a2ui.ts"
+    },
     "./headless": {
       "types": "./src/ui/headless.ts",
       "svelte": "./src/ui/headless.ts",
@@ -47,6 +52,7 @@
   },
   "dependencies": {
     "@lucide/svelte": "^1.16.0",
+    "@zendev-lab/spark-protocol": "workspace:*",
     "bits-ui": "^2.18.1",
     "svelte-streamdown": "^3.1.2"
   },

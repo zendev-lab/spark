@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
+import { SparkDaemonControlError } from "./control-error.ts";
 
 import { runtimeCommandFailure } from "./runtime-command-error.ts";
 
@@ -18,6 +19,17 @@ describe("runtime command failure projection", () => {
     ).toEqual({
       reasonCode: "COMMAND_EXECUTION_FAILED",
       message: "missing",
+    });
+  });
+
+  it("preserves trusted Workbench stale and provenance failures over runtime control", () => {
+    expect(
+      runtimeCommandFailure(
+        new SparkDaemonControlError("workbench_action_stale", "refresh the Workbench"),
+      ),
+    ).toEqual({
+      reasonCode: "workbench_action_stale",
+      message: "refresh the Workbench",
     });
   });
 });
