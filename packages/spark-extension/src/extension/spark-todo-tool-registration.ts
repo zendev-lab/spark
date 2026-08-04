@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import type { TaskPlanItem } from "@zendev-lab/spark-core";
 import {
   applyIndependentTodoOps,
   defaultTaskGraphStore,
@@ -156,8 +157,18 @@ export function registerSparkTodoTools(
             taskSelector,
           );
           if (!task) return { error: "no_matching_claimed_task" as const };
-          graph.applyTodoOps(task.ref, ops);
-          return { task: graph.getTask(task.ref) };
+          const beforeItems = task.plan.items ?? [];
+          const mutated = graph.applyTodoOps(task.ref, ops);
+          if (ops.some((op) => op.op === "init")) return { task: mutated };
+          const items = preserveTaskPlanItemMetadata(beforeItems, mutated.plan.items ?? []);
+          const preserved = graph.updateTask(mutated.ref, {
+            plan: {
+              ...mutated.plan,
+              items,
+              steps: items.map((item) => item.title),
+            },
+          });
+          return { task: preserved };
         },
         { createIfMissing: false },
       );
@@ -189,6 +200,24 @@ export function registerSparkTodoTools(
         },
       };
     },
+  });
+}
+
+export function preserveTaskPlanItemMetadata(
+  before: readonly TaskPlanItem[],
+  after: readonly TaskPlanItem[],
+): TaskPlanItem[] {
+  const previousById = new Map(before.map((item) => [item.id, item]));
+  return after.map((item) => {
+    const previous = previousById.get(item.id);
+    if (!previous) return item;
+    return {
+      ...item,
+      ...(previous.description !== undefined ? { description: previous.description } : {}),
+      ...(previous.evidenceRefs !== undefined
+        ? { evidenceRefs: [...previous.evidenceRefs] }
+        : {}),
+    };
   });
 }
 
