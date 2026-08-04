@@ -1,9 +1,9 @@
 name: Maintenance - Format Session Snapshot Index
 
 on:
-  push:
+  pull_request:
     branches:
-      - perf/session-snapshot-index
+      - main
     paths:
       - .github/workflows/format-session-snapshot-index.yml
 
@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   format:
+    if: github.head_ref == 'perf/session-snapshot-index'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out target branch
