@@ -36,7 +36,10 @@ export type SparkDaemonModelChannelPublicKind =
   | "provider.auth.login.status.request"
   | "provider.auth.login.cancel.request"
   | "channel.status.request"
-  | "channel.reload.request";
+  | "channel.reload.request"
+  | "channel.qqbot.auth.start.request"
+  | "channel.qqbot.auth.status.request"
+  | "channel.qqbot.auth.cancel.request";
 
 export interface SparkDaemonModelChannelPublicResult {
   result: Record<string, SparkProtocolJsonValue>;
@@ -48,7 +51,15 @@ export interface SparkDaemonModelChannelPublicResult {
 
 export interface SparkDaemonModelChannelControlOptions {
   modelControl?: SparkDaemonModelControl;
-  channelIngress?: Pick<DaemonChannelIngressRuntime, "status" | "configure" | "reload">;
+  channelIngress?: Pick<
+    DaemonChannelIngressRuntime,
+    | "status"
+    | "configure"
+    | "reload"
+    | "startQqbotQrAuth"
+    | "qqbotQrAuthStatus"
+    | "cancelQqbotQrAuth"
+  >;
   sessionRegistry?: DaemonSessionRegistry;
   sparkHome?: string;
 }
@@ -66,7 +77,10 @@ export function isSparkDaemonModelChannelPublicKind(
     kind === "provider.auth.login.status.request" ||
     kind === "provider.auth.login.cancel.request" ||
     kind === "channel.status.request" ||
-    kind === "channel.reload.request"
+    kind === "channel.reload.request" ||
+    kind === "channel.qqbot.auth.start.request" ||
+    kind === "channel.qqbot.auth.status.request" ||
+    kind === "channel.qqbot.auth.cancel.request"
   );
 }
 
@@ -178,6 +192,27 @@ export async function executeSparkDaemonModelChannelPublicControl(
         result: { snapshot: data },
         projection: { kind: "channel.status", data },
       };
+    }
+    case "channel.qqbot.auth.start.request": {
+      const workspaceId = requireWorkspaceId(input.workspaceId, input.payload.workspaceId);
+      const flow = await requireChannelIngress(options).startQqbotQrAuth(workspaceId);
+      return { result: { flow: publicObject(flow) } };
+    }
+    case "channel.qqbot.auth.status.request": {
+      const workspaceId = requireWorkspaceId(input.workspaceId, input.payload.workspaceId);
+      const flow = requireChannelIngress(options).qqbotQrAuthStatus(
+        workspaceId,
+        requiredString(input.payload.flowId, "flowId"),
+      );
+      return { result: { flow: publicObject(flow) } };
+    }
+    case "channel.qqbot.auth.cancel.request": {
+      const workspaceId = requireWorkspaceId(input.workspaceId, input.payload.workspaceId);
+      const flow = requireChannelIngress(options).cancelQqbotQrAuth(
+        workspaceId,
+        requiredString(input.payload.flowId, "flowId"),
+      );
+      return { result: { flow: publicObject(flow) } };
     }
   }
 }
@@ -458,7 +493,7 @@ function requireModelControl(
 
 function requireChannelIngress(
   options: SparkDaemonModelChannelControlOptions,
-): Pick<DaemonChannelIngressRuntime, "status" | "configure" | "reload"> {
+): NonNullable<SparkDaemonModelChannelControlOptions["channelIngress"]> {
   if (!options.channelIngress) throw new Error("Spark daemon channel runtime is not available.");
   return options.channelIngress;
 }

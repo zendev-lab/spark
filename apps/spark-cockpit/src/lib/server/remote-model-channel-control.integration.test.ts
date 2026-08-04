@@ -117,7 +117,7 @@ test("HTTPS Cockpit controls models and channels over WSS without a daemon socke
       runtimeWorkspaceBindingId: bindingId,
       createdAt: now,
     });
-    registerWorkspace(daemonDb, {
+    const daemonWorkspace = registerWorkspace(daemonDb, {
       serverUrl: "https://127.0.0.1/",
       localPath: root,
       serverBindingId: bindingId,
@@ -139,12 +139,12 @@ test("HTTPS Cockpit controls models and channels over WSS without a daemon socke
     const credentialTargets = {
       provider: join(daemonHome, "credentials", "provider.key"),
       oauth: join(daemonHome, "credentials", "oauth.response"),
-      channel: join(daemonHome, "workspaces", cockpitWorkspace.id, "channels", "config.json"),
+      channel: join(daemonHome, "workspaces", daemonWorkspace.id, "channels", "config.json"),
     };
     const modelControl = new FixtureModelControl(registry, credentialTargets);
     const channelIngress = createDaemonChannelIngressRuntime({
       sparkHome: daemonHome,
-      workspaceId: cockpitWorkspace.id,
+      workspaceId: daemonWorkspace.id,
       hooks: { onAssignment: async () => {} },
       sessionRegistry: registry,
       createTransport: () => new FakeChannelTransport(),
@@ -305,6 +305,10 @@ test("HTTPS Cockpit controls models and channels over WSS without a daemon socke
     assert.equal(readFileSync(credentialTargets.provider, "utf8"), secretMarker);
     assert.equal(readFileSync(credentialTargets.oauth, "utf8"), secretMarker);
     assert.equal(readFileSync(credentialTargets.channel, "utf8").includes(secretMarker), true);
+    assert.equal(
+      existsSync(join(daemonHome, "workspaces", cockpitWorkspace.id, "channels", "config.json")),
+      false,
+    );
     assert.equal(existsSync(nonexistentSocket), false);
     assert.equal(modelControl.apiKeySetCount, 2);
     assert.equal(modelControl.logoutCount, 1);

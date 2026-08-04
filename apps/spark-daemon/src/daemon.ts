@@ -311,6 +311,7 @@ async function handleEphemeralSecretRequest(
     sendEphemeralSecretFailure(ws, request, "SECRET_REQUEST_EXPIRED");
     return;
   }
+  let channelWorkspaceId: string | undefined;
   if (request.payload.operation === "channel.configure") {
     const workspace = request.workspaceBindingId
       ? getWorkspaceById(context.db, request.workspaceBindingId)
@@ -330,6 +331,7 @@ async function handleEphemeralSecretRequest(
       sendEphemeralSecretFailure(ws, request, "SECRET_ROUTE_INVALID");
       return;
     }
+    channelWorkspaceId = workspace.id;
   }
 
   const result = await executeSparkDaemonEphemeralSecretControl(
@@ -338,8 +340,17 @@ async function handleEphemeralSecretRequest(
       channelIngress: context.channelIngress,
       sparkHome: context.sparkHome,
     },
-    request.payload,
+    channelWorkspaceId && request.payload.operation === "channel.configure"
+      ? { ...request.payload, workspaceId: channelWorkspaceId }
+      : request.payload,
   );
+  const projectedResult =
+    request.payload.operation === "channel.configure" &&
+    result.operation === "channel.configure" &&
+    result.result &&
+    request.workspaceId
+      ? { ...result, result: { ...result.result, workspaceId: request.workspaceId } }
+      : result;
   sendJson(
     ws,
     runtimeEphemeralSecretResultEnvelopeSchema.parse({
@@ -351,7 +362,7 @@ async function handleEphemeralSecretRequest(
       ...(request.workspaceId ? { workspaceId: request.workspaceId } : {}),
       ...(request.workspaceBindingId ? { workspaceBindingId: request.workspaceBindingId } : {}),
       ephemeralRequestId: request.ephemeralRequestId,
-      payload: result,
+      payload: projectedResult,
     }),
   );
 }

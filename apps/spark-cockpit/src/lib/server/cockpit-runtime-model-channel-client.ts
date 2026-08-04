@@ -16,12 +16,14 @@ import {
   parseSparkAuthFlow,
   parseSparkChannelControlSnapshot,
   parseSparkModelControlSnapshot,
+  parseSparkQqbotQrAuthFlow,
   parseSparkSessionRegistryRecord,
   type ServerCommandPayload,
   type SparkAuthFlow,
   type SparkChannelControlSnapshot,
   type SparkModelControlSnapshot,
   type SparkModelRef,
+  type SparkQqbotQrAuthFlow,
   type SparkSessionRegistryRecord,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
@@ -88,6 +90,16 @@ export interface CockpitRuntimeModelChannelClient {
     workspaceId: string;
     requestedByUserId?: string;
   }): Promise<SparkChannelControlSnapshot>;
+  startQqbotQrAuth(input: {
+    workspaceId: string;
+    requestedByUserId?: string;
+  }): Promise<SparkQqbotQrAuthFlow>;
+  qqbotQrAuthStatus(input: { workspaceId: string; flowId: string }): Promise<SparkQqbotQrAuthFlow>;
+  cancelQqbotQrAuth(input: {
+    workspaceId: string;
+    flowId: string;
+    requestedByUserId?: string;
+  }): Promise<SparkQqbotQrAuthFlow>;
 }
 
 export interface CockpitRuntimeModelCatalogInput {
@@ -115,6 +127,9 @@ export function createCockpitRuntimeModelChannelClient(
     channelStatus: async (workspaceId) => await channelStatus(database(), workspaceId),
     configureChannel: async (input) => await configureChannel(database(), input),
     reloadChannel: async (input) => await reloadChannel(database(), input),
+    startQqbotQrAuth: async (input) => await startQqbotQrAuth(database(), input),
+    qqbotQrAuthStatus: async (input) => await qqbotQrAuthStatus(database(), input),
+    cancelQqbotQrAuth: async (input) => await cancelQqbotQrAuth(database(), input),
   };
 }
 
@@ -381,6 +396,66 @@ async function reloadChannel(
     getRuntimeChannelControlProjection(db, input.workspaceId) ??
     parseSparkChannelControlSnapshot(result.snapshot)
   );
+}
+
+async function startQqbotQrAuth(
+  db: DatabaseSync,
+  input: { workspaceId: string; requestedByUserId?: string },
+): Promise<SparkQqbotQrAuthFlow> {
+  return await runQqbotQrAuthCommand(db, {
+    workspaceId: input.workspaceId,
+    requestedByUserId: input.requestedByUserId,
+    kind: "channel.qqbot.auth.start.request",
+  });
+}
+
+async function qqbotQrAuthStatus(
+  db: DatabaseSync,
+  input: { workspaceId: string; flowId: string },
+): Promise<SparkQqbotQrAuthFlow> {
+  return await runQqbotQrAuthCommand(db, {
+    workspaceId: input.workspaceId,
+    flowId: input.flowId,
+    kind: "channel.qqbot.auth.status.request",
+  });
+}
+
+async function cancelQqbotQrAuth(
+  db: DatabaseSync,
+  input: { workspaceId: string; flowId: string; requestedByUserId?: string },
+): Promise<SparkQqbotQrAuthFlow> {
+  return await runQqbotQrAuthCommand(db, {
+    workspaceId: input.workspaceId,
+    flowId: input.flowId,
+    requestedByUserId: input.requestedByUserId,
+    kind: "channel.qqbot.auth.cancel.request",
+  });
+}
+
+async function runQqbotQrAuthCommand(
+  db: DatabaseSync,
+  input: {
+    workspaceId: string;
+    flowId?: string;
+    requestedByUserId?: string;
+    kind:
+      | "channel.qqbot.auth.start.request"
+      | "channel.qqbot.auth.status.request"
+      | "channel.qqbot.auth.cancel.request";
+  },
+): Promise<SparkQqbotQrAuthFlow> {
+  const result = await runRuntimeModelChannelControlCommand(db, {
+    route: runtimeChannelRouteForWorkspace(db, input.workspaceId),
+    requestedByUserId: input.requestedByUserId,
+    payload: {
+      kind: input.kind,
+      payload: {
+        workspaceId: input.workspaceId,
+        ...(input.flowId ? { flowId: input.flowId } : {}),
+      },
+    },
+  });
+  return parseSparkQqbotQrAuthFlow(result.flow);
 }
 
 function resolveRuntimeId(db: DatabaseSync, requested?: string): string {

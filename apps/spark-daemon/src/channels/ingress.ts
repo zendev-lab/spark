@@ -38,6 +38,7 @@ import {
   parseSparkAssignment,
   type SparkAssignment,
   type SparkMessageView,
+  type SparkQqbotQrAuthFlow,
   type SparkSessionRegistryRecord,
 } from "@zendev-lab/spark-protocol";
 import { loadSparkSessionSnapshot } from "@zendev-lab/spark-session";
@@ -48,6 +49,7 @@ import { dirname, join } from "node:path";
 import { createDaemonSessionRegistry, type DaemonSessionRegistry } from "../session-registry.ts";
 import type { SparkDaemonChannelContext } from "../core/types.ts";
 import type { DaemonChannelTransportFactory } from "./transport-factory.ts";
+import { createDaemonQqbotQrAuthManager } from "./qqbot-auth.ts";
 
 export const CHANNEL_INGRESS_FAILURE_REPLY = "消息暂时无法处理，请稍后重试。";
 
@@ -190,6 +192,9 @@ export interface DaemonChannelIngressRuntime {
   status(workspaceId: string): DaemonChannelIngressStatus;
   configure(workspaceId: string, config: unknown): Promise<DaemonChannelIngressStatus>;
   reload(workspaceId: string): Promise<DaemonChannelIngressStatus>;
+  startQqbotQrAuth(workspaceId: string): Promise<SparkQqbotQrAuthFlow>;
+  qqbotQrAuthStatus(workspaceId: string, flowId: string): SparkQqbotQrAuthFlow;
+  cancelQqbotQrAuth(workspaceId: string, flowId: string): SparkQqbotQrAuthFlow;
   notify(workspaceId: string, input: ChannelNotifyInput): Promise<ChannelNotifyResult>;
   openReplyStream(
     workspaceId: string,
@@ -1074,7 +1079,14 @@ export function createDaemonChannelIngressRuntime(input: {
     });
   };
 
-  return {
+  let runtime!: DaemonChannelIngressRuntime;
+  const qqbotQrAuth = createDaemonQqbotQrAuthManager({
+    loadConfig: async (workspaceId) =>
+      (await loadDaemonChannelsConfig(input.sparkHome, workspaceId)).config,
+    configure: async (workspaceId, config) => await runtime.configure(workspaceId, config),
+  });
+
+  runtime = {
     start: async () => {
       const ids = await listWorkspaceChannelIds(input.sparkHome);
       if (ids.length === 0) {
@@ -1088,6 +1100,7 @@ export function createDaemonChannelIngressRuntime(input: {
       return statuses;
     },
     stop: async () => {
+      qqbotQrAuth.stop();
       for (const slot of slots.values()) {
         await serialize(slot, async () => {
           await slot.controller?.stop();
@@ -1108,6 +1121,9 @@ export function createDaemonChannelIngressRuntime(input: {
       return serialize(slot, async () => await replace(slot, parsed, { persist: true }));
     },
     reload: (workspaceId) => reloadWorkspace(workspaceId),
+    startQqbotQrAuth: async (workspaceId) => await qqbotQrAuth.start(workspaceId),
+    qqbotQrAuthStatus: (workspaceId, flowId) => qqbotQrAuth.status(workspaceId, flowId),
+    cancelQqbotQrAuth: (workspaceId, flowId) => qqbotQrAuth.cancel(workspaceId, flowId),
     notify: async (workspaceId, notifyInput) => {
       const slot = getSlot(workspaceId);
       if (!slot.controller) {
@@ -1209,4 +1225,5 @@ export function createDaemonChannelIngressRuntime(input: {
     },
     listWorkspaceIds: async () => await listWorkspaceChannelIds(input.sparkHome),
   };
+  return runtime;
 }

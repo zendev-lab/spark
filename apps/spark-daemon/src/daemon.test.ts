@@ -1389,6 +1389,100 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
+  it("stores channel secrets under the daemon binding and projects the Cockpit workspace id", async () => {
+    const harness = makeHarness();
+    try {
+      const ws = new CapturingSocket();
+      const context = makeContext(harness, vi.fn<RunSparkCommandFn>());
+      context.serverUrl = "https://cockpit.example.test/";
+      const configure = vi.fn(async (workspaceId: string) => ({
+        plane: "daemon" as const,
+        resource: "channel" as const,
+        workspaceId,
+        configPath: `/tmp/${workspaceId}/channels/config.json`,
+        available: true,
+        configured: true,
+        ingressEnabled: true,
+        state: "running" as const,
+        adapters: [],
+        routes: [],
+        observedAt: "2026-08-03T00:00:00.000Z",
+        text: "running\n",
+      }));
+      context.channelIngress = {
+        configure,
+        status: (workspaceId: string) => ({
+          plane: "daemon",
+          resource: "channel",
+          workspaceId,
+          configPath: `/tmp/${workspaceId}/channels/config.json`,
+          available: true,
+          configured: true,
+          ingressEnabled: true,
+          state: "running",
+          adapters: [],
+          routes: [],
+          observedAt: "2026-08-03T00:00:00.000Z",
+          text: "running\n",
+        }),
+      } as unknown as DaemonChannelIngressRuntime;
+      const request = {
+        protocolVersion: runtimeProtocolVersion,
+        messageId: createId("msg"),
+        type: "server.ephemeral_secret.request",
+        sentAt: "2026-08-03T00:00:00.000Z",
+        runtimeId: context.runtimeId,
+        workspaceBindingId: harness.workspace.serverBindingId,
+        workspaceId: harness.workspace.serverWorkspaceId,
+        ephemeralRequestId: createId("eph"),
+        actorUserId: "usr_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        browserRequestId: createId("msg"),
+        csrfVerified: true,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        payload: {
+          operation: "channel.configure",
+          workspaceId: harness.workspace.serverWorkspaceId,
+          config: {
+            adapters: {
+              qqbot: {
+                type: "qqbot",
+                app_id: "1900000000",
+                client_secret: "secret-stays-on-daemon",
+                connection_mode: "websocket",
+                api_environment: "production",
+              },
+            },
+            routes: {},
+            ingress: { enabled: true, on_unbound: "create" },
+          },
+        },
+      };
+
+      await handleServerMessage(ws, JSON.stringify(request), context);
+
+      expect(configure).toHaveBeenCalledWith(
+        harness.workspace.id,
+        expect.objectContaining({ adapters: expect.any(Object) }),
+      );
+      expect(ws.sent).toEqual([
+        expect.objectContaining({
+          type: "runtime.ephemeral_secret.result",
+          workspaceId: harness.workspace.serverWorkspaceId,
+          workspaceBindingId: harness.workspace.serverBindingId,
+          payload: expect.objectContaining({
+            operation: "channel.configure",
+            status: "succeeded",
+            result: expect.objectContaining({
+              workspaceId: harness.workspace.serverWorkspaceId,
+            }),
+          }),
+        }),
+      ]);
+    } finally {
+      harness.cleanup();
+    }
+  });
+
   it("streams ack, running, log chunks, and succeeded updates from the Spark bridge", async () => {
     const harness = makeHarness();
     try {

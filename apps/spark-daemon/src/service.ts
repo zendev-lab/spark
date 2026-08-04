@@ -122,21 +122,41 @@ export interface SparkDaemonServiceResult {
 
 export function startSparkDaemonService(
   paths: SparkPaths,
-  options: { expectedRestartId?: string } = {},
+  options: {
+    expectedRestartId?: string;
+    platform?: NodeJS.Platform;
+    guiDomainAvailable?: () => boolean;
+    startLaunchd?: (paths: SparkPaths) => SparkDaemonServiceResult;
+    startDetached?: (paths: SparkPaths, expectedRestartId?: string) => SparkDaemonServiceResult;
+  } = {},
 ): SparkDaemonServiceResult {
-  if (process.platform === "darwin") {
-    return startLaunchdService(paths);
+  if (
+    (options.platform ?? process.platform) === "darwin" &&
+    (options.guiDomainAvailable ?? isSparkDaemonGuiDomainAvailable)()
+  ) {
+    return (options.startLaunchd ?? startLaunchdService)(paths);
   }
 
-  return startDetachedSparkDaemon(paths, options.expectedRestartId);
+  return (options.startDetached ?? startDetachedSparkDaemon)(paths, options.expectedRestartId);
 }
 
-export function stopSparkDaemonService(paths: SparkPaths): SparkDaemonServiceResult | null {
-  if (process.platform === "darwin") {
-    return stopSparkDaemonLaunchdLabel();
+export function stopSparkDaemonService(
+  paths: SparkPaths,
+  options: {
+    platform?: NodeJS.Platform;
+    supervisorRegistered?: () => boolean;
+    stopLaunchd?: () => SparkDaemonServiceResult;
+    stopDetached?: (paths: SparkPaths) => SparkDaemonServiceResult | null;
+  } = {},
+): SparkDaemonServiceResult | null {
+  if (
+    (options.platform ?? process.platform) === "darwin" &&
+    (options.supervisorRegistered ?? isSparkDaemonSupervisorRegistered)()
+  ) {
+    return (options.stopLaunchd ?? stopSparkDaemonLaunchdLabel)();
   }
 
-  return stopSparkDaemonPidFileProcess(paths);
+  return (options.stopDetached ?? stopSparkDaemonPidFileProcess)(paths);
 }
 
 /**
@@ -1367,6 +1387,21 @@ export function stopSparkDaemonRestartStartedService(
 }
 
 type LaunchctlResult = { status: number | null; stdout: string; stderr: string };
+
+/** True when this process can register a per-user GUI LaunchAgent. */
+export function isSparkDaemonGuiDomainAvailable(
+  options: {
+    platform?: NodeJS.Platform;
+    uid?: number;
+    run?: (args: string[]) => LaunchctlResult;
+  } = {},
+): boolean {
+  if ((options.platform ?? process.platform) !== "darwin") return false;
+  const uid = options.uid ?? process.getuid?.();
+  if (uid === undefined) return false;
+  const result = (options.run ?? runLaunchctl)(["print", `gui/${uid}`]);
+  return result.status === 0;
+}
 
 /** True only when launchd currently owns a job that can replace the daemon. */
 export function isSparkDaemonSupervisorRegistered(
