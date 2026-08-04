@@ -9,7 +9,7 @@
     type ModelPickerGroup,
     type ModelRuntimeControlLabels,
   } from "$lib/components/model-selector";
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import type { SparkActionBarView, SparkActionView } from "@zendev-lab/spark-protocol";
   import type { SubmitFunction } from "@sveltejs/kit";
   import type { CockpitSlashCommandSuggestion } from "$lib/slash-actions";

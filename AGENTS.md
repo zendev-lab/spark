@@ -16,6 +16,7 @@ Target package topology follows type-first names:
 - `packages/spark-runtime`, `packages/spark-protocol`, `packages/spark-tui`, and `packages/spark-system` — Spark shared runtime, protocol/schema, reusable TUI boundary, and dependency-light local-system primitives. Cross-surface ask / slash / session-view semantics belong in `spark-protocol`.
 - `packages/spark-daemon-client` — protocol-aware local RPC/oRPC client transport shared by TUI, Cockpit, daemon lifecycle helpers, and capabilities. Do not put daemon clients back into `spark-system`.
 - `packages/spark-cockpit-*` — Cockpit-private implementation packages (`spark-cockpit-db`, `spark-cockpit-coordination`, …); the Cockpit message catalog is the explicit `@zendev-lab/spark-i18n/cockpit` subpath. Do not put daemon/shared helpers behind Cockpit-private names or add other Cockpit-private catalogs to shared package roots.
+- `packages/spark-ui` — Spark-owned Svelte components, design tokens, icons, and streaming Safe Markdown. Only this package may directly import Bits UI, Lucide, or `svelte-streamdown`; `spark-ui` is never an Artifact media type or wire protocol.
 - `architecture/packages.json` — exhaustive package layer/owner/stability/state-writer inventory. Adding a workspace requires updating this inventory without exceeding its package budget.
 - `docs/` — current docs are split into `specs/` and `operations/`; keep `docs/README.md` as the concise map (including the three “runtime” meanings).
 

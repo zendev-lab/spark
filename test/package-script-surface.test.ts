@@ -69,7 +69,7 @@ test("root package exposes one compact validation and release surface", async ()
   assert.equal(scripts["check:evidence-surface"], "node scripts/check-evidence-surface.mjs");
   assert.equal(
     scripts["check:boundaries"],
-    "depcruise --config .dependency-cruiser.cjs apps packages test",
+    "depcruise --config .dependency-cruiser.cjs apps packages test && node scripts/check-spark-ui-import-boundary.mjs",
   );
   assert.equal(scripts["deploy:docs"], "pnpm --filter @zendev-lab/spark-docs run deploy");
   assert.equal(scripts["dev:docs"], "pnpm --filter @zendev-lab/spark-docs run dev");

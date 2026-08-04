@@ -28,7 +28,6 @@ export interface ArtifactProjectionContentRef {
   inlineText?: string;
   mediaType?: string;
   revision?: number;
-  /** Compatibility projection for protocol v1/Cockpit consumers. */
   previewFormat?: PreviewContentFormat;
   version?: number;
   progress?: ArtifactProgress | null;
@@ -105,8 +104,6 @@ function compatibilityPreviewFormat(mediaType: string): PreviewContentFormat | u
       return "html";
     case "application/vnd.a2ui+json":
       return "a2ui";
-    case "application/vnd.spark-ui+json":
-      return "spark-ui";
     default:
       return undefined;
   }

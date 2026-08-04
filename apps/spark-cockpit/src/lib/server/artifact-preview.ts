@@ -38,13 +38,7 @@ export function previewFormatFromContentRef(value: unknown): PreviewContentForma
 }
 
 function isPreviewContentFormat(value: unknown): value is PreviewContentFormat {
-  return (
-    value === "md" ||
-    value === "mdx" ||
-    value === "html" ||
-    value === "a2ui" ||
-    value === "spark-ui"
-  );
+  return value === "md" || value === "mdx" || value === "html" || value === "a2ui";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import type { AppMessages } from "$lib/i18n";
   import SparkLogo from "$lib/SparkLogo.svelte";
   import { workspaceAvatarStyle, workspaceInitial } from "$lib/workspace-avatar";

@@ -1,9 +1,9 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
   import { invalidateAll } from "$app/navigation";
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import { formatRelativeTime } from "$lib/i18n";
-  import { Button, Field, Input, PageHeader } from "$lib/ui";
+  import { Button, Field, Input, PageHeader } from "@zendev-lab/spark-ui";
   import { slugifyWorkspaceIdentifier } from "$lib/slugify";
   import { resolveWorkspaceCreationState } from "$lib/workspace-creation-state";
   import type { SubmitFunction } from "@sveltejs/kit";

@@ -1,11 +1,10 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
   import MemoryProposalDetail from "$lib/MemoryProposalDetail.svelte";
   import MemoryQuarantineDetail from "$lib/MemoryQuarantineDetail.svelte";
-  import SparkUiRenderer from "$lib/SparkUiRenderer.svelte";
-  import { buildArtifactSparkUiReplay } from "$lib/artifact-ui-replay";
+  import { Button, Icon, Panel } from "@zendev-lab/spark-ui";
+  import { GitChangePreview } from "@zendev-lab/spark-ui/git-change";
+  import { gitChangePreviewFromContentRef } from "$lib/git-change-preview";
   import { enumLabel, formatByteSize, formatRelativeTime } from "$lib/i18n";
-  import { Button, Panel } from "$lib/ui";
   import { workspacePath, workspaceSessionPath } from "$lib/workspace-routes";
 
   let { data, form } = $props();
@@ -22,13 +21,8 @@
   let displayTitle = $derived(
     data.artifact.title.match(/^Role run .*? for (.+)$/i)?.[1] ?? data.artifact.title,
   );
-  let sparkUiReplay = $derived(
-    buildArtifactSparkUiReplay({
-      kind: data.artifact.kind,
-      format: data.artifact.format,
-      contentRef: data.artifact.contentRef as Record<string, unknown>,
-      previewText: preview.body?.text ?? null,
-    }),
+  let gitChangePreview = $derived(
+    gitChangePreviewFromContentRef(data.artifact.kind, data.artifact.contentRef),
   );
 
   function formatRelative(value: string | null) {
@@ -91,7 +85,9 @@
       <div class="form-error" role="alert">{form.message}</div>
     {/if}
 
-    {#if previewDocumentHtml}
+    {#if gitChangePreview}
+      <GitChangePreview change={gitChangePreview} labels={t.gitChange} />
+    {:else if previewDocumentHtml}
       <iframe
         class="product-preview-frame"
         title={`${t.preview.title}: ${displayTitle}`}
@@ -103,22 +99,6 @@
         <Button variant="secondary" href={`/api/v1/artifacts/${data.artifact.id}/content`}>
           {t.preview.openRaw}
         </Button>
-      </div>
-    {:else if sparkUiReplay}
-      <div class="spark-ui-replay-body">
-        <aside class="legacy-spark-ui-notice" role="note">
-          <p class="eyebrow">{t.sparkUi.kicker}</p>
-          <strong>{t.sparkUi.title}</strong>
-          <p>{t.sparkUi.body}</p>
-          <span>
-            {sparkUiReplay.mode === "source" ? t.sparkUi.sourceMode : t.sparkUi.astMode}
-          </span>
-        </aside>
-        <SparkUiRenderer
-          document={sparkUiReplay.document}
-          source={sparkUiReplay.source}
-          showSource={false}
-        />
       </div>
     {:else if preview.status === "ready" && preview.body}
       {#if preview.body.text !== null}
@@ -258,21 +238,6 @@
     overflow: hidden;
   }
 
-  .spark-ui-replay-body { display: grid; gap: var(--spacing-lg); padding: var(--spacing-xl); }
-  .legacy-spark-ui-notice {
-    background: var(--color-warning-weak);
-    border: 1px solid var(--color-warning-soft);
-    border-radius: var(--rounded-md);
-    display: grid;
-    gap: var(--spacing-xs);
-    padding: var(--spacing-md);
-  }
-  .legacy-spark-ui-notice strong { color: var(--color-warning-strong); }
-  .legacy-spark-ui-notice p:not(.eyebrow), .legacy-spark-ui-notice span {
-    color: var(--color-ink-muted);
-    line-height: var(--leading-body);
-  }
-  .legacy-spark-ui-notice span { font-size: var(--text-caption); }
   :global(.preview-panel .ui-panel-body) { gap: 0; }
   .product-preview-frame { background: white; border: 0; display: block; height: min(70vh, 760px); min-height: 32rem; width: 100%; }
   .preview-body { background: var(--color-ink); color: var(--color-border); font-size: var(--text-caption); margin: 0; max-height: 60vh; overflow: auto; padding: var(--spacing-xl); white-space: pre-wrap; }
@@ -317,6 +282,6 @@
   @media (max-width: 560px) {
     .hero { align-items: flex-start; flex-direction: column; }
     .meta-grid { grid-template-columns: 1fr; }
-    .technical-body, .spark-ui-replay-body { padding: var(--spacing-lg); }
+    .technical-body { padding: var(--spacing-lg); }
   }
 </style>

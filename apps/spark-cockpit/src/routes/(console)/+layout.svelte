@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from "$app/state";
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import {
     buildConsoleNavGroups,
     COCKPIT_SETTINGS_HREF,

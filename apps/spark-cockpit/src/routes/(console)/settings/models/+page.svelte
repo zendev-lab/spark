@@ -1,9 +1,9 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
   import { invalidateAll } from "$app/navigation";
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import { ModelPicker, type ModelPickerGroup } from "$lib/components/model-selector";
-  import { Button, Field, Input, PageHeader, Select } from "$lib/ui";
+  import { Button, Field, Input, PageHeader, Select } from "@zendev-lab/spark-ui";
   import type { SparkModelCatalogProvider } from "@zendev-lab/spark-protocol";
 
   let { data, form } = $props();

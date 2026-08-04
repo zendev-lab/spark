@@ -1,7 +1,7 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
-  import { Button, Input, PageHeader } from "$lib/ui";
+  import { Button, Input, PageHeader } from "@zendev-lab/spark-ui";
 
   let { data } = $props();
 
@@ -187,7 +187,7 @@
 </section>
 
 <style>
-  @import "$lib/ui/status-pill.css";
+  @import "@zendev-lab/spark-ui/status-pill.css";
 
   .invocation-diagnostics {
     display: grid;

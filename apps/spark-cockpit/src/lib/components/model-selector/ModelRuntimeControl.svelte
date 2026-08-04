@@ -3,7 +3,7 @@
     sparkThinkingLevelOptions,
     type SparkThinkingLevel,
   } from "@zendev-lab/spark-protocol";
-  import { Select } from "$lib/ui";
+  import { Select } from "@zendev-lab/spark-ui";
   import ModelPicker from "./ModelPicker.svelte";
   import type { ModelPickerGroup, ModelRuntimeControlLabels } from "./types";
 

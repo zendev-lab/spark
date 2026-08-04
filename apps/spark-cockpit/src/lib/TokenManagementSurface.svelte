@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import Icon from "$lib/Icon.svelte";
-  import type { IconName } from "$lib/icons";
-  import { Button, Field, Input } from "$lib/ui";
+  import { Icon } from "@zendev-lab/spark-ui";
+  import type { IconName } from "@zendev-lab/spark-ui";
+  import { Button, Field, Input } from "@zendev-lab/spark-ui";
 
   let {
     heading,

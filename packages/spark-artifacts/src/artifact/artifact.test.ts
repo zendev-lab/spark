@@ -75,12 +75,12 @@ describe("artifact kinds", () => {
             content: "retired",
             revision: 1,
           },
-        }),
+        } as never),
       ).rejects.toThrow(`document media type is retired or unsupported for writes: ${mediaType}`);
     },
   );
 
-  it("lazily normalizes legacy pr/preview records without changing their refs", async () => {
+  it("normalizes v1 records but rejects removed Document media without changing refs", async () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-artifact-legacy-normalize-"));
     const store = defaultArtifactStore(dir);
     await mkdir(store.rootDir, { recursive: true });
@@ -163,212 +163,11 @@ describe("artifact kinds", () => {
       mediaType: "text/markdown",
       revision: 4,
     });
-    const retiredV2 = await store.get("artifact:retired-v2" as ArtifactRef);
-    expect(retiredV2.body).toMatchObject({
-      schemaVersion: 2,
-      kind: "document",
-      mediaType: "application/vnd.spark-ui+json",
-      revision: 2,
-    });
-    await expect(
-      store.update(retiredV2.ref, {
-        body: {
-          ...retiredV2.body,
-          content: "attempted mutation",
-          revision: 3,
-        },
-      }),
-    ).rejects.toThrow("document media type is retired or unsupported for writes");
+    await expect(store.get("artifact:retired-v2" as ArtifactRef)).rejects.toThrow("invalid body");
     expect((await store.list()).map((artifact) => artifact.kind)).toEqual([
       "git_change",
       "document",
-      "document",
     ]);
-  });
-
-  it.each([
-    {
-      legacyMediaType: "text/plain",
-      legacyFormat: "text" as const,
-      format: "md",
-      mediaType: "text/markdown",
-      artifactFormat: "markdown",
-      blobExtension: ".md",
-      projectionFormat: "markdown",
-      previewFormat: "md",
-      content: "# Canonical",
-    },
-    {
-      legacyMediaType: "application/json",
-      legacyFormat: "json" as const,
-      format: "mdx",
-      mediaType: "text/mdx",
-      artifactFormat: "mdx",
-      blobExtension: ".md",
-      projectionFormat: "text",
-      previewFormat: "mdx",
-      content: '<Callout title="Canonical">Converted</Callout>',
-    },
-    {
-      legacyMediaType: "text/plain",
-      legacyFormat: "text" as const,
-      format: "html",
-      mediaType: "text/html",
-      artifactFormat: "html",
-      blobExtension: ".html",
-      projectionFormat: "text",
-      previewFormat: "html",
-      content: "<main>Canonical</main>",
-    },
-    {
-      legacyMediaType: "application/json",
-      legacyFormat: "json" as const,
-      format: "a2ui",
-      mediaType: "application/vnd.a2ui+json",
-      artifactFormat: "json",
-      blobExtension: ".json",
-      projectionFormat: "text",
-      previewFormat: "a2ui",
-      content: '{"messages":[]}',
-    },
-  ])(
-    "explicitly converts $legacyMediaType to $mediaType with canonical storage metadata",
-    async ({
-      legacyMediaType,
-      legacyFormat,
-      format,
-      mediaType,
-      artifactFormat,
-      blobExtension,
-      projectionFormat,
-      previewFormat,
-      content,
-    }) => {
-      const cwd = await mkdtemp(join(tmpdir(), "spark-artifact-retired-tool-update-"));
-      const store = defaultArtifactStore(cwd);
-      await mkdir(store.rootDir, { recursive: true });
-      const createdAt = "2026-08-03T00:00:00.000Z";
-      const artifactRef = "artifact:retired-tool" as ArtifactRef;
-      await writeFile(
-        store.pathFor(artifactRef),
-        JSON.stringify({
-          ref: artifactRef,
-          kind: "document",
-          title: "Retired tool document",
-          format: legacyFormat,
-          body: {
-            schemaVersion: 2,
-            kind: "document",
-            mediaType: legacyMediaType,
-            content: "legacy content",
-            revision: 7,
-          },
-          createdAt,
-          updatedAt: createdAt,
-        }),
-        "utf8",
-      );
-
-      let tool: ToolConfig | undefined;
-      registerArtifactTool({ registerTool: (config) => (tool = config) });
-      if (!tool) throw new Error("artifact tool was not registered");
-      const signal = new AbortController().signal;
-      await expect(
-        tool.execute(
-          "update-retired",
-          { action: "update", artifactRef, content: "new content" },
-          signal,
-          () => undefined,
-          { cwd },
-        ),
-      ).rejects.toThrow(`document media type is read-only: ${legacyMediaType}`);
-
-      const converted = await tool.execute(
-        "convert-retired",
-        { action: "update", artifactRef, format, content },
-        signal,
-        () => undefined,
-        { cwd },
-      );
-      expect(converted.details?.changed).toBe(true);
-      const stored = await store.get(artifactRef);
-      expect(stored).toMatchObject({
-        format: artifactFormat,
-        body: {
-          kind: "document",
-          mediaType,
-          content,
-          revision: 8,
-        },
-      });
-      expect(stored.blobPath).toMatch(new RegExp(`${blobExtension.replace(".", "\\.")}$`, "u"));
-      expect(projectArtifact(stored)).toMatchObject({
-        format: projectionFormat,
-        mime: mediaType,
-        contentRef: { previewFormat },
-      });
-    },
-  );
-
-  it("normalizes storage metadata when sync_file converts a retired Document", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "spark-artifact-retired-sync-file-"));
-    const store = defaultArtifactStore(cwd);
-    await mkdir(store.rootDir, { recursive: true });
-    await mkdir(join(cwd, "outputs"), { recursive: true });
-    await writeFile(join(cwd, "outputs", "report.md"), "# Synced canonical report\n", "utf8");
-    const artifactRef = "artifact:retired-sync-file" as ArtifactRef;
-    const createdAt = "2026-08-03T00:00:00.000Z";
-    await writeFile(
-      store.pathFor(artifactRef),
-      JSON.stringify({
-        ref: artifactRef,
-        kind: "document",
-        title: "Retired sync target",
-        format: "json",
-        body: {
-          schemaVersion: 2,
-          kind: "document",
-          mediaType: "application/json",
-          content: '{"legacy":true}',
-          revision: 4,
-        },
-        createdAt,
-        updatedAt: createdAt,
-      }),
-      "utf8",
-    );
-
-    let tool: ToolConfig | undefined;
-    registerArtifactTool({ registerTool: (config) => (tool = config) });
-    if (!tool) throw new Error("artifact tool was not registered");
-    const result = await tool.execute(
-      "convert-retired-sync-file",
-      {
-        action: "sync_file",
-        artifactRef,
-        sourcePath: "outputs/report.md",
-        format: "md",
-      },
-      new AbortController().signal,
-      () => undefined,
-      { cwd },
-    );
-    expect(result.details?.changed).toBe(true);
-    const stored = await store.get(artifactRef);
-    expect(stored).toMatchObject({
-      format: "markdown",
-      body: {
-        mediaType: "text/markdown",
-        content: "# Synced canonical report\n",
-        revision: 5,
-      },
-    });
-    expect(stored.blobPath).toMatch(/\.md$/u);
-    expect(projectArtifact(stored)).toMatchObject({
-      format: "markdown",
-      mime: "text/markdown",
-      contentRef: { previewFormat: "md" },
-    });
   });
 
   it.each([

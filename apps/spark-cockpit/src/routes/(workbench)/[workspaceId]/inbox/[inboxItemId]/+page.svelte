@@ -1,8 +1,8 @@
 <script lang="ts">
   import AskQuestionField from "$lib/AskQuestionField.svelte";
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
-  import { Button, Field, Panel, Textarea } from "$lib/ui";
+  import { Button, Field, Panel, Textarea } from "@zendev-lab/spark-ui";
   import { workspacePath, workspaceSessionPath } from "$lib/workspace-routes";
 
   let { data, form } = $props();
@@ -168,7 +168,7 @@
 </section>
 
 <style>
-  @import "$lib/ui/status-pill.css";
+  @import "@zendev-lab/spark-ui/status-pill.css";
 
   .inbox-detail-page {
     display: grid;

@@ -39,6 +39,8 @@ const complexity = runReport("vp", [
   "--ignore-pattern",
   "**/*.test.ts",
   "--ignore-pattern",
+  "packages/spark-ui/**",
+  "--ignore-pattern",
   "packages/spark-i18n/**",
   "apps",
   "packages",

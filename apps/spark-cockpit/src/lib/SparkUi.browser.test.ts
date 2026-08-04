@@ -1,8 +1,7 @@
 import { render } from "vitest-browser-svelte";
 import { describe, expect, it } from "vitest";
-import SafeMarkdown from "../../SafeMarkdown.svelte";
-import SparkUiRenderer from "../../SparkUiRenderer.svelte";
-import Response from "./Response.svelte";
+import { GitChangePreview } from "@zendev-lab/spark-ui/git-change";
+import { Response, SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
 
 describe("Response browser contract", () => {
   it("renders the rich Markdown surface without exposing raw or unsafe HTML", async () => {
@@ -92,26 +91,89 @@ describe("Response browser contract", () => {
     expect(screen.container.querySelectorAll(".streaming-caret")).toHaveLength(0);
   });
 
-  it("streams only the final SparkUiRenderer block", async () => {
-    const screen = await render(SparkUiRenderer, {
-      document: {
-        schemaVersion: 1,
-        blocks: [
-          { type: "markdown", text: "**first**" },
-          { type: "callout", tone: "info", body: "**last" },
-        ],
-        diagnostics: [],
+  it("renders a git_change stack and PR body instead of raw Artifact JSON", async () => {
+    const screen = await render(GitChangePreview, {
+      change: {
+        repository: { forge: "github", repo: "zendev-lab/spark" },
+        trunk: "main",
+        lifecycle: "published",
+        worktree: { ownership: "spark", status: "attached", branch: "feat/ui" },
+        stack: {
+          authority: "gh-stack",
+          number: 7,
+          currentBranch: "feat/ui",
+          entries: [
+            {
+              branch: "feat/ui",
+              base: "feat/report",
+              isCurrent: true,
+              isMerged: false,
+              isQueued: false,
+              needsRebase: false,
+              pullRequest: {
+                number: 135,
+                url: "https://github.com/zendev-lab/spark/pull/135",
+                state: "OPEN",
+                title: "Render GitChange artifacts",
+                headRef: "feat/ui",
+                baseRef: "feat/report",
+                labels: ["ui"],
+                checksSummary: "SUCCESS",
+                bodyText: "## Summary\n\nRendered **Markdown**.",
+                diffSummary: "2 files changed, 42 insertions(+)",
+              },
+            },
+          ],
+        },
       },
-      streaming: true,
-    } as never);
-    const markdown = [...screen.container.querySelectorAll(".ai-response")];
+    });
 
-    expect(markdown).toHaveLength(2);
-    expect(markdown[0]?.getAttribute("data-streaming")).toBeNull();
-    expect(markdown[1]?.getAttribute("data-streaming")).toBe("true");
-    expect(screen.container.querySelectorAll('.ai-response[data-streaming="true"]')).toHaveLength(
-      1,
-    );
-    expect(screen.container.querySelectorAll(".streaming-caret")).toHaveLength(0);
+    expect(
+      screen.container.querySelector('a[href="https://github.com/zendev-lab/spark/pull/135"]'),
+    ).not.toBeNull();
+    expect(screen.container.querySelector("h2")?.textContent).toContain("Render GitChange");
+    expect(
+      [...screen.container.querySelectorAll("h2")].some((node) => node.textContent === "Summary"),
+    ).toBe(true);
+    expect(screen.container.querySelector(".markdown strong")?.textContent).toBe("Markdown");
+    expect(screen.container.textContent).toContain("2 files changed");
+    expect(screen.container.textContent).toContain("feat/ui");
+    expect(screen.container.textContent).toContain("feat/report");
+    expect(screen.container.textContent).not.toContain('"schemaVersion"');
+  });
+
+  it("does not turn an untrusted PR URL into navigation", async () => {
+    const screen = await render(GitChangePreview, {
+      change: {
+        repository: { forge: "github", repo: "zendev-lab/spark" },
+        trunk: "main",
+        lifecycle: "published",
+        worktree: { ownership: "external", status: "missing" },
+        stack: {
+          authority: "legacy-unbound",
+          entries: [
+            {
+              branch: "feat/ui",
+              base: "main",
+              isCurrent: true,
+              isMerged: false,
+              isQueued: false,
+              needsRebase: false,
+              pullRequest: {
+                number: 1,
+                url: "javascript:alert(1)",
+                state: "OPEN",
+                title: "Untrusted link",
+                headRef: "feat/ui",
+                baseRef: "main",
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(screen.container.querySelector(".pr-link")).toBeNull();
+    expect(screen.container.querySelector("h2")?.textContent).toBe("Untrusted link");
   });
 });

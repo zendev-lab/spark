@@ -1,11 +1,11 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import {
     channelSessionScopeKind,
     type ChannelSessionAdapter,
     type ChannelSessionScope,
   } from "$lib/channel-session-title";
-  import type { IconName } from "$lib/icons";
+  import type { IconName } from "@zendev-lab/spark-ui";
 
   let {
     adapter,

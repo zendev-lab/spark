@@ -508,7 +508,7 @@ export class SparkHostRuntime implements SparkHostAPI {
       ? parseSparkInteractionResponse(await this.uiTransport.interaction(parsedRequest))
       : createBlockedInteractionResponse(
           parsedRequest,
-          "Spark UI transport has no interaction handler.",
+          "Host UI transport has no interaction handler.",
         );
     this.publishDaemonEvent({
       version: SPARK_PROTOCOL_VERSION,

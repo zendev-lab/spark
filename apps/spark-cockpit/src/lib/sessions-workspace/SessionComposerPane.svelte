@@ -6,7 +6,7 @@
     SlashCommandMenu,
   } from "$lib/components/conversation";
   import { ModelRuntimeControl } from "$lib/components/model-selector";
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import {
     SPARK_TURN_ATTACHMENT_MAX_BYTES,
     SPARK_TURN_ATTACHMENT_MAX_COUNT,

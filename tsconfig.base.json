@@ -18,9 +18,6 @@
     "paths": {
       "@zendev-lab/spark-artifacts": ["./packages/spark-artifacts/src/index.ts"],
       "@zendev-lab/spark-artifacts/extension": ["./packages/spark-artifacts/src/extension.ts"],
-      "@zendev-lab/spark-artifacts/generative-ui": [
-        "./packages/spark-artifacts/src/generative-ui.ts"
-      ],
       "@zendev-lab/spark-ask": ["./packages/spark-ask/src/index.ts"],
       "@zendev-lab/spark-ask/extension": ["./packages/spark-ask/src/extension.ts"],
       "@zendev-lab/spark-core": ["./packages/spark-core/src/index.ts"],
@@ -73,6 +70,10 @@
       "@zendev-lab/spark-host/keybindings": ["./packages/spark-host/src/keybindings.ts"],
       "@zendev-lab/spark-host/system-prompt": ["./packages/spark-host/src/system-prompt.ts"],
       "@zendev-lab/spark-host/types": ["./packages/spark-host/src/types.ts"],
+      "@zendev-lab/spark-ui": ["./packages/spark-ui/src/index.ts"],
+      "@zendev-lab/spark-ui/headless": ["./packages/spark-ui/src/ui/headless.ts"],
+      "@zendev-lab/spark-ui/markdown": ["./packages/spark-ui/src/markdown/index.ts"],
+      "@zendev-lab/spark-ui/git-change": ["./packages/spark-ui/src/git-change.ts"],
       "@zendev-lab/spark-cockpit-db": ["./packages/spark-cockpit-db/src/index.ts"],
       "@zendev-lab/spark-i18n": ["./packages/spark-i18n/src/index.ts"],
       "@zendev-lab/spark-i18n/cli": ["./packages/spark-i18n/src/cli.ts"],

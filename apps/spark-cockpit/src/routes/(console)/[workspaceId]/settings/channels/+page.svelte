@@ -7,9 +7,8 @@
     type MessagePlatformFormValues,
     type WorkspaceMessagePlatformConnection,
   } from "$lib/message-platform";
-  import Icon from "$lib/Icon.svelte";
   import { statusLabel } from "$lib/i18n";
-  import { Button, Field, Input, PageHeader, Select } from "$lib/ui";
+  import { Button, Field, Icon, Input, PageHeader, Select } from "@zendev-lab/spark-ui";
   import type { ActionResult, SubmitFunction } from "@sveltejs/kit";
   import type { SparkQqbotQrAuthReason, SparkQqbotQrAuthStatus } from "@zendev-lab/spark-protocol";
   import { onDestroy, untrack } from "svelte";
@@ -20,7 +19,6 @@
     appId?: string;
     reason?: SparkQqbotQrAuthReason;
   };
-
   let { data, form } = $props();
   let t = $derived(data.messages.channelsSettings);
   let common = $derived(data.messages.common);

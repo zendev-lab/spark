@@ -1,6 +1,5 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
-  import { Dialog as DialogShell } from "$lib/ui";
+  import { Dialog as DialogShell, Icon } from "@zendev-lab/spark-ui";
   import {
     CommandEmpty,
     CommandGroup,
@@ -14,7 +13,7 @@
     DialogDescription,
     DialogTitle,
     DialogTrigger,
-  } from "$lib/ui/headless";
+  } from "@zendev-lab/spark-ui/headless";
   import type { ModelPickerGroup } from "./types";
 
   let {

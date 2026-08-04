@@ -2,7 +2,7 @@
   import { browser } from "$app/environment";
   import { invalidateAll } from "$app/navigation";
   import { page } from "$app/state";
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import {
     parsePendingAskEvent,
     pendingAskEventCursor,

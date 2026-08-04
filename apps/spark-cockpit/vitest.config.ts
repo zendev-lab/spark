@@ -7,8 +7,15 @@ import { defineConfig } from "vitest/config";
  */
 export default defineConfig({
   plugins: [sveltekit()],
+  optimizeDeps: {
+    exclude: ["@lucide/svelte", "bits-ui", "svelte-streamdown"],
+  },
   resolve: {
     conditions: ["browser"],
+    dedupe: ["svelte"],
+  },
+  ssr: {
+    noExternal: ["@zendev-lab/spark-ui", "@lucide/svelte", "bits-ui", "svelte-streamdown"],
   },
   test: {
     environment: "node",

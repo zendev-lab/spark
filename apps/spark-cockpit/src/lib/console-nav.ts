@@ -1,4 +1,4 @@
-import type { IconName } from "./icons";
+import type { IconName } from "@zendev-lab/spark-ui";
 
 export type ConsoleNavCopy = {
   createWorkspace: string;

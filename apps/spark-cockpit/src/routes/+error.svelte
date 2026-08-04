@@ -1,8 +1,8 @@
 <script lang="ts">
   import { page } from "$app/state";
   import { INVOCATION_ROUTE_UNAVAILABLE_ERROR_CODE } from "$lib/error-codes";
-  import Icon from "$lib/Icon.svelte";
-  import { Button } from "$lib/ui";
+  import { Icon } from "@zendev-lab/spark-ui";
+  import { Button } from "@zendev-lab/spark-ui";
 
   let copy = $derived(page.data.messages.errorPage);
   let currentError = $derived(page.error as App.Error | null);

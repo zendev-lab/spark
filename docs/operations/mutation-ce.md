@@ -20,7 +20,7 @@ Weekly/manual [Stryker](https://stryker-mutator.io/) runs evaluate whether Vites
 | `@zendev-lab/spark-channels` | modules with `*.test.ts` peers |
 | `@zendev-lab/spark-cockpit-coordination` | modules with `*.test.ts` peers (+ `cockpit-queries.ts`) |
 | `@zendev-lab/spark-session` | `action-tool`, `mail-store`, `registry`, `snapshot` |
-| `@zendev-lab/spark-artifacts` | `generative-ui` + product store/forge/types/worktree |
+| `@zendev-lab/spark-artifacts` | product store/forge/types/worktree |
 | `@zendev-lab/spark-repro` | `src/index.ts` |
 | `@zendev-lab/spark-i18n` | `index.ts`, `extension.ts` |
 

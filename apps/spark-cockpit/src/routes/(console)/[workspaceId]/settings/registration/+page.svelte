@@ -1,9 +1,9 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import TokenManagementSurface from "$lib/TokenManagementSurface.svelte";
   import { daemonDisplayStatus, type DaemonDisplayStatus } from "$lib/daemon-status";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
-  import { Button, PageHeader } from "$lib/ui";
+  import { Button, PageHeader } from "@zendev-lab/spark-ui";
 
   let { data, form } = $props();
 

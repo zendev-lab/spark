@@ -64,7 +64,6 @@ export {
 } from "./forge.ts";
 
 export {
-  asSparkUiJsonValue,
   previewFormatAsArtifactFormat,
   renderArtifactPreviewDocument,
   type ArtifactPreviewDocumentInput,

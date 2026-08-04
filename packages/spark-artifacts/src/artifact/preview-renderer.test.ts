@@ -79,50 +79,20 @@ describe("Artifact preview rendering", () => {
     expect(inline.diagnostics).toEqual([]);
   });
 
-  it("keeps retired Spark reference components out of writable Safe MDX-lite", () => {
+  it("keeps retired Spark reference components out of Safe MDX-lite", () => {
     const source = [
       '<ArtifactCard artifactRef="artifact:one" title="Old artifact" />',
       '<TaskStatus taskRef="task:one" />',
       '<RunTimeline runRef="run:one" />',
     ].join("\n");
 
-    const writable = renderArtifactPreviewDocument({
+    const rendered = renderArtifactPreviewDocument({
       title: "Writable",
       format: "mdx",
       content: source,
     });
-    expect(writable.html).not.toContain('<section class="reference-card">');
-    expect(writable.diagnostics).toHaveLength(3);
-
-    const legacy = renderArtifactPreviewDocument({
-      title: "Legacy",
-      format: "spark-ui",
-      content: source,
-    });
-    expect(legacy.html).toContain("reference-card");
-    expect(legacy.html).toContain("Old artifact");
-    expect(legacy.html).toContain("Legacy Spark UI · read-only compatibility");
-  });
-
-  it("omits malformed Spark UI AST blocks instead of trusting stored JSON", () => {
-    const rendered = renderArtifactPreviewDocument({
-      title: "Spark UI",
-      format: "spark-ui",
-      content: JSON.stringify({
-        schemaVersion: 1,
-        sourceFormat: "mdx-lite",
-        blocks: [
-          { type: "markdown", text: "# Safe" },
-          { type: "component", props: { payload: "untrusted" } },
-        ],
-        diagnostics: [],
-      }),
-    });
-
-    expect(rendered.html).toContain("<h1>Safe</h1>");
-    expect(rendered.html).toContain("Legacy Spark UI · read-only compatibility");
-    expect(rendered.html).not.toContain("untrusted");
-    expect(rendered.diagnostics.join("\n")).toContain("1 invalid Spark UI block was omitted");
+    expect(rendered.html).not.toContain('<section class="reference-card">');
+    expect(rendered.diagnostics).toHaveLength(3);
   });
 
   it("renders the A2UI v0.9.1 basic catalog as read-only UI", () => {
@@ -209,7 +179,7 @@ describe("Artifact preview rendering", () => {
     const body = {
       schemaVersion: 2 as const,
       kind: "document" as const,
-      mediaType: "text/markdown",
+      mediaType: "text/markdown" as const,
       content: "# Prefix",
       revision: 1,
     };

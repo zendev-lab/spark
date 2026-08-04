@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import ReproTokenUsage from "./ReproTokenUsage.svelte";
   import {
     primarySessionDriver,
@@ -7,7 +7,7 @@
     sessionWorkObjective,
     sessionWorkStatus,
   } from "$lib/session-work-view";
-  import type { IconName } from "$lib/icons";
+  import type { IconName } from "@zendev-lab/spark-ui";
   import type { SessionConversationHost } from "./conversation-host";
 
   let { host }: { host: SessionConversationHost } = $props();

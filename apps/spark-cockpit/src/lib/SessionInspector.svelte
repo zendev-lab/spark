@@ -1,9 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte";
 
-  import Icon from "$lib/Icon.svelte";
-  import type { IconName } from "$lib/icons";
-  import EmptyState from "$lib/ui/EmptyState.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
+  import type { IconName } from "@zendev-lab/spark-ui";
+  import { EmptyState } from "@zendev-lab/spark-ui";
   import type {
     SessionInspectorLabels,
     SessionInspectorTab,
@@ -351,7 +351,7 @@
 </section>
 
 <style>
-  @import "$lib/ui/status-pill.css";
+  @import "@zendev-lab/spark-ui/status-pill.css";
 
   .session-inspector {
     background: var(--color-surface);

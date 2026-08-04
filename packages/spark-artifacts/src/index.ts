@@ -1068,7 +1068,6 @@ export {
   ArtifactStore,
   ArtifactValidationError,
   applyWorktreeToPrBody,
-  asSparkUiJsonValue,
   attachPrWorktree,
   defaultArtifactStore,
   isArtifactBody,

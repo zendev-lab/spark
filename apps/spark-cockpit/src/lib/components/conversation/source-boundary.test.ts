@@ -61,7 +61,10 @@ describe("source-derived conversation component boundary", () => {
     expect(dependencyNames.has("@ai-sdk/svelte")).toBe(false);
     expect(dependencyNames.has("@shikijs/themes")).toBe(false);
     expect(dependencyNames.has("tailwindcss")).toBe(false);
-    expect(dependencyNames.has("svelte-streamdown")).toBe(true);
+    expect(dependencyNames.has("svelte-streamdown")).toBe(false);
+    expect(dependencyNames.has("@lucide/svelte")).toBe(false);
+    expect(dependencyNames.has("bits-ui")).toBe(false);
+    expect(dependencyNames.has("@zendev-lab/spark-ui")).toBe(true);
   });
 
   it("keeps the presentation shell wired to daemon-backed forms", () => {

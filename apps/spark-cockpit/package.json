@@ -24,7 +24,6 @@
     "test:browser": "vp test run --config vitest.browser.config.ts && tsx e2e/legacy-route-navigation.ts"
   },
   "dependencies": {
-    "@lucide/svelte": "^1.16.0",
     "@sveltejs/adapter-node": "^5.3.1",
     "@sveltejs/kit": "^2.28.0",
     "@zendev-lab/spark-artifacts": "workspace:*",
@@ -38,11 +37,10 @@
     "@zendev-lab/spark-protocol": "workspace:*",
     "@zendev-lab/spark-system": "workspace:*",
     "@zendev-lab/spark-tasks": "workspace:*",
+    "@zendev-lab/spark-ui": "workspace:*",
     "@zendev-lab/spark-update": "workspace:*",
-    "bits-ui": "^2.18.1",
     "smol-toml": "^1.6.1",
     "svelte": "^5.38.8",
-    "svelte-streamdown": "^3.1.2",
     "uqr": "0.1.3",
     "vite": "catalog:",
     "web-push": "^3.6.7",
