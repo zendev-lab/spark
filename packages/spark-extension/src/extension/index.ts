@@ -261,7 +261,10 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     taskClaimDaemonClient,
   });
 
-  registerSparkReleaseTaskClaimTool(registerSparkImplementationTool, { refreshSparkWidget });
+  registerSparkReleaseTaskClaimTool(registerSparkImplementationTool, {
+    refreshSparkWidget,
+    taskClaimDaemonClient,
+  });
 
   registerSparkPlanTasksTool(registerSparkImplementationTool, { refreshSparkWidget });
 
