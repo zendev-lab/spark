@@ -1,6 +1,5 @@
 import { realpathSync } from "node:fs";
-import { createRequire } from "node:module";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import type {
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
@@ -166,8 +165,6 @@ export function resolveSparkHeadlessExecutorSpecifier(
   }
 }
 
-const requireHeadlessModule = createRequire(import.meta.url);
-
 export async function loadSparkHeadlessSessionModule(
   options: {
     moduleSpecifier?: string;
@@ -181,11 +178,5 @@ export async function loadSparkHeadlessSessionModule(
   );
   if (options.importModule) return await options.importModule(specifier);
 
-  // Pi's compatibility extension loader evaluates this source through Jiti and
-  // aliases the pi-ai package root to its legacy compat entrypoint. A syntactic
-  // import() is then owned by Jiti, whose prefix alias corrupts modern public
-  // subpaths such as pi-ai/providers/anthropic. Requiring the resolved realpath
-  // hands the entire headless graph to Node's native loader instead.
-  const nodeSpecifier = specifier.startsWith("file:") ? fileURLToPath(specifier) : specifier;
-  return requireHeadlessModule(nodeSpecifier) as SparkHeadlessSessionModule;
+  return (await import(specifier)) as SparkHeadlessSessionModule;
 }
