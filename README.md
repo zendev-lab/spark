@@ -6,8 +6,8 @@ and multi-workspace coordination.**
 Spark keeps agent work alive beyond one terminal process. A local daemon owns
 persistent sessions, invocations, background execution, retries, and recovery.
 The Hub coordinates registered workspaces and delegations without taking over
-their repositories or execution state. The TUI, Cockpit, channels, and ACP are
-interfaces over those owners rather than competing runtimes.
+their repositories or execution state. The TUI, Hub Web UI, channels, and ACP
+are interfaces over those owners rather than competing runtimes.
 
 Use Spark when a coding task needs to continue, ask for a decision, produce
 traceable artifacts, survive frontend restarts, or move between terminal and
@@ -30,13 +30,19 @@ Run a foreground task without opening the TUI:
 spark run "Summarize this repository and identify its validation command."
 ```
 
-Open the browser surface:
+Open the Hub management application:
 
 ```bash
-spark cockpit
+spark-hub
 ```
 
-Spark starts or contacts the local daemon as needed. Use `spark daemon status
+The equivalent dispatcher form is:
+
+```bash
+spark hub
+```
+
+Spark starts or contacts the local daemon as needed. Use `spark-daemon status
 --json` when you need to inspect execution state directly.
 
 See the [getting-started guide][getting-started] for provider configuration,
@@ -54,7 +60,7 @@ operation.
 - **Traceable outcomes** — tasks connect work to `issue`, `git_change`, and
   `document` artifacts, with verification kept separate from user-facing
   results.
-- **Multiple interfaces** — use the native TUI, Cockpit, messaging channels,
+- **Multiple interfaces** — use the native TUI, Hub Web UI, messaging channels,
   headless JSON commands, or the stateless ACP adapter over the same execution
   model.
 - **Local-first boundaries** — each daemon retains local execution and side
@@ -66,21 +72,21 @@ operation.
 Spark separates dispatch, presentation, coordination, and execution:
 
 ```text
-spark CLI / TUI ───────────────► local Spark daemon ───► workspace + providers
-channels / ACP ────────────────────────────┘
+spark CLI / spark-tui ─────────► local spark-daemon ───► workspace + providers
+channels / spark-acp ────────────────────────┘
 
-Cockpit ─────────► Hub ─────────► registered Spark daemons
-   └────────────────────────────► daemon control and projections
+browser / future app ──────────► spark-hub ◄────────── registered spark-daemon
+                                  │
+                                  └── embedded Web UI + global control plane
 ```
 
 | Component | Responsibility | Does not own |
 | --- | --- | --- |
-| `spark` CLI | Stable public command dispatch | Product state |
-| TUI | Local interactive presentation and session attachment | Durable business state |
-| Daemon | Sessions, invocations, channels, execution, retry, and recovery | Cross-workspace coordination |
-| Hub | Workspace registry, delegation, delivery, idempotency, and bounded receipts | Target execution, repositories, or internal evidence |
-| Cockpit | Browser presentation and control | Execution or coordination policy |
-| ACP | Stateless protocol translation | Sessions or invocations |
+| `spark` | Stable command dispatch to companion executables | Product state |
+| `spark-tui` | Local interactive presentation and session attachment | Durable business state |
+| `spark-daemon` | Sessions, invocations, channels, execution, retry, and recovery | Cross-workspace coordination |
+| `spark-hub` | Authentication, daemon gateway, workspace registry, delegation, audit, and embedded management UI | Target execution, repositories, or internal evidence |
+| `spark-acp` | Stateless protocol translation | Sessions or invocations |
 
 The detailed ownership and command grammar are specified in
 [`docs/specs/command-planes.md`](./docs/specs/command-planes.md). Package
@@ -94,7 +100,7 @@ dependency direction and state writers are defined by
 2. Use Plan to turn the intent into durable, inspectable tasks.
 3. Use Implement for ordinary execution, or opt into Goal, Loop, Repro, or
    Workflow when the work needs autonomous progress.
-4. Answer questions and approvals from the owning session or Cockpit Inbox.
+4. Answer questions and approvals from the owning session or Hub Inbox.
 5. Inspect artifacts, changes, tasks, and verification before delivery.
 6. Continue locally or delegate bounded work to another workspace through Hub.
 
@@ -105,15 +111,16 @@ knowledge of internal packages or storage.
 
 | Interface | Best suited for |
 | --- | --- |
-| `spark` / `spark tui` | Interactive local coding sessions |
+| `spark` / `spark-tui` | Interactive local coding sessions |
 | `spark run` / `spark bg` | Foreground scripts and background work |
-| `spark daemon` | Execution inspection and operator control |
-| `spark hub` | Cross-workspace coordination and delegation |
-| `spark cockpit` | Browser supervision across sessions and workspaces |
-| `spark acp` | ACP-compatible clients over canonical daemon sessions |
+| `spark-daemon` | Execution inspection and operator control |
+| `spark-hub` | Global browser management, coordination, and delegation |
+| `spark-acp` | ACP-compatible clients over canonical daemon sessions |
 
-Run `spark --help` for the current public command map. The complete command
-reference is maintained in the [user documentation][cli-reference].
+The top-level dispatcher accepts `spark daemon`, `spark hub`, `spark tui`, and
+`spark acp` as convenience forms and executes the matching `spark-*` companion.
+Run `spark --help` for the current command map. The complete command reference is
+maintained in the [user documentation][cli-reference].
 
 ## Documentation
 
@@ -129,9 +136,11 @@ reference is maintained in the [user documentation][cli-reference].
 
 ## Distribution and status
 
-`@zendev-lab/spark` is the only public npm product and exposes one `spark`
-executable. Source workspaces are private implementation boundaries compiled
-into that product rather than separately supported packages.
+`@zendev-lab/spark` is the only public npm product. It exposes the `spark`
+dispatcher and the companion executables `spark-daemon`, `spark-hub`,
+`spark-tui`, `spark-acp`, and `spark-update`. Source workspaces are private
+implementation boundaries compiled into that product rather than separately
+supported packages.
 
 Spark is under active development. Managed installations provide explicit
 update and rollback behavior; source checkouts are never self-modified.

@@ -59,4 +59,4 @@ override workspace binding or permission checks.
 - Use `spark run` for one foreground result.
 - Use `spark bg` when the shell should return after durable submission.
 - Use `spark` or `spark tui` for interactive exploration and steering.
-- Use Cockpit to observe and control existing daemon work from the browser.
+- Use Hub Web to observe and control existing daemon work from the browser.

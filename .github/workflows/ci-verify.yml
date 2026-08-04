@@ -70,9 +70,9 @@ jobs:
       - name: Packed product smoke tests
         run: pnpm run smoke
       - name: Install Chromium
-        run: pnpm --filter @zendev-lab/spark-cockpit run setup:browser
-      - name: Cockpit browser tests
-        run: pnpm run test:browser:cockpit
+        run: pnpm --filter @zendev-lab/spark-hub run setup:browser
+      - name: Hub browser tests
+        run: pnpm run test:browser:hub
 
   container:
     name: container
@@ -82,7 +82,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-      - name: Build Cockpit container
+      - name: Build Hub container
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
@@ -90,18 +90,18 @@ jobs:
           load: true
           push: false
           pull: true
-          tags: spark-cockpit:ci
+          tags: spark-hub:ci
           build-args: |
             SPARK_BUILD_GIT_SHA=${{ github.sha }}
-          cache-from: type=gha,scope=spark-cockpit
-          cache-to: type=gha,mode=max,scope=spark-cockpit,ignore-error=true
-      - name: Smoke Cockpit container
+          cache-from: type=gha,scope=spark-hub
+          cache-to: type=gha,mode=max,scope=spark-hub,ignore-error=true
+      - name: Smoke Hub container
         run: |
           container_id="$(docker run --detach \
             --env HOST=127.0.0.1 \
             --env SPARK_COCKPIT_PUBLIC_URL=https://spark.example.test \
             --env SPARK_COCKPIT_TRUST_PROXY=loopback \
-            spark-cockpit:ci)"
+            spark-hub:ci)"
           test -n "${container_id}"
           trap 'test -z "${container_id:-}" || docker rm --force "${container_id}" >/dev/null' EXIT
           status=starting

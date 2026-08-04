@@ -1,26 +1,39 @@
-# Spark Cockpit agent guide
+# Spark Hub agent guide
 
 This file extends the repository-wide [`AGENTS.md`](../../AGENTS.md) for changes
-under `apps/spark-cockpit`.
+under the physically compatible `apps/spark-cockpit` source path.
 
 ## Product boundary
 
-Cockpit is a browser control and projection surface. It may submit commands and
-render daemon or Hub state, but it is not an execution owner.
+Hub is Spark's global control plane, daemon connection gateway, authentication
+boundary, and embedded browser management application. It may submit commands
+and render daemon state, but it is not an execution owner.
 
 - Derive execution status from typed daemon or protocol projections.
 - Never infer state from prompt text, transcript content, elapsed time, polling
   cadence, or browser timers.
 - Do not run autonomous scheduling, retries, recovery, or local tool effects in
-  the web application.
+  the Hub application.
 - Keep questions and approvals attached to their owning session and work. Do
   not introduce a global interaction state that bypasses that ownership.
 - Treat Transcript as an audit view when durable work has a richer Work,
   Artifact, Change, or Task projection.
 
-Cockpit-owned coordination storage and Hub modules have their own explicit
-owner boundaries. Browser routes and components must use those owner APIs
-rather than writing another package's database or local Spark state directly.
+Hub-owned coordination storage and modules have explicit owner boundaries.
+Browser routes and components must use those owner APIs rather than writing
+another package's database or local Spark state directly.
+
+## Compatibility boundary
+
+The public application and executable names are `@zendev-lab/spark-hub` and
+`spark-hub`. Do not reintroduce `spark-cockpit` or `spark cockpit` as product
+surfaces.
+
+The `apps/spark-cockpit`, `packages/spark-cockpit-*`,
+`@zendev-lab/spark-i18n/cockpit`, `SPARK_COCKPIT_*`, and existing XDG/SQLite
+names are temporary physical compatibility identifiers. Change them only through
+an explicit, idempotent migration with rollback tests; do not interpret them as
+a second product owner.
 
 ## Server and browser placement
 
@@ -33,8 +46,8 @@ Keep trust boundaries explicit:
 - shared semantics belong in `spark-protocol` or the authoritative owner, not
   in route loaders, actions, or components;
 - reusable presentation primitives belong in the existing shared UI owner only
-  when more than Cockpit genuinely uses them;
-- Cockpit-private packages and catalogs must not become daemon or shared-package
+  when more than Hub genuinely uses them;
+- Hub-private packages and catalogs must not become daemon or shared-package
   dependencies.
 
 Generated or agent-produced content is data. Render it through the approved safe
@@ -53,9 +66,9 @@ URL schemes.
 - Keep optimistic UI bounded and reconcile it with the authoritative projection.
 - Do not hide owner errors behind generic success or silently repair invalid
   protocol data in the browser.
-- Update the explicit `@zendev-lab/spark-i18n/cockpit` message catalog rather
-  than embedding user-visible strings or adding another shared-package
-  catalog. Keep supported locales in sync.
+- Update the compatible `@zendev-lab/spark-i18n/cockpit` message catalog rather
+  than embedding user-visible strings or adding another shared-package catalog.
+  Keep supported locales in sync.
 
 ## Testing
 
@@ -64,5 +77,5 @@ boundary. Browser tests are required for interaction contracts that depend on
 routing, focus, keyboard input, dialogs, real rendering, or browser APIs.
 
 Follow [`CONTRIBUTING.md`](../../CONTRIBUTING.md#validation) for the canonical
-validation commands. Run the Cockpit browser lane when changing user-visible
+validation commands. Run the Hub browser lane when changing user-visible
 interaction, navigation, or rendering behavior.

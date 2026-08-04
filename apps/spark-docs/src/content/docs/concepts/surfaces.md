@@ -1,6 +1,6 @@
 ---
 title: Surfaces and ownership
-description: Understand the CLI dispatcher, TUI, daemon, and Cockpit without creating competing sources of truth.
+description: Understand the CLI dispatcher, TUI, daemon, and Hub without creating competing sources of truth.
 ---
 
 Spark exposes several views of one system. They are not interchangeable
@@ -11,12 +11,12 @@ executors.
 | `spark` CLI | Stable public command routing | Dispatch only |
 | TUI | Interactive prompts, local editor behavior, session attach | Terminal presentation and host-local interaction |
 | Daemon | Durable sessions, invocations, local RPC, channels, recovery | Execution truth and persistent local runtime state |
-| Cockpit | Browser control, projections, cross-daemon coordination | Web presentation and Cockpit-owned coordination state |
+| Hub | Browser control, projections, cross-daemon coordination | Web presentation and Hub-owned coordination state |
 | Updater | Managed install, update policy, atomic switching, rollback | Installed-version and update transaction state |
 
 ## One execution owner
 
-Foreground `spark run`, background `spark bg`, TUI prompts, and Cockpit
+Foreground `spark run`, background `spark bg`, TUI prompts, and Hub Web
 submissions ultimately use daemon-owned execution. A frontend disconnect does
 not transfer ownership of an invocation to another frontend.
 

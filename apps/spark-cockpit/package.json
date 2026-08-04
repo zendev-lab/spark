@@ -1,14 +1,14 @@
 {
-  "name": "@zendev-lab/spark-cockpit",
+  "name": "@zendev-lab/spark-hub",
   "version": "0.1.0",
   "private": true,
-  "description": "Spark Cockpit SvelteKit web application.",
+  "description": "Spark Hub control plane with an embedded SvelteKit management UI.",
   "bin": {
-    "spark-cockpit": "./bin/spark-cockpit"
+    "spark-hub": "./bin/spark-hub"
   },
   "type": "module",
   "exports": {
-    "./executable": "./bin/spark-cockpit"
+    "./executable": "./bin/spark-hub"
   },
   "scripts": {
     "dev": "vp dev --host 127.0.0.1",
@@ -20,7 +20,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "setup:browser": "playwright install --with-deps chromium",
     "test": "vp test run",
-    "test:e2e:cockpit": "tsx e2e/legacy-route-navigation.ts",
+    "test:e2e:hub": "tsx e2e/legacy-route-navigation.ts",
     "test:browser": "vp test run --config vitest.browser.config.ts && tsx e2e/legacy-route-navigation.ts"
   },
   "dependencies": {

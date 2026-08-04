@@ -8,7 +8,7 @@ sidebar:
 ## 环境要求
 
 Spark 当前要求 Node.js `>=26 <27`。公开产品同时包含 CLI 分发器、原生 TUI、
-daemon 与 Cockpit host。
+daemon 与 Hub host。
 
 ## 安装
 
@@ -73,11 +73,11 @@ Spark 会按需启动或连接本地 daemon。应使用 `spark daemon status --j
 
 ## 下一步
 
-- 按照[运维与完整使用手册](/zh/guides/operator-handbook/)走通 daemon、Cockpit、工作区、
+- 按照[运维与完整使用手册](/zh/guides/operator-handbook/)走通 daemon、Hub、工作区、
   会话和持久执行的完整路径。
 - [规划并实现第一个修改](/zh/guides/plan-and-implement/)。
 - 查看[完整功能地图](/zh/concepts/feature-map/)，不必先背全部命令。
 - 了解 [TUI 的渐进式控制](/zh/guides/tui/)。
 - 在[前台运行、后台工作和会话](/zh/guides/runs-and-sessions/)之间选择。
-- 打开 [Cockpit Web 界面](/zh/guides/cockpit/)。
+- 打开 [Hub Web 界面](/zh/guides/cockpit/)。
 - 只有普通 Plan 和 Implement 不够时才使用[自动推进](/zh/guides/automation/)。

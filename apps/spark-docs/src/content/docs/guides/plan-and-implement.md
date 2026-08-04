@@ -66,10 +66,10 @@ question in the current session or open `/inbox`.
 ## Inspect the result
 
 The current session shows the implementation summary and validation results.
-For a wider view, start Cockpit:
+For a wider view, start Hub Web:
 
 ```bash
-spark cockpit
+spark hub
 ```
 
 Open the same Workspace and Session, then inspect:
@@ -80,7 +80,7 @@ Open the same Workspace and Session, then inspect:
 - **Artifacts** for previews, issues, or pull requests actually produced by the run.
 
 An empty Changes or Artifacts section means that the runtime did not publish
-that result; Cockpit does not infer it from chat text.
+that result; Hub Web does not infer it from chat text.
 
 ## Choose another execution style only when needed
 

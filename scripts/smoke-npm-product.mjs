@@ -82,7 +82,7 @@ async function waitForHealth(url, child, output) {
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       throw new Error(
-        `Cockpit exited with ${child.exitCode}${output.stderr ? `\n${output.stderr.trim()}` : ""}`,
+        `Hub exited with ${child.exitCode}${output.stderr ? `\n${output.stderr.trim()}` : ""}`,
       );
     }
     try {
@@ -91,19 +91,19 @@ async function waitForHealth(url, child, output) {
       if (response.ok && body?.service === "spark-cockpit" && body?.status === "ok") {
         return performance.now() - startedAt;
       }
-      lastError = new Error(`unexpected cockpit health response ${response.status}`);
+      lastError = new Error(`unexpected Hub health response ${response.status}`);
     } catch (error) {
       lastError = error;
     }
     await new Promise((resolveWait) => setTimeout(resolveWait, 100));
   }
-  throw new Error(`Cockpit did not become healthy: ${String(lastError)}`);
+  throw new Error(`Hub did not become healthy: ${String(lastError)}`);
 }
 
-async function probeCockpitRoute(url, child, output) {
+async function probeHubRoute(url, child, output) {
   if (child.exitCode !== null) {
     throw new Error(
-      `Cockpit exited with ${child.exitCode}${output.stderr ? `\n${output.stderr.trim()}` : ""}`,
+      `Hub exited with ${child.exitCode}${output.stderr ? `\n${output.stderr.trim()}` : ""}`,
     );
   }
   const startedAt = performance.now();
@@ -115,24 +115,24 @@ async function probeCockpitRoute(url, child, output) {
   const contentType = response.headers.get("content-type") ?? "";
   if (!response.ok || !contentType.startsWith("text/html")) {
     throw new Error(
-      `unexpected Cockpit route response ${response.status} ${contentType || "<missing content-type>"}`,
+      `unexpected Hub route response ${response.status} ${contentType || "<missing content-type>"}`,
     );
   }
   if (!/<title>[^<]*Spark[^<]*<\/title>/iu.test(body)) {
-    throw new Error("Cockpit route did not render the Spark document shell");
+    throw new Error("Hub route did not render the Spark document shell");
   }
   const clientAssetSources = new Set([
     ...[...body.matchAll(/<script[^>]+src="([^"]+)"/giu)].map((match) => match[1]),
     ...[...body.matchAll(/import\(\s*["']([^"']+)["']\s*\)/gu)].map((match) => match[1]),
   ]);
   if (clientAssetSources.size === 0) {
-    throw new Error("Cockpit route did not reference a client bundle");
+    throw new Error("Hub route did not reference a client bundle");
   }
   for (const source of clientAssetSources) {
     const assetUrl = new URL(source, response.url);
     const asset = await fetch(assetUrl);
     if (!asset.ok) {
-      throw new Error(`Cockpit client asset ${assetUrl.pathname} returned ${asset.status}`);
+      throw new Error(`Hub client asset ${assetUrl.pathname} returned ${asset.status}`);
     }
     await asset.arrayBuffer();
   }
@@ -232,8 +232,8 @@ try {
     timeoutMs: 120_000,
   });
   const port = await availablePort();
-  console.log("Starting installed Cockpit health probe...");
-  const cockpit = spawn(spark, [...sparkArgvPrefix, "cockpit"], {
+  console.log("Starting installed Hub health probe...");
+  const hub = spawn(spark, [...sparkArgvPrefix, "hub"], {
     cwd: installRoot,
     env: {
       ...environment,
@@ -244,22 +244,18 @@ try {
     detached: process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const cockpitOutput = { stderr: "" };
-  cockpit.stderr.setEncoding("utf8");
-  cockpit.stderr.on("data", (chunk) => {
-    cockpitOutput.stderr += chunk;
+  const hubOutput = { stderr: "" };
+  hub.stderr.setEncoding("utf8");
+  hub.stderr.on("data", (chunk) => {
+    hubOutput.stderr += chunk;
   });
   try {
     const origin = `http://127.0.0.1:${port}`;
-    const healthReadyMs = await waitForHealth(`${origin}/api/v1/health`, cockpit, cockpitOutput);
-    const route = await probeCockpitRoute(origin, cockpit, cockpitOutput);
-    const workspaceRoute = await probeCockpitRoute(
-      `${origin}/workspaces/new`,
-      cockpit,
-      cockpitOutput,
-    );
+    const healthReadyMs = await waitForHealth(`${origin}/api/v1/health`, hub, hubOutput);
+    const route = await probeHubRoute(origin, hub, hubOutput);
+    const workspaceRoute = await probeHubRoute(`${origin}/workspaces/new`, hub, hubOutput);
     console.log(
-      `SPARK_COCKPIT_SMOKE_METRICS ${JSON.stringify({
+      `SPARK_HUB_SMOKE_METRICS ${JSON.stringify({
         healthReadyMs: Math.round(healthReadyMs),
         routeMs: Math.round(route.routeMs),
         workspaceRouteMs: Math.round(workspaceRoute.routeMs),
@@ -267,13 +263,13 @@ try {
       })}`,
     );
   } finally {
-    terminateProcessTree(cockpit);
+    terminateProcessTree(hub);
     await new Promise((resolveExit) => {
-      if (cockpit.exitCode !== null || cockpit.signalCode !== null) {
+      if (hub.exitCode !== null || hub.signalCode !== null) {
         resolveExit();
         return;
       }
-      cockpit.once("exit", resolveExit);
+      hub.once("exit", resolveExit);
     });
   }
   const backgroundPort = await availablePort();
@@ -284,33 +280,29 @@ try {
     PORT: String(backgroundPort),
     ORIGIN: backgroundOrigin,
   };
-  console.log("Probing installed Cockpit background-service lifecycle...");
+  console.log("Probing installed Hub background-service lifecycle...");
   try {
     const started = JSON.parse(
       (
-        await run(spark, [...sparkArgvPrefix, "cockpit", "web", "start", "--json"], {
+        await run(spark, [...sparkArgvPrefix, "hub", "web", "start", "--json"], {
           cwd: installRoot,
           env: backgroundEnvironment,
         })
       ).stdout,
     );
-    if (!started.running) throw new Error("Cockpit background service did not report running");
-    await probeCockpitRoute(
-      `${backgroundOrigin}/workspaces/new`,
-      { exitCode: null },
-      { stderr: "" },
-    );
+    if (!started.running) throw new Error("Hub background service did not report running");
+    await probeHubRoute(`${backgroundOrigin}/workspaces/new`, { exitCode: null }, { stderr: "" });
     const status = JSON.parse(
       (
-        await run(spark, [...sparkArgvPrefix, "cockpit", "web", "status", "--json"], {
+        await run(spark, [...sparkArgvPrefix, "hub", "web", "status", "--json"], {
           cwd: installRoot,
           env: backgroundEnvironment,
         })
       ).stdout,
     );
-    if (!status.running) throw new Error("Cockpit background service status was not running");
+    if (!status.running) throw new Error("Hub background service status was not running");
   } finally {
-    await run(spark, [...sparkArgvPrefix, "cockpit", "web", "stop", "--json"], {
+    await run(spark, [...sparkArgvPrefix, "hub", "web", "stop", "--json"], {
       cwd: installRoot,
       env: backgroundEnvironment,
     });

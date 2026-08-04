@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { test } from "vitest";
 
 import { parseSparkDispatcherArgs } from "./cli.ts";
 import {
-  extractDaemonStatusContract,
   extractCockpitStatusContract,
+  extractDaemonStatusContract,
 } from "../../../test/support/spark-plane-contracts.mts";
 
 const execFileAsync = promisify(execFile);
@@ -18,38 +18,34 @@ const DEPRECATIONS_PATH = new URL(
   import.meta.url,
 );
 
-test("root dispatcher reaches Hub and Cockpit while rejecting the removed server namespace", async () => {
+test("root dispatcher reaches spark-hub while rejecting removed namespaces", async () => {
   assert.deepEqual(parseSparkDispatcherArgs(["server", "task", "list"]), {
     kind: "error",
     message: 'The "spark server" namespace was removed. Use "spark hub" instead.',
   });
+  assert.equal(parseSparkDispatcherArgs(["cockpit", "--help"]).kind, "error");
 
   const dispatcher = fileURLToPath(new URL("../bin/spark", import.meta.url));
-  const { stdout, stderr } = await execFileAsync(dispatcher, ["cockpit", "--help"]);
-  assert.match(stdout, /spark cockpit - Spark Cockpit Web presentation host/u);
-  assert.equal(stderr, "");
   const hub = await execFileAsync(dispatcher, ["hub", "--help"]);
-  assert.match(hub.stdout, /spark hub - Spark logical coordination plane/u);
+  assert.match(hub.stdout, /spark-hub - Spark control plane and embedded management UI/u);
   assert.equal(hub.stderr, "");
 
-  await assert.rejects(execFileAsync(dispatcher, ["server", "status"]), (error: unknown) => {
-    const failure = error as { code?: number; stderr?: string };
-    assert.equal(failure.code, 2);
-    assert.match(failure.stderr ?? "", /Use "spark hub" instead/u);
-    return true;
-  });
-  await assert.rejects(
-    execFileAsync(dispatcher, ["server", "instance", "status"]),
-    (error: unknown) => {
+  for (const argv of [
+    ["server", "status"],
+    ["server", "instance", "status"],
+    ["cockpit", "--help"],
+  ]) {
+    await assert.rejects(execFileAsync(dispatcher, argv), (error: unknown) => {
       const failure = error as { code?: number; stderr?: string };
       assert.equal(failure.code, 2);
-      assert.match(failure.stderr ?? "", /Use "spark hub" instead/u);
+      if (argv[0] === "server") assert.match(failure.stderr ?? "", /Use "spark hub" instead/u);
+      else assert.match(failure.stderr ?? "", /Unknown spark subcommand: cockpit/u);
       return true;
-    },
-  );
+    });
+  }
 }, 30_000);
 
-test("daemon and Cockpit status JSON contracts validate current envelopes", () => {
+test("daemon and Hub-compatible status JSON contracts validate current envelopes", () => {
   const daemon = extractDaemonStatusContract({
     action: "status",
     daemon: {
@@ -126,7 +122,7 @@ test("daemon status contract reports malformed envelopes with field paths", () =
   );
 });
 
-test("Cockpit status contract reports malformed envelopes with field paths", () => {
+test("Hub-compatible status contract reports malformed envelopes with field paths", () => {
   const malformed = extractCockpitStatusContract({
     action: "status",
     result: { plane: "daemon", resource: "status", scope: {} },

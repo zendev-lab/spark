@@ -1,6 +1,6 @@
-import { runSparkCockpitCli } from "./cli.ts";
+import { runSparkHubAppCli } from "./cli.ts";
 
-runSparkCockpitCli()
+runSparkHubAppCli()
   .then((code) => {
     process.exitCode = code;
   })

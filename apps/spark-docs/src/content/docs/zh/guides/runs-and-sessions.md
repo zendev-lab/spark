@@ -57,4 +57,4 @@ spark tui --session-id <session-id>
 - 只要一个前台结果时使用 `spark run`。
 - 希望 shell 在持久提交后立即返回时使用 `spark bg`。
 - 需要交互探索与 steering 时使用 `spark` 或 `spark tui`。
-- 需要从浏览器观察和控制现有 daemon 工作时使用 Cockpit。
+- 需要从浏览器观察和控制现有 daemon 工作时使用 Hub Web。

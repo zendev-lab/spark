@@ -50,8 +50,8 @@ Use `/inspect` or Ctrl+K to open the local session inspector:
 /inspect off
 ```
 
-It shows projections already published to this TUI. It is not the Web Cockpit
-and does not create another execution owner. Run `spark cockpit` in another
+It shows projections already published to this TUI. It is not Hub Web and does
+not create another execution owner. Run `spark hub` in another
 terminal for cross-session and workspace supervision.
 
 The older `/cockpit` spelling remains executable as a compatibility alias but

@@ -28,11 +28,7 @@ test("parseSparkDispatcherArgs routes canonical planes and rejects removed alias
   const removedServer = parseSparkDispatcherArgs(["server", "status"]);
   assert.equal(removedServer.kind, "error");
   assert.match(removedServer.kind === "error" ? removedServer.message : "", /spark hub/u);
-  assert.deepEqual(parseSparkDispatcherArgs(["cockpit", "--port", "5174"]), {
-    kind: "dispatch",
-    target: "cockpit",
-    argv: ["--port", "5174"],
-  });
+  assert.equal(parseSparkDispatcherArgs(["cockpit", "web", "status"]).kind, "error");
   assert.deepEqual(parseSparkDispatcherArgs(["hub", "delegation", "list"]), {
     kind: "dispatch",
     target: "hub",
@@ -121,7 +117,7 @@ test("parseSparkDispatcherArgs keeps help local and forwards version to spark-up
   assert.match(command.kind === "error" ? command.message : "", /spark tui build this/u);
 });
 
-test("spark paths reports one SPARK_HOME without dispatching or writing", async () => {
+test("spark paths reports Hub semantics over the compatible storage path", async () => {
   const previousSparkHome = process.env.SPARK_HOME;
   const root = `/tmp/spark-paths-${process.pid}-${Date.now()}`;
   const stdout: string[] = [];
@@ -152,13 +148,13 @@ test("spark paths reports one SPARK_HOME without dispatching or writing", async 
       sparkHome: string;
       user: { roleModelSettingsFile: string; memoryFile: string };
       daemon: { databasePath: string };
-      cockpit: { cacheDir: string };
+      hub: { cacheDir: string };
     };
     assert.equal(paths.sparkHome, root);
     assert.equal(paths.user.roleModelSettingsFile, `${root}/role-model-settings.json`);
     assert.equal(paths.user.memoryFile, `${root}/memory/memory.json`);
     assert.equal(paths.daemon.databasePath, `${root}/apps/daemon/data/daemon.sqlite`);
-    assert.equal(paths.cockpit.cacheDir, `${root}/apps/cockpit/cache`);
+    assert.equal(paths.hub.cacheDir, `${root}/apps/cockpit/cache`);
   } finally {
     if (previousSparkHome === undefined) delete process.env.SPARK_HOME;
     else process.env.SPARK_HOME = previousSparkHome;
@@ -172,12 +168,9 @@ test("dispatcher resolves source companion executables without importing app CLI
   const daemon = resolveTargetCommand("daemon");
   assert.match(daemon.command, /apps\/spark-daemon\/bin\/spark-daemon$/u);
   assert.deepEqual(daemon.args, []);
-  const cockpit = resolveTargetCommand("cockpit");
-  assert.match(cockpit.command, /apps\/spark-cockpit\/bin\/spark-cockpit$/u);
-  assert.deepEqual(cockpit.args, []);
   const hub = resolveTargetCommand("hub");
-  assert.match(hub.command, /apps\/spark-cockpit\/bin\/spark-cockpit$/u);
-  assert.deepEqual(hub.args, ["hub"]);
+  assert.match(hub.command, /apps\/spark-cockpit\/bin\/spark-hub$/u);
+  assert.deepEqual(hub.args, []);
   const acp = resolveTargetCommand("acp");
   assert.match(acp.command, /packages\/spark-acp\/scripts\/stdio\.ts$/u);
   assert.deepEqual(acp.args, []);
@@ -193,7 +186,7 @@ test("spark-cli package depends only on shared libraries", () => {
     dependencies?: Record<string, string>;
   };
   for (const dependency of Object.keys(manifest.dependencies ?? {})) {
-    assert.doesNotMatch(dependency, /^@zendev-lab\/spark-(?:tui-app|daemon|cockpit|acp|update)$/u);
+    assert.doesNotMatch(dependency, /^@zendev-lab\/spark-(?:tui-app|daemon|hub|acp|update)$/u);
   }
 });
 
@@ -228,10 +221,7 @@ test("runSparkDispatcher fails fast for non-TTY TUI while preserving canonical h
     },
   };
   const launcher = {
-    run: async (
-      target: "tui" | "daemon" | "hub" | "cockpit" | "acp" | "update",
-      argv: string[],
-    ) => {
+    run: async (target: "tui" | "daemon" | "hub" | "acp" | "update", argv: string[]) => {
       calls.push({ target, argv });
       return 0;
     },

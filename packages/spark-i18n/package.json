@@ -19,7 +19,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./cli": "./src/cli.ts",
+    "./cli": "./src/cli-public.ts",
     "./cockpit": "./src/cockpit/index.ts",
     "./extension": "./src/extension.ts",
     "./paraglide/messages": "./src/paraglide/messages.js",

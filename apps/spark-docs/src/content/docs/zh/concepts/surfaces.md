@@ -1,6 +1,6 @@
 ---
 title: 界面与所有权
-description: 理解 CLI 分发器、TUI、daemon 与 Cockpit，避免产生相互竞争的真相来源。
+description: 理解 CLI 分发器、TUI、daemon 与 Hub，避免产生相互竞争的真相来源。
 ---
 
 Spark 提供的是同一个系统的多个视图，而不是多个可以互换的执行器。
@@ -10,12 +10,12 @@ Spark 提供的是同一个系统的多个视图，而不是多个可以互换�
 | `spark` CLI | 稳定的公开命令路由 | 只负责分发 |
 | TUI | 交互式 prompt、本地编辑器行为、会话 attach | 终端展示和 host-local 交互 |
 | Daemon | 持久会话、invocation、本地 RPC、channel、恢复 | 执行真相与持久本地运行状态 |
-| Cockpit | 浏览器控制、投影、跨 daemon 协调 | Web 展示与 Cockpit 自有协调状态 |
+| Hub | 浏览器控制、投影、跨 daemon 协调 | Web 展示与 Hub 自有协调状态 |
 | Updater | managed install、升级策略、原子切换、回滚 | 已安装版本与升级 transaction 状态 |
 
 ## 唯一执行所有者
 
-前台 `spark run`、后台 `spark bg`、TUI prompt 和 Cockpit 提交最终都使用
+前台 `spark run`、后台 `spark bg`、TUI prompt 和 Hub Web 提交最终都使用
 daemon 拥有的执行路径。某个前端断开不会把 invocation 的所有权转移给另一个前端。
 
 Updater 是独立的状态所有者，不是另一个执行器。只有在 updater 完成版本切换后，

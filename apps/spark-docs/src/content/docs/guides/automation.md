@@ -92,5 +92,5 @@ Use `/help` for the short everyday path, `/help commands` for grouped commands,
 and `/help all` only when diagnosing aliases or extension registration.
 
 When automated work needs a decision, answer it in the current Session or
-open `/inbox`. Cockpit provides Session activity plus Tasks, Artifacts, and
+open `/inbox`. Hub Web provides Session activity plus Tasks, Artifacts, and
 Inbox views.

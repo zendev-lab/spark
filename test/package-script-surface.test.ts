@@ -26,7 +26,7 @@ const canonicalRootScripts = [
   "report:hygiene",
   "smoke",
   "test",
-  "test:browser:cockpit",
+  "test:browser:hub",
   "test:mutation",
   "test:process:source",
   "test:unit",
@@ -56,10 +56,7 @@ test("root package exposes one compact validation and release surface", async ()
     scripts["check:test-quality:update"],
     "node scripts/check-test-quality.mjs --update",
   );
-  assert.equal(
-    scripts["test:browser:cockpit"],
-    "pnpm --filter @zendev-lab/spark-cockpit run test:browser",
-  );
+  assert.equal(scripts["test:browser:hub"], "pnpm --filter @zendev-lab/spark-hub run test:browser");
   assert.equal(
     scripts.check,
     "pnpm run check:static && pnpm run check:docs && pnpm run test:unit && pnpm run test:process:source",
@@ -75,10 +72,7 @@ test("root package exposes one compact validation and release surface", async ()
   assert.equal(scripts["dev:docs"], "pnpm --filter @zendev-lab/spark-docs run dev");
   assert.equal(scripts["preview:docs"], "pnpm --filter @zendev-lab/spark-docs run preview");
   assert.equal(scripts["test:process:source"], "vp test run --config vitest.process.config.ts");
-  assert.match(
-    scripts.fix ?? "",
-    /^pnpm --filter @zendev-lab\/spark-cockpit exec svelte-kit sync/u,
-  );
+  assert.match(scripts.fix ?? "", /^pnpm --filter @zendev-lab\/spark-hub exec svelte-kit sync/u);
   for (const requiredCheckPhase of [
     "pnpm --filter @zendev-lab/spark-docs exec astro sync",
     "node scripts/check-architecture-ratchets.mjs",
@@ -99,10 +93,10 @@ test("root package exposes one compact validation and release surface", async ()
     );
   }
   for (const requiredUnitPhase of [
-    "pnpm --filter @zendev-lab/spark-cockpit exec svelte-kit sync",
+    "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync",
     "vp test run --config vitest.root.config.ts",
     "pnpm -r --filter './packages/*' --if-present run check",
-    "pnpm --filter @zendev-lab/spark-cockpit run test",
+    "pnpm --filter @zendev-lab/spark-hub run test",
     "pnpm --filter @zendev-lab/spark-daemon run test",
   ]) {
     assert.ok(
@@ -112,7 +106,7 @@ test("root package exposes one compact validation and release surface", async ()
   }
   assert.match(
     scripts["test:unit"] ?? "",
-    /^pnpm --filter @zendev-lab\/spark-cockpit exec svelte-kit sync/u,
+    /^pnpm --filter @zendev-lab\/spark-hub exec svelte-kit sync/u,
   );
   for (const requiredFixPhase of [
     "vp fmt . --write",
@@ -121,7 +115,7 @@ test("root package exposes one compact validation and release surface", async ()
   ]) {
     assert.ok(scripts.fix?.includes(requiredFixPhase), `fix must run ${requiredFixPhase}`);
   }
-  assert.match(scripts.typecheck ?? "", /^pnpm --filter @zendev-lab\/spark-cockpit run check/u);
+  assert.match(scripts.typecheck ?? "", /^pnpm --filter @zendev-lab\/spark-hub run check/u);
   assert.match(scripts.typecheck ?? "", /vp check --no-fmt --no-lint/u);
   assert.match(scripts.typecheck ?? "", /@zendev-lab\/spark-daemon run check$/u);
   assert.doesNotMatch(
@@ -202,7 +196,7 @@ test("CI and prek consume the canonical package scripts", async () => {
   assert.match(verifyWorkflow, /wrangler deploy --dry-run/u);
   assert.match(verifyWorkflow, /re-actors\/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe/u);
   assert.match(verifyWorkflow, /jobs: \$\{\{ toJSON\(needs\) \}\}/u);
-  assert.match(verifyWorkflow, /pnpm run test:browser:cockpit/u);
+  assert.match(verifyWorkflow, /pnpm run test:browser:hub/u);
   assert.match(verifyWorkflow, /name: required/u);
   assert.doesNotMatch(verifyWorkflow, /test:npm-product/u);
   assert.match(hygieneWorkflow, /pnpm run report:hygiene/u);

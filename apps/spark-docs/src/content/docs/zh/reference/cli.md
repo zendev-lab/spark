@@ -1,6 +1,6 @@
 ---
 title: CLI 参考
-description: 稳定的公开 Spark 分发命令，以及常用 daemon、Hub、Cockpit 与 ACP 操作。
+description: 稳定的公开 Spark 分发命令，以及常用 daemon、Hub 与 ACP 操作。
 ---
 
 ## 分发器
@@ -17,7 +17,6 @@ spark update status|check|apply|rollback|retry|configure
 spark version [--json]
 spark daemon <command> [args...]
 spark hub [command] [args...]
-spark cockpit web <start|status|stop|logs> [args...]
 spark acp
 spark --help
 spark --version
@@ -33,7 +32,7 @@ spark --version
 - `spark version` 报告精确的 package 与 build identity。
 - `spark daemon` 操作 execution-plane 资源。
 - `spark hub` 操作跨 workspace 协调、访问与 Hub instance 资源。
-- `spark cockpit` 只启动或管理 Web 展示宿主。
+- `spark hub` 也启动或管理内嵌的 Web 管理界面。
 - `spark acp` 在 daemon-owned session 上启动 ACP NDJSON stdio adapter。
 
 未知子命令会失败，不会被解释为 prompt。
@@ -73,8 +72,8 @@ Spark 0.2.0 会直接拒绝旧的根级 `session`/`sessions`、`--print`/`-p`、
 `/help` 只显示日常使用的最短路径。`/help commands` 按用户意图分组显示当前已注册命令。
 `/help all` 还会显示兼容别名、Extension 来源和诊断目标。
 
-`/inspect` 打开当前 TUI session 的本地投影，与 `spark cockpit` 打开的 Web
-Cockpit 不同。`/automate` 只选择并预填已有 Goal、Loop、Repro 或 Workflow 命令。
+`/inspect` 打开当前 TUI session 的本地投影，与 `spark hub` 打开的 Hub Web
+界面不同。`/automate` 只选择并预填已有 Goal、Loop、Repro 或 Workflow 命令。
 
 Workflow 管理统一使用 `/workflow <action>`。旧的连字符命令仍可兼容执行，但不会出现在
 普通帮助和补全中。
@@ -106,7 +105,7 @@ spark daemon restart [--yes] [--wait]
 spark daemon logs [--follow] [--lines <n>]
 ```
 
-`spark daemon login` 只授权本机连接 Cockpit，绝不会配置 AI provider。
+`spark daemon login` 只授权本机连接 Hub，绝不会配置 AI provider。
 
 ## Provider 认证与模型
 
@@ -161,7 +160,7 @@ session new、文本 prompt、cancel、assistant/tool 流式更新和 tool permi
 不宣告 session load/resume/fork、provider selection 或 MCP-over-ACP。stdout
 只用于 ACP NDJSON，启动失败的恢复提示写入 stderr。
 
-## Workspace 与远程 Cockpit
+## Workspace 与远程 Hub
 
 ```text
 spark daemon login --server-url <url>
@@ -175,7 +174,7 @@ spark hub workspace access create --workspace <id>
 ```
 
 只应在明确受信任的私有网络中使用 `--allow-insecure-http`。所有非 loopback
-Cockpit URL 都应优先使用 HTTPS。
+Hub URL 都应优先使用 HTTPS。
 
 `workspace stop` 只暂停连接，不会释放已注册路径。`workspace unregister`
 在保留历史记录的同时释放路径，`workspace move` 在新路径继续使用原 workspace

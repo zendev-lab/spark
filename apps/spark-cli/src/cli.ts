@@ -8,7 +8,7 @@ import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-syst
 
 const dispatcherStrings = sparkCliDispatcherStrings();
 
-export type SparkDispatcherTarget = "tui" | "daemon" | "hub" | "cockpit" | "acp" | "update";
+export type SparkDispatcherTarget = "tui" | "daemon" | "hub" | "acp" | "update";
 
 export type SparkDispatcherCommand =
   | {
@@ -64,15 +64,13 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
         (arg) => arg === "--print" || arg === "-p" || arg === "--mode" || arg === "--list-models",
       )
         ? errorCommand(
-            'Legacy TUI flags were removed. Use "spark run", "spark acp", or "spark daemon model list".',
+            'Legacy TUI flags were removed. Use "spark run", "spark acp", or "spark-daemon model list".',
           )
         : { kind: "dispatch", target: "tui", argv: rest };
     case "daemon":
       return { kind: "dispatch", target: "daemon", argv: rest };
     case "server":
       return errorCommand('The "spark server" namespace was removed. Use "spark hub" instead.');
-    case "cockpit":
-      return { kind: "dispatch", target: "cockpit", argv: rest };
     case "hub":
       return { kind: "dispatch", target: "hub", argv: rest };
     case "acp":
@@ -98,7 +96,7 @@ export async function runSparkDispatcher(
       const payload = {
         sparkHome: process.env.SPARK_HOME?.trim() ?? null,
         user: resolveSparkUserPaths(),
-        cockpit: publicSparkPaths(resolveSparkPaths({ app: "cockpit" })),
+        hub: publicSparkPaths(resolveSparkPaths({ app: "cockpit" })),
         daemon: publicSparkPaths(resolveSparkPaths({ app: "daemon" })),
       };
       stdout.write(
@@ -202,13 +200,13 @@ function parseSparkPathsCommand(argv: string[]): SparkDispatcherCommand {
 function formatSparkPaths(payload: {
   sparkHome: string | null;
   user: ReturnType<typeof resolveSparkUserPaths>;
-  cockpit: Omit<ReturnType<typeof resolveSparkPaths>, "piAgentDir">;
+  hub: Omit<ReturnType<typeof resolveSparkPaths>, "piAgentDir">;
   daemon: Omit<ReturnType<typeof resolveSparkPaths>, "piAgentDir">;
 }): string {
   const lines = [`SPARK_HOME=${payload.sparkHome ?? "<unset>"}`, "", "user:"];
   for (const [key, value] of Object.entries(payload.user)) lines.push(`  ${key}=${value}`);
   for (const [label, paths] of [
-    ["cockpit", payload.cockpit],
+    ["hub", payload.hub],
     ["daemon", payload.daemon],
   ] as const) {
     lines.push("", `${label}:`);
@@ -276,16 +274,9 @@ export function resolveTargetCommand(target: SparkDispatcherTarget): {
   label: string;
 } {
   const local = localTargetCommand(target);
-  if (local) {
-    return {
-      command: local,
-      args: target === "hub" ? ["hub"] : [],
-      label: targetLabel(target),
-    };
-  }
   return {
-    command: targetExecutable(target),
-    args: target === "hub" ? ["hub"] : [],
+    command: local ?? targetExecutable(target),
+    args: [],
     label: targetLabel(target),
   };
 }
@@ -318,8 +309,7 @@ function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | un
   const entryByTarget: Record<SparkDispatcherTarget, string> = {
     tui: "../spark-tui/bin/spark-tui",
     daemon: "../spark-daemon/bin/spark-daemon",
-    hub: "../spark-cockpit/bin/spark-cockpit",
-    cockpit: "../spark-cockpit/bin/spark-cockpit",
+    hub: "../spark-cockpit/bin/spark-hub",
     acp: "../../packages/spark-acp/scripts/stdio.ts",
     update: "../../packages/spark-update/bin/spark-update",
   };
@@ -327,7 +317,6 @@ function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | un
 }
 
 function targetExecutable(target: SparkDispatcherTarget): string {
-  if (target === "hub") return "spark-cockpit";
   return `spark-${target}`;
 }
 

@@ -26,17 +26,17 @@
         }
       ]
     },
-    "@zendev-lab/spark-cockpit": {
+    "@zendev-lab/spark-hub": {
       "path": "apps/spark-cockpit",
       "strategy": "browser-test",
       "primaryGate": {
-        "command": "pnpm run test:browser:cockpit",
+        "command": "pnpm run test:browser:hub",
         "paths": ["apps/spark-cockpit/src/**/*.browser.test.ts"],
         "rules": ["vitest.browser.config.ts"]
       },
       "supplementalGates": [
         {
-          "command": "pnpm --filter @zendev-lab/spark-cockpit run test",
+          "command": "pnpm --filter @zendev-lab/spark-hub run test",
           "paths": ["apps/spark-cockpit/src/**/*.test.ts"],
           "rules": []
         }
