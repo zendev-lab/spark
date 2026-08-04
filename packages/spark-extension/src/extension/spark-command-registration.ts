@@ -189,7 +189,7 @@ export function registerSparkCommands(
   });
 
   pi.registerCommand("repro", {
-    description: "Run an evidence-gated reproduction from setup through delivery.",
+    description: "Run an evidence-gated reproduction from contract through delivery.",
     argumentHint: "[start|status|stop|restart] [objective]",
     metadata: {
       source: "extension",

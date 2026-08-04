@@ -7,11 +7,15 @@ export {
   loadSessionGoal,
   normalizeGoalObjective,
   normalizeOptionalReason,
+  restoreSessionGoal,
   sessionGoalStorePath,
   setSessionGoal,
   updateSessionGoalStatus,
 } from "@zendev-lab/spark-loop";
 export type {
+  SparkGoalAuthority,
+  SparkGoalContract,
+  SparkGoalContractStatus,
   SparkSessionGoal,
   SparkSessionGoalReviewSummary,
   SparkSessionGoalSource,

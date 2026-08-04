@@ -14,11 +14,17 @@ import {
   type SubgoalRef,
   type TaskRef,
 } from "@zendev-lab/spark-core";
-import { createSubgoal, subgoalDefinitionDigest } from "@zendev-lab/spark-loop";
+import {
+  createSubgoal,
+  subgoalDefinitionDigest,
+  type SparkGoalAuthority,
+  type SparkGoalContract,
+  type SparkGoalContractStatus,
+} from "@zendev-lab/spark-loop";
 
 export type SparkSessionPhase = "plan" | "implement";
 
-export type SparkReproStageName = "setup" | "scaffold" | "reproduce" | "scale" | "deliver";
+export type SparkReproStageName = "contract" | "reference" | "target" | "alignment" | "delivery";
 
 interface SparkReproRequirementBase {
   /** Stable machine identifier; descriptions are presentation only. */
@@ -97,28 +103,9 @@ export interface SparkSessionReproV3 {
   completedAt?: string;
 }
 
-export type SparkReproGoalContractStatus = "draft" | "frozen";
-
-export interface SparkReproGoalAuthority {
-  safeLocal: "auto";
-  externalWrites: "ask";
-  destructiveActions: "ask";
-  scopeExpansion: "ask";
-}
-
-export interface SparkReproGoalContract {
-  status: SparkReproGoalContractStatus;
-  objective: string;
-  constraints: string[];
-  nonGoals: string[];
-  successCriteria: string[];
-  evidenceRequired: string[];
-  authority: SparkReproGoalAuthority;
-  evidenceRefs: EvidenceRef[];
-  createdAt: string;
-  updatedAt: string;
-  frozenAt?: string;
-}
+export type SparkReproGoalContractStatus = SparkGoalContractStatus;
+export type SparkReproGoalAuthority = SparkGoalAuthority;
+export type SparkReproGoalContract = SparkGoalContract;
 
 export type SparkReproStepAuthority = "safe_local" | "ask_decision" | "ask_approval";
 export type SparkReproStepStatus = "pending" | "in_progress" | "done" | "blocked" | "cancelled";
@@ -274,8 +261,8 @@ export interface SparkSessionRepro extends Omit<SparkSessionReproV5, "version" |
 
 export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
   {
-    name: "setup",
-    title: "Setup",
+    name: "contract",
+    title: "Contract",
     phases: ["plan"],
     acceptance: [
       evidenceRequirement(
@@ -321,8 +308,8 @@ export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
     ],
   },
   {
-    name: "scaffold",
-    title: "Scaffold",
+    name: "reference",
+    title: "Reference",
     phases: ["implement"],
     acceptance: [
       evidenceRequirement("project-structure-created", "Project structure created", "implement"),
@@ -334,8 +321,8 @@ export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
     ],
   },
   {
-    name: "reproduce",
-    title: "Reproduce",
+    name: "target",
+    title: "Target",
     phases: ["implement"],
     acceptance: [
       validationRequirement(
@@ -351,8 +338,8 @@ export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
     },
   },
   {
-    name: "scale",
-    title: "Scale",
+    name: "alignment",
+    title: "Alignment",
     phases: ["implement"],
     acceptance: [
       validationRequirement(
@@ -368,8 +355,8 @@ export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
     },
   },
   {
-    name: "deliver",
-    title: "Finalize",
+    name: "delivery",
+    title: "Delivery",
     phases: ["implement"],
     acceptance: [
       evidenceRequirement("pr-submitted", "PR submitted", "implement"),
@@ -608,7 +595,7 @@ export function createSparkSessionRepro(
     ...(objective ? { objective } : {}),
     goalContract: createGoalContract(objective, timestamp),
     plan,
-    subgoals: createInitialReproSubgoals(reproId, plan, timestamp, new Set(["setup"])),
+    subgoals: createInitialReproSubgoals(reproId, plan, timestamp, new Set(["contract"])),
     stopGuard: {
       lastProgressDigest: "",
       stagnationCount: 0,
@@ -1450,12 +1437,34 @@ function isStoredEvidenceRef(value: unknown): value is EvidenceRef {
 
 function isReproStageName(value: unknown): value is SparkReproStageName {
   return (
-    value === "setup" ||
-    value === "scaffold" ||
-    value === "reproduce" ||
-    value === "scale" ||
-    value === "deliver"
+    value === "contract" ||
+    value === "reference" ||
+    value === "target" ||
+    value === "alignment" ||
+    value === "delivery"
   );
+}
+
+export function normalizeReproStageName(value: unknown): SparkReproStageName {
+  switch (value) {
+    case "contract":
+    case "setup":
+      return "contract";
+    case "reference":
+    case "scaffold":
+      return "reference";
+    case "target":
+    case "reproduce":
+      return "target";
+    case "alignment":
+    case "scale":
+      return "alignment";
+    case "delivery":
+    case "deliver":
+      return "delivery";
+    default:
+      throw new Error(`unknown Repro stage: ${String(value)}`);
+  }
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -1758,7 +1767,7 @@ function createGoalContract(
     status: "draft",
     objective: objective || "Reproduce the target behavior with inspectable evidence",
     constraints: [
-      "Preserve the fixed setup, scaffold, reproduce, scale, and deliver evidence gates",
+      "Preserve the fixed contract, reference, target, alignment, and delivery evidence gates",
     ],
     nonGoals: ["Treating agent narration as proof of completion"],
     successCriteria: [

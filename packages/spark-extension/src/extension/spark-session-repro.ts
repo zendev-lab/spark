@@ -10,6 +10,7 @@ import {
   migrateSparkSessionReproV3,
   migrateSparkSessionReproV4,
   migrateSparkSessionReproV5,
+  normalizeReproStageName,
   reproProgressDigest,
   reproStepPlanRevision,
   stepDefinitionDigest,
@@ -182,7 +183,9 @@ export async function clearSessionRepro(cwd: string, ctx?: SparkSessionContext):
 function migrateLegacySessionRepro(legacy: LegacySparkSessionRepro): SparkSessionReproV3 {
   const defaultStages = structuredClone(DEFAULT_REPRO_STAGES);
   const stages = defaultStages.map((template) => {
-    const legacyStage = legacy.stages.find((stage) => stage.name === template.name);
+    const legacyStage = legacy.stages.find(
+      (stage) => normalizeReproStageName(stage.name) === template.name,
+    );
     return legacyStage ? migrateLegacyStage(legacyStage, template) : template;
   });
   const legacyStageIndex = Math.min(
@@ -301,7 +304,7 @@ function sanitizeStoredSessionReproV3(
   if (!repro) return undefined;
   return {
     ...repro,
-    stages: sanitizeReproStages(repro.stages),
+    stages: sanitizeReproStages(normalizeLegacyStageNames(repro).stages),
   };
 }
 
@@ -327,6 +330,7 @@ function sanitizeStoredSessionReproState(
   repro: SparkSessionRepro | SparkSessionReproV5 | SparkSessionReproV4 | undefined,
 ): SparkSessionRepro | SparkSessionReproV5 | SparkSessionReproV4 | undefined {
   if (!repro) return undefined;
+  repro = normalizeLegacyStageNames(repro);
   const stages = sanitizeReproStages(repro.stages);
   const contractRequirement = stages
     .flatMap((stage) => stage.acceptance)
@@ -400,6 +404,37 @@ function sanitizeStoredSessionReproState(
       lastProgressDigest: reproProgressDigest(sanitized),
     },
   };
+}
+
+function normalizeLegacyStageNames<
+  T extends SparkSessionRepro | SparkSessionReproV5 | SparkSessionReproV4 | SparkSessionReproV3,
+>(repro: T): T {
+  const normalizeDefinition = <S extends { stage: SparkReproStage["name"] }>(step: S): S => ({
+    ...step,
+    stage: normalizeReproStageName(step.stage),
+  });
+  const plan =
+    "plan" in repro
+      ? {
+          ...repro.plan,
+          steps: repro.plan.steps.map(normalizeDefinition),
+          revisions: repro.plan.revisions.map((revision) => ({
+            ...revision,
+            steps: revision.steps.map(normalizeDefinition),
+          })),
+        }
+      : undefined;
+  return {
+    ...repro,
+    stages: repro.stages.map((stage) => ({
+      ...stage,
+      name: normalizeReproStageName(stage.name),
+    })),
+    ...(plan ? { plan } : {}),
+    ...(repro.version === 5 || repro.version === 6
+      ? { subgoals: repro.subgoals.map(normalizeDefinition) }
+      : {}),
+  } as T;
 }
 
 function isStoredStepVerificationValid(

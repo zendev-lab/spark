@@ -112,7 +112,7 @@ active for the sender).
 
 A channel-bound host exposes only canonical `session`, `ask`, `context`, and
 `todo`. It permanently disables cue tools, `role`, `assign`, and
-`workflow_run`, including after extension lifecycle events. The caller may
+`workflow`, including after extension lifecycle events. The caller may
 inspect same-workspace sessions, request work only from an unarchived local
 session, and may not perform lifecycle or call actions.
 

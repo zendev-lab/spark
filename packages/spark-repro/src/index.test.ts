@@ -57,12 +57,12 @@ describe("spark-repro", () => {
     expect(repro.version).toBe(6);
     expect(repro.projectRef).toBeUndefined();
     expect(repro.subgoals).toHaveLength(
-      repro.plan.steps.filter((step) => step.stage === "setup").length,
+      repro.plan.steps.filter((step) => step.stage === "contract").length,
     );
-    expect(new Set(repro.subgoals.map((subgoal) => subgoal.stage))).toEqual(new Set(["setup"]));
+    expect(new Set(repro.subgoals.map((subgoal) => subgoal.stage))).toEqual(new Set(["contract"]));
     expect(repro.subgoals[0]).toMatchObject({
       id: "repro-contract-frozen",
-      stage: "setup",
+      stage: "contract",
       authority: "safe_local",
       status: "pending",
     });
@@ -75,7 +75,7 @@ describe("spark-repro", () => {
     expect(repro.plan).not.toHaveProperty("minimumStepCount");
     expect(repro.plan.steps[0]).toMatchObject({
       id: "repro-contract-frozen",
-      stage: "setup",
+      stage: "contract",
       authority: "safe_local",
       status: "pending",
     });
@@ -226,7 +226,7 @@ describe("spark-repro", () => {
       subgoals: [
         {
           id: "scaffold-build-layout",
-          stage: "scaffold",
+          stage: "reference",
           goal: "Build the target project layout",
           doneWhen: ["The project tree matches the recorded layout"],
           evidenceRequired: ["Project tree command output"],
@@ -241,7 +241,7 @@ describe("spark-repro", () => {
       completedBefore,
     );
     expect(repro.subgoals.find((subgoal) => subgoal.id === "scaffold-build-layout")).toMatchObject({
-      stage: "scaffold",
+      stage: "reference",
       status: "pending",
       planRevision: 2,
     });
@@ -480,7 +480,7 @@ describe("spark-repro", () => {
     expect(isStageComplete(repro)).toBe(true);
     expect(advanceReproStage(repro)).toBeUndefined();
     expect(nextReproStagePlanningBlocker(repro)).toBe(
-      "Stage scaffold has no planned subgoals. Plan concrete subgoals and task experiments before advancing.",
+      "Stage reference has no planned subgoals. Plan concrete subgoals and task experiments before advancing.",
     );
 
     repro = reviseReproPlan(repro, {
@@ -488,7 +488,7 @@ describe("spark-repro", () => {
       subgoals: [
         {
           id: "scaffold-build-layout",
-          stage: "scaffold",
+          stage: "reference",
           goal: "Build the target project layout",
           doneWhen: ["The project tree command matches the recorded layout"],
           evidenceRequired: ["Project tree command output"],

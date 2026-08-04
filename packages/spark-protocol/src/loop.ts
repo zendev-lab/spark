@@ -21,6 +21,9 @@ export const sparkLoopCycleStepSchema = z.enum(sparkLoopCycleStepOptions);
 export const sparkLoopContinuitySchema = z.enum(sparkLoopContinuityOptions);
 
 export const sparkLoopEvaluatorSelectorSchema = z.string().regex(/^(builtin|extension):[^:]+$/u);
+export const sparkLoopWorkflowSelectorSchema = z
+  .string()
+  .regex(/^(builtin|workspace|user):[a-z0-9][a-z0-9-]*$/u);
 
 export const sparkLoopBooleanExpressionSchema: z.ZodType<SparkLoopBooleanExpression> = z.lazy(() =>
   z.discriminatedUnion("op", [
@@ -180,6 +183,7 @@ export const sparkLoopBindingSchema = z
   .object({
     goalId: z.string().min(1).optional(),
     workflowRunId: z.string().min(1).optional(),
+    workflowSelector: sparkLoopWorkflowSelectorSchema.optional(),
     reproId: z.string().min(1).optional(),
   })
   .default({});
@@ -190,6 +194,7 @@ export const sparkLoopViewSchema = z.object({
   status: sparkLoopStatusSchema,
   continuity: sparkLoopContinuitySchema,
   generation: z.number().int().positive(),
+  workflowDefinitionDigest: z.string().min(1).optional(),
   cycleStep: sparkLoopCycleStepSchema.optional(),
   binding: sparkLoopBindingSchema,
   policy: sparkLoopPolicySchema,

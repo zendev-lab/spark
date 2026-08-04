@@ -16,7 +16,7 @@ export const MUST_ASK_ON_PROBLEMS =
 
 /** Goal/repro: keep orchestration on the main session unless the user explicitly wants fan-out. */
 export const MAIN_SESSION_SCHEDULING_FIRST =
-  'Prefer the main session for scheduling and execution. Do not default to role({ action: "call" }), session({ action: "call"|"send" }), assign, or workflow_run for ordinary goal/repro ticks. Use those only when the user explicitly requests multi-agent/workflow fan-out, or when a clearly parallelizable slice cannot be done safely in the main session.';
+  'Prefer the main session for scheduling and execution. Do not default to role({ action: "call" }), session({ action: "call"|"send" }), assign, or workflow action=run for ordinary goal/repro ticks. Use those only when the user explicitly requests multi-agent/workflow fan-out, or when a clearly parallelizable slice cannot be done safely in the main session.';
 
 const DURABLE_PLANNING_RULES =
   'Use task_write({ action: "plan" }) only for concrete executable/review/validation/research work with high-bar, objectively verifiable success criteria and concrete evidence expectations. Every planned task must set a substantive outcome, each success/evidence/plan item must be checkable, and low-threshold wording such as basic/minimal/quick/best-effort/if possible/smoke-only is not acceptable. Never create standalone design/planning tasks; discuss design in conversation first, then embed the chosen design, rationale, constraints, alternatives, and success evidence inside each concrete task.plan.';
@@ -34,7 +34,7 @@ const RESEARCH_SUBAGENT_STRATEGY =
   'Default lightweight research should use anonymous role calls plus main-agent synthesis when parallel inspection, cross-checking, or specialist review materially improves coverage. Call role({ action: "call", role, instruction }) with focused read-only research briefs; use session({ action: "call", sessionId, instruction }) only when persistent conversation continuity is intentional. The main agent remains responsible for summarizing, reconciling, and qualifying the findings.';
 
 export const PARALLEL_EXECUTION_WORKFLOW_STRATEGY =
-  'For ordinary single-task implementation, work directly with focused tools. Use the workflow runtime only when the user asks for workflow/fan-out/multi-agent orchestration, or when the execution work is clearly parallelizable, repetitive, or suited to scripted orchestration. In those cases, discover saved workflows with workflow({ action: "list" }) and read candidates with workflow({ action: "read" }) before choosing workflow_run or a new trusted workflow script.';
+  'For ordinary single-task implementation, work directly with focused tools. Use the workflow runtime only when the user asks for workflow/fan-out/multi-agent orchestration, or when the execution work is clearly parallelizable, repetitive, or suited to scripted orchestration. In those cases, discover definitions with workflow({ action: "list" }), read candidates with workflow({ action: "read" }), and execute a selected definition with workflow({ action: "run" }).';
 
 export function renderSparkPlanningPhasePrompt(
   graph: TaskGraph,

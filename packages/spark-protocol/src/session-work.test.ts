@@ -37,7 +37,7 @@ describe("SparkSessionView work projection", () => {
           successCriteria: ["20-step bitwise parity"],
           evidenceRequired: ["Bound run output"],
           stage: {
-            name: "reproduce",
+            name: "target",
             title: "Reproduce",
             index: 2,
             total: 5,
@@ -49,7 +49,7 @@ describe("SparkSessionView work projection", () => {
             totalSteps: 11,
             currentStep: {
               id: "bitwise-pass-20",
-              stage: "reproduce",
+              stage: "target",
               goal: "Reach 20-step parity",
               status: "blocked",
               authority: "safe_local",

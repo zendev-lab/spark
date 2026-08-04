@@ -15,6 +15,9 @@ test("Spark workflow registry lists workspace and user workflows", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "spark-workflow-registry-"));
   const userDir = await mkdtemp(join(tmpdir(), "spark-user-workflows-"));
   await mkdir(workspaceWorkflowDir(cwd), { recursive: true });
+  await mkdir(join(workspaceWorkflowDir(cwd), "release-check"), { recursive: true });
+  await mkdir(join(workspaceWorkflowDir(cwd), "broken"), { recursive: true });
+  await mkdir(join(userDir, "oss-review"), { recursive: true });
   await mkdir(join(cwd, ".spark", "workflows"), { recursive: true });
   await writeFile(
     join(cwd, ".spark", "workflows", "legacy.js"),
@@ -24,24 +27,35 @@ test("Spark workflow registry lists workspace and user workflows", async () => {
     };`,
   );
   await writeFile(
-    join(workspaceWorkflowDir(cwd), "release-check.js"),
-    `export const meta = {
-      name: "Release Check",
-      description: "Check release readiness.",
-      stages: [{ title: "Inspect" }, { title: "Verify" }],
-    };
-    throw new Error("discovery must not execute workflow bodies");`,
+    join(workspaceWorkflowDir(cwd), "release-check", "WORKFLOW.md"),
+    `---
+id: release-check
+title: Release Check
+description: Check release readiness.
+stages: [inspect, verify]
+---
+Inspect the release and verify its evidence.
+`,
   );
   await writeFile(
-    join(workspaceWorkflowDir(cwd), "broken.js"),
-    `export const meta = { name: "Broken" };`,
+    join(workspaceWorkflowDir(cwd), "broken", "WORKFLOW.md"),
+    `---
+id: broken
+title: Broken
+unknown: rejected
+---
+Broken workflow.
+`,
   );
   await writeFile(
-    join(userDir, "oss-review.js"),
-    `export const meta = {
-      name: "OSS Review",
-      description: "Review open-source readiness.",
-    };`,
+    join(userDir, "oss-review", "WORKFLOW.md"),
+    `---
+id: oss-review
+title: OSS Review
+description: Review open-source readiness.
+---
+Review open-source readiness.
+`,
   );
 
   const listing = await listSparkWorkflowRegistry(cwd, { userWorkflowDir: userDir });
@@ -53,14 +67,13 @@ test("Spark workflow registry lists workspace and user workflows", async () => {
   assert.ok(refs.includes("workflow:user-oss-review"));
   assert.equal(listing.errors.length, 1);
   assert.equal(listing.errors[0]?.source, "workspace");
-  assert.match(listing.errors[0]?.error ?? "", /description/);
+  assert.match(listing.errors[0]?.error ?? "", /unknown fields/);
 
   const workspace = listing.workflows.find(
     (workflow) => workflow.ref === "workflow:workspace-release-check",
   );
   assert.equal(workspace?.source, "workspace");
-  assert.deepEqual(workspace?.stages, ["Inspect", "Verify"]);
-  assert.deepEqual(workspace?.phases, ["Inspect", "Verify"]);
+  assert.deepEqual(workspace?.stages, ["inspect", "verify"]);
 });
 
 test("Spark workflow registry exposes stable source/ref helpers", () => {

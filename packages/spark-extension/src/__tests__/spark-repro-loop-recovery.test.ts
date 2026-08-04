@@ -1,4 +1,7 @@
-import { expect, test, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, expect, test, vi } from "vitest";
 import {
   sparkLoopCountersSchema,
   sparkLoopPolicySchema,
@@ -47,11 +50,18 @@ function control(existing?: SparkLoopView) {
 }
 
 function context(): SparkToolContext {
+  const cwd = mkdtempSync(join(tmpdir(), "spark-repro-loop-recovery-"));
+  tempDirs.push(cwd);
   return {
-    cwd: "/workspace",
+    cwd,
     sessionId: "session-test",
   };
 }
+
+const tempDirs: string[] = [];
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 function repro() {
   return { ...createSparkSessionRepro("session:test"), reproId: "repro-loop" };
@@ -69,23 +79,28 @@ test("active repro recreates a missing daemon loop", async () => {
   expect(start).toHaveBeenCalledWith(
     expect.objectContaining({
       loopId: "repro-loop",
-      binding: { reproId: "repro-loop" },
+      binding: {
+        goalId: expect.any(String),
+        workflowRunId: "workflow-run:repro-loop",
+        workflowSelector: "builtin:repro",
+        reproId: "repro-loop",
+      },
       ownerSessionId: "session-test",
       continuity: "session",
-      cwd: "/workspace",
+      cwd: expect.stringContaining("spark-repro-loop-recovery-"),
     }),
   );
 });
 
 test.each(["scheduled", "running", "retry_wait", "dormant", "blocked"] as const)(
-  "active repro preserves an existing %s daemon loop",
+  "active repro migrates an existing %s daemon loop to unified bindings",
   async (status) => {
     const existing = loopView(status);
     const { value, start } = control(existing);
     const health = await ensureActiveReproLoop(context(), value, repro());
 
-    expect(health).toEqual({ status, recovered: false, loop: existing });
-    expect(start).not.toHaveBeenCalled();
+    expect(health).toMatchObject({ status: "scheduled", recovered: true });
+    expect(start).toHaveBeenCalledOnce();
   },
 );
 

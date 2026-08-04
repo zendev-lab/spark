@@ -414,7 +414,7 @@ export function renderSparkDynamicWorkflowRunsText(input: {
       );
       if (input.control.action === "restart")
         lines.push(
-          `  Next: call workflow_run({ runRef: "${input.control.run.ref}" }) to execute the restarted script.`,
+          `  Next: resume the managed WorkflowRun from workflow status; public workflow action=run accepts saved selectors only.`,
         );
     } else {
       lines.push(

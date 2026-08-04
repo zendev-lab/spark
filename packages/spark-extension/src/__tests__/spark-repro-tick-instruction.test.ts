@@ -9,7 +9,7 @@ import {
 } from "../extension/spark-session-repro.ts";
 
 const snapshotDir = join(dirname(fileURLToPath(import.meta.url)), "snapshots");
-const stageNames = ["setup", "scaffold", "reproduce", "scale", "deliver"] as const;
+const stageNames = ["contract", "reference", "target", "alignment", "delivery"] as const;
 
 function instructionForStage(stageName: SparkReproStageName): string {
   const repro = createSparkSessionRepro(`session:${stageName}`);

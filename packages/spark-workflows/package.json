@@ -21,11 +21,13 @@
   },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
     "@zendev-lab/spark-tasks": "workspace:^",
     "@zendev-lab/spark-text": "workspace:^",
     "es-toolkit": "catalog:",
-    "typebox": "catalog:"
+    "typebox": "catalog:",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "typescript": "catalog:",

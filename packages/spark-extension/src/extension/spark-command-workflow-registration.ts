@@ -156,8 +156,7 @@ export function registerSparkWorkflowCommands(
   }
 
   pi.registerCommand("ultracode", {
-    description:
-      "Opt into high-effort dynamic workflow generation and execution through workflow_run.",
+    description: "Opt into high-effort Workflow execution through workflow action=run.",
     async handler(args, ctx) {
       await handlers.handleSparkUltracodeCommand(pi, ctx, args.trim());
     },

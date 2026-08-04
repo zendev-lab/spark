@@ -116,6 +116,7 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       generation INTEGER NOT NULL CHECK (generation > 0),
       cycle_step TEXT CHECK (cycle_step IS NULL OR cycle_step IN ('before_tick', 'invoke', 'after_tick', 'settle')),
       policy_json TEXT NOT NULL DEFAULT '{"cadenceMs":30000,"retry":{"maxAttempts":3,"delaysMs":[30000,60000,120000]},"beforeTick":[],"afterTick":[]}',
+      workflow_definition_digest TEXT,
       checkpoint_json TEXT,
       counters_json TEXT NOT NULL DEFAULT '{"tickCount":0,"skippedCount":0,"llmRequestsAvoided":0,"conditionRetryCount":0}',
       due_at TEXT,
@@ -537,6 +538,9 @@ function addMissingLoopColumns(db: DatabaseSync): void {
   }
   if (!columns.has("checkpoint_json")) {
     db.exec("ALTER TABLE loop_wakeups ADD COLUMN checkpoint_json TEXT");
+  }
+  if (!columns.has("workflow_definition_digest")) {
+    db.exec("ALTER TABLE loop_wakeups ADD COLUMN workflow_definition_digest TEXT");
   }
   if (!columns.has("counters_json")) {
     db.exec(

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
@@ -1358,10 +1358,63 @@ return { reused: true, args }
       meta: parsed.meta,
       options: {},
     });
+    const occupiedDirectory = join(dir, ".agents", "workflows", "reuse");
+    await mkdir(occupiedDirectory, { recursive: true });
+    await writeFile(join(occupiedDirectory, "workflow.js"), "existing user content\n", "utf8");
     const first = await store.saveAsWorkflow({ cwd: dir, runRef: run.ref, workflowId: "reuse" });
     const second = await store.saveAsWorkflow({ cwd: dir, runRef: run.ref, workflowId: "reuse" });
-    assert.equal(first?.selector, "workspace:reuse");
-    assert.equal(second?.selector, "workspace:reuse-2");
+    assert.equal(first?.selector, "workspace:reuse-2");
+    assert.equal(second?.selector, "workspace:reuse-3");
+    assert.equal(
+      await readFile(join(occupiedDirectory, "workflow.js"), "utf8"),
+      "existing user content\n",
+    );
+
+    const eventOccupiedDirectory = join(dir, ".agents", "workflows", "event-reuse");
+    await mkdir(eventOccupiedDirectory, { recursive: true });
+    await writeFile(
+      join(eventOccupiedDirectory, "workflow.js"),
+      "existing event-store content\n",
+      "utf8",
+    );
+    const eventStore = defaultSparkDynamicWorkflowEventStore(dir);
+    const eventRun = await eventStore.start({
+      source: { kind: "inline", label: "generated event-store workflow" },
+      script,
+      meta: parsed.meta,
+      options: {},
+    });
+    const eventSaved = await eventStore.saveAsWorkflow({
+      cwd: dir,
+      runRef: eventRun.ref,
+      workflowId: "event-reuse",
+    });
+    assert.equal(eventSaved?.selector, "workspace:event-reuse-2");
+    assert.equal(
+      await readFile(join(eventOccupiedDirectory, "workflow.js"), "utf8"),
+      "existing event-store content\n",
+    );
+
+    const canonicalized = await store.saveAsWorkflow({
+      cwd: dir,
+      runRef: run.ref,
+      workflowId: "under_score",
+    });
+    assert.equal(canonicalized?.selector, "workspace:under-score");
+    await assert.doesNotReject(() =>
+      readSavedWorkflow({ cwd: dir, selector: canonicalized?.selector ?? "" }),
+    );
+
+    const concurrent = await Promise.all([
+      store.saveAsWorkflow({ cwd: dir, runRef: run.ref, workflowId: "reuse" }),
+      store.saveAsWorkflow({ cwd: dir, runRef: run.ref, workflowId: "reuse" }),
+    ]);
+    assert.deepEqual(
+      concurrent
+        .map((saved) => saved?.selector)
+        .sort((left, right) => (left ?? "").localeCompare(right ?? "")),
+      ["workspace:reuse-4", "workspace:reuse-5"],
+    );
 
     const listed = await listSavedWorkflows(dir, { includeUser: false });
     assert.deepEqual(
@@ -1369,10 +1422,10 @@ return { reused: true, args }
         .map((workflow) => workflow.selector)
         .filter((selector) => selector.startsWith("workspace:reuse"))
         .sort(),
-      ["workspace:reuse", "workspace:reuse-2"],
+      ["workspace:reuse-2", "workspace:reuse-3", "workspace:reuse-4", "workspace:reuse-5"],
     );
     const saved = await readSavedWorkflow({ cwd: dir, selector: second?.selector ?? "" });
-    assert.equal(saved.script, script);
+    assert.match(saved.script, /reused: true/u);
 
     type TestWorkflowRunTool = {
       execute: (
@@ -1408,6 +1461,40 @@ return { reused: true, args }
   }
 });
 
+test("dynamic workflow save preserves multi-stage runtime semantics", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-workflow-save-stages-"));
+  try {
+    const script = `export const meta = {
+  name: 'Multi-stage flow',
+  description: 'saved multi-stage workflow',
+  stages: [{ title: 'Scan' }, { title: 'Report' }],
+}
+stage('Scan')
+stage('Report')
+return { preserved: true }
+`;
+    const parsed = parseWorkflowScript(script);
+    const store = defaultSparkDynamicWorkflowRunStore(dir);
+    const run = await store.start({
+      source: { kind: "inline", label: "generated multi-stage workflow" },
+      script,
+      meta: parsed.meta,
+      options: {},
+    });
+    const saved = await store.saveAsWorkflow({ cwd: dir, runRef: run.ref, workflowId: "stages" });
+    const resolved = await readSavedWorkflow({ cwd: dir, selector: saved?.selector ?? "" });
+    const rerun = await runWorkflowScript(resolved.script, { agent: async () => "unused" });
+
+    assert.deepEqual(
+      rerun.stages?.map((stage) => stage.title),
+      ["Scan", "Report"],
+    );
+    assert.equal((rerun.result as { preserved: boolean }).preserved, true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("Spark workflow_run tool resolves controlled nested saved workflows", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-workflow-run-nested-"));
   try {
@@ -1423,11 +1510,24 @@ test("Spark workflow_run tool resolves controlled nested saved workflows", async
         details: Record<string, unknown>;
       }>;
     };
-    await mkdir(join(dir, ".agents", "workflows"), { recursive: true });
+    await mkdir(join(dir, ".agents", "workflows", "child"), { recursive: true });
     await writeFile(
-      join(dir, ".agents", "workflows", "child.js"),
-      `export const meta = { name: 'child', description: 'saved child workflow' }
-return { marker: 'saved-child', args }
+      join(dir, ".agents", "workflows", "child", "WORKFLOW.md"),
+      `---
+id: child
+title: child
+description: saved child workflow
+stages:
+  - id: run
+    handler: child.js
+---
+Run the saved child workflow.
+`,
+      "utf8",
+    );
+    await writeFile(
+      join(dir, ".agents", "workflows", "child", "child.js"),
+      `return { marker: 'saved-child', args }
 `,
       "utf8",
     );

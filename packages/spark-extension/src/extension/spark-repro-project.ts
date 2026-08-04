@@ -72,7 +72,7 @@ export async function createProjectBackedSessionRepro(
         "Research the reference baseline, resolve implementation and alignment decisions, run typed experiments, and deliver inspectable reproduction evidence.",
       outputLanguage: "zh",
     });
-    const materialized = materializeStageInGraph(graph, repro, project.ref, "setup");
+    const materialized = materializeStageInGraph(graph, repro, project.ref, "contract");
     const taskRefs = materialized.taskRefs;
     const readyTaskRefs = graph.readyTasks(project.ref).map((task) => task.ref);
     if (readyTaskRefs.length === 0) {

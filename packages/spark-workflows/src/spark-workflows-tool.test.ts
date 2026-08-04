@@ -25,15 +25,20 @@ interface ToolConfig {
 test("workflow tool lists builtins and reads saved workspace scripts from controlled roots", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-workflows-tool-"));
   try {
-    await mkdir(workspaceWorkflowDir(dir), { recursive: true });
+    const workflowDir = join(workspaceWorkflowDir(dir), "release-check");
+    await mkdir(workflowDir, { recursive: true });
     await writeFile(
-      join(workspaceWorkflowDir(dir), "release-check.js"),
-      `export const meta = {
-        name: "Release Check",
-        description: "Check release readiness.",
-        stages: [{ title: "Inspect" }, { title: "Verify" }],
-      };
-      throw new Error("discovery must not execute workflow bodies");`,
+      join(workflowDir, "WORKFLOW.md"),
+      `---
+id: release-check
+title: Release Check
+description: Check release readiness.
+stages:
+  - inspect
+  - verify
+---
+Inspect release inputs and verify the bounded result.
+`,
       "utf8",
     );
 

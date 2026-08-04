@@ -9,13 +9,24 @@ import {
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import { listSavedWorkflows, readSavedWorkflow, type WorkflowDescriptor } from "./index.ts";
 
-export type SparkWorkflowAction = "list" | "read" | "tick";
+export type SparkWorkflowAction = "list" | "read" | "run" | "tick";
 
 export interface SparkWorkflowHostApi {
   registerTool(config: ToolConfig): void;
 }
 
 export interface SparkWorkflowToolDeps {
+  /** Product-owned execution adapter. Public callers provide a saved selector, never source. */
+  run?: (
+    params: Record<string, unknown>,
+    signal: AbortSignal,
+    onUpdate: (update: { content: Array<{ type: "text"; text: string }> }) => void,
+    ctx: SparkHostContext,
+  ) => Promise<{
+    content: Array<{ type: "text"; text: string }>;
+    details?: Record<string, unknown>;
+    isError?: boolean;
+  }>;
   /** Product-owned scheduler hook; available only inside a bound daemon Loop. */
   tick?: (ctx: SparkHostContext) => Promise<{
     content: Array<{ type: "text"; text: string }>;
@@ -44,15 +55,15 @@ export function registerSparkWorkflowTool(
     name: "workflow",
     label: "Workflow",
     description:
-      "Canonical workflow tool. List or read controlled workflow definitions; a daemon-bound Loop may also advance its active WorkflowRun with tick.",
+      "Canonical workflow tool. List, read, or run controlled WORKFLOW.md definitions; a daemon-bound Loop may also advance its active WorkflowRun with tick.",
     promptGuidelines: [
-      "Use workflow for builtin/saved-script discovery and preview only; goal state is separate and not a workflow.",
+      "Use workflow action=run with a builtin:/workspace:/user: selector; raw JavaScript workflow source is rejected.",
       "Do not pass inline workflow source or arbitrary paths; use builtin:<id>, workspace:<id>, or user:<id> selectors.",
       "Execute workflows through the host's explicit workflow command/runtime, not by evaluating scripts from this tool.",
       "workflow action=tick is internal to a daemon-owned Workflow Loop and is rejected in ordinary turns.",
     ],
     parameters: Type.Object({
-      action: Type.String({ description: "list | read | tick" }),
+      action: Type.String({ description: "list | read | run | tick" }),
       selector: Type.Optional(
         Type.String({ description: "builtin:<id>, workspace:<id>, or user:<id> for read." }),
       ),
@@ -63,11 +74,16 @@ export function registerSparkWorkflowTool(
       limit: Type.Optional(
         Type.Number({ description: "For list: maximum workflow rows. Default 20." }),
       ),
+      args: Type.Optional(Type.Any({ description: "For run: JSON arguments." })),
+      concurrency: Type.Optional(Type.Number({ description: "For run: bounded concurrency." })),
+      maxAgents: Type.Optional(Type.Number({ description: "For run: maximum agent calls." })),
+      tokenBudget: Type.Optional(Type.Number({ description: "For run: token ceiling." })),
+      wait: Type.Optional(Type.Boolean({ description: "For run: wait for terminal result." })),
     }),
     renderCall(args, theme) {
       return renderWorkflowCall(args, theme);
     },
-    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const cwd = sparkStateCwd(requiredCwd(ctx), ctx);
       const action = normalizeWorkflowAction(params.action);
       if (action === "tick") {
@@ -80,6 +96,22 @@ export function registerSparkWorkflowTool(
             isError: true,
           };
         return await deps.tick(ctx);
+      }
+      if (action === "run") {
+        if (!deps.run) {
+          return {
+            content: [{ type: "text" as const, text: "workflow run is unavailable in this host." }],
+            details: { error: "workflow_run_unavailable" },
+            isError: true,
+          };
+        }
+        if ("script" in params || "runRef" in params || "resumeRunRef" in params) {
+          throw new Error(
+            "workflow action=run accepts only a controlled selector; migrate definitions to .agents/workflows/<id>/WORKFLOW.md",
+          );
+        }
+        const selector = requiredString(params.selector, "selector");
+        return await deps.run({ ...params, selector }, signal, onUpdate, ctx);
       }
       const includeUser = normalizeBoolean(params.includeUser, true, "includeUser");
       if (action === "list") {
@@ -148,8 +180,8 @@ function renderWorkflowList(workflows: WorkflowDescriptor[], total: number): str
 }
 
 function normalizeWorkflowAction(value: unknown): SparkWorkflowAction {
-  if (value === "list" || value === "read" || value === "tick") return value;
-  throw new Error("workflow.action must be list, read, or tick");
+  if (value === "list" || value === "read" || value === "run" || value === "tick") return value;
+  throw new Error("workflow.action must be list, read, run, or tick");
 }
 
 function normalizeBoolean(value: unknown, fallback: boolean, field: string): boolean {

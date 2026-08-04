@@ -20,7 +20,7 @@ building a host profile, or diagnosing why a capability is unavailable.
 | Coordinate agents | `role`, `skill_delegate`, `session` | Definitions, anonymous calls, dedicated Skill Workers, persistent sessions, and mail |
 | Choose models | `models` | Model catalog and selection |
 | Continue autonomously | `phase`, `goal`, `loop`, `workflow`, `repro` | Session phase plus daemon-owned Goal, WorkflowRun, and Loop state |
-| Discover and run procedures | `workflow`, `workflow_run` | Read saved workflows or execute a selected workflow |
+| Discover and run procedures | `workflow` | List, read, or run a selected `WORKFLOW.md` definition |
 
 `artifact` is user-facing and limited to Issue, GitChange, and Document
 deliverables. GitChange owns one worktree and one native GitHub PR stack;

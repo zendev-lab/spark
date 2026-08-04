@@ -86,7 +86,7 @@ export async function enterSparkWorkflow(
   if (workflow === false) return;
   const workflowSelector = workflow.selector;
   await deps.refreshSparkWidget(ctx.cwd, ctx);
-  if (workflow.descriptor?.mode === "plan") {
+  if (workflow.descriptor?.phase === "plan") {
     ctx.sparkActiveLens = sparkActiveLens("plan");
     ctx.ui?.notify?.("Builtin workflow selected.", "info");
     await dispatchSparkAgentInstruction(
@@ -370,7 +370,7 @@ async function resolveWorkflowSelector(
     : "Spark Workflow needs an explicit saved workflow selector.";
   const suffix = available.length
     ? ` Available workflow(s): ${visibleAvailable.join(", ")}${hiddenAvailable > 0 ? `, … ${hiddenAvailable} more` : ""}.`
-    : " Create a saved workspace workflow under .agents/workflows/<name>.js, then run /workflow run workspace:<name>.";
+    : " Create .agents/workflows/<id>/WORKFLOW.md, then run /workflow run workspace:<id>.";
   ctx.ui?.notify?.(reason + suffix, "warning");
   return false;
 }

@@ -99,6 +99,20 @@ function assertWorkflowRunControl(value: unknown, filePath: string): void {
     );
   }
   assertOptionalWorkflowRunStoreString(value.focus, filePath, "control.focus");
+  assertOptionalWorkflowRunStoreString(
+    value.workflowSelector,
+    filePath,
+    "control.workflowSelector",
+  );
+  if (
+    typeof value.workflowSelector === "string" &&
+    !/^(builtin|workspace|user):[a-z0-9][a-z0-9-]*$/u.test(value.workflowSelector)
+  ) {
+    throw new WorkflowRunStoreFormatError(
+      filePath,
+      "control.workflowSelector must be a canonical saved Workflow selector",
+    );
+  }
   assertOptionalWorkflowRunStoreString(value.enteredAt, filePath, "control.enteredAt");
   assertOptionalWorkflowRunStoreString(value.updatedAt, filePath, "control.updatedAt");
   if (value.status !== undefined && !isWorkflowRunControlStatus(value.status)) {
@@ -345,6 +359,11 @@ function normalizeWorkflowRunControl(value: unknown): WorkflowRunControl | undef
   const enteredAt = typeof value.enteredAt === "string" ? value.enteredAt : now;
   return {
     projectRef: value.projectRef as WorkflowRunControl["projectRef"],
+    workflowSelector:
+      typeof value.workflowSelector === "string" &&
+      /^(builtin|workspace|user):[a-z0-9][a-z0-9-]*$/u.test(value.workflowSelector)
+        ? (value.workflowSelector as WorkflowRunControl["workflowSelector"])
+        : undefined,
     focus: typeof value.focus === "string" ? value.focus.trim() || undefined : undefined,
     status,
     policy: {

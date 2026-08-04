@@ -10,11 +10,11 @@ import {
   reproTopologyComposeWorkflowScript,
 } from "./repro-builtins.ts";
 
-export type BuiltinWorkflowMode = "plan" | "implement";
+export type BuiltinWorkflowPhase = "plan" | "implement";
 
 export interface BuiltinWorkflowDefinition {
   id: string;
-  mode: BuiltinWorkflowMode;
+  phase: BuiltinWorkflowPhase;
   title: string;
   description: string;
   scriptFactory: () => string;
@@ -23,7 +23,7 @@ export interface BuiltinWorkflowDefinition {
 export const builtinWorkflowDefinitions: readonly BuiltinWorkflowDefinition[] = [
   {
     id: "research",
-    mode: "plan",
+    phase: "plan",
     title: "research",
     description:
       "Deep research workflow with query planning, web search, source fetching, verification, and cited synthesis",
@@ -31,14 +31,22 @@ export const builtinWorkflowDefinitions: readonly BuiltinWorkflowDefinition[] = 
   },
   {
     id: "review",
-    mode: "plan",
+    phase: "plan",
     title: "review",
     description: "Adversarial review workflow with critique, rebuttal, and verdict synthesis",
     scriptFactory: reviewWorkflowScript,
   },
   {
+    id: "repro",
+    phase: "implement",
+    title: "repro",
+    description:
+      "Evidence-governed model reproduction lifecycle driven by the canonical Repro work summary",
+    scriptFactory: reproWorkflowScript,
+  },
+  {
     id: "repro-stage-orchestrate",
-    mode: "implement",
+    phase: "implement",
     title: "repro:stage-orchestrate",
     description:
       "Execute one bounded stage-local safe wave and independently review its evidence join",
@@ -46,56 +54,56 @@ export const builtinWorkflowDefinitions: readonly BuiltinWorkflowDefinition[] = 
   },
   {
     id: "repro-module-sweep",
-    mode: "implement",
+    phase: "implement",
     title: "repro:module-sweep",
     description: "Run an isolated module experiment matrix concurrently",
     scriptFactory: reproModuleSweepWorkflowScript,
   },
   {
     id: "repro-first-divergence",
-    mode: "implement",
+    phase: "implement",
     title: "repro:first-divergence",
     description: "Localize the first bad step, layer, and boundary",
     scriptFactory: reproFirstDivergenceWorkflowScript,
   },
   {
     id: "repro-change-loop",
-    mode: "implement",
+    phase: "implement",
     title: "repro:change-loop",
     description: "Implement, regress, and independently review one confirmed precision fix",
     scriptFactory: reproChangeLoopWorkflowScript,
   },
   {
     id: "repro-long-horizon",
-    mode: "implement",
+    phase: "implement",
     title: "repro:long-horizon",
     description: "Run a bounded trajectory and localize its first bad step",
     scriptFactory: reproLongHorizonWorkflowScript,
   },
   {
     id: "repro-axis-qualify",
-    mode: "implement",
+    phase: "implement",
     title: "repro:axis-qualify",
     description: "Qualify one distributed topology axis against a certified parent",
     scriptFactory: reproAxisQualifyWorkflowScript,
   },
   {
     id: "repro-topology-compose",
-    mode: "implement",
+    phase: "implement",
     title: "repro:topology-compose",
     description: "Compose independently qualified topology axes through H1 and Hshort",
     scriptFactory: reproTopologyComposeWorkflowScript,
   },
   {
     id: "repro-evidence-review",
-    mode: "plan",
+    phase: "plan",
     title: "repro:evidence-review",
     description: "Independently audit numerical, topology, provenance, and report evidence",
     scriptFactory: reproEvidenceReviewWorkflowScript,
   },
   {
     id: "repro-delivery-sync",
-    mode: "implement",
+    phase: "implement",
     title: "repro:delivery-sync",
     description: "Render deterministic report and Draft PR managed sections from accepted evidence",
     scriptFactory: reproDeliverySyncWorkflowScript,
@@ -108,6 +116,23 @@ export function listBuiltinWorkflows(): readonly BuiltinWorkflowDefinition[] {
 
 export function getBuiltinWorkflowDefinition(id: string): BuiltinWorkflowDefinition | undefined {
   return builtinWorkflowDefinitions.find((workflow) => workflow.id === id);
+}
+
+function reproWorkflowScript(): string {
+  return `export const meta = {
+  name: "repro",
+  description: "Evidence-governed model reproduction lifecycle",
+  stages: [
+    { title: "contract" },
+    { title: "reference" },
+    { title: "target" },
+    { title: "alignment" },
+    { title: "delivery" },
+  ],
+}
+
+({ workflow: "builtin:repro", instructions: args?.instructions })
+`;
 }
 
 export function researchWorkflowScript(): string {

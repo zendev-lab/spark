@@ -45,9 +45,9 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     assert.equal(repro.projectRef, undefined);
     assert.equal(
       repro.subgoals.length,
-      repro.plan.steps.filter((step) => step.stage === "setup").length,
+      repro.plan.steps.filter((step) => step.stage === "contract").length,
     );
-    assert.deepEqual([...new Set(repro.subgoals.map((subgoal) => subgoal.stage))], ["setup"]);
+    assert.deepEqual([...new Set(repro.subgoals.map((subgoal) => subgoal.stage))], ["contract"]);
     assert.equal(repro.subgoals[0]?.id, "repro-contract-frozen");
     assert.equal(repro.status, "active");
     assert.equal(repro.goalContract.status, "draft");
@@ -56,7 +56,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     assert.equal(repro.currentPhase, "plan");
     assert.deepEqual(
       repro.stages.map((stage) => stage.name),
-      ["setup", "scaffold", "reproduce", "scale", "deliver"],
+      ["contract", "reference", "target", "alignment", "delivery"],
     );
     assert.deepEqual(
       setup.acceptance.map(({ id, kind }) => [id, kind]),
@@ -128,7 +128,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       passed: true,
     });
 
-    for (const step of repro.plan.steps.filter((candidate) => candidate.stage === "setup")) {
+    for (const step of repro.plan.steps.filter((candidate) => candidate.stage === "contract")) {
       const evidenceRefs = [evidenceRef(`step-${step.id}`)];
       const verifier = verifyReproStepPass(repro, step.id, {
         verdict: "Pass",
@@ -160,7 +160,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
       subgoals: [
         {
           id: "scaffold-build-layout",
-          stage: "scaffold",
+          stage: "reference",
           goal: "Build the target project layout",
           doneWhen: ["The project tree matches the recorded layout"],
           evidenceRequired: ["Project tree command output"],
@@ -237,7 +237,7 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
         stages: current.stages.map((stage) => ({
           name: stage.name,
           title: stage.title,
-          phases: stage.name === "setup" ? ["research", "plan"] : stage.phases,
+          phases: stage.name === "contract" ? ["research", "plan"] : stage.phases,
           acceptance: stage.acceptance.map((requirement) => ({
             description: requirement.description,
             phase: requirement.phase,

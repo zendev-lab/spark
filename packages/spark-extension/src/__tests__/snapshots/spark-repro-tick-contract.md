@@ -1,8 +1,8 @@
-Spark Repro tick — Stage 1/5: Setup (setup), phase=plan.
+Spark Repro tick — Stage 1/5: Contract (contract), phase=plan.
 Goal Contract (draft): Reproduce the target behavior with inspectable evidence
 Plan revision: 1. Difficulty: 8/10; 8 materialized subgoals. Stop Guard: 0/3 unchanged settlements.
 
-Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver) and each stage is advanced through explicit orchestration.
+Milestone-driven reproduction workflow. Stages are linear (contract → reference → target → alignment → delivery) and each stage is advanced through explicit orchestration.
 
 Orchestration loop:
 - Inspect the materialized Stage blueprint and revise it only when evidence changes the contract.
@@ -58,4 +58,4 @@ Plan-phase research-first guidance:
 - Run a focused probe for validation uncertainty only after baseline availability or construction strategy is settled; record the command and result evidence.
 - Use a recommended default for reversible low-risk choices and record it in the research evidence.
 - Ask exactly one material user decision at a time with canonical ask and recordAsEvidence=true; do not use reviewer auto-answer for that decision.
-- Keep research and decision-making in the main session; do not spawn anonymous role calls for ordinary setup research.
+- Keep research and decision-making in the main session; do not spawn anonymous role calls for ordinary contract research.

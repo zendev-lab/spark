@@ -1,8 +1,8 @@
-Spark Repro tick — Stage 5/5: Finalize (deliver), phase=implement.
+Spark Repro tick — Stage 2/5: Reference (reference), phase=implement.
 Goal Contract (draft): Reproduce the target behavior with inspectable evidence
 Plan revision: 1. Difficulty: 8/10; 8 materialized subgoals. Stop Guard: 0/3 unchanged settlements.
 
-Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver) and each stage is advanced through explicit orchestration.
+Milestone-driven reproduction workflow. Stages are linear (contract → reference → target → alignment → delivery) and each stage is advanced through explicit orchestration.
 
 Orchestration loop:
 - Inspect the materialized Stage blueprint and revise it only when evidence changes the contract.
@@ -14,12 +14,10 @@ Orchestration loop:
 Current typed plan steps:
 
 Current evidence-backed requirements:
-  [ ] [evidence] pr-submitted — PR submitted
-  [ ] [validation] no-runtime-patches — No runtime patches remain
+  [ ] [evidence] project-structure-created — Project structure created
+  [ ] [validation] dependencies-buildable — Dependencies installed and buildable
 
-Next: research "PR submitted", store the findings as evidence, then call repro({ action: "record", requirementId: "pr-submitted", proof: { kind: "evidence", evidenceRefs: ["evidence:..."] } }).
-
-Stage gate (gate-C): PR submitted, no runtime patch — evaluation is derived from recorded proof and cannot be force-passed.
+Next: research "Project structure created", store the findings as evidence, then call repro({ action: "record", requirementId: "project-structure-created", proof: { kind: "evidence", evidenceRefs: ["evidence:..."] } }).
 
 Repro requirements:
 - Operate in the selected phase (implement); use its tool policy for plan or implement work.

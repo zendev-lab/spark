@@ -280,12 +280,30 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     refreshSparkWidget,
   });
 
+  let workflowRunAdapter: SparkRegisteredToolConfig | undefined;
+  registerSparkWorkflowRunTool(
+    (config) => {
+      workflowRunAdapter = config;
+    },
+    { refreshSparkWidget },
+  );
+
   registerSparkWorkflowTool(
     {
       registerTool: (config) =>
         registerSparkImplementationTool(config as SparkRegisteredToolConfig),
     },
     {
+      run: async (params, signal, onUpdate, hostContext) => {
+        if (!workflowRunAdapter) throw new Error("workflow run adapter is unavailable");
+        return await workflowRunAdapter.execute(
+          "workflow-run",
+          params,
+          signal,
+          onUpdate,
+          hostContext as SparkToolContext,
+        );
+      },
       tick: async (hostContext) => {
         const ctx = hostContext as SparkToolContext;
         if (!ctx.loop?.binding.workflowRunId)
@@ -325,8 +343,6 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   });
 
   registerSparkWorkflowRunsTool(registerSparkImplementationTool, { refreshSparkWidget });
-
-  registerSparkWorkflowRunTool(registerSparkTool, { refreshSparkWidget });
 
   registerSparkAskTools(registerSparkImplementationTool);
   registerSparkDelegationTool(registerSparkTool);
