@@ -1,0 +1,66 @@
+name: Task Tool Mutation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/task-tool-mutation.yml"
+      - "packages/spark-extension/src/extension/**"
+      - "packages/spark-extension/stryker.config.json"
+      - "packages/spark-extension/vitest.mutation.config.ts"
+      - "packages/spark-tasks/src/**"
+      - "packages/spark-tasks/stryker.config.json"
+      - "packages/spark-tasks/vitest.mutation.config.ts"
+      - "scripts/check-mutation-ce-ownership.mjs"
+      - "scripts/run-leaf-mutation.mjs"
+      - "test/mutation-ce-ownership.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: task-tool-mutation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation:
+    name: Task and TODO mutation score
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate mutation ownership
+        run: pnpm run check:mutation-ce
+
+      - name: Measure task and TODO mutation score
+        run: >-
+          pnpm run test:mutation --
+          @zendev-lab/spark-extension
+          @zendev-lab/spark-tasks
+
+      - name: Upload mutation reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: task-tool-mutation-reports
+          if-no-files-found: warn
+          path: |
+            packages/spark-extension/reports/mutation
+            packages/spark-tasks/reports/mutation
