@@ -49,7 +49,7 @@ export type SparkMemoryCategory =
   | "preference"
   | "convention"
   | "tool-quirk";
-export type SparkMemoryStatus = "active" | "forgotten" | "merged" | "superseded";
+export type SparkMemoryStatus = "active" | "forgotten" | "merged" | "superseded" | "quarantined";
 
 export interface SparkMemoryEntry {
   id: string;
@@ -123,6 +123,7 @@ export interface SparkMemoryStatusSummary {
   forgotten: number;
   merged: number;
   superseded: number;
+  quarantined: number;
   byCategory: Record<SparkMemoryCategory, number>;
 }
 
@@ -193,6 +194,7 @@ export class SparkMemoryStore {
     options: {
       includeForgotten?: boolean;
       includeSuperseded?: boolean;
+      includeQuarantined?: boolean;
       category?: SparkMemoryCategory;
     } = {},
   ) {
@@ -201,7 +203,8 @@ export class SparkMemoryStore {
       (entry) =>
         (entry.status === "active" ||
           (options.includeForgotten && entry.status === "forgotten") ||
-          (options.includeSuperseded && entry.status === "superseded")) &&
+          (options.includeSuperseded && entry.status === "superseded") ||
+          (options.includeQuarantined && entry.status === "quarantined")) &&
         (options.category === undefined || entry.category === options.category),
     );
   }
@@ -360,6 +363,156 @@ export class SparkMemoryStore {
       if (journal) await markMemoryMutationPersisted(this.journalPath, journal);
       await finalize?.();
       if (journal) await clearMemoryMutationJournal(this.journalPath);
+      return entry;
+    });
+  }
+
+  async quarantine(
+    id: string,
+    authorization: MemoryMutationAuthorization,
+    options: { expiresAt: string; purgeAfter: string; reason?: string },
+  ): Promise<SparkMemoryEntry> {
+    return withFileMutationLock(this.lockPath, async () => {
+      await this.recoverPendingJournal();
+      const snapshot = await this.loadSnapshot();
+      const index = snapshot.entries.findIndex((entry) => entry.id === id);
+      if (index < 0) throw new Error(`memory entry not found: ${id}`);
+      const current = snapshot.entries[index]!;
+      const now = new Date().toISOString();
+      const content = {
+        ...memoryEntryRevisionContent({
+          ...current,
+          status: "quarantined",
+          forgottenReason: options.reason ?? current.forgottenReason,
+        }),
+        expiresAt: options.expiresAt,
+        purgeAfter: options.purgeAfter,
+      };
+      const pendingLifecycle: MemoryLifecycleEnvelope = {
+        ...current.lifecycle,
+        state: "quarantined",
+        expiry: {
+          ...current.lifecycle.expiry,
+          expiresAt: options.expiresAt,
+          purgeAfter: options.purgeAfter,
+        },
+      };
+      const committed = await commitAuthorizedMemoryMutation({
+        verifier: this.options.verifier,
+        authorization,
+        lifecycle: pendingLifecycle,
+        operation: "quarantine",
+        workspaceId: this.requiredWorkspaceId(),
+        scope: current.scope,
+        recordRef: current.id,
+        content,
+        now,
+      });
+      if (committed.idempotent) {
+        await committed.finalize();
+        return current;
+      }
+      const entry: SparkMemoryEntry = {
+        ...current,
+        status: "quarantined",
+        updatedAt: now,
+        forgottenReason: options.reason ?? current.forgottenReason,
+        lifecycle: committed.lifecycle,
+      };
+      snapshot.entries[index] = entry;
+      const journal = await prepareMemoryMutationJournal(
+        this.journalPath,
+        memoryMutationJournalInput({
+          operation: authorization.proof.operation,
+          recordRef: id,
+          transactionId: authorization.transactionId,
+          proposalDigest: authorization.proposal.proposalDigest,
+          content,
+          workspaceId: this.requiredWorkspaceId(),
+          scope: current.scope,
+          expectedRevision: authorization.proposal.expectedRevision,
+          proposalId: authorization.proposal.proposalId,
+          proposal: authorization.proposal,
+          proof: authorization.proof,
+        }),
+      );
+      await this.saveSnapshot(snapshot);
+      await markMemoryMutationPersisted(this.journalPath, journal);
+      await committed.finalize();
+      await clearMemoryMutationJournal(this.journalPath);
+      return entry;
+    });
+  }
+
+  async restoreQuarantined(
+    id: string,
+    authorization: MemoryMutationAuthorization,
+  ): Promise<SparkMemoryEntry> {
+    return withFileMutationLock(this.lockPath, async () => {
+      await this.recoverPendingJournal();
+      const snapshot = await this.loadSnapshot();
+      const index = snapshot.entries.findIndex((entry) => entry.id === id);
+      if (index < 0) throw new Error(`memory entry not found: ${id}`);
+      const current = snapshot.entries[index]!;
+      if (current.status !== "quarantined")
+        throw new Error(`memory entry is not quarantined: ${id}`);
+      const now = new Date().toISOString();
+      if (current.lifecycle.expiry.expiresAt && now >= current.lifecycle.expiry.expiresAt) {
+        throw new Error(`memory quarantine restore window expired: ${id}`);
+      }
+      const content = {
+        ...memoryEntryRevisionContent({ ...current, status: "active", forgottenReason: undefined }),
+        expiresAt: null,
+        purgeAfter: null,
+      };
+      const pendingLifecycle: MemoryLifecycleEnvelope = {
+        ...current.lifecycle,
+        state: "promoted",
+        expiry: { ...current.lifecycle.expiry, expiresAt: null, purgeAfter: null },
+      };
+      const committed = await commitAuthorizedMemoryMutation({
+        verifier: this.options.verifier,
+        authorization,
+        lifecycle: pendingLifecycle,
+        operation: "restore",
+        workspaceId: this.requiredWorkspaceId(),
+        scope: current.scope,
+        recordRef: current.id,
+        content,
+        now,
+      });
+      if (committed.idempotent) {
+        await committed.finalize();
+        return current;
+      }
+      const entry: SparkMemoryEntry = {
+        ...current,
+        status: "active",
+        updatedAt: now,
+        forgottenReason: undefined,
+        lifecycle: committed.lifecycle,
+      };
+      snapshot.entries[index] = entry;
+      const journal = await prepareMemoryMutationJournal(
+        this.journalPath,
+        memoryMutationJournalInput({
+          operation: authorization.proof.operation,
+          recordRef: id,
+          transactionId: authorization.transactionId,
+          proposalDigest: authorization.proposal.proposalDigest,
+          content,
+          workspaceId: this.requiredWorkspaceId(),
+          scope: current.scope,
+          expectedRevision: authorization.proposal.expectedRevision,
+          proposalId: authorization.proposal.proposalId,
+          proposal: authorization.proposal,
+          proof: authorization.proof,
+        }),
+      );
+      await this.saveSnapshot(snapshot);
+      await markMemoryMutationPersisted(this.journalPath, journal);
+      await committed.finalize();
+      await clearMemoryMutationJournal(this.journalPath);
       return entry;
     });
   }
@@ -692,6 +845,7 @@ export class SparkMemoryStore {
       forgotten: snapshot.entries.filter((entry) => entry.status === "forgotten").length,
       merged: snapshot.entries.filter((entry) => entry.status === "merged").length,
       superseded: snapshot.entries.filter((entry) => entry.status === "superseded").length,
+      quarantined: snapshot.entries.filter((entry) => entry.status === "quarantined").length,
       byCategory,
     };
   }
@@ -983,7 +1137,8 @@ function assertEntry(
     entry.status !== "active" &&
     entry.status !== "forgotten" &&
     entry.status !== "merged" &&
-    entry.status !== "superseded"
+    entry.status !== "superseded" &&
+    entry.status !== "quarantined"
   ) {
     throw new SparkMemoryStoreFormatError(
       filePath,
@@ -1092,8 +1247,9 @@ function approvedSourceLineageLifecycle(input: {
 
 function memoryLifecycleStateForEntryStatus(
   status: SparkMemoryStatus,
-): "promoted" | "forgotten" | "merged" | "superseded" {
+): "promoted" | "forgotten" | "merged" | "superseded" | "quarantined" {
   if (status === "active") return "promoted";
+  if (status === "quarantined") return "quarantined";
   return status;
 }
 

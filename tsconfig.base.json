@@ -51,6 +51,10 @@
       "@zendev-lab/spark-memory/reflection-synthesis-engine": [
         "./packages/spark-memory/src/reflection-synthesis-engine.ts"
       ],
+      "@zendev-lab/spark-memory/retrieval-telemetry": [
+        "./packages/spark-memory/src/retrieval-telemetry.ts"
+      ],
+      "@zendev-lab/spark-memory/quarantine": ["./packages/spark-memory/src/quarantine.ts"],
       "@zendev-lab/spark-repro": ["./packages/spark-repro/src/index.ts"],
       "@zendev-lab/spark-roles": ["./packages/spark-roles/src/index.ts"],
       "@zendev-lab/spark-roles/extension": ["./packages/spark-roles/src/extension.ts"],
