@@ -191,13 +191,7 @@ export async function loadSkillsFromDir(
 ): Promise<SparkSkillResolveResult> {
   const skills: SparkSkill[] = [];
   const diagnostics: SparkSkillDiagnostic[] = [];
-  await scanSkillDir(
-    resolve(dir),
-    layer,
-    options.rootMarkdownAsSkill ?? true,
-    skills,
-    diagnostics,
-  );
+  await scanSkillDir(resolve(dir), layer, options.rootMarkdownAsSkill ?? true, skills, diagnostics);
   return { skills, diagnostics };
 }
 

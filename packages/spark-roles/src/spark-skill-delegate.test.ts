@@ -1,30 +1,11 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import type { ExtensionRoleRunRequest, SparkHostAPI, ToolConfig } from "@zendev-lab/spark-core";
 import { test } from "vitest";
 import sparkRolesExtension from "./extension-entry.ts";
-import {
-  SKILL_DELEGATE_ALLOWED_TOOLS,
-  createSparkSkillDelegateTool,
-} from "./skill-extension.ts";
-
-test("format probe", () => {
-  const root = resolve(import.meta.dirname, "../../..");
-  const paths = [
-    "packages/spark-host/src/skill-resolver.ts",
-    "packages/spark-roles/src/skill-extension.ts",
-    "packages/spark-roles/src/spark-skill-delegate.test.ts",
-  ];
-  execFileSync("pnpm", ["exec", "oxfmt", ...paths], { cwd: root, stdio: "pipe" });
-  const diff = execFileSync("git", ["diff", "--", ...paths], {
-    cwd: root,
-    encoding: "utf8",
-  });
-  throw new Error(`FORMAT_DIFF_START\n${diff}\nFORMAT_DIFF_END`);
-});
+import { SKILL_DELEGATE_ALLOWED_TOOLS, createSparkSkillDelegateTool } from "./skill-extension.ts";
 
 async function writeSkill(
   root: string,
@@ -71,7 +52,10 @@ test("skill_delegate runs one exact Skill in a restricted anonymous Worker", asy
     );
     const tool = testTool({ builtinDirs: [skillsDir] });
     assert.deepEqual(tool.policy?.phases, ["implement"]);
-    assert.equal((tool.parameters as { additionalProperties?: unknown }).additionalProperties, false);
+    assert.equal(
+      (tool.parameters as { additionalProperties?: unknown }).additionalProperties,
+      false,
+    );
     let captured: ExtensionRoleRunRequest | undefined;
 
     const result = await tool.execute(
@@ -126,6 +110,7 @@ test("skill_delegate runs one exact Skill in a restricted anonymous Worker", asy
     assert.match(captured.instruction.instruction, /Bounded inputs:/);
     assert.match(captured.instruction.instruction, /package\.json/);
     assert.deepEqual(captured.role.allowedTools, [...SKILL_DELEGATE_ALLOWED_TOOLS]);
+    const allowedTools = new Set<string>(captured.role.allowedTools);
     for (const forbidden of [
       "skill_delegate",
       "role",
@@ -138,7 +123,7 @@ test("skill_delegate runs one exact Skill in a restricted anonymous Worker", asy
       "artifact",
       "evidence",
     ]) {
-      assert.equal(captured.role.allowedTools?.includes(forbidden), false);
+      assert.equal(allowedTools.has(forbidden), false);
     }
     assert.equal(result.isError, undefined);
     assert.match(result.content[0]!.text, /Skill Worker completed: release-audit/);
@@ -180,6 +165,36 @@ test("skill_delegate rejects hidden or unknown Skills before launching a Worker"
         ctx,
       ),
       /Available Skills: visible-skill/,
+    );
+    await assert.rejects(
+      tool.execute(
+        "skill-call-invalid-name",
+        { skill: "Visible Skill", instruction: "Run it" },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      ),
+      /lowercase letters, digits, and hyphens/,
+    );
+    await assert.rejects(
+      tool.execute(
+        "skill-call-long-instruction",
+        { skill: "visible-skill", instruction: "x".repeat(12_001) },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      ),
+      /instruction must contain at most 12000 characters/,
+    );
+    await assert.rejects(
+      tool.execute(
+        "skill-call-long-input",
+        { skill: "visible-skill", instruction: "Run it", inputs: ["x".repeat(2_049)] },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      ),
+      /inputs\[0\] must contain at most 2048 characters/,
     );
     assert.equal(launches, 0);
   } finally {

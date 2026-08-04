@@ -36,9 +36,13 @@ export interface SparkSkillDelegateHostApi {
 const DEFAULT_SKILL_DELEGATE_TIMEOUT_MS = 300_000;
 const MAX_SKILL_DELEGATE_TIMEOUT_MS = 1_200_000;
 const DEFAULT_MAX_SKILL_CHARS = 64_000;
+const MAX_SKILL_NAME_CHARS = 64;
+const MAX_SKILL_DELEGATE_INSTRUCTION_CHARS = 12_000;
 const MAX_SKILL_DELEGATE_INPUTS = 32;
+const MAX_SKILL_DELEGATE_INPUT_CHARS = 2_048;
 const MAX_SKILL_DELEGATE_OUTPUT_CHARS = 12_000;
 const SKILL_NAME_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*$";
+const SKILL_NAME_REGEX = new RegExp(SKILL_NAME_PATTERN, "u");
 
 /**
  * The parent owns orchestration and durable coordination. A Skill worker gets
@@ -106,13 +110,13 @@ export function createSparkSkillDelegateTool(
       {
         skill: Type.String({
           minLength: 1,
-          maxLength: 64,
+          maxLength: MAX_SKILL_NAME_CHARS,
           pattern: SKILL_NAME_PATTERN,
           description: "Exact Skill name from the available Skill catalog.",
         }),
         instruction: Type.String({
           minLength: 1,
-          maxLength: 12_000,
+          maxLength: MAX_SKILL_DELEGATE_INSTRUCTION_CHARS,
           description:
             "Self-contained request for the temporary Worker, including expected output and verification.",
         }),
@@ -120,7 +124,7 @@ export function createSparkSkillDelegateTool(
           Type.Array(
             Type.String({
               minLength: 1,
-              maxLength: 2_048,
+              maxLength: MAX_SKILL_DELEGATE_INPUT_CHARS,
               description: "Relevant path, ref, constraint, or bounded context item.",
             }),
             {
@@ -148,8 +152,19 @@ export function createSparkSkillDelegateTool(
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       signal.throwIfAborted();
       const cwd = requiredCwd(ctx);
-      const skillName = requiredString(params.skill, "skill_delegate.skill");
-      const instruction = requiredString(params.instruction, "skill_delegate.instruction");
+      const skillName = requiredBoundedString(
+        params.skill,
+        "skill_delegate.skill",
+        MAX_SKILL_NAME_CHARS,
+      );
+      if (!SKILL_NAME_REGEX.test(skillName)) {
+        throw new Error("skill_delegate.skill must use lowercase letters, digits, and hyphens");
+      }
+      const instruction = requiredBoundedString(
+        params.instruction,
+        "skill_delegate.instruction",
+        MAX_SKILL_DELEGATE_INSTRUCTION_CHARS,
+      );
       const inputs = optionalStringArray(params.inputs, "skill_delegate.inputs");
       const timeoutMs = normalizeTimeout(params.timeoutMs, defaultTimeoutMs);
       const model = sessionModelName(ctx);
@@ -161,9 +176,7 @@ export function createSparkSkillDelegateTool(
         const { skills } = await resolver.resolve();
         throw unknownSkillError(
           skillName,
-          skills
-            .filter((skill) => !skill.disableModelInvocation)
-            .map((skill) => skill.name),
+          skills.filter((skill) => !skill.disableModelInvocation).map((skill) => skill.name),
         );
       }
       if (loaded.content.length > maxSkillChars) {
@@ -272,9 +285,7 @@ async function createSkillResolver(
     ...(options.sparkHome ? { sparkHome: options.sparkHome } : {}),
     ...(options.builtinDirs ? { builtinDirs: options.builtinDirs } : {}),
     ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
-    ...(options.workspaceAgentsDirs
-      ? { workspaceAgentsDirs: options.workspaceAgentsDirs }
-      : {}),
+    ...(options.workspaceAgentsDirs ? { workspaceAgentsDirs: options.workspaceAgentsDirs } : {}),
     ...(options.userDir ? { userDir: options.userDir } : {}),
     ...(options.userAgentsDir ? { userAgentsDir: options.userAgentsDir } : {}),
   };
@@ -299,9 +310,7 @@ async function loadConfiguredSkillDirs(
 }
 
 function unknownSkillError(name: string, skillNames: readonly string[]): Error {
-  const available = [...new Set(skillNames)]
-    .sort((a, b) => a.localeCompare(b))
-    .slice(0, 20);
+  const available = [...new Set(skillNames)].sort((a, b) => a.localeCompare(b)).slice(0, 20);
   const suffix = available.length > 0 ? ` Available Skills: ${available.join(", ")}.` : "";
   return new Error(`skill_delegate could not resolve Skill ${JSON.stringify(name)}.${suffix}`);
 }
@@ -323,6 +332,14 @@ function requiredString(value: unknown, field: string): string {
   return normalized;
 }
 
+function requiredBoundedString(value: unknown, field: string, maxLength: number): string {
+  const normalized = requiredString(value, field);
+  if (normalized.length > maxLength) {
+    throw new Error(`${field} must contain at most ${maxLength} characters`);
+  }
+  return normalized;
+}
+
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -335,6 +352,11 @@ function optionalStringArray(value: unknown, field: string): string[] {
   return value.map((item, index) => {
     const normalized = optionalString(item);
     if (!normalized) throw new Error(`${field}[${index}] must be a non-empty string`);
+    if (normalized.length > MAX_SKILL_DELEGATE_INPUT_CHARS) {
+      throw new Error(
+        `${field}[${index}] must contain at most ${MAX_SKILL_DELEGATE_INPUT_CHARS} characters`,
+      );
+    }
     return normalized;
   });
 }
