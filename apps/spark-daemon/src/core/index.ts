@@ -46,6 +46,8 @@ export type { SparkDaemonSignals } from "./signals.ts";
 export { getSparkDaemonTaskSessionId, validateSparkDaemonTask } from "./types.ts";
 export type {
   SparkDaemonEventSink,
+  SparkDaemonLoopEvaluationResult,
+  SparkDaemonLoopEvaluationTask,
   SparkDaemonLoopTickTask,
   SparkDaemonSessionRunTask,
   SparkDaemonTask,

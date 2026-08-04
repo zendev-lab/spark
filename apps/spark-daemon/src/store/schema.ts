@@ -115,6 +115,9 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       status TEXT NOT NULL CHECK (status IN ('scheduled', 'running', 'retry_wait', 'dormant', 'paused', 'blocked', 'completed', 'stopped')),
       generation INTEGER NOT NULL CHECK (generation > 0),
       cycle_step TEXT CHECK (cycle_step IS NULL OR cycle_step IN ('before_tick', 'invoke', 'after_tick', 'settle')),
+      policy_json TEXT NOT NULL DEFAULT '{"cadenceMs":30000,"retry":{"maxAttempts":3,"delaysMs":[30000,60000,120000]},"beforeTick":[],"afterTick":[]}',
+      checkpoint_json TEXT,
+      counters_json TEXT NOT NULL DEFAULT '{"tickCount":0,"skippedCount":0,"llmRequestsAvoided":0,"conditionRetryCount":0}',
       due_at TEXT,
       attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
       last_invocation_id TEXT REFERENCES invocations(id),
@@ -138,6 +141,22 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       created_at TEXT NOT NULL,
       archived_at TEXT,
       gc_after TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS loop_goal_settlements (
+      loop_id TEXT NOT NULL REFERENCES loop_wakeups(loop_id) ON DELETE CASCADE,
+      generation INTEGER NOT NULL CHECK (generation > 0),
+      goal_id TEXT NOT NULL,
+      owner_session_id TEXT NOT NULL,
+      cwd TEXT NOT NULL,
+      receipt_json TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('pending', 'applied', 'error')),
+      attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      applied_at TEXT,
+      PRIMARY KEY (loop_id, generation)
     );
 
     CREATE TABLE IF NOT EXISTS invocation_event_deliveries (
@@ -381,6 +400,9 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS loop_hidden_sessions_gc_idx
       ON loop_hidden_sessions(status, gc_after)
       WHERE status = 'archived';
+    CREATE INDEX IF NOT EXISTS loop_goal_settlements_pending_idx
+      ON loop_goal_settlements(status, updated_at)
+      WHERE status IN ('pending', 'error');
     CREATE INDEX IF NOT EXISTS invocation_events_cursor_idx
       ON invocation_events(invocation_id, sequence);
     CREATE INDEX IF NOT EXISTS invocation_events_delivery_order_idx
@@ -507,6 +529,19 @@ function addMissingLoopColumns(db: DatabaseSync): void {
   const columns = workspaceColumns(db, "loop_wakeups");
   if (!columns.has("wake_prompt")) {
     db.exec("ALTER TABLE loop_wakeups ADD COLUMN wake_prompt TEXT");
+  }
+  if (!columns.has("policy_json")) {
+    db.exec(
+      `ALTER TABLE loop_wakeups ADD COLUMN policy_json TEXT NOT NULL DEFAULT '{"cadenceMs":30000,"retry":{"maxAttempts":3,"delaysMs":[30000,60000,120000]},"beforeTick":[],"afterTick":[]}'`,
+    );
+  }
+  if (!columns.has("checkpoint_json")) {
+    db.exec("ALTER TABLE loop_wakeups ADD COLUMN checkpoint_json TEXT");
+  }
+  if (!columns.has("counters_json")) {
+    db.exec(
+      `ALTER TABLE loop_wakeups ADD COLUMN counters_json TEXT NOT NULL DEFAULT '{"tickCount":0,"skippedCount":0,"llmRequestsAvoided":0,"conditionRetryCount":0}'`,
+    );
   }
 }
 

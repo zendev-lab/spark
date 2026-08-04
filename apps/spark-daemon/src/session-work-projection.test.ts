@@ -4,7 +4,11 @@ import { dirname, join } from "node:path";
 
 import type { EvidenceRef } from "@zendev-lab/spark-core";
 import { sessionGoalStorePathV2, sessionReproStorePathV2 } from "@zendev-lab/spark-loop";
-import type { SparkLoopView } from "@zendev-lab/spark-protocol";
+import {
+  sparkLoopCountersSchema,
+  sparkLoopPolicySchema,
+  type SparkLoopView,
+} from "@zendev-lab/spark-protocol";
 import type {
   SparkTokenUsageAggregate,
   SparkTokenUsageByPersistence,
@@ -298,6 +302,8 @@ function driver(
     status,
     continuity: "session",
     generation: 1,
+    policy: sparkLoopPolicySchema.parse({}),
+    counters: sparkLoopCountersSchema.parse({}),
     attempt: 0,
   };
 }

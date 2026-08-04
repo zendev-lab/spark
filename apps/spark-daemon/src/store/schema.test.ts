@@ -488,6 +488,60 @@ describe("migrateSparkDaemonDatabase", () => {
       db.close();
     }
   });
+  it("adds durable cycle policy, checkpoint, counters, and Goal settlement storage", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`
+        CREATE TABLE loop_wakeups (
+          loop_id TEXT PRIMARY KEY,
+          owner_session_id TEXT NOT NULL,
+          binding_json TEXT NOT NULL DEFAULT '{}',
+          continuity TEXT NOT NULL,
+          status TEXT NOT NULL,
+          generation INTEGER NOT NULL,
+          cycle_step TEXT,
+          due_at TEXT,
+          attempt INTEGER NOT NULL DEFAULT 0,
+          last_invocation_id TEXT,
+          reason TEXT,
+          error TEXT,
+          prompt TEXT NOT NULL,
+          wake_prompt TEXT,
+          route_json TEXT NOT NULL,
+          domain_state_digest TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO loop_wakeups
+          (loop_id, owner_session_id, continuity, status, generation, prompt, route_json,
+           created_at, updated_at)
+        VALUES
+          ('legacy-loop', 'owner', 'session', 'scheduled', 1, 'tick', '{"cwd":"/workspace"}',
+           '2026-08-04T00:00:00.000Z', '2026-08-04T00:00:00.000Z');
+      `);
+
+      migrateSparkDaemonDatabase(db);
+      migrateSparkDaemonDatabase(db);
+
+      expect(columnNames(db, "loop_wakeups")).toEqual(
+        expect.arrayContaining(["policy_json", "checkpoint_json", "counters_json"]),
+      );
+      expect(tableExists(db, "loop_goal_settlements")).toBe(true);
+      expect(
+        db
+          .prepare(
+            "SELECT policy_json AS policy, checkpoint_json AS checkpoint, counters_json AS counters FROM loop_wakeups WHERE loop_id = 'legacy-loop'",
+          )
+          .get(),
+      ).toMatchObject({
+        policy: expect.stringContaining('"cadenceMs":30000'),
+        checkpoint: null,
+        counters: expect.stringContaining('"llmRequestsAvoided":0'),
+      });
+    } finally {
+      db.close();
+    }
+  });
 });
 
 function workspaceColumns(db: DatabaseSync, table: string): string[] {

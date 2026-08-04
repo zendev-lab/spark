@@ -3,12 +3,21 @@ import { rm } from "node:fs/promises";
 import type { DatabaseSync } from "node:sqlite";
 import {
   SPARK_PROTOCOL_VERSION,
+  sparkLoopCountersSchema,
+  sparkLoopConditionReceiptSchema,
+  sparkLoopCycleCheckpointSchema,
   sparkLoopMutationResultSchema,
+  sparkLoopPolicySchema,
   sparkLoopViewSchema,
   type SparkLoopBinding,
+  type SparkLoopConditionReceipt,
   type SparkLoopContinuity,
+  type SparkLoopCounters,
+  type SparkLoopCycleCheckpoint,
   type SparkLoopListResult,
   type SparkLoopMutationResult,
+  type SparkLoopPolicy,
+  type SparkLoopPolicyInput,
   type SparkLoopScheduleRequest,
   type SparkLoopStatus,
   type SparkLoopView,
@@ -20,8 +29,18 @@ import {
   type CompleteSparkInvocationInput,
   type SparkInvocationRecord,
 } from "./invocations.ts";
-import type { SparkDaemonLoopTickTask } from "../core/types.ts";
+import type {
+  SparkDaemonLoopEvaluationResult,
+  SparkDaemonLoopEvaluationTask,
+  SparkDaemonLoopTickTask,
+} from "../core/types.ts";
+import { validateSparkDaemonTask } from "../core/types.ts";
 import { SparkDaemonControlError } from "../control-error.ts";
+import {
+  loopDefinitionDigest,
+  loopErrorReceipt,
+  SparkLoopEvaluatorRegistry,
+} from "./loop-evaluators.ts";
 
 export interface SparkLoopRoute {
   cwd: string;
@@ -34,6 +53,7 @@ export interface StartSparkLoopInput extends SparkLoopRoute {
   loopId?: string;
   ownerSessionId: string;
   binding?: SparkLoopBinding;
+  policy?: SparkLoopPolicyInput;
   continuity?: SparkLoopContinuity;
   prompt: string;
   dueAt?: string;
@@ -63,6 +83,9 @@ interface LoopRow {
   status: SparkLoopStatus;
   generation: number;
   cycle_step: SparkLoopRecord["cycleStep"] | null;
+  policy_json: string;
+  checkpoint_json: string | null;
+  counters_json: string;
   due_at: string | null;
   attempt: number;
   last_invocation_id: string | null;
@@ -77,7 +100,8 @@ interface LoopRow {
 }
 
 const loopSelect = `SELECT loop_id, owner_session_id, binding_json, continuity, status,
-  generation, cycle_step, due_at, attempt, last_invocation_id, reason, error, prompt, route_json,
+  generation, cycle_step, policy_json, checkpoint_json, counters_json,
+  due_at, attempt, last_invocation_id, reason, error, prompt, route_json,
   wake_prompt, domain_state_digest, created_at, updated_at
   FROM loop_wakeups`;
 
@@ -86,19 +110,60 @@ interface HiddenSessionGcRow {
   session_path: string | null;
 }
 
+interface GoalSettlementRow {
+  loop_id: string;
+  generation: number;
+  goal_id: string;
+  owner_session_id: string;
+  cwd: string;
+  receipt_json: string;
+  status: "pending" | "applied" | "error";
+  attempt_count: number;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  applied_at: string | null;
+}
+
+export interface SparkLoopGoalSettlement {
+  loopId: string;
+  generation: number;
+  goalId: string;
+  ownerSessionId: string;
+  cwd: string;
+  receipt: SparkLoopConditionReceipt;
+  status: "pending" | "applied" | "error";
+  attemptCount: number;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+  appliedAt?: string;
+}
+
 export interface SparkLoopHiddenSessionGcResult {
   examined: number;
   deleted: number;
   errors: Array<{ executionSessionId: string; message: string }>;
 }
 
+export interface SparkLoopAdvanceResult {
+  loop: SparkLoopRecord;
+  invocation?: SparkInvocationRecord;
+}
+
 export class SparkLoopStore {
   readonly #db: DatabaseSync;
   readonly #invocations: SparkInvocationStore;
+  readonly #evaluators: SparkLoopEvaluatorRegistry;
 
-  constructor(db: DatabaseSync, invocations = new SparkInvocationStore(db)) {
+  constructor(
+    db: DatabaseSync,
+    invocations = new SparkInvocationStore(db),
+    evaluators = new SparkLoopEvaluatorRegistry(),
+  ) {
     this.#db = db;
     this.#invocations = invocations;
+    this.#evaluators = evaluators;
   }
 
   start(input: StartSparkLoopInput): SparkLoopRecord {
@@ -109,6 +174,7 @@ export class SparkLoopStore {
     const initialAttempt = Math.max(0, Math.trunc(input.initialAttempt ?? 0));
     const loopId = input.loopId?.trim() || `loop_${randomUUID().replaceAll("-", "")}`;
     const binding = input.binding ?? {};
+    const policy = sparkLoopPolicySchema.parse(input.policy ?? {});
     this.#db.exec("BEGIN IMMEDIATE");
     try {
       const existing = this.get(loopId);
@@ -148,9 +214,12 @@ export class SparkLoopStore {
         .prepare(
           `INSERT INTO loop_wakeups
             (loop_id, owner_session_id, binding_json, continuity, status, generation, cycle_step,
+             policy_json, checkpoint_json, counters_json,
              due_at, attempt, reason, prompt, wake_prompt, route_json, domain_state_digest,
              created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 1, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, 1, NULL, ?, NULL,
+             '{"tickCount":0,"skippedCount":0,"llmRequestsAvoided":0,"conditionRetryCount":0}',
+             ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(loop_id) DO UPDATE SET
              owner_session_id = excluded.owner_session_id,
              binding_json = excluded.binding_json,
@@ -158,6 +227,9 @@ export class SparkLoopStore {
              status = excluded.status,
              generation = loop_wakeups.generation + 1,
              cycle_step = NULL,
+             policy_json = excluded.policy_json,
+             checkpoint_json = NULL,
+             counters_json = loop_wakeups.counters_json,
              due_at = excluded.due_at,
              attempt = excluded.attempt,
              last_invocation_id = NULL,
@@ -175,6 +247,7 @@ export class SparkLoopStore {
           JSON.stringify(binding),
           input.continuity ?? "session",
           input.initialStatus ?? "scheduled",
+          JSON.stringify(policy),
           input.dueAt ?? now,
           initialAttempt,
           input.reason ?? null,
@@ -276,6 +349,7 @@ export class SparkLoopStore {
       loopId,
       ownerSessionId: current.ownerSessionId,
       binding: current.binding,
+      policy: current.policy,
       continuity: current.continuity,
       prompt: current.prompt,
       reason,
@@ -297,6 +371,7 @@ export class SparkLoopStore {
       loopId,
       ownerSessionId: current.ownerSessionId,
       binding: current.binding,
+      policy: current.policy,
       continuity: current.continuity,
       prompt: current.prompt,
       wakePrompt: input.prompt,
@@ -317,17 +392,44 @@ export class SparkLoopStore {
     }
     const dueAt =
       input.dueAt ?? new Date(Date.parse(now) + Math.max(0, input.delayMs ?? 0)).toISOString();
+    const current = this.require(input.loopId);
+    if (
+      current.generation !== input.generation ||
+      current.status !== "running" ||
+      current.cycleStep !== "invoke"
+    ) {
+      throw new SparkDaemonControlError(
+        "loop_generation_conflict",
+        `LOOP_GENERATION_CONFLICT: ${input.loopId} generation ${input.generation}`,
+      );
+    }
+    const checkpoint = requireCheckpoint(current, "invoke");
+    const requested: SparkLoopCycleCheckpoint = {
+      ...checkpoint,
+      requestedSchedule: {
+        dueAt,
+        ...(input.reason ? { reason: input.reason } : {}),
+        ...(input.prompt ? { prompt: input.prompt } : {}),
+      },
+      updatedAt: now,
+    };
     const changes = Number(
       this.#db
         .prepare(
           `UPDATE loop_wakeups
-           SET generation = generation + 1, status = 'scheduled', due_at = ?,
-               attempt = 0, reason = ?, error = NULL,
+           SET checkpoint_json = ?, reason = ?, error = NULL,
                prompt = COALESCE(?, prompt), updated_at = ?
-           WHERE loop_id = ? AND generation = ? AND status = 'running'`,
+           WHERE loop_id = ? AND generation = ? AND status = 'running'
+             AND cycle_step = 'invoke'`,
         )
-        .run(dueAt, input.reason ?? null, input.prompt ?? null, now, input.loopId, input.generation)
-        .changes,
+        .run(
+          JSON.stringify(requested),
+          input.reason ?? null,
+          input.prompt ?? null,
+          now,
+          input.loopId,
+          input.generation,
+        ).changes,
     );
     if (changes !== 1) {
       throw new SparkDaemonControlError(
@@ -338,17 +440,55 @@ export class SparkLoopStore {
     return this.require(input.loopId);
   }
 
-  /**
-   * Atomically coalesce one due wake into one ordinary scheduler invocation.
-   * A busy owner remains overdue; no second tick is accumulated.
-   */
-  materializeDue(now = new Date().toISOString()): SparkInvocationRecord | undefined {
+  /** Advance exactly one due checkpoint. before_tick evaluators run without a
+   * model invocation; after_tick evaluation is a separate durable task so a
+   * reviewer retry can never replay the already successful main tick. */
+  async materializeDue(
+    now = new Date().toISOString(),
+    signal?: AbortSignal,
+  ): Promise<SparkLoopAdvanceResult | undefined> {
+    const record = this.claimDueCheckpoint(now);
+    if (!record) return undefined;
+    if (record.cycleStep === "after_tick") {
+      const invocation = this.materializeEvaluation(record, now);
+      return { loop: this.require(record.loopId), invocation };
+    }
+    const checkpoint = record.checkpoint;
+    if (!checkpoint || checkpoint.step !== "before_tick") {
+      throw new Error(`LOOP_CHECKPOINT_INVALID: ${record.loopId} before_tick`);
+    }
+    const receipts = [...checkpoint.receipts];
+    for (const rule of record.policy.beforeTick) {
+      let receipt: SparkLoopConditionReceipt;
+      try {
+        receipt = await this.#evaluators.evaluateCondition(
+          rule.when,
+          { loop: loopView(record), checkpoint, route: record.route },
+          "before_tick",
+          signal,
+        );
+      } catch (error) {
+        return this.retryConditionCheckpoint(record, "before_tick", rule.id, error, receipts, now);
+      }
+      receipts.push(receipt);
+      if (receipt.verdict !== "matched") continue;
+      if (rule.then.action === "proceed") break;
+      return this.settleBeforeTick(record, rule.then, receipt, receipts, now);
+    }
+    const invocation = this.materializeTick(record, receipts, now);
+    return { loop: this.require(record.loopId), invocation };
+  }
+
+  private claimDueCheckpoint(now: string): SparkLoopRecord | undefined {
     this.#db.exec("BEGIN IMMEDIATE");
     try {
       const candidate = this.#db
         .prepare(
           `${loopSelect}
-           WHERE status IN ('scheduled', 'retry_wait') AND due_at <= ?
+           WHERE (
+               (status IN ('scheduled', 'retry_wait') AND due_at <= ?)
+               OR (status = 'running' AND cycle_step = 'after_tick' AND due_at <= ?)
+             )
              AND NOT EXISTS (
                SELECT 1 FROM invocations AS pending
                WHERE pending.session_id = loop_wakeups.owner_session_id
@@ -357,17 +497,162 @@ export class SparkLoopStore {
            ORDER BY due_at, updated_at
            LIMIT 1`,
         )
-        .get(now) as LoopRow | undefined;
+        .get(now, now) as LoopRow | undefined;
       if (!candidate) {
         this.#db.exec("COMMIT");
         return undefined;
       }
-      const record = loopRecord(candidate);
-      const task = loopTickTask(record);
+      const current = loopRecord(candidate);
+      const checkpoint =
+        current.cycleStep === "after_tick" && current.checkpoint
+          ? current.checkpoint
+          : current.cycleStep === "before_tick" && current.checkpoint
+            ? current.checkpoint
+            : newCycleCheckpoint(current, now);
+      const changes = Number(
+        this.#db
+          .prepare(
+            `UPDATE loop_wakeups
+             SET status = 'running', cycle_step = ?, checkpoint_json = ?, due_at = NULL,
+                 error = NULL, updated_at = ?
+             WHERE loop_id = ? AND generation = ?`,
+          )
+          .run(checkpoint.step, JSON.stringify(checkpoint), now, current.loopId, current.generation)
+          .changes,
+      );
+      if (changes !== 1) throw new Error(`LOOP_MATERIALIZE_CONFLICT: ${current.loopId}`);
+      this.#db.exec("COMMIT");
+      return this.require(current.loopId);
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  private settleBeforeTick(
+    record: SparkLoopRecord,
+    decision: { action: "skip"; delayMs: number } | { action: "pause" } | { action: "block" },
+    receipt: SparkLoopConditionReceipt,
+    receipts: SparkLoopConditionReceipt[],
+    now: string,
+  ): SparkLoopAdvanceResult {
+    const checkpoint = requireCheckpoint(record, "before_tick");
+    const settled: SparkLoopCycleCheckpoint = {
+      ...checkpoint,
+      step: "settle",
+      receipts,
+      updatedAt: now,
+    };
+    const counters = {
+      ...record.counters,
+      ...(decision.action === "skip"
+        ? {
+            skippedCount: record.counters.skippedCount + 1,
+            llmRequestsAvoided: record.counters.llmRequestsAvoided + 1,
+          }
+        : {}),
+    };
+    const status =
+      decision.action === "skip" ? "scheduled" : decision.action === "pause" ? "paused" : "blocked";
+    const dueAt =
+      decision.action === "skip"
+        ? new Date(Date.parse(now) + decision.delayMs).toISOString()
+        : null;
+    this.#db
+      .prepare(
+        `UPDATE loop_wakeups
+         SET generation = generation + 1, status = ?, cycle_step = NULL,
+             checkpoint_json = ?, counters_json = ?, due_at = ?, attempt = 0,
+             reason = ?, error = NULL, updated_at = ?
+         WHERE loop_id = ? AND generation = ? AND status = 'running'
+           AND cycle_step = 'before_tick'`,
+      )
+      .run(
+        status,
+        JSON.stringify(settled),
+        JSON.stringify(counters),
+        dueAt,
+        receipt.reason,
+        now,
+        record.loopId,
+        record.generation,
+      );
+    return { loop: this.require(record.loopId) };
+  }
+
+  private retryConditionCheckpoint(
+    record: SparkLoopRecord,
+    step: "before_tick" | "after_tick",
+    selector: string,
+    error: unknown,
+    receipts: SparkLoopConditionReceipt[],
+    now: string,
+  ): SparkLoopAdvanceResult {
+    const checkpoint = requireCheckpoint(record, step);
+    const receipt = loopErrorReceipt({
+      checkpoint: step,
+      selector,
+      definition: { selector },
+      error,
+      now,
+    });
+    const attempt =
+      (step === "before_tick" ? checkpoint.beforeAttempt : checkpoint.afterAttempt) + 1;
+    const exhausted = attempt > record.policy.retry.maxAttempts;
+    const updatedCheckpoint: SparkLoopCycleCheckpoint = {
+      ...checkpoint,
+      step,
+      receipts: [...receipts, receipt],
+      beforeAttempt: step === "before_tick" ? attempt : checkpoint.beforeAttempt,
+      afterAttempt: step === "after_tick" ? attempt : checkpoint.afterAttempt,
+      updatedAt: now,
+    };
+    const delayMs = retryDelay(record.policy, attempt);
+    this.#db
+      .prepare(
+        `UPDATE loop_wakeups
+         SET generation = generation + 1, status = ?, cycle_step = ?, checkpoint_json = ?,
+             counters_json = ?, due_at = ?, attempt = ?, reason = ?, error = ?, updated_at = ?
+         WHERE loop_id = ? AND generation = ?`,
+      )
+      .run(
+        exhausted ? "blocked" : "retry_wait",
+        exhausted ? null : step,
+        JSON.stringify(updatedCheckpoint),
+        JSON.stringify({
+          ...record.counters,
+          conditionRetryCount: record.counters.conditionRetryCount + 1,
+        }),
+        exhausted ? null : new Date(Date.parse(now) + delayMs).toISOString(),
+        attempt,
+        exhausted ? "condition retry budget exhausted" : "condition evaluation failed transiently",
+        receipt.reason,
+        now,
+        record.loopId,
+        record.generation,
+      );
+    return { loop: this.require(record.loopId) };
+  }
+
+  private materializeTick(
+    record: SparkLoopRecord,
+    receipts: SparkLoopConditionReceipt[],
+    now: string,
+  ): SparkInvocationRecord {
+    const checkpoint = requireCheckpoint(record, "before_tick");
+    const invoking: SparkLoopCycleCheckpoint = {
+      ...checkpoint,
+      step: "invoke",
+      receipts,
+      updatedAt: now,
+    };
+    const task = loopTickTask(record);
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
       const invocation = this.#invocations.submit({
         workspaceBindingId: record.route.workspaceBindingId,
         sessionId: record.ownerSessionId,
-        idempotencyKey: `loop.tick:${record.loopId}:${record.generation}`,
+        idempotencyKey: `loop.tick:${record.loopId}:${checkpoint.cycleId}:${record.attempt}`,
         prompt: task.prompt,
         task,
         sourceKind: "loop.tick",
@@ -378,11 +663,18 @@ export class SparkLoopStore {
         this.#db
           .prepare(
             `UPDATE loop_wakeups
-             SET status = 'running', cycle_step = 'invoke', due_at = NULL, last_invocation_id = ?,
-                 wake_prompt = NULL, updated_at = ?
-             WHERE loop_id = ? AND generation = ? AND status IN ('scheduled', 'retry_wait')`,
+             SET status = 'running', cycle_step = 'invoke', checkpoint_json = ?, due_at = NULL,
+                 last_invocation_id = ?, wake_prompt = NULL, updated_at = ?
+             WHERE loop_id = ? AND generation = ? AND status = 'running'
+               AND cycle_step = 'before_tick'`,
           )
-          .run(invocation.invocationId, now, record.loopId, record.generation).changes,
+          .run(
+            JSON.stringify(invoking),
+            invocation.invocationId,
+            now,
+            record.loopId,
+            record.generation,
+          ).changes,
       );
       if (changes !== 1) throw new Error(`LOOP_MATERIALIZE_CONFLICT: ${record.loopId}`);
       if (record.continuity === "fresh") {
@@ -392,11 +684,44 @@ export class SparkLoopStore {
             `INSERT INTO loop_hidden_sessions
               (execution_session_id, loop_id, generation, invocation_id, status, created_at)
              VALUES (?, ?, ?, ?, 'active', ?)
-             ON CONFLICT(execution_session_id) DO UPDATE SET
-               invocation_id = excluded.invocation_id`,
+             ON CONFLICT(execution_session_id) DO UPDATE SET invocation_id = excluded.invocation_id`,
           )
           .run(executionSessionId, record.loopId, record.generation, invocation.invocationId, now);
       }
+      this.#db.exec("COMMIT");
+      return invocation;
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  private materializeEvaluation(record: SparkLoopRecord, now: string): SparkInvocationRecord {
+    const checkpoint = requireCheckpoint(record, "after_tick");
+    const task = loopEvaluationTask(record, checkpoint);
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      const invocation = this.#invocations.submit({
+        workspaceBindingId: record.route.workspaceBindingId,
+        sessionId: record.ownerSessionId,
+        idempotencyKey: `loop.evaluate:${record.loopId}:${checkpoint.cycleId}:${checkpoint.afterAttempt}`,
+        prompt: "Evaluate the persisted Loop after_tick checkpoint.",
+        task,
+        sourceKind: "loop.evaluate",
+        sourceRef: record.loopId,
+        now,
+      });
+      const changes = Number(
+        this.#db
+          .prepare(
+            `UPDATE loop_wakeups
+             SET status = 'running', cycle_step = 'after_tick', due_at = NULL,
+                 last_invocation_id = ?, updated_at = ?
+             WHERE loop_id = ? AND generation = ? AND cycle_step = 'after_tick'`,
+          )
+          .run(invocation.invocationId, now, record.loopId, record.generation).changes,
+      );
+      if (changes !== 1) throw new Error(`LOOP_EVALUATION_MATERIALIZE_CONFLICT: ${record.loopId}`);
       this.#db.exec("COMMIT");
       return invocation;
     } catch (error) {
@@ -421,48 +746,30 @@ export class SparkLoopStore {
         ...completion,
         now,
       });
-      if (task.continuity === "fresh" && task.executionSessionId) {
-        this.#db
-          .prepare(
-            `UPDATE loop_hidden_sessions
-             SET status = 'archived', session_path = COALESCE(?, session_path),
-                 archived_at = ?, gc_after = ?
-             WHERE execution_session_id = ? AND invocation_id = ?`,
-          )
-          .run(
-            resultSessionPath(completion.result) ?? null,
-            now,
-            new Date(Date.parse(now) + 24 * 60 * 60_000).toISOString(),
-            task.executionSessionId,
-            invocation.invocationId,
-          );
-      }
       const current = this.require(task.loopId);
-      if (
-        current.generation === task.generation &&
-        current.lastInvocationId === invocation.invocationId &&
-        current.status === "running"
-      ) {
-        const transition = completionTransition(current, completion, now);
-        this.#db
-          .prepare(
-            `UPDATE loop_wakeups
-             SET generation = generation + 1, status = ?, cycle_step = NULL, due_at = ?, attempt = ?,
-                 reason = ?, error = ?, updated_at = ?
-             WHERE loop_id = ? AND generation = ? AND last_invocation_id = ? AND status = 'running'`,
-          )
-          .run(
-            transition.status,
-            transition.dueAt ?? null,
-            transition.attempt,
-            transition.reason ?? null,
-            transition.error ?? null,
-            now,
-            task.loopId,
-            task.generation,
-            invocation.invocationId,
-          );
-      }
+      this.settleTick(current, invocation, task, completion, now);
+      this.#db.exec("COMMIT");
+      return { invocation: completed, loop: this.require(task.loopId) };
+    } catch (error) {
+      this.#db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  completeEvaluation(
+    invocation: SparkInvocationRecord,
+    task: SparkDaemonLoopEvaluationTask,
+    completion: CompleteSparkInvocationInput,
+  ): { invocation: SparkInvocationRecord; loop: SparkLoopRecord } {
+    const now = completion.now ?? new Date().toISOString();
+    this.#db.exec("BEGIN IMMEDIATE");
+    try {
+      const completed = this.#invocations.complete(invocation.invocationId, {
+        ...completion,
+        now,
+      });
+      const current = this.require(task.loopId);
+      this.settleEvaluation(current, invocation, task, completion, now);
       this.#db.exec("COMMIT");
       return { invocation: completed, loop: this.require(task.loopId) };
     } catch (error) {
@@ -496,26 +803,334 @@ export class SparkLoopStore {
         result: invocation.result,
         now,
       };
-      const transition = completionTransition(record, completion, now);
-      this.#db
-        .prepare(
-          `UPDATE loop_wakeups SET generation = generation + 1, status = ?, cycle_step = NULL, due_at = ?,
-             attempt = ?, reason = ?, error = ?, updated_at = ?
-           WHERE loop_id = ? AND generation = ? AND status = 'running'`,
-        )
-        .run(
-          transition.status,
-          transition.dueAt ?? null,
-          transition.attempt,
-          transition.reason ?? null,
-          transition.error ?? null,
-          now,
-          record.loopId,
-          record.generation,
-        );
-      repaired.push(this.require(record.loopId));
+      const task = validateSparkDaemonTask(invocation.task);
+      if (
+        task.type === "loop.tick" &&
+        task.generation === record.generation &&
+        record.cycleStep === "after_tick" &&
+        record.checkpoint?.step === "after_tick" &&
+        record.checkpoint.tick?.status === "succeeded" &&
+        record.checkpoint.tick.invocationId === invocation.invocationId
+      ) {
+        // The main tick is already durably settled. A restart may observe its
+        // terminal invocation before the separate after_tick evaluator is
+        // materialized; that is a valid checkpoint, not a reconcile mismatch.
+        continue;
+      }
+      this.#db.exec("BEGIN IMMEDIATE");
+      try {
+        if (task.type === "loop.tick" && record.cycleStep === "invoke") {
+          this.settleTick(record, invocation, task, completion, now);
+        } else if (task.type === "loop.evaluate" && record.cycleStep === "after_tick") {
+          this.settleEvaluation(record, invocation, task, completion, now);
+        } else {
+          throw new Error(
+            `LOOP_TERMINAL_RECONCILE_MISMATCH: ${record.loopId} ${task.type}/${record.cycleStep}`,
+          );
+        }
+        this.#db.exec("COMMIT");
+        repaired.push(this.require(record.loopId));
+      } catch (error) {
+        this.#db.exec("ROLLBACK");
+        throw error;
+      }
     }
     return repaired;
+  }
+
+  listGoalSettlements(
+    input: { retryErrors?: boolean; limit?: number } = {},
+  ): SparkLoopGoalSettlement[] {
+    const statuses = input.retryErrors ? "('pending', 'error')" : "('pending')";
+    const limit = Math.max(1, Math.min(100, Math.trunc(input.limit ?? 25)));
+    const rows = this.#db
+      .prepare(
+        `SELECT loop_id, generation, goal_id, owner_session_id, cwd, receipt_json,
+                status, attempt_count, last_error, created_at, updated_at, applied_at
+         FROM loop_goal_settlements
+         WHERE status IN ${statuses}
+         ORDER BY updated_at, loop_id, generation
+         LIMIT ?`,
+      )
+      .all(limit) as unknown as GoalSettlementRow[];
+    return rows.map(goalSettlement);
+  }
+
+  markGoalSettlementApplied(
+    loopId: string,
+    generation: number,
+    now = new Date().toISOString(),
+  ): void {
+    this.#db
+      .prepare(
+        `UPDATE loop_goal_settlements
+         SET status = 'applied', attempt_count = attempt_count + 1,
+             last_error = NULL, updated_at = ?, applied_at = ?
+         WHERE loop_id = ? AND generation = ? AND status IN ('pending', 'error')`,
+      )
+      .run(now, now, loopId, generation);
+  }
+
+  markGoalSettlementError(
+    loopId: string,
+    generation: number,
+    error: unknown,
+    now = new Date().toISOString(),
+  ): void {
+    this.#db
+      .prepare(
+        `UPDATE loop_goal_settlements
+         SET status = 'error', attempt_count = attempt_count + 1,
+             last_error = ?, updated_at = ?
+         WHERE loop_id = ? AND generation = ? AND status IN ('pending', 'error')`,
+      )
+      .run(error instanceof Error ? error.message : String(error), now, loopId, generation);
+  }
+
+  private settleTick(
+    current: SparkLoopRecord,
+    invocation: SparkInvocationRecord,
+    task: SparkDaemonLoopTickTask,
+    completion: CompleteSparkInvocationInput,
+    now: string,
+  ): void {
+    if (task.continuity === "fresh" && task.executionSessionId) {
+      this.#db
+        .prepare(
+          `UPDATE loop_hidden_sessions
+           SET status = 'archived', session_path = COALESCE(?, session_path),
+               archived_at = ?, gc_after = ?
+           WHERE execution_session_id = ? AND invocation_id = ?`,
+        )
+        .run(
+          resultSessionPath(completion.result) ?? null,
+          now,
+          new Date(Date.parse(now) + 24 * 60 * 60_000).toISOString(),
+          task.executionSessionId,
+          invocation.invocationId,
+        );
+    }
+    if (
+      current.generation !== task.generation ||
+      current.lastInvocationId !== invocation.invocationId ||
+      current.status !== "running" ||
+      current.cycleStep !== "invoke"
+    ) {
+      return;
+    }
+    const checkpoint = requireCheckpoint(current, "invoke");
+    if (completion.status === "succeeded") {
+      const requiresEvaluation =
+        current.policy.afterTick.length > 0 || Boolean(current.policy.completion);
+      const settledCheckpoint: SparkLoopCycleCheckpoint = {
+        ...checkpoint,
+        step: requiresEvaluation ? "after_tick" : "settle",
+        tick: {
+          invocationId: invocation.invocationId,
+          status: "succeeded",
+          ...(completion.result === undefined
+            ? {}
+            : { resultDigest: loopDefinitionDigest(completion.result) }),
+          completedAt: now,
+        },
+        updatedAt: now,
+      };
+      const requestedSchedule = checkpoint.requestedSchedule;
+      this.#db
+        .prepare(
+          `UPDATE loop_wakeups
+           SET generation = generation + ?, status = ?, cycle_step = ?, checkpoint_json = ?,
+               counters_json = ?, due_at = ?, attempt = 0, reason = ?, error = NULL, updated_at = ?
+           WHERE loop_id = ? AND generation = ? AND last_invocation_id = ?
+             AND status = 'running' AND cycle_step = 'invoke'`,
+        )
+        .run(
+          requiresEvaluation ? 0 : 1,
+          requiresEvaluation ? "running" : requestedSchedule ? "scheduled" : "dormant",
+          requiresEvaluation ? "after_tick" : null,
+          JSON.stringify(settledCheckpoint),
+          JSON.stringify({ ...current.counters, tickCount: current.counters.tickCount + 1 }),
+          requiresEvaluation ? now : (requestedSchedule?.dueAt ?? null),
+          requiresEvaluation
+            ? "main tick succeeded; after_tick evaluation pending"
+            : (requestedSchedule?.reason ?? "tick completed without another schedule"),
+          now,
+          task.loopId,
+          task.generation,
+          invocation.invocationId,
+        );
+      return;
+    }
+    const transition = completionTransition(current, completion, now);
+    const failedCheckpoint: SparkLoopCycleCheckpoint = {
+      ...checkpoint,
+      step: "settle",
+      tick: {
+        invocationId: invocation.invocationId,
+        status: completion.status,
+        completedAt: now,
+      },
+      updatedAt: now,
+    };
+    this.#db
+      .prepare(
+        `UPDATE loop_wakeups
+         SET generation = generation + 1, status = ?, cycle_step = NULL,
+             checkpoint_json = ?, due_at = ?, attempt = ?, reason = ?, error = ?, updated_at = ?
+         WHERE loop_id = ? AND generation = ? AND last_invocation_id = ?
+           AND status = 'running' AND cycle_step = 'invoke'`,
+      )
+      .run(
+        transition.status,
+        JSON.stringify(failedCheckpoint),
+        transition.dueAt ?? null,
+        transition.attempt,
+        transition.reason ?? null,
+        transition.error ?? null,
+        now,
+        task.loopId,
+        task.generation,
+        invocation.invocationId,
+      );
+  }
+
+  private settleEvaluation(
+    current: SparkLoopRecord,
+    invocation: SparkInvocationRecord,
+    task: SparkDaemonLoopEvaluationTask,
+    completion: CompleteSparkInvocationInput,
+    now: string,
+  ): void {
+    if (
+      current.generation !== task.generation ||
+      current.lastInvocationId !== invocation.invocationId ||
+      current.status !== "running" ||
+      current.cycleStep !== "after_tick"
+    ) {
+      return;
+    }
+    const checkpoint = requireCheckpoint(current, "after_tick");
+    if (completion.status !== "succeeded") {
+      const reason = completion.errorMessage ?? completion.cancelReason ?? "Loop evaluator failed";
+      const receipt = loopErrorReceipt({
+        checkpoint: "after_tick",
+        selector: current.policy.completion?.selector ?? "after_tick",
+        definition: current.policy,
+        error: reason,
+        now,
+      });
+      const attempt = checkpoint.afterAttempt + 1;
+      const exhausted = attempt > current.policy.retry.maxAttempts;
+      const retryCheckpoint: SparkLoopCycleCheckpoint = {
+        ...checkpoint,
+        receipts: [...checkpoint.receipts, receipt],
+        afterAttempt: attempt,
+        updatedAt: now,
+      };
+      this.#db
+        .prepare(
+          `UPDATE loop_wakeups
+           SET generation = generation + 1, status = ?, cycle_step = ?,
+               checkpoint_json = ?, counters_json = ?, due_at = ?, attempt = ?,
+               reason = ?, error = ?, updated_at = ?
+           WHERE loop_id = ? AND generation = ? AND last_invocation_id = ?
+             AND status = 'running' AND cycle_step = 'after_tick'`,
+        )
+        .run(
+          exhausted ? "blocked" : "retry_wait",
+          exhausted ? null : "after_tick",
+          JSON.stringify(retryCheckpoint),
+          JSON.stringify({
+            ...current.counters,
+            conditionRetryCount: current.counters.conditionRetryCount + 1,
+          }),
+          exhausted
+            ? null
+            : new Date(Date.parse(now) + retryDelay(current.policy, attempt)).toISOString(),
+          attempt,
+          exhausted ? "after_tick retry budget exhausted" : "after_tick evaluation failed",
+          reason,
+          now,
+          task.loopId,
+          task.generation,
+          invocation.invocationId,
+        );
+      return;
+    }
+
+    const result = parseEvaluationResult(completion.result);
+    const receipt = result.receipts.at(-1)!;
+    const isGoalCompletion = result.decision.action === "complete" && current.binding.goalId;
+    const trustedGoalCompletion =
+      !isGoalCompletion || (receipt.verdict === "achieved" && receipt.evidenceRefs.length > 0);
+    const decision = trustedGoalCompletion ? result.decision : ({ action: "block" } as const);
+    const { nextTickContext: _previousNextTickContext, ...checkpointWithoutNextTickContext } =
+      checkpoint;
+    const settledCheckpoint: SparkLoopCycleCheckpoint = {
+      ...checkpointWithoutNextTickContext,
+      step: "settle",
+      receipts: [...checkpoint.receipts, ...result.receipts],
+      ...(receipt.remainingWork || receipt.blockers.length > 0
+        ? {
+            nextTickContext: {
+              ...(receipt.remainingWork ? { remainingWork: receipt.remainingWork } : {}),
+              blockers: receipt.blockers,
+            },
+          }
+        : {}),
+      updatedAt: now,
+    };
+    const status =
+      decision.action === "schedule"
+        ? "scheduled"
+        : decision.action === "pause"
+          ? "paused"
+          : decision.action === "block"
+            ? "blocked"
+            : "completed";
+    const dueAt =
+      decision.action === "schedule"
+        ? new Date(Date.parse(now) + decision.delayMs).toISOString()
+        : null;
+    this.#db
+      .prepare(
+        `UPDATE loop_wakeups
+         SET generation = generation + 1, status = ?, cycle_step = NULL,
+             checkpoint_json = ?, due_at = ?, attempt = 0, reason = ?, error = ?, updated_at = ?
+         WHERE loop_id = ? AND generation = ? AND last_invocation_id = ?
+           AND status = 'running' AND cycle_step = 'after_tick'`,
+      )
+      .run(
+        status,
+        JSON.stringify(settledCheckpoint),
+        dueAt,
+        trustedGoalCompletion ? receipt.reason : "Goal completion receipt failed core gates",
+        trustedGoalCompletion ? null : "achieved requires trusted Evidence-backed receipt",
+        now,
+        task.loopId,
+        task.generation,
+        invocation.invocationId,
+      );
+    if (status === "completed" && current.binding.goalId) {
+      this.#db
+        .prepare(
+          `INSERT INTO loop_goal_settlements
+            (loop_id, generation, goal_id, owner_session_id, cwd, receipt_json,
+             status, attempt_count, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)
+           ON CONFLICT(loop_id, generation) DO NOTHING`,
+        )
+        .run(
+          current.loopId,
+          current.generation + 1,
+          current.binding.goalId,
+          current.ownerSessionId,
+          current.route.cwd,
+          JSON.stringify(receipt),
+          now,
+          now,
+        );
+    }
   }
 
   async gcHiddenSessions(
@@ -644,7 +1259,7 @@ function loopTickTask(record: SparkLoopRecord): SparkDaemonLoopTickTask {
     ownerSessionId: record.ownerSessionId,
     generation: record.generation,
     continuity: record.continuity,
-    prompt: record.wakePrompt ?? record.prompt,
+    prompt: renderTickPrompt(record),
     cwd: record.route.cwd,
     workspaceBindingId: record.route.workspaceBindingId,
     workspaceId: record.route.workspaceId,
@@ -652,6 +1267,104 @@ function loopTickTask(record: SparkLoopRecord): SparkDaemonLoopTickTask {
     stateOwnerSessionId: record.ownerSessionId,
     ...(record.continuity === "fresh" ? { executionSessionId, reset: true } : {}),
   };
+}
+
+function loopEvaluationTask(
+  record: SparkLoopRecord,
+  checkpoint: SparkLoopCycleCheckpoint,
+): SparkDaemonLoopEvaluationTask {
+  return {
+    type: "loop.evaluate",
+    prompt: "Evaluate the persisted Loop after_tick checkpoint.",
+    sessionId: record.ownerSessionId,
+    loopId: record.loopId,
+    binding: record.binding,
+    ownerSessionId: record.ownerSessionId,
+    generation: record.generation,
+    cwd: record.route.cwd,
+    workspaceBindingId: record.route.workspaceBindingId,
+    workspaceId: record.route.workspaceId,
+    projectId: record.route.projectId,
+    policy: record.policy,
+    checkpoint,
+    loop: loopView(record),
+  };
+}
+
+function renderTickPrompt(record: SparkLoopRecord): string {
+  const base = record.wakePrompt ?? record.prompt;
+  const context = record.checkpoint?.nextTickContext;
+  if (!context) return base;
+  return [
+    base,
+    "",
+    "Trusted after_tick review context from the previous cycle:",
+    context.remainingWork ? `Remaining work: ${context.remainingWork}` : undefined,
+    context.blockers.length > 0 ? `Blockers: ${context.blockers.join("; ")}` : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
+}
+
+function newCycleCheckpoint(record: SparkLoopRecord, now: string): SparkLoopCycleCheckpoint {
+  return sparkLoopCycleCheckpointSchema.parse({
+    cycleId: `cycle_${randomUUID().replaceAll("-", "")}`,
+    generation: record.generation,
+    step: "before_tick",
+    startedAt: now,
+    updatedAt: now,
+    ...(record.checkpoint?.nextTickContext
+      ? { nextTickContext: record.checkpoint.nextTickContext }
+      : {}),
+    receipts: [],
+    beforeAttempt: 0,
+    afterAttempt: 0,
+  });
+}
+
+function requireCheckpoint(
+  record: SparkLoopRecord,
+  step: "before_tick" | "invoke" | "after_tick",
+): SparkLoopCycleCheckpoint {
+  if (!record.checkpoint || record.checkpoint.step !== step) {
+    throw new Error(`LOOP_CHECKPOINT_INVALID: ${record.loopId} expected ${step}`);
+  }
+  return record.checkpoint;
+}
+
+function parseEvaluationResult(value: unknown): SparkDaemonLoopEvaluationResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Loop evaluator result must be an object");
+  }
+  const input = value as Record<string, unknown>;
+  if (!Array.isArray(input.receipts) || input.receipts.length === 0) {
+    throw new Error("Loop evaluator result requires at least one receipt");
+  }
+  const receipts = input.receipts.map((receipt) => sparkLoopConditionReceiptSchema.parse(receipt));
+  const rawDecision = input.decision;
+  if (!rawDecision || typeof rawDecision !== "object" || Array.isArray(rawDecision)) {
+    throw new Error("Loop evaluator result requires decision");
+  }
+  const decision = rawDecision as Record<string, unknown>;
+  if (decision.action === "schedule") {
+    if (
+      typeof decision.delayMs !== "number" ||
+      !Number.isInteger(decision.delayMs) ||
+      decision.delayMs < 0 ||
+      decision.delayMs > 7 * 24 * 60 * 60_000
+    ) {
+      throw new Error("Loop evaluator schedule decision requires a bounded delayMs");
+    }
+    return { receipts, decision: { action: "schedule", delayMs: decision.delayMs } };
+  }
+  if (
+    decision.action !== "pause" &&
+    decision.action !== "block" &&
+    decision.action !== "complete"
+  ) {
+    throw new Error("Loop evaluator decision is invalid");
+  }
+  return { receipts, decision: { action: decision.action } };
 }
 
 function loopExecutionSessionId(record: Pick<SparkLoopRecord, "loopId" | "generation">): string {
@@ -695,13 +1408,17 @@ function completionTransition(
       };
     }
     const attempt = record.attempt + 1;
-    const retryDelaysMs = [30_000, 60_000, 120_000] as const;
+    if (attempt > record.policy.retry.maxAttempts) {
+      return {
+        status: "blocked",
+        attempt,
+        reason: "main tick retry budget exhausted",
+        error,
+      };
+    }
     return {
       status: "retry_wait",
-      dueAt: new Date(
-        Date.parse(now) +
-          retryDelaysMs[Math.min(Math.max(0, attempt - 1), retryDelaysMs.length - 1)]!,
-      ).toISOString(),
+      dueAt: new Date(Date.parse(now) + retryDelay(record.policy, attempt)).toISOString(),
       attempt,
       reason: "safe transient failure",
       error,
@@ -712,6 +1429,12 @@ function completionTransition(
     attempt: 0,
     reason: "tick completed without an explicit loop.schedule",
   };
+}
+
+function retryDelay(policy: SparkLoopPolicy, attempt: number): number {
+  return policy.retry.delaysMs[
+    Math.min(Math.max(0, attempt - 1), policy.retry.delaysMs.length - 1)
+  ]!;
 }
 
 function safeToRetry(errorCode: string | undefined): boolean {
@@ -729,6 +1452,23 @@ function normalizeRoute(input: SparkLoopRoute): SparkLoopRoute {
   };
 }
 
+function goalSettlement(row: GoalSettlementRow): SparkLoopGoalSettlement {
+  return {
+    loopId: row.loop_id,
+    generation: Number(row.generation),
+    goalId: row.goal_id,
+    ownerSessionId: row.owner_session_id,
+    cwd: row.cwd,
+    receipt: sparkLoopConditionReceiptSchema.parse(JSON.parse(row.receipt_json)),
+    status: row.status,
+    attemptCount: Number(row.attempt_count),
+    ...(row.last_error ? { lastError: row.last_error } : {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    ...(row.applied_at ? { appliedAt: row.applied_at } : {}),
+  };
+}
+
 function loopRecord(row: LoopRow): SparkLoopRecord {
   const route = parsePersistedLoopRoute(row);
   return {
@@ -739,6 +1479,9 @@ function loopRecord(row: LoopRow): SparkLoopRecord {
     generation: Number(row.generation),
     ...(row.cycle_step ? { cycleStep: row.cycle_step } : {}),
     binding: parsePersistedLoopBinding(row),
+    policy: parsePersistedLoopPolicy(row),
+    ...(row.checkpoint_json ? { checkpoint: parsePersistedLoopCheckpoint(row) } : {}),
+    counters: parsePersistedLoopCounters(row),
     ...(row.due_at ? { dueAt: row.due_at } : {}),
     attempt: Number(row.attempt),
     ...(row.last_invocation_id ? { lastInvocationId: row.last_invocation_id } : {}),
@@ -770,6 +1513,30 @@ function parsePersistedLoopBinding(row: LoopRow): SparkLoopBinding {
   }
 }
 
+function parsePersistedLoopPolicy(row: LoopRow): SparkLoopPolicy {
+  try {
+    return sparkLoopPolicySchema.parse(JSON.parse(row.policy_json));
+  } catch (error) {
+    throw new Error(`Invalid persisted policy for loop ${row.loop_id}`, { cause: error });
+  }
+}
+
+function parsePersistedLoopCheckpoint(row: LoopRow): SparkLoopCycleCheckpoint {
+  try {
+    return sparkLoopCycleCheckpointSchema.parse(JSON.parse(row.checkpoint_json!));
+  } catch (error) {
+    throw new Error(`Invalid persisted checkpoint for loop ${row.loop_id}`, { cause: error });
+  }
+}
+
+function parsePersistedLoopCounters(row: LoopRow): SparkLoopCounters {
+  try {
+    return sparkLoopCountersSchema.parse(JSON.parse(row.counters_json));
+  } catch (error) {
+    throw new Error(`Invalid persisted counters for loop ${row.loop_id}`, { cause: error });
+  }
+}
+
 function loopView(record: SparkLoopRecord): SparkLoopView {
   return sparkLoopViewSchema.parse({
     loopId: record.loopId,
@@ -779,6 +1546,9 @@ function loopView(record: SparkLoopRecord): SparkLoopView {
     generation: record.generation,
     cycleStep: record.cycleStep,
     binding: record.binding,
+    policy: record.policy,
+    checkpoint: record.checkpoint,
+    counters: record.counters,
     dueAt: record.dueAt,
     attempt: record.attempt,
     lastInvocationId: record.lastInvocationId,

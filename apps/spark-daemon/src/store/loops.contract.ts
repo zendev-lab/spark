@@ -15,7 +15,7 @@ export function runSparkLoopStoreContract(
   createHarness: () => SparkLoopStoreContractHarness,
 ): void {
   describe("SparkLoopStore contract", () => {
-    it("coalesces a due Loop while its owner Session is busy", () => {
+    it("coalesces a due Loop while its owner Session is busy", async () => {
       const harness = createHarness();
       try {
         harness.loops.start({
@@ -30,25 +30,27 @@ export function runSparkLoopStoreContract(
           prompt: "foreground",
           now: "2026-07-23T00:00:00.000Z",
         });
-        expect(harness.loops.materializeDue("2026-07-23T00:00:01.000Z")).toBeUndefined();
+        expect(await harness.loops.materializeDue("2026-07-23T00:00:01.000Z")).toBeUndefined();
         expect(harness.loops.require("loop-one").status).toBe("scheduled");
         harness.invocations.requestCancellation(
           busy.invocationId,
           "foreground complete",
           "2026-07-23T00:00:02.000Z",
         );
-        expect(harness.loops.materializeDue("2026-07-23T00:00:03.000Z")?.task).toMatchObject({
+        expect(
+          (await harness.loops.materializeDue("2026-07-23T00:00:03.000Z"))?.invocation?.task,
+        ).toMatchObject({
           type: "loop.tick",
           loopId: "loop-one",
           ownerSessionId: "session-one",
         });
-        expect(harness.loops.materializeDue("2026-07-23T00:00:04.000Z")).toBeUndefined();
+        expect(await harness.loops.materializeDue("2026-07-23T00:00:04.000Z")).toBeUndefined();
       } finally {
         harness.close();
       }
     });
 
-    it("does not let one busy owner starve another owner's due Loop", () => {
+    it("does not let one busy owner starve another owner's due Loop", async () => {
       const harness = createHarness();
       try {
         harness.loops.start({
@@ -71,9 +73,9 @@ export function runSparkLoopStoreContract(
           now: "2026-07-23T00:00:00.000Z",
         });
 
-        expect(harness.loops.materializeDue("2026-07-23T00:00:02.000Z")?.sourceRef).toBe(
-          "free-owner-loop",
-        );
+        expect(
+          (await harness.loops.materializeDue("2026-07-23T00:00:02.000Z"))?.invocation?.sourceRef,
+        ).toBe("free-owner-loop");
         expect(harness.loops.require("busy-owner-loop")).toMatchObject({
           status: "scheduled",
           dueAt: "2026-07-23T00:00:00.000Z",
@@ -107,7 +109,7 @@ export function runSparkLoopStoreContract(
       }
     });
 
-    it("materializes one generation-fenced loop.tick", () => {
+    it("materializes one generation-fenced loop.tick", async () => {
       const harness = createHarness();
       try {
         harness.loops.start({
@@ -117,8 +119,8 @@ export function runSparkLoopStoreContract(
           cwd: "/workspace",
           prompt: "tick",
         });
-        const submitted = harness.loops.materializeDue()!;
-        const task = submitted.task as SparkDaemonLoopTickTask;
+        const submitted = (await harness.loops.materializeDue())!;
+        const task = submitted.invocation!.task as SparkDaemonLoopTickTask;
         expect(task).toMatchObject({
           type: "loop.tick",
           loopId: "repro-loop",
@@ -137,7 +139,7 @@ export function runSparkLoopStoreContract(
       }
     });
 
-    it("settles a successful tick dormant without replaying it", () => {
+    it("settles a successful tick dormant without replaying it", async () => {
       const harness = createHarness();
       try {
         harness.loops.start({
@@ -146,7 +148,7 @@ export function runSparkLoopStoreContract(
           cwd: "/workspace",
           prompt: "tick",
         });
-        harness.loops.materializeDue();
+        await harness.loops.materializeDue();
         const invocation = harness.invocations.claimNext("worker")!;
         const settled = harness.loops.completeTick(
           invocation,
@@ -154,25 +156,25 @@ export function runSparkLoopStoreContract(
           { status: "succeeded" },
         );
         expect(settled.loop).toMatchObject({ status: "dormant", generation: 2 });
-        expect(harness.loops.materializeDue()).toBeUndefined();
+        expect(await harness.loops.materializeDue()).toBeUndefined();
       } finally {
         harness.close();
       }
     });
 
-    it("keeps an explicit generation schedule when the old tick completes", () => {
+    it("keeps an explicit generation schedule when the old tick completes", async () => {
       const harness = createHarness();
       try {
-        const { invocation, task } = runningTick(harness, "loop-cas", "session-cas");
+        const { invocation, task } = await runningTick(harness, "loop-cas", "session-cas");
         expect(
           harness.loops.schedule(
             { loopId: task.loopId, generation: task.generation, delayMs: 5_000 },
             "2026-07-23T00:00:02.000Z",
           ),
         ).toMatchObject({
-          generation: 2,
-          status: "scheduled",
-          dueAt: "2026-07-23T00:00:07.000Z",
+          generation: 1,
+          status: "running",
+          cycleStep: "invoke",
         });
 
         expect(
@@ -196,10 +198,10 @@ export function runSparkLoopStoreContract(
       }
     });
 
-    it("reconciles a terminal invocation left beside an unsettled running Loop", () => {
+    it("reconciles a terminal invocation left beside an unsettled running Loop", async () => {
       const harness = createHarness();
       try {
-        const tick = runningTick(harness, "loop-terminal", "session-terminal");
+        const tick = await runningTick(harness, "loop-terminal", "session-terminal");
         harness.invocations.complete(tick.invocation.invocationId, {
           status: "succeeded",
           now: "2026-07-23T00:00:00.000Z",
@@ -217,10 +219,10 @@ export function runSparkLoopStoreContract(
       }
     });
 
-    it("retries safe failures and blocks unknown or cancelled outcomes", () => {
+    it("retries safe failures and blocks unknown or cancelled outcomes", async () => {
       const harness = createHarness();
       try {
-        const retryTick = runningTick(harness, "loop-retry", "session-retry");
+        const retryTick = await runningTick(harness, "loop-retry", "session-retry");
         expect(
           harness.loops.completeTick(retryTick.invocation, retryTick.task, {
             status: "failed",
@@ -234,7 +236,7 @@ export function runSparkLoopStoreContract(
         });
         harness.loops.stop("loop-retry", "continue failure assertions");
 
-        const unknown = runningTick(harness, "loop-unknown", "session-unknown");
+        const unknown = await runningTick(harness, "loop-unknown", "session-unknown");
         expect(
           harness.loops.completeTick(unknown.invocation, unknown.task, {
             status: "failed",
@@ -242,7 +244,7 @@ export function runSparkLoopStoreContract(
           }).loop,
         ).toMatchObject({ status: "blocked", attempt: 0 });
 
-        const cancelled = runningTick(harness, "loop-abort", "session-abort");
+        const cancelled = await runningTick(harness, "loop-abort", "session-abort");
         expect(
           harness.loops.completeTick(cancelled.invocation, cancelled.task, {
             status: "cancelled",
@@ -254,7 +256,7 @@ export function runSparkLoopStoreContract(
       }
     });
 
-    it("uses a hidden reset Session for fresh continuity and archives its path", () => {
+    it("uses a hidden reset Session for fresh continuity and archives its path", async () => {
       const harness = createHarness();
       try {
         harness.loops.start({
@@ -265,7 +267,7 @@ export function runSparkLoopStoreContract(
           prompt: "fresh tick",
           now: "2026-07-23T00:00:00.000Z",
         });
-        const invocation = harness.loops.materializeDue()!;
+        const invocation = (await harness.loops.materializeDue())!.invocation!;
         expect(invocation.task).toMatchObject({
           type: "loop.tick",
           sessionId: "owner-session",
@@ -298,7 +300,7 @@ export function runSparkLoopStoreContract(
       }
     });
 
-    it("consumes a manual wake prompt exactly once", () => {
+    it("consumes a manual wake prompt exactly once", async () => {
       const harness = createHarness();
       try {
         harness.loops.start({
@@ -312,9 +314,9 @@ export function runSparkLoopStoreContract(
           prompt: "one-shot instruction",
           now: "2026-07-23T00:00:00.000Z",
         });
-        expect(harness.loops.materializeDue("2026-07-23T00:00:00.000Z")?.task).toMatchObject({
-          prompt: "one-shot instruction",
-        });
+        expect(
+          (await harness.loops.materializeDue("2026-07-23T00:00:00.000Z"))?.invocation?.task,
+        ).toMatchObject({ prompt: "one-shot instruction" });
         expect(harness.loops.require("loop-wake").prompt).toBe("base objective");
         expect(harness.loops.require("loop-wake").wakePrompt).toBeUndefined();
       } finally {
@@ -325,7 +327,7 @@ export function runSparkLoopStoreContract(
     it("garbage-collects expired fresh Sessions and retains failed removals", async () => {
       const harness = createHarness();
       try {
-        const tick = runningTick(harness, "loop-fresh-gc", "owner-fresh-gc", "fresh");
+        const tick = await runningTick(harness, "loop-fresh-gc", "owner-fresh-gc", "fresh");
         const executionSessionId = tick.task.executionSessionId!;
         harness.loops.completeTick(tick.invocation, tick.task, {
           status: "succeeded",
@@ -349,10 +351,10 @@ export function runSparkLoopStoreContract(
       }
     });
 
-    it("requests cancellation when a running Loop is stopped", () => {
+    it("requests cancellation when a running Loop is stopped", async () => {
       const harness = createHarness();
       try {
-        const tick = runningTick(harness, "loop-stop", "owner-stop");
+        const tick = await runningTick(harness, "loop-stop", "owner-stop");
         harness.loops.stop("loop-stop", "user stopped the loop");
         expect(harness.loops.require("loop-stop").status).toBe("stopped");
         expect(harness.invocations.require(tick.invocation.invocationId)).toMatchObject({
@@ -366,15 +368,15 @@ export function runSparkLoopStoreContract(
   });
 }
 
-function runningTick(
+async function runningTick(
   harness: SparkLoopStoreContractHarness,
   loopId: string,
   ownerSessionId: string,
   continuity: "session" | "fresh" = "session",
-): {
+): Promise<{
   invocation: NonNullable<ReturnType<SparkInvocationStore["claimNext"]>>;
   task: SparkDaemonLoopTickTask;
-} {
+}> {
   harness.loops.start({
     loopId,
     ownerSessionId,
@@ -382,7 +384,7 @@ function runningTick(
     cwd: "/workspace",
     prompt: "tick",
   });
-  harness.loops.materializeDue();
+  await harness.loops.materializeDue();
   const invocation = harness.invocations.claimNext("worker")!;
   return { invocation, task: invocation.task as SparkDaemonLoopTickTask };
 }

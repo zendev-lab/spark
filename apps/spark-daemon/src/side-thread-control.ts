@@ -537,7 +537,7 @@ function assertSubmitReplay(
   prompt: string,
 ): void {
   const task = validateSparkDaemonTask(invocation.task);
-  if (task.sessionId !== sessionId || task.prompt !== prompt) {
+  if (task.type !== "session.run" || task.sessionId !== sessionId || task.prompt !== prompt) {
     throw sideThreadError(
       "side_thread_idempotency_conflict",
       `side-thread idempotency conflict: ${invocation.invocationId}`,
@@ -551,6 +551,12 @@ function assertHandoffReplay(
   request: ReturnType<typeof sparkSideThreadHandoffRequestSchema.parse>,
 ): void {
   const task = validateSparkDaemonTask(invocation.task);
+  if (task.type !== "session.run") {
+    throw sideThreadError(
+      "side_thread_idempotency_conflict",
+      `side-thread idempotency conflict: ${invocation.invocationId}`,
+    );
+  }
   const handoff = recordValue(task.messageMetadata?.sideThreadHandoff);
   if (
     task.sessionId !== request.parentSessionId ||

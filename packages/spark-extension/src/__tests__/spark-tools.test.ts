@@ -16,6 +16,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "vitest";
 
+import { sparkLoopCountersSchema, sparkLoopPolicySchema } from "@zendev-lab/spark-protocol";
+
 import { RoleRegistry } from "@zendev-lab/spark-roles";
 import { registerSparkRolesTools } from "@zendev-lab/spark-roles/extension";
 import { registerSparkSessionTool } from "@zendev-lab/spark-session/extension";
@@ -12182,6 +12184,8 @@ function createTestDriverControl(): TestSparkDaemonLoopControl {
         status: "scheduled" as const,
         continuity: input.continuity ?? ("session" as const),
         generation: 1,
+        policy: sparkLoopPolicySchema.parse(input.policy ?? {}),
+        counters: sparkLoopCountersSchema.parse({}),
         dueAt: input.dueAt ?? observedAt(),
         attempt: 0,
         reason: input.reason,

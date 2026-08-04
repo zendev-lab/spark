@@ -74,7 +74,10 @@ import {
 import { SparkTokenUsageStore } from "./store/token-usage.ts";
 import { resolveActiveSessionReproUsageScope } from "./session-work-projection.ts";
 import { loopUpdateEvent, SparkLoopStore, type SparkLoopRecord } from "./store/loops.ts";
+import { SparkLoopEvaluatorRegistry } from "./store/loop-evaluators.ts";
 import { migrateLegacyLoopState } from "./store/loop-state-migration.ts";
+import { createGoalLoopCompletionEvaluator } from "./spark/goal-loop-evaluator.ts";
+import { reconcileLoopGoalSettlements } from "./spark/loop-goal-settlements.ts";
 import {
   getWorkspaceById,
   isUserDetachedWorkspace,
@@ -192,6 +195,7 @@ interface PreparedDaemonRuntime {
   eventHub: InvocationEventHub;
   invocationStore: SparkInvocationStore;
   loopStore: SparkLoopStore;
+  loopEvaluators: SparkLoopEvaluatorRegistry;
   nextLoopGcAtMs: number;
   nextStorageMaintenanceAtMs: number;
   channelReplyDeliveryStore: ChannelReplyDeliveryStore;
@@ -255,7 +259,17 @@ async function createPreparedDaemonRuntime(
   });
   const eventHub = createInvocationEventHub(options);
   const invocationStore = new SparkInvocationStore(options.db);
-  const loopStore = new SparkLoopStore(options.db, invocationStore);
+  const userPaths = resolveSparkUserPaths({ sparkHome: options.sparkHome });
+  const loopEvaluators = new SparkLoopEvaluatorRegistry({
+    "builtin:goal-reviewer": {
+      evaluator: createGoalLoopCompletionEvaluator({
+        sparkHome: options.paths.piAgentDir,
+        controlSparkHome: userPaths.configRoot,
+      }),
+      checkpoints: ["after_tick"],
+    },
+  });
+  const loopStore = new SparkLoopStore(options.db, invocationStore, loopEvaluators);
   const channelReplyDeliveryStore = new ChannelReplyDeliveryStore(options.db, invocationStore);
   channelReplyDeliveryStore.recoverInterrupted();
   recoverInterruptedRuntimeCommandReceipts(options.db);
@@ -267,7 +281,6 @@ async function createPreparedDaemonRuntime(
     resolveWorkspaceCwd: (workspaceId) => resolveWorkspaceLocalPath(options.db, workspaceId),
   });
   await gcLoopHiddenSessions(loopStore);
-  const userPaths = resolveSparkUserPaths({ sparkHome: options.sparkHome });
   const corruptMailboxReporter = createRepeatedErrorReporter(
     "[spark-daemon] corrupt session mailbox skipped",
   );
@@ -290,6 +303,7 @@ async function createPreparedDaemonRuntime(
     admission,
     invocationStore,
     loopStore,
+    loopEvaluators,
     channelDeliveryStore,
     channelIngress,
     channelReplyDeliveryStore,
@@ -344,6 +358,7 @@ async function createPreparedDaemonRuntime(
     eventHub,
     invocationStore,
     loopStore,
+    loopEvaluators,
     nextLoopGcAtMs: Date.now() + 60_000,
     nextStorageMaintenanceAtMs: Date.now(),
     channelReplyDeliveryStore,
@@ -574,6 +589,7 @@ function canOpenDaemonAdmission(runtime: PreparedDaemonRuntime): boolean {
 async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<void> {
   runtime.scheduler?.recover();
   runtime.loopStore.reconcileTerminalTicks();
+  await reconcileLoopGoalSettlements(runtime.loopStore, { retryErrors: true });
   runtime.scheduler?.activateAdmission();
   runtime.invocationRegistry.activateAdmission();
   runtime.admission.open = true;
@@ -662,8 +678,9 @@ async function runSchedulerLoop(runtime: PreparedDaemonRuntime): Promise<void> {
     if (Date.now() >= runtime.nextStorageMaintenanceAtMs) {
       runStorageMaintenance(runtime);
     }
+    if (runtime.admission.open) await reconcileLoopGoalSettlements(runtime.loopStore);
     if (runtime.admission.open) await reconcileLoopHiddenSessionGc(runtime);
-    const materialized = runtime.admission.open ? materializeLoopDue(runtime) : undefined;
+    const materialized = runtime.admission.open ? await materializeLoopDue(runtime) : undefined;
     const didWork = (runtime.scheduler?.processBatch() ?? false) || Boolean(materialized);
     if (!didWork) {
       await delayUnlessAborted(
@@ -699,7 +716,8 @@ async function runDaemonOnce(runtime: PreparedDaemonRuntime): Promise<void> {
   const { scheduler, channelIngress, runtimeSignal } = runtime;
   if (scheduler) {
     await reconcileLoopHiddenSessionGc(runtime, true);
-    materializeLoopDue(runtime);
+    await reconcileLoopGoalSettlements(runtime.loopStore, { retryErrors: true });
+    await materializeLoopDue(runtime);
     scheduler.processBatch();
     await scheduler.wait();
   }
@@ -804,6 +822,7 @@ function createDaemonScheduler(input: {
   admission: { open: boolean };
   invocationStore: SparkInvocationStore;
   loopStore: SparkLoopStore;
+  loopEvaluators: SparkLoopEvaluatorRegistry;
   channelDeliveryStore: SparkChannelDeliveryStore;
   channelIngress: DaemonChannelIngressRuntime | null;
   channelReplyDeliveryStore: ChannelReplyDeliveryStore;
@@ -836,6 +855,7 @@ function createDaemonScheduler(input: {
         resolveSessionCwd: (request) => resolveSessionCwdForWorkspaceId(options.db, request),
         controlSparkHome: input.controlSparkHome,
         channelsSparkHome: input.channelsSparkHome,
+        loopEvaluators: input.loopEvaluators,
         ...(options.modelControl ? { modelControl: options.modelControl } : {}),
         ...(sessionRegistry
           ? {
@@ -949,6 +969,11 @@ function completeScheduledInvocation(
     emitLoopUpdate(input, completed.loop, invocation.invocationId);
     return completed.invocation;
   }
+  if (task.type === "loop.evaluate") {
+    const completed = input.loopStore.completeEvaluation(invocation, task, completion);
+    emitLoopUpdate(input, completed.loop, invocation.invocationId);
+    return completed.invocation;
+  }
   const completed = completeInvocationWithChannelDelivery(
     {
       db: input.options.db,
@@ -985,21 +1010,20 @@ function completeScheduledInvocation(
   return completed;
 }
 
-function materializeLoopDue(runtime: PreparedDaemonRuntime): SparkInvocationRecord | undefined {
-  const invocation = runtime.loopStore.materializeDue();
-  if (!invocation?.sourceRef) return invocation;
-  const loop = runtime.loopStore.get(invocation.sourceRef);
-  if (loop) {
-    emitLoopUpdate(
-      {
-        invocationStore: runtime.invocationStore,
-        eventHub: runtime.eventHub,
-      },
-      loop,
-      invocation.invocationId,
-    );
-  }
-  return invocation;
+async function materializeLoopDue(
+  runtime: PreparedDaemonRuntime,
+): Promise<SparkLoopRecord | undefined> {
+  const advanced = await runtime.loopStore.materializeDue(undefined, runtime.runtimeSignal);
+  if (!advanced) return undefined;
+  emitLoopUpdate(
+    {
+      invocationStore: runtime.invocationStore,
+      eventHub: runtime.eventHub,
+    },
+    advanced.loop,
+    advanced.invocation?.invocationId,
+  );
+  return advanced.loop;
 }
 
 function emitLoopUpdate(

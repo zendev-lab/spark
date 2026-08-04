@@ -174,7 +174,7 @@ test("daemon-owned repro lifecycle fails closed without settle and recovers afte
     };
     ctx.loop = daemonLoop;
     const tick = async (now: string, settle = true) => {
-      const materialized = loops.materializeDue(now);
+      const materialized = await loops.materializeDue(now);
       assert.ok(materialized);
       const invocation = invocations.claimNext("repro-e2e-worker", now);
       assert.ok(invocation);
@@ -188,7 +188,7 @@ test("daemon-owned repro lifecycle fails closed without settle and recovers afte
     };
     await tick("2026-07-27T00:00:02.000Z", false);
     assert.equal(loops.require(loopId).status, "dormant");
-    assert.equal(loops.materializeDue("2026-07-27T00:01:00.000Z"), undefined);
+    assert.equal(await loops.materializeDue("2026-07-27T00:01:00.000Z"), undefined);
     loops.start({
       loopId,
       binding: { reproId: loopId },
@@ -208,7 +208,7 @@ test("daemon-owned repro lifecycle fails closed without settle and recovers afte
     assert.ok(recover);
     assert.match(text(recover), /Recover Ask required/u);
     assert.equal(loops.require(loopId).status, "dormant");
-    assert.equal(loops.materializeDue("2026-07-27T00:07:00.000Z"), undefined);
+    assert.equal(await loops.materializeDue("2026-07-27T00:07:00.000Z"), undefined);
   } finally {
     db.close();
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });

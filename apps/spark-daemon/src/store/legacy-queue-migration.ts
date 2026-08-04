@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { readFile, readdir, rename } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { validateSparkDaemonTask, type SparkDaemonTask } from "../core/types.ts";
+import { validateSparkDaemonTask, type SparkDaemonSessionRunTask } from "../core/types.ts";
 import { SparkInvocationStore, type SparkInvocationStatus } from "./invocations.ts";
 
 const MIGRATION_KEY = "migration.legacy-queue-to-invocations-v1";
@@ -29,7 +29,7 @@ export interface LegacyQueueMigrationReport {
 
 interface LegacyPayload {
   enqueuedAt: string;
-  task: SparkDaemonTask;
+  task: SparkDaemonSessionRunTask;
   processedAt?: string;
   result?: unknown;
   failedAt?: string;
@@ -139,6 +139,7 @@ function parseLegacyPayload(raw: string): LegacyPayload {
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   if (typeof parsed.enqueuedAt !== "string") throw new Error("missing enqueuedAt");
   const task = validateSparkDaemonTask(parsed.task);
+  if (task.type !== "session.run") throw new Error("legacy queue task must be session.run");
   return {
     enqueuedAt: parsed.enqueuedAt,
     task,
