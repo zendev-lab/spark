@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { IncomingMessage } from "@zendev-lab/spark-channels";
-import type { SparkDaemonTask } from "../core/types.ts";
+import type { SparkDaemonSessionRunTask } from "../core/types.ts";
 import { SparkInvocationStore, type SparkInvocationRecord } from "../store/invocations.ts";
 import type { ChannelIngressAssignment } from "./ingress.ts";
 
@@ -143,7 +143,7 @@ export function findChannelInboundInvocation(
 export function submitChannelInboundInvocation(
   store: SparkInvocationStore,
   assignment: ChannelIngressAssignment,
-  task: SparkDaemonTask,
+  task: SparkDaemonSessionRunTask,
 ): SparkInvocationRecord {
   const idempotencyKey = channelInboundInvocationIdempotencyKey(assignment);
   // Platform identity is authoritative for a replay. Return before rebuilding

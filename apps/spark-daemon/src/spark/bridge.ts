@@ -153,6 +153,9 @@ const DEFAULT_SPARK_TIMEOUT_MS = 30 * 60_000;
 
 async function loadSparkRuntimeModules(): Promise<SparkRuntimeModules> {
   const headless = await loadSparkHeadlessSessionModule();
+  if (!headless.createSparkHeadlessRoleExecutor) {
+    throw new Error("Spark headless role executor is unavailable");
+  }
   // The bridge keeps structural "Like" contracts so focused daemon tests can
   // inject small fakes. Production implementations are adapted once here;
   // their branded refs and narrower creation inputs are the same values this
@@ -168,7 +171,7 @@ async function loadSparkRuntimeModules(): Promise<SparkRuntimeModules> {
     runSparkTask: runSparkTask as unknown as SparkRuntimeModules["runSparkTask"],
     killActiveSparkRoleRunProcesses,
     createSparkHeadlessRoleExecutor:
-      headless.createSparkHeadlessRoleExecutor as SparkRuntimeModules["createSparkHeadlessRoleExecutor"],
+      headless.createSparkHeadlessRoleExecutor as unknown as SparkRuntimeModules["createSparkHeadlessRoleExecutor"],
   };
 }
 

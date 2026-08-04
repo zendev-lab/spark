@@ -2,11 +2,18 @@
 
 import {
   parseSparkAssignment,
+  sparkLoopCycleCheckpointSchema,
+  sparkLoopPolicySchema,
+  sparkLoopViewSchema,
   sparkTurnAttachmentsSchema,
   type SparkAssignment,
   type SparkDaemonEvent,
   type SparkLoopBinding,
+  type SparkLoopConditionReceipt,
+  type SparkLoopCycleCheckpoint,
   type SparkLoopContinuity,
+  type SparkLoopPolicy,
+  type SparkLoopView,
   type SparkTurnAttachment,
 } from "@zendev-lab/spark-protocol";
 import {
@@ -30,7 +37,10 @@ import type {
   SparkUsageExecutionStatus,
 } from "@zendev-lab/spark-protocol/token-usage";
 
-export type SparkDaemonTask = SparkDaemonSessionRunTask | SparkDaemonLoopTickTask;
+export type SparkDaemonTask =
+  | SparkDaemonSessionRunTask
+  | SparkDaemonLoopTickTask
+  | SparkDaemonLoopEvaluationTask;
 
 export interface SparkDaemonLoopTickTask extends Omit<
   SparkDaemonSessionRunTask,
@@ -49,6 +59,32 @@ export interface SparkDaemonLoopTickTask extends Omit<
   stateOwnerSessionId: string;
   reset?: boolean;
   resumeFromInterrupt?: boolean;
+}
+
+export interface SparkDaemonLoopEvaluationTask {
+  type: "loop.evaluate";
+  prompt: string;
+  sessionId: string;
+  loopId: string;
+  binding: SparkLoopBinding;
+  ownerSessionId: string;
+  generation: number;
+  cwd: string;
+  workspaceBindingId?: string;
+  workspaceId?: string;
+  projectId?: string;
+  policy: SparkLoopPolicy;
+  checkpoint: SparkLoopCycleCheckpoint;
+  loop: SparkLoopView;
+}
+
+export interface SparkDaemonLoopEvaluationResult {
+  receipts: SparkLoopConditionReceipt[];
+  decision:
+    | { action: "schedule"; delayMs: number }
+    | { action: "pause" }
+    | { action: "block" }
+    | { action: "complete" };
 }
 
 /** Normalized platform facts captured with one inbound channel message. */
@@ -172,9 +208,14 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("daemon task must be an object");
   }
-  const task = value as Partial<SparkDaemonSessionRunTask | SparkDaemonLoopTickTask>;
+  const task = value as Partial<
+    SparkDaemonSessionRunTask | SparkDaemonLoopTickTask | SparkDaemonLoopEvaluationTask
+  >;
   if (task.type === "loop.tick") {
     return validateSparkDaemonLoopTickTask(task);
+  }
+  if (task.type === "loop.evaluate") {
+    return validateSparkDaemonLoopEvaluationTask(task);
   }
   if (task.type !== "session.run") {
     throw new Error(`unsupported daemon task type: ${String((value as { type?: unknown }).type)}`);
@@ -226,6 +267,38 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
     ...(parseChannelContext(task.channelContext)
       ? { channelContext: parseChannelContext(task.channelContext) }
       : {}),
+  };
+}
+
+function validateSparkDaemonLoopEvaluationTask(
+  task: Partial<SparkDaemonLoopEvaluationTask>,
+): SparkDaemonLoopEvaluationTask {
+  const loopId = nonEmptyString(task.loopId);
+  const ownerSessionId = nonEmptyString(task.ownerSessionId);
+  const cwd = nonEmptyString(task.cwd);
+  if (!loopId) throw new Error("loop.evaluate task requires loopId");
+  if (!ownerSessionId) throw new Error("loop.evaluate task requires ownerSessionId");
+  if (!cwd) throw new Error("loop.evaluate task requires cwd");
+  if (!Number.isInteger(task.generation) || Number(task.generation) <= 0) {
+    throw new Error("loop.evaluate task requires a positive generation");
+  }
+  return {
+    type: "loop.evaluate",
+    prompt: nonEmptyString(task.prompt) ?? "Evaluate the persisted Loop after_tick checkpoint.",
+    sessionId: ownerSessionId,
+    loopId,
+    binding: parseLoopBinding(task.binding),
+    ownerSessionId,
+    generation: Number(task.generation),
+    cwd,
+    policy: sparkLoopPolicySchema.parse(task.policy),
+    checkpoint: sparkLoopCycleCheckpointSchema.parse(task.checkpoint),
+    loop: sparkLoopViewSchema.parse(task.loop),
+    ...(nonEmptyString(task.workspaceBindingId)
+      ? { workspaceBindingId: nonEmptyString(task.workspaceBindingId)! }
+      : {}),
+    ...(nonEmptyString(task.workspaceId) ? { workspaceId: nonEmptyString(task.workspaceId)! } : {}),
+    ...(nonEmptyString(task.projectId) ? { projectId: nonEmptyString(task.projectId)! } : {}),
   };
 }
 

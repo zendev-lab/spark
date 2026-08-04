@@ -42,7 +42,7 @@ import type { SparkPaths } from "@zendev-lab/spark-system";
 import type { SparkDaemonModelControl } from "./model-control.ts";
 import { SparkDaemonControlError } from "./control-error.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
-import { validateSparkDaemonTask, type SparkDaemonTask } from "./core/index.ts";
+import { validateSparkDaemonTask, type SparkDaemonSessionRunTask } from "./core/index.ts";
 import { SparkInvocationStore, type SparkInvocationRecord } from "./store/invocations.ts";
 import { getWorkspaceById, listWorkspaces, resolveWorkspaceLocalPath } from "./store/workspaces.ts";
 
@@ -466,6 +466,12 @@ function assertIdempotentTurnReplay(
   parsed: ReturnType<typeof parseTurnSubmitPayload>,
 ): void {
   const task = validateSparkDaemonTask(existing.task);
+  if (task.type !== "session.run") {
+    throw new SparkDaemonControlError(
+      "invocation_idempotency_conflict",
+      `Invocation idempotency conflict: ${parsed.idempotencyKey ?? "unknown"}`,
+    );
+  }
   if (
     task.sessionId !== parsed.sessionId ||
     task.prompt !== parsed.prompt ||
@@ -483,7 +489,7 @@ function assertIdempotentTurnReplay(
   }
 }
 
-function originBindingFromTask(task: SparkDaemonTask) {
+function originBindingFromTask(task: SparkDaemonSessionRunTask) {
   if (!task.channelReply || !task.channelContext) return undefined;
   return {
     workspaceId: task.channelReply.workspaceId,
@@ -831,7 +837,7 @@ function assertOriginBindingRoute(
 
 function submitInvocationTask(
   db: DatabaseSync,
-  task: SparkDaemonTask,
+  task: SparkDaemonSessionRunTask,
   idempotencyKey?: string,
   source?: { kind: string; ref?: string; parentInvocationId?: string },
 ) {

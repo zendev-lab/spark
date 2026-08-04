@@ -47,6 +47,8 @@ import type {
   SparkDaemonTaskExecutionContext,
   SparkDaemonTaskExecutor,
 } from "../core/types.ts";
+import { SparkLoopEvaluatorRegistry } from "../store/loop-evaluators.ts";
+import { evaluateLoopAfterTick } from "./loop-evaluation.ts";
 import type { SparkDaemonModelControl } from "../model-control.ts";
 import { artifactDaemonProjectionEventFromToolResult } from "../artifact-projection.ts";
 import type { DaemonSessionRegistry } from "../session-registry.ts";
@@ -123,6 +125,7 @@ export interface SparkDaemonTaskExecutorOptions {
     stop(task: SparkDaemonLoopTickTask, input?: { reason?: string }): unknown;
     wakeOwner?(ownerSessionId: string, input: { target: "repro"; reason: string }): unknown;
   };
+  loopEvaluators?: SparkLoopEvaluatorRegistry;
   interact?: (
     request: SparkInteractionRequest,
     task: SparkDaemonSessionRunTask,
@@ -163,6 +166,13 @@ export function createSparkDaemonTaskExecutor(
   };
 
   return async (task, context) => {
+    if (task.type === "loop.evaluate") {
+      return await evaluateLoopAfterTick(
+        task,
+        options.loopEvaluators ?? new SparkLoopEvaluatorRegistry(),
+        context.signal,
+      );
+    }
     if (task.type === "session.run" || task.type === "loop.tick") {
       const loopTask = task.type === "loop.tick" ? task : undefined;
       const sessionTask: SparkDaemonSessionRunTask =

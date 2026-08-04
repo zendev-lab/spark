@@ -297,13 +297,15 @@ export class SparkInvocationScheduler {
     let streamedEventCount = 0;
     let restartYieldCommitted = false;
     const rootUsagePersistence =
-      task.type === "loop.tick"
-        ? task.continuity === "fresh"
-          ? "anonymous"
-          : "persistent"
-        : task.hiddenExecution
-          ? "anonymous"
-          : "persistent";
+      task.type === "loop.evaluate"
+        ? "anonymous"
+        : task.type === "loop.tick"
+          ? task.continuity === "fresh"
+            ? "anonymous"
+            : "persistent"
+          : task.hiddenExecution
+            ? "anonymous"
+            : "persistent";
     let rootUsageExecution: ReturnType<SparkTokenUsageStore["registerExecution"]> | undefined;
     const pendingUsageRegistrations: Array<Omit<SparkDaemonTokenUsageObservation, "event">> = [];
     const pendingUsageObservations: SparkDaemonTokenUsageObservation[] = [];
@@ -317,9 +319,16 @@ export class SparkInvocationScheduler {
       ...(scope ? { scope } : {}),
       kind: "root_session" as const,
       kindProvisional: task.type === "session.run",
-      ...(task.type === "loop.tick" ? { detailKind: "loop_tick" } : {}),
+      ...(task.type === "loop.tick"
+        ? { detailKind: "loop_tick" }
+        : task.type === "loop.evaluate"
+          ? { detailKind: "loop_evaluator" }
+          : {}),
       persistence: rootUsagePersistence,
-      sessionId: task.type === "loop.tick" ? task.ownerSessionId : task.sessionId,
+      sessionId:
+        task.type === "loop.tick" || task.type === "loop.evaluate"
+          ? task.ownerSessionId
+          : task.sessionId,
     });
     const registerRootUsageExecution = (scope?: SparkReproUsageScope): void => {
       if (!this.tokenUsageStore || rootUsageExecution) return;
@@ -349,7 +358,9 @@ export class SparkInvocationScheduler {
           persistence: observation.persistence ?? rootUsagePersistence,
           sessionId:
             observation.sessionId ??
-            (task.type === "loop.tick" ? task.ownerSessionId : task.sessionId),
+            (task.type === "loop.tick" || task.type === "loop.evaluate"
+              ? task.ownerSessionId
+              : task.sessionId),
           ...(observation.parentExecutionId
             ? { parentExecutionId: observation.parentExecutionId }
             : {}),
@@ -377,11 +388,15 @@ export class SparkInvocationScheduler {
             ? { detailKind: observation.detailKind }
             : task.type === "loop.tick"
               ? { detailKind: "loop_tick" }
-              : {}),
+              : task.type === "loop.evaluate"
+                ? { detailKind: "loop_evaluator" }
+                : {}),
           persistence: observation.persistence ?? rootUsagePersistence,
           sessionId:
             observation.sessionId ??
-            (task.type === "loop.tick" ? task.ownerSessionId : task.sessionId),
+            (task.type === "loop.tick" || task.type === "loop.evaluate"
+              ? task.ownerSessionId
+              : task.sessionId),
           ...(observation.parentExecutionId
             ? { parentExecutionId: observation.parentExecutionId }
             : {}),

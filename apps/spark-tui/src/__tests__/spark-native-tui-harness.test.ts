@@ -6,6 +6,8 @@ import { test } from "vitest";
 
 import {
   SPARK_PROTOCOL_VERSION,
+  sparkLoopCountersSchema,
+  sparkLoopPolicySchema,
   sparkSlashActionBarForInput,
   type SparkLoopStartRequest,
   type SparkInteractionRequest,
@@ -64,8 +66,10 @@ function recordingDriverControl(starts: SparkLoopStartRequest[]): SparkDaemonLoo
           binding: input.binding ?? {},
           ownerSessionId: input.ownerSessionId,
           status: "scheduled",
-          continuity: input.continuity,
+          continuity: input.continuity ?? "session",
           generation: 1,
+          policy: sparkLoopPolicySchema.parse(input.policy ?? {}),
+          counters: sparkLoopCountersSchema.parse({}),
           dueAt: input.dueAt ?? observedAt,
           attempt: 0,
           reason: input.reason,

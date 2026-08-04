@@ -197,7 +197,7 @@ export function completeInvocationWithChannelDelivery(
   completion: CompleteSparkInvocationInput,
 ): SparkInvocationRecord {
   const delivery =
-    completionSuppressesCompetingChannelDelivery(completion) || task.type === "loop.tick"
+    completionSuppressesCompetingChannelDelivery(completion) || task.type !== "session.run"
       ? undefined
       : channelReplyDeliveryForCompletion(
           task,

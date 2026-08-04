@@ -1,5 +1,9 @@
 import { expect, test, vi } from "vitest";
-import type { SparkLoopView } from "@zendev-lab/spark-protocol";
+import {
+  sparkLoopCountersSchema,
+  sparkLoopPolicySchema,
+  type SparkLoopView,
+} from "@zendev-lab/spark-protocol";
 import {
   ensureActiveReproLoop,
   type SparkReproLoopHealth,
@@ -16,6 +20,8 @@ function loopView(status: SparkLoopView["status"]): SparkLoopView {
     status,
     continuity: "session",
     generation: 1,
+    policy: sparkLoopPolicySchema.parse({}),
+    counters: sparkLoopCountersSchema.parse({}),
     attempt: 0,
   };
 }

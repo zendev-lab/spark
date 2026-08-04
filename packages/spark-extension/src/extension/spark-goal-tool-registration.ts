@@ -337,10 +337,14 @@ async function startGoalLoop(
     ownerSessionId,
     continuity: "session",
     cwd: ctx.cwd,
+    policy: {
+      cadenceMs: 30_000,
+      completion: { selector: "builtin:goal-reviewer", input: {} },
+    },
     prompt: [
       "Continue the daemon-owned Spark goal by one concrete turn.",
       `Goal: ${goal.objective}`,
-      'When fully verified, call goal({ action: "complete", reason, requirements, validationRuns, unresolved }) for reviewer gating.',
+      "Finish one useful tick; the daemon will run the trusted Goal completion reviewer afterward.",
     ].join("\n"),
     reason,
   });

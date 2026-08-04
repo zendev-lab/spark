@@ -67,6 +67,8 @@ describe("session live events", () => {
               status: "scheduled",
               continuity: "fresh",
               generation: 1,
+              policy: {},
+              counters: {},
               dueAt: "2026-07-13T08:00:30.000Z",
               attempt: 0,
             },

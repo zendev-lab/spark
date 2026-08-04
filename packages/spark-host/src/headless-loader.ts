@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
+  ExtensionRoleRunner,
   SparkHostLoopContext,
   SparkSessionLeaseIdentity,
   ToolEffect,
@@ -125,9 +126,15 @@ export type CreateSparkHeadlessSessionExecutorFn = (options?: {
   controlSparkHome?: string;
 }) => SparkHeadlessSessionExecutor;
 
+export type CreateSparkHeadlessRoleExecutorFn = (options?: {
+  sparkHome?: string;
+  controlSparkHome?: string;
+  tokenUsage?: SparkHeadlessTokenUsageContext;
+}) => ExtensionRoleRunner;
+
 export interface SparkHeadlessSessionModule {
   createSparkHeadlessSessionExecutor: CreateSparkHeadlessSessionExecutorFn;
-  createSparkHeadlessRoleExecutor?: unknown;
+  createSparkHeadlessRoleExecutor?: CreateSparkHeadlessRoleExecutorFn;
   runSparkHeadlessSession?: unknown;
 }
 
