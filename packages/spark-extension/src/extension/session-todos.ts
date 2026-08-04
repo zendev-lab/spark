@@ -15,6 +15,7 @@ import {
   isDeletedSessionTodo,
   type SessionTodoEntry,
   type SessionTodoStatus,
+  type SessionTodoUpdateResult,
 } from "@zendev-lab/spark-tasks";
 import { JsonStoreFormatError, readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 
@@ -143,6 +144,15 @@ export async function loadIndependentTodos(
   ctx: SparkSessionContext | undefined,
 ): Promise<SessionTodoEntry[]> {
   return defaultTaskTodoStore(cwd, sparkSessionKey(ctx)).loadSessionTodos(sparkSessionKey(ctx));
+}
+
+export async function updateIndependentTodos(
+  cwd: string,
+  ctx: SparkSessionContext | undefined,
+  update: (todos: SessionTodoEntry[]) => SessionTodoEntry[],
+): Promise<SessionTodoUpdateResult> {
+  const ownerRef = sparkSessionKey(ctx);
+  return defaultTaskTodoStore(cwd, ownerRef).updateSessionTodos(ownerRef, update);
 }
 
 export function visibleIndependentTodos(todos: SessionTodoEntry[]): SessionTodoEntry[] {
