@@ -9,6 +9,12 @@ import type {
   ToolEffect,
 } from "@zendev-lab/spark-core";
 import type { SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
+import type {
+  SparkReproUsageScope,
+  SparkUsageExecutionKind,
+  SparkUsageExecutionPersistence,
+  SparkUsageExecutionStatus,
+} from "@zendev-lab/spark-protocol/token-usage";
 
 export type SparkHeadlessRoleRunStatus =
   | "queued"
@@ -21,6 +27,40 @@ export type SparkHeadlessRoleRunStatus =
 export type SparkHeadlessUserContent =
   | string
   | Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
+
+export interface SparkHeadlessTokenUsageObservation {
+  event: unknown;
+  scope?: SparkReproUsageScope;
+  executionId?: string;
+  parentExecutionId?: string;
+  kind?: SparkUsageExecutionKind;
+  detailKind?: string;
+  persistence?: SparkUsageExecutionPersistence;
+  sessionId?: string;
+  runRef?: string;
+}
+
+export interface SparkHeadlessTokenUsageContext extends Omit<
+  SparkHeadlessTokenUsageObservation,
+  "event"
+> {
+  /**
+   * Repro scope may be resolved after the first provider response when the
+   * current turn creates the Repro. The daemon buffers those observations and
+   * binds them only if the same session owns an active Repro by turn end.
+   */
+  scope?: SparkReproUsageScope;
+  executionId: string;
+  kind: SparkUsageExecutionKind;
+  persistence: SparkUsageExecutionPersistence;
+  register?(execution: Omit<SparkHeadlessTokenUsageObservation, "event">): void;
+  settle?(input: {
+    executionId: string;
+    status: Exclude<SparkUsageExecutionStatus, "running">;
+    observedAt?: string;
+  }): void;
+  record(observation: SparkHeadlessTokenUsageObservation): void;
+}
 
 export interface SparkHeadlessSessionRunInput {
   cwd: string;
@@ -69,6 +109,8 @@ export interface SparkHeadlessSessionRunInput {
   approvalRejectAction?: "ask" | "deny";
   /** Daemon-owned UI bridge used by blocking and async structured asks. */
   interaction?: (request: ExtensionInteractionRequest) => Promise<ExtensionInteractionResponse>;
+  /** Internal daemon accounting context; never serialized onto the session transcript. */
+  tokenUsage?: SparkHeadlessTokenUsageContext;
   onEvent?: (event: unknown) => void | Promise<void>;
 }
 

@@ -23,6 +23,12 @@ import {
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
 } from "@zendev-lab/spark-turn";
+import type {
+  SparkReproUsageScope,
+  SparkUsageExecutionKind,
+  SparkUsageExecutionPersistence,
+  SparkUsageExecutionStatus,
+} from "@zendev-lab/spark-protocol/token-usage";
 
 export type SparkDaemonTask = SparkDaemonSessionRunTask | SparkDaemonDriverTickTask;
 
@@ -111,6 +117,28 @@ export interface SparkDaemonSessionRunTask {
 
 export type SparkDaemonEventSink = (event: SparkDaemonEvent) => void | Promise<void>;
 
+export interface SparkDaemonTokenUsageObservation {
+  event: unknown;
+  scope?: SparkReproUsageScope;
+  executionId?: string;
+  parentExecutionId?: string;
+  kind?: SparkUsageExecutionKind;
+  detailKind?: string;
+  persistence?: SparkUsageExecutionPersistence;
+  sessionId?: string;
+  runRef?: string;
+}
+
+export type SparkDaemonTokenUsageSink = (observation: SparkDaemonTokenUsageObservation) => void;
+export type SparkDaemonTokenUsageExecutionSink = (
+  observation: Omit<SparkDaemonTokenUsageObservation, "event">,
+) => void;
+export type SparkDaemonTokenUsageSettlementSink = (input: {
+  executionId: string;
+  status: Exclude<SparkUsageExecutionStatus, "running">;
+  observedAt?: string;
+}) => void;
+
 export interface SparkDaemonTaskExecutionContext {
   invocationId: string;
   signal: AbortSignal;
@@ -123,6 +151,12 @@ export interface SparkDaemonTaskExecutionContext {
    */
   yieldForRestartIfRequested?(checkpoint: SparkTurnResumeCheckpoint): void;
   emitEvent?: SparkDaemonEventSink;
+  /** Persisted repro attribution inherited by all child executions in this invocation. */
+  tokenUsageScope?: SparkReproUsageScope;
+  registerTokenUsageExecution?: SparkDaemonTokenUsageExecutionSink;
+  settleTokenUsageExecution?: SparkDaemonTokenUsageSettlementSink;
+  /** Daemon-owned leaf accounting sink. Failures are diagnostic and never retry a model turn. */
+  recordTokenUsage?: SparkDaemonTokenUsageSink;
 }
 
 export type SparkDaemonTaskExecutor = (

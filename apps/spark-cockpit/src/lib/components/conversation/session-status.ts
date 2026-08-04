@@ -58,12 +58,28 @@ export function sessionStatusIdentity(
   };
 }
 
-/** Merge the daemon snapshot baseline with run updates received after that snapshot. */
+/**
+ * Project the daemon-owned session lifetime snapshot.
+ *
+ * Run metadata has no durable watermark proving that it starts after the
+ * snapshot. It may already be included in `session.usage`, so adding the two
+ * would double count after every refreshed snapshot. Run totals are therefore
+ * a fallback only when the daemon did not provide cumulative usage; their
+ * latest context/cache fields may still refine display-only state.
+ */
 export function sessionStatusUsage(
   session: SparkSessionView | null,
   contextWindow?: number,
 ): SessionStatusUsage {
   const baseline = session?.usage;
+  const hasBaselineTotals = Boolean(
+    baseline &&
+    (baseline.inputTokens !== undefined ||
+      baseline.outputTokens !== undefined ||
+      baseline.cacheReadTokens !== undefined ||
+      baseline.cacheWriteTokens !== undefined ||
+      baseline.costUsd !== undefined),
+  );
   let usage: SessionStatusUsage = baseline ? { ...baseline } : {};
   for (const run of session?.runs ?? []) {
     if (run.kind !== "session") continue;
@@ -81,11 +97,18 @@ export function sessionStatusUsage(
     const latestContextWindow =
       contextWindow ?? numberValue(totals.contextWindow) ?? usage.contextWindow;
     usage = {
-      inputTokens: (usage.inputTokens ?? 0) + (numberValue(totals.inputTokens) ?? 0),
-      outputTokens: (usage.outputTokens ?? 0) + (numberValue(totals.outputTokens) ?? 0),
-      cacheReadTokens: (usage.cacheReadTokens ?? 0) + (numberValue(totals.cacheReadTokens) ?? 0),
-      cacheWriteTokens: (usage.cacheWriteTokens ?? 0) + (numberValue(totals.cacheWriteTokens) ?? 0),
-      costUsd: (usage.costUsd ?? 0) + (numberValue(totals.costUsd) ?? 0),
+      ...usage,
+      ...(!hasBaselineTotals
+        ? {
+            inputTokens: (usage.inputTokens ?? 0) + (numberValue(totals.inputTokens) ?? 0),
+            outputTokens: (usage.outputTokens ?? 0) + (numberValue(totals.outputTokens) ?? 0),
+            cacheReadTokens:
+              (usage.cacheReadTokens ?? 0) + (numberValue(totals.cacheReadTokens) ?? 0),
+            cacheWriteTokens:
+              (usage.cacheWriteTokens ?? 0) + (numberValue(totals.cacheWriteTokens) ?? 0),
+            costUsd: (usage.costUsd ?? 0) + (numberValue(totals.costUsd) ?? 0),
+          }
+        : {}),
       ...(latestCacheHitPercent !== undefined ? { latestCacheHitPercent } : {}),
       ...(latestContextTokens !== undefined ? { contextTokens: latestContextTokens } : {}),
       ...(latestContextTokenSource ? { contextTokenSource: latestContextTokenSource } : {}),

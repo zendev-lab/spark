@@ -14,7 +14,8 @@
   "exports": {
     "./extension": "./src/extension/index.ts",
     "./extension/memory-approval-verifier": "./src/extension/memory-approval-verifier.ts",
-    "./host-support": "./src/host-support.ts"
+    "./host-support": "./src/host-support.ts",
+    "./repro-report-summary": "./src/repro-report-summary.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run --config vitest.config.ts",

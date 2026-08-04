@@ -12,6 +12,7 @@ import {
   isSparkTurnResumeCheckpointPersistable,
   type SparkTurnResumeCheckpoint,
 } from "@zendev-lab/spark-turn";
+import type { SparkReproUsageScope } from "@zendev-lab/spark-protocol/token-usage";
 import {
   SPARK_INVOCATION_INTERRUPTED_ERROR_CODE,
   SPARK_INVOCATION_INTERRUPTED_ERROR_MESSAGE,
@@ -20,12 +21,14 @@ import {
   type SparkInvocationEvent,
   type SparkInvocationRecord,
 } from "../store/invocations.ts";
+import { SparkTokenUsageStore, type RegisterUsageExecutionInput } from "../store/token-usage.ts";
 import { artifactDaemonProjectionEventFromToolResult } from "../artifact-projection.ts";
 import {
   getSparkDaemonTaskSessionId,
   validateSparkDaemonTask,
   type SparkDaemonTask,
   type SparkDaemonTaskExecutor,
+  type SparkDaemonTokenUsageObservation,
 } from "./types.ts";
 
 export const DEFAULT_INVOCATION_SCHEDULER_CONCURRENCY = 4;
@@ -69,6 +72,9 @@ export interface SparkInvocationSchedulerOptions {
   initiallyAccepting?: boolean;
   /** Restart-only signal used to cooperatively yield at model-to-tool boundaries. */
   restartRequestedSignal?: AbortSignal;
+  tokenUsageStore?: SparkTokenUsageStore;
+  /** Daemon-owned lookup of the active Repro bound to a persistent root session. */
+  resolveReproUsageScope?: (task: SparkDaemonTask) => Promise<SparkReproUsageScope | undefined>;
 }
 
 export class SparkInvocationScheduler {
@@ -82,6 +88,8 @@ export class SparkInvocationScheduler {
   private readonly concurrency: number;
   private readonly taskTimeoutMs: number;
   private readonly restartRequestedSignal?: AbortSignal;
+  private readonly tokenUsageStore?: SparkTokenUsageStore;
+  private readonly resolveReproUsageScope?: SparkInvocationSchedulerOptions["resolveReproUsageScope"];
   private readonly active = new Map<string, ActiveInvocation>();
   private readonly activeSessions = new Set<string>();
   private accepting: boolean;
@@ -103,6 +111,8 @@ export class SparkInvocationScheduler {
       DEFAULT_INVOCATION_TASK_TIMEOUT_MS,
     );
     this.restartRequestedSignal = options.restartRequestedSignal;
+    this.tokenUsageStore = options.tokenUsageStore;
+    this.resolveReproUsageScope = options.resolveReproUsageScope;
     this.accepting = options.initiallyAccepting !== false;
   }
 
@@ -286,6 +296,163 @@ export class SparkInvocationScheduler {
     let executorSettled: Promise<unknown> | undefined;
     let streamedEventCount = 0;
     let restartYieldCommitted = false;
+    const rootUsagePersistence =
+      task.type === "driver.tick"
+        ? task.continuity === "fresh"
+          ? "anonymous"
+          : "persistent"
+        : task.hiddenExecution
+          ? "anonymous"
+          : "persistent";
+    let rootUsageExecution: ReturnType<SparkTokenUsageStore["registerExecution"]> | undefined;
+    const pendingUsageRegistrations: Array<Omit<SparkDaemonTokenUsageObservation, "event">> = [];
+    const pendingUsageObservations: SparkDaemonTokenUsageObservation[] = [];
+    const pendingUsageSettlements: Array<{
+      executionId: string;
+      status: "complete" | "failed" | "cancelled";
+      observedAt?: string;
+    }> = [];
+    const rootExecutionInput = (scope?: SparkReproUsageScope): RegisterUsageExecutionInput => ({
+      invocationId: invocation.invocationId,
+      ...(scope ? { scope } : {}),
+      kind: "root_session" as const,
+      kindProvisional: task.type === "session.run",
+      ...(task.type === "driver.tick" ? { detailKind: "driver_tick" } : {}),
+      persistence: rootUsagePersistence,
+      sessionId: task.type === "driver.tick" ? task.ownerSessionId : task.sessionId,
+    });
+    const registerRootUsageExecution = (scope?: SparkReproUsageScope): void => {
+      if (!this.tokenUsageStore || rootUsageExecution) return;
+      try {
+        rootUsageExecution = this.tokenUsageStore.registerExecution(rootExecutionInput(scope));
+      } catch (error) {
+        console.error(
+          `[spark-daemon] failed to register token usage execution ${invocation.invocationId}`,
+          error,
+        );
+      }
+    };
+    const registerUsageExecution = (
+      observation: Omit<SparkDaemonTokenUsageObservation, "event">,
+    ): void => {
+      if (!rootUsageExecution) {
+        pendingUsageRegistrations.push(observation);
+        return;
+      }
+      try {
+        this.tokenUsageStore?.registerExecution({
+          invocationId: invocation.invocationId,
+          scope: rootUsageExecution.scope,
+          executionId: observation.executionId ?? invocation.invocationId,
+          kind: observation.kind ?? "root_session",
+          ...(observation.detailKind ? { detailKind: observation.detailKind } : {}),
+          persistence: observation.persistence ?? rootUsagePersistence,
+          sessionId:
+            observation.sessionId ??
+            (task.type === "driver.tick" ? task.ownerSessionId : task.sessionId),
+          ...(observation.parentExecutionId
+            ? { parentExecutionId: observation.parentExecutionId }
+            : {}),
+          ...(observation.runRef ? { runRef: observation.runRef } : {}),
+        });
+      } catch (error) {
+        console.error(
+          `[spark-daemon] failed to register child token usage execution for ${invocation.invocationId}`,
+          error,
+        );
+      }
+    };
+    const recordUsage = (observation: SparkDaemonTokenUsageObservation): void => {
+      if (!rootUsageExecution) {
+        pendingUsageObservations.push(observation);
+        return;
+      }
+      try {
+        this.tokenUsageStore?.recordTurnComplete({
+          invocationId: invocation.invocationId,
+          scope: rootUsageExecution.scope,
+          executionId: observation.executionId ?? invocation.invocationId,
+          kind: observation.kind ?? "root_session",
+          ...(observation.detailKind
+            ? { detailKind: observation.detailKind }
+            : task.type === "driver.tick"
+              ? { detailKind: "driver_tick" }
+              : {}),
+          persistence: observation.persistence ?? rootUsagePersistence,
+          sessionId:
+            observation.sessionId ??
+            (task.type === "driver.tick" ? task.ownerSessionId : task.sessionId),
+          ...(observation.parentExecutionId
+            ? { parentExecutionId: observation.parentExecutionId }
+            : {}),
+          ...(observation.runRef ? { runRef: observation.runRef } : {}),
+          event: observation.event,
+        });
+      } catch (error) {
+        console.error(
+          `[spark-daemon] failed to record token usage for ${invocation.invocationId}`,
+          error,
+        );
+      }
+    };
+    const settleUsageExecution = (settlement: {
+      executionId: string;
+      status: "complete" | "failed" | "cancelled";
+      observedAt?: string;
+    }): void => {
+      if (!rootUsageExecution) {
+        pendingUsageSettlements.push(settlement);
+        return;
+      }
+      try {
+        this.tokenUsageStore?.settleExecution(
+          settlement.executionId,
+          settlement.status,
+          settlement.observedAt,
+        );
+      } catch (error) {
+        console.error(
+          `[spark-daemon] failed to settle child token usage execution ${settlement.executionId}`,
+          error,
+        );
+      }
+    };
+    const flushPendingUsage = (): void => {
+      if (!rootUsageExecution) return;
+      for (const observation of pendingUsageRegistrations.splice(0)) {
+        registerUsageExecution(observation);
+      }
+      for (const observation of pendingUsageObservations.splice(0)) recordUsage(observation);
+      for (const settlement of pendingUsageSettlements.splice(0)) {
+        settleUsageExecution(settlement);
+      }
+    };
+    const bindLateReproUsageScope = async (): Promise<void> => {
+      if (rootUsageExecution) return;
+      // A parent execution may itself have been late-bound while this child
+      // was running. Re-try causal inheritance before consulting root-session
+      // state owned by this exact session.
+      registerRootUsageExecution();
+      if (rootUsageExecution) {
+        flushPendingUsage();
+        return;
+      }
+      if (task.type !== "session.run" || task.hiddenExecution) return;
+      const scope = await this.resolveCurrentReproUsageScope(task);
+      if (!scope) return;
+      registerRootUsageExecution(scope);
+      flushPendingUsage();
+    };
+    if (this.tokenUsageStore) {
+      registerRootUsageExecution(
+        task.type === "driver.tick" && task.kind === "repro"
+          ? { kind: "repro", reproId: task.driverId }
+          : undefined,
+      );
+      if (!rootUsageExecution && task.type === "session.run" && !task.hiddenExecution) {
+        registerRootUsageExecution(await this.resolveCurrentReproUsageScope(task));
+      }
+    }
     try {
       const context = {
         invocationId: invocation.invocationId,
@@ -315,20 +482,35 @@ export class SparkInvocationScheduler {
             ),
           );
         },
+        ...(this.tokenUsageStore
+          ? {
+              ...(rootUsageExecution ? { tokenUsageScope: rootUsageExecution.scope } : {}),
+              registerTokenUsageExecution: registerUsageExecution,
+              settleTokenUsageExecution: settleUsageExecution,
+              recordTokenUsage: recordUsage,
+            }
+          : {}),
       };
       executorSettled = this.executeTask(task, context);
       trackExecutorSettlement(executorSettled);
       const result = await Promise.race([executorSettled, abortPromise(controller.signal)]);
+      await bindLateReproUsageScope();
       if (streamedEventCount === 0) {
         for (const event of daemonEventsFromTaskResult(result, task, invocation.invocationId)) {
           this.emit(event);
         }
       }
       this.completeInvocation(invocation, task, { status: "succeeded", result });
+      this.settleTokenUsageExecution(rootUsageExecution?.executionId, "complete");
       this.emit(lifecycleEvent(invocation.invocationId, task, "succeeded"));
     } catch (error) {
-      if (restartYieldCommitted && isSparkTurnRestartYieldError(error)) return;
+      if (restartYieldCommitted && isSparkTurnRestartYieldError(error)) {
+        await bindLateReproUsageScope();
+        return;
+      }
       const reason = abortReason(controller.signal, error);
+      const usageStatus =
+        reason instanceof InvocationCancelledError ? ("cancelled" as const) : ("failed" as const);
       if (reason instanceof InvocationCancelledError) {
         this.completeInvocation(invocation, task, {
           status: "cancelled",
@@ -350,8 +532,34 @@ export class SparkInvocationScheduler {
         // can continue side effects after restart and overlap an explicit retry.
         await executorSettled.catch(() => undefined);
       }
+      await bindLateReproUsageScope();
+      this.settleTokenUsageExecution(rootUsageExecution?.executionId, usageStatus);
     } finally {
       timeout.clear();
+    }
+  }
+
+  private settleTokenUsageExecution(
+    executionId: string | undefined,
+    status: "complete" | "failed" | "cancelled",
+  ): void {
+    if (!executionId) return;
+    try {
+      this.tokenUsageStore?.settleExecution(executionId, status);
+    } catch (error) {
+      console.error(`[spark-daemon] failed to settle token usage execution ${executionId}`, error);
+    }
+  }
+
+  private async resolveCurrentReproUsageScope(
+    task: SparkDaemonTask,
+  ): Promise<SparkReproUsageScope | undefined> {
+    if (!this.resolveReproUsageScope) return undefined;
+    try {
+      return await this.resolveReproUsageScope(task);
+    } catch (error) {
+      console.error("[spark-daemon] failed to resolve active Repro token usage scope", error);
+      return undefined;
     }
   }
 

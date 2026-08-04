@@ -200,6 +200,7 @@ export function registerSparkRunReadyTasksTool(
             cwd,
             ctx,
             ownerSessionId,
+            ...(ctx.invocationId ? { parentInvocationId: ctx.invocationId } : {}),
             projectRef: project.ref,
             taskRefs: packing.scheduled.map((packed) => packed.taskRef),
             registry,

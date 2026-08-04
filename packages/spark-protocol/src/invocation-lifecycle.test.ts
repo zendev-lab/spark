@@ -55,9 +55,11 @@ describe("invocation lifecycle protocol", () => {
     const valid = sparkTurnSubmitRequestSchema.parse({
       sessionId: "sess-1",
       prompt: "hello",
+      parentInvocationId: "inv_parent",
       model: "anthropic/claude-sonnet-4-20250514",
     });
     expect(valid.model).toBe("anthropic/claude-sonnet-4-20250514");
+    expect(valid.parentInvocationId).toBe("inv_parent");
 
     // Without model — should be undefined
     const noModel = sparkTurnSubmitRequestSchema.parse({

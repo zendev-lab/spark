@@ -44,7 +44,7 @@ function reproProjectTitle(objective: string): string {
 export async function createProjectBackedSessionRepro(
   cwd: string,
   ctx: SparkSessionContext | undefined,
-  input: { objective?: string; existing?: SparkSessionRepro } = {},
+  input: { objective?: string; reproId?: string; existing?: SparkSessionRepro } = {},
 ): Promise<ReproProjectBindingResult> {
   const existing = input.existing;
   if (existing?.projectRef) {

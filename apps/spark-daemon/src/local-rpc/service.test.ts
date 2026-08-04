@@ -9,6 +9,8 @@ import {
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { upsertSparkDaemonServerProfile } from "../server-profiles.ts";
 import { openSparkDaemonDatabase } from "../store/schema.ts";
+import { SparkInvocationStore } from "../store/invocations.ts";
+import { SparkTokenUsageStore } from "../store/token-usage.ts";
 import { registerWorkspace } from "../store/workspaces.ts";
 import { handleLocalRpcLine } from "./dispatch.ts";
 import { invokeLocalRpcService, localRpcServiceHandlerMethodGroups } from "./service.ts";
@@ -42,6 +44,145 @@ describe("transport-neutral local RPC service", () => {
     expect(direct).not.toHaveProperty("id");
     expect(direct).not.toHaveProperty("ok");
     expect(legacy).toEqual({ id: "rpc_workspace_list", ok: true, result: direct });
+    db.close();
+  });
+
+  it("serves the persisted repro token aggregate through read-only usage.summary", async () => {
+    const { paths, db } = createFixture();
+    const invocations = new SparkInvocationStore(db);
+    const tokenUsage = new SparkTokenUsageStore(db);
+    const invocation = invocations.submit({
+      sessionId: "session-usage-rpc",
+      prompt: "measure",
+      now: "2026-08-03T00:00:00.000Z",
+    });
+    invocations.claimNext("worker", "2026-08-03T00:00:01.000Z");
+    tokenUsage.recordTurnComplete({
+      invocationId: invocation.invocationId,
+      scope: { kind: "repro", reproId: "repro-rpc" },
+      event: {
+        type: "turn_complete",
+        message: {
+          provider: "openai",
+          model: "test-model",
+          responseId: "response-rpc",
+          content: [{ type: "text", text: "done" }],
+          usage: {
+            input: 5,
+            output: 3,
+            cacheRead: 2,
+            cacheWrite: 1,
+            totalTokens: 999,
+          },
+          stopReason: "stop",
+          timestamp: Date.parse("2026-08-03T00:00:02.000Z"),
+        },
+        reason: "stop",
+      },
+    });
+    invocations.complete(invocation.invocationId, {
+      status: "succeeded",
+      now: "2026-08-03T00:00:03.000Z",
+    });
+    const before = tokenUsage.receiptCount();
+
+    const result = await invokeLocalRpcService(
+      "usage.summary",
+      { scope: { kind: "repro", reproId: "repro-rpc" } },
+      { paths, db },
+    );
+
+    expect(result).toMatchObject({
+      scope: { kind: "repro", reproId: "repro-rpc" },
+      quality: "exact",
+      totalTokens: 11,
+      activeExecutionCount: 0,
+      responseCount: 1,
+      missingResponseCount: 0,
+      reported: { totalTokens: 11 },
+      estimated: { totalTokens: 0 },
+      byExecutionKind: { root_session: { totalTokens: 11 } },
+      byModel: { "openai/test-model": { totalTokens: 11 } },
+    });
+    expect(result).not.toHaveProperty("executionCount");
+    expect(result).not.toHaveProperty("unsupportedSources");
+    const persistence = await invokeLocalRpcService(
+      "usage.persistence",
+      { scope: { kind: "repro", reproId: "repro-rpc" } },
+      { paths, db },
+    );
+    expect(persistence).toMatchObject({
+      scope: { kind: "repro", reproId: "repro-rpc" },
+      byPersistence: {
+        anonymous: { quality: "unknown", totalTokens: 0, responseCount: 0 },
+        persistent: { quality: "exact", totalTokens: 11, responseCount: 1 },
+      },
+    });
+    expect(persistence).not.toHaveProperty("receipts");
+    expect(tokenUsage.receiptCount()).toBe(before);
+    db.close();
+  });
+
+  it("imports only explicitly attributed legacy usage and records provable coverage gaps", async () => {
+    const { paths, db } = createFixture();
+    const invocation = new SparkInvocationStore(db).submit({
+      sessionId: "session-legacy-rpc",
+      prompt: "legacy",
+      now: "2026-08-03T00:00:00.000Z",
+    });
+    const common = {
+      invocationId: invocation.invocationId,
+      scope: { kind: "repro" as const, reproId: "repro-legacy-rpc" },
+      executionKind: "root_session" as const,
+      persistence: "persistent" as const,
+      observedAt: "2026-08-03T00:00:01.000Z",
+    };
+    const response = {
+      ...common,
+      action: "response" as const,
+      sourceEventId: "assistant-entry-1",
+      provider: "openai",
+      model: "legacy-model",
+      usage: {
+        inputTokens: 5,
+        outputTokens: 3,
+        cacheReadTokens: 1,
+        cacheWriteTokens: 0,
+        totalTokens: 9,
+      },
+    };
+    await expect(invokeLocalRpcService("usage.backfill", response, { paths, db })).resolves.toEqual(
+      { recorded: true },
+    );
+    await expect(invokeLocalRpcService("usage.backfill", response, { paths, db })).resolves.toEqual(
+      { recorded: false },
+    );
+    await expect(
+      invokeLocalRpcService(
+        "usage.backfill",
+        {
+          ...common,
+          action: "coverage_gap",
+          sourceEventId: "assistant-range-unproven",
+          executionId: "legacy-gap:assistant-range-unproven",
+          reason: "unproven_seed_boundary",
+        },
+        { paths, db },
+      ),
+    ).resolves.toEqual({ recorded: true });
+
+    const aggregate = await invokeLocalRpcService(
+      "usage.summary",
+      { scope: common.scope },
+      { paths, db },
+    );
+    expect(aggregate).toMatchObject({
+      quality: "partial",
+      totalTokens: 9,
+      responseCount: 2,
+      missingResponseCount: 1,
+      coverageGapCount: 1,
+    });
     db.close();
   });
 

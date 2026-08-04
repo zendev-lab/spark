@@ -6,6 +6,7 @@ import {
   resolveLeafModelId,
   runSparkLeaf,
   type SparkLeafModelBinding,
+  type SparkLeafProviderAttemptObservation,
   type SparkLeafRequest,
 } from "./leaf-runner.ts";
 import type { SparkProviderStreamFunction } from "./provider-runner.ts";
@@ -137,6 +138,8 @@ function bindingFor(
 ): SparkLeafModelBinding {
   return {
     sparkModelId: profile.id,
+    provider: "baidu-oneapi",
+    model: "opus-4.8",
     resolver: new SparkRouteResolver(new SparkModelRegistry([profile]), { clock: new FakeClock() }),
     stream,
   };
@@ -174,6 +177,65 @@ test("runSparkLeaf issues exactly one bounded completion with no tools", async (
   assert.equal(calls[0]?.maxTokens, 2048);
   assert.equal(calls[0]?.userContent, "candidate text");
   assert.match(calls[0]?.systemPrompt ?? "", /bounded Spark leaf capability/);
+});
+
+test("runSparkLeaf observes each successful provider response exactly once", async () => {
+  const observations: SparkLeafProviderAttemptObservation[] = [];
+  const result = await runSparkLeaf(baseRequest, {
+    resolveBinding: () => bindingFor(stubStream("metered", [])),
+    createAttemptId: () => "leaf-attempt-success",
+    now: () => 1_700_000_000_123,
+    observeProviderAttempt: (observation) => observations.push(observation),
+  });
+
+  assert.equal(result.degraded, false);
+  assert.equal(observations.length, 1);
+  const observation = observations[0];
+  assert.ok(observation);
+  assert.equal(observation.attemptId, "leaf-attempt-success");
+  assert.equal(observation.outcome, "response");
+  assert.equal(observation.observedAt, 1_700_000_000_123);
+  if (observation.outcome !== "response") throw new Error("expected response observation");
+  assert.equal(observation.message.usage !== undefined, true);
+});
+
+test("runSparkLeaf observes a stable missing receipt after an attempted provider failure", async () => {
+  const observations: SparkLeafProviderAttemptObservation[] = [];
+  const result = await runSparkLeaf(baseRequest, {
+    resolveBinding: () => bindingFor(throwingStream(new Error("provider failed"), { count: 0 })),
+    createAttemptId: () => "leaf-attempt-failed",
+    now: () => 1_700_000_000_456,
+    observeProviderAttempt: (observation) => observations.push(observation),
+  });
+
+  assert.equal(result.degraded, true);
+  assert.equal(observations.length, 1);
+  assert.deepEqual(observations[0], {
+    attemptId: "leaf-attempt-failed",
+    outcome: "missing",
+    provider: "baidu-oneapi",
+    model: "opus-4.8",
+    observedAt: 1_700_000_000_456,
+  });
+});
+
+test("runSparkLeaf emits no accounting observation before a provider binding exists", async () => {
+  const observations: SparkLeafProviderAttemptObservation[] = [];
+  const noModel = await runSparkLeaf(
+    { role: "r", brief: "b", input: "i" },
+    {
+      resolveBinding: () => bindingFor(stubStream("unused", [])),
+      observeProviderAttempt: (observation) => observations.push(observation),
+    },
+  );
+  const noBinding = await runSparkLeaf(baseRequest, {
+    resolveBinding: () => undefined,
+    observeProviderAttempt: (observation) => observations.push(observation),
+  });
+
+  assert.equal(noModel.reasonCode, "no-model");
+  assert.equal(noBinding.reasonCode, "model-binding-unavailable");
+  assert.deepEqual(observations, []);
 });
 
 test("runSparkLeaf resolves and reports the session-default model id", async () => {

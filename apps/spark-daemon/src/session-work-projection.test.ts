@@ -5,6 +5,10 @@ import { dirname, join } from "node:path";
 import type { EvidenceRef } from "@zendev-lab/spark-core";
 import { sessionGoalStorePathV2, sessionReproStorePathV2 } from "@zendev-lab/spark-loop";
 import type { SparkDriverView } from "@zendev-lab/spark-protocol";
+import type {
+  SparkTokenUsageAggregate,
+  SparkTokenUsageByPersistence,
+} from "@zendev-lab/spark-protocol/token-usage";
 import {
   createSparkSessionRepro,
   stepDefinitionDigest,
@@ -15,6 +19,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   projectSparkSessionWork,
+  resolveActiveSessionReproUsageScope,
   selectPrimarySessionDriver,
   type SparkSessionWorkProjectionDiagnostic,
 } from "./session-work-projection.ts";
@@ -37,6 +42,22 @@ describe("session work projection", () => {
     ];
 
     expect(selectPrimarySessionDriver(drivers)?.driverId).toBe("a-repro");
+  });
+
+  it("resolves usage scope only from the Repro owned by the exact session", async () => {
+    const cwd = await tempCwd();
+    const repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
+      objective: "Own root-session token usage",
+    });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 6, repro });
+
+    await expect(resolveActiveSessionReproUsageScope({ cwd, sessionId })).resolves.toEqual({
+      kind: "repro",
+      reproId: repro.reproId,
+    });
+    await expect(
+      resolveActiveSessionReproUsageScope({ cwd, sessionId: "another-session" }),
+    ).resolves.toBeUndefined();
   });
 
   it("joins durable Goal/Repro state into a bounded display projection", async () => {
@@ -117,6 +138,99 @@ describe("session work projection", () => {
     ]);
   });
 
+  it("projects daemon-owned Repro token usage without reading transcript totals", async () => {
+    const cwd = await tempCwd();
+    const repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
+      objective: "Account for this reproduction",
+    });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 6, repro });
+    const tokenUsage: SparkTokenUsageAggregate = {
+      scope: { kind: "repro", reproId: repro.reproId },
+      reported: breakdown(12),
+      estimated: breakdown(3),
+      totalTokens: 15,
+      responseCount: 3,
+      estimatedResponseCount: 1,
+      missingResponseCount: 1,
+      activeExecutionCount: 1,
+      quality: "partial",
+      byExecutionKind: { root_session: breakdown(15) },
+      byModel: { "provider/model": breakdown(15) },
+      asOf: "2026-08-03T00:00:00.000Z",
+    };
+    const requestedScopes: Array<{ kind: "repro"; reproId: string }> = [];
+    const tokenUsageByPersistence: SparkTokenUsageByPersistence = {
+      scope: tokenUsage.scope,
+      byPersistence: {
+        anonymous: {
+          quality: "exact",
+          totalTokens: 3,
+          activeExecutionCount: 0,
+          responseCount: 1,
+          estimatedResponseCount: 0,
+          missingResponseCount: 0,
+          reported: breakdown(3),
+          estimated: breakdown(0),
+        },
+        persistent: {
+          quality: "partial",
+          totalTokens: 12,
+          activeExecutionCount: 1,
+          responseCount: 2,
+          estimatedResponseCount: 1,
+          missingResponseCount: 1,
+          reported: breakdown(9),
+          estimated: breakdown(3),
+        },
+      },
+      asOf: tokenUsage.asOf,
+    };
+
+    const work = await projectSparkSessionWork({
+      cwd,
+      sessionId,
+      drivers: [driver(repro.reproId, "repro", "running")],
+      tokenUsage: (scope) => {
+        requestedScopes.push(scope);
+        return tokenUsage;
+      },
+      tokenUsageByPersistence: (scope) => {
+        requestedScopes.push(scope);
+        return tokenUsageByPersistence;
+      },
+    });
+
+    expect(requestedScopes).toEqual([
+      { kind: "repro", reproId: repro.reproId },
+      { kind: "repro", reproId: repro.reproId },
+    ]);
+    expect(work?.repro?.tokenUsage).toEqual(tokenUsage);
+    expect(work?.repro?.tokenUsageByPersistence).toEqual(tokenUsageByPersistence);
+  });
+
+  it("keeps Repro work available when token usage aggregation fails", async () => {
+    const cwd = await tempCwd();
+    const repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
+      objective: "Keep the technical work visible",
+    });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 6, repro });
+    const diagnostics: string[] = [];
+
+    const work = await projectSparkSessionWork({
+      cwd,
+      sessionId,
+      drivers: [driver(repro.reproId, "repro", "running")],
+      tokenUsage: () => {
+        throw new Error("ledger unavailable");
+      },
+      onDiagnostic: (diagnostic) => diagnostics.push(diagnostic.code),
+    });
+
+    expect(work?.repro?.reproId).toBe(repro.reproId);
+    expect(work?.repro?.tokenUsage).toBeUndefined();
+    expect(diagnostics).toContain("token_usage_unavailable");
+  });
+
   it("keeps a valid Goal projection when Repro state is corrupt", async () => {
     const cwd = await tempCwd();
     const timestamp = "2026-07-28T00:00:00.000Z";
@@ -188,4 +302,14 @@ async function tempCwd(): Promise<string> {
 async function writeJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function breakdown(totalTokens: number) {
+  return {
+    inputTokens: totalTokens,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens,
+  };
 }

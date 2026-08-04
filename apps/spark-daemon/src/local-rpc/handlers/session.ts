@@ -11,6 +11,7 @@ import {
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 import { executeSparkDaemonSessionControl } from "../../session-control.ts";
 import { SparkDriverStore } from "../../store/drivers.ts";
+import { SparkTokenUsageStore } from "../../store/token-usage.ts";
 import { projectSparkSessionWork } from "../../session-work-projection.ts";
 import {
   deliverSessionNotificationFromLocalRpc,
@@ -108,10 +109,13 @@ export async function handleSessionRequest(
           reason: driver.reason,
           error: driver.error,
         }));
+      const tokenUsageStore = new SparkTokenUsageStore(db);
       const work = await projectSparkSessionWork({
         cwd: snapshot.cwd,
         sessionId: request.params.sessionId,
         drivers,
+        tokenUsage: (scope) => tokenUsageStore.summarize({ scope }),
+        tokenUsageByPersistence: (scope) => tokenUsageStore.summarizeByPersistence({ scope }),
       });
       const withDrivers = parseSparkSessionView({
         ...snapshot,

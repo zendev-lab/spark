@@ -13,6 +13,11 @@ import {
   type SparkSessionReproWorkView,
   type SparkSessionWorkView,
 } from "@zendev-lab/spark-protocol";
+import type {
+  SparkReproUsageScope,
+  SparkTokenUsageAggregate,
+  SparkTokenUsageByPersistence,
+} from "@zendev-lab/spark-protocol/token-usage";
 import {
   currentReproStage,
   nextReproStep,
@@ -21,7 +26,11 @@ import {
 } from "@zendev-lab/spark-repro";
 
 export interface SparkSessionWorkProjectionDiagnostic {
-  code: "goal_state_unavailable" | "repro_state_unavailable" | "work_projection_invalid";
+  code:
+    | "goal_state_unavailable"
+    | "repro_state_unavailable"
+    | "token_usage_unavailable"
+    | "work_projection_invalid";
   domain: "goal" | "repro" | "work";
   sessionId: string;
 }
@@ -30,6 +39,9 @@ interface ProjectSparkSessionWorkInput {
   cwd?: string;
   sessionId: string;
   drivers: readonly SparkDriverView[];
+  /** Daemon-owned projection hook. Durable Repro/UI code never reads ledger storage. */
+  tokenUsage?: (scope: SparkReproUsageScope) => SparkTokenUsageAggregate;
+  tokenUsageByPersistence?: (scope: SparkReproUsageScope) => SparkTokenUsageByPersistence;
   onDiagnostic?: (diagnostic: SparkSessionWorkProjectionDiagnostic) => void;
 }
 
@@ -60,6 +72,20 @@ export function selectPrimarySessionDriver(
   )[0];
 }
 
+/**
+ * Resolve only the Repro currently owned by this persistent session. Completed
+ * runs deliberately stop attributing later, unrelated turns. The scheduler
+ * calls this both before a turn and once after it so the turn that creates a
+ * Repro can be bound without scanning or replaying transcript history.
+ */
+export async function resolveActiveSessionReproUsageScope(input: {
+  cwd: string;
+  sessionId: string;
+}): Promise<SparkReproUsageScope | undefined> {
+  const repro = await readRepro(input.cwd, input.sessionId);
+  return repro?.status === "active" ? { kind: "repro", reproId: repro.reproId } : undefined;
+}
+
 export async function projectSparkSessionWork(
   input: ProjectSparkSessionWorkInput,
 ): Promise<SparkSessionWorkView | undefined> {
@@ -80,7 +106,28 @@ export async function projectSparkSessionWork(
     recordDiagnostic(input, "work_projection_invalid", "goal");
   }
 
-  const projectedRepro = repro ? projectReproWork(repro) : undefined;
+  let tokenUsage: SparkTokenUsageAggregate | undefined;
+  let tokenUsageByPersistence: SparkTokenUsageByPersistence | undefined;
+  if (repro && input.tokenUsage) {
+    try {
+      tokenUsage = input.tokenUsage({ kind: "repro", reproId: repro.reproId });
+    } catch {
+      recordDiagnostic(input, "token_usage_unavailable", "repro");
+    }
+  }
+  if (repro && input.tokenUsageByPersistence) {
+    try {
+      tokenUsageByPersistence = input.tokenUsageByPersistence({
+        kind: "repro",
+        reproId: repro.reproId,
+      });
+    } catch {
+      recordDiagnostic(input, "token_usage_unavailable", "repro");
+    }
+  }
+  const projectedRepro = repro
+    ? projectReproWork(repro, tokenUsage, tokenUsageByPersistence)
+    : undefined;
   const parsedRepro = projectedRepro
     ? sparkSessionReproWorkViewSchema.safeParse(projectedRepro)
     : undefined;
@@ -119,7 +166,11 @@ function projectGoalWork(goal: SparkSessionGoal): SparkSessionGoalWorkView {
   };
 }
 
-function projectReproWork(repro: SparkSessionRepro): SparkSessionReproWorkView {
+function projectReproWork(
+  repro: SparkSessionRepro,
+  tokenUsage?: SparkTokenUsageAggregate,
+  tokenUsageByPersistence?: SparkTokenUsageByPersistence,
+): SparkSessionReproWorkView {
   const stage = currentReproStage(repro);
   const currentStep = nextReproStep(repro);
   const latestVerification = [...repro.plan.steps]
@@ -173,6 +224,8 @@ function projectReproWork(repro: SparkSessionRepro): SparkSessionReproWorkView {
           },
         }
       : {}),
+    ...(tokenUsage ? { tokenUsage } : {}),
+    ...(tokenUsageByPersistence ? { tokenUsageByPersistence } : {}),
     updatedAt: repro.updatedAt,
   };
 }

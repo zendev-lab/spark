@@ -11,7 +11,12 @@ import {
   retagAssistantMessageStream,
   type ResolvedSparkModelIdentity,
 } from "./model-routing.ts";
-import { runSparkLeaf, type SparkLeafModelBinding, type SparkLeafRequest } from "./leaf-runner.ts";
+import {
+  runSparkLeaf,
+  type SparkLeafModelBinding,
+  type SparkLeafProviderAttemptObserver,
+  type SparkLeafRequest,
+} from "./leaf-runner.ts";
 import { normalizeProviderStream, type SparkProviderStreamFunction } from "./provider-runner.ts";
 import type {
   ProviderConfig,
@@ -26,6 +31,8 @@ import {
 export interface SparkLeafHostRunnerOptions {
   registry: SparkProviderRegistry;
   runnerOptions?: ProviderRegistryRunnerOptions;
+  /** Optional owning-execution accounting hook for actual provider attempts. */
+  observeProviderAttempt?: SparkLeafProviderAttemptObserver;
 }
 
 /**
@@ -64,6 +71,9 @@ export function createProviderRegistryLeafRunner(
     const result = await runSparkLeaf(leafRequest, {
       resolveBinding: (_req, modelId) =>
         resolveBinding(options.registry, modelId, options.runnerOptions),
+      ...(options.observeProviderAttempt
+        ? { observeProviderAttempt: options.observeProviderAttempt }
+        : {}),
     });
 
     return {
@@ -92,6 +102,8 @@ function resolveBinding(
   }
   return {
     sparkModelId: profile.id,
+    provider: selection.providerName,
+    model: selection.modelId,
     resolver: new SparkRouteResolver(new SparkModelRegistry([profile])),
     stream: createSelectionStreamFunction(provider, selection, runnerOptions),
   };

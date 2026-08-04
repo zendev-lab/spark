@@ -8,9 +8,12 @@ export {
   isLegacyArtifactBody,
   isStoredArtifactBody,
   isStoredArtifactKind,
+  isWritableArtifactBody,
   type ForgeHost,
   type ArtifactProgress,
   type DocumentArtifactBody,
+  type WritableArtifactBody,
+  type WritableDocumentArtifactBody,
   type GitChangeArtifactBody,
   type GitChangeEntry,
   type GitChangeLifecycle,
@@ -67,6 +70,14 @@ export {
   type ArtifactPreviewDocumentInput,
   type ArtifactPreviewRenderResult,
 } from "./preview-renderer.ts";
+
+export {
+  ARTIFACT_SYNC_FILE_MAX_BYTES,
+  readDocumentSyncFile,
+  syncDocumentArtifactFile,
+  type SyncDocumentArtifactFileInput,
+  type SyncDocumentArtifactFileResult,
+} from "./file-sync.ts";
 
 export {
   closeTemporaryArtifactPreviews,

@@ -1,19 +1,21 @@
 /** Spark TUI native host service construction. */
 
 import { basename, join, resolve } from "node:path";
-import { stableId, type SparkHostAPI } from "@zendev-lab/spark-core";
+import { stableId, type ExtensionRoleRunRequest, type SparkHostAPI } from "@zendev-lab/spark-core";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import {
   createProviderRegistryLeafRunner,
   createProviderRegistryStreamFunction,
   createProviderRegistryWorkflowModelRunner,
   type Model,
+  type SparkProviderAttemptObservation,
 } from "@zendev-lab/spark-ai";
 import { createSparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
 import {
   DEFAULT_SPARK_IDENTITY_PROMPT,
   renderAgentRuntimeContextPrompt,
 } from "@zendev-lab/spark-host/system-prompt";
+import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
 import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
 import {
   SparkRolesReviewerRunner,
@@ -152,6 +154,12 @@ export async function createSparkCliHostServices(
     createProviderRegistryLeafRunner({
       registry: providerRegistry,
       runnerOptions: { resolveApiKey: (provider) => authResolver.resolveApiKeyAsync(provider) },
+      ...(options.tokenUsage
+        ? {
+            observeProviderAttempt: (observation: SparkProviderAttemptObservation) =>
+              recordProviderTokenUsage(options.tokenUsage, observation),
+          }
+        : {}),
     }),
   );
   const modelRegistry = new SparkHostModelRegistry(providerRegistry, {
@@ -187,6 +195,12 @@ export async function createSparkCliHostServices(
   const sessionStore = new SparkSessionStore({ cwd, sparkHome: options.sparkHome });
   const workflowModelRunner = createProviderRegistryWorkflowModelRunner(providerRegistry, {
     resolveApiKey: (provider) => authResolver.resolveApiKeyAsync(provider),
+    ...(options.tokenUsage
+      ? {
+          observeProviderAttempt: (observation: SparkProviderAttemptObservation) =>
+            recordProviderTokenUsage(options.tokenUsage, observation),
+        }
+      : {}),
   });
   const runCompactionModel: SparkCompactionModelRunner = async (request) => {
     const response = await workflowModelRunner({
@@ -226,11 +240,27 @@ export async function createSparkCliHostServices(
 
   runtime.setRoleRunner(async (input) => {
     const { createSparkHeadlessRoleExecutor } = await import("../headless-role-executor-core.ts");
+    const tokenUsage = roleTokenUsageContext(options.tokenUsage, input);
+    tokenUsage?.register?.(tokenUsage);
     const executeRole = createSparkHeadlessRoleExecutor({
       sparkHome: options.sparkHome,
       createServices: createSparkCliHostServices,
+      ...(tokenUsage ? { tokenUsage } : {}),
     });
-    return await executeRole(input);
+    try {
+      const result = await executeRole(input);
+      tokenUsage?.settle?.({
+        executionId: tokenUsage.executionId,
+        status: tokenUsageSettlementStatus(result.record.status),
+      });
+      return result;
+    } catch (error) {
+      tokenUsage?.settle?.({
+        executionId: tokenUsage.executionId,
+        status: input.signal?.aborted ? "cancelled" : "failed",
+      });
+      throw error;
+    }
   });
   const skillResolver = new SparkSkillResolver({
     cwd,
@@ -407,6 +437,80 @@ export async function createSparkCliHostServices(
     themeCatalog,
     theme: themeCatalog.active,
   };
+}
+
+function roleTokenUsageContext(
+  parent: SparkHeadlessTokenUsageContext | undefined,
+  input: ExtensionRoleRunRequest,
+): SparkHeadlessTokenUsageContext | undefined {
+  if (!parent) return undefined;
+  const anonymous =
+    input.noSession === true ||
+    input.record.noSession === true ||
+    input.sessionPersistence === "anonymous" ||
+    input.record.sessionPersistence === "anonymous";
+  return {
+    executionId: input.record.ref,
+    parentExecutionId: parent.executionId,
+    ...(parent.scope ? { scope: parent.scope } : {}),
+    kind: input.usageExecutionKind ?? "role_run",
+    detailKind: anonymous ? "anonymous" : "persistent",
+    persistence: anonymous ? "anonymous" : "persistent",
+    runRef: input.record.ref,
+    ...(parent.register ? { register: (execution) => parent.register?.(execution) } : {}),
+    ...(parent.settle ? { settle: (settlement) => parent.settle?.(settlement) } : {}),
+    record: (observation) => parent.record(observation),
+  };
+}
+
+function recordProviderTokenUsage(
+  context: SparkHeadlessTokenUsageContext | undefined,
+  observation: SparkProviderAttemptObservation,
+): void {
+  if (!context) return;
+  const syntheticResponseId = `spark-provider-attempt:${observation.attemptId}`;
+  const message =
+    observation.outcome === "response"
+      ? withProviderAttemptIdentity(observation.message, syntheticResponseId)
+      : {
+          role: "assistant",
+          content: [],
+          ...(observation.provider ? { provider: observation.provider } : {}),
+          ...(observation.model ? { model: observation.model } : {}),
+          responseId: syntheticResponseId,
+          stopReason: "error",
+          timestamp: observation.observedAt,
+        };
+  context.record({
+    event: { type: "turn_complete", message, reason: "auxiliary_model" },
+    ...(context.scope ? { scope: context.scope } : {}),
+    executionId: context.executionId,
+    kind: context.kind,
+    persistence: context.persistence,
+    ...(context.parentExecutionId ? { parentExecutionId: context.parentExecutionId } : {}),
+    ...(context.detailKind ? { detailKind: context.detailKind } : {}),
+    ...(context.sessionId ? { sessionId: context.sessionId } : {}),
+    ...(context.runRef ? { runRef: context.runRef } : {}),
+  });
+}
+
+function withProviderAttemptIdentity(
+  message: object,
+  syntheticResponseId: string,
+): Record<string, unknown> {
+  const record = message as Record<string, unknown>;
+  const hasProviderIdentity = [record.providerResponseId, record.responseId, record.id].some(
+    (value) => typeof value === "string" && value.trim().length > 0,
+  );
+  return hasProviderIdentity ? record : { ...record, responseId: syntheticResponseId };
+}
+
+function tokenUsageSettlementStatus(
+  status: ExtensionRoleRunRequest["record"]["status"],
+): "complete" | "failed" | "cancelled" {
+  if (status === "succeeded") return "complete";
+  if (status === "cancelled") return "cancelled";
+  return "failed";
 }
 
 async function resolveSparkCliAgentPromptState(

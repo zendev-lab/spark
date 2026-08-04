@@ -797,6 +797,7 @@ async function createSparkWorkflowAgentRunner(input: {
         sessionModel: request.model ?? sessionModelName(input.ctx.model),
         env: request.env,
         allowedTools: request.allowedTools,
+        usageExecutionKind: "workflow_agent",
         roleExecutor: input.ctx.runRole,
       },
     );
@@ -829,6 +830,7 @@ async function createSparkWorkflowAgentRunner(input: {
         sessionModel: request.model ?? sessionModelName(input.ctx.model),
         env: request.env,
         allowedTools: request.allowedTools,
+        usageExecutionKind: "workflow_agent",
         roleExecutor: input.ctx.runRole,
       },
     );
@@ -864,6 +866,7 @@ async function createSparkWorkflowWebSearchAdapter(input: {
         runName: "workflow-web-search",
         sessionModel: sessionModelName(input.ctx.model),
         allowedTools: ["web_search"],
+        usageExecutionKind: "workflow_agent",
         roleExecutor: input.ctx.runRole,
       },
     );
@@ -896,6 +899,7 @@ async function createSparkWorkflowFetchContentAdapter(input: {
         runName: "workflow-fetch-content",
         sessionModel: sessionModelName(input.ctx.model),
         allowedTools: ["fetch_content"],
+        usageExecutionKind: "workflow_agent",
         roleExecutor: input.ctx.runRole,
       },
     );

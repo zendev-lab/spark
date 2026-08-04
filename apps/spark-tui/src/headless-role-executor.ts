@@ -1,4 +1,5 @@
 import type { SparkCliHostServicesFactory } from "./host/contracts.ts";
+import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
 import {
   assistantTextFromHeadlessResult,
   createSparkHeadlessRoleExecutor as createCoreRoleExecutor,
@@ -27,6 +28,7 @@ export interface SparkHeadlessRoleExecutorOptions {
   sparkHome?: string;
   controlSparkHome?: string;
   createServices?: SparkCliHostServicesFactory;
+  tokenUsage?: SparkHeadlessTokenUsageContext;
 }
 
 function withDefaultServices(options: SparkHeadlessRoleExecutorOptions): CoreOptions {

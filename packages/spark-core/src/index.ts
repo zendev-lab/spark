@@ -672,6 +672,8 @@ export interface ExtensionRoleRunInputControl {
 }
 
 export interface ExtensionRoleRunRequest {
+  /** Accounting classification supplied by the owning orchestration surface. */
+  usageExecutionKind?: "role_run" | "workflow_agent";
   role: {
     ref: RoleRef;
     id: string;

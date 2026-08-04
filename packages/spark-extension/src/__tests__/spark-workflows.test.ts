@@ -419,6 +419,7 @@ return await agent('use native role', { label: 'native-agent', model: 'test/mode
     assert.match(nativeInputs[0]?.instruction.instruction ?? "", /use native role/);
     assert.equal(nativeInputs[0]?.model, "test/model");
     assert.equal(nativeInputs[0]?.cwd, dir);
+    assert.equal(nativeInputs[0]?.usageExecutionKind, "workflow_agent");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

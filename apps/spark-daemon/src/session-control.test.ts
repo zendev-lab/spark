@@ -188,6 +188,68 @@ describe("daemon session control admission", () => {
     }
   });
 
+  it("persists an explicit causal parent for a child turn and rejects replay ancestry drift", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-session-parent-invocation-"));
+    const db = openMemoryDatabase();
+    migrateSparkDaemonDatabase(db);
+    const paths = resolveSparkPaths({ app: "daemon", env: { HOME: root } });
+    const sessionRegistry = createDaemonSessionRegistry(join(root, ".spark"), {
+      daemonId: "parent-invocation-test",
+      daemonCwd: root,
+    });
+    await sessionRegistry.create({
+      sessionId: "session-child",
+      scope: { kind: "workspace", workspaceId: "workspace-parent" },
+      workspaceId: "workspace-parent",
+      cwd: root,
+    });
+    const store = new SparkInvocationStore(db);
+    const parent = store.submit({
+      sessionId: "session-parent",
+      prompt: "parent",
+      now: "2026-08-03T00:00:00.000Z",
+    });
+    try {
+      const request = {
+        kind: "turn.submit.request" as const,
+        scope: "any" as const,
+        sessionId: "session-child",
+        payload: {
+          sessionId: "session-child",
+          prompt: "child work",
+          idempotencyKey: "child-parent-attribution",
+          parentInvocationId: parent.invocationId,
+        },
+      };
+      const submitted = await executeSparkDaemonSessionControl(
+        { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
+        request,
+      );
+      expect(store.require(submitted.invocationId!)).toMatchObject({
+        parentInvocationId: parent.invocationId,
+        sourceKind: "turn.parent",
+      });
+
+      const otherParent = store.submit({
+        sessionId: "session-other-parent",
+        prompt: "other parent",
+        now: "2026-08-03T00:00:01.000Z",
+      });
+      await expect(
+        executeSparkDaemonSessionControl(
+          { paths, db, sessionRegistry, actor: "spark-daemon-local-rpc" },
+          {
+            ...request,
+            payload: { ...request.payload, parentInvocationId: otherParent.invocationId },
+          },
+        ),
+      ).rejects.toThrow(/idempotency conflict/u);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("converges concurrent lease claimants on one semantic turn despite dynamic model drift", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-session-admission-"));
     const db = openMemoryDatabase();

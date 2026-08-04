@@ -13,6 +13,7 @@ import {
   createProjectBackedSessionRepro,
   materializeReproStagePlan,
 } from "./spark-repro-project.ts";
+import { syncSparkReproReportArtifact } from "./spark-repro-report.ts";
 import { collectReproOrchestrationSnapshot } from "./spark-repro-orchestration.ts";
 import { reconcileManagedTaskSessions } from "./spark-task-session-dispatch.ts";
 import { sparkActiveLens } from "./spark-drive-state.ts";
@@ -60,6 +61,11 @@ import {
   prepareSparkDaemonDriverOwner,
   type SparkDaemonDriverControl,
 } from "./spark-daemon-driver-client.ts";
+import {
+  sparkDaemonUsageControl,
+  type SparkDaemonUsageControl,
+} from "./spark-daemon-usage-client.ts";
+import { projectSparkReproReportSummary } from "./spark-repro-report-projection.ts";
 
 function reproStepPlanSchema() {
   return Type.Object({
@@ -84,6 +90,8 @@ function reproSubgoalPlanSchema() {
 
 interface SparkReproToolDeps {
   driverControl: SparkDaemonDriverControl;
+  /** Host/test override; production reads only the public daemon usage projection. */
+  usageControl?: SparkDaemonUsageControl;
   refreshSparkWidget?: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
 }
 
@@ -98,6 +106,8 @@ type SparkReproToolAction =
   | "satisfy"
   | "gate"
   | "advance"
+  | "project_report"
+  | "sync_report"
   | "stop";
 
 export function registerSparkReproTool(
@@ -116,11 +126,14 @@ export function registerSparkReproTool(
       "Use repro action=step to update one step. A done step requires existing evidence that passes a typed StepVerifier; safe_local steps require spark.repro.step-proof/v1, while ask_decision/ask_approval steps require a current bound canonical Ask receipt.",
       "In setup, first verify whether the reference implementation named in the contract is runnable. If it is unavailable, ask how to construct or obtain it before any baseline probe; do not invent a substitute.",
       "The main session owns repro planning and reconciliation; use canonical assign to dispatch the independent safe_local ready task frontier in parallel, while ask_decision and ask_approval tasks stay with the owner and are never dispatched.",
-      "When blocked by a missing decision, ambiguity, or a problem the user can unblock, call ask immediately; do not guess or end with only a prose blocker.",
+      "When an external Bench manifest supplies a run_id, bind it at first start with reproId so the Repro, token ledger, child executions, report summary, and Artifact share one identity.",
+      "Only create a waiting decision for a frozen-contract change, ambiguous reference ownership, scope expansion, exhausted reference-supported resource/topology options, a framework-global behavior change, or an approval-gated external publish. A failed experiment, ordinary ambiguity, or OOM with another reference-supported topology remains active and must be handled autonomously.",
       "Use repro action=record with requirementId and a matching evidence, decision, or validation proof.",
       "Evidence and validation refs must name existing evidence entries. Decision refs must name user-answered canonical ask evidence created with recordAsEvidence=true.",
       "Use repro action=evaluate to derive the current stage gate from recorded proof; it cannot force-pass a gate.",
       "Use repro action=advance only when requirements and any derived gate are complete.",
+      "Use repro action=project_report with canonical workSummary facts before rendering report.md. It validates and derives status/progress/technicalGoal, joins daemon-owned usage.summary for this Repro run, and atomically writes outputs/spark-summary.json without scanning transcripts.",
+      "Use repro action=sync_report after outputs/report.md is deterministically rendered. It updates the stable per-run Markdown Document Artifact and never changes a technical gate.",
       "Before ending a daemon-owned repro tick, use repro action=settle. It schedules another tick only when semantic progress changed; three unchanged settlements return Recover Ask and leave the driver dormant.",
       "Use repro action=stop to clear the repro drive.",
     ],
@@ -129,7 +142,13 @@ export function registerSparkReproTool(
         Type.String({
           default: "status",
           description:
-            "status | start | plan | step | record | evaluate | advance | settle | stop; satisfy and gate are compatibility aliases",
+            "status | start | plan | step | record | evaluate | advance | settle | project_report | sync_report | stop; satisfy and gate are compatibility aliases",
+        }),
+      ),
+      workSummary: Type.Optional(
+        Type.Any({
+          description:
+            "Canonical SparkReproWorkSummaryInput for action=project_report. The Repro domain builder validates all nested fields and derives status, progress, and technicalGoal.",
         }),
       ),
       requirementId: Type.Optional(
@@ -156,6 +175,12 @@ export function registerSparkReproTool(
       objective: Type.Optional(
         Type.String({
           description: "Optional user-supplied reproduction objective/focus for action=start.",
+        }),
+      ),
+      reproId: Type.Optional(
+        Type.String({
+          description:
+            "Optional frozen external Repro/run identifier for action=start. Bench runs must pass manifest.run_id so report and token scopes share one identity.",
         }),
       ),
       reason: Type.Optional(
@@ -215,10 +240,96 @@ export function registerSparkReproTool(
         return reproStatusResult(repro, driverHealth);
       }
 
+      if (action === "sync_report") {
+        const repro = await readSessionRepro(cwd, ctx);
+        if (!repro) throw new Error("sync_report requires an active or completed Repro run");
+        const synced = await syncSparkReproReportArtifact(cwd, repro.reproId);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `${synced.changed ? "Synced" : "Unchanged"} ${synced.reportArtifactRef} r${synced.artifact.body.revision}`,
+            },
+          ],
+          details: {
+            active: synced.work.status === "active",
+            status: synced.work.status,
+            stage: synced.work.stage,
+            progressPercent: synced.work.progress.percent,
+            changed: synced.changed,
+            created: synced.created,
+            refs: { reportArtifactRef: synced.reportArtifactRef },
+            artifact: {
+              ref: synced.reportArtifactRef,
+              kind: "document",
+              mediaType: synced.artifact.body.mediaType,
+              revision: synced.artifact.body.revision,
+            },
+          },
+        };
+      }
+
+      if (action === "project_report") {
+        const repro = await readSessionRepro(cwd, ctx);
+        if (!repro) throw new Error("project_report requires an active or completed Repro run");
+        const projected = await projectSparkReproReportSummary({
+          cwd,
+          currentReproId: repro.reproId,
+          workSummaryInput: params.workSummary,
+          usageControl: deps.usageControl ?? sparkDaemonUsageControl,
+          signal,
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: projected.warning
+                ? `Projected ${projected.path}. ${projected.warning}`
+                : `Projected ${projected.path} with ${projected.summary.tokenUsage?.quality ?? "unknown"} token usage.`,
+            },
+          ],
+          details: {
+            active: projected.work.status === "active",
+            path: projected.path,
+            work: {
+              schema: projected.work.schema,
+              status: projected.work.status,
+              stage: projected.work.stage,
+              progressPercent: projected.work.progress.percent,
+              technicalGoalAchieved: projected.work.technicalGoal.achieved,
+            },
+            tokenUsage: projected.summary.tokenUsage
+              ? {
+                  included: true,
+                  quality: projected.summary.tokenUsage.quality,
+                  totalTokens: projected.summary.tokenUsage.totalTokens,
+                }
+              : { included: false },
+            ...(projected.warning ? { warning: projected.warning } : {}),
+          },
+        };
+      }
+
       if (action === "start") {
         const ownerSessionId = await prepareSparkDaemonDriverOwner(ctx, deps.driverControl);
         const objective = normalizeOptionalReproObjective(params.objective);
+        const requestedReproId = normalizeOptionalReproId(params.reproId);
         const stored = await readSessionRepro(cwd, ctx);
+        if (
+          stored &&
+          requestedReproId &&
+          stored.reproId !== requestedReproId &&
+          stored.status === "active"
+        ) {
+          throw new Error(
+            `active Repro id ${stored.reproId} does not match requested reproId ${requestedReproId}`,
+          );
+        }
+        if (stored?.status === "complete" && requestedReproId === stored.reproId) {
+          throw new Error(
+            `Repro ${requestedReproId} is already complete; project or sync its report instead of reusing its accounting scope`,
+          );
+        }
         if (stored?.status === "active") {
           const existing = stored.projectRef
             ? stored
@@ -261,7 +372,10 @@ export function registerSparkReproTool(
         }
         await clearSessionGoal(cwd, ctx);
         await clearSessionLoop(cwd, ctx);
-        const { repro } = await createProjectBackedSessionRepro(cwd, ctx, { objective });
+        const { repro } = await createProjectBackedSessionRepro(cwd, ctx, {
+          objective,
+          ...(requestedReproId ? { reproId: requestedReproId } : {}),
+        });
         const driverHealth = await ensureActiveReproDriver(ctx, deps.driverControl, repro, {
           ownerSessionId,
           forceSchedule: true,
@@ -665,12 +779,14 @@ function normalizeReproAction(value: unknown): SparkReproToolAction {
     value === "satisfy" ||
     value === "gate" ||
     value === "advance" ||
+    value === "project_report" ||
+    value === "sync_report" ||
     value === "stop"
   ) {
     return value;
   }
   throw new Error(
-    "repro action must be status, start, plan, step, record, evaluate, satisfy, gate, advance, settle, or stop",
+    "repro action must be status, start, plan, step, record, evaluate, satisfy, gate, advance, settle, project_report, sync_report, or stop",
   );
 }
 
@@ -682,6 +798,16 @@ function normalizeOptionalReproObjective(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") throw new Error("repro objective must be a string");
   return value.trim() || undefined;
+}
+
+function normalizeOptionalReproId(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") throw new Error("reproId must be a string");
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 128 || !/^[A-Za-z0-9._:-]+$/u.test(normalized)) {
+    throw new Error("reproId must be a non-empty safe identifier of at most 128 characters");
+  }
+  return normalized;
 }
 
 function normalizeReproPlanRevision(params: Record<string, unknown>): {

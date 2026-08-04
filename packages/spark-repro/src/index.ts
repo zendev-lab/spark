@@ -583,14 +583,23 @@ export function advanceReproStage(repro: SparkSessionRepro): SparkSessionRepro |
 export function createSparkSessionRepro(
   sessionKey: string,
   stages?: SparkReproStage[],
-  options: { objective?: string } = {},
+  options: { objective?: string; reproId?: string } = {},
 ): SparkSessionRepro {
   const resolvedStages = structuredClone(stages ?? DEFAULT_REPRO_STAGES);
   const firstPhase = resolvedStages[0]?.phases[0];
   if (!firstPhase) throw new Error("repro requires at least one stage with one phase");
   const objective = options.objective?.trim();
   const timestamp = nowIso();
-  const reproId = crypto.randomUUID?.() ?? `repro-${Date.now()}`;
+  const explicitReproId = options.reproId?.trim();
+  if (
+    options.reproId !== undefined &&
+    (!explicitReproId ||
+      explicitReproId.length > 128 ||
+      !/^[A-Za-z0-9._:-]+$/u.test(explicitReproId))
+  ) {
+    throw new Error("reproId must be a non-empty safe identifier of at most 128 characters");
+  }
+  const reproId = explicitReproId ?? crypto.randomUUID?.() ?? `repro-${Date.now()}`;
   const plan = createInitialReproPlan(resolvedStages, timestamp);
   const reproWithoutDigest: SparkSessionRepro = {
     version: 6,
@@ -952,7 +961,7 @@ export function nextReproStep(repro: SparkSessionRepro): SparkReproStep | undefi
 export function normalizeStoredSparkSessionRepro(value: unknown): SparkSessionRepro | undefined {
   if (!isStoredSparkSessionRepro(value)) return undefined;
   try {
-    const repro = value;
+    const repro = value.version === 5 ? migrateSparkSessionReproV5(value) : value;
     const stages = normalizeStoredReproStages(repro.stages);
     const steps = repro.plan.steps.map((step) => {
       const evidenceRefs = step.evidenceRefs.filter(isStoredEvidenceRef);
@@ -1148,8 +1157,10 @@ function normalizeStoredReproStages(stages: readonly SparkReproStage[]): SparkRe
   });
 }
 
-function isStoredSparkSessionRepro(value: unknown): value is SparkSessionRepro {
-  if (!isRecord(value) || value.version !== 5) return false;
+function isStoredSparkSessionRepro(
+  value: unknown,
+): value is SparkSessionRepro | SparkSessionReproV5 {
+  if (!isRecord(value) || (value.version !== 5 && value.version !== 6)) return false;
   if (
     typeof value.reproId !== "string" ||
     typeof value.sessionKey !== "string" ||
@@ -1167,7 +1178,11 @@ function isStoredSparkSessionRepro(value: unknown): value is SparkSessionRepro {
   }
   if (!isRecord(value.goalContract) || !isStoredGoalContract(value.goalContract)) return false;
   if (!isRecord(value.plan) || !isStoredReproPlan(value.plan)) return false;
-  if (!Array.isArray(value.subgoals) || !value.subgoals.every(isStoredReproSubgoal)) return false;
+  if (
+    !Array.isArray(value.subgoals) ||
+    !value.subgoals.every(value.version === 5 ? isStoredReproSubgoalV5 : isStoredReproSubgoal)
+  )
+    return false;
   if (
     value.projectRef !== undefined &&
     (typeof value.projectRef !== "string" || !isRef(value.projectRef, "proj"))
@@ -1229,7 +1244,7 @@ function isStoredReproPlanRevision(value: unknown): boolean {
   );
 }
 
-function isStoredReproSubgoal(value: unknown): boolean {
+function isStoredReproSubgoalV5(value: unknown): boolean {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
@@ -1260,6 +1275,56 @@ function isStoredReproSubgoal(value: unknown): boolean {
     value.evidenceRefs.every(isStoredEvidenceRef) &&
     typeof value.createdAt === "string" &&
     typeof value.updatedAt === "string"
+  );
+}
+
+function isStoredReproSubgoal(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    isReproStageName(value.stage) &&
+    typeof value.ref === "string" &&
+    isRef(value.ref, "subgoal") &&
+    Number.isInteger(value.planRevision) &&
+    typeof value.goal === "string" &&
+    isStringArray(value.doneWhen) &&
+    isStringArray(value.evidenceRequired) &&
+    (value.authority === "safe_local" ||
+      value.authority === "ask_decision" ||
+      value.authority === "ask_approval") &&
+    (value.dependsOn === undefined ||
+      (Array.isArray(value.dependsOn) &&
+        value.dependsOn.every((ref) => typeof ref === "string" && isRef(ref, "subgoal")))) &&
+    (value.status === "pending" ||
+      value.status === "in_progress" ||
+      value.status === "done" ||
+      value.status === "blocked" ||
+      value.status === "cancelled") &&
+    (value.taskRef === undefined ||
+      (typeof value.taskRef === "string" && isRef(value.taskRef, "task"))) &&
+    Array.isArray(value.evidenceRefs) &&
+    value.evidenceRefs.every(isStoredEvidenceRef) &&
+    (value.verification === undefined || isStoredSubgoalVerification(value.verification)) &&
+    (value.blocker === undefined || typeof value.blocker === "string") &&
+    typeof value.createdAt === "string" &&
+    typeof value.updatedAt === "string"
+  );
+}
+
+function isStoredSubgoalVerification(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    value.verdict === "Pass" &&
+    typeof value.subgoalRef === "string" &&
+    isRef(value.subgoalRef, "subgoal") &&
+    Number.isInteger(value.planRevision) &&
+    typeof value.definitionDigest === "string" &&
+    Array.isArray(value.evidenceRefs) &&
+    value.evidenceRefs.every(isStoredEvidenceRef) &&
+    isStringArray(value.verifiedDoneWhen) &&
+    (value.canonicalAskEvidenceRef === undefined ||
+      (typeof value.canonicalAskEvidenceRef === "string" &&
+        isStoredEvidenceRef(value.canonicalAskEvidenceRef)))
   );
 }
 

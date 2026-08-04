@@ -106,6 +106,14 @@
       </div>
     {:else if sparkUiReplay}
       <div class="spark-ui-replay-body">
+        <aside class="legacy-spark-ui-notice" role="note">
+          <p class="eyebrow">{t.sparkUi.kicker}</p>
+          <strong>{t.sparkUi.title}</strong>
+          <p>{t.sparkUi.body}</p>
+          <span>
+            {sparkUiReplay.mode === "source" ? t.sparkUi.sourceMode : t.sparkUi.astMode}
+          </span>
+        </aside>
         <SparkUiRenderer
           document={sparkUiReplay.document}
           source={sparkUiReplay.source}
@@ -250,7 +258,21 @@
     overflow: hidden;
   }
 
-  .spark-ui-replay-body { padding: var(--spacing-xl); }
+  .spark-ui-replay-body { display: grid; gap: var(--spacing-lg); padding: var(--spacing-xl); }
+  .legacy-spark-ui-notice {
+    background: var(--color-warning-weak);
+    border: 1px solid var(--color-warning-soft);
+    border-radius: var(--rounded-md);
+    display: grid;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-md);
+  }
+  .legacy-spark-ui-notice strong { color: var(--color-warning-strong); }
+  .legacy-spark-ui-notice p:not(.eyebrow), .legacy-spark-ui-notice span {
+    color: var(--color-ink-muted);
+    line-height: var(--leading-body);
+  }
+  .legacy-spark-ui-notice span { font-size: var(--text-caption); }
   :global(.preview-panel .ui-panel-body) { gap: 0; }
   .product-preview-frame { background: white; border: 0; display: block; height: min(70vh, 760px); min-height: 32rem; width: 100%; }
   .preview-body { background: var(--color-ink); color: var(--color-border); font-size: var(--text-caption); margin: 0; max-height: 60vh; overflow: auto; padding: var(--spacing-xl); white-space: pre-wrap; }

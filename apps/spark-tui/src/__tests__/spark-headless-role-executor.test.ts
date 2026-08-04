@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import type { ToolConfig } from "@zendev-lab/spark-core";
-import { loadSparkHeadlessSessionModule } from "@zendev-lab/spark-host/headless-loader";
+import {
+  loadSparkHeadlessSessionModule,
+  type SparkHeadlessTokenUsageObservation,
+} from "@zendev-lab/spark-host/headless-loader";
 import {
   runSparkHeadlessRoleInstruction,
   runSparkHeadlessSession,
@@ -41,6 +44,113 @@ test("runSparkHeadlessSession streams events without retaining a duplicate event
   );
   assert.equal(buffered.eventsStreamed, undefined);
   assert.equal(buffered.jsonEvents.length, 3);
+});
+
+test("runSparkHeadlessSession records actual responses but not tool errors", async () => {
+  const observations: SparkHeadlessTokenUsageObservation[] = [];
+  const services = turnCompleteHeadlessServices();
+  await runSparkHeadlessSession(
+    {
+      cwd: process.cwd(),
+      sessionId: "session-token-usage",
+      prompt: "use a tool then finish",
+      tokenUsage: {
+        scope: { kind: "repro", reproId: "repro-token-usage" },
+        executionId: "inv-token-usage",
+        kind: "root_session",
+        persistence: "persistent",
+        record: (observation) => observations.push(observation),
+      },
+    },
+    { createServices: async () => services as never },
+  );
+
+  assert.equal(observations.length, 2);
+  assert.deepEqual(
+    observations.map((observation) => ({
+      scope: observation.scope,
+      executionId: observation.executionId,
+      kind: observation.kind,
+      persistence: observation.persistence,
+      type: (observation.event as { type?: unknown }).type,
+      responseId: (observation.event as { message?: { responseId?: unknown } }).message?.responseId,
+    })),
+    [
+      {
+        scope: { kind: "repro", reproId: "repro-token-usage" },
+        executionId: "inv-token-usage",
+        kind: "root_session",
+        persistence: "persistent",
+        type: "turn_complete",
+        responseId: "response-tool",
+      },
+      {
+        scope: { kind: "repro", reproId: "repro-token-usage" },
+        executionId: "inv-token-usage",
+        kind: "root_session",
+        persistence: "persistent",
+        type: "turn_complete",
+        responseId: "response-final",
+      },
+    ],
+  );
+});
+
+test("runSparkHeadlessSession records one missing receipt when a manifested model call fails", async () => {
+  const observations: SparkHeadlessTokenUsageObservation[] = [];
+  await assert.rejects(
+    runSparkHeadlessSession(
+      {
+        cwd: process.cwd(),
+        sessionId: "session-token-usage-failed-model-call",
+        prompt: "fail in the provider stream",
+        tokenUsage: {
+          scope: { kind: "repro", reproId: "repro-token-usage" },
+          executionId: "inv-token-usage-failed",
+          kind: "root_session",
+          persistence: "persistent",
+          record: (observation) => observations.push(observation),
+        },
+      },
+      { createServices: async () => failedModelCallHeadlessServices() as never },
+    ),
+    /provider stream failed/u,
+  );
+
+  assert.equal(observations.length, 1);
+  const observation = observations[0]!;
+  const event = observation.event as {
+    type: string;
+    reason: string;
+    message: Record<string, unknown>;
+  };
+  assert.deepEqual(
+    {
+      scope: observation.scope,
+      executionId: observation.executionId,
+      kind: observation.kind,
+      persistence: observation.persistence,
+      type: event.type,
+      reason: event.reason,
+      provider: event.message.provider,
+      model: event.message.model,
+      responseId: event.message.responseId,
+      usage: event.message.usage,
+    },
+    {
+      scope: { kind: "repro", reproId: "repro-token-usage" },
+      executionId: "inv-token-usage-failed",
+      kind: "root_session",
+      persistence: "persistent",
+      type: "turn_complete",
+      reason: "error",
+      provider: "test-provider",
+      model: "test-model",
+      responseId: "spark-model-call:session-fp:1:test-provider:test-model",
+      usage: undefined,
+    },
+  );
+  assert.equal(typeof event.message.timestamp, "number");
 });
 
 test("runSparkHeadlessSession times out a never-resolving agent turn", async () => {
@@ -522,6 +632,87 @@ function eventfulHeadlessServices(eventCount: number) {
       listener?.({ type: "runtime_message", item: { index } } as never);
     }
     return successfulOutcome("done");
+  });
+  return {
+    ...base,
+    agentLoop: {
+      ...base.agentLoop,
+      onEvent: (next: (event: never) => void) => {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+    },
+  };
+}
+
+function turnCompleteHeadlessServices() {
+  let listener: ((event: never) => void) | undefined;
+  const final = successfulOutcome("done");
+  const base = headlessServices(async () => {
+    const assistant = final.assistant as NonNullable<SparkRunOutcome["assistant"]>;
+    listener?.({
+      type: "prompt_manifest",
+      manifest: {
+        sessionFingerprint: "tool-loop-session",
+        model: { provider: "test-provider", id: "test-model" },
+        roundtrip: { index: 1 },
+      },
+    } as never);
+    listener?.({
+      type: "tool_result",
+      message: { role: "toolResult", isError: true, content: "tool failed" },
+    } as never);
+    listener?.({
+      type: "turn_complete",
+      assistant: { ...assistant, responseId: "response-tool", stopReason: "toolUse" },
+      reason: "toolUse",
+    } as never);
+    listener?.({
+      type: "turn_complete",
+      assistant: { ...assistant, responseId: "response-final" },
+      reason: "stop",
+    } as never);
+    return final;
+  });
+  return {
+    ...base,
+    agentLoop: {
+      ...base.agentLoop,
+      onEvent: (next: (event: never) => void) => {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+    },
+  };
+}
+
+function failedModelCallHeadlessServices() {
+  let listener: ((event: never) => void) | undefined;
+  const assistant = terminalAssistant("error", "provider stream failed");
+  const base = headlessServices(async () => {
+    listener?.({
+      type: "prompt_manifest",
+      manifest: {
+        sessionFingerprint: "session-fp",
+        model: { provider: "test-provider", id: "test-model" },
+        roundtrip: { index: 1 },
+      },
+    } as never);
+    listener?.({ type: "error", message: "provider stream failed" } as never);
+    listener?.({
+      type: "turn_complete",
+      assistant: {
+        ...assistant,
+        responseId: "late-provider-response",
+        usage: { input: 9, output: 2, cacheRead: 0, cacheWrite: 0 },
+      },
+      reason: "error",
+    } as never);
+    return terminalOutcome(assistant);
   });
   return {
     ...base,

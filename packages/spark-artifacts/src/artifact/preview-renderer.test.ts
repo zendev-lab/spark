@@ -61,10 +61,47 @@ describe("Artifact preview rendering", () => {
     });
 
     expect(rendered.html).toContain("callout success");
+    expect(rendered.html).toContain("Safe MDX-lite");
     expect(rendered.html).toContain("<strong>Shipped</strong>");
     expect(rendered.html).not.toContain("dangerous()");
+    expect(rendered.html).not.toContain('<section class="reference-card">');
     expect(rendered.html).not.toContain("<script");
-    expect(rendered.diagnostics.join("\n")).toContain("artifactRef must be an artifact: ref");
+    expect(rendered.diagnostics.join("\n")).toContain(
+      "unsupported Safe MDX-lite component ArtifactCard",
+    );
+
+    const inline = renderArtifactPreviewDocument({
+      title: "Inline UI",
+      format: "mdx",
+      content: '<Callout tone="warning">Version one</Callout>',
+    });
+    expect(inline.html).toContain("Version one");
+    expect(inline.diagnostics).toEqual([]);
+  });
+
+  it("keeps retired Spark reference components out of writable Safe MDX-lite", () => {
+    const source = [
+      '<ArtifactCard artifactRef="artifact:one" title="Old artifact" />',
+      '<TaskStatus taskRef="task:one" />',
+      '<RunTimeline runRef="run:one" />',
+    ].join("\n");
+
+    const writable = renderArtifactPreviewDocument({
+      title: "Writable",
+      format: "mdx",
+      content: source,
+    });
+    expect(writable.html).not.toContain('<section class="reference-card">');
+    expect(writable.diagnostics).toHaveLength(3);
+
+    const legacy = renderArtifactPreviewDocument({
+      title: "Legacy",
+      format: "spark-ui",
+      content: source,
+    });
+    expect(legacy.html).toContain("reference-card");
+    expect(legacy.html).toContain("Old artifact");
+    expect(legacy.html).toContain("Legacy Spark UI · read-only compatibility");
   });
 
   it("omits malformed Spark UI AST blocks instead of trusting stored JSON", () => {
@@ -83,6 +120,7 @@ describe("Artifact preview rendering", () => {
     });
 
     expect(rendered.html).toContain("<h1>Safe</h1>");
+    expect(rendered.html).toContain("Legacy Spark UI · read-only compatibility");
     expect(rendered.html).not.toContain("untrusted");
     expect(rendered.diagnostics.join("\n")).toContain("1 invalid Spark UI block was omitted");
   });

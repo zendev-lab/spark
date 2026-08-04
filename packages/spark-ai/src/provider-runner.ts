@@ -13,10 +13,17 @@ import {
 import {
   materializeRouteModel,
   resolveSparkModelMessageIdentity,
+  retagAssistantMessage,
   retagAssistantMessageStream,
+  type ResolvedSparkModelIdentity,
   SparkModelRegistry,
   SparkRouteResolver,
 } from "./model-routing.ts";
+import {
+  createSparkProviderAttemptId,
+  observeSparkProviderAttempt,
+  type SparkProviderAttemptObserver,
+} from "./provider-attempt.ts";
 import { classifyProviderFailure } from "./provider-failure.ts";
 import { retryProviderStreamBeforeOutput } from "./provider-stream-retry.ts";
 import type {
@@ -40,6 +47,14 @@ export interface ProviderRegistryRunnerOptions {
     provider: ProviderConfig,
     selection: SparkActiveSelection,
   ) => ProviderApiKeyResolution;
+}
+
+export interface SparkWorkflowModelRunnerOptions extends ProviderRegistryRunnerOptions {
+  /** Owning-execution accounting hook for each actual workflow provider attempt. */
+  observeProviderAttempt?: SparkProviderAttemptObserver;
+  /** Test seams for stable provider-attempt identity and observation time. */
+  createAttemptId?: () => string;
+  now?: () => number;
 }
 
 export interface SparkWorkflowModelRunRequest {
@@ -83,6 +98,10 @@ function createResolverBackedProviderStream(
   context: Context,
   options?: StreamOptions,
   runnerOptions: ProviderRegistryRunnerOptions = {},
+  attemptOptions: Pick<
+    SparkWorkflowModelRunnerOptions,
+    "observeProviderAttempt" | "createAttemptId" | "now"
+  > = {},
 ): AsyncIterable<AssistantMessageEvent> & { result(): Promise<AssistantMessage> } {
   const provider = registry.getProvider(selection.providerName);
   if (!provider) throw new Error(`Unknown provider: ${selection.providerName}`);
@@ -93,6 +112,7 @@ function createResolverBackedProviderStream(
     ...(options?.sessionId !== undefined ? { sessionId: options.sessionId } : {}),
   });
   const model = materializeRouteModel(profile, decision.route);
+  const messageIdentity = resolveSparkModelMessageIdentity(profile);
   const apiKey = runnerOptions.resolveApiKey?.(provider, selection);
   return createAuthResolvedProviderStream(model as Model<string>, apiKey, (resolvedApiKey) => {
     const streamOptions = withPiAiOpenAiResponsesPromptCacheBridge(
@@ -102,9 +122,15 @@ function createResolverBackedProviderStream(
       ),
     );
     const createStream = () =>
-      normalizeProviderStream(
-        provider.streamSimple(model as Model<ProviderConfig["api"]>, context, streamOptions),
-        selection.providerName,
+      createObservedProviderStream(
+        () =>
+          normalizeProviderStream(
+            provider.streamSimple(model as Model<ProviderConfig["api"]>, context, streamOptions),
+            selection.providerName,
+          ),
+        selection,
+        attemptOptions,
+        messageIdentity,
       );
     const stream = retryProviderStreamBeforeOutput(createStream(), createStream, {
       providerName: selection.providerName,
@@ -114,8 +140,86 @@ function createResolverBackedProviderStream(
       shouldRetry: (message) => classifyProviderFailure(message).failureClass === "transient",
       shouldRetryThrown: (error) => classifyProviderFailure(error).failureClass === "transient",
     });
-    return retagAssistantMessageStream(stream, resolveSparkModelMessageIdentity(profile));
+    return retagAssistantMessageStream(stream, messageIdentity);
   });
+}
+
+function createObservedProviderStream(
+  start: () => SparkProviderStreamFunctionReturn,
+  selection: SparkActiveSelection,
+  options: Pick<
+    SparkWorkflowModelRunnerOptions,
+    "observeProviderAttempt" | "createAttemptId" | "now"
+  >,
+  messageIdentity: ResolvedSparkModelIdentity,
+): SparkProviderStreamFunctionReturn {
+  const observer = options.observeProviderAttempt;
+  if (!observer) return start();
+
+  const attemptId = (options.createAttemptId ?? createSparkProviderAttemptId)();
+  const observedAt = (options.now ?? Date.now)();
+  let stream: SparkProviderStreamFunctionReturn;
+  try {
+    stream = start();
+  } catch (error) {
+    observeSparkProviderAttempt(observer, {
+      attemptId,
+      outcome: "missing",
+      provider: selection.providerName,
+      model: selection.modelId,
+      observedAt,
+    });
+    throw error;
+  }
+
+  let settled = false;
+  const recordResponse = (message: AssistantMessage) => {
+    if (settled) return;
+    settled = true;
+    observeSparkProviderAttempt(observer, {
+      attemptId,
+      outcome: "response",
+      message: retagAssistantMessage(message, messageIdentity),
+      observedAt,
+    });
+  };
+  const recordMissing = () => {
+    if (settled) return;
+    settled = true;
+    observeSparkProviderAttempt(observer, {
+      attemptId,
+      outcome: "missing",
+      provider: selection.providerName,
+      model: selection.modelId,
+      observedAt,
+    });
+  };
+
+  return {
+    async *[Symbol.asyncIterator]() {
+      try {
+        for await (const event of stream) {
+          if (event.type === "done") recordResponse(event.message);
+          if (event.type === "error") recordResponse(event.error);
+          yield event;
+        }
+        if (!settled) recordMissing();
+      } catch (error) {
+        recordMissing();
+        throw error;
+      }
+    },
+    async result() {
+      try {
+        const message = await stream.result();
+        recordResponse(message);
+        return message;
+      } catch (error) {
+        recordMissing();
+        throw error;
+      }
+    },
+  };
 }
 
 function withProviderTransportRetries(
@@ -130,7 +234,7 @@ function withProviderTransportRetries(
 
 export function createProviderRegistryWorkflowModelRunner(
   registry: SparkProviderRegistry,
-  runnerOptions: ProviderRegistryRunnerOptions = {},
+  runnerOptions: SparkWorkflowModelRunnerOptions = {},
 ): (request: SparkWorkflowModelRunRequest) => Promise<SparkWorkflowModelRunResponse> {
   return async (request) => {
     const selection = resolveWorkflowModelSelection(registry, request.model);
@@ -149,6 +253,7 @@ export function createProviderRegistryWorkflowModelRunner(
       {
         maxTokens: positiveInteger(request.maxTokens) ?? 4096,
       },
+      runnerOptions,
       runnerOptions,
     );
     const message = await stream.result();

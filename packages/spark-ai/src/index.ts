@@ -26,6 +26,10 @@ export type { OAuthLoginCallbacks } from "@earendil-works/pi-ai/oauth";
 
 export * from "./model-routing.ts";
 export * from "./provider-failure.ts";
+export {
+  type SparkProviderAttemptObservation,
+  type SparkProviderAttemptObserver,
+} from "./provider-attempt.ts";
 
 export {
   SparkProviderRegistry,
@@ -45,6 +49,7 @@ export {
   withOpenAiCompatiblePromptCacheKey,
   type ProviderRegistryRunnerOptions,
   type SparkProviderStreamFunction,
+  type SparkWorkflowModelRunnerOptions,
   type SparkWorkflowModelRunRequest,
   type SparkWorkflowModelRunResponse,
 } from "./provider-runner.ts";
@@ -114,6 +119,8 @@ export {
   type SparkLeafModelBinding,
   type SparkLeafBindingResolver,
   type SparkLeafRunnerDeps,
+  type SparkLeafProviderAttemptObservation,
+  type SparkLeafProviderAttemptObserver,
 } from "./leaf-runner.ts";
 export {
   createProviderRegistryLeafRunner,

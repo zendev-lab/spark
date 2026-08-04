@@ -3,11 +3,16 @@ import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.t
 import { sparkSessionPendingTurnSchema } from "./session-assignment.ts";
 import { sparkDriverKindSchema, sparkDriverViewSchema } from "./driver.ts";
 import {
+  sparkTokenUsageAggregateSchema,
+  sparkTokenUsageByPersistenceSchema,
+} from "./token-usage.ts";
+import {
   workspaceDelegationReceiptSchema,
   workspaceDelegationRequestSchema,
 } from "./workspace-delegation.ts";
 
 export * from "./action-bars.ts";
+export * from "./artifact-document.ts";
 export * from "./ask-semantics.ts";
 export * from "./channel-control.ts";
 export * from "./command-delivery.ts";
@@ -32,6 +37,7 @@ export * from "./session-errors.ts";
 export * from "./session-mail.ts";
 export * from "./side-thread.ts";
 export * from "./state-ownership.ts";
+export * from "./token-usage.ts";
 export * from "./tool-display.ts";
 export * from "./workspace-delegation.ts";
 export { SPARK_PROTOCOL_VERSION } from "./version.ts";
@@ -600,6 +606,10 @@ export const sparkSessionReproWorkViewSchema = z.object({
     limit: z.number().int().positive(),
   }),
   latestVerification: sparkSessionVerificationReceiptViewSchema.optional(),
+  /** Daemon-owned Repro-scope ledger projection; never derived from transcript or Session totals. */
+  tokenUsage: sparkTokenUsageAggregateSchema.optional(),
+  /** Bounded diagnostic split; it exposes aggregates, never receipt bodies. */
+  tokenUsageByPersistence: sparkTokenUsageByPersistenceSchema.optional(),
   updatedAt: sparkIsoDateTimeSchema,
 });
 

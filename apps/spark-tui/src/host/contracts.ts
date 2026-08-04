@@ -1,4 +1,5 @@
 import type { SparkMemoryDirectIntentTurnAuthority } from "@zendev-lab/spark-host/memory-direct-intent";
+import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
 import type { SparkSessionLeaseIdentity, ToolEffect } from "@zendev-lab/spark-core";
 import type { SparkConfig } from "./config.ts";
 import type { SparkExtensionLoadResult } from "./extension-loader.ts";
@@ -14,6 +15,7 @@ import type { SparkSkillResolver } from "./skill-resolver.ts";
 import type { SparkTheme, SparkThemeCatalog } from "./theme.ts";
 import type { SparkAgentLoop } from "./agent-loop.ts";
 import type { SparkAuthStore, SparkProviderAuthResolver } from "./auth.ts";
+import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
 
 export interface SparkCliHostDiagnostic {
   type: "warning" | "error";
@@ -66,6 +68,7 @@ export interface SparkCliHostServicesOptions {
   invocationId?: string;
   /** Host-private test/bootstrap seam; never exposed to extensions or model tools. */
   memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
+  tokenUsage?: SparkHeadlessTokenUsageContext;
   stateOwnerSessionId?: string;
   driver?: SparkHostRuntimeOptions["driver"];
   sessionQuestionChain?: readonly string[];

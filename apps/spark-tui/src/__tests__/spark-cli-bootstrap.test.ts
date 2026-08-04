@@ -85,6 +85,7 @@ function fakeProviderModule(
     }>;
     toolSnapshots?: string[][];
     assistantMessages?: Array<Record<string, unknown>>;
+    streamError?: Error;
     modelId?: string;
     userPrompt?: string;
     streamCalls?: number;
@@ -107,6 +108,7 @@ function fakeProviderModule(
           },
         ) => {
           captured.streamCalls = (captured.streamCalls ?? 0) + 1;
+          if (captured.streamError) throw captured.streamError;
           captured.systemPrompt = context.systemPrompt;
           captured.systemPromptStable = context.systemPromptStable;
           captured.systemPromptDynamic = context.systemPromptDynamic;
@@ -854,7 +856,12 @@ test("provider registry workflow model runner completes in-process without role 
       providerImporter: async () => fakeProviderModule(captured),
     });
 
-    const runModel = createProviderRegistryWorkflowModelRunner(services.providerRegistry);
+    const attempts: unknown[] = [];
+    const runModel = createProviderRegistryWorkflowModelRunner(services.providerRegistry, {
+      createAttemptId: () => "workflow-attempt-success",
+      now: () => 1_700_000_000_123,
+      observeProviderAttempt: (observation) => attempts.push(observation),
+    });
     const result = await runModel({
       prompt: "Compare model answers",
       label: "panel 1",
@@ -868,6 +875,169 @@ test("provider registry workflow model runner completes in-process without role 
     assert.match(captured.systemPrompt ?? "", /read-only Spark workflow model agent/);
     assert.equal(result.metadata?.providerName, "fake-provider");
     assert.equal(result.metadata?.modelId, "fake-model");
+    assert.equal(attempts.length, 1);
+    const attempt = attempts[0] as {
+      attemptId?: string;
+      outcome?: string;
+      observedAt?: number;
+      message?: { usage?: unknown };
+    };
+    assert.equal(attempt.attemptId, "workflow-attempt-success");
+    assert.equal(attempt.outcome, "response");
+    assert.equal(attempt.observedAt, 1_700_000_000_123);
+    assert.ok(attempt.message?.usage);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("provider registry workflow model runner records attempted failures but not preflight failures", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-cli-workflow-model-runner-failed-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(sparkHome, { recursive: true });
+    const captured = { streamError: new Error("provider attempt failed") };
+    const services = await createSparkCliHostServices({
+      cwd,
+      sparkHome,
+      config: { extensions: [], providers: ["fake-provider"] },
+      extensions: [],
+      providers: ["fake-provider"],
+      providerImporter: async () => fakeProviderModule(captured),
+    });
+    const attempts: unknown[] = [];
+    const runModel = createProviderRegistryWorkflowModelRunner(services.providerRegistry, {
+      createAttemptId: () => "workflow-attempt-failed",
+      now: () => 1_700_000_000_456,
+      observeProviderAttempt: (observation) => attempts.push(observation),
+    });
+
+    await assert.rejects(
+      () =>
+        runModel({
+          prompt: "compact",
+          label: "compaction",
+          model: "fake-provider/fake-model",
+        }),
+      /provider attempt failed/u,
+    );
+    assert.deepEqual(attempts, [
+      {
+        attemptId: "workflow-attempt-failed",
+        outcome: "missing",
+        provider: "fake-provider",
+        model: "fake-model",
+        observedAt: 1_700_000_000_456,
+      },
+    ]);
+
+    await assert.rejects(
+      () =>
+        runModel({
+          prompt: "preflight",
+          label: "compaction",
+          model: "missing-provider/missing-model",
+        }),
+      /Unknown provider/u,
+    );
+    assert.equal(attempts.length, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("provider registry workflow model runner records every transport retry attempt", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-cli-workflow-model-runner-retry-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(sparkHome, { recursive: true });
+    const transient = {
+      ...assistant(""),
+      content: [],
+      stopReason: "error",
+      errorMessage: "ECONNRESET socket hang up",
+    };
+    const success = assistant("retry succeeded");
+    const captured = { assistantMessages: [transient, success], streamCalls: 0 };
+    const services = await createSparkCliHostServices({
+      cwd,
+      sparkHome,
+      config: { extensions: [], providers: ["fake-provider"] },
+      extensions: [],
+      providers: ["fake-provider"],
+      providerImporter: async () => fakeProviderModule(captured),
+    });
+    const attempts: Array<{ attemptId?: string; outcome?: string }> = [];
+    let attempt = 0;
+    const runModel = createProviderRegistryWorkflowModelRunner(services.providerRegistry, {
+      createAttemptId: () => `workflow-retry-${++attempt}`,
+      observeProviderAttempt: (observation) => attempts.push(observation),
+    });
+
+    const result = await runModel({
+      prompt: "retry provider",
+      label: "compaction",
+      model: "fake-provider/fake-model",
+    });
+
+    assert.equal(result.text, "retry succeeded");
+    assert.equal(captured.streamCalls, 2);
+    assert.deepEqual(
+      attempts.map((item) => ({ attemptId: item.attemptId, outcome: item.outcome })),
+      [
+        { attemptId: "workflow-retry-1", outcome: "response" },
+        { attemptId: "workflow-retry-2", outcome: "response" },
+      ],
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("smart compaction model calls report provider usage to the owning execution", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-cli-compaction-usage-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(sparkHome, { recursive: true });
+    const usageObservations: Array<{ event: unknown; executionId?: string }> = [];
+    const services = await createSparkCliHostServices({
+      cwd,
+      sparkHome,
+      config: { extensions: [], providers: ["fake-provider"] },
+      extensions: [],
+      providers: ["fake-provider"],
+      providerImporter: async () => fakeProviderModule(),
+      tokenUsage: {
+        executionId: "invocation:compaction",
+        scope: { kind: "repro", reproId: "repro:compaction-accounting" },
+        kind: "root_session",
+        persistence: "persistent",
+        sessionId: "session:compaction",
+        record: (observation) => usageObservations.push(observation),
+      },
+    });
+
+    const result = await services.runCompactionModel?.({
+      model: "fake-provider/fake-model",
+      prompt: "Summarize the compacted transcript.",
+      maxTokens: 128,
+    });
+
+    assert.equal(result, "boot ok:1");
+    assert.equal(usageObservations.length, 1);
+    const event = usageObservations[0]?.event as {
+      type?: string;
+      reason?: string;
+      message?: { responseId?: string; usage?: unknown };
+    };
+    assert.equal(usageObservations[0]?.executionId, "invocation:compaction");
+    assert.equal(event.type, "turn_complete");
+    assert.equal(event.reason, "auxiliary_model");
+    assert.match(event.message?.responseId ?? "", /^spark-provider-attempt:/u);
+    assert.ok(event.message?.usage);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -924,6 +1094,12 @@ test("host ctx.runLeaf delegates to a single-shot spark-ai leaf and reports the 
       userPrompt?: string;
       streamCalls?: number;
     } = {};
+    const usageObservations: Array<{
+      event: unknown;
+      executionId?: string;
+      kind?: string;
+      sessionId?: string;
+    }> = [];
     const services = await createSparkCliHostServices({
       cwd,
       sparkHome,
@@ -931,6 +1107,14 @@ test("host ctx.runLeaf delegates to a single-shot spark-ai leaf and reports the 
       extensions: [],
       providers: ["fake-provider"],
       providerImporter: async () => fakeProviderModule(captured),
+      tokenUsage: {
+        executionId: "invocation:root",
+        scope: { kind: "repro", reproId: "repro:leaf-accounting" },
+        kind: "root_session",
+        persistence: "persistent",
+        sessionId: "session:root",
+        record: (observation) => usageObservations.push(observation),
+      },
     });
 
     const ctx = services.runtime.makeContext();
@@ -948,6 +1132,20 @@ test("host ctx.runLeaf delegates to a single-shot spark-ai leaf and reports the 
     assert.equal(captured.modelId, "fake-model");
     assert.equal(captured.userPrompt, "candidate one\ncandidate two");
     assert.match(captured.systemPrompt ?? "", /bounded Spark leaf capability/);
+    assert.equal(usageObservations.length, 1);
+    const usageObservation = usageObservations[0];
+    assert.equal(usageObservation?.executionId, "invocation:root");
+    assert.equal(usageObservation?.kind, "root_session");
+    assert.equal(usageObservation?.sessionId, "session:root");
+    const usageEvent = usageObservation?.event as {
+      type?: string;
+      reason?: string;
+      message?: { responseId?: string; usage?: unknown };
+    };
+    assert.equal(usageEvent.type, "turn_complete");
+    assert.equal(usageEvent.reason, "auxiliary_model");
+    assert.match(usageEvent.message?.responseId ?? "", /^spark-provider-attempt:/);
+    assert.ok(usageEvent.message?.usage);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

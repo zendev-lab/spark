@@ -70,6 +70,7 @@ TUI and Cockpit use the same daemon-owned Side Thread contract; presentation sta
   gates.
 - `todo` mutates the session-bound standalone checklist; its current state is projected automatically rather than fetched in normal agent flow.
 - `goal`, `loop`, `drive`, `phase`, and `repro` own their named foreground state machines. Spark native hosts expose the plan/implement switch as `phase({ action })` (`spark-modes` remains the host-neutral lens mechanism that defaults its descriptor name to `mode`).
+- Repro reporting uses two explicit write actions. External benchmarks first bind identity with `repro({ action: "start", reproId: manifest.run_id })`. `repro({ action: "project_report", workSummary })` then validates canonical work facts, derives status/progress/technical completion, joins only the daemon-owned `usage.summary` projection for that same `reproId`, and atomically writes `outputs/spark-summary.json`; it never scans a transcript. The external Bench renderer turns that envelope into deterministic `outputs/report.md`, then `repro({ action: "sync_report" })` updates the stable per-run Markdown Document Artifact. Missing usage yields a warning and an envelope without `tokenUsage`; it cannot change any technical gate.
 - `workflow` lists/reads controlled selectors; `workflow_run` executes a saved selector or trusted metadata-first script.
 
 ### Hook-projected state
@@ -99,7 +100,7 @@ generation, retry, or next-turn continuation. The full runtime contract is in
 - Fusion is approval-gated, sequential at the public tool boundary, and absent from the default
   extension profile because one call fans data out to multiple model invocations. Enable it
   explicitly with `--extension @zendev-lab/spark-fusion/extension` or equivalent host config.
-- In `reproduce` and `scale`, consider Fusion only after runtime evidence localizes the first
+- In `alignment`, consider Fusion only after runtime evidence localizes the first
   divergence and multiple plausible hypotheses remain, evidence conflicts, or the latest verdict
   is inconclusive. Skip it when the next single-variable experiment is already clear and cheap.
   Send only a bounded current evidence summary with original evidence refs, and do not repeat a
@@ -119,10 +120,15 @@ generation, retry, or next-turn continuation. The full runtime contract is in
   one owning worktree and one native GitHub PR stack; stack entries are not
   separate Artifact refs. Its lifecycle is mutated only through
   `git({ action })`, with `gh stack` as topology authority. `document` owns
-  typed content and revision/progress metadata; preview is a view opened with
-  `artifact({ action: "open_preview" })`, not an Artifact kind. Legacy v1
-  `pr`/`preview` records are normalized lazily on read without destructive
-  bulk migration. Product tool results publish `artifact.update`.
+  typed content and revision/progress metadata. New writes accept Markdown,
+  safe MDX-lite, sanitized HTML, or read-only A2UI; Spark UI, plain text, JSON,
+  and unknown Document media are legacy-read-only. Preview is a view opened
+  with `artifact({ action: "open_preview" })`, not an Artifact kind.
+  `artifact({ action: "sync_file" })` accepts only a cwd-local regular,
+  non-symlink UTF-8 file up to 32 KiB. Identical syncs are no-ops;
+  metadata-only changes preserve the content revision.
+  Legacy v1 `pr`/`preview` records are normalized lazily on read without
+  destructive bulk migration. Product tool results publish `artifact.update`.
 - `task_write({ action: "artifact_link" | "artifact_unlink" })` maintains
   durable, idempotent `Task.artifactRefs`. This slice deliberately adds no
   `Workstream` aggregate and no Task parent/subtask relation.

@@ -6,8 +6,8 @@
     createAgentsChatLiveState,
     type AgentsChatSerializedEvent,
   } from "$lib/agents-chat-live-state";
-  import AgentMdxStream from "$lib/AgentMdxStream.svelte";
   import Icon from "$lib/Icon.svelte";
+  import SafeMarkdown from "$lib/SafeMarkdown.svelte";
   import {
     activityKind,
     buildCockpitChatTranscriptTurns,
@@ -344,7 +344,7 @@
 
       {#if hasDisplaySource}
         <div class="genui-canvas">
-          <AgentMdxStream source={displaySource} streaming={selectedTurn?.status === "running"} />
+          <SafeMarkdown source={displaySource} streaming={selectedTurn?.status === "running"} />
         </div>
       {:else}
         <div class="empty-product">

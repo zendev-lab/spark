@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "$lib/Icon.svelte";
+  import ReproTokenUsage from "./ReproTokenUsage.svelte";
   import {
     primarySessionDriver,
     sessionHasProjectedWork,
@@ -149,6 +150,31 @@
               {/each}
             </div>
           </article>
+        {/if}
+
+        {#if repro.tokenUsage}
+          <ReproTokenUsage
+            usage={repro.tokenUsage}
+            usageByPersistence={repro.tokenUsageByPersistence}
+            labels={{
+              title: host.copy.reproTokenUsage,
+              reported: host.copy.reportedTokens,
+              estimated: host.copy.estimatedTokens,
+              missingResponses: host.copy.missingResponses,
+              coverageGaps: host.copy.coverageGaps,
+              activeExecutions: host.copy.activeExecutions,
+              lowerBound: host.copy.lowerBound,
+              breakdown: host.copy.tokenBreakdown,
+              executionKinds: host.copy.executionKinds,
+              models: host.copy.models,
+              persistence: host.copy.sessionPersistence,
+              anonymousSessions: host.copy.anonymousSessions,
+              persistentSessions: host.copy.persistentSessions,
+              responses: host.copy.responses,
+              noBreakdown: host.copy.noTokenBreakdown,
+              unknownUsage: host.copy.unknownTokenUsage,
+            }}
+          />
         {/if}
       {:else if goal}
         <article class="work-card current-step">

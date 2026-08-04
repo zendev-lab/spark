@@ -24,6 +24,7 @@ import { handleTaskClaimRequest } from "./handlers/task-claim.ts";
 import { handleToolExecutionRequest } from "./handlers/tool-execution.ts";
 import { handleTurnRequest } from "./handlers/turn.ts";
 import { handleUplinkRequest } from "./handlers/uplink.ts";
+import { handleUsageRequest } from "./handlers/usage.ts";
 import { handleWorkspaceRequest } from "./handlers/workspace.ts";
 import { isLocalRpcSafeWhileAdmissionClosed } from "./helpers.ts";
 import type { LocalRpcDispatchContext } from "./handlers/context.ts";
@@ -62,6 +63,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "invocation.retention.preview",
     "invocation.retention.apply",
   ],
+  usage: ["usage.summary", "usage.persistence", "usage.backfill"],
   driver: [
     "driver.start",
     "driver.status",
@@ -227,6 +229,9 @@ async function dispatchLocalRpcServiceRequest(
   }
   if (requestBelongsToHandlerGroup(request, "turn")) {
     return handleTurnRequest(context, request);
+  }
+  if (requestBelongsToHandlerGroup(request, "usage")) {
+    return handleUsageRequest(context, request);
   }
   if (requestBelongsToHandlerGroup(request, "driver")) {
     return handleDriverRequest(context, request);
