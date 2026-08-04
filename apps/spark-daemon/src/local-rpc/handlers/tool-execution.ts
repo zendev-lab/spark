@@ -8,8 +8,8 @@ import {
   createReadToolConfig,
   createWriteToolConfig,
 } from "@zendev-lab/spark-files";
-import { executeDaemonLensTool } from "../../lens/tool.ts";
 import { SparkDaemonControlError } from "../../control-error.ts";
+import { executeDaemonLensTool } from "../../lens/tool.ts";
 import { resolveSessionCwdForWorkspaceId, SessionCwdResolutionError } from "../../session-cwd.ts";
 import { resolveWorkspaceLocalPath } from "../../store/workspaces.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
@@ -19,6 +19,8 @@ type ToolExecutionRequest = Extract<
   LocalRpcServiceRequest,
   { method: "file.execute" | "artifact.execute" | "git.execute" | "lens.execute" }
 >;
+
+type ToolExecutionOutput = LocalRpcServiceOutput<ToolExecutionRequest>;
 
 const fileTools = new Map(
   [
@@ -48,7 +50,7 @@ const operationResults = new Map<
   string,
   {
     signature: string;
-    result: Promise<LocalRpcServiceOutput<ToolExecutionRequest>>;
+    result: Promise<ToolExecutionOutput>;
   }
 >();
 const MAX_OPERATION_RESULTS = 1_000;
@@ -56,7 +58,7 @@ const MAX_OPERATION_RESULTS = 1_000;
 export async function handleToolExecutionRequest(
   context: LocalRpcDispatchContext,
   request: ToolExecutionRequest,
-): Promise<LocalRpcServiceOutput<ToolExecutionRequest>> {
+): Promise<ToolExecutionOutput> {
   const signature = JSON.stringify({
     method: request.method,
     cwd: request.params.cwd,
@@ -68,14 +70,24 @@ export async function handleToolExecutionRequest(
   const existing = operationResults.get(request.params.operationId);
   if (existing) {
     if (existing.signature !== signature) {
-      throw new Error(
-        `operationId ${request.params.operationId} was already used with different input`,
+      return toolErrorResult(
+        request,
+        "TOOL_OPERATION_ID_CONFLICT",
+        `${toolDisplayName(request)} operation ${request.params.operationId} was reused with different input. No operation was executed; start a new tool call.`,
+        "new_tool_call",
       );
     }
     return await existing.result;
   }
 
-  const result = executeToolRequest(context, request);
+  const result = executeToolRequest(context, request).catch((error: unknown) => {
+    const failure = classifyToolExecutionFailure(error);
+    console.error(
+      `[spark-daemon] ${request.method} ${request.params.operationId} failed: ${failure.message}`,
+      error,
+    );
+    return toolErrorResult(request, failure.code, failure.message, failure.retry);
+  });
   operationResults.set(request.params.operationId, { signature, result });
   trimOperationResults();
   return await result;
@@ -84,7 +96,7 @@ export async function handleToolExecutionRequest(
 async function executeToolRequest(
   context: LocalRpcDispatchContext,
   request: ToolExecutionRequest,
-): Promise<LocalRpcServiceOutput<ToolExecutionRequest>> {
+): Promise<ToolExecutionOutput> {
   const workspaceId = request.params.hostContext?.workspaceId;
   let cwd = request.params.cwd;
   let sparkStateRoot: string | undefined;
@@ -119,7 +131,12 @@ async function executeToolRequest(
         ? artifactTool
         : gitTool;
   if (!config) {
-    throw new Error(`No daemon tool implementation is registered for ${request.method}`);
+    return toolErrorResult(
+      request,
+      "TOOL_IMPLEMENTATION_UNAVAILABLE",
+      `No daemon implementation is registered for ${toolDisplayName(request)}. Restart or update Spark so the client and daemon expose the same tool surface.`,
+      "restart_or_update_daemon",
+    );
   }
 
   const result = await config.execute(
@@ -136,7 +153,54 @@ async function executeToolRequest(
       sessionSource: request.params.hostContext?.sessionSource ?? "daemon",
     },
   );
-  return JSON.parse(JSON.stringify(result)) as LocalRpcServiceOutput<ToolExecutionRequest>;
+  return JSON.parse(JSON.stringify(result)) as ToolExecutionOutput;
+}
+
+function toolErrorResult(
+  request: ToolExecutionRequest,
+  code: string,
+  message: string,
+  retry: string,
+): ToolExecutionOutput {
+  return {
+    content: [{ type: "text", text: message }],
+    details: {
+      code,
+      method: request.method,
+      operationId: request.params.operationId,
+      cwd: request.params.cwd,
+      ...(request.params.hostContext?.workspaceId === undefined
+        ? {}
+        : { workspaceId: request.params.hostContext.workspaceId }),
+      ...("tool" in request.params ? { tool: request.params.tool } : {}),
+      retry,
+    },
+    isError: true,
+  } as ToolExecutionOutput;
+}
+
+function classifyToolExecutionFailure(error: unknown): {
+  code: string;
+  message: string;
+  retry: string;
+} {
+  if (error instanceof SparkDaemonControlError && error.code === "workspace_cwd_invalid") {
+    return {
+      code: "WORKSPACE_CWD_INVALID",
+      message: `${error.message} Reopen or rebind the session to an existing workspace directory or attached GitChange worktree, then retry.`,
+      retry: "rebind_workspace_cwd",
+    };
+  }
+  const detail = error instanceof Error ? error.message : String(error);
+  return {
+    code: "TOOL_EXECUTION_FAILED",
+    message: `The daemon could not execute the tool: ${detail}. Inspect the daemon logs and verify that the client and daemon versions match.`,
+    retry: "inspect_daemon_and_version",
+  };
+}
+
+function toolDisplayName(request: ToolExecutionRequest): string {
+  return "tool" in request.params ? request.params.tool : request.method.replace(".execute", "");
 }
 
 function trimOperationResults(): void {
