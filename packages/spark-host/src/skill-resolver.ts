@@ -62,7 +62,8 @@ export interface SparkSkillResolveResult {
 
 export interface SparkSkillPromptMatch {
   skill: SparkSkill;
-  content: string;
+  /** Present only when a caller explicitly loads the Skill body. */
+  content?: string;
   score: number;
 }
 
@@ -139,7 +140,7 @@ export class SparkSkillResolver {
 
   async loadMatchingSkillsForPrompt(request: string, limit = 3): Promise<SparkSkillPromptMatch[]> {
     const { skills } = await this.resolve();
-    return loadMatchingSparkSkillsForPrompt(skills, request, limit);
+    return matchSparkSkillsForPrompt(skills, request, limit);
   }
 
   async loadSkill(name: string): Promise<SparkLoadedSkill | undefined> {
@@ -219,19 +220,29 @@ export function formatSparkSkillsForPrompt(skills: readonly SparkSkill[]): strin
   return lines.join("\n");
 }
 
+export function matchSparkSkillsForPrompt(
+  skills: readonly SparkSkill[],
+  request: string,
+  limit = 3,
+): SparkSkillPromptMatch[] {
+  return modelInvocableSkills(skills)
+    .map((skill) => ({ skill, score: scoreSkillMatch(skill, request) }))
+    .filter((match) => match.score > 0)
+    .sort((a, b) => b.score - a.score || a.skill.name.localeCompare(b.skill.name))
+    .slice(0, Math.max(0, limit));
+}
+
+/** Explicit body-loading variant for callers that intend to follow Skill instructions. */
 export async function loadMatchingSparkSkillsForPrompt(
   skills: readonly SparkSkill[],
   request: string,
   limit = 3,
 ): Promise<SparkSkillPromptMatch[]> {
-  const ranked = modelInvocableSkills(skills)
-    .map((skill) => ({ skill, score: scoreSkillMatch(skill, request) }))
-    .filter((match) => match.score > 0)
-    .sort((a, b) => b.score - a.score || a.skill.name.localeCompare(b.skill.name))
-    .slice(0, Math.max(0, limit));
-
   return Promise.all(
-    ranked.map(async (match) => ({ ...match, content: await readFile(match.skill.filePath, "utf8") })),
+    matchSparkSkillsForPrompt(skills, request, limit).map(async (match) => ({
+      ...match,
+      content: await readFile(match.skill.filePath, "utf8"),
+    })),
   );
 }
 
@@ -248,20 +259,21 @@ export async function loadSparkSkillByName(
 }
 
 /**
- * Render request-selected Skill bodies as a dynamic prompt section.
- *
- * Every content line is indented, including blank lines. That keeps the whole
- * section under the turn loop's dynamic prompt splitter so selected bodies do
- * not alter the stable prompt/cache prefix.
+ * Render request-matched Skill metadata as dynamic routing context. A caller
+ * may also pass explicitly loaded bodies, but native request matching remains
+ * metadata-only so the parent can choose between read and skill_delegate.
  */
 export function formatSelectedSparkSkillsForPrompt(
   matches: readonly SparkSkillPromptMatch[],
 ): string {
   if (matches.length === 0) return "";
+  const hasLoadedBodies = matches.some((match) => match.content !== undefined);
   const lines = [
-    "Dynamic context checkpoint: selected skills for current user request.",
-    "The following matching Skill files are loaded for this request only. Follow their instructions when relevant.",
-    "You may instead call skill_delegate when one Skill can own a self-contained unit of work in a fresh Worker.",
+    "Dynamic context checkpoint: matching skills for current user request.",
+    hasLoadedBodies
+      ? "Some Skill bodies were explicitly loaded by the caller. Follow only those loaded instructions when relevant."
+      : "Skill bodies are not loaded. Choose one primary path: call skill_delegate for a self-contained unit of work, or read SKILL.md when this session itself must follow it.",
+    "Do not explicitly read and delegate the same Skill by default.",
     "<selected_skills>",
   ];
   for (const match of matches) {
@@ -269,11 +281,13 @@ export function formatSelectedSparkSkillsForPrompt(
     lines.push(`    <name>${escapeXml(match.skill.name)}</name>`);
     lines.push(`    <description>${escapeXml(match.skill.description)}</description>`);
     lines.push(`    <location>${escapeXml(match.skill.filePath)}</location>`);
-    lines.push("    <content>");
-    for (const contentLine of match.content.replace(/\r\n?/gu, "\n").split("\n")) {
-      lines.push(`      ${contentLine}`);
+    if (match.content !== undefined) {
+      lines.push("    <content>");
+      for (const contentLine of match.content.replace(/\r\n?/gu, "\n").split("\n")) {
+        lines.push(`      ${contentLine}`);
+      }
+      lines.push("    </content>");
     }
-    lines.push("    </content>");
     lines.push("  </skill>");
   }
   lines.push("</selected_skills>");
