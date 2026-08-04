@@ -181,6 +181,7 @@ describe("SparkCommand vocabulary", () => {
       "turn.cancel.request",
       "turn.status.request",
       "turn.stream.subscribe",
+      "loop.control.request",
       "session.model.set.request",
       "session.thinking.set.request",
       "side-thread.ensure.request",

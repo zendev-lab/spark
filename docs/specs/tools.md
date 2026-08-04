@@ -121,7 +121,7 @@ generation, retry, or next-turn continuation. The full runtime contract is in
   separate Artifact refs. Its lifecycle is mutated only through
   `git({ action })`, with `gh stack` as topology authority. `document` owns
   typed content and revision/progress metadata. New writes accept Markdown,
-  safe MDX-lite, sanitized HTML, or read-only A2UI; Spark UI, plain text, JSON,
+  safe MDX-lite, sanitized HTML, or read-only Artifact-preview A2UI; Spark UI, plain text, JSON,
   and unknown Document media are legacy-read-only. Preview is a view opened
   with `artifact({ action: "open_preview" })`, not an Artifact kind.
   `artifact({ action: "sync_file" })` accepts only a cwd-local regular,
@@ -129,6 +129,9 @@ generation, retry, or next-turn continuation. The full runtime contract is in
   metadata-only changes preserve the content revision.
   Legacy v1 `pr`/`preview` records are normalized lazily on read without
   destructive bulk migration. Product tool results publish `artifact.update`.
+  The separate daemon-bound Repro Workbench may render the same A2UI protocol
+  interactively inside its owning Session, but it accepts only the closed typed
+  Loop-control vocabulary and never changes Artifact preview behavior.
 - `task_write({ action: "artifact_link" | "artifact_unlink" })` maintains
   durable, idempotent `Task.artifactRefs`. This slice deliberately adds no
   `Workstream` aggregate and no Task parent/subtask relation.

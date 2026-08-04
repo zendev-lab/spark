@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Icon } from "@zendev-lab/spark-ui";
   import ReproTokenUsage from "./ReproTokenUsage.svelte";
+  import ReproWorkbench from "./ReproWorkbench.svelte";
   import {
     primarySessionLoop,
     sessionHasProjectedWork,
@@ -52,6 +53,15 @@
 
     <div class="work-grid">
       {#if repro}
+        {#if repro.workbench}
+          <div class="workbench-surface">
+            <ReproWorkbench
+              sessionId={session!.sessionId}
+              binding={repro.workbench}
+              canControl={host.canAssign}
+            />
+          </div>
+        {/if}
         <article class="work-card current-step">
           <p class="field-label">{host.copy.currentStep}</p>
           {#if currentStep}
@@ -118,6 +128,16 @@
               <div>
                 <dt>{host.copy.nextSchedule}</dt>
                 <dd>{host.relative(loop.dueAt)}</dd>
+              </div>
+            {/if}
+            {#if loop}
+              <div>
+                <dt>Loop</dt>
+                <dd>{loop.status} · generation {loop.generation}</dd>
+              </div>
+              <div>
+                <dt>Cycle checkpoint</dt>
+                <dd>{loop.checkpoint?.step ?? loop.cycleStep ?? "settled"}</dd>
               </div>
             {/if}
             {#if loop?.reason}
@@ -301,6 +321,11 @@
     box-shadow: var(--shadow-card);
     min-width: 0;
     padding: var(--spacing-md);
+  }
+
+  .workbench-surface {
+    grid-column: 1 / -1;
+    min-width: 0;
   }
 
   .current-step {
