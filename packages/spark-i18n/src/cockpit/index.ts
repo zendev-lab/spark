@@ -1,4 +1,4 @@
-import type { SparkLocale } from "@zendev-lab/spark-i18n";
+import type { SparkLocale } from "../index.ts";
 import en from "./en.ts";
 import zhCN from "./zh-CN.ts";
 

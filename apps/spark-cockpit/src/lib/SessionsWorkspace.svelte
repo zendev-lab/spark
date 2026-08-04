@@ -36,7 +36,7 @@
     type SparkActionView,
     type SparkSessionView,
   } from "@zendev-lab/spark-protocol";
-  import type { CockpitMessages } from "@zendev-lab/spark-cockpit-i18n";
+  import type { CockpitMessages } from "@zendev-lab/spark-i18n/cockpit";
   import {
     onMount,
     tick,

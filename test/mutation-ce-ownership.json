@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "architectureSource": "architecture/packages.json",
   "runner": "scripts/run-leaf-mutation.mjs",
-  "workspaceCount": 40,
+  "workspaceCount": 39,
   "includedCount": 10,
-  "deferredCount": 30,
+  "deferredCount": 29,
   "workspaces": {
     "@zendev-lab/spark-retry": {
       "path": "packages/spark-retry",
@@ -142,13 +142,6 @@
       "risk": "high",
       "riskReason": "interaction capability behavior is outside the current mutation CE set",
       "alternateGate": "pnpm test test/spark-ask-core.test.ts test/spark-ask-flow.test.ts test/spark-ask-tool.test.ts"
-    },
-    "@zendev-lab/spark-cockpit-i18n": {
-      "path": "packages/spark-cockpit-i18n",
-      "status": "deferred",
-      "risk": "medium",
-      "riskReason": "cockpit private-adapter behavior is outside the current mutation CE set",
-      "alternateGate": "pnpm --filter @zendev-lab/spark-cockpit-i18n run check"
     },
     "@zendev-lab/spark-core": {
       "path": "packages/spark-core",

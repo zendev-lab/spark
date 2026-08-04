@@ -27,5 +27,5 @@
   "timeoutMS": 20000,
   "concurrency": 4,
   "ignoreStatic": true,
-  "mutate": ["src/index.ts", "src/extension.ts"]
+  "mutate": ["src/index.ts", "src/extension.ts", "src/cockpit/index.ts"]
 }

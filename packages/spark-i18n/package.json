@@ -20,6 +20,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./cli": "./src/cli.ts",
+    "./cockpit": "./src/cockpit/index.ts",
     "./extension": "./src/extension.ts",
     "./paraglide/messages": "./src/paraglide/messages.js",
     "./paraglide/runtime": "./src/paraglide/runtime.js"

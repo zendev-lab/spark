@@ -1,4 +1,4 @@
-import { getCockpitDictionary } from "@zendev-lab/spark-cockpit-i18n";
+import { getCockpitDictionary } from "@zendev-lab/spark-i18n/cockpit";
 import { sparkSlashActionBarForInput } from "@zendev-lab/spark-protocol";
 import { describe, expect, it } from "vitest";
 import {

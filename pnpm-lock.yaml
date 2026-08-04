@@ -252,9 +252,6 @@ importers:
       '@zendev-lab/spark-cockpit-db':
         specifier: workspace:*
         version: link:../../packages/spark-cockpit-db
-      '@zendev-lab/spark-cockpit-i18n':
-        specifier: workspace:*
-        version: link:../../packages/spark-cockpit-i18n
       '@zendev-lab/spark-core':
         specifier: workspace:*
         version: link:../../packages/spark-core
@@ -766,19 +763,6 @@ importers:
       kysely-codegen:
         specifier: ^0.20.0
         version: 0.20.0(better-sqlite3@12.11.1)(kysely@0.29.4)(typescript@6.0.3)
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-      vitest:
-        specifier: 4.1.10
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.1)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
-
-  packages/spark-cockpit-i18n:
-    dependencies:
-      '@zendev-lab/spark-i18n':
-        specifier: workspace:*
-        version: link:../spark-i18n
-    devDependencies:
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

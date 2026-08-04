@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -8,6 +8,9 @@ import { test } from "vitest";
 
 const configPath = resolve(".dependency-cruiser.cjs");
 const docTerminologyScriptPath = resolve("scripts/check-doc-terminology.mjs");
+const cockpitI18nBoundaryFixturePath = resolve(
+  "test/fixtures/boundaries/spark-i18n-cockpit-surface-private.ts.fixture",
+);
 
 test("dependency-cruiser config loads and encodes required boundary rules", () => {
   const config = createRequire(import.meta.url)(configPath) as {
@@ -27,6 +30,7 @@ test("dependency-cruiser config loads and encodes required boundary rules", () =
     "no-workspace-package-src-specifier",
     "no-app-relative-packages-src-deep-link",
     "no-cross-package-relative-src-deep-link",
+    "spark-i18n-cockpit-surface-private",
     "pi-no-product-adapters",
     "pi-only-foundation-spark",
     "spark-extension-no-spark-tui",
@@ -92,6 +96,25 @@ test("production circular rule rejects a real TypeScript cycle", async () => {
     assert.equal(violations[0]?.rule?.severity, "error");
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("dependency-cruiser rejects non-Cockpit imports of the Cockpit i18n surface", async () => {
+  const fixtureParent = resolve(".spark");
+  await mkdir(fixtureParent, { recursive: true });
+  const fixtureRoot = await mkdtemp(join(fixtureParent, "depcruise-cockpit-i18n-"));
+  try {
+    const fixturePath = join(fixtureRoot, "index.ts");
+    await writeFile(fixturePath, await readFile(cockpitI18nBoundaryFixturePath, "utf8"));
+    const result = spawnSync("pnpm", ["exec", "depcruise", "--config", configPath, fixturePath], {
+      cwd: resolve("."),
+      encoding: "utf8",
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /spark-i18n-cockpit-surface-private/u);
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
   }
 });
 

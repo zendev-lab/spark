@@ -31,7 +31,6 @@
     "@zendev-lab/spark-channels": "workspace:*",
     "@zendev-lab/spark-cockpit-coordination": "workspace:*",
     "@zendev-lab/spark-cockpit-db": "workspace:*",
-    "@zendev-lab/spark-cockpit-i18n": "workspace:*",
     "@zendev-lab/spark-core": "workspace:*",
     "@zendev-lab/spark-daemon-client": "workspace:*",
     "@zendev-lab/spark-host": "workspace:*",

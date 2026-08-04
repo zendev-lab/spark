@@ -5,7 +5,7 @@ import type {
   SessionActivityReport,
 } from "@zendev-lab/spark-cockpit-coordination/session-activity";
 import type { SparkModelControlSnapshot, SparkSessionRelation } from "@zendev-lab/spark-protocol";
-import type { CockpitMessages } from "@zendev-lab/spark-cockpit-i18n";
+import type { CockpitMessages } from "@zendev-lab/spark-i18n/cockpit";
 
 /** Canonical session activity projection; UI previously re-declared a near-isomorphic subset. */
 export type SessionActivity = SessionActivityProjection;

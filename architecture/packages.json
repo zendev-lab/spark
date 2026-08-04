@@ -88,13 +88,6 @@
       "stability": "private",
       "stateWriter": "cockpit"
     },
-    "@zendev-lab/spark-cockpit-i18n": {
-      "path": "packages/spark-cockpit-i18n",
-      "layer": "private-adapter",
-      "owner": "cockpit",
-      "stability": "private",
-      "stateWriter": "none"
-    },
     "@zendev-lab/spark-core": {
       "path": "packages/spark-core",
       "layer": "foundation",

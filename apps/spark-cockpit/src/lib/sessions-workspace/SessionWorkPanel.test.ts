@@ -1,4 +1,4 @@
-import { getCockpitDictionary } from "@zendev-lab/spark-cockpit-i18n";
+import { getCockpitDictionary } from "@zendev-lab/spark-i18n/cockpit";
 import {
   parseSparkSessionView,
   type SparkDriverStatus,
