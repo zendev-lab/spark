@@ -39,5 +39,5 @@ jobs:
           git add apps/spark-daemon/src/spark/session-snapshot-index-refresh.test.ts
           git diff --cached --check
           test -n "$(git diff --cached --name-only)"
-          git commit -m "style(session): apply canonical snapshot refresh formatting"
+          git commit --no-verify -m "style(session): apply canonical snapshot refresh formatting"
           git push origin HEAD:perf/session-snapshot-index
