@@ -48,7 +48,7 @@ catalogs:
 
 overrides:
   '@connectrpc/connect-node>undici': 8.9.0
-  '@cursor/sdk>zod': 3.25.76
+  '@cursor/sdk>zod': 4.4.3
   '@modelcontextprotocol/sdk>@hono/node-server': 2.0.12
   '@sveltejs/kit>cookie': 0.7.2
   ajv>fast-uri: 3.1.5
@@ -8101,9 +8101,6 @@ packages:
     peerDependencies:
       zod: ^3.25.28 || ^4
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
-
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
@@ -9008,7 +9005,7 @@ snapshots:
       '@connectrpc/connect-node': 1.6.1(@bufbuild/protobuf@1.10.0)(@connectrpc/connect@1.6.1(@bufbuild/protobuf@1.10.0))
       '@connectrpc/connect-web': 1.6.1(@bufbuild/protobuf@1.10.0)(@connectrpc/connect@1.6.1(@bufbuild/protobuf@1.10.0))
       '@statsig/js-client': 3.31.0
-      zod: 3.25.76
+      zod: 4.4.3
     optionalDependencies:
       '@cursor/sdk-darwin-arm64': 1.0.26
       '@cursor/sdk-darwin-x64': 1.0.26
@@ -15507,8 +15504,6 @@ snapshots:
   zod-to-json-schema@3.25.2(zod@4.4.3):
     dependencies:
       zod: 4.4.3
-
-  zod@3.25.76: {}
 
   zod@4.4.3: {}
 
