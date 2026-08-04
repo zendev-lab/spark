@@ -1,93 +1,119 @@
 # AGENTS.md
 
-Spark monorepo: agent-oriented docs for contributors and automation. Product overview lives in [README.md](./README.md).
+Repository-wide instructions for coding agents working on Spark.
 
-## Layout
+Human contributor setup, development commands, validation, documentation
+ownership, and pull-request conventions are maintained in
+[`CONTRIBUTING.md`](./CONTRIBUTING.md). Do not duplicate them here. Read
+[`README.md`](./README.md) for the public product overview and
+[`SPARK.md`](./SPARK.md) for project intent, goals, non-goals, and current
+direction.
 
-Target package topology follows type-first names:
+## Scope and precedence
 
-- `apps/spark-cli` — thin `spark` dispatcher only; it resolves public `spark ...` command groups to Spark app surfaces.
-- `apps/spark-tui` — executable native terminal host (`@zendev-lab/spark-tui-app`). Keep host/runtime/editor code here, not in the dispatcher.
-- `apps/spark-daemon` — Spark daemon service package that owns local workspace state, IPC, and background execution.
-- `apps/spark-cockpit` — Spark Cockpit SvelteKit local web cockpit/projection app. Keep SvelteKit/browser-specific checks isolated from the non-Svelte Spark package checks.
-- `packages/spark-*` — Spark-owned capability/runtime packages. Core capability primitives include `spark-core`, `spark-memory`, `spark-web`, `spark-artifacts`, `spark-tasks`, `spark-workflows`, `spark-loop`, and `spark-phases`.
-- **Pi SDK kernel (keep)** — `@earendil-works/pi-ai` via `spark-ai`, `@earendil-works/pi-tui` via `spark-tui` / `spark-text`. Model streams, providers, and terminal UI primitives stay on this kernel; do not “de-Pi” by removing these deps.
-- **Spark product extension** — `packages/spark-extension` is the single command/tool/policy composition root for native and structurally compatible hosts. The retired `pi-extension` workspace must not be reintroduced. Retained `pi-*` kernel adapter packages must not depend on Spark product/Cockpit packages; only Spark foundation packages are allowed.
-- `packages/spark-runtime`, `packages/spark-protocol`, `packages/spark-tui`, and `packages/spark-system` — Spark shared runtime, protocol/schema, reusable TUI boundary, and dependency-light local-system primitives. Cross-surface ask / slash / session-view semantics belong in `spark-protocol`.
-- `packages/spark-daemon-client` — protocol-aware local RPC/oRPC client transport shared by TUI, Cockpit, daemon lifecycle helpers, and capabilities. Do not put daemon clients back into `spark-system`.
-- `packages/spark-cockpit-*` — Cockpit-private implementation packages (`spark-cockpit-db`, `spark-cockpit-coordination`, …); the Cockpit message catalog is the explicit `@zendev-lab/spark-i18n/cockpit` subpath. Do not put daemon/shared helpers behind Cockpit-private names or add other Cockpit-private catalogs to shared package roots.
-- `packages/spark-ui` — Spark-owned Svelte components, design tokens, icons, and streaming Safe Markdown. Only this package may directly import Bits UI, Lucide, or `svelte-streamdown`; `spark-ui` is never an Artifact media type or wire protocol.
-- `architecture/packages.json` — exhaustive package layer/owner/stability/state-writer inventory. Adding a workspace requires updating this inventory without exceeding its package budget.
-- `docs/` — current docs are split into `specs/` and `operations/`; keep `docs/README.md` as the concise map (including the three “runtime” meanings).
+- This file applies to the entire repository.
+- A more specific `AGENTS.md`, when present in a subtree, augments or overrides
+  this file for that subtree.
+- Follow the user's explicit task and preserve unrelated work.
+- Before changing behavior, read the nearest tests and the specification owned
+  by that domain.
+- Machine-readable inventories and enforced contracts are authoritative over
+  copied prose.
 
-## Tooling
+## Sources of truth
 
-- **pnpm** — `packageManager` is pinned in root `package.json`; workspaces live in `pnpm-workspace.yaml` (catalog + overrides align Vite / Vite+ / Vitest versions with [sixbones.dev](https://github.com/zrr1999/sixbones.dev)).
-- **Vite+** — Root [`vite.config.ts`](./vite.config.ts) drives `vp fmt`, `vp lint`, and `vp check` (format + lint + type-aware checks). Install the `vp` CLI (see [viteplus.dev](https://viteplus.dev)) for local use; CI installs it via [`voidzero-dev/setup-vp`](https://github.com/voidzero-dev/setup-vp).
-- **TypeScript / tests** — `pnpm run check` is the root validation gate: static architecture/distribution/package-boundary/docs/format/lint/type checks, unit/integration suites, and the isolated source-process lifecycle. `pnpm run check:static`, `pnpm run test:unit`, and `pnpm run test:process:source` expose those lanes independently for CI. Use `pnpm run typecheck` for typecheck-only validation. Use `pnpm test` for root Vitest tests except `test/process/`; single-file runs use `pnpm test test/name.test.ts` (without a `--` separator, which Vite+ would forward). Package-specific tests use `pnpm --filter <package> run test`; workspace `check` scripts exist only when the package adds tests or another local invariant beyond the root typecheck.
-- **Git hooks** — Managed by [prek](https://github.com/j178/prek) from [`prek.toml`](./prek.toml). After clone, `pnpm install` runs `prepare` → `prek install`; run `prek install-hooks` once if hooks are missing.
+- Package layer, owner, stability, dependency, and state-writer metadata:
+  [`architecture/packages.json`](./architecture/packages.json).
+- Package creation and dependency direction:
+  [`docs/specs/package-architecture.md`](./docs/specs/package-architecture.md).
+- Command placement and state ownership:
+  [`docs/specs/command-planes.md`](./docs/specs/command-planes.md).
+- Public behavior and current commands: [`apps/spark-docs`](./apps/spark-docs).
+- Internal contracts and operator procedures:
+  [`docs/README.md`](./docs/README.md).
+- Project intent and open design direction: [`SPARK.md`](./SPARK.md).
 
-## Useful commands
+## Repository-wide invariants
 
-| Command                                  | Purpose                                                          |
-| ---------------------------------------- | ---------------------------------------------------------------- |
-| `pnpm install`                           | Install dependencies                                             |
-| `pnpm run check`                         | Run the root validation gate                                     |
-| `pnpm run fix`                           | Format, lint-fix, and typecheck the complete workspace            |
-| `pnpm run typecheck`                     | Typecheck root TypeScript, Cockpit, and daemon                    |
-| `pnpm run check:test-quality`            | Reject growth or unreviewed drift in source-mirror test debt      |
-| `pnpm run test:unit`                     | Run root, package, Cockpit, and daemon unit/integration suites    |
-| `pnpm run test:process:source`           | Exercise the exact source dispatcher and daemon lifecycle        |
-| `pnpm run test:browser:cockpit`          | Run Cockpit interaction tests in headless Chromium                |
-| `pnpm run smoke`                         | Pack, clean-install, and smoke the complete npm product           |
-| `pnpm run audit`                         | Audit dependencies for high/critical advisories via npm registry |
-| `pnpm run report:hygiene`                | Generate advisory Knip, duplication, and complexity reports       |
-| `pnpm test`                              | Root Vitest suite (excluding `test/process/`)                     |
-| `pnpm test <path>`                       | Run one root Vitest file                                         |
-| `pnpm run test:mutation`                 | Leaf-package mutation CE (10 packages: L0 retry/protocol/cockpit-db/system + L1 channels/cockpit-coordination/session/artifacts/repro/i18n) |
-| `node --experimental-strip-types scripts/spark-daemon-readiness.mts` | Emit the Spark daemon readiness audit report |
-| `node --experimental-strip-types scripts/spark-zellij-harness.mts` | Run the native TUI/zellij harness |
-| `pnpm run build`                         | Build the Spark daemon CLI and Spark Cockpit web app             |
-| `pnpm run preview`                       | Start the local Spark Cockpit dev server                         |
-| `spark cockpit`                          | Start the built Spark Cockpit production server through the CLI   |
-| `pnpm install -g .`                      | Link the unified root `spark` CLI                                |
-| `pnpm run release:pack`                  | Build the aggregate tarball and release manifest without publishing |
+- Every stateful domain has exactly one authoritative owner. Do not create a
+  second store, scheduler, state machine, or policy implementation.
+- The daemon owns persistent sessions, invocations, channels, local execution,
+  autonomous timing, retries, and recovery.
+- Hub owns cross-workspace registry, delegation, delivery, idempotency, audit,
+  and bounded receipts. It does not own target execution, repositories, local
+  artifacts, or internal evidence.
+- TUI, Cockpit, channels, ACP, RPC, and compatibility transports are
+  presentations or adapters. They must translate through owner APIs and must
+  not infer execution state from prompts, transcript text, elapsed time, or
+  frontend timers.
+- Dependencies point inward: applications may depend on composition, clients,
+  capabilities, runtimes, contracts, and foundations; lower layers must not
+  import application internals or product-private adapters.
+- `packages/spark-extension` is the single Spark product composition root.
+  Retain the Pi SDK kernel behind Spark boundaries; do not recreate a separate
+  Pi product facade or duplicate extension implementation.
+- Cross-surface schemas and semantics belong in `spark-protocol`. Transports
+  validate and translate them; they do not define competing behavior.
+- Public tools use canonical `tool({ action })` surfaces when actions share one
+  domain, state, permission, rendering, and result contract. Do not add public
+  aliases for internal names.
+- User-facing Artifacts remain `issue | git_change | document`. Artifact and
+  internal Evidence stores and ref namespaces remain separate.
+- A `git_change` Artifact contains one owning worktree and one native GitHub PR
+  stack; individual stack entries are not separate Artifact refs.
+- Serialized state and compatibility markers change only through an explicit,
+  idempotent migration with compatibility tests.
+- Do not commit secrets, `.env` files, `.spark/`, `.spark/memory/`, or legacy
+  `.learnings/` runtime state.
+- Workspace runtime state belongs under `.spark/`. User-level paths resolve
+  through explicit `SPARK_HOME` or the standard XDG roots; public agent assets
+  remain under `$HOME/.agents/`, and project assets under `.agents/`.
 
-## CI
+## Change protocol
 
-- `.github/workflows/ci-static-checks.yml` — prek + `setup-vp` + prek pass with `vp-check` skipped (avoids duplicating `vp check` already covered by ci-verify).
-- `.github/workflows/ci-verify.yml` — parallel grouped checks (static + docs), tests (unit/integration + source process), and smoke (packed npm product + headless-Chromium Cockpit), with one aggregate `required` result.
-- `.github/workflows/ce-mutation.yml` — weekly/manual leaf-package mutation CE (non-blocking).
-- `.github/workflows/ci-pr-checks.yml` — PR title validation (zendev).
-- `.github/workflows/cd-publish.yml` — protected, version-tag-only npm and GitHub Release publication.
-- `.github/workflows/ci-typos.yml` — spellcheck with `_typos.toml`.
+1. Identify the authoritative owner before editing.
+2. Inspect the relevant specification, package README, nearby tests, and
+   machine-readable inventory.
+3. Make the smallest change that preserves dependency and state ownership.
+4. Move shared validation or semantics into the existing owner or protocol
+   before adding another surface adapter.
+5. Add focused tests for behavior, failure, compatibility, and every newly
+   reachable state.
+6. Update the public guide, normative specification, or operation that owns any
+   changed behavior. Link instead of copying.
+7. Follow the validation matrix in
+   [`CONTRIBUTING.md`](./CONTRIBUTING.md#validation) and report exactly what ran.
+8. Review the final diff for unrelated edits, generated output, secrets,
+   runtime state, and accidental package-boundary changes.
 
-## Extension boundary (Spark-owned; Pi SDK kernel retained)
+## Architecture discipline
 
-- First-class surfaces are TUI, Cockpit, and messaging channels on the Spark daemon. `spark-core` exports the host-neutral `SparkHostAPI` contract plus lightweight primitives for Spark extension hosts (not a revival of the retired spark-core capability bag). Structurally compatible loaders may speak the same contract; do not merge it into Cockpit/daemon app code.
-- `packages/spark-extension/src/extension/` owns the one Spark product extension implementation. Spark-native hosts load `@zendev-lab/spark-extension`; the root `package.json#pi` list may point at the same source entry for compatibility discovery, but there is no separate Pi product facade package.
-- Host-neutral side-thread state and handoff semantics live in `packages/spark-turn`; the Spark-native store, runner, and presentation adapters belong in `apps/spark-tui` and `apps/spark-cockpit` and must not import `pi-coding-agent`.
-- Spark extension/shared packages must not import concrete app host internals from `apps/spark-cli`, `apps/spark-tui`, `@zendev-lab/spark-tui-app`, or `@earendil-works/pi-coding-agent` runtime code.
-- Shared Spark host/turn code belongs in `packages/spark-host` and `packages/spark-turn`; executable apps keep only bootstrap, UI, daemon, and compatibility-adapter glue. `pi-tui` wrappers stay behind `packages/spark-tui`.
-- Prefer Spark-native host tests when changing extension behavior. Contract tests may verify structural compatibility, but do not grow host-specific product APIs.
-- Keep builtin extension loading explicit for Spark native hosts; do not reintroduce Pi **product** package discovery or `loadPiSdk` into Spark apps. Direct `@earendil-works/pi-ai` / `pi-tui` use must stay behind the existing Spark package boundaries (`spark-ai` / `spark-tui`+`spark-text`); enforced by `pnpm run check:boundaries` (dependency-cruiser).
+Create a package only for a hard runtime, state, permission, protocol, adapter,
+or experimental-lifecycle boundary. Otherwise add a module to the existing
+owner. Any workspace addition, removal, rename, or ownership change must update
+`architecture/packages.json`.
 
-## Notes for agents
+Cockpit-private packages may be used by Cockpit but not by the daemon or shared
+Spark packages. Shared packages must not import concrete internals from
+`apps/spark-cli`, `apps/spark-tui`, `apps/spark-daemon`, or
+`apps/spark-cockpit`.
 
-- Public/default repo-owned tools should use canonical `tool({ action })` surfaces when operations share one domain/state/permission/render/result contract; do not keep fragmented duplicate aliases public, and render action tools as `tool action=<value> ...`.
-- Daemon state is execution truth. Cockpit may project `work` and `loops`, but must not infer execution state from prompts, transcript text, elapsed time, or browser timers.
-- Sessions with daemon-owned Goal/Repro work or autonomous loops are Work-first; keep Transcript as a mounted audit view.
-- Ask stays inline in its owning session. Do not add a global Ask modal.
-- Never collapse `scheduled`, `running`, `retry_wait`, `dormant`, `paused`, `blocked`, `completed`, and `stopped`; every reachable Loop state requires a rendered test.
-- Artifacts remain exactly `issue | git_change | document`. `git_change`
-  contains one owning worktree and one native GitHub PR stack; stack entries
-  are not separate Artifact refs. Preview is a Document view, not a kind.
-  Verification receipts may show bounded proof summaries and references, not
-  internal evidence-ledger bodies.
-- Artifacts (`artifact:…`, `.spark/artifacts/`) and internal evidence (`evidence:…`, `.spark/evidence/`) are separate stores and ref namespaces; never use one as a compatibility alias for the other.
-- Prefer `pnpm run fix` before committing when touching TS/Markdown; pre-commit runs the same command.
-- Root `.yamllint` disables YAML line-length checks; keep Renovate `# v...` comments on the same
-  line as each SHA-pinned GitHub Action digest.
-- Do not commit secrets or `.env` files.
-- **State directories** — Workspace agent runtime lives under `.spark/` (durable memory under `.spark/memory/`, including `learnings/`, `reflections/`, and `recall-candidates.json`). User-level Spark paths use explicit `SPARK_HOME` when set, otherwise the standard XDG config/data/cache/state/runtime roots via `resolveSparkUserPaths()` and `resolveSparkPaths()`. Public role, skill, and workflow definitions remain under `$HOME/.agents/`; project roles, skills, and workflows use `.agents/{roles,skills,workflows}`. Learning / recall / reflection capability code lives in `@zendev-lab/spark-memory` (not separate `spark-learnings` / `spark-recall` packages). Legacy `.learnings/` and `.spark/reflections/` are migrated into `.spark/memory/` when needed.
-- Boundary checks should keep retained `pi-*` kernel adapters independent from Spark product/Cockpit packages, keep Spark shared packages independent from the `spark-extension` composition root, and keep both independent from Cockpit/daemon adapter packages.
+Compatibility adapters require explicit exit criteria and receive no new
+product behavior. Do not introduce an overlapping framework or service unless
+an isolated, default-disabled experiment proves the current owner cannot meet a
+measured requirement.
+
+## Documentation discipline
+
+Use the ownership table in
+[`CONTRIBUTING.md`](./CONTRIBUTING.md#documentation-ownership). In particular:
+
+- keep `README.md` stable and user-oriented;
+- keep exhaustive commands and workflows in `apps/spark-docs`;
+- keep normative behavior in `docs/specs`;
+- keep operator procedures in `docs/operations`;
+- keep temporary migration status and open design direction in `SPARK.md`;
+- keep this file limited to stable coding-agent constraints.
+
+When changing public documentation, update English and Chinese pages together.
+Do not modify archived versions unless the task explicitly targets an archive.

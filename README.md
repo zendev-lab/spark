@@ -1,89 +1,144 @@
-# spark
+# Spark
 
-Spark is a controlled coding-agent suite with native TUI, daemon, Cockpit, and protocol-adapter surfaces. The public command dispatcher exposes:
+**A local-first coding-agent runtime for durable execution, verifiable workflows,
+and multi-workspace coordination.**
 
-```text
-spark tui
-spark daemon
-spark cockpit
-spark acp
-```
+Spark keeps agent work alive beyond one terminal process. A local daemon owns
+persistent sessions, invocations, background execution, retries, and recovery.
+The Hub coordinates registered workspaces and delegations without taking over
+their repositories or execution state. The TUI, Cockpit, channels, and ACP are
+interfaces over those owners rather than competing runtimes.
 
-- `spark tui` is the interactive terminal host.
-- `spark daemon` owns persistent sessions, SQLite invocations, channels, local execution, and autonomous Loop timing/retry/recovery.
-- `spark cockpit` launches the web control and projection surface; it does not run autonomous timers.
-- `spark acp` runs a stateless ACP stdio adapter over canonical daemon sessions and invocations.
+Use Spark when a coding task needs to continue, ask for a decision, produce
+traceable artifacts, survive frontend restarts, or move between terminal and
+browser supervision.
 
-The single `@zendev-lab/spark-extension` composition root exposes the canonical capability tools to native and structurally compatible hosts. `role` manages reusable definitions and fresh anonymous calls; `session` owns persistent lifecycle, continuity, bindings, calls, and mail.
+## Quick start
 
-User documentation is maintained in the
-[`apps/spark-docs`](./apps/spark-docs/README.md) workspace and deployed as a
-bilingual static site through Cloudflare Workers Builds and its GitHub
-integration.
+Spark requires Node.js `>=26 <27`. The managed installation is recommended
+because it supports atomic upgrades and rollback:
 
-## Common commands
-
-```text
-spark
-spark run "prompt"
-spark run --json "prompt"
-spark run --resume <session-id> "prompt"
-spark bg --session <session-id> "prompt"
-spark doctor
-spark daemon status --json
-spark daemon session list --json
-spark daemon submit --session <session-id> --prompt <text> --json
-spark daemon invocation status <invocation-id> --json
-spark daemon invocation stream <invocation-id> --after <cursor> --limit 500 --json
-spark daemon invocation cancel <invocation-id> --reason <text> --json
-spark cockpit
-spark acp
-```
-
-Inside an agent host, ordinary input is lightweight by default. `/plan` creates or refines durable tasks, while daemon-owned loops run `/implement`, `/loop`, `/goal`, `/repro`, and `/workflow` independently of the frontend. `/loop fresh <objective>` resets the hidden execution session for every tick while retaining the logical owner's workspace state. In Spark-native TUI, `/btw` controls a daemon-owned read-only Side Thread using command/status output; its lifecycle and subcommands are specified in [`docs/specs/tools.md`](./docs/specs/tools.md#native-btw).
-
-## Install
-
-The npm release exposes one public product and one executable. A managed
-installation is recommended because it provides atomic upgrades and rollback:
-
-```text
+```bash
 pnpm dlx @zendev-lab/spark install --managed
-spark --help
-spark daemon start
+spark doctor
+spark
+```
+
+Run a foreground task without opening the TUI:
+
+```bash
+spark run "Summarize this repository and identify its validation command."
+```
+
+Open the browser surface:
+
+```bash
 spark cockpit
 ```
 
-Node `>=26 <27` is required. Global installs owned by npm, pnpm, Yarn, Bun, or
-Vite+ remain package-manager-owned: Spark detects the owner and delegates exact
-version updates and rollback to it. Source checkouts are never modified. The
-source monorepo and its workspaces stay private implementation boundaries; they
-are compiled into the published product rather than becoming separate public
-packages.
+Spark starts or contacts the local daemon as needed. Use `spark daemon status
+--json` when you need to inspect execution state directly.
 
-For a central Linux deployment, the root `Dockerfile` packages Cockpit only;
-workstation daemons remain native. Build, persistence, health, and reverse-proxy
-constraints are documented in
-[`docs/operations/container.md`](./docs/operations/container.md).
+See the [getting-started guide][getting-started] for provider configuration,
+package-manager-owned installations, background runs, sessions, and remote
+operation.
 
-## Development
+## What Spark provides
+
+- **Durable execution** — sessions, invocations, background work, retries, and
+  recovery belong to the daemon rather than a frontend process.
+- **Controlled autonomy** — Plan and Implement cover ordinary changes; Goal,
+  Loop, Repro, and Workflow add supervised long-running behavior.
+- **Human decisions** — questions and approvals remain attached to the session
+  and work that requested them.
+- **Traceable outcomes** — tasks connect work to `issue`, `git_change`, and
+  `document` artifacts, with verification kept separate from user-facing
+  results.
+- **Multiple interfaces** — use the native TUI, Cockpit, messaging channels,
+  headless JSON commands, or the stateless ACP adapter over the same execution
+  model.
+- **Local-first boundaries** — each daemon retains local execution and side
+  effects; Hub coordination carries routing state, audit data, and bounded
+  receipts.
+
+## Architecture
+
+Spark separates dispatch, presentation, coordination, and execution:
 
 ```text
-pnpm install
-pnpm run check
-pnpm run smoke
-pnpm run preview
-node --experimental-strip-types scripts/spark-zellij-harness.mts --session spark
+spark CLI / TUI ───────────────► local Spark daemon ───► workspace + providers
+channels / ACP ────────────────────────────┘
+
+Cockpit ─────────► Hub ─────────► registered Spark daemons
+   └────────────────────────────► daemon control and projections
 ```
 
-pnpm `>=11 <12` is required for source development. `pnpm run release:pack`
-builds the single public tarball locally; only a version-matching `vX.Y.Z` tag
-may publish it through the protected release workflow. `.spark/` (including
-`.spark/memory/`) is local runtime state and should remain uncommitted unless
-explicitly exported. Legacy `.learnings/` directories are also ignored if
-present.
+| Component | Responsibility | Does not own |
+| --- | --- | --- |
+| `spark` CLI | Stable public command dispatch | Product state |
+| TUI | Local interactive presentation and session attachment | Durable business state |
+| Daemon | Sessions, invocations, channels, execution, retry, and recovery | Cross-workspace coordination |
+| Hub | Workspace registry, delegation, delivery, idempotency, and bounded receipts | Target execution, repositories, or internal evidence |
+| Cockpit | Browser presentation and control | Execution or coordination policy |
+| ACP | Stateless protocol translation | Sessions or invocations |
 
-Contracts, including state ownership and adapter boundaries, are indexed in [`docs/README.md`](./docs/README.md). Contributor and automation constraints are in [`AGENTS.md`](./AGENTS.md).
+The detailed ownership and command grammar are specified in
+[`docs/specs/command-planes.md`](./docs/specs/command-planes.md). Package
+dependency direction and state writers are defined by
+[`architecture/packages.json`](./architecture/packages.json) and the
+[package architecture specification](./docs/specs/package-architecture.md).
 
-Spark is MIT-licensed. Source-derived component notices are in
+## Typical workflow
+
+1. Describe the intended outcome in the TUI or with `spark run`.
+2. Use Plan to turn the intent into durable, inspectable tasks.
+3. Use Implement for ordinary execution, or opt into Goal, Loop, Repro, or
+   Workflow when the work needs autonomous progress.
+4. Answer questions and approvals from the owning session or Cockpit Inbox.
+5. Inspect artifacts, changes, tasks, and verification before delivery.
+6. Continue locally or delegate bounded work to another workspace through Hub.
+
+The [user documentation][docs] explains these workflows without requiring
+knowledge of internal packages or storage.
+
+## Interfaces
+
+| Interface | Best suited for |
+| --- | --- |
+| `spark` / `spark tui` | Interactive local coding sessions |
+| `spark run` / `spark bg` | Foreground scripts and background work |
+| `spark daemon` | Execution inspection and operator control |
+| `spark hub` | Cross-workspace coordination and delegation |
+| `spark cockpit` | Browser supervision across sessions and workspaces |
+| `spark acp` | ACP-compatible clients over canonical daemon sessions |
+
+Run `spark --help` for the current public command map. The complete command
+reference is maintained in the [user documentation][cli-reference].
+
+## Documentation
+
+- [User documentation][docs] — installation, workflows, interfaces, and
+  troubleshooting.
+- [`SPARK.md`](./SPARK.md) — project intent, goals, non-goals, and open
+  questions.
+- [`docs/README.md`](./docs/README.md) — internal contracts and operator
+  procedures.
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — source setup, repository workflow,
+  validation, documentation ownership, and pull requests.
+- [`AGENTS.md`](./AGENTS.md) — repository-wide constraints for coding agents.
+
+## Distribution and status
+
+`@zendev-lab/spark` is the only public npm product and exposes one `spark`
+executable. Source workspaces are private implementation boundaries compiled
+into that product rather than separately supported packages.
+
+Spark is under active development. Managed installations provide explicit
+update and rollback behavior; source checkouts are never self-modified.
+
+Spark is MIT-licensed. Source-derived component notices are recorded in
 [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).
+
+[cli-reference]: https://spark-docs.2742392377.workers.dev/reference/cli/
+[docs]: https://spark-docs.2742392377.workers.dev/
+[getting-started]: https://spark-docs.2742392377.workers.dev/getting-started/
