@@ -21,8 +21,13 @@ const messages = {
   channelLabels: sessionMessages.channelLabels,
   sessionTypes: sessionMessages.sessionTypes,
   archiveSubmit: sessionMessages.archiveSubmit,
+  showArchived: sessionMessages.showArchived,
+  hideArchived: sessionMessages.hideArchived,
+  archivedLabel: sessionMessages.archivedLabel,
+  orphanedSideThreads: sessionMessages.orphanedSideThreads,
+  sideThreadRailLabel: sessionMessages.sideThreadRailLabel,
 };
-const now = "2026-07-30T12:00:00.000Z";
+const now = new Date(Date.now() - 4 * 86_400_000).toISOString();
 const sessions = [
   {
     sessionId: "regular-session",
@@ -44,6 +49,31 @@ const sessions = [
     updatedAt: now,
   },
 ];
+
+const hierarchySessions = [
+  { ...sessions[0]!, sessionId: "parent-alpha", title: "Parent Alpha", status: "ready" },
+  sideThread("alpha-context", "parent-alpha", 1, "contextual"),
+  sideThread("alpha-tangent", "parent-alpha", 2, "tangent"),
+  { ...sessions[0]!, sessionId: "parent-beta", title: "Parent Beta", status: "ready" },
+  sideThread("beta-context", "parent-beta", 1, "contextual"),
+  sideThread("alpha-archived", "parent-alpha", 3, "contextual", "archived"),
+];
+
+function sideThread(
+  sessionId: string,
+  parentSessionId: string,
+  generation: number,
+  mode: "contextual" | "tangent",
+  status = "ready",
+) {
+  return {
+    ...sessions[0]!,
+    sessionId,
+    title: `${mode} ${generation}`,
+    status,
+    relation: { kind: "side_thread" as const, parentSessionId, generation, mode },
+  };
+}
 
 function props(overrides: Record<string, unknown> = {}) {
   return {
@@ -96,5 +126,88 @@ describe("WorkbenchSessionRail browser contract", () => {
     expect(groups.some((group) => group.textContent?.includes("Regular conversation"))).toBe(true);
     expect(groups.some((group) => group.textContent?.includes("reviewers"))).toBe(true);
     await screen.unmount();
+  });
+
+  it("keeps an orphan Side Thread diagnostic out of the link and control surfaces", async () => {
+    const screen = await render(
+      WorkbenchSessionRail,
+      props({ sessions: [sideThread("orphan-child", "missing-parent", 4, "tangent")] }),
+    );
+    const orphanRow = screen.container.querySelector<HTMLElement>(
+      '[data-session-id="orphan-child"][role="listitem"]',
+    );
+    expect(orphanRow?.getAttribute("aria-level")).toBe("2");
+    expect(orphanRow?.querySelector(".orphan")?.getAttribute("aria-disabled")).toBe("true");
+    expect(orphanRow?.querySelector("a, form, button")).toBeNull();
+    expect(orphanRow?.textContent).toContain(messages.orphanedSideThreads);
+    await screen.unmount();
+  });
+
+  it("persists Show archived in the URL while preserving the Side Thread hierarchy", async () => {
+    const originalUrl = window.location.href;
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}?rail=hierarchy`,
+    );
+    let screen = await render(
+      WorkbenchSessionRail,
+      props({
+        sessions: hierarchySessions,
+        archivedToggleHref: `${window.location.pathname}?rail=hierarchy&archived=1`,
+      }),
+    );
+    try {
+      const activeRows = [...screen.container.querySelectorAll<HTMLElement>("[data-session-id]")];
+      expect(activeRows.map((row) => row.dataset.sessionId)).toEqual([
+        "parent-alpha",
+        "alpha-context",
+        "alpha-tangent",
+        "parent-beta",
+        "beta-context",
+      ]);
+      expect(
+        screen.container
+          .querySelector('[data-session-id="parent-alpha"][role="listitem"]')
+          ?.getAttribute("aria-level"),
+      ).toBe("1");
+      const childRow = screen.container.querySelector<HTMLElement>(
+        '[data-session-id="alpha-context"][role="listitem"]',
+      );
+      const childLink = childRow?.querySelector<HTMLAnchorElement>("a.session-item");
+      expect(childRow?.getAttribute("aria-level")).toBe("2");
+      expect(childLink?.getAttribute("aria-label")).toContain(
+        "mode=contextual • generation=1 • status=ready",
+      );
+      expect(childLink?.getAttribute("href")).toBe("/spark/sessions/parent-alpha");
+      expect(screen.container.innerHTML).toMatchSnapshot();
+
+      screen.getByRole("link", { name: `${messages.showArchived} (1)` });
+      const showArchivedToggle =
+        screen.container.querySelector<HTMLAnchorElement>("a.archived-toggle");
+      expect(showArchivedToggle).not.toBeNull();
+      showArchivedToggle?.focus();
+      expect(document.activeElement).toBe(showArchivedToggle);
+      await userEvent.keyboard("{Enter}");
+      expect(new URL(window.location.href).searchParams.get("archived")).toBe("1");
+      expect(screen.container.textContent).toContain("contextual 3 [archived]");
+
+      await screen.unmount();
+      screen = await render(
+        WorkbenchSessionRail,
+        props({
+          sessions: hierarchySessions,
+          showArchived: new URL(window.location.href).searchParams.get("archived") === "1",
+          archivedToggleHref: `${window.location.pathname}?rail=hierarchy`,
+        }),
+      );
+      expect(screen.container.textContent).toContain("contextual 3 [archived]");
+      await userEvent.click(screen.getByRole("link", { name: `${messages.hideArchived} (1)` }));
+      expect(new URL(window.location.href).searchParams.has("archived")).toBe(false);
+      expect(screen.container.textContent).not.toContain("contextual 3 [archived]");
+    } finally {
+      await screen.unmount();
+      window.history.replaceState(window.history.state, "", originalUrl);
+    }
   });
 });

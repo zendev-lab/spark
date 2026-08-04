@@ -16,6 +16,7 @@ import {
   listRuntimeSessionRoutes,
   reconcileRuntimeSessionListProjection,
   recordRuntimeSessionControlProjection,
+  replaceRuntimeSideThreadProjection,
   runRuntimeSessionControlCommand,
   runtimeSessionRouteForSession,
 } from "./runtime-session-control.ts";
@@ -133,6 +134,46 @@ describe("runtime session projections", () => {
     ).toThrowError(/Daemon command returned a workspace session/u);
     expect(requireRuntimeControlCommand(h.db, mismatched.commandId).status).toBe("queued");
     expect(getRuntimeSessionProjection(h.db, workspace.sessionId)?.session).toEqual(workspace);
+    h.db.close();
+  });
+
+  it("atomically replaces a Side Thread projection on its parent workspace route", () => {
+    const h = setup();
+    const parent = workspaceSession(h.workspaceId);
+    const child: SparkSessionRegistryRecord = {
+      ...workspaceSession(h.workspaceId),
+      relation: {
+        kind: "side_thread",
+        parentSessionId: parent.sessionId,
+        generation: 1,
+        mode: "contextual",
+      },
+    };
+    const route = {
+      runtimeId: h.runtimeId,
+      scope: "workspace" as const,
+      workspaceId: h.workspaceId,
+      runtimeWorkspaceBindingId: h.bindingId,
+    };
+
+    replaceRuntimeSideThreadProjection(h.db, route, parent.sessionId, child, now);
+    expect(getRuntimeSessionProjection(h.db, child.sessionId)?.session).toEqual(child);
+    expect(() =>
+      replaceRuntimeSideThreadProjection(h.db, route, "wrong-parent", child, now),
+    ).toThrowError(/does not belong to the requested parent/u);
+
+    const crossWorkspaceChild: SparkSessionRegistryRecord = {
+      ...child,
+      scope: { kind: "workspace", workspaceId: "ws_other" },
+      workspaceId: "ws_other",
+    };
+    expect(() =>
+      replaceRuntimeSideThreadProjection(h.db, route, parent.sessionId, crossWorkspaceChild, now),
+    ).toThrowError(/outside its lease route/u);
+    expect(getRuntimeSessionProjection(h.db, child.sessionId)?.session).toEqual(child);
+
+    replaceRuntimeSideThreadProjection(h.db, route, parent.sessionId, null, now);
+    expect(getRuntimeSessionProjection(h.db, child.sessionId)).toBeNull();
     h.db.close();
   });
 

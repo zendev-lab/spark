@@ -575,6 +575,11 @@ const messages = {
     archiveBody:
       "Archived conversations leave the list while existing messages and reports stay in the record.",
     archiveSubmit: "Archive conversation",
+    showArchived: "Show archived",
+    hideArchived: "Hide archived",
+    archivedLabel: "archived",
+    orphanedSideThreads: "Orphan Side Threads",
+    sideThreadRailLabel: "Side Thread",
     activityKicker: "Conversation",
     activityTitle: "Messages and progress",
     activityBody: "Your messages, execution state, and Spark reports appear here in time order.",

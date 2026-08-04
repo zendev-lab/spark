@@ -37,6 +37,7 @@ import {
 } from "@zendev-lab/spark-cockpit-coordination";
 import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
 import { createCockpitRuntimeSessionClient } from "./cockpit-runtime-session-client.ts";
+import { listProjectedManagedSessionsForCockpit } from "./managed-sessions.ts";
 
 const now = "2026-07-15T00:00:00.000Z";
 
@@ -177,6 +178,55 @@ test("remote Cockpit controls workspace sessions without a daemon socket", async
       listed.map(({ sessionId }) => sessionId).sort(),
       [workspaceSessionId, secondSessionId].sort(),
     );
+    const sideThread = await client.ensureSideThread({
+      parentSessionId: workspaceSessionId,
+      mode: "contextual",
+    });
+    const related = await client.list({
+      scope: { kind: "workspace", workspaceId: cockpitWorkspace.id },
+      workspaceId: cockpitWorkspace.id,
+      related: true,
+    });
+    assert.deepEqual(
+      related.find(({ sessionId }) => sessionId === sideThread.sessionId)?.relation,
+      {
+        kind: "side_thread",
+        parentSessionId: workspaceSessionId,
+        generation: sideThread.generation,
+        mode: sideThread.mode,
+      },
+    );
+    assert.deepEqual(
+      listProjectedManagedSessionsForCockpit(
+        {
+          workspaceId: cockpitWorkspace.id,
+          related: true,
+        },
+        cockpitDb,
+      ).sessions.find(({ sessionId }) => sessionId === sideThread.sessionId)?.relation,
+      {
+        kind: "side_thread",
+        parentSessionId: workspaceSessionId,
+        generation: sideThread.generation,
+        mode: sideThread.mode,
+      },
+    );
+    await assert.rejects(
+      client.submit({
+        sessionId: sideThread.sessionId,
+        prompt: "Bypass parent authorization",
+        assignment: assignment(
+          sideThread.sessionId,
+          "Bypass parent authorization",
+          cockpitWorkspace.id,
+        ),
+      }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "reasonCode" in error &&
+        error.reasonCode === "side_thread_direct_submit_forbidden",
+    );
 
     const additionalWorkspaceSessions = await Promise.all(
       Array.from({ length: 101 }, (_, index) =>
@@ -198,6 +248,13 @@ test("remote Cockpit controls workspace sessions without a daemon socket", async
       additionalWorkspaceSessions.every(({ sessionId }) =>
         pagedWorkspaceSessions.some((session) => session.sessionId === sessionId),
       ),
+    );
+    assert.ok(
+      listProjectedManagedSessionsForCockpit(
+        { workspaceId: cockpitWorkspace.id, related: true },
+        cockpitDb,
+      ).sessions.some(({ sessionId }) => sessionId === sideThread.sessionId),
+      "non-related session.list must not evict the hierarchy-only Side Thread projection",
     );
 
     const workspaceTurn = await client.submit({

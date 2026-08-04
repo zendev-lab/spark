@@ -148,6 +148,8 @@
       selectedSessionId={selectedSessionId}
       sessionsAvailable={data.sessionsAvailable}
       sessionControlAvailable={data.sessionControlAvailable}
+      showArchived={data.sessionRailShowArchived}
+      archivedToggleHref={data.sessionRailArchivedToggleHref}
       locale={data.locale}
       {common}
       messages={{
@@ -164,6 +166,11 @@
         channelLabels: data.messages.sessions.channelLabels,
         sessionTypes: data.messages.sessions.sessionTypes,
         archiveSubmit: data.messages.sessions.archiveSubmit,
+        showArchived: data.messages.sessions.showArchived,
+        hideArchived: data.messages.sessions.hideArchived,
+        archivedLabel: data.messages.sessions.archivedLabel,
+        orphanedSideThreads: data.messages.sessions.orphanedSideThreads,
+        sideThreadRailLabel: data.messages.sessions.sideThreadRailLabel,
       }}
     />
 

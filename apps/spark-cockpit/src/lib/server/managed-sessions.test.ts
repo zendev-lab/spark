@@ -32,6 +32,36 @@ const daemonSession: SparkSessionRegistryRecord = {
   workspaceId: undefined,
 };
 
+const secondParent: SparkSessionRegistryRecord = {
+  ...session,
+  sessionId: "sess_b",
+  title: "Beta",
+};
+
+function sideThread(
+  sessionId: string,
+  parentSessionId: string,
+  generation: number,
+  mode: "contextual" | "tangent",
+  overrides: {
+    status?: SparkSessionRegistryRecord["status"];
+    scope?: { kind: "workspace"; workspaceId: string };
+    workspaceId?: string;
+  } = {},
+): SparkSessionRegistryRecord {
+  const workspaceSession = session as SparkSessionRegistryRecord & {
+    scope: { kind: "workspace"; workspaceId: string };
+    workspaceId: string;
+  };
+  return {
+    ...workspaceSession,
+    sessionId,
+    title: `${mode} child`,
+    relation: { kind: "side_thread", parentSessionId, generation, mode },
+    ...overrides,
+  };
+}
+
 const snapshot = {
   version: 1 as const,
   sessionId: "sess_a",
@@ -159,25 +189,53 @@ describe("managed sessions for cockpit", () => {
     expect(client.snapshot).not.toHaveBeenCalled();
   });
 
-  it("keeps daemon-owned Side Thread children out of the ordinary session rail", async () => {
+  it("returns related workspace sessions only when the rail requests them", async () => {
     const client = daemonClient();
-    client.list.mockResolvedValueOnce([
-      session,
-      {
-        ...session,
-        sessionId: "sess_a_btw",
-        relation: {
-          kind: "side_thread",
-          parentSessionId: session.sessionId,
-          generation: 1,
-          mode: "contextual",
-        },
-      },
-    ]);
-
-    await expect(listManagedSessionsForCockpit({}, client)).resolves.toMatchObject({
-      sessions: [session],
+    const activeChildren = [
+      sideThread("sess_a_context", session.sessionId, 1, "contextual"),
+      sideThread("sess_a_tangent", session.sessionId, 2, "tangent"),
+      sideThread("sess_b_context", secondParent.sessionId, 1, "contextual"),
+    ];
+    const archivedChild = sideThread("sess_a_archived", session.sessionId, 3, "contextual", {
+      status: "archived",
     });
+    client.list.mockResolvedValue([session, ...activeChildren, secondParent, archivedChild]);
+    const workspace = {
+      scope: { kind: "workspace" as const, workspaceId: "ws_a" },
+      workspaceId: "ws_a",
+    };
+
+    await expect(listManagedSessionsForCockpit(workspace, client)).resolves.toMatchObject({
+      sessions: [session, secondParent],
+    });
+    await expect(
+      listManagedSessionsForCockpit({ ...workspace, related: true }, client),
+    ).resolves.toMatchObject({ sessions: [session, ...activeChildren, secondParent] });
+    await expect(
+      listManagedSessionsForCockpit({ ...workspace, related: true, includeArchived: true }, client),
+    ).resolves.toMatchObject({
+      sessions: [session, ...activeChildren, secondParent, archivedChild],
+    });
+  });
+
+  it("excludes related sessions from another workspace", async () => {
+    const client = daemonClient();
+    const foreign = sideThread("sess_foreign_child", "sess_foreign_parent", 1, "contextual", {
+      scope: { kind: "workspace", workspaceId: "ws_foreign" },
+      workspaceId: "ws_foreign",
+    });
+    client.list.mockResolvedValue([session, foreign]);
+
+    await expect(
+      listManagedSessionsForCockpit(
+        {
+          scope: { kind: "workspace", workspaceId: "ws_a" },
+          workspaceId: "ws_a",
+          related: true,
+        },
+        client,
+      ),
+    ).resolves.toMatchObject({ sessions: [session] });
   });
 
   it("returns an empty read model when the daemon is unavailable or stale", async () => {
