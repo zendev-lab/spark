@@ -2,45 +2,15 @@
 import { Icon } from "@astrojs/starlight/components";
 import context from "virtual:starlight/project-context";
 import config from "virtual:starlight/user-config";
-
-const docsLocaleStorageKey = "spark-docs-locale";
-
-function stripTrailingSlash(pathname: string) {
-  return pathname.endsWith("/") && pathname !== "/" ? pathname.slice(0, -1) : pathname;
-}
+import { localizedDocsPathname } from "../lib/docs-locale.mjs";
 
 function localizedPathname(locale: string | undefined) {
-  const url = new URL(Astro.url);
-
-  if (!config.locales) return url.pathname;
-  if (locale === "root") locale = "";
-
-  const base =
-    import.meta.env.BASE_URL === "/" ? "" : stripTrailingSlash(import.meta.env.BASE_URL);
-  const hasBase = base !== "" && url.pathname.startsWith(base);
-  if (hasBase) url.pathname = url.pathname.replace(base, "");
-
-  const [, baseSegment] = url.pathname.split("/");
-  const htmlExtension = ".html";
-  const isRootHtml = baseSegment?.endsWith(htmlExtension);
-  const baseSlug = isRootHtml ? baseSegment?.slice(0, -htmlExtension.length) : baseSegment;
-
-  if (baseSlug && baseSlug in config.locales) {
-    if (locale) {
-      url.pathname = url.pathname.replace(baseSlug, locale);
-    } else if (isRootHtml) {
-      url.pathname = "/index.html";
-    } else {
-      url.pathname = url.pathname.replace(`/${baseSlug}`, "");
-    }
-  } else if (locale) {
-    url.pathname =
-      baseSegment === "index.html" ? `/${locale}.html` : `/${locale}${url.pathname}`;
-  }
-
-  if (hasBase) url.pathname = base + url.pathname;
-  if (context.trailingSlash === "never") url.pathname = stripTrailingSlash(url.pathname);
-  return url.pathname;
+  if (!config.locales) return Astro.url.pathname;
+  return localizedDocsPathname(Astro.url.pathname, locale, {
+    baseUrl: import.meta.env.BASE_URL,
+    localeCodes: Object.keys(config.locales),
+    trailingSlash: context.trailingSlash,
+  });
 }
 
 const options = config.isMultilingual
@@ -72,7 +42,9 @@ const options = config.isMultilingual
   )
 }
 
-<script is:inline define:vars={{ docsLocaleStorageKey }}>
+<script>
+  import { persistDocsLocalePreference } from "../lib/docs-locale.mjs";
+
   class SparkDocsLanguageSelect extends HTMLElement {
     constructor() {
       super();
@@ -83,13 +55,17 @@ const options = config.isMultilingual
         if (!(event.currentTarget instanceof HTMLSelectElement)) return;
         const selectedOption = event.currentTarget.selectedOptions.item(0);
         const locale = selectedOption?.dataset.sparkLocale;
-        if (locale) window.localStorage.setItem(docsLocaleStorageKey, locale);
+        try {
+          persistDocsLocalePreference(window.localStorage, locale);
+        } catch {
+          // Accessing localStorage itself can throw in privacy-restricted contexts.
+        }
         window.location.pathname = event.currentTarget.value;
       });
 
       window.addEventListener("pageshow", (event) => {
         if (!event.persisted) return;
-        const markupSelectedIndex = select.querySelector("option[selected]")?.index;
+        const markupSelectedIndex = select.querySelector<HTMLOptionElement>("option[selected]")?.index;
         if (markupSelectedIndex !== select.selectedIndex) {
           select.selectedIndex = markupSelectedIndex ?? 0;
         }

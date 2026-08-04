@@ -1,16 +1,11 @@
 import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
+import starlightVersions from "starlight-versions";
 
-const docsLocaleStorageKey = "spark-docs-locale";
+import { createLocaleRedirectScript } from "./src/lib/docs-locale.mjs";
+
 const productionSite = process.env.SPARK_DOCS_SITE_URL?.trim() || "https://spark-docs.invalid";
-const localeRedirectScript = `
-  (() => {
-    if (window.location.pathname !== '/') return;
-    if (window.localStorage.getItem(${JSON.stringify(docsLocaleStorageKey)}) === 'zh') {
-      window.location.replace('/zh/');
-    }
-  })();
-`.trim();
+const localeRedirectScript = createLocaleRedirectScript();
 
 export default defineConfig({
   output: "static",
@@ -46,6 +41,12 @@ export default defineConfig({
         },
       },
       defaultLocale: "root",
+      plugins: [
+        starlightVersions({
+          current: { label: "Latest", redirect: "same-page" },
+          versions: [{ slug: "0.2", label: "v0.2", redirect: "same-page" }],
+        }),
+      ],
       sidebar: [
         {
           label: "Start",

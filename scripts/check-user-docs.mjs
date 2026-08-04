@@ -34,10 +34,20 @@ const requiredPages = [
   "reference/tools.md",
   "troubleshooting.md",
 ];
+const archivedVersions = ["0.2"];
 
 for (const page of requiredPages) {
   if (!pageSet.has(page)) failures.push(`missing English page: ${page}`);
   if (!pageSet.has(`zh/${page}`)) failures.push(`missing Chinese page: zh/${page}`);
+}
+
+for (const version of archivedVersions) {
+  if (!pageSet.has(`${version}/index.md`)) {
+    failures.push(`missing English archive root: ${version}/index.md`);
+  }
+  if (!pageSet.has(`zh/${version}/index.md`)) {
+    failures.push(`missing Chinese archive root: zh/${version}/index.md`);
+  }
 }
 
 for (const page of pages) {
@@ -70,6 +80,9 @@ const help = spawnSync(join(root, "apps/spark-cli/bin/spark"), ["--help"], {
   encoding: "utf8",
   env: { ...process.env, FORCE_COLOR: "0" },
 });
+// Source-behavior and product-content ratchets below intentionally target only
+// Latest. Archived versions are frozen and checked for structure, locale pairs,
+// internal links, and successful static output instead.
 if (help.status !== 0) {
   const reason = help.stderr.trim() || `exit ${help.status}`;
   failures.push(`spark --help failed: ${reason}`);
@@ -330,16 +343,63 @@ for (const { surface, args, requiredLines } of [
 
 if (checkDist) {
   const distRoot = join(root, "apps/spark-docs/dist");
+
+  for (const route of routes) {
+    const output = route === "/" ? "index.html" : `${route.slice(1)}index.html`;
+    if (!(await isFile(join(distRoot, output)))) {
+      failures.push(`missing build output for route ${route}: ${output}`);
+    }
+  }
+
   for (const output of [
-    "index.html",
-    "zh/index.html",
-    "getting-started/index.html",
-    "zh/getting-started/index.html",
+    "0.2/index.html",
+    "0.2/getting-started/index.html",
+    "zh/0.2/index.html",
+    "zh/0.2/getting-started/index.html",
     "404.html",
     "pagefind/pagefind.js",
     "sitemap-index.xml",
   ]) {
     if (!(await isFile(join(distRoot, output)))) failures.push(`missing build output: ${output}`);
+  }
+
+  await checkBuiltHTML(distRoot, "index.html", [
+    [/data-pagefind-filter="version:current"/u, "Latest Pagefind version filter"],
+    [/>Latest<\/option>/u, "Latest version option"],
+    [/>v0\.2<\/option>/u, "v0.2 version option"],
+  ]);
+  await checkBuiltHTML(distRoot, "0.2/getting-started/index.html", [
+    [/rel="canonical" href="https?:\/\/[^"/]+\/0\.2\/getting-started\/"/u, "canonical URL"],
+    [/hreflang="zh-CN" href="https?:\/\/[^"/]+\/zh\/0\.2\/getting-started\/"/u, "Chinese hreflang"],
+    [/data-pagefind-filter="version:0\.2"/u, "v0.2 Pagefind version filter"],
+    [/value="\/getting-started\/"/u, "same-page Latest version target"],
+    [/value="\/0\.2\/getting-started\/"/u, "same-page v0.2 version target"],
+    [/value="\/zh\/0\.2\/getting-started\/" data-spark-locale="zh"/u, "same-page Chinese target"],
+    [/This content is for v0\.2\./u, "English outdated-version notice"],
+    [/Search limited to v0\.2\./u, "English version-scoped search notice"],
+  ]);
+  await checkBuiltHTML(distRoot, "zh/0.2/getting-started/index.html", [
+    [/<html lang="zh-CN"/u, "Chinese HTML language"],
+    [
+      /rel="canonical" href="https?:\/\/[^"/]+\/zh\/0\.2\/getting-started\/"/u,
+      "Chinese canonical URL",
+    ],
+    [/hreflang="en" href="https?:\/\/[^"/]+\/0\.2\/getting-started\/"/u, "English hreflang"],
+    [/data-pagefind-filter="version:0\.2"/u, "Chinese v0.2 Pagefind version filter"],
+    [/value="\/0\.2\/getting-started\/" data-spark-locale="root"/u, "same-page English target"],
+    [/此内容适用于 v0\.2。/u, "Chinese outdated-version notice"],
+    [/搜索范围仅限 v0\.2。/u, "Chinese version-scoped search notice"],
+  ]);
+
+  const filterRoot = join(distRoot, "pagefind/filter");
+  const filterEntries = await readdir(filterRoot, { withFileTypes: true });
+  const filterContents = await Promise.all(
+    filterEntries
+      .filter((entry) => entry.isFile())
+      .map((entry) => readFile(join(filterRoot, entry.name))),
+  );
+  if (!filterContents.some((content) => content.includes("current") && content.includes("0.2"))) {
+    failures.push("Pagefind version index does not contain both current and 0.2 filters");
   }
 }
 
@@ -425,5 +485,13 @@ async function isFile(path) {
   } catch (error) {
     if (error?.code === "ENOENT") return false;
     throw error;
+  }
+}
+
+async function checkBuiltHTML(distRoot, output, expectations) {
+  if (!(await isFile(join(distRoot, output)))) return;
+  const html = await readFile(join(distRoot, output), "utf8");
+  for (const [pattern, label] of expectations) {
+    if (!pattern.test(html)) failures.push(`${output} is missing ${label}`);
   }
 }

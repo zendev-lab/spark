@@ -1,7 +1,8 @@
 ---
 title: Migrating to Spark 0.2.0
-description: Replace removed Pi-style CLI aliases, import Pi authentication, and verify the native Spark surfaces.
-slug: guides/migration-0.2
+description: Replace removed Pi-style CLI aliases, import Pi authentication, and
+  verify the native Spark surfaces.
+slug: 0.2/guides/migration-0.2
 ---
 
 Spark 0.2.0 is a command-surface hard cut. Removed aliases fail with usage exit
