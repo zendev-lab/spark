@@ -25,13 +25,7 @@ import {
 import type { RoleRegistry } from "@zendev-lab/spark-roles";
 import { sparkTaskExecutorRoleRef } from "@zendev-lab/spark-runtime";
 import { defaultTaskGraphStore, type TaskGraph } from "@zendev-lab/spark-tasks";
-import { defaultEvidenceStore, type EvidenceRef } from "@zendev-lab/spark-artifacts";
-import {
-  reproStepPlanRevision,
-  stepDefinitionDigest,
-  type SparkReproSubgoal,
-  type SparkSessionRepro,
-} from "./spark-session-repro.ts";
+import type { SparkReproSubgoal } from "./spark-session-repro.ts";
 
 export interface ManagedTaskSessionDispatchInput {
   cwd: string;
@@ -176,7 +170,6 @@ export async function reconcileManagedTaskSessions(input: {
   ctx: SparkSessionContext;
   projectRef: ProjectRef;
   subgoals?: readonly SparkReproSubgoal[];
-  repro?: SparkSessionRepro;
   daemonRequest?: typeof requestSparkDaemon;
 }): Promise<ManagedTaskSessionReconcileResult> {
   const stateCwd = sparkStateCwd(input.cwd, input.ctx);
@@ -222,7 +215,7 @@ export async function reconcileManagedTaskSessions(input: {
   );
 
   const reconciled = await store.update(
-    async (graph): Promise<ManagedTaskSessionReconcileResult> => {
+    (graph): ManagedTaskSessionReconcileResult => {
       const result = emptyReconcileResult();
       for (const activeRun of active) {
         const run = graph
@@ -259,18 +252,12 @@ export async function reconcileManagedTaskSessions(input: {
         }
 
         if (task.status === "done") {
-          const promotedEvidenceRefs = await promoteManagedTaskStepProof({
-            cwd: stateCwd,
-            repro: input.repro,
-            subgoal: currentSubgoal,
-            taskEvidenceRefs: task.outputEvidenceRefs,
-          });
           graph.recordRun(
             terminalManagedRun(
               run,
               "succeeded",
-              `Task ${task.ref} finished; ${promotedEvidenceRefs.length > task.outputEvidenceRefs.length ? "runtime step-proof issued" : "Subgoal still requires verifier promotion"}.`,
-              promotedEvidenceRefs,
+              `Task ${task.ref} finished; Subgoal still requires verifier promotion.`,
+              task.outputEvidenceRefs,
             ),
           );
           result.terminal += 1;
@@ -611,47 +598,6 @@ function renderTaskExecutionPrompt(reservation: ReservedTaskSessionRun): string 
     "Stay within this Task. When complete, call task_write with action=finish and include the evidence refs.",
     "If blocked, finish the Task as failed with a concrete summary; do not claim or mutate another Task.",
   ].join("\n");
-}
-
-async function promoteManagedTaskStepProof(input: {
-  cwd: string;
-  repro?: SparkSessionRepro;
-  subgoal?: SparkReproSubgoal;
-  taskEvidenceRefs: EvidenceRef[];
-}): Promise<EvidenceRef[]> {
-  const { repro, subgoal } = input;
-  if (
-    !repro ||
-    !subgoal ||
-    subgoal.authority !== "safe_local" ||
-    input.taskEvidenceRefs.length === 0
-  )
-    return [...input.taskEvidenceRefs];
-  const step = repro.plan.steps.find((candidate) => candidate.id === subgoal.id);
-  if (!step || step.authority !== "safe_local") return [...input.taskEvidenceRefs];
-  const evidence = await defaultEvidenceStore(input.cwd).put({
-    kind: "record",
-    title: `Runtime step proof for ${step.id}`,
-    format: "json",
-    body: {
-      schema: "spark.repro.step-proof/v1",
-      planRevision: reproStepPlanRevision(repro, step.id),
-      stepId: step.id,
-      definitionDigest: stepDefinitionDigest(step),
-      proofKind: "evidence",
-      doneWhen: [...step.doneWhen],
-      passed: true,
-      taskEvidenceRefs: [...input.taskEvidenceRefs],
-    },
-    provenance: {
-      producer: "spark",
-      ...(repro.projectRef ? { projectRef: repro.projectRef } : {}),
-      ...(subgoal.taskRef ? { taskRef: subgoal.taskRef } : {}),
-    },
-    links: input.taskEvidenceRefs.map((ref) => ({ to: ref, relation: "derived-from" as const })),
-    curation: { status: "curated", retention: "task" },
-  });
-  return [...new Set([...input.taskEvidenceRefs, evidence.ref])];
 }
 
 function terminalManagedRun(

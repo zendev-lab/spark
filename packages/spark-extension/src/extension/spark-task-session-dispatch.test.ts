@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import type { EvidenceRef } from "@zendev-lab/spark-artifacts";
 import { requestSparkDaemon, SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
 import type { ProjectRef, TaskRef, TaskResourceAllocation } from "@zendev-lab/spark-core";
-import { createSubgoal, loadSessionGoal } from "@zendev-lab/spark-loop";
+import { loadSessionGoal } from "@zendev-lab/spark-loop";
 import type { SparkTaskExecutionSessionRelation } from "@zendev-lab/spark-protocol";
 import { createSparkSessionRepro } from "@zendev-lab/spark-repro";
-import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { RoleRegistry } from "@zendev-lab/spark-roles";
 import { defaultTaskGraphStore, normalizeTaskPlan, TaskGraph } from "@zendev-lab/spark-tasks";
 import {
@@ -166,7 +166,9 @@ describe("managed Task Session dispatch", () => {
     }
     expect(calls.filter((call) => call.method === "turn.submit")).toHaveLength(2);
 
+    const rawTaskEvidenceRef = "evidence:task-output" as EvidenceRef;
     const afterDispatch = await defaultTaskGraphStore(cwd).load();
+    afterDispatch!.attachOutputEvidence(tasks[0]!.ref, rawTaskEvidenceRef);
     afterDispatch!.setTaskStatus(tasks[0]!.ref, "done");
     await defaultTaskGraphStore(cwd).save(afterDispatch!);
     const reconciled = await reconcileManagedTaskSessions({
@@ -191,126 +193,12 @@ describe("managed Task Session dispatch", () => {
       [tasks[0]!.ref]: "succeeded",
       [tasks[1]!.ref]: "blocked",
     });
+    const succeededRun = finalGraph?.runs(project.ref).find((run) => run.taskRef === tasks[0]!.ref);
+    expect(succeededRun?.outputEvidenceRefs).toEqual([rawTaskEvidenceRef]);
+    expect(succeededRun?.completionSummary?.summary).toContain(
+      "Subgoal still requires verifier promotion",
+    );
     expect(safeSubgoals.every((subgoal) => subgoal.status !== "done")).toBe(true);
-  });
-
-  it("issues a bound runtime step-proof when a managed safe_local Task finishes", async () => {
-    const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-step-proof-"));
-    roots.push(cwd);
-    const graph = new TaskGraph();
-    const project = graph.createProject({ title: "Repro", description: "Repro" });
-    const planned = graph.planTasks(project.ref, [
-      {
-        name: "freeze-inputs",
-        title: "Freeze inputs",
-        description: "Freeze inputs",
-        kind: "research",
-        roleRef: "role:builtin-explorer",
-        plan: normalizeTaskPlan(
-          {
-            objective:
-              "Freeze exact source, model, weight, tokenizer, config, and dataset revisions.",
-            contextRefs: [],
-            constraints: ["Use immutable hashes and revisions."],
-            nonGoals: ["Do not run model training."],
-            successCriteria: [
-              "Evidence records exact revisions and SHA-256 hashes for every immutable input.",
-            ],
-            evidenceRequired: [
-              "Manifest evidence with repositories, model, weights, tokenizer, config, and data.",
-            ],
-            steps: ["Inspect frozen inputs and record exact revisions and hashes."],
-            openQuestions: [],
-            askRefs: [],
-            riskLevel: "normal",
-          },
-          "Freeze exact immutable inputs",
-          "Freeze inputs",
-        ),
-      },
-    ]);
-    const task = planned.created[0]!;
-    const repro = createSparkSessionRepro("sess_owner");
-    const step = repro.plan.steps[0]!;
-    const subgoal = {
-      ...createSubgoal({
-        planRevision: repro.plan.currentRevision,
-        goal: step.goal,
-        doneWhen: step.doneWhen,
-        evidenceRequired: step.evidenceRequired,
-        authority: step.authority,
-        taskRef: task.ref,
-      }),
-      id: step.id,
-      stage: step.stage,
-    };
-    await defaultTaskGraphStore(cwd).save(graph);
-    const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
-      if (method === "session.get" || method === "session.create")
-        return {
-          sessionId: String(input.sessionId),
-          scope: { kind: "workspace", workspaceId: "ws" },
-          workspaceId: "ws",
-          status: "ready",
-          cwd,
-          bindings: [],
-          createdAt: "2026-07-29T00:00:00.000Z",
-          updatedAt: "2026-07-29T00:00:00.000Z",
-        };
-      if (method === "turn.submit")
-        return {
-          invocationId: "inv_step_proof",
-          status: "queued",
-          acceptedAt: "2026-07-29T00:00:00.000Z",
-        };
-      if (method === "turn.status")
-        return {
-          invocationId: String(input.invocationId),
-          status: "succeeded",
-          acceptedAt: "2026-07-29T00:00:00.000Z",
-          completedAt: "2026-07-29T00:01:00.000Z",
-        };
-      throw new Error(`unexpected daemon method: `);
-    }) as typeof requestSparkDaemon;
-    await dispatchManagedTaskSessions({
-      cwd,
-      ctx: { sessionId: "sess_owner" },
-      ownerSessionId: "sess_owner",
-      projectRef: project.ref,
-      taskRefs: [task.ref],
-      registry: new RoleRegistry(),
-      subgoals: [subgoal],
-      daemonRequest,
-    });
-    const output = await defaultEvidenceStore(cwd).put({
-      kind: "record",
-      title: "Manifest",
-      format: "json",
-      body: { ok: true },
-      provenance: { producer: "task", projectRef: project.ref, taskRef: task.ref },
-    });
-    const persisted = await defaultTaskGraphStore(cwd).load();
-    persisted!.attachOutputEvidence(task.ref, output.ref);
-    persisted!.setTaskStatus(task.ref, "done");
-    await defaultTaskGraphStore(cwd).save(persisted!);
-    await reconcileManagedTaskSessions({
-      cwd,
-      ctx: { sessionId: "sess_owner" },
-      projectRef: project.ref,
-      subgoals: [subgoal],
-      repro,
-      daemonRequest,
-    });
-    const finalGraph = await defaultTaskGraphStore(cwd).load();
-    const run = finalGraph!.runs(project.ref)[0]!;
-    expect(run.status).toBe("succeeded");
-    expect(run.outputEvidenceRefs).toHaveLength(2);
-    const proof = await defaultEvidenceStore(cwd).tryGet(run.outputEvidenceRefs[1]!);
-    expect(proof?.body).toMatchObject({
-      schema: "spark.repro.step-proof/v1",
-      stepId: subgoal.id,
-      passed: true,
-    });
   });
 
   it.each([

@@ -413,7 +413,6 @@ export function registerSparkReproTool(
               ctx,
               projectRef: repro.projectRef,
               subgoals: repro.subgoals,
-              repro,
             })
           : undefined;
         const graph = repro.projectRef
