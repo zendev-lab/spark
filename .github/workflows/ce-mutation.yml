@@ -49,34 +49,22 @@ jobs:
       - name: Validate mutation ownership
         run: node scripts/check-mutation-ce-ownership.mjs
 
-      - name: Run mutation tests
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            pnpm run test:mutation -- \
-              @zendev-lab/spark-extension \
-              @zendev-lab/spark-tasks
-          else
-            pnpm run test:mutation
-          fi
+      - name: Run focused mutation tests
+        if: ${{ github.event_name == 'pull_request' }}
+        run: >-
+          pnpm run test:mutation --
+          @zendev-lab/spark-extension
+          @zendev-lab/spark-tasks
+
+      - name: Run full mutation CE
+        if: ${{ github.event_name != 'pull_request' }}
+        run: pnpm run test:mutation
 
       - name: Upload mutation CE reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mutation-ce-reports
-          path: |
-            packages/spark-retry/reports/mutation/
-            packages/spark-protocol/reports/mutation/
-            packages/spark-cockpit-db/reports/mutation/
-            packages/spark-system/reports/mutation/
-            packages/spark-channels/reports/mutation/
-            packages/spark-cockpit-coordination/reports/mutation/
-            packages/spark-session/reports/mutation/
-            packages/spark-artifacts/reports/mutation/
-            packages/spark-repro/reports/mutation/
-            packages/spark-i18n/reports/mutation/
-            packages/spark-extension/reports/mutation/
-            packages/spark-tasks/reports/mutation/
+          path: packages/*/reports/mutation/
           if-no-files-found: ignore
           retention-days: 14
