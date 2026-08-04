@@ -202,7 +202,7 @@ export function formatSparkSkillsForPrompt(skills: readonly SparkSkill[]): strin
   const lines = [
     "\n\nThe following skills provide specialized instructions or intelligent execution for specific tasks.",
     "When a skill matches, choose exactly one primary path:",
-    "- Call skill_delegate with a self-contained instruction to let a fresh isolated worker load and execute the skill without adding its body to this session.",
+    "- If skill_delegate is active, call it with a self-contained instruction to let a fresh Worker load and execute the Skill without requiring this session to execute it.",
     "- Use read on the listed file only when this session itself must inspect and follow the skill instructions.",
     "Do not read a skill before delegating it. Resolve relative references against the listed skill directory.",
     "",
