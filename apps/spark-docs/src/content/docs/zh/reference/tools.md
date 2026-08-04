@@ -21,6 +21,10 @@ profile 或排查能力为何不可用时，再查看本页。
 | 自主续跑 | `phase`, `goal`, `loop`, `workflow`, `repro` | Session phase 与 daemon-owned Goal、WorkflowRun、Loop 状态 |
 | 发现和运行流程 | `workflow`, `workflow_run` | 读取 saved workflow 或执行已选流程 |
 
+表中的文件工具属于 Spark 原生表面。外部 Pi 产品继续使用自己的文件与搜索工具；
+Spark 不再替换 Pi 的 `read`、`write`、`edit`、`grep`、`find` 或 `ls` 实现。
+Pi 产品兼容只提供增量能力，不承诺与 Spark 原生表面保持完整功能对等。
+
 `artifact` 面向用户，只包含 Issue、GitChange 和 Document。一个 GitChange 拥有一个
 worktree 和一个 GitHub 原生 PR stack，由 `git({ action })` 管理生命周期；preview
 只是 Document 的视图，不是 Artifact kind。`evidence` 是 agent 内部账本，不会作为
@@ -54,9 +58,10 @@ Skill，并使用当前模型启动一个全新匿名 Worker。Worker 只接收 
 - 消息平台 Channel 只开放 `session`、`ask`、`context` 和 `todo`。
 - `fusion` 是显式启用的受限多模型 deliberation，不负责写最终答案，也不能证明运行结果。
 - `graft` 是已封存、显式启用的 scratch/candidate/patch 能力，不属于当前 Git 工作流。
-- `ls` 只保留给显式配置的兼容 profile，原生默认 profile 不注册它；文件发现使用
-  `find`，内容搜索使用 `grep`。
-- 兼容 host 可以启用 Pi alias，但原生默认 profile 会隐藏它们。
+- `ls` 只保留给显式配置的 Spark 原生兼容 profile，原生默认 profile 不注册它；
+  文件发现使用 `find`，内容搜索使用 `grep`。
+- 外部 Pi 兼容可以只开放更小的增量能力子集；当兼容成本高于保留的产品收益时，
+  该能力会从 Pi 兼容表面移除。
 
 私有实现与编排 helper 不会出现在公开目录中。
 
