@@ -24,6 +24,11 @@ The public request is deliberately small:
   context items.
 - `timeoutMs` is bounded and does not make execution persistent.
 
+The public tool is active only in the `implement` phase because its Worker may
+execute commands or write files. A `plan` session may inspect Skill metadata or
+explicitly read `SKILL.md`, but cannot use delegation to bypass the phase's
+write boundary.
+
 The tool rejects unknown, disabled, or `disable-model-invocation` Skills before
 starting a Worker. Skill source is size-bounded and never silently truncated.
 
@@ -61,6 +66,10 @@ available tools. Missing capability is reported as an exact blocker rather
 than bypassed through another coordination surface.
 
 ## Prompt contract
+
+The always-available Skill catalog contains only name, description, and path.
+Request matching may add the first Markdown heading as bounded routing
+metadata, but never injects the Skill body into the parent prompt.
 
 The Skill catalog advertises two primary paths when a Skill matches:
 
