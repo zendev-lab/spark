@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { test } from "vitest";
+
+import { assertSafeCapabilityCeOutputDirectory } from "../scripts/capability-ce-output-directory.mts";
 
 const canonicalRootScripts = [
   "audit",
@@ -27,6 +30,8 @@ const canonicalRootScripts = [
   "smoke",
   "test",
   "test:browser:hub",
+  "test:capability",
+  "test:capability:ce",
   "test:mutation",
   "test:process:source",
   "test:unit",
@@ -57,6 +62,11 @@ test("root package exposes one compact validation and release surface", async ()
     "node scripts/check-test-quality.mjs --update",
   );
   assert.equal(scripts["test:browser:hub"], "pnpm --filter @zendev-lab/spark-hub run test:browser");
+  assert.equal(scripts["test:capability"], "node scripts/run-capability-sentinels.mjs");
+  assert.equal(
+    scripts["test:capability:ce"],
+    "node --experimental-strip-types scripts/run-nightly-capability-ce.mts",
+  );
   assert.equal(
     scripts.check,
     "pnpm run check:static && pnpm run check:docs && pnpm run test:unit && pnpm run test:process:source",
@@ -182,9 +192,10 @@ test("docs production scripts separate Workers Builds build and deploy phases", 
 });
 
 test("CI and prek consume the canonical package scripts", async () => {
-  const [verifyWorkflow, hygieneWorkflow, prek] = await Promise.all([
+  const [verifyWorkflow, hygieneWorkflow, capabilityWorkflow, prek] = await Promise.all([
     readFile(resolve(".github/workflows/ci-verify.yml"), "utf8"),
     readFile(resolve(".github/workflows/ce-hygiene.yml"), "utf8"),
+    readFile(resolve(".github/workflows/ce-capability-nightly.yml"), "utf8"),
     readFile(resolve("prek.toml"), "utf8"),
   ]);
 
@@ -201,9 +212,44 @@ test("CI and prek consume the canonical package scripts", async () => {
   assert.doesNotMatch(verifyWorkflow, /test:npm-product/u);
   assert.match(hygieneWorkflow, /pnpm run report:hygiene/u);
   assert.doesNotMatch(hygieneWorkflow, /pnpm exec (?:knip|jscpd)/u);
+  assert.match(capabilityWorkflow, /pnpm run test:capability:ce/u);
+  assert.match(capabilityWorkflow, /pull_request:/u);
+  assert.match(capabilityWorkflow, /schedule:/u);
+  assert.match(capabilityWorkflow, /github\.event_name == 'pull_request' && '2'/u);
+  assert.match(capabilityWorkflow, /continue-on-error: true/u);
+  assert.match(capabilityWorkflow, /reports\/capability-ce\//u);
   assert.match(prek, /id = "spark-check-fix"/u);
   assert.match(prek, /entry = "pnpm run fix"/u);
   assert.doesNotMatch(prek, /pnpm run check:/u);
+});
+
+test("capability CE output cleanup cannot traverse reports symlinks", async () => {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), "spark-capability-ce-boundary-"));
+  const outside = await mkdtemp(join(tmpdir(), "spark-capability-ce-outside-"));
+  try {
+    const reportsRoot = join(repositoryRoot, "reports");
+    await mkdir(reportsRoot, { recursive: true });
+    await symlink(outside, join(reportsRoot, "redirect"));
+
+    await assert.rejects(
+      assertSafeCapabilityCeOutputDirectory({
+        repositoryRoot,
+        outputDir: join(reportsRoot, "redirect", "run"),
+      }),
+      /must not traverse a symbolic link/u,
+    );
+    await assert.doesNotReject(
+      assertSafeCapabilityCeOutputDirectory({
+        repositoryRoot,
+        outputDir: join(reportsRoot, "capability-ce"),
+      }),
+    );
+  } finally {
+    await Promise.all([
+      rm(repositoryRoot, { recursive: true, force: true }),
+      rm(outside, { recursive: true, force: true }),
+    ]);
+  }
 });
 
 async function hasTestFiles(directory: string): Promise<boolean> {
