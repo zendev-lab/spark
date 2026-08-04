@@ -28,7 +28,179 @@ jobs:
           git config user.name "spark-maintenance[bot]"
           git config user.email "spark-maintenance[bot]@users.noreply.github.com"
           git fetch origin main "$TARGET_BRANCH" task/session-tui-performance
-          git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
-          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
-          git cherry-pick "$SOURCE_COMMIT"
-          git push origin "HEAD:$TARGET_BRANCH"
+          git checkout -B "$TARGET_BRANCH" origin/main
+
+          if ! git cherry-pick "$SOURCE_COMMIT"; then
+            mapfile -t conflicts < <(git diff --name-only --diff-filter=U | sort)
+            expected=(
+              apps/spark-daemon/src/spark/session-run.test.ts
+              apps/spark-daemon/src/spark/session-run.ts
+            )
+            printf 'Replay conflicts: %s\n' "${conflicts[*]}"
+            test "${#conflicts[@]}" -eq "${#expected[@]}"
+            test "${conflicts[*]}" = "${expected[*]}"
+
+            git checkout --ours -- "${expected[@]}"
+            python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              target = Path(path)
+              text = target.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"expected one match in {path}, found {count}: {old[:80]!r}")
+              target.write_text(text.replace(old, new, 1))
+
+          implementation = "apps/spark-daemon/src/spark/session-run.ts"
+          replace_once(
+              implementation,
+              'import { composeAgentSystemPrompt } from "@zendev-lab/spark-phases";\n',
+              'import { composeAgentSystemPrompt } from "@zendev-lab/spark-phases";\n'
+              'import { refreshSparkSessionSnapshotIndex } from "@zendev-lab/spark-session";\n',
+          )
+          replace_once(
+              implementation,
+              '  createSparkHeadlessSessionExecutor?: CreateSparkHeadlessSessionExecutorFn;\n',
+              '  createSparkHeadlessSessionExecutor?: CreateSparkHeadlessSessionExecutorFn;\n'
+              '  refreshSessionSnapshotIndex?: typeof refreshSparkSessionSnapshotIndex;\n',
+          )
+          replace_once(
+              implementation,
+              '        const completed = await recordCompletedSessionRun(\n'
+              '          effectiveTask,\n'
+              '          result,\n'
+              '          options.sessionRegistry,\n'
+              '        );\n',
+              '        const completed = await recordCompletedSessionRun(\n'
+              '          effectiveTask,\n'
+              '          result,\n'
+              '          options.sessionRegistry,\n'
+              '          options.refreshSessionSnapshotIndex ?? refreshSparkSessionSnapshotIndex,\n'
+              '        );\n',
+          )
+          replace_once(
+              implementation,
+              'async function recordCompletedSessionRun(\n'
+              '  task: SparkDaemonSessionRunTask,\n'
+              '  result: unknown,\n'
+              '  registry: Pick<DaemonSessionRegistry, "recordRun" | "recordTurnSettled"> | undefined,\n'
+              '): Promise<{ result: unknown; indexed: boolean }> {\n',
+              'async function recordCompletedSessionRun(\n'
+              '  task: SparkDaemonSessionRunTask,\n'
+              '  result: unknown,\n'
+              '  registry: Pick<DaemonSessionRegistry, "recordRun" | "recordTurnSettled"> | undefined,\n'
+              '  refreshSessionSnapshotIndex: typeof refreshSparkSessionSnapshotIndex,\n'
+              '): Promise<{ result: unknown; indexed: boolean }> {\n',
+          )
+          replace_once(
+              implementation,
+              '  try {\n'
+              '    await registry.recordRun({ sessionId: task.sessionId, sessionPath });\n'
+              '    return { result, indexed: true };\n',
+              '  try {\n'
+              '    await registry.recordRun({ sessionId: task.sessionId, sessionPath });\n'
+              '    try {\n'
+              '      await refreshSessionSnapshotIndex({ sessionId: task.sessionId, sessionPath });\n'
+              '    } catch (error) {\n'
+              '      console.error(\n'
+              '        `[spark-daemon] failed to refresh completed session snapshot index for ${task.sessionId}: ${errorMessage(error)}`,\n'
+              '      );\n'
+              '    }\n'
+              '    return { result, indexed: true };\n',
+          )
+
+          tests = "apps/spark-daemon/src/spark/session-run.test.ts"
+          replace_once(
+              tests,
+              '    const recordRun = vi.fn(async () => ({}) as never);\n'
+              '    const task: SparkDaemonSessionRunTask = {\n'
+              '      type: "session.run",\n'
+              '      sessionId: "sess_streamed",\n',
+              '    const recordRun = vi.fn(async () => ({}) as never);\n'
+              '    const refreshSessionSnapshotIndex = vi.fn(async () => ({\n'
+              '      indexPath: "/daemon/sessions/sess_streamed.jsonl.snapshot-index.json",\n'
+              '      messageCount: 2,\n'
+              '      checkpoint: { byteLength: 128, modifiedAtMs: 1, inode: 1 },\n'
+              '    }));\n'
+              '    const task: SparkDaemonSessionRunTask = {\n'
+              '      type: "session.run",\n'
+              '      sessionId: "sess_streamed",\n',
+          )
+          replace_once(
+              tests,
+              '    const executor = createSparkDaemonTaskExecutor({\n'
+              '      paths,\n'
+              '      sessionRegistry: { recordTurnQueued, recordTurnSettled, recordRun },\n'
+              '      createSparkHeadlessSessionExecutor: () => executeSession,\n'
+              '    });\n',
+              '    const executor = createSparkDaemonTaskExecutor({\n'
+              '      paths,\n'
+              '      sessionRegistry: { recordTurnQueued, recordTurnSettled, recordRun },\n'
+              '      refreshSessionSnapshotIndex,\n'
+              '      createSparkHeadlessSessionExecutor: () => executeSession,\n'
+              '    });\n',
+          )
+          replace_once(
+              tests,
+              '    expect(recordTurnSettled).not.toHaveBeenCalled();\n'
+              '    expect(executeSession).toHaveBeenCalledWith(expect.objectContaining({ cwd }));\n',
+              '    expect(recordTurnSettled).not.toHaveBeenCalled();\n'
+              '    expect(refreshSessionSnapshotIndex).toHaveBeenCalledWith({\n'
+              '      sessionId: task.sessionId,\n'
+              '      sessionPath: "/daemon/sessions/sess_streamed.jsonl",\n'
+              '    });\n'
+              '    expect(recordRun.mock.invocationCallOrder[0]).toBeLessThan(\n'
+              '      refreshSessionSnapshotIndex.mock.invocationCallOrder[0]!,\n'
+              '    );\n'
+              '    expect(executeSession).toHaveBeenCalledWith(expect.objectContaining({ cwd }));\n',
+          )
+          replace_once(
+              tests,
+              '  it("injects workspace state root and refuses a disappeared fixed cwd", async () => {\n',
+              '  it("keeps a completed turn committed when snapshot index refresh fails", async () => {\n'
+              '    const recordTurnQueued = vi.fn(async () => ({}) as never);\n'
+              '    const recordTurnSettled = vi.fn(async () => ({}) as never);\n'
+              '    const recordRun = vi.fn(async () => ({}) as never);\n'
+              '    const refreshSessionSnapshotIndex = vi.fn(async () => {\n'
+              '      throw new Error("index unavailable");\n'
+              '    });\n'
+              '    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);\n'
+              '    const task: SparkDaemonSessionRunTask = {\n'
+              '      type: "session.run",\n'
+              '      sessionId: "sess_index_failure",\n'
+              '      prompt: "hello",\n'
+              '    };\n'
+              '    const executor = createSparkDaemonTaskExecutor({\n'
+              '      paths,\n'
+              '      sessionRegistry: { recordTurnQueued, recordTurnSettled, recordRun },\n'
+              '      refreshSessionSnapshotIndex,\n'
+              '      createSparkHeadlessSessionExecutor: () => async () => ({\n'
+              '        sessionId: task.sessionId,\n'
+              '        sessionPath: "/daemon/sessions/sess_index_failure.jsonl",\n'
+              '        assistantText: "done",\n'
+              '      }),\n'
+              '    });\n'
+              '\n'
+              '    try {\n'
+              '      await expect(executor(task, context(task))).resolves.toMatchObject({ assistantText: "done" });\n'
+              '      expect(recordRun).toHaveBeenCalledOnce();\n'
+              '      expect(refreshSessionSnapshotIndex).toHaveBeenCalledOnce();\n'
+              '      expect(recordTurnSettled).not.toHaveBeenCalled();\n'
+              '      expect(error).toHaveBeenCalledWith(\n'
+              '        expect.stringContaining("failed to refresh completed session snapshot index"),\n'
+              '      );\n'
+              '    } finally {\n'
+              '      error.mockRestore();\n'
+              '    }\n'
+              '  });\n'
+              '\n'
+              '  it("injects workspace state root and refuses a disappeared fixed cwd", async () => {\n',
+          )
+          PY
+
+            git add "${expected[@]}"
+            GIT_EDITOR=true git cherry-pick --continue
+          fi
+
+          git push --force-with-lease origin "HEAD:$TARGET_BRANCH"
