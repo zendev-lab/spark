@@ -8,6 +8,7 @@ map for internal contracts and operator procedures.
 
 - [`specs/command-planes.md`](./specs/command-planes.md): canonical CLI planes, state ownership, adapter boundaries, growth ratchets, dependency adoption, and the npm product-distribution contract.
 - [`specs/package-architecture.md`](./specs/package-architecture.md): package layers, owners, state writers, dependency direction, extraction/merge criteria, and mechanical ratchets.
+- [`specs/pi-product-compatibility.md`](./specs/pi-product-compatibility.md): bounded Pi product-loader compatibility, admission/removal criteria, file-tool ownership, and daemon-backed failure semantics.
 - [`specs/configuration-and-paths.md`](./specs/configuration-and-paths.md): `SPARK_HOME` and XDG path layout, precedence, and migration policy.
 - [`specs/compact-v2.md`](./specs/compact-v2.md): compaction thresholds, token sources, repeated-overflow bounds, and Memory handoff.
 - [`specs/tools.md`](./specs/tools.md): public agent-facing tools and commands.
