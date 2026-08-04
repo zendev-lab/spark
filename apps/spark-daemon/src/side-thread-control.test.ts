@@ -480,6 +480,9 @@ describe("daemon Side Thread control", () => {
       const ensured = await ensure(fixture);
       const paths = [(await fixture.sessionRegistry.get(ensured.sessionId))!.sessionPath!];
       for (let generation = 1; generation <= 4; generation += 1) {
+        const currentPath = paths.at(-1)!;
+        writeFileSync(`${currentPath}.side-thread-index.json`, "{}\n", "utf8");
+        writeFileSync(`${currentPath}.snapshot-index.json`, "{}\n", "utf8");
         const reset = await resetSideThread(fixture, generation);
         paths.push((await fixture.sessionRegistry.get(reset.sessionId))!.sessionPath!);
       }
@@ -487,6 +490,10 @@ describe("daemon Side Thread control", () => {
       expect(paths.slice(0, 2).map((path) => existsSync(`${path}.side-thread-index.json`))).toEqual(
         [false, false],
       );
+      expect(paths.slice(0, 2).map((path) => existsSync(`${path}.snapshot-index.json`))).toEqual([
+        false,
+        false,
+      ]);
     } finally {
       fixture.close();
     }
