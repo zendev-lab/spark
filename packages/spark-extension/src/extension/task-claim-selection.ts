@@ -16,13 +16,14 @@ export function resolveSessionClaimedTask(
   if (query?.trim()) {
     const needle = query.trim();
     const normalizedNeedle = needle.startsWith("@") ? needle.slice(1) : needle;
-    return claimed.find(
+    const exact = claimed.filter(
       (task) =>
-        task.ref === needle ||
-        task.name === normalizedNeedle ||
-        task.title === needle ||
-        task.title.startsWith(needle),
+        task.ref === needle || task.name === normalizedNeedle || task.title === needle,
     );
+    if (exact.length === 1) return exact[0];
+    if (exact.length > 1) return undefined;
+    const prefixes = claimed.filter((task) => task.title.startsWith(needle));
+    return prefixes.length === 1 ? prefixes[0] : undefined;
   }
   const current = graph.currentTask(projectRef);
   if (
