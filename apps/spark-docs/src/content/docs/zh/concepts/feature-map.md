@@ -13,7 +13,7 @@ description: 按产品表面、状态所有者和用户意图理解 Spark 全部
 | `spark` CLI | 安装、分发、脚本、诊断和打开其他表面 | 只负责分发 |
 | TUI | 描述工作、引导单个会话、查看本地投影 | 终端展示 |
 | Daemon | 前端断开后仍保持会话和任务运行 | 执行真相 |
-| Cockpit | 在浏览器监督工作空间和对话 | Web 展示与协调 |
+| Hub | 在浏览器监督工作空间和对话 | Web 展示与协调 |
 | ACP | 把兼容编辑器接入 daemon 会话 | 只负责适配 |
 | Updater | 安装、升级、回滚和报告构建版本 | 已安装版本 |
 
@@ -25,11 +25,11 @@ description: 按产品表面、状态所有者和用户意图理解 Spark 全部
 
 | 源码家族 | 职责 |
 | --- | --- |
-| `apps/spark-cli`、`spark-tui`、`spark-daemon`、`spark-cockpit` | 可执行分发器与交互/运行时 host |
+| `apps/spark-cli`、`spark-tui`、`spark-daemon`、`apps/spark-cockpit`（Hub 兼容路径） | 可执行分发器与交互/运行时 host |
 | `packages/spark-extension`、`spark-daemon-client` | 产品组合根与共享 daemon client 边界 |
 | 能力与运行时 `packages/spark-*` | 文件、Web、任务、产物、记忆、工作流、模式、Role、Session 等可复用行为 |
 | `spark-protocol`、`spark-core`、`spark-runtime`、`spark-system`、`spark-tui` | 跨表面契约与低依赖基础层 |
-| `packages/spark-cockpit-*` | Cockpit 私有的数据库、协调与本地化实现 |
+| `packages/spark-cockpit-*` | 兼容物理路径下的 Hub 私有数据库、协调与本地化实现 |
 
 贡献者可查看 `docs/specs/package-architecture.md` 的依赖规则，以及
 `architecture/packages.json` 的完整 owner/stability 清单。普通用户不必记住各个
@@ -38,21 +38,21 @@ workspace package。
 ## 1. 核心运行时：一个 daemon
 
 Daemon 拥有持久会话、排队和运行中的工作、事件流、恢复、workspace 绑定、
-channel listener 与自主续跑。前台运行、后台提交、TUI prompt 和 Cockpit
+channel listener 与自主续跑。前台运行、后台提交、TUI prompt 和 Hub Web
 消息最终都进入同一个执行所有者。
 
 用 `spark doctor` 和 `spark daemon status --json` 检查健康状态；前台、后台、
 attach、resume 和取消操作见[运行与会话](/zh/guides/runs-and-sessions/)。
 
-## 2. 交互式设计：Cockpit 与 TUI
+## 2. 交互式设计：Hub Web 与 TUI
 
 - [TUI](/zh/guides/tui/) 适合本地快速对话、Plan/Implement、引导当前运行、
   选择模型和查看当前会话。
-- [Cockpit](/zh/guides/cockpit/) 适合工作空间概览、对话、收件箱、产品产物、
+- [Hub Web](/zh/guides/cockpit/) 适合工作空间概览、对话、收件箱、产品产物、
   资源和跨 daemon 监督。
 - 已经知道具体操作并需要脚本结果时，使用 CLI。
 
-TUI 的 `/inspect` 只查看当前会话；`spark cockpit` 打开独立的浏览器控制面。
+TUI 的 `/inspect` 只查看当前会话；`spark hub` 打开 Hub Web 管理界面。
 
 ## 3. 基础 agent 工具
 

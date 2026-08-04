@@ -99,7 +99,6 @@ if (help.status !== 0) {
     "spark daemon auth <status|login|logout|import> [args...]",
     "spark daemon model <list|status|set> [args...]",
     "spark hub [command] [args...]",
-    "spark cockpit web <start|status|stop|logs> [args...]",
   ];
   for (const line of requiredHelpLines) {
     if (!help.stdout.includes(line)) failures.push(`spark --help no longer exposes: ${line}`);
@@ -125,7 +124,6 @@ for (const page of ["reference/cli.md", "zh/reference/cli.md"]) {
     "spark daemon model status",
     "spark daemon model set",
     "spark hub",
-    "spark cockpit",
   ]) {
     if (!source.includes(command)) failures.push(`${page} does not document ${command}`);
   }
@@ -163,7 +161,7 @@ const featureMapHeadings = {
   "concepts/feature-map.md": [
     "## 0. Product surfaces and distribution",
     "## 1. Core runtime: one daemon",
-    "## 2. Interactive design: Cockpit and TUI",
+    "## 2. Interactive design: Hub Web and TUI",
     "## 3. Base agent tools",
     "## 4. Tasks and autonomous progress",
     "## 5. Channels and multi-session collaboration",
@@ -172,7 +170,7 @@ const featureMapHeadings = {
   "zh/concepts/feature-map.md": [
     "## 0. 产品表面与分发",
     "## 1. 核心运行时：一个 daemon",
-    "## 2. 交互式设计：Cockpit 与 TUI",
+    "## 2. 交互式设计：Hub Web 与 TUI",
     "## 3. 基础 agent 工具",
     "## 4. 任务与自主推进",
     "## 5. 渠道与多会话协作",
@@ -307,21 +305,12 @@ for (const { surface, args, requiredLines } of [
     ],
   },
   {
-    surface: "cockpit",
-    args: ["cockpit", "--help"],
-    requiredLines: [
-      "spark cockpit web start",
-      "spark cockpit web status",
-      "spark cockpit web stop",
-    ],
-  },
-  {
     surface: "hub",
     args: ["hub", "--help"],
     requiredLines: [
-      "spark hub workspace list",
-      "spark hub delegation create",
-      "spark hub instance <status|backup|restore>",
+      "spark-hub workspace list",
+      "spark-hub delegation <create|list|show|reply|cancel>",
+      "spark-hub instance <status|backup|restore>",
     ],
   },
 ]) {
@@ -337,6 +326,15 @@ for (const { surface, args, requiredLines } of [
   for (const line of requiredLines) {
     if (!result.stdout.includes(line)) failures.push(`${surface} help no longer exposes: ${line}`);
   }
+}
+
+const retiredCockpit = spawnSync(join(root, "apps/spark-cli/bin/spark"), ["cockpit", "--help"], {
+  cwd: root,
+  encoding: "utf8",
+  env: { ...process.env, FORCE_COLOR: "0" },
+});
+if (retiredCockpit.status !== 2 || !retiredCockpit.stderr.includes("Unknown spark subcommand")) {
+  failures.push("retired spark cockpit dispatcher namespace is still accepted");
 }
 
 if (checkDist) {

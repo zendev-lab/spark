@@ -290,10 +290,10 @@
     },
     {
       "baselinePath": "test/spark-cockpit-cli.test.ts",
-      "owners": ["@zendev-lab/spark-cockpit"],
+      "owners": ["@zendev-lab/spark-hub"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-cockpit/src/cli/spark-cockpit-cli.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-cockpit run check",
+      "gate": "pnpm --filter @zendev-lab/spark-hub run check",
       "reason": "Migrated primary destination is apps/spark-cockpit/src/cli/spark-cockpit-cli.test.ts."
     },
     {
@@ -671,10 +671,10 @@
     },
     {
       "baselinePath": "test/spark-plane-golden-path.test.ts",
-      "owners": ["@zendev-lab/spark-cockpit"],
+      "owners": ["@zendev-lab/spark-hub"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-cockpit/src/cli/spark-plane-golden-path.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-cockpit run check",
+      "gate": "pnpm --filter @zendev-lab/spark-hub run check",
       "reason": "Migrated primary destination is apps/spark-cockpit/src/cli/spark-plane-golden-path.test.ts."
     },
     {

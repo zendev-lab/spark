@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { test } from "vitest";
 
 const configPath = resolve(".dependency-cruiser.cjs");
@@ -40,7 +40,7 @@ test("dependency-cruiser config loads and encodes required boundary rules", () =
     "production-no-circular",
     "spark-extension-no-product-adapters",
     "daemon-no-tui-app",
-    "cockpit-no-app-internals",
+    "hub-no-app-internals",
   ]) {
     assert.equal(ruleNames.has(ruleName), true, "missing dependency rule " + ruleName);
   }

@@ -14,7 +14,7 @@ capabilities, not the product taxonomy.
 | `spark` CLI | Install, dispatch, script, diagnose, and open another surface | Dispatcher only |
 | TUI | Describe work, steer one session, and inspect its local projection | Terminal presentation |
 | Daemon | Keep sessions and work running after a frontend disconnects | Execution truth |
-| Cockpit | Supervise workspaces and conversations from the browser | Web presentation and coordination |
+| Hub | Supervise workspaces and conversations from the browser | Web presentation and coordination |
 | ACP | Connect compatible editor clients to daemon-owned sessions | Adapter only |
 | Updater | Install, upgrade, roll back, and report build identity | Installed version |
 
@@ -26,11 +26,11 @@ For contributors, the source topology stays compact by family:
 
 | Source family | Responsibility |
 | --- | --- |
-| `apps/spark-cli`, `spark-tui`, `spark-daemon`, `spark-cockpit` | Executable dispatcher and presentation/runtime hosts |
+| `apps/spark-cli`, `spark-tui`, `spark-daemon`, `apps/spark-cockpit` (Hub compatibility path) | Executable dispatcher and presentation/runtime hosts |
 | `packages/spark-extension`, `spark-daemon-client` | Product composition and the shared daemon client boundary |
 | Capability/runtime `packages/spark-*` | Files, Web, tasks, artifacts, memory, workflows, modes, roles, sessions, and other reusable behavior |
 | `spark-protocol`, `spark-core`, `spark-runtime`, `spark-system`, `spark-tui` | Cross-surface contracts and dependency-light foundations |
-| `packages/spark-cockpit-*` | Cockpit-private database, coordination, and localization implementation |
+| `packages/spark-cockpit-*` | Hub-private database, coordination, and localization implementation under compatibility paths |
 
 Contributors can inspect `docs/specs/package-architecture.md` for dependency
 rules and `architecture/packages.json` for the exhaustive owner/stability
@@ -40,22 +40,22 @@ inventory. Ordinary users do not need to learn individual workspace packages.
 
 The daemon owns durable sessions, queued and running work, event streams,
 recovery, workspace binding, channel listeners, and autonomous continuation.
-Foreground runs, background submissions, TUI prompts, and Cockpit messages all
+Foreground runs, background submissions, TUI prompts, and Hub Web messages all
 reach this same execution owner.
 
 Use `spark doctor` and `spark daemon status --json` for health. Use
 [runs and sessions](/guides/runs-and-sessions/) for foreground, background,
 attach, resume, and cancellation.
 
-## 2. Interactive design: Cockpit and TUI
+## 2. Interactive design: Hub Web and TUI
 
 - Use the [TUI](/guides/tui/) for fast local conversation, Plan/Implement,
   steering, model selection, and the current session inspector.
-- Use [Cockpit](/guides/cockpit/) for workspace overview, conversations,
+- Use [Hub Web](/guides/cockpit/) for workspace overview, conversations,
   Inbox, artifacts, resources, and cross-daemon supervision.
 - Use the CLI when you already know the operation and want a scriptable result.
 
-The TUI's `/inspect` panel is local to the current session. `spark cockpit`
+The TUI's `/inspect` panel is local to the current session. `spark hub`
 opens the separate browser control surface.
 
 ## 3. Base agent tools

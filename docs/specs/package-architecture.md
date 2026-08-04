@@ -13,7 +13,7 @@ or growth beyond the current 39/40-workspace budget.
 ## Dependency direction
 
 ```text
-apps (CLI / TUI / daemon / Cockpit)
+apps (CLI / TUI / daemon / Hub)
   ↓
 composition + clients (spark-extension / spark-daemon-client)
   ↓
@@ -23,10 +23,57 @@ contracts + foundations (spark-protocol / spark-core / spark-system / ...)
 ```
 
 Adapters point inward. Foundations never point at apps or product-private
-adapters. Cockpit-private packages may be used by Cockpit, but not by the
-daemon or shared Spark packages. The daemon is the authoritative writer for
-invocation, session registry, session mail, channel delivery, and execution
-state; Cockpit owns its coordination database and projections.
+adapters. Hub-private packages may be used by Hub, but not by the daemon or
+shared Spark packages. The daemon is the authoritative writer for invocation,
+session registry, session mail, channel delivery, and execution state; Hub owns
+its coordination database and rebuildable projections.
+
+## Naming rules
+
+### Applications and executables
+
+A separately executable surface uses the same hyphenated product name at every
+public boundary:
+
+```text
+spark-daemon
+spark-hub
+spark-tui
+spark-acp
+spark-update
+```
+
+The top-level `spark` executable is only a dispatcher. `spark daemon ...`,
+`spark hub ...`, and the other canonical surface aliases resolve and execute the
+matching `spark-*` companion; they do not import or duplicate the target
+application. A retired product name must not remain as another public executable
+or dispatcher namespace merely to avoid updating callers.
+
+The Hub source directory and its private database packages retain their
+`cockpit` physical names during the first rename step so existing XDG paths,
+SQLite files, migrations, deployment scripts, and rollback behavior are not
+silently reinterpreted. Their package inventory owner is `hub`; the temporary
+`stateWriter: cockpit` marker records this compatible storage identity. A later
+idempotent storage/path migration may rename both the paths and writer marker.
+
+### Agent tool packages
+
+Do not add `tools` to every package that happens to expose an agent-callable
+operation. Most tools are adapters over an owning domain:
+
+- `spark-files`, `spark-memory`, `spark-tasks`, and `spark-artifacts` remain
+  domain packages because they own vocabulary, policy, and state semantics;
+- a package whose primary reusable contract is one stateless tool family uses
+  the singular form `spark-tool-<family>`;
+- `spark-tools-*` is avoided because the plural prefix does not identify an
+  owner or boundary. The bare `spark-tools` name is reserved for a future
+  composition-only aggregator and must not own behavior.
+
+A rename to `spark-tool-*` therefore requires evidence that the package is a
+tool adapter rather than a domain owner. The current `spark-web` search/fetch
+capability is the first candidate for a separate `spark-tool-web` migration;
+that migration is intentionally outside the Hub/executable rename because it
+changes extension specifiers and user configuration compatibility.
 
 ## Layer meanings
 
@@ -40,7 +87,7 @@ state; Cockpit owns its coordination database and projections.
 | `adapter` | integration with a terminal, channel, shell, or external service | cross-domain orchestration |
 | `contract` | JSON-friendly wire schemas and compatibility validation | workspace implementation dependencies |
 | `foundation` | small dependency-light primitives and host contracts | product policy |
-| `private-adapter` | Cockpit-only storage or projection | daemon/shared ownership |
+| `private-adapter` | Hub-only storage or projection | daemon/shared ownership |
 | `compatibility` | legacy read or wire compatibility inside a current owner | a second implementation package |
 | `experiment` | isolated, non-default spike with an explicit graduation decision | production startup |
 
@@ -61,14 +108,14 @@ state; Cockpit owns its coordination database and projections.
 - `spark-extension` owns product extension composition and policy for native
   and structurally compatible hosts. Legacy `pi-extension` specifiers are
   rewritten while reading configuration; there is no facade workspace.
-- `spark-cockpit-*` names are Cockpit-private. Shared code must move to a
-  capability or foundation package before daemon/native reuse.
-- Cockpit's en/zh-CN product catalog lives at the owner-restricted
-  `@zendev-lab/spark-i18n/cockpit` subpath. It has no independent runtime,
-  state, permission, or failure boundary, so the former single-consumer
-  Cockpit catalog workspace was merged into `spark-i18n`. Dependency
-  Cruiser permits that subpath only from `apps/spark-cockpit`; the merge
-  reduced the classified workspace count to 39/40 without raising the cap.
+- `spark-cockpit-*` paths are temporary Hub-private compatibility names. Shared
+  code must move to a capability or foundation package before daemon/native
+  reuse, and no new public API may use Cockpit as the control-plane name.
+- Hub's en/zh-CN product catalog lives at the owner-restricted
+  `@zendev-lab/spark-i18n/cockpit` compatibility subpath. It has no independent
+  runtime, state, permission, or failure boundary. Dependency Cruiser permits
+  that subpath only from the Hub application; a future compatibility migration
+  may rename the subpath without creating another workspace.
 - `spark-acp` is the supported stateless ACP adapter. It depends on
   `spark-daemon-client` and `spark-protocol`, while daemon session/invocation
   stores remain the only writers.
@@ -107,7 +154,7 @@ The design borrows three useful patterns without adopting their toolchains:
 
 - [VS Code Extension Host](https://code.visualstudio.com/api/advanced-topics/extension-host)
   separates extension execution from UI placement and distinguishes local,
-  web, and remote hosts. Spark similarly keeps TUI/Cockpit adapters outside the
+  web, and remote hosts. Spark similarly keeps TUI/Hub adapters outside the
   daemon-owned execution truth.
 - [Backstage package roles](https://backstage.io/docs/tutorials/package-role-migration/)
   make package purpose machine-readable so repository tooling can select the

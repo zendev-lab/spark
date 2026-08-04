@@ -56,10 +56,10 @@ Spark 会处理所有已就绪任务，直到计划完成、验证失败或需�
 
 ## 检查结果
 
-当前会话会显示实现摘要和验证结果。需要更完整的视图时，启动 Cockpit：
+当前会话会显示实现摘要和验证结果。需要更完整的视图时，启动 Hub Web：
 
 ```bash
-spark cockpit
+spark hub
 ```
 
 打开同一个工作区和会话，然后检查：
@@ -69,7 +69,7 @@ spark cockpit
 - **Changes**：运行时提供的结构化变更，
 - **Artifacts**：本次运行实际生成的 Preview、Issue 或 Pull Request。
 
-Changes 或 Artifacts 为空，表示运行时没有发布对应结果；Cockpit 不会从聊天文本中
+Changes 或 Artifacts 为空，表示运行时没有发布对应结果；Hub Web 不会从聊天文本中
 猜测它们。
 
 ## 只在需要时选择其他执行方式

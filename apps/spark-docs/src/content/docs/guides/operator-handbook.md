@@ -1,6 +1,6 @@
 ---
 title: Operator handbook
-description: Run Spark end to end, connect Cockpit, create sessions, inspect invocations, and recover safely.
+description: Run Spark end to end, connect Hub, create sessions, inspect invocations, and recover safely.
 ---
 
 This guide is the shortest complete path through a local Spark installation. It
@@ -12,7 +12,7 @@ also defines the checks to run before changing state when something goes wrong.
   recovery.
 - The **TUI** is the interactive terminal host. It presents daemon state and
   sends user intent to the daemon.
-- **Cockpit** is the browser coordination and projection surface. It does not
+- **Hub Web** is the browser coordination and projection surface. It does not
   infer execution state from browser timers or transcript text.
 - Product artifacts are exactly Issues, PRs, and previews. Internal verification
   evidence is a separate namespace and is not a product artifact.
@@ -40,7 +40,7 @@ export SPARK_HOME=/absolute/path/to/isolated-spark-home
 spark paths --json
 ```
 
-Every command in that test, including daemon and Cockpit commands, must use the
+Every command in that test, including daemon and Hub commands, must use the
 same `SPARK_HOME`.
 
 ## 2. Configure an authenticated model
@@ -74,9 +74,9 @@ spark daemon model set <provider/model> --default --json
 Or open `spark`, run `/login`, then `/model`. Unavailable models remain visible
 with their reason and login action, but cannot become active. Enter API keys
 only in Spark's secret prompt. Do not put them in a repository, command history,
-or a Cockpit registration command.
+or a Hub registration command.
 
-Cockpit disables conversation submission when no authenticated model is
+Hub Web disables conversation submission when no authenticated model is
 available. A JSON CLI submission reports an actionable error:
 
 ```json
@@ -92,10 +92,10 @@ available. A JSON CLI submission reports an actionable error:
 Configure the provider, then retry the original submission once.
 
 `spark daemon login` is unrelated: it authorizes machine connectivity to
-Cockpit. Provider authentication exists only under `spark daemon auth` and the
+Hub. Provider authentication exists only under `spark daemon auth` and the
 corresponding TUI slash commands.
 
-## 3. Start the daemon and Cockpit independently
+## 3. Start the daemon and Hub independently
 
 Start and inspect the execution plane:
 
@@ -104,30 +104,30 @@ spark daemon start --json
 spark daemon status --json
 ```
 
-For a background local Cockpit:
+For a background local Hub:
 
 ```bash
 HOST=127.0.0.1 \
 PORT=5174 \
 SPARK_COCKPIT_PUBLIC_URL=http://127.0.0.1:5174 \
-spark cockpit web start --json
+spark hub web start --json
 
-spark cockpit web status --json
+spark hub web status --json
 ```
 
 Open the exact public URL. The scheme, hostname, and port used by the browser
 must match `SPARK_COCKPIT_PUBLIC_URL`; for example, do not switch between
 `localhost` and `127.0.0.1` during setup.
 
-Use `spark cockpit` instead when you want the foreground production host. The
-daemon and Cockpit are separate processes and should always be diagnosed
+Use `spark hub` instead when you want the foreground production host. The
+daemon and Hub are separate processes and should always be diagnosed
 separately.
 
 ## 4. Create and register the first workspace
 
-1. Open `/workspaces/new` in Cockpit.
+1. Open `/workspaces/new` in Hub Web.
 2. Choose the fresh profile or a Git-hosted workspace profile.
-3. Enter the Cockpit workspace name, URL slug, and optional description.
+3. Enter the Hub workspace name, URL slug, and optional description.
 4. Generate the one-time registration command.
 5. Change to the local directory that this workspace should own.
 6. Run the generated command exactly once.
@@ -152,7 +152,7 @@ spark daemon workspace ls --json
 ```
 
 During registration, the daemon may use the local directory basename as a
-placeholder. After setup is finalized, Cockpit owns the configured workspace
+placeholder. After setup is finalized, Hub owns the configured workspace
 name and URL slug; the daemon continues to own the canonical local path and
 binding display name.
 
@@ -179,7 +179,7 @@ canonical workspace:
 spark tui --session-id <session-id>
 ```
 
-Cockpit lists the same daemon-owned session under Conversations. Creating a
+Hub Web lists the same daemon-owned session under Conversations. Creating a
 second frontend does not create a second executor.
 
 ## 6. Submit and observe durable execution
@@ -252,7 +252,7 @@ Use these surfaces together:
   scheduled, running, retry-waiting, dormant, blocked, and stopped states.
 
 Continue with [TUI](/guides/tui/), [runs and sessions](/guides/runs-and-sessions/),
-[Cockpit](/guides/cockpit/), and [long-running work](/guides/automation/).
+[Hub Web](/guides/cockpit/), and [long-running work](/guides/automation/).
 
 ### Renderer status
 
@@ -265,17 +265,17 @@ the complete controller contract pass as reproducible gates.
 
 ## 8. Remote access
 
-Use HTTPS or an encrypted private path for every non-loopback Cockpit.
+Use HTTPS or an encrypted private path for every non-loopback Hub.
 
 Machine connectivity and browser access are separate:
 
 ```bash
 spark daemon login --server-url https://cockpit.example
-spark cockpit access create
-spark cockpit workspace access create --workspace <cockpit-workspace-id>
+spark hub access create
+spark hub workspace access create --workspace <hub-workspace-id>
 ```
 
-- Exchange the Cockpit key at `/login`.
+- Exchange the Hub key at `/login`.
 - Exchange the workspace key at `/{slug}/login`.
 - Generate a fresh workspace registration token for every additional local
   directory.
@@ -290,19 +290,19 @@ Help is read-only at every nested surface:
 
 ```bash
 spark doctor --help
-spark cockpit web start --help
+spark hub web start --help
 spark daemon session create --help
 ```
 
 If a packaged installation behaves differently, compare `spark version --json`
 with the source or package version you intended to run.
 
-### Cockpit opens but setup or submission does not advance
+### Hub Web opens but setup or submission does not advance
 
 Check the canonical origin and both processes:
 
 ```bash
-spark cockpit web status --json
+spark hub web status --json
 spark daemon status --json
 spark daemon workspace ls --json
 spark daemon logs --lines 200
@@ -311,11 +311,11 @@ spark daemon logs --lines 200
 Use exactly one hostname during the setup flow. If a token was consumed, mint a
 new token instead of trying to recover or replay it.
 
-### Cockpit reports that a binding belongs to another workspace
+### Hub reports that a binding belongs to another workspace
 
 Do not delete either database. Inspect `spark daemon workspace ls --json` and
-the Cockpit workspace settings. A binding can have only one active Cockpit
-lease. Unbind it deliberately from the current Cockpit workspace before
+the Hub workspace settings. A binding can have only one active Hub lease.
+Unbind it deliberately from the current Hub workspace before
 registering it elsewhere.
 
 ### No authenticated model is available
@@ -323,7 +323,7 @@ registering it elsewhere.
 Run `spark daemon auth status --json` and
 `spark daemon model list --all --json`. Then use
 `spark daemon auth login <provider>` or return to the TUI and run `/login`,
-followed by `/model`. Cockpit should enable submission only after the daemon
+followed by `/model`. Hub Web should enable submission only after the daemon
 reports an available authenticated model.
 
 ### A run appears stuck
@@ -342,7 +342,7 @@ Inspect before retrying. Frontend elapsed time is not execution truth.
 spark paths --json
 ```
 
-Confirm that the terminal, daemon, and Cockpit use the same intended root. Do
+Confirm that the terminal, daemon, and Hub use the same intended root. Do
 not restart a process owned by another service manager or another test root.
 
 ## 10. Stop an isolated run
@@ -350,7 +350,7 @@ not restart a process owned by another service manager or another test root.
 Stop only the services belonging to the selected state root:
 
 ```bash
-spark cockpit web stop --json
+spark hub web stop --json
 spark daemon stop --yes
 ```
 
@@ -359,7 +359,7 @@ Final acceptance checks:
 ```bash
 spark doctor
 spark daemon status --json
-spark cockpit web status --json
+spark hub web status --json
 spark daemon workspace ls --json
 spark daemon session list --registry --json
 spark daemon invocation list --json

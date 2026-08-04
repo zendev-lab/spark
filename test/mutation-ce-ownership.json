@@ -94,12 +94,12 @@
       "riskReason": "cli application behavior is outside the current mutation CE set",
       "alternateGate": "pnpm run test:process:source"
     },
-    "@zendev-lab/spark-cockpit": {
+    "@zendev-lab/spark-hub": {
       "path": "apps/spark-cockpit",
       "status": "deferred",
       "risk": "high",
-      "riskReason": "cockpit application behavior is outside the current mutation CE set",
-      "alternateGate": "pnpm run test:browser:cockpit"
+      "riskReason": "Hub application behavior is outside the current mutation CE set",
+      "alternateGate": "pnpm run test:browser:hub"
     },
     "@zendev-lab/spark-daemon": {
       "path": "apps/spark-daemon",

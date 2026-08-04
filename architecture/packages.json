@@ -10,10 +10,10 @@
       "stability": "supported",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-cockpit": {
+    "@zendev-lab/spark-hub": {
       "path": "apps/spark-cockpit",
       "layer": "application",
-      "owner": "cockpit",
+      "owner": "hub",
       "stability": "supported",
       "stateWriter": "cockpit"
     },
@@ -77,14 +77,14 @@
     "@zendev-lab/spark-cockpit-coordination": {
       "path": "packages/spark-cockpit-coordination",
       "layer": "private-adapter",
-      "owner": "cockpit",
+      "owner": "hub",
       "stability": "private",
       "stateWriter": "cockpit"
     },
     "@zendev-lab/spark-cockpit-db": {
       "path": "packages/spark-cockpit-db",
       "layer": "private-adapter",
-      "owner": "cockpit",
+      "owner": "hub",
       "stability": "private",
       "stateWriter": "cockpit"
     },

@@ -1,11 +1,11 @@
 ---
-title: Cockpit
-description: Start the local web surface, understand its daemon relationship, and secure remote browser access.
+title: Hub Web
+description: Start the Hub Web surface, understand its daemon relationship, and secure remote browser access.
 ---
 
-## When to use Cockpit
+## When to use Hub Web
 
-Use Cockpit when one terminal session is too narrow. Its workspace workbench
+Use Hub Web when one terminal session is too narrow. Its workspace workbench
 provides:
 
 - **Overview** for connection status and shortcuts,
@@ -19,41 +19,41 @@ and Tasks. Summary shows status and counts first; working directory, model,
 session ID, and timestamps remain under Technical details.
 
 The TUI `/inspect` panel is only the current terminal session's local
-projection. Cockpit is the browser control surface across sessions and
+projection. Hub Web is the browser control surface across sessions and
 workspaces. Both submit execution to Spark daemons.
 
-## Start Cockpit
+## Start Hub Web
 
 ```bash
-spark cockpit
+spark hub
 ```
 
-Open the URL printed by the command. Cockpit is a web control and projection
+Open the URL printed by the command. Hub Web is a control and projection
 surface; durable execution remains owned by Spark daemons.
 
 If the page cannot load session data, check both processes separately:
 
 ```bash
 spark daemon status --json
-spark cockpit
+spark hub
 ```
 
 ## Local and remote access
 
-Loopback use follows the local owner flow. For a non-loopback Cockpit, prefer an
+Loopback use follows the local owner flow. For a non-loopback Hub, prefer an
 encrypted private path such as Tailscale, WireGuard, or SSH forwarding.
 
-Mint a one-time Cockpit browser key on the Cockpit host:
+Mint a one-time Hub browser key on the Hub host:
 
 ```bash
-spark cockpit access create
+spark hub access create
 ```
 
 Exchange it at `/login`. Workspace-scoped browser access uses a separate
 one-time key:
 
 ```bash
-spark cockpit workspace access create --workspace <id>
+spark hub workspace access create --workspace <id>
 ```
 
 Exchange that key at `/{slug}/login`. Treat both keys as secrets. Non-loopback

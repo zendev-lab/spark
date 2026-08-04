@@ -7,7 +7,7 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, readdir, rm, writeFile, chmod } from "node:fs/promises";
+import { chmod, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -39,7 +39,7 @@ const productBins = {
   spark: "spark-cli.js",
   "spark-tui": "spark-tui.js",
   "spark-daemon": "spark-daemon.js",
-  "spark-cockpit": "spark-cockpit.js",
+  "spark-hub": "spark-cockpit.js",
   "spark-acp": "spark-acp.js",
   "spark-update": "spark-update.js",
 };
@@ -201,7 +201,7 @@ await mkdir(productDist, { recursive: true });
 rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
 
 await run("pnpm", ["--filter", "@zendev-lab/spark-daemon", "run", "build"]);
-await run("pnpm", ["--filter", "@zendev-lab/spark-cockpit", "run", "build"]);
+await run("pnpm", ["--filter", "@zendev-lab/spark-hub", "run", "build"]);
 
 await Promise.all([
   bundle("apps/spark-cli/src/cli.ts", resolve(productDist, "spark-cli.js")),

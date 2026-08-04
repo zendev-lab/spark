@@ -8,7 +8,7 @@ sidebar:
 ## Requirements
 
 Spark currently requires Node.js `>=26 <27`. The published product contains the
-CLI dispatcher, native TUI, daemon, and Cockpit host.
+CLI dispatcher, native TUI, daemon, and Hub host.
 
 ## Install
 
@@ -77,10 +77,10 @@ Spark starts or contacts the local daemon as needed. Run `spark daemon status
 ## Next steps
 
 - Follow the [operator handbook](/guides/operator-handbook/) for the complete
-  daemon, Cockpit, workspace, session, and durable execution path.
+  daemon, Hub, workspace, session, and durable execution path.
 - [Plan and implement your first change](/guides/plan-and-implement/).
 - Browse the [complete feature map](/concepts/feature-map/) without learning every command.
 - Learn the [TUI's progressive controls](/guides/tui/).
 - Choose between [foreground runs, background work, and sessions](/guides/runs-and-sessions/).
-- Open the [Cockpit web surface](/guides/cockpit/).
+- Open the [Hub Web surface](/guides/cockpit/).
 - Use [automation](/guides/automation/) only when ordinary Plan and Implement are not enough.

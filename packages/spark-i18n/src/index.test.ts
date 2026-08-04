@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { sparkCliDispatcherStrings, sparkNativeTuiStrings, sparkTuiCliStrings } from "./cli";
+import { sparkNativeTuiStrings, sparkTuiCliStrings } from "./cli";
+import { sparkCliDispatcherStrings } from "./dispatcher";
 import {
   defaultLocale,
   detectSparkLanguage,
@@ -91,7 +92,10 @@ describe("spark-i18n messages and formatting", () => {
 
 describe("CLI/TUI strings", () => {
   it("exposes entry strings from the shared package", () => {
-    expect(sparkCliDispatcherStrings().helpText).toContain("spark - Spark command dispatcher");
+    const dispatcher = sparkCliDispatcherStrings();
+    expect(dispatcher.helpText).toContain("spark - Spark command dispatcher");
+    expect(dispatcher.helpText).toContain("spark-hub");
+    expect(dispatcher.helpText).not.toContain("spark cockpit");
     expect(sparkCliDispatcherStrings("zh").unknownSubcommand("foo", ["foo"])).toContain(
       "未知 spark 子命令",
     );

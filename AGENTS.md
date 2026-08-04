@@ -42,7 +42,7 @@ direction.
 - Hub owns cross-workspace registry, delegation, delivery, idempotency, audit,
   and bounded receipts. It does not own target execution, repositories, local
   artifacts, or internal evidence.
-- TUI, Cockpit, channels, ACP, RPC, and compatibility transports are
+- TUI, the Hub Web UI, channels, ACP, RPC, and compatibility transports are
   presentations or adapters. They must translate through owner APIs and must
   not infer execution state from prompts, transcript text, elapsed time, or
   frontend timers.
@@ -93,7 +93,8 @@ or experimental-lifecycle boundary. Otherwise add a module to the existing
 owner. Any workspace addition, removal, rename, or ownership change must update
 `architecture/packages.json`.
 
-Cockpit-private packages may be used by Cockpit but not by the daemon or shared
+Hub-private packages retain their physical `spark-cockpit-*` names during the
+compatibility period. They may be used by Hub but not by the daemon or shared
 Spark packages. Shared packages must not import concrete internals from
 `apps/spark-cli`, `apps/spark-tui`, `apps/spark-daemon`, or
 `apps/spark-cockpit`.

@@ -72,7 +72,7 @@ module.exports = {
     {
       name: "spark-i18n-cockpit-surface-private",
       comment:
-        "The @zendev-lab/spark-i18n/cockpit catalog is owned exclusively by the Cockpit app.",
+        "The @zendev-lab/spark-i18n/cockpit compatibility catalog is owned exclusively by the Hub app.",
       severity: "error",
       from: {
         pathNot: "^(apps/spark-cockpit/|packages/spark-i18n/src/cockpit/)",
@@ -125,7 +125,7 @@ module.exports = {
       },
     },
 
-    // --- spark foundation packages (exclude cockpit-* private packages) ---
+    // --- spark foundation packages (exclude Hub-private physical spark-cockpit-* packages) ---
     {
       name: "spark-foundation-no-spark-extension",
       comment:
@@ -174,9 +174,9 @@ module.exports = {
           "node_modules/.*/@zendev-lab/pi-",
           "/node_modules/@zendev-lab/pi-",
           "^@zendev-lab/pi-",
-          "node_modules/.*/@zendev-lab/spark-(?:ai|cli|cockpit|daemon|extension|fusion|host|runtime|tui-app|turn|workflows)(?:/|$)",
-          "/node_modules/@zendev-lab/spark-(?:ai|cli|cockpit|daemon|extension|fusion|host|runtime|tui-app|turn|workflows)(?:/|$)",
-          "^@zendev-lab/spark-(?:ai|cli|cockpit|daemon|extension|fusion|host|runtime|tui-app|turn|workflows)(?:/|$)",
+          "node_modules/.*/@zendev-lab/spark-(?:ai|cli|cockpit|daemon|extension|fusion|host|hub|runtime|tui-app|turn|workflows)(?:/|$)",
+          "/node_modules/@zendev-lab/spark-(?:ai|cli|cockpit|daemon|extension|fusion|host|hub|runtime|tui-app|turn|workflows)(?:/|$)",
+          "^@zendev-lab/spark-(?:ai|cli|cockpit|daemon|extension|fusion|host|hub|runtime|tui-app|turn|workflows)(?:/|$)",
           "node_modules/.*/@earendil-works/pi-",
           "/node_modules/@earendil-works/pi-",
           "^@earendil-works/pi-",
@@ -222,7 +222,7 @@ module.exports = {
         "Spark core/runtime packages must not depend on product coordination or app adapter packages.",
       severity: "error",
       from: {
-        // Cockpit-private packages (spark-cockpit-*) are product adapters; exclude them.
+        // Hub-private packages retain spark-cockpit-* physical names during compatibility.
         path: "^packages/spark-(?!cockpit-)",
       },
       to: {
@@ -269,10 +269,10 @@ module.exports = {
       },
     },
 
-    // --- cockpit-app / cockpit-package ---
+    // --- Hub app and Hub-private physical packages ---
     {
-      name: "cockpit-no-app-internals",
-      comment: "Cockpit packages must not import Spark CLI host internals.",
+      name: "hub-no-app-internals",
+      comment: "Hub packages must not import Spark CLI host internals.",
       severity: "error",
       from: {
         path: "^(apps/spark-cockpit/|packages/spark-cockpit-)",
@@ -314,8 +314,8 @@ module.exports = {
 /** Resolved paths / module names for product adapter packages. */
 function productAdapterResolvedPathPattern() {
   return [
-    "node_modules/.*/@zendev-lab/spark-cockpit(?:/|$)",
-    "/node_modules/@zendev-lab/spark-cockpit(?:/|$)",
+    "node_modules/.*/@zendev-lab/spark-(?:hub|cockpit)(?:/|$)",
+    "/node_modules/@zendev-lab/spark-(?:hub|cockpit)(?:/|$)",
     "^apps/spark-cockpit/",
     "node_modules/.*/@zendev-lab/spark-daemon(?:/|$)",
     "/node_modules/@zendev-lab/spark-daemon(?:/|$)",

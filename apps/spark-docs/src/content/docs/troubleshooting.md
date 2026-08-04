@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: Diagnose TUI, daemon, session, path, and Cockpit failures in the right order.
+description: Diagnose TUI, daemon, session, path, and Hub failures in the right order.
 ---
 
 ## The TUI says it needs an interactive terminal
@@ -12,7 +12,7 @@ output, use a headless surface:
 spark run --json "Inspect the repository."
 ```
 
-## A run or Cockpit page appears stuck
+## A run or Hub Web page appears stuck
 
 Separate frontend health from daemon execution:
 
@@ -59,9 +59,9 @@ A failed candidate is quarantined and is not retried automatically. Use
 failure. Rollback switches executable versions; it does not restore an old
 database snapshot or discard sessions.
 
-## Cockpit returns an error or shows no workspace
+## Hub returns an error or shows no workspace
 
-Confirm that Cockpit itself is running, then verify daemon health, workspace
+Confirm that Hub itself is running, then verify daemon health, workspace
 registration, and the URL used by the daemon:
 
 ```bash

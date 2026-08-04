@@ -84,5 +84,5 @@ Repro 按 setup、scaffold、reproduce、scale 和 deliver 推进证据门控的
 使用 `/help` 查看最短日常路径，使用 `/help commands` 查看分组命令；只有诊断别名或
 Extension 注册时才使用 `/help all`。
 
-自动推进需要你决定时，在当前会话回答或打开 `/inbox`。Cockpit 提供 Session
+自动推进需要你决定时，在当前会话回答或打开 `/inbox`。Hub Web 提供 Session
 活动，以及 Tasks、Artifacts 和 Inbox 视图。

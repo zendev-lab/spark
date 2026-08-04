@@ -79,13 +79,16 @@ if (await exists(productManifestPath)) {
     "spark",
     "spark-tui",
     "spark-daemon",
-    "spark-cockpit",
+    "spark-hub",
     "spark-acp",
     "spark-update",
   ]) {
     if (manifest.bin?.[name] !== `./bin/${name}`) {
       failures.push(`product must expose ${name} as a companion executable`);
     }
+  }
+  if (manifest.bin?.["spark-cockpit"] !== undefined) {
+    failures.push("product must not expose the retired spark-cockpit executable");
   }
   if (
     manifest.publishConfig?.access !== "public" ||
@@ -109,7 +112,7 @@ if (await exists(productManifestPath)) {
     "bin/spark",
     "bin/spark-tui",
     "bin/spark-daemon",
-    "bin/spark-cockpit",
+    "bin/spark-hub",
     "bin/spark-acp",
     "bin/spark-update",
     "dist/spark-cli.js",
@@ -126,6 +129,9 @@ if (await exists(productManifestPath)) {
   ]) {
     if (!(await exists(resolve(productDirectory, asset))))
       failures.push(`missing product asset: ${asset}`);
+  }
+  if (await exists(resolve(productDirectory, "bin/spark-cockpit"))) {
+    failures.push("generated product must omit bin/spark-cockpit");
   }
   if (await exists(resolve(productDirectory, "skills/model-reproduction"))) {
     failures.push("generated product must not include the model-reproduction domain skill");

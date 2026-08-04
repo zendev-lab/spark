@@ -1,6 +1,6 @@
 ---
 title: CLI reference
-description: Stable public Spark dispatcher commands and common daemon, Hub, Cockpit, and ACP operations.
+description: Stable public Spark dispatcher commands and common daemon, Hub, and ACP operations.
 ---
 
 ## Dispatcher
@@ -17,7 +17,6 @@ spark update status|check|apply|rollback|retry|configure
 spark version [--json]
 spark daemon <command> [args...]
 spark hub [command] [args...]
-spark cockpit web <start|status|stop|logs> [args...]
 spark acp
 spark --help
 spark --version
@@ -33,7 +32,7 @@ spark --version
 - `spark version` reports exact package and build identity.
 - `spark daemon` addresses execution-plane resources.
 - `spark hub` addresses cross-workspace coordination, access, and Hub instance resources.
-- `spark cockpit` starts or administers the Web presentation host only.
+- `spark hub` also starts or administers the embedded Web management UI.
 - `spark acp` starts the ACP NDJSON stdio adapter over daemon-owned sessions.
 
 Unknown subcommands fail instead of being treated as prompts.
@@ -76,7 +75,7 @@ registered commands by user intent. `/help all` additionally exposes
 compatibility aliases, extension sources, and diagnostic targets.
 
 `/inspect` opens the current TUI session's local projection. It is distinct
-from the Web Cockpit opened by `spark cockpit`. `/automate` only chooses and
+from the Hub Web UI opened by `spark hub`. `/automate` only chooses and
 pre-fills an existing Goal, Loop, Repro, or Workflow command.
 
 Workflow management uses `/workflow <action>` as its canonical form. Older
@@ -112,7 +111,7 @@ spark daemon restart [--yes] [--wait]
 spark daemon logs [--follow] [--lines <n>]
 ```
 
-`spark daemon login` authorizes this machine to connect to Cockpit. It never
+`spark daemon login` authorizes this machine to connect to Hub. It never
 configures an AI provider.
 
 ## Provider authentication and models
@@ -173,7 +172,7 @@ and tool updates, and tool permission. Session load/resume/fork, provider
 selection, and MCP-over-ACP are not advertised. stdout is reserved for ACP
 NDJSON; startup recovery details go to stderr.
 
-## Workspaces and remote Cockpit
+## Workspaces and remote Hub
 
 ```text
 spark daemon login --server-url <url>
@@ -187,7 +186,7 @@ spark hub workspace access create --workspace <id>
 ```
 
 Use `--allow-insecure-http` only for an explicitly trusted private network.
-Prefer HTTPS for every non-loopback Cockpit URL.
+Prefer HTTPS for every non-loopback Hub URL.
 
 `workspace stop` only pauses a connection; it does not free the registered
 path. `workspace unregister` frees the path while retaining history, and
