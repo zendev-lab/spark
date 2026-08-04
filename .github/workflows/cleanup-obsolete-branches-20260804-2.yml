@@ -1,0 +1,101 @@
+name: Maintenance - Cleanup Obsolete Branches 20260804-2
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/cleanup-obsolete-branches-20260804-2.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'maintenance/cleanup-obsolete-branches-20260804-2'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SELF_BRANCH: maintenance/cleanup-obsolete-branches-20260804-2
+    steps:
+      - name: Validate and delete obsolete branches
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          candidates=(
+            'agent/add-scripted-provider-ce|03ae271301d5f4adbb0adbf833d351b446faffde'
+            'codex/workflow-v2-repro|2f1b42290be4a6fc1ba4d537f17c81a3b4947acd'
+          )
+
+          encode_ref() {
+            python3 - "$1" <<'PY'
+          import sys
+          import urllib.parse
+          print(urllib.parse.quote(sys.argv[1], safe=""))
+          PY
+          }
+
+          open_head_count() {
+            gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" \
+              -f state=open -f per_page=100 \
+              -f head="$GITHUB_REPOSITORY_OWNER:$1" --jq 'length'
+          }
+
+          open_base_count() {
+            gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" \
+              -f state=open -f per_page=100 \
+              -f base="$1" --jq 'length'
+          }
+
+          validate_branch() {
+            local branch=$1 expected=$2 encoded actual head_count base_count
+            test "$branch" != main
+            test "$branch" != "$SELF_BRANCH"
+            encoded=$(encode_ref "$branch")
+            actual=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$encoded" --jq '.object.sha')
+            test "$actual" = "$expected" || {
+              echo "Ref drift for $branch: expected $expected, got $actual" >&2
+              exit 1
+            }
+            head_count=$(open_head_count "$branch")
+            base_count=$(open_base_count "$branch")
+            test "$head_count" = 0 || {
+              echo "$branch is still the head of $head_count open PR(s)" >&2
+              exit 1
+            }
+            test "$base_count" = 0 || {
+              echo "$branch is still the base of $base_count open PR(s)" >&2
+              exit 1
+            }
+            printf 'validated %s %s\n' "$branch" "$actual"
+          }
+
+          delete_branch() {
+            local encoded
+            encoded=$(encode_ref "$1")
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$encoded"
+            printf 'deleted %s\n' "$1"
+          }
+
+          # Validate every candidate before performing the first deletion.
+          for candidate in "${candidates[@]}"; do
+            IFS='|' read -r branch expected <<<"$candidate"
+            validate_branch "$branch" "$expected"
+          done
+
+          for candidate in "${candidates[@]}"; do
+            IFS='|' read -r branch _ <<<"$candidate"
+            delete_branch "$branch"
+          done
+
+          self_encoded=$(encode_ref "$SELF_BRANCH")
+          self_actual=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$self_encoded" --jq '.object.sha')
+          self_expected='${{ github.event.pull_request.head.sha }}'
+          test "$self_actual" = "$self_expected"
+          test "$(open_head_count "$SELF_BRANCH")" = 1
+          test "$(open_base_count "$SELF_BRANCH")" = 0
+          delete_branch "$SELF_BRANCH"
