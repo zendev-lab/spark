@@ -65,7 +65,7 @@ export interface SparkSkillResolveResult {
 export interface SparkSkillPromptMatch {
   skill: SparkSkill;
   /** Full source for explicit loads, or a bounded title for metadata-only matching. */
-  content?: string;
+  content: string;
   /** False when content is routing metadata and must not be rendered as instructions. */
   promptBody?: boolean;
   score: number;
@@ -232,7 +232,7 @@ export function matchSparkSkillsForPrompt(
   return modelInvocableSkills(skills)
     .map((skill) => ({
       skill,
-      ...(skill.title ? { content: skill.title } : {}),
+      content: skill.title ?? "",
       promptBody: false,
       score: scoreSkillMatch(skill, request),
     }))
@@ -278,7 +278,7 @@ export function formatSelectedSparkSkillsForPrompt(
 ): string {
   if (matches.length === 0) return "";
   const hasLoadedBodies = matches.some(
-    (match) => match.promptBody !== false && match.content !== undefined,
+    (match) => match.promptBody !== false && match.content.length > 0,
   );
   const lines = [
     "Dynamic context checkpoint: matching skills for current user request.",
@@ -293,13 +293,13 @@ export function formatSelectedSparkSkillsForPrompt(
     lines.push(`    <name>${escapeXml(match.skill.name)}</name>`);
     lines.push(`    <description>${escapeXml(match.skill.description)}</description>`);
     lines.push(`    <location>${escapeXml(match.skill.filePath)}</location>`);
-    if (match.promptBody !== false && match.content !== undefined) {
+    if (match.promptBody !== false && match.content.length > 0) {
       lines.push("    <content>");
       for (const contentLine of match.content.replace(/\r\n?/gu, "\n").split("\n")) {
         lines.push(`      ${contentLine}`);
       }
       lines.push("    </content>");
-    } else if (match.content !== undefined) {
+    } else if (match.content.length > 0) {
       lines.push(`    <title>${escapeXml(match.content)}</title>`);
     }
     lines.push("  </skill>");
