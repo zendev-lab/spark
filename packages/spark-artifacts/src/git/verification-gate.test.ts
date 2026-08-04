@@ -67,9 +67,32 @@ test("Ready gate accepts only a current digest-bound Pass receipt", async () => 
     ],
     obligations: ["owner", "verifier"],
     observationRefs: [],
+    externalChecks: [
+      {
+        provider: "github-pr-checks",
+        subjectRevision: revision.headOid!,
+        verdict: "pass",
+        obligations: ["required GitHub checks"],
+        observedAt: "2026-07-31T00:00:00.000Z",
+      },
+    ],
     verdict: "pass",
     createdAt: "2026-07-31T00:00:00.000Z",
   };
+  const { externalChecks: _externalChecks, ...receiptWithoutPrChecks } = receipt;
+  await defaultEvidenceStore(root).put({
+    kind: "record",
+    title: "Lens pass without PR checks",
+    format: "json",
+    body: receiptWithoutPrChecks as unknown as JsonValue,
+    provenance: {
+      producer: "spark",
+      note: "lens:typescript-dual-verification-v1",
+    },
+  });
+  await expect(requireCurrentLensPass(root, gitChangeRef)).rejects.toThrow(
+    /current Pass Lens receipt required/,
+  );
   const evidence = await defaultEvidenceStore(root).put({
     kind: "record",
     title: "Lens pass",

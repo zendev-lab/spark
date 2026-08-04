@@ -94,7 +94,7 @@ export class DaemonLensPatchService {
   }
 
   async apply(input: {
-    workspaceRoot: string;
+    workspaceRoot?: string;
     proposalRef: PatchProposalRef;
     explicitSelection?: boolean;
     signal?: AbortSignal;
@@ -105,7 +105,8 @@ export class DaemonLensPatchService {
       throw new Error(`Lens patch proposal is not applicable: ${stored.status}`);
     }
     const proposal = stored.proposal;
-    if (proposal.baseRevision.workspaceRoot !== resolve(input.workspaceRoot)) {
+    const workspaceRoot = proposal.baseRevision.workspaceRoot;
+    if (input.workspaceRoot !== undefined && workspaceRoot !== resolve(input.workspaceRoot)) {
       throw new Error("Lens patch proposal belongs to another worktree");
     }
     if (proposal.safety.kind === "requires_selection" && input.explicitSelection !== true) {
@@ -113,14 +114,14 @@ export class DaemonLensPatchService {
         `Lens patch proposal requires explicit selection: ${proposal.safety.reasons.join(", ")}`,
       );
     }
-    const current = await this.#captureRevision(input.workspaceRoot);
+    const current = await this.#captureRevision(workspaceRoot);
     if (current.digest !== proposal.baseRevision.digest) {
       this.#store.setStatus(proposal.ref, "stale");
       throw new Error("Lens patch proposal base revision is stale");
     }
 
-    const patchedFiles = await renderPatchedFiles(input.workspaceRoot, proposal);
-    const overlayRoot = await materializeOverlay(input.workspaceRoot, patchedFiles);
+    const patchedFiles = await renderPatchedFiles(workspaceRoot, proposal);
+    const overlayRoot = await materializeOverlay(workspaceRoot, patchedFiles);
     try {
       const overlayRevision = syntheticOverlayRevision(
         proposal.baseRevision,
@@ -135,14 +136,14 @@ export class DaemonLensPatchService {
       await rm(overlayRoot, { recursive: true, force: true });
     }
 
-    const beforePromotion = await this.#captureRevision(input.workspaceRoot);
+    const beforePromotion = await this.#captureRevision(workspaceRoot);
     if (beforePromotion.digest !== proposal.baseRevision.digest) {
       this.#store.setStatus(proposal.ref, "stale");
       throw new Error("Lens patch proposal became stale before promotion");
     }
     const promoted = await atomicReplaceTextFiles(
       patchedFiles.map((file) => ({
-        filePath: resolve(input.workspaceRoot, file.path),
+        filePath: resolve(workspaceRoot, file.path),
         content: file.content,
         expectedVersion: file.expectedVersion,
       })),
@@ -155,9 +156,21 @@ export class DaemonLensPatchService {
       );
     }
 
+    const promotedRevision = await this.#captureRevision(workspaceRoot);
+    let verification: VerificationResult;
+    try {
+      verification = await this.#verifyPromoted({ workspaceRoot });
+    } catch (error) {
+      await rollbackPromotion(workspaceRoot, patchedFiles, promoted.files);
+      this.#store.setStatus(proposal.ref, "rejected");
+      throw error;
+    }
+    if (verification.verdict !== "pass") {
+      await rollbackPromotion(workspaceRoot, patchedFiles, promoted.files);
+      this.#store.setStatus(proposal.ref, "rejected");
+      throw new Error(`Lens patch promoted verification did not pass: ${verification.verdict}`);
+    }
     this.#store.setStatus(proposal.ref, "applied");
-    const promotedRevision = await this.#captureRevision(input.workspaceRoot);
-    const verification = await this.#verifyPromoted({ workspaceRoot: input.workspaceRoot });
     return {
       proposalRef: proposal.ref,
       baseRevisionDigest: proposal.baseRevision.digest,
@@ -166,6 +179,15 @@ export class DaemonLensPatchService {
       verdict: verification.verdict,
       appliedAt: new Date().toISOString(),
     };
+  }
+
+  reject(proposalRef: PatchProposalRef): void {
+    const stored = this.#store.load(proposalRef);
+    if (!stored) throw new Error(`unknown Lens patch proposal: ${proposalRef}`);
+    if (stored.status !== "proposed") {
+      throw new Error(`Lens patch proposal is not rejectable: ${stored.status}`);
+    }
+    this.#store.setStatus(proposalRef, "rejected");
   }
 
   triage(
@@ -211,7 +233,9 @@ async function preconditionsForEdits(
 async function renderPatchedFiles(
   workspaceRoot: string,
   proposal: PatchProposal,
-): Promise<{ path: string; expectedVersion: FileVersionState; content: string }[]> {
+): Promise<
+  { path: string; expectedVersion: FileVersionState; originalContent: string; content: string }[]
+> {
   const preconditions = new Map(
     proposal.preconditions.map((precondition) => [precondition.path, precondition.expectedVersion]),
   );
@@ -244,9 +268,35 @@ async function renderPatchedFiles(
       }
       content = `${content.slice(0, edit.startOffset)}${edit.newText}${content.slice(edit.endOffset)}`;
     }
-    files.push({ path, expectedVersion, content });
+    files.push({ path, expectedVersion, originalContent: source, content });
   }
   return files;
+}
+
+async function rollbackPromotion(
+  workspaceRoot: string,
+  patchedFiles: readonly {
+    path: string;
+    originalContent: string;
+  }[],
+  promotedFiles: readonly { filePath: string; version: `sha256:${string}` }[],
+): Promise<void> {
+  const promotedVersions = new Map(
+    promotedFiles.map((file) => [resolve(file.filePath), file.version] as const),
+  );
+  const rollback = await atomicReplaceTextFiles(
+    patchedFiles.map((file) => {
+      const filePath = resolve(workspaceRoot, file.path);
+      const expectedVersion = promotedVersions.get(filePath);
+      if (!expectedVersion) throw new Error(`missing promoted version for rollback: ${file.path}`);
+      return { filePath, content: file.originalContent, expectedVersion };
+    }),
+  );
+  if (!rollback.ok) {
+    throw new Error(
+      `Lens patch verification failed and rollback lost CAS for ${rollback.filePath}: expected ${rollback.expectedVersion}, actual ${rollback.actualVersion}`,
+    );
+  }
 }
 
 async function materializeOverlay(

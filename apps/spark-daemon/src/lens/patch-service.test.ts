@@ -98,6 +98,37 @@ test("rejects stale and unselected non-safe proposals before overlay verificatio
   db.close();
 });
 
+test("rolls a promoted patch back when final verification is not a pass", async () => {
+  const root = await mkdtemp(join(tmpdir(), "spark-lens-patch-rollback-"));
+  const path = join(root, "value.ts");
+  await writeFile(path, "export const value = 1;\n");
+  const db = new DatabaseSync(":memory:");
+  migrateSparkDaemonDatabase(db);
+  const store = new DaemonLensPatchStore(db);
+  const service = new DaemonLensPatchService({
+    store,
+    captureRevision: async (workspaceRoot) => await revisionFor(workspaceRoot, path),
+    async verifyOverlay() {
+      return { verdict: "pass" };
+    },
+    async verifyPromoted() {
+      return { verdict: "inconclusive" };
+    },
+  });
+  const proposal = await service.propose({
+    workspaceRoot: root,
+    provider: "test-formatter" as ProviderId,
+    edits: [{ path: "value.ts", startOffset: 21, endOffset: 22, newText: "2" }],
+  });
+
+  await expect(service.apply({ workspaceRoot: root, proposalRef: proposal.ref })).rejects.toThrow(
+    /promoted verification did not pass: inconclusive/u,
+  );
+  expect(await readFile(path, "utf8")).toBe("export const value = 1;\n");
+  expect(store.load(proposal.ref)?.status).toBe("rejected");
+  db.close();
+});
+
 async function revisionFor(workspaceRoot: string, filePath: string): Promise<WorkspaceRevision> {
   const content = await readFile(filePath);
   const digest = createHash("sha256").update(content).digest("hex");

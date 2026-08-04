@@ -16,7 +16,15 @@ on `@zendev-lab/spark-core`, `typebox`, `diff`, `ignore`, and `minimatch` — no
   Structured details carry the same version and window metadata. LF, CRLF,
   CR-only, mixed endings, and a UTF-8 BOM are reported as metadata while the
   visible anchors use logical line text. Invalid UTF-8 fails explicitly.
-  Pagination values must be positive integers.
+  Pagination values must be positive integers. `expectedVersion` can bind a
+  paginated read to an earlier snapshot. Daemon hosts enrich reads with
+  version-matched Lens context by default (`analysis: auto | fresh | off`).
+  Ordinary reads never mutate files. An explicit `repair: format |
+  safe_fixes | format_and_safe_fixes` refines the call into a sequential write:
+  a fixed Provider produces a single-file Patch Proposal, verifies it in an
+  overlay, promotes it through Files CAS, and returns the final source and
+  version. Conflicts, incomplete Providers, unsafe or ambiguous edits, and
+  failed verification leave the original content in place.
 - `write` — atomically create or overwrite a file through a same-directory
   temporary file, preserving an existing file's mode. `expectedVersion` is
   required: pass the version returned by `read` to replace that exact snapshot,

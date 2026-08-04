@@ -66,6 +66,13 @@ export interface LensVerificationReceipt {
   }[];
   obligations: readonly string[];
   observationRefs: readonly ObservationRef[];
+  externalChecks?: readonly {
+    provider: string;
+    subjectRevision: string;
+    verdict: LensVerdict;
+    obligations: readonly string[];
+    observedAt: string;
+  }[];
   verdict: LensVerdict;
   createdAt: string;
 }

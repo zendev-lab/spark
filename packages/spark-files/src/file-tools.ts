@@ -82,6 +82,33 @@ const readSchema = Type.Object(
     limit: Type.Optional(
       Type.Integer({ minimum: 1, description: "Maximum number of lines to read" }),
     ),
+    expectedVersion: Type.Optional(
+      Type.String({
+        description:
+          "Optional exact file version precondition. The read fails instead of returning a newer snapshot when the version no longer matches.",
+        pattern: "^sha256:[0-9a-f]{64}$",
+      }),
+    ),
+    analysis: Type.Optional(
+      Type.Union([Type.Literal("auto"), Type.Literal("fresh"), Type.Literal("off")], {
+        description:
+          "Lens analysis mode: auto uses a short warm budget, fresh waits for a current result, and off returns only the file snapshot.",
+      }),
+    ),
+    repair: Type.Optional(
+      Type.Union(
+        [
+          Type.Literal("none"),
+          Type.Literal("format"),
+          Type.Literal("safe_fixes"),
+          Type.Literal("format_and_safe_fixes"),
+        ],
+        {
+          description:
+            "Explicit provider repair. Any value other than none is a write operation and uses the initial file version as a CAS precondition.",
+        },
+      ),
+    ),
   },
   { additionalProperties: false },
 );
@@ -96,7 +123,12 @@ export function createReadToolConfig(): ToolConfig {
       "Read always returns a model-visible file version and LINE#HASH:text anchors. Copy the file version into write.expectedVersion; remove LINE#HASH: prefixes when composing literal write.content or edit.oldText.",
     ],
     parameters: readSchema,
-    policy: FILE_READ_POLICY,
+    policy: FILE_WRITE_POLICY,
+    resolvePolicy(params) {
+      return params.repair === undefined || params.repair === "none"
+        ? FILE_READ_POLICY
+        : FILE_WRITE_POLICY;
+    },
     effect: FILE_READ_POLICY.effect,
     executionMode: FILE_READ_POLICY.executionMode,
     async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolExecResult> {
@@ -132,6 +164,34 @@ export function createReadToolConfig(): ToolConfig {
         return errorResult(`Could not read file: ${rawPath}. ${errorMessage(error)}.`);
       }
       throwIfAborted(signal);
+
+      const expectedVersion = params.expectedVersion;
+      if (
+        expectedVersion !== undefined &&
+        (typeof expectedVersion !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(expectedVersion))
+      ) {
+        return errorResult(
+          `Could not read file: ${rawPath}. expectedVersion must be a SHA-256 version returned by read.`,
+          { code: "INVALID_EXPECTED_VERSION" },
+        );
+      }
+      const initialMetadata = createFileReadMetadata({
+        buffer,
+        lines: [],
+        startLineIndex: 0,
+        outputLineCount: 0,
+      });
+      if (expectedVersion !== undefined && expectedVersion !== initialMetadata.version) {
+        return errorResult(
+          `Could not read file: ${rawPath}. File version precondition failed (expected ${expectedVersion}, actual ${initialMetadata.version}).`,
+          {
+            code: "VERSION_CONFLICT",
+            expectedVersion,
+            actualVersion: initialMetadata.version,
+            retry: "read_current_version",
+          },
+        );
+      }
 
       let textContent: string;
       try {
@@ -245,7 +305,14 @@ export function createReadToolConfig(): ToolConfig {
       }
       return {
         content: [text(outputText)],
-        details: { ...details, path: rawPath, artifactRef: root.artifactRef, ...metadata },
+        details: {
+          ...details,
+          path: rawPath,
+          artifactRef: root.artifactRef,
+          analysis: params.analysis ?? "auto",
+          repair: params.repair ?? "none",
+          ...metadata,
+        },
       };
     },
   };

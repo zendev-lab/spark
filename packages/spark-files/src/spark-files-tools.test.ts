@@ -19,6 +19,7 @@ import { test } from "vitest";
 import piFilesExtension, {
   atomicReplaceTextFiles,
   contentVersion,
+  createReadToolConfig,
   truncateHead,
   truncateLine,
   applyEditsToNormalizedContent,
@@ -96,6 +97,45 @@ async function withTempDir(fn: (dir: string) => Promise<void>): Promise<void> {
 test("spark-files exposes one tool per file operation", () => {
   const tools = collectTools(piFilesExtension);
   assert.deepEqual([...tools.keys()].sort(), ["edit", "find", "grep", "read", "write"]);
+});
+
+test("read repair refines the ordinary read policy into a sequential write", () => {
+  const read = createReadToolConfig();
+  assert.deepEqual(read.resolvePolicy?.({ path: "index.ts" }), {
+    effect: "read",
+    executionMode: "parallel",
+    domains: ["files"],
+    phases: ["plan", "implement"],
+    approval: "none",
+  });
+  assert.deepEqual(read.resolvePolicy?.({ path: "index.ts", repair: "format" }), {
+    effect: "local_write",
+    executionMode: "sequential",
+    domains: ["files"],
+    phases: ["implement"],
+    approval: "none",
+  });
+});
+
+test("read expectedVersion fails closed without returning a newer snapshot", async () => {
+  await withTempDir(async (dir) => {
+    const read = collectTools(piFilesExtension).get("read")!;
+    await writeFile(join(dir, "guarded.txt"), "first", "utf8");
+    const first = await read.execute("first", { path: "guarded.txt" }, undefined, noop, {
+      cwd: dir,
+    });
+    await writeFile(join(dir, "guarded.txt"), "second", "utf8");
+    const conflict = await read.execute(
+      "stale",
+      { path: "guarded.txt", expectedVersion: readDetails(first).version },
+      undefined,
+      noop,
+      { cwd: dir },
+    );
+    assert.equal(conflict.isError, true);
+    assert.equal(conflict.details?.code, "VERSION_CONFLICT");
+    assert.doesNotMatch(text(conflict), /second/u);
+  });
 });
 
 test("batch CAS checks every file before promoting any content", async () => {
