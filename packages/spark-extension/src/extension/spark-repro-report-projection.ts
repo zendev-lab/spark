@@ -19,12 +19,17 @@ import {
   resolveAcceptedFormalEvidence,
   type SparkReproEvidenceLookup,
 } from "./spark-repro-report-evidence.ts";
-import { sparkReproReportArtifactRef } from "./spark-repro-report.ts";
+import {
+  renderSparkReproReportMarkdown,
+  sparkReproReportArtifactRef,
+  SPARK_REPRO_REPORT_SOURCE_PATH,
+} from "./spark-repro-report.ts";
 
 export { SPARK_REPRO_REPORT_SUMMARY_PATH } from "../repro-report-summary.ts";
 
 export interface SparkReproReportProjectionResult {
   path: typeof SPARK_REPRO_REPORT_SUMMARY_PATH;
+  reportPath: typeof SPARK_REPRO_REPORT_SOURCE_PATH;
   summary: SparkReproReportSummary;
   work: SparkReproWorkSummary;
   usageIncluded: boolean;
@@ -103,9 +108,14 @@ export async function projectSparkReproReportSummary(input: {
     resolve(input.cwd, SPARK_REPRO_REPORT_SUMMARY_PATH),
     serializeSparkReproReportSummary(summary),
   );
+  await writeTextFileAtomic(
+    resolve(input.cwd, SPARK_REPRO_REPORT_SOURCE_PATH),
+    renderSparkReproReportMarkdown(summary),
+  );
 
   return {
     path: SPARK_REPRO_REPORT_SUMMARY_PATH,
+    reportPath: SPARK_REPRO_REPORT_SOURCE_PATH,
     summary,
     work,
     usageIncluded: tokenUsage !== undefined,

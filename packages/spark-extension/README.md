@@ -17,15 +17,16 @@ The public `repro({ action: "project_report", workSummary: ... })` runtime bridg
 passes the supplied facts through `buildSparkReproWorkSummary`, requires their
 `reproId` to match the current durable Repro run, resolves every accepted formal
 gate against the durable Evidence store, reads token usage through the public
-daemon `usage.summary` RPC, and atomically writes
-`outputs/spark-summary.json`. A usage RPC failure produces a warning and omits
-the optional token projection; it never changes the derived technical status,
-progress, or goal. The Bench deterministically renders `outputs/report.md` from
-that envelope. `repro({ action: "sync_report" })` then reloads and validates the
-same envelope, resolves accepted evidence again, and uses its canonical title,
-stage, status (including `waiting_decision`), and percentage to update the stable
-per-run Markdown Document Artifact. It does not infer report metadata from the
-legacy session Repro state.
+daemon `usage.summary` RPC, and atomically writes each of
+`outputs/spark-summary.json` and its deterministic `outputs/report.md`
+projection. A usage RPC failure produces a warning and omits the optional token
+projection; it never changes the derived technical status, progress, or goal.
+`repro({ action: "sync_report" })` then reloads and validates the same envelope,
+requires the Markdown bytes to match that typed projection, resolves accepted
+evidence again, and uses its canonical title, stage, status (including
+`waiting_decision`), and percentage to update the stable per-run Markdown
+Document Artifact. It does not infer report metadata from the legacy session
+Repro state.
 
 An external benchmark must start the durable run with
 `repro({ action: "start", reproId: manifest.run_id })`. This makes the daemon

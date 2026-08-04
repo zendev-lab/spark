@@ -7113,7 +7113,8 @@ test("repro sync_report reuses its per-run Artifact ref without mutating Repro t
     assert.equal(stored.kind, "document");
     assert.equal(stored.body.kind, "document");
     if (stored.body.kind !== "document") throw new Error("expected report Document");
-    assert.equal(stored.body.content, "# Repro report\n");
+    assert.equal(stored.body.content, await readFile(join(dir, "outputs", "report.md"), "utf8"));
+    assert.match(stored.body.content, /^# Spark Reproduction Report\n/u);
     assert.deepEqual(await readSessionRepro(dir, ctx), before);
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
@@ -7179,7 +7180,7 @@ test("repro project_report writes canonical work plus daemon usage without mutat
     });
     assert.match(
       toolText(result),
-      /Projected outputs\/spark-summary\.json with exact token usage/u,
+      /Projected outputs\/spark-summary\.json and outputs\/report\.md with exact token usage/u,
     );
     const stored = JSON.parse(
       await readFile(join(dir, "outputs", "spark-summary.json"), "utf8"),
@@ -7193,6 +7194,10 @@ test("repro project_report writes canonical work plus daemon usage without mutat
     assert.equal(stored.work?.status, "active");
     assert.equal(stored.work?.progress?.percent, 40);
     assert.equal(stored.tokenUsage?.totalTokens, 20);
+    assert.match(
+      await readFile(join(dir, "outputs", "report.md"), "utf8"),
+      /^# Spark Reproduction Report\n/u,
+    );
     assert.deepEqual(await readSessionRepro(dir, ctx), before);
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });

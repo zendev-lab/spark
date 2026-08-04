@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import {
@@ -14,11 +15,49 @@ import type { SparkReproWorkSummary } from "@zendev-lab/spark-repro/work-summary
 import {
   parseSparkReproReportSummary,
   SPARK_REPRO_REPORT_SUMMARY_PATH,
+  type SparkReproReportSummary,
 } from "../repro-report-summary.ts";
 import { readJsonFileOptional } from "./json-store.ts";
 import { resolveAcceptedFormalEvidence } from "./spark-repro-report-evidence.ts";
 
 export const SPARK_REPRO_REPORT_SOURCE_PATH = "outputs/report.md";
+
+/** Deterministic Markdown projection of the typed report summary. */
+export function renderSparkReproReportMarkdown(summary: SparkReproReportSummary): string {
+  const work = summary.work;
+  const completedTasks = work.tasks.filter((task) => task.status === "done").length;
+  const acceptedGates = work.gates.filter((gate) => gate.status === "accepted").length;
+  const lines = [
+    "# Spark Reproduction Report",
+    "",
+    "This file is generated from `outputs/spark-summary.json`. Edit the typed summary inputs and regenerate it instead of editing this file.",
+    "",
+    "## Run",
+    "",
+    `- Title: ${inlineCode(work.title)}`,
+    `- Repro: ${inlineCode(work.reproId)}`,
+    `- Status: ${inlineCode(work.status)}`,
+    `- Stage: ${inlineCode(work.stage)}`,
+    `- Progress: ${work.progress.percent}%`,
+    `- Technical goal: ${work.technicalGoal.achieved ? "achieved" : "not achieved"}`,
+    `- Gates: ${acceptedGates}/${work.gates.length} accepted`,
+    `- Tasks: ${completedTasks}/${work.tasks.length} done`,
+    `- Pending decisions: ${work.pendingDecisions.length}`,
+    ...(summary.tokenUsage
+      ? [
+          `- Token usage: ${summary.tokenUsage.totalTokens} total (${inlineCode(summary.tokenUsage.quality)})`,
+        ]
+      : ["- Token usage: unavailable"]),
+    "",
+    "## Canonical facts",
+    "",
+    "```json",
+    JSON.stringify(summary, null, 2),
+    "```",
+    "",
+  ];
+  return lines.join("\n");
+}
 
 export interface SparkReproReportSyncResult {
   artifact: Artifact<DocumentArtifactBody>;
@@ -95,5 +134,30 @@ async function readCanonicalReportWork(
     );
   }
   await resolveAcceptedFormalEvidence(summary.work, defaultEvidenceStore(cwd));
+  const reportPath = resolve(cwd, SPARK_REPRO_REPORT_SOURCE_PATH);
+  let report: string;
+  try {
+    report = await readFile(reportPath, "utf8");
+  } catch (error) {
+    throw new Error(
+      `sync_report requires ${SPARK_REPRO_REPORT_SOURCE_PATH}; run project_report first`,
+      { cause: error },
+    );
+  }
+  if (report !== renderSparkReproReportMarkdown(summary)) {
+    throw new Error(
+      `${SPARK_REPRO_REPORT_SOURCE_PATH} does not match ${SPARK_REPRO_REPORT_SUMMARY_PATH}; run project_report again`,
+    );
+  }
   return summary.work;
+}
+
+function inlineCode(value: string): string {
+  const normalized = value.replaceAll(/\s+/gu, " ").trim();
+  const longestBacktickRun = Math.max(
+    0,
+    ...[...normalized.matchAll(/`+/gu)].map((match) => match[0].length),
+  );
+  const fence = "`".repeat(longestBacktickRun + 1);
+  return `${fence} ${normalized} ${fence}`;
 }

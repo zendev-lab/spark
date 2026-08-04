@@ -132,8 +132,8 @@ export function registerSparkReproTool(
       "Evidence and validation refs must name existing evidence entries. Decision refs must name user-answered canonical ask evidence created with recordAsEvidence=true.",
       "Use repro action=evaluate to derive the current stage gate from recorded proof; it cannot force-pass a gate.",
       "Use repro action=advance only when requirements and any derived gate are complete.",
-      "Use repro action=project_report with canonical workSummary facts before rendering report.md. It validates and derives status/progress/technicalGoal, joins daemon-owned usage.summary for this Repro run, and atomically writes outputs/spark-summary.json without scanning transcripts.",
-      "Use repro action=sync_report after outputs/report.md is deterministically rendered. It updates the stable per-run Markdown Document Artifact and never changes a technical gate.",
+      "Use repro action=project_report with canonical workSummary facts. It validates and derives status/progress/technicalGoal, joins daemon-owned usage.summary for this Repro run, and deterministically projects outputs/spark-summary.json plus outputs/report.md without scanning transcripts.",
+      "Use repro action=sync_report after project_report. It verifies that outputs/report.md is the exact projection of the typed summary, updates the stable per-run Markdown Document Artifact, and never changes a technical gate.",
       "Before ending a daemon-owned repro tick, use repro action=settle. It schedules another tick only when semantic progress changed; three unchanged settlements return Recover Ask and leave the driver dormant.",
       "Use repro action=stop to clear the repro drive.",
     ],
@@ -284,13 +284,14 @@ export function registerSparkReproTool(
             {
               type: "text" as const,
               text: projected.warning
-                ? `Projected ${projected.path}. ${projected.warning}`
-                : `Projected ${projected.path} with ${projected.summary.tokenUsage?.quality ?? "unknown"} token usage.`,
+                ? `Projected ${projected.path} and ${projected.reportPath}. ${projected.warning}`
+                : `Projected ${projected.path} and ${projected.reportPath} with ${projected.summary.tokenUsage?.quality ?? "unknown"} token usage.`,
             },
           ],
           details: {
             active: projected.work.status === "active",
             path: projected.path,
+            reportPath: projected.reportPath,
             work: {
               schema: projected.work.schema,
               status: projected.work.status,

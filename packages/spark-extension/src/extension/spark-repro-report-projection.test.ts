@@ -20,7 +20,11 @@ import {
   projectSparkReproReportSummary,
   SPARK_REPRO_REPORT_SUMMARY_PATH,
 } from "./spark-repro-report-projection.ts";
-import { sparkReproReportArtifactRef } from "./spark-repro-report.ts";
+import {
+  renderSparkReproReportMarkdown,
+  sparkReproReportArtifactRef,
+  SPARK_REPRO_REPORT_SOURCE_PATH,
+} from "./spark-repro-report.ts";
 
 const temporaryDirectories: string[] = [];
 const evidence = (id: string) => `evidence:${id}` as EvidenceRef;
@@ -60,6 +64,9 @@ describe("canonical Repro report runtime projection", () => {
     ) as typeof projected.summary;
     expect(stored).toEqual(projected.summary);
     expect(stored.tokenUsage?.totalTokens).toBe(10);
+    expect(await readFile(join(cwd, SPARK_REPRO_REPORT_SOURCE_PATH), "utf8")).toBe(
+      renderSparkReproReportMarkdown(projected.summary),
+    );
   });
 
   it("rejects facts for another Repro before querying usage or writing", async () => {

@@ -15,8 +15,6 @@ import type { SparkSkillResolver } from "./skill-resolver.ts";
 import type { SparkTheme, SparkThemeCatalog } from "./theme.ts";
 import type { SparkAgentLoop } from "./agent-loop.ts";
 import type { SparkAuthStore, SparkProviderAuthResolver } from "./auth.ts";
-import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
-
 export interface SparkCliHostDiagnostic {
   type: "warning" | "error";
   message: string;

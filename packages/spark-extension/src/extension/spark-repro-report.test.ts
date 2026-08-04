@@ -21,13 +21,17 @@ import {
   SPARK_REPRO_REPORT_SUMMARY_PATH,
 } from "../repro-report-summary.ts";
 import { createSparkSessionRepro } from "./spark-session-repro.ts";
-import { sparkReproReportArtifactRef, syncSparkReproReportArtifact } from "./spark-repro-report.ts";
+import {
+  renderSparkReproReportMarkdown,
+  sparkReproReportArtifactRef,
+  SPARK_REPRO_REPORT_SOURCE_PATH,
+  syncSparkReproReportArtifact,
+} from "./spark-repro-report.ts";
 
 describe("stable Repro report Artifact", () => {
   it("keeps one ref and revision while content is unchanged", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-repro-report-"));
     await mkdir(join(cwd, "outputs"), { recursive: true });
-    await writeFile(join(cwd, "outputs", "report.md"), "# Report\n", "utf8");
     const repro = createSparkSessionRepro("session:report");
     await writeReportSummary(cwd, repro.reproId, "contract");
 
@@ -51,7 +55,7 @@ describe("stable Repro report Artifact", () => {
     expect(stageChanged.changed).toBe(true);
     expect(stageChanged.reportArtifactRef).toBe(first.reportArtifactRef);
     expect(stageChanged.artifact.body).toMatchObject({
-      revision: 1,
+      revision: 2,
       progress: { stage: "reference", label: "reference · active", percent: 5 },
     });
     expect(Date.parse(stageChanged.artifact.updatedAt)).toBeGreaterThan(
@@ -59,28 +63,21 @@ describe("stable Repro report Artifact", () => {
     );
   });
 
-  it("increments the same Artifact only when report content changes", async () => {
+  it("rejects report content that does not match the typed projection", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-repro-report-change-"));
-    await mkdir(join(cwd, "outputs"), { recursive: true });
-    const reportPath = join(cwd, "outputs", "report.md");
-    await writeFile(reportPath, "# Report\n", "utf8");
     const repro = createSparkSessionRepro("session:report-change");
     await writeReportSummary(cwd, repro.reproId, "alignment", true);
-    const first = await syncSparkReproReportArtifact(cwd, repro.reproId);
+    await syncSparkReproReportArtifact(cwd, repro.reproId);
 
-    await writeFile(reportPath, "# Report\n\nUpdated.\n", "utf8");
-    const second = await syncSparkReproReportArtifact(cwd, repro.reproId);
+    await writeFile(join(cwd, SPARK_REPRO_REPORT_SOURCE_PATH), "# Forged report\n", "utf8");
 
-    expect(second.created).toBe(false);
-    expect(second.changed).toBe(true);
-    expect(second.reportArtifactRef).toBe(first.reportArtifactRef);
-    expect(second.artifact.body.revision).toBe(2);
+    await expect(syncSparkReproReportArtifact(cwd, repro.reproId)).rejects.toThrow(
+      "outputs/report.md does not match outputs/spark-summary.json",
+    );
   });
 
   it("uses canonical waiting-decision status and progress for Artifact metadata", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-repro-report-waiting-"));
-    await mkdir(join(cwd, "outputs"), { recursive: true });
-    await writeFile(join(cwd, "outputs", "report.md"), "# Waiting report\n", "utf8");
     const repro = createSparkSessionRepro("session:report-waiting");
     await writeReportSummary(cwd, repro.reproId, "alignment", true, [pendingDecision()]);
 
@@ -172,9 +169,16 @@ async function writeReportSummary(
       provenance: { producer: "spark" },
     });
   }
+  const summary = composeSparkReproReportSummary({ work });
+  await mkdir(join(cwd, "outputs"), { recursive: true });
   await writeFile(
     join(cwd, SPARK_REPRO_REPORT_SUMMARY_PATH),
-    serializeSparkReproReportSummary(composeSparkReproReportSummary({ work })),
+    serializeSparkReproReportSummary(summary),
+    "utf8",
+  );
+  await writeFile(
+    join(cwd, SPARK_REPRO_REPORT_SOURCE_PATH),
+    renderSparkReproReportMarkdown(summary),
     "utf8",
   );
 }
