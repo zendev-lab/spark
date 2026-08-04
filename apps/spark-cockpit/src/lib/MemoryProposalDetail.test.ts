@@ -2,9 +2,12 @@ import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 
 import MemoryProposalDetail from "./MemoryProposalDetail.svelte";
+import MemoryQuarantineDetail from "./MemoryQuarantineDetail.svelte";
 import {
   parseCockpitMemoryProposalDetail,
+  parseCockpitMemoryQuarantineDetail,
   type CockpitMemoryProposalDetail,
+  type CockpitMemoryQuarantineDetail,
 } from "./memory-proposal-detail";
 
 export const memoryProposalFixture: CockpitMemoryProposalDetail = {
@@ -76,6 +79,76 @@ describe("Cockpit memory proposal detail", () => {
     ]) {
       expect(html).toContain(visible);
     }
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("<form");
+  });
+});
+
+const memoryQuarantineFixture: CockpitMemoryQuarantineDetail = {
+  artifactRef: "artifact:memory-quarantine-fixture",
+  proposalId: "memory-proposal:purge-fixture",
+  operation: "purge",
+  status: "approved",
+  manifestDigest: "a".repeat(64),
+  planDigest: "b".repeat(64),
+  purgeAfter: "2099-01-01T00:00:00.000Z",
+  tombstoneStatus: "purge_incomplete",
+  targetReceipts: [
+    {
+      targetId: "target:content",
+      kind: "content",
+      status: "completed",
+      recordedAt: "2099-01-02T00:00:00.000Z",
+      error: null,
+    },
+    {
+      targetId: "target:revision",
+      kind: "revision",
+      status: "failed",
+      recordedAt: "2099-01-02T00:00:01.000Z",
+      error: "injected failure",
+    },
+  ],
+  remainingTargets: ["target:revision"],
+};
+
+describe("Cockpit memory quarantine detail", () => {
+  it("accepts receipts only through canonical artifact projection identity", () => {
+    expect(
+      parseCockpitMemoryQuarantineDetail({
+        artifactRef: memoryQuarantineFixture.artifactRef,
+        memoryQuarantine: memoryQuarantineFixture,
+        openPreviewUrl: "http://temporary.invalid/not-a-receipt",
+      }),
+    ).toEqual(memoryQuarantineFixture);
+    expect(
+      parseCockpitMemoryQuarantineDetail({ memoryQuarantine: memoryQuarantineFixture }),
+    ).toBeNull();
+    expect(
+      parseCockpitMemoryQuarantineDetail({
+        artifactRef: "http://temporary.invalid",
+        memoryQuarantine: memoryQuarantineFixture,
+      }),
+    ).toBeNull();
+  });
+
+  it("renders plan, manifest, purge-after, target receipt, failure, and remaining-target state", () => {
+    const html = render(MemoryQuarantineDetail, {
+      props: { detail: memoryQuarantineFixture },
+    }).body;
+    for (const visible of [
+      "Memory quarantine",
+      "purge_incomplete",
+      "Manifest digest",
+      "Plan digest",
+      "Purge after",
+      "target:revision",
+      "injected failure",
+      "Remaining targets",
+    ]) {
+      expect(html).toContain(visible);
+    }
+    expect(html).not.toContain("openPreviewUrl");
     expect(html).not.toContain("<button");
     expect(html).not.toContain("<form");
   });

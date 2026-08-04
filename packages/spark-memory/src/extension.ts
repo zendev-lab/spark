@@ -1080,12 +1080,13 @@ function renderStatus(summary: {
   forgotten: number;
   merged: number;
   superseded: number;
+  quarantined: number;
   byCategory: Record<SparkMemoryCategory, number>;
 }): string {
   return [
     "Memory status",
     `- store: ${summary.storePath}`,
-    `- entries: active=${summary.active} forgotten=${summary.forgotten} merged=${summary.merged} superseded=${summary.superseded} total=${summary.total}`,
+    `- entries: active=${summary.active} forgotten=${summary.forgotten} merged=${summary.merged} superseded=${summary.superseded} quarantined=${summary.quarantined} total=${summary.total}`,
     `- categories: ${Object.entries(summary.byCategory)
       .map(([category, count]) => `${category}=${count}`)
       .join(", ")}`,

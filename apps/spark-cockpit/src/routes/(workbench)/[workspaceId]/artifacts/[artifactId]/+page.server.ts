@@ -1,6 +1,9 @@
 import { error as kitError, fail } from "@sveltejs/kit";
 import { getRequestDictionary, localeCookieName } from "$lib/i18n";
-import { parseCockpitMemoryProposalDetail } from "$lib/memory-proposal-detail";
+import {
+  parseCockpitMemoryProposalDetail,
+  parseCockpitMemoryQuarantineDetail,
+} from "$lib/memory-proposal-detail";
 import { renderStoredArtifactPreview } from "$lib/server/artifact-preview";
 import {
   loadArtifactDetailPage,
@@ -45,6 +48,7 @@ export const load = (({ params }) => {
     },
     links: page.links,
     memoryProposal: parseCockpitMemoryProposalDetail(contentRef),
+    memoryQuarantine: parseCockpitMemoryQuarantineDetail(contentRef),
     preview,
     cacheBlobs: page.cacheBlobs.map((blob) => ({
       ...blob,

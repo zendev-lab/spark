@@ -19,6 +19,7 @@
     "./compaction-candidates": "./src/compaction-candidates.ts",
     "./candidate-lifecycle": "./src/candidate-lifecycle.ts",
     "./retrieval-telemetry": "./src/retrieval-telemetry.ts",
+    "./quarantine": "./src/quarantine.ts",
     "./legacy-fixture": "./src/legacy-fixture.ts",
     "./mutation-lock": "./src/mutation-lock.ts",
     "./proposals": "./src/proposals.ts",

@@ -1,6 +1,7 @@
 <script lang="ts">
   import Icon from "$lib/Icon.svelte";
   import MemoryProposalDetail from "$lib/MemoryProposalDetail.svelte";
+  import MemoryQuarantineDetail from "$lib/MemoryQuarantineDetail.svelte";
   import SparkUiRenderer from "$lib/SparkUiRenderer.svelte";
   import { buildArtifactSparkUiReplay } from "$lib/artifact-ui-replay";
   import { enumLabel, formatByteSize, formatRelativeTime } from "$lib/i18n";
@@ -75,6 +76,10 @@
 
   {#if data.memoryProposal}
     <MemoryProposalDetail proposal={data.memoryProposal} />
+  {/if}
+
+  {#if data.memoryQuarantine}
+    <MemoryQuarantineDetail detail={data.memoryQuarantine} />
   {/if}
 
   <Panel class="preview-panel" title={t.preview.title} ariaLabelledby="preview-title" padded={false}>

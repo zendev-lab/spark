@@ -1,3 +1,62 @@
+export interface CockpitMemoryQuarantineDetail {
+  artifactRef: string;
+  proposalId: string;
+  operation: "quarantine" | "restore" | "purge";
+  status: string;
+  manifestDigest: string;
+  planDigest: string;
+  purgeAfter: string;
+  tombstoneStatus: "complete" | "purge_incomplete";
+  targetReceipts: Array<{
+    targetId: string;
+    kind: string;
+    status: "pending" | "completed" | "failed";
+    recordedAt: string;
+    error: string | null;
+  }>;
+  remainingTargets: string[];
+}
+
+export function parseCockpitMemoryQuarantineDetail(
+  contentRef: Record<string, unknown>,
+): CockpitMemoryQuarantineDetail | null {
+  const artifactRef = contentRef.artifactRef;
+  const value = contentRef.memoryQuarantine;
+  if (!isString(artifactRef) || !artifactRef.startsWith("artifact:") || !isRecord(value)) {
+    return null;
+  }
+  if (
+    !isString(value.proposalId) ||
+    (value.operation !== "quarantine" &&
+      value.operation !== "restore" &&
+      value.operation !== "purge") ||
+    !isString(value.status) ||
+    !isDigest(value.manifestDigest) ||
+    !isDigest(value.planDigest) ||
+    !isString(value.purgeAfter) ||
+    (value.tombstoneStatus !== "complete" && value.tombstoneStatus !== "purge_incomplete") ||
+    !Array.isArray(value.targetReceipts) ||
+    !Array.isArray(value.remainingTargets) ||
+    value.remainingTargets.some((target) => !isString(target))
+  ) {
+    return null;
+  }
+  const targetReceipts = value.targetReceipts.map(parseTargetReceipt);
+  if (targetReceipts.some((receipt) => receipt === null)) return null;
+  return {
+    artifactRef,
+    proposalId: value.proposalId,
+    operation: value.operation,
+    status: value.status,
+    manifestDigest: value.manifestDigest,
+    planDigest: value.planDigest,
+    purgeAfter: value.purgeAfter,
+    tombstoneStatus: value.tombstoneStatus,
+    targetReceipts: targetReceipts as CockpitMemoryQuarantineDetail["targetReceipts"],
+    remainingTargets: value.remainingTargets as string[],
+  };
+}
+
 export interface CockpitMemoryProposalDetail {
   proposalId: string;
   operation: string;
@@ -75,6 +134,26 @@ export function parseCockpitMemoryProposalDetail(
     previewRef: value.previewRef,
     conflictStatus: value.conflictStatus as string | null,
     expiresAt: value.expiresAt,
+  };
+}
+
+function parseTargetReceipt(value: unknown) {
+  if (!isRecord(value)) return null;
+  if (
+    !isString(value.targetId) ||
+    !isString(value.kind) ||
+    (value.status !== "pending" && value.status !== "completed" && value.status !== "failed") ||
+    !isString(value.recordedAt) ||
+    !(value.error === null || typeof value.error === "string")
+  ) {
+    return null;
+  }
+  return {
+    targetId: value.targetId,
+    kind: value.kind,
+    status: value.status,
+    recordedAt: value.recordedAt,
+    error: value.error,
   };
 }
 
