@@ -11,6 +11,8 @@ export const sparkThinkingLevelOptions = [
   "xhigh",
 ] as const;
 export const sparkThinkingLevelSchema = z.enum(sparkThinkingLevelOptions);
+/** Default reasoning effort for sessions without an explicit override. */
+export const DEFAULT_SPARK_THINKING_LEVEL = "high" as const;
 
 /** Stable model identity shared by session views and model-control APIs. */
 export const sparkModelRefSchema = z.object({
