@@ -20,6 +20,8 @@ export interface MemoryMutationJournalRecord {
   transactionId: string;
   proposalDigest: string;
   contentDigest: string;
+  /** Optional immutable record content digest when approval content is a transaction bundle. */
+  targetContentDigest?: string;
   content: unknown;
   workspaceId: string;
   scope: MemoryLifecycleEnvelope["scope"];
@@ -90,7 +92,7 @@ export function isMemoryMutationJournalTarget(
         revision.transactionId === journal.transactionId &&
         revision.proposalDigest === journal.proposalDigest &&
         revision.proofRef === journal.proof.proofRef &&
-        journal.contentDigest === memoryContentDigest(content),
+        (journal.targetContentDigest ?? journal.contentDigest) === memoryContentDigest(content),
     )
   );
 }
@@ -175,6 +177,7 @@ export function memoryMutationJournalInput(input: {
   transactionId: string;
   proposalDigest: string;
   content: unknown;
+  targetContent?: unknown;
   workspaceId: string;
   scope: MemoryLifecycleEnvelope["scope"];
   expectedRevision: number;
@@ -188,6 +191,9 @@ export function memoryMutationJournalInput(input: {
     transactionId: input.transactionId,
     proposalDigest: input.proposalDigest,
     contentDigest: memoryContentDigest(input.content),
+    ...(input.targetContent === undefined
+      ? {}
+      : { targetContentDigest: memoryContentDigest(input.targetContent) }),
     content: input.content,
     workspaceId: input.workspaceId,
     scope: input.scope,
@@ -218,6 +224,8 @@ async function readJournal(journalPath: string): Promise<MemoryMutationJournalRe
     !/^transaction:[^\s]+$/u.test(journal.transactionId ?? "") ||
     !/^[a-f\d]{64}$/u.test(journal.proposalDigest ?? "") ||
     !/^[a-f\d]{64}$/u.test(journal.contentDigest ?? "") ||
+    (journal.targetContentDigest !== undefined &&
+      !/^[a-f\d]{64}$/u.test(journal.targetContentDigest)) ||
     typeof journal.workspaceId !== "string" ||
     typeof journal.scope !== "string" ||
     !Number.isInteger(journal.expectedRevision) ||
@@ -276,6 +284,7 @@ function journalBindingDigest(journal: MemoryMutationJournalRecord): string {
     transactionId: journal.transactionId,
     proposalDigest: journal.proposalDigest,
     contentDigest: journal.contentDigest,
+    targetContentDigest: journal.targetContentDigest ?? null,
     content: journal.content,
     workspaceId: journal.workspaceId,
     scope: journal.scope,

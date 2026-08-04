@@ -1,5 +1,6 @@
 import { error as kitError, fail } from "@sveltejs/kit";
 import { getRequestDictionary, localeCookieName } from "$lib/i18n";
+import { parseCockpitMemoryProposalDetail } from "$lib/memory-proposal-detail";
 import { renderStoredArtifactPreview } from "$lib/server/artifact-preview";
 import {
   loadArtifactDetailPage,
@@ -43,6 +44,7 @@ export const load = (({ params }) => {
       provenance: parseJsonObject(page.artifact.provenanceJson),
     },
     links: page.links,
+    memoryProposal: parseCockpitMemoryProposalDetail(contentRef),
     preview,
     cacheBlobs: page.cacheBlobs.map((blob) => ({
       ...blob,
@@ -76,10 +78,12 @@ export const actions: Actions = {
   },
 };
 
-function parseJsonObject(value: string) {
+function parseJsonObject(value: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
   } catch {
     return {};
   }

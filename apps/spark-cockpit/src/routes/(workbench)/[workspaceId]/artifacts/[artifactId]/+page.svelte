@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from "$lib/Icon.svelte";
+  import MemoryProposalDetail from "$lib/MemoryProposalDetail.svelte";
   import SparkUiRenderer from "$lib/SparkUiRenderer.svelte";
   import { buildArtifactSparkUiReplay } from "$lib/artifact-ui-replay";
   import { enumLabel, formatByteSize, formatRelativeTime } from "$lib/i18n";
@@ -71,6 +72,10 @@
     </div>
     <span class="scope-pill {data.artifact.scope}">{scopeLabel(data.artifact.scope)}</span>
   </header>
+
+  {#if data.memoryProposal}
+    <MemoryProposalDetail proposal={data.memoryProposal} />
+  {/if}
 
   <Panel class="preview-panel" title={t.preview.title} ariaLabelledby="preview-title" padded={false}>
     {#snippet headerActions()}

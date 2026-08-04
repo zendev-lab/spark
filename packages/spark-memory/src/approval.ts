@@ -59,7 +59,12 @@ export interface MemoryAuthorizedCommitInput {
   workspaceId: string;
   scope: MemoryLifecycleEnvelope["scope"];
   recordRef: string;
+  /** Immutable revision content written into the record history. */
   content: unknown;
+  /** Optional wider transaction bundle bound by the approval proposal/proof. */
+  approvalContent?: unknown;
+  /** Additional frozen source revisions for merge/supersede commits. */
+  predecessorRefs?: readonly string[];
   now?: string;
 }
 
@@ -348,7 +353,7 @@ export async function commitAuthorizedMemoryMutation(
       recordRef: input.recordRef,
       operation: input.operation,
       expectedRevision: authorization.proposal.expectedRevision,
-      content: input.content,
+      content: input.approvalContent ?? input.content,
       proposalId: authorization.proposal.proposalId,
       transactionId: authorization.transactionId,
       proposal: authorization.proposal,
@@ -374,7 +379,7 @@ export async function commitAuthorizedMemoryMutation(
     recordRef: input.recordRef,
     operation: input.operation,
     expectedRevision,
-    content: input.content,
+    content: input.approvalContent ?? input.content,
     proposalId: authorization.proposal.proposalId,
     transactionId: authorization.transactionId,
     proposal: authorization.proposal,
@@ -388,7 +393,10 @@ export async function commitAuthorizedMemoryMutation(
     proofRef: verified.proofRef,
     now,
     content: input.content,
-    predecessorRefs: [input.lifecycle.revision.revisionRef],
+    predecessorRefs: [
+      input.lifecycle.revision.revisionRef,
+      ...uniqueStrings(input.predecessorRefs ?? []),
+    ],
     expectedRevision,
   }).revision;
   return {
@@ -634,7 +642,7 @@ function approvedLifecycle(
   const predecessorRefs =
     revision.version === 1
       ? current.lineage.predecessors
-      : uniqueStrings([...current.lineage.predecessors, current.revision.revisionRef]);
+      : uniqueStrings([...current.lineage.predecessors, ...revision.predecessorRefs]);
   return {
     ...current,
     revision,

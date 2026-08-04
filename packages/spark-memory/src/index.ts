@@ -6,6 +6,7 @@ import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
 import {
+  appendMemoryRevision,
   commitAuthorizedMemoryCreation,
   commitAuthorizedMemoryMutation,
   MemoryApprovalError,
@@ -18,6 +19,7 @@ import {
   normalizeMemoryLifecycle,
   type MemoryContentKind,
   type MemoryLifecycleEnvelope,
+  type MemoryRevision,
   type MemoryRisk,
 } from "./lifecycle.ts";
 import { hasLegacyMemoryFixturePermit, type LegacyMemoryFixturePermit } from "./legacy-fixture.ts";
@@ -30,6 +32,13 @@ import {
   recoverMemoryMutationJournal,
 } from "./mutation-journal.ts";
 import { withFileMutationLock } from "./mutation-lock.ts";
+import {
+  assertMemoryLineageAuthorizationBound,
+  assertMemoryLineageProposalCommittable,
+  memoryLineageApprovalContent,
+  MemoryLineageProposalStore,
+  type MemoryLineageProposal,
+} from "./proposals.ts";
 
 export type SparkMemoryScope = "user" | "workspace" | "repo";
 export type SparkMemoryCategory =
@@ -39,7 +48,7 @@ export type SparkMemoryCategory =
   | "preference"
   | "convention"
   | "tool-quirk";
-export type SparkMemoryStatus = "active" | "forgotten";
+export type SparkMemoryStatus = "active" | "forgotten" | "merged" | "superseded";
 
 export interface SparkMemoryEntry {
   id: string;
@@ -76,6 +85,7 @@ export interface SparkMemoryStoreOptions {
   verifier?: MemoryApprovalVerifier;
   workspaceId?: string;
   legacyFixturePermit?: LegacyMemoryFixturePermit;
+  proposalStore?: MemoryLineageProposalStore;
 }
 
 export interface SparkMemorySearchResult {
@@ -95,6 +105,8 @@ export interface SparkMemoryStatusSummary {
   total: number;
   active: number;
   forgotten: number;
+  merged: number;
+  superseded: number;
   byCategory: Record<SparkMemoryCategory, number>;
 }
 
@@ -161,13 +173,55 @@ export class SparkMemoryStore {
     this.options = options;
   }
 
-  async list(options: { includeForgotten?: boolean; category?: SparkMemoryCategory } = {}) {
+  async list(
+    options: {
+      includeForgotten?: boolean;
+      includeSuperseded?: boolean;
+      category?: SparkMemoryCategory;
+    } = {},
+  ) {
     const snapshot = await this.loadSnapshot();
     return snapshot.entries.filter(
       (entry) =>
-        (options.includeForgotten || entry.status === "active") &&
+        (entry.status === "active" ||
+          (options.includeForgotten && entry.status === "forgotten") ||
+          (options.includeSuperseded && entry.status === "superseded")) &&
         (options.category === undefined || entry.category === options.category),
     );
+  }
+
+  async get(id: string): Promise<SparkMemoryEntry> {
+    const entry = (await this.loadSnapshot()).entries.find((candidate) => candidate.id === id);
+    if (!entry) throw new Error(`memory entry not found: ${id}`);
+    return entry;
+  }
+
+  async getRevision(id: string, revisionRef: string): Promise<MemoryRevision> {
+    const entry = await this.get(id);
+    const revision = entry.lifecycle.revisionHistory.find(
+      (candidate) => candidate.revisionRef === revisionRef,
+    );
+    if (!revision) throw new Error(`memory revision not found: ${revisionRef}`);
+    return revision;
+  }
+
+  async lineage(id: string): Promise<{
+    entry: SparkMemoryEntry;
+    related: SparkMemoryEntry[];
+  }> {
+    const snapshot = await this.loadSnapshot();
+    const entry = snapshot.entries.find((candidate) => candidate.id === id);
+    if (!entry) throw new Error(`memory entry not found: ${id}`);
+    const relatedRefs = new Set([
+      ...entry.lifecycle.lineage.mergedFrom,
+      ...entry.lifecycle.lineage.mergedInto,
+      ...entry.lifecycle.lineage.supersedes,
+      ...entry.lifecycle.lineage.supersededBy,
+    ]);
+    return {
+      entry,
+      related: snapshot.entries.filter((candidate) => relatedRefs.has(candidate.id)),
+    };
   }
 
   async remember(input: SparkMemoryRememberInput): Promise<SparkMemoryEntry> {
@@ -369,6 +423,185 @@ export class SparkMemoryStore {
     });
   }
 
+  async applyLineageProposal(
+    proposalId: string,
+    authorization: MemoryMutationAuthorization,
+  ): Promise<SparkMemoryEntry> {
+    const proposalStore = this.proposalStore();
+    const proposal = await proposalStore.get(proposalId);
+    if (proposal.target.kind !== "entry") {
+      throw new Error(`memory lineage proposal target is not an entry: ${proposalId}`);
+    }
+    assertMemoryLineageAuthorizationBound(proposal, authorization);
+    const claimedProposal = await proposalStore.claimCommit(
+      proposalId,
+      authorization.transactionId,
+    );
+    let committedEntry: SparkMemoryEntry;
+    try {
+      committedEntry = await withFileMutationLock(this.lockPath, async () => {
+        await this.recoverPendingJournal();
+        const snapshot = await this.loadSnapshot();
+        const targetIndex = snapshot.entries.findIndex(
+          (entry) => entry.id === claimedProposal.target.recordRef,
+        );
+        if (targetIndex < 0) {
+          throw new Error(`memory lineage target not found: ${claimedProposal.target.recordRef}`);
+        }
+        const current = snapshot.entries[targetIndex]!;
+        const content = parseMemoryEntryProposalContent(claimedProposal.target.content);
+        const approvalContent = memoryLineageApprovalContent(claimedProposal);
+        const operation = lineageMutationOperation(claimedProposal);
+        const now = new Date().toISOString();
+        const prior = current.lifecycle.revisionHistory.find(
+          (revision) => revision.transactionId === authorization.transactionId,
+        );
+        if (prior) {
+          const retry = await commitAuthorizedMemoryMutation({
+            verifier: this.options.verifier,
+            authorization,
+            lifecycle: current.lifecycle,
+            operation,
+            workspaceId: this.requiredWorkspaceId(),
+            scope: current.scope,
+            recordRef: current.id,
+            content,
+            approvalContent,
+            now,
+          });
+          await retry.finalize();
+          return current;
+        }
+        const sourceEntries = claimedProposal.sources.map((source) => {
+          const entry = snapshot.entries.find((candidate) => candidate.id === source.recordRef);
+          if (!entry) throw new Error(`memory lineage source not found: ${source.recordRef}`);
+          return entry;
+        });
+        assertMemoryLineageProposalCommittable(
+          claimedProposal,
+          sourceEntries.map(frozenEntryRevision),
+        );
+        const additionalPredecessors = claimedProposal.sources
+          .map((source) => source.revisionRef)
+          .filter((revisionRef) => revisionRef !== current.lifecycle.revision.revisionRef);
+        const commit = await commitAuthorizedMemoryMutation({
+          verifier: this.options.verifier,
+          authorization,
+          lifecycle: current.lifecycle,
+          operation,
+          workspaceId: this.requiredWorkspaceId(),
+          scope: current.scope,
+          recordRef: current.id,
+          content,
+          approvalContent,
+          predecessorRefs: additionalPredecessors,
+          now,
+        });
+        if (commit.idempotent) {
+          await commit.finalize();
+          return current;
+        }
+        const relatedRefs = claimedProposal.sources
+          .map((source) => source.recordRef)
+          .filter((recordRef) => recordRef !== current.id);
+        const targetLifecycle: MemoryLifecycleEnvelope = {
+          ...commit.lifecycle,
+          risk: claimedProposal.target.risk,
+          lineage: {
+            ...commit.lifecycle.lineage,
+            mergedFrom:
+              claimedProposal.operation === "propose_merge"
+                ? normalizeStrings([...commit.lifecycle.lineage.mergedFrom, ...relatedRefs])
+                : commit.lifecycle.lineage.mergedFrom,
+            supersedes:
+              claimedProposal.operation === "propose_supersede"
+                ? normalizeStrings([...commit.lifecycle.lineage.supersedes, ...relatedRefs])
+                : commit.lifecycle.lineage.supersedes,
+          },
+        };
+        const target: SparkMemoryEntry = {
+          ...current,
+          ...content,
+          id: current.id,
+          scope: current.scope,
+          createdAt: current.createdAt,
+          updatedAt: now,
+          lifecycle: targetLifecycle,
+        };
+        snapshot.entries[targetIndex] = target;
+        for (const source of sourceEntries) {
+          if (source.id === target.id) continue;
+          const sourceIndex = snapshot.entries.findIndex((entry) => entry.id === source.id);
+          const sourceStatus =
+            claimedProposal.operation === "propose_merge" ? "merged" : "superseded";
+          const sourceContent = memoryEntryRevisionContent({
+            ...source,
+            status: sourceStatus,
+            forgottenReason: undefined,
+          });
+          const sourceRevision = appendMemoryRevision(source.lifecycle, {
+            transactionId: authorization.transactionId,
+            proposalDigest: authorization.proposal.proposalDigest,
+            proofRef: authorization.proof.proofRef,
+            now,
+            content: sourceContent,
+            predecessorRefs: [source.lifecycle.revision.revisionRef],
+            expectedRevision: source.lifecycle.revision.version,
+          }).revision;
+          snapshot.entries[sourceIndex] = {
+            ...source,
+            status: sourceStatus,
+            forgottenReason: undefined,
+            updatedAt: now,
+            lifecycle: approvedSourceLineageLifecycle({
+              current: source.lifecycle,
+              revision: sourceRevision,
+              targetRef: target.id,
+              operation: claimedProposal.operation,
+              approvedAt: now,
+            }),
+          };
+        }
+        const journal = await prepareMemoryMutationJournal(
+          this.journalPath,
+          memoryMutationJournalInput({
+            operation,
+            recordRef: current.id,
+            transactionId: authorization.transactionId,
+            proposalDigest: authorization.proposal.proposalDigest,
+            content: approvalContent,
+            targetContent: content,
+            workspaceId: this.requiredWorkspaceId(),
+            scope: current.scope,
+            expectedRevision: authorization.proposal.expectedRevision,
+            proposalId: authorization.proposal.proposalId,
+            proposal: authorization.proposal,
+            proof: authorization.proof,
+          }),
+        );
+        await this.saveSnapshot(snapshot);
+        await markMemoryMutationPersisted(this.journalPath, journal);
+        await commit.finalize();
+        await clearMemoryMutationJournal(this.journalPath);
+        return target;
+      });
+    } catch (error) {
+      if (claimedProposal.status === "committing") {
+        const message = error instanceof Error ? error.message : String(error);
+        await proposalStore.transition(
+          proposalId,
+          /expired/u.test(message) ? "expired" : "conflict",
+          { expectedStatus: "committing", conflictStatus: message },
+        );
+      }
+      throw error;
+    }
+    await proposalStore.transition(proposalId, "committed", {
+      expectedStatus: "committing",
+    });
+    return committedEntry;
+  }
+
   async search(
     query: string,
     options: { limit?: number; category?: SparkMemoryCategory } = {},
@@ -425,8 +658,17 @@ export class SparkMemoryStore {
       total: snapshot.entries.length,
       active: snapshot.entries.filter((entry) => entry.status === "active").length,
       forgotten: snapshot.entries.filter((entry) => entry.status === "forgotten").length,
+      merged: snapshot.entries.filter((entry) => entry.status === "merged").length,
+      superseded: snapshot.entries.filter((entry) => entry.status === "superseded").length,
       byCategory,
     };
+  }
+
+  private proposalStore(): MemoryLineageProposalStore {
+    return (
+      this.options.proposalStore ??
+      new MemoryLineageProposalStore(join(dirname(this.filePath), "lineage-proposals.json"))
+    );
   }
 
   private async recoverPendingJournal(): Promise<void> {
@@ -611,7 +853,7 @@ function normalizeEntry(value: unknown, filePath: string, index: number): SparkM
   const lifecycle = normalizeMemoryLifecycle(entry.lifecycle, {
     recordRef: entry.id,
     kind: memoryKindForCategory(entry.category),
-    state: entry.status === "active" ? "promoted" : "forgotten",
+    state: memoryLifecycleStateForEntryStatus(entry.status),
     scope: entry.scope,
     risk: memoryRiskForCategory(entry.category),
     evidenceRefs: entry.evidenceRefs,
@@ -624,7 +866,7 @@ function normalizeEntry(value: unknown, filePath: string, index: number): SparkM
   assertMemoryLifecycleProjection(
     lifecycle,
     {
-      state: entry.status === "active" ? "promoted" : "forgotten",
+      state: memoryLifecycleStateForEntryStatus(entry.status),
       scope: entry.scope,
     },
     `memory entry ${entry.id}`,
@@ -667,15 +909,129 @@ function assertEntry(
       `entries[${index}].tags must be a string array`,
     );
   }
-  if (entry.status !== "active" && entry.status !== "forgotten") {
+  if (
+    entry.status !== "active" &&
+    entry.status !== "forgotten" &&
+    entry.status !== "merged" &&
+    entry.status !== "superseded"
+  ) {
     throw new SparkMemoryStoreFormatError(
       filePath,
-      `entries[${index}].status must be active or forgotten`,
+      `entries[${index}].status must be active, forgotten, or superseded`,
     );
   }
   if (typeof entry.createdAt !== "string" || typeof entry.updatedAt !== "string") {
     throw new SparkMemoryStoreFormatError(filePath, `entries[${index}] timestamps must be strings`);
   }
+}
+
+function parseMemoryEntryProposalContent(value: unknown): {
+  category: SparkMemoryCategory;
+  text: string;
+  reason: string;
+  evidenceRefs: string[];
+  tags: string[];
+  status: SparkMemoryStatus;
+  forgottenReason?: string;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("memory entry proposal content must be an object");
+  }
+  const content = value as Record<string, unknown>;
+  const category = normalizeSparkMemoryCategory(content.category);
+  const text = requiredText(content.text, "proposal target text");
+  const reason = requiredText(content.reason, "proposal target reason");
+  assertNoSecrets(text);
+  assertNoSecrets(reason);
+  const evidenceRefs = normalizeStrings(requiredStringArray(content.evidenceRefs, "evidenceRefs"));
+  const tags = normalizeStrings(requiredStringArray(content.tags, "tags"));
+  const status = content.status;
+  if (status !== "active" && status !== "forgotten" && status !== "superseded") {
+    throw new Error("memory entry proposal status must be active, forgotten, or superseded");
+  }
+  const forgottenReason =
+    typeof content.forgottenReason === "string" && content.forgottenReason.trim()
+      ? content.forgottenReason.trim()
+      : undefined;
+  return {
+    category,
+    text,
+    reason,
+    evidenceRefs,
+    tags,
+    status,
+    ...(forgottenReason ? { forgottenReason } : {}),
+  };
+}
+
+function frozenEntryRevision(entry: SparkMemoryEntry) {
+  return {
+    recordRef: entry.id,
+    revisionRef: entry.lifecycle.revision.revisionRef,
+    contentDigest: entry.lifecycle.revision.contentDigest,
+    scope: entry.lifecycle.scope,
+  };
+}
+
+function lineageMutationOperation(
+  proposal: MemoryLineageProposal,
+): "update" | "merge" | "supersede" {
+  if (proposal.operation === "propose_update") return "update";
+  if (proposal.operation === "propose_merge") return "merge";
+  return "supersede";
+}
+
+function approvedSourceLineageLifecycle(input: {
+  current: MemoryLifecycleEnvelope;
+  revision: MemoryRevision;
+  targetRef: string;
+  operation: MemoryLineageProposal["operation"];
+  approvedAt: string;
+}): MemoryLifecycleEnvelope {
+  const { current, revision, targetRef, operation, approvedAt } = input;
+  return {
+    ...current,
+    state: operation === "propose_merge" ? "merged" : "superseded",
+    revision,
+    revisionHistory: [...current.revisionHistory, revision],
+    lineage: {
+      ...current.lineage,
+      predecessors: normalizeStrings([
+        ...current.lineage.predecessors,
+        ...revision.predecessorRefs,
+      ]),
+      mergedInto:
+        operation === "propose_merge"
+          ? normalizeStrings([...current.lineage.mergedInto, targetRef])
+          : current.lineage.mergedInto,
+      supersededBy:
+        operation === "propose_supersede"
+          ? normalizeStrings([...current.lineage.supersededBy, targetRef])
+          : current.lineage.supersededBy,
+    },
+    approval: {
+      status: "verified",
+      proofRef: revision.proofRef,
+      proposalDigest: revision.proposalDigest,
+      approvedAt,
+      actorKind: "user",
+    },
+    provenance: { ...current.provenance, legacyUnverified: false },
+  };
+}
+
+function memoryLifecycleStateForEntryStatus(
+  status: SparkMemoryStatus,
+): "promoted" | "forgotten" | "merged" | "superseded" {
+  if (status === "active") return "promoted";
+  return status;
+}
+
+function requiredStringArray(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error(`memory entry proposal ${field} must be a string array`);
+  }
+  return value as string[];
 }
 
 function memoryEntryRevisionContent(

@@ -21,6 +21,7 @@ import {
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
 import {
+  appendMemoryRevision,
   appendUnapprovedMemoryRevision,
   commitAuthorizedMemoryCreation,
   commitAuthorizedMemoryMutation,
@@ -37,6 +38,7 @@ import {
   type MemoryLifecycleEnvelope,
   type MemoryLifecycleScope,
   type MemoryLifecycleState,
+  type MemoryRevision,
 } from "./lifecycle.ts";
 import { hasLegacyMemoryFixturePermit, type LegacyMemoryFixturePermit } from "./legacy-fixture.ts";
 import {
@@ -48,10 +50,23 @@ import {
   recoverMemoryMutationJournal,
 } from "./mutation-journal.ts";
 import { withFileMutationLock } from "./mutation-lock.ts";
+import {
+  assertMemoryLineageAuthorizationBound,
+  assertMemoryLineageProposalCommittable,
+  memoryLineageApprovalContent,
+  MemoryLineageProposalStore,
+  type MemoryLineageProposal,
+} from "./proposals.ts";
 
 export type LearningCategory = "pattern" | "gotcha" | "decision" | "workflow" | "tool" | "project";
 export type LearningLocation = "user" | "workspace" | "repo";
-export type LearningStatus = "candidate" | "active" | "stale" | "superseded" | "rejected";
+export type LearningStatus =
+  | "candidate"
+  | "active"
+  | "stale"
+  | "merged"
+  | "superseded"
+  | "rejected";
 
 export interface LearningRecord extends Record<string, JsonValue> {
   id: string;
@@ -149,6 +164,7 @@ export interface LearningStoreOptions {
   workspaceId?: string;
   mutationLockPath?: string;
   legacyFixturePermit?: LegacyMemoryFixturePermit;
+  proposalStore?: MemoryLineageProposalStore;
 }
 
 export interface LearningEvidenceStore {
@@ -181,6 +197,7 @@ const LEARNING_STATUSES: LearningStatus[] = [
   "candidate",
   "active",
   "stale",
+  "merged",
   "superseded",
   "rejected",
 ];
@@ -498,6 +515,189 @@ export class LearningStore {
     return normalizeLearningEvidence(evidence, this.location);
   }
 
+  async getRevision(refOrId: string, revisionRef: string): Promise<MemoryRevision> {
+    const record = await this.get(refOrId);
+    const revision = record.body.lifecycle.revisionHistory.find(
+      (candidate) => candidate.revisionRef === revisionRef,
+    );
+    if (!revision) throw new Error(`learning revision not found: ${revisionRef}`);
+    return revision;
+  }
+
+  async lineage(refOrId: string): Promise<{
+    record: EvidenceRecord<LearningRecord>;
+    predecessors: Array<EvidenceRecord<LearningRecord>>;
+    successors: Array<EvidenceRecord<LearningRecord>>;
+  }> {
+    const record = await this.get(refOrId);
+    const all = await this.list({ includeInactive: true, includeCandidates: true });
+    const predecessorRefs = new Set([
+      ...record.body.lifecycle.lineage.mergedFrom,
+      ...record.body.lifecycle.lineage.mergedInto,
+      ...record.body.lifecycle.lineage.supersedes,
+      ...record.body.lifecycle.lineage.supersededBy,
+    ]);
+    const successors = all.filter(
+      (candidate) =>
+        candidate.body.lifecycle.lineage.mergedFrom.includes(record.body.id) ||
+        candidate.body.lifecycle.lineage.supersedes.includes(record.body.id),
+    );
+    return {
+      record,
+      predecessors: all.filter((candidate) => predecessorRefs.has(candidate.body.id)),
+      successors,
+    };
+  }
+
+  async applyLineageProposal(
+    proposalId: string,
+    authorization: MemoryMutationAuthorization,
+  ): Promise<EvidenceRecord<LearningRecord>> {
+    const proposalStore = this.proposalStore();
+    const proposal = await proposalStore.get(proposalId);
+    if (proposal.target.kind !== "learning") {
+      throw new Error(`memory lineage proposal target is not a learning: ${proposalId}`);
+    }
+    assertMemoryLineageAuthorizationBound(proposal, authorization);
+    const claimedProposal = await proposalStore.claimCommit(
+      proposalId,
+      authorization.transactionId,
+    );
+    let stored: EvidenceRecord<LearningRecord>;
+    try {
+      stored = await this.withMutationLock(async () => {
+        const current = await this.get(claimedProposal.target.recordRef);
+        const now = nowIso();
+        const target = learningRecordFromProposal(current.body, claimedProposal, now);
+        const content = learningRevisionContent(target);
+        const approvalContent = memoryLineageApprovalContent(claimedProposal);
+        const operation = learningLineageMutationOperation(claimedProposal);
+        const prior = current.body.lifecycle.revisionHistory.find(
+          (revision) => revision.transactionId === authorization.transactionId,
+        );
+        if (prior) {
+          const retry = await commitAuthorizedMemoryMutation({
+            verifier: this.options.verifier,
+            authorization,
+            lifecycle: current.body.lifecycle,
+            operation,
+            workspaceId: this.requiredWorkspaceId(),
+            scope: learningLifecycleScope(this.location),
+            recordRef: current.body.id,
+            content,
+            approvalContent,
+            now,
+          });
+          await retry.finalize();
+          return current;
+        }
+        const sources = await Promise.all(
+          claimedProposal.sources.map(async (source) => {
+            const storedSource = await this.get(source.recordRef);
+            return storedSource.body;
+          }),
+        );
+        assertMemoryLineageProposalCommittable(
+          claimedProposal,
+          sources.map((source) =>
+            frozenLearningRevisionAtTransactionSource(
+              source,
+              claimedProposal,
+              authorization.transactionId,
+            ),
+          ),
+        );
+        const additionalPredecessors = claimedProposal.sources
+          .map((source) => source.revisionRef)
+          .filter((revisionRef) => revisionRef !== current.body.lifecycle.revision.revisionRef);
+        const commit = await commitAuthorizedMemoryMutation({
+          verifier: this.options.verifier,
+          authorization,
+          lifecycle: current.body.lifecycle,
+          operation,
+          workspaceId: this.requiredWorkspaceId(),
+          scope: learningLifecycleScope(this.location),
+          recordRef: current.body.id,
+          content,
+          approvalContent,
+          predecessorRefs: additionalPredecessors,
+          now,
+        });
+        if (commit.idempotent) {
+          await commit.finalize();
+          return current;
+        }
+        const relatedRefs = claimedProposal.sources
+          .map((source) => source.recordRef)
+          .filter((recordRef) => recordRef !== current.body.id);
+        target.lifecycle = {
+          ...commit.lifecycle,
+          risk: claimedProposal.target.risk,
+          state: learningLifecycleState(target.status),
+          lineage: {
+            ...commit.lifecycle.lineage,
+            mergedFrom:
+              claimedProposal.operation === "propose_merge"
+                ? uniqueStrings([...commit.lifecycle.lineage.mergedFrom, ...relatedRefs])
+                : commit.lifecycle.lineage.mergedFrom,
+            supersedes:
+              claimedProposal.operation === "propose_supersede"
+                ? uniqueStrings([...commit.lifecycle.lineage.supersedes, ...relatedRefs])
+                : commit.lifecycle.lineage.supersedes,
+          },
+        };
+        validateLearningRecord(target);
+        for (const source of sources) {
+          if (
+            source.id === target.id ||
+            source.lifecycle.revision.transactionId === authorization.transactionId
+          ) {
+            continue;
+          }
+          const updatedSource = approvedLearningSourceRecord({
+            source,
+            targetRef: target.id,
+            operation: claimedProposal.operation,
+            authorization,
+            now,
+          });
+          validateLearningRecord(updatedSource);
+          await this.evidenceStore.put({
+            ref: learningRef(updatedSource.id),
+            kind: "knowledge",
+            title: updatedSource.title,
+            format: "json",
+            body: updatedSource,
+            provenance: { producer: "task", note: learningProvenanceNote("lineage source") },
+            links: relationLinks(updatedSource),
+          });
+        }
+        return this.putLearningRecord(
+          current.ref,
+          target,
+          learningProvenanceNote("lineage commit"),
+          authorization,
+          commit.finalize,
+          approvalContent,
+        );
+      });
+    } catch (error) {
+      if (claimedProposal.status === "committing") {
+        const message = error instanceof Error ? error.message : String(error);
+        await proposalStore.transition(
+          proposalId,
+          /expired/u.test(message) ? "expired" : "conflict",
+          { expectedStatus: "committing", conflictStatus: message },
+        );
+      }
+      throw error;
+    }
+    await proposalStore.transition(proposalId, "committed", {
+      expectedStatus: "committing",
+    });
+    return stored;
+  }
+
   async list(filter: LearningListFilter = {}): Promise<Array<EvidenceRecord<LearningRecord>>> {
     return (await this.listDetailed(filter)).evidence;
   }
@@ -509,7 +709,7 @@ export class LearningStore {
       this.evidenceStore,
     );
     const diagnostics = [...listed.diagnostics, ...hydrated.diagnostics];
-    const evidence: Array<EvidenceRecord<LearningRecord>> = [];
+    const normalizedEvidence: Array<EvidenceRecord<LearningRecord>> = [];
     for (const record of hydrated.evidence) {
       let normalized: EvidenceRecord<LearningRecord>;
       try {
@@ -522,8 +722,23 @@ export class LearningStore {
         });
         continue;
       }
-      if (matchesLearningFilter(normalized.body, filter)) evidence.push(normalized);
+      normalizedEvidence.push(normalized);
     }
+    const hiddenByCurrentLineage = new Set(
+      normalizedEvidence.flatMap((record) => [
+        ...record.body.lifecycle.lineage.mergedFrom,
+        ...record.body.lifecycle.lineage.supersedes,
+      ]),
+    );
+    const explicitAuditFilter =
+      filter.includeInactive === true ||
+      filter.status !== undefined ||
+      filter.includeCandidates === true;
+    const evidence = normalizedEvidence.filter(
+      (record) =>
+        (explicitAuditFilter || !hiddenByCurrentLineage.has(record.body.id)) &&
+        matchesLearningFilter(record.body, filter),
+    );
     return {
       evidence: evidence.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
       diagnostics,
@@ -733,7 +948,9 @@ export class LearningStore {
     note: string,
     authorization: MemoryMutationAuthorization | undefined,
     finalize: (() => Promise<void>) | undefined,
+    approvalContent?: unknown,
   ): Promise<EvidenceRecord<LearningRecord>> {
+    const targetContent = learningRevisionContent(record);
     const journal =
       authorization && finalize
         ? await prepareMemoryMutationJournal(
@@ -743,7 +960,8 @@ export class LearningStore {
               recordRef: record.id,
               transactionId: authorization.transactionId,
               proposalDigest: authorization.proposal.proposalDigest,
-              content: learningRevisionContent(record),
+              content: approvalContent ?? targetContent,
+              ...(approvalContent === undefined ? {} : { targetContent }),
               workspaceId: this.requiredWorkspaceId(),
               scope: learningLifecycleScope(this.location),
               expectedRevision: authorization.proposal.expectedRevision,
@@ -782,6 +1000,20 @@ export class LearningStore {
       );
     });
   }
+  private proposalStore(): MemoryLineageProposalStore {
+    if (this.options.proposalStore) return this.options.proposalStore;
+    const lockPath = this.options.mutationLockPath?.trim();
+    if (!lockPath) {
+      throw new MemoryApprovalError(
+        "MEMORY_APPROVAL_REQUIRED",
+        "learning lineage proposals require a host-owned proposal store",
+      );
+    }
+    return new MemoryLineageProposalStore(
+      join(dirname(dirname(lockPath)), "lineage-proposals.json"),
+    );
+  }
+
   private async withMutationLock<T>(operation: () => Promise<T>): Promise<T> {
     const lockPath = this.options.mutationLockPath?.trim();
     if (!lockPath) {
@@ -1117,6 +1349,122 @@ function learningContent(
     tags: record.tags,
     confidence: record.confidence,
   };
+}
+
+function frozenLearningRevision(record: LearningRecord) {
+  return {
+    recordRef: record.id,
+    revisionRef: record.lifecycle.revision.revisionRef,
+    contentDigest: record.lifecycle.revision.contentDigest,
+    scope: record.lifecycle.scope,
+  };
+}
+
+function frozenLearningRevisionAtTransactionSource(
+  record: LearningRecord,
+  proposal: MemoryLineageProposal,
+  transactionId: string,
+) {
+  if (record.lifecycle.revision.transactionId !== transactionId)
+    return frozenLearningRevision(record);
+  const frozen = proposal.sources.find((source) => source.recordRef === record.id);
+  const revision = frozen
+    ? record.lifecycle.revisionHistory.find(
+        (candidate) => candidate.revisionRef === frozen.revisionRef,
+      )
+    : undefined;
+  if (!frozen || !revision || revision.contentDigest !== frozen.contentDigest) {
+    throw new Error(`learning lineage source retry is not bound to frozen revision: ${record.id}`);
+  }
+  return frozen;
+}
+
+function approvedLearningSourceRecord(input: {
+  source: LearningRecord;
+  targetRef: string;
+  operation: MemoryLineageProposal["operation"];
+  authorization: MemoryMutationAuthorization;
+  now: string;
+}): LearningRecord {
+  const { source, targetRef, operation, authorization, now } = input;
+  const status: LearningStatus = operation === "propose_merge" ? "merged" : "superseded";
+  const sourceContent: LearningRecord = {
+    ...source,
+    status,
+    updatedAt: now,
+    supersededBy:
+      operation === "propose_supersede"
+        ? uniqueStrings([...source.supersededBy, targetRef])
+        : source.supersededBy,
+  };
+  const revision = appendMemoryRevision(source.lifecycle, {
+    transactionId: authorization.transactionId,
+    proposalDigest: authorization.proposal.proposalDigest,
+    proofRef: authorization.proof.proofRef,
+    now,
+    content: learningRevisionContent(sourceContent),
+    predecessorRefs: [source.lifecycle.revision.revisionRef],
+    expectedRevision: source.lifecycle.revision.version,
+  }).revision;
+  sourceContent.lifecycle = {
+    ...source.lifecycle,
+    state: status,
+    revision,
+    revisionHistory: [...source.lifecycle.revisionHistory, revision],
+    lineage: {
+      ...source.lifecycle.lineage,
+      predecessors: uniqueStrings([
+        ...source.lifecycle.lineage.predecessors,
+        ...revision.predecessorRefs,
+      ]),
+      mergedInto:
+        operation === "propose_merge"
+          ? uniqueStrings([...source.lifecycle.lineage.mergedInto, targetRef])
+          : source.lifecycle.lineage.mergedInto,
+      supersededBy:
+        operation === "propose_supersede"
+          ? uniqueStrings([...source.lifecycle.lineage.supersededBy, targetRef])
+          : source.lifecycle.lineage.supersededBy,
+    },
+    approval: {
+      status: "verified",
+      proofRef: revision.proofRef,
+      proposalDigest: revision.proposalDigest,
+      approvedAt: now,
+      actorKind: "user",
+    },
+    provenance: { ...source.lifecycle.provenance, legacyUnverified: false },
+  };
+  return sourceContent;
+}
+
+function learningRecordFromProposal(
+  current: LearningRecord,
+  proposal: MemoryLineageProposal,
+  updatedAt: string,
+): LearningRecord {
+  if (!proposal.target.content || typeof proposal.target.content !== "object") {
+    throw new Error("learning proposal target content must be an object");
+  }
+  const patch = structuredClone(proposal.target.content) as Partial<LearningRecord>;
+  const record: LearningRecord = {
+    ...current,
+    ...patch,
+    id: current.id,
+    createdAt: current.createdAt,
+    updatedAt,
+    lifecycle: current.lifecycle,
+  };
+  validateLearningRecord(record);
+  return record;
+}
+
+function learningLineageMutationOperation(
+  proposal: MemoryLineageProposal,
+): "update" | "merge" | "supersede" {
+  if (proposal.operation === "propose_update") return "update";
+  if (proposal.operation === "propose_merge") return "merge";
+  return "supersede";
 }
 
 function learningRevisionContent(record: LearningRecord): object {

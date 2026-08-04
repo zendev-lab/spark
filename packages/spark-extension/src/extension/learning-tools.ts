@@ -7,7 +7,14 @@ import {
 } from "@zendev-lab/spark-memory";
 import type { EvidenceRecord } from "@zendev-lab/spark-artifacts";
 
-const LEARNING_STATUSES = ["candidate", "active", "stale", "superseded", "rejected"] as const;
+const LEARNING_STATUSES = [
+  "candidate",
+  "active",
+  "stale",
+  "merged",
+  "superseded",
+  "rejected",
+] as const;
 const LEARNING_LOCATIONS = ["user", "workspace", "repo"] as const;
 const LEARNING_CATEGORIES = [
   "pattern",
@@ -21,7 +28,7 @@ const LEARNING_CATEGORIES = [
 export function normalizeLearningStatus(value: unknown): LearningStatus | undefined {
   if (value === undefined || value === null) return undefined;
   if (LEARNING_STATUSES.includes(value as LearningStatus)) return value as LearningStatus;
-  throw new Error("status must be candidate, active, stale, superseded, or rejected");
+  throw new Error("status must be candidate, active, stale, merged, superseded, or rejected");
 }
 
 export function normalizeLearningStatusFilter(
@@ -32,7 +39,7 @@ export function normalizeLearningStatusFilter(
       const status = normalizeLearningStatus(item);
       if (!status)
         throw new Error(
-          "status array entries must be candidate, active, stale, superseded, or rejected",
+          "status array entries must be candidate, active, stale, merged, superseded, or rejected",
         );
       return status;
     });

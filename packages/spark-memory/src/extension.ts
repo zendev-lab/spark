@@ -50,6 +50,13 @@ import {
   type SparkMemoryKind,
 } from "./memory-kinds.ts";
 import { migrateSparkMemoryLayout } from "./migrate-layout.ts";
+import { defaultLearningStore } from "./learning-store.ts";
+import {
+  defaultMemoryLineageProposalStore,
+  memoryLineageProposalApprovalPayload,
+  memoryLineageProposalArtifactContentRef,
+  type CreateMemoryLineageProposalInput,
+} from "./proposals.ts";
 import type { RecallStorePaths } from "./recall-store.ts";
 
 export type SparkMemoryAction =
@@ -67,7 +74,13 @@ export type SparkMemoryAction =
   | "supersede"
   | "reject"
   | "export_markdown"
-  | "import_markdown";
+  | "import_markdown"
+  | "propose_update"
+  | "propose_merge"
+  | "propose_supersede"
+  | "apply_proposal"
+  | "lineage"
+  | "get_revision";
 
 export type { SparkMemoryKind };
 
@@ -205,7 +218,7 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
     parameters: Type.Object({
       action: Type.String({
         description:
-          "entry: remember|recall|search|status|forget|import_legacy; learning: record|list|read|search|mark_stale|supersede|reject|export_markdown|import_markdown; candidate: record|list|search|audit|gc|promote|restore|reject",
+          "entry: remember|recall|search|status|forget|import_legacy; learning: record|list|read|search|mark_stale|supersede|reject|export_markdown|import_markdown; lineage (entry/learning): propose_update|propose_merge|propose_supersede|apply_proposal|lineage|get_revision; candidate: record|list|search|audit|gc|promote|restore|reject",
       }),
       kind: Type.Optional(Type.String({ description: "entry (default) | learning | candidate" })),
       scope: Type.Optional(Type.String({ description: "user | workspace | repo" })),
@@ -279,6 +292,16 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
       planDigest: Type.Optional(
         Type.String({ description: "Exact digest returned by candidate audit/gc dry-run." }),
       ),
+      lineageProposal: Type.Optional(
+        Type.Any({
+          description: "Frozen source revisions and target content for a lineage proposal.",
+        }),
+      ),
+      proposalId: Type.Optional(Type.String({ description: "Memory lineage proposal ID." })),
+      revisionRef: Type.Optional(Type.String({ description: "Immutable memory revision ref." })),
+      previewRef: Type.Optional(
+        Type.String({ description: "Preview artifact ref linked to the canonical Ask approval." }),
+      ),
       proposal: Type.Optional(Type.Any({ description: "Digest-bound memory proposal." })),
       approvalProof: Type.Optional(
         Type.Any({ description: "Host-verified memory approval proof." }),
@@ -298,6 +321,100 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
       const verifier = await options.createApprovalVerifier?.(cwd, ctx);
       const workspaceId = options.workspaceId?.(cwd, ctx) ?? cwd;
       assertDirectIntentToolActionAllowed(ctx, kind, params.action);
+      const lineageAction = normalizeMemoryLineageAction(params.action);
+      if (isMemoryLineageProposalAction(lineageAction)) {
+        if (kind === "candidate") {
+          throw new Error("recall candidates cannot own immutable lineage proposals");
+        }
+        const proposalStore = defaultMemoryLineageProposalStore(cwd);
+        const input = requiredRecord(params.lineageProposal, "lineageProposal");
+        const previewRef = requiredString(params.previewRef, "previewRef");
+        const proposal = await proposalStore.create({
+          ...(input as unknown as Omit<
+            CreateMemoryLineageProposalInput,
+            "operation" | "previewRef"
+          >),
+          operation: lineageAction,
+          workspaceId,
+          previewRef,
+        });
+        const expectedKind = kind === "learning" ? "learning" : "entry";
+        if (proposal.target.kind !== expectedKind) {
+          throw new Error(
+            `memory lineage target kind ${proposal.target.kind} does not match tool kind ${expectedKind}`,
+          );
+        }
+        const approval = memoryLineageProposalApprovalPayload(proposal);
+        return result(
+          `Prepared ${proposal.operation} ${proposal.proposalId}; approval is required.`,
+          {
+            proposal,
+            contentRef: memoryLineageProposalArtifactContentRef(proposal),
+            approval,
+            mutationPerformed: false,
+          },
+        );
+      }
+      if (lineageAction === "apply_proposal") {
+        if (kind === "candidate")
+          throw new Error("recall candidates do not support lineage commit");
+        if (!authorization) {
+          throw new MemoryApprovalError(
+            "MEMORY_APPROVAL_REQUIRED",
+            "lineage commit requires canonical Ask authorization",
+          );
+        }
+        const proposalId = requiredString(params.proposalId, "proposalId");
+        const proposalStore = defaultMemoryLineageProposalStore(cwd);
+        if (kind === "learning") {
+          const learningStore = defaultLearningStore(cwd, normalizeOptionalScope(params.location), {
+            verifier,
+            workspaceId,
+            proposalStore,
+          });
+          const record = await learningStore.applyLineageProposal(proposalId, authorization);
+          return result(`Committed learning lineage proposal ${proposalId}.`, { record });
+        }
+        const entryScope = normalizeOptionalScope(params.scope) ?? "workspace";
+        const entryStore = defaultSparkMemoryStore(cwd, entryScope, options.storePaths, {
+          verifier,
+          workspaceId,
+          proposalStore,
+        });
+        const entry = await entryStore.applyLineageProposal(proposalId, authorization);
+        return result(`Committed memory lineage proposal ${proposalId}.`, { entry });
+      }
+      if (lineageAction === "lineage" || lineageAction === "get_revision") {
+        if (kind === "candidate")
+          throw new Error("recall candidates do not expose durable lineage");
+        const id = requiredString(params.id, "id");
+        if (kind === "learning") {
+          const learningStore = defaultLearningStore(cwd, normalizeOptionalScope(params.location), {
+            verifier,
+            workspaceId,
+            proposalStore: defaultMemoryLineageProposalStore(cwd),
+          });
+          const value =
+            lineageAction === "lineage"
+              ? await learningStore.lineage(id)
+              : await learningStore.getRevision(
+                  id,
+                  requiredString(params.revisionRef, "revisionRef"),
+                );
+          return result(`Loaded learning ${lineageAction} for ${id}.`, { value });
+        }
+        const entryScope = normalizeOptionalScope(params.scope) ?? "workspace";
+        const entryStore = defaultSparkMemoryStore(cwd, entryScope, options.storePaths, {
+          verifier,
+          workspaceId,
+          proposalStore: defaultMemoryLineageProposalStore(cwd),
+        });
+        const value =
+          lineageAction === "lineage"
+            ? await entryStore.lineage(id)
+            : await entryStore.getRevision(id, requiredString(params.revisionRef, "revisionRef"));
+        return result(`Loaded memory ${lineageAction} for ${id}.`, { value });
+      }
       if (kind === "candidate") {
         return executeMemoryCandidateAction({
           params,
@@ -889,12 +1006,14 @@ function renderStatus(summary: {
   total: number;
   active: number;
   forgotten: number;
+  merged: number;
+  superseded: number;
   byCategory: Record<SparkMemoryCategory, number>;
 }): string {
   return [
     "Memory status",
     `- store: ${summary.storePath}`,
-    `- entries: active=${summary.active} forgotten=${summary.forgotten} total=${summary.total}`,
+    `- entries: active=${summary.active} forgotten=${summary.forgotten} merged=${summary.merged} superseded=${summary.superseded} total=${summary.total}`,
     `- categories: ${Object.entries(summary.byCategory)
       .map(([category, count]) => `${category}=${count}`)
       .join(", ")}`,
@@ -1021,6 +1140,35 @@ function normalizeMemoryMutationAuthorization(
   }
 }
 
+function normalizeMemoryLineageAction(
+  value: unknown,
+):
+  | "propose_update"
+  | "propose_merge"
+  | "propose_supersede"
+  | "apply_proposal"
+  | "lineage"
+  | "get_revision"
+  | undefined {
+  if (
+    value === "propose_update" ||
+    value === "propose_merge" ||
+    value === "propose_supersede" ||
+    value === "apply_proposal" ||
+    value === "lineage" ||
+    value === "get_revision"
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
+function isMemoryLineageProposalAction(
+  value: ReturnType<typeof normalizeMemoryLineageAction>,
+): value is "propose_update" | "propose_merge" | "propose_supersede" {
+  return value === "propose_update" || value === "propose_merge" || value === "propose_supersede";
+}
+
 function normalizeMemoryEntryAction(
   value: unknown,
 ): "remember" | "recall" | "search" | "status" | "forget" | "import_legacy" {
@@ -1052,6 +1200,11 @@ function normalizeOptionalCategory(value: unknown): SparkMemoryCategory | undefi
 function requiredString(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`memory.${field} is required`);
   return value.trim();
+}
+
+function requiredRecord(value: unknown, field: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(`memory.${field} must be an object`);
+  return value;
 }
 
 function normalizeStringArray(value: unknown, field: string): string[] {
