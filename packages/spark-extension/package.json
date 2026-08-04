@@ -19,7 +19,9 @@
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run --config vitest.config.ts",
-    "test": "vp test run --config vitest.config.ts"
+    "test": "vp test run --config vitest.config.ts",
+    "test:mutation": "stryker run",
+    "test:mutation:task-tools": "stryker run stryker.config.json"
   },
   "dependencies": {
     "@zendev-lab/spark-artifacts": "workspace:^",
