@@ -13,6 +13,7 @@ import {
   recordCanonicalAskEvidenceReceipt,
   type SparkAskEvidenceBody,
 } from "./evidence.ts";
+import { summarizeAskResult, type AskSummaryAnswer } from "./summary.ts";
 
 export type SparkAskAction = "ask" | "flow";
 export type SparkAskAutoAnswerMode = boolean;
@@ -281,16 +282,42 @@ function didHumanAskTimeOut(result: Awaited<ReturnType<ToolConfig["execute"]>>):
   );
 }
 
-function describeAskResultStatus(result: Awaited<ReturnType<ToolConfig["execute"]>>): string {
+function describeAskResultStatus(
+  result: Awaited<ReturnType<ToolConfig["execute"]>>,
+  request?: SparkAskAutoAnswerRequest,
+): string {
   const details = isRecord(result.details) ? result.details : undefined;
   const inner = details && isRecord(details.result) ? details.result : undefined;
   const status = typeof inner?.status === "string" ? inner.status : undefined;
   if (status === "pending") return "status=pending (async/inbox request, no answer yet)";
   if (status === "cancelled") return "status=cancelled (no user answer)";
-  if (status === "no_selection")
-    return "status=no_selection (interactive surface produced no choice)";
+  if (status === "no_selection" && request) {
+    return summarizeAskResult(request, {
+      status: "no_selection",
+      answers: askSummaryAnswers(inner?.answers),
+    });
+  }
+  if (status === "no_selection") return "status=no_selection (no answers submitted)";
   if (status) return `status=${status}`;
   return inner ? "an incomplete ask result" : "no ask result payload";
+}
+
+function askSummaryAnswers(value: unknown): Record<string, AskSummaryAnswer> {
+  if (!isRecord(value)) return {};
+  const answers: Record<string, AskSummaryAnswer> = {};
+  for (const [questionId, rawAnswer] of Object.entries(value)) {
+    if (!isRecord(rawAnswer)) continue;
+    const values = stringArray(rawAnswer.values) ?? [];
+    const labels = stringArray(rawAnswer.labels);
+    const customText = optionalString(rawAnswer.customText)?.trim();
+    if (!values.some((item) => item.trim()) && !customText) continue;
+    answers[questionId] = {
+      values,
+      ...(labels && labels.length > 0 ? { labels } : {}),
+      ...(customText ? { customText } : {}),
+    };
+  }
+  return answers;
 }
 
 async function waitForReviewerFallback(timeoutMs: number, signal: AbortSignal): Promise<void> {
@@ -354,9 +381,10 @@ async function maybeRecordAskEvidence(
   if (params.recordAsEvidence !== true) return result;
   const cwd = typeof ctx.cwd === "string" ? ctx.cwd : undefined;
   if (!cwd) throw new Error("ask recordAsEvidence requires a workspace cwd");
+  const askRequest = decodeAutoAnswerRequest(params);
   const body: SparkAskEvidenceBody = {
     schema: "spark.ask.evidence/v2",
-    request: decodeAutoAnswerRequest(params),
+    request: askRequest,
     result: isRecord(result.details) ? (result.details.result ?? null) : null,
     answerSource: "user",
     autoAnswered: false,
@@ -365,7 +393,7 @@ async function maybeRecordAskEvidence(
   if (!isUserAnsweredAskEvidenceBody(body)) {
     if (didHumanAskTimeOut(result)) return result;
     throw new Error(
-      `ask.recordAsEvidence requires a completed user-answered result (observed ${describeAskResultStatus(result)}). ` +
+      `ask.recordAsEvidence requires a completed user-answered result (observed ${describeAskResultStatus(result, askRequest)}). ` +
         "No evidence was recorded and no decision proof exists. Re-ask the same question when a user can answer, " +
         "or continue with work that does not depend on this decision; never substitute a prior or synthesized approval.",
     );

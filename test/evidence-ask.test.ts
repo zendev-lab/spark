@@ -938,6 +938,24 @@ test("ask_user and ask_flow share result summary and Evidence body semantics", (
   assert.equal("context" in evidenceBody.request, false);
   assert.equal("nextAction" in evidenceBody.result, false);
   assert.equal("preview" in evidenceBody.result.answers.mode, false);
+
+  assert.equal(
+    summarizeAskResult(
+      {
+        title: "Choose delivery",
+        mode: "decision",
+        questions: [
+          { id: "strategy", prompt: "Which strategy?", required: true },
+          { id: "timing", prompt: "When should it ship?", required: true },
+        ],
+      },
+      {
+        status: "no_selection",
+        answers: { strategy: { values: ["reuse"], labels: ["Reuse"] } },
+      },
+    ),
+    "Choose delivery: no_selection; partial answers: strategy=Reuse; missing required: timing (When should it ship?)",
+  );
 });
 
 test("ask_user tool summary uses option labels rather than raw ids", async () => {
@@ -1194,6 +1212,69 @@ test("ask action tool can persist receipt-backed user decision evidence", async 
       await verifyCanonicalAskEvidence(dir, forged),
       undefined,
       "ordinary evidence writes cannot mint a canonical ask receipt",
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("ask evidence rejection reports partial answers and missing required questions", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-ask-partial-evidence-"));
+  try {
+    const tools = new Map<string, { execute: Function }>();
+    const registerTool = (config: { name: string; execute: Function }) =>
+      tools.set(config.name, config);
+    registerSparkAskFlowTool({ registerTool });
+    registerSparkAskActionTool(
+      { registerTool },
+      { resolveTool: (name) => tools.get(name) as never },
+    );
+    const tool = tools.get("ask");
+    assert.ok(tool);
+
+    await assert.rejects(
+      () =>
+        tool.execute(
+          "ask-partial-evidence-test",
+          {
+            action: "flow",
+            recordAsEvidence: true,
+            title: "Choose delivery",
+            mode: "decision",
+            questions: [
+              {
+                id: "strategy",
+                prompt: "Which strategy?",
+                type: "single",
+                required: true,
+                options: [
+                  { value: "reuse", label: "Reuse" },
+                  { value: "new", label: "New" },
+                ],
+              },
+              {
+                id: "timing",
+                prompt: "When should it ship?",
+                type: "freeform",
+                required: true,
+              },
+            ],
+          },
+          new AbortController().signal,
+          () => undefined,
+          {
+            cwd: dir,
+            ui: {
+              interaction: async (request: Record<string, unknown>) => ({
+                kind: "askFlow",
+                requestId: request.requestId,
+                status: "answered",
+                answers: { strategy: { values: ["reuse"], labels: ["Reuse"] } },
+              }),
+            },
+          },
+        ),
+      /partial answers: strategy=Reuse; missing required: timing \(When should it ship\?\)/u,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });

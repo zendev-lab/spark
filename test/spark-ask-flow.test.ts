@@ -1108,6 +1108,45 @@ test("interaction custom answer preserves a blocked gate nextAction", async () =
   assert.equal(isSparkAskFlowGateBlocked(result, request), true);
 });
 
+test("interaction preserves partial answers while blocking missing required answers", async () => {
+  const request = createSparkAskFlowRequest({
+    title: "Choose delivery",
+    mode: "decision",
+    questions: [
+      {
+        id: "strategy",
+        prompt: "Which strategy?",
+        type: "single",
+        required: true,
+        options: [
+          { value: "reuse", label: "Reuse" },
+          { value: "new", label: "New" },
+        ],
+      },
+      {
+        id: "timing",
+        prompt: "When should it ship?",
+        type: "freeform",
+        required: true,
+      },
+    ],
+  });
+  const result = await runSparkAskFlow(request, {
+    interaction: async (interactionRequest) => ({
+      kind: "askFlow",
+      requestId: interactionRequest.requestId,
+      status: "answered",
+      answers: { strategy: { values: ["reuse"], labels: ["Reuse"] } },
+    }),
+  });
+
+  assert.equal(result.status, "no_selection");
+  assert.equal(result.nextAction, "block");
+  assert.deepEqual(result.answers.strategy?.values, ["reuse"]);
+  assert.equal(result.answers.timing, undefined);
+  assert.equal(isSparkAskFlowGateBlocked(result, request), true);
+});
+
 test("ask flow preserves the host timeout marker on a cancelled human wait", async () => {
   const request = createSparkAskFlowRequest({
     mode: "decision",
