@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sparkWorkbenchActionRequestSchema } from "./a2ui.ts";
 import { sparkProtocolJsonObjectSchema, sparkProtocolJsonValueSchema } from "./command-events.ts";
 import { isoDateTimeSchema } from "./refs.ts";
 
@@ -261,6 +262,8 @@ export const sparkLoopScheduleRequestSchema = z
     path: ["dueAt"],
   });
 
+export const sparkLoopControlRequestSchema = sparkWorkbenchActionRequestSchema;
+
 export const sparkLoopListResultSchema = z.object({
   loops: z.array(sparkLoopViewSchema),
   observedAt: isoDateTimeSchema,
@@ -289,5 +292,6 @@ export type SparkLoopStatusRequest = z.infer<typeof sparkLoopStatusRequestSchema
 export type SparkLoopMutationRequest = z.infer<typeof sparkLoopMutationRequestSchema>;
 export type SparkLoopWakeRequest = z.infer<typeof sparkLoopWakeRequestSchema>;
 export type SparkLoopScheduleRequest = z.infer<typeof sparkLoopScheduleRequestSchema>;
+export type SparkLoopControlRequest = z.infer<typeof sparkLoopControlRequestSchema>;
 export type SparkLoopListResult = z.infer<typeof sparkLoopListResultSchema>;
 export type SparkLoopMutationResult = z.infer<typeof sparkLoopMutationResultSchema>;

@@ -147,6 +147,7 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
       schedule: os.loop.schedule.handler(async ({ input: params }) =>
         invoke("loop.schedule", params),
       ),
+      control: os.loop.control.handler(async ({ input: params }) => invoke("loop.control", params)),
     },
     workspace: {
       list: os.workspace.list.handler(async ({ input: params }) =>

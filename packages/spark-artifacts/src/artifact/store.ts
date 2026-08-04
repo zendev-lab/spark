@@ -34,6 +34,23 @@ export class ArtifactValidationError extends Error {
   }
 }
 
+export interface PutManagedDocumentInput {
+  ref: ArtifactRef;
+  bindingId: string;
+  title: string;
+  mediaType: DocumentArtifactBody["mediaType"];
+  content: string;
+  expectedRevision: number | null;
+  progress?: DocumentArtifactBody["progress"];
+  seal?: boolean;
+}
+
+export interface PutManagedDocumentResult {
+  artifact: Artifact<DocumentArtifactBody>;
+  created: boolean;
+  changed: boolean;
+}
+
 interface StoredArtifact {
   ref: ArtifactRef;
   kind: StoredArtifactKind;
@@ -89,6 +106,7 @@ export class ArtifactStore {
         : (input.format ?? defaultFormatForBody(input.body));
     const ref = input.ref ?? newArtifactRef();
     const existing = input.ref ? await this.tryGet(input.ref) : null;
+    assertDocumentOverwriteAllowed(existing, input.body);
     const updatedAt = nextArtifactTimestamp(existing?.updatedAt);
     const serialized = serializeBody(input.body);
     const hash = createHash("sha256").update(serialized).digest("hex");
@@ -125,6 +143,59 @@ export class ArtifactStore {
       format: patch.format ?? existing.format,
       body: patch.body ?? existing.body,
     });
+  }
+
+  /**
+   * Daemon-owned Document update with an explicit expected revision. Identical
+   * content keeps its revision; content/media changes advance it exactly once.
+   * A sealed binding is immutable.
+   */
+  async putManagedDocument(input: PutManagedDocumentInput): Promise<PutManagedDocumentResult> {
+    const existing = await this.tryGet<DocumentArtifactBody>(input.ref);
+    if (existing && existing.kind !== "document") {
+      throw new ArtifactValidationError(`managed Document ref is not a document: ${input.ref}`);
+    }
+    const current = existing?.body;
+    if (current?.management?.authority === "daemon") {
+      if (current.management.bindingId !== input.bindingId) {
+        throw new ArtifactValidationError(`managed Document binding mismatch: ${input.ref}`);
+      }
+      if (current.management.lifecycle === "sealed") {
+        throw new ArtifactValidationError(`managed Document is sealed: ${input.ref}`);
+      }
+    } else if (current) {
+      throw new ArtifactValidationError(
+        `Document is not owned by this daemon binding: ${input.ref}`,
+      );
+    }
+    const actualRevision = current?.revision ?? null;
+    if (actualRevision !== input.expectedRevision) {
+      throw new ArtifactValidationError(
+        `DOCUMENT_REVISION_CONFLICT: ${input.ref} expected ${String(input.expectedRevision)} actual ${String(actualRevision)}`,
+      );
+    }
+    const changed =
+      !current || current.content !== input.content || current.mediaType !== input.mediaType;
+    const revision = current ? current.revision + (changed ? 1 : 0) : 1;
+    const artifact = await this.put<DocumentArtifactBody>({
+      ref: input.ref,
+      kind: "document",
+      title: input.title,
+      body: {
+        schemaVersion: 2,
+        kind: "document",
+        mediaType: input.mediaType,
+        content: input.content,
+        revision,
+        ...(input.progress ? { progress: input.progress } : {}),
+        management: {
+          authority: "daemon",
+          bindingId: input.bindingId,
+          lifecycle: input.seal ? "sealed" : "live",
+        },
+      },
+    });
+    return { artifact, created: !existing, changed };
   }
 
   async get<T extends ArtifactBody = ArtifactBody>(ref: ArtifactRef): Promise<Artifact<T>> {
@@ -172,6 +243,22 @@ export class ArtifactStore {
   pathFor(ref: ArtifactRef): string {
     assertArtifactRef(ref);
     return join(this.rootDir, `${refId(ref)}.json`);
+  }
+}
+
+function assertDocumentOverwriteAllowed(existing: Artifact | null, nextBody: ArtifactBody): void {
+  if (existing?.body.kind !== "document" || !existing.body.management) return;
+  if (existing.body.management.lifecycle === "sealed") {
+    throw new ArtifactValidationError(`managed Document is sealed: ${existing.ref}`);
+  }
+  if (
+    nextBody.kind !== "document" ||
+    nextBody.management?.authority !== "daemon" ||
+    nextBody.management.bindingId !== existing.body.management.bindingId
+  ) {
+    throw new ArtifactValidationError(
+      `managed Document requires its daemon binding: ${existing.ref}`,
+    );
   }
 }
 

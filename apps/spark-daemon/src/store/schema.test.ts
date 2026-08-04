@@ -3,6 +3,62 @@ import { describe, expect, it } from "vitest";
 import { migrateSparkDaemonDatabase } from "./schema.js";
 
 describe("migrateSparkDaemonDatabase", () => {
+  it("creates durable Workbench bindings, typed checkpoints, and action receipts", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      migrateSparkDaemonDatabase(db);
+      migrateSparkDaemonDatabase(db);
+      expect(tableExists(db, "workbench_artifact_bindings")).toBe(true);
+      expect(tableExists(db, "workbench_checkpoints")).toBe(true);
+      expect(tableExists(db, "workbench_action_receipts")).toBe(true);
+      expect(columnNames(db, "workbench_artifact_bindings")).toEqual(
+        expect.arrayContaining([
+          "owner_session_id",
+          "goal_id",
+          "workflow_run_id",
+          "loop_id",
+          "artifact_ref",
+          "revision",
+          "artifact_hash",
+          "generation",
+          "lifecycle",
+        ]),
+      );
+      expect(primaryKeyColumns(db, "workbench_checkpoints")).toEqual([
+        "binding_id",
+        "checkpoint_id",
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("migrates the draft-global Workbench checkpoint key to binding scope", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`CREATE TABLE workbench_checkpoints (
+        checkpoint_id TEXT PRIMARY KEY,
+        binding_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        stage TEXT NOT NULL,
+        artifact_ref TEXT NOT NULL UNIQUE,
+        revision INTEGER NOT NULL,
+        artifact_hash TEXT NOT NULL,
+        summary_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )`);
+
+      migrateSparkDaemonDatabase(db);
+
+      expect(primaryKeyColumns(db, "workbench_checkpoints")).toEqual([
+        "binding_id",
+        "checkpoint_id",
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("renames legacy daemon-owned tables before applying the current schema", () => {
     const db = new DatabaseSync(":memory:");
     try {
@@ -557,6 +613,18 @@ function workspaceColumns(db: DatabaseSync, table: string): string[] {
 
 function columnNames(db: DatabaseSync, table: string): string[] {
   return workspaceColumns(db, table);
+}
+
+function primaryKeyColumns(db: DatabaseSync, table: string): string[] {
+  return (
+    db.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{
+      name: string;
+      pk: number;
+    }>
+  )
+    .filter((column) => column.pk > 0)
+    .sort((left, right) => left.pk - right.pk)
+    .map((column) => column.name);
 }
 
 function indexNames(db: DatabaseSync, table: string): string[] {

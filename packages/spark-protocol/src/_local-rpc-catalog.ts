@@ -7,6 +7,7 @@ import {
 } from "./command-events.ts";
 import {
   sparkLoopListResultSchema,
+  sparkLoopControlRequestSchema,
   sparkLoopMutationRequestSchema,
   sparkLoopMutationResultSchema,
   sparkLoopScheduleRequestSchema,
@@ -245,6 +246,10 @@ export const sparkLocalRpcLoopOrpcErrors = {
   loop_not_found: { status: 404 },
   loop_schedule_invalid: { status: 422 },
   loop_generation_conflict: { status: 409 },
+  workbench_binding_not_found: { status: 404 },
+  workbench_action_stale: { status: 409 },
+  workbench_action_untrusted: { status: 403 },
+  workbench_action_conflict: { status: 409 },
 } as const satisfies Record<SparkLoopRpcErrorCode, SparkLocalRpcErrorSpec>;
 
 export const sparkLocalRpcInvocationOrpcErrors = {
@@ -474,6 +479,16 @@ const sparkLocalRpcReadinessLoopScheduleOrpcErrors = {
   ...sparkLocalRpcReadinessOrpcErrors,
   loop_schedule_invalid: sparkLocalRpcLoopOrpcErrors.loop_schedule_invalid,
   loop_generation_conflict: sparkLocalRpcLoopOrpcErrors.loop_generation_conflict,
+} as const;
+
+const sparkLocalRpcReadinessLoopControlOrpcErrors = {
+  ...sparkLocalRpcReadinessLoopMutationOrpcErrors,
+  loop_schedule_invalid: sparkLocalRpcLoopOrpcErrors.loop_schedule_invalid,
+  loop_generation_conflict: sparkLocalRpcLoopOrpcErrors.loop_generation_conflict,
+  workbench_binding_not_found: sparkLocalRpcLoopOrpcErrors.workbench_binding_not_found,
+  workbench_action_stale: sparkLocalRpcLoopOrpcErrors.workbench_action_stale,
+  workbench_action_untrusted: sparkLocalRpcLoopOrpcErrors.workbench_action_untrusted,
+  workbench_action_conflict: sparkLocalRpcLoopOrpcErrors.workbench_action_conflict,
 } as const;
 
 const sparkLocalRpcSessionInvocationNotFoundOrpcErrors = {
@@ -1391,6 +1406,10 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkLoopScheduleRequestSchema,
     output: sparkLoopMutationResultSchema,
   },
+  "loop.control": {
+    input: sparkLoopControlRequestSchema,
+    output: sparkLoopMutationResultSchema,
+  },
   "workspace.list": {
     input: z.object({ includeInactive: z.boolean().optional() }),
     output: z.object({
@@ -1783,6 +1802,12 @@ export const sparkLocalRpcOrpcContract = {
       "/loop/schedule",
       p["loop.schedule"],
       sparkLocalRpcReadinessLoopScheduleOrpcErrors,
+    ),
+    control: procedure(
+      "POST",
+      "/loop/control",
+      p["loop.control"],
+      sparkLocalRpcReadinessLoopControlOrpcErrors,
     ),
   },
   workspace: {

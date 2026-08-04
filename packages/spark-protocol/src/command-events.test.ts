@@ -55,6 +55,7 @@ describe("SparkCommand vocabulary", () => {
       "loop.restart",
       "loop.wake",
       "loop.schedule",
+      "loop.control",
       "channel.status",
       "channel.configure",
       "channel.reload",

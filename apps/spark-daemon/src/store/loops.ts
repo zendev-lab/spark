@@ -188,7 +188,8 @@ export class SparkLoopStore {
     const loopId = input.loopId?.trim() || `loop_${randomUUID().replaceAll("-", "")}`;
     const binding = input.binding ?? {};
     const policy = sparkLoopPolicySchema.parse(input.policy ?? {});
-    this.#db.exec("BEGIN IMMEDIATE");
+    const ownsTransaction = !this.#db.isTransaction;
+    if (ownsTransaction) this.#db.exec("BEGIN IMMEDIATE");
     try {
       const existing = this.get(loopId);
       if (existing?.lastInvocationId) {
@@ -271,10 +272,10 @@ export class SparkLoopStore {
           now,
           now,
         );
-      this.#db.exec("COMMIT");
+      if (ownsTransaction) this.#db.exec("COMMIT");
       return this.require(loopId);
     } catch (error) {
-      this.#db.exec("ROLLBACK");
+      if (ownsTransaction) this.#db.exec("ROLLBACK");
       throw error;
     }
   }
@@ -331,6 +332,99 @@ export class SparkLoopStore {
       loops: this.list(input).map(loopView),
       observedAt: new Date().toISOString(),
     };
+  }
+
+  pause(
+    loopId: string,
+    generation: number,
+    reason = "paused by control plane",
+    now = new Date().toISOString(),
+  ): SparkLoopRecord {
+    const current = this.require(loopId);
+    if (current.generation !== generation) {
+      throw new SparkDaemonControlError(
+        "loop_generation_conflict",
+        `LOOP_GENERATION_CONFLICT: ${loopId} generation ${generation}`,
+      );
+    }
+    if (current.status === "completed" || current.status === "stopped") {
+      throw new SparkDaemonControlError("loop_generation_conflict", `Loop is terminal: ${loopId}`);
+    }
+    if (current.lastInvocationId && current.status === "running") {
+      this.#invocations.requestCancellation(current.lastInvocationId, reason, now);
+    }
+    const changes = Number(
+      this.#db
+        .prepare(
+          `UPDATE loop_wakeups
+           SET status = 'paused', generation = generation + 1, cycle_step = NULL,
+               due_at = NULL, reason = ?, error = NULL, updated_at = ?
+           WHERE loop_id = ? AND generation = ?
+             AND status NOT IN ('completed', 'stopped')`,
+        )
+        .run(reason, now, loopId, generation).changes,
+    );
+    if (changes !== 1) {
+      throw new SparkDaemonControlError(
+        "loop_generation_conflict",
+        `LOOP_GENERATION_CONFLICT: ${loopId} generation ${generation}`,
+      );
+    }
+    return this.require(loopId);
+  }
+
+  retryCheckpoint(
+    loopId: string,
+    generation: number,
+    reason = "checkpoint retry requested by control plane",
+    now = new Date().toISOString(),
+  ): SparkLoopRecord {
+    const current = this.require(loopId);
+    if (current.generation !== generation) {
+      throw new SparkDaemonControlError(
+        "loop_generation_conflict",
+        `LOOP_GENERATION_CONFLICT: ${loopId} generation ${generation}`,
+      );
+    }
+    const currentCheckpoint = current.checkpoint;
+    const step = currentCheckpoint?.step;
+    if (
+      !currentCheckpoint ||
+      (current.status !== "blocked" && current.status !== "retry_wait") ||
+      (step !== "before_tick" && step !== "after_tick")
+    ) {
+      throw new SparkDaemonControlError(
+        "loop_schedule_invalid",
+        `Loop has no retryable condition checkpoint: ${loopId}`,
+      );
+    }
+    const nextGeneration = current.generation + 1;
+    const checkpoint: SparkLoopCycleCheckpoint = {
+      ...currentCheckpoint,
+      generation: nextGeneration,
+      step,
+      beforeAttempt: step === "before_tick" ? 0 : currentCheckpoint.beforeAttempt,
+      afterAttempt: step === "after_tick" ? 0 : currentCheckpoint.afterAttempt,
+      updatedAt: now,
+    };
+    const changes = Number(
+      this.#db
+        .prepare(
+          `UPDATE loop_wakeups
+           SET status = 'retry_wait', generation = ?, cycle_step = ?, checkpoint_json = ?,
+               due_at = ?, attempt = 0, reason = ?, error = NULL, updated_at = ?
+           WHERE loop_id = ? AND generation = ? AND status IN ('blocked', 'retry_wait')`,
+        )
+        .run(nextGeneration, step, JSON.stringify(checkpoint), now, reason, now, loopId, generation)
+        .changes,
+    );
+    if (changes !== 1) {
+      throw new SparkDaemonControlError(
+        "loop_generation_conflict",
+        `LOOP_GENERATION_CONFLICT: ${loopId} generation ${generation}`,
+      );
+    }
+    return this.require(loopId);
   }
 
   stop(

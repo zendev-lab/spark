@@ -610,6 +610,16 @@ export const sparkSessionReproWorkViewSchema = z.object({
   tokenUsage: sparkTokenUsageAggregateSchema.optional(),
   /** Bounded diagnostic split; it exposes aggregates, never receipt bodies. */
   tokenUsageByPersistence: sparkTokenUsageByPersistenceSchema.optional(),
+  /** Daemon-authenticated interactive binding; Artifact content remains an output projection. */
+  workbench: z
+    .object({
+      artifactRef: z.string().regex(/^artifact:.+/u),
+      revision: z.number().int().positive(),
+      lifecycle: z.enum(["live", "sealed"]),
+      loopId: z.string().min(1),
+      generation: z.number().int().positive(),
+    })
+    .optional(),
   updatedAt: sparkIsoDateTimeSchema,
 });
 

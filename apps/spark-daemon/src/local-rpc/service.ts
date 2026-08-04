@@ -64,7 +64,15 @@ export const localRpcServiceHandlerMethodGroups = {
     "invocation.retention.apply",
   ],
   usage: ["usage.summary", "usage.persistence", "usage.backfill"],
-  loop: ["loop.start", "loop.status", "loop.stop", "loop.restart", "loop.wake", "loop.schedule"],
+  loop: [
+    "loop.start",
+    "loop.status",
+    "loop.stop",
+    "loop.restart",
+    "loop.wake",
+    "loop.schedule",
+    "loop.control",
+  ],
   delegation: ["delegation.execute"],
   uplink: ["uplink.park", "uplink.unpark", "uplink.prefer", "uplink.status"],
   workspace: [

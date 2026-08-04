@@ -120,6 +120,12 @@ export interface DocumentArtifactBody {
   content: string;
   revision: number;
   progress?: ArtifactProgress;
+  /** Present only for daemon-owned Documents with CAS and sealing semantics. */
+  management?: {
+    authority: "daemon";
+    bindingId: string;
+    lifecycle: "live" | "sealed";
+  };
 }
 
 export type WritableDocumentArtifactBody = DocumentArtifactBody;
@@ -246,10 +252,22 @@ export function isArtifactBody(value: unknown): value is ArtifactBody {
       typeof record.content === "string" &&
       Number.isInteger(record.revision) &&
       (record.revision as number) >= 1 &&
-      isOptionalArtifactProgress(record.progress)
+      isOptionalArtifactProgress(record.progress) &&
+      isOptionalDocumentManagement(record.management)
     );
   }
   return false;
+}
+
+function isOptionalDocumentManagement(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.authority === "daemon" &&
+    isNonEmptyString(record.bindingId) &&
+    (record.lifecycle === "live" || record.lifecycle === "sealed")
+  );
 }
 
 export function isWritableArtifactBody(value: unknown): value is WritableArtifactBody {

@@ -49,6 +49,8 @@ export {
   defaultArtifactStore,
   newArtifactRef,
   normalizeLegacyArtifactBody,
+  type PutManagedDocumentInput,
+  type PutManagedDocumentResult,
 } from "./store.ts";
 
 export {

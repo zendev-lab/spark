@@ -32,7 +32,14 @@ Atomic Artifacts (`issue` / `git_change` / `document`) for users, plus an
 - Cockpit artifact pages embed safe document views. Markdown can render in an
   attached TUI; other supported media receive an expiring, tokenized
   `127.0.0.1` URL only on a local browser-capable surface.
-- HTML previews run with scripts, forms, external media, framing, and network loads disabled. A2UI accepts only the official v0.9/v0.9.1 basic catalog and does not dispatch actions in the initial read-only implementation.
+- HTML previews run with scripts, forms, external media, framing, and network
+  loads disabled. The shared protocol normalizer accepts only the official A2UI
+  v0.9/v0.9.1 basic catalog; Artifact preview remains read-only and never
+  dispatches actions.
+- Daemon-managed Workbench Documents use compare-and-set revisions and a stable
+  binding. A live binding may advance only from its expected revision; sealed
+  Documents reject every later overwrite. Internal condition and reviewer
+  receipts remain Evidence refs and are not promoted to Artifact kinds.
 
 Google's GenUI SDK is a Flutter A2UI renderer, so it is not a separate Spark
 wire format. Web producers should emit `a2ui`. `spark-ui` now names the Svelte
