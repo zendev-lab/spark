@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   SparkLocalRpcInput,
   SparkLocalRpcOutput,
@@ -19,6 +20,47 @@ export interface SparkDaemonToolRequestOptions extends SparkDaemonClientOptions 
   cwd: string;
   sparkCliBin?: string;
   startTimeoutMs?: number;
+}
+
+export interface SparkDaemonToolOperationIdentity {
+  method: SparkDaemonToolMethod;
+  tool: string;
+  toolCallId: string;
+  cwd: string;
+  workspaceId?: string;
+  sessionSource?: string;
+  sessionSurface?: string;
+  /** Stable override for deterministic tests. Production uses one random id per client process. */
+  clientInstanceId?: string;
+}
+
+const TOOL_CLIENT_INSTANCE_ID = randomUUID();
+
+/**
+ * Build an idempotency key scoped to one client process and execution root.
+ * Pi may reuse tool-call ids across sessions or processes; the daemon cache is
+ * process-global, so a bare `${tool}:${toolCallId}` key is not safe.
+ */
+export function createSparkDaemonToolOperationId(
+  identity: SparkDaemonToolOperationIdentity,
+): string {
+  const contextDigest = digest(
+    JSON.stringify([
+      identity.clientInstanceId ?? TOOL_CLIENT_INSTANCE_ID,
+      identity.cwd,
+      identity.workspaceId ?? null,
+      identity.sessionSource ?? null,
+      identity.sessionSurface ?? null,
+    ]),
+  );
+  const callDigest = digest(identity.toolCallId);
+  return [
+    "tool",
+    operationSegment(identity.method),
+    operationSegment(identity.tool),
+    contextDigest,
+    callDigest,
+  ].join(":");
 }
 
 /**
@@ -94,6 +136,15 @@ async function startSparkDaemon(options: {
     options.signal?.addEventListener("abort", onAbort, { once: true });
     if (options.signal?.aborted) onAbort();
   });
+}
+
+function digest(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 24);
+}
+
+function operationSegment(value: string): string {
+  const normalized = value.replace(/[^a-zA-Z0-9._-]+/gu, "_").replace(/^_+|_+$/gu, "");
+  return normalized.slice(0, 80) || "unknown";
 }
 
 function abortError(): Error {
