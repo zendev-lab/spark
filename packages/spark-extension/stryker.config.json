@@ -13,20 +13,30 @@
   "ignorePatterns": ["reports", ".stryker-tmp"],
   "reporters": ["clear-text", "progress", "html", "json"],
   "htmlReporter": {
-    "fileName": "reports/mutation/index.html"
+    "fileName": "reports/mutation/task-tools.html"
   },
   "jsonReporter": {
-    "fileName": "reports/mutation/mutation.json"
+    "fileName": "reports/mutation/task-tools.json"
   },
   "incremental": true,
-  "incrementalFile": "reports/mutation/incremental.json",
+  "incrementalFile": "reports/mutation/task-tools-incremental.json",
+  "coverageAnalysis": "perTest",
   "thresholds": {
     "high": 90,
-    "low": 70,
-    "break": null
+    "low": 80,
+    "break": 75
   },
-  "timeoutMS": 20000,
-  "concurrency": 4,
+  "timeoutMS": 30000,
+  "concurrency": 2,
   "ignoreStatic": true,
-  "mutate": ["src/extension/spark-status.ts"]
+  "mutate": [
+    "src/extension/task-claim-selection.ts",
+    "src/extension/spark-plan-tasks-tool-registration.ts:72-80",
+    "src/extension/spark-plan-tasks-tool-registration.ts:181-220",
+    "src/extension/spark-todo-tool-registration.ts:150-238",
+    "src/extension/spark-finish-task-tool-registration.ts:181-207",
+    "src/extension/spark-finish-task-tool-registration.ts:330-420",
+    "src/extension/spark-finish-task-tool-registration.ts:900-1015",
+    "src/extension/spark-release-task-claim-tool-registration.ts:85-180"
+  ]
 }
