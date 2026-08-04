@@ -21,7 +21,14 @@ async function writeSkill(
   const path = join(dir, "SKILL.md");
   await writeFile(
     path,
-    `---\nname: ${name}\ndescription: Execute the ${name} workflow\n${extraFrontmatter}---\n\n${body}`,
+    [
+      "---",
+      `name: ${name}`,
+      `description: Execute the ${name} workflow`,
+      `${extraFrontmatter}---`,
+      "",
+      body,
+    ].join("\n"),
     "utf8",
   );
   return path;
@@ -94,7 +101,10 @@ test("skill_delegate runs one exact Skill in a restricted anonymous Worker", asy
     assert.equal(captured.timeoutMs, 30_000);
     assert.match(captured.role.systemPrompt, /temporary Spark Worker/);
     assert.match(captured.role.systemPrompt, /# Release audit/);
-    assert.match(captured.role.systemPrompt, new RegExp(skillPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(
+      captured.role.systemPrompt,
+      new RegExp(skillPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
     assert.match(captured.instruction.instruction, /Bounded inputs:/);
     assert.match(captured.instruction.instruction, /package\.json/);
     assert.deepEqual(captured.role.allowedTools, [...SKILL_DELEGATE_ALLOWED_TOOLS]);
