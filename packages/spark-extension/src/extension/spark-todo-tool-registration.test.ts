@@ -5,10 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { nowIso, type EvidenceRef, type TaskPlan } from "@zendev-lab/spark-core";
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
-import {
-  registerSparkTodoTools,
-  type preserveTaskPlanItemMetadata,
-} from "./spark-todo-tool-registration.ts";
+import { registerSparkTodoTools } from "./spark-todo-tool-registration.ts";
 import {
   saveCurrentProjectRef,
   sparkSessionKey,
@@ -18,8 +15,6 @@ import type {
   SparkRegisteredToolConfig,
   SparkToolContext,
 } from "./spark-tool-registration.ts";
-
-void (undefined as unknown as typeof preserveTaskPlanItemMetadata);
 
 function testContext(cwd: string): SparkToolContext {
   const sessionId = "session:plan-items";
