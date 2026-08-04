@@ -33,6 +33,7 @@ import { inspectPythonRustProfiles } from "./language-toolchains.ts";
 
 export interface RunTypeScriptDiagnosticsInput {
   cwd: string;
+  stateCwd?: string;
   artifactRef?: string;
   path?: string;
   maxFindings?: number;
@@ -41,6 +42,14 @@ export interface RunTypeScriptDiagnosticsInput {
 export interface TypeScriptVerificationResult {
   report: LensDiagnosticReport;
   evidenceRef?: EvidenceRef;
+}
+
+export interface AdditionalLensVerification {
+  provider: string;
+  subjectRevision: string;
+  verdict: LensVerificationReceipt["verdict"];
+  obligations: readonly string[];
+  observedAt: string;
 }
 
 export class TypeScriptLensVerificationService {
@@ -53,8 +62,8 @@ export class TypeScriptLensVerificationService {
     for (const provider of createTypeScriptDiagnosticProviders()) this.#runtime.register(provider);
   }
 
-  async health(cwd: string, artifactRef?: string) {
-    const root = await resolveArtifactFileRoot(cwd, artifactRef);
+  async health(cwd: string, artifactRef?: string, stateCwd: string = cwd) {
+    const root = await resolveArtifactFileRoot(cwd, artifactRef, stateCwd);
     return {
       profile: TYPESCRIPT_DUAL_VERIFICATION_PROFILE.id,
       routeDigest: TYPESCRIPT_DUAL_ROUTE_DIGEST,
@@ -65,7 +74,7 @@ export class TypeScriptLensVerificationService {
   }
 
   async diagnostics(input: RunTypeScriptDiagnosticsInput): Promise<TypeScriptVerificationResult> {
-    const root = await resolveArtifactFileRoot(input.cwd, input.artifactRef);
+    const root = await resolveArtifactFileRoot(input.cwd, input.artifactRef, input.stateCwd);
     const revision = await captureWorkspaceRevision({
       workspaceRoot: root.cwd,
       profile: TYPESCRIPT_DUAL_VERIFICATION_PROFILE,
@@ -140,10 +149,22 @@ export class TypeScriptLensVerificationService {
     };
   }
 
-  async verify(input: RunTypeScriptDiagnosticsInput): Promise<TypeScriptVerificationResult> {
-    const result = await this.diagnostics(input);
-    const root = await resolveArtifactFileRoot(input.cwd, input.artifactRef);
-    const receipt = verificationReceipt(result.report, root.artifactRef);
+  async verify(
+    input: RunTypeScriptDiagnosticsInput,
+    externalChecks: readonly AdditionalLensVerification[] = [],
+  ): Promise<TypeScriptVerificationResult> {
+    const initial = await this.diagnostics(input);
+    const verdict = combinedVerdict(
+      initial.report.verdict,
+      externalChecks,
+      initial.report.revision.headOid,
+    );
+    const result =
+      verdict === initial.report.verdict
+        ? initial
+        : { ...initial, report: { ...initial.report, verdict } };
+    const root = await resolveArtifactFileRoot(input.cwd, input.artifactRef, input.stateCwd);
+    const receipt = verificationReceipt(result.report, root.artifactRef, externalChecks);
     const evidence = await defaultEvidenceStore(root.cwd).put({
       kind: "record",
       title: `Spark Lens verification ${receipt.verdict}`,
@@ -176,6 +197,7 @@ function findingsFrom(result: ProviderResult): DiagnosticFinding[] {
 function verificationReceipt(
   report: LensDiagnosticReport,
   gitChangeRef?: `artifact:${string}`,
+  externalChecks: readonly AdditionalLensVerification[] = [],
 ): LensVerificationReceipt {
   return {
     schemaVersion: 1,
@@ -191,7 +213,27 @@ function verificationReceipt(
     })),
     obligations: ["typescript diagnostics owner", "independent native type-check verifier"],
     observationRefs: report.observations.map((observation) => observation.ref),
+    ...(externalChecks.length === 0 ? {} : { externalChecks }),
     verdict: report.verdict,
     createdAt: new Date().toISOString(),
   };
+}
+
+function combinedVerdict(
+  local: LensVerificationReceipt["verdict"],
+  externalChecks: readonly AdditionalLensVerification[],
+  headOid: string | null,
+): LensVerificationReceipt["verdict"] {
+  if (
+    externalChecks.some(
+      (check) => check.provider === "github-pr-checks" && check.subjectRevision !== headOid,
+    )
+  ) {
+    return "stale";
+  }
+  const verdicts = [local, ...externalChecks.map((check) => check.verdict)];
+  if (verdicts.includes("stale")) return "stale";
+  if (verdicts.includes("fail")) return "fail";
+  if (verdicts.includes("inconclusive")) return "inconclusive";
+  return "pass";
 }

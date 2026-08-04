@@ -34,13 +34,14 @@ export async function requireCurrentLensPass(
       receipt.workspaceRevision.digest === current.digest &&
       receipt.routeDigest === TYPESCRIPT_DUAL_ROUTE_DIGEST &&
       receipt.profileDigest === current.profileDigest &&
-      requiredProvidersPassed(receipt)
+      requiredProvidersPassed(receipt) &&
+      currentGitHubChecksPassed(receipt, current.headOid)
     ) {
       return candidate.ref;
     }
   }
   throw new Error(
-    `current Pass Lens receipt required for ${gitChangeRef}; run lens({ action: "verify", artifactRef: "${gitChangeRef}" })`,
+    `current Pass Lens receipt required for ${gitChangeRef}; run lens({ action: "verify", target: { kind: "git_change", artifactRef: "${gitChangeRef}" } })`,
   );
 }
 
@@ -125,4 +126,19 @@ function requiredProvidersPassed(receipt: LensVerificationReceipt): boolean {
     receipt.providers.filter((provider) => provider.status === "ok").map((provider) => provider.id),
   );
   return passed.has(TSC_PROVIDER_ID) && passed.has(VITE_PLUS_PROVIDER_ID);
+}
+
+function currentGitHubChecksPassed(
+  receipt: LensVerificationReceipt,
+  currentHeadOid: string | null,
+): boolean {
+  if (!currentHeadOid) return false;
+  return (
+    receipt.externalChecks?.some(
+      (check) =>
+        check.provider === "github-pr-checks" &&
+        check.subjectRevision === currentHeadOid &&
+        check.verdict === "pass",
+    ) === true
+  );
 }

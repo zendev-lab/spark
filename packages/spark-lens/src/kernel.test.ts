@@ -42,9 +42,6 @@ describe("capability routes", () => {
     expect(() => capabilityRoute.verify("diagnostics", provider("tsc"), [provider("tsc")])).toThrow(
       /must not contain the owner/,
     );
-    expect(() => capabilityRoute.merge("diagnostics", [provider("tsc"), provider("tsc")])).toThrow(
-      /distinct/,
-    );
   });
 });
 
@@ -74,29 +71,13 @@ describe("provider trust and the TypeScript profile", () => {
   });
 
   test("assigns exactly one formatter owner and native semantic owner", () => {
-    expect(TYPESCRIPT_LSP_PROFILE.routes).toContainEqual({
-      kind: "exclusive",
-      capability: "format",
-      owner: OXFMT_PROVIDER_ID,
-    });
-    expect(TYPESCRIPT_LSP_PROFILE.routes).toContainEqual({
-      kind: "exclusive",
-      capability: "completion",
-      owner: TYPESCRIPT_7_PROVIDER_ID,
-    });
+    expect(TYPESCRIPT_LSP_PROFILE.formatterProvider).toBe(OXFMT_PROVIDER_ID);
+    expect(TYPESCRIPT_LSP_PROFILE.semanticOwner).toBe(TYPESCRIPT_7_PROVIDER_ID);
   });
 
   test("keeps Python and Rust formatter ownership exclusive", () => {
-    expect(PYTHON_LENS_PROFILE.routes).toContainEqual({
-      kind: "exclusive",
-      capability: "format",
-      owner: RUFF_PROVIDER_ID,
-    });
-    expect(RUST_LENS_PROFILE.routes).toContainEqual({
-      kind: "exclusive",
-      capability: "format",
-      owner: RUSTFMT_PROVIDER_ID,
-    });
+    expect(PYTHON_LENS_PROFILE.formatterProvider).toBe(RUFF_PROVIDER_ID);
+    expect(RUST_LENS_PROFILE.formatterProvider).toBe(RUSTFMT_PROVIDER_ID);
     expect(PYTHON_LENS_PROFILE.verificationObligations).toHaveLength(3);
     expect(RUST_LENS_PROFILE.verificationObligations.length).toBeGreaterThanOrEqual(4);
   });

@@ -29,7 +29,7 @@ export interface TypeScriptLspProviderHealth {
 }
 
 export async function inspectTypeScriptLspProfile(workspaceRoot: string): Promise<{
-  routes: typeof TYPESCRIPT_LSP_PROFILE;
+  profile: typeof TYPESCRIPT_LSP_PROFILE;
   providers: TypeScriptLspProviderHealth[];
 }> {
   const providers = await Promise.all([
@@ -47,7 +47,7 @@ export async function inspectTypeScriptLspProfile(workspaceRoot: string): Promis
       providerId: TYPESCRIPT_6_COMPAT_PROVIDER_ID,
       packageName: "typescript",
       binName: "tsc",
-      role: "compatibility verifier/navigation fallback",
+      role: "compatibility verifier",
       acceptsVersion: (version) => Number(version.split(".")[0]) === 6,
       versionError: "TypeScript 6 compatibility package is required",
     }),
@@ -73,7 +73,7 @@ export async function inspectTypeScriptLspProfile(workspaceRoot: string): Promis
       role: "exclusive formatter owner",
     }),
   ]);
-  return { routes: TYPESCRIPT_LSP_PROFILE, providers };
+  return { profile: TYPESCRIPT_LSP_PROFILE, providers };
 }
 
 export async function createTypeScript7LspProvider(options: {

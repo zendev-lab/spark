@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { defaultArtifactStore } from "@zendev-lab/spark-artifacts";
 import {
   sparkLocalRpcProcedureSchemas,
   type SparkLocalRpcMethod,
@@ -244,7 +245,7 @@ describe("transport-neutral local RPC service", () => {
     db.close();
   });
 
-  it("executes internal Lens health through the typed daemon procedure", async () => {
+  it("executes internal Lens status through the typed daemon procedure", async () => {
     const { paths, db } = createFixture();
     const cwd = join(paths.dataDir, "workspace");
     mkdirSync(cwd, { recursive: true });
@@ -255,7 +256,7 @@ describe("transport-neutral local RPC service", () => {
         cwd,
         toolCallId: "lens-health-1",
         operationId: "lens:health:service-test",
-        params: { action: "health" },
+        params: { action: "status" },
       },
       { paths, db },
     );
@@ -265,6 +266,65 @@ describe("transport-neutral local RPC service", () => {
       health: {
         providers: [{ providerId: "typescript-6-tsc" }, { providerId: "vite-plus-native-check" }],
       },
+    });
+    db.close();
+  });
+
+  it("resolves Lens artifact scope from workspace state for a nested session cwd", async () => {
+    const { paths, db } = createFixture();
+    const workspaceRoot = join(paths.dataDir, "workspace");
+    const sessionCwd = join(workspaceRoot, "packages", "demo");
+    const worktree = join(paths.dataDir, "managed-worktree");
+    mkdirSync(sessionCwd, { recursive: true });
+    mkdirSync(worktree, { recursive: true });
+    const workspace = registerWorkspace(db, { localPath: workspaceRoot });
+    const artifact = await defaultArtifactStore(workspaceRoot).put({
+      kind: "git_change",
+      title: "Managed Lens target",
+      body: {
+        schemaVersion: 2,
+        kind: "git_change",
+        repository: { forge: "github", repo: "zendev-lab/spark" },
+        trunk: "main",
+        worktree: {
+          path: worktree,
+          branch: "feature/lens",
+          ownership: "spark",
+          status: "attached",
+        },
+        stack: {
+          authority: "gh-stack",
+          currentBranch: "feature/lens",
+          entries: [
+            {
+              branch: "feature/lens",
+              base: "base-oid",
+              isCurrent: true,
+              isMerged: false,
+              isQueued: false,
+              needsRebase: false,
+            },
+          ],
+        },
+        lifecycle: "local",
+      },
+    });
+
+    const health = await invokeLocalRpcService(
+      "lens.execute",
+      {
+        cwd: sessionCwd,
+        toolCallId: "lens-artifact-health-1",
+        operationId: "lens:artifact-health:service-test",
+        params: { action: "status", artifactRef: artifact.ref },
+        hostContext: { workspaceId: workspace.id },
+      },
+      { paths, db },
+    );
+
+    expect(health.content[0]?.text).toContain("Lens status");
+    expect(health.details).toMatchObject({
+      health: { profile: "typescript-dual-verification-v1" },
     });
     db.close();
   });
