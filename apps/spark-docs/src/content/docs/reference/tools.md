@@ -17,7 +17,7 @@ building a host profile, or diagnosing why a capability is unavailable.
 | Search and fetch the Web | `web_search`, `code_search`, `fetch_content`, `get_search_content` | External read; fetched text is untrusted |
 | Inspect and change work | `task_read`, `task_write`, `assign`, `todo` | Task/session state; assignment may execute work |
 | Preserve results | `artifact`, `evidence`, `memory`, `context` | Product output, internal ledger, memory, bounded context |
-| Coordinate agents | `role`, `session` | Definitions, calls, persistent sessions, and mail |
+| Coordinate agents | `role`, `skill_delegate`, `session` | Definitions, anonymous calls, dedicated Skill Workers, persistent sessions, and mail |
 | Choose models | `models` | Model catalog and selection |
 | Continue autonomously | `phase`, `goal`, `loop`, `workflow`, `repro` | Session phase plus daemon-owned Goal, WorkflowRun, and Loop state |
 | Discover and run procedures | `workflow`, `workflow_run` | Read saved workflows or execute a selected workflow |
@@ -29,6 +29,15 @@ Artifact kind.
 `evidence` is an agent-internal ledger and is not shown as a artifact.
 `context` can only list or preview registered bounded providers; it does not
 accept an arbitrary prompt.
+
+`skill_delegate({ skill, instruction, inputs? })` resolves one exact
+model-invocable Skill and runs it through a fresh anonymous Worker with the
+active model. The Worker receives the Skill instructions and the explicit
+self-contained delegation packet, not the parent transcript. It can use a
+bounded direct-work tool profile, but cannot recurse into Roles or Skills,
+manage persistent Sessions, mutate Tasks, or publish Git, Artifact, or Evidence
+state. Use `read` instead when the parent session itself must inspect and follow
+`SKILL.md`.
 
 ## Shell and script tools
 
