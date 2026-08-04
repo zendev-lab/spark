@@ -115,6 +115,7 @@ describe("managed Task Session dispatch", () => {
       cwd,
       ctx: { sessionId: "sess_owner" },
       ownerSessionId: "sess_owner",
+      parentInvocationId: "inv_parent_repro_turn",
       projectRef: project.ref as ProjectRef,
       taskRefs: tasks.map((task) => task.ref as TaskRef),
       registry: new RoleRegistry(),
@@ -165,6 +166,9 @@ describe("managed Task Session dispatch", () => {
       });
     }
     expect(calls.filter((call) => call.method === "turn.submit")).toHaveLength(2);
+    for (const call of calls.filter((candidate) => candidate.method === "turn.submit")) {
+      expect(call.input.parentInvocationId).toBe("inv_parent_repro_turn");
+    }
 
     const rawTaskEvidenceRef = "evidence:task-output" as EvidenceRef;
     const afterDispatch = await defaultTaskGraphStore(cwd).load();

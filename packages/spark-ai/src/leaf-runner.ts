@@ -7,6 +7,12 @@ import {
   type SparkRouteResolver,
 } from "./model-routing.ts";
 import { assistantMessageToText, type SparkProviderStreamFunction } from "./provider-runner.ts";
+import {
+  createSparkProviderAttemptId,
+  observeSparkProviderAttempt,
+  type SparkProviderAttemptObservation,
+  type SparkProviderAttemptObserver,
+} from "./provider-attempt.ts";
 
 /**
  * A Spark leaf is a bounded, single-shot model call used by high-level tools to
@@ -41,6 +47,9 @@ export interface SparkLeafRequest {
  */
 export interface SparkLeafModelBinding {
   sparkModelId: SparkModelId;
+  /** Provider/model identity retained when an attempted call has no response. */
+  provider?: string;
+  model?: string;
   resolver: SparkRouteResolver;
   stream: SparkProviderStreamFunction;
 }
@@ -50,10 +59,18 @@ export type SparkLeafBindingResolver = (
   modelId: string | undefined,
 ) => SparkLeafModelBinding | undefined | Promise<SparkLeafModelBinding | undefined>;
 
+/** One actual provider attempt made by a bounded leaf call. */
+export type SparkLeafProviderAttemptObservation = SparkProviderAttemptObservation;
+export type SparkLeafProviderAttemptObserver = SparkProviderAttemptObserver;
+
 export interface SparkLeafRunnerDeps {
   /** Resolves a concrete model binding, or undefined when no model is available. */
   resolveBinding: SparkLeafBindingResolver;
   now?: () => number;
+  /** Accounting hook for actual provider attempts; never called for resolution failures. */
+  observeProviderAttempt?: SparkLeafProviderAttemptObserver;
+  /** Test seam for replay-stable provider-attempt identities. */
+  createAttemptId?: () => string;
 }
 
 /**
@@ -139,12 +156,35 @@ export async function runSparkLeaf(
           : {}),
       },
       async ({ model }) => {
-        const stream = binding.stream(model, context, {
-          maxTokens,
-          ...(request.signal ? { signal: request.signal } : {}),
-        });
-        const message = await stream.result();
-        return assistantMessageToText(message).trim();
+        const attemptId = (deps.createAttemptId ?? createSparkProviderAttemptId)();
+        const observedAt = now();
+        let responseReceived = false;
+        try {
+          const stream = binding.stream(model, context, {
+            maxTokens,
+            ...(request.signal ? { signal: request.signal } : {}),
+          });
+          const message = await stream.result();
+          responseReceived = true;
+          observeSparkProviderAttempt(deps.observeProviderAttempt, {
+            attemptId,
+            outcome: "response",
+            message,
+            observedAt,
+          });
+          return assistantMessageToText(message).trim();
+        } catch (error) {
+          if (!responseReceived) {
+            observeSparkProviderAttempt(deps.observeProviderAttempt, {
+              attemptId,
+              outcome: "missing",
+              ...(binding.provider ? { provider: binding.provider } : {}),
+              ...(binding.model ? { model: binding.model } : { model: binding.sparkModelId }),
+              observedAt,
+            });
+          }
+          throw error;
+        }
       },
     );
     return { degraded: false, text, model: binding.sparkModelId };

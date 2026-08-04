@@ -11,6 +11,7 @@ import {
   migrateSparkSessionReproV5,
   nextReproStagePlanningBlocker,
   nextReproStep,
+  normalizeStoredSparkSessionRepro,
   recordReproRequirementProof,
   reproProgressDigest,
   reviseReproPlan,
@@ -81,6 +82,24 @@ describe("spark-repro", () => {
     expect(
       repro.plan.steps.find((step) => step.id === "implementation-strategy-approved"),
     ).toMatchObject({ authority: "ask_decision" });
+  });
+
+  it("uses an explicit external Repro id without accepting unsafe identifiers", () => {
+    const repro = createSparkSessionRepro("session:bench", undefined, {
+      reproId: "minimax_m25-20260803-run",
+    });
+    expect(repro.reproId).toBe("minimax_m25-20260803-run");
+    expect(() =>
+      createSparkSessionRepro("session:bench", undefined, { reproId: "../another-run" }),
+    ).toThrow("reproId must be a non-empty safe identifier");
+  });
+
+  it("normalizes the current v6 persisted shape without dropping its subgoals", () => {
+    const repro = createSparkSessionRepro("session:persisted-v6", undefined, {
+      objective: "Read the current persisted shape",
+    });
+
+    expect(normalizeStoredSparkSessionRepro(structuredClone(repro))).toEqual(repro);
   });
 
   it("migrates v5 evidence while invalidating delegation and ambiguous task bindings", () => {

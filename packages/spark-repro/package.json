@@ -12,7 +12,8 @@
   ],
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./work-summary": "./src/work-summary.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",

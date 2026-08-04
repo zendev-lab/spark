@@ -22,12 +22,22 @@ Atomic Artifacts (`issue` / `git_change` / `document`) for users, plus an
 - `document` owns typed content, revision, and optional progress. Preview is a
   view opened with `artifact({ action: "open_preview" })`, not an Artifact
   kind.
+- New Document writes accept only `text/markdown`, `text/mdx`, `text/html`,
+  and `application/vnd.a2ui+json`. The retired Spark UI, plain-text, JSON, and
+  unknown Document media types remain readable only for legacy recovery; an
+  update must explicitly convert them to a canonical media type.
+- `artifact({ action: "sync_file" })` updates an existing Document from a
+  cwd-local regular, non-symlink UTF-8 file. The first report slice is capped
+  at 32 KiB. A repeated identical sync is a no-op; metadata-only changes keep
+  the content revision, while content or media-type changes advance it.
 - Cockpit artifact pages embed safe document views. Markdown can render in an
   attached TUI; other supported media receive an expiring, tokenized
   `127.0.0.1` URL only on a local browser-capable surface.
 - HTML previews run with scripts, forms, external media, framing, and network loads disabled. A2UI accepts only the official v0.9/v0.9.1 basic catalog and does not dispatch actions in the initial read-only implementation.
 
-Google's GenUI SDK is a Flutter A2UI renderer, so it is not a separate Spark wire format. Web producers should emit `a2ui`; Spark's older declarative format remains available as `spark-ui` for compatibility.
+Google's GenUI SDK is a Flutter A2UI renderer, so it is not a separate Spark
+wire format. Web producers should emit `a2ui`. Spark's older declarative format
+is a legacy read adapter only and cannot be created or updated in place.
 
 Persisted v1 `pr` and `preview` bodies are accepted read-only and lazily
 normalized to `git_change` and `document` with the same `artifact:` ref.

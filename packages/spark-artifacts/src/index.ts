@@ -1077,6 +1077,7 @@ export {
   isLegacyArtifactBody,
   isStoredArtifactBody,
   isStoredArtifactKind,
+  isWritableArtifactBody,
   issueBodyFromSnapshot,
   newArtifactRef,
   normalizeLegacyArtifactBody,
@@ -1097,6 +1098,8 @@ export {
   type ForgeHost,
   type ArtifactProgress,
   type DocumentArtifactBody,
+  type WritableArtifactBody,
+  type WritableDocumentArtifactBody,
   type GitChangeArtifactBody,
   type GitChangeEntry,
   type GitChangeLifecycle,
@@ -1141,6 +1144,14 @@ export {
   registerSparkArtifactTools,
   type PiArtifactsExtensionApi,
 } from "./artifact/extension.ts";
+
+export {
+  ARTIFACT_SYNC_FILE_MAX_BYTES,
+  readDocumentSyncFile,
+  syncDocumentArtifactFile,
+  type SyncDocumentArtifactFileInput,
+  type SyncDocumentArtifactFileResult,
+} from "./artifact/file-sync.ts";
 
 export {
   GitLifecycleError,

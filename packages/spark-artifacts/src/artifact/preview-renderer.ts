@@ -7,6 +7,7 @@ import {
   type SparkUiDocumentV1,
   type SparkUiJsonValue,
 } from "../generative-ui.ts";
+import { parseSafeMdxLite, type SafeMdxLiteBlock } from "./safe-mdx-lite.ts";
 import type { PreviewContentFormat } from "./types.ts";
 
 export interface ArtifactPreviewDocumentInput {
@@ -65,8 +66,11 @@ function previewReadOnlyNotice(format: PreviewContentFormat) {
   if (format === "a2ui") {
     return '<span class="readonly">A2UI v0.9.x · read-only catalog</span>';
   }
-  if (format === "mdx" || format === "spark-ui") {
-    return '<span class="readonly">Safe declarative UI · no executable expressions</span>';
+  if (format === "mdx") {
+    return '<span class="readonly">Safe MDX-lite · no executable expressions</span>';
+  }
+  if (format === "spark-ui") {
+    return '<span class="readonly">Legacy Spark UI · read-only compatibility</span>';
   }
   if (format === "html") {
     return '<span class="readonly">Sanitized HTML · scripts and network loads disabled</span>';
@@ -83,15 +87,40 @@ function renderPreviewBody(format: PreviewContentFormat, content: string) {
     };
   }
   if (format === "a2ui") return renderA2ui(content);
-  return renderSparkUi(content, format === "spark-ui");
+  if (format === "mdx") return renderSafeMdxLite(content);
+  return renderLegacySparkUi(content);
 }
 
-function renderSparkUi(content: string, acceptAst: boolean) {
-  const document = acceptAst
-    ? (sparkUiDocumentFromJson(content) ?? parseSparkUiSource(content))
-    : parseSparkUiSource(content);
+/** Canonical safe MDX document renderer. It never accepts the legacy JSON AST. */
+function renderSafeMdxLite(content: string) {
+  const document = parseSafeMdxLite(content);
   return {
-    html: `<div class="spark-ui">${document.blocks.map(renderSparkUiBlock).join("")}</div>`,
+    html: `<div class="mdx-lite">${document.blocks.map(renderSafeMdxLiteBlock).join("")}</div>`,
+    diagnostics: document.diagnostics.map(
+      (diagnostic) =>
+        `${diagnostic.severity}${diagnostic.line ? ` at line ${diagnostic.line}` : ""}: ${diagnostic.message}`,
+    ),
+  };
+}
+
+/** Read adapter only for retired application/vnd.spark-ui+json and v1 source snapshots. */
+function renderLegacySparkUi(content: string) {
+  return renderLegacySparkUiDocument(
+    sparkUiDocumentFromJson(content) ?? parseSparkUiSource(content),
+    "spark-ui legacy",
+  );
+}
+
+function renderSafeMdxLiteBlock(block: SafeMdxLiteBlock): string {
+  if (block.type === "markdown") {
+    return `<section class="markdown-block">${renderMarkdown(block.text)}</section>`;
+  }
+  return `<aside class="callout ${escapeHtml(block.tone)}">${block.title ? `<strong>${escapeHtml(block.title)}</strong>` : ""}${renderMarkdown(block.body)}</aside>`;
+}
+
+function renderLegacySparkUiDocument(document: SparkUiDocumentV1, className: string) {
+  return {
+    html: `<div class="${className}">${document.blocks.map(renderSparkUiBlock).join("")}</div>`,
     diagnostics: document.diagnostics.map(
       (diagnostic) =>
         `${diagnostic.severity}${diagnostic.line ? ` at line ${diagnostic.line}` : ""}: ${diagnostic.message}`,
@@ -732,7 +761,7 @@ table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: 
 th, td { border: 1px solid #2b374a; padding: .55rem .75rem; text-align: left; }
 th { background: #161e2b; }
 img { height: auto; max-width: 100%; }
-.spark-ui, .a2ui-surface { display: grid; gap: .85rem; }
+.mdx-lite, .spark-ui, .a2ui-surface { display: grid; gap: .85rem; }
 .callout, .reference-card, .a2ui-card { background: #0f1520; border: 1px solid #2a3649; border-radius: 12px; padding: 1rem; }
 .callout { border-left: 4px solid #70a5ff; }
 .callout.warning { border-left-color: #e8b84e; }

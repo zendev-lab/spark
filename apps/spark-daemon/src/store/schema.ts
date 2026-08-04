@@ -34,6 +34,7 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       result_json TEXT,
       source_kind TEXT,
       source_ref TEXT,
+      parent_invocation_id TEXT REFERENCES invocations(id),
       retry_of_invocation_id TEXT REFERENCES invocations(id),
       worker_id TEXT,
       attempt_count INTEGER NOT NULL DEFAULT 0,
@@ -56,6 +57,54 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       payload_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       PRIMARY KEY (invocation_id, sequence)
+    );
+
+    CREATE TABLE IF NOT EXISTS usage_executions (
+      execution_id TEXT PRIMARY KEY,
+      invocation_id TEXT NOT NULL REFERENCES invocations(id),
+      root_invocation_id TEXT NOT NULL REFERENCES invocations(id),
+      parent_execution_id TEXT REFERENCES usage_executions(execution_id),
+      scope_kind TEXT NOT NULL CHECK (scope_kind = 'repro'),
+      repro_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN (
+        'root_session', 'side_thread', 'task_execution', 'role_run', 'workflow_agent'
+      )),
+      kind_provisional INTEGER NOT NULL DEFAULT 0 CHECK (kind_provisional IN (0, 1)),
+      detail_kind TEXT,
+      persistence TEXT NOT NULL CHECK (persistence IN ('anonymous', 'persistent')),
+      session_id TEXT,
+      run_ref TEXT,
+      started_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS token_usage_receipts (
+      event_id TEXT PRIMARY KEY,
+      execution_id TEXT NOT NULL REFERENCES usage_executions(execution_id),
+      invocation_id TEXT NOT NULL REFERENCES invocations(id),
+      response_ordinal INTEGER NOT NULL CHECK (response_ordinal > 0),
+      measurement TEXT NOT NULL CHECK (measurement IN ('reported', 'estimated', 'missing')),
+      provider TEXT,
+      model TEXT,
+      provider_response_id TEXT,
+      provider_total_tokens INTEGER CHECK (
+        provider_total_tokens IS NULL OR provider_total_tokens >= 0
+      ),
+      input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
+      output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
+      cache_read_tokens INTEGER CHECK (cache_read_tokens IS NULL OR cache_read_tokens >= 0),
+      cache_write_tokens INTEGER CHECK (cache_write_tokens IS NULL OR cache_write_tokens >= 0),
+      reasoning_tokens INTEGER CHECK (reasoning_tokens IS NULL OR reasoning_tokens >= 0),
+      cost_usd REAL CHECK (cost_usd IS NULL OR cost_usd >= 0),
+      observed_at TEXT NOT NULL,
+      recorded_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS usage_execution_lifecycle_events (
+      event_id TEXT PRIMARY KEY,
+      execution_id TEXT NOT NULL REFERENCES usage_executions(execution_id),
+      status TEXT NOT NULL CHECK (status IN ('running', 'complete', 'failed', 'cancelled')),
+      observed_at TEXT NOT NULL,
+      recorded_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS driver_wakeups (
@@ -377,6 +426,7 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
   migrateChannelDeliverySchema(db);
   addMissingRuntimeCommandReceiptColumns(db);
   addMissingInvocationColumns(db);
+  addMissingUsageExecutionColumns(db);
   addMissingDriverColumns(db);
   retireHookOwnedDriverTicks(db);
   db.exec(`
@@ -395,6 +445,15 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
   migrateWorkspaceLifecycleTable(db);
   migrateSparkDaemonRegistrationTables(db);
   backfillSparkDaemonRegistrationTables(db);
+}
+
+function addMissingUsageExecutionColumns(db: DatabaseSync): void {
+  const columns = workspaceColumns(db, "usage_executions");
+  if (!columns.has("kind_provisional")) {
+    db.exec(
+      "ALTER TABLE usage_executions ADD COLUMN kind_provisional INTEGER NOT NULL DEFAULT 0 CHECK (kind_provisional IN (0, 1))",
+    );
+  }
 }
 
 function migrateWorkspaceLifecycleTable(db: DatabaseSync): void {
@@ -641,6 +700,7 @@ function addMissingInvocationColumns(db: DatabaseSync): void {
     ["result_json", "TEXT"],
     ["source_kind", "TEXT"],
     ["source_ref", "TEXT"],
+    ["parent_invocation_id", "TEXT REFERENCES invocations(id)"],
     ["retry_of_invocation_id", "TEXT REFERENCES invocations(id)"],
     ["worker_id", "TEXT"],
     ["attempt_count", "INTEGER NOT NULL DEFAULT 0"],
@@ -681,6 +741,24 @@ function addMissingInvocationColumns(db: DatabaseSync): void {
       ON invocations(session_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS invocations_created_at_idx
       ON invocations(created_at DESC);
+    CREATE INDEX IF NOT EXISTS invocations_parent_idx
+      ON invocations(parent_invocation_id);
+    CREATE INDEX IF NOT EXISTS invocations_retry_idx
+      ON invocations(retry_of_invocation_id);
+    CREATE INDEX IF NOT EXISTS usage_executions_invocation_idx
+      ON usage_executions(invocation_id, started_at);
+    CREATE INDEX IF NOT EXISTS usage_executions_root_idx
+      ON usage_executions(root_invocation_id, started_at);
+    CREATE INDEX IF NOT EXISTS usage_executions_repro_idx
+      ON usage_executions(repro_id, started_at);
+    CREATE INDEX IF NOT EXISTS token_usage_receipts_execution_idx
+      ON token_usage_receipts(execution_id, observed_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS token_usage_receipts_execution_ordinal_idx
+      ON token_usage_receipts(execution_id, response_ordinal);
+    CREATE INDEX IF NOT EXISTS usage_execution_lifecycle_idx
+      ON usage_execution_lifecycle_events(execution_id, observed_at);
+    CREATE INDEX IF NOT EXISTS token_usage_receipts_invocation_idx
+      ON token_usage_receipts(invocation_id, observed_at);
     CREATE INDEX IF NOT EXISTS invocations_retention_idx
       ON invocations(finished_at, id)
       WHERE retained_at IS NULL

@@ -615,6 +615,9 @@ importers:
       '@zendev-lab/spark-lens':
         specifier: workspace:^
         version: link:../spark-lens
+      '@zendev-lab/spark-protocol':
+        specifier: workspace:^
+        version: link:../spark-protocol
       '@zendev-lab/spark-text':
         specifier: workspace:^
         version: link:../spark-text

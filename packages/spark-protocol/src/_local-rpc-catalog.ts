@@ -101,6 +101,14 @@ import {
   sparkTaskClaimRecoverRequestSchema,
   sparkTaskClaimReleaseRequestSchema,
 } from "./task-claim.ts";
+import {
+  sparkLegacyTokenUsageBackfillRequestSchema,
+  sparkLegacyTokenUsageBackfillResultSchema,
+  sparkTokenUsageAggregateSchema,
+  sparkTokenUsageByPersistenceSchema,
+  sparkTokenUsagePersistenceRequestSchema,
+  sparkTokenUsageSummaryRequestSchema,
+} from "./token-usage.ts";
 import { sparkSessionViewSchema } from "./protocol.ts";
 import { SPARK_PROTOCOL_VERSION } from "./version.ts";
 import {
@@ -1356,6 +1364,18 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkInvocationRetentionApplyRequestSchema,
     output: sparkInvocationRetentionApplyResultSchema,
   },
+  "usage.summary": {
+    input: sparkTokenUsageSummaryRequestSchema,
+    output: sparkTokenUsageAggregateSchema,
+  },
+  "usage.persistence": {
+    input: sparkTokenUsagePersistenceRequestSchema,
+    output: sparkTokenUsageByPersistenceSchema,
+  },
+  "usage.backfill": {
+    input: sparkLegacyTokenUsageBackfillRequestSchema,
+    output: sparkLegacyTokenUsageBackfillResultSchema,
+  },
   "driver.start": { input: sparkDriverStartRequestSchema, output: sparkDriverMutationResultSchema },
   "driver.status": { input: sparkDriverStatusRequestSchema, output: sparkDriverListResultSchema },
   "driver.stop": {
@@ -1721,6 +1741,16 @@ export const sparkLocalRpcOrpcContract = {
         sparkLocalRpcNoOrpcErrors,
       ),
     },
+  },
+  usage: {
+    summary: procedure("GET", "/usage/summary", p["usage.summary"], sparkLocalRpcNoOrpcErrors),
+    persistence: procedure(
+      "GET",
+      "/usage/persistence",
+      p["usage.persistence"],
+      sparkLocalRpcNoOrpcErrors,
+    ),
+    backfill: procedure("POST", "/usage/backfill", p["usage.backfill"], sparkLocalRpcNoOrpcErrors),
   },
   driver: {
     start: procedure(

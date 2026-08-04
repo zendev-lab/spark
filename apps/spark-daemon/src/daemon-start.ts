@@ -71,6 +71,8 @@ import {
   type SparkInvocationEvent,
   type SparkInvocationRecord,
 } from "./store/invocations.ts";
+import { SparkTokenUsageStore } from "./store/token-usage.ts";
+import { resolveActiveSessionReproUsageScope } from "./session-work-projection.ts";
 import { driverUpdateEvent, SparkDriverStore, type SparkDriverRecord } from "./store/drivers.ts";
 import { migrateLegacyDriverState } from "./store/driver-state-migration.ts";
 import {
@@ -817,6 +819,14 @@ function createDaemonScheduler(input: {
   const sessionRegistry = options.sessionRegistry;
   return new SparkInvocationScheduler({
     store: input.invocationStore,
+    tokenUsageStore: new SparkTokenUsageStore(options.db),
+    resolveReproUsageScope: async (task) =>
+      task.type === "session.run"
+        ? await resolveActiveSessionReproUsageScope({
+            cwd: task.cwd ?? process.cwd(),
+            sessionId: task.sessionId,
+          })
+        : undefined,
     executeTask:
       options.executeInvocation ??
       createChannelAwareTaskExecutor({

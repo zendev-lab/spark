@@ -141,6 +141,8 @@ export interface RoleRunLauncherInput extends RoleRunCommandInput {
    */
   stdinMode?: "pipe" | "ignore";
   roleId?: string;
+  /** Preserve workflow-vs-role accounting across the native executor boundary. */
+  usageExecutionKind?: "role_run" | "workflow_agent";
   nativeExecutor?: ExtensionRoleRunner;
   onEvent?: (event: unknown) => void | Promise<void>;
   onTimeout?: () => void;
@@ -1452,6 +1454,7 @@ export async function runRole(input: RoleRunLauncherInput): Promise<RoleRunResul
 
   try {
     const nativeInput = {
+      ...(input.usageExecutionKind ? { usageExecutionKind: input.usageExecutionKind } : {}),
       role: {
         ref: input.roleRef,
         id: input.roleId ?? roleIdFromRef(input.roleRef),

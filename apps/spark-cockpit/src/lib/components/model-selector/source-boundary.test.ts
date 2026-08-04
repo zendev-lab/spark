@@ -44,7 +44,7 @@ describe("source-derived model selector boundary", () => {
       if (typeof source?.value === "string") imports.push(source.value);
     });
 
-    expect(imports).toEqual(["$lib/Icon.svelte", "$lib/ui", "bits-ui", "./types"]);
+    expect(imports).toEqual(["$lib/Icon.svelte", "$lib/ui", "$lib/ui/headless", "./types"]);
   });
 
   it("compiles unified model and reasoning controls with structured ownership", () => {

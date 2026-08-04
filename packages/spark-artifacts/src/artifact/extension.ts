@@ -8,6 +8,10 @@ import {
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import {
+  isSparkDocumentMediaType,
+  type SparkDocumentMediaType,
+} from "@zendev-lab/spark-protocol/artifact-document";
+import {
   ARTIFACT_KINDS,
   defaultArtifactStore,
   isArtifactBody,
@@ -22,13 +26,14 @@ import {
   type ArtifactRef,
   type DocumentArtifactBody,
 } from "./index.ts";
+import { syncDocumentArtifactFile } from "./file-sync.ts";
 import { startTemporaryArtifactPreview } from "./preview-server.ts";
 
 export interface PiArtifactsExtensionApi {
   registerTool(config: ToolConfig): void;
 }
 
-type ArtifactAction = "create" | "update" | "list" | "read" | "sync" | "open_preview";
+type ArtifactAction = "create" | "update" | "list" | "read" | "sync" | "sync_file" | "open_preview";
 
 class ToolCallText implements ToolRenderComponent {
   private readonly text: string;
@@ -49,7 +54,8 @@ const ARTIFACT_PROMPT_GUIDELINES = [
   "Artifact is for user-facing atomic work products. Internal verification uses evidence.",
   "Use git({ action }) to create or mutate git_change artifacts; artifact only reads them.",
   "Document format is content metadata, while preview is a view opened with action=open_preview.",
-  "Sync issue state with action=sync. Refresh or sync a git_change through git({ action: 'refresh' | 'sync' }).",
+  "Sync issue state with action=sync. Sync an existing document from a cwd-local file with action=sync_file.",
+  "Refresh or sync a git_change through git({ action: 'refresh' | 'sync' }).",
   ARTIFACT_KIND_DESCRIPTION,
 ];
 
@@ -57,11 +63,11 @@ export function registerArtifactTool(pi: PiArtifactsExtensionApi): void {
   pi.registerTool({
     name: "artifact",
     label: "Artifact",
-    description: "Create, update, list, read, sync, or preview atomic Spark artifacts.",
+    description: "Create, update, list, read, sync, sync files, or preview atomic Spark artifacts.",
     promptGuidelines: ARTIFACT_PROMPT_GUIDELINES,
     parameters: Type.Object({
       action: Type.String({
-        description: "create | update | list | read | sync | open_preview",
+        description: "create | update | list | read | sync | sync_file | open_preview",
       }),
       artifactRef: Type.Optional(
         Type.String({ description: "Artifact ref or unambiguous prefix (artifact:…)." }),
@@ -76,10 +82,13 @@ export function registerArtifactTool(pi: PiArtifactsExtensionApi): void {
       repo: Type.Optional(Type.String({ description: "owner/repo or GitLab path" })),
       number: Type.Optional(Type.Number({ description: "Issue number" })),
       content: Type.Optional(Type.String({ description: "Document content." })),
+      sourcePath: Type.Optional(
+        Type.String({ description: "cwd-local regular UTF-8 file for action=sync_file." }),
+      ),
       mediaType: Type.Optional(Type.String({ description: "Document media type." })),
       format: Type.Optional(
         Type.String({
-          description: "Compatibility shorthand: md | mdx | html | a2ui | spark-ui | text | json.",
+          description: "Document shorthand: md | mdx | html | a2ui.",
         }),
       ),
       updateMode: Type.Optional(
@@ -147,6 +156,19 @@ export function registerArtifactTool(pi: PiArtifactsExtensionApi): void {
         });
       }
 
+      if (action === "sync_file") {
+        const result = await syncFileArtifact(store, cwd, params);
+        return toolResult(
+          action,
+          `${result.changed ? "Synced" : "Unchanged"} ${result.artifact.ref} [document] ${result.artifact.title}`,
+          {
+            changed: result.changed,
+            refs: { artifactRef: result.artifact.ref },
+            artifact: compactDetail(result.artifact),
+          },
+        );
+      }
+
       const synced = await syncArtifact(store, cwd, params);
       return toolResult(action, `Synced ${synced.ref} [${synced.kind}] ${synced.title}`, {
         changed: true,
@@ -161,6 +183,8 @@ export function registerSparkArtifactTools(pi: SparkHostAPI): void {
   if (!pi.registerTool) throw new Error("spark-artifacts artifact tool requires registerTool");
   registerArtifactTool({ registerTool: (config) => pi.registerTool?.(config) });
 }
+
+export { ARTIFACT_SYNC_FILE_MAX_BYTES } from "./file-sync.ts";
 
 async function openArtifactPreview(
   artifact: Artifact<DocumentArtifactBody>,
@@ -258,6 +282,11 @@ async function updateArtifact(
     throw new Error("git_change mutations must use git({ action })");
   }
   if (existing.body.kind === "document") {
+    const explicitlyConvertsMediaType =
+      params.mediaType !== undefined || params.format !== undefined;
+    if (!isSparkDocumentMediaType(existing.body.mediaType) && !explicitlyConvertsMediaType) {
+      throw retiredDocumentUpdateError(existing.body.mediaType);
+    }
     const mode = params.updateMode === "append" ? "append" : "replace";
     const nextContent =
       typeof params.content === "string"
@@ -294,6 +323,38 @@ async function updateArtifact(
     return store.update(existing.ref, { title: params.title });
   }
   throw new Error("update requires document content/progress, a canonical body, or title");
+}
+
+async function syncFileArtifact(
+  store: ReturnType<typeof defaultArtifactStore>,
+  cwd: string,
+  params: Record<string, unknown>,
+): Promise<{ artifact: Artifact<DocumentArtifactBody>; changed: boolean }> {
+  const existing = await resolveArtifact(store, params.artifactRef);
+  if (existing.body.kind !== "document") {
+    throw new Error("sync_file requires a document artifact");
+  }
+  const explicitlyConvertsMediaType = params.mediaType !== undefined || params.format !== undefined;
+  if (!isSparkDocumentMediaType(existing.body.mediaType) && !explicitlyConvertsMediaType) {
+    throw retiredDocumentUpdateError(existing.body.mediaType);
+  }
+
+  const mediaType = explicitlyConvertsMediaType
+    ? normalizeMediaType(params.mediaType, params.format)
+    : existing.body.mediaType;
+  if (!isSparkDocumentMediaType(mediaType)) {
+    throw retiredDocumentUpdateError(mediaType);
+  }
+  const result = await syncDocumentArtifactFile({
+    cwd,
+    sourcePath: normalizeRequiredString(params.sourcePath, "sourcePath"),
+    artifactRef: existing.ref,
+    title: existing.title,
+    mediaType,
+    ...(existing.body.progress ? { progress: existing.body.progress } : {}),
+    store,
+  });
+  return { artifact: result.artifact, changed: result.changed };
 }
 
 async function syncArtifact(
@@ -393,11 +454,14 @@ function normalizeAction(value: unknown): ArtifactAction {
     value === "list" ||
     value === "read" ||
     value === "sync" ||
+    value === "sync_file" ||
     value === "open_preview"
   ) {
     return value;
   }
-  throw new Error("artifact.action must be create, update, list, read, sync, or open_preview");
+  throw new Error(
+    "artifact.action must be create, update, list, read, sync, sync_file, or open_preview",
+  );
 }
 
 function normalizeKind(value: unknown, field: string): ArtifactKind {
@@ -464,11 +528,17 @@ function normalizeForge(value: unknown): "github" | "gitlab" | undefined {
   throw new Error("forge must be github or gitlab");
 }
 
-function normalizeMediaType(mediaType: unknown, format: unknown): string {
-  if (typeof mediaType === "string" && mediaType.trim()) return mediaType.trim();
+function normalizeMediaType(mediaType: unknown, format: unknown): SparkDocumentMediaType {
+  if (mediaType !== undefined) {
+    if (typeof mediaType === "string" && isSparkDocumentMediaType(mediaType.trim())) {
+      return mediaType.trim() as SparkDocumentMediaType;
+    }
+    throw new Error(
+      "mediaType must be text/markdown, text/mdx, text/html, or application/vnd.a2ui+json",
+    );
+  }
   switch (format) {
     case undefined:
-    case null:
     case "md":
       return "text/markdown";
     case "mdx":
@@ -477,15 +547,15 @@ function normalizeMediaType(mediaType: unknown, format: unknown): string {
       return "text/html";
     case "a2ui":
       return "application/vnd.a2ui+json";
-    case "spark-ui":
-      return "application/vnd.spark-ui+json";
-    case "text":
-      return "text/plain";
-    case "json":
-      return "application/json";
     default:
-      throw new Error("format must be md, mdx, html, a2ui, spark-ui, text, or json");
+      throw new Error("format must be md, mdx, html, or a2ui");
   }
+}
+
+function retiredDocumentUpdateError(mediaType: string): Error {
+  return new Error(
+    `document media type is read-only: ${mediaType}; explicitly convert it to md, mdx, html, or a2ui`,
+  );
 }
 
 function normalizeProgress(value: unknown): ArtifactProgress | undefined {

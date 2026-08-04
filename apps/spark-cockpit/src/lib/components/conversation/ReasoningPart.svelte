@@ -1,6 +1,6 @@
 <script lang="ts">
-  import AgentMdxStream from "$lib/AgentMdxStream.svelte";
   import Icon from "$lib/Icon.svelte";
+  import SafeMarkdown from "$lib/SafeMarkdown.svelte";
   import type { ConversationPartLabels } from "./types";
 
   type Props = {
@@ -18,7 +18,7 @@
 {#if nested}
   {#if summary.trim() && !redacted}
     <div class="reasoning-content nested">
-      <AgentMdxStream source={summary} streaming={state === "streaming"} />
+      <SafeMarkdown source={summary} streaming={state === "streaming"} />
     </div>
   {/if}
 {:else}
@@ -32,7 +32,7 @@
     </summary>
     {#if summary.trim() && !redacted}
       <div class="reasoning-content">
-        <AgentMdxStream source={summary} streaming={state === "streaming"} />
+        <SafeMarkdown source={summary} streaming={state === "streaming"} />
       </div>
     {/if}
   </details>

@@ -117,7 +117,10 @@ describe("daemon native session execution", () => {
       },
     });
 
-    await executor(task, context(task));
+    const executionContext = context(task);
+    executionContext.tokenUsageScope = { kind: "repro", reproId: "repro-task-session" };
+    executionContext.recordTokenUsage = vi.fn();
+    await executor(task, executionContext);
 
     expect(executeSession).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -128,6 +131,13 @@ describe("daemon native session execution", () => {
           sessionId: "session:sess_task_execution",
           leaseFence: "fence-task",
         },
+        tokenUsage: expect.objectContaining({
+          scope: { kind: "repro", reproId: "repro-task-session" },
+          executionId: "invocation-1",
+          kind: "task_execution",
+          persistence: "persistent",
+          record: executionContext.recordTokenUsage,
+        }),
       }),
     );
     expect(release).toHaveBeenCalledOnce();
@@ -135,6 +145,36 @@ describe("daemon native session execution", () => {
       kind: "repro",
       reason: expect.stringContaining("task:probe"),
     });
+  });
+
+  it("passes a deferred root usage observer before the Repro scope is late-bound", async () => {
+    const executeSession = vi.fn(async (_input: SparkHeadlessSessionRunInput) => ({
+      assistantText: "started repro",
+    }));
+    const task: SparkDaemonSessionRunTask = {
+      type: "session.run",
+      sessionId: "sess_repro_start_turn",
+      prompt: "start the repro",
+    };
+    const executionContext = context(task);
+    executionContext.recordTokenUsage = vi.fn();
+
+    await executeSparkDaemonSessionRunTask(task, executionContext, {
+      paths,
+      executeSession,
+    });
+
+    expect(executeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tokenUsage: expect.objectContaining({
+          executionId: "invocation-1",
+          kind: "root_session",
+          persistence: "persistent",
+          record: executionContext.recordTokenUsage,
+        }),
+      }),
+    );
+    expect(executeSession.mock.calls[0]?.[0].tokenUsage).not.toHaveProperty("scope");
   });
 
   it("releases the managed Task Session lease when headless execution fails", async () => {

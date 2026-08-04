@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { Dialog as BitsDialog } from "bits-ui";
   import { enhance } from "$app/forms";
   import Icon from "$lib/Icon.svelte";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
   import { Button, Dialog, EmptyState, PageHeader, Panel, StatCard } from "$lib/ui";
+  import { DialogClose, DialogDescription, DialogTitle } from "$lib/ui/headless";
   import { workspaceAvatarStyle, workspaceInitial } from "$lib/workspace-avatar";
   import { workspacePath, workspaceSessionsPath } from "$lib/workspace-routes";
 
@@ -176,16 +176,16 @@
   <div class="remove-dialog">
     <header class="remove-dialog-header">
       <div>
-        <BitsDialog.Title class="remove-dialog-title">
+        <DialogTitle class="remove-dialog-title">
           {t.workspaceHome.removeConfirmTitle}
-        </BitsDialog.Title>
-        <BitsDialog.Description id="remove-workspace-description" class="remove-dialog-body">
+        </DialogTitle>
+        <DialogDescription id="remove-workspace-description" class="remove-dialog-body">
           {removeConfirmBody}
-        </BitsDialog.Description>
+        </DialogDescription>
       </div>
-      <BitsDialog.Close class="remove-dialog-close" aria-label={t.workspaceHome.removeCancel}>
+      <DialogClose class="remove-dialog-close" aria-label={t.workspaceHome.removeCancel}>
         <Icon name="close" size={17} />
-      </BitsDialog.Close>
+      </DialogClose>
     </header>
     <footer class="remove-dialog-footer">
       <Button variant="secondary" onclick={closeRemoveDialog} disabled={removePending}>

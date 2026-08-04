@@ -378,7 +378,7 @@ export async function executeSparkDaemonSessionControl(
             actor: options.actor,
           },
           idempotencyKey,
-          invocationSource(parsed.messageMetadata),
+          invocationSource(parsed.messageMetadata, parsed.parentInvocationId),
         );
       } catch (error) {
         raced = idempotencyKey ? store.findByIdempotencyKey(idempotencyKey) : undefined;
@@ -473,7 +473,8 @@ function assertIdempotentTurnReplay(
     JSON.stringify(task.assignment) !== JSON.stringify(parsed.assignment) ||
     JSON.stringify(task.messageMetadata) !== JSON.stringify(parsed.messageMetadata) ||
     JSON.stringify(task.attachments) !== JSON.stringify(parsed.attachments) ||
-    JSON.stringify(originBindingFromTask(task)) !== JSON.stringify(parsed.originBinding)
+    JSON.stringify(originBindingFromTask(task)) !== JSON.stringify(parsed.originBinding) ||
+    existing.parentInvocationId !== parsed.parentInvocationId
   ) {
     throw new SparkDaemonControlError(
       "invocation_idempotency_conflict",
@@ -832,7 +833,7 @@ function submitInvocationTask(
   db: DatabaseSync,
   task: SparkDaemonTask,
   idempotencyKey?: string,
-  source?: { kind: string; ref?: string },
+  source?: { kind: string; ref?: string; parentInvocationId?: string },
 ) {
   const store = new SparkInvocationStore(db);
   const input = {
@@ -842,6 +843,7 @@ function submitInvocationTask(
     prompt: task.prompt,
     task,
     ...(source ? { sourceKind: source.kind, sourceRef: source.ref } : {}),
+    ...(source?.parentInvocationId ? { parentInvocationId: source.parentInvocationId } : {}),
   };
   const invocation =
     source?.kind === "session.question" ? store.submitIfSessionIdle(input) : store.submit(input);
@@ -1082,15 +1084,37 @@ async function settleManagedSessionTurn(
 
 function invocationSource(
   messageMetadata: Record<string, unknown> | undefined,
-): { kind: string; ref?: string } | undefined {
+  parentInvocationId: string | undefined,
+): { kind: string; ref?: string; parentInvocationId?: string } | undefined {
   const mail = messageMetadata?.sessionMail;
-  if (!mail || typeof mail !== "object" || Array.isArray(mail)) return undefined;
+  if (!mail || typeof mail !== "object" || Array.isArray(mail)) {
+    return parentInvocationId ? { kind: "turn.parent", parentInvocationId } : undefined;
+  }
   const record = mail as Record<string, unknown>;
-  if (record.kind !== "request" && record.kind !== "question") return undefined;
+  if (record.kind !== "request" && record.kind !== "question") {
+    return parentInvocationId ? { kind: "turn.parent", parentInvocationId } : undefined;
+  }
+  const mailParentInvocationId =
+    typeof record.parentInvocationId === "string" && record.parentInvocationId.trim()
+      ? record.parentInvocationId.trim()
+      : undefined;
+  if (
+    parentInvocationId &&
+    mailParentInvocationId &&
+    parentInvocationId !== mailParentInvocationId
+  ) {
+    throw new SparkDaemonControlError(
+      "session_scope_mismatch",
+      "turn.submit parentInvocationId conflicts with session mail ancestry",
+    );
+  }
   return {
     kind: `session.${record.kind}`,
     ...(typeof record.messageId === "string" && record.messageId.trim()
       ? { ref: record.messageId.trim() }
+      : {}),
+    ...((parentInvocationId ?? mailParentInvocationId)
+      ? { parentInvocationId: parentInvocationId ?? mailParentInvocationId }
       : {}),
   };
 }

@@ -8,6 +8,7 @@ import {
 } from "@zendev-lab/spark-turn";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";
+import { SparkTokenUsageStore } from "../store/token-usage.ts";
 import {
   SparkInvocationScheduler,
   type SparkInvocationSchedulerOptions,
@@ -26,6 +27,222 @@ function harness(
 }
 
 describe("SparkInvocationScheduler", () => {
+  it("persists explicit repro driver scope and records provider responses through the daemon sink", async () => {
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    const store = new SparkInvocationStore(db);
+    const tokenUsageStore = new SparkTokenUsageStore(db);
+    const scheduler = new SparkInvocationScheduler({
+      store,
+      tokenUsageStore,
+      executeTask: async (_task, context) => {
+        expect(context.tokenUsageScope).toEqual({ kind: "repro", reproId: "repro-driver-1" });
+        context.recordTokenUsage?.({
+          event: {
+            type: "turn_complete",
+            message: {
+              provider: "openai",
+              model: "test-model",
+              responseId: "response-driver",
+              content: [],
+              usage: {
+                input: 3,
+                output: 2,
+                cacheRead: 1,
+                cacheWrite: 0,
+                totalTokens: 999,
+              },
+              timestamp: Date.parse("2026-08-03T00:00:02.000Z"),
+            },
+          },
+        });
+        context.registerTokenUsageExecution?.({
+          executionId: "run:workflow-zero-response",
+          parentExecutionId: context.invocationId,
+          kind: "workflow_agent",
+          persistence: "anonymous",
+          runRef: "run:workflow-zero-response",
+        });
+        context.settleTokenUsageExecution?.({
+          executionId: "run:workflow-zero-response",
+          status: "failed",
+        });
+        return { ok: true };
+      },
+    });
+    try {
+      const invocation = store.submit({
+        sessionId: "session-repro-driver",
+        prompt: "continue repro",
+        task: {
+          type: "driver.tick",
+          sessionId: "session-repro-driver",
+          driverId: "repro-driver-1",
+          kind: "repro",
+          ownerSessionId: "session-repro-driver",
+          stateOwnerSessionId: "session-repro-driver",
+          generation: 1,
+          continuity: "session",
+          cwd: process.cwd(),
+          prompt: "continue repro",
+        },
+      });
+
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+      expect(tokenUsageStore.execution(invocation.invocationId)).toMatchObject({
+        executionId: invocation.invocationId,
+        invocationId: invocation.invocationId,
+        scope: { kind: "repro", reproId: "repro-driver-1" },
+        kind: "root_session",
+        persistence: "persistent",
+        status: "complete",
+      });
+      expect(
+        tokenUsageStore.summarize({ scope: { kind: "repro", reproId: "repro-driver-1" } }),
+      ).toMatchObject({
+        quality: "partial",
+        totalTokens: 6,
+        activeExecutionCount: 0,
+        responseCount: 1,
+        missingResponseCount: 0,
+      });
+      expect(tokenUsageStore.execution("run:workflow-zero-response")).toMatchObject({
+        kind: "workflow_agent",
+        parentExecutionId: invocation.invocationId,
+        persistence: "anonymous",
+        status: "failed",
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("late-binds the persistent root turn that starts Repro and scopes later turns immediately", async () => {
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    const store = new SparkInvocationStore(db);
+    const tokenUsageStore = new SparkTokenUsageStore(db);
+    let activeRepro = false;
+    let executedTurns = 0;
+    const scheduler = new SparkInvocationScheduler({
+      store,
+      tokenUsageStore,
+      resolveReproUsageScope: async () =>
+        activeRepro ? { kind: "repro", reproId: "repro-started-here" } : undefined,
+      executeTask: async (_task, context) => {
+        executedTurns += 1;
+        if (executedTurns === 1) {
+          expect(context.tokenUsageScope).toBeUndefined();
+          context.recordTokenUsage?.({ event: usageEvent("response-start-tool", 7, 3) });
+          activeRepro = true;
+          context.recordTokenUsage?.({ event: usageEvent("response-start-final", 5, 2) });
+        } else {
+          expect(context.tokenUsageScope).toEqual({
+            kind: "repro",
+            reproId: "repro-started-here",
+          });
+          context.recordTokenUsage?.({ event: usageEvent("response-later-turn", 4, 1) });
+        }
+        return { ok: true };
+      },
+    });
+    try {
+      const startInvocation = store.submit({
+        sessionId: "session-root-repro",
+        prompt: "start repro",
+        task: {
+          type: "session.run",
+          sessionId: "session-root-repro",
+          prompt: "start repro",
+        },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+
+      expect(tokenUsageStore.execution(startInvocation.invocationId)).toMatchObject({
+        scope: { kind: "repro", reproId: "repro-started-here" },
+        kind: "root_session",
+        persistence: "persistent",
+        status: "complete",
+      });
+      expect(
+        tokenUsageStore.summarize({
+          scope: { kind: "repro", reproId: "repro-started-here" },
+        }),
+      ).toMatchObject({
+        quality: "exact",
+        totalTokens: 17,
+        responseCount: 2,
+        missingResponseCount: 0,
+      });
+
+      const laterInvocation = store.submit({
+        sessionId: "session-root-repro",
+        prompt: "continue repro",
+        task: {
+          type: "session.run",
+          sessionId: "session-root-repro",
+          prompt: "continue repro",
+        },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+
+      expect(tokenUsageStore.execution(laterInvocation.invocationId)).toMatchObject({
+        scope: { kind: "repro", reproId: "repro-started-here" },
+        status: "complete",
+      });
+      expect(
+        tokenUsageStore.summarize({
+          scope: { kind: "repro", reproId: "repro-started-here" },
+        }),
+      ).toMatchObject({ quality: "exact", totalTokens: 22, responseCount: 3 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("drops persistent root responses when no Repro owns the invocation", async () => {
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    const store = new SparkInvocationStore(db);
+    const tokenUsageStore = new SparkTokenUsageStore(db);
+    const scheduler = new SparkInvocationScheduler({
+      store,
+      tokenUsageStore,
+      resolveReproUsageScope: async () => undefined,
+      executeTask: async (_task, context) => {
+        expect(context.tokenUsageScope).toBeUndefined();
+        expect(context.recordTokenUsage).toBeTypeOf("function");
+        context.recordTokenUsage?.({ event: usageEvent("response-before-repro", 100, 20) });
+        return { ok: true };
+      },
+    });
+    try {
+      const invocation = store.submit({
+        sessionId: "session-without-repro",
+        prompt: "unrelated setup",
+        task: {
+          type: "session.run",
+          sessionId: "session-without-repro",
+          prompt: "unrelated setup",
+        },
+      });
+      expect(scheduler.processBatch()).toBe(true);
+      await scheduler.wait({ timeoutMs: 500 });
+
+      expect(tokenUsageStore.execution(invocation.invocationId)).toBeUndefined();
+      expect(
+        tokenUsageStore.summarize({
+          scope: { kind: "repro", reproId: "not-started" },
+        }),
+      ).toMatchObject({ quality: "unknown", totalTokens: 0, responseCount: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
   it("requeues interrupted running turns for resume while continuing queued work after restart", async () => {
     const executions: string[] = [];
     const executeTask: SparkDaemonTaskExecutor = async (task) => {
@@ -741,6 +958,20 @@ describe("SparkInvocationScheduler", () => {
     }
   });
 });
+
+function usageEvent(responseId: string, input: number, output: number) {
+  return {
+    type: "turn_complete",
+    message: {
+      provider: "openai",
+      model: "test-model",
+      responseId,
+      content: [],
+      usage: { input, output, cacheRead: 0, cacheWrite: 0, totalTokens: input + output },
+      timestamp: Date.parse("2026-08-03T00:00:02.000Z"),
+    },
+  };
+}
 
 async function eventually(predicate: () => boolean, timeoutMs = 500): Promise<void> {
   const deadline = Date.now() + timeoutMs;

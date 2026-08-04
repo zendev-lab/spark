@@ -887,6 +887,11 @@ export async function executeSparkDaemonSessionRunTask(
       : undefined;
   const canCheckpointRestart =
     !driver && !task.reset && !task.hiddenExecution && !binding && Boolean(checkpointRestart);
+  const usageExecutionKind = sessionContext.sideThread
+    ? "side_thread"
+    : sessionContext.taskSession
+      ? "task_execution"
+      : "root_session";
   return await options.executeSession({
     ...(await sessionExecutionIdentity(task, options, sessionContext)),
     prompt: await sessionRunPrompt(task, options.paths, context.invocationId),
@@ -903,6 +908,25 @@ export async function executeSparkDaemonSessionRunTask(
       : {}),
     ...sessionExecutionPolicy(task, sessionContext, binding, driver),
     invocationId: context.invocationId,
+    ...(context.recordTokenUsage
+      ? {
+          tokenUsage: {
+            ...(context.tokenUsageScope ? { scope: context.tokenUsageScope } : {}),
+            executionId: context.invocationId,
+            kind: usageExecutionKind,
+            ...(driver ? { detailKind: "driver_tick" } : {}),
+            persistence: task.hiddenExecution ? "anonymous" : "persistent",
+            sessionId: driver?.ownerSessionId ?? task.sessionId,
+            ...(context.registerTokenUsageExecution
+              ? { register: context.registerTokenUsageExecution }
+              : {}),
+            ...(context.settleTokenUsageExecution
+              ? { settle: context.settleTokenUsageExecution }
+              : {}),
+            record: context.recordTokenUsage,
+          },
+        }
+      : {}),
     ...(options.sessionLease ? { sessionLease: options.sessionLease } : {}),
     ...(interaction ? { interaction } : {}),
     onEvent: (event) => emitHeadlessEvent(event, task, context),
@@ -1092,6 +1116,7 @@ async function sessionContextForTask(
   surface?: "local" | "channel";
   role?: string;
   sideThread?: boolean;
+  taskSession?: boolean;
   sessionPath?: string;
   cwd?: string;
   workspaceId?: string;
@@ -1125,6 +1150,7 @@ async function sessionContextForTask(
     ...(session.cwdArtifactRef ? { cwdArtifactRef: session.cwdArtifactRef } : {}),
     ...(role ? { role } : {}),
     ...(session.relation?.kind === "side_thread" ? { sideThread: true } : {}),
+    ...(session.relation?.kind === "task_execution" ? { taskSession: true } : {}),
     ...(sessionPath ? { sessionPath } : {}),
   };
 }

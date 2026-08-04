@@ -127,6 +127,17 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
         ),
       },
     },
+    usage: {
+      summary: os.usage.summary.handler(async ({ input: params }) =>
+        invoke("usage.summary", params),
+      ),
+      persistence: os.usage.persistence.handler(async ({ input: params }) =>
+        invoke("usage.persistence", params),
+      ),
+      backfill: os.usage.backfill.handler(async ({ input: params }) =>
+        invoke("usage.backfill", params),
+      ),
+    },
     driver: {
       start: os.driver.start.handler(async ({ input: params }) => invoke("driver.start", params)),
       status: os.driver.status.handler(async ({ input: params }) =>

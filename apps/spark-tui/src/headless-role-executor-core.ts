@@ -1,4 +1,7 @@
-import type { SparkHeadlessUserContent } from "@zendev-lab/spark-host/headless-loader";
+import type {
+  SparkHeadlessTokenUsageContext,
+  SparkHeadlessUserContent,
+} from "@zendev-lab/spark-host/headless-loader";
 import {
   assistantMessageToText,
   classifyProviderFailure,
@@ -144,6 +147,7 @@ export interface SparkHeadlessSessionRunInput {
   approvalRejectAction?: "ask" | "deny";
   /** Daemon-owned UI bridge; hasUI stays false because no local terminal is attached. */
   interaction?: (request: ExtensionInteractionRequest) => Promise<ExtensionInteractionResponse>;
+  tokenUsage?: SparkHeadlessTokenUsageContext;
   onEvent?: (event: unknown) => void | Promise<void>;
 }
 
@@ -161,6 +165,7 @@ export interface SparkHeadlessRoleExecutorOptions {
   sparkHome?: string;
   controlSparkHome?: string;
   createServices: SparkCliHostServicesFactory;
+  tokenUsage?: SparkHeadlessTokenUsageContext;
 }
 
 export function createSparkHeadlessRoleExecutor(
@@ -195,6 +200,7 @@ export async function runSparkHeadlessSession(
     sessionLease: input.sessionLease,
     channelBinding: input.channelBinding,
     invocationId: input.invocationId,
+    tokenUsage: input.tokenUsage,
     stateOwnerSessionId: input.stateOwnerSessionId,
     driver: input.driver,
     sessionQuestionChain: input.sessionQuestionChain,
@@ -229,8 +235,11 @@ export async function runSparkHeadlessSession(
     if (!input.onEvent) jsonEvents.push(event);
     void input.onEvent?.(event);
   };
+  const observeTokenUsage = createHeadlessTokenUsageObserver(input.tokenUsage);
   const unsubscribe = services.agentLoop.onEvent((event) => {
-    recordEvent(serializeLoopEvent(event));
+    const serialized = serializeLoopEvent(event);
+    recordEvent(serialized);
+    observeTokenUsage(event, serialized);
   });
   const unsubscribeDaemon = services.runtime.onDaemonEvent((event) => {
     recordEvent({ type: "daemon_event", event });
@@ -306,6 +315,7 @@ export async function runSparkHeadlessRoleInstruction(
     systemPrompt: input.role.systemPrompt,
     approvalMethod: "auto",
     executionPhase: input.phase ?? "implement",
+    tokenUsage: options.tokenUsage,
   } satisfies SparkCliHostServicesOptions);
   throwIfHeadlessAborted(input.signal);
 
@@ -348,8 +358,11 @@ export async function runSparkHeadlessRoleInstruction(
       };
     }
   }
+  const observeTokenUsage = createHeadlessTokenUsageObserver(options.tokenUsage);
   const unsubscribe = services.agentLoop.onEvent((event) => {
-    recordEvent(serializeLoopEvent(event));
+    const serialized = serializeLoopEvent(event);
+    recordEvent(serialized);
+    observeTokenUsage(event, serialized);
   });
   const unsubscribeDaemon = services.runtime.onDaemonEvent((event) => {
     recordEvent({ type: "daemon_event", event });
@@ -762,6 +775,79 @@ function serializeLoopEvent(event: SparkAgentLoopEvent): unknown {
     case "error":
       return { type: event.type, message: event.message };
   }
+}
+
+function recordTokenUsage(
+  context: SparkHeadlessTokenUsageContext | undefined,
+  event: unknown,
+): void {
+  if (!context) return;
+  context.record({
+    event,
+    ...(context.scope ? { scope: context.scope } : {}),
+    executionId: context.executionId,
+    kind: context.kind,
+    persistence: context.persistence,
+    ...(context.parentExecutionId ? { parentExecutionId: context.parentExecutionId } : {}),
+    ...(context.detailKind ? { detailKind: context.detailKind } : {}),
+    ...(context.sessionId ? { sessionId: context.sessionId } : {}),
+    ...(context.runRef ? { runRef: context.runRef } : {}),
+  });
+}
+
+function createHeadlessTokenUsageObserver(context: SparkHeadlessTokenUsageContext | undefined) {
+  let pendingManifest:
+    | Extract<SparkAgentLoopEvent, { type: "prompt_manifest" }>["manifest"]
+    | undefined;
+  let attemptClosedBySyntheticReceipt = false;
+  return (event: SparkAgentLoopEvent, serialized: unknown): void => {
+    if (!context) return;
+    if (event.type === "prompt_manifest") {
+      pendingManifest = event.manifest;
+      attemptClosedBySyntheticReceipt = false;
+      return;
+    }
+    if (event.type === "turn_complete") {
+      pendingManifest = undefined;
+      if (attemptClosedBySyntheticReceipt) return;
+      recordTokenUsage(context, serialized);
+      return;
+    }
+    const failedModelCall =
+      event.type === "error" ||
+      event.type === "abort" ||
+      (event.type === "run_outcome" && event.outcome.status !== "completed");
+    if (!failedModelCall || !pendingManifest) return;
+    recordTokenUsage(context, missingModelCallUsageEvent(pendingManifest, event));
+    pendingManifest = undefined;
+    attemptClosedBySyntheticReceipt = true;
+  };
+}
+
+function missingModelCallUsageEvent(
+  manifest: Extract<SparkAgentLoopEvent, { type: "prompt_manifest" }>["manifest"],
+  terminal: SparkAgentLoopEvent,
+): unknown {
+  const reason = terminal.type === "abort" ? "aborted" : "error";
+  return {
+    type: "turn_complete",
+    message: {
+      role: "assistant",
+      provider: manifest.model.provider,
+      model: manifest.model.id,
+      responseId: [
+        "spark-model-call",
+        manifest.sessionFingerprint,
+        manifest.roundtrip.index,
+        manifest.model.provider,
+        manifest.model.id,
+      ].join(":"),
+      timestamp: Date.now(),
+      content: [],
+      stopReason: reason,
+    },
+    reason,
+  };
 }
 
 function renderDiagnostics(diagnostics: SparkCliHostDiagnostic[]): string {

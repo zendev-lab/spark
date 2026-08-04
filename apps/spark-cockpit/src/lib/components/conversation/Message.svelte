@@ -1,6 +1,6 @@
 <script lang="ts">
-  import AgentMdxStream from "$lib/AgentMdxStream.svelte";
   import Icon from "$lib/Icon.svelte";
+  import SafeMarkdown from "$lib/SafeMarkdown.svelte";
   import ApprovalPart from "./ApprovalPart.svelte";
   import ArtifactPart from "./ArtifactPart.svelte";
   import ErrorPart from "./ErrorPart.svelte";
@@ -112,7 +112,7 @@
           {:else if part.type === "text"}
             {#if item.actor === "spark" || item.actor === "session"}
               <div class="assistant-content">
-                <AgentMdxStream source={part.text} streaming={part.streaming} />
+                <SafeMarkdown source={part.text} streaming={part.streaming} />
               </div>
             {:else}
               <p class="user-content">{part.text}</p>

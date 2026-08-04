@@ -1,7 +1,20 @@
 <script lang="ts">
   import Icon from "$lib/Icon.svelte";
   import { Dialog as DialogShell } from "$lib/ui";
-  import { Command, Dialog } from "bits-ui";
+  import {
+    CommandEmpty,
+    CommandGroup,
+    CommandGroupHeading,
+    CommandGroupItems,
+    CommandInput,
+    CommandItem,
+    CommandList,
+    CommandRoot,
+    DialogClose,
+    DialogDescription,
+    DialogTitle,
+    DialogTrigger,
+  } from "$lib/ui/headless";
   import type { ModelPickerGroup } from "./types";
 
   let {
@@ -101,7 +114,7 @@
   onOpenChangeComplete={resetSearch}
 >
   {#snippet trigger()}
-    <Dialog.Trigger
+    <DialogTrigger
       id={id}
       class="model-picker-trigger {compact ? 'compact' : ''}"
       {disabled}
@@ -117,15 +130,15 @@
         {#if !compact && selectedGroup}<small>{selectedGroup.label}</small>{/if}
       </span>
       <Icon name="chevron-down" size={14} />
-    </Dialog.Trigger>
+    </DialogTrigger>
   {/snippet}
 
   <header class="dialog-heading">
     <div>
-      <Dialog.Title class="model-picker-title">{title}</Dialog.Title>
-      <Dialog.Description id={`${id}-description`} class="model-picker-description">
+      <DialogTitle class="model-picker-title">{title}</DialogTitle>
+      <DialogDescription id={`${id}-description`} class="model-picker-description">
         {description}
-      </Dialog.Description>
+      </DialogDescription>
       {#if settingsHref && settingsLabel}
         <a class="model-picker-settings" href={settingsHref}>
           <Icon name="settings" size={14} />
@@ -133,15 +146,15 @@
         </a>
       {/if}
     </div>
-    <Dialog.Close class="model-picker-close" aria-label={closeLabel}>
+    <DialogClose class="model-picker-close" aria-label={closeLabel}>
       <Icon name="close" size={17} />
-    </Dialog.Close>
+    </DialogClose>
   </header>
 
-  <Command.Root class="model-picker-command" label={title} loop bind:value={commandValue}>
+  <CommandRoot class="model-picker-command" label={title} loop bind:value={commandValue}>
     <div class="command-search">
       <Icon name="search" size={17} />
-      <Command.Input
+      <CommandInput
         bind:value={search}
         placeholder={searchPlaceholder}
         autocomplete="off"
@@ -159,20 +172,20 @@
       {/if}
     </div>
 
-    <Command.List class="model-picker-list">
-      <Command.Empty class="model-picker-empty">{emptyLabel}</Command.Empty>
+    <CommandList class="model-picker-list">
+      <CommandEmpty class="model-picker-empty">{emptyLabel}</CommandEmpty>
       {#each groups as group (group.id)}
-        <Command.Group value={group.id} class="model-picker-group">
-          <Command.GroupHeading class="model-picker-group-heading">
+        <CommandGroup value={group.id} class="model-picker-group">
+          <CommandGroupHeading class="model-picker-group-heading">
             <span class="provider-mark">{monogram(group.label)}</span>
             <span>
               <strong>{group.label}</strong>
               {#if group.description}<small>{group.description}</small>{/if}
             </span>
-          </Command.GroupHeading>
-          <Command.GroupItems class="model-picker-group-items">
+          </CommandGroupHeading>
+          <CommandGroupItems class="model-picker-group-items">
             {#each group.options as option (option.value)}
-              <Command.Item
+              <CommandItem
                 value={option.value}
                 keywords={[
                   option.label,
@@ -189,13 +202,13 @@
                   {#if option.description}<small>{option.description}</small>{/if}
                 </span>
                 {#if option.value === value}<Icon name="check" size={16} />{/if}
-              </Command.Item>
+              </CommandItem>
             {/each}
-          </Command.GroupItems>
-        </Command.Group>
+          </CommandGroupItems>
+        </CommandGroup>
       {/each}
-    </Command.List>
-  </Command.Root>
+    </CommandList>
+  </CommandRoot>
 </DialogShell>
 
 <style>

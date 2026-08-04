@@ -441,6 +441,7 @@ export interface RoleRunnerOptions {
   sessionModel?: string;
   env?: NodeJS.ProcessEnv;
   allowedTools?: string[];
+  usageExecutionKind?: "role_run" | "workflow_agent";
   roleExecutor?: SparkRoleInstructionExecutor;
   onRoleEvent?: (event: unknown) => void | Promise<void>;
 }
@@ -1221,6 +1222,7 @@ export async function runRoleInstructionOnly(
     sessionModel: options.sessionModel,
     env: effectiveRoleRunEnv(options.env),
     allowedTools: options.allowedTools,
+    usageExecutionKind: options.usageExecutionKind,
     phase: options.phase,
     requireStructuredOutcome: options.requireStructuredOutcome ?? false,
     roleExecutor: options.roleExecutor,
@@ -1248,6 +1250,7 @@ async function runNativeSparkRole(
       | "sessionModel"
       | "env"
       | "allowedTools"
+      | "usageExecutionKind"
       | "phase"
       | "requireStructuredOutcome"
       | "onRoleEvent"
@@ -1278,6 +1281,7 @@ async function runNativeSparkRole(
     instruction: instruction.instruction,
     model,
     allowedTools: options.allowedTools ?? role.allowedTools,
+    usageExecutionKind: options.usageExecutionKind,
     phase: options.phase,
     requireStructuredOutcome: options.requireStructuredOutcome ?? false,
     cwd: options.cwd,

@@ -31,6 +31,8 @@ export interface ManagedTaskSessionDispatchInput {
   cwd: string;
   ctx: SparkSessionContext;
   ownerSessionId: string;
+  /** Causal owning turn; required for repro usage attribution across Task Sessions. */
+  parentInvocationId?: string;
   projectRef: ProjectRef;
   taskRefs: TaskRef[];
   registry: RoleRegistry;
@@ -107,6 +109,7 @@ export async function dispatchManagedTaskSessions(
       const submitted = await daemonRequest("turn.submit", {
         sessionId: execution.executionSessionId,
         prompt: renderTaskExecutionPrompt(reservation),
+        ...(input.parentInvocationId ? { parentInvocationId: input.parentInvocationId } : {}),
         idempotencyKey: `${execution.jobId}:attempt:${execution.attempt}`,
         assignment: {
           goal: reservation.goal,

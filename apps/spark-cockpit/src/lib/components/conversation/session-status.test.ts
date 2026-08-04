@@ -61,7 +61,7 @@ describe("session status formatting", () => {
     expect(description).not.toContain("gpt-5.6-sol");
   });
 
-  it("adds live run totals to the full-transcript snapshot baseline", () => {
+  it("does not add run totals already covered by the full-transcript snapshot", () => {
     const usage = sessionStatusUsage(
       {
         version: 1,
@@ -108,14 +108,55 @@ describe("session status formatting", () => {
     );
 
     expect(usage).toMatchObject({
-      inputTokens: 140,
-      outputTokens: 28,
-      cacheReadTokens: 240,
+      inputTokens: 100,
+      outputTokens: 20,
+      cacheReadTokens: 80,
       cacheWriteTokens: 10,
-      costUsd: expect.closeTo(0.3, 10),
+      costUsd: 0.1,
       latestCacheHitPercent: 80,
       contextTokens: 208,
       contextWindow: 372_000,
+    });
+  });
+
+  it("uses run totals only when the daemon snapshot has no cumulative usage", () => {
+    const usage = sessionStatusUsage({
+      version: 1,
+      sessionId: "session-run-fallback",
+      status: "running",
+      messages: [],
+      tools: [],
+      runs: [
+        {
+          version: 1,
+          id: "run-live",
+          kind: "session",
+          status: "running",
+          evidenceRefs: [],
+          artifactRefs: [],
+          metadata: {
+            usageTotals: {
+              inputTokens: 40,
+              outputTokens: 8,
+              cacheReadTokens: 160,
+              cacheWriteTokens: 2,
+              costUsd: 0.2,
+            },
+          },
+        },
+      ],
+      tasks: [],
+      artifacts: [],
+      evidence: [],
+      metadata: {},
+    });
+
+    expect(usage).toMatchObject({
+      inputTokens: 40,
+      outputTokens: 8,
+      cacheReadTokens: 160,
+      cacheWriteTokens: 2,
+      costUsd: 0.2,
     });
   });
 

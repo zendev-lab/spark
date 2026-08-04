@@ -1,4 +1,8 @@
 import type { ArtifactRef } from "@zendev-lab/spark-core";
+import {
+  isSparkDocumentMediaType,
+  type SparkDocumentMediaType,
+} from "@zendev-lab/spark-protocol/artifact-document";
 
 /** User-facing atomic work products. Internal verification remains Evidence. */
 export type ArtifactKind = "issue" | "git_change" | "document";
@@ -112,13 +116,22 @@ export interface GitChangeArtifactBody {
 export interface DocumentArtifactBody {
   schemaVersion: 2;
   kind: "document";
+  /** Kept broad so retired v2 records remain readable. New writes use SparkDocumentMediaType. */
   mediaType: string;
   content: string;
   revision: number;
   progress?: ArtifactProgress;
 }
 
+export interface WritableDocumentArtifactBody extends Omit<DocumentArtifactBody, "mediaType"> {
+  mediaType: SparkDocumentMediaType;
+}
+
 export type ArtifactBody = IssueArtifactBody | GitChangeArtifactBody | DocumentArtifactBody;
+export type WritableArtifactBody =
+  | IssueArtifactBody
+  | GitChangeArtifactBody
+  | WritableDocumentArtifactBody;
 
 /** Read-only v1 shapes accepted by lazy normalization. New writes must use v2 bodies. */
 export interface LegacyIssueArtifactBody {
@@ -240,6 +253,13 @@ export function isArtifactBody(value: unknown): value is ArtifactBody {
     );
   }
   return false;
+}
+
+export function isWritableArtifactBody(value: unknown): value is WritableArtifactBody {
+  return (
+    isArtifactBody(value) &&
+    (value.kind !== "document" || isSparkDocumentMediaType(value.mediaType))
+  );
 }
 
 export function isLegacyArtifactBody(value: unknown): value is LegacyArtifactBody {

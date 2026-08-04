@@ -78,12 +78,18 @@ import {
   sparkDaemonDriverControl,
   type SparkDaemonDriverControl,
 } from "./spark-daemon-driver-client.ts";
+import {
+  sparkDaemonUsageControl,
+  type SparkDaemonUsageControl,
+} from "./spark-daemon-usage-client.ts";
 import { registerSparkReproRoles } from "./spark-repro-roles.ts";
 import { registerSparkDelegationTool } from "./spark-delegation-tool-registration.ts";
 
 interface SparkProductFacadeApi extends SparkCommandApi {
   /** Host/test override; production defaults to the daemon local RPC client. */
   driverControl?: SparkDaemonDriverControl;
+  /** Host/test override; production reads the daemon-owned token ledger projection. */
+  usageControl?: SparkDaemonUsageControl;
   /** Test/compatible-host override; production claim authority remains daemon RPC. */
   taskClaimDaemonClient?: SparkTaskClaimDaemonClient;
   registerTool?(config: SparkRegisteredToolConfig): void;
@@ -115,6 +121,7 @@ interface SparkProductFacadeApi extends SparkCommandApi {
 export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkReproRoles();
   const driverControl = pi.driverControl ?? sparkDaemonDriverControl;
+  const usageControl = pi.usageControl ?? sparkDaemonUsageControl;
   const widgetController = new SparkWidgetController();
   const roleRunTuiController = new SparkRoleRunTuiController(pi);
   const contextProviders: SparkContextProvider[] = [
@@ -277,6 +284,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
 
   registerSparkReproTool(registerSparkTool, {
     driverControl,
+    usageControl,
     refreshSparkWidget,
   });
 

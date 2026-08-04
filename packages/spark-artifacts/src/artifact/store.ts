@@ -9,10 +9,10 @@ import {
   isArtifactKind,
   isStoredArtifactBody,
   isStoredArtifactKind,
+  isWritableArtifactBody,
   type Artifact,
   type ArtifactBody,
   type ArtifactFormat,
-  type ArtifactKind,
   type ArtifactQuery,
   type ArtifactRef,
   type ArtifactStoreOptions,
@@ -70,10 +70,23 @@ export class ArtifactStore {
     if (!isArtifactBody(input.body)) {
       throw new ArtifactValidationError("invalid artifact body");
     }
-    const format = input.format ?? defaultFormatForBody(input.body);
-    if (!isArtifactFormat(format)) {
-      throw new ArtifactValidationError(`invalid format: ${String(format)}`);
+    if (!isWritableArtifactBody(input.body)) {
+      throw new ArtifactValidationError(
+        `document media type is retired or unsupported for writes: ${input.body.mediaType}`,
+      );
     }
+    if (input.format !== undefined && !isArtifactFormat(input.format)) {
+      throw new ArtifactValidationError(`invalid format: ${String(input.format)}`);
+    }
+    // A writable Document's media type is the canonical source of truth for
+    // its top-level format. This matters when a retired Document is explicitly
+    // converted: carrying the legacy format forward would also give the new
+    // blob the wrong extension even though the body advertises a writable
+    // media type.
+    const format =
+      input.body.kind === "document"
+        ? defaultFormatForBody(input.body)
+        : (input.format ?? defaultFormatForBody(input.body));
     const ref = input.ref ?? newArtifactRef();
     const existing = input.ref ? await this.tryGet(input.ref) : null;
     const updatedAt = nextArtifactTimestamp(existing?.updatedAt);

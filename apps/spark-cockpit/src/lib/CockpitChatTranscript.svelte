@@ -1,6 +1,6 @@
 <script lang="ts">
-  import AgentMdxStream from "$lib/AgentMdxStream.svelte";
   import Icon from "$lib/Icon.svelte";
+  import SafeMarkdown from "$lib/SafeMarkdown.svelte";
   import {
     activityKind,
     buildCockpitChatTranscriptTurns,
@@ -168,7 +168,7 @@
 
         {#if turn.renderSource}
           <div class="answer-body">
-            <AgentMdxStream source={turn.renderSource} streaming={turn.status === "running"} />
+            <SafeMarkdown source={turn.renderSource} streaming={turn.status === "running"} />
           </div>
         {:else if turn.answer}
           <p class="message-text" class:streaming-text={turn.status === "running"}>

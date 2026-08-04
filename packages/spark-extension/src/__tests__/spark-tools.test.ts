@@ -37,7 +37,11 @@ import {
   type TaskRef,
   type ProjectRef,
 } from "@zendev-lab/spark-core";
-import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
+import {
+  defaultArtifactStore,
+  defaultEvidenceStore,
+  type ArtifactRef,
+} from "@zendev-lab/spark-artifacts";
 import { defaultLearningStore } from "@zendev-lab/spark-memory";
 import { defaultWorkflowRunStore } from "@zendev-lab/spark-workflows";
 import { registerSparkWorkflowTool } from "@zendev-lab/spark-workflows/extension";
@@ -67,6 +71,7 @@ import { collectReproOrchestrationSnapshot } from "../extension/spark-repro-orch
 import { JsonStoreFormatError } from "../extension/json-store.ts";
 import type { SparkToolContext } from "../extension/spark-tool-registration.ts";
 import type { SparkDaemonDriverControl } from "../extension/spark-daemon-driver-client.ts";
+import type { SparkDaemonUsageControl } from "../extension/spark-daemon-usage-client.ts";
 import type { SparkTaskClaimDaemonClient } from "../extension/spark-task-claim-daemon-client.ts";
 import {
   loadCurrentProjectState,
@@ -159,6 +164,10 @@ import {
   stepDefinitionDigest,
   updateReproStep,
 } from "@zendev-lab/spark-repro";
+import {
+  SPARK_REPRO_SINGLE_PROCESS_TOPOLOGY,
+  type SparkReproWorkSummaryInput,
+} from "@zendev-lab/spark-repro/work-summary";
 import {
   inferSessionGoalObjective,
   loadSessionGoal,
@@ -7018,6 +7027,183 @@ test("repro record without an active drive returns an actionable recovery hint",
   }
 });
 
+test("repro start binds an explicit Bench run id as the accounting scope", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-explicit-id-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "start",
+      reproId: "bench-run-42",
+    });
+    const repro = await readSessionRepro(dir, ctx);
+    assert.equal(repro?.reproId, "bench-run-42");
+
+    await assert.rejects(
+      () =>
+        executeSparkTool(tools, "repro", ctx, {
+          action: "start",
+          reproId: "another-run",
+        }),
+      /active Repro id bench-run-42 does not match requested reproId another-run/u,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro sync_report reuses its per-run Artifact ref without mutating Repro truth", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-sync-report-action-"));
+  try {
+    await writeEmptySparkProject(dir);
+    await mkdir(join(dir, "outputs"), { recursive: true });
+    await writeFile(join(dir, "outputs", "report.md"), "# Repro report\n", "utf8");
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest({
+      usageControl: {
+        async summary() {
+          throw new Error("usage intentionally unavailable");
+        },
+      },
+    });
+    const repro = createSparkSessionRepro(ctx.sessionId);
+    await writeSessionRepro(dir, repro, ctx);
+    const before = await readSessionRepro(dir, ctx);
+    for (const id of ["contract", "reference", "target"]) {
+      await defaultEvidenceStore(dir).put({
+        ref: `evidence:${id}` as EvidenceRef,
+        kind: "record",
+        title: id,
+        format: "json",
+        body: { passed: true },
+        provenance: { producer: "spark" },
+      });
+    }
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "project_report",
+      workSummary: canonicalReportWorkInput(repro.reproId),
+    });
+
+    const first = await executeSparkTool(tools, "repro", ctx, { action: "sync_report" });
+    const second = await executeSparkTool(tools, "repro", ctx, { action: "sync_report" });
+    const firstDetails = first.details as {
+      changed?: boolean;
+      status?: string;
+      progressPercent?: number;
+      refs?: { reportArtifactRef?: ArtifactRef };
+      artifact?: { revision?: number };
+    };
+    const secondDetails = second.details as {
+      changed?: boolean;
+      refs?: { reportArtifactRef?: ArtifactRef };
+      artifact?: { revision?: number };
+    };
+    assert.equal(firstDetails.changed, true);
+    assert.equal(firstDetails.status, "active");
+    assert.equal(firstDetails.progressPercent, 40);
+    assert.equal(secondDetails.changed, false);
+    assert.ok(firstDetails.refs?.reportArtifactRef);
+    assert.equal(secondDetails.refs?.reportArtifactRef, firstDetails.refs.reportArtifactRef);
+    assert.equal(firstDetails.artifact?.revision, 1);
+    assert.equal(secondDetails.artifact?.revision, 1);
+
+    const stored = await defaultArtifactStore(dir).get(firstDetails.refs.reportArtifactRef);
+    assert.equal(stored.kind, "document");
+    assert.equal(stored.body.kind, "document");
+    if (stored.body.kind !== "document") throw new Error("expected report Document");
+    assert.equal(stored.body.content, await readFile(join(dir, "outputs", "report.md"), "utf8"));
+    assert.match(stored.body.content, /^# Spark Reproduction Report\n/u);
+    assert.deepEqual(await readSessionRepro(dir, ctx), before);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro project_report writes canonical work plus daemon usage without mutating Repro truth", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-project-report-action-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const repro = createSparkSessionRepro(ctx.sessionId);
+    await writeSessionRepro(dir, repro, ctx);
+    const before = await readSessionRepro(dir, ctx);
+    for (const id of ["contract", "reference", "target"]) {
+      await defaultEvidenceStore(dir).put({
+        ref: `evidence:${id}` as EvidenceRef,
+        kind: "record",
+        title: id,
+        format: "json",
+        body: { passed: true },
+        provenance: { producer: "spark" },
+      });
+    }
+    const run = registerSparkToolsForTest({
+      usageControl: {
+        async summary(input) {
+          assert.deepEqual(input, { scope: { kind: "repro", reproId: repro.reproId } });
+          const reported = {
+            inputTokens: 11,
+            outputTokens: 7,
+            cacheReadTokens: 2,
+            cacheWriteTokens: 0,
+            totalTokens: 20,
+          };
+          const zero = {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            totalTokens: 0,
+          };
+          return {
+            scope: input.scope,
+            reported,
+            estimated: zero,
+            totalTokens: 20,
+            responseCount: 1,
+            missingResponseCount: 0,
+            activeExecutionCount: 0,
+            quality: "exact",
+            byExecutionKind: { root_session: reported },
+            byModel: { "provider/model": reported },
+            asOf: "2026-08-03T12:00:00.000Z",
+          };
+        },
+      },
+    });
+
+    const result = await executeSparkTool(run.tools, "repro", ctx, {
+      action: "project_report",
+      workSummary: canonicalReportWorkInput(repro.reproId),
+    });
+    assert.match(
+      toolText(result),
+      /Projected outputs\/spark-summary\.json and outputs\/report\.md with exact token usage/u,
+    );
+    const stored = JSON.parse(
+      await readFile(join(dir, "outputs", "spark-summary.json"), "utf8"),
+    ) as {
+      format?: string;
+      work?: { reproId?: string; status?: string; progress?: { percent?: number } };
+      tokenUsage?: { totalTokens?: number };
+    };
+    assert.equal(stored.format, "spark-repro-summary/v1");
+    assert.equal(stored.work?.reproId, repro.reproId);
+    assert.equal(stored.work?.status, "active");
+    assert.equal(stored.work?.progress?.percent, 40);
+    assert.equal(stored.tokenUsage?.totalTokens, 20);
+    assert.match(
+      await readFile(join(dir, "outputs", "report.md"), "utf8"),
+      /^# Spark Reproduction Report\n/u,
+    );
+    assert.deepEqual(await readSessionRepro(dir, ctx), before);
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
 test("repro record accepts only receipt-backed ask decisions with matching values", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-repro-proof-validation-"));
   try {
@@ -11660,6 +11846,7 @@ function registerSparkToolsForTest(
   options: {
     reviewerRunner?: ReviewerRunner;
     taskClaimDaemonClient?: SparkTaskClaimDaemonClient;
+    usageControl?: SparkDaemonUsageControl;
   } = {},
 ): {
   tools: Map<string, SparkToolConfig>;
@@ -11701,6 +11888,7 @@ function registerSparkToolsForTest(
   const driverControl = createTestDriverControl();
   const pi: SparkHostApiForTest & {
     driverControl: TestSparkDaemonDriverControl;
+    usageControl?: SparkDaemonUsageControl;
     taskClaimDaemonClient: SparkTaskClaimDaemonClient;
     getActiveTools: () => string[];
     getAllTools: () => Array<{ name: string }>;
@@ -11708,6 +11896,7 @@ function registerSparkToolsForTest(
     createReviewerRunner: NonNullable<SparkHostApiForTest["createReviewerRunner"]>;
   } = {
     driverControl,
+    ...(options.usageControl ? { usageControl: options.usageControl } : {}),
     taskClaimDaemonClient: options.taskClaimDaemonClient ?? createTestTaskClaimDaemonClient(),
     registerCommand: (name, config) => {
       commands.set(name, config);
@@ -11790,6 +11979,80 @@ function registerSparkToolsForTest(
     },
     setActiveTools: (names: string[]) => pi.setActiveTools(names),
     driverControl,
+  };
+}
+
+function canonicalReportWorkInput(reproId: string): SparkReproWorkSummaryInput {
+  const profile = {
+    id: "minimum-complete",
+    model: "minimum_complete" as const,
+    compute: "optimizer" as const,
+    steps: { completed: 1, target: 10 },
+    topology: { ...SPARK_REPRO_SINGLE_PROCESS_TOPOLOGY },
+  };
+  return {
+    reproId,
+    title: "Minimum-complete alignment",
+    stage: "alignment",
+    target: {
+      model: "minimum_complete",
+      requiredSteps: 10,
+      referenceStrategies: [],
+      validationTopology: { ...SPARK_REPRO_SINGLE_PROCESS_TOPOLOGY },
+    },
+    profile,
+    gates: [
+      {
+        id: "contract",
+        title: "contract",
+        stage: "contract",
+        evidenceClass: "formal",
+        status: "accepted",
+        weight: 1,
+        evidenceRefs: ["evidence:contract" as EvidenceRef],
+      },
+      {
+        id: "reference",
+        title: "reference",
+        stage: "reference",
+        evidenceClass: "formal",
+        status: "accepted",
+        weight: 1,
+        evidenceRefs: ["evidence:reference" as EvidenceRef],
+        profile,
+        establishes: ["reference_ready"],
+      },
+      {
+        id: "target",
+        title: "target",
+        stage: "target",
+        evidenceClass: "formal",
+        status: "accepted",
+        weight: 1,
+        evidenceRefs: ["evidence:target" as EvidenceRef],
+        profile,
+        establishes: ["target_ready"],
+      },
+      {
+        id: "alignment",
+        title: "alignment",
+        stage: "alignment",
+        evidenceClass: "formal",
+        status: "open",
+        weight: 1,
+        evidenceRefs: [],
+        profile,
+      },
+      {
+        id: "delivery",
+        title: "delivery",
+        stage: "delivery",
+        evidenceClass: "formal",
+        status: "open",
+        weight: 1,
+        evidenceRefs: [],
+      },
+    ],
   };
 }
 

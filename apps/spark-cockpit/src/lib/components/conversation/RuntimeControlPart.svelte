@@ -1,6 +1,6 @@
 <script lang="ts">
-  import AgentMdxStream from "$lib/AgentMdxStream.svelte";
   import Icon from "$lib/Icon.svelte";
+  import SafeMarkdown from "$lib/SafeMarkdown.svelte";
   import type { ConversationPartLabels } from "./types";
 
   type Props = {
@@ -43,7 +43,7 @@
         <section>
           <strong>{labels.runtimeResult}</strong>
           <div class="runtime-result">
-            <AgentMdxStream source={result} streaming={false} />
+            <SafeMarkdown source={result} streaming={false} />
           </div>
         </section>
       {/if}

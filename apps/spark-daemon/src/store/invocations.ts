@@ -41,6 +41,7 @@ export interface SparkInvocationRecord {
   result?: unknown;
   sourceKind?: string;
   sourceRef?: string;
+  parentInvocationId?: string;
   retryOfInvocationId?: string;
   workerId?: string;
   attemptCount: number;
@@ -151,6 +152,7 @@ export interface SubmitSparkInvocationInput {
   task?: unknown;
   sourceKind?: string;
   sourceRef?: string;
+  parentInvocationId?: string;
   retryOfInvocationId?: string;
   now?: string;
 }
@@ -207,6 +209,7 @@ interface InvocationRow {
   result_json_bytes: number;
   source_kind: string | null;
   source_ref: string | null;
+  parent_invocation_id: string | null;
   retry_of_invocation_id: string | null;
   worker_id: string | null;
   attempt_count: number;
@@ -275,8 +278,9 @@ export class SparkInvocationStore {
         .prepare(
           `INSERT INTO invocations
             (id, command_id, workspace_binding_id, session_id, idempotency_key, status, prompt,
-             task_json, source_kind, source_ref, retry_of_invocation_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?)`,
+             task_json, source_kind, source_ref, parent_invocation_id, retry_of_invocation_id,
+             created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           invocationId,
@@ -288,6 +292,7 @@ export class SparkInvocationStore {
           serializeJson(input.task),
           input.sourceKind ?? null,
           input.sourceRef ?? null,
+          input.parentInvocationId ?? null,
           input.retryOfInvocationId ?? null,
           now,
           now,
@@ -355,10 +360,11 @@ export class SparkInvocationStore {
       .prepare(
         `INSERT INTO invocations
           (id, command_id, workspace_binding_id, session_id, idempotency_key, status, prompt,
-           task_json, result_json, source_kind, source_ref, retry_of_invocation_id, worker_id,
+           task_json, result_json, source_kind, source_ref, parent_invocation_id,
+           retry_of_invocation_id, worker_id,
            attempt_count, cancel_reason, error_code, error_message, created_at, updated_at,
            claimed_at, started_at, finished_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       )
       .run(
         input.invocationId,
@@ -372,6 +378,7 @@ export class SparkInvocationStore {
         serializeJson(compactInvocationResult(input.result)),
         input.sourceKind ?? null,
         input.sourceRef ?? null,
+        input.parentInvocationId ?? null,
         input.retryOfInvocationId ?? null,
         input.status === "queued" ? 0 : 1,
         input.cancelReason ?? null,
@@ -1400,6 +1407,7 @@ function invocationSelectColumns(alias?: string, includeResult = true): string {
     ...[
       "source_kind",
       "source_ref",
+      "parent_invocation_id",
       "retry_of_invocation_id",
       "worker_id",
       "attempt_count",
@@ -1430,6 +1438,7 @@ function invocationRecord(row: InvocationRow): SparkInvocationRecord {
     ...(result !== undefined ? { result } : {}),
     ...(row.source_kind ? { sourceKind: row.source_kind } : {}),
     ...(row.source_ref ? { sourceRef: row.source_ref } : {}),
+    ...(row.parent_invocation_id ? { parentInvocationId: row.parent_invocation_id } : {}),
     ...(row.retry_of_invocation_id ? { retryOfInvocationId: row.retry_of_invocation_id } : {}),
     ...(row.worker_id ? { workerId: row.worker_id } : {}),
     attemptCount: Number(row.attempt_count),
@@ -1819,6 +1828,7 @@ function assertIdempotentSubmission(
     existing.prompt !== input.prompt ||
     existing.commandId !== input.commandId ||
     existing.workspaceBindingId !== input.workspaceBindingId ||
+    existing.parentInvocationId !== input.parentInvocationId ||
     existing.retryOfInvocationId !== input.retryOfInvocationId ||
     JSON.stringify(existing.task) !== JSON.stringify(input.task)
   ) {

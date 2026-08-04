@@ -67,6 +67,8 @@ export const sparkTurnAttachmentsSchema = z
 export const sparkTurnSubmitRequestSchema = z.object({
   sessionId: z.string().min(1),
   prompt: z.string(),
+  /** Explicit causal parent for daemon-owned child turns; never inferred from session history. */
+  parentInvocationId: sparkInvocationIdSchema.optional(),
   idempotencyKey: z.string().min(1).optional(),
   model: z
     .string()
