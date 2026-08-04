@@ -97,40 +97,53 @@ export function registerSparkRecoverTaskClaimTool(
       if (recovered.result.error === "not_recoverable") {
         return renderRecoveryRefusal(recovered.result.task, recovered.result.decision);
       }
-      const previousSessionId =
-        recovered.result.task.claim?.sessionId ?? recovered.result.task.claim?.claimedBy;
-      const recoveryReason = daemonRecoveryReason(recovered.result.decision);
-      if (!previousSessionId || !recoveryReason) {
-        return {
-          content: [{ type: "text", text: "Claim recovery evidence is incomplete." }],
-          details: { found: true, error: "recovery_evidence_incomplete" },
-          isError: true,
-        };
-      }
-      try {
-        await taskClaimDaemonClient.recover(ctx, {
-          taskRef: recovered.result.task.ref,
-          previousSessionId,
-          reason: recoveryReason,
-          evidenceRef: recovered.result.evidenceRef,
-        });
-      } catch (error) {
-        const leaseRequired = error instanceof SparkDaemonSessionLeaseRequiredError;
-        return {
-          content: [
-            {
-              type: "text",
-              text: leaseRequired
-                ? "Cannot recover a main task claim without a current daemon-fenced persistent session lease."
-                : `Cannot recover task claim through Spark daemon authority: ${error instanceof Error ? error.message : String(error)}`,
-            },
-          ],
-          details: {
-            found: true,
-            error: leaseRequired ? "daemon_session_lease_required" : "daemon_task_recovery_failed",
+      const recoverableTask = recovered.result.task;
+      if (!recoverableTask) throw new Error("recoverable task is missing");
+      if (recovered.result.decision.reason === "terminal_without_claim") {
+        await store.update(
+          (mutableGraph) => {
+            mutableGraph.setTaskStatus(recoverableTask.ref, "pending");
           },
-          isError: true,
-        };
+          { createIfMissing: false },
+        );
+      } else {
+        const previousSessionId =
+          recoverableTask.claim?.sessionId ?? recoverableTask.claim?.claimedBy;
+        const recoveryReason = daemonRecoveryReason(recovered.result.decision);
+        if (!previousSessionId || !recoveryReason) {
+          return {
+            content: [{ type: "text", text: "Claim recovery evidence is incomplete." }],
+            details: { found: true, error: "recovery_evidence_incomplete" },
+            isError: true,
+          };
+        }
+        try {
+          await taskClaimDaemonClient.recover(ctx, {
+            taskRef: recoverableTask.ref,
+            previousSessionId,
+            reason: recoveryReason,
+            evidenceRef: recovered.result.evidenceRef,
+          });
+        } catch (error) {
+          const leaseRequired = error instanceof SparkDaemonSessionLeaseRequiredError;
+          return {
+            content: [
+              {
+                type: "text",
+                text: leaseRequired
+                  ? "Cannot recover a main task claim without a current daemon-fenced persistent session lease."
+                  : `Cannot recover task claim through Spark daemon authority: ${error instanceof Error ? error.message : String(error)}`,
+              },
+            ],
+            details: {
+              found: true,
+              error: leaseRequired
+                ? "daemon_session_lease_required"
+                : "daemon_task_recovery_failed",
+            },
+            isError: true,
+          };
+        }
       }
       const finalTask = (await store.load())?.getTask(recovered.result.task.ref);
       if (!finalTask || finalTask.claim) {

@@ -22,6 +22,8 @@ export {
   normalizeBaiduOneApiMessage,
   normalizeBaiduOneApiStream,
   remapBaiduOneApiPayload,
+  repairBaiduOneApiResponsesFetch,
+  repairBaiduOneApiSseLine,
   resolveBaiduOneApiKey,
 } from "./baidu-oneapi.ts";
 export type { BaiduOneApiStream } from "./baidu-oneapi.ts";

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import type { EvidenceRef } from "@zendev-lab/spark-artifacts";
 import { requestSparkDaemon, SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
 import type { ProjectRef, TaskRef, TaskResourceAllocation } from "@zendev-lab/spark-core";
 import { loadSessionGoal } from "@zendev-lab/spark-loop";
@@ -165,7 +166,9 @@ describe("managed Task Session dispatch", () => {
     }
     expect(calls.filter((call) => call.method === "turn.submit")).toHaveLength(2);
 
+    const rawTaskEvidenceRef = "evidence:task-output" as EvidenceRef;
     const afterDispatch = await defaultTaskGraphStore(cwd).load();
+    afterDispatch!.attachOutputEvidence(tasks[0]!.ref, rawTaskEvidenceRef);
     afterDispatch!.setTaskStatus(tasks[0]!.ref, "done");
     await defaultTaskGraphStore(cwd).save(afterDispatch!);
     const reconciled = await reconcileManagedTaskSessions({
@@ -190,6 +193,11 @@ describe("managed Task Session dispatch", () => {
       [tasks[0]!.ref]: "succeeded",
       [tasks[1]!.ref]: "blocked",
     });
+    const succeededRun = finalGraph?.runs(project.ref).find((run) => run.taskRef === tasks[0]!.ref);
+    expect(succeededRun?.outputEvidenceRefs).toEqual([rawTaskEvidenceRef]);
+    expect(succeededRun?.completionSummary?.summary).toContain(
+      "Subgoal still requires verifier promotion",
+    );
     expect(safeSubgoals.every((subgoal) => subgoal.status !== "done")).toBe(true);
   });
 
@@ -228,7 +236,6 @@ describe("managed Task Session dispatch", () => {
           "Retry task",
         ),
       });
-      graph.setTaskStatus(task.ref, "ready");
       await defaultTaskGraphStore(cwd).save(graph);
       const resourceAllocation: TaskResourceAllocation = {
         leaseId: "resource:retry",
