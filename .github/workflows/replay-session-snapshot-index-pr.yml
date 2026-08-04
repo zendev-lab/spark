@@ -1,0 +1,34 @@
+name: Maintenance - Replay Session Snapshot Index PR
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/replay-session-snapshot-index-pr.yml
+
+permissions:
+  contents: write
+
+jobs:
+  replay:
+    if: github.head_ref == 'maintenance/replay-session-snapshot-index'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out maintenance branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Replay isolated performance commit
+        env:
+          SOURCE_COMMIT: 102f45d4cd8011b971daafc62cdae8fa1e969b08
+          TARGET_BRANCH: perf/session-snapshot-index
+        run: |
+          set -euo pipefail
+          git config user.name "spark-maintenance[bot]"
+          git config user.email "spark-maintenance[bot]@users.noreply.github.com"
+          git fetch origin main "$TARGET_BRANCH" task/session-tui-performance
+          git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          git cherry-pick "$SOURCE_COMMIT"
+          git push origin "HEAD:$TARGET_BRANCH"
