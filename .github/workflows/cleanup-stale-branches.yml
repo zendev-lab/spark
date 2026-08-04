@@ -1,0 +1,129 @@
+name: Maintenance - Cleanup Stale Branches
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/cleanup-stale-branches.yml
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'maintenance/cleanup-stale-branches-20260804'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SELF_BRANCH: maintenance/cleanup-stale-branches-20260804
+    steps:
+      - name: Validate and delete obsolete branches
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          candidates=(
+            'agent/rename-cockpit-to-hub-squashed|a9a8daebdf9fd97b2b045fe9912d19e24b8d534d'
+            'agent/task-state-race-hardening|399a53da9ffc68015c0ca1931cb10d18e36116fe'
+            'agent/versioned-data-diagnostics-clean|73beecdba788ef7f984ac8e2c1911a8d55c1444c'
+            'codex/evidence-artifact-hard-cut|088816ab7b50ab1e6ddd4e22bba826b537aec145'
+            'codex/memory-approval-revision|46c422d6f22b7d59bd8da5929dc87b3e8eb3ca88'
+            'codex/pi-ai-import-boundary|1d618df3e9c12878bdd80f16e80efa1cba907e28'
+            'codex/product-artifact-persistence|728edb7c2887753073927310daf7fa1e7964ae9b'
+            'codex/repro-protocol-v4-hardening|318e7f92e06fe6f293e2661816a5d1a0e35756c0'
+            'codex/session-lifecycle-history|5d50b78cf915f7a37ebbe537e1d9ed934cd6e3fc'
+            'codex/session-lifecycle-history-v2|8389be9dc7a4eb983373bac81d14487c8934f6e7'
+            'imgbot|6273b3fc0dc2d6f5c60768d5a11e15c5a1815144'
+            'task/session-tui-performance|102f45d4cd8011b971daafc62cdae8fa1e969b08'
+            'maintenance/replay-session-snapshot-index|ca1e3ce1af9a692b5455aa9d8156a385fff2b084'
+            'maintenance/session-snapshot-index-source|235a72741c0575182221ff6df229b0b8f0979c47'
+          )
+
+          encode_ref() {
+            python3 - "$1" <<'PY'
+          import sys
+          import urllib.parse
+          print(urllib.parse.quote(sys.argv[1], safe=""))
+          PY
+          }
+
+          open_head_count() {
+            gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" \
+              -f state=open \
+              -f per_page=100 \
+              -f head="$GITHUB_REPOSITORY_OWNER:$1" \
+              --jq 'length'
+          }
+
+          open_base_count() {
+            gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" \
+              -f state=open \
+              -f per_page=100 \
+              -f base="$1" \
+              --jq 'length'
+          }
+
+          validate_branch() {
+            local branch=$1
+            local expected=$2
+            local encoded actual head_count base_count
+
+            test "$branch" != main
+            test "$branch" != "$SELF_BRANCH"
+            encoded=$(encode_ref "$branch")
+            actual=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$encoded" --jq '.object.sha')
+            test "$actual" = "$expected" || {
+              echo "Ref drift for $branch: expected $expected, got $actual" >&2
+              exit 1
+            }
+            head_count=$(open_head_count "$branch")
+            base_count=$(open_base_count "$branch")
+            test "$head_count" = 0 || {
+              echo "$branch is still the head of $head_count open PR(s)" >&2
+              exit 1
+            }
+            test "$base_count" = 0 || {
+              echo "$branch is still the base of $base_count open PR(s)" >&2
+              exit 1
+            }
+            printf 'validated %s %s\n' "$branch" "$actual"
+          }
+
+          delete_branch() {
+            local branch=$1
+            local encoded
+            encoded=$(encode_ref "$branch")
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$encoded"
+            printf 'deleted %s\n' "$branch"
+          }
+
+          # Fail closed before the first mutation: every candidate must still
+          # have the reviewed tip and must be unused by every open PR.
+          for candidate in "${candidates[@]}"; do
+            IFS='|' read -r branch expected <<<"$candidate"
+            validate_branch "$branch" "$expected"
+          done
+
+          for candidate in "${candidates[@]}"; do
+            IFS='|' read -r branch _ <<<"$candidate"
+            delete_branch "$branch"
+          done
+
+          # Delete this one-shot branch last. Its exact PR head SHA is the
+          # authority, and this workflow's own PR must be its sole open head.
+          self_encoded=$(encode_ref "$SELF_BRANCH")
+          self_actual=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$self_encoded" --jq '.object.sha')
+          self_expected='${{ github.event.pull_request.head.sha }}'
+          test "$self_actual" = "$self_expected" || {
+            echo "Cleanup branch drift: expected $self_expected, got $self_actual" >&2
+            exit 1
+          }
+          self_head_count=$(open_head_count "$SELF_BRANCH")
+          self_base_count=$(open_base_count "$SELF_BRANCH")
+          test "$self_head_count" = 1
+          test "$self_base_count" = 0
+          delete_branch "$SELF_BRANCH"
