@@ -42,6 +42,7 @@ interface ProjectSparkSessionWorkInput {
   /** Daemon-owned projection hook. Durable Repro/UI code never reads ledger storage. */
   tokenUsage?: (scope: SparkReproUsageScope) => SparkTokenUsageAggregate;
   tokenUsageByPersistence?: (scope: SparkReproUsageScope) => SparkTokenUsageByPersistence;
+  workbench?: (reproId: string) => SparkSessionReproWorkView["workbench"];
   onDiagnostic?: (diagnostic: SparkSessionWorkProjectionDiagnostic) => void;
 }
 
@@ -120,7 +121,7 @@ export async function projectSparkSessionWork(
     }
   }
   const projectedRepro = repro
-    ? projectReproWork(repro, tokenUsage, tokenUsageByPersistence)
+    ? projectReproWork(repro, tokenUsage, tokenUsageByPersistence, input.workbench?.(repro.reproId))
     : undefined;
   const parsedRepro = projectedRepro
     ? sparkSessionReproWorkViewSchema.safeParse(projectedRepro)
@@ -160,6 +161,7 @@ function projectReproWork(
   repro: SparkSessionRepro,
   tokenUsage?: SparkTokenUsageAggregate,
   tokenUsageByPersistence?: SparkTokenUsageByPersistence,
+  workbench?: SparkSessionReproWorkView["workbench"],
 ): SparkSessionReproWorkView {
   const stage = currentReproStage(repro);
   const currentStep = nextReproStep(repro);
@@ -216,6 +218,7 @@ function projectReproWork(
       : {}),
     ...(tokenUsage ? { tokenUsage } : {}),
     ...(tokenUsageByPersistence ? { tokenUsageByPersistence } : {}),
+    ...(workbench ? { workbench } : {}),
     updatedAt: repro.updatedAt,
   };
 }

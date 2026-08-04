@@ -76,6 +76,7 @@ import { SparkTokenUsageStore } from "./store/token-usage.ts";
 import { resolveActiveSessionReproUsageScope } from "./session-work-projection.ts";
 import { loopUpdateEvent, SparkLoopStore, type SparkLoopRecord } from "./store/loops.ts";
 import { SparkLoopEvaluatorRegistry } from "./store/loop-evaluators.ts";
+import { WorkbenchArtifactBindingStore } from "./store/workbench-artifact-bindings.ts";
 import { migrateLegacyLoopState } from "./store/loop-state-migration.ts";
 import { createGoalLoopCompletionEvaluator } from "./spark/goal-loop-evaluator.ts";
 import {
@@ -86,6 +87,7 @@ import {
   reproCompletionEvaluator,
   reproPendingDecisionEvaluator,
 } from "./spark/repro-loop-evaluator.ts";
+import { reconcileReproWorkbenchArtifacts } from "./spark/repro-workbench-reconciler.ts";
 import { reconcileLoopGoalSettlements } from "./spark/loop-goal-settlements.ts";
 import {
   getWorkspaceById,
@@ -205,7 +207,9 @@ interface PreparedDaemonRuntime {
   invocationStore: SparkInvocationStore;
   loopStore: SparkLoopStore;
   loopEvaluators: SparkLoopEvaluatorRegistry;
+  workbenchBindings: WorkbenchArtifactBindingStore;
   nextLoopGcAtMs: number;
+  nextWorkbenchReconcileAtMs: number;
   nextStorageMaintenanceAtMs: number;
   channelReplyDeliveryStore: ChannelReplyDeliveryStore;
   scheduler: SparkInvocationScheduler | null;
@@ -295,6 +299,7 @@ async function createPreparedDaemonRuntime(
       return { digest: definition.digest, policy: definition.loop };
     },
   });
+  const workbenchBindings = new WorkbenchArtifactBindingStore(options.db);
   const channelReplyDeliveryStore = new ChannelReplyDeliveryStore(options.db, invocationStore);
   channelReplyDeliveryStore.recoverInterrupted();
   recoverInterruptedRuntimeCommandReceipts(options.db);
@@ -384,7 +389,9 @@ async function createPreparedDaemonRuntime(
     invocationStore,
     loopStore,
     loopEvaluators,
+    workbenchBindings,
     nextLoopGcAtMs: Date.now() + 60_000,
+    nextWorkbenchReconcileAtMs: Date.now(),
     nextStorageMaintenanceAtMs: Date.now(),
     channelReplyDeliveryStore,
     scheduler,
@@ -615,6 +622,7 @@ async function activateDaemonAdmission(runtime: PreparedDaemonRuntime): Promise<
   runtime.scheduler?.recover();
   runtime.loopStore.reconcileTerminalTicks();
   await reconcileLoopGoalSettlements(runtime.loopStore, { retryErrors: true });
+  await reconcileReproWorkbenches(runtime);
   runtime.scheduler?.activateAdmission();
   runtime.invocationRegistry.activateAdmission();
   runtime.admission.open = true;
@@ -704,6 +712,9 @@ async function runSchedulerLoop(runtime: PreparedDaemonRuntime): Promise<void> {
       runStorageMaintenance(runtime);
     }
     if (runtime.admission.open) await reconcileLoopGoalSettlements(runtime.loopStore);
+    if (runtime.admission.open && Date.now() >= runtime.nextWorkbenchReconcileAtMs) {
+      await reconcileReproWorkbenches(runtime);
+    }
     if (runtime.admission.open) await reconcileLoopHiddenSessionGc(runtime);
     const materialized = runtime.admission.open ? await materializeLoopDue(runtime) : undefined;
     const didWork = (runtime.scheduler?.processBatch() ?? false) || Boolean(materialized);
@@ -742,6 +753,7 @@ async function runDaemonOnce(runtime: PreparedDaemonRuntime): Promise<void> {
   if (scheduler) {
     await reconcileLoopHiddenSessionGc(runtime, true);
     await reconcileLoopGoalSettlements(runtime.loopStore, { retryErrors: true });
+    await reconcileReproWorkbenches(runtime);
     await materializeLoopDue(runtime);
     scheduler.processBatch();
     await scheduler.wait();
@@ -758,6 +770,25 @@ async function runDaemonOnce(runtime: PreparedDaemonRuntime): Promise<void> {
     );
   }
   await runSparkDaemonServerConnectionsOnce(daemonServerConnectionOptions(runtime));
+}
+
+async function reconcileReproWorkbenches(runtime: PreparedDaemonRuntime): Promise<void> {
+  runtime.nextWorkbenchReconcileAtMs = Date.now() + 1_000;
+  try {
+    const result = await reconcileReproWorkbenchArtifacts({
+      loopStore: runtime.loopStore,
+      bindings: runtime.workbenchBindings,
+      resolveWorkspaceCwd: (workspaceId) =>
+        resolveWorkspaceLocalPath(runtime.options.db, workspaceId),
+    });
+    for (const failure of result.errors) {
+      console.error(
+        `[spark-daemon] Repro Workbench reconcile failed for ${failure.loopId}: ${failure.message}`,
+      );
+    }
+  } catch (error) {
+    console.error("[spark-daemon] Repro Workbench reconciliation failed", error);
+  }
 }
 
 async function runSessionCompletionReconcileLoop(runtime: PreparedDaemonRuntime): Promise<void> {

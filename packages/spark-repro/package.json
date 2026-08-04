@@ -13,7 +13,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./work-summary": "./src/work-summary.ts"
+    "./work-summary": "./src/work-summary.ts",
+    "./workbench": "./src/workbench.ts"
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
@@ -21,7 +22,8 @@
   },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
-    "@zendev-lab/spark-loop": "workspace:^"
+    "@zendev-lab/spark-loop": "workspace:^",
+    "@zendev-lab/spark-protocol": "workspace:^"
   },
   "devDependencies": {
     "@stryker-mutator/core": "catalog:",

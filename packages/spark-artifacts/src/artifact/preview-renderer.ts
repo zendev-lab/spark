@@ -1,5 +1,11 @@
 import { marked } from "marked";
 import sanitizeHtml from "sanitize-html";
+import {
+  SPARK_A2UI_MAX_COMPONENTS,
+  normalizeSparkA2uiDocument,
+  resolveSparkA2uiDataPath,
+  type SparkA2uiSurface,
+} from "@zendev-lab/spark-protocol/a2ui";
 
 import { parseSafeMdxLite, type SafeMdxLiteBlock } from "./safe-mdx-lite.ts";
 import type { PreviewContentFormat } from "./types.ts";
@@ -17,11 +23,7 @@ export interface ArtifactPreviewRenderResult {
 
 type JsonRecord = Record<string, unknown>;
 
-const maximumA2uiComponents = 500;
 const maximumA2uiDepth = 32;
-const supportedA2uiVersions = new Set(["v0.9", "v0.9.1"]);
-const supportedA2uiCatalogPattern =
-  /a2ui\.org\/specification\/v0_9(?:_1)?\/catalogs\/basic\/catalog\.json$/u;
 
 export function renderArtifactPreviewDocument(
   input: ArtifactPreviewDocumentInput,
@@ -100,165 +102,29 @@ function renderSafeMdxLiteBlock(block: SafeMdxLiteBlock): string {
   return `<aside class="callout ${escapeHtml(block.tone)}">${block.title ? `<strong>${escapeHtml(block.title)}</strong>` : ""}${renderMarkdown(block.body)}</aside>`;
 }
 
-interface A2uiSurface {
-  id: string;
-  catalogId: string;
-  components: Map<string, JsonRecord>;
-  data: unknown;
-  deleted: boolean;
-}
-
-interface A2uiState {
-  surfaces: Map<string, A2uiSurface>;
-  diagnostics: string[];
-  latestSurfaceId?: string;
-}
-
 function renderA2ui(content: string): { html: string; diagnostics: string[] } {
-  const state: A2uiState = { surfaces: new Map(), diagnostics: [] };
-  const messages = parseA2uiMessages(content, state.diagnostics);
-  for (const [index, message] of messages.entries()) applyA2uiMessage(state, message, index);
-
-  const surface = state.latestSurfaceId ? state.surfaces.get(state.latestSurfaceId) : undefined;
-  const { diagnostics } = state;
+  const document = normalizeSparkA2uiDocument(content);
+  const surface = document.latestSurfaceId
+    ? document.surfaces.find((candidate) => candidate.surfaceId === document.latestSurfaceId)
+    : undefined;
+  const { diagnostics } = document;
   if (!surface || surface.deleted) {
     return { html: '<div class="empty-state">No renderable A2UI surface.</div>', diagnostics };
   }
-  if (!surface.components.has("root"))
-    diagnostics.push(`surface ${surface.id}: missing root component`);
+  if (!surface.components.root)
+    diagnostics.push(`surface ${surface.surfaceId}: missing root component`);
   const html = renderA2uiComponent(
     { surface, scope: "/", ancestors: new Set(), diagnostics, depth: 0 },
     "root",
   );
   return {
-    html: `<section class="a2ui-surface" data-surface-id="${escapeHtml(surface.id)}">${html || '<div class="empty-state">Waiting for root component.</div>'}</section>`,
+    html: `<section class="a2ui-surface" data-surface-id="${escapeHtml(surface.surfaceId)}">${html || '<div class="empty-state">Waiting for root component.</div>'}</section>`,
     diagnostics,
   };
 }
 
-function applyA2uiMessage(state: A2uiState, message: unknown, index: number): void {
-  if (!isRecord(message) || !supportedA2uiVersions.has(stringValue(message.version) ?? "")) {
-    state.diagnostics.push(`message ${index + 1}: expected A2UI version v0.9 or v0.9.1`);
-    return;
-  }
-  if (isRecord(message.createSurface)) {
-    applyA2uiCreateSurface(state, message.createSurface, index);
-    return;
-  }
-  if (isRecord(message.updateComponents)) {
-    applyA2uiComponentUpdate(state, message.updateComponents, index);
-    return;
-  }
-  if (isRecord(message.updateDataModel)) {
-    applyA2uiDataUpdate(state, message.updateDataModel, index);
-    return;
-  }
-  if (isRecord(message.deleteSurface)) {
-    applyA2uiDeleteSurface(state, message.deleteSurface);
-    return;
-  }
-  state.diagnostics.push(`message ${index + 1}: unsupported A2UI envelope`);
-}
-
-function applyA2uiCreateSurface(state: A2uiState, payload: JsonRecord, index: number): void {
-  const surfaceId = stringValue(payload.surfaceId);
-  const catalogId = stringValue(payload.catalogId);
-  if (!surfaceId || !catalogId) {
-    state.diagnostics.push(`message ${index + 1}: createSurface requires surfaceId and catalogId`);
-    return;
-  }
-  if (!supportedA2uiCatalogPattern.test(catalogId)) {
-    state.diagnostics.push(`surface ${surfaceId}: unsupported catalog ${catalogId}`);
-    return;
-  }
-  state.surfaces.set(surfaceId, {
-    id: surfaceId,
-    catalogId,
-    components: new Map(),
-    data: {},
-    deleted: false,
-  });
-  state.latestSurfaceId = surfaceId;
-}
-
-function applyA2uiComponentUpdate(state: A2uiState, payload: JsonRecord, index: number): void {
-  const surface = surfaceForMessage(state.surfaces, payload, state.diagnostics, index);
-  if (!surface) return;
-  const components = payload.components;
-  if (!Array.isArray(components)) {
-    state.diagnostics.push(`message ${index + 1}: updateComponents.components must be an array`);
-    return;
-  }
-  for (const component of components.slice(0, maximumA2uiComponents)) {
-    if (!isRecord(component)) continue;
-    const id = stringValue(component.id);
-    const name = stringValue(component.component);
-    if (id && name) surface.components.set(id, component);
-  }
-  if (components.length > maximumA2uiComponents) {
-    state.diagnostics.push(
-      `surface ${surface.id}: component count capped at ${maximumA2uiComponents}`,
-    );
-  }
-  state.latestSurfaceId = surface.id;
-}
-
-function applyA2uiDataUpdate(state: A2uiState, payload: JsonRecord, index: number): void {
-  const surface = surfaceForMessage(state.surfaces, payload, state.diagnostics, index);
-  if (!surface) return;
-  surface.data = applyJsonPointerUpdate(
-    surface.data,
-    stringValue(payload.path) ?? "/",
-    payload.value,
-  );
-  state.latestSurfaceId = surface.id;
-}
-
-function applyA2uiDeleteSurface(state: A2uiState, payload: JsonRecord): void {
-  const surfaceId = stringValue(payload.surfaceId);
-  const surface = surfaceId ? state.surfaces.get(surfaceId) : undefined;
-  if (surface) surface.deleted = true;
-}
-
-function parseA2uiMessages(content: string, diagnostics: string[]): unknown[] {
-  const trimmed = content.trim();
-  if (!trimmed) return [];
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (Array.isArray(parsed)) return parsed;
-    if (isRecord(parsed) && Array.isArray(parsed.messages)) return parsed.messages;
-    return [parsed];
-  } catch {
-    const messages: unknown[] = [];
-    for (const [index, line] of trimmed.split(/\r?\n/u).entries()) {
-      if (!line.trim()) continue;
-      try {
-        messages.push(JSON.parse(line) as unknown);
-      } catch {
-        diagnostics.push(`line ${index + 1}: invalid JSONL message`);
-      }
-    }
-    return messages;
-  }
-}
-
-function surfaceForMessage(
-  surfaces: Map<string, A2uiSurface>,
-  payload: JsonRecord,
-  diagnostics: string[],
-  index: number,
-) {
-  const surfaceId = stringValue(payload.surfaceId);
-  const surface = surfaceId ? surfaces.get(surfaceId) : undefined;
-  if (!surface || surface.deleted) {
-    diagnostics.push(`message ${index + 1}: unknown surface ${surfaceId ?? "(missing)"}`);
-    return undefined;
-  }
-  return surface;
-}
-
 interface A2uiComponentContext {
-  surface: A2uiSurface;
+  surface: SparkA2uiSurface;
   scope: string;
   ancestors: Set<string>;
   diagnostics: string[];
@@ -278,14 +144,14 @@ interface A2uiComponentView {
 function renderA2uiComponent(context: A2uiComponentContext, componentId: string): string {
   const { surface, ancestors, diagnostics, depth } = context;
   if (depth > maximumA2uiDepth) {
-    diagnostics.push(`surface ${surface.id}: component depth capped at ${maximumA2uiDepth}`);
+    diagnostics.push(`surface ${surface.surfaceId}: component depth capped at ${maximumA2uiDepth}`);
     return "";
   }
   if (ancestors.has(componentId)) {
-    diagnostics.push(`surface ${surface.id}: component cycle at ${componentId}`);
+    diagnostics.push(`surface ${surface.surfaceId}: component cycle at ${componentId}`);
     return "";
   }
-  const component = surface.components.get(componentId);
+  const component = surface.components[componentId];
   if (!component) return `<div class="missing-component">Missing ${escapeHtml(componentId)}</div>`;
 
   const descendantContext = {
@@ -293,7 +159,8 @@ function renderA2uiComponent(context: A2uiComponentContext, componentId: string)
     ancestors: new Set(ancestors).add(componentId),
     depth: depth + 1,
   };
-  const dynamic = (key: string) => resolveDynamicValue(component[key], surface.data, context.scope);
+  const dynamic = (key: string) =>
+    resolveDynamicValue(component[key], surface.dataModel, context.scope);
   const view: A2uiComponentView = {
     context: descendantContext,
     component,
@@ -308,7 +175,7 @@ function renderA2uiComponent(context: A2uiComponentContext, componentId: string)
     const html = renderer(view);
     if (html !== undefined) return html;
   }
-  diagnostics.push(`surface ${surface.id}: unsupported component ${view.name}`);
+  diagnostics.push(`surface ${surface.surfaceId}: unsupported component ${view.name}`);
   return `<div class="missing-component">Unsupported ${escapeHtml(view.name)}</div>`;
 }
 
@@ -337,7 +204,11 @@ function renderA2uiTabs(view: A2uiComponentView): string {
   return `<div class="a2ui-tabs">${tabs
     .flatMap((tab) => {
       if (!isRecord(tab)) return [];
-      const title = resolveDynamicValue(tab.title, view.context.surface.data, view.context.scope);
+      const title = resolveDynamicValue(
+        tab.title,
+        view.context.surface.dataModel,
+        view.context.scope,
+      );
       const tabChild = stringValue(tab.child);
       const body = tabChild ? renderA2uiComponent(view.context, tabChild) : "";
       return [`<section><h3>${escapeHtml(stringifyDynamic(title))}</h3>${body}</section>`];
@@ -360,7 +231,7 @@ function renderA2uiControl(view: A2uiComponentView): string | undefined {
     const rendered = options
       .flatMap((option) => {
         if (!isRecord(option)) return [];
-        const label = resolveDynamicValue(option.label, context.surface.data, context.scope);
+        const label = resolveDynamicValue(option.label, context.surface.dataModel, context.scope);
         return [`<option>${escapeHtml(stringifyDynamic(label))}</option>`];
       })
       .join("");
@@ -414,12 +285,12 @@ function renderA2uiChildren(context: A2uiComponentContext, value: unknown): stri
   const path = stringValue(value.path);
   const templateId = stringValue(value.componentId);
   const items = path
-    ? resolveJsonPointer(context.surface.data, resolveScopedPath(path, context.scope))
+    ? resolveSparkA2uiDataPath(context.surface.dataModel, resolveScopedPath(path, context.scope))
     : undefined;
   if (!templateId || !Array.isArray(items)) return "";
   const absolutePath = resolveScopedPath(path ?? "/", context.scope);
   return items
-    .slice(0, maximumA2uiComponents)
+    .slice(0, SPARK_A2UI_MAX_COMPONENTS)
     .map((_, index) =>
       renderA2uiComponent(
         { ...context, scope: `${absolutePath.replace(/\/$/u, "")}/${index}` },
@@ -432,11 +303,11 @@ function renderA2uiChildren(context: A2uiComponentContext, value: unknown): stri
 function resolveDynamicValue(value: unknown, data: unknown, scope: string): unknown {
   if (!isRecord(value)) return value;
   const path = stringValue(value.path);
-  if (path) return resolveJsonPointer(data, resolveScopedPath(path, scope));
+  if (path) return resolveSparkA2uiDataPath(data, resolveScopedPath(path, scope));
   if (stringValue(value.call) === "formatString" && isRecord(value.args)) {
     const template = stringValue(value.args.value) ?? "";
     return template.replace(/\$\{([^}]+)\}/gu, (_match, expression: string) =>
-      stringifyDynamic(resolveJsonPointer(data, resolveScopedPath(expression.trim(), scope))),
+      stringifyDynamic(resolveSparkA2uiDataPath(data, resolveScopedPath(expression.trim(), scope))),
     );
   }
   return "";
@@ -445,84 +316,6 @@ function resolveDynamicValue(value: unknown, data: unknown, scope: string): unkn
 function resolveScopedPath(path: string, scope: string) {
   if (path.startsWith("/")) return path;
   return `${scope.replace(/\/$/u, "")}/${path}`;
-}
-
-function resolveJsonPointer(root: unknown, pointer: string): unknown {
-  if (pointer === "" || pointer === "/") return root;
-  let current = root;
-  for (const token of pointer.split("/").slice(1).map(decodeJsonPointerToken)) {
-    if (Array.isArray(current)) {
-      const index = Number(token);
-      if (!Number.isSafeInteger(index) || index < 0) return undefined;
-      current = current[index];
-      continue;
-    }
-    if (!isRecord(current) || isUnsafeObjectKey(token)) return undefined;
-    current = current[token];
-  }
-  return current;
-}
-
-function applyJsonPointerUpdate(root: unknown, pointer: string, value: unknown): unknown {
-  if (pointer === "" || pointer === "/") return value;
-  const tokens = pointer.split("/").slice(1).map(decodeJsonPointerToken);
-  if (tokens.some(isUnsafeObjectKey)) return root;
-  const clone = structuredClone(isRecord(root) || Array.isArray(root) ? root : {});
-  let current: JsonRecord | unknown[] = clone as JsonRecord | unknown[];
-  for (let index = 0; index < tokens.length - 1; index += 1) {
-    const descended = descendJsonPointerContainer(
-      current,
-      tokens[index] ?? "",
-      tokens[index + 1] ?? "",
-    );
-    if (!descended) return root;
-    current = descended;
-  }
-  return assignJsonPointerValue(current, tokens.at(-1) ?? "", value) ? clone : root;
-}
-
-function descendJsonPointerContainer(
-  current: JsonRecord | unknown[],
-  token: string,
-  nextToken: string,
-): JsonRecord | unknown[] | undefined {
-  if (Array.isArray(current)) {
-    const index = Number(token);
-    if (!Number.isSafeInteger(index) || index < 0) return undefined;
-    current[index] = jsonPointerContainer(current[index], nextToken);
-    return current[index] as JsonRecord | unknown[];
-  }
-  current[token] = jsonPointerContainer(current[token], nextToken);
-  return current[token] as JsonRecord | unknown[];
-}
-
-function assignJsonPointerValue(
-  current: JsonRecord | unknown[],
-  token: string,
-  value: unknown,
-): boolean {
-  if (Array.isArray(current)) {
-    const index = Number(token);
-    if (!Number.isSafeInteger(index) || index < 0) return false;
-    current[index] = value;
-    return true;
-  }
-  if (value === undefined) Reflect.deleteProperty(current, token);
-  else current[token] = value;
-  return true;
-}
-
-function jsonPointerContainer(value: unknown, nextToken: string): JsonRecord | unknown[] {
-  if (isRecord(value) || Array.isArray(value)) return value;
-  return /^\d+$/u.test(nextToken) ? [] : {};
-}
-
-function decodeJsonPointerToken(value: string) {
-  return value.replace(/~1/gu, "/").replace(/~0/gu, "~");
-}
-
-function isUnsafeObjectKey(value: string) {
-  return value === "__proto__" || value === "prototype" || value === "constructor";
 }
 
 function stringifyDynamic(value: unknown): string {

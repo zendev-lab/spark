@@ -1131,6 +1131,8 @@ export {
   type ArtifactRef,
   type ArtifactStoreOptions,
   type PutArtifactInput,
+  type PutManagedDocumentInput,
+  type PutManagedDocumentResult,
   type StoredArtifactBody,
   type StoredArtifactKind,
   type TemporaryArtifactPreview,

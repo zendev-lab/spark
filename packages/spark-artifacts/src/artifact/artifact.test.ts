@@ -25,6 +25,65 @@ describe("artifact kinds", () => {
     expect(ARTIFACT_KINDS).toEqual(["issue", "git_change", "document"]);
   });
 
+  it("CAS-updates daemon-managed Documents and rejects writes after sealing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-managed-document-"));
+    const store = defaultArtifactStore(dir);
+    const ref = "artifact:managed-workbench" as ArtifactRef;
+    const first = await store.putManagedDocument({
+      ref,
+      bindingId: "workbench-binding-1",
+      title: "Workbench",
+      mediaType: "application/vnd.a2ui+json",
+      content: '{"messages":[]}',
+      expectedRevision: null,
+    });
+    expect(first.artifact.body.revision).toBe(1);
+
+    await expect(
+      store.putManagedDocument({
+        ref,
+        bindingId: "workbench-binding-1",
+        title: "Workbench",
+        mediaType: "application/vnd.a2ui+json",
+        content: '{"messages":[{}]}',
+        expectedRevision: null,
+      }),
+    ).rejects.toThrow("DOCUMENT_REVISION_CONFLICT");
+
+    const sealed = await store.putManagedDocument({
+      ref,
+      bindingId: "workbench-binding-1",
+      title: "Workbench",
+      mediaType: "application/vnd.a2ui+json",
+      content: '{"messages":[{}]}',
+      expectedRevision: 1,
+      seal: true,
+    });
+    expect(sealed.artifact.body).toMatchObject({
+      revision: 2,
+      management: { lifecycle: "sealed" },
+    });
+    await expect(
+      store.putManagedDocument({
+        ref,
+        bindingId: "workbench-binding-1",
+        title: "Workbench",
+        mediaType: "application/vnd.a2ui+json",
+        content: '{"messages":[{"late":true}]}',
+        expectedRevision: 2,
+      }),
+    ).rejects.toThrow("managed Document is sealed");
+    await expect(
+      store.update(ref, {
+        body: {
+          ...sealed.artifact.body,
+          content: "forged",
+          revision: 3,
+        },
+      }),
+    ).rejects.toThrow("managed Document is sealed");
+  });
+
   it("stores documents with continuous revisioned updates", async () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-artifact-preview-"));
     const store = defaultArtifactStore(dir);

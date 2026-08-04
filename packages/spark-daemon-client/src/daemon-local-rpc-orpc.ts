@@ -268,6 +268,11 @@ const invocationLoopInvokers = {
       sparkLocalRpcProcedureSchemas["loop.schedule"].output,
       client.loop.schedule(input, options),
     ),
+  "loop.control": (client, input, options) =>
+    parseSparkDaemonOrpcOutput(
+      sparkLocalRpcProcedureSchemas["loop.control"].output,
+      client.loop.control(input, options),
+    ),
 } satisfies Pick<
   SparkDaemonOrpcProcedureInvokerMap,
   | "invocation.list"
@@ -283,6 +288,7 @@ const invocationLoopInvokers = {
   | "loop.restart"
   | "loop.wake"
   | "loop.schedule"
+  | "loop.control"
 >;
 
 const workspaceInvokers = {

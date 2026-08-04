@@ -60,6 +60,7 @@ export {
   requestProviderAuthSetApiKey,
   requestProviderAuthSnapshot,
   requestLoopRestart,
+  requestLoopControl,
   requestLoopSchedule,
   requestLoopStart,
   requestLoopStatus,

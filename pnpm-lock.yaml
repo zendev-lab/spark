@@ -1109,6 +1109,9 @@ importers:
       '@zendev-lab/spark-loop':
         specifier: workspace:^
         version: link:../spark-loop
+      '@zendev-lab/spark-protocol':
+        specifier: workspace:^
+        version: link:../spark-protocol
     devDependencies:
       '@stryker-mutator/core':
         specifier: 'catalog:'

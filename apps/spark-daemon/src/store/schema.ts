@@ -160,6 +160,47 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       PRIMARY KEY (loop_id, generation)
     );
 
+    CREATE TABLE IF NOT EXISTS workbench_artifact_bindings (
+      binding_id TEXT PRIMARY KEY,
+      owner_session_id TEXT NOT NULL,
+      goal_id TEXT NOT NULL,
+      workflow_run_id TEXT NOT NULL,
+      loop_id TEXT NOT NULL UNIQUE REFERENCES loop_wakeups(loop_id) ON DELETE CASCADE,
+      repro_id TEXT NOT NULL,
+      artifact_ref TEXT NOT NULL UNIQUE,
+      revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+      artifact_hash TEXT,
+      projection_digest TEXT,
+      lifecycle TEXT NOT NULL CHECK (lifecycle IN ('pending', 'live', 'sealed', 'error')),
+      generation INTEGER NOT NULL CHECK (generation > 0),
+      last_stage TEXT CHECK (last_stage IS NULL OR last_stage IN ('contract', 'reference', 'target', 'alignment', 'delivery')),
+      last_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      sealed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS workbench_checkpoints (
+      checkpoint_id TEXT NOT NULL,
+      binding_id TEXT NOT NULL REFERENCES workbench_artifact_bindings(binding_id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('stage', 'final', 'manual')),
+      stage TEXT NOT NULL CHECK (stage IN ('contract', 'reference', 'target', 'alignment', 'delivery')),
+      artifact_ref TEXT NOT NULL UNIQUE,
+      revision INTEGER NOT NULL CHECK (revision > 0),
+      artifact_hash TEXT NOT NULL,
+      summary_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (binding_id, checkpoint_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS workbench_action_receipts (
+      idempotency_key TEXT PRIMARY KEY,
+      request_digest TEXT NOT NULL,
+      binding_id TEXT NOT NULL REFERENCES workbench_artifact_bindings(binding_id) ON DELETE CASCADE,
+      result_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS invocation_event_deliveries (
       destination TEXT NOT NULL,
       invocation_id TEXT NOT NULL REFERENCES invocations(id) ON DELETE CASCADE,
@@ -404,6 +445,10 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS loop_goal_settlements_pending_idx
       ON loop_goal_settlements(status, updated_at)
       WHERE status IN ('pending', 'error');
+    CREATE INDEX IF NOT EXISTS workbench_artifact_bindings_session_idx
+      ON workbench_artifact_bindings(owner_session_id, lifecycle, updated_at);
+    CREATE INDEX IF NOT EXISTS workbench_checkpoints_binding_idx
+      ON workbench_checkpoints(binding_id, created_at);
     CREATE INDEX IF NOT EXISTS invocation_events_cursor_idx
       ON invocation_events(invocation_id, sequence);
     CREATE INDEX IF NOT EXISTS invocation_events_delivery_order_idx
@@ -443,6 +488,7 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS lens_code_edges_to_idx
       ON lens_code_edges(workspace_root, revision_digest, to_path);
   `);
+  migrateWorkbenchCheckpointKey(db);
   migrateSessionRequestCompletionDeliverySchema(db);
   migrateChannelDeliverySchema(db);
   addMissingRuntimeCommandReceiptColumns(db);
@@ -466,6 +512,51 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
   migrateWorkspaceLifecycleTable(db);
   migrateSparkDaemonRegistrationTables(db);
   backfillSparkDaemonRegistrationTables(db);
+}
+
+function migrateWorkbenchCheckpointKey(db: DatabaseSync): void {
+  const primaryKey = (
+    db.prepare("PRAGMA table_info(workbench_checkpoints)").all() as unknown as Array<{
+      name: string;
+      pk: number;
+    }>
+  )
+    .filter((column) => column.pk > 0)
+    .sort((left, right) => left.pk - right.pk)
+    .map((column) => column.name);
+  if (primaryKey.join(",") === "binding_id,checkpoint_id") return;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.exec(`
+      ALTER TABLE workbench_checkpoints RENAME TO workbench_checkpoints_legacy_key;
+      CREATE TABLE workbench_checkpoints (
+        checkpoint_id TEXT NOT NULL,
+        binding_id TEXT NOT NULL REFERENCES workbench_artifact_bindings(binding_id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('stage', 'final', 'manual')),
+        stage TEXT NOT NULL CHECK (stage IN ('contract', 'reference', 'target', 'alignment', 'delivery')),
+        artifact_ref TEXT NOT NULL UNIQUE,
+        revision INTEGER NOT NULL CHECK (revision > 0),
+        artifact_hash TEXT NOT NULL,
+        summary_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (binding_id, checkpoint_id)
+      );
+      INSERT OR IGNORE INTO workbench_checkpoints (
+        checkpoint_id, binding_id, kind, stage, artifact_ref, revision,
+        artifact_hash, summary_json, created_at
+      )
+      SELECT checkpoint_id, binding_id, kind, stage, artifact_ref, revision,
+             artifact_hash, summary_json, created_at
+      FROM workbench_checkpoints_legacy_key;
+      DROP TABLE workbench_checkpoints_legacy_key;
+      CREATE INDEX IF NOT EXISTS workbench_checkpoints_binding_idx
+        ON workbench_checkpoints(binding_id, created_at);
+    `);
+    db.exec("COMMIT");
+  } catch (error) {
+    if (db.isTransaction) db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 function addMissingUsageExecutionColumns(db: DatabaseSync): void {
