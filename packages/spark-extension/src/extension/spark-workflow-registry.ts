@@ -19,9 +19,7 @@ export interface SparkWorkflowDescriptor {
   description: string;
   path: string;
   stages: string[];
-  /** @deprecated Use stages. */
-  phases: string[];
-  mode?: WorkflowDescriptor["mode"];
+  phase?: WorkflowDescriptor["phase"];
 }
 
 export type SparkWorkflowRegistryError = WorkflowRegistryError;
@@ -72,7 +70,6 @@ function toSparkWorkflowDescriptor(workflow: WorkflowDescriptor): SparkWorkflowD
     description: workflow.description,
     path: workflow.path,
     stages: workflow.stages,
-    phases: workflow.stages,
-    mode: workflow.mode,
+    phase: workflow.phase,
   };
 }

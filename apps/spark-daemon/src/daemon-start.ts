@@ -8,6 +8,7 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { SparkSessionMailStore } from "@zendev-lab/spark-session";
 import { resolveSparkUserPaths, writePrivateFile } from "@zendev-lab/spark-system";
+import { resolveWorkflowDefinition } from "@zendev-lab/spark-workflows";
 import { readSparkDaemonConfig, type SparkDaemonConfig } from "./config.js";
 import {
   getSparkDaemonServerProfile,
@@ -77,6 +78,10 @@ import { loopUpdateEvent, SparkLoopStore, type SparkLoopRecord } from "./store/l
 import { SparkLoopEvaluatorRegistry } from "./store/loop-evaluators.ts";
 import { migrateLegacyLoopState } from "./store/loop-state-migration.ts";
 import { createGoalLoopCompletionEvaluator } from "./spark/goal-loop-evaluator.ts";
+import {
+  reproCompletionEvaluator,
+  reproPendingDecisionEvaluator,
+} from "./spark/repro-loop-evaluator.ts";
 import { reconcileLoopGoalSettlements } from "./spark/loop-goal-settlements.ts";
 import {
   getWorkspaceById,
@@ -268,8 +273,21 @@ async function createPreparedDaemonRuntime(
       }),
       checkpoints: ["after_tick"],
     },
+    "builtin:repro-pending-decision": {
+      evaluator: reproPendingDecisionEvaluator,
+      checkpoints: ["before_tick"],
+    },
+    "builtin:repro-reviewer": {
+      evaluator: reproCompletionEvaluator,
+      checkpoints: ["after_tick"],
+    },
   });
-  const loopStore = new SparkLoopStore(options.db, invocationStore, loopEvaluators);
+  const loopStore = new SparkLoopStore(options.db, invocationStore, loopEvaluators, {
+    async resolve({ cwd, selector }) {
+      const definition = await resolveWorkflowDefinition({ cwd, selector });
+      return { digest: definition.digest, policy: definition.loop };
+    },
+  });
   const channelReplyDeliveryStore = new ChannelReplyDeliveryStore(options.db, invocationStore);
   channelReplyDeliveryStore.recoverInterrupted();
   recoverInterruptedRuntimeCommandReceipts(options.db);

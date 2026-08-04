@@ -564,7 +564,7 @@ export const sparkSessionGoalWorkViewSchema = z.object({
 
 export const sparkSessionReproCurrentStepViewSchema = z.object({
   id: z.string().min(1),
-  stage: z.enum(["setup", "scaffold", "reproduce", "scale", "deliver"]),
+  stage: z.enum(["contract", "reference", "target", "alignment", "delivery"]),
   goal: z.string().min(1),
   status: z.enum(["pending", "in_progress", "done", "blocked", "cancelled"]),
   authority: z.enum(["safe_local", "ask_decision", "ask_approval"]),
@@ -588,7 +588,7 @@ export const sparkSessionReproWorkViewSchema = z.object({
   successCriteria: z.array(z.string().min(1)),
   evidenceRequired: z.array(z.string().min(1)),
   stage: z.object({
-    name: z.enum(["setup", "scaffold", "reproduce", "scale", "deliver"]),
+    name: z.enum(["contract", "reference", "target", "alignment", "delivery"]),
     title: z.string().min(1),
     index: z.number().int().nonnegative(),
     total: z.number().int().positive(),

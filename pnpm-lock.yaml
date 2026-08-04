@@ -1371,6 +1371,9 @@ importers:
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:../spark-core
+      '@zendev-lab/spark-protocol':
+        specifier: workspace:^
+        version: link:../spark-protocol
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
@@ -1386,6 +1389,9 @@ importers:
       typebox:
         specifier: 'catalog:'
         version: 1.3.9
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       typescript:
         specifier: 'catalog:'

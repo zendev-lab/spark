@@ -1,4 +1,4 @@
-import { access, appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 
 import {
@@ -19,6 +19,7 @@ import {
   type WorkflowRunSnapshot,
 } from "./types.ts";
 import { projectWorkflowRunEvents } from "./events.ts";
+import { parseWorkflowScript } from "./metadata.ts";
 import {
   hashWorkflowScript,
   type SparkDynamicWorkflowRunApproval,
@@ -401,6 +402,7 @@ export class SparkDynamicWorkflowEventStore {
   }): Promise<SparkDynamicWorkflowRunSaveResult | undefined> {
     const record = await this.get(input.runRef);
     if (!record) return undefined;
+    const parsed = parseWorkflowScript(record.script);
     const savedAt = nowIso();
     const scope = input.scope ?? "workspace";
     const workflowId = normalizeWorkflowId(
@@ -408,12 +410,8 @@ export class SparkDynamicWorkflowEventStore {
     );
     const dir = scope === "user" ? userWorkflowDir() : workspaceWorkflowDir(input.cwd);
     const filePath = await nextAvailableWorkflowPath(dir, workflowId);
-    await mkdir(dirname(filePath.path), { recursive: true });
-    await writeFile(
-      filePath.path,
-      record.script.endsWith("\n") ? record.script : `${record.script}\n`,
-      "utf8",
-    );
+    await writeFile(filePath.path, savedWorkflowMarkdown(filePath.savedId, parsed.meta), "utf8");
+    await writeFile(join(dirname(filePath.path), "workflow.js"), `${parsed.body.trim()}\n`, "utf8");
     const savedWorkflow: SparkDynamicWorkflowRunSavedWorkflow = {
       selector: `${scope}:${filePath.savedId}`,
       path: scope === "workspace" ? relative(input.cwd, filePath.path) : filePath.path,
@@ -941,6 +939,8 @@ function normalizeWorkflowId(value: string): string {
     value
       .toLowerCase()
       .replace(/[^a-z0-9_-]+/gu, "-")
+      .replaceAll("_", "-")
+      .replace(/-+/gu, "-")
       .replace(/^-+|-+$/gu, "") || "workflow"
   );
 }
@@ -949,22 +949,41 @@ async function nextAvailableWorkflowPath(
   dir: string,
   workflowId: string,
 ): Promise<{ path: string; savedId: string }> {
+  await mkdir(dir, { recursive: true });
   for (let index = 0; index < 1000; index += 1) {
     const savedId = index === 0 ? workflowId : `${workflowId}-${index + 1}`;
-    const path = join(dir, `${savedId}.js`);
-    if (!(await pathExists(path))) return { path, savedId };
+    const workflowDirectory = join(dir, savedId);
+    const path = join(workflowDirectory, "WORKFLOW.md");
+    try {
+      await mkdir(workflowDirectory);
+      return { path, savedId };
+    } catch (error) {
+      if (isAlreadyExistsError(error)) continue;
+      throw error;
+    }
   }
   throw new Error(`dynamic workflow save could not find available id for ${workflowId}`);
 }
 
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch (error) {
-    if (isMissingFileError(error)) return false;
-    throw error;
-  }
+function savedWorkflowMarkdown(id: string, meta: WorkflowMeta): string {
+  const stages = meta.stages ?? meta.phases ?? [];
+  const normalizedStages = (stages.length > 0 ? stages : [{ title: "run" }]).map(
+    (stage, index) => ({
+      id:
+        stage.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/gu, "-")
+          .replace(/^-|-$/gu, "") || `stage-${index + 1}`,
+      title: stage.title,
+      handler: index === 0 ? "workflow.js" : undefined,
+    }),
+  );
+  return `---\nid: ${id}\ntitle: ${JSON.stringify(meta.name)}\ndescription: ${JSON.stringify(meta.description)}\nstages:\n${normalizedStages
+    .map(
+      (stage) =>
+        `  - id: ${stage.id}\n    title: ${JSON.stringify(stage.title)}${stage.handler ? `\n    handler: ${stage.handler}` : ""}`,
+    )
+    .join("\n")}\n---\nSaved from a reviewed managed WorkflowRun.\n`;
 }
 
 function isMissingFileError(error: unknown): boolean {
@@ -973,5 +992,14 @@ function isMissingFileError(error: unknown): boolean {
     typeof error === "object" &&
     "code" in error &&
     (error as { code?: unknown }).code === "ENOENT",
+  );
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "EEXIST",
   );
 }

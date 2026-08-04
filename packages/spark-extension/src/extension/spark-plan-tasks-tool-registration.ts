@@ -183,7 +183,7 @@ export function registerSparkPlanTasksTool(
       const repro = await readSessionRepro(cwd, ctx);
       if (repro?.status === "active" && repro.projectRef === project.ref) {
         const stage = currentReproStage(repro);
-        if (stage.name === "reproduce" || stage.name === "scale") {
+        if (stage.name === "target" || stage.name === "alignment") {
           const experimentIssues = collectReproExperimentIssues(tasks);
           if (experimentIssues.length > 0) {
             return {

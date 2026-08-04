@@ -524,7 +524,12 @@ describe("migrateSparkDaemonDatabase", () => {
       migrateSparkDaemonDatabase(db);
 
       expect(columnNames(db, "loop_wakeups")).toEqual(
-        expect.arrayContaining(["policy_json", "checkpoint_json", "counters_json"]),
+        expect.arrayContaining([
+          "policy_json",
+          "workflow_definition_digest",
+          "checkpoint_json",
+          "counters_json",
+        ]),
       );
       expect(tableExists(db, "loop_goal_settlements")).toBe(true);
       expect(

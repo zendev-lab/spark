@@ -12,6 +12,28 @@ import { sparkSessionOwnerKey, type SparkSessionContext } from "./session-identi
 
 export type SparkSessionGoalStatus = "active" | "paused" | "complete";
 export type SparkSessionGoalSource = "explicit" | "inferred" | "agent" | "reviewer";
+export type SparkGoalContractStatus = "draft" | "frozen";
+export interface SparkGoalAuthority {
+  safeLocal: "auto";
+  externalWrites: "ask";
+  destructiveActions: "ask";
+  scopeExpansion: "ask";
+}
+
+/** One Goal Contract shared by direct Goal and domain facades such as Repro. */
+export interface SparkGoalContract {
+  status: SparkGoalContractStatus;
+  objective: string;
+  constraints: string[];
+  nonGoals: string[];
+  successCriteria: string[];
+  evidenceRequired: string[];
+  authority: SparkGoalAuthority;
+  evidenceRefs: EvidenceRef[];
+  createdAt: string;
+  updatedAt: string;
+  frozenAt?: string;
+}
 
 export interface SparkSessionGoalReviewSummary {
   achieved: boolean;
@@ -33,6 +55,8 @@ export interface SparkSessionGoal {
   objective: string;
   status: SparkSessionGoalStatus;
   source: SparkSessionGoalSource;
+  workflowSelector?: `builtin:${string}` | `workspace:${string}` | `user:${string}`;
+  contract: SparkGoalContract;
   pauseReason?: string;
   completedReason?: string;
   lastReviewRef?: string;
@@ -80,6 +104,8 @@ export async function setSessionGoal(
     status?: SparkSessionGoalStatus;
     /** Internal managed-session identity used to bind a queued TaskRun before dispatch. */
     goalId?: string;
+    contract?: Partial<SparkGoalContract>;
+    workflowSelector?: string;
   },
 ): Promise<SparkSessionGoal> {
   const objective = normalizeGoalObjective(input.objective);
@@ -90,10 +116,21 @@ export async function setSessionGoal(
     version: 1,
     goalId: existing ? existing.goalId : input.goalId?.trim() || randomUUID(),
     sessionKey: sparkSessionOwnerKey(ctx),
-    originalObjective: objective,
+    originalObjective: existing?.originalObjective ?? objective,
     objective,
     status: input.status ?? "active",
     source: input.source,
+    workflowSelector:
+      input.workflowSelector === undefined
+        ? existing?.workflowSelector
+        : normalizeGoalWorkflowSelector(input.workflowSelector),
+    contract: createGoalContract({
+      objective,
+      source: input.source,
+      now,
+      existing: existing?.contract,
+      input: input.contract,
+    }),
     createdAt: existing ? existing.createdAt : now,
     updatedAt: now,
   };
@@ -108,6 +145,18 @@ export async function clearSessionGoal(
   await saveSessionGoalSnapshot(cwd, ctx, { version: 1 });
 }
 
+/** Restore a previously loaded, validated Goal after a failed cross-domain activation. */
+export async function restoreSessionGoal(
+  cwd: string,
+  ctx: SparkSessionContext | undefined,
+  goal: SparkSessionGoal | undefined,
+): Promise<void> {
+  if (goal && goal.sessionKey !== sparkSessionOwnerKey(ctx)) {
+    throw new Error("restored goal must belong to the current session");
+  }
+  await saveSessionGoalSnapshot(cwd, ctx, { version: 1, goal });
+}
+
 export async function editSessionGoalObjective(
   cwd: string,
   ctx: SparkSessionContext | undefined,
@@ -119,6 +168,14 @@ export async function editSessionGoalObjective(
   const goal: SparkSessionGoal = {
     ...existing,
     objective: normalizeGoalObjective(objective),
+    contract: {
+      ...existing.contract,
+      status: "draft",
+      objective: normalizeGoalObjective(objective),
+      evidenceRefs: [],
+      frozenAt: undefined,
+      updatedAt: nowIso(),
+    },
     source: "explicit",
     lastReviewRef: undefined,
     lastReviewEvidenceRef: undefined,
@@ -260,12 +317,175 @@ function normalizeSessionGoal(
     objective: requireString(value.objective, filePath, "goal.objective"),
     status,
     source,
+    workflowSelector: normalizeGoalWorkflowSelector(value.workflowSelector, filePath),
+    contract: normalizeStoredGoalContract(value.contract, {
+      objective: requireString(value.objective, filePath, "goal.objective"),
+      source,
+      createdAt: requireString(value.createdAt, filePath, "goal.createdAt"),
+      updatedAt: requireString(value.updatedAt, filePath, "goal.updatedAt"),
+      filePath,
+    }),
     pauseReason: optionalString(value.pauseReason, filePath, "goal.pauseReason"),
     completedReason: optionalString(value.completedReason, filePath, "goal.completedReason"),
     ...normalizeGoalReviewPointer(value, filePath),
     createdAt: requireString(value.createdAt, filePath, "goal.createdAt"),
     updatedAt: requireString(value.updatedAt, filePath, "goal.updatedAt"),
   };
+}
+
+function normalizeGoalWorkflowSelector(value: unknown, filePath?: string) {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string" || !/^(builtin|workspace|user):[a-z0-9][a-z0-9-]*$/u.test(value)) {
+    if (filePath) {
+      throw new JsonStoreFormatError(
+        filePath,
+        "goal.workflowSelector must be a canonical Workflow selector",
+      );
+    }
+    throw new Error("goal workflowSelector must be builtin:<id>, workspace:<id>, or user:<id>");
+  }
+  return value as `builtin:${string}` | `workspace:${string}` | `user:${string}`;
+}
+
+function createGoalContract(input: {
+  objective: string;
+  source: SparkSessionGoalSource;
+  now: string;
+  existing?: SparkGoalContract;
+  input?: Partial<SparkGoalContract>;
+}): SparkGoalContract {
+  const supplied = input.input;
+  const objective = normalizeGoalObjective(supplied?.objective ?? input.objective);
+  const changed = Boolean(input.existing && input.existing.objective !== objective);
+  const status = supplied?.status ?? (changed ? "draft" : input.existing?.status) ?? "draft";
+  return {
+    status,
+    objective,
+    constraints: normalizeContractStrings(supplied?.constraints ?? input.existing?.constraints),
+    nonGoals: normalizeContractStrings(supplied?.nonGoals ?? input.existing?.nonGoals),
+    successCriteria: normalizeContractStrings(
+      supplied?.successCriteria ??
+        (changed ? [objective] : input.existing?.successCriteria) ?? [objective],
+    ),
+    evidenceRequired: normalizeContractStrings(
+      supplied?.evidenceRequired ??
+        input.existing?.evidenceRequired ?? ["trusted reviewer receipt"],
+    ),
+    authority: supplied?.authority ?? input.existing?.authority ?? defaultGoalAuthority(),
+    evidenceRefs: [
+      ...(supplied?.evidenceRefs ?? (changed ? [] : input.existing?.evidenceRefs) ?? []),
+    ],
+    createdAt: supplied?.createdAt ?? input.existing?.createdAt ?? input.now,
+    updatedAt: supplied?.updatedAt ?? input.now,
+    ...(status === "frozen"
+      ? {
+          frozenAt:
+            supplied?.frozenAt ?? (changed ? undefined : input.existing?.frozenAt) ?? input.now,
+        }
+      : {}),
+  };
+}
+
+function normalizeStoredGoalContract(
+  value: unknown,
+  fallback: {
+    objective: string;
+    source: SparkSessionGoalSource;
+    createdAt: string;
+    updatedAt: string;
+    filePath: string;
+  },
+): SparkGoalContract {
+  if (value === undefined) {
+    return createGoalContract({
+      objective: fallback.objective,
+      source: fallback.source,
+      now: fallback.updatedAt,
+    });
+  }
+  if (!isRecord(value)) {
+    throw new JsonStoreFormatError(fallback.filePath, "goal.contract must be an object");
+  }
+  const status = value.status === "frozen" ? "frozen" : value.status === "draft" ? "draft" : null;
+  if (!status) throw new JsonStoreFormatError(fallback.filePath, "goal.contract.status is invalid");
+  const evidenceRefs = Array.isArray(value.evidenceRefs)
+    ? value.evidenceRefs.map((ref, index) =>
+        requireEvidenceRef(
+          requireString(ref, fallback.filePath, `goal.contract.evidenceRefs[${index}]`),
+          fallback.filePath,
+          `goal.contract.evidenceRefs[${index}]`,
+        ),
+      )
+    : [];
+  const authority = normalizeStoredGoalAuthority(value.authority, fallback.filePath);
+  return {
+    status,
+    objective: requireString(value.objective, fallback.filePath, "goal.contract.objective"),
+    constraints: storedContractStrings(value.constraints, fallback.filePath, "constraints"),
+    nonGoals: storedContractStrings(value.nonGoals, fallback.filePath, "nonGoals"),
+    successCriteria: storedContractStrings(
+      value.successCriteria,
+      fallback.filePath,
+      "successCriteria",
+    ),
+    evidenceRequired: storedContractStrings(
+      value.evidenceRequired,
+      fallback.filePath,
+      "evidenceRequired",
+    ),
+    authority,
+    evidenceRefs,
+    createdAt:
+      optionalString(value.createdAt, fallback.filePath, "goal.contract.createdAt") ??
+      fallback.createdAt,
+    updatedAt:
+      optionalString(value.updatedAt, fallback.filePath, "goal.contract.updatedAt") ??
+      fallback.updatedAt,
+    ...(status === "frozen"
+      ? {
+          frozenAt:
+            optionalString(value.frozenAt, fallback.filePath, "goal.contract.frozenAt") ??
+            fallback.updatedAt,
+        }
+      : {}),
+  };
+}
+
+function defaultGoalAuthority(): SparkGoalAuthority {
+  return {
+    safeLocal: "auto",
+    externalWrites: "ask",
+    destructiveActions: "ask",
+    scopeExpansion: "ask",
+  };
+}
+
+function normalizeStoredGoalAuthority(value: unknown, filePath: string): SparkGoalAuthority {
+  if (value === undefined || typeof value === "string") return defaultGoalAuthority();
+  if (
+    !isRecord(value) ||
+    value.safeLocal !== "auto" ||
+    value.externalWrites !== "ask" ||
+    value.destructiveActions !== "ask" ||
+    value.scopeExpansion !== "ask"
+  ) {
+    throw new JsonStoreFormatError(filePath, "goal.contract.authority is invalid");
+  }
+  return defaultGoalAuthority();
+}
+
+function normalizeContractStrings(value: string[] | undefined): string[] {
+  return [...new Set((value ?? []).map((item) => item.trim()).filter(Boolean))];
+}
+
+function storedContractStrings(value: unknown, filePath: string, field: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new JsonStoreFormatError(filePath, `goal.contract.${field} must be an array`);
+  }
+  return normalizeContractStrings(
+    value.map((item, index) => requireString(item, filePath, `goal.contract.${field}[${index}]`)),
+  );
 }
 
 function withoutGoalRuntimeState(goal: SparkSessionGoal): SparkSessionGoal {

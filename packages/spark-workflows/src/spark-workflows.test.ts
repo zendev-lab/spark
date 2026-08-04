@@ -14,6 +14,7 @@ import {
   readSavedWorkflow,
   researchWorkflowScript,
   reviewWorkflowScript,
+  resolveWorkflowDefinition,
   runWorkflowScript,
   type WorkflowRunEvent,
 } from "./index.ts";
@@ -147,6 +148,7 @@ test("spark-workflows lists and reads builtin workflows without frontmatter mode
     [
       "builtin:research",
       "builtin:review",
+      "builtin:repro",
       "builtin:repro-stage-orchestrate",
       "builtin:repro-module-sweep",
       "builtin:repro-first-divergence",
@@ -159,10 +161,11 @@ test("spark-workflows lists and reads builtin workflows without frontmatter mode
     ],
   );
   assert.deepEqual(
-    listing.workflows.map((workflow) => workflow.mode),
+    listing.workflows.map((workflow) => workflow.phase),
     [
       "plan",
       "plan",
+      "implement",
       "implement",
       "implement",
       "implement",
@@ -181,10 +184,9 @@ test("spark-workflows lists and reads builtin workflows without frontmatter mode
     includeUser: false,
   });
   assert.equal(descriptor.source, "builtin");
-  assert.equal(descriptor.mode, "plan");
+  assert.equal(descriptor.phase, "plan");
   assert.equal(descriptor.path, "builtin:research");
-  assert.deepEqual(descriptor.stages, ["Plan", "Search", "Fetch", "Verify", "Report"]);
-  assert.deepEqual(descriptor.phases, ["Plan", "Search", "Fetch", "Verify", "Report"]);
+  assert.deepEqual(descriptor.stages, ["plan", "search", "fetch", "verify", "report"]);
   assert.match(script, /export const meta/);
   const parsed = parseWorkflowScript(script);
   assert.equal(parsed.meta.name, "research");
@@ -200,7 +202,7 @@ test("spark-workflows lists and reads builtin workflows without frontmatter mode
   );
 });
 
-test("spark-workflows rejects non-canonical saved workflow filenames during discovery", async () => {
+test("spark-workflows rejects legacy top-level saved workflow scripts during discovery", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-workflow-canonical-filename-"));
   const workflowDir = join(dir, "workflows");
   try {
@@ -224,7 +226,112 @@ test("spark-workflows rejects non-canonical saved workflow filenames during disc
     assert.equal(listing.errors[0]?.path, path);
     assert.match(
       listing.errors[0]?.error ?? "",
-      /workflow filename "under_score\.js" must use canonical id "under-score\.js"/u,
+      /legacy top-level workflow script under_score\.js is rejected/u,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("WORKFLOW.md v2 extends builtin:repro additively and hashes handler content", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-workflow-v2-repro-"));
+  const root = join(dir, "workflows");
+  const workflowDir = join(root, "strict-repro");
+  try {
+    await mkdir(workflowDir, { recursive: true });
+    await writeFile(
+      join(workflowDir, "WORKFLOW.md"),
+      `---
+id: strict-repro
+title: Strict Repro
+extends: builtin:repro
+skills: [numerical-review]
+roles: [role:reviewer]
+stages:
+  - id: independent-review
+    handler: review.js
+loop:
+  beforeTick:
+    - id: workspace-ready
+      when:
+        kind: expression
+        expression: { op: literal, value: true }
+      then: { action: proceed }
+---
+Add an independent numerical review without weakening Repro gates.
+`,
+      "utf8",
+    );
+    await writeFile(join(workflowDir, "review.js"), "return { reviewed: true }\n", "utf8");
+
+    const first = await resolveWorkflowDefinition({
+      cwd: dir,
+      selector: "workspace:strict-repro",
+      includeUser: false,
+      workspaceWorkflowDir: root,
+    });
+    assert.deepEqual(
+      first.stages.map((stage) => stage.id),
+      ["contract", "reference", "target", "alignment", "delivery", "independent-review"],
+    );
+    assert.equal(first.loop.completion?.selector, "builtin:repro-reviewer");
+    assert.equal(first.loop.beforeTick[0]?.id, "repro-pending-decision");
+    assert.equal(first.loop.beforeTick[1]?.id, "workspace-ready");
+    assert.equal(first.workbench, "live");
+    assert.match(first.script, /reviewed: true/u);
+
+    await writeFile(join(workflowDir, "review.js"), "return { reviewed: 'again' }\n", "utf8");
+    const changed = await resolveWorkflowDefinition({
+      cwd: dir,
+      selector: "workspace:strict-repro",
+      includeUser: false,
+      workspaceWorkflowDir: root,
+    });
+    assert.notEqual(changed.digest, first.digest);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("WORKFLOW.md v2 fails closed on unknown fields and weakened Repro policy", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-workflow-v2-invalid-"));
+  const root = join(dir, "workflows");
+  try {
+    await mkdir(join(root, "unknown"), { recursive: true });
+    await writeFile(
+      join(root, "unknown", "WORKFLOW.md"),
+      `---\nid: unknown\ntitle: Unknown\ncommand: unsafe\n---\nReject unknown fields.\n`,
+    );
+    await assert.rejects(
+      () =>
+        resolveWorkflowDefinition({
+          cwd: dir,
+          selector: "workspace:unknown",
+          workspaceWorkflowDir: root,
+        }),
+      /unknown fields: command/u,
+    );
+
+    await mkdir(join(root, "weak-repro"), { recursive: true });
+    await writeFile(
+      join(root, "weak-repro", "WORKFLOW.md"),
+      `---
+id: weak-repro
+title: Weak Repro
+extends: builtin:repro
+workbench: checkpoint
+---
+Attempt to weaken the live workbench.
+`,
+    );
+    await assert.rejects(
+      () =>
+        resolveWorkflowDefinition({
+          cwd: dir,
+          selector: "workspace:weak-repro",
+          workspaceWorkflowDir: root,
+        }),
+      /cannot weaken builtin:repro workbench policy/u,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -238,9 +345,8 @@ test("spark-workflows research builtin fans out with collected errors and report
     includeUser: false,
   });
   assert.equal(descriptor.source, "builtin");
-  assert.equal(descriptor.mode, "plan");
-  assert.deepEqual(descriptor.stages, ["Plan", "Search", "Fetch", "Verify", "Report"]);
-  assert.deepEqual(descriptor.phases, ["Plan", "Search", "Fetch", "Verify", "Report"]);
+  assert.equal(descriptor.phase, "plan");
+  assert.deepEqual(descriptor.stages, ["plan", "search", "fetch", "verify", "report"]);
 
   const parsed = parseWorkflowScript(script);
   assert.equal(parsed.meta.name, "research");

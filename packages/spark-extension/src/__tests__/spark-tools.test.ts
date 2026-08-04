@@ -951,15 +951,17 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     await loopCommand.handler("停止", initializedCtx);
     assert.equal(await loadSessionLoop(initializedDir, initializedCtx), undefined);
 
-    await mkdir(join(initializedDir, ".agents", "workflows"), { recursive: true });
+    await mkdir(join(initializedDir, ".agents", "workflows", "triage"), { recursive: true });
     await writeFile(
-      join(initializedDir, ".agents", "workflows", "triage.js"),
-      `export const meta = {
-        name: "Triage Workflow",
-        description: "Triage incidents with specialist stages.",
-        stages: [{ title: "Collect" }, { title: "Decide" }],
-      };
-      export default async function workflow() { return "not run during discovery"; }`,
+      join(initializedDir, ".agents", "workflows", "triage", "WORKFLOW.md"),
+      `---
+id: triage
+title: Triage Workflow
+description: Triage incidents with specialist stages.
+stages: [collect, decide]
+---
+Collect incident facts and decide the bounded response.
+`,
     );
     await writeFile(
       join(initializedDir, ".agents", "workflows", "broken.js"),
@@ -978,6 +980,7 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
       [
         "run builtin:research",
         "run builtin:review",
+        "run builtin:repro",
         "run builtin:repro-stage-orchestrate",
         "run builtin:repro-module-sweep",
         "run builtin:repro-first-divergence",
@@ -5912,6 +5915,23 @@ test("repro tool reports driver startup failure and clears new active state", as
     run.loopControl.start = async () => {
       throw new Error("tool driver start failed");
     };
+    await setSessionGoal(dir, ctx, {
+      objective: "Preserve the previous reviewed Goal",
+      source: "explicit",
+    });
+    await updateSessionGoalStatus(dir, ctx, "complete", {
+      reason: "previous Goal completed",
+      review: {
+        achieved: true,
+        reason: "reviewed before Repro activation",
+        blockers: [],
+        reviewRef: "review:previous-goal",
+        evidenceRef: "evidence:previous-goal-review" as EvidenceRef,
+        reviewedAt: "2026-08-04T00:00:00.000Z",
+      },
+    });
+    const previousGoal = await loadSessionGoal(dir, ctx);
+    assert.ok(previousGoal);
 
     const result = await executeSparkTool(run.tools, "repro", ctx, {
       action: "start",
@@ -5921,6 +5941,7 @@ test("repro tool reports driver startup failure and clears new active state", as
     assert.equal(result.isError, true);
     assert.match(toolText(result), /Repro did not start: tool driver start failed/u);
     assert.equal(await readSessionRepro(dir, ctx), undefined);
+    assert.deepEqual(await loadSessionGoal(dir, ctx), previousGoal);
     assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -6826,6 +6847,8 @@ test("Spark extension exposes canonical tools instead of removed spark_* tools",
   assert.ok(run.tools.has("goal"));
   assert.ok(run.tools.has("loop"));
   assert.ok(run.tools.has("repro"));
+  assert.ok(run.tools.has("workflow"));
+  assert.equal(run.tools.has("workflow_run"), false);
   assert.equal(run.tools.has("drive"), false);
   assert.equal(run.tools.has("driver"), false);
   assert.ok(run.tools.has("phase"));
@@ -8547,7 +8570,7 @@ test("impl_workflow_runs renders and controls dynamic workflow_run records", asy
       action: "restart",
       runRef: run.ref,
     });
-    assert.match(toolText(restarted), /workflow_run\(\{ runRef:/);
+    assert.match(toolText(restarted), /resume the managed WorkflowRun/u);
     const restartedRecord = await dynamicStore.get(run.ref);
     assert.equal(restartedRecord?.status, "running");
     assert.equal(restartedRecord?.journal.length, 0);
@@ -8580,7 +8603,10 @@ test("impl_workflow_runs renders and controls dynamic workflow_run records", asy
     });
     assert.match(toolText(saved), /Dynamic workflow save:/);
     assert.match(toolText(saved), /workspace:completed-control/);
-    assert.equal(existsSync(join(dir, ".agents", "workflows", "completed-control.js")), true);
+    assert.equal(
+      existsSync(join(dir, ".agents", "workflows", "completed-control", "WORKFLOW.md")),
+      true,
+    );
     assert.equal(
       (await dynamicStore.get(completedRun.ref))?.savedWorkflow?.selector,
       "workspace:completed-control",
@@ -12513,14 +12539,14 @@ test("impl_plan_tasks enforces concrete experiments for the bound reproduce proj
     });
     const initial = await readSessionRepro(dir, ctx);
     assert.ok(initial?.projectRef);
-    const reproduceIndex = initial.stages.findIndex((stage) => stage.name === "reproduce");
+    const reproduceIndex = initial.stages.findIndex((stage) => stage.name === "target");
     assert.notEqual(reproduceIndex, -1);
-    const materializedScaffold = await materializeReproStagePlan(dir, ctx, initial, "scaffold");
+    const materializedScaffold = await materializeReproStagePlan(dir, ctx, initial, "reference");
     const materializedReproduce = await materializeReproStagePlan(
       dir,
       ctx,
       { ...materializedScaffold.repro, currentStageIndex: reproduceIndex },
-      "reproduce",
+      "target",
     );
     await writeSessionRepro(
       dir,
@@ -12608,7 +12634,7 @@ test("impl_plan_tasks enforces concrete experiments for the bound reproduce proj
     assert.match(toolText(unbound), /Planned tasks: created=1 updated=0/u);
     assert.equal((await defaultTaskGraphStore(dir).load())?.tasks(otherProjectRef).length, 1);
 
-    const scaleIndex = initial.stages.findIndex((stage) => stage.name === "scale");
+    const scaleIndex = initial.stages.findIndex((stage) => stage.name === "alignment");
     assert.notEqual(scaleIndex, -1);
     await writeSessionRepro(dir, { ...initial, currentStageIndex: scaleIndex }, ctx);
     const scaleCount = await boundTaskCount();
@@ -12620,7 +12646,7 @@ test("impl_plan_tasks enforces concrete experiments for the bound reproduce proj
       (scaleRejected.details as { error?: string; stage?: string }).error,
       "repro_experiment_not_concrete",
     );
-    assert.equal((scaleRejected.details as { stage?: string }).stage, "scale");
+    assert.equal((scaleRejected.details as { stage?: string }).stage, "alignment");
     assert.equal(await boundTaskCount(), scaleCount);
 
     await writeSessionRepro(
@@ -12756,16 +12782,16 @@ test("repro stage blueprints materialize a complete dependency-valid task graph"
     });
     let repro = await readSessionRepro(dir, ctx);
     if (!repro?.projectRef) throw new Error("missing project-backed repro");
-    for (const stage of ["scaffold", "reproduce", "scale", "deliver"] as const) {
+    for (const stage of ["reference", "target", "alignment", "delivery"] as const) {
       repro = (await materializeReproStagePlan(dir, ctx, repro, stage)).repro;
     }
 
     const blueprints = Object.values(REPRO_STAGE_BLUEPRINTS);
     assert.deepEqual(
       blueprints.map((blueprint) => blueprint.stage),
-      ["setup", "scaffold", "reproduce", "scale", "deliver"],
+      ["contract", "reference", "target", "alignment", "delivery"],
     );
-    assert.equal(REPRO_STAGE_BLUEPRINTS.deliver.displayTitle, "Finalize");
+    assert.equal(REPRO_STAGE_BLUEPRINTS.delivery.displayTitle, "Finalize");
     const blueprintTasks = blueprints.flatMap((blueprint) => blueprint.tasks);
     assert.equal(new Set(blueprintTasks.map((task) => task.id)).size, blueprintTasks.length);
     assert.equal(
@@ -13384,7 +13410,7 @@ test("repro advance materializes the target stage blueprint before advancing", a
 
     const repro = await readSessionRepro(dir, ctx);
     if (!repro) throw new Error("missing active repro");
-    const setupSteps = repro.plan.steps.filter((step) => step.stage === "setup");
+    const setupSteps = repro.plan.steps.filter((step) => step.stage === "contract");
     let completed = repro;
     for (const step of setupSteps) {
       const evidenceRef = `evidence:${step.id}` as EvidenceRef;
@@ -13418,7 +13444,7 @@ test("repro advance materializes the target stage blueprint before advancing", a
       {
         ...completed,
         stages: completed.stages.map((stage) =>
-          stage.name === "setup"
+          stage.name === "contract"
             ? {
                 ...stage,
                 acceptance: stage.acceptance.map((requirement) =>
@@ -13440,17 +13466,17 @@ test("repro advance materializes the target stage blueprint before advancing", a
               }
             : stage,
         ),
-        subgoals: completed.subgoals.filter((subgoal) => subgoal.stage !== "scaffold"),
+        subgoals: completed.subgoals.filter((subgoal) => subgoal.stage !== "reference"),
       },
       ctx,
     );
 
     const advanced = await executeSparkTool(tools, "repro", ctx, { action: "advance" });
-    assert.match(toolText(advanced), /Stage advanced to: Scaffold/u);
+    assert.match(toolText(advanced), /Stage advanced to: Reference/u);
     const afterAdvance = await readSessionRepro(dir, ctx);
-    assert.equal(afterAdvance?.stages[afterAdvance.currentStageIndex]?.name, "scaffold");
+    assert.equal(afterAdvance?.stages[afterAdvance.currentStageIndex]?.name, "reference");
     const scaffoldSubgoals = afterAdvance?.subgoals.filter(
-      (subgoal) => subgoal.stage === "scaffold",
+      (subgoal) => subgoal.stage === "reference",
     );
     assert.ok(scaffoldSubgoals && scaffoldSubgoals.length > 8);
     assert.equal(

@@ -7,8 +7,13 @@ import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { verifyCanonicalAskEvidence } from "@zendev-lab/spark-ask";
 import { isRef, type EvidenceRef, type TaskRef } from "@zendev-lab/spark-core";
 import { sparkStateCwd, updateSubgoalStatus } from "@zendev-lab/spark-loop";
-import { clearSessionGoal } from "./spark-session-goals.ts";
-import { clearSessionLoop } from "./spark-session-loops.ts";
+import {
+  loadSessionGoal,
+  restoreSessionGoal,
+  setSessionGoal,
+  updateSessionGoalStatus,
+  type SparkSessionGoal,
+} from "./spark-session-goals.ts";
 import {
   createProjectBackedSessionRepro,
   materializeReproStagePlan,
@@ -124,7 +129,7 @@ export function registerSparkReproTool(
       "Use repro action=start to begin the Repro (clears goal/loop); pass objective for user-supplied reproduction focus.",
       "Use repro action=plan to set difficulty (1-10), revise the Goal Contract, or append/update stage-scoped subgoals. Split each stage by its objective, experiment risk, dependencies, and required evidence; every subgoal needs a stable id, explicit doneWhen/evidenceRequired, and authority.",
       "Use repro action=step to update one step. A done step requires existing evidence that passes a typed StepVerifier; safe_local steps require spark.repro.step-proof/v1, while ask_decision/ask_approval steps require a current bound canonical Ask receipt.",
-      "In setup, first verify whether the reference implementation named in the contract is runnable. If it is unavailable, ask how to construct or obtain it before any baseline probe; do not invent a substitute.",
+      "In the contract stage, first verify whether the named reference implementation is runnable. If it is unavailable, ask how to construct or obtain it before any baseline probe; do not invent a substitute.",
       "The main session owns repro planning and reconciliation; use canonical assign to dispatch the independent safe_local ready task frontier in parallel, while ask_decision and ask_approval tasks stay with the owner and are never dispatched.",
       "When an external Bench manifest supplies a run_id, bind it at first start with reproId so the Repro, token ledger, child executions, report summary, and Artifact share one identity.",
       "Only create a waiting decision for a frozen-contract change, ambiguous reference ownership, scope expansion, exhausted reference-supported resource/topology options, a framework-global behavior change, or an approval-gated external publish. A failed experiment, ordinary ambiguity, or OOM with another reference-supported topology remains active and must be handled autonomously.",
@@ -348,7 +353,7 @@ export function registerSparkReproTool(
                   },
                 })
               : existing;
-          if (repro !== existing) await writeSessionRepro(cwd, repro, ctx);
+          if (repro !== existing) await writeUnifiedSessionRepro(cwd, repro, ctx);
           const loopHealth = await ensureActiveReproLoop(ctx, deps.loopControl, repro, {
             ownerSessionId,
             forceSchedule: true,
@@ -371,8 +376,7 @@ export function registerSparkReproTool(
             details: { ...reproDetails(repro), loop: loopHealth },
           };
         }
-        await clearSessionGoal(cwd, ctx);
-        await clearSessionLoop(cwd, ctx);
+        const previousGoal = await loadSessionGoal(cwd, ctx);
         const { repro } = await createProjectBackedSessionRepro(cwd, ctx, {
           objective,
           ...(requestedReproId ? { reproId: requestedReproId } : {}),
@@ -384,6 +388,7 @@ export function registerSparkReproTool(
         });
         if (loopHealth.status === "unreachable") {
           await clearSessionRepro(cwd, ctx);
+          await restorePreviousGoal(cwd, ctx, previousGoal);
           ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan");
           await deps.refreshSparkWidget?.(cwd, ctx);
           return reproLoopUnavailableResult(repro, loopHealth);
@@ -406,7 +411,7 @@ export function registerSparkReproTool(
         if (!repro) return noActiveReproResult();
         const input = normalizeReproPlanRevision(params);
         const updated = reviseReproPlan(repro, input);
-        await writeSessionRepro(cwd, updated, ctx);
+        await writeUnifiedSessionRepro(cwd, updated, ctx);
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
           content: [
@@ -459,7 +464,7 @@ export function registerSparkReproTool(
         }
         const step = updated.plan.steps.find((candidate) => candidate.id === stepId)!;
         await validateReproStepEvidence(stateCwd, step);
-        await writeSessionRepro(cwd, updated, ctx);
+        await writeUnifiedSessionRepro(cwd, updated, ctx);
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
           content: [
@@ -491,7 +496,7 @@ export function registerSparkReproTool(
             details: { error: "requirement_not_found", requirementId },
           };
         }
-        await writeSessionRepro(cwd, updated, ctx);
+        await writeUnifiedSessionRepro(cwd, updated, ctx);
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
           content: [
@@ -535,7 +540,7 @@ export function registerSparkReproTool(
           : undefined;
         const orchestration = collectReproOrchestrationSnapshot(repro, graph);
         const settled = settleReproTick(repro, orchestration);
-        await writeSessionRepro(cwd, settled.repro, ctx);
+        await writeUnifiedSessionRepro(cwd, settled.repro, ctx);
         await deps.refreshSparkWidget?.(cwd, ctx);
         if (settled.decision === "continue" && settled.scheduleDelayMs !== undefined) {
           await ctx.loop.schedule({
@@ -604,7 +609,7 @@ export function registerSparkReproTool(
           };
         }
         const evaluated = evaluateStageGate(repro);
-        await writeSessionRepro(cwd, evaluated.repro, ctx);
+        await writeUnifiedSessionRepro(cwd, evaluated.repro, ctx);
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
           content: [
@@ -624,7 +629,7 @@ export function registerSparkReproTool(
         if (!repro) return noActiveReproResult();
         const phaseAdvanced = advanceReproPhase(repro);
         if (phaseAdvanced) {
-          await writeSessionRepro(cwd, phaseAdvanced, ctx);
+          await writeUnifiedSessionRepro(cwd, phaseAdvanced, ctx);
           ctx.sparkActiveLens = sparkActiveLens(phaseAdvanced.currentPhase);
           await deps.refreshSparkWidget?.(cwd, ctx);
           return {
@@ -643,7 +648,7 @@ export function registerSparkReproTool(
             : repro;
         const stageAdvanced = advanceReproStage(advanceCandidate);
         if (stageAdvanced) {
-          await writeSessionRepro(cwd, stageAdvanced, ctx);
+          await writeUnifiedSessionRepro(cwd, stageAdvanced, ctx);
           if (stageAdvanced.status === "complete") {
             if (ctx.loop) await ctx.loop.stop({ reason: "repro completed" });
             else
@@ -700,6 +705,7 @@ export function registerSparkReproTool(
           };
         }
         await writeSessionRepro(cwd, undefined, ctx);
+        await updateSessionGoalStatus(cwd, ctx, "paused", { reason: "repro stopped" });
         if (ctx.loop) await ctx.loop.stop({ reason: "repro stopped" });
         else
           await deps.loopControl.stop({
@@ -733,6 +739,7 @@ export async function ensureActiveReproLoop(
   options: { ownerSessionId?: string; forceSchedule?: boolean; reason?: string } = {},
 ): Promise<SparkReproLoopHealth> {
   if (repro.status !== "active") return { status: "missing", recovered: false };
+  const goal = await syncSessionGoalFromRepro(ctx.cwd, ctx, repro);
   let current: SparkLoopView | undefined;
   try {
     const listed = await loopControl.list({ loopId: repro.reproId, includeTerminal: true });
@@ -741,14 +748,24 @@ export async function ensureActiveReproLoop(
     return { status: "unreachable", recovered: false, error: errorMessage(error) };
   }
   const needsStart =
-    options.forceSchedule === true || current === undefined || current.status === "stopped";
+    options.forceSchedule === true ||
+    current === undefined ||
+    current.status === "stopped" ||
+    current.binding.goalId !== goal.goalId ||
+    current.binding.workflowRunId !== `workflow-run:${repro.reproId}` ||
+    current.binding.workflowSelector !== "builtin:repro";
   if (!needsStart) return { status: current.status, recovered: false, loop: current };
   try {
     const ownerSessionId =
       options.ownerSessionId ?? (await prepareSparkDaemonLoopOwner(ctx, loopControl));
     const started = await loopControl.start({
       loopId: repro.reproId,
-      binding: { reproId: repro.reproId },
+      binding: {
+        goalId: goal.goalId,
+        workflowRunId: `workflow-run:${repro.reproId}`,
+        workflowSelector: "builtin:repro",
+        reproId: repro.reproId,
+      },
       ownerSessionId,
       continuity: "session",
       cwd: ctx.cwd,
@@ -759,6 +776,45 @@ export async function ensureActiveReproLoop(
   } catch (error) {
     return { status: "unreachable", recovered: false, error: errorMessage(error) };
   }
+}
+
+async function writeUnifiedSessionRepro(
+  cwd: string,
+  repro: SparkSessionRepro,
+  ctx: SparkToolContext,
+): Promise<void> {
+  await writeSessionRepro(cwd, repro, ctx);
+  await syncSessionGoalFromRepro(cwd, ctx, repro);
+}
+
+async function syncSessionGoalFromRepro(
+  cwd: string,
+  ctx: SparkToolContext,
+  repro: SparkSessionRepro,
+): Promise<SparkSessionGoal> {
+  const existing = await loadSessionGoal(cwd, ctx);
+  if (
+    existing?.status === (repro.status === "complete" ? "complete" : "active") &&
+    existing.objective === repro.goalContract.objective &&
+    JSON.stringify(existing.contract) === JSON.stringify(repro.goalContract)
+  ) {
+    return existing;
+  }
+  return await setSessionGoal(cwd, ctx, {
+    objective: repro.goalContract.objective,
+    source: "explicit",
+    status: repro.status === "complete" ? "complete" : "active",
+    contract: repro.goalContract,
+    workflowSelector: "builtin:repro",
+  });
+}
+
+async function restorePreviousGoal(
+  cwd: string,
+  ctx: SparkToolContext,
+  previous: SparkSessionGoal | undefined,
+): Promise<void> {
+  await restoreSessionGoal(cwd, ctx, previous);
 }
 
 function errorMessage(error: unknown): string {
@@ -883,11 +939,11 @@ function normalizeReproStepDefinition(
   if (!isRecord(value)) throw new Error(`${field}[${index}] must be an object`);
   const stage = normalizeRequiredString(value.stage, `${field}[${index}].stage`);
   if (
-    stage !== "setup" &&
-    stage !== "scaffold" &&
-    stage !== "reproduce" &&
-    stage !== "scale" &&
-    stage !== "deliver"
+    stage !== "contract" &&
+    stage !== "reference" &&
+    stage !== "target" &&
+    stage !== "alignment" &&
+    stage !== "delivery"
   ) {
     throw new Error(`${field}[${index}].stage is invalid`);
   }
@@ -1346,7 +1402,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
     `Goal Contract (${repro.goalContract.status}): ${repro.goalContract.objective}`,
     `Plan revision: ${repro.plan.currentRevision}. Difficulty: ${repro.plan.difficulty}/10; ${repro.subgoals.length} materialized subgoals. Stop Guard: ${repro.stopGuard.stagnationCount}/${repro.stopGuard.limit} unchanged settlements.`,
     "",
-    "Milestone-driven reproduction workflow. Stages are linear (setup → scaffold → reproduce → scale → deliver) and each stage is advanced through explicit orchestration.",
+    "Milestone-driven reproduction workflow. Stages are linear (contract → reference → target → alignment → delivery) and each stage is advanced through explicit orchestration.",
     "",
     "Orchestration loop:",
     "- Inspect the materialized Stage blueprint and revise it only when evidence changes the contract.",
@@ -1424,7 +1480,7 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
       "- Run a focused probe for validation uncertainty only after baseline availability or construction strategy is settled; record the command and result evidence.",
       "- Use a recommended default for reversible low-risk choices and record it in the research evidence.",
       "- Ask exactly one material user decision at a time with canonical ask and recordAsEvidence=true; do not use reviewer auto-answer for that decision.",
-      "- Keep research and decision-making in the main session; do not spawn anonymous role calls for ordinary setup research.",
+      "- Keep research and decision-making in the main session; do not spawn anonymous role calls for ordinary contract research.",
     );
   } else {
     lines.push(
@@ -1435,10 +1491,10 @@ export function renderReproTickInstruction(repro: SparkSessionRepro): string {
       "- Record the matching evidence-backed requirement proof before advancing.",
     );
 
-    if (stage.name === "reproduce" || stage.name === "scale") {
+    if (stage.name === "target" || stage.name === "alignment") {
       lines.push(
         "",
-        "Selective Fusion policy (reproduce/scale only):",
+        "Selective Fusion policy (target/alignment only):",
         '- If the fusion tool is available, consider fusion({ action: "deliberate", question: "...", context: "..." }) only after the first divergence has been localized with durable runtime evidence and at least one condition holds: at least two plausible falsifiable hypotheses remain, the evidence conflicts, or the latest runtime_verdict is inconclusive.',
         "- Skip Fusion when the next single-variable experiment is already clear and cheap.",
         "- Pass only a bounded summary of the current first divergence, active hypotheses, constraints, and observed evidence with their original evidence: refs. Never pass the full transcript, raw logs, or stale context.",

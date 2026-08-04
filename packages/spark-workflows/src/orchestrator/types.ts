@@ -96,6 +96,7 @@ export type WorkflowRunControlStatus =
 
 export interface WorkflowRunControl {
   projectRef: ProjectRef;
+  workflowSelector?: `builtin:${string}` | `workspace:${string}` | `user:${string}`;
   focus?: string;
   status: WorkflowRunControlStatus;
   policy: { maxConcurrency: number; timeoutMs: number };
@@ -105,6 +106,7 @@ export interface WorkflowRunControl {
 
 export interface WorkflowRunControlInput {
   projectRef: ProjectRef;
+  workflowSelector?: `builtin:${string}` | `workspace:${string}` | `user:${string}`;
   focus?: string;
   status?: WorkflowRunControlStatus;
   policy: { maxConcurrency: number; timeoutMs: number };

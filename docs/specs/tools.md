@@ -71,7 +71,7 @@ TUI and Cockpit use the same daemon-owned Side Thread contract; presentation sta
 - `todo` mutates the session-bound standalone checklist; its current state is projected automatically rather than fetched in normal agent flow.
 - `phase` owns the Session operating state. `goal`, `loop`, `workflow`, and `repro` bind domain contracts to the daemon Loop without creating executor kinds.
 - Repro reporting uses two explicit write actions. External benchmarks first bind identity with `repro({ action: "start", reproId: manifest.run_id })`. `repro({ action: "project_report", workSummary })` then validates canonical work facts, derives status/progress/technical completion, joins only the daemon-owned `usage.summary` projection for that same `reproId`, and writes `outputs/spark-summary.json` plus its deterministic `outputs/report.md` projection; it never scans a transcript. `repro({ action: "sync_report" })` verifies those Markdown bytes against the typed summary before updating the stable per-run Markdown Document Artifact. Missing usage yields a warning and an envelope without `tokenUsage`; it cannot change any technical gate.
-- `workflow` lists/reads controlled selectors; `workflow_run` executes a saved selector or trusted metadata-first script.
+- `workflow` lists, reads, and runs controlled `builtin:`, `workspace:`, or `user:` selectors. Project definitions live only at `.agents/workflows/<id>/WORKFLOW.md`; top-level scripts and inline source are rejected.
 
 ### Hook-projected state
 
@@ -180,4 +180,4 @@ Registered tools and active tools are distinct. Only active tools enter the mode
 
 Use one canonical action tool per stateful domain. Hosts may narrow surfaces;
 channel-bound hosts expose only `session`, `ask`, `context`, and `todo`, and
-permanently disable cue tools, `role`, `assign`, and `workflow_run`.
+permanently disable cue tools, `role`, `assign`, and `workflow`.

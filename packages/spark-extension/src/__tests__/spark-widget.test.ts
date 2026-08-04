@@ -543,7 +543,7 @@ test("spark widget controller renders an active Repro above goal and loop", asyn
     const lines = component?.render() ?? [];
     assertLineIncludes(lines[0], [
       "◆ Repro(",
-      "setup 1/5",
+      "contract 1/5",
       "Reproduction claim and acceptance contract frozen",
     ]);
     assert.doesNotMatch(lines.join("\n"), /Goal hidden behind repro/);

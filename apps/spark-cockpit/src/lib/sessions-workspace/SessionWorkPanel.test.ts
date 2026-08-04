@@ -59,14 +59,14 @@ describe("SessionWorkPanel", () => {
           objective: "Reproduce target logits",
           successCriteria: ["20-step parity"],
           evidenceRequired: ["Bound result"],
-          stage: { name: "reproduce", title: "Reproduce", index: 2, total: 5, phase: "implement" },
+          stage: { name: "target", title: "Reproduce", index: 2, total: 5, phase: "implement" },
           plan: {
             revision: 2,
             completedSteps: 5,
             totalSteps: 11,
             currentStep: {
               id: "bitwise-pass-20",
-              stage: "reproduce",
+              stage: "target",
               goal: "Reach 20-step parity",
               status: "blocked",
               authority: "safe_local",

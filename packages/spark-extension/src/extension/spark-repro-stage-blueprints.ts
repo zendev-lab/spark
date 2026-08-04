@@ -188,7 +188,7 @@ function roadmap(
 }
 
 const setup: ReproStageBlueprint = {
-  stage: "setup",
+  stage: "contract",
   displayTitle: "Setup",
   roadmaps: [
     roadmap(
@@ -528,7 +528,7 @@ const setup: ReproStageBlueprint = {
 };
 
 const scaffold: ReproStageBlueprint = {
-  stage: "scaffold",
+  stage: "reference",
   displayTitle: "Scaffold",
   roadmaps: [
     roadmap(
@@ -859,7 +859,7 @@ const scaffold: ReproStageBlueprint = {
 };
 
 const reproduce: ReproStageBlueprint = {
-  stage: "reproduce",
+  stage: "target",
   displayTitle: "Reproduce",
   roadmaps: [
     roadmap(
@@ -1051,7 +1051,7 @@ const reproduce: ReproStageBlueprint = {
 };
 
 const scale: ReproStageBlueprint = {
-  stage: "scale",
+  stage: "alignment",
   displayTitle: "Scale",
   roadmaps: [
     roadmap(
@@ -1244,7 +1244,7 @@ const scale: ReproStageBlueprint = {
 };
 
 const deliver: ReproStageBlueprint = {
-  stage: "deliver",
+  stage: "delivery",
   displayTitle: "Finalize",
   roadmaps: [
     roadmap(
@@ -1413,11 +1413,11 @@ const deliver: ReproStageBlueprint = {
 };
 
 export const REPRO_STAGE_BLUEPRINTS: Readonly<Record<SparkReproStageName, ReproStageBlueprint>> = {
-  setup,
-  scaffold,
-  reproduce,
-  scale,
-  deliver,
+  contract: setup,
+  reference: scaffold,
+  target: reproduce,
+  alignment: scale,
+  delivery: deliver,
 };
 
 export function reproStageBlueprint(stage: SparkReproStageName): ReproStageBlueprint {

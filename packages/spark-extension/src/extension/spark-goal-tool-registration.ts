@@ -78,6 +78,12 @@ export function registerSparkGoalTool(
             "Goal objective for set/start/edit. For edit, this must correct a description or direction error without lowering difficulty.",
         }),
       ),
+      workflowSelector: Type.Optional(
+        Type.String({
+          description:
+            "Optional builtin:<id>, workspace:<id>, or user:<id> Workflow whose Loop policy and instructions govern this Goal.",
+        }),
+      ),
       reason: Type.Optional(
         Type.String({
           description:
@@ -148,6 +154,7 @@ export function registerSparkGoalTool(
           objective,
           source,
           status: "active",
+          workflowSelector: normalizeOptionalWorkflowSelector(params.workflowSelector),
         });
         await startGoalLoop(ctx, deps.loopControl, ownerSessionId, goal, "goal activated by tool");
         await refreshGoalRuntimeState(cwd, ctx, deps);
@@ -333,7 +340,10 @@ async function startGoalLoop(
 ): Promise<void> {
   await loopControl.start({
     loopId: goal.goalId,
-    binding: { goalId: goal.goalId },
+    binding: {
+      goalId: goal.goalId,
+      ...(goal.workflowSelector ? { workflowSelector: goal.workflowSelector } : {}),
+    },
     ownerSessionId,
     continuity: "session",
     cwd: ctx.cwd,
@@ -933,6 +943,7 @@ function renderGoalStatus(
   const lines = [`Spark session goal ${goal.status}`, `Goal: ${oneLine(goal.objective)}`];
   const reason = goal.pauseReason ?? goal.completedReason;
   if (reason) lines.push(`Reason: ${reason}`);
+  if (goal.workflowSelector) lines.push(`Workflow: ${goal.workflowSelector}`);
   if (goal.lastReviewRef || goal.lastReviewEvidenceRef || goal.lastReviewedAt)
     lines.push(
       `Last review: ${goal.lastReviewRef ?? "unrecorded"}${goal.lastReviewEvidenceRef ? ` evidence=${goal.lastReviewEvidenceRef}` : ""}${goal.lastReviewedAt ? ` at ${goal.lastReviewedAt}` : ""}`,
@@ -959,4 +970,14 @@ function renderGoalStatus(
 function oneLine(value: string): string {
   const normalized = value.replace(/\s+/gu, " ").trim();
   return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
+}
+
+function normalizeOptionalWorkflowSelector(
+  value: unknown,
+): `builtin:${string}` | `workspace:${string}` | `user:${string}` | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string" || !/^(builtin|workspace|user):[a-z0-9][a-z0-9-]*$/u.test(value)) {
+    throw new Error("goal.workflowSelector must be builtin:<id>, workspace:<id>, or user:<id>");
+  }
+  return value as `builtin:${string}` | `workspace:${string}` | `user:${string}`;
 }

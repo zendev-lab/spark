@@ -63,7 +63,10 @@ export class SparkWorkflowRunManagerController {
     if (!ownerSessionId) throw new Error("Spark Workflow requires a daemon-owned session");
     await this.hooks.loopControl.start({
       loopId: `workflow:${stableId(`${stateCwd}:${ownerSessionId}`)}`,
-      binding: { workflowRunId: control.projectRef },
+      binding: {
+        workflowRunId: control.projectRef,
+        ...(control.workflowSelector ? { workflowSelector: control.workflowSelector } : {}),
+      },
       ownerSessionId,
       continuity: "session",
       cwd,

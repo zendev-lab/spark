@@ -215,7 +215,6 @@ const publicTools = [
   "repro",
   "phase",
   "workflow",
-  "workflow_run",
   "cue_exec",
   "cue_run",
   "cue_script",
