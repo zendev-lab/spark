@@ -40,7 +40,7 @@ minimumReleaseAgeExclude:
   - "@earendil-works/pi-tui"
 
 overrides:
-  "@connectrpc/connect-node>undici": "6.28.0"
+  "@connectrpc/connect-node>undici": "8.9.0"
   "@cursor/sdk>zod": "3.25.76"
   # MCP SDK 1.29 still declares Hono Node Server 1.x; keep the secure v2
   # compatibility override scoped to that parent until upstream widens it.
