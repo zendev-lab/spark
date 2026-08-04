@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import type { RoleRef, SparkHostContext, ToolConfig, ToolRenderComponent } from "@zendev-lab/spark-core";
+import type {
+  RoleRef,
+  SparkHostContext,
+  ToolConfig,
+  ToolRenderComponent,
+} from "@zendev-lab/spark-core";
 import {
   SparkSkillResolver,
   type SparkLoadedSkill,
@@ -88,11 +93,11 @@ export function createSparkSkillDelegateTool(
     name: "skill_delegate",
     label: "Skill Delegate",
     description:
-      "Delegate one discovered Skill to a fresh anonymous Worker. The tool resolves and loads SKILL.md internally, so the parent can hand off a self-contained request without reading or executing the Skill itself.",
+      "Delegate one discovered Skill to a fresh anonymous Worker. The tool resolves and loads SKILL.md internally, so the parent can hand off a self-contained request instead of executing the Skill itself.",
     promptGuidelines: [
       "Use skill_delegate when a Skill can own a self-contained unit of work; use read only when the current session itself must follow that Skill.",
       "Pass a complete instruction because the temporary Worker cannot see the parent transcript.",
-      "Do not read the Skill before delegating it, and do not duplicate the delegated work in the parent session.",
+      "Do not explicitly read the Skill before delegating it, and do not duplicate the delegated work in the parent session.",
     ],
     policy: SKILL_DELEGATE_POLICY,
     effect: SKILL_DELEGATE_POLICY.effect,
@@ -190,7 +195,7 @@ export function createSparkSkillDelegateTool(
         nativeExecutor: ctx.runRole,
       });
 
-      const output = boundedWorkerOutput(result.stdout, result.jsonEvents);
+      const output = boundedWorkerOutput(result.stdout);
       const succeeded =
         result.record.status === "succeeded" &&
         (result.outcome === undefined || result.outcome.kind === "completed");
@@ -361,55 +366,9 @@ function normalizeMaxSkillChars(value: number | undefined): number {
   return value;
 }
 
-function boundedWorkerOutput(stdout: string, events: readonly unknown[]): string | undefined {
-  const direct = stdout.trim();
-  if (direct) return tailText(direct, MAX_SKILL_DELEGATE_OUTPUT_CHARS);
-  const fromEvents = extractLastAssistantText(events);
-  return fromEvents ? tailText(fromEvents, MAX_SKILL_DELEGATE_OUTPUT_CHARS) : undefined;
-}
-
-function extractLastAssistantText(events: readonly unknown[]): string | undefined {
-  const texts: string[] = [];
-  const seen = new WeakSet<object>();
-  for (const event of events) collectAssistantTexts(event, texts, seen, 0);
-  return texts.findLast((text) => text.trim().length > 0)?.trim();
-}
-
-function collectAssistantTexts(
-  value: unknown,
-  output: string[],
-  seen: WeakSet<object>,
-  depth: number,
-): void {
-  if (depth > 6 || !value || typeof value !== "object") return;
-  if (seen.has(value)) return;
-  seen.add(value);
-  if (Array.isArray(value)) {
-    for (const item of value) collectAssistantTexts(item, output, seen, depth + 1);
-    return;
-  }
-  const record = value as Record<string, unknown>;
-  if (record.role === "assistant") {
-    const text = messageContentText(record.content) ?? optionalString(record.text);
-    if (text) output.push(text);
-  }
-  for (const nested of Object.values(record)) {
-    collectAssistantTexts(nested, output, seen, depth + 1);
-  }
-}
-
-function messageContentText(content: unknown): string | undefined {
-  if (typeof content === "string") return content.trim() || undefined;
-  if (!Array.isArray(content)) return undefined;
-  const text = content
-    .map((part) => {
-      if (!part || typeof part !== "object" || Array.isArray(part)) return "";
-      const block = part as Record<string, unknown>;
-      return block.type === "text" && typeof block.text === "string" ? block.text : "";
-    })
-    .join("")
-    .trim();
-  return text || undefined;
+function boundedWorkerOutput(stdout: string): string | undefined {
+  const output = stdout.trim();
+  return output ? tailText(output, MAX_SKILL_DELEGATE_OUTPUT_CHARS) : undefined;
 }
 
 function tailText(value: string, maxLength: number): string {
