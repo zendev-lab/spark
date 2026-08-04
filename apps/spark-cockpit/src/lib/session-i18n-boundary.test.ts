@@ -8,6 +8,7 @@ import { getDictionary } from "./i18n";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const source = (path: string) => readFileSync(join(appRoot, path), "utf8");
+const workspaceSource = (path: string) => readFileSync(resolve(appRoot, "../..", path), "utf8");
 
 type Node = Record<string, unknown>;
 
@@ -119,14 +120,17 @@ describe("conversation i18n boundary", () => {
 
   it("derives the shared select placeholder directly from its localized label", () => {
     const defaults: Array<[string, string]> = [];
-    walk(parse(source("src/lib/ui/Select.svelte"), { modern: true }).instance, (node) => {
-      if (node.type !== "AssignmentPattern") return;
-      const left = node.left as { name?: unknown } | undefined;
-      const right = node.right as { name?: unknown } | undefined;
-      if (typeof left?.name === "string" && typeof right?.name === "string") {
-        defaults.push([left.name, right.name]);
-      }
-    });
+    walk(
+      parse(workspaceSource("packages/spark-ui/src/ui/Select.svelte"), { modern: true }).instance,
+      (node) => {
+        if (node.type !== "AssignmentPattern") return;
+        const left = node.left as { name?: unknown } | undefined;
+        const right = node.right as { name?: unknown } | undefined;
+        if (typeof left?.name === "string" && typeof right?.name === "string") {
+          defaults.push([left.name, right.name]);
+        }
+      },
+    );
 
     expect(defaults).toContainEqual(["placeholder", "label"]);
   });

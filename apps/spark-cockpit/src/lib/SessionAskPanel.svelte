@@ -2,10 +2,10 @@
   import { enhance } from "$app/forms";
   import { invalidateAll } from "$app/navigation";
   import AskQuestionField from "$lib/AskQuestionField.svelte";
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import type { AppMessages } from "$lib/i18n";
   import type { PendingWorkbenchAsk } from "$lib/pending-ask";
-  import { Button, Textarea } from "$lib/ui";
+  import { Button, Textarea } from "@zendev-lab/spark-ui";
   import type { SubmitFunction } from "@sveltejs/kit";
 
   let {

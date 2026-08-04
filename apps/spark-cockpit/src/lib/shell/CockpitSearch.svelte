@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { onMount } from "svelte";
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import type { AppMessages } from "$lib/i18n";
   import { cockpitOpenSearchEvent } from "$lib/slash-actions";
   import { workspaceSessionsPath } from "$lib/workspace-routes";

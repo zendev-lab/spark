@@ -84,6 +84,14 @@ test("run and task views keep Artifacts separate from internal Evidence", () => 
       }),
     /must be an artifact: ref/,
   );
+  assert.throws(() =>
+    sparkArtifactProjectionContentRefSchema.parse({
+      artifactRef: "artifact:retired-media",
+      mediaType: "application/vnd.spark-ui+json",
+      revision: 1,
+      progress: null,
+    }),
+  );
 });
 
 test("spark protocol validates interaction requests and typed responses", () => {

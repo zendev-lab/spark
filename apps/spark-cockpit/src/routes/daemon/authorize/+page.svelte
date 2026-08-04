@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Button, Field, Input, Panel } from "$lib/ui";
+  import { Button, Field, Input, Panel } from "@zendev-lab/spark-ui";
 
   let { data, form } = $props();
   let t = $derived(data.messages.daemonAuthorization);

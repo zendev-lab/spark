@@ -21,15 +21,6 @@ describe("stored Artifact preview rendering", () => {
         ],
       }),
     ],
-    [
-      "spark-ui",
-      JSON.stringify({
-        schemaVersion: 1,
-        sourceFormat: "mdx-lite",
-        blocks: [{ type: "markdown", text: "# Spark UI" }],
-        diagnostics: [],
-      }),
-    ],
   ] as const;
 
   it.each(cases)("uses contentRef.previewFormat to render %s", (previewFormat, text) => {
@@ -78,7 +69,7 @@ describe("stored Artifact preview rendering", () => {
   });
 
   it("extracts only supported preview formats", () => {
-    expect(previewFormatFromContentRef({ previewFormat: "spark-ui" })).toBe("spark-ui");
+    expect(previewFormatFromContentRef({ previewFormat: "spark-ui" })).toBeNull();
     expect(previewFormatFromContentRef({ previewFormat: "pdf" })).toBeNull();
     expect(previewFormatFromContentRef(null)).toBeNull();
   });

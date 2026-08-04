@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { PageHeader } from "$lib/ui";
+  import { PageHeader } from "@zendev-lab/spark-ui";
 
   let { data } = $props();
   let copy = $derived(data.messages.updateStatus);

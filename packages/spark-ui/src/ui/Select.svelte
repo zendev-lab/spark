@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
+  import Icon from "../Icon.svelte";
   import { Select } from "bits-ui";
   import { getContext } from "svelte";
   import { fieldContextKey, type FieldContext } from "./field-context";

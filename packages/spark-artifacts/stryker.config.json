@@ -28,7 +28,6 @@
   "concurrency": 4,
   "ignoreStatic": true,
   "mutate": [
-    "src/generative-ui.ts",
     "src/artifact/forge.ts",
     "src/artifact/store.ts",
     "src/artifact/types.ts",

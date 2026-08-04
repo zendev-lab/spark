@@ -1,8 +1,8 @@
 <script lang="ts">
   import SessionQueue from "$lib/components/conversation/SessionQueue.svelte";
   import SessionStatusBar from "$lib/components/conversation/SessionStatusBar.svelte";
-  import Icon from "$lib/Icon.svelte";
-  import type { IconName } from "$lib/icons";
+  import { Icon } from "@zendev-lab/spark-ui";
+  import type { IconName } from "@zendev-lab/spark-ui";
   import type { SessionConversationHost } from "./conversation-host";
 
   let { host }: { host: SessionConversationHost } = $props();

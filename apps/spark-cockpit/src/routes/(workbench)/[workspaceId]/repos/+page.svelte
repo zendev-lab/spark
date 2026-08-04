@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import { enumLabel, formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
   import {
     Button,
@@ -10,7 +10,7 @@
     Panel,
     Select,
     Textarea,
-  } from "$lib/ui";
+  } from "@zendev-lab/spark-ui";
   import { workspacePath } from "$lib/workspace-routes";
 
   let { data, form } = $props();
@@ -131,7 +131,7 @@
 </section>
 
 <style>
-  @import "$lib/ui/status-pill.css";
+  @import "@zendev-lab/spark-ui/status-pill.css";
 
   .resources-page {
     display: grid;

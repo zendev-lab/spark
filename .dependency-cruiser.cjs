@@ -1,21 +1,6 @@
 /** @type {import("dependency-cruiser").IConfiguration} */
 module.exports = {
   forbidden: [
-    // --- Cockpit headless UI boundary ---
-    {
-      name: "cockpit-no-direct-bits-ui",
-      comment:
-        "Cockpit routes and product components must consume Bits UI through src/lib/ui primitives.",
-      severity: "error",
-      from: {
-        path: "^apps/spark-cockpit/src/",
-        pathNot: "^apps/spark-cockpit/src/lib/ui/",
-      },
-      to: {
-        path: "node_modules/.*/bits-ui|/node_modules/bits-ui|^bits-ui$",
-      },
-    },
-
     // --- pi-ai boundary (audit gap): only spark-ai may import pi-ai directly ---
     {
       name: "no-direct-pi-ai",

@@ -9,7 +9,6 @@ import {
   isArtifactKind,
   isStoredArtifactBody,
   isStoredArtifactKind,
-  isWritableArtifactBody,
   type Artifact,
   type ArtifactBody,
   type ArtifactFormat,
@@ -68,12 +67,13 @@ export class ArtifactStore {
       );
     }
     if (!isArtifactBody(input.body)) {
+      const candidate = input.body as unknown as Record<string, unknown>;
+      if (candidate.kind === "document" && typeof candidate.mediaType === "string") {
+        throw new ArtifactValidationError(
+          `document media type is retired or unsupported for writes: ${candidate.mediaType}`,
+        );
+      }
       throw new ArtifactValidationError("invalid artifact body");
-    }
-    if (!isWritableArtifactBody(input.body)) {
-      throw new ArtifactValidationError(
-        `document media type is retired or unsupported for writes: ${input.body.mediaType}`,
-      );
     }
     if (input.format !== undefined && !isArtifactFormat(input.format)) {
       throw new ArtifactValidationError(`invalid format: ${String(input.format)}`);
@@ -269,7 +269,9 @@ function normalizeLegacyPreview(body: LegacyPreviewArtifactBody): DocumentArtifa
   };
 }
 
-function legacyPreviewMediaType(format: LegacyPreviewArtifactBody["format"]): string {
+function legacyPreviewMediaType(
+  format: LegacyPreviewArtifactBody["format"],
+): DocumentArtifactBody["mediaType"] {
   switch (format) {
     case "md":
       return "text/markdown";
@@ -279,8 +281,6 @@ function legacyPreviewMediaType(format: LegacyPreviewArtifactBody["format"]): st
       return "text/html";
     case "a2ui":
       return "application/vnd.a2ui+json";
-    case "spark-ui":
-      return "application/vnd.spark-ui+json";
   }
 }
 
@@ -365,8 +365,6 @@ function defaultFormatForBody(body: ArtifactBody): ArtifactFormat {
       return "mdx";
     case "text/html":
       return "html";
-    case "text/plain":
-      return "text";
     default:
       return "json";
   }

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import type { CockpitChatContextCard, CockpitChatPromptSuggestion } from "$lib/cockpit-chat-types";
-  import type { IconName } from "$lib/icons";
+  import type { IconName } from "@zendev-lab/spark-ui";
 
   type QueuedMessage = {
     id: string;

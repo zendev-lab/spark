@@ -88,6 +88,13 @@
       "stability": "private",
       "stateWriter": "cockpit"
     },
+    "@zendev-lab/spark-ui": {
+      "path": "packages/spark-ui",
+      "layer": "private-adapter",
+      "owner": "presentation",
+      "stability": "private",
+      "stateWriter": "none"
+    },
     "@zendev-lab/spark-core": {
       "path": "packages/spark-core",
       "layer": "foundation",

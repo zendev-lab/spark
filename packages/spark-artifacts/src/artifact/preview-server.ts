@@ -96,8 +96,6 @@ function previewFormatForMediaType(mediaType: string): PreviewContentFormat {
       return "html";
     case "application/vnd.a2ui+json":
       return "a2ui";
-    case "application/vnd.spark-ui+json":
-      return "spark-ui";
     default:
       throw new Error(`document media type is not previewable: ${mediaType}`);
   }

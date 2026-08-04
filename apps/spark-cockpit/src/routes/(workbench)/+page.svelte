@@ -1,9 +1,9 @@
 <script lang="ts">
   import { enhance } from "$app/forms";
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
-  import { Button, Dialog, EmptyState, PageHeader, Panel, StatCard } from "$lib/ui";
-  import { DialogClose, DialogDescription, DialogTitle } from "$lib/ui/headless";
+  import { Button, Dialog, EmptyState, PageHeader, Panel, StatCard } from "@zendev-lab/spark-ui";
+  import { DialogClose, DialogDescription, DialogTitle } from "@zendev-lab/spark-ui/headless";
   import { workspaceAvatarStyle, workspaceInitial } from "$lib/workspace-avatar";
   import { workspacePath, workspaceSessionsPath } from "$lib/workspace-routes";
 

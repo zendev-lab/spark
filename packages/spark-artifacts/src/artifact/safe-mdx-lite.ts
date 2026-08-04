@@ -18,8 +18,7 @@ export interface SafeMdxLiteDocument {
 /**
  * Parse the canonical writable MDX-lite dialect.
  *
- * This deliberately does not share the retired Spark UI AST or component
- * catalog. Writable MDX has one inert, presentation-only extension:
+ * Safe MDX has one inert, presentation-only extension:
  * `<Callout>`. Artifact/task/run references remain typed conversation parts.
  */
 export function parseSafeMdxLite(source: string): SafeMdxLiteDocument {

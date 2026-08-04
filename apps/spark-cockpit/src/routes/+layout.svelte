@@ -1,5 +1,5 @@
 <script lang="ts">
-  import "$lib/tokens.css";
+  import "@zendev-lab/spark-ui/tokens.css";
 
   let { children } = $props();
 </script>

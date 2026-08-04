@@ -7,7 +7,7 @@
     ConversationViewport,
     Message as ConversationMessage,
   } from "$lib/components/conversation";
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import SessionAskPanel from "$lib/SessionAskPanel.svelte";
   import {
     defaultSessionPrimaryView,

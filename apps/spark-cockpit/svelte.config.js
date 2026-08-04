@@ -17,9 +17,6 @@ const config = {
   kit: {
     adapter: adapter({ out: "build" }),
     version: { name: buildVersion },
-    alias: {
-      $ui: "../../packages/ui/src",
-    },
   },
 };
 

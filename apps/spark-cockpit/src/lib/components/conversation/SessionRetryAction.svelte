@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
-  import { Button } from "$lib/ui";
+  import { Icon } from "@zendev-lab/spark-ui";
+  import { Button } from "@zendev-lab/spark-ui";
 
   type Props = {
     label: string;

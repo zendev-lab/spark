@@ -6,8 +6,8 @@
     createAgentsChatLiveState,
     type AgentsChatSerializedEvent,
   } from "$lib/agents-chat-live-state";
-  import Icon from "$lib/Icon.svelte";
-  import SafeMarkdown from "$lib/SafeMarkdown.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
+  import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
   import {
     activityKind,
     buildCockpitChatTranscriptTurns,

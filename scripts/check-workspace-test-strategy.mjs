@@ -11,7 +11,7 @@ const strategies = new Set([
   "generated-only",
 ]);
 const expectedCounts = {
-  "local-test": 29,
+  "local-test": 30,
   "browser-test": 1,
   "process-test": 1,
   "boundary-contract": 7,
@@ -128,6 +128,8 @@ export function validateWorkspaceTestStrategy({ ledger, architecture, root = def
     fail(errors, "spark-i18n must own the Cockpit catalog test after package consolidation");
   if (entries["@zendev-lab/spark-cockpit-i18n"])
     fail(errors, "retired spark-cockpit-i18n must not remain in the workspace strategy ledger");
+  if (entries["@zendev-lab/spark-ui"]?.strategy !== "local-test")
+    fail(errors, "spark-ui must remain local-test");
   const cli = entries["@zendev-lab/spark-cli"];
   if (
     cli?.strategy !== "process-test" ||

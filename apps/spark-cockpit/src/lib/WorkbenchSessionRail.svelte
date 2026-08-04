@@ -1,7 +1,6 @@
 <script lang="ts">
   import type { SparkSessionRelation } from "@zendev-lab/spark-protocol";
-
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import ChannelSessionIcon from "$lib/ChannelSessionIcon.svelte";
   import {
     channelSessionPresentation,

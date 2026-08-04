@@ -116,16 +116,13 @@ export interface GitChangeArtifactBody {
 export interface DocumentArtifactBody {
   schemaVersion: 2;
   kind: "document";
-  /** Kept broad so retired v2 records remain readable. New writes use SparkDocumentMediaType. */
-  mediaType: string;
+  mediaType: SparkDocumentMediaType;
   content: string;
   revision: number;
   progress?: ArtifactProgress;
 }
 
-export interface WritableDocumentArtifactBody extends Omit<DocumentArtifactBody, "mediaType"> {
-  mediaType: SparkDocumentMediaType;
-}
+export type WritableDocumentArtifactBody = DocumentArtifactBody;
 
 export type ArtifactBody = IssueArtifactBody | GitChangeArtifactBody | DocumentArtifactBody;
 export type WritableArtifactBody =
@@ -173,7 +170,7 @@ export interface LegacyPrArtifactBody {
   diffSummary?: string;
 }
 
-export type PreviewContentFormat = "md" | "mdx" | "html" | "a2ui" | "spark-ui";
+export type PreviewContentFormat = "md" | "mdx" | "html" | "a2ui";
 export type PreviewProgress = ArtifactProgress;
 
 export interface LegacyPreviewArtifactBody {
@@ -245,7 +242,7 @@ export function isArtifactBody(value: unknown): value is ArtifactBody {
   if (record.kind === "git_change") return isGitChangeBody(record);
   if (record.kind === "document") {
     return (
-      isNonEmptyString(record.mediaType) &&
+      isSparkDocumentMediaType(record.mediaType) &&
       typeof record.content === "string" &&
       Number.isInteger(record.revision) &&
       (record.revision as number) >= 1 &&
@@ -256,10 +253,7 @@ export function isArtifactBody(value: unknown): value is ArtifactBody {
 }
 
 export function isWritableArtifactBody(value: unknown): value is WritableArtifactBody {
-  return (
-    isArtifactBody(value) &&
-    (value.kind !== "document" || isSparkDocumentMediaType(value.mediaType))
-  );
+  return isArtifactBody(value);
 }
 
 export function isLegacyArtifactBody(value: unknown): value is LegacyArtifactBody {
@@ -279,8 +273,7 @@ export function isLegacyArtifactBody(value: unknown): value is LegacyArtifactBod
       (record.format === "md" ||
         record.format === "mdx" ||
         record.format === "html" ||
-        record.format === "a2ui" ||
-        record.format === "spark-ui") &&
+        record.format === "a2ui") &&
       typeof record.content === "string" &&
       typeof record.version === "number"
     );

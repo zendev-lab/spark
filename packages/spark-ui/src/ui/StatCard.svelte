@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
-  import type { IconName } from "$lib/icons";
+  import Icon from "../Icon.svelte";
+  import type { IconName } from "../icons";
 
   let {
     label,

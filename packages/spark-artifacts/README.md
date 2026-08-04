@@ -23,9 +23,8 @@ Atomic Artifacts (`issue` / `git_change` / `document`) for users, plus an
   view opened with `artifact({ action: "open_preview" })`, not an Artifact
   kind.
 - New Document writes accept only `text/markdown`, `text/mdx`, `text/html`,
-  and `application/vnd.a2ui+json`. The retired Spark UI, plain-text, JSON, and
-  unknown Document media types remain readable only for legacy recovery; an
-  update must explicitly convert them to a canonical media type.
+  and `application/vnd.a2ui+json`. Plain-text, JSON, unknown media types, and
+  the removed Spark UI wire format cannot be created or previewed.
 - `artifact({ action: "sync_file" })` updates an existing Document from a
   cwd-local regular, non-symlink UTF-8 file. The first report slice is capped
   at 32 KiB. A repeated identical sync is a no-op; metadata-only changes keep
@@ -36,8 +35,8 @@ Atomic Artifacts (`issue` / `git_change` / `document`) for users, plus an
 - HTML previews run with scripts, forms, external media, framing, and network loads disabled. A2UI accepts only the official v0.9/v0.9.1 basic catalog and does not dispatch actions in the initial read-only implementation.
 
 Google's GenUI SDK is a Flutter A2UI renderer, so it is not a separate Spark
-wire format. Web producers should emit `a2ui`. Spark's older declarative format
-is a legacy read adapter only and cannot be created or updated in place.
+wire format. Web producers should emit `a2ui`. `spark-ui` now names the Svelte
+component library only and is not an Artifact format.
 
 Persisted v1 `pr` and `preview` bodies are accepted read-only and lazily
 normalized to `git_change` and `document` with the same `artifact:` ref.
@@ -53,7 +52,6 @@ Prefer compact JSON notes:
 
 Do not write long markdown essays into evidence. Use `artifact` for anything the user should see.
 
-Import Generative UI from `@zendev-lab/spark-artifacts/generative-ui`.
 Import Artifact helpers from `@zendev-lab/spark-artifacts/artifact` or the package root.
 
 - `defaultArtifactStore(cwd)` → `.spark/artifacts/` (Artifact kinds only)

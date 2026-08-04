@@ -1,6 +1,6 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
-  import SafeMarkdown from "$lib/SafeMarkdown.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
+  import { SafeMarkdown } from "@zendev-lab/spark-ui/markdown";
   import type { ConversationPartLabels } from "./types";
 
   type Props = {

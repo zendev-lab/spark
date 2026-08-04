@@ -1,5 +1,5 @@
 /**
- * Cockpit's only direct Bits UI import boundary.
+ * Spark UI's direct Bits UI import boundary.
  *
  * Export the small primitive surface Spark currently accepts instead of
  * leaking the third-party namespaces into routes and product components.

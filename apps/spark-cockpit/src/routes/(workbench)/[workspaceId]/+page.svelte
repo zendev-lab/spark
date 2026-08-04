@@ -1,9 +1,9 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import { daemonDisplayStatus } from "$lib/daemon-status";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
-  import PageHeader from "$lib/ui/PageHeader.svelte";
-  import StatCard from "$lib/ui/StatCard.svelte";
+  import { PageHeader } from "@zendev-lab/spark-ui";
+  import { StatCard } from "@zendev-lab/spark-ui";
   import { workspaceControlDisplay } from "$lib/workspace-control-display";
   import { workspacePath, workspaceSessionsPath } from "$lib/workspace-routes";
 
@@ -160,7 +160,7 @@
 </section>
 
 <style>
-  @import "$lib/ui/status-pill.css";
+  @import "@zendev-lab/spark-ui/status-pill.css";
 
   .workspace-overview {
     display: grid;

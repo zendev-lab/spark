@@ -44,7 +44,7 @@ describe("source-derived model selector boundary", () => {
       if (typeof source?.value === "string") imports.push(source.value);
     });
 
-    expect(imports).toEqual(["$lib/Icon.svelte", "$lib/ui", "$lib/ui/headless", "./types"]);
+    expect(imports).toEqual(["@zendev-lab/spark-ui", "@zendev-lab/spark-ui/headless", "./types"]);
   });
 
   it("compiles unified model and reasoning controls with structured ownership", () => {

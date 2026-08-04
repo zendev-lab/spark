@@ -1,7 +1,7 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import ChannelSessionIcon from "$lib/ChannelSessionIcon.svelte";
-  import { Button } from "$lib/ui";
+  import { Button } from "@zendev-lab/spark-ui";
   import { enhance } from "$app/forms";
   import { visibleSessionStatus } from "$lib/conversation-status";
   import {
@@ -9,7 +9,7 @@
     sessionWorkObjective,
     sessionWorkStatus,
   } from "$lib/session-work-view";
-  import type { IconName } from "$lib/icons";
+  import type { IconName } from "@zendev-lab/spark-ui";
   import type { Snippet } from "svelte";
   import type { SessionConversationHost } from "./conversation-host";
 

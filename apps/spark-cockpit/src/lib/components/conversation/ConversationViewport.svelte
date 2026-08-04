@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import { tick, type Snippet } from "svelte";
   import ConversationTurnRail, {
     type ConversationTurnRailItem,

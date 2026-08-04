@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Response } from "$lib/components/response";
+  import Response from "./Response.svelte";
 
   let { source, streaming = false }: { source: string; streaming?: boolean } = $props();
 </script>

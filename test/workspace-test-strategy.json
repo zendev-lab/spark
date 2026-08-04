@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "architectureSource": "architecture/packages.json",
-  "workspaceCount": 39,
+  "workspaceCount": 40,
   "counts": {
-    "local-test": 29,
+    "local-test": 30,
     "browser-test": 1,
     "process-test": 1,
     "boundary-contract": 7,
@@ -139,6 +139,16 @@
         "command": "pnpm --filter @zendev-lab/spark-cockpit-db run check",
         "paths": ["packages/spark-cockpit-db/src/**/*.test.ts"],
         "rules": ["check-schema-types"]
+      },
+      "supplementalGates": []
+    },
+    "@zendev-lab/spark-ui": {
+      "path": "packages/spark-ui",
+      "strategy": "local-test",
+      "primaryGate": {
+        "command": "pnpm --filter @zendev-lab/spark-ui run check",
+        "paths": ["packages/spark-ui/src/markdown/Response.test.ts"],
+        "rules": []
       },
       "supplementalGates": []
     },

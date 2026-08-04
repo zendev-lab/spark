@@ -13,12 +13,15 @@ export default defineConfig({
     // leaf dependencies are optimized explicitly for browser-compatible
     // default export interop.
     exclude: ["@lucide/svelte", "bits-ui", "svelte-streamdown"],
-    include: ["bits-ui > svelte-toolbelt > style-to-object"],
+    include: ["@zendev-lab/spark-ui > bits-ui > svelte-toolbelt > style-to-object"],
+  },
+  resolve: {
+    dedupe: ["svelte"],
   },
   ssr: {
     // Lucide publishes Svelte source that must pass through the Svelte
     // transform before Rolldown parses the SSR graph.
-    noExternal: ["@lucide/svelte"],
+    noExternal: ["@zendev-lab/spark-ui", "@lucide/svelte", "bits-ui", "svelte-streamdown"],
   },
 });
 

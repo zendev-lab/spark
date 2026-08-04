@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sparkDocumentMediaTypeSchema } from "./artifact-document.ts";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
 import { sparkSessionPendingTurnSchema } from "./session-assignment.ts";
 import { sparkDriverKindSchema, sparkDriverViewSchema } from "./driver.ts";
@@ -308,7 +309,7 @@ const sparkArtifactProjectionJsonContentRefSchema = z
 const sparkArtifactProjectionPreviewContentRefSchema = z
   .object({
     artifactRef: artifactRefSchema,
-    previewFormat: z.enum(["md", "mdx", "html", "a2ui", "spark-ui"]),
+    previewFormat: z.enum(["md", "mdx", "html", "a2ui"]),
     version: z.number().int().positive(),
     progress: sparkArtifactProjectionProgressSchema.nullable(),
     inlineMarkdown: z.string().optional(),
@@ -319,13 +320,13 @@ const sparkArtifactProjectionPreviewContentRefSchema = z
 const sparkArtifactProjectionDocumentContentRefSchema = z
   .object({
     artifactRef: artifactRefSchema,
-    mediaType: z.string().min(1),
+    mediaType: sparkDocumentMediaTypeSchema,
     revision: z.number().int().positive(),
     progress: sparkArtifactProjectionProgressSchema.nullable(),
     inlineMarkdown: z.string().optional(),
     inlineText: z.string().optional(),
     /** Protocol-v1 view compatibility; no longer determines Artifact kind. */
-    previewFormat: z.enum(["md", "mdx", "html", "a2ui", "spark-ui"]).optional(),
+    previewFormat: z.enum(["md", "mdx", "html", "a2ui"]).optional(),
     version: z.number().int().positive().optional(),
   })
   .strict();

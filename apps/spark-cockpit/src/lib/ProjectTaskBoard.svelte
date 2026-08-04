@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import type { AppMessages } from "$lib/i18n";
   import type { ProjectTaskBoardColumn } from "$lib/project-task-board";
 

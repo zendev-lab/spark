@@ -1,9 +1,9 @@
 <script lang="ts">
-  import Icon from "$lib/Icon.svelte";
+  import { Icon } from "@zendev-lab/spark-ui";
   import { enumLabel, formatByteSize, formatRelativeTime } from "$lib/i18n";
-  import EmptyState from "$lib/ui/EmptyState.svelte";
-  import PageHeader from "$lib/ui/PageHeader.svelte";
-  import Panel from "$lib/ui/Panel.svelte";
+  import { EmptyState } from "@zendev-lab/spark-ui";
+  import { PageHeader } from "@zendev-lab/spark-ui";
+  import { Panel } from "@zendev-lab/spark-ui";
   import { workspacePath } from "$lib/workspace-routes";
 
   let { data } = $props();

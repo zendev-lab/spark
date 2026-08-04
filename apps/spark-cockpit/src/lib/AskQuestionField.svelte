@@ -4,7 +4,7 @@
     cockpitCustomAnswerValue,
     type PendingWorkbenchAsk,
   } from "$lib/pending-ask";
-  import { Textarea } from "$lib/ui";
+  import { Textarea } from "@zendev-lab/spark-ui";
 
   let {
     question,

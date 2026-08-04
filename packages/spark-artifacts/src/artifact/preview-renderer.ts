@@ -1,12 +1,6 @@
 import { marked } from "marked";
 import sanitizeHtml from "sanitize-html";
 
-import {
-  parseSparkUiSource,
-  type SparkUiBlock,
-  type SparkUiDocumentV1,
-  type SparkUiJsonValue,
-} from "../generative-ui.ts";
 import { parseSafeMdxLite, type SafeMdxLiteBlock } from "./safe-mdx-lite.ts";
 import type { PreviewContentFormat } from "./types.ts";
 
@@ -69,9 +63,6 @@ function previewReadOnlyNotice(format: PreviewContentFormat) {
   if (format === "mdx") {
     return '<span class="readonly">Safe MDX-lite · no executable expressions</span>';
   }
-  if (format === "spark-ui") {
-    return '<span class="readonly">Legacy Spark UI · read-only compatibility</span>';
-  }
   if (format === "html") {
     return '<span class="readonly">Sanitized HTML · scripts and network loads disabled</span>';
   }
@@ -87,8 +78,7 @@ function renderPreviewBody(format: PreviewContentFormat, content: string) {
     };
   }
   if (format === "a2ui") return renderA2ui(content);
-  if (format === "mdx") return renderSafeMdxLite(content);
-  return renderLegacySparkUi(content);
+  return renderSafeMdxLite(content);
 }
 
 /** Canonical safe MDX document renderer. It never accepts the legacy JSON AST. */
@@ -103,133 +93,11 @@ function renderSafeMdxLite(content: string) {
   };
 }
 
-/** Read adapter only for retired application/vnd.spark-ui+json and v1 source snapshots. */
-function renderLegacySparkUi(content: string) {
-  return renderLegacySparkUiDocument(
-    sparkUiDocumentFromJson(content) ?? parseSparkUiSource(content),
-    "spark-ui legacy",
-  );
-}
-
 function renderSafeMdxLiteBlock(block: SafeMdxLiteBlock): string {
   if (block.type === "markdown") {
     return `<section class="markdown-block">${renderMarkdown(block.text)}</section>`;
   }
   return `<aside class="callout ${escapeHtml(block.tone)}">${block.title ? `<strong>${escapeHtml(block.title)}</strong>` : ""}${renderMarkdown(block.body)}</aside>`;
-}
-
-function renderLegacySparkUiDocument(document: SparkUiDocumentV1, className: string) {
-  return {
-    html: `<div class="${className}">${document.blocks.map(renderSparkUiBlock).join("")}</div>`,
-    diagnostics: document.diagnostics.map(
-      (diagnostic) =>
-        `${diagnostic.severity}${diagnostic.line ? ` at line ${diagnostic.line}` : ""}: ${diagnostic.message}`,
-    ),
-  };
-}
-
-function sparkUiDocumentFromJson(content: string): SparkUiDocumentV1 | null {
-  try {
-    const value = JSON.parse(content) as unknown;
-    if (!isRecord(value) || value.schemaVersion !== 1 || value.sourceFormat !== "mdx-lite")
-      return null;
-    if (!Array.isArray(value.blocks) || !Array.isArray(value.diagnostics)) return null;
-    const blocks = value.blocks.flatMap((block) => {
-      const normalized = sparkUiBlockFromJson(block);
-      return normalized ? [normalized] : [];
-    });
-    const droppedBlockCount = value.blocks.length - blocks.length;
-    const diagnostics: SparkUiDocumentV1["diagnostics"] = [];
-    if (droppedBlockCount > 0) {
-      const subject = droppedBlockCount === 1 ? "block was" : "blocks were";
-      diagnostics.push({
-        code: "invalid_component",
-        severity: "error",
-        message: `${droppedBlockCount} invalid Spark UI ${subject} omitted.`,
-      });
-    }
-    return { schemaVersion: 1, sourceFormat: "mdx-lite", blocks, diagnostics };
-  } catch {
-    return null;
-  }
-}
-
-function sparkUiBlockFromJson(value: unknown): SparkUiBlock | null {
-  if (!isRecord(value)) return null;
-  const type = stringValue(value.type);
-  switch (type) {
-    case "markdown":
-      return sparkUiMarkdownFromJson(value);
-    case "component":
-      return sparkUiComponentFromJson(value);
-    case "artifact":
-      return sparkUiArtifactFromJson(value);
-    case "task":
-      return sparkUiTaskFromJson(value);
-    case "run":
-      return sparkUiRunFromJson(value);
-    case "callout":
-      return sparkUiCalloutFromJson(value);
-    default:
-      return null;
-  }
-}
-
-function sparkUiMarkdownFromJson(value: JsonRecord): SparkUiBlock | null {
-  const text = stringValue(value.text);
-  return text === undefined ? null : { type: "markdown", text };
-}
-
-function sparkUiComponentFromJson(value: JsonRecord): SparkUiBlock | null {
-  const name = stringValue(value.name);
-  const props = asSparkUiJsonValue(value.props);
-  if (!name || !props || typeof props !== "object" || Array.isArray(props)) return null;
-  return { type: "component", name, props };
-}
-
-function sparkUiArtifactFromJson(value: JsonRecord): SparkUiBlock | null {
-  const artifactRef = stringValue(value.artifactRef);
-  return artifactRef ? { type: "artifact", artifactRef, title: stringValue(value.title) } : null;
-}
-
-function sparkUiTaskFromJson(value: JsonRecord): SparkUiBlock | null {
-  const taskRef = stringValue(value.taskRef);
-  return taskRef ? { type: "task", taskRef, title: stringValue(value.title) } : null;
-}
-
-function sparkUiRunFromJson(value: JsonRecord): SparkUiBlock | null {
-  const runRef = stringValue(value.runRef);
-  return runRef ? { type: "run", runRef, title: stringValue(value.title) } : null;
-}
-
-function sparkUiCalloutFromJson(value: JsonRecord): SparkUiBlock | null {
-  const tone = stringValue(value.tone);
-  if (tone !== "info" && tone !== "success" && tone !== "warning" && tone !== "error") {
-    return null;
-  }
-  const body = stringValue(value.body);
-  if (body === undefined) return null;
-  return { type: "callout", tone, body, title: stringValue(value.title) };
-}
-
-function renderSparkUiBlock(block: SparkUiBlock): string {
-  if (block.type === "markdown")
-    return `<section class="markdown-block">${renderMarkdown(block.text)}</section>`;
-  if (block.type === "callout") {
-    return `<aside class="callout ${escapeHtml(block.tone)}">${block.title ? `<strong>${escapeHtml(block.title)}</strong>` : ""}${renderMarkdown(block.body)}</aside>`;
-  }
-  if (block.type === "artifact") {
-    return renderReferenceCard("Artifact", block.title ?? block.artifactRef, block.artifactRef);
-  }
-  if (block.type === "task")
-    return renderReferenceCard("Task", block.title ?? block.taskRef, block.taskRef);
-  if (block.type === "run")
-    return renderReferenceCard("Run", block.title ?? block.runRef, block.runRef);
-  return renderReferenceCard("Component", block.name, JSON.stringify(block.props));
-}
-
-function renderReferenceCard(kind: string, title: string, detail: string) {
-  return `<section class="reference-card"><span>${escapeHtml(kind)}</span><strong>${escapeHtml(title)}</strong><code>${escapeHtml(detail)}</code></section>`;
 }
 
 interface A2uiSurface {
@@ -761,15 +629,12 @@ table { border-collapse: collapse; display: block; max-width: 100%; overflow-x: 
 th, td { border: 1px solid #2b374a; padding: .55rem .75rem; text-align: left; }
 th { background: #161e2b; }
 img { height: auto; max-width: 100%; }
-.mdx-lite, .spark-ui, .a2ui-surface { display: grid; gap: .85rem; }
-.callout, .reference-card, .a2ui-card { background: #0f1520; border: 1px solid #2a3649; border-radius: 12px; padding: 1rem; }
+.mdx-lite, .a2ui-surface { display: grid; gap: .85rem; }
+.callout, .a2ui-card { background: #0f1520; border: 1px solid #2a3649; border-radius: 12px; padding: 1rem; }
 .callout { border-left: 4px solid #70a5ff; }
 .callout.warning { border-left-color: #e8b84e; }
 .callout.error { border-left-color: #ef6f7a; }
 .callout.success { border-left-color: #69c58f; }
-.reference-card { display: grid; gap: .25rem; }
-.reference-card span { color: #748197; font-size: .68rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-.reference-card code { overflow-wrap: anywhere; }
 .a2ui-layout { display: flex; gap: .85rem; min-width: 0; }
 .a2ui-layout.column, .a2ui-layout.list { flex-direction: column; }
 .a2ui-layout.row { align-items: flex-start; flex-wrap: wrap; }
@@ -799,11 +664,11 @@ button { color: #9facc0; width: fit-content; }
   p, li { color: #344054; }
   h2, th, td, .a2ui-divider { border-color: #d8e0ec; }
   th { background: #f2f5f9; }
-  code, pre, .callout, .reference-card, .a2ui-card { background: #f5f7fa; border-color: #d8e0ec; }
+  code, pre, .callout, .a2ui-card { background: #f5f7fa; border-color: #d8e0ec; }
   pre code { color: #24324a; }
   input, select, button { background: #f8fafc; border-color: #cbd5e1; color: #344054; }
   .format { border-color: #bdc9d9; color: #526174; }
-  .readonly, .reference-card span { color: #667085; }
+  .readonly { color: #667085; }
 }
 @media (max-width: 640px) { .preview-header { align-items: flex-start; flex-direction: column; gap: 1rem; } .format-stack { align-items: flex-start; justify-items: start; } .preview-card { border-radius: 12px; } }
 `;
@@ -813,29 +678,4 @@ export function previewFormatAsArtifactFormat(format: PreviewContentFormat) {
   if (format === "html") return "html" as const;
   if (format === "a2ui") return "json" as const;
   return "mdx" as const;
-}
-
-export function asSparkUiJsonValue(value: unknown): SparkUiJsonValue | undefined {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    const items = value.map(asSparkUiJsonValue);
-    return items.every((item) => item !== undefined) ? (items as SparkUiJsonValue[]) : undefined;
-  }
-  if (isRecord(value)) {
-    const result: Record<string, SparkUiJsonValue> = {};
-    for (const [key, entry] of Object.entries(value)) {
-      const normalized = asSparkUiJsonValue(entry);
-      if (normalized === undefined) return undefined;
-      result[key] = normalized;
-    }
-    return result;
-  }
-  return undefined;
 }

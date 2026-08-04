@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fallbackIcon, iconMap, type IconName } from "$lib/icons";
+  import { fallbackIcon, iconMap, type IconName } from "./icons";
 
   export let name: IconName = "activity";
   export let size = 20;

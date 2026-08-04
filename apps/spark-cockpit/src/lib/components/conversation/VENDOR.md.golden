@@ -62,8 +62,7 @@ ideas above were translated to Svelte 5 components that use Cockpit's scoped CSS
 - Kept the daemon session snapshot and SvelteKit form actions as the only conversation truth and
   submission path. The components own presentation state such as scroll position and disclosure only.
 - Conversation text renders through `SafeMarkdown` and the Response/Streamdown boundary. Typed
-  conversation parts own Artifact, Task, approval, and tool presentation; legacy Spark UI replay is
-  isolated to old Artifact previews.
+  conversation parts own Artifact, Task, approval, and tool presentation.
 - Replaced upstream tool-state vocabulary with Spark states and expose only display-safe tool name,
   status, summary, and reference fields.
 - Ported Chain of Thought's full-width collapsible header, status-aware step rail, and
