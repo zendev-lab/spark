@@ -1,7 +1,7 @@
 import { getCockpitDictionary } from "@zendev-lab/spark-i18n/cockpit";
 import {
   parseSparkSessionView,
-  type SparkDriverStatus,
+  type SparkLoopStatus,
   type SparkSessionView,
 } from "@zendev-lab/spark-protocol";
 import { render } from "svelte/server";
@@ -14,14 +14,16 @@ import type { SessionConversationHost } from "./conversation-host";
 const copy = getCockpitDictionary("en").sessions.workbench;
 
 describe("SessionWorkPanel", () => {
-  it.each<SparkDriverStatus>([
+  it.each<SparkLoopStatus>([
     "scheduled",
     "running",
     "retry_wait",
     "dormant",
+    "paused",
     "blocked",
+    "completed",
     "stopped",
-  ])("renders the reachable %s driver state with text and an accessible status", (status) => {
+  ])("renders the reachable %s loop state with text and an accessible status", (status) => {
     const body = render(SessionWorkPanel, {
       props: { host: hostFor(driverSession(status)) },
     }).body;
@@ -34,19 +36,20 @@ describe("SessionWorkPanel", () => {
     const session = parseSparkSessionView({
       sessionId: "session-repro",
       status: "idle",
-      drivers: [
+      loops: [
         {
-          driverId: "repro-driver",
-          kind: "repro",
+          loopId: "repro-driver",
+          binding: { reproId: "repro-1" },
           ownerSessionId: "session-repro",
           status: "blocked",
           continuity: "session",
+          generation: 2,
           attempt: 2,
           reason: "Waiting for a decision",
         },
       ],
       work: {
-        primary: { kind: "repro", driverId: "repro-driver" },
+        primary: { loopId: "repro-driver" },
         repro: {
           reproId: "repro-1",
           status: "active",
@@ -175,21 +178,22 @@ describe("SessionWorkPanel", () => {
   });
 });
 
-function driverSession(status: SparkDriverStatus): SparkSessionView {
+function driverSession(status: SparkLoopStatus): SparkSessionView {
   return parseSparkSessionView({
     sessionId: "session-driver",
     status: "idle",
-    drivers: [
+    loops: [
       {
-        driverId: "driver-1",
-        kind: "goal",
+        loopId: "driver-1",
+        binding: { goalId: "goal-1" },
         ownerSessionId: "session-driver",
         status,
         continuity: "session",
+        generation: 1,
         attempt: 0,
       },
     ],
-    work: { primary: { kind: "goal", driverId: "driver-1" } },
+    work: { primary: { loopId: "driver-1" } },
     messages: [],
     tools: [],
     runs: [],

@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
-  SparkHostDriverContext,
+  SparkHostLoopContext,
   SparkSessionLeaseIdentity,
   ToolEffect,
 } from "@zendev-lab/spark-core";
@@ -73,7 +73,7 @@ export interface SparkHeadlessSessionRunInput {
   reset?: boolean;
   /** Internal transcript metadata for daemon-owned hidden execution. */
   sessionVisibility?: "internal";
-  sessionPurpose?: "driver_tick";
+  sessionPurpose?: "loop_tick";
   /** Exact pending tool-call continuation captured by a planned daemon restart. */
   restartCheckpoint?: SparkTurnResumeCheckpoint;
   /** Persist and yield when a restart is pending; otherwise return normally. */
@@ -95,7 +95,7 @@ export interface SparkHeadlessSessionRunInput {
   };
   invocationId?: string;
   stateOwnerSessionId?: string;
-  driver?: SparkHostDriverContext;
+  loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
   allowedTools?: readonly string[];
   /** Host-enforced effect allowlist; unknown tool effects are denied. */

@@ -1,0 +1,70 @@
+# Daemon-owned Loops
+
+Spark daemon is the sole owner of recurring execution. Goal, WorkflowRun, and
+Repro may bind to a Loop, but they do not create different executor kinds.
+Closing or reconnecting a frontend cannot pause, advance, retry, or duplicate a
+Loop.
+
+## Orthogonal state
+
+- `Session.phase` is `plan | implement` and controls the operating prompt.
+- Goal owns the objective and completion contract.
+- WorkflowRun owns Workflow stages and definition identity.
+- Loop owns cadence, retry, generation, and cycle execution.
+- Repro is the domain facade over Goal, `builtin:repro`, and Loop.
+
+Workflow stages are not Session phases. A Session has at most one non-terminal
+Loop. A Goal or bare Loop can run without a Workflow binding.
+
+## Protocol
+
+```ts
+type SparkLoopStatus =
+  | "scheduled"
+  | "running"
+  | "retry_wait"
+  | "dormant"
+  | "paused"
+  | "blocked"
+  | "completed"
+  | "stopped";
+
+type SparkLoopCycleStep = "before_tick" | "invoke" | "after_tick" | "settle";
+
+interface SparkLoopBinding {
+  goalId?: string;
+  workflowRunId?: string;
+  reproId?: string;
+}
+```
+
+The control plane is `loop.start | status | stop | restart | wake | schedule`.
+`generation` is a daemon-issued compare-and-swap fence. Session snapshots and
+`loop.update` events project `SparkLoopView`; there is no runtime kind, lane,
+or compatibility control alias.
+
+## Persistence and migration
+
+Dynamic Loop state lives in daemon SQLite. `loop_wakeups` persists the binding,
+status, generation, current cycle step, due time, attempt, invocation link,
+prompt, route, and transition reason. Materializing a due Loop and creating its
+`loop.tick` invocation are one transaction. Successful main work is never
+replayed merely because a later checkpoint needs recovery.
+
+Startup performs a one-way migration from legacy `driver_wakeups` and
+`driver_hidden_sessions`. Supported Goal, bare Loop, Repro, and Workflow rows
+become bindings. Retired implementation and session-TODO rows are cancelled and
+cannot be scheduled again. The legacy tables are dropped after the transaction
+commits.
+
+## Execution boundary
+
+Implementation-phase and session-TODO continuation are lifecycle-hook owned,
+not recurring Loops. Frontends do not contain timers, retry maps, generations,
+or Workflow polling. If daemon control is unavailable, Loop operations fail
+explicitly rather than falling back to browser or TUI scheduling.
+
+The reusable SQLite contract is in
+`apps/spark-daemon/src/store/loops.contract.ts`; protocol tests cover the public
+schemas, daemon tests cover migration and recovery, and TUI/Cockpit tests render
+every reachable Loop status without collapsing them.

@@ -335,7 +335,7 @@ function piAllowedSparkFoundationDirs() {
     "spark-core",
     "spark-host",
     "spark-loop",
-    "spark-modes",
+    "spark-phases",
     "spark-tasks",
     "spark-turn",
     "spark-workflows",

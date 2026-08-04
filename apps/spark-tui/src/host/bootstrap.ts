@@ -16,7 +16,7 @@ import {
   renderAgentRuntimeContextPrompt,
 } from "@zendev-lab/spark-host/system-prompt";
 import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
-import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
+import { composeAgentSystemPrompt } from "@zendev-lab/spark-phases";
 import {
   SparkRolesReviewerRunner,
   createSparkRoleRegistry,
@@ -105,7 +105,7 @@ export async function createSparkCliHostServices(
     invocationId: options.invocationId,
     memoryDirectIntentAuthority,
     stateOwnerSessionId: options.stateOwnerSessionId,
-    driver: options.driver,
+    loop: options.loop,
     sessionQuestionChain: options.sessionQuestionChain,
     allowedTools: options.allowedTools,
     allowedToolEffects: options.allowedToolEffects,
@@ -392,13 +392,13 @@ export async function createSparkCliHostServices(
       return;
     }
     if (sparkAgentLifecycleSource(event) === "triggerTurn") {
-      // Driver/background turns (goal, loop, repro, scheduled continuations)
+      // Loop/background turns (goal, repro, workflow, scheduled continuations)
       // are not assist-plan turns. Do not inherit a request skill body or a
       // persisted plan/implement tool profile from the last user session.
       selectedSkillMatches = [];
       selectedSkillsPrompt = "";
       agentLoop.setSystemPrompt(
-        composeSparkCliDriverSystemPrompt(cwd, baseSystemPrompt, skillsCatalogPrompt),
+        composeSparkCliLoopSystemPrompt(cwd, baseSystemPrompt, skillsCatalogPrompt),
       );
       agentLoop.setCurrentPhase(undefined);
       return;
@@ -548,7 +548,7 @@ function composeSparkCliAgentSystemPrompt(
   ]);
 }
 
-function composeSparkCliDriverSystemPrompt(
+function composeSparkCliLoopSystemPrompt(
   cwd: string,
   baseSystemPrompt: string,
   skillsCatalogPrompt: string,

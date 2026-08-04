@@ -1,6 +1,6 @@
 import type { ProjectRef } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
-import type { SparkPlanningModeSource } from "./session-state.ts";
+import type { SparkPlanningPhaseSource } from "./session-state.ts";
 
 export type SparkCommandProjectStateKind = "empty_project" | "existing_project" | "initialized";
 
@@ -39,14 +39,18 @@ export type SparkEntryResolution =
       action: "initialize_new_project";
       idea: string;
       enterPlanning: boolean;
-      planningSource?: SparkPlanningModeSource;
+      planningSource?: SparkPlanningPhaseSource;
     }
-  | { action: "initialize_existing_project"; idea: string; planningSource: SparkPlanningModeSource }
+  | {
+      action: "initialize_existing_project";
+      idea: string;
+      planningSource: SparkPlanningPhaseSource;
+    }
   | {
       action: "enter_phase";
       phase: SparkEntryPhase;
       focus?: string;
-      planningSource?: SparkPlanningModeSource;
+      planningSource?: SparkPlanningPhaseSource;
     }
   | { action: "blocked"; message: string }
   | { action: "none" };

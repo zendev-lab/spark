@@ -49,7 +49,7 @@ test("reflection scanner extracts user/custom/summary observations and tolerates
         JSON.stringify({
           type: "custom_message",
           id: "c1",
-          customType: "spark-mode-context",
+          customType: "spark-phase-context",
           content: "Spark context: Unfinished tasks: candidate inbox",
         }),
         JSON.stringify({

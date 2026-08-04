@@ -6,18 +6,18 @@ import {
   sparkProtocolJsonValueSchema,
 } from "./command-events.ts";
 import {
-  sparkDriverListResultSchema,
-  sparkDriverMutationRequestSchema,
-  sparkDriverMutationResultSchema,
-  sparkDriverScheduleRequestSchema,
-  sparkDriverStartRequestSchema,
-  sparkDriverStatusRequestSchema,
-  sparkDriverWakeRequestSchema,
-} from "./driver.ts";
+  sparkLoopListResultSchema,
+  sparkLoopMutationRequestSchema,
+  sparkLoopMutationResultSchema,
+  sparkLoopScheduleRequestSchema,
+  sparkLoopStartRequestSchema,
+  sparkLoopStatusRequestSchema,
+  sparkLoopWakeRequestSchema,
+} from "./loop.ts";
 import type {
   SparkChannelRpcErrorCode,
   SparkDaemonLifecycleRpcErrorCode,
-  SparkDriverRpcErrorCode,
+  SparkLoopRpcErrorCode,
   SparkHumanRpcErrorCode,
   SparkInvocationRpcErrorCode,
   SparkModelRpcErrorCode,
@@ -238,14 +238,14 @@ export const sparkLocalRpcChannelOrpcErrors = {
   },
 } as const satisfies Record<SparkChannelRpcErrorCode, SparkLocalRpcErrorSpec>;
 
-export const sparkLocalRpcDriverOrpcErrors = {
-  driver_owner_not_found: { status: 404 },
-  driver_owner_archived: { status: 409 },
-  driver_foreground_lane_active: { status: 409 },
-  driver_not_found: { status: 404 },
-  driver_schedule_invalid: { status: 422 },
-  driver_generation_conflict: { status: 409 },
-} as const satisfies Record<SparkDriverRpcErrorCode, SparkLocalRpcErrorSpec>;
+export const sparkLocalRpcLoopOrpcErrors = {
+  loop_owner_not_found: { status: 404 },
+  loop_owner_archived: { status: 409 },
+  loop_active_conflict: { status: 409 },
+  loop_not_found: { status: 404 },
+  loop_schedule_invalid: { status: 422 },
+  loop_generation_conflict: { status: 409 },
+} as const satisfies Record<SparkLoopRpcErrorCode, SparkLocalRpcErrorSpec>;
 
 export const sparkLocalRpcInvocationOrpcErrors = {
   invocation_not_found: { status: 404 },
@@ -331,7 +331,7 @@ export const sparkLocalRpcCommonOrpcErrors = {
   ...sparkLocalRpcSessionOrpcErrors,
   ...sparkLocalRpcDaemonOrpcErrors,
   ...sparkLocalRpcChannelOrpcErrors,
-  ...sparkLocalRpcDriverOrpcErrors,
+  ...sparkLocalRpcLoopOrpcErrors,
   ...sparkLocalRpcInvocationOrpcErrors,
   ...sparkLocalRpcModelOrpcErrors,
   ...sparkLocalRpcUplinkOrpcErrors,
@@ -453,27 +453,27 @@ const sparkLocalRpcChannelNotifyOrpcErrors = {
   channel_delivery_outcome_unknown: sparkLocalRpcChannelOrpcErrors.channel_delivery_outcome_unknown,
 } as const;
 
-const sparkLocalRpcReadinessDriverStartOrpcErrors = {
+const sparkLocalRpcReadinessLoopStartOrpcErrors = {
   ...sparkLocalRpcReadinessOrpcErrors,
-  driver_owner_not_found: sparkLocalRpcDriverOrpcErrors.driver_owner_not_found,
-  driver_owner_archived: sparkLocalRpcDriverOrpcErrors.driver_owner_archived,
-  driver_foreground_lane_active: sparkLocalRpcDriverOrpcErrors.driver_foreground_lane_active,
+  loop_owner_not_found: sparkLocalRpcLoopOrpcErrors.loop_owner_not_found,
+  loop_owner_archived: sparkLocalRpcLoopOrpcErrors.loop_owner_archived,
+  loop_active_conflict: sparkLocalRpcLoopOrpcErrors.loop_active_conflict,
 } as const;
 
-const sparkLocalRpcReadinessDriverMutationOrpcErrors = {
+const sparkLocalRpcReadinessLoopMutationOrpcErrors = {
   ...sparkLocalRpcReadinessOrpcErrors,
-  driver_not_found: sparkLocalRpcDriverOrpcErrors.driver_not_found,
+  loop_not_found: sparkLocalRpcLoopOrpcErrors.loop_not_found,
 } as const;
 
-const sparkLocalRpcReadinessDriverRestartOrpcErrors = {
-  ...sparkLocalRpcReadinessDriverMutationOrpcErrors,
-  driver_foreground_lane_active: sparkLocalRpcDriverOrpcErrors.driver_foreground_lane_active,
+const sparkLocalRpcReadinessLoopRestartOrpcErrors = {
+  ...sparkLocalRpcReadinessLoopMutationOrpcErrors,
+  loop_active_conflict: sparkLocalRpcLoopOrpcErrors.loop_active_conflict,
 } as const;
 
-const sparkLocalRpcReadinessDriverScheduleOrpcErrors = {
+const sparkLocalRpcReadinessLoopScheduleOrpcErrors = {
   ...sparkLocalRpcReadinessOrpcErrors,
-  driver_schedule_invalid: sparkLocalRpcDriverOrpcErrors.driver_schedule_invalid,
-  driver_generation_conflict: sparkLocalRpcDriverOrpcErrors.driver_generation_conflict,
+  loop_schedule_invalid: sparkLocalRpcLoopOrpcErrors.loop_schedule_invalid,
+  loop_generation_conflict: sparkLocalRpcLoopOrpcErrors.loop_generation_conflict,
 } as const;
 
 const sparkLocalRpcSessionInvocationNotFoundOrpcErrors = {
@@ -1376,20 +1376,20 @@ export const sparkLocalRpcProcedureSchemas = {
     input: sparkLegacyTokenUsageBackfillRequestSchema,
     output: sparkLegacyTokenUsageBackfillResultSchema,
   },
-  "driver.start": { input: sparkDriverStartRequestSchema, output: sparkDriverMutationResultSchema },
-  "driver.status": { input: sparkDriverStatusRequestSchema, output: sparkDriverListResultSchema },
-  "driver.stop": {
-    input: sparkDriverMutationRequestSchema,
-    output: sparkDriverMutationResultSchema,
+  "loop.start": { input: sparkLoopStartRequestSchema, output: sparkLoopMutationResultSchema },
+  "loop.status": { input: sparkLoopStatusRequestSchema, output: sparkLoopListResultSchema },
+  "loop.stop": {
+    input: sparkLoopMutationRequestSchema,
+    output: sparkLoopMutationResultSchema,
   },
-  "driver.restart": {
-    input: sparkDriverMutationRequestSchema,
-    output: sparkDriverMutationResultSchema,
+  "loop.restart": {
+    input: sparkLoopMutationRequestSchema,
+    output: sparkLoopMutationResultSchema,
   },
-  "driver.wake": { input: sparkDriverWakeRequestSchema, output: sparkDriverMutationResultSchema },
-  "driver.schedule": {
-    input: sparkDriverScheduleRequestSchema,
-    output: sparkDriverMutationResultSchema,
+  "loop.wake": { input: sparkLoopWakeRequestSchema, output: sparkLoopMutationResultSchema },
+  "loop.schedule": {
+    input: sparkLoopScheduleRequestSchema,
+    output: sparkLoopMutationResultSchema,
   },
   "workspace.list": {
     input: z.object({ includeInactive: z.boolean().optional() }),
@@ -1752,42 +1752,37 @@ export const sparkLocalRpcOrpcContract = {
     ),
     backfill: procedure("POST", "/usage/backfill", p["usage.backfill"], sparkLocalRpcNoOrpcErrors),
   },
-  driver: {
+  loop: {
     start: procedure(
       "POST",
-      "/driver/start",
-      p["driver.start"],
-      sparkLocalRpcReadinessDriverStartOrpcErrors,
+      "/loop/start",
+      p["loop.start"],
+      sparkLocalRpcReadinessLoopStartOrpcErrors,
     ),
-    status: procedure(
-      "GET",
-      "/driver/status",
-      p["driver.status"],
-      sparkLocalRpcReadinessOrpcErrors,
-    ),
+    status: procedure("GET", "/loop/status", p["loop.status"], sparkLocalRpcReadinessOrpcErrors),
     stop: procedure(
       "POST",
-      "/driver/stop",
-      p["driver.stop"],
-      sparkLocalRpcReadinessDriverMutationOrpcErrors,
+      "/loop/stop",
+      p["loop.stop"],
+      sparkLocalRpcReadinessLoopMutationOrpcErrors,
     ),
     restart: procedure(
       "POST",
-      "/driver/restart",
-      p["driver.restart"],
-      sparkLocalRpcReadinessDriverRestartOrpcErrors,
+      "/loop/restart",
+      p["loop.restart"],
+      sparkLocalRpcReadinessLoopRestartOrpcErrors,
     ),
     wake: procedure(
       "POST",
-      "/driver/wake",
-      p["driver.wake"],
-      sparkLocalRpcReadinessDriverMutationOrpcErrors,
+      "/loop/wake",
+      p["loop.wake"],
+      sparkLocalRpcReadinessLoopMutationOrpcErrors,
     ),
     schedule: procedure(
       "POST",
-      "/driver/schedule",
-      p["driver.schedule"],
-      sparkLocalRpcReadinessDriverScheduleOrpcErrors,
+      "/loop/schedule",
+      p["loop.schedule"],
+      sparkLocalRpcReadinessLoopScheduleOrpcErrors,
     ),
   },
   workspace: {

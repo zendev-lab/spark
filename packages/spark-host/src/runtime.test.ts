@@ -47,7 +47,7 @@ describe("SparkHostRuntime effect contract", () => {
       cwd: "/tmp/spark-host-runtime-internal-ordinary",
     });
     ordinary.registerInternalTool({
-      name: "workflow_driver",
+      name: "internal_probe",
       description: "workflow tick",
       parameters: {},
       async execute() {
@@ -57,10 +57,10 @@ describe("SparkHostRuntime effect contract", () => {
 
     const scheduled = new SparkHostRuntime({
       cwd: "/tmp/spark-host-runtime-internal-scheduled",
-      allowedTools: ["workflow_driver"],
+      allowedTools: ["internal_probe"],
     });
     scheduled.registerInternalTool({
-      name: "workflow_driver",
+      name: "internal_probe",
       description: "workflow tick",
       parameters: {},
       async execute() {
@@ -68,9 +68,9 @@ describe("SparkHostRuntime effect contract", () => {
       },
     });
 
-    expect(ordinary.getAllTools()).toEqual([expect.objectContaining({ name: "workflow_driver" })]);
+    expect(ordinary.getAllTools()).toEqual([expect.objectContaining({ name: "internal_probe" })]);
     expect(ordinary.getActiveTools()).toEqual([]);
-    expect(scheduled.getActiveTools()).toEqual(["workflow_driver"]);
+    expect(scheduled.getActiveTools()).toEqual(["internal_probe"]);
   });
 
   it("HOST-EFFECT-001 admits read and denies write, destructive, and unknown effects", () => {

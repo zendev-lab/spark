@@ -1,6 +1,7 @@
 import { Type } from "typebox";
 import {
   sparkStateCwd,
+  type SparkHostContext,
   type ToolConfig,
   type ToolRenderComponent,
   type ToolRenderTheme,
@@ -8,10 +9,19 @@ import {
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import { listSavedWorkflows, readSavedWorkflow, type WorkflowDescriptor } from "./index.ts";
 
-export type SparkWorkflowAction = "list" | "read";
+export type SparkWorkflowAction = "list" | "read" | "tick";
 
 export interface SparkWorkflowHostApi {
   registerTool(config: ToolConfig): void;
+}
+
+export interface SparkWorkflowToolDeps {
+  /** Product-owned scheduler hook; available only inside a bound daemon Loop. */
+  tick?: (ctx: SparkHostContext) => Promise<{
+    content: Array<{ type: "text"; text: string }>;
+    details?: Record<string, unknown>;
+    isError?: boolean;
+  }>;
 }
 
 class ToolCallText implements ToolRenderComponent {
@@ -26,19 +36,23 @@ class ToolCallText implements ToolRenderComponent {
   }
 }
 
-export function registerSparkWorkflowTool(pi: SparkWorkflowHostApi): void {
+export function registerSparkWorkflowTool(
+  pi: SparkWorkflowHostApi,
+  deps: SparkWorkflowToolDeps = {},
+): void {
   pi.registerTool({
     name: "workflow",
     label: "Workflow",
     description:
-      "Canonical workflow discovery tool. List or read builtin workflows and saved scripts from controlled workspace/user roots; inline workflows are not accepted.",
+      "Canonical workflow tool. List or read controlled workflow definitions; a daemon-bound Loop may also advance its active WorkflowRun with tick.",
     promptGuidelines: [
       "Use workflow for builtin/saved-script discovery and preview only; goal state is separate and not a workflow.",
       "Do not pass inline workflow source or arbitrary paths; use builtin:<id>, workspace:<id>, or user:<id> selectors.",
       "Execute workflows through the host's explicit workflow command/runtime, not by evaluating scripts from this tool.",
+      "workflow action=tick is internal to a daemon-owned Workflow Loop and is rejected in ordinary turns.",
     ],
     parameters: Type.Object({
-      action: Type.String({ description: "list | read" }),
+      action: Type.String({ description: "list | read | tick" }),
       selector: Type.Optional(
         Type.String({ description: "builtin:<id>, workspace:<id>, or user:<id> for read." }),
       ),
@@ -56,6 +70,17 @@ export function registerSparkWorkflowTool(pi: SparkWorkflowHostApi): void {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = sparkStateCwd(requiredCwd(ctx), ctx);
       const action = normalizeWorkflowAction(params.action);
+      if (action === "tick") {
+        if (!deps.tick)
+          return {
+            content: [
+              { type: "text" as const, text: "workflow tick is unavailable in this host." },
+            ],
+            details: { error: "workflow_tick_unavailable" },
+            isError: true,
+          };
+        return await deps.tick(ctx);
+      }
       const includeUser = normalizeBoolean(params.includeUser, true, "includeUser");
       if (action === "list") {
         const listing = await listSavedWorkflows(cwd, { includeUser });
@@ -123,8 +148,8 @@ function renderWorkflowList(workflows: WorkflowDescriptor[], total: number): str
 }
 
 function normalizeWorkflowAction(value: unknown): SparkWorkflowAction {
-  if (value === "list" || value === "read") return value;
-  throw new Error("workflow.action must be list or read");
+  if (value === "list" || value === "read" || value === "tick") return value;
+  throw new Error("workflow.action must be list, read, or tick");
 }
 
 function normalizeBoolean(value: unknown, fallback: boolean, field: string): boolean {

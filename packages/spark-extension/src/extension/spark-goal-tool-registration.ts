@@ -31,9 +31,9 @@ import type {
 import { withSparkReviewerLease } from "./spark-reviewer-lease.ts";
 import { recordGoalSubjectReview } from "./subject-review-store.ts";
 import {
-  prepareSparkDaemonDriverOwner,
-  type SparkDaemonDriverControl,
-} from "./spark-daemon-driver-client.ts";
+  prepareSparkDaemonLoopOwner,
+  type SparkDaemonLoopControl,
+} from "./spark-daemon-loop-client.ts";
 import { requireGoalLensPasses } from "./spark-lens-completion-gate.ts";
 
 export type SparkGoalToolAction =
@@ -47,7 +47,7 @@ export type SparkGoalToolAction =
   | "complete";
 
 interface SparkGoalToolDeps {
-  driverControl: SparkDaemonDriverControl;
+  loopControl: SparkDaemonLoopControl;
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
   syncAskAutoAnswerPolicy?: (ctx: SparkToolContext) => Promise<void>;
   createReviewerRunner?: (
@@ -64,7 +64,7 @@ export function registerSparkGoalTool(
     name: "goal",
     label: "Spark Goal",
     description:
-      "Manage the current Pi session's durable goal state. Actions: status, set, start, pause, resume, clear, edit, complete. Active goals are autonomous foreground drivers that prefer the main session for scheduling. Asks wait for the user first and reviewer fallback may resolve material decisions only after timeout; when blocked by a problem the user can unblock, call ask instead of guessing or spawning subagents. Final goal completion remains reviewer-gated (main session requests, reviewer audits, Spark applies approved transition). Autonomous pause is rejected; blockers must be asked about or resolved instead of pausing.",
+      "Manage the current Pi session's durable goal state. Actions: status, set, start, pause, resume, clear, edit, complete. Active goals are autonomous foreground loops that prefer the main session for scheduling. Asks wait for the user first and reviewer fallback may resolve material decisions only after timeout; when blocked by a problem the user can unblock, call ask instead of guessing or spawning subagents. Final goal completion remains reviewer-gated (main session requests, reviewer audits, Spark applies approved transition). Autonomous pause is rejected; blockers must be asked about or resolved instead of pausing.",
     parameters: Type.Object({
       action: Type.Optional(
         Type.String({
@@ -130,7 +130,7 @@ export function registerSparkGoalTool(
       }
 
       if (action === "set" || action === "start") {
-        const ownerSessionId = await prepareSparkDaemonDriverOwner(ctx, deps.driverControl);
+        const ownerSessionId = await prepareSparkDaemonLoopOwner(ctx, deps.loopControl);
         const objective = resolveGoalObjective(action, params.objective, graph, project);
         if (!objective)
           return {
@@ -149,13 +149,7 @@ export function registerSparkGoalTool(
           source,
           status: "active",
         });
-        await startGoalDriver(
-          ctx,
-          deps.driverControl,
-          ownerSessionId,
-          goal,
-          "goal activated by tool",
-        );
+        await startGoalLoop(ctx, deps.loopControl, ownerSessionId, goal, "goal activated by tool");
         await refreshGoalRuntimeState(cwd, ctx, deps);
         return goalResult(goal, action, renderGoalActivationResult(goal, graph, project));
       }
@@ -184,11 +178,11 @@ export function registerSparkGoalTool(
           },
         );
         await deps.syncAskAutoAnswerPolicy?.(ctx);
-        if (completion.outcome === "completed" && ctx.driver) {
-          await ctx.driver.stop({ reason: "goal completion approved by reviewer" });
+        if (completion.outcome === "completed" && ctx.loop) {
+          await ctx.loop.stop({ reason: "goal completion approved by reviewer" });
         } else if (completion.outcome === "completed") {
-          await deps.driverControl.stop({
-            driverId: existingGoal.goalId,
+          await deps.loopControl.stop({
+            loopId: existingGoal.goalId,
             reason: "goal completion approved by reviewer",
           });
         }
@@ -196,10 +190,10 @@ export function registerSparkGoalTool(
       }
       if (action === "clear") {
         await clearSessionGoal(cwd, ctx);
-        if (ctx.driver) await ctx.driver.stop({ reason: "goal cleared" });
+        if (ctx.loop) await ctx.loop.stop({ reason: "goal cleared" });
         else
-          await deps.driverControl.stop({
-            driverId: existingGoal.goalId,
+          await deps.loopControl.stop({
+            loopId: existingGoal.goalId,
             reason: "goal cleared",
           });
         await refreshGoalRuntimeState(cwd, ctx, deps);
@@ -224,11 +218,11 @@ export function registerSparkGoalTool(
             ],
             details: { found: true, action, error: "goal_already_complete", goal: existingGoal },
           };
-        const ownerSessionId = await prepareSparkDaemonDriverOwner(ctx, deps.driverControl);
+        const ownerSessionId = await prepareSparkDaemonLoopOwner(ctx, deps.loopControl);
         const resumed = await updateSessionGoalStatus(cwd, ctx, "active");
-        await startGoalDriver(
+        await startGoalLoop(
           ctx,
-          deps.driverControl,
+          deps.loopControl,
           ownerSessionId,
           resumed ?? existingGoal,
           "goal resumed by tool",
@@ -314,10 +308,10 @@ export function registerSparkGoalTool(
           },
         };
       const relationship = describeGoalProjectRelationship(pauseResult.goal, graph, project);
-      if (ctx.driver) await ctx.driver.stop({ reason: "goal paused after reviewer approval" });
+      if (ctx.loop) await ctx.loop.stop({ reason: "goal paused after reviewer approval" });
       else
-        await deps.driverControl.stop({
-          driverId: pauseResult.goal.goalId,
+        await deps.loopControl.stop({
+          loopId: pauseResult.goal.goalId,
           reason: "goal paused after reviewer approval",
         });
       return goalResult(
@@ -330,16 +324,16 @@ export function registerSparkGoalTool(
   });
 }
 
-async function startGoalDriver(
+async function startGoalLoop(
   ctx: SparkToolContext,
-  driverControl: SparkDaemonDriverControl,
+  loopControl: SparkDaemonLoopControl,
   ownerSessionId: string,
   goal: SparkSessionGoal,
   reason: string,
 ): Promise<void> {
-  await driverControl.start({
-    driverId: goal.goalId,
-    kind: "goal",
+  await loopControl.start({
+    loopId: goal.goalId,
+    binding: { goalId: goal.goalId },
     ownerSessionId,
     continuity: "session",
     cwd: ctx.cwd,
@@ -940,7 +934,7 @@ function renderGoalStatus(
       `Last review: ${goal.lastReviewRef ?? "unrecorded"}${goal.lastReviewEvidenceRef ? ` evidence=${goal.lastReviewEvidenceRef}` : ""}${goal.lastReviewedAt ? ` at ${goal.lastReviewedAt}` : ""}`,
     );
   if (goal.status === "active")
-    lines.push("Cadence and retry state are owned by the Spark daemon driver.");
+    lines.push("Cadence and retry state are owned by the Spark daemon Loop.");
   if (relationship.currentProject) {
     const project = relationship.currentProject;
     lines.push(

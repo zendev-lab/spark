@@ -222,7 +222,7 @@ no-op。`/status`、action bar 和 palette 的普通动作一次 Enter 即执行
 - **Inbox** 展示内联问题与审批；Ask 不应变成全局 modal。
 - **Artifacts** 只包含 Issue、PR 和 Preview。
 - **Resources** 包含工作区仓库、文档、URL、文件、工具和 secret reference。
-- Goal、Repro、Workflow 与后台 driver 保持不同语义；不能合并 scheduled、running、
+- Goal、Repro、Workflow 与后台 Loop 保持不同语义；不能合并 scheduled、running、
   retry-waiting、dormant、blocked 和 stopped 状态。
 
 继续阅读 [TUI](/zh/guides/tui/)、[运行与会话](/zh/guides/runs-and-sessions/)、

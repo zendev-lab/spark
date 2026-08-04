@@ -22,14 +22,15 @@ import {
   formatHiddenRoleRunInbox,
   markHiddenRoleRunInboxDelivered,
 } from "./role-run-completions.ts";
-import { sparkActiveLensDriveMode, sparkActiveLensPhase } from "./spark-drive-state.ts";
-import type { SparkModeMessageApi } from "./spark-mode-entry.ts";
+import { sparkActiveLensPhase } from "./spark-phase-state.ts";
+import { readSessionRepro } from "./spark-session-repro.ts";
+import type { SparkPhaseMessageApi } from "./spark-phase-entry.ts";
 import { createSparkAgentEndReconciliationController } from "./spark-agent-end-reconciliation.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 import type { SparkSessionHeartbeatController } from "./spark-session-heartbeat.ts";
 import type { SparkTurnContextController } from "./spark-turn-context-controller.ts";
 
-interface SparkExtensionEventApi extends SparkModeMessageApi {
+interface SparkExtensionEventApi extends SparkPhaseMessageApi {
   on?(event: string, handler: (event: unknown, ctx: SparkToolContext) => unknown): void;
   getActiveTools?(): string[];
   setActiveTools?(names: string[]): void;
@@ -45,7 +46,7 @@ export interface SparkExtensionEventDeps {
   ) =>
     | SparkToolContext["askAutoAnswerResolver"]
     | Promise<SparkToolContext["askAutoAnswerResolver"]>;
-  ensureActiveReproDriver?: (ctx: SparkToolContext) => Promise<void>;
+  ensureActiveReproLoop?: (ctx: SparkToolContext) => Promise<void>;
 }
 
 export interface SparkExtensionEventHandlers {
@@ -111,7 +112,7 @@ export function registerSparkExtensionEvents(
       ...(pendingInstruction
         ? [
             {
-              customType: "spark-mode-context",
+              customType: "spark-phase-context",
               content: pendingInstruction.instruction,
               display: false,
               authority: "runtime_control" as const,
@@ -136,7 +137,7 @@ export function registerSparkExtensionEvents(
       messages.length === 1
         ? messages[0]
         : {
-            customType: "spark-mode-context",
+            customType: "spark-phase-context",
             content: messages.map((message) => message.content).join("\n\n"),
             display: false,
             // Pi-compatible hosts only understand one message. When control
@@ -155,7 +156,7 @@ export function registerSparkExtensionEvents(
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await syncGoalAskAutoAnswerPolicy(ctx);
     await syncGoalInteractiveToolAvailability(pi, ctx, goalToolBaselines);
-    await deps.ensureActiveReproDriver?.(ctx);
+    await deps.ensureActiveReproLoop?.(ctx);
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
   // turn_end also fires between normal tool-call iterations. Only a successful
@@ -177,7 +178,7 @@ export function registerSparkExtensionEvents(
     await ensureLocalSparkDirectory(sparkStateCwd(ctx.cwd, ctx));
     await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
     await resumeOwnedBackgroundSubroles(ctx.cwd, ctx);
-    await deps.ensureActiveReproDriver?.(ctx);
+    await deps.ensureActiveReproLoop?.(ctx);
     await deps.refreshSparkWidget(ctx.cwd, ctx);
   });
   pi.on?.("session_compact", async (_event: unknown, ctx: SparkToolContext) => {
@@ -238,17 +239,17 @@ export async function syncSparkGoalAskAutoAnswerPolicy(
   ctx: SparkToolContext,
   deps: SparkExtensionEventDeps,
 ): Promise<void> {
-  const drive = sparkActiveLensDriveMode(ctx.sparkActiveLens);
   const phase = sparkActiveLensPhase(ctx.sparkActiveLens);
   const activeGoal = await hasActiveCurrentSessionGoal(ctx);
+  const activeRepro = (await readSessionRepro(ctx.cwd, ctx))?.status === "active";
   ctx.askWaitTimeoutMs =
-    drive === "repro" || (phase !== "implement" && (drive === "goal" || activeGoal))
+    activeRepro || (phase !== "implement" && activeGoal)
       ? SPARK_AUTONOMOUS_ASK_WAIT_TIMEOUT_MS
       : SPARK_DEFAULT_ASK_WAIT_TIMEOUT_MS;
 
   // Repro decisions remain real-user evidence. Timeout closes the wait and
   // leaves a blocker; it must never mint a reviewer-authored decision receipt.
-  if (phase === "implement" || drive === "repro") {
+  if (phase === "implement" || activeRepro) {
     delete ctx.askAutoAnswer;
     delete ctx.askAutoAnswerResolver;
     return;

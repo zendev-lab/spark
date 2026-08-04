@@ -28,7 +28,7 @@ import { readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 export type {
   CurrentProjectStoreSnapshot,
   SparkAgentPhase,
-  SparkPlanningModeSource,
+  SparkPlanningPhaseSource,
   SparkRunStrategy,
 } from "./current-project-state-schema.ts";
 

@@ -11,4 +11,3 @@ export * from "./session-directory-store.ts";
 export * from "./session-goals.ts";
 export * from "./session-loops.ts";
 export * from "./subgoals.ts";
-export * from "./driver-policy.ts";

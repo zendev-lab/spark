@@ -6,7 +6,7 @@ browser timers.
 
 ## Work-first session surface
 
-- When a session has daemon-projected Goal/Repro work or any autonomous driver,
+- When a session has daemon-projected Goal/Repro work or any autonomous Loop,
   `Work` is its default primary view. Ordinary conversations default to
   `Transcript`.
 - `Work` and `Transcript` are peers. Switching views preserves the mounted
@@ -19,14 +19,14 @@ browser timers.
 ## State ownership and vocabulary
 
 - The daemon owns execution truth. Cockpit consumes `SparkSessionView.work` and
-  `drivers`; it never reconstructs work state from messages, logs, or time.
-- Driver states remain
+  `loops`; it never reconstructs work state from messages, logs, or time.
+- Loop states remain
   `scheduled | running | retry_wait | dormant | blocked | stopped`. Do not
   collapse them into `working` or `idle`.
 - A status needs visible text, an icon or shape, and an accessible name. Color
   alone is not a state signal.
 - Missing or invalid domain state removes only the unproven projection. The
-  session and driver snapshot must remain usable.
+  session and Loop snapshot must remain usable.
 
 ## Interaction boundaries
 
@@ -45,7 +45,7 @@ browser timers.
 
 ## Verification
 
-Every reachable driver state needs a rendered UI test. Work/Transcript defaults,
+Every reachable Loop state needs a rendered UI test. Work/Transcript defaults,
 deep links, keyboard tabs, inline Ask placement, composer keyboard behavior,
 coarse-pointer targets, reduced motion, and the Artifact boundary are
 behavioral contracts, not visual suggestions.

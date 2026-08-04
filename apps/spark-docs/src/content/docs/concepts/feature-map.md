@@ -62,7 +62,7 @@ opens the separate browser control surface.
 
 Spark supplies tools for files, search, shell and scripts, tasks, artifacts,
 questions, memory and context, models, roles, sessions, workflows, and durable
-drivers. Users normally describe the desired outcome; the agent selects tools
+loops. Users normally describe the desired outcome; the agent selects tools
 and asks for approval when policy requires it.
 
 See the complete, profile-aware [agent tool catalog](/reference/tools/).

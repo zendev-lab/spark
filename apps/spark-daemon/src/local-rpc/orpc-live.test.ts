@@ -405,24 +405,24 @@ describe("local-rpc direct oRPC service", () => {
       paths,
       db,
       handlerOptions,
-      method: "driver.start",
+      method: "loop.start",
       params: {
-        kind: "goal",
+        binding: { goalId: "goal-missing" },
         ownerSessionId: "missing-owner",
         continuity: "session",
         prompt: "drive",
         cwd: dir,
       },
-      code: "driver_owner_not_found",
+      code: "loop_owner_not_found",
     });
     await expectRpcErrorParity({
       client: handle.client,
       paths,
       db,
       handlerOptions,
-      method: "driver.stop",
-      params: { driverId: "drv_missing" },
-      code: "driver_not_found",
+      method: "loop.stop",
+      params: { loopId: "drv_missing" },
+      code: "loop_not_found",
     });
     for (const method of ["turn.status", "turn.result"] as const) {
       await expectRpcErrorParity({
@@ -545,7 +545,7 @@ describe("local-rpc direct oRPC service", () => {
       db.close();
     });
     const crossDomainFailure = async (): Promise<never> => {
-      throw new SparkDaemonControlError("driver_not_found", "cross-domain detail must not escape");
+      throw new SparkDaemonControlError("loop_not_found", "cross-domain detail must not escape");
     };
     const modelControl: SparkDaemonModelControl = {
       snapshot: crossDomainFailure,

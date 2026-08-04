@@ -2,7 +2,7 @@ import { type ProjectRef, type TaskRef } from "@zendev-lab/spark-core";
 import { JsonStoreFormatError } from "./json-store.ts";
 
 export type SparkRunStrategy = "sequential" | "parallel";
-export type SparkPlanningModeSource = "auto" | "direct";
+export type SparkPlanningPhaseSource = "auto" | "direct";
 export type SparkAgentPhase = "plan" | "implement";
 
 export interface CurrentProjectStoreSnapshot {
@@ -17,10 +17,9 @@ export function normalizeCurrentProjectStoreSnapshot(
   filePath: string,
 ): CurrentProjectStoreSnapshot {
   // Legacy current-project files may still carry mode/control blocks such as
-  // planningMode, executionMode, or runMode. Spark drive mode is derived from
-  // active drive state, and workflow run control lives in the workflow-run
-  // store, so tolerate-ignore those legacy blocks. The session phase is a
-  // first-class lens field persisted next to the selected project pointer.
+  // planningMode, executionMode, or runMode. Tolerate-ignore those legacy
+  // blocks: Session phase is persisted next to the selected project pointer,
+  // while Loop and WorkflowRun state remain daemon-owned.
   if (raw.version !== undefined && raw.version !== 1) {
     throw new JsonStoreFormatError(filePath, "version must be 1");
   }

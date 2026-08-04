@@ -32,7 +32,7 @@ export interface EnsureSparkDaemonRunningOptions {
 
 /**
  * Ensure the local daemon execution plane is reachable before a compatible
- * host commits driver-owned state. The daemon remains the only tick owner;
+ * host commits Loop-owned state. The daemon remains the only tick owner;
  * this helper only owns service readiness.
  */
 export async function ensureSparkDaemonRunning(

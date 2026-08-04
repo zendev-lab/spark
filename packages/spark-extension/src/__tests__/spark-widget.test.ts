@@ -428,7 +428,7 @@ test("spark widget renders active loop progress in the foreground slot", () => {
   assert.match(pulsed[0] ?? "", /◆ Loop\(◉\): Continue loop progress/);
 });
 
-test("spark widget renders active repro drive in the foreground slot above goal and loop", () => {
+test("spark widget renders active Repro in the foreground slot above goal and loop", () => {
   const lines = renderSparkWidgetLines(
     widgetState({
       repro: {
@@ -516,7 +516,7 @@ test("spark widget controller clears legacy paused loop state instead of renderi
   }
 });
 
-test("spark widget controller renders an active repro drive above goal and loop", async () => {
+test("spark widget controller renders an active Repro above goal and loop", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-widget-repro-drive-"));
   try {
     await setSessionGoal(dir, undefined, {
@@ -1203,7 +1203,7 @@ test("spark widget summarizes tasks and current-session in-memory running role-r
 test("spark widget renders phase on the project header", () => {
   const planLines = renderSparkWidgetLines(
     widgetState({
-      activeLens: { phase: "plan", drive: "assist" },
+      activeLens: { phase: "plan" },
       tasks: [{ title: "Planned task", status: "pending", todos: [] }],
     }),
     { terminal: { columns: 120 }, requestRender() {} },
@@ -1213,7 +1213,7 @@ test("spark widget renders phase on the project header", () => {
 
   const implementLines = renderSparkWidgetLines(
     widgetState({
-      activeLens: { phase: "implement", drive: "assist" },
+      activeLens: { phase: "implement" },
       tasks: [{ title: "Implementation task", status: "pending", todos: [] }],
     }),
     { terminal: { columns: 120 }, requestRender() {} },

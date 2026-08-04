@@ -10,7 +10,7 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { SparkSessionRegistryError } from "@zendev-lab/spark-session";
 import { executeSparkDaemonSessionControl } from "../../session-control.ts";
-import { SparkDriverStore } from "../../store/drivers.ts";
+import { SparkLoopStore } from "../../store/loops.ts";
 import { SparkTokenUsageStore } from "../../store/token-usage.ts";
 import { projectSparkSessionWork } from "../../session-work-projection.ts";
 import {
@@ -95,34 +95,36 @@ export async function handleSessionRequest(
         },
       );
       const snapshot = parseSparkSessionView(executed.result.snapshot);
-      const drivers = new SparkDriverStore(db)
+      const loops = new SparkLoopStore(db)
         .list({ ownerSessionId: request.params.sessionId })
-        .map((driver) => ({
-          driverId: driver.driverId,
-          kind: driver.kind,
-          ownerSessionId: driver.ownerSessionId,
-          status: driver.status,
-          continuity: driver.continuity,
-          dueAt: driver.dueAt,
-          attempt: driver.attempt,
-          lastInvocationId: driver.lastInvocationId,
-          reason: driver.reason,
-          error: driver.error,
+        .map((loop) => ({
+          loopId: loop.loopId,
+          ownerSessionId: loop.ownerSessionId,
+          status: loop.status,
+          continuity: loop.continuity,
+          generation: loop.generation,
+          cycleStep: loop.cycleStep,
+          binding: loop.binding,
+          dueAt: loop.dueAt,
+          attempt: loop.attempt,
+          lastInvocationId: loop.lastInvocationId,
+          reason: loop.reason,
+          error: loop.error,
         }));
       const tokenUsageStore = new SparkTokenUsageStore(db);
       const work = await projectSparkSessionWork({
         cwd: snapshot.cwd,
         sessionId: request.params.sessionId,
-        drivers,
+        loops,
         tokenUsage: (scope) => tokenUsageStore.summarize({ scope }),
         tokenUsageByPersistence: (scope) => tokenUsageStore.summarizeByPersistence({ scope }),
       });
-      const withDrivers = parseSparkSessionView({
+      const withLoops = parseSparkSessionView({
         ...snapshot,
-        drivers,
+        loops,
         ...(work ? { work } : {}),
       });
-      return await projectSessionMailbox(options, withDrivers);
+      return await projectSessionMailbox(options, withLoops);
     }
     case "session.create": {
       const executed = await executeSparkDaemonSessionControl(

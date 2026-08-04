@@ -3239,7 +3239,7 @@ test("SparkAgentLoop triggerTurn runs hidden before_agent_start context without 
     lifecycleSources.push((event as { source?: unknown }).source);
     return {
       message: {
-        customType: "spark-mode-context",
+        customType: "spark-phase-context",
         content: "hidden context payload",
         display: false,
         authority: "runtime_control",
@@ -3278,14 +3278,14 @@ test("SparkAgentLoop triggerTurn runs hidden before_agent_start context without 
   assert.equal(contextMessages[0]?.role, "user");
   const contextContent = messageContentText(contextMessages[0]?.content);
   assert.match(contextContent, /<spark_runtime_control trust="trusted"/);
-  assert.match(contextContent, /custom_type="spark-mode-context"/);
+  assert.match(contextContent, /custom_type="spark-phase-context"/);
   assert.match(contextContent, /hidden context payload/);
   assert.doesNotMatch(JSON.stringify(loop.getMessages()), /spark-goal-request/);
   assert.equal(eventTypes.includes("user_message"), false);
   assert.deepEqual(lifecycleSources, ["triggerTurn"]);
   const runtimeItem = loop
     .getPromptItems()
-    .find((item) => item.customType === "spark-mode-context");
+    .find((item) => item.customType === "spark-phase-context");
   assert.equal(runtimeItem?.authority, "runtime_control");
   assert.equal(runtimeItem?.trust, "trusted");
   assert.equal(runtimeItem?.visibility, "hidden");

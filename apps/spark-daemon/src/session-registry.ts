@@ -84,7 +84,7 @@ export interface CreateDaemonSessionRegistryOptions {
   resolveWorkspaceCwd?: (workspaceId: string) => string | undefined;
   /** Resolve canonical workspace aliases for role-owner uniqueness. */
   canonicalWorkspaceId?: (workspaceId: string) => string;
-  /** Return true for running/driver-owned sessions that must not be displaced. */
+  /** Return true for running or Loop-owned sessions that must not be displaced. */
   isSessionRoleOwnerProtected?: (sessionId: string) => boolean | Promise<boolean>;
   /** Validate and freeze a session cwd against its owning workspace/GitChange roots. */
   resolveSessionCwd?: (input: {

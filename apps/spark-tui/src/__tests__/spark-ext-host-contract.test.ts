@@ -229,7 +229,7 @@ class PiExtensionApiAdapter implements SparkHostAPI {
   }
 }
 
-function makeSparkDriver(): ContractDriver {
+function makeSparkLoop(): ContractDriver {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-ext-contract", hasUI: true });
   const notifications: ContractDriver["notifications"] = [];
   const statuses: ContractDriver["statuses"] = [];
@@ -437,7 +437,7 @@ function normalizeOutbox(envelope: OutboxEnvelope): NormalizedOutboxEnvelope {
 }
 
 test("SparkHostAPI contract fixture behaves the same on SparkHostRuntime and PiExtensionApiAdapter", async () => {
-  const spark = await exercise(makeSparkDriver());
+  const spark = await exercise(makeSparkLoop());
   const piAdapter = await exercise(makePiAdapterDriver());
 
   assert.deepEqual(spark, piAdapter);

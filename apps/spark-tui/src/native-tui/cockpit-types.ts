@@ -1,6 +1,6 @@
 import type {
   SparkArtifactView,
-  SparkDriverView,
+  SparkLoopView,
   SparkEvidenceView,
   SparkInteractionRequest,
   SparkRunView,
@@ -38,7 +38,7 @@ export interface SparkNativeCockpitState {
   readonly tasks: Map<string, SparkTaskView>;
   readonly artifacts: Map<string, SparkArtifactView>;
   readonly evidence: Map<string, SparkEvidenceView>;
-  readonly drivers: Map<string, SparkDriverView>;
+  readonly loops: Map<string, SparkLoopView>;
   readonly interactions: Map<string, SparkInteractionRequest>;
 }
 

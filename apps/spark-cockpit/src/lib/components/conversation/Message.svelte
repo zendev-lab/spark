@@ -193,7 +193,7 @@
             />
           {:else if part.type === "runtime"}
             <RuntimeControlPart
-              driverKind={part.driverKind}
+              bindingLabel={part.bindingLabel}
               state={part.state}
               request={part.request}
               result={part.result}

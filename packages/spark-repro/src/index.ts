@@ -15,7 +15,6 @@ import {
   type TaskRef,
 } from "@zendev-lab/spark-core";
 import { createSubgoal, subgoalDefinitionDigest } from "@zendev-lab/spark-loop";
-export * from "./driver-policy.ts";
 
 export type SparkSessionPhase = "plan" | "implement";
 

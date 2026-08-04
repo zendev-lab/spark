@@ -7,7 +7,7 @@ import { test } from "vitest";
 import {
   SPARK_PROTOCOL_VERSION,
   sparkSlashActionBarForInput,
-  type SparkDriverStartRequest,
+  type SparkLoopStartRequest,
   type SparkInteractionRequest,
   type SparkThinkingLevel,
 } from "@zendev-lab/spark-protocol";
@@ -34,7 +34,7 @@ import { SparkSessionMailStore } from "../host/session-mail-store.ts";
 import { createSparkTuiActionBarComponent } from "../tui/action-bar.ts";
 import type { Component } from "../tui/pi-tui-adapter.ts";
 import sparkExtension from "@zendev-lab/spark-extension/extension";
-type SparkDaemonDriverControl = NonNullable<Parameters<typeof sparkExtension>[0]["driverControl"]>;
+type SparkDaemonLoopControl = NonNullable<Parameters<typeof sparkExtension>[0]["loopControl"]>;
 import { createSparkNativeTuiHarness } from "../test-support/spark-native-tui-harness.ts";
 
 const ESC = String.fromCharCode(27);
@@ -53,18 +53,19 @@ function firstMarkerIndex(lines: string[], pattern: RegExp): number {
   return index!;
 }
 
-function recordingDriverControl(starts: SparkDriverStartRequest[]): SparkDaemonDriverControl {
+function recordingDriverControl(starts: SparkLoopStartRequest[]): SparkDaemonLoopControl {
   return {
     async start(input) {
       starts.push(input);
       const observedAt = new Date().toISOString();
       return {
-        driver: {
-          driverId: input.driverId ?? `${input.kind}:${input.ownerSessionId}`,
-          kind: input.kind,
+        loop: {
+          loopId: input.loopId ?? `loop:${input.ownerSessionId}`,
+          binding: input.binding ?? {},
           ownerSessionId: input.ownerSessionId,
           status: "scheduled",
           continuity: input.continuity,
+          generation: 1,
           dueAt: input.dueAt ?? observedAt,
           attempt: 0,
           reason: input.reason,
@@ -73,19 +74,19 @@ function recordingDriverControl(starts: SparkDriverStartRequest[]): SparkDaemonD
       };
     },
     async list() {
-      return { drivers: [], observedAt: new Date().toISOString() };
+      return { loops: [], observedAt: new Date().toISOString() };
     },
     async stop() {
-      throw new Error("unexpected driver.stop");
+      throw new Error("unexpected loop.stop");
     },
     async restart() {
-      throw new Error("unexpected driver.restart");
+      throw new Error("unexpected loop.restart");
     },
     async wake() {
-      throw new Error("unexpected driver.wake");
+      throw new Error("unexpected loop.wake");
     },
     async schedule() {
-      throw new Error("unexpected driver.schedule");
+      throw new Error("unexpected loop.schedule");
     },
   };
 }
@@ -184,7 +185,7 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
     description: "Goal command",
     metadata: {
       source: "extension",
-      extensionId: "spark-drive",
+      extensionId: "spark-loop",
       plane: "daemon",
       resource: "goal",
       verbs: ["status"],
@@ -263,7 +264,7 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   });
   const runtime = createSparkNativeRuntimeSlashCommands(host);
   assert.equal(runtime.goal?.metadata?.source, "extension");
-  assert.equal(runtime.goal?.metadata?.extensionId, "spark-drive");
+  assert.equal(runtime.goal?.metadata?.extensionId, "spark-loop");
   assert.equal(runtime.goal?.metadata?.plane, "daemon");
   assert.equal(runtime.goal?.metadata?.canonicalCliTarget, undefined);
   const providerCommands = createSparkPiParitySlashCommands({
@@ -1387,8 +1388,8 @@ test("native /goal starts the daemon-owned driver instead of entering the local 
     await writeFile(join(cwd, "README.md"), "# Existing project\n", "utf8");
     const host = new SparkHostRuntime({ cwd, hasUI: true });
     host.setSessionId("sess_goal_bridge");
-    const driverStarts: SparkDriverStartRequest[] = [];
-    Object.assign(host, { driverControl: recordingDriverControl(driverStarts) });
+    const driverStarts: SparkLoopStartRequest[] = [];
+    Object.assign(host, { loopControl: recordingDriverControl(driverStarts) });
     sparkExtension(host as never);
     const forwarded: string[] = [];
     const responderInputs: string[] = [];
@@ -1417,7 +1418,7 @@ test("native /goal starts the daemon-owned driver instead of entering the local 
     await harness.flush();
 
     assert.equal(driverStarts.length, 1);
-    assert.equal(driverStarts[0]?.kind, "goal");
+    assert.ok(driverStarts[0]?.binding?.goalId);
     assert.equal(driverStarts[0]?.ownerSessionId, "sess_goal_bridge");
     assert.equal(driverStarts[0]?.continuity, "session");
     assert.match(driverStarts[0]?.prompt ?? "", /Ship the daemon goal bridge/u);

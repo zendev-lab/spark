@@ -248,7 +248,7 @@ Use these surfaces together:
 - **Artifacts** contains only Issues, PRs, and previews.
 - **Resources** contains workspace repositories, documents, URLs, files, tools,
   and secret references.
-- Goal, Repro, Workflow, and background drivers remain distinct; do not collapse
+- Goal, Repro, Workflow, and background loops remain distinct; do not collapse
   scheduled, running, retry-waiting, dormant, blocked, and stopped states.
 
 Continue with [TUI](/guides/tui/), [runs and sessions](/guides/runs-and-sessions/),

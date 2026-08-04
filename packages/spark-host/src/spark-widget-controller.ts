@@ -40,13 +40,7 @@ export interface SparkWidgetControllerDeps {
   clearSessionLoop: (cwd: string, ctx?: any) => Promise<void>;
   readSessionRepro: (cwd: string, ctx?: any) => Promise<any>;
   loadSparkPhase: (cwd: string, ctx?: any) => Promise<{ phase: "plan" | "implement" }>;
-  sparkActiveLens: (phase: "plan" | "implement", drive?: any) => SparkWidgetActiveLens;
-  deriveSparkDriveMode: (input: {
-    activeLens?: SparkWidgetActiveLens;
-    repro?: any;
-    goal?: any;
-    loop?: any;
-  }) => unknown;
+  sparkActiveLens: (phase: "plan" | "implement") => SparkWidgetActiveLens;
   renderSparkProjectKindDisplay: (project: any) => SparkWidgetState["projectKind"];
   isPlaceholderProjectTitle: (title: string) => boolean;
   latestRunsByTaskRef: (runs: any) => Map<string, any>;
@@ -132,21 +126,9 @@ export class SparkWidgetController {
       sessionLoop = undefined;
     }
     const sessionRepro = await this.deps.readSessionRepro(cwd, ctx);
-    const foregroundDriver = sparkForegroundDriverWidgetEntries(
-      sessionGoal,
-      sessionLoop,
-      sessionRepro,
-    );
+    const foregroundLoop = sparkForegroundLoopWidgetEntries(sessionGoal, sessionLoop, sessionRepro);
     const phase = (await this.deps.loadSparkPhase(cwd, ctx)).phase;
-    const activeLens = this.deps.sparkActiveLens(
-      phase,
-      this.deps.deriveSparkDriveMode({
-        activeLens: ctx?.sparkActiveLens,
-        repro: sessionRepro,
-        goal: sessionGoal,
-        loop: sessionLoop,
-      }),
-    );
+    const activeLens = this.deps.sparkActiveLens(phase);
     const independentTodoEntries = independentTodos.map((todo) => ({
       ...todo,
       displayNumber: this.deps.assignTodoDisplayNumber(
@@ -158,7 +140,7 @@ export class SparkWidgetController {
       this.state = {
         workflowRun: sparkWorkflowRunWidgetEntry(workflowRunStatus),
         dynamicWorkflowRun,
-        ...foregroundDriver,
+        ...foregroundLoop,
         projects: projectOverview,
         activeLens,
         tasks: [],
@@ -187,7 +169,7 @@ export class SparkWidgetController {
       projectTitle: this.deps.isPlaceholderProjectTitle(project.title) ? undefined : project.title,
       workflowRun: sparkWorkflowRunWidgetEntry(workflowRunStatus, project.ref),
       dynamicWorkflowRun,
-      ...foregroundDriver,
+      ...foregroundLoop,
       projectKind: this.deps.renderSparkProjectKindDisplay(project),
       activeLens,
       tasks: allTasks.map((task: Task) => {
@@ -315,7 +297,7 @@ function mapTodoStatus(status: string): SessionTodoEntry["status"] {
   }
 }
 
-function sparkForegroundDriverWidgetEntries(
+function sparkForegroundLoopWidgetEntries(
   sessionGoal: any,
   sessionLoop: any,
   sessionRepro?: any,

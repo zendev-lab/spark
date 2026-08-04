@@ -155,7 +155,7 @@ export function validateWorkspaceTestStrategy({ ledger, architecture, root = def
     fail(errors, "spark-tui-app must use its package-local check and test path");
   const ownerLocalPackages = [
     "spark-memory",
-    "spark-modes",
+    "spark-phases",
     "spark-graft",
     "spark-files",
     "spark-workflows",

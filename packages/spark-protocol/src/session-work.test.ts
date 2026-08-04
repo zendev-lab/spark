@@ -22,7 +22,7 @@ describe("SparkSessionView work projection", () => {
     const parsed = parseSparkSessionView({
       ...baseSnapshot,
       work: {
-        primary: { kind: "repro", driverId: "driver-repro" },
+        primary: { kind: "repro", loopId: "driver-repro" },
         goal: {
           goalId: "goal-1",
           objective: "Reproduce target logits",

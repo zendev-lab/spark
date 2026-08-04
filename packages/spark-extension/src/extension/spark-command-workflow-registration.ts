@@ -1,6 +1,6 @@
 import { listBuiltinWorkflows } from "@zendev-lab/spark-workflows";
 import { parseWorkflowCommandArgs } from "./spark-command-parser-utils.ts";
-import type { SparkWorkflowNavigatorAction } from "./spark-workflow-driver-entry.ts";
+import type { SparkWorkflowNavigatorAction } from "./spark-workflow-loop-entry.ts";
 import type { SparkCommandApi, SparkCommandContext } from "./spark-command-types.ts";
 
 const WORKFLOW_CONTROL_ACTIONS = [

@@ -36,7 +36,7 @@ export {
   sparkRunStrategyMaxConcurrency,
   type CurrentProjectStoreSnapshot,
   type SparkAgentPhase,
-  type SparkPlanningModeSource,
+  type SparkPlanningPhaseSource,
   type SparkRunStrategy,
 } from "./current-project-state.ts";
 export {
@@ -48,7 +48,7 @@ export {
   type SparkSessionPhase,
   type SparkSessionPhaseInput,
   type SparkSessionPhaseState,
-} from "./mode-state.ts";
+} from "./session-phase.ts";
 export {
   importLegacyHiddenRoleRunInboxState,
   loadHiddenRoleRunInboxState,

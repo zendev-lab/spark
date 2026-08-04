@@ -1057,15 +1057,15 @@ export class SparkInvocationStore {
   retry(invocationId: string, now = new Date().toISOString()): SparkInvocationRecord {
     const original = this.require(invocationId);
     if (
-      original.sourceKind === "driver.tick" ||
+      original.sourceKind === "loop.tick" ||
       (original.task &&
         typeof original.task === "object" &&
         !Array.isArray(original.task) &&
-        (original.task as { type?: unknown }).type === "driver.tick")
+        (original.task as { type?: unknown }).type === "loop.tick")
     ) {
       throw new SparkDaemonControlError(
         "invocation_not_retryable",
-        `INVOCATION_NOT_RETRYABLE: ${invocationId} is a driver tick; use driver.restart or driver.wake`,
+        `INVOCATION_NOT_RETRYABLE: ${invocationId} is a Loop tick; use loop.restart or loop.wake`,
       );
     }
     if (original.status !== "failed") {

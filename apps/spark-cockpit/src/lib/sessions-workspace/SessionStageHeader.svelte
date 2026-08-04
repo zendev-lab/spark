@@ -5,7 +5,7 @@
   import { enhance } from "$app/forms";
   import { visibleSessionStatus } from "$lib/conversation-status";
   import {
-    primarySessionDriver,
+    primarySessionLoop,
     sessionWorkObjective,
     sessionWorkStatus,
   } from "$lib/session-work-view";
@@ -30,7 +30,7 @@
   let displayedSessionStatus = $derived(visibleSessionStatus(host.selected.status));
   let selectedPresentation = $derived(host.sessionPresentation(host.selected));
   let objective = $derived(sessionWorkObjective(host.liveSessionView));
-  let primaryDriver = $derived(primarySessionDriver(host.liveSessionView));
+  let primaryLoop = $derived(primarySessionLoop(host.liveSessionView));
   let semanticStatus = $derived(sessionWorkStatus(host.liveSessionView));
   let currentStep = $derived(host.liveSessionView?.work?.repro?.plan.currentStep?.goal);
   let modeLabel = $derived(
@@ -38,8 +38,8 @@
       ? host.copy.reproMode
       : host.liveSessionView?.work?.goal
         ? host.copy.goalMode
-        : primaryDriver
-          ? host.copy.driverMode
+        : primaryLoop
+          ? host.copy.loopMode
           : host.copy.timelineTitle,
   );
   let semanticIcon = $derived.by((): IconName => {

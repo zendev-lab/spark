@@ -91,8 +91,8 @@ export type ConversationPart =
   | {
       /** Daemon-authored scheduler/control turn, never a human chat message. */
       type: "runtime";
-      kind: "driver.tick";
-      driverKind?: string;
+      kind: "loop.tick";
+      bindingLabel?: string;
       state: "running" | "completed" | "failed";
       request: string;
       result?: string;

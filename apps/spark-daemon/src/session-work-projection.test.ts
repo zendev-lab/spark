@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 
 import type { EvidenceRef } from "@zendev-lab/spark-core";
 import { sessionGoalStorePathV2, sessionReproStorePathV2 } from "@zendev-lab/spark-loop";
-import type { SparkDriverView } from "@zendev-lab/spark-protocol";
+import type { SparkLoopView } from "@zendev-lab/spark-protocol";
 import type {
   SparkTokenUsageAggregate,
   SparkTokenUsageByPersistence,
@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   projectSparkSessionWork,
   resolveActiveSessionReproUsageScope,
-  selectPrimarySessionDriver,
+  selectPrimarySessionLoop,
   type SparkSessionWorkProjectionDiagnostic,
 } from "./session-work-projection.ts";
 
@@ -33,15 +33,15 @@ afterEach(async () => {
 });
 
 describe("session work projection", () => {
-  it("selects the primary driver by semantic status, kind, and stable id", () => {
-    const drivers = [
+  it("selects the primary loop by semantic status and stable id", () => {
+    const loops = [
       driver("z-repro", "repro", "blocked"),
       driver("a-goal", "goal", "running"),
       driver("b-repro", "repro", "running"),
       driver("a-repro", "repro", "running"),
     ];
 
-    expect(selectPrimarySessionDriver(drivers)?.driverId).toBe("a-repro");
+    expect(selectPrimarySessionLoop(loops)?.loopId).toBe("a-goal");
   });
 
   it("resolves usage scope only from the Repro owned by the exact session", async () => {
@@ -104,11 +104,11 @@ describe("session work projection", () => {
     const work = await projectSparkSessionWork({
       cwd,
       sessionId,
-      drivers: [driver("driver-repro", "repro", "running")],
+      loops: [driver("driver-repro", "repro", "running")],
     });
 
     expect(work).toMatchObject({
-      primary: { kind: "repro", driverId: "driver-repro" },
+      primary: { loopId: "driver-repro" },
       goal: { goalId: "goal-1", status: "active" },
     });
     expect(work?.repro).toBeUndefined();
@@ -124,11 +124,11 @@ describe("session work projection", () => {
     const work = await projectSparkSessionWork({
       cwd,
       sessionId,
-      drivers: [driver("driver-repro", "repro", "blocked")],
+      loops: [driver("driver-repro", "repro", "blocked")],
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
     });
 
-    expect(work).toEqual({ primary: { kind: "repro", driverId: "driver-repro" } });
+    expect(work).toEqual({ primary: { loopId: "driver-repro" } });
     expect(diagnostics).toEqual([
       {
         code: "repro_state_unavailable",
@@ -189,7 +189,7 @@ describe("session work projection", () => {
     const work = await projectSparkSessionWork({
       cwd,
       sessionId,
-      drivers: [driver(repro.reproId, "repro", "running")],
+      loops: [driver(repro.reproId, "repro", "running")],
       tokenUsage: (scope) => {
         requestedScopes.push(scope);
         return tokenUsage;
@@ -219,7 +219,7 @@ describe("session work projection", () => {
     const work = await projectSparkSessionWork({
       cwd,
       sessionId,
-      drivers: [driver(repro.reproId, "repro", "running")],
+      loops: [driver(repro.reproId, "repro", "running")],
       tokenUsage: () => {
         throw new Error("ledger unavailable");
       },
@@ -257,12 +257,12 @@ describe("session work projection", () => {
     const work = await projectSparkSessionWork({
       cwd,
       sessionId,
-      drivers: [driver("driver-goal", "goal", "running")],
+      loops: [driver("driver-goal", "goal", "running")],
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
     });
 
     expect(work).toMatchObject({
-      primary: { kind: "goal", driverId: "driver-goal" },
+      primary: { loopId: "driver-goal" },
       goal: {
         goalId: "goal-independent",
         objective: "Keep the valid domain",
@@ -279,16 +279,25 @@ describe("session work projection", () => {
 });
 
 function driver(
-  driverId: string,
-  kind: SparkDriverView["kind"],
-  status: SparkDriverView["status"],
-): SparkDriverView {
+  loopId: string,
+  domain: "goal" | "loop" | "repro" | "workflow",
+  status: SparkLoopView["status"],
+): SparkLoopView {
+  const binding =
+    domain === "goal"
+      ? { goalId: loopId }
+      : domain === "repro"
+        ? { reproId: loopId }
+        : domain === "workflow"
+          ? { workflowRunId: loopId }
+          : {};
   return {
-    driverId,
-    kind,
+    loopId,
+    binding,
     ownerSessionId: sessionId,
     status,
     continuity: "session",
+    generation: 1,
     attempt: 0,
   };
 }

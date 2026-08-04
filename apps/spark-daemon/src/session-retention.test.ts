@@ -37,7 +37,7 @@ describe("inactive Session retention", () => {
 
     const result = await reconcileInactiveSessionRetention({
       registry,
-      driverStore: { list: () => [] } as never,
+      loopStore: { list: () => [] } as never,
       invocationStore: { sessionActivities: () => new Map() },
       now: new Date("2026-08-31T00:00:00.000Z"),
     });
@@ -60,19 +60,19 @@ describe("inactive Session retention", () => {
     await expect(registry.get("sess_recent")).resolves.toMatchObject({ status: "ready" });
   });
 
-  it("does not archive a Goal/Repro owner while a daemon driver remains active", async () => {
+  it("does not archive a Goal/Repro owner while a daemon Loop remains active", async () => {
     const registry = await tempRegistry();
     await registry.create({
       scope: { kind: "workspace", workspaceId: "ws_driver" },
-      sessionId: "sess_driver_owner",
+      sessionId: "sess_loop_owner",
       now: new Date("2026-01-01T00:00:00.000Z") as never,
     } as never);
 
     const result = await reconcileInactiveSessionRetention({
       registry,
-      driverStore: {
+      loopStore: {
         list: ({ ownerSessionId }: { ownerSessionId?: string }) =>
-          ownerSessionId === "sess_driver_owner" ? ([{ status: "dormant" }] as never) : [],
+          ownerSessionId === "sess_loop_owner" ? ([{ status: "dormant" }] as never) : [],
       } as never,
       invocationStore: { sessionActivities: () => new Map() },
       now: new Date("2026-08-31T00:00:00.000Z"),
@@ -81,9 +81,9 @@ describe("inactive Session retention", () => {
     expect(result).toMatchObject({
       eligible: 1,
       archived: [],
-      skippedActiveDriver: ["sess_driver_owner"],
+      skippedActiveLoop: ["sess_loop_owner"],
     });
-    await expect(registry.get("sess_driver_owner")).resolves.toMatchObject({ status: "ready" });
+    await expect(registry.get("sess_loop_owner")).resolves.toMatchObject({ status: "ready" });
   });
   it("does not archive a Session with queued/running invocation truth", async () => {
     const registry = await tempRegistry();
@@ -95,7 +95,7 @@ describe("inactive Session retention", () => {
 
     const result = await reconcileInactiveSessionRetention({
       registry,
-      driverStore: { list: () => [] } as never,
+      loopStore: { list: () => [] } as never,
       invocationStore: {
         sessionActivities: () =>
           new Map([

@@ -11,7 +11,7 @@ import {
   injectSparkHints,
   type SparkInputModeRouter,
 } from "../extension/spark-active-injection.ts";
-import { renderSparkPlanningModePrompt } from "../extension/mode/spark-mode-renderers.ts";
+import { renderSparkPlanningPhasePrompt } from "../extension/phase/spark-phase-renderers.ts";
 import { analyzeSparkEntryPhase } from "../extension/spark-entry.ts";
 import { loadSparkPhase, saveCurrentProjectRef } from "../extension/session-state.ts";
 import { setSessionGoal } from "@zendev-lab/spark-loop";
@@ -185,7 +185,7 @@ test("automatic plan policy keeps ordinary investigation free of durable writes"
     title: "Read-only plan project",
     description: "Project for merged plan prompt policy.",
   });
-  const prompt = renderSparkPlanningModePrompt(
+  const prompt = renderSparkPlanningPhasePrompt(
     graph,
     project.ref,
     "Explain the current architecture",

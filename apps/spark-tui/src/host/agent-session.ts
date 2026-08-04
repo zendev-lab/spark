@@ -58,7 +58,7 @@ export interface SparkAgentSessionRunOptions {
   reset?: boolean;
   /** Internal transcript metadata; public callers leave both fields unset. */
   sessionVisibility?: "internal";
-  sessionPurpose?: "driver_tick";
+  sessionPurpose?: "loop_tick";
   forkFromSession?: string;
   /** Display-safe metadata persisted on this turn's submitted user message only. */
   messageMetadata?: Record<string, unknown>;

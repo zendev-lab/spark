@@ -5,7 +5,7 @@ import {
   isSparkLocalRpcOrpcErrorCodeForMethod,
   sparkLocalRpcChannelOrpcErrors,
   sparkLocalRpcDaemonOrpcErrors,
-  sparkLocalRpcDriverOrpcErrors,
+  sparkLocalRpcLoopOrpcErrors,
   sparkLocalRpcHumanOrpcErrors,
   sparkLocalRpcInvocationOrpcErrors,
   sparkLocalRpcModelOrpcErrors,
@@ -24,7 +24,7 @@ import {
 import {
   sparkChannelRpcErrorCodeOptions,
   sparkDaemonLifecycleRpcErrorCodeOptions,
-  sparkDriverRpcErrorCodeOptions,
+  sparkLoopRpcErrorCodeOptions,
   sparkHumanRpcErrorCodeOptions,
   sparkInvocationRpcErrorCodeOptions,
   sparkModelRpcErrorCodeOptions,
@@ -32,7 +32,7 @@ import {
   sparkUplinkRpcErrorCodeOptions,
   sparkWorkspaceRpcErrorCodeOptions,
 } from "./daemon-rpc-errors.ts";
-import { sparkDriverScheduleRequestSchema } from "./driver.ts";
+import { sparkLoopScheduleRequestSchema } from "./loop.ts";
 import { sparkSessionRegistryErrorCodeOptions } from "./session-errors.ts";
 import { sparkSideThreadErrorCodeOptions } from "./side-thread.ts";
 
@@ -292,7 +292,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       expect(isSparkLocalRpcOrpcErrorCodeForMethod(method, code), `${method}: ${code}`).toBe(true);
     }
 
-    expect(isSparkLocalRpcOrpcErrorCodeForMethod("driver.start", "session_not_found")).toBe(false);
+    expect(isSparkLocalRpcOrpcErrorCodeForMethod("loop.start", "session_not_found")).toBe(false);
     expect(
       isSparkLocalRpcOrpcErrorCodeForMethod("session.create", "relocation_source_not_found"),
     ).toBe(false);
@@ -302,7 +302,7 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
     const families = [
       [sparkLocalRpcDaemonOrpcErrors, sparkDaemonLifecycleRpcErrorCodeOptions],
       [sparkLocalRpcChannelOrpcErrors, sparkChannelRpcErrorCodeOptions],
-      [sparkLocalRpcDriverOrpcErrors, sparkDriverRpcErrorCodeOptions],
+      [sparkLocalRpcLoopOrpcErrors, sparkLoopRpcErrorCodeOptions],
       [sparkLocalRpcInvocationOrpcErrors, sparkInvocationRpcErrorCodeOptions],
       [sparkLocalRpcModelOrpcErrors, sparkModelRpcErrorCodeOptions],
       [sparkLocalRpcTaskClaimOrpcErrors, sparkTaskClaimRpcErrorCodeOptions],
@@ -318,8 +318,8 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       ["daemon.restart", "daemon_restart_conflict"],
       ["daemon.restart", "daemon_restart_unavailable"],
       ["channel.notify", "channel_delivery_outcome_unknown"],
-      ["driver.start", "driver_owner_not_found"],
-      ["driver.stop", "driver_not_found"],
+      ["loop.start", "loop_owner_not_found"],
+      ["loop.stop", "loop_not_found"],
       ["turn.status", "invocation_not_found"],
       ["turn.result", "invocation_not_terminal"],
       ["invocation.retry", "invocation_not_retryable"],
@@ -339,11 +339,9 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
       expect(isSparkLocalRpcOrpcErrorCodeForMethod(method, code), `${method}: ${code}`).toBe(true);
     }
 
-    expect(isSparkLocalRpcOrpcErrorCodeForMethod("driver.start", "workspace_not_found")).toBe(
-      false,
-    );
-    expect(isSparkLocalRpcOrpcErrorCodeForMethod("model.catalog", "driver_not_found")).toBe(false);
-    expect(isSparkLocalRpcOrpcErrorCodeForMethod("driver.status", "driver_not_found")).toBe(false);
+    expect(isSparkLocalRpcOrpcErrorCodeForMethod("loop.start", "workspace_not_found")).toBe(false);
+    expect(isSparkLocalRpcOrpcErrorCodeForMethod("model.catalog", "loop_not_found")).toBe(false);
+    expect(isSparkLocalRpcOrpcErrorCodeForMethod("loop.status", "loop_not_found")).toBe(false);
     expect(isSparkLocalRpcOrpcErrorCodeForMethod("turn.status", "invocation_not_retryable")).toBe(
       false,
     );
@@ -374,14 +372,14 @@ describe("sparkLocalRpcOrpcContract (Phase 4)", () => {
 
   it("rejects driver schedules without dueAt or delayMs at the contract boundary", () => {
     expect(
-      sparkDriverScheduleRequestSchema.safeParse({
-        driverId: "drv_missing_due",
+      sparkLoopScheduleRequestSchema.safeParse({
+        loopId: "drv_missing_due",
         generation: 1,
       }).success,
     ).toBe(false);
     expect(
-      sparkDriverScheduleRequestSchema.safeParse({
-        driverId: "drv_delay",
+      sparkLoopScheduleRequestSchema.safeParse({
+        loopId: "drv_delay",
         generation: 1,
         delayMs: 0,
       }).success,

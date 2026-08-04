@@ -269,7 +269,7 @@ test("SparkHostRuntime sendMessage and sendUserMessage push envelopes into the o
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-host-runtime-test" });
   host.sendMessage(
     {
-      customType: "spark-mode-request",
+      customType: "spark-phase-request",
       content: "Spark default research requested",
       display: true,
       details: { project: "p1" },
@@ -284,7 +284,7 @@ test("SparkHostRuntime sendMessage and sendUserMessage push envelopes into the o
   assert.equal(drained.length, 2);
   assert.equal(host.peekOutbox().length, 0);
   assert.equal(drained[0]!.kind, "custom");
-  assert.equal(drained[0]!.customType, "spark-mode-request");
+  assert.equal(drained[0]!.customType, "spark-phase-request");
   assert.equal(drained[0]!.options.deliverAs, "steer");
   assert.equal(drained[0]!.options.triggerTurn, true);
   assert.equal(drained[0]!.authority, "runtime_control");

@@ -68,7 +68,7 @@ export interface SparkCliHostServicesOptions {
   memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
   tokenUsage?: SparkHeadlessTokenUsageContext;
   stateOwnerSessionId?: string;
-  driver?: SparkHostRuntimeOptions["driver"];
+  loop?: SparkHostRuntimeOptions["loop"];
   sessionQuestionChain?: readonly string[];
   allowedTools?: readonly string[];
   allowedToolEffects?: readonly ToolEffect[];

@@ -10,7 +10,7 @@ Target package topology follows type-first names:
 - `apps/spark-tui` — executable native terminal host (`@zendev-lab/spark-tui-app`). Keep host/runtime/editor code here, not in the dispatcher.
 - `apps/spark-daemon` — Spark daemon service package that owns local workspace state, IPC, and background execution.
 - `apps/spark-cockpit` — Spark Cockpit SvelteKit local web cockpit/projection app. Keep SvelteKit/browser-specific checks isolated from the non-Svelte Spark package checks.
-- `packages/spark-*` — Spark-owned capability/runtime packages. Core capability primitives include `spark-core`, `spark-memory`, `spark-web`, `spark-artifacts`, `spark-tasks`, `spark-workflows`, `spark-loop`, and `spark-modes`.
+- `packages/spark-*` — Spark-owned capability/runtime packages. Core capability primitives include `spark-core`, `spark-memory`, `spark-web`, `spark-artifacts`, `spark-tasks`, `spark-workflows`, `spark-loop`, and `spark-phases`.
 - **Pi SDK kernel (keep)** — `@earendil-works/pi-ai` via `spark-ai`, `@earendil-works/pi-tui` via `spark-tui` / `spark-text`. Model streams, providers, and terminal UI primitives stay on this kernel; do not “de-Pi” by removing these deps.
 - **Spark product extension** — `packages/spark-extension` is the single command/tool/policy composition root for native and structurally compatible hosts. The retired `pi-extension` workspace must not be reintroduced. Retained `pi-*` kernel adapter packages must not depend on Spark product/Cockpit packages; only Spark foundation packages are allowed.
 - `packages/spark-runtime`, `packages/spark-protocol`, `packages/spark-tui`, and `packages/spark-system` — Spark shared runtime, protocol/schema, reusable TUI boundary, and dependency-light local-system primitives. Cross-surface ask / slash / session-view semantics belong in `spark-protocol`.
@@ -75,10 +75,10 @@ Target package topology follows type-first names:
 ## Notes for agents
 
 - Public/default repo-owned tools should use canonical `tool({ action })` surfaces when operations share one domain/state/permission/render/result contract; do not keep fragmented duplicate aliases public, and render action tools as `tool action=<value> ...`.
-- Daemon state is execution truth. Cockpit may project `work` and `drivers`, but must not infer execution state from prompts, transcript text, elapsed time, or browser timers.
-- Sessions with daemon-owned Goal/Repro work or autonomous drivers are Work-first; keep Transcript as a mounted audit view.
+- Daemon state is execution truth. Cockpit may project `work` and `loops`, but must not infer execution state from prompts, transcript text, elapsed time, or browser timers.
+- Sessions with daemon-owned Goal/Repro work or autonomous loops are Work-first; keep Transcript as a mounted audit view.
 - Ask stays inline in its owning session. Do not add a global Ask modal.
-- Never collapse `scheduled`, `running`, `retry_wait`, `dormant`, `blocked`, and `stopped`; every reachable driver state requires a rendered test.
+- Never collapse `scheduled`, `running`, `retry_wait`, `dormant`, `paused`, `blocked`, `completed`, and `stopped`; every reachable Loop state requires a rendered test.
 - Artifacts remain exactly `issue | git_change | document`. `git_change`
   contains one owning worktree and one native GitHub PR stack; stack entries
   are not separate Artifact refs. Preview is a Document view, not a kind.

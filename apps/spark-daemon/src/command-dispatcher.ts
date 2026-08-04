@@ -230,7 +230,7 @@ function localRpcRoute(method: string, params: unknown): Partial<SparkCommand["r
   if (method.startsWith("session.") && typeof params.sessionId === "string") {
     return { sessionId: params.sessionId };
   }
-  if (method.startsWith("driver.")) {
+  if (method.startsWith("loop.")) {
     return {
       ...(typeof params.ownerSessionId === "string" ? { sessionId: params.ownerSessionId } : {}),
       ...(typeof params.workspaceBindingId === "string"

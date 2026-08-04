@@ -2,7 +2,7 @@ import type { CommandMetadata } from "@zendev-lab/spark-core";
 import type { ReviewerRunner } from "./reviewer-runner.ts";
 import type { SparkEntryApplicationDeps } from "./spark-entry-application.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
-import type { SparkDaemonDriverControl } from "./spark-daemon-driver-client.ts";
+import type { SparkDaemonLoopControl } from "./spark-daemon-loop-client.ts";
 
 export type SparkGoalLoopContext = SparkToolContext & {
   waitForIdle?: () => Promise<void>;
@@ -49,11 +49,11 @@ export interface SparkCommandApi {
 }
 
 export interface SparkCommandRegistrationDeps extends SparkEntryApplicationDeps {
-  driverControl: SparkDaemonDriverControl;
+  loopControl: SparkDaemonLoopControl;
   createReviewerRunner?: (
     cwd: string,
     ctx: SparkToolContext,
   ) => ReviewerRunner | Promise<ReviewerRunner>;
 }
 
-export type ForegroundDriverErrorScope = "driver" | "goal loop" | "loop" | "repro";
+export type ForegroundLoopErrorScope = "loop" | "goal loop" | "repro";

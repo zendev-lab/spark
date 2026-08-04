@@ -468,48 +468,24 @@ function runtimeControlPartFromMessage(
   const runtimeControl = isRecord(message.metadata.runtimeControl)
     ? message.metadata.runtimeControl
     : undefined;
-  if (runtimeControl?.kind === "driver.tick") {
+  if (runtimeControl?.kind === "loop.tick") {
     return {
       type: "runtime",
-      kind: "driver.tick",
-      driverKind: nonEmptyString(runtimeControl.driverKind) ?? undefined,
+      kind: "loop.tick",
+      bindingLabel: loopBindingLabel(runtimeControl.binding),
       state: "running",
       request: message.text,
     };
   }
-
-  // Compatibility for driver prompts persisted before runtimeControl metadata
-  // existed. Keep this strict so ordinary daemon-submitted user turns remain
-  // ordinary conversation messages.
-  const origin = isRecord(message.metadata.origin) ? message.metadata.origin : undefined;
-  if (origin?.host !== "daemon") return null;
-  const driverKind = legacyDriverPromptKind(message.text);
-  if (!driverKind) return null;
-  return {
-    type: "runtime",
-    kind: "driver.tick",
-    driverKind,
-    state: "running",
-    request: message.text,
-  };
+  return null;
 }
 
-function legacyDriverPromptKind(text: string): string | null {
-  const firstLine = text.trimStart().split("\n", 1)[0]?.trim();
-  if (
-    firstLine === "Advance the active Spark workflow scheduler by exactly one daemon-owned tick."
-  ) {
-    return "workflow";
-  }
-  if (firstLine === "Continue the daemon-owned Spark goal by one concrete turn.") return "goal";
-  if (firstLine === "Continue the daemon-owned Spark loop by one concrete turn.") return "loop";
-  if (
-    firstLine ===
-    "Advance the daemon-owned Spark reproduction contract by one evidence-backed turn."
-  ) {
-    return "repro";
-  }
-  return null;
+function loopBindingLabel(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+  if (nonEmptyString(value.reproId)) return "repro";
+  if (nonEmptyString(value.workflowRunId)) return "workflow";
+  if (nonEmptyString(value.goalId)) return "goal";
+  return undefined;
 }
 
 function sessionSenderLabel(metadata: SparkMessageView["metadata"]): string | null {
@@ -597,7 +573,7 @@ function foldRuntimeControlTurns(items: SessionTimelineItem[]): SessionTimelineI
     };
     result.push({
       ...item,
-      body: `${runtimePart.driverKind ?? "driver"} tick`,
+      body: `${runtimePart.bindingLabel ?? "loop"} tick`,
       status: null,
       timestamp,
       meta: null,

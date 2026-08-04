@@ -8,7 +8,7 @@ import {
   sparkSessionGoalWorkViewSchema,
   sparkSessionReproWorkViewSchema,
   sparkSessionWorkViewSchema,
-  type SparkDriverView,
+  type SparkLoopView,
   type SparkSessionGoalWorkView,
   type SparkSessionReproWorkView,
   type SparkSessionWorkView,
@@ -38,37 +38,31 @@ export interface SparkSessionWorkProjectionDiagnostic {
 interface ProjectSparkSessionWorkInput {
   cwd?: string;
   sessionId: string;
-  drivers: readonly SparkDriverView[];
+  loops: readonly SparkLoopView[];
   /** Daemon-owned projection hook. Durable Repro/UI code never reads ledger storage. */
   tokenUsage?: (scope: SparkReproUsageScope) => SparkTokenUsageAggregate;
   tokenUsageByPersistence?: (scope: SparkReproUsageScope) => SparkTokenUsageByPersistence;
   onDiagnostic?: (diagnostic: SparkSessionWorkProjectionDiagnostic) => void;
 }
 
-const DRIVER_STATUS_PRIORITY: Record<SparkDriverView["status"], number> = {
+const LOOP_STATUS_PRIORITY: Record<SparkLoopView["status"], number> = {
   running: 0,
-  blocked: 1,
+  scheduled: 1,
   retry_wait: 2,
-  scheduled: 3,
-  dormant: 4,
-  stopped: 5,
+  dormant: 3,
+  paused: 4,
+  blocked: 5,
+  completed: 6,
+  stopped: 7,
 };
 
-const DRIVER_KIND_PRIORITY: Record<SparkDriverView["kind"], number> = {
-  repro: 0,
-  goal: 1,
-  loop: 2,
-  workflow: 3,
-};
-
-export function selectPrimarySessionDriver(
-  drivers: readonly SparkDriverView[],
-): SparkDriverView | undefined {
-  return [...drivers].sort(
+export function selectPrimarySessionLoop(
+  loops: readonly SparkLoopView[],
+): SparkLoopView | undefined {
+  return [...loops].sort(
     (left, right) =>
-      DRIVER_STATUS_PRIORITY[left.status] - DRIVER_STATUS_PRIORITY[right.status] ||
-      DRIVER_KIND_PRIORITY[left.kind] - DRIVER_KIND_PRIORITY[right.kind] ||
-      left.driverId.localeCompare(right.driverId),
+      LOOP_STATUS_PRIORITY[left.status] - LOOP_STATUS_PRIORITY[right.status] ||
+      left.loopId.localeCompare(right.loopId),
   )[0];
 }
 
@@ -89,7 +83,7 @@ export async function resolveActiveSessionReproUsageScope(input: {
 export async function projectSparkSessionWork(
   input: ProjectSparkSessionWorkInput,
 ): Promise<SparkSessionWorkView | undefined> {
-  const primaryDriver = selectPrimarySessionDriver(input.drivers);
+  const primaryLoop = selectPrimarySessionLoop(input.loops);
   let goal: SparkSessionGoal | undefined;
   let repro: SparkSessionRepro | undefined;
 
@@ -136,9 +130,7 @@ export async function projectSparkSessionWork(
   }
 
   const candidate = {
-    ...(primaryDriver
-      ? { primary: { kind: primaryDriver.kind, driverId: primaryDriver.driverId } }
-      : {}),
+    ...(primaryLoop ? { primary: { loopId: primaryLoop.loopId } } : {}),
     ...(parsedGoal?.success ? { goal: parsedGoal.data } : {}),
     ...(parsedRepro?.success ? { repro: parsedRepro.data } : {}),
   } satisfies SparkSessionWorkView;
@@ -147,9 +139,7 @@ export async function projectSparkSessionWork(
   const parsed = sparkSessionWorkViewSchema.safeParse(candidate);
   if (parsed.success) return parsed.data;
   recordDiagnostic(input, "work_projection_invalid", "work");
-  return primaryDriver
-    ? { primary: { kind: primaryDriver.kind, driverId: primaryDriver.driverId } }
-    : undefined;
+  return primaryLoop ? { primary: { loopId: primaryLoop.loopId } } : undefined;
 }
 
 function projectGoalWork(goal: SparkSessionGoal): SparkSessionGoalWorkView {

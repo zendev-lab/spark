@@ -56,7 +56,7 @@ import {
   startLocalRpcServer,
 } from "./local-rpc.js";
 import { migrateLegacyQueueHistory } from "./store/legacy-queue-migration.ts";
-import { SparkDriverStore } from "./store/drivers.ts";
+import { SparkLoopStore } from "./store/loops.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { openSparkDaemonDatabase } from "./store/schema.js";
 import { getWorkspaceById, listWorkspaces, resolveWorkspaceLocalPath } from "./store/workspaces.js";
@@ -188,14 +188,14 @@ export async function start(
     : defaultSparkDaemonConfig();
   if (!existsSync(paths.configFile)) writeSparkDaemonConfig(paths, config);
   const roleInvocationStore = new SparkInvocationStore(db);
-  const roleDriverStore = new SparkDriverStore(db, roleInvocationStore);
+  const roleLoopStore = new SparkLoopStore(db, roleInvocationStore);
   const sessionRegistry = createDaemonSessionRegistry(sparkHome, {
     daemonId: config.installationId,
     resolveWorkspaceCwd: (workspaceId) => resolveWorkspaceLocalPath(db, workspaceId),
     canonicalWorkspaceId: (workspaceId) => getWorkspaceById(db, workspaceId)?.id ?? workspaceId,
     isSessionRoleOwnerProtected: (sessionId) =>
       roleInvocationStore.sessionActivity(sessionId).active ||
-      roleDriverStore.list({ ownerSessionId: sessionId }).length > 0,
+      roleLoopStore.list({ ownerSessionId: sessionId }).length > 0,
     resolveSessionCwd: (input) => resolveSessionCwdForWorkspaceId(db, input),
   });
   for (const workspace of listWorkspaces(db)) {

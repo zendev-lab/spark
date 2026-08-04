@@ -14,7 +14,7 @@ import {
 } from "../registration.js";
 import { handleChannelRequest } from "./handlers/channel.ts";
 import { handleDaemonRequest } from "./handlers/daemon.ts";
-import { handleDriverRequest } from "./handlers/driver.ts";
+import { handleLoopRequest } from "./handlers/loop.ts";
 import { handleDelegationRequest } from "./handlers/delegation.ts";
 import { handleHumanRequest } from "./handlers/human.ts";
 import { handleModelRequest } from "./handlers/model.ts";
@@ -64,14 +64,7 @@ export const localRpcServiceHandlerMethodGroups = {
     "invocation.retention.apply",
   ],
   usage: ["usage.summary", "usage.persistence", "usage.backfill"],
-  driver: [
-    "driver.start",
-    "driver.status",
-    "driver.stop",
-    "driver.restart",
-    "driver.wake",
-    "driver.schedule",
-  ],
+  loop: ["loop.start", "loop.status", "loop.stop", "loop.restart", "loop.wake", "loop.schedule"],
   delegation: ["delegation.execute"],
   uplink: ["uplink.park", "uplink.unpark", "uplink.prefer", "uplink.status"],
   workspace: [
@@ -233,8 +226,8 @@ async function dispatchLocalRpcServiceRequest(
   if (requestBelongsToHandlerGroup(request, "usage")) {
     return handleUsageRequest(context, request);
   }
-  if (requestBelongsToHandlerGroup(request, "driver")) {
-    return handleDriverRequest(context, request);
+  if (requestBelongsToHandlerGroup(request, "loop")) {
+    return handleLoopRequest(context, request);
   }
   if (requestBelongsToHandlerGroup(request, "delegation")) {
     return handleDelegationRequest(context, request);

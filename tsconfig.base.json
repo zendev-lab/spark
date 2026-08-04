@@ -31,7 +31,7 @@
       "@zendev-lab/spark-graft/extension": ["./packages/spark-graft/src/extension.ts"],
       "@zendev-lab/spark-loop": ["./packages/spark-loop/src/index.ts"],
       "@zendev-lab/spark-lens": ["./packages/spark-lens/src/index.ts"],
-      "@zendev-lab/spark-modes": ["./packages/spark-modes/src/index.ts"],
+      "@zendev-lab/spark-phases": ["./packages/spark-phases/src/index.ts"],
       "@zendev-lab/spark-memory": ["./packages/spark-memory/src/index.ts"],
       "@zendev-lab/spark-memory/extension": ["./packages/spark-memory/src/extension.ts"],
       "@zendev-lab/spark-memory/recall": ["./packages/spark-memory/src/recall-store.ts"],

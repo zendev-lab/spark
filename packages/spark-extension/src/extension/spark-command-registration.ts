@@ -5,12 +5,10 @@ import {
 } from "@zendev-lab/spark-loop";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import { sparkStateCwd, type ProjectRef } from "@zendev-lab/spark-core";
-import type {
-  SparkDriverContinuity,
-  SparkDriverKind,
-  SparkDriverView,
-} from "@zendev-lab/spark-protocol";
+import type { SparkLoopContinuity, SparkLoopView } from "@zendev-lab/spark-protocol";
 import type { SparkEntryIntent } from "./spark-entry.ts";
+
+type LoopDomain = "goal" | "loop" | "repro" | "workflow";
 import { applySparkEntryResolution } from "./spark-entry-application.ts";
 import { detectSparkProjectState, resolveSparkEntry } from "./spark-entry-resolution.ts";
 import { currentSparkProject, loadSparkGraph } from "./session-state.ts";
@@ -43,16 +41,16 @@ import {
   sparkLanguageForProject,
   type SparkLanguage,
 } from "./spark-i18n.ts";
-import { renderSparkGoalDriverPrompt } from "./spark-mode-prompts.ts";
+import { renderSparkGoalLoopPrompt } from "./spark-phase-prompts.ts";
 import {
-  enterSparkUltracodeDriver,
-  enterSparkWorkflowDriver,
+  enterSparkUltracodeWorkflow,
+  enterSparkWorkflow,
   executeDynamicWorkflowNavigatorAction,
   publishDynamicWorkflowRunViews,
   type SparkWorkflowNavigatorAction,
-} from "./spark-workflow-driver-entry.ts";
+} from "./spark-workflow-loop-entry.ts";
 import { defaultSparkDynamicWorkflowEventStore } from "./spark-dynamic-workflow-event-store.ts";
-import { sparkActiveLens } from "./spark-drive-state.ts";
+import { sparkActiveLens } from "./spark-phase-state.ts";
 import {
   buildSparkDynamicWorkflowDashboardView,
   renderSparkDynamicWorkflowDashboardText,
@@ -66,9 +64,9 @@ import {
 } from "./spark-command-parser-utils.ts";
 import { registerSparkWorkflowCommands } from "./spark-command-workflow-registration.ts";
 import {
-  prepareSparkDaemonDriverOwner,
-  sparkDaemonDriverOwnerSessionId,
-} from "./spark-daemon-driver-client.ts";
+  prepareSparkDaemonLoopOwner,
+  sparkDaemonLoopOwnerSessionId,
+} from "./spark-daemon-loop-client.ts";
 import type {
   SparkCommandApi,
   SparkCommandContext,
@@ -112,7 +110,7 @@ export function registerSparkCommands(
     description: "Choose an existing long-running mode without starting it yet.",
     metadata: {
       source: "extension",
-      extensionId: "spark-drive",
+      extensionId: "spark-loop",
       plane: "tui",
       resource: "automation",
       verbs: ["select"],
@@ -165,7 +163,7 @@ export function registerSparkCommands(
     argumentHint: "[start|status|stop|restart] [objective]",
     metadata: {
       source: "extension",
-      extensionId: "spark-drive",
+      extensionId: "spark-loop",
       plane: "daemon",
       resource: "goal",
       verbs: ["start", "status", "stop", "restart"],
@@ -180,7 +178,7 @@ export function registerSparkCommands(
     argumentHint: "[start|status|stop|restart] [objective]",
     metadata: {
       source: "extension",
-      extensionId: "spark-drive",
+      extensionId: "spark-loop",
       plane: "daemon",
       resource: "loop",
       verbs: ["start", "status", "stop", "restart"],
@@ -195,7 +193,7 @@ export function registerSparkCommands(
     argumentHint: "[start|status|stop|restart] [objective]",
     metadata: {
       source: "extension",
-      extensionId: "spark-drive",
+      extensionId: "spark-loop",
       plane: "daemon",
       resource: "repro",
       verbs: ["start", "status", "stop", "restart"],
@@ -262,7 +260,7 @@ export function registerSparkCommands(
     parsed: { selector?: string; focus: string; forceNavigator?: boolean },
   ): Promise<void> {
     const graph = await loadSparkGraph(ctx.cwd, ctx);
-    await enterSparkWorkflowDriver(piApi, deps, ctx, graph, parsed.focus, parsed.selector, {
+    await enterSparkWorkflow(piApi, deps, ctx, graph, parsed.focus, parsed.selector, {
       forceNavigator: parsed.forceNavigator,
     });
   }
@@ -272,7 +270,7 @@ export function registerSparkCommands(
     ctx: SparkCommandContext,
     focus: string,
   ): Promise<void> {
-    await enterSparkUltracodeDriver(piApi, deps, ctx, focus);
+    await enterSparkUltracodeWorkflow(piApi, deps, ctx, focus);
   }
 
   async function handleSparkLoopCommand(
@@ -292,14 +290,14 @@ export function registerSparkCommands(
         ctx.ui?.notify?.("No Spark loop is active.", "info");
         return;
       }
-      await stopDriverForKind(ctx, "loop", "loop stopped by user");
+      await stopLoopForDomain(ctx, "loop", "loop stopped by user");
       await clearSessionLoop(ctx.cwd, ctx);
       await deps.refreshSparkWidget(ctx.cwd, ctx);
       ctx.ui?.notify?.(`Spark loop stopped: ${compactInline(existingLoop.objective)}`, "info");
       return;
     }
     if (loopAction.action === "status") {
-      const daemon = await driverForKind(ctx, "loop");
+      const daemon = await loopForDomain(ctx, "loop");
       ctx.ui?.notify?.(
         existingLoop
           ? `Spark loop ${daemon?.status ?? existingLoop.status}: ${compactInline(existingLoop.objective)}${daemon?.dueAt ? ` · next=${daemon.dueAt}` : ""}`
@@ -313,7 +311,7 @@ export function registerSparkCommands(
       return;
     }
     if (loopAction.action === "restart") {
-      await stopDriverForKind(ctx, "loop", "loop restarted by user");
+      await stopLoopForDomain(ctx, "loop", "loop restarted by user");
       await clearSessionLoop(ctx.cwd, ctx);
       existingLoop = undefined;
     }
@@ -334,7 +332,7 @@ export function registerSparkCommands(
       project?.title ||
       "Continue Spark progress until blocked.";
     if (existingGoal) {
-      await stopDriverForKind(ctx, "goal", "replaced by loop");
+      await stopLoopForDomain(ctx, "goal", "replaced by loop");
       await clearSessionGoal(ctx.cwd, ctx);
     }
     const loop =
@@ -353,9 +351,9 @@ export function registerSparkCommands(
     const visible = `Spark loop active: ${compactInline(loop.objective)}${projectLabel}`;
     ctx.ui?.notify?.(visible, "info");
     const tick = createLoop(loop.objective);
-    await startDriver(ctx, {
-      driverId: loop.loopId,
-      kind: "loop",
+    await startLoop(ctx, {
+      loopId: loop.loopId,
+      domain: "loop",
       continuity: parsedFresh.continuity,
       prompt: renderSparkLoopInstruction(loop.objective, graph, project, tick),
       reason: "loop started",
@@ -373,14 +371,14 @@ export function registerSparkCommands(
 
     if (action === "stop") {
       const existing = await readSessionRepro(ctx.cwd, ctx);
-      await stopDriverForKind(ctx, "repro", "repro stopped by user");
+      await stopLoopForDomain(ctx, "repro", "repro stopped by user");
       await clearSessionRepro(ctx.cwd, ctx);
-      ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan", "assist");
+      ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan");
       await deps.refreshSparkWidget(ctx.cwd, ctx);
       ctx.ui?.notify?.(
         existing
           ? `Spark repro stopped: ${currentReproStage(existing).title}`
-          : "No Spark repro drive is active.",
+          : "No Spark Repro is active.",
         "info",
       );
       return;
@@ -390,13 +388,13 @@ export function registerSparkCommands(
       const existing = await readSessionRepro(ctx.cwd, ctx);
       if (!existing) {
         ctx.ui?.notify?.(
-          "No Spark repro drive is active. Use /repro <objective> or /repro start to begin.",
+          "No Spark Repro is active. Use /repro <objective> or /repro start to begin.",
           "info",
         );
         return;
       }
       const stage = currentReproStage(existing);
-      const daemon = await driverForKind(ctx, "repro");
+      const daemon = await loopForDomain(ctx, "repro");
       const objectiveLabel = existing.objective
         ? ` objective=${compactInline(existing.objective)},`
         : "";
@@ -407,14 +405,14 @@ export function registerSparkCommands(
       return;
     }
 
-    const ownerSessionId = await prepareSparkDaemonDriverOwner(ctx, deps.driverControl);
+    const ownerSessionId = await prepareSparkDaemonLoopOwner(ctx, deps.loopControl);
     const previousRepro = await readSessionRepro(ctx.cwd, ctx);
-    await stopDriverForKind(ctx, "goal", "replaced by repro");
-    await stopDriverForKind(ctx, "loop", "replaced by repro");
+    await stopLoopForDomain(ctx, "goal", "replaced by repro");
+    await stopLoopForDomain(ctx, "loop", "replaced by repro");
     await clearSessionGoal(ctx.cwd, ctx);
     await clearSessionLoop(ctx.cwd, ctx);
     if (action === "restart") {
-      await stopDriverForKind(ctx, "repro", "repro restarted by user");
+      await stopLoopForDomain(ctx, "repro", "repro restarted by user");
       await clearSessionRepro(ctx.cwd, ctx);
     }
 
@@ -444,11 +442,11 @@ export function registerSparkCommands(
     const objectivePrefix = repro.objective ? `${compactInline(repro.objective)} · ` : "";
     const visible = `Spark repro active: ${objectivePrefix}${stage.title} (${repro.currentStageIndex + 1}/${repro.stages.length}), phase=${repro.currentPhase}`;
     try {
-      await startDriver(
+      await startLoop(
         ctx,
         {
-          driverId: repro.reproId,
-          kind: "repro",
+          loopId: repro.reproId,
+          domain: "repro",
           prompt: renderReproTickInstruction(repro),
           reason: "repro started",
         },
@@ -457,15 +455,15 @@ export function registerSparkCommands(
     } catch (error) {
       if (action === "restart" || previousRepro?.status !== "active") {
         await clearSessionRepro(ctx.cwd, ctx);
-        ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan", "assist");
+        ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan");
       } else {
         await writeSessionRepro(ctx.cwd, previousRepro, ctx);
-        ctx.sparkActiveLens = sparkActiveLens(previousRepro.currentPhase, "repro");
+        ctx.sparkActiveLens = sparkActiveLens(previousRepro.currentPhase);
       }
       await deps.refreshSparkWidget(ctx.cwd, ctx);
       throw error;
     }
-    ctx.sparkActiveLens = sparkActiveLens(repro.currentPhase, "repro");
+    ctx.sparkActiveLens = sparkActiveLens(repro.currentPhase);
     await deps.refreshSparkWidget(ctx.cwd, ctx);
     ctx.ui?.notify?.(visible, "info");
   }
@@ -481,9 +479,9 @@ export function registerSparkCommands(
     const project = graph ? await currentSparkProject(ctx.cwd, ctx, graph) : undefined;
     let existingGoal = await loadSessionGoal(ctx.cwd, ctx);
     if (parsed.action === "stop") {
-      await stopDriverForKind(ctx, "goal", "goal stopped by user");
+      await stopLoopForDomain(ctx, "goal", "goal stopped by user");
       await clearSessionGoal(ctx.cwd, ctx);
-      ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan", "assist");
+      ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan");
       await deps.refreshSparkWidget(ctx.cwd, ctx);
       ctx.ui?.notify?.(
         existingGoal
@@ -494,7 +492,7 @@ export function registerSparkCommands(
       return;
     }
     if (parsed.action === "status") {
-      const daemon = await driverForKind(ctx, "goal");
+      const daemon = await loopForDomain(ctx, "goal");
       ctx.ui?.notify?.(
         existingGoal
           ? `Spark goal ${daemon?.status ?? existingGoal.status}: ${compactInline(existingGoal.objective)}${daemon?.dueAt ? ` · next=${daemon.dueAt}` : ""}`
@@ -504,7 +502,7 @@ export function registerSparkCommands(
       return;
     }
     if (parsed.action === "restart") {
-      await stopDriverForKind(ctx, "goal", "goal restarted by user");
+      await stopLoopForDomain(ctx, "goal", "goal restarted by user");
       await clearSessionGoal(ctx.cwd, ctx);
       existingGoal = undefined;
     }
@@ -519,7 +517,7 @@ export function registerSparkCommands(
         ? completedProjectForInferredGoal(existingGoal, graph)
         : undefined;
       if (completedProject) {
-        await stopDriverForKind(ctx, "goal", "stale goal replaced");
+        await stopLoopForDomain(ctx, "goal", "stale goal replaced");
         if (objective.trim()) {
           const goal = await startOrInferSessionGoal(ctx.cwd, ctx, graph, objective);
           if (!goal) return;
@@ -564,9 +562,9 @@ export function registerSparkCommands(
         projectLabel,
       );
       ctx.ui?.notify?.(visible, "info");
-      await startDriver(ctx, {
-        driverId: goal.goalId,
-        kind: "goal",
+      await startLoop(ctx, {
+        loopId: goal.goalId,
+        domain: "goal",
         prompt: renderForegroundGoalTickInstruction(
           project?.title,
           goal.objective,
@@ -593,9 +591,9 @@ export function registerSparkCommands(
       ]
         .filter((line): line is string => Boolean(line))
         .join("\n");
-      await startDriver(ctx, {
-        driverId: `goal-infer:${sparkDaemonDriverOwnerSessionId(ctx)}`,
-        kind: "goal",
+      await startLoop(ctx, {
+        loopId: `goal-infer:${sparkDaemonLoopOwnerSessionId(ctx)}`,
+        domain: "goal",
         prompt: instruction,
         reason: "infer goal from active context",
       });
@@ -726,9 +724,9 @@ export function registerSparkCommands(
     ]
       .filter((line): line is string => Boolean(line))
       .join("\n");
-    await startDriver(ctx, {
-      driverId: goal.goalId,
-      kind: "goal",
+    await startLoop(ctx, {
+      loopId: goal.goalId,
+      domain: "goal",
       prompt: instruction,
       reason: visible,
     });
@@ -763,7 +761,7 @@ export function registerSparkCommands(
     _objective: string,
   ): string {
     return [
-      "Loop driver requirements:",
+      "Loop requirements:",
       "- Use the loop objective, current project/task state, and blocker/validation signals to choose the next concrete step; do not classify the whole tick as plan or implement.",
       "- Continue one concrete low-risk step; block on human decisions or report external blockers instead of lowering scope.",
       "- Use /goal when the user wants evidence-audited completion with reviewer gating.",
@@ -826,7 +824,7 @@ export function registerSparkCommands(
     selectedProjectRef: ProjectRef | undefined,
     objective: string,
   ): string {
-    return renderSparkGoalDriverPrompt(graph, selectedProjectRef, objective);
+    return renderSparkGoalLoopPrompt(graph, selectedProjectRef, objective);
   }
 
   function renderForegroundGoalTickStatus(
@@ -848,52 +846,68 @@ export function registerSparkCommands(
       : 'No current project is selected for this goal. Next: create or select a project with task_write({ action: "project_use", title, description }) using the goal objective as project intent, then plan initial concrete tasks with task_write({ action: "plan" }). Do not wait for the user to create the project manually unless the goal intent is genuinely ambiguous.';
   }
 
-  async function startDriver(
+  async function startLoop(
     ctx: SparkCommandContext,
     input: {
-      driverId: string;
-      kind: SparkDriverKind;
-      continuity?: SparkDriverContinuity;
+      loopId: string;
+      domain: LoopDomain;
+      continuity?: SparkLoopContinuity;
       prompt: string;
       reason?: string;
     },
     preparedOwnerSessionId?: string,
-  ): Promise<SparkDriverView> {
+  ): Promise<SparkLoopView> {
     const ownerSessionId =
-      preparedOwnerSessionId ?? (await prepareSparkDaemonDriverOwner(ctx, deps.driverControl));
-    const result = await deps.driverControl.start({
-      ...input,
+      preparedOwnerSessionId ?? (await prepareSparkDaemonLoopOwner(ctx, deps.loopControl));
+    const { domain, ...request } = input;
+    const result = await deps.loopControl.start({
+      ...request,
+      binding: loopBindingForDomain(domain, input.loopId),
       ownerSessionId,
       continuity: input.continuity ?? "session",
       cwd: ctx.cwd,
     });
-    return result.driver;
+    return result.loop;
   }
 
-  async function driverForKind(
+  async function loopForDomain(
     ctx: SparkCommandContext,
-    kind: SparkDriverKind,
-  ): Promise<SparkDriverView | undefined> {
-    const ownerSessionId = sparkDaemonDriverOwnerSessionId(ctx);
-    const result = await deps.driverControl.list({
+    domain: LoopDomain,
+  ): Promise<SparkLoopView | undefined> {
+    const ownerSessionId = sparkDaemonLoopOwnerSessionId(ctx);
+    const result = await deps.loopControl.list({
       ownerSessionId,
-      includeStopped: false,
+      includeTerminal: false,
     });
-    return result.drivers.find((driver) => driver.kind === kind);
+    return result.loops.find((loop) => loopMatchesDomain(loop, domain));
   }
 
-  async function stopDriverForKind(
+  function loopBindingForDomain(domain: LoopDomain, loopId: string) {
+    if (domain === "goal") return { goalId: loopId };
+    if (domain === "repro") return { reproId: loopId };
+    if (domain === "workflow") return { workflowRunId: loopId };
+    return {};
+  }
+
+  function loopMatchesDomain(loop: SparkLoopView, domain: LoopDomain): boolean {
+    if (domain === "goal") return Boolean(loop.binding.goalId);
+    if (domain === "repro") return Boolean(loop.binding.reproId);
+    if (domain === "workflow") return Boolean(loop.binding.workflowRunId);
+    return !loop.binding.goalId && !loop.binding.reproId && !loop.binding.workflowRunId;
+  }
+
+  async function stopLoopForDomain(
     ctx: SparkCommandContext,
-    kind: SparkDriverKind,
+    domain: LoopDomain,
     reason: string,
   ): Promise<void> {
-    const driver = await driverForKind(ctx, kind);
-    if (driver) await deps.driverControl.stop({ driverId: driver.driverId, reason });
+    const loop = await loopForDomain(ctx, domain);
+    if (loop) await deps.loopControl.stop({ loopId: loop.loopId, reason });
   }
 
   function parseFreshLoopArgs(rawArgs: string): {
     args: string;
-    continuity: SparkDriverContinuity;
+    continuity: SparkLoopContinuity;
   } {
     const tokens = rawArgs.trim().split(/\s+/u).filter(Boolean);
     const freshIndex = tokens.findIndex((token) => token === "fresh" || token === "--fresh");

@@ -1,6 +1,6 @@
 import type { Task } from "@zendev-lab/spark-core";
 import { isActiveSessionTodo, type SessionTodoEntry } from "@zendev-lab/spark-tasks";
-import { renderSparkImplementationModePrompt } from "./mode/spark-mode-renderers.ts";
+import { renderSparkImplementationPhasePrompt } from "./phase/spark-phase-renderers.ts";
 import { loadIndependentTodos } from "./session-todos.ts";
 import {
   currentSparkProject,
@@ -9,8 +9,7 @@ import {
   sparkSessionKey,
   sparkSessionOwnerKey,
 } from "./session-state.ts";
-import { sparkActiveLensDriveMode } from "./spark-drive-state.ts";
-import type { SparkModeMessageApi } from "./spark-mode-entry.ts";
+import type { SparkPhaseMessageApi } from "./spark-phase-entry.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { loadSessionLoop } from "./spark-session-loops.ts";
 import { readSessionRepro } from "./spark-session-repro.ts";
@@ -30,7 +29,7 @@ interface AgentEndReconciliation {
  * input resets the guard, so automatic retries and the reconciliation turn
  * itself cannot create a continuation loop.
  */
-export function createSparkAgentEndReconciliationController(pi: SparkModeMessageApi): {
+export function createSparkAgentEndReconciliationController(pi: SparkPhaseMessageApi): {
   reset(ctx: SparkToolContext): void;
   reconcile(ctx: SparkToolContext, options?: { triggerTurn?: boolean }): Promise<boolean>;
 } {
@@ -41,7 +40,7 @@ export function createSparkAgentEndReconciliationController(pi: SparkModeMessage
       remindedSessionKeys.delete(sparkSessionOwnerKey(ctx));
     },
     async reconcile(ctx, options = {}) {
-      if (ctx.driver) return false;
+      if (ctx.loop) return false;
       const sessionKey = sparkSessionOwnerKey(ctx);
       const checks = await Promise.all([
         collectSessionTodoReconciliation(ctx),
@@ -61,7 +60,7 @@ export function createSparkAgentEndReconciliationController(pi: SparkModeMessage
             content: [
               "End-of-run checks found unfinished hook-owned work.",
               ...actionable.flatMap((check) => check.sections),
-              "Reconcile the listed work before finalizing. Do not use daemon driver scheduling for implementation phase or session TODO continuation.",
+              "Reconcile the listed work before finalizing. Do not use daemon Loop scheduling for implementation phase or session TODO continuation.",
             ].join("\n"),
             display: false,
             authority: "runtime_control",
@@ -104,7 +103,6 @@ async function collectSessionTodoReconciliation(
 async function collectImplementReconciliation(
   ctx: SparkToolContext,
 ): Promise<AgentEndReconciliation | undefined> {
-  if (sparkActiveLensDriveMode(ctx.sparkActiveLens) !== "assist") return undefined;
   const phase = await loadSparkPhase(ctx.cwd, ctx);
   if (phase.phase !== "implement" || (await hasActiveForegroundDrive(ctx))) return undefined;
 
@@ -118,7 +116,7 @@ async function collectImplementReconciliation(
       `Implementation phase check found ${runningCount}${ready.length} ready task(s) in ${project.title}.`,
       running ? `Running task: ${renderTask(running)}.` : "",
       renderReadyFrontier(ready),
-      renderSparkImplementationModePrompt(graph, project.ref, undefined),
+      renderSparkImplementationPhasePrompt(graph, project.ref, undefined),
     ].filter(Boolean),
     details: {
       implementProjectRef: project.ref,

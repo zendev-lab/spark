@@ -77,9 +77,9 @@ describe("Spark daemon local RPC", () => {
       });
 
     try {
-      const started = await request("driver_start", "driver.start", {
-        driverId: "goal-rpc",
-        kind: "goal",
+      const started = await request("driver_start", "loop.start", {
+        loopId: "goal-rpc",
+        binding: { goalId: "goal-rpc" },
         ownerSessionId: "session:driver-owner",
         continuity: "fresh",
         cwd: root,
@@ -89,46 +89,46 @@ describe("Spark daemon local RPC", () => {
       expect(started).toMatchObject({
         ok: true,
         result: {
-          driver: {
-            driverId: "goal-rpc",
+          loop: {
+            loopId: "goal-rpc",
             status: "scheduled",
             continuity: "fresh",
           },
         },
       });
       expect(
-        await request("driver_status", "driver.status", {
+        await request("driver_status", "loop.status", {
           ownerSessionId: "session:driver-owner",
-          includeStopped: false,
+          includeTerminal: false,
         }),
       ).toMatchObject({
         ok: true,
-        result: { drivers: [{ driverId: "goal-rpc", kind: "goal" }] },
+        result: { loops: [{ loopId: "goal-rpc", binding: { goalId: "goal-rpc" } }] },
       });
       expect(
-        await request("driver_stop", "driver.stop", {
-          driverId: "goal-rpc",
+        await request("driver_stop", "loop.stop", {
+          loopId: "goal-rpc",
           reason: "pause",
         }),
-      ).toMatchObject({ ok: true, result: { driver: { status: "stopped" } } });
+      ).toMatchObject({ ok: true, result: { loop: { status: "stopped" } } });
       expect(
-        await request("driver_restart", "driver.restart", {
-          driverId: "goal-rpc",
+        await request("driver_restart", "loop.restart", {
+          loopId: "goal-rpc",
         }),
-      ).toMatchObject({ ok: true, result: { driver: { status: "scheduled" } } });
+      ).toMatchObject({ ok: true, result: { loop: { status: "scheduled" } } });
       expect(
-        await request("driver_wake", "driver.wake", {
-          driverId: "goal-rpc",
+        await request("driver_wake", "loop.wake", {
+          loopId: "goal-rpc",
           prompt: "one-shot override",
         }),
-      ).toMatchObject({ ok: true, result: { driver: { status: "scheduled" } } });
+      ).toMatchObject({ ok: true, result: { loop: { status: "scheduled" } } });
       expect(events).toHaveLength(4);
       expect(events.at(-1)).toMatchObject({
         type: "daemon.view_event",
         view: {
-          type: "driver.update",
+          type: "loop.update",
           sessionId: "session:driver-owner",
-          driver: { driverId: "goal-rpc" },
+          loop: { loopId: "goal-rpc" },
         },
       });
     } finally {

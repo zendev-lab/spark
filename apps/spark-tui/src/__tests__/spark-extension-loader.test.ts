@@ -668,10 +668,10 @@ test("SparkExtensionLoader loads builtin factories through explicit imports", as
   assert.ok(!commands.some((command) => command.startsWith("graft-")));
 });
 
-test("workflow driver ticks activate the internal workflow tool through the host allowlist", async () => {
+test("workflow loop ticks activate the canonical workflow tool through the host allowlist", async () => {
   const host = new SparkHostRuntime({
-    cwd: "/tmp/spark-extension-loader-workflow-driver",
-    allowedTools: ["workflow_driver"],
+    cwd: "/tmp/spark-extension-loader-workflow-loop",
+    allowedTools: ["workflow"],
   });
   const result = await new SparkExtensionLoader({
     api: host,
@@ -682,8 +682,8 @@ test("workflow driver ticks activate the internal workflow tool through the host
     result.outcomes.every((outcome) => outcome.ok),
     true,
   );
-  assert.deepEqual(host.getActiveTools(), ["workflow_driver"]);
-  assert.ok(host.getAllTools().some((tool) => tool.name === "workflow_driver"));
+  assert.deepEqual(host.getActiveTools(), ["workflow"]);
+  assert.ok(host.getAllTools().some((tool) => tool.name === "workflow"));
 });
 
 test("channel host keeps only explicitly allowed tools active after extension handlers", async () => {

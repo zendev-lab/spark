@@ -19,7 +19,7 @@ building a host profile, or diagnosing why a capability is unavailable.
 | Preserve results | `artifact`, `evidence`, `memory`, `context` | Product output, internal ledger, memory, bounded context |
 | Coordinate agents | `role`, `session` | Definitions, calls, persistent sessions, and mail |
 | Choose models | `models` | Model catalog and selection |
-| Continue autonomously | `goal`, `loop`, `repro`, `drive`, `driver`, `phase` | Daemon driver or session-mode state |
+| Continue autonomously | `phase`, `goal`, `loop`, `workflow`, `repro` | Session phase plus daemon-owned Goal, WorkflowRun, and Loop state |
 | Discover and run procedures | `workflow`, `workflow_run` | Read saved workflows or execute a selected workflow |
 
 `artifact` is user-facing and limited to Issue, GitChange, and Document

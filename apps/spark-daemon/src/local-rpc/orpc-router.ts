@@ -138,18 +138,14 @@ export function createLocalRpcOrpcRouter(input: CreateLocalRpcOrpcRouterOptions)
         invoke("usage.backfill", params),
       ),
     },
-    driver: {
-      start: os.driver.start.handler(async ({ input: params }) => invoke("driver.start", params)),
-      status: os.driver.status.handler(async ({ input: params }) =>
-        invoke("driver.status", params),
-      ),
-      stop: os.driver.stop.handler(async ({ input: params }) => invoke("driver.stop", params)),
-      restart: os.driver.restart.handler(async ({ input: params }) =>
-        invoke("driver.restart", params),
-      ),
-      wake: os.driver.wake.handler(async ({ input: params }) => invoke("driver.wake", params)),
-      schedule: os.driver.schedule.handler(async ({ input: params }) =>
-        invoke("driver.schedule", params),
+    loop: {
+      start: os.loop.start.handler(async ({ input: params }) => invoke("loop.start", params)),
+      status: os.loop.status.handler(async ({ input: params }) => invoke("loop.status", params)),
+      stop: os.loop.stop.handler(async ({ input: params }) => invoke("loop.stop", params)),
+      restart: os.loop.restart.handler(async ({ input: params }) => invoke("loop.restart", params)),
+      wake: os.loop.wake.handler(async ({ input: params }) => invoke("loop.wake", params)),
+      schedule: os.loop.schedule.handler(async ({ input: params }) =>
+        invoke("loop.schedule", params),
       ),
     },
     workspace: {

@@ -732,9 +732,13 @@ export type ExtensionRoleRunner = (
 
 export type SparkSessionMessageSource = "tui" | "web" | "channel" | "daemon" | "session";
 
-export interface SparkHostDriverContext {
-  driverId: string;
-  kind: "goal" | "loop" | "repro" | "workflow";
+export interface SparkHostLoopContext {
+  loopId: string;
+  binding: {
+    goalId?: string;
+    workflowRunId?: string;
+    reproId?: string;
+  };
   generation: number;
   ownerSessionId: string;
   stateOwnerSessionId: string;
@@ -745,15 +749,6 @@ export interface SparkHostDriverContext {
     prompt?: string;
   }): Promise<unknown>;
   stop(input?: { reason?: string }): Promise<unknown>;
-}
-
-export type SparkRuntimeDriverKind = "goal" | "loop" | "repro" | "workflow";
-
-/** Capability-owned cadence/retry policy consumed by the generic daemon runtime. */
-export interface SparkDriverPolicyDefinition {
-  kind: SparkRuntimeDriverKind;
-  success: { status: "scheduled"; delayMs: number } | { status: "dormant" };
-  retryDelaysMs: readonly number[];
 }
 
 export interface SparkSessionLeaseIdentity {
@@ -798,8 +793,8 @@ export interface SparkHostContext {
   releaseMemoryFeedback?: (value: unknown) => boolean;
   /** Host-private verification closure for the exact active turn receipt. */
   verifyMemoryDirectIntent?: (value: unknown) => Promise<boolean> | boolean;
-  /** Present only inside a daemon-owned autonomous driver tick. */
-  driver?: SparkHostDriverContext;
+  /** Present only inside a daemon-owned autonomous loop tick. */
+  loop?: SparkHostLoopContext;
   /** Session IDs already participating in a synchronous question chain. */
   sessionQuestionChain?: string[];
   model?: SessionModelRef;

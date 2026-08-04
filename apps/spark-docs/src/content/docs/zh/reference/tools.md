@@ -18,7 +18,7 @@ profile 或排查能力为何不可用时，再查看本页。
 | 保存结果 | `artifact`, `evidence`, `memory`, `context` | 产品产物、内部账本、记忆和受限上下文 |
 | 协调 agent | `role`, `session` | 定义、调用、持久 session 与 mail |
 | 选择模型 | `models` | 模型目录与选择 |
-| 自主续跑 | `goal`, `loop`, `repro`, `drive`, `driver`, `phase` | Daemon driver 或 session mode 状态 |
+| 自主续跑 | `phase`, `goal`, `loop`, `workflow`, `repro` | Session phase 与 daemon-owned Goal、WorkflowRun、Loop 状态 |
 | 发现和运行流程 | `workflow`, `workflow_run` | 读取 saved workflow 或执行已选流程 |
 
 `artifact` 面向用户，只包含 Issue、GitChange 和 Document。一个 GitChange 拥有一个

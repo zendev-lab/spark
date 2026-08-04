@@ -6,14 +6,14 @@ import {
   CHANNEL_DELIVERY_OUTCOME_UNKNOWN_ERROR_CODE,
   channelDeliveryNotSent,
 } from "@zendev-lab/spark-channels";
-import type { SparkHostDriverContext } from "@zendev-lab/spark-core";
+import type { SparkHostLoopContext } from "@zendev-lab/spark-core";
 import { SparkHostRuntime } from "@zendev-lab/spark-host";
 import type { SparkHeadlessSessionRunInput } from "@zendev-lab/spark-host/headless-loader";
 import { SPARK_PROTOCOL_VERSION, type SparkDaemonEvent } from "@zendev-lab/spark-protocol";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { SparkTurnRestartYieldError, type SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
 import type {
-  SparkDaemonDriverTickTask,
+  SparkDaemonLoopTickTask,
   SparkDaemonSessionRunTask,
   SparkDaemonTaskExecutionContext,
 } from "../core/types.ts";
@@ -31,7 +31,7 @@ const paths = resolveSparkPaths({
 });
 
 function context(
-  _task: SparkDaemonSessionRunTask | SparkDaemonDriverTickTask,
+  _task: SparkDaemonSessionRunTask | SparkDaemonLoopTickTask,
   emitted: SparkDaemonEvent[] = [],
   signal: AbortSignal = new AbortController().signal,
 ): SparkDaemonTaskExecutionContext {
@@ -44,14 +44,21 @@ function context(
   };
 }
 
-function driverContext(
-  kind: SparkHostDriverContext["kind"],
+function loopContext(
+  domain: "goal" | "loop" | "repro" | "workflow",
   generation: number,
-  driverId = `${kind}-driver`,
-): SparkHostDriverContext {
+  loopId = `${domain}-loop`,
+): SparkHostLoopContext {
   return {
-    driverId,
-    kind,
+    loopId,
+    binding:
+      domain === "goal"
+        ? { goalId: loopId }
+        : domain === "repro"
+          ? { reproId: loopId }
+          : domain === "workflow"
+            ? { workflowRunId: loopId }
+            : {},
     generation,
     ownerSessionId: "owner-session",
     stateOwnerSessionId: "owner-session",
@@ -110,7 +117,7 @@ describe("daemon native session execution", () => {
         recordTurnQueued: vi.fn(async () => ({}) as never),
         recordTurnSettled: vi.fn(async () => ({}) as never),
       },
-      driverControl: {
+      loopControl: {
         schedule: vi.fn(),
         stop: vi.fn(),
         wakeOwner,
@@ -142,7 +149,7 @@ describe("daemon native session execution", () => {
     );
     expect(release).toHaveBeenCalledOnce();
     expect(wakeOwner).toHaveBeenCalledWith("sess_owner", {
-      kind: "repro",
+      target: "repro",
       reason: expect.stringContaining("task:probe"),
     });
   });
@@ -207,7 +214,7 @@ describe("daemon native session execution", () => {
     expect(release).toHaveBeenCalledOnce();
   });
 
-  it("keeps repro driver prompts workspace-owned without injecting a domain skill", async () => {
+  it("keeps repro Loop prompts workspace-owned without injecting a domain skill", async () => {
     const executeSession = vi.fn(async (_input: unknown) => ({ assistantText: "done" }));
     const task: SparkDaemonSessionRunTask = {
       type: "session.run",
@@ -219,7 +226,7 @@ describe("daemon native session execution", () => {
       task,
       context(task),
       { paths, executeSession },
-      driverContext("repro", 1, "repro-123"),
+      loopContext("repro", 1, "repro-123"),
     );
 
     expect(executeSession).toHaveBeenCalledWith(
@@ -1918,23 +1925,23 @@ describe("daemon native session execution", () => {
     expect(emitted).toEqual([]);
   });
 
-  it("runs fresh driver ticks in a hidden reset session without indexing the owner transcript", async () => {
+  it("runs fresh loop ticks in a hidden reset session without indexing the owner transcript", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "spark-session-cwd-fresh-"));
     const emitted: SparkDaemonEvent[] = [];
     const recordTurnQueued = vi.fn(async () => ({}) as never);
     const recordTurnSettled = vi.fn(async () => ({}) as never);
     const recordRun = vi.fn(async () => ({}) as never);
-    const task: SparkDaemonDriverTickTask = {
-      type: "driver.tick",
+    const task: SparkDaemonLoopTickTask = {
+      type: "loop.tick",
       sessionId: "owner-session",
-      driverId: "fresh-loop",
-      kind: "loop",
+      loopId: "fresh-loop",
+      binding: {},
       ownerSessionId: "owner-session",
       generation: 4,
       continuity: "fresh",
       prompt: "fresh tick",
       cwd,
-      executionSessionId: "driver_fresh-loop_4",
+      executionSessionId: "loop_fresh-loop_4",
       stateOwnerSessionId: "owner-session",
       reset: true,
     };
@@ -1946,7 +1953,7 @@ describe("daemon native session execution", () => {
           type: "session.snapshot",
           session: {
             version: SPARK_PROTOCOL_VERSION,
-            sessionId: "driver_fresh-loop_4",
+            sessionId: "loop_fresh-loop_4",
             status: "running",
             messages: [],
             runs: [],
@@ -1961,7 +1968,7 @@ describe("daemon native session execution", () => {
         event: {
           version: SPARK_PROTOCOL_VERSION,
           type: "session.message",
-          sessionId: "driver_fresh-loop_4",
+          sessionId: "loop_fresh-loop_4",
           message: {
             version: SPARK_PROTOCOL_VERSION,
             id: "hidden-assistant",
@@ -1973,8 +1980,8 @@ describe("daemon native session execution", () => {
         },
       });
       return {
-        sessionId: "driver_fresh-loop_4",
-        sessionPath: "/daemon/sessions/driver_fresh-loop_4.jsonl",
+        sessionId: "loop_fresh-loop_4",
+        sessionPath: "/daemon/sessions/loop_fresh-loop_4.jsonl",
         assistantText: "fresh result",
       };
     });
@@ -1995,7 +2002,7 @@ describe("daemon native session execution", () => {
         recordTurnSettled,
         recordRun,
       },
-      driverControl: {
+      loopControl: {
         schedule: vi.fn(),
         stop: vi.fn(),
       },
@@ -2004,22 +2011,22 @@ describe("daemon native session execution", () => {
 
     await expect(executor(task, context(task, emitted))).resolves.toMatchObject({
       assistantText: "fresh result",
-      sessionPath: "/daemon/sessions/driver_fresh-loop_4.jsonl",
+      sessionPath: "/daemon/sessions/loop_fresh-loop_4.jsonl",
     });
     expect(executeSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionId: "driver_fresh-loop_4",
+        sessionId: "loop_fresh-loop_4",
         stateOwnerSessionId: "owner-session",
         reset: true,
         sessionVisibility: "internal",
-        sessionPurpose: "driver_tick",
+        sessionPurpose: "loop_tick",
         messageMetadata: {
           invocationId: "invocation-1",
           origin: { kind: "runtime", host: "daemon", surface: "local" },
           runtimeControl: {
-            kind: "driver.tick",
-            driverId: "fresh-loop",
-            driverKind: "loop",
+            kind: "loop.tick",
+            loopId: "fresh-loop",
+            binding: {},
             generation: 4,
           },
         },
@@ -2038,7 +2045,7 @@ describe("daemon native session execution", () => {
           sessionId: "owner-session",
           message: expect.objectContaining({
             metadata: expect.objectContaining({
-              driverExecution: true,
+              loopExecution: true,
               stateOwnerSessionId: "owner-session",
             }),
           }),
@@ -2048,13 +2055,13 @@ describe("daemon native session execution", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("allows only workflow_driver for a daemon-owned workflow tick", async () => {
+  it("allows only workflow for a daemon-owned workflow tick", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "spark-session-cwd-workflow-"));
-    const task: SparkDaemonDriverTickTask = {
-      type: "driver.tick",
+    const task: SparkDaemonLoopTickTask = {
+      type: "loop.tick",
       sessionId: "owner-session",
-      driverId: "workflow:active",
-      kind: "workflow",
+      loopId: "workflow:active",
+      binding: { workflowRunId: "workflow:active" },
       ownerSessionId: "owner-session",
       stateOwnerSessionId: "owner-session",
       generation: 2,
@@ -2065,7 +2072,7 @@ describe("daemon native session execution", () => {
     const executeSession = vi.fn(async () => ({ assistantText: "advanced" }));
     const executor = createSparkDaemonTaskExecutor({
       paths,
-      driverControl: {
+      loopControl: {
         schedule: vi.fn(),
         stop: vi.fn(),
       },
@@ -2076,14 +2083,14 @@ describe("daemon native session execution", () => {
 
     expect(executeSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        allowedTools: ["workflow_driver"],
+        allowedTools: ["workflow"],
         messageMetadata: {
           invocationId: "invocation-1",
           origin: { kind: "runtime", host: "daemon", surface: "local" },
           runtimeControl: {
-            kind: "driver.tick",
-            driverId: "workflow:active",
-            driverKind: "workflow",
+            kind: "loop.tick",
+            loopId: "workflow:active",
+            binding: { workflowRunId: "workflow:active" },
             generation: 2,
           },
         },

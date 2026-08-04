@@ -371,7 +371,7 @@ test("background turns use a driver profile and the next user submit restores pe
     let writeExecutions = 0;
     services.runtime.registerTool({
       name: "implement_write",
-      description: "implement-only write used by background drivers",
+      description: "implement-only write used by background loops",
       parameters: { type: "object" },
       policy: {
         effect: "local_write",
