@@ -14,6 +14,15 @@ import {
 import { truncateToWidth } from "@zendev-lab/spark-text";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import {
+  parseSparkMemoryApprovalProof,
+  parseSparkMemoryProposal,
+} from "@zendev-lab/spark-protocol";
+import {
+  MemoryApprovalError,
+  type MemoryApprovalVerifier,
+  type MemoryMutationAuthorization,
+} from "./approval.ts";
+import {
   assertNoSecrets,
   defaultSparkMemoryStore,
   normalizeSparkMemoryCategory,
@@ -80,6 +89,11 @@ export interface SparkMemoryToolOptions {
   storePaths?: SparkMemoryStorePaths;
   compatMemoryDir?: string;
   recallStorePaths?: RecallStorePaths;
+  createApprovalVerifier?: (
+    cwd: string,
+    ctx: SparkHostContext,
+  ) => Promise<MemoryApprovalVerifier> | MemoryApprovalVerifier;
+  workspaceId?: (cwd: string, ctx: SparkHostContext) => string;
   /**
    * Register Pi-memory compatibility aliases
    * (`memory_write`, `memory_read`, `scratchpad`, `memory_search`, `memory_status`).
@@ -261,6 +275,13 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
       planDigest: Type.Optional(
         Type.String({ description: "Exact digest returned by candidate audit/gc dry-run." }),
       ),
+      proposal: Type.Optional(Type.Any({ description: "Digest-bound memory proposal." })),
+      approvalProof: Type.Optional(
+        Type.Any({ description: "Host-verified memory approval proof." }),
+      ),
+      transactionId: Type.Optional(
+        Type.String({ description: "Idempotent memory transaction ID." }),
+      ),
     }),
     renderCall(args, theme) {
       return renderMemoryCall(args, theme);
@@ -269,29 +290,46 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
       const cwd = requiredStateCwd(ctx);
       await migrateSparkMemoryLayout({ cwd });
       const kind = normalizeMemoryKind(params.kind);
+      const authorization = normalizeMemoryMutationAuthorization(params);
+      const verifier = await options.createApprovalVerifier?.(cwd, ctx);
+      const workspaceId = options.workspaceId?.(cwd, ctx) ?? cwd;
       if (kind === "candidate") {
         return executeMemoryCandidateAction({
           params,
           cwd,
           storePaths: options.recallStorePaths,
+          verifier,
+          workspaceId,
+          authorization,
         });
       }
       if (kind === "learning") {
-        return executeMemoryLearningAction({ params, cwd });
+        return executeMemoryLearningAction({
+          params,
+          cwd,
+          verifier,
+          workspaceId,
+          authorization,
+        });
       }
 
       const action = normalizeMemoryEntryAction(params.action);
       const scope = normalizeOptionalScope(params.scope) ?? "workspace";
-      const store = defaultSparkMemoryStore(cwd, scope, options.storePaths);
+      const store = defaultSparkMemoryStore(cwd, scope, options.storePaths, {
+        verifier,
+        workspaceId,
+      });
 
       if (action === "remember") {
         const entry = await store.remember({
+          id: authorization?.proposal.recordRef,
           scope,
           category: normalizeSparkMemoryCategory(params.category),
           text: requiredString(params.text, "text"),
           reason: requiredString(params.reason, "reason"),
           evidenceRefs: normalizeStringArray(params.evidenceRefs, "evidenceRefs"),
           tags: normalizeStringArray(params.tags, "tags"),
+          authorization,
         });
         return result(`Remembered ${entry.id} (${entry.category}, ${entry.scope}).`, { entry });
       }
@@ -307,6 +345,13 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
             documents: summarizeLegacyDocuments(documents),
           });
         }
+        const durableDocuments = documents.filter((document) => document.content.trim());
+        if (durableDocuments.length !== 1) {
+          throw new MemoryApprovalError(
+            "MEMORY_APPROVAL_REQUIRED",
+            "strict legacy import requires exactly one proposal-bound document",
+          );
+        }
         const imported: SparkMemoryEntry[] = [];
         const skipped: Array<{ label: string; reason: string }> = [];
         for (const document of documents) {
@@ -314,6 +359,7 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
           try {
             imported.push(
               await store.remember({
+                id: authorization?.proposal.recordRef,
                 scope,
                 category: normalizeOptionalCategory(params.category) ?? "insight",
                 text: `Imported legacy ${document.target} memory (${document.label})\n\n${document.content}`,
@@ -327,9 +373,11 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
                   document.target,
                   ...normalizeStringArray(params.tags, "tags"),
                 ],
+                authorization,
               }),
             );
           } catch (error) {
+            if (error instanceof MemoryApprovalError) throw error;
             skipped.push({
               label: document.label,
               reason: error instanceof Error ? error.message : String(error),
@@ -356,6 +404,7 @@ function memoryTool(options: SparkMemoryToolOptions): ToolConfig {
         const entry = await store.forget(
           requiredString(params.id, "id"),
           requiredString(params.reason, "reason"),
+          authorization,
         );
         return result(`Forgot ${entry.id}.`, { entry });
       }
@@ -784,6 +833,31 @@ function renderStatus(summary: {
       .map(([category, count]) => `${category}=${count}`)
       .join(", ")}`,
   ].join("\n");
+}
+
+function normalizeMemoryMutationAuthorization(
+  params: Record<string, unknown>,
+): MemoryMutationAuthorization | undefined {
+  if (
+    params.proposal === undefined &&
+    params.approvalProof === undefined &&
+    params.transactionId === undefined
+  ) {
+    return undefined;
+  }
+  try {
+    return {
+      proposal: parseSparkMemoryProposal(params.proposal),
+      proof: parseSparkMemoryApprovalProof(params.approvalProof),
+      transactionId: requiredString(params.transactionId, "transactionId"),
+    };
+  } catch (error) {
+    if (error instanceof MemoryApprovalError) throw error;
+    throw new MemoryApprovalError(
+      "MEMORY_APPROVAL_INVALID",
+      `memory authorization schema is invalid: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 function normalizeMemoryEntryAction(

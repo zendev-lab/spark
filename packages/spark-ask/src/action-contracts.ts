@@ -1,7 +1,10 @@
+import type { SparkMemoryApprovalBinding } from "@zendev-lab/spark-protocol";
+
 export interface SparkAskAutoAnswerRequest {
   title?: string;
   mode?: string;
   context?: string;
+  approvalBinding?: SparkMemoryApprovalBinding;
   flow?: string;
   questions: Array<{
     id: string;

@@ -3,6 +3,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import type { ToolConfig } from "@zendev-lab/spark-core";
+
+import {
+  MemoryApprovalError,
+  type MemoryApprovalVerifier,
+  type MemoryMutationAuthorization,
+} from "./approval.ts";
 import {
   defaultLearningStore,
   parseLearningExportMarkdown,
@@ -49,11 +55,17 @@ export async function executeMemoryCandidateAction(input: {
   params: Record<string, unknown>;
   cwd: string;
   storePaths?: RecallStorePaths;
+  verifier?: MemoryApprovalVerifier;
+  workspaceId?: string;
+  authorization?: MemoryMutationAuthorization;
 }): Promise<ToolResult> {
   const { params, cwd, storePaths } = input;
   const action = normalizeCandidateAction(params.action);
   const scope = normalizeRecallScope(params.scope);
-  const store = defaultRecallStore(cwd, scope, storePaths);
+  const store = defaultRecallStore(cwd, scope, storePaths, {
+    verifier: input.verifier,
+    workspaceId: input.workspaceId,
+  });
   if (action === "record" || action === "record_candidate") {
     const candidate = await store.record({
       scope,
@@ -94,6 +106,7 @@ export async function executeMemoryCandidateAction(input: {
     const candidate = await store.promote(
       requiredString(params.id, "id"),
       requiredString(params.promotedTo ?? params.ref, "promotedTo"),
+      input.authorization,
     );
     return result(`Promoted recall candidate ${candidate.id} to ${candidate.promotedTo}.`, {
       candidate,
@@ -104,7 +117,7 @@ export async function executeMemoryCandidateAction(input: {
       params.ids === undefined
         ? [requiredString(params.id, "id")]
         : requiredStringArray(params.ids, "ids");
-    const restored = await store.restoreMany(ids);
+    const restored = await store.restoreMany(ids, input.authorization);
     return result(`Restored ${restored.length} recall candidate(s).`, { restored });
   }
   if (action === "reject") {
@@ -124,11 +137,17 @@ export async function executeMemoryCandidateAction(input: {
 export async function executeMemoryLearningAction(input: {
   params: Record<string, unknown>;
   cwd: string;
+  verifier?: MemoryApprovalVerifier;
+  workspaceId?: string;
+  authorization?: MemoryMutationAuthorization;
 }): Promise<ToolResult> {
   return executeBuiltinLearningAction(
     normalizeLearningAction(input.params.action),
     input.params,
     input.cwd,
+    input.verifier,
+    input.workspaceId,
+    input.authorization,
   );
 }
 
@@ -136,30 +155,39 @@ async function executeBuiltinLearningAction(
   action: SparkMemoryLearningAction,
   params: Record<string, unknown>,
   cwd: string,
+  verifier?: MemoryApprovalVerifier,
+  workspaceId?: string,
+  authorization?: MemoryMutationAuthorization,
 ): Promise<ToolResult> {
   const location = optionalLearningLocation(params.location);
-  const store = defaultLearningStore(cwd, location);
+  const store = defaultLearningStore(cwd, location, {
+    verifier,
+    workspaceId,
+  });
 
   if (action === "record") {
-    const evidence = await store.record({
-      id: optionalString(params.id),
-      title: requiredString(params.title, "title"),
-      statement: requiredString(params.statement, "statement"),
-      category: optionalLearningCategory(params.category),
-      status: optionalLearningStatus(params.status),
-      applicability: optionalString(params.applicability),
-      nonApplicability: optionalString(params.nonApplicability),
-      rationale: optionalString(params.rationale),
-      evidenceRefs: optionalStringArray(params.evidenceRefs, "evidenceRefs"),
-      sourcePaths: optionalStringArray(params.sourcePaths, "sourcePaths"),
-      sourceHash: optionalString(params.sourceHash),
-      sourceContent: optionalString(params.sourceContent),
-      dependsOn: optionalStringArray(params.dependsOn, "dependsOn"),
-      supersedes: optionalStringArray(params.supersedes, "supersedes"),
-      contradictedBy: optionalStringArray(params.contradictedBy, "contradictedBy"),
-      tags: optionalStringArray(params.tags, "tags"),
-      confidence: optionalNumber(params.confidence, "confidence"),
-    });
+    const evidence = await store.record(
+      {
+        id: optionalString(params.id),
+        title: requiredString(params.title, "title"),
+        statement: requiredString(params.statement, "statement"),
+        category: optionalLearningCategory(params.category),
+        status: optionalLearningStatus(params.status),
+        applicability: optionalString(params.applicability),
+        nonApplicability: optionalString(params.nonApplicability),
+        rationale: optionalString(params.rationale),
+        evidenceRefs: optionalStringArray(params.evidenceRefs, "evidenceRefs"),
+        sourcePaths: optionalStringArray(params.sourcePaths, "sourcePaths"),
+        sourceHash: optionalString(params.sourceHash),
+        sourceContent: optionalString(params.sourceContent),
+        dependsOn: optionalStringArray(params.dependsOn, "dependsOn"),
+        supersedes: optionalStringArray(params.supersedes, "supersedes"),
+        contradictedBy: optionalStringArray(params.contradictedBy, "contradictedBy"),
+        tags: optionalStringArray(params.tags, "tags"),
+        confidence: optionalNumber(params.confidence, "confidence"),
+      },
+      authorization,
+    );
     return result(
       `Recorded learning ${evidence.ref} [${evidence.body.status}] ${evidence.body.title}`,
       { learning: evidence },
@@ -241,6 +269,7 @@ async function executeBuiltinLearningAction(
     const evidence = await store.markStale(
       requiredString(params.ref ?? params.id, "ref"),
       requiredString(params.reason, "reason"),
+      authorization,
     );
     return result(`Marked stale ${evidence.ref}: ${evidence.body.title}`, { learning: evidence });
   }
@@ -250,6 +279,7 @@ async function executeBuiltinLearningAction(
       requiredString(params.ref ?? params.id, "ref"),
       requiredStringArray(params.supersededBy, "supersededBy"),
       optionalString(params.reason),
+      authorization,
     );
     return result(`Marked superseded ${evidence.ref}: ${evidence.body.title}`, {
       learning: evidence,
@@ -295,10 +325,19 @@ async function executeBuiltinLearningAction(
       `[E_LEARNING_IMPORT_FORMAT] No learning export blocks found in ${inputPath}. Use export_markdown then import_markdown with dry-run before apply=true.`,
     );
   }
+  const durableRecords = records.filter(
+    (record) => record.status !== "candidate" && record.status !== "rejected",
+  );
+  if (apply && durableRecords.length > 1) {
+    throw new MemoryApprovalError(
+      "MEMORY_APPROVAL_REQUIRED",
+      "strict learning import requires at most one proposal-bound durable record",
+    );
+  }
   const imported: LearningRecord[] = [];
   if (apply) {
     for (const record of records) {
-      imported.push((await store.restore(record)).body);
+      imported.push((await store.restore(record, authorization)).body);
     }
   }
   return result(
@@ -394,7 +433,7 @@ function createRecallCandidateGcPlan(
         reasonCode: candidate.kind === "open_item" ? "compaction_open_item" : "compaction_snapshot",
       }),
     )
-    .sort((left, right) => left.id.localeCompare(right.id));
+    .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
   const reasonSummary =
     "session-scoped compaction candidates exceeded their recall TTL; explicit candidates remain protected";
   const digest = createHash("sha256")

@@ -35,6 +35,7 @@ import {
 import { createSparkPiParitySlashCommands } from "../cli/pi-parity-commands.ts";
 import { SparkNativeSession } from "../native-tui.ts";
 import { defaultSparkMemoryStore } from "@zendev-lab/spark-memory";
+import { createLegacyMemoryFixturePermit } from "@zendev-lab/spark-memory/legacy-fixture";
 import sparkMemoryExtension from "@zendev-lab/spark-memory/extension";
 import { SPARK_PROMPT_ITEM_METADATA_KEY } from "@zendev-lab/spark-turn";
 
@@ -570,7 +571,9 @@ test("native /compact and /tree summarize commands use persisted compaction help
     runtime.on("session_compact", (event) => {
       compactLifecycleEvent = event;
     });
-    await defaultSparkMemoryStore(cwd, "workspace").remember({
+    await defaultSparkMemoryStore(cwd, "workspace", undefined, {
+      legacyFixturePermit: createLegacyMemoryFixturePermit(),
+    }).remember({
       scope: "workspace",
       category: "insight",
       text: "Compact handoff should preserve Spark memory checkpoints.",

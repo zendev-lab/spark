@@ -5225,6 +5225,7 @@ test("memory kind=learning routes record, list, search, read, export, and import
       statement:
         "Spark learnings live in .spark/memory/learnings locally and can be shared through explicit Markdown exports.",
       category: "decision",
+      status: "candidate",
       evidenceRefs: ["evidence:decision-gate"],
       tags: ["nyakore", "spark"],
       confidence: 0.9,
@@ -5254,6 +5255,7 @@ test("memory kind=learning routes record, list, search, read, export, and import
       action: "list",
       tag: "spark",
       location: "workspace",
+      includeCandidates: true,
     });
     assert.match(toolText(listed), /Export shared learnings explicitly/);
     assert.match(toolText(listed), /warning:.*kind must be a valid Evidence kind/);
@@ -5264,6 +5266,7 @@ test("memory kind=learning routes record, list, search, read, export, and import
       action: "search",
       query: "explicit Markdown exports",
       location: "workspace",
+      includeCandidates: true,
     });
     assert.match(toolText(search), /Export shared learnings explicitly/);
     assert.match(toolText(search), /warning:.*kind must be a valid Evidence kind/);
@@ -5287,6 +5290,7 @@ test("memory kind=learning routes record, list, search, read, export, and import
       action: "export_markdown",
       outputPath: exportPath,
       location: "workspace",
+      includeCandidates: true,
     });
     assert.match(toolText(exported), /Exported 1 learning/);
     assert.equal((exported.details as { count?: number }).count, 1);

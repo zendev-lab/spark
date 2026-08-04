@@ -3,6 +3,10 @@ import type {
   ExtensionInteractionResponse,
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-tui/text";
+import {
+  parseSparkMemoryApprovalBinding,
+  type SparkMemoryApprovalBinding,
+} from "@zendev-lab/spark-protocol";
 import { Type } from "typebox";
 
 import { normalizeSparkAskAnswerSource, type SparkAskAnswerSource } from "./answer-source.ts";
@@ -48,6 +52,7 @@ export interface SparkAskRequest {
   /** Host-owned blocking wait deadline; intended for internal fallback policy. */
   timeoutMs?: number;
   context?: string;
+  approvalBinding?: SparkMemoryApprovalBinding;
   questions: SparkAskQuestion[];
 }
 
@@ -142,6 +147,9 @@ export function createAskUserRequest(input: SparkAskRequest): SparkAskRequest {
       input.timeoutMs > 24 * 60 * 60_000)
   ) {
     throw new Error("ask_user.timeoutMs must be an integer between 1 and 86400000");
+  }
+  if (input.approvalBinding !== undefined) {
+    parseSparkMemoryApprovalBinding(input.approvalBinding);
   }
   const seen = new Set<string>();
   for (const question of input.questions) {
@@ -240,6 +248,7 @@ export function registerSparkAskTools(pi: SparkAskHostApi): void {
         Type.String({ description: "blocking | async. Defaults to blocking." }),
       ),
       context: Type.Optional(Type.String()),
+      approvalBinding: Type.Optional(Type.Any()),
       questions: Type.Array(
         Type.Object({
           id: Type.String(),
@@ -319,6 +328,10 @@ function decodeAskRequest(params: Record<string, unknown>): SparkAskRequest {
     delivery: normalizeAskDelivery(params.delivery),
     timeoutMs: normalizeAskTimeoutMs(params.timeoutMs),
     context: params.context as string | undefined,
+    approvalBinding:
+      params.approvalBinding === undefined
+        ? undefined
+        : parseSparkMemoryApprovalBinding(params.approvalBinding),
     questions,
   });
 }

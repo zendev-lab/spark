@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "vitest";
 
 import { SPARK_CHANNEL_ALLOWED_TOOLS } from "@zendev-lab/spark-host/system-prompt";
+import { createMemoryProposal, MemoryApprovalError } from "@zendev-lab/spark-memory";
+import type { SparkMemoryApprovalProof } from "@zendev-lab/spark-protocol";
 import {
   DEFAULT_SPARK_EXTENSION_SPECS,
   SparkExtensionLoader,
@@ -46,6 +50,84 @@ test("loadBuiltinExtensionFactories exposes the retained Spark CLI builtin exten
     builtinExpected,
   );
   assert.deepEqual([...DEFAULT_SPARK_EXTENSION_SPECS], defaultExpected);
+});
+
+test("native memory loader injects the Ask-backed verifier", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "spark-memory-loader-approval-"));
+  try {
+    const host = new SparkHostRuntime({ cwd });
+    const result = await new SparkExtensionLoader({
+      api: host,
+      extensions: ["@zendev-lab/spark-memory/extension"],
+    }).load();
+    assert.equal(result.outcomes[0]?.ok, true);
+    const memory = host.getTool("memory")?.config;
+    assert.ok(memory);
+
+    const recordRef = "memory:loader-verifier";
+    const content = {
+      category: "preference",
+      text: "Use the native Ask-backed memory verifier.",
+      reason: "Verify composition-root injection.",
+      evidenceRefs: [] as string[],
+      tags: ["loader"],
+      status: "active",
+      forgottenReason: null,
+    };
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const proposal = createMemoryProposal({
+      proposalId: "proposal:loader-verifier",
+      operation: "remember",
+      workspaceId: cwd,
+      scope: "workspace",
+      recordRef,
+      expectedRevision: 0,
+      content,
+      expiresAt,
+    });
+    const proof: SparkMemoryApprovalProof = {
+      schema: "spark.memory.approval-proof/v1",
+      proofRef: "evidence:missing-loader-ask",
+      workspaceId: cwd,
+      recordRef,
+      proposalId: proposal.proposalId,
+      operation: proposal.operation,
+      proposalDigest: proposal.proposalDigest,
+      scope: proposal.scope,
+      expectedRevision: proposal.expectedRevision,
+      issuedAt: new Date().toISOString(),
+      expiresAt,
+      nonce: "loader-verifier-nonce",
+      answerDigest: "a".repeat(64),
+    };
+    await assert.rejects(
+      async () =>
+        await memory.execute(
+          "memory-loader-verifier",
+          {
+            action: "remember",
+            scope: "workspace",
+            category: content.category,
+            text: content.text,
+            reason: content.reason,
+            tags: content.tags,
+            proposal,
+            approvalProof: proof,
+            transactionId: "transaction:loader-verifier",
+          },
+          new AbortController().signal,
+          () => {},
+          { cwd },
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof MemoryApprovalError);
+        assert.equal(error.code, "MEMORY_APPROVAL_INVALID");
+        return true;
+      },
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });
 
 test("default Spark extension profile leaves optional capabilities available only for opt-in", async () => {

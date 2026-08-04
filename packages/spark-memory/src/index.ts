@@ -5,6 +5,32 @@ import { dirname, join } from "node:path";
 import { writeJsonFileAtomic } from "@zendev-lab/spark-core";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
+import {
+  commitAuthorizedMemoryCreation,
+  commitAuthorizedMemoryMutation,
+  MemoryApprovalError,
+  type MemoryApprovalVerifier,
+  type MemoryMutationAuthorization,
+} from "./approval.ts";
+import {
+  assertMemoryLifecycleProjection,
+  createLegacyMemoryLifecycle,
+  normalizeMemoryLifecycle,
+  type MemoryContentKind,
+  type MemoryLifecycleEnvelope,
+  type MemoryRisk,
+} from "./lifecycle.ts";
+import { hasLegacyMemoryFixturePermit, type LegacyMemoryFixturePermit } from "./legacy-fixture.ts";
+import {
+  assertMemoryMutationJournalTarget,
+  clearMemoryMutationJournal,
+  markMemoryMutationPersisted,
+  memoryMutationJournalInput,
+  prepareMemoryMutationJournal,
+  recoverMemoryMutationJournal,
+} from "./mutation-journal.ts";
+import { withFileMutationLock } from "./mutation-lock.ts";
+
 export type SparkMemoryScope = "user" | "workspace" | "repo";
 export type SparkMemoryCategory =
   | "failure"
@@ -27,20 +53,29 @@ export interface SparkMemoryEntry {
   createdAt: string;
   updatedAt: string;
   forgottenReason?: string;
+  lifecycle: MemoryLifecycleEnvelope;
 }
 
 export interface SparkMemorySnapshot {
-  version: 1;
+  version: 2;
   entries: SparkMemoryEntry[];
 }
 
 export interface SparkMemoryRememberInput {
+  id?: string;
   scope: SparkMemoryScope;
   category: SparkMemoryCategory;
   text: string;
   reason: string;
   evidenceRefs?: string[];
   tags?: string[];
+  authorization?: MemoryMutationAuthorization;
+}
+
+export interface SparkMemoryStoreOptions {
+  verifier?: MemoryApprovalVerifier;
+  workspaceId?: string;
+  legacyFixturePermit?: LegacyMemoryFixturePermit;
 }
 
 export interface SparkMemorySearchResult {
@@ -115,9 +150,15 @@ export class SparkMemorySecretError extends Error {
 
 export class SparkMemoryStore {
   readonly filePath: string;
+  readonly lockPath: string;
+  readonly journalPath: string;
+  private readonly options: SparkMemoryStoreOptions;
 
-  constructor(filePath: string) {
+  constructor(filePath: string, options: SparkMemoryStoreOptions = {}) {
     this.filePath = filePath;
+    this.lockPath = `${filePath}.lock`;
+    this.journalPath = `${filePath}.mutation-journal.json`;
+    this.options = options;
   }
 
   async list(options: { includeForgotten?: boolean; category?: SparkMemoryCategory } = {}) {
@@ -130,47 +171,202 @@ export class SparkMemoryStore {
   }
 
   async remember(input: SparkMemoryRememberInput): Promise<SparkMemoryEntry> {
-    const text = requiredText(input.text, "text");
-    const reason = requiredText(input.reason, "reason");
-    const scope = normalizeSparkMemoryScope(input.scope);
-    const category = normalizeSparkMemoryCategory(input.category);
-    assertNoSecrets(text);
-    assertNoSecrets(reason);
-    const now = new Date().toISOString();
-    const snapshot = await this.loadSnapshot();
-    const entry: SparkMemoryEntry = {
-      id: `memory:${randomUUID()}`,
-      scope,
-      category,
-      text,
-      reason,
-      evidenceRefs: normalizeStrings(input.evidenceRefs ?? []),
-      tags: normalizeStrings(input.tags ?? []),
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    };
-    snapshot.entries.push(entry);
-    await this.saveSnapshot(snapshot);
-    return entry;
+    return withFileMutationLock(this.lockPath, async () => {
+      await this.recoverPendingJournal();
+      const text = requiredText(input.text, "text");
+      const reason = requiredText(input.reason, "reason");
+      const scope = normalizeSparkMemoryScope(input.scope);
+      const category = normalizeSparkMemoryCategory(input.category);
+      assertNoSecrets(text);
+      assertNoSecrets(reason);
+      const now = new Date().toISOString();
+      const snapshot = await this.loadSnapshot();
+      const id = input.id ?? input.authorization?.proposal.recordRef ?? `memory:${randomUUID()}`;
+      if (!id.startsWith("memory:")) throw new Error("memory.id must be a memory ref");
+      const evidenceRefs = normalizeStrings(input.evidenceRefs ?? []);
+      const tags = normalizeStrings(input.tags ?? []);
+      const content = memoryEntryRevisionContent({
+        category,
+        text,
+        reason,
+        evidenceRefs,
+        tags,
+        status: "active",
+      });
+      const existing = snapshot.entries.find((entry) => entry.id === id);
+      if (existing) {
+        const transactionId = input.authorization?.transactionId;
+        const prior = transactionId
+          ? existing.lifecycle.revisionHistory.find(
+              (revision) => revision.transactionId === transactionId,
+            )
+          : undefined;
+        if (
+          prior !== undefined &&
+          prior.proposalDigest === input.authorization?.proposal.proposalDigest &&
+          prior.proofRef === input.authorization?.proof.proofRef
+        ) {
+          if (!hasLegacyMemoryFixturePermit(this.options.legacyFixturePermit)) {
+            const committed = await commitAuthorizedMemoryCreation({
+              verifier: this.options.verifier,
+              authorization: input.authorization,
+              lifecycle: existing.lifecycle,
+              operation: "remember",
+              workspaceId: this.requiredWorkspaceId(),
+              scope,
+              recordRef: id,
+              content,
+              now,
+            });
+            await committed.finalize();
+          }
+          return existing;
+        }
+        throw new MemoryApprovalError(
+          "MEMORY_REVISION_CONFLICT",
+          `memory entry already exists: ${id}`,
+        );
+      }
+      let lifecycle = createLegacyMemoryLifecycle({
+        recordRef: id,
+        kind: memoryKindForCategory(category),
+        state: "promoted",
+        scope,
+        risk: memoryRiskForCategory(category),
+        evidenceRefs,
+        capturedAt: now,
+        content,
+      });
+      let finalize: (() => Promise<void>) | undefined;
+      if (!hasLegacyMemoryFixturePermit(this.options.legacyFixturePermit)) {
+        const committed = await commitAuthorizedMemoryCreation({
+          verifier: this.options.verifier,
+          authorization: input.authorization,
+          lifecycle,
+          operation: "remember",
+          workspaceId: this.requiredWorkspaceId(),
+          scope,
+          recordRef: id,
+          content,
+          now,
+        });
+        lifecycle = committed.lifecycle;
+        finalize = committed.finalize;
+      }
+      const entry: SparkMemoryEntry = {
+        id,
+        scope,
+        category,
+        text,
+        reason,
+        evidenceRefs,
+        tags,
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+        lifecycle,
+      };
+      snapshot.entries.push(entry);
+      const journal =
+        finalize && input.authorization
+          ? await prepareMemoryMutationJournal(
+              this.journalPath,
+              memoryMutationJournalInput({
+                operation: input.authorization.proof.operation,
+                recordRef: id,
+                transactionId: input.authorization.transactionId,
+                proposalDigest: input.authorization.proposal.proposalDigest,
+                content,
+                workspaceId: this.requiredWorkspaceId(),
+                scope,
+                expectedRevision: input.authorization.proposal.expectedRevision,
+                proposalId: input.authorization.proposal.proposalId,
+                proposal: input.authorization.proposal,
+                proof: input.authorization.proof,
+              }),
+            )
+          : undefined;
+      await this.saveSnapshot(snapshot);
+      if (journal) await markMemoryMutationPersisted(this.journalPath, journal);
+      await finalize?.();
+      if (journal) await clearMemoryMutationJournal(this.journalPath);
+      return entry;
+    });
   }
 
-  async forget(id: string, reason: string): Promise<SparkMemoryEntry> {
-    const snapshot = await this.loadSnapshot();
-    const index = snapshot.entries.findIndex((entry) => entry.id === id);
-    if (index < 0) throw new Error(`memory entry not found: ${id}`);
-    const now = new Date().toISOString();
-    const forgottenReason = requiredText(reason, "reason");
-    assertNoSecrets(forgottenReason);
-    const entry: SparkMemoryEntry = {
-      ...snapshot.entries[index],
-      status: "forgotten",
-      forgottenReason,
-      updatedAt: now,
-    };
-    snapshot.entries[index] = entry;
-    await this.saveSnapshot(snapshot);
-    return entry;
+  async forget(
+    id: string,
+    reason: string,
+    authorization?: MemoryMutationAuthorization,
+  ): Promise<SparkMemoryEntry> {
+    return withFileMutationLock(this.lockPath, async () => {
+      await this.recoverPendingJournal();
+      const snapshot = await this.loadSnapshot();
+      const index = snapshot.entries.findIndex((entry) => entry.id === id);
+      if (index < 0) throw new Error(`memory entry not found: ${id}`);
+      const current = snapshot.entries[index]!;
+      const now = new Date().toISOString();
+      const forgottenReason = requiredText(reason, "reason");
+      assertNoSecrets(forgottenReason);
+      const content = memoryEntryRevisionContent({
+        ...current,
+        status: "forgotten",
+        forgottenReason,
+      });
+      let lifecycle: MemoryLifecycleEnvelope = { ...current.lifecycle, state: "forgotten" };
+      let finalize: (() => Promise<void>) | undefined;
+      if (!hasLegacyMemoryFixturePermit(this.options.legacyFixturePermit)) {
+        const committed = await commitAuthorizedMemoryMutation({
+          verifier: this.options.verifier,
+          authorization,
+          lifecycle,
+          operation: "forget",
+          workspaceId: this.requiredWorkspaceId(),
+          scope: current.scope,
+          recordRef: id,
+          content,
+          now,
+        });
+        if (committed.idempotent) {
+          await committed.finalize();
+          return current;
+        }
+        lifecycle = { ...committed.lifecycle, state: "forgotten" };
+        finalize = committed.finalize;
+      }
+      const entry: SparkMemoryEntry = {
+        ...current,
+        status: "forgotten",
+        forgottenReason,
+        updatedAt: now,
+        lifecycle,
+      };
+      snapshot.entries[index] = entry;
+      const journal =
+        finalize && authorization
+          ? await prepareMemoryMutationJournal(
+              this.journalPath,
+              memoryMutationJournalInput({
+                operation: authorization.proof.operation,
+                recordRef: id,
+                transactionId: authorization.transactionId,
+                proposalDigest: authorization.proposal.proposalDigest,
+                content,
+                workspaceId: this.requiredWorkspaceId(),
+                scope: current.scope,
+                expectedRevision: authorization.proposal.expectedRevision,
+                proposalId: authorization.proposal.proposalId,
+                proposal: authorization.proposal,
+                proof: authorization.proof,
+              }),
+            )
+          : undefined;
+      await this.saveSnapshot(snapshot);
+      if (journal) await markMemoryMutationPersisted(this.journalPath, journal);
+      await finalize?.();
+      if (journal) await clearMemoryMutationJournal(this.journalPath);
+      return entry;
+    });
   }
 
   async search(
@@ -233,12 +429,27 @@ export class SparkMemoryStore {
     };
   }
 
+  private async recoverPendingJournal(): Promise<void> {
+    await recoverMemoryMutationJournal(this.journalPath, this.options.verifier, async (journal) => {
+      const snapshot = await this.loadSnapshot();
+      const entry = snapshot.entries.find((candidate) => candidate.id === journal.recordRef);
+      return (
+        entry !== undefined &&
+        assertMemoryMutationJournalTarget(
+          { recordRef: entry.id, ...entry.lifecycle },
+          memoryEntryRevisionContent(entry),
+          journal,
+        )
+      );
+    });
+  }
+
   private async loadSnapshot(): Promise<SparkMemorySnapshot> {
     let raw: string;
     try {
       raw = await readFile(this.filePath, "utf8");
     } catch (error) {
-      if ((error as { code?: string }).code === "ENOENT") return { version: 1, entries: [] };
+      if ((error as { code?: string }).code === "ENOENT") return { version: 2, entries: [] };
       throw error;
     }
     let parsed: unknown;
@@ -250,13 +461,23 @@ export class SparkMemoryStore {
         `invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    assertSnapshot(parsed, this.filePath);
-    return parsed;
+    return normalizeSparkMemorySnapshot(parsed, this.filePath);
   }
 
   private async saveSnapshot(snapshot: SparkMemorySnapshot): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
     await writeJsonFileAtomic(this.filePath, snapshot);
+  }
+
+  private requiredWorkspaceId(): string {
+    const workspaceId = this.options.workspaceId?.trim();
+    if (!workspaceId) {
+      throw new MemoryApprovalError(
+        "MEMORY_APPROVAL_REQUIRED",
+        "durable memory mutation requires a host workspace identity",
+      );
+    }
+    return workspaceId;
   }
 }
 
@@ -275,8 +496,9 @@ export function defaultSparkMemoryStore(
   cwd: string,
   scope: SparkMemoryScope,
   paths?: SparkMemoryStorePaths,
+  options?: SparkMemoryStoreOptions,
 ): SparkMemoryStore {
-  return new SparkMemoryStore(sparkMemoryStorePath(cwd, scope, paths));
+  return new SparkMemoryStore(sparkMemoryStorePath(cwd, scope, paths), options);
 }
 
 export function renderSparkMemoryPolicy(): string {
@@ -363,16 +585,51 @@ function snippetFor(entry: SparkMemoryEntry, tokens: readonly string[]): string 
   return `${start > 0 ? "…" : ""}${text.slice(start, end)}${end < text.length ? "…" : ""}`;
 }
 
-function assertSnapshot(value: unknown, filePath: string): asserts value is SparkMemorySnapshot {
+export function normalizeSparkMemorySnapshot(
+  value: unknown,
+  filePath: string,
+): SparkMemorySnapshot {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new SparkMemoryStoreFormatError(filePath, "JSON root must be an object");
   }
   const snapshot = value as { version?: unknown; entries?: unknown };
-  if (snapshot.version !== 1) throw new SparkMemoryStoreFormatError(filePath, "version must be 1");
+  if (snapshot.version !== 1 && snapshot.version !== 2) {
+    throw new SparkMemoryStoreFormatError(filePath, "version must be 1 or 2");
+  }
   if (!Array.isArray(snapshot.entries)) {
     throw new SparkMemoryStoreFormatError(filePath, "entries must be an array");
   }
-  for (const [index, entry] of snapshot.entries.entries()) assertEntry(entry, filePath, index);
+  return {
+    version: 2,
+    entries: snapshot.entries.map((entry, index) => normalizeEntry(entry, filePath, index)),
+  };
+}
+
+function normalizeEntry(value: unknown, filePath: string, index: number): SparkMemoryEntry {
+  assertEntry(value, filePath, index);
+  const entry = value as SparkMemoryEntry;
+  const lifecycle = normalizeMemoryLifecycle(entry.lifecycle, {
+    recordRef: entry.id,
+    kind: memoryKindForCategory(entry.category),
+    state: entry.status === "active" ? "promoted" : "forgotten",
+    scope: entry.scope,
+    risk: memoryRiskForCategory(entry.category),
+    evidenceRefs: entry.evidenceRefs,
+    sourceKind: "legacy",
+    capturedAt: entry.createdAt,
+    legacyUnverified: true,
+    approvalStatus: "legacy_unverified",
+    content: memoryEntryRevisionContent(entry),
+  });
+  assertMemoryLifecycleProjection(
+    lifecycle,
+    {
+      state: entry.status === "active" ? "promoted" : "forgotten",
+      scope: entry.scope,
+    },
+    `memory entry ${entry.id}`,
+  );
+  return { ...entry, lifecycle };
 }
 
 function assertEntry(
@@ -421,6 +678,35 @@ function assertEntry(
   }
 }
 
+function memoryEntryRevisionContent(
+  entry: Pick<
+    SparkMemoryEntry,
+    "category" | "text" | "reason" | "evidenceRefs" | "tags" | "status" | "forgottenReason"
+  >,
+): object {
+  return {
+    category: entry.category,
+    text: entry.text,
+    reason: entry.reason,
+    evidenceRefs: entry.evidenceRefs,
+    tags: entry.tags,
+    status: entry.status,
+    forgottenReason: entry.forgottenReason ?? null,
+  };
+}
+
+function memoryKindForCategory(category: SparkMemoryCategory): MemoryContentKind {
+  if (category === "preference" || category === "convention") return "preference";
+  if (category === "failure" || category === "correction") return "episodic";
+  return "semantic";
+}
+
+function memoryRiskForCategory(category: SparkMemoryCategory): MemoryRisk {
+  return category === "preference" || category === "convention" || category === "correction"
+    ? "behavior_changing"
+    : "normal";
+}
+
 export {
   RecallStore,
   RecallStoreFormatError,
@@ -433,7 +719,10 @@ export {
   type RecallStoreSnapshot,
 } from "./recall-store.ts";
 
+export * from "./approval-consumption.ts";
+export * from "./approval.ts";
 export * from "./learning-store.ts";
+export * from "./lifecycle.ts";
 export * from "./migrate-layout.ts";
 export * from "./reflection-candidate-inbox.ts";
 export * from "./reflection-in-session-scheduler.ts";

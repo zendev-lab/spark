@@ -17,6 +17,9 @@
     "./recall": "./src/recall-store.ts",
     "./learning": "./src/learning-store.ts",
     "./compaction-candidates": "./src/compaction-candidates.ts",
+    "./legacy-fixture": "./src/legacy-fixture.ts",
+    "./mutation-lock": "./src/mutation-lock.ts",
+    "./schema-migration": "./src/schema-migration.ts",
     "./reflection-candidate-inbox": "./src/reflection-candidate-inbox.ts",
     "./reflection-in-session-scheduler": "./src/reflection-in-session-scheduler.ts",
     "./reflection-session-scanner": "./src/reflection-session-scanner.ts",
@@ -29,6 +32,7 @@
   "dependencies": {
     "@zendev-lab/spark-artifacts": "workspace:^",
     "@zendev-lab/spark-core": "workspace:^",
+    "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
     "@zendev-lab/spark-text": "workspace:^",
     "typebox": "catalog:"
