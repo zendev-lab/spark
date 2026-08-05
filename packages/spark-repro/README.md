@@ -11,14 +11,14 @@ Spark supplies the generic state, scheduling, and evidence boundaries.
 
 New cross-surface Repro state is written through
 `@zendev-lab/spark-repro/work-summary`. `SparkReproWorkSummary` is the canonical
-projection input for composition, Cockpit, and benchmark integrations; it does not
+projection input for composition, Hub, and benchmark integrations; it does not
 depend on Artifact storage, daemon state, or transcript text.
 
 Its capability stages are `contract → reference → target → alignment → delivery`,
 weighted `5 / 10 / 25 / 55 / 5`. Status is derived rather than written:
 
 - any typed pending decision produces `waiting_decision` and must carry its canonical
-  typed `askRef` so Cockpit can navigate to the owning Ask;
+  typed `askRef` so Hub can navigate to the owning Ask;
 - no pending decision and unfinished gates produces `active`;
 - all formal gates plus the technical target produce `complete` at `delivery`.
 

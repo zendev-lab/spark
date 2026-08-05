@@ -35,7 +35,7 @@ const validLayers = new Set([
 ]);
 const validStabilities = new Set(["experimental", "frozen", "internal", "private", "supported"]);
 const validStateWriters = new Set([
-  "cockpit",
+  "hub",
   "daemon",
   "external",
   "host",

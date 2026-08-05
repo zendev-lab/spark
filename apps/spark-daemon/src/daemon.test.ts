@@ -78,7 +78,7 @@ function makeHarness(): TestHarness {
   const workspacePath = join(root, "workspace");
   mkdirSync(workspacePath);
   const workspace = registerWorkspace(db, {
-    serverUrl: "https://cockpit.example.test/",
+    serverUrl: "https://hub.example.test/",
     serverWorkspaceId: "ws_22222222222222222222222222222222",
     serverBindingId: "rtwb_11111111111111111111111111111111",
     localWorkspaceKey: "local-default",
@@ -232,17 +232,17 @@ function makeContext(
   };
 }
 
-function registerSecondCockpitWorkspace(harness: TestHarness) {
-  const localPath = join(harness.workspace.localPath, "..", "other-cockpit-workspace");
+function registerSecondHubWorkspace(harness: TestHarness) {
+  const localPath = join(harness.workspace.localPath, "..", "other-hub-workspace");
   mkdirSync(localPath, { recursive: true });
   return registerWorkspace(harness.db, {
-    serverUrl: "https://other-cockpit.example.test/",
+    serverUrl: "https://other-hub.example.test/",
     serverWorkspaceId: "ws_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     serverBindingId: "rtwb_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    localWorkspaceKey: "other-cockpit-workspace",
-    displayName: "Other Cockpit workspace",
-    workspaceName: "Other Cockpit workspace",
-    workspaceSlug: "other-cockpit-workspace",
+    localWorkspaceKey: "other-hub-workspace",
+    displayName: "Other Hub workspace",
+    workspaceName: "Other Hub workspace",
+    workspaceSlug: "other-hub-workspace",
     localPath,
   });
 }
@@ -276,7 +276,7 @@ function buildAssignmentEnvelope(
     },
     constraints: ["preserve metadata"],
     evidence: ["runtime websocket"],
-    source: { kind: "cockpit" },
+    source: { kind: "hub" },
     title: "Assign session",
   },
 ) {
@@ -566,7 +566,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
-  it("retries an unavailable Cockpit without filling the outbox or disabling local workspaces", async () => {
+  it("retries an unavailable Hub without filling the outbox or disabling local workspaces", async () => {
     const harness = makeHarness();
     const shutdown = new AbortController();
     let connectionAttempts = 0;
@@ -1275,7 +1275,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
       });
       await replayed.promise;
       await vi.waitFor(() => {
-        expect(store.pendingDeliveries(`cockpit:${runtimeId}`)).toHaveLength(0);
+        expect(store.pendingDeliveries(`hub:${runtimeId}`)).toHaveLength(0);
       });
       shutdown.abort();
       await running;
@@ -1326,10 +1326,10 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
-  it("rejects another Cockpit's workspace command before claiming a durable receipt", async () => {
+  it("rejects another Hub's workspace command before claiming a durable receipt", async () => {
     const harness = makeHarness();
     try {
-      const otherWorkspace = registerSecondCockpitWorkspace(harness);
+      const otherWorkspace = registerSecondHubWorkspace(harness);
       const ws = new CapturingSocket();
       const command = serverCommandEnvelopeSchema.parse({
         ...buildTaskStartEnvelope(otherWorkspace.id),
@@ -1337,7 +1337,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
       });
       const runSparkCommand = vi.fn<RunSparkCommandFn>();
       const context = makeContext(harness, runSparkCommand);
-      context.serverUrl = "https://cockpit.example.test/";
+      context.serverUrl = "https://hub.example.test/";
 
       await handleCommand(ws, command, context);
 
@@ -1361,13 +1361,13 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
-  it("rejects another Cockpit's workspace-scoped ephemeral secret request", async () => {
+  it("rejects another Hub's workspace-scoped ephemeral secret request", async () => {
     const harness = makeHarness();
     try {
-      const otherWorkspace = registerSecondCockpitWorkspace(harness);
+      const otherWorkspace = registerSecondHubWorkspace(harness);
       const ws = new CapturingSocket();
       const context = makeContext(harness, vi.fn<RunSparkCommandFn>());
-      context.serverUrl = "https://cockpit.example.test/";
+      context.serverUrl = "https://hub.example.test/";
       const request = {
         protocolVersion: runtimeProtocolVersion,
         messageId: createId("msg"),
@@ -1406,12 +1406,12 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
-  it("stores channel secrets under the daemon binding and projects the Cockpit workspace id", async () => {
+  it("stores channel secrets under the daemon binding and projects the Hub workspace id", async () => {
     const harness = makeHarness();
     try {
       const ws = new CapturingSocket();
       const context = makeContext(harness, vi.fn<RunSparkCommandFn>());
-      context.serverUrl = "https://cockpit.example.test/";
+      context.serverUrl = "https://hub.example.test/";
       const configure = vi.fn(async (workspaceId: string) => ({
         plane: "daemon" as const,
         resource: "channel" as const,
@@ -1615,7 +1615,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
         },
         constraints: ["preserve metadata"],
         evidence: ["runtime websocket"],
-        source: { kind: "cockpit" },
+        source: { kind: "hub" },
         title: "Review assignment",
       };
       const command = buildAssignmentEnvelope(harness.workspace.id, assignment);
@@ -1935,7 +1935,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
       const context = makeContext(harness, async () => {
         throw new Error("task bridge must not execute for a human wait");
       });
-      context.serverUrl = "https://cockpit.example.test/";
+      context.serverUrl = "https://hub.example.test/";
       harness.db
         .prepare("UPDATE workspaces SET server_url = ? WHERE id = ?")
         .run("https://target.example.test/", harness.workspace.id);
@@ -1973,7 +1973,7 @@ describe("Spark daemon handleCommand task.start.request", () => {
       const context = makeContext(harness, async () => {
         throw new Error("task bridge must not be invoked for human response delivery");
       });
-      context.serverUrl = "https://cockpit.example.test/";
+      context.serverUrl = "https://hub.example.test/";
       const registration = createDaemonHumanWait(ws, context, {
         invocationId: "inv_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         workspaceBindingId: harness.workspace.id,
@@ -2044,17 +2044,17 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
-  it("keeps a human wait pending across wrong runtime, wrong Cockpit, and mismatched ids", async () => {
+  it("keeps a human wait pending across wrong runtime, wrong Hub, and mismatched ids", async () => {
     const harness = makeHarness();
     try {
-      registerSecondCockpitWorkspace(harness);
+      registerSecondHubWorkspace(harness);
       const wsA = new CapturingSocket();
       const wsB = new CapturingSocket();
       const contextA = makeContext(harness, vi.fn<RunSparkCommandFn>());
-      contextA.serverUrl = "https://cockpit.example.test/";
+      contextA.serverUrl = "https://hub.example.test/";
       const contextB = makeContext(harness, vi.fn<RunSparkCommandFn>());
       contextB.runtimeId = "rt_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-      contextB.serverUrl = "https://other-cockpit.example.test/";
+      contextB.serverUrl = "https://other-hub.example.test/";
       const registration = createDaemonHumanWait(wsA, contextA, {
         invocationId: "inv_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         workspaceBindingId: harness.workspace.id,
@@ -2134,16 +2134,16 @@ describe("Spark daemon handleCommand task.start.request", () => {
     }
   });
 
-  it("does not let one Cockpit acknowledge another Cockpit's human outbox entry", async () => {
+  it("does not let one Hub acknowledge another Hub's human outbox entry", async () => {
     const harness = makeHarness();
     try {
-      registerSecondCockpitWorkspace(harness);
+      registerSecondHubWorkspace(harness);
       const ws = new CapturingSocket();
       const contextA = makeContext(harness, vi.fn<RunSparkCommandFn>());
-      contextA.serverUrl = "https://cockpit.example.test/";
+      contextA.serverUrl = "https://hub.example.test/";
       const contextB = makeContext(harness, vi.fn<RunSparkCommandFn>());
       contextB.runtimeId = "rt_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-      contextB.serverUrl = "https://other-cockpit.example.test/";
+      contextB.serverUrl = "https://other-hub.example.test/";
       createDaemonHumanWait(ws, contextA, {
         delivery: "async",
         workspaceBindingId: harness.workspace.id,

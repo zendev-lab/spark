@@ -3,7 +3,7 @@
   "description": "Exact debt inventory for weak production version diagnostics. New entries are forbidden; remove entries by making diagnostics actionable.",
   "violations": [
     {
-      "path": "apps/spark-cockpit/src/lib/server/workspace-profiles.ts",
+      "path": "apps/spark-hub/src/lib/server/workspace-profiles.ts",
       "fingerprint": "30d7327655c60a7c",
       "count": 1,
       "lines": [106],

@@ -49,12 +49,14 @@ matching `spark-*` companion; they do not import or duplicate the target
 application. A retired product name must not remain as another public executable
 or dispatcher namespace merely to avoid updating callers.
 
-The Hub source directory and its private database packages retain their
-`cockpit` physical names during the first rename step so existing XDG paths,
-SQLite files, migrations, deployment scripts, and rollback behavior are not
-silently reinterpreted. Their package inventory owner is `hub`; the temporary
-`stateWriter: cockpit` marker records this compatible storage identity. A later
-idempotent storage/path migration may rename both the paths and writer marker.
+The Hub source directory, private packages, i18n subpath, environment variables,
+and state writer all use the canonical `hub` name. The Hub database owner
+performs one explicit, idempotent migration from retired Cockpit XDG and
+`SPARK_HOME` trees, `cockpit.toml`, and `cockpit.sqlite`. Migration preflights
+all destinations, refuses live legacy locks and source/target conflicts, and
+rolls back completed renames if a later move fails. Historical SQLite migration
+filenames, snapshot-v1 manifests, cookies, and instance IDs remain compatibility
+inputs until their documented exit gate; new writes use Hub names only.
 
 ### Agent tool packages
 
@@ -108,14 +110,12 @@ changes extension specifiers and user configuration compatibility.
 - `spark-extension` owns product extension composition and policy for native
   and structurally compatible hosts. Legacy `pi-extension` specifiers are
   rewritten while reading configuration; there is no facade workspace.
-- `spark-cockpit-*` paths are temporary Hub-private compatibility names. Shared
-  code must move to a capability or foundation package before daemon/native
-  reuse, and no new public API may use Cockpit as the control-plane name.
+- `spark-hub-*` packages are Hub-private. Shared code must move to a
+  capability or foundation package before daemon/native reuse.
 - Hub's en/zh-CN product catalog lives at the owner-restricted
-  `@zendev-lab/spark-i18n/cockpit` compatibility subpath. It has no independent
-  runtime, state, permission, or failure boundary. Dependency Cruiser permits
-  that subpath only from the Hub application; a future compatibility migration
-  may rename the subpath without creating another workspace.
+  `@zendev-lab/spark-i18n/hub` subpath. It has no independent runtime, state,
+  permission, or failure boundary. Dependency Cruiser permits that subpath only
+  from the Hub application.
 - `spark-acp` is the supported stateless ACP adapter. It depends on
   `spark-daemon-client` and `spark-protocol`, while daemon session/invocation
   stores remain the only writers.

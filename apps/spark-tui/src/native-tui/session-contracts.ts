@@ -1,5 +1,5 @@
 import type { SparkMessageView, SparkToolCallView } from "@zendev-lab/spark-protocol";
-import type { SparkNativeCockpitPanel } from "./cockpit-types.ts";
+import type { SparkNativeHubPanel } from "./hub-types.ts";
 
 interface SparkNativeSessionMessageContract {
   role: "system" | "user" | "assistant" | "custom" | "tool" | "thinking";
@@ -32,8 +32,8 @@ interface SparkNativeAbortContract {
 
 export interface SparkNativeAppContract {
   executeSlashCommand(input: string): Promise<void> | void;
-  openCockpitPanel(panel: SparkNativeCockpitPanel): string | false;
-  openCockpitPanelFromArgs(args: string): string | false;
+  openHubPanel(panel: SparkNativeHubPanel): string | false;
+  openHubPanelFromArgs(args: string): string | false;
   renderQueueInspection(): string;
   secret(title: string): Promise<string | undefined>;
   select(title: string, options: readonly string[]): Promise<string | undefined>;

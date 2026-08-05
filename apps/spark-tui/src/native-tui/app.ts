@@ -1,4 +1,4 @@
-/** SparkNativeTuiApp — native pi-tui host surface (input, slash, ask, render, cockpit). */
+/** SparkNativeTuiApp — native pi-tui host surface (input, slash, ask, render, hub). */
 
 import { homedir } from "node:os";
 
@@ -81,16 +81,16 @@ import {
   runTimeMs,
 } from "./footer-metrics.ts";
 import {
-  compareRunsForCockpit,
-  createSparkNativeCockpitState,
+  compareRunsForHub,
+  createSparkNativeHubState,
   graftSummaryFromRecord,
   isDoneTaskStatus,
   isReviewArtifact,
-  isSparkNativeCockpitPanel,
+  isSparkNativeHubPanel,
   isSparkNativeLocalControlCommand,
   workflowRunControlHints,
   workflowRunDisplayStatus,
-} from "./cockpit-helpers.ts";
+} from "./hub-helpers.ts";
 import {
   compactNativeQueuePreview,
   parseBangCommand,
@@ -132,10 +132,10 @@ import { SparkNativeSession } from "./session.ts";
 import { SparkTerminalController } from "./controller.ts";
 import {
   MAX_NATIVE_QUEUE_ITEMS,
-  MAX_COCKPIT_PANEL_ROWS,
-  SPARK_COCKPIT_PANELS,
-  type SparkNativeCockpitPanel,
-  type SparkNativeCockpitSnapshot,
+  MAX_HUB_PANEL_ROWS,
+  SPARK_HUB_PANELS,
+  type SparkNativeHubPanel,
+  type SparkNativeHubSnapshot,
   type SparkNativeFooterMetrics,
   type SparkNativeInteractionHandler,
   type SparkNativeMessage,
@@ -185,7 +185,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private cachedLines?: string[];
   private readonly statuses = new Map<string, string>();
   private readonly widgets = new Map<string, SparkNativeWidget>();
-  private readonly cockpit = createSparkNativeCockpitState();
+  private readonly hub = createSparkNativeHubState();
   private readonly completedTaskSummaryKeys = new Set<string>();
   private readonly controller = new SparkTerminalController();
   private readonly activeAskFlows = new Map<string, Promise<AskFlowInteractionResponse>>();
@@ -372,7 +372,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
       void this.submitEditorText(this.editor.getExpandedText(), { mode: "followUp" });
       return;
     }
-    if (this.handleCockpitPanelInput(data)) return;
+    if (this.handleHubPanelInput(data)) return;
     if (matchesKey(data, Key.escape)) {
       const restoredText = this.session.abort("escape").restoredText;
       if (restoredText) this.editor.setText(restoredText);
@@ -451,50 +451,50 @@ export class SparkNativeTuiApp implements Component, Focusable {
     this.tui.requestRender();
   }
 
-  cockpitSnapshot(): SparkNativeCockpitSnapshot {
+  hubSnapshot(): SparkNativeHubSnapshot {
     return {
-      activePanel: this.controller.viewState.activeCockpitPanel,
-      sessionId: this.cockpit.sessionId,
-      sessionStatus: this.cockpit.sessionStatus,
-      workflows: this.cockpit.workflows.size,
-      workflowRuns: [...this.cockpit.runs.values()].filter((run) => run.kind === "workflow").length,
-      roleRuns: [...this.cockpit.runs.values()].filter((run) => run.kind === "role").length,
-      tasks: this.cockpit.tasks.size,
-      artifacts: this.cockpit.artifacts.size,
-      evidence: this.cockpit.evidence.size,
+      activePanel: this.controller.viewState.activeHubPanel,
+      sessionId: this.hub.sessionId,
+      sessionStatus: this.hub.sessionStatus,
+      workflows: this.hub.workflows.size,
+      workflowRuns: [...this.hub.runs.values()].filter((run) => run.kind === "workflow").length,
+      roleRuns: [...this.hub.runs.values()].filter((run) => run.kind === "role").length,
+      tasks: this.hub.tasks.size,
+      artifacts: this.hub.artifacts.size,
+      evidence: this.hub.evidence.size,
       reviews: this.reviewItems().length,
       graftItems: this.graftItems().length,
-      interactions: this.cockpit.interactions.size,
+      interactions: this.hub.interactions.size,
     };
   }
 
-  toggleCockpitPanel(panel: SparkNativeCockpitPanel = "overview"): boolean {
-    const state = this.controller.dispatch({ type: "cockpit.toggle", panel });
-    if (state.activeCockpitPanel === "runs" || state.activeCockpitPanel === "workflows") {
+  toggleHubPanel(panel: SparkNativeHubPanel = "overview"): boolean {
+    const state = this.controller.dispatch({ type: "hub.toggle", panel });
+    if (state.activeHubPanel === "runs" || state.activeHubPanel === "workflows") {
       this.ensureWorkflowRunSelection();
     }
     this.invalidate();
     this.tui.requestRender();
-    return state.activeCockpitPanel !== undefined;
+    return state.activeHubPanel !== undefined;
   }
 
-  cycleCockpitPanel(): SparkNativeCockpitPanel {
+  cycleHubPanel(): SparkNativeHubPanel {
     const next =
-      this.controller.dispatch({ type: "cockpit.cycle", panels: SPARK_COCKPIT_PANELS })
-        .activeCockpitPanel ?? "overview";
+      this.controller.dispatch({ type: "hub.cycle", panels: SPARK_HUB_PANELS }).activeHubPanel ??
+      "overview";
     if (next === "runs" || next === "workflows") this.ensureWorkflowRunSelection();
     this.invalidate();
     this.tui.requestRender();
     return next;
   }
 
-  private handleCockpitPanelInput(data: string): boolean {
-    const activePanel = this.controller.viewState.activeCockpitPanel;
+  private handleHubPanelInput(data: string): boolean {
+    const activePanel = this.controller.viewState.activeHubPanel;
     if (activePanel !== "runs" && activePanel !== "workflows") {
       return false;
     }
     if (matchesKey(data, Key.escape)) {
-      this.controller.dispatch({ type: "cockpit.close" });
+      this.controller.dispatch({ type: "hub.close" });
       this.invalidate();
       this.tui.requestRender();
       return true;
@@ -543,10 +543,10 @@ export class SparkNativeTuiApp implements Component, Focusable {
     if (runs.length === 0) return;
     const selectedIndex = Math.max(
       0,
-      runs.findIndex((run) => run.id === this.cockpit.selectedWorkflowRunId),
+      runs.findIndex((run) => run.id === this.hub.selectedWorkflowRunId),
     );
     const nextIndex = (selectedIndex + delta + runs.length) % runs.length;
-    this.cockpit.selectedWorkflowRunId = runs[nextIndex]?.id;
+    this.hub.selectedWorkflowRunId = runs[nextIndex]?.id;
     this.invalidate();
     this.tui.requestRender();
   }
@@ -757,7 +757,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
           return;
         }
         case "workflow.open":
-          this.openCockpitPanel("runs");
+          this.openHubPanel("runs");
           return;
         case "workflow.inspect":
           this.runSelectedWorkflowCommand("inspect");
@@ -1011,25 +1011,24 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   private completeInteractionRequest(response: SparkInteractionResponse): void {
     if (response.status !== "pending") {
-      this.cockpit.interactions.delete(response.requestId);
+      this.hub.interactions.delete(response.requestId);
       this.invalidate();
       this.tui.requestRender();
     }
   }
 
-  hydrateCockpit(input: {
+  hydrateHub(input: {
     sessionId?: string;
     sessionTitle?: string;
     sessionStatus?: SparkSessionView["status"];
     tasks?: SparkTaskView[];
     artifacts?: SparkArtifactView[];
   }): void {
-    if (input.sessionId) this.cockpit.sessionId = input.sessionId;
-    if (input.sessionTitle) this.cockpit.sessionTitle = input.sessionTitle;
-    if (input.sessionStatus) this.cockpit.sessionStatus = input.sessionStatus;
-    for (const task of input.tasks ?? []) this.cockpit.tasks.set(task.ref, task);
-    for (const artifact of input.artifacts ?? [])
-      this.cockpit.artifacts.set(artifact.ref, artifact);
+    if (input.sessionId) this.hub.sessionId = input.sessionId;
+    if (input.sessionTitle) this.hub.sessionTitle = input.sessionTitle;
+    if (input.sessionStatus) this.hub.sessionStatus = input.sessionStatus;
+    for (const task of input.tasks ?? []) this.hub.tasks.set(task.ref, task);
+    for (const artifact of input.artifacts ?? []) this.hub.artifacts.set(artifact.ref, artifact);
     this.invalidate();
     this.tui.requestRender();
   }
@@ -1048,19 +1047,19 @@ export class SparkNativeTuiApp implements Component, Focusable {
         this.recordRunView(parsed.run);
         break;
       case "loop.update":
-        this.cockpit.loops.set(parsed.loop.loopId, parsed.loop);
+        this.hub.loops.set(parsed.loop.loopId, parsed.loop);
         break;
       case "task.update": {
-        this.cockpit.tasks.set(parsed.task.ref, parsed.task);
+        this.hub.tasks.set(parsed.task.ref, parsed.task);
         const evidenceSummary = this.taskCompletionEvidenceSummary(parsed.task);
         if (evidenceSummary) this.session.addSystemMessage(evidenceSummary);
         break;
       }
       case "artifact.update":
-        this.cockpit.artifacts.set(parsed.artifact.ref, parsed.artifact);
+        this.hub.artifacts.set(parsed.artifact.ref, parsed.artifact);
         break;
       case "evidence.update":
-        this.cockpit.evidence.set(parsed.evidence.ref, parsed.evidence);
+        this.hub.evidence.set(parsed.evidence.ref, parsed.evidence);
         break;
       default: {
         const _exhaustive: never = parsed;
@@ -1073,30 +1072,30 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private recordSessionView(view: SparkSessionView): void {
-    this.cockpit.sessionId = view.sessionId;
-    this.cockpit.sessionTitle = view.title;
-    this.cockpit.sessionStatus = view.status;
-    if (view.cwd) this.cockpit.cwd = view.cwd;
-    else delete this.cockpit.cwd;
-    if (view.gitBranch) this.cockpit.gitBranch = view.gitBranch;
-    else delete this.cockpit.gitBranch;
-    if (view.model) this.cockpit.model = view.model;
-    else delete this.cockpit.model;
-    if (view.thinkingLevel) this.cockpit.thinkingLevel = view.thinkingLevel;
-    else delete this.cockpit.thinkingLevel;
+    this.hub.sessionId = view.sessionId;
+    this.hub.sessionTitle = view.title;
+    this.hub.sessionStatus = view.status;
+    if (view.cwd) this.hub.cwd = view.cwd;
+    else delete this.hub.cwd;
+    if (view.gitBranch) this.hub.gitBranch = view.gitBranch;
+    else delete this.hub.gitBranch;
+    if (view.model) this.hub.model = view.model;
+    else delete this.hub.model;
+    if (view.thinkingLevel) this.hub.thinkingLevel = view.thinkingLevel;
+    else delete this.hub.thinkingLevel;
     this.sessionFooterMetrics = view.usage ? footerMetricsFromRecord(view.usage) : {};
     this.runFooterMetrics.clear();
-    this.cockpit.runs.clear();
-    this.cockpit.tasks.clear();
-    this.cockpit.artifacts.clear();
-    this.cockpit.evidence.clear();
-    this.cockpit.loops.clear();
+    this.hub.runs.clear();
+    this.hub.tasks.clear();
+    this.hub.artifacts.clear();
+    this.hub.evidence.clear();
+    this.hub.loops.clear();
     for (const loop of view.loops ?? []) {
-      this.cockpit.loops.set(loop.loopId, loop);
+      this.hub.loops.set(loop.loopId, loop);
     }
     for (const run of view.runs) this.recordRunView(run, false);
     if (view.runs.length === 0) this.recordActiveRunStatus();
-    for (const task of view.tasks) this.cockpit.tasks.set(task.ref, task);
+    for (const task of view.tasks) this.hub.tasks.set(task.ref, task);
     for (const artifact of view.artifacts) {
       if (
         artifact.ref.startsWith("artifact:") &&
@@ -1106,9 +1105,9 @@ export class SparkNativeTuiApp implements Component, Focusable {
           artifact.kind === "pr" ||
           artifact.kind === "preview")
       ) {
-        this.cockpit.artifacts.set(artifact.ref, artifact);
+        this.hub.artifacts.set(artifact.ref, artifact);
       } else {
-        this.cockpit.evidence.set(artifact.ref, {
+        this.hub.evidence.set(artifact.ref, {
           version: artifact.version,
           ref: artifact.ref,
           title: artifact.title,
@@ -1135,16 +1134,16 @@ export class SparkNativeTuiApp implements Component, Focusable {
         });
       }
     }
-    for (const evidence of view.evidence ?? []) this.cockpit.evidence.set(evidence.ref, evidence);
+    for (const evidence of view.evidence ?? []) this.hub.evidence.set(evidence.ref, evidence);
   }
 
   private recordRunView(run: SparkRunView, includeUsage = true): void {
-    this.cockpit.runs.set(run.id, run);
+    this.hub.runs.set(run.id, run);
     this.recordCacheUsageStatus(run, includeUsage);
     this.recordActiveRunStatus();
     if (run.kind === "workflow") {
       const selector = stringFromRecord(run.metadata, "selector") ?? run.id;
-      this.cockpit.workflows.set(selector, {
+      this.hub.workflows.set(selector, {
         selector,
         label: run.title ?? run.summary ?? run.id,
         description: run.summary,
@@ -1190,8 +1189,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
       stringFromRecord(task.metadata, "outcome");
     if (metadataStatus) return metadataStatus;
     for (const ref of task.evidenceRefs) {
-      const artifact =
-        this.cockpit.artifacts.get(ref) ?? this.cockpit.evidence.get(ref) ?? undefined;
+      const artifact = this.hub.artifacts.get(ref) ?? this.hub.evidence.get(ref) ?? undefined;
       if (!artifact || !isReviewArtifact(artifact)) continue;
       return (
         stringFromRecord(artifact.metadata, "outcome") ??
@@ -1204,7 +1202,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private recordActiveRunStatus(): void {
-    const activeRuns = [...this.cockpit.runs.values()]
+    const activeRuns = [...this.hub.runs.values()]
       .filter((run) => run.status === "queued" || run.status === "running")
       .sort((left, right) => runTimeMs(left) - runTimeMs(right));
     const active = activeRuns.at(-1);
@@ -1217,10 +1215,10 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private recordInteractionRequest(request: SparkInteractionRequest): void {
-    this.cockpit.interactions.set(request.requestId, request);
+    this.hub.interactions.set(request.requestId, request);
     if (request.kind === "workflowPicker") {
       for (const option of request.options) {
-        this.cockpit.workflows.set(option.selector, {
+        this.hub.workflows.set(option.selector, {
           selector: option.selector,
           label: option.label,
           description: option.description,
@@ -1312,16 +1310,16 @@ export class SparkNativeTuiApp implements Component, Focusable {
       handler: () => void this.toggleThinking(),
     });
     keybindings.register({
-      id: "app.toggleCockpit",
+      id: "app.toggleHub",
       defaultKey: "ctrl+k",
-      description: nativeTuiStrings.keybindings.toggleCockpit,
-      handler: () => void this.toggleCockpitPanel(),
+      description: nativeTuiStrings.keybindings.toggleHub,
+      handler: () => void this.toggleHubPanel(),
     });
     keybindings.register({
-      id: "app.cycleCockpitPanel",
+      id: "app.cycleHubPanel",
       defaultKey: "shift+ctrl+k",
-      description: nativeTuiStrings.keybindings.cycleCockpitPanel,
-      handler: () => void this.cycleCockpitPanel(),
+      description: nativeTuiStrings.keybindings.cycleHubPanel,
+      handler: () => void this.cycleHubPanel(),
     });
   }
 
@@ -1349,7 +1347,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
       ),
     ];
     const context = this.renderWorkspaceSessionState(width);
-    const detail = this.renderActiveCockpitPanel(width);
+    const detail = this.renderActiveHubPanel(width);
     const pinnedStatus = [...header, ...context, ...this.renderWidgets("aboveEditor", width)];
     const auxiliary = this.renderPendingAskPresentations(width);
     const transcript = this.session.messages.flatMap((message) =>
@@ -1646,10 +1644,10 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private renderTaskStatus(width: number): string[] {
-    const tasks = [...this.cockpit.tasks.values()]
+    const tasks = [...this.hub.tasks.values()]
       .filter((task) => task.status !== "done" && task.status !== "cancelled")
       .sort((left, right) => taskStatusRank(left.status) - taskStatusRank(right.status));
-    return tasks.slice(0, MAX_COCKPIT_PANEL_ROWS).map((task, index, visibleTasks) => {
+    return tasks.slice(0, MAX_HUB_PANEL_ROWS).map((task, index, visibleTasks) => {
       const marker = index === 0 ? "◆" : index === visibleTasks.length - 1 ? "└─" : "├─";
       const doneTodos = task.todos.filter((todo) => todo.status === "done").length;
       const todos = task.todos.length > 0 ? " · todos " + doneTodos + "/" + task.todos.length : "";
@@ -1671,33 +1669,33 @@ export class SparkNativeTuiApp implements Component, Focusable {
     });
   }
 
-  private renderActiveCockpitPanel(width: number): string[] {
-    const activePanel = this.controller.viewState.activeCockpitPanel;
+  private renderActiveHubPanel(width: number): string[] {
+    const activePanel = this.controller.viewState.activeHubPanel;
     if (!activePanel) return [];
-    return this.renderCockpitPanel(activePanel, width).map((line) => truncateToWidth(line, width));
+    return this.renderHubPanel(activePanel, width).map((line) => truncateToWidth(line, width));
   }
 
-  private renderCockpitPanel(panel: SparkNativeCockpitPanel, width?: number): string[] {
+  private renderHubPanel(panel: SparkNativeHubPanel, width?: number): string[] {
     switch (panel) {
       case "overview":
-        return this.renderCockpitOverview();
+        return this.renderHubOverview();
       case "workflows":
-        return this.renderWorkflowCockpit();
+        return this.renderWorkflowHub();
       case "runs":
-        return this.renderRunCockpit();
+        return this.renderRunHub();
       case "tasks":
-        return this.renderTaskCockpit(width);
+        return this.renderTaskHub(width);
       case "artifacts":
-        return this.renderArtifactCockpit();
+        return this.renderArtifactHub();
       case "reviews":
-        return this.renderReviewCockpit();
+        return this.renderReviewHub();
       case "graft":
-        return this.renderGraftCockpit();
+        return this.renderGraftHub();
     }
   }
 
-  private renderCockpitOverview(): string[] {
-    const snapshot = this.cockpitSnapshot();
+  private renderHubOverview(): string[] {
+    const snapshot = this.hubSnapshot();
     return [
       "◆ Session inspector: overview",
       `├─ Workflow picker/progress: ${snapshot.workflows} option(s), ${snapshot.workflowRuns} workflow run(s)`,
@@ -1705,11 +1703,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
       `├─ Task/project board: ${snapshot.tasks} tracked task(s)`,
       `├─ Artifacts panel: ${snapshot.artifacts} artifact(s), ${snapshot.evidence} evidence item(s), ${snapshot.reviews} review item(s)`,
       `├─ Graft provenance/patch status: ${snapshot.graftItems} item(s)`,
-      "└─ Cross-session Cockpit: run spark cockpit in another terminal.",
+      "└─ Cross-session Hub: run spark hub in another terminal.",
     ];
   }
 
-  private renderWorkflowCockpit(): string[] {
+  private renderWorkflowHub(): string[] {
     const selected = this.selectedWorkflowRun();
     const lines = [
       "◆ Session inspector: workflows",
@@ -1720,21 +1718,21 @@ export class SparkNativeTuiApp implements Component, Focusable {
       "│  Commands: /workflow runs [runRef] · /workflow inspect <runRef>",
       "│            /workflow pause|resume|stop|restart|save|ack <runRef>",
     ];
-    const interactions = [...this.cockpit.interactions.values()].filter(
+    const interactions = [...this.hub.interactions.values()].filter(
       (request) => request.kind === "workflowPicker",
     );
-    for (const request of interactions.slice(0, MAX_COCKPIT_PANEL_ROWS)) {
+    for (const request of interactions.slice(0, MAX_HUB_PANEL_ROWS)) {
       lines.push(
         `├─ picker ${request.requestId}: ${request.title} (${request.options.length} option(s))`,
       );
     }
-    for (const workflow of [...this.cockpit.workflows.values()].slice(0, MAX_COCKPIT_PANEL_ROWS)) {
+    for (const workflow of [...this.hub.workflows.values()].slice(0, MAX_HUB_PANEL_ROWS)) {
       const source = workflow.source === "interaction" ? "picker" : "run";
       lines.push(
         `├─ ${source} ${workflow.selector}: ${workflow.label}${workflow.description ? ` — ${workflow.description}` : ""}`,
       );
     }
-    for (const run of this.runsByKind("workflow").slice(0, MAX_COCKPIT_PANEL_ROWS)) {
+    for (const run of this.runsByKind("workflow").slice(0, MAX_HUB_PANEL_ROWS)) {
       const marker = run.id === selected?.id ? "▸" : "├";
       lines.push(
         `${marker}─ workflow run ${run.id} [${workflowRunDisplayStatus(run)}] ${run.title ?? run.summary ?? ""}`.trimEnd(),
@@ -1748,7 +1746,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
     return lines;
   }
 
-  private renderRunCockpit(): string[] {
+  private renderRunHub(): string[] {
     const selected = this.selectedWorkflowRun();
     const lines = [
       "◆ Session inspector: role/run board",
@@ -1759,8 +1757,8 @@ export class SparkNativeTuiApp implements Component, Focusable {
       "│  Workflow commands: /workflow runs [runRef] · /workflow inspect <runRef>",
       "│                     /workflow pause|resume|stop|restart|save|ack <runRef>",
     ];
-    const runs = [...this.cockpit.runs.values()].sort(compareRunsForCockpit);
-    for (const run of runs.slice(0, MAX_COCKPIT_PANEL_ROWS)) {
+    const runs = [...this.hub.runs.values()].sort(compareRunsForHub);
+    for (const run of runs.slice(0, MAX_HUB_PANEL_ROWS)) {
       const progress = run.progress === undefined ? "" : ` ${(run.progress * 100).toFixed(0)}%`;
       const evidence = run.evidenceRefs.length > 0 ? ` evidence=${run.evidenceRefs.length}` : "";
       const marker = run.kind === "workflow" && run.id === selected?.id ? "▸" : "├";
@@ -1776,27 +1774,27 @@ export class SparkNativeTuiApp implements Component, Focusable {
     return lines;
   }
 
-  private renderTaskCockpit(width?: number): string[] {
+  private renderTaskHub(width?: number): string[] {
     const lines = ["◆ Session inspector: task/project board"];
-    if (this.cockpit.sessionTitle) {
-      lines.push(...wrapTextWithAnsi(`│  Project: ${this.cockpit.sessionTitle}`, width ?? 100));
+    if (this.hub.sessionTitle) {
+      lines.push(...wrapTextWithAnsi(`│  Project: ${this.hub.sessionTitle}`, width ?? 100));
     }
-    for (const task of [...this.cockpit.tasks.values()].slice(0, MAX_COCKPIT_PANEL_ROWS)) {
+    for (const task of [...this.hub.tasks.values()].slice(0, MAX_HUB_PANEL_ROWS)) {
       const doneTodos = task.todos.filter((todo) => todo.status === "done").length;
       const todoSummary = task.todos.length > 0 ? ` todos=${doneTodos}/${task.todos.length}` : "";
       const artifacts = task.evidenceRefs.length > 0 ? ` evidence=${task.evidenceRefs.length}` : "";
       lines.push(`├─ ${task.ref} [${task.status}]${todoSummary}${artifacts} ${task.title}`);
     }
-    if (lines.length === (this.cockpit.sessionTitle ? 2 : 1))
+    if (lines.length === (this.hub.sessionTitle ? 2 : 1))
       lines.push("└─ No task/project view-model updates have been published yet.");
     return lines;
   }
 
-  private renderArtifactCockpit(): string[] {
+  private renderArtifactHub(): string[] {
     const lines = ["◆ Session inspector: artifacts"];
-    const rows = [...this.cockpit.artifacts.values(), ...this.cockpit.evidence.values()].slice(
+    const rows = [...this.hub.artifacts.values(), ...this.hub.evidence.values()].slice(
       0,
-      MAX_COCKPIT_PANEL_ROWS,
+      MAX_HUB_PANEL_ROWS,
     );
     for (const artifact of rows) {
       const producer = artifact.producer ? ` producer=${artifact.producer}` : "";
@@ -1811,9 +1809,9 @@ export class SparkNativeTuiApp implements Component, Focusable {
     return lines;
   }
 
-  private renderReviewCockpit(): string[] {
+  private renderReviewHub(): string[] {
     const lines = ["◆ Session inspector: reviewer verdicts"];
-    for (const item of this.reviewItems().slice(0, MAX_COCKPIT_PANEL_ROWS)) {
+    for (const item of this.reviewItems().slice(0, MAX_HUB_PANEL_ROWS)) {
       lines.push(`├─ ${item}`);
     }
     if (lines.length === 1)
@@ -1821,9 +1819,9 @@ export class SparkNativeTuiApp implements Component, Focusable {
     return lines;
   }
 
-  private renderGraftCockpit(): string[] {
+  private renderGraftHub(): string[] {
     const lines = ["◆ Session inspector: Graft provenance/patch status"];
-    for (const item of this.graftItems().slice(0, MAX_COCKPIT_PANEL_ROWS)) {
+    for (const item of this.graftItems().slice(0, MAX_HUB_PANEL_ROWS)) {
       lines.push(`├─ ${item}`);
     }
     if (lines.length === 1)
@@ -1832,43 +1830,43 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private selectableWorkflowRuns(): SparkRunView[] {
-    return this.runsByKind("workflow").sort(compareRunsForCockpit);
+    return this.runsByKind("workflow").sort(compareRunsForHub);
   }
 
   private selectedWorkflowRun(): SparkRunView | undefined {
     this.ensureWorkflowRunSelection();
-    const selectedId = this.cockpit.selectedWorkflowRunId;
+    const selectedId = this.hub.selectedWorkflowRunId;
     if (!selectedId) return undefined;
-    return this.cockpit.runs.get(selectedId);
+    return this.hub.runs.get(selectedId);
   }
 
   private ensureWorkflowRunSelection(): void {
     const runs = this.selectableWorkflowRuns();
     if (runs.length === 0) {
-      this.cockpit.selectedWorkflowRunId = undefined;
+      this.hub.selectedWorkflowRunId = undefined;
       return;
     }
     if (
-      !this.cockpit.selectedWorkflowRunId ||
-      !runs.some((run) => run.id === this.cockpit.selectedWorkflowRunId)
+      !this.hub.selectedWorkflowRunId ||
+      !runs.some((run) => run.id === this.hub.selectedWorkflowRunId)
     ) {
-      this.cockpit.selectedWorkflowRunId = runs[0]?.id;
+      this.hub.selectedWorkflowRunId = runs[0]?.id;
     }
   }
 
   private runsByKind(kind: SparkRunView["kind"]): SparkRunView[] {
-    return [...this.cockpit.runs.values()].filter((run) => run.kind === kind);
+    return [...this.hub.runs.values()].filter((run) => run.kind === kind);
   }
 
   private reviewItems(): string[] {
-    const artifactItems = [...this.cockpit.artifacts.values(), ...this.cockpit.evidence.values()]
+    const artifactItems = [...this.hub.artifacts.values(), ...this.hub.evidence.values()]
       .filter(isReviewArtifact)
       .map((artifact) => {
         const outcome =
           stringFromRecord(artifact.metadata, "outcome") ?? artifact.status ?? "recorded";
         return `${artifact.ref} [${outcome}] ${artifact.title}`;
       });
-    const runItems = [...this.cockpit.runs.values()]
+    const runItems = [...this.hub.runs.values()]
       .filter((run) =>
         Boolean(
           stringFromRecord(run.metadata, "reviewer") ??
@@ -1888,10 +1886,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   private graftItems(): string[] {
     const records: string[] = [];
-    for (const artifact of [
-      ...this.cockpit.artifacts.values(),
-      ...this.cockpit.evidence.values(),
-    ]) {
+    for (const artifact of [...this.hub.artifacts.values(), ...this.hub.evidence.values()]) {
       const summary = graftSummaryFromRecord(artifact.metadata);
       if (
         summary ||
@@ -1900,7 +1895,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
         records.push(`${artifact.ref} ${summary ?? artifact.title}`);
       }
     }
-    for (const run of this.cockpit.runs.values()) {
+    for (const run of this.hub.runs.values()) {
       const summary = graftSummaryFromRecord(run.metadata);
       if (
         summary ||
@@ -1924,14 +1919,14 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private statusLine(): string {
     const statusSuffix = this.extensionStatusSuffix();
     const commandSuffix = this.commandAvailabilitySuffix();
-    const activeLoops = [...this.cockpit.loops.values()].filter(
+    const activeLoops = [...this.hub.loops.values()].filter(
       (loop) => loop.status !== "stopped" && loop.status !== "completed",
     );
     const loopSuffix =
       activeLoops.length === 0 ? "" : ` · loop=${activeLoops.map((loop) => loop.status).join(",")}`;
     const sessionLabel =
-      this.cockpit.sessionTitle?.trim() ||
-      this.cockpit.sessionId?.trim() ||
+      this.hub.sessionTitle?.trim() ||
+      this.hub.sessionId?.trim() ||
       this.workspaceSession?.controlPlaneSessionId?.trim() ||
       "local";
     const activeProvider = this.statusContext?.activeProvider?.()?.trim();
@@ -1972,11 +1967,11 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private runtimeFooterLines(width: number): string[] {
-    const cwd = this.cockpit.cwd ?? this.inputBasePath;
+    const cwd = this.hub.cwd ?? this.inputBasePath;
     const home = homedir();
     const compactCwd =
       cwd === home ? "~" : cwd.startsWith(`${home}/`) ? `~${cwd.slice(home.length)}` : cwd;
-    const branch = this.cockpit.gitBranch?.trim();
+    const branch = this.hub.gitBranch?.trim();
     const pathLine = branch ? `${compactCwd} (${branch})` : compactCwd;
     const metrics = formatFooterMetrics(
       this.currentFooterMetrics(),
@@ -1998,15 +1993,14 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private runtimeModelIdentity(): { full?: string; compact?: string } {
-    let provider =
-      this.statusContext?.activeProvider?.()?.trim() ?? this.cockpit.model?.providerName;
-    let model = this.statusContext?.activeModel?.()?.trim() ?? this.cockpit.model?.modelId;
+    let provider = this.statusContext?.activeProvider?.()?.trim() ?? this.hub.model?.providerName;
+    let model = this.statusContext?.activeModel?.()?.trim() ?? this.hub.model?.modelId;
     if (!provider && model?.includes("/")) {
       const separator = model.indexOf("/");
       provider = model.slice(0, separator);
       model = model.slice(separator + 1);
     }
-    const thinking = this.statusContext?.thinkingLevel?.()?.trim() ?? this.cockpit.thinkingLevel;
+    const thinking = this.statusContext?.thinkingLevel?.()?.trim() ?? this.hub.thinkingLevel;
     if (!model) return {};
     const compact = thinking ? `${model} • ${thinking}` : model;
     return { full: provider ? `(${provider}) ${compact}` : compact, compact };
@@ -2067,7 +2061,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private sessionStateLabel(): string {
     if (this.session.isProcessing) return "running";
     if (this.session.queuedCount > 0) return "queued";
-    switch (this.cockpit.sessionStatus) {
+    switch (this.hub.sessionStatus) {
       case "streaming":
         return "running";
       case "succeeded":
@@ -2075,7 +2069,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
       case "timed_out":
         return "timed-out";
       default:
-        return this.cockpit.sessionStatus ?? "idle";
+        return this.hub.sessionStatus ?? "idle";
     }
   }
 
@@ -2109,7 +2103,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
     }
 
     // The canonical bare `/workflow` command owns the native workflow picker.
-    // Cockpit uses the shared semantic action bar, but the TUI must not let
+    // Hub uses the shared semantic action bar, but the TUI must not let
     // that presentation layer intercept its registered picker command.
     if (parsed.name === "workflow" && !parsed.args.trim() && this.slashCommands.workflow) {
       await this.invokeRegisteredSlashCommand(parsed.name, parsed.args, true);
@@ -2174,23 +2168,23 @@ export class SparkNativeTuiApp implements Component, Focusable {
         void this.session.retryLast();
         return false;
       case "inspect":
-      case "cockpit":
-        return this.openCockpitPanelFromArgs(_args);
+      case "hub":
+        return this.openHubPanelFromArgs(_args);
       case "runs":
       case "run":
-        return this.openCockpitPanel("runs");
+        return this.openHubPanel("runs");
       case "tasks":
       case "task":
-        return this.openCockpitPanel("tasks");
+        return this.openHubPanel("tasks");
       case "artifacts":
       case "artifact":
       case "evidence":
-        return this.openCockpitPanel("artifacts");
+        return this.openHubPanel("artifacts");
       case "reviews":
       case "review":
-        return this.openCockpitPanel("reviews");
+        return this.openHubPanel("reviews");
       case "graft":
-        return this.openCockpitPanel("graft");
+        return this.openHubPanel("graft");
       case "exit":
       case "quit":
         this.onExit();
@@ -2200,22 +2194,22 @@ export class SparkNativeTuiApp implements Component, Focusable {
     }
   }
 
-  openCockpitPanelFromArgs(args: string): string | false {
+  openHubPanelFromArgs(args: string): string | false {
     const requested = args.trim().toLowerCase();
     if (requested === "off" || requested === "close" || requested === "hide") {
-      this.controller.dispatch({ type: "cockpit.close" });
+      this.controller.dispatch({ type: "hub.close" });
       this.invalidate();
       this.tui.requestRender();
-      return nativeTuiStrings.cockpitPanelClosed;
+      return nativeTuiStrings.hubPanelClosed;
     }
-    if (requested && !isSparkNativeCockpitPanel(requested)) {
-      return `Unknown local session panel '${requested}'. Choose: ${SPARK_COCKPIT_PANELS.join(", ")}, off.`;
+    if (requested && !isSparkNativeHubPanel(requested)) {
+      return `Unknown local session panel '${requested}'. Choose: ${SPARK_HUB_PANELS.join(", ")}, off.`;
     }
-    return this.openCockpitPanel((requested as SparkNativeCockpitPanel | "") || "overview");
+    return this.openHubPanel((requested as SparkNativeHubPanel | "") || "overview");
   }
 
-  openCockpitPanel(panel: SparkNativeCockpitPanel): string | false {
-    this.controller.dispatch({ type: "cockpit.open", panel });
+  openHubPanel(panel: SparkNativeHubPanel): string | false {
+    this.controller.dispatch({ type: "hub.open", panel });
     if (panel === "runs" || panel === "workflows") this.ensureWorkflowRunSelection();
     this.invalidate();
     this.tui.requestRender();

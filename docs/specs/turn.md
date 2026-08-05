@@ -48,11 +48,11 @@ If the process crashes instead of completing a planned drain, any invocation per
 
 ## Runtime WebSocket
 
-Cockpit sends `server.command` envelopes. The daemon validates the workspace binding, adapts the payload to `SparkCommand`, and emits acknowledgements or rejections. Unknown bindings reject with `UNKNOWN_WORKSPACE_BINDING`; detached or borrowed workspaces reject disallowed mutations while still permitting diagnostics, snapshots, and cancellation.
+Hub sends `server.command` envelopes. The daemon validates the workspace binding, adapts the payload to `SparkCommand`, and emits acknowledgements or rejections. Unknown bindings reject with `UNKNOWN_WORKSPACE_BINDING`; detached or borrowed workspaces reject disallowed mutations while still permitting diagnostics, snapshots, and cancellation.
 
 Runtime command kinds include `workspace.snapshot.request`, `task.start.request`, `invocation.cancel.request`, `artifact.content.request`, and `human.response.deliver.request`. Execution remains daemon-owned after acceptance.
 
-The daemon projects SQLite invocation events as `invocation.updated` and `invocation.log_chunk` envelopes with the original per-invocation `sequence`. Each envelope has a deterministic message ID derived from `(invocationId, sequence)`. The uplink sends one event at a time, advances its delivery cursor only after `server.ingest_ack`, and resumes from the last acknowledged sequence after reconnect. Cockpit deduplicates replayed envelopes by the stable message ID. Structured view or interaction events that are not invocation updates or assistant log deltas remain `daemon.event` envelopes.
+The daemon projects SQLite invocation events as `invocation.updated` and `invocation.log_chunk` envelopes with the original per-invocation `sequence`. Each envelope has a deterministic message ID derived from `(invocationId, sequence)`. The uplink sends one event at a time, advances its delivery cursor only after `server.ingest_ack`, and resumes from the last acknowledged sequence after reconnect. Hub deduplicates replayed envelopes by the stable message ID. Structured view or interaction events that are not invocation updates or assistant log deltas remain `daemon.event` envelopes.
 
 ## In-process prompt and run contracts
 

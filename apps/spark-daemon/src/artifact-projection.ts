@@ -61,7 +61,7 @@ export const ARTIFACT_PROJECTION_RETRY_AFTER_MS = 30_000;
 export const ARTIFACT_PROJECTION_RECONCILE_INTERVAL_MS = 60_000;
 
 /**
- * Runtime/Cockpit Artifact ids use the protocol `art_` namespace. Artifact
+ * Runtime/Hub Artifact ids use the protocol `art_` namespace. Artifact
  * refs remain the canonical workspace identity and are retained in
  * contentRef/provenance.
  */
@@ -203,7 +203,7 @@ export async function listWorkspaceArtifactProjectionSources(
 /**
  * Connection-scoped change detector for canonical Artifacts. The
  * ArtifactStore remains the durable owner; this class only tracks wire
- * delivery and intentionally resets on reconnect so Cockpit can recover after
+ * delivery and intentionally resets on reconnect so Hub can recover after
  * either side restarts.
  */
 export class ArtifactProjectionReconciler {

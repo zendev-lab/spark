@@ -54,7 +54,7 @@ import {
   type SparkInvocationPendingDelivery,
 } from "./store/invocations.ts";
 import {
-  applyCockpitWorkspaceBindingAssignments,
+  applyHubWorkspaceBindingAssignments,
   getWorkspaceById,
   reconcileWorkspaces,
   reconcileWorkspacesForServer,
@@ -161,7 +161,7 @@ export async function handleServerMessage(
   const helloAck = serverHelloAckEnvelopeSchema.safeParse(value);
   if (helloAck.success) {
     if (context.serverUrl) {
-      applyCockpitWorkspaceBindingAssignments(
+      applyHubWorkspaceBindingAssignments(
         context.db,
         context.serverUrl,
         helloAck.data.payload.workspaceBindingAssignments,
@@ -176,7 +176,7 @@ export async function handleServerMessage(
   const heartbeatAck = serverHeartbeatAckEnvelopeSchema.safeParse(value);
   if (heartbeatAck.success) {
     if (context.serverUrl) {
-      applyCockpitWorkspaceBindingAssignments(
+      applyHubWorkspaceBindingAssignments(
         context.db,
         context.serverUrl,
         heartbeatAck.data.payload.workspaceBindingAssignments,
@@ -293,7 +293,7 @@ function humanResponseRouteFailure(
         wait.workspaceBindingId,
       ))
   ) {
-    return "Human response was delivered through a Cockpit that does not own this wait.";
+    return "Human response was delivered through a Hub that does not own this wait.";
   }
   if (
     (response.workspaceBindingId ?? "") !== wait.workspaceBindingId ||

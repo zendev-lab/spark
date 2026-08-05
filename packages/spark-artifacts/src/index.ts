@@ -50,7 +50,7 @@ export interface EvidenceProvenance {
 }
 
 /**
- * Agent-internal evidence kinds (not Cockpit/user content). Artifacts are
+ * Agent-internal evidence kinds (not Hub/user content). Artifacts are
  * issue|git_change|document in `./artifact/`.
  *
  * Prefer compact JSON `record` notes. Keep `trace` for prunable raw output.

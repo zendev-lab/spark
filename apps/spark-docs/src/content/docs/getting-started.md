@@ -82,5 +82,5 @@ Spark starts or contacts the local daemon as needed. Run `spark daemon status
 - Browse the [complete feature map](/concepts/feature-map/) without learning every command.
 - Learn the [TUI's progressive controls](/guides/tui/).
 - Choose between [foreground runs, background work, and sessions](/guides/runs-and-sessions/).
-- Open the [Hub Web surface](/guides/cockpit/).
+- Open the [Hub Web surface](/guides/hub/).
 - Use [automation](/guides/automation/) only when ordinary Plan and Implement are not enough.

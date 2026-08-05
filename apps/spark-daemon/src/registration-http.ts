@@ -11,7 +11,7 @@ export async function fetchRegistrationEndpoint(
     const detail = error instanceof Error ? error.message : String(error);
     throw new SparkDaemonControlError(
       "workspace_registration_unavailable",
-      `Request to ${url.toString()} failed (Cockpit origin: ${url.origin}): ${detail}.${loopbackHint(url)}`,
+      `Request to ${url.toString()} failed (Hub origin: ${url.origin}): ${detail}.${loopbackHint(url)}`,
     );
   }
 }
@@ -21,5 +21,5 @@ function loopbackHint(url: URL): string {
     return "";
   }
 
-  return ` ${url.hostname} is reachable from the daemon machine only; if Cockpit runs on another machine, use its reachable HTTPS URL (or explicitly acknowledge trusted-network HTTP with --allow-insecure-http)`;
+  return ` ${url.hostname} is reachable from the daemon machine only; if Hub runs on another machine, use its reachable HTTPS URL (or explicitly acknowledge trusted-network HTTP with --allow-insecure-http)`;
 }

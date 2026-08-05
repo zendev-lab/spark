@@ -92,7 +92,7 @@ export function syncSparkDaemonIfConfigured(
   );
   if (!connectedProfile) {
     io.stdout.write(
-      "  sync     local only; run spark daemon login --server-url <url> to connect this machine to Spark Cockpit.\n",
+      "  sync     local only; run spark daemon login --server-url <url> to connect this machine to Spark Hub.\n",
     );
     return;
   }
@@ -228,7 +228,7 @@ Commands:
   events watch [--json]
 
 Workspace registration may print a one-time browser key. Mint additional keys on the
-Cockpit host with spark cockpit workspace access create --workspace <id>.
+Hub host with spark hub workspace access create --workspace <id>.
 Workspace markers use id; name is display-only.
 
 Example:
@@ -254,8 +254,8 @@ Commands:
   merge [source ...] --into <target> [--path <parent>] [--all-nested] [--dry-run] [--yes] [--json]
 
 Registration may print a one-time browser key for /{slug}/login.
-Mint additional keys on the Cockpit host (workspace id is the marker):
-  spark cockpit workspace access create|list|revoke --workspace <id>
+Mint additional keys on the Hub host (workspace id is the marker):
+  spark hub workspace access create|list|revoke --workspace <id>
 Name is display-only; prefer --workspace <id> for commands.
 
 Example:
@@ -267,10 +267,10 @@ Example:
 export function printLoginHelp(io: CliIo): void {
   io.stdout.write(`Usage: spark daemon login --server-url <url> [--no-open] [--allow-insecure-http]
 
-Authorize this daemon machine in Spark Cockpit. The stored machine credential is
+Authorize this daemon machine in Spark Hub. The stored machine credential is
 only for connectivity and refresh. Every workspace registration still consumes
 a fresh one-time workspace registration token.
-Non-loopback Cockpit URLs require HTTPS unless --allow-insecure-http is supplied.
+Non-loopback Hub URLs require HTTPS unless --allow-insecure-http is supplied.
 `);
 }
 

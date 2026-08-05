@@ -37,7 +37,7 @@ describe("daemon channel delivery outbox", () => {
       daemonCwd: root,
     });
     const workspace = registerWorkspace(db, {
-      serverUrl: "https://cockpit.example",
+      serverUrl: "https://hub.example",
       serverBindingId: "workspace-qq-origin",
       workspaceName: "qq-origin",
       localPath: root,

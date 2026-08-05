@@ -247,7 +247,7 @@ describe("SparkInvocationStore", () => {
       });
       expect(store.listSummaryPage({ limit: 10 }).invocations).toHaveLength(1);
       expect(store.requestCancellation(invocation.invocationId, "too late")).toBe("terminal");
-      const pending = store.pendingDeliveries("cockpit:invalid-result", 1)[0];
+      const pending = store.pendingDeliveries("hub:invalid-result", 1)[0];
       expect(pending?.event.sequence).toBe(1);
       expect(pending?.invocation.result).toBeUndefined();
       expect(() => store.get(invocation.invocationId)).toThrow(/Invalid persisted JSON/u);
@@ -292,22 +292,22 @@ describe("SparkInvocationStore", () => {
         status: "succeeded",
       });
 
-      expect(
-        store.pendingDeliveries("cockpit:runtime-a").map(({ event }) => event.sequence),
-      ).toEqual([1]);
-      store.acknowledgeDelivery("cockpit:runtime-a", invocation.invocationId, 1);
-      expect(
-        store.pendingDeliveries("cockpit:runtime-a").map(({ event }) => event.sequence),
-      ).toEqual([2]);
-      store.acknowledgeDelivery("cockpit:runtime-a", invocation.invocationId, 2);
-      expect(
-        store.pendingDeliveries("cockpit:runtime-a").map(({ event }) => event.sequence),
-      ).toEqual([3]);
-      expect(
-        store.pendingDeliveries("cockpit:runtime-b").map(({ event }) => event.sequence),
-      ).toEqual([1]);
-      store.acknowledgeDelivery("cockpit:runtime-a", invocation.invocationId, 3);
-      expect(store.pendingDeliveries("cockpit:runtime-a")).toEqual([]);
+      expect(store.pendingDeliveries("hub:runtime-a").map(({ event }) => event.sequence)).toEqual([
+        1,
+      ]);
+      store.acknowledgeDelivery("hub:runtime-a", invocation.invocationId, 1);
+      expect(store.pendingDeliveries("hub:runtime-a").map(({ event }) => event.sequence)).toEqual([
+        2,
+      ]);
+      store.acknowledgeDelivery("hub:runtime-a", invocation.invocationId, 2);
+      expect(store.pendingDeliveries("hub:runtime-a").map(({ event }) => event.sequence)).toEqual([
+        3,
+      ]);
+      expect(store.pendingDeliveries("hub:runtime-b").map(({ event }) => event.sequence)).toEqual([
+        1,
+      ]);
+      store.acknowledgeDelivery("hub:runtime-a", invocation.invocationId, 3);
+      expect(store.pendingDeliveries("hub:runtime-a")).toEqual([]);
     } finally {
       db.close();
     }
@@ -350,7 +350,7 @@ describe("SparkInvocationStore", () => {
       );
       const delivered: typeof expected = [];
       for (;;) {
-        const pending = store.pendingDeliveries("cockpit:stable-order", 1);
+        const pending = store.pendingDeliveries("hub:stable-order", 1);
         if (pending.length === 0) break;
         const event = pending[0]!.event;
         delivered.push({
@@ -358,16 +358,16 @@ describe("SparkInvocationStore", () => {
           sequence: event.sequence,
           createdAt: event.createdAt,
         });
-        store.acknowledgeDelivery("cockpit:stable-order", event.invocationId, event.sequence);
+        store.acknowledgeDelivery("hub:stable-order", event.invocationId, event.sequence);
       }
       expect(delivered).toEqual(expected);
       expect(
         new Set(delivered.map((event) => event.invocationId + ":" + event.sequence)).size,
       ).toBe(events.length);
-      expect(store.pendingDeliveries("cockpit:stable-order", 1)).toEqual([]);
+      expect(store.pendingDeliveries("hub:stable-order", 1)).toEqual([]);
       const plan = db
         .prepare("EXPLAIN QUERY PLAN " + buildPendingDeliveriesQuery("i.id", ""))
-        .all(null, null, "cockpit:explain", 1) as Array<{ detail: string }>;
+        .all(null, null, "hub:explain", 1) as Array<{ detail: string }>;
       const details = plan.map(({ detail }) => detail).join("\n");
       expect(details).toContain("invocation_events_cursor_idx");
       expect(details).toContain("invocation_events_delivery_order_idx");
@@ -381,7 +381,7 @@ describe("SparkInvocationStore", () => {
     const { db, store } = createStore();
     try {
       const workspace = registerWorkspace(db, {
-        serverUrl: "https://cockpit.example",
+        serverUrl: "https://hub.example",
         serverBindingId: "rtwb_legacy_delivery",
         serverWorkspaceId: "ws_legacy_delivery",
         localWorkspaceKey: "legacy-delivery",
@@ -413,18 +413,12 @@ describe("SparkInvocationStore", () => {
       expect(invocation.workspaceBindingId).toBeUndefined();
       expect(
         store
-          .pendingDeliveries("cockpit:runtime-legacy", 10, [workspace.id])
+          .pendingDeliveries("hub:runtime-legacy", 10, [workspace.id])
           .map(({ event }) => ({ invocationId: event.invocationId, sequence: event.sequence })),
       ).toEqual([{ invocationId: invocation.invocationId, sequence: terminal.sequence }]);
-      store.acknowledgeDelivery(
-        "cockpit:runtime-legacy",
-        invocation.invocationId,
-        terminal.sequence,
-      );
-      expect(store.pendingDeliveries("cockpit:runtime-legacy", 10, [workspace.id])).toEqual([]);
-      expect(store.pendingDeliveries("cockpit:runtime-other", 10, ["rtwb_other_delivery"])).toEqual(
-        [],
-      );
+      store.acknowledgeDelivery("hub:runtime-legacy", invocation.invocationId, terminal.sequence);
+      expect(store.pendingDeliveries("hub:runtime-legacy", 10, [workspace.id])).toEqual([]);
+      expect(store.pendingDeliveries("hub:runtime-other", 10, ["rtwb_other_delivery"])).toEqual([]);
     } finally {
       db.close();
     }
@@ -436,7 +430,7 @@ describe("SparkInvocationStore", () => {
     const { db, store } = createStore();
     try {
       const first = registerWorkspace(db, {
-        serverUrl: "https://first-cockpit.example",
+        serverUrl: "https://first-hub.example",
         serverBindingId: "rtwb_ambiguous_first",
         serverWorkspaceId: "ws_shared_legacy_id",
         localWorkspaceKey: "ambiguous-first",
@@ -444,7 +438,7 @@ describe("SparkInvocationStore", () => {
         localPath: firstPath,
       });
       const second = registerWorkspace(db, {
-        serverUrl: "https://second-cockpit.example",
+        serverUrl: "https://second-hub.example",
         serverBindingId: "rtwb_ambiguous_second",
         serverWorkspaceId: "ws_shared_legacy_id",
         localWorkspaceKey: "ambiguous-second",
@@ -466,9 +460,9 @@ describe("SparkInvocationStore", () => {
         status: "running",
       });
 
-      expect(store.pendingDeliveries("cockpit:first", 10, [first.id])).toEqual([]);
-      expect(store.pendingDeliveries("cockpit:second", 10, [second.id])).toEqual([]);
-      expect(store.pendingDeliveries("cockpit:both", 10, [first.id, second.id])).toEqual([]);
+      expect(store.pendingDeliveries("hub:first", 10, [first.id])).toEqual([]);
+      expect(store.pendingDeliveries("hub:second", 10, [second.id])).toEqual([]);
+      expect(store.pendingDeliveries("hub:both", 10, [first.id, second.id])).toEqual([]);
     } finally {
       db.close();
       rmSync(firstPath, { recursive: true, force: true });
@@ -480,7 +474,7 @@ describe("SparkInvocationStore", () => {
     const { db, store } = createStore();
     try {
       const workspace = registerWorkspace(db, {
-        serverUrl: "https://cockpit.example",
+        serverUrl: "https://hub.example",
         serverBindingId: "rtwb_crash_recovery",
         serverWorkspaceId: "ws_crash_recovery",
         localWorkspaceKey: "crash-recovery",
@@ -519,7 +513,7 @@ describe("SparkInvocationStore", () => {
         now: "2026-07-17T08:00:03.000Z",
       });
 
-      const deliveries = store.pendingDeliveries("cockpit:crash-recovery", 10, [workspace.id]);
+      const deliveries = store.pendingDeliveries("hub:crash-recovery", 10, [workspace.id]);
       expect(deliveries).toHaveLength(1);
       expect(deliveries[0]?.event).toMatchObject({
         invocationId: invocation.invocationId,
@@ -541,11 +535,11 @@ describe("SparkInvocationStore", () => {
       );
 
       store.acknowledgeDelivery(
-        "cockpit:crash-recovery",
+        "hub:crash-recovery",
         invocation.invocationId,
         latestPersisted.sequence,
       );
-      expect(store.pendingDeliveries("cockpit:crash-recovery", 10, [workspace.id])).toEqual([]);
+      expect(store.pendingDeliveries("hub:crash-recovery", 10, [workspace.id])).toEqual([]);
     } finally {
       db.close();
     }
@@ -555,7 +549,7 @@ describe("SparkInvocationStore", () => {
     const { db, store } = createStore();
     try {
       const workspace = registerWorkspace(db, {
-        serverUrl: "https://cockpit.example",
+        serverUrl: "https://hub.example",
         serverBindingId: "rtwb_bound_delivery",
         serverWorkspaceId: "ws_bound_delivery",
         localWorkspaceKey: "bound-delivery",
@@ -584,11 +578,11 @@ describe("SparkInvocationStore", () => {
 
       const deliveredSequences: number[] = [];
       for (;;) {
-        const pending = store.pendingDeliveries("cockpit:bound-delivery", 10, [workspace.id]);
+        const pending = store.pendingDeliveries("hub:bound-delivery", 10, [workspace.id]);
         if (pending.length === 0) break;
         const sequence = pending[0]!.event.sequence;
         deliveredSequences.push(sequence);
-        store.acknowledgeDelivery("cockpit:bound-delivery", invocation.invocationId, sequence);
+        store.acknowledgeDelivery("hub:bound-delivery", invocation.invocationId, sequence);
       }
       expect(deliveredSequences).toEqual([1, 2, 3]);
     } finally {
@@ -758,8 +752,8 @@ describe("SparkInvocationStore", () => {
         status: "succeeded",
         now: "2026-07-13T00:00:00.000Z",
       });
-      store.acknowledgeDelivery("cockpit:runtime-a", eligible.invocationId, 1);
-      store.acknowledgeDelivery("cockpit:runtime-b", eligible.invocationId, 1);
+      store.acknowledgeDelivery("hub:runtime-a", eligible.invocationId, 1);
+      store.acknowledgeDelivery("hub:runtime-b", eligible.invocationId, 1);
 
       const blocked = store.submit({ prompt: "blocked" });
       expect(store.claimNext("worker-blocked")?.invocationId).toBe(blocked.invocationId);
@@ -769,8 +763,8 @@ describe("SparkInvocationStore", () => {
         status: "succeeded",
         now: "2026-07-13T00:01:00.000Z",
       });
-      store.acknowledgeDelivery("cockpit:runtime-a", blocked.invocationId, 1);
-      expect(store.pendingDeliveries("cockpit:runtime-b").length).toBeGreaterThan(0);
+      store.acknowledgeDelivery("hub:runtime-a", blocked.invocationId, 1);
+      expect(store.pendingDeliveries("hub:runtime-b").length).toBeGreaterThan(0);
 
       const recent = store.submit({ prompt: "recent" });
       store.complete(recent.invocationId, {
@@ -1199,8 +1193,8 @@ describe("SparkInvocationStore", () => {
         status: "succeeded",
         now: "2026-07-01T00:00:04.000Z",
       });
-      store.pendingDeliveries("cockpit:retention", 1);
-      store.acknowledgeDelivery("cockpit:retention", invocation.invocationId, terminal.sequence);
+      store.pendingDeliveries("hub:retention", 1);
+      store.acknowledgeDelivery("hub:retention", invocation.invocationId, terminal.sequence);
 
       expect(store.pruneViewEventCache("2026-07-02T00:00:00.000Z", 1)).toBe(1);
       expect(store.pruneViewEventCache("2026-07-02T00:00:00.000Z", 1)).toBe(1);

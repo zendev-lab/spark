@@ -172,7 +172,7 @@ export async function requestSparkDaemonLocalRpcWire<T>(
           if (response.ok === false && remoteMessage) {
             // Daemon parse failures historically replied with id "unknown".
             // Prefer the remote message over a generic id-mismatch error so
-            // Cockpit can show the real channel configure / schema failure.
+            // Hub can show the real channel configure / schema failure.
             if (remoteMessage.startsWith("Unknown local RPC method:")) {
               throw new SparkDaemonLocalRpcUnavailableError(
                 `The running Spark daemon does not support ${request.method}; restart or upgrade it. ${remoteMessage}`,

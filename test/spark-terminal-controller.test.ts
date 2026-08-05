@@ -14,18 +14,18 @@ test("SparkTerminalController keeps renderer presentation state immutable", () =
   assert.equal(expanded.toolsExpanded, true);
 });
 
-test("SparkTerminalController owns cockpit and transcript navigation intents", () => {
+test("SparkTerminalController owns hub and transcript navigation intents", () => {
   const controller = new SparkTerminalController();
 
   assert.equal(
     controller.dispatch({
-      type: "cockpit.cycle",
+      type: "hub.cycle",
       panels: ["overview", "workflows", "runs"],
-    }).activeCockpitPanel,
+    }).activeHubPanel,
     "workflows",
   );
   assert.equal(
-    controller.dispatch({ type: "cockpit.toggle", panel: "workflows" }).activeCockpitPanel,
+    controller.dispatch({ type: "hub.toggle", panel: "workflows" }).activeHubPanel,
     undefined,
   );
   assert.equal(
@@ -37,5 +37,5 @@ test("SparkTerminalController owns cockpit and transcript navigation intents", (
     0,
   );
   const beforeEmptyCycle = controller.viewState;
-  assert.equal(controller.dispatch({ type: "cockpit.cycle", panels: [] }), beforeEmptyCycle);
+  assert.equal(controller.dispatch({ type: "hub.cycle", panels: [] }), beforeEmptyCycle);
 });

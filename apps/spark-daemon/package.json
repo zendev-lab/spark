@@ -52,8 +52,8 @@
   },
   "devDependencies": {
     "@types/ws": "catalog:",
-    "@zendev-lab/spark-cockpit-coordination": "workspace:*",
-    "@zendev-lab/spark-cockpit-db": "workspace:*",
+    "@zendev-lab/spark-hub-coordination": "workspace:*",
+    "@zendev-lab/spark-hub-db": "workspace:*",
     "esbuild": "^0.28.0",
     "typescript": "catalog:",
     "vitest": "catalog:"

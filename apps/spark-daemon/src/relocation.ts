@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
 import {
-  cockpitRuntimeRelocationMetadataSchema,
+  hubRuntimeRelocationMetadataSchema,
   runtimeRelocationPreflightResponseSchema,
   type RuntimeRelocationPreflightResponse,
 } from "@zendev-lab/spark-protocol";
@@ -78,7 +78,7 @@ export interface SparkDaemonRelocationOptions {
   onUplinkReconfigure?: (serverUrl?: string) => void;
 }
 
-export async function relocateSparkDaemonCockpit(
+export async function relocateSparkDaemonHub(
   paths: SparkPaths,
   db: DatabaseSync,
   request: SparkDaemonRelocationRequest,
@@ -90,7 +90,7 @@ export async function relocateSparkDaemonCockpit(
   const toServerUrl = validateRelocationTarget(request.toServerUrl);
   if (fromServerUrl === toServerUrl) {
     throw new SparkDaemonRelocationError(
-      "Relocation target is already the configured Cockpit origin.",
+      "Relocation target is already the configured Hub origin.",
       "RELOCATION_TARGET_UNCHANGED",
     );
   }
@@ -104,7 +104,7 @@ export async function relocateSparkDaemonCockpit(
   ]);
   if (sourceMetadata.instanceId !== targetMetadata.instanceId) {
     throw new SparkDaemonRelocationError(
-      "Source and target Cockpit instance identities do not match.",
+      "Source and target Hub instance identities do not match.",
       "RELOCATION_INSTANCE_MISMATCH",
     );
   }
@@ -121,7 +121,7 @@ export async function relocateSparkDaemonCockpit(
   );
   if (preflight.instanceId !== sourceMetadata.instanceId) {
     throw new SparkDaemonRelocationError(
-      "Target preflight returned a different Cockpit instance identity.",
+      "Target preflight returned a different Hub instance identity.",
       "RELOCATION_INSTANCE_MISMATCH",
     );
   }
@@ -164,7 +164,7 @@ async function fetchRelocationMetadata(serverUrl: string, fetchFn?: typeof fetch
   if (!response.ok) {
     throw await relocationHttpError(response, url, "RELOCATION_METADATA_REJECTED");
   }
-  return cockpitRuntimeRelocationMetadataSchema.parse(await response.json());
+  return hubRuntimeRelocationMetadataSchema.parse(await response.json());
 }
 
 async function fetchTargetPreflight(
@@ -232,7 +232,7 @@ async function applyLocalRelocation(
     .get(input.fromServerUrl) as { id: string } | undefined;
   if (!sourceServer) {
     throw new SparkDaemonRelocationError(
-      "Configured source Cockpit is not registered in daemon state.",
+      "Configured source Hub is not registered in daemon state.",
       "RELOCATION_SOURCE_NOT_FOUND",
     );
   }
@@ -380,7 +380,7 @@ async function applyLocalRelocation(
     }
   }
   // Force the old origin only. The supervisor's resulting full reconcile stops
-  // source and starts target without disturbing unrelated Cockpit uplinks.
+  // source and starts target without disturbing unrelated Hub uplinks.
   input.onUplinkReconfigure?.(input.fromServerUrl);
   return {
     relocated: true,
@@ -406,7 +406,7 @@ function assertNoLocalTargetCollision(
     .get(toServerUrl) as { id: string } | undefined;
   if (collision && fromServerUrl !== toServerUrl) {
     throw new SparkDaemonRelocationError(
-      "Relocation target is already registered as another Cockpit origin.",
+      "Relocation target is already registered as another Hub origin.",
       "RELOCATION_TARGET_COLLISION",
     );
   }
@@ -444,12 +444,12 @@ function resolveRelocationSourceServerUrl(
   }
   if (candidates.length === 0) {
     throw new SparkDaemonRelocationError(
-      "Spark daemon has no workspace-bound Cockpit profile to relocate.",
+      "Spark daemon has no workspace-bound Hub profile to relocate.",
       "RELOCATION_SOURCE_NOT_CONFIGURED",
     );
   }
   throw new SparkDaemonRelocationError(
-    "Multiple workspace-bound Cockpit profiles are available; pass --from-server-url.",
+    "Multiple workspace-bound Hub profiles are available; pass --from-server-url.",
     "RELOCATION_SOURCE_REQUIRED",
   );
 }
@@ -458,7 +458,7 @@ function requireSourceProfile(paths: SparkPaths, serverUrl: string): SparkDaemon
   const profile = getSparkDaemonServerProfile(paths, serverUrl);
   if (!profile) {
     throw new SparkDaemonRelocationError(
-      `Spark daemon has no credential profile for source Cockpit ${serverUrl}.`,
+      `Spark daemon has no credential profile for source Hub ${serverUrl}.`,
       "RELOCATION_SOURCE_NOT_CONFIGURED",
     );
   }
@@ -480,7 +480,7 @@ function validateRelocationTarget(serverUrl: string): string {
   }
   if (new URL(normalized).protocol !== "https:") {
     throw new SparkDaemonRelocationError(
-      "Cockpit relocation target must use HTTPS.",
+      "Hub relocation target must use HTTPS.",
       "RELOCATION_HTTPS_REQUIRED",
     );
   }
@@ -526,7 +526,7 @@ async function relocationHttpError(
   const message =
     stringValue(nested?.message) ??
     stringValue(record?.message) ??
-    `Cockpit relocation request failed with HTTP ${response.status}.`;
+    `Hub relocation request failed with HTTP ${response.status}.`;
   return new SparkDaemonRelocationError(`${message} (${url.origin})`, code);
 }
 
@@ -541,7 +541,7 @@ function assertRelocationSourceUnchanged(
     profileDigest(beforeProfile) !== profileDigest(afterProfile)
   ) {
     throw new SparkDaemonRelocationError(
-      "Daemon identity or source Cockpit profile changed while relocation preflight was running.",
+      "Daemon identity or source Hub profile changed while relocation preflight was running.",
       "RELOCATION_CONFIG_CHANGED",
     );
   }

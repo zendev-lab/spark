@@ -26,7 +26,7 @@ const requiredPages = [
   "guides/runs-and-sessions.md",
   "guides/collaboration.md",
   "guides/side-threads.md",
-  "guides/cockpit.md",
+  "guides/hub.md",
   "guides/operator-handbook.md",
   "guides/migration-0.2.md",
   "reference/configuration-and-paths.md",
@@ -332,7 +332,10 @@ const retiredCockpit = spawnSync(join(root, "apps/spark-cli/bin/spark"), ["cockp
   encoding: "utf8",
   env: { ...process.env, FORCE_COLOR: "0" },
 });
-if (retiredCockpit.status !== 2 || !retiredCockpit.stderr.includes("Unknown spark subcommand")) {
+if (
+  retiredCockpit.status !== 2 ||
+  !retiredCockpit.stderr.includes("Unknown spark subcommand: cockpit")
+) {
   failures.push("retired spark cockpit dispatcher namespace is still accepted");
 }
 

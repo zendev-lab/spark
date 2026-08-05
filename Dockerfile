@@ -57,4 +57,4 @@ STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["node", "/opt/spark/container-healthcheck.mjs"]
 
-CMD ["node", "/opt/spark/node_modules/@zendev-lab/spark/dist/spark-cockpit-server.js"]
+CMD ["node", "/opt/spark/node_modules/@zendev-lab/spark/dist/spark-hub-server.js"]

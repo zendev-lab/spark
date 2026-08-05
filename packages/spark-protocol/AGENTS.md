@@ -10,7 +10,7 @@ interaction semantics. It is a contract package, not a transport, store, client,
 or orchestration runtime.
 
 Keep it free of production dependencies on other Spark workspaces. A protocol
-shape must remain usable by daemon, clients, TUI, Cockpit, channels, and ACP
+shape must remain usable by daemon, clients, TUI, Hub, channels, and ACP
 without importing an application implementation.
 
 ## Contract design

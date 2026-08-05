@@ -1,0 +1,55 @@
+import {
+  enumLabel,
+  formatByteSize as sharedFormatByteSize,
+  formatRelativeTime as sharedFormatRelativeTime,
+  matchLocale,
+  parseAcceptLanguage,
+  resolveRequestLocale,
+  type SparkLocale,
+} from "@zendev-lab/spark-i18n";
+import { getHubDictionary, type HubMessages } from "@zendev-lab/spark-i18n/hub";
+
+export const locales = ["en", "zh-CN"] as const;
+export type Locale = SparkLocale;
+
+export const defaultLocale: Locale = "en";
+export const localeCookieName = "spark_hub_locale";
+export const legacyCockpitLocaleCookieName = "spark_cockpit_locale";
+
+export type AppMessages = HubMessages;
+
+export function getDictionary(locale: Locale): AppMessages {
+  return getHubDictionary(locale);
+}
+
+export function getRequestDictionary(input: {
+  requestedLocale?: string | null;
+  cookieLocale?: string | null;
+  acceptLanguage?: string | null;
+}): AppMessages {
+  return getDictionary(resolveRequestLocale(input));
+}
+
+export { enumLabel, matchLocale, parseAcceptLanguage, resolveRequestLocale };
+
+export function formatRelativeTime(
+  value: string | null,
+  locale: Locale,
+  _messages?: AppMessages["common"],
+) {
+  return sharedFormatRelativeTime(value, locale);
+}
+
+export function formatByteSize(
+  value: number | null,
+  locale: Locale,
+  _messages?: AppMessages["common"],
+) {
+  return sharedFormatByteSize(value, locale);
+}
+
+export function statusLabel(status: string, messages: AppMessages["common"]) {
+  return (
+    messages.status[status as keyof AppMessages["common"]["status"]] ?? status.replaceAll("_", " ")
+  );
+}

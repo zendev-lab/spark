@@ -74,22 +74,26 @@ export const runtimeTokenRefreshResponseSchema = z.object({
   refreshedAt: isoDateTimeSchema,
 });
 
-export const cockpitInstanceIdSchema = z.string().regex(/^cockpit_[a-f0-9]{32}$/u);
+export const legacyCockpitInstanceIdSchema = z.string().regex(/^cockpit_[a-f0-9]{32}$/u);
+export const hubInstanceIdSchema = z.union([
+  z.string().regex(/^hub_[a-f0-9]{32}$/u),
+  legacyCockpitInstanceIdSchema,
+]);
 
-export const cockpitRuntimeRelocationMetadataSchema = z.object({
-  instanceId: cockpitInstanceIdSchema,
+export const hubRuntimeRelocationMetadataSchema = z.object({
+  instanceId: hubInstanceIdSchema,
   protocolVersion: runtimeProtocolVersionSchema,
 });
 
 export const runtimeRelocationPreflightRequestSchema = z.object({
-  sourceInstanceId: cockpitInstanceIdSchema,
+  sourceInstanceId: hubInstanceIdSchema,
   runtimeId: prefixedIdSchema("rt"),
   installationId: z.string().min(1),
   refreshToken: z.string().min(32),
 });
 
 export const runtimeRelocationPreflightResponseSchema = runtimeTokenRefreshResponseSchema.extend({
-  instanceId: cockpitInstanceIdSchema,
+  instanceId: hubInstanceIdSchema,
   webSocketUrl: z.string().url(),
 });
 
@@ -120,9 +124,7 @@ export type RuntimeWorkspaceRegistrationResponse = z.infer<
 >;
 export type RuntimeTokenRefreshRequest = z.infer<typeof runtimeTokenRefreshRequestSchema>;
 export type RuntimeTokenRefreshResponse = z.infer<typeof runtimeTokenRefreshResponseSchema>;
-export type CockpitRuntimeRelocationMetadata = z.infer<
-  typeof cockpitRuntimeRelocationMetadataSchema
->;
+export type HubRuntimeRelocationMetadata = z.infer<typeof hubRuntimeRelocationMetadataSchema>;
 export type RuntimeRelocationPreflightRequest = z.infer<
   typeof runtimeRelocationPreflightRequestSchema
 >;

@@ -24,7 +24,7 @@ Spark follows the standard XDG config, data, cache, state, and runtime roots by 
 export SPARK_HOME=/path/to/spark-home
 ```
 
-With `SPARK_HOME`, the main config is `$SPARK_HOME/config.json`, credentials are `$SPARK_HOME/auth.json`, sessions are under `$SPARK_HOME/sessions/`, keybindings under `$SPARK_HOME/agent/`, prompt templates under `$SPARK_HOME/prompts/`, and themes under `$SPARK_HOME/themes/`. Spark-owned role model settings, learnings, memory, recall, exports, and share files use sibling paths under the same root. App-specific daemon/Cockpit data uses `$SPARK_HOME/apps/<app>/{data,cache,state,run}`.
+With `SPARK_HOME`, the main config is `$SPARK_HOME/config.json`, credentials are `$SPARK_HOME/auth.json`, sessions are under `$SPARK_HOME/sessions/`, keybindings under `$SPARK_HOME/agent/`, prompt templates under `$SPARK_HOME/prompts/`, and themes under `$SPARK_HOME/themes/`. Spark-owned role model settings, learnings, memory, recall, exports, and share files use sibling paths under the same root. App-specific daemon/Hub data uses `$SPARK_HOME/apps/<app>/{data,cache,state,run}`.
 
 Without `SPARK_HOME`, these paths use `$XDG_CONFIG_HOME/spark`, `$XDG_DATA_HOME/spark`, `$XDG_CACHE_HOME/spark`, `$XDG_STATE_HOME/spark`, and `$XDG_RUNTIME_DIR/spark` according to ownership.
 

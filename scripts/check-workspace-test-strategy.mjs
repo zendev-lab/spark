@@ -122,10 +122,10 @@ export function validateWorkspaceTestStrategy({ ledger, architecture, root = def
     !i18n.supplementalGates?.some(
       (gate) =>
         gate.command.includes("run test") &&
-        gate.paths?.includes("packages/spark-i18n/src/cockpit/index.test.ts"),
+        gate.paths?.includes("packages/spark-i18n/src/hub/index.test.ts"),
     )
   )
-    fail(errors, "spark-i18n must own the Cockpit catalog test after package consolidation");
+    fail(errors, "spark-i18n must own the Hub catalog test after package consolidation");
   if (entries["@zendev-lab/spark-cockpit-i18n"])
     fail(errors, "retired spark-cockpit-i18n must not remain in the workspace strategy ledger");
   if (entries["@zendev-lab/spark-ui"]?.strategy !== "local-test")

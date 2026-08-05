@@ -1,6 +1,0 @@
-#!/usr/bin/env sh
-set -eu
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-printf '%s\n' 'Deprecated: spark-cockpit has been renamed to spark-hub.' >&2
-printf '%s\n' 'Deprecated: coordination commands moved to "spark hub"; the dispatcher now forwards to spark-hub.' >&2
-SPARK_LEGACY_COCKPIT=1 exec "$SCRIPT_DIR/spark-hub" "$@"

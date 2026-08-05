@@ -88,7 +88,7 @@ async function waitForHealth(url, child, output) {
     try {
       const response = await fetch(url);
       const body = await response.json();
-      if (response.ok && body?.service === "spark-cockpit" && body?.status === "ok") {
+      if (response.ok && body?.service === "spark-hub" && body?.status === "ok") {
         return performance.now() - startedAt;
       }
       lastError = new Error(`unexpected Hub health response ${response.status}`);

@@ -12,7 +12,7 @@ import {
 import type { ChannelIngressHooks, DaemonChannelIngressRuntime } from "./ingress.ts";
 import type { DaemonChannelDeliveryOutbox } from "./delivery-outbox.ts";
 
-/** Best-effort channel projection of a daemon-owned request. Cockpit remains authoritative. */
+/** Best-effort channel projection of a daemon-owned request. Hub remains authoritative. */
 export async function projectChannelAsk(
   channelIngress: DaemonChannelIngressRuntime,
   input: SparkDaemonHumanInteractionOpened,
@@ -51,7 +51,7 @@ async function projectQqbotNativeAsk(
     `## ${input.request.title}`,
     question.prompt,
     ...(descriptions.length > 0 ? [descriptions.join("\n")] : []),
-    ...(omitted > 0 ? [`另有 ${omitted} 个选项，请在 Spark Cockpit 中查看。`] : []),
+    ...(omitted > 0 ? [`另有 ${omitted} 个选项，请在 Spark Hub 中查看。`] : []),
   ].join("\n\n");
   const request: ChannelAskRequest = {
     prompt,
@@ -62,7 +62,7 @@ async function projectQqbotNativeAsk(
     })),
     audience: { kind: "users" as const, userIds: [channel.actorId] },
     ...(channel.messageId ? { messageId: channel.messageId } : {}),
-    unsupportedText: "请在 Spark Cockpit 中回答。",
+    unsupportedText: "请在 Spark Hub 中回答。",
   };
   await deliverChannelAsk(
     channelIngress,
@@ -148,7 +148,7 @@ export async function settleChannelAskInteraction(
   waits: SparkDaemonHumanWaitRegistry,
   input: Parameters<NonNullable<ChannelIngressHooks["onInteraction"]>>[0],
   options: {
-    /** Legacy single-Cockpit override retained for focused callers/tests. */
+    /** Legacy single-Hub override retained for focused callers/tests. */
     runtimeId?: string;
     /** Resolve the runtime that owns the callback's workspace route. */
     getRuntimeId?: (wait: SparkDaemonHumanWaitRecord) => string | undefined;

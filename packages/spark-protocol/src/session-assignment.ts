@@ -351,7 +351,7 @@ export const sparkSessionSetThinkingRequestSchema = sparkSessionGetRequestSchema
 });
 
 export const sparkAssignmentSourceSchema = z.object({
-  kind: z.enum(["cockpit", "channel", "cli", "internal"]),
+  kind: z.enum(["hub", "cockpit", "channel", "cli", "internal"]),
   channel: sparkChannelAdapterSchema.optional(),
   externalRef: z.string().min(1).optional(),
 });

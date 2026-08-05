@@ -434,8 +434,8 @@ export class SparkDaemonHumanWaitRegistry {
 
   /**
    * Return only outbox entries owned by one runtime uplink. Route filtering is
-   * part of the SQL query so a busy Cockpit cannot consume the shared LIMIT and
-   * starve another Cockpit's pending entries.
+   * part of the SQL query so a busy Hub cannot consume the shared LIMIT and
+   * starve another Hub's pending entries.
    */
   listPendingOutboxForRoute(
     route: SparkDaemonHumanWaitOutboxRoute,

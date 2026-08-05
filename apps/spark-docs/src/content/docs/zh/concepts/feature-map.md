@@ -25,11 +25,11 @@ description: 按产品表面、状态所有者和用户意图理解 Spark 全部
 
 | 源码家族 | 职责 |
 | --- | --- |
-| `apps/spark-cli`、`spark-tui`、`spark-daemon`、`apps/spark-cockpit`（Hub 兼容路径） | 可执行分发器与交互/运行时 host |
+| `apps/spark-cli`、`spark-tui`、`spark-daemon`、`apps/spark-hub`（Hub 兼容路径） | 可执行分发器与交互/运行时 host |
 | `packages/spark-extension`、`spark-daemon-client` | 产品组合根与共享 daemon client 边界 |
 | 能力与运行时 `packages/spark-*` | 文件、Web、任务、产物、记忆、工作流、模式、Role、Session 等可复用行为 |
 | `spark-protocol`、`spark-core`、`spark-runtime`、`spark-system`、`spark-tui` | 跨表面契约与低依赖基础层 |
-| `packages/spark-cockpit-*` | 兼容物理路径下的 Hub 私有数据库、协调与本地化实现 |
+| `packages/spark-hub-*` | 兼容物理路径下的 Hub 私有数据库、协调与本地化实现 |
 
 贡献者可查看 `docs/specs/package-architecture.md` 的依赖规则，以及
 `architecture/packages.json` 的完整 owner/stability 清单。普通用户不必记住各个
@@ -48,7 +48,7 @@ attach、resume 和取消操作见[运行与会话](/zh/guides/runs-and-sessions
 
 - [TUI](/zh/guides/tui/) 适合本地快速对话、Plan/Implement、引导当前运行、
   选择模型和查看当前会话。
-- [Hub Web](/zh/guides/cockpit/) 适合工作空间概览、对话、收件箱、产品产物、
+- [Hub Web](/zh/guides/hub/) 适合工作空间概览、对话、收件箱、产品产物、
   资源和跨 daemon 监督。
 - 已经知道具体操作并需要脚本结果时，使用 CLI。
 

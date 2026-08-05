@@ -1,0 +1,64 @@
+{
+  "name": "@zendev-lab/spark-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Spark Hub control plane with an embedded SvelteKit management UI.",
+  "bin": {
+    "spark-hub": "./bin/spark-hub"
+  },
+  "type": "module",
+  "exports": {
+    "./executable": "./bin/spark-hub"
+  },
+  "scripts": {
+    "dev": "vp dev --host 127.0.0.1",
+    "build": "vp build",
+    "preview": "vp preview --host 127.0.0.1",
+    "coordination": "tsx src/cli-entry.ts",
+    "start": "node build",
+    "start:custom": "tsx server/index.ts",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "setup:browser": "playwright install --with-deps chromium",
+    "test": "vp test run",
+    "test:e2e:hub": "tsx e2e/legacy-route-navigation.ts",
+    "test:browser": "vp test run --config vitest.browser.config.ts && tsx e2e/legacy-route-navigation.ts"
+  },
+  "dependencies": {
+    "@sveltejs/adapter-node": "^5.3.1",
+    "@sveltejs/kit": "^2.28.0",
+    "@zendev-lab/spark-artifacts": "workspace:*",
+    "@zendev-lab/spark-channels": "workspace:*",
+    "@zendev-lab/spark-core": "workspace:*",
+    "@zendev-lab/spark-daemon-client": "workspace:*",
+    "@zendev-lab/spark-host": "workspace:*",
+    "@zendev-lab/spark-hub-coordination": "workspace:*",
+    "@zendev-lab/spark-hub-db": "workspace:*",
+    "@zendev-lab/spark-i18n": "workspace:*",
+    "@zendev-lab/spark-protocol": "workspace:*",
+    "@zendev-lab/spark-system": "workspace:*",
+    "@zendev-lab/spark-tasks": "workspace:*",
+    "@zendev-lab/spark-ui": "workspace:*",
+    "@zendev-lab/spark-update": "workspace:*",
+    "smol-toml": "^1.6.1",
+    "svelte": "^5.38.8",
+    "uqr": "0.1.3",
+    "vite": "catalog:",
+    "web-push": "^3.6.7",
+    "ws": "catalog:"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "@types/web-push": "^3.6.4",
+    "@types/ws": "catalog:",
+    "@vitest/browser-playwright": "4.1.10",
+    "playwright": "1.62.1",
+    "svelte-check": "^4.3.1",
+    "tsx": "^4.20.5",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "vitest-browser-svelte": "3.0.0"
+  },
+  "engines": {
+    "node": ">=26.0.0 <27"
+  }
+}

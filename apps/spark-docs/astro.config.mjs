@@ -17,7 +17,7 @@ export default defineConfig({
         "zh-CN": "Spark 文档",
       },
       description:
-        "Install, operate, and understand Spark across its CLI, TUI, daemon, and Cockpit surfaces.",
+        "Install, operate, and understand Spark across its CLI, TUI, daemon, and Hub surfaces.",
       tagline: "User documentation for the Spark coding-agent suite.",
       favicon: "/spark.svg",
       editLink: {
@@ -105,9 +105,9 @@ export default defineConfig({
               link: "/guides/runs-and-sessions/",
             },
             {
-              label: "Cockpit",
-              translations: { zh: "Cockpit" },
-              link: "/guides/cockpit/",
+              label: "Hub",
+              translations: { zh: "Hub" },
+              link: "/guides/hub/",
             },
             {
               label: "Collaboration and channels",

@@ -16,6 +16,7 @@ import {
 import { basename, dirname, join, relative } from "node:path";
 
 import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
+import { resolveRenamedEnvironmentVariable } from "@zendev-lab/spark-system";
 
 import { isSparkBuildInfo, readSparkBuildInfo } from "./build-info.ts";
 import { readSparkUpdateConfig, writeSparkUpdateConfig } from "./config.ts";
@@ -69,7 +70,7 @@ export interface SparkAvailableRelease {
   notModified?: boolean;
 }
 
-interface CockpitServiceSnapshot {
+interface HubServiceSnapshot {
   running: boolean;
   url?: string;
 }
@@ -340,7 +341,7 @@ export class SparkUpdateManager {
       return await this.status();
     }
 
-    const cockpit = await this.readCockpitService(installation.commandPath);
+    const hub = await this.readHubService(installation.commandPath);
     const previousFingerprint = this.#buildInfo.fingerprint;
     let packageChanged = false;
     await writeSparkUpdateState(this.paths, {
@@ -380,9 +381,9 @@ export class SparkUpdateManager {
       });
       if (options.wait !== false) {
         await this.syncDaemon(build, installation.commandPath);
-        const cockpitUrl = await this.restartCockpitService(installation.commandPath, cockpit);
+        const hubUrl = await this.restartHubService(installation.commandPath, hub);
         await this.healthCheck(build, installation.commandPath);
-        await this.healthCheckCockpit(cockpitUrl);
+        await this.healthCheckHub(hubUrl);
       }
       await writeSparkUpdateState(this.paths, {
         ...(await readSparkUpdateState(this.paths)),
@@ -401,7 +402,7 @@ export class SparkUpdateManager {
     } catch (error) {
       if (packageChanged) {
         try {
-          await this.restorePackageManagerVersion(installation, currentVersion, cockpit);
+          await this.restorePackageManagerVersion(installation, currentVersion, hub);
         } catch (rollbackError) {
           error = new AggregateError(
             [error, rollbackError],
@@ -471,7 +472,7 @@ export class SparkUpdateManager {
     if (options.automatic && !(await this.daemonIsProvablyIdle())) {
       return await this.status();
     }
-    const cockpit = await this.readCockpitService(this.paths.launcherPath);
+    const hub = await this.readHubService(this.paths.launcherPath);
     const previousVersion = state.currentVersion;
     const previousFingerprint = state.currentFingerprint;
     await this.activateVersion(version);
@@ -484,14 +485,14 @@ export class SparkUpdateManager {
     };
     await writeSparkUpdateState(this.paths, state);
     try {
-      await this.verifyCandidateWhenRequested(candidate, options.wait, cockpit);
+      await this.verifyCandidateWhenRequested(candidate, options.wait, hub);
     } catch (error) {
       await this.restoreAfterFailedActivation(
         error,
         version,
         previousVersion,
         previousFingerprint,
-        cockpit,
+        hub,
       );
       throw error;
     }
@@ -513,13 +514,13 @@ export class SparkUpdateManager {
   private async verifyCandidateWhenRequested(
     candidate: SparkBuildInfo,
     wait: boolean | undefined,
-    cockpit: CockpitServiceSnapshot,
+    hub: HubServiceSnapshot,
   ): Promise<void> {
     if (wait === false) return;
     await this.syncDaemon(candidate);
-    const cockpitUrl = await this.restartCockpitService(this.paths.launcherPath, cockpit);
+    const hubUrl = await this.restartHubService(this.paths.launcherPath, hub);
     await this.healthCheck(candidate);
-    await this.healthCheckCockpit(cockpitUrl);
+    await this.healthCheckHub(hubUrl);
   }
 
   private async restoreAfterFailedActivation(
@@ -527,7 +528,7 @@ export class SparkUpdateManager {
     failedVersion: string,
     previousVersion: string | undefined,
     previousFingerprint: string | undefined,
-    cockpit: CockpitServiceSnapshot,
+    hub: HubServiceSnapshot,
   ): Promise<void> {
     if (!previousVersion) {
       await this.stopFailedInitialInstall();
@@ -544,9 +545,9 @@ export class SparkUpdateManager {
     });
     try {
       await this.syncDaemon(previousBuild);
-      const cockpitUrl = await this.restartCockpitService(this.paths.launcherPath, cockpit);
+      const hubUrl = await this.restartHubService(this.paths.launcherPath, hub);
       await this.healthCheck(previousBuild);
-      await this.healthCheckCockpit(cockpitUrl);
+      await this.healthCheckHub(hubUrl);
     } catch (rollbackError) {
       throw new AggregateError(
         [error, rollbackError],
@@ -585,8 +586,8 @@ export class SparkUpdateManager {
         }
         const previousVersion = installation.version;
         const previousFingerprint = status.state.currentFingerprint;
-        const cockpit = await this.readCockpitService(installation.commandPath);
-        const build = await this.restorePackageManagerVersion(installation, target, cockpit, {
+        const hub = await this.readHubService(installation.commandPath);
+        const build = await this.restorePackageManagerVersion(installation, target, hub, {
           verify: options.wait !== false,
         });
         await writeSparkUpdateState(this.paths, {
@@ -605,7 +606,7 @@ export class SparkUpdateManager {
       }
       const previousVersion = state.currentVersion;
       const previousFingerprint = state.currentFingerprint;
-      const cockpit = await this.readCockpitService(this.paths.launcherPath);
+      const hub = await this.readHubService(this.paths.launcherPath);
       const build = await readInstalledBuildInfo(this.paths, target);
       await this.activateVersion(target);
       await writeSparkUpdateState(this.paths, {
@@ -618,9 +619,9 @@ export class SparkUpdateManager {
       try {
         if (options.wait !== false) {
           await this.syncDaemon(build);
-          const cockpitUrl = await this.restartCockpitService(this.paths.launcherPath, cockpit);
+          const hubUrl = await this.restartHubService(this.paths.launcherPath, hub);
           await this.healthCheck(build);
-          await this.healthCheckCockpit(cockpitUrl);
+          await this.healthCheckHub(hubUrl);
         }
       } catch (error) {
         if (!previousVersion) throw error;
@@ -629,9 +630,9 @@ export class SparkUpdateManager {
         await writeSparkUpdateState(this.paths, state);
         try {
           await this.syncDaemon(previousBuild);
-          const cockpitUrl = await this.restartCockpitService(this.paths.launcherPath, cockpit);
+          const hubUrl = await this.restartHubService(this.paths.launcherPath, hub);
           await this.healthCheck(previousBuild);
-          await this.healthCheckCockpit(cockpitUrl);
+          await this.healthCheckHub(hubUrl);
         } catch (restoreError) {
           const aggregate = new AggregateError(
             [error, restoreError],
@@ -980,16 +981,25 @@ child.on("exit", (code, signal) => {
     return running === 0 && queued === 0;
   }
 
-  private async healthCheckCockpit(cockpitUrl?: string): Promise<void> {
-    const healthUrl = cockpitUrl ?? this.#env.SPARK_COCKPIT_HEALTH_URL?.trim();
+  private async healthCheckHub(hubUrl?: string): Promise<void> {
+    const healthUrl =
+      hubUrl ??
+      resolveRenamedEnvironmentVariable(this.#env, {
+        canonical: "SPARK_HUB_HEALTH_URL",
+        legacy: "SPARK_COCKPIT_HEALTH_URL",
+      });
     if (!healthUrl) return;
     const response = await this.#fetch(healthUrl, {
       headers: { accept: "application/json" },
       signal: AbortSignal.timeout(10_000),
     });
     const body = (await response.json()) as { service?: unknown; status?: unknown };
-    if (!response.ok || body.service !== "spark-cockpit" || body.status !== "ok") {
-      throw new Error(`Spark Cockpit health check failed at ${healthUrl}`);
+    if (
+      !response.ok ||
+      (body.service !== "spark-hub" && body.service !== "spark-cockpit") ||
+      body.status !== "ok"
+    ) {
+      throw new Error(`Spark Hub health check failed at ${healthUrl}`);
     }
   }
 
@@ -1006,12 +1016,9 @@ child.on("exit", (code, signal) => {
     return parsed;
   }
 
-  private async readCockpitService(launcher: string): Promise<CockpitServiceSnapshot> {
+  private async readHubService(launcher: string): Promise<HubServiceSnapshot> {
     try {
-      const result = await this.#run(launcher, ["cockpit", "web", "status", "--json"], {
-        env: this.#env,
-        timeoutMs: 15_000,
-      });
+      const result = await this.runHubWebCommand(launcher, "status", 15_000);
       if (result.code !== 0) return { running: false };
       const parsed = parseJsonOutput(result.stdout);
       if (!parsed || typeof parsed !== "object") return { running: false };
@@ -1025,24 +1032,18 @@ child.on("exit", (code, signal) => {
     }
   }
 
-  private async restartCockpitService(
+  private async restartHubService(
     launcher: string,
-    previous: CockpitServiceSnapshot,
+    previous: HubServiceSnapshot,
   ): Promise<string | undefined> {
     if (!previous.running) return undefined;
-    const stopped = await this.#run(launcher, ["cockpit", "web", "stop", "--json"], {
-      env: this.#env,
-      timeoutMs: 30_000,
-    });
+    const stopped = await this.runHubWebCommand(launcher, "stop", 30_000);
     if (stopped.code !== 0) {
-      throw new Error(`Spark Cockpit stop failed: ${stopped.stderr.trim()}`);
+      throw new Error(`Spark Hub stop failed: ${stopped.stderr.trim()}`);
     }
-    const started = await this.#run(launcher, ["cockpit", "web", "start", "--json"], {
-      env: this.#env,
-      timeoutMs: 30_000,
-    });
+    const started = await this.runHubWebCommand(launcher, "start", 30_000);
     if (started.code !== 0) {
-      throw new Error(`Spark Cockpit start failed: ${started.stderr.trim()}`);
+      throw new Error(`Spark Hub start failed: ${started.stderr.trim()}`);
     }
     const parsed = parseJsonOutput(started.stdout);
     if (
@@ -1050,16 +1051,36 @@ child.on("exit", (code, signal) => {
       typeof parsed !== "object" ||
       (parsed as Record<string, unknown>).running !== true
     ) {
-      throw new Error("Spark Cockpit did not report a running replacement");
+      throw new Error("Spark Hub did not report a running replacement");
     }
     const url = (parsed as Record<string, unknown>).url;
     return typeof url === "string" ? url : previous.url;
   }
 
+  private async runHubWebCommand(
+    launcher: string,
+    action: "start" | "status" | "stop",
+    timeoutMs: number,
+  ): Promise<Awaited<ReturnType<typeof runCommand>>> {
+    const canonical = await this.#run(launcher, ["hub", "web", action, "--json"], {
+      env: this.#env,
+      timeoutMs,
+    });
+    if (canonical.code === 0) return canonical;
+
+    // Published Cockpit builds predate the Hub namespace. This fallback is
+    // updater-only and never exposes Cockpit through the current dispatcher.
+    const legacy = await this.#run(launcher, ["cockpit", "web", action, "--json"], {
+      env: this.#env,
+      timeoutMs,
+    });
+    return legacy.code === 0 ? legacy : canonical;
+  }
+
   private async restorePackageManagerVersion(
     installation: SparkInstallation,
     version: string,
-    cockpit: CockpitServiceSnapshot,
+    hub: HubServiceSnapshot,
     options: { verify?: boolean } = {},
   ): Promise<SparkBuildInfo> {
     if (!installation.commandPath || !isPackageManagerMethod(installation.method)) {
@@ -1086,9 +1107,9 @@ child.on("exit", (code, signal) => {
     this.#buildInfo = build;
     if (options.verify !== false) {
       await this.syncDaemon(build, installation.commandPath);
-      const cockpitUrl = await this.restartCockpitService(installation.commandPath, cockpit);
+      const hubUrl = await this.restartHubService(installation.commandPath, hub);
       await this.healthCheck(build, installation.commandPath);
-      await this.healthCheckCockpit(cockpitUrl);
+      await this.healthCheckHub(hubUrl);
     }
     return build;
   }

@@ -8,7 +8,7 @@ import { openSparkDaemonDatabase } from "./schema.js";
 import {
   addWorkspace,
   applyWorkspaceLifecycleMutation,
-  applyCockpitWorkspaceBindingAssignments,
+  applyHubWorkspaceBindingAssignments,
   attachWorkspace,
   attachWorkspaceClient,
   consolidateSamePathWorkspaces,
@@ -331,9 +331,9 @@ describe("Spark daemon workspace store", () => {
     });
   });
 
-  it("applies bound and unbound Cockpit owner assignments without removing the local workspace", () => {
+  it("applies bound and unbound Hub owner assignments without removing the local workspace", () => {
     withSparkDaemonWorkspaceStore(({ db, root }) => {
-      const serverUrl = "https://cockpit.example/";
+      const serverUrl = "https://hub.example/";
       const bindingId = "rtwb_11111111111141111111111111111111";
       const workspace = registerWorkspace(db, {
         serverUrl,
@@ -342,28 +342,28 @@ describe("Spark daemon workspace store", () => {
         serverWorkspaceId: "ws_11111111111141111111111111111111",
       });
 
-      applyCockpitWorkspaceBindingAssignments(db, serverUrl, [{ bindingId, state: "unbound" }]);
+      applyHubWorkspaceBindingAssignments(db, serverUrl, [{ bindingId, state: "unbound" }]);
       expect(getWorkspaceById(db, workspace.id)).toMatchObject({
         id: workspace.id,
         serverBindingId: bindingId,
-        cockpitBindingState: "unbound",
+        hubBindingState: "unbound",
       });
       expect(getWorkspaceById(db, workspace.id)).not.toHaveProperty("serverWorkspaceId");
 
       const reboundWorkspaceId = "ws_22222222222242222222222222222222";
-      applyCockpitWorkspaceBindingAssignments(db, serverUrl, [
+      applyHubWorkspaceBindingAssignments(db, serverUrl, [
         { bindingId, state: "bound", workspaceId: reboundWorkspaceId },
       ]);
       expect(getWorkspaceById(db, workspace.id)).toMatchObject({
         serverWorkspaceId: reboundWorkspaceId,
-        cockpitBindingState: "bound",
+        hubBindingState: "bound",
       });
     });
   });
 
   it("reuses the daemon-owned workspace when reconnecting the same path and key", () => {
     withSparkDaemonWorkspaceStore(({ db, root }) => {
-      const serverUrl = "https://cockpit.example/";
+      const serverUrl = "https://hub.example/";
       const bindingId = "rtwb_11111111111141111111111111111111";
       const first = registerWorkspace(db, {
         serverUrl,
@@ -384,12 +384,12 @@ describe("Spark daemon workspace store", () => {
       expect(listWorkspaces(db)).toHaveLength(1);
       expect(rebound).toMatchObject({
         serverWorkspaceId: "ws_22222222222242222222222222222222",
-        cockpitBindingState: "bound",
+        hubBindingState: "bound",
       });
     });
   });
 
-  it("moves one daemon-owned workspace between Cockpit servers without duplicating its path", () => {
+  it("moves one daemon-owned workspace between Hub servers without duplicating its path", () => {
     withSparkDaemonWorkspaceStore(({ db, root }) => {
       const firstBindingId = "rtwb_11111111111141111111111111111111";
       const first = registerWorkspace(db, {
@@ -428,7 +428,7 @@ describe("Spark daemon workspace store", () => {
     });
   });
 
-  it("changes a Cockpit workspace path only with explicit rebind authority", () => {
+  it("changes a Hub workspace path only with explicit rebind authority", () => {
     withSparkDaemonWorkspaceStore(({ db, root }) => {
       const originalPath = join(root, "wrong");
       const correctedPath = join(root, "correct");
@@ -699,7 +699,7 @@ describe("Spark daemon workspace store", () => {
     });
   });
 
-  it("treats cockpit interactive sessions as occupancy without mutation-blocking borrow", () => {
+  it("treats hub interactive sessions as occupancy without mutation-blocking borrow", () => {
     withSparkDaemonWorkspaceStore(({ db, root }) => {
       const workspace = registerWorkspace(db, {
         localPath: root,
@@ -708,10 +708,10 @@ describe("Spark daemon workspace store", () => {
 
       attachWorkspaceClient(db, {
         workspaceId: workspace.id,
-        clientId: "wcl-cockpit-1",
+        clientId: "wcl-hub-1",
         kind: "interactive",
-        displayName: "Cockpit workbench",
-        metadata: { surface: "cockpit", sessionId: "wcl-cockpit-1" },
+        displayName: "Hub workbench",
+        metadata: { surface: "hub", sessionId: "wcl-hub-1" },
         now: "2026-05-26T00:00:00.000Z",
       });
 
@@ -721,9 +721,9 @@ describe("Spark daemon workspace store", () => {
         occupied: true,
         sessions: [
           expect.objectContaining({
-            clientId: "wcl-cockpit-1",
-            surface: "cockpit",
-            sessionId: "wcl-cockpit-1",
+            clientId: "wcl-hub-1",
+            surface: "hub",
+            sessionId: "wcl-hub-1",
           }),
         ],
       });
@@ -1082,7 +1082,7 @@ describe("Spark daemon workspace store", () => {
     });
   });
 
-  it("rejects binding one daemon-owned path to two Cockpit servers", () => {
+  it("rejects binding one daemon-owned path to two Hub servers", () => {
     withSparkDaemonWorkspaceStore(({ db, root }) => {
       addWorkspace(db, {
         serverUrl: "http://127.0.0.1:5173/",
@@ -1101,7 +1101,7 @@ describe("Spark daemon workspace store", () => {
     });
   });
 
-  it("consolidates legacy same-path workspace duplicates onto the Cockpit-bound identity", () => {
+  it("consolidates legacy same-path workspace duplicates onto the Hub-bound identity", () => {
     withSparkDaemonWorkspaceStore(({ db, root }) => {
       const local = registerWorkspace(db, {
         localPath: root,
@@ -1118,7 +1118,7 @@ describe("Spark daemon workspace store", () => {
          VALUES (?, ?, ?, ?, ?, 'available', '{}', '{}', ?, ?)`,
       ).run(
         remoteId,
-        "http://legacy-cockpit.example.com:8080/",
+        "http://legacy-hub.example.com:8080/",
         "zendev-lab",
         "zendev-lab",
         local.localPath,
@@ -1128,7 +1128,7 @@ describe("Spark daemon workspace store", () => {
       db.prepare(
         `INSERT INTO daemon_servers (id, server_url, first_registered_at)
          VALUES (?, ?, ?)`,
-      ).run("rnsrv_remote", "http://legacy-cockpit.example.com:8080/", now);
+      ).run("rnsrv_remote", "http://legacy-hub.example.com:8080/", now);
       db.prepare(
         `INSERT INTO daemon_workspaces
           (id, server_id, server_workspace_id, server_binding_id, name, slug, local_path,
@@ -1153,7 +1153,7 @@ describe("Spark daemon workspace store", () => {
       expect(reconciled).toHaveLength(1);
       expect(reconciled[0]).toMatchObject({
         id: remoteId,
-        serverUrl: "http://legacy-cockpit.example.com:8080/",
+        serverUrl: "http://legacy-hub.example.com:8080/",
         serverWorkspaceId: "ws_aa269169763c4b2c911d19770252b2c5",
       });
       expect(listWorkspaces(db)).toHaveLength(1);
@@ -1169,7 +1169,7 @@ describe("Spark daemon workspace store", () => {
         displayName: "spark",
       });
       const bound = registerWorkspace(db, {
-        serverUrl: "https://cockpit.example/",
+        serverUrl: "https://hub.example/",
         localPath: root,
         displayName: "spark",
         serverBindingId: "rtwb_11111111111141111111111111111111",
@@ -1178,7 +1178,7 @@ describe("Spark daemon workspace store", () => {
 
       expect(bound).toMatchObject({
         id: local.id,
-        serverUrl: "https://cockpit.example/",
+        serverUrl: "https://hub.example/",
         serverBindingId: "rtwb_11111111111141111111111111111111",
         serverWorkspaceId: "ws_11111111111141111111111111111111",
       });

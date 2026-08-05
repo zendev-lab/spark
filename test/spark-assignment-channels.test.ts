@@ -26,7 +26,7 @@ test("assignment requires sessionId and preserves channel source", () => {
   assert.equal(assignment.target.sessionId, "sess_demo");
   assert.equal(assignment.source.kind, "channel");
   assert.equal(assignment.source.channel, "feishu");
-  assert.throws(() => parseSparkAssignment({ goal: "x", target: {}, source: { kind: "cockpit" } }));
+  assert.throws(() => parseSparkAssignment({ goal: "x", target: {}, source: { kind: "hub" } }));
 });
 
 test("session registry bind + channel inbound share one sessionId", async () => {

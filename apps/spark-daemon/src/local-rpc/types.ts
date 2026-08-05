@@ -41,9 +41,9 @@ type EnsureSparkDaemonRegistrationForWorkspace =
   typeof import("../registration.js").ensureSparkDaemonRegistrationForWorkspace;
 type VerifySparkDaemonWorkspaceConnection =
   typeof import("../registration.js").verifySparkDaemonWorkspaceConnection;
-type UnbindSparkDaemonWorkspaceFromCockpit =
-  typeof import("../registration.js").unbindSparkDaemonWorkspaceFromCockpit;
-type RelocateSparkDaemonCockpit = typeof import("../relocation.ts").relocateSparkDaemonCockpit;
+type UnbindSparkDaemonWorkspaceFromHub =
+  typeof import("../registration.js").unbindSparkDaemonWorkspaceFromHub;
+type RelocateSparkDaemonHub = typeof import("../relocation.ts").relocateSparkDaemonHub;
 
 export interface LocalRpcServer {
   socketPath: string;
@@ -165,7 +165,7 @@ export type LocalRpcMailStore = Pick<SparkSessionMailStore, "list"> &
 export interface LocalRpcHandlerOptions {
   ensureSparkDaemonRegistrationForWorkspace?: EnsureSparkDaemonRegistrationForWorkspace;
   verifySparkDaemonWorkspaceConnection?: VerifySparkDaemonWorkspaceConnection;
-  unbindSparkDaemonWorkspaceFromCockpit?: UnbindSparkDaemonWorkspaceFromCockpit;
+  unbindSparkDaemonWorkspaceFromHub?: UnbindSparkDaemonWorkspaceFromHub;
   channelIngress?: Pick<DaemonChannelIngressRuntime, "status" | "configure" | "reload" | "notify">;
   sessionRegistry?: DaemonSessionRegistry;
   modelControl?: SparkDaemonModelControl;
@@ -180,7 +180,7 @@ export interface LocalRpcHandlerOptions {
   notificationDeliveryQueue?: SessionNotificationDeliveryQueue;
   onStopRequested?: () => void;
   onRestart?: () => LocalDaemonRestartResult | Promise<LocalDaemonRestartResult>;
-  relocateSparkDaemonCockpit?: RelocateSparkDaemonCockpit;
+  relocateSparkDaemonHub?: RelocateSparkDaemonHub;
   onUplinkReconfigure?: (serverUrl?: string) => void;
   getLifecycle?: () => SparkDaemonLifecycleSnapshot;
   getBuildFingerprint?: () => string;

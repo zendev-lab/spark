@@ -487,7 +487,7 @@ function printProviderAuthHelp(io: CliIo): void {
       "  spark daemon auth login [provider]\n" +
       "  spark daemon auth logout <provider> [--json]\n" +
       "  spark daemon auth import pi [--overwrite] [--json]\n\n" +
-      "Provider credentials are separate from `spark daemon login`, which authorizes machine connectivity to Cockpit.\n" +
+      "Provider credentials are separate from `spark daemon login`, which authorizes machine connectivity to Hub.\n" +
       "Pi import never executes Pi, environment references, or shell commands.\n",
   );
 }
@@ -625,7 +625,7 @@ function install(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo): number
   return 0;
 }
 
-function configForCockpitServer(
+function configForHubServer(
   paths: ReturnType<typeof resolveSparkPaths>,
   identity: ReturnType<typeof readSparkDaemonConfig>,
   serverUrl: string,
@@ -659,7 +659,7 @@ async function doctor(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo): P
   const credentialsOk =
     credentialServers.length > 0 && credentialServers.every((server) => server.runnable);
   const primary = profiles[0];
-  const cockpit = buildDoctorCockpitStatus();
+  const hub = buildDoctorHubStatus();
   io.stdout.write(
     JSON.stringify(
       {
@@ -680,7 +680,7 @@ async function doctor(paths: ReturnType<typeof resolveSparkPaths>, io: CliIo): P
             servers: credentialServers,
           },
           workspace,
-          cockpit,
+          hub,
         },
         paths,
         config: {
@@ -735,10 +735,10 @@ function errorCode(error: Error | undefined): string | undefined {
     : undefined;
 }
 
-function buildDoctorCockpitStatus(): Record<string, unknown> {
-  const packagePath = fileURLToPath(new URL("../../spark-cockpit/package.json", import.meta.url));
+function buildDoctorHubStatus(): Record<string, unknown> {
+  const packagePath = fileURLToPath(new URL("../../spark-hub/package.json", import.meta.url));
   const packageAvailable = existsSync(packagePath);
-  const command = "spark-cockpit";
+  const command = "spark-hub";
   const commandProbe = spawnSync(command, ["--help"], { stdio: "ignore", timeout: 1_000 });
   const commandErrorCode = errorCode(commandProbe.error);
   const commandAvailable = !commandProbe.error || commandErrorCode !== "ENOENT";
@@ -905,7 +905,7 @@ async function registerWorkspaceCommand(
       profileTextLine(added.profile) +
       `  status   ${workspaceStatusLabel(added)}\n` +
       workspaceAuthorizationText(added, serverUrl) +
-      `  note     Cockpit can unbind this projection; rerun workspace register to bind it again.\n`,
+      `  note     Hub can unbind this projection; rerun workspace register to bind it again.\n`,
   );
 
   if (readRunningPid(paths) !== null) {
@@ -943,7 +943,7 @@ function workspaceAuthorizationText(workspace: SparkDaemonWorkspace, serverUrl: 
     `  authorize ${loginUrl.toString()}\n` +
     `  one-time ${authorization.oneTimeToken}\n` +
     `  expires  ${authorization.expiresAt}\n` +
-    `  note     Additional browsers: spark cockpit workspace access create --workspace ${authorization.workspaceId}\n`
+    `  note     Additional browsers: spark hub workspace access create --workspace ${authorization.workspaceId}\n`
   );
 }
 
@@ -1087,7 +1087,7 @@ async function uplinkStatusCommand(
   };
   const origins = payload.origins ?? [];
   if (origins.length === 0) {
-    io.stdout.write("No Cockpit uplink profiles.\n");
+    io.stdout.write("No Hub uplink profiles.\n");
     return 0;
   }
   for (const origin of origins) {
@@ -1108,7 +1108,7 @@ async function relocateWorkspaceCommand(
   if (!toServerUrl) {
     throw new Error("Workspace relocation requires --to-server-url <https-origin>.");
   }
-  if (!(await confirmAction(io, flags, `Relocate Cockpit uplink to ${toServerUrl}?`))) {
+  if (!(await confirmAction(io, flags, `Relocate Hub uplink to ${toServerUrl}?`))) {
     io.stdout.write("Cancelled.\n");
     return 4;
   }
@@ -1126,7 +1126,7 @@ async function relocateWorkspaceCommand(
     return 0;
   }
   io.stdout.write(
-    `✓ Cockpit uplink relocated\n` +
+    `✓ Hub uplink relocated\n` +
       `  instance   ${result.instanceId}\n` +
       `  runtime    ${result.runtimeId}\n` +
       `  from       ${result.fromServerUrl}\n` +
@@ -1168,7 +1168,7 @@ async function defaultWorkspace(
 
   assertDirectory(workspace.localPath);
   const config = readSparkDaemonConfig(paths);
-  const serverConfig = configForCockpitServer(paths, config, workspace.serverUrl);
+  const serverConfig = configForHubServer(paths, config, workspace.serverUrl);
   if (!hasRunnableSparkDaemonCredentialsForServer(serverConfig, workspace.serverUrl)) {
     throw new Error(
       `Workspace '${workspace.displayName}' is registered locally, but daemon credentials for ${workspace.serverUrl} are missing. Run spark daemon login --server-url ${shellQuote(workspace.serverUrl)}, then retry.`,
@@ -1558,9 +1558,9 @@ function workspaceDetailText(
     `  status         ${workspaceStatusLabel(workspace, statusContext)}\n` +
     `  server         ${workspace.serverUrl || "—"}\n` +
     `  binding        ${workspace.serverBindingId ?? "—"}${
-      workspace.cockpitBindingState ? ` (${workspace.cockpitBindingState})` : ""
+      workspace.hubBindingState ? ` (${workspace.hubBindingState})` : ""
     }\n` +
-    `  cockpit ws     ${workspace.serverWorkspaceId ?? "—"}\n` +
+    `  hub ws     ${workspace.serverWorkspaceId ?? "—"}\n` +
     `  path           ${formatPathForDisplay(workspace.localPath)}\n` +
     profileTextLine(workspace.profile, "  profile        ") +
     offlineTextBlock(workspace, statusContext) +
@@ -1712,9 +1712,7 @@ function workspaceListItem(workspace: SparkDaemonWorkspace, context: WorkspaceSt
     serverUrl: workspace.serverUrl,
     ...(workspace.serverBindingId ? { serverBindingId: workspace.serverBindingId } : {}),
     ...(workspace.serverWorkspaceId ? { serverWorkspaceId: workspace.serverWorkspaceId } : {}),
-    ...(workspace.cockpitBindingState
-      ? { cockpitBindingState: workspace.cockpitBindingState }
-      : {}),
+    ...(workspace.hubBindingState ? { hubBindingState: workspace.hubBindingState } : {}),
     path: workspace.localPath,
     status: renderedStatus,
     ...(offlineReason ? { offlineReason } : {}),
@@ -1960,7 +1958,7 @@ const offlineReasonText = {
   },
   disconnected: {
     why: "Spark daemon is running but the server connection is unavailable",
-    fix: "check Cockpit reachability and run spark daemon login again if authorization expired",
+    fix: "check Hub reachability and run spark daemon login again if authorization expired",
   },
   "service-stopped": {
     why: "Spark daemon is not running",

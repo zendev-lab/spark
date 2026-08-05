@@ -14,7 +14,7 @@ import {
 } from "../../store/workspaces.js";
 import { SparkDaemonControlError } from "../../control-error.ts";
 import { resolveSessionCwdOwner, SessionCwdResolutionError } from "../../session-cwd.ts";
-import { relocateSparkDaemonCockpit } from "../../relocation.ts";
+import { relocateSparkDaemonHub } from "../../relocation.ts";
 import { ensureWorkspaceMainSession } from "../../workspace-main-session.ts";
 import { workspaceClientResult } from "../helpers.ts";
 import type { LocalRpcDispatchContext } from "./context.ts";
@@ -55,7 +55,7 @@ export async function handleWorkspaceRequest(
     options,
     ensureRegistration,
     verifyWorkspaceConnection,
-    unbindWorkspaceFromCockpit,
+    unbindWorkspaceFromHub,
   } = ctx;
   switch (request.method) {
     case "workspace.list":
@@ -86,12 +86,9 @@ export async function handleWorkspaceRequest(
         throw error;
       }
     case "workspace.relocate":
-      return (options.relocateSparkDaemonCockpit ?? relocateSparkDaemonCockpit)(
-        paths,
-        db,
-        request.params,
-        { onUplinkReconfigure: options.onUplinkReconfigure },
-      );
+      return (options.relocateSparkDaemonHub ?? relocateSparkDaemonHub)(paths, db, request.params, {
+        onUplinkReconfigure: options.onUplinkReconfigure,
+      });
     case "workspace.transfer.pending":
       return {
         pending: pendingWorkspaceTransfers(options.leaseTransfers, request.params.workspaceId),
@@ -122,7 +119,7 @@ export async function handleWorkspaceRequest(
     }
     case "workspace.register": {
       // A workspace-scoped one-time token is explicit authority to move the
-      // Cockpit projection to another daemon-owned directory. Preserve the
+      // Hub projection to another daemon-owned directory. Preserve the
       // daemon-local workspace id so existing sessions keep resolving after
       // correcting or intentionally changing its path.
       const allowLocalPathRebind = Boolean(request.params.registrationToken);
@@ -131,12 +128,12 @@ export async function handleWorkspaceRequest(
         ...(allowLocalPathRebind ? { allowLocalPathRebind: true } : {}),
       });
       if (planned.previousServerUrl && planned.previousServerBindingId) {
-        await unbindWorkspaceFromCockpit(paths, {
+        await unbindWorkspaceFromHub(paths, {
           serverUrl: planned.previousServerUrl,
           bindingId: planned.previousServerBindingId,
           // Credentials were already provisioned for this origin. This only
           // permits completing the explicit local rebind on a trusted legacy
-          // HTTP Cockpit; new target registration keeps its own URL guard.
+          // HTTP Hub; new target registration keeps its own URL guard.
           allowInsecureHttp: true,
         });
       }
@@ -235,7 +232,7 @@ export async function handleWorkspaceRequest(
         plan.workspace.serverUrl &&
         plan.workspace.serverBindingId
       ) {
-        await unbindWorkspaceFromCockpit(paths, {
+        await unbindWorkspaceFromHub(paths, {
           serverUrl: plan.workspace.serverUrl,
           bindingId: plan.workspace.serverBindingId,
           allowInsecureHttp: true,

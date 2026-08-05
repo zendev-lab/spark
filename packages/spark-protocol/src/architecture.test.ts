@@ -7,8 +7,8 @@ import {
 } from "./command-delivery.ts";
 import {
   DAEMON_OWNED_SCOPES,
-  COCKPIT_OUTBOX_SCOPES,
-  assertCockpitMayWriteScope,
+  HUB_OUTBOX_SCOPES,
+  assertHubMayWriteScope,
   assertDaemonOwnsScope,
   isDaemonOwnedScope,
 } from "./state-ownership.ts";
@@ -84,7 +84,7 @@ describe("server command delivery", () => {
       },
       constraints: ["preserve assignment metadata"],
       evidence: ["runtime websocket"],
-      source: { kind: "cockpit" },
+      source: { kind: "hub" },
       title: "Review assignment",
     };
     const envelope = createServerCommandEnvelope({
@@ -143,7 +143,7 @@ describe("server command delivery", () => {
         payload: {
           goal: "   ",
           target: { sessionId: "sess_runtime_assign" },
-          source: { kind: "cockpit" },
+          source: { kind: "hub" },
         },
       },
     });
@@ -162,11 +162,11 @@ describe("state ownership", () => {
     expect(isDaemonOwnedScope("task_graph")).toBe(true);
     expect(isDaemonOwnedScope("commands")).toBe(false);
     expect(DAEMON_OWNED_SCOPES.length).toBeGreaterThan(0);
-    expect(COCKPIT_OUTBOX_SCOPES.length).toBeGreaterThan(0);
+    expect(HUB_OUTBOX_SCOPES.length).toBeGreaterThan(0);
 
-    expect(() => assertCockpitMayWriteScope("commands")).not.toThrow();
-    expect(() => assertCockpitMayWriteScope("human_responses")).not.toThrow();
-    expect(() => assertCockpitMayWriteScope("human_requests")).toThrow(/daemon-owned/u);
+    expect(() => assertHubMayWriteScope("commands")).not.toThrow();
+    expect(() => assertHubMayWriteScope("human_responses")).not.toThrow();
+    expect(() => assertHubMayWriteScope("human_requests")).toThrow(/daemon-owned/u);
     expect(() => assertDaemonOwnsScope("invocations")).not.toThrow();
     expect(() => assertDaemonOwnsScope("commands")).toThrow(/outbox/u);
   });

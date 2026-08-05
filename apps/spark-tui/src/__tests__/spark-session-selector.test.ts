@@ -220,7 +220,7 @@ test("Spark session selector presents an unregistered cwd as a workspace creatio
   assert.doesNotMatch(rendered, /spark • \/workspace\/spark/u);
 });
 
-test("Spark session selector uses the Cockpit fallback for untitled sessions", () => {
+test("Spark session selector uses the Hub fallback for untitled sessions", () => {
   const component = createSparkSessionSelectorComponent({
     sessions: [untitledSession],
     workspaces,

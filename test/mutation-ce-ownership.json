@@ -23,13 +23,13 @@
       "config": "packages/spark-protocol/stryker.config.json",
       "alternateGate": "pnpm --filter @zendev-lab/spark-protocol run check"
     },
-    "@zendev-lab/spark-cockpit-db": {
-      "path": "packages/spark-cockpit-db",
+    "@zendev-lab/spark-hub-db": {
+      "path": "packages/spark-hub-db",
       "status": "included",
       "risk": "high",
       "riskReason": "schema and migration persistence",
-      "config": "packages/spark-cockpit-db/stryker.config.json",
-      "alternateGate": "pnpm --filter @zendev-lab/spark-cockpit-db run check"
+      "config": "packages/spark-hub-db/stryker.config.json",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-hub-db run check"
     },
     "@zendev-lab/spark-system": {
       "path": "packages/spark-system",
@@ -47,13 +47,13 @@
       "config": "packages/spark-channels/stryker.config.json",
       "alternateGate": "pnpm --filter @zendev-lab/spark-channels run check"
     },
-    "@zendev-lab/spark-cockpit-coordination": {
-      "path": "packages/spark-cockpit-coordination",
+    "@zendev-lab/spark-hub-coordination": {
+      "path": "packages/spark-hub-coordination",
       "status": "included",
       "risk": "high",
       "riskReason": "control and RPC ownership",
-      "config": "packages/spark-cockpit-coordination/stryker.config.json",
-      "alternateGate": "pnpm --filter @zendev-lab/spark-cockpit-coordination run check"
+      "config": "packages/spark-hub-coordination/stryker.config.json",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-hub-coordination run check"
     },
     "@zendev-lab/spark-session": {
       "path": "packages/spark-session",
@@ -96,7 +96,7 @@
       "alternateGate": "pnpm run test:process:source"
     },
     "@zendev-lab/spark-hub": {
-      "path": "apps/spark-cockpit",
+      "path": "apps/spark-hub",
       "status": "deferred",
       "risk": "high",
       "riskReason": "Hub application behavior is outside the current mutation CE set",

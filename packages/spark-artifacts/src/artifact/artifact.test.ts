@@ -516,7 +516,7 @@ describe("artifact kinds", () => {
       {
         action: "create",
         kind: "document",
-        title: "Cockpit document",
+        title: "Hub document",
         format: "md",
         content: "# Persistent",
       },

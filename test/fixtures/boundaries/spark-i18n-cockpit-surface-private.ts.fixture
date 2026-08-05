@@ -1,3 +1,0 @@
-import { getCockpitDictionary } from "@zendev-lab/spark-i18n/cockpit";
-
-export const forbiddenCockpitMessage = getCockpitDictionary("en").common.justNow;

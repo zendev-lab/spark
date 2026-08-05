@@ -95,6 +95,7 @@ describe("CLI/TUI strings", () => {
     const dispatcher = sparkCliDispatcherStrings();
     expect(dispatcher.helpText).toContain("spark - Spark command dispatcher");
     expect(dispatcher.helpText).toContain("spark-hub");
+    expect(dispatcher.helpText).toContain("spark hub [command]");
     expect(dispatcher.helpText).not.toContain("spark cockpit");
     expect(sparkCliDispatcherStrings("zh").unknownSubcommand("foo", ["foo"])).toContain(
       "未知 spark 子命令",

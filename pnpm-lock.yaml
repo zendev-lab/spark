@@ -75,9 +75,9 @@ importers:
       '@zendev-lab/spark-channels':
         specifier: workspace:^
         version: link:packages/spark-channels
-      '@zendev-lab/spark-cockpit-coordination':
+      '@zendev-lab/spark-hub-coordination':
         specifier: workspace:^
-        version: link:packages/spark-cockpit-coordination
+        version: link:packages/spark-hub-coordination
       '@zendev-lab/spark-core':
         specifier: workspace:^
         version: link:packages/spark-core
@@ -229,7 +229,7 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.2)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
 
-  apps/spark-cockpit:
+  apps/spark-hub:
     dependencies:
       '@sveltejs/adapter-node':
         specifier: ^5.3.1
@@ -243,12 +243,12 @@ importers:
       '@zendev-lab/spark-channels':
         specifier: workspace:*
         version: link:../../packages/spark-channels
-      '@zendev-lab/spark-cockpit-coordination':
+      '@zendev-lab/spark-hub-coordination':
         specifier: workspace:*
-        version: link:../../packages/spark-cockpit-coordination
-      '@zendev-lab/spark-cockpit-db':
+        version: link:../../packages/spark-hub-coordination
+      '@zendev-lab/spark-hub-db':
         specifier: workspace:*
-        version: link:../../packages/spark-cockpit-db
+        version: link:../../packages/spark-hub-db
       '@zendev-lab/spark-core':
         specifier: workspace:*
         version: link:../../packages/spark-core
@@ -410,12 +410,12 @@ importers:
       '@types/ws':
         specifier: 'catalog:'
         version: 8.18.1
-      '@zendev-lab/spark-cockpit-coordination':
+      '@zendev-lab/spark-hub-coordination':
         specifier: workspace:*
-        version: link:../../packages/spark-cockpit-coordination
-      '@zendev-lab/spark-cockpit-db':
+        version: link:../../packages/spark-hub-coordination
+      '@zendev-lab/spark-hub-db':
         specifier: workspace:*
-        version: link:../../packages/spark-cockpit-db
+        version: link:../../packages/spark-hub-db
       esbuild:
         specifier: ^0.28.0
         version: 0.28.1
@@ -702,7 +702,7 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.1)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
 
-  packages/spark-cockpit-coordination:
+  packages/spark-hub-coordination:
     dependencies:
       '@zendev-lab/spark-protocol':
         specifier: workspace:*
@@ -726,9 +726,9 @@ importers:
       '@types/ws':
         specifier: 'catalog:'
         version: 8.18.1
-      '@zendev-lab/spark-cockpit-db':
+      '@zendev-lab/spark-hub-db':
         specifier: workspace:*
-        version: link:../spark-cockpit-db
+        version: link:../spark-hub-db
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -736,7 +736,7 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.1)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
 
-  packages/spark-cockpit-db:
+  packages/spark-hub-db:
     dependencies:
       '@zendev-lab/spark-system':
         specifier: workspace:*

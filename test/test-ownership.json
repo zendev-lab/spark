@@ -18,7 +18,7 @@
       "disposition": "owner-local",
       "currentPath": "apps/spark-daemon/src/artifact-persistence.integration.test.ts",
       "gate": "pnpm --filter @zendev-lab/spark-daemon run check",
-      "reason": "The daemon-owned integration test preserves the complete Artifact store, daemon projection/outbound, protocol, Cockpit ingestion, restart/cache, and renderer chain using existing public collaborators."
+      "reason": "The daemon-owned integration test preserves the complete Artifact store, daemon projection/outbound, protocol, Hub ingestion, restart/cache, and renderer chain using existing public collaborators."
     },
     {
       "baselinePath": "test/check-boundaries.test.ts",
@@ -292,9 +292,9 @@
       "baselinePath": "test/spark-cockpit-cli.test.ts",
       "owners": ["@zendev-lab/spark-hub"],
       "disposition": "owner-local",
-      "currentPath": "apps/spark-cockpit/src/cli/spark-cockpit-cli.test.ts",
+      "currentPath": "apps/spark-hub/src/cli/hub-coordination-cli.test.ts",
       "gate": "pnpm --filter @zendev-lab/spark-hub run check",
-      "reason": "Migrated primary destination is apps/spark-cockpit/src/cli/spark-cockpit-cli.test.ts."
+      "reason": "The former Cockpit CLI suite now validates canonical Hub coordination from apps/spark-hub/src/cli/hub-coordination-cli.test.ts."
     },
     {
       "baselinePath": "test/spark-command-planes-contract.test.ts",
@@ -673,9 +673,9 @@
       "baselinePath": "test/spark-plane-golden-path.test.ts",
       "owners": ["@zendev-lab/spark-hub"],
       "disposition": "owner-local",
-      "currentPath": "apps/spark-cockpit/src/cli/spark-plane-golden-path.test.ts",
+      "currentPath": "apps/spark-hub/src/cli/spark-plane-golden-path.test.ts",
       "gate": "pnpm --filter @zendev-lab/spark-hub run check",
-      "reason": "Migrated primary destination is apps/spark-cockpit/src/cli/spark-plane-golden-path.test.ts."
+      "reason": "Migrated primary destination is apps/spark-hub/src/cli/spark-plane-golden-path.test.ts."
     },
     {
       "baselinePath": "test/spark-plugin-loader.test.ts",

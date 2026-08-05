@@ -39,7 +39,7 @@ const productBins = {
   spark: "spark-cli.js",
   "spark-tui": "spark-tui.js",
   "spark-daemon": "spark-daemon.js",
-  "spark-hub": "spark-cockpit.js",
+  "spark-hub": "spark-hub.js",
   "spark-acp": "spark-acp.js",
   "spark-update": "spark-update.js",
 };
@@ -147,10 +147,10 @@ const productDist = resolve(packageDirectory, "dist");
 process.env.SPARK_PRODUCT_DIST = productDist;
 process.env.SPARK_BUILD_INFO_PATH = resolve(productDist, "build-info.json");
 process.env.SPARK_DAEMON_ENTRYPOINT = resolve(productDist, "spark-daemon.js");
-process.env.SPARK_COCKPIT_SERVER_ENTRYPOINT = resolve(productDist, "spark-cockpit-server.js");
-process.env.SPARK_COCKPIT_WEB_SERVICE_ENTRYPOINT = resolve(
+process.env.SPARK_HUB_SERVER_ENTRYPOINT = resolve(productDist, "spark-hub-server.js");
+process.env.SPARK_HUB_WEB_SERVICE_ENTRYPOINT = resolve(
   productDist,
-  "spark-cockpit-web-service.js",
+  "spark-hub-web-service.js",
 );
 process.env.SPARK_HEADLESS_EXECUTOR_MODULE = resolve(
   productDist,
@@ -210,12 +210,12 @@ await Promise.all([
     "apps/spark-tui/src/headless-role-executor.ts",
     resolve(productDist, "spark-headless-role-executor.js"),
   ),
-  bundle("apps/spark-cockpit/src/cli-entry.ts", resolve(productDist, "spark-cockpit.js")),
+  bundle("apps/spark-hub/src/cli-entry.ts", resolve(productDist, "spark-hub.js")),
   bundle(
-    "apps/spark-cockpit/src/cli/web-service-entry.ts",
-    resolve(productDist, "spark-cockpit-web-service.js"),
+    "apps/spark-hub/src/cli/web-service-entry.ts",
+    resolve(productDist, "spark-hub-web-service.js"),
   ),
-  bundle("apps/spark-cockpit/server/index.ts", resolve(productDist, "spark-cockpit-server.js")),
+  bundle("apps/spark-hub/server/index.ts", resolve(productDist, "spark-hub-server.js")),
   bundle("packages/spark-acp/scripts/stdio.ts", resolve(productDist, "spark-acp.js")),
   bundle("packages/spark-update/src/entry.ts", resolve(productDist, "spark-update.js")),
 ]);
@@ -225,7 +225,7 @@ await Promise.all([
   cp(resolve(root, "apps/spark-daemon/dist/migrations"), resolve(productDist, "migrations"), {
     recursive: true,
   }),
-  cp(resolve(root, "apps/spark-cockpit/build"), resolve(productDirectory, "build"), {
+  cp(resolve(root, "apps/spark-hub/build"), resolve(productDirectory, "build"), {
     recursive: true,
   }),
   cp(resolve(root, "README.md"), resolve(productDirectory, "README.md")),

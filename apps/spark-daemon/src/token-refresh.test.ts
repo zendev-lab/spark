@@ -229,12 +229,12 @@ describe("Spark daemon token refresh", () => {
     };
     writeSparkDaemonConfig(paths, identity);
     const originalProfile = await upsertSparkDaemonServerProfile(paths, {
-      serverUrl: "https://cockpit.example.test",
+      serverUrl: "https://hub.example.test",
       runtimeId: "rt_11111111111141111111111111111111",
       runtimeToken: "runtime-token-original",
       runtimeTokenExpiresAt: "2026-05-25T00:01:00.000Z",
       refreshToken: "refresh-token-original",
-      webSocketUrl: "wss://cockpit.example.test/runtime/original",
+      webSocketUrl: "wss://hub.example.test/runtime/original",
     });
     const config = sparkDaemonConfigForServerProfile(identity, originalProfile);
     let resolveFetch!: (response: Response) => void;
@@ -254,13 +254,13 @@ describe("Spark daemon token refresh", () => {
       const refreshing = refreshSparkDaemonCredentials({ paths, config, fetchFn });
       await requestStarted;
       const replacement = await upsertSparkDaemonServerProfile(paths, {
-        serverUrl: "https://cockpit.example.test",
+        serverUrl: "https://hub.example.test",
         runtimeId: "rt_22222222222242222222222222222222",
         runtimeToken: "runtime-token-from-registration",
         runtimeTokenExpiresAt: "2026-05-25T02:00:00.000Z",
         refreshToken: "refresh-token-from-registration",
         refreshTokenExpiresAt: "2026-06-25T00:00:00.000Z",
-        webSocketUrl: "wss://cockpit.example.test/runtime/replacement",
+        webSocketUrl: "wss://hub.example.test/runtime/replacement",
       });
       resolveFetch(
         new Response(
@@ -277,9 +277,7 @@ describe("Spark daemon token refresh", () => {
       );
 
       await expect(refreshing).resolves.toMatchObject(replacement);
-      expect(getSparkDaemonServerProfile(paths, "https://cockpit.example.test")).toEqual(
-        replacement,
-      );
+      expect(getSparkDaemonServerProfile(paths, "https://hub.example.test")).toEqual(replacement);
       expect(config).toMatchObject({
         runtimeId: "rt_22222222222242222222222222222222",
         runtimeToken: "runtime-token-from-registration",
@@ -309,12 +307,12 @@ describe("Spark daemon token refresh", () => {
     };
     writeSparkDaemonConfig(paths, identity);
     const profile = await upsertSparkDaemonServerProfile(paths, {
-      serverUrl: "https://cockpit.example.test",
+      serverUrl: "https://hub.example.test",
       runtimeId: "rt_11111111111141111111111111111111",
       runtimeToken: "runtime-token-original",
       runtimeTokenExpiresAt: "2026-05-25T00:01:00.000Z",
       refreshToken: "refresh-token-original",
-      webSocketUrl: "wss://cockpit.example.test/runtime/original",
+      webSocketUrl: "wss://hub.example.test/runtime/original",
     });
     const config = sparkDaemonConfigForServerProfile(identity, profile);
     const controller = new AbortController();
@@ -345,7 +343,7 @@ describe("Spark daemon token refresh", () => {
       controller.abort();
 
       await expect(refreshing).rejects.toMatchObject({ name: "AbortError" });
-      expect(getSparkDaemonServerProfile(paths, "https://cockpit.example.test")).toEqual(profile);
+      expect(getSparkDaemonServerProfile(paths, "https://hub.example.test")).toEqual(profile);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

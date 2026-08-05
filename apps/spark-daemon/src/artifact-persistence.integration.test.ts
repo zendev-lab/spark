@@ -9,16 +9,16 @@ import {
   runtimeProtocolVersion,
   sparkArtifactProjectionSchema,
 } from "@zendev-lab/spark-protocol";
-import { migrate, openDatabase } from "@zendev-lab/spark-cockpit-db";
-import { readArtifactPreviewContent } from "@zendev-lab/spark-cockpit-coordination/artifact-cache";
+import { migrate, openDatabase } from "@zendev-lab/spark-hub-db";
+import { readArtifactPreviewContent } from "@zendev-lab/spark-hub-coordination/artifact-cache";
 import {
   createProject,
   createWorkspaceWithLease,
-} from "@zendev-lab/spark-cockpit-coordination/projection-services";
-import { attachRuntimeWebSocket } from "@zendev-lab/spark-cockpit-coordination/runtime-ws";
+} from "@zendev-lab/spark-hub-coordination/projection-services";
+import { attachRuntimeWebSocket } from "@zendev-lab/spark-hub-coordination/runtime-ws";
 import { describe, expect, it } from "vitest";
 
-import { renderStoredArtifactPreview } from "../../spark-cockpit/src/lib/server/artifact-preview.ts";
+import { renderStoredArtifactPreview } from "../../spark-hub/src/lib/server/artifact-preview.ts";
 import { artifactProjected } from "./protocol/outbound.ts";
 import { artifactProjectionPayload, type ArtifactProjectionSource } from "./artifact-projection.ts";
 
@@ -38,10 +38,10 @@ class FakeRuntimeSocket extends EventEmitter {
   }
 }
 
-describe("Artifact persistent Cockpit preview", () => {
-  it("survives Cockpit restart and replaces cached content on the next revision", async () => {
+describe("Artifact persistent Hub preview", () => {
+  it("survives Hub restart and replaces cached content on the next revision", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-product-persistence-"));
-    const databasePath = join(root, "cockpit.sqlite");
+    const databasePath = join(root, "hub.sqlite");
     const cacheRoot = join(root, "cache");
     const workspacePath = join(root, "workspace");
     const runtimeId = createId("rt");

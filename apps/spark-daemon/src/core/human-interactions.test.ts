@@ -342,7 +342,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
     }
   });
 
-  it("keeps a route-less TUI blocking ask locally answerable without a Cockpit outbox", async () => {
+  it("keeps a route-less TUI blocking ask locally answerable without a Hub outbox", async () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
     const waits = new SparkDaemonHumanWaitRegistry(db);
@@ -365,7 +365,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
 
       expect(wait.context).toMatchObject({
         sessionSource: "tui",
-        cockpitProjected: false,
+        hubProjected: false,
       });
       expect(waits.listPendingOutbox()).toEqual([]);
       expect(onOutboxReady).not.toHaveBeenCalled();
@@ -524,7 +524,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
     }
   });
 
-  it("cancels a route-less TUI blocking ask without inventing a Cockpit settlement", async () => {
+  it("cancels a route-less TUI blocking ask without inventing a Hub settlement", async () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
     const waits = new SparkDaemonHumanWaitRegistry(db);
@@ -598,7 +598,7 @@ describe("SparkDaemonHumanInteractionBroker", () => {
     }
   });
 
-  it("maps a daemon-local workspace reference to its unique Cockpit route by local path", async () => {
+  it("maps a daemon-local workspace reference to its unique Hub route by local path", async () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
     seedHumanRoute(db);
@@ -640,14 +640,14 @@ describe("SparkDaemonHumanInteractionBroker", () => {
     }
   });
 
-  it("selects the runtime identity from each workspace's Cockpit server route", async () => {
+  it("selects the runtime identity from each workspace's Hub server route", async () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);
     seedHumanRoute(db);
     const secondRuntimeId = `rt_${"6".repeat(32)}`;
     const secondBindingId = `rtwb_${"7".repeat(32)}`;
     const secondWorkspaceId = `ws_${"8".repeat(32)}`;
-    const secondServerUrl = "https://cockpit.example.test/";
+    const secondServerUrl = "https://hub.example.test/";
     seedHumanRoute(db, {
       serverId: "rnsrv-second",
       serverUrl: secondServerUrl,

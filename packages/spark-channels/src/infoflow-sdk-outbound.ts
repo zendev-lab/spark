@@ -25,7 +25,7 @@ const INFOFLOW_STREAM_FINALIZE_TIMEOUT_MS = 30_000;
 const INFOFLOW_STREAM_FINALIZE_POLL_MS = 10;
 const INFOFLOW_STREAM_FINALIZE_ATTEMPTS = 5;
 const INFOFLOW_STREAM_OVERFLOW_NOTICE =
-  "\n\n> 回答超出如流卡片上限，完整内容请在后续消息或 Spark Cockpit 查看。";
+  "\n\n> 回答超出如流卡片上限，完整内容请在后续消息或 Spark Hub 查看。";
 
 export type InfoflowOutboundContent =
   | { type: "text"; text: string }
@@ -342,7 +342,7 @@ export function createInfoflowSdkOutbound(
       // prove whether the prior completion already sent an ordinary overflow
       // message before a crash or lost local acknowledgement, so replaying the
       // overflow here could duplicate it. The full answer remains in Spark's
-      // durable session and the card points users to Cockpit.
+      // durable session and the card points users to Hub.
     },
   };
 }

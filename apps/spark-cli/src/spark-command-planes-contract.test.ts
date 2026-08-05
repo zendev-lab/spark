@@ -7,7 +7,7 @@ import { test } from "vitest";
 
 import { parseSparkDispatcherArgs } from "./cli.ts";
 import {
-  extractCockpitStatusContract,
+  extractHubStatusContract,
   extractDaemonStatusContract,
 } from "../../../test/support/spark-plane-contracts.mts";
 
@@ -69,10 +69,10 @@ test("daemon and Hub-compatible status JSON contracts validate current envelopes
   assert.equal(daemon.websocketState, "connected");
   assert.deepEqual(daemon.diagnostics, []);
 
-  const cockpit = extractCockpitStatusContract({
+  const hub = extractHubStatusContract({
     action: "status",
     result: {
-      plane: "cockpit",
+      plane: "hub",
       resource: "status",
       currentProjectRef: "proj:test",
       projectCount: 1,
@@ -85,11 +85,11 @@ test("daemon and Hub-compatible status JSON contracts validate current envelopes
       },
     },
   });
-  assert.equal(cockpit.plane, "cockpit");
-  assert.equal(cockpit.resource, "status");
-  assert.equal(cockpit.currentProjectRef, "proj:test");
-  assert.equal(cockpit.projectCount, 1);
-  assert.deepEqual(cockpit.diagnostics, []);
+  assert.equal(hub.plane, "hub");
+  assert.equal(hub.resource, "status");
+  assert.equal(hub.currentProjectRef, "proj:test");
+  assert.equal(hub.projectCount, 1);
+  assert.deepEqual(hub.diagnostics, []);
 });
 
 test("daemon status contract reports malformed envelopes with field paths", () => {
@@ -123,7 +123,7 @@ test("daemon status contract reports malformed envelopes with field paths", () =
 });
 
 test("Hub-compatible status contract reports malformed envelopes with field paths", () => {
-  const malformed = extractCockpitStatusContract({
+  const malformed = extractHubStatusContract({
     action: "status",
     result: { plane: "daemon", resource: "status", scope: {} },
   });

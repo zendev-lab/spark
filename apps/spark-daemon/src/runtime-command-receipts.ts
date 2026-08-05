@@ -339,7 +339,7 @@ export function recoverInterruptedRuntimeCommandReceipts(
         continue;
       }
       // Admission did not commit. Removing only the incomplete daemon-side
-      // receipt lets Cockpit redeliver the same durable command and key.
+      // receipt lets Hub redeliver the same durable command and key.
       db.prepare(
         `DELETE FROM runtime_command_receipts
          WHERE command_id = ? AND terminal_json IS NULL`,

@@ -173,7 +173,7 @@ test("workspace scripts contain package-local behavior instead of root boilerpla
       if (workspace === "packages/spark-i18n") {
         assert.match(manifest.scripts?.check ?? "", /pnpm run generate/u);
       }
-      if (workspace === "packages/spark-cockpit-db") {
+      if (workspace === "packages/spark-hub-db") {
         assert.match(manifest.scripts?.check ?? "", /check-schema-types\.mjs/u);
       }
     }

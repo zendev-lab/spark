@@ -285,7 +285,7 @@ export const sparkTaskViewSchema = z.object({
 });
 
 /**
- * User-facing Artifacts (Cockpit 产物): issue / git_change / document.
+ * User-facing Artifacts (Hub 产物): issue / git_change / document.
  * Legacy snapshots may still carry evidence kinds here; new emits use
  * `evidence.update` + `sparkEvidenceViewSchema` instead.
  */
@@ -493,7 +493,7 @@ export const sparkArtifactViewSchema = z.object({
   metadata: sparkJsonObjectSchema.default({}),
 });
 
-/** Agent-internal ledger notes (not Cockpit 产物). Prefer `evidence:` refs. */
+/** Agent-internal ledger notes (not Hub 产物). Prefer `evidence:` refs. */
 export const sparkEvidenceViewSchema = z.object({
   version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),
   ref: sparkRefSchema,
@@ -921,7 +921,7 @@ const sparkDaemonEventBaseSchema = z.object({
   version: sparkProtocolVersionSchema.default(SPARK_PROTOCOL_VERSION),
   eventId: z.string().min(1).optional(),
   emittedAt: sparkIsoDateTimeSchema.optional(),
-  source: z.enum(["daemon", "runtime", "tui", "web", "cockpit", "test"]).default("daemon"),
+  source: z.enum(["daemon", "runtime", "tui", "web", "hub", "cockpit", "test"]).default("daemon"),
   workspaceId: sparkRefSchema.optional(),
   projectId: sparkRefSchema.optional(),
   sessionId: z.string().min(1).optional(),

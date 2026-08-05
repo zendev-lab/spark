@@ -433,6 +433,12 @@ export function sparkDaemonWorkspace(value: unknown): SparkDaemonWorkspace {
     throw new Error("Invalid local RPC workspace result.");
   }
 
+  const hubBindingState =
+    value.hubBindingState === "bound" || value.hubBindingState === "unbound"
+      ? value.hubBindingState
+      : value.cockpitBindingState === "bound" || value.cockpitBindingState === "unbound"
+        ? value.cockpitBindingState
+        : undefined;
   const workspace: SparkDaemonWorkspace = {
     id: value.id,
     ...(typeof value.serverWorkspaceId === "string"
@@ -441,9 +447,7 @@ export function sparkDaemonWorkspace(value: unknown): SparkDaemonWorkspace {
     ...(typeof value.serverBindingId === "string"
       ? { serverBindingId: value.serverBindingId }
       : {}),
-    ...(value.cockpitBindingState === "bound" || value.cockpitBindingState === "unbound"
-      ? { cockpitBindingState: value.cockpitBindingState }
-      : {}),
+    ...(hubBindingState ? { hubBindingState } : {}),
     serverUrl: value.serverUrl,
     localWorkspaceKey: value.localWorkspaceKey,
     displayName: value.displayName,
@@ -562,7 +566,7 @@ export function parseBorrowedState(
             : clientId;
         if (!clientId || !sessionId) return [];
         const surface =
-          item.surface === "tui" || item.surface === "cockpit" || item.surface === "unknown"
+          item.surface === "tui" || item.surface === "hub" || item.surface === "unknown"
             ? item.surface
             : ("tui" as const);
         const kind =
@@ -650,7 +654,7 @@ export function workspaceClientProjection(
     kind: value.kind,
     status: value.status,
     ...(typeof value.displayName === "string" ? { displayName: value.displayName } : {}),
-    ...(value.surface === "tui" || value.surface === "cockpit" || value.surface === "unknown"
+    ...(value.surface === "tui" || value.surface === "hub" || value.surface === "unknown"
       ? { surface: value.surface }
       : {}),
     ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),

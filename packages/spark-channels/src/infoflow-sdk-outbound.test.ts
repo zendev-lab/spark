@@ -397,7 +397,7 @@ describe("Infoflow SDK outbound", () => {
       .ai_markdown.content;
     expect(cardText.length).toBeLessThanOrEqual(6_000);
     expect(cardText.startsWith("前")).toBe(true);
-    expect(cardText).toContain("Spark Cockpit");
+    expect(cardText).toContain("Spark Hub");
     expect(cardText).toContain("**本段加粗**");
     expect(fake.sendToUser).not.toHaveBeenCalled();
   });
@@ -510,7 +510,7 @@ describe("Infoflow SDK outbound", () => {
     expect(((fake.stream as { answerText?: string }).answerText ?? "").length).toBeLessThanOrEqual(
       6_000,
     );
-    expect((fake.stream as { answerText?: string }).answerText).toContain("Spark Cockpit");
+    expect((fake.stream as { answerText?: string }).answerText).toContain("Spark Hub");
     expect(fake.sendToUser).toHaveBeenCalledTimes(1);
     const body = fake.sendToUser.mock.calls[0]?.[1];
     const overflow = typeof body === "string" ? body : body?.content;

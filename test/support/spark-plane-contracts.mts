@@ -35,7 +35,7 @@ export interface DaemonStabilityChecks {
   mismatches: string[];
 }
 
-export interface CockpitStatusContract {
+export interface HubStatusContract {
   plane?: string;
   resource?: string;
   currentProjectRef?: string;
@@ -126,7 +126,7 @@ export function extractDaemonStatusContract(statusInput: unknown): DaemonStatusC
   };
 }
 
-export function extractCockpitStatusContract(statusInput: unknown): CockpitStatusContract {
+export function extractHubStatusContract(statusInput: unknown): HubStatusContract {
   const diagnostics: ContractDiagnostic[] = [];
   const envelope = isRecord(statusInput) ? statusInput : undefined;
   const result = isRecord(envelope?.result) ? envelope.result : undefined;
@@ -134,16 +134,16 @@ export function extractCockpitStatusContract(statusInput: unknown): CockpitStatu
     diagnostics.push({
       path: "result",
       level: "fail",
-      message: "spark cockpit status JSON must contain object field `result`.",
+      message: "spark hub status JSON must contain object field `result`.",
     });
     return { diagnostics };
   }
   const plane = readString(result, "plane");
-  if (plane !== "cockpit") {
+  if (plane !== "hub") {
     diagnostics.push({
       path: "result.plane",
       level: "fail",
-      message: "spark cockpit status JSON must report `result.plane` as `cockpit`.",
+      message: "spark hub status JSON must report `result.plane` as `hub`.",
     });
   }
   const resource = readString(result, "resource");
@@ -151,7 +151,7 @@ export function extractCockpitStatusContract(statusInput: unknown): CockpitStatu
     diagnostics.push({
       path: "result.resource",
       level: "fail",
-      message: "spark cockpit status JSON must report `result.resource` as `status`.",
+      message: "spark hub status JSON must report `result.resource` as `status`.",
     });
   }
   const taskCounts = isRecord(result.taskCounts) ? result.taskCounts : undefined;
@@ -159,7 +159,7 @@ export function extractCockpitStatusContract(statusInput: unknown): CockpitStatu
     diagnostics.push({
       path: "result.taskCounts",
       level: "fail",
-      message: "spark cockpit status JSON must contain object field `result.taskCounts`.",
+      message: "spark hub status JSON must contain object field `result.taskCounts`.",
     });
   }
   const scope = isRecord(result.scope) ? result.scope : undefined;
@@ -167,7 +167,7 @@ export function extractCockpitStatusContract(statusInput: unknown): CockpitStatu
     diagnostics.push({
       path: "result.scope",
       level: "fail",
-      message: "spark cockpit status JSON must contain object field `result.scope`.",
+      message: "spark hub status JSON must contain object field `result.scope`.",
     });
   } else {
     for (const key of [
@@ -180,7 +180,7 @@ export function extractCockpitStatusContract(statusInput: unknown): CockpitStatu
         diagnostics.push({
           path: `result.scope.${key}`,
           level: "fail",
-          message: `spark cockpit status JSON must contain field \`result.scope.${key}\`.`,
+          message: `spark hub status JSON must contain field \`result.scope.${key}\`.`,
         });
       }
     }

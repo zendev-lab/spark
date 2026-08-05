@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
+import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import {
   sparkSessionSnapshotPageSchema,
@@ -71,7 +71,7 @@ describe("daemon session control admission", () => {
       daemonCwd: root,
     });
     const workspace = registerWorkspace(db, {
-      serverUrl: "https://cockpit.example",
+      serverUrl: "https://hub.example",
       serverBindingId: "workspace-original",
       workspaceName: "origin",
       localPath: root,
@@ -480,7 +480,7 @@ describe("daemon session control admission", () => {
     const workspaceId = "ws_binding_route";
     const bindingId = "rtwb_binding_route";
     const workspace = registerWorkspace(db, {
-      serverUrl: "https://cockpit.example",
+      serverUrl: "https://hub.example",
       serverBindingId: bindingId,
       serverWorkspaceId: workspaceId,
       localWorkspaceKey: "binding-route",
@@ -543,20 +543,20 @@ describe("daemon session control admission", () => {
       localWorkspaceKey: "spark",
       displayName: "Spark",
     });
-    const cockpitWorkspaceId = "ws_cockpit_workspace";
-    const cockpitBindingId = "rtwb_cockpit_workspace";
+    const hubWorkspaceId = "ws_hub_workspace";
+    const hubBindingId = "rtwb_hub_workspace";
     registerWorkspace(db, {
-      serverUrl: "https://cockpit.example",
-      serverBindingId: cockpitBindingId,
-      serverWorkspaceId: cockpitWorkspaceId,
+      serverUrl: "https://hub.example",
+      serverBindingId: hubBindingId,
+      serverWorkspaceId: hubWorkspaceId,
       localPath: root,
       localWorkspaceKey: "spore",
       displayName: "Spore",
     });
-    const otherWorkspaceId = "ws_other_cockpit";
+    const otherWorkspaceId = "ws_other_hub";
     registerWorkspace(db, {
-      serverUrl: "https://other-cockpit.example",
-      serverBindingId: "rtwb_other_cockpit",
+      serverUrl: "https://other-hub.example",
+      serverBindingId: "rtwb_other_hub",
       serverWorkspaceId: otherWorkspaceId,
       localPath: root,
       localWorkspaceKey: "spore",
@@ -573,13 +573,13 @@ describe("daemon session control admission", () => {
       cwd: root,
     });
     await sessionRegistry.create({
-      sessionId: "session-cockpit",
-      scope: { kind: "workspace", workspaceId: cockpitWorkspaceId },
-      workspaceId: cockpitWorkspaceId,
+      sessionId: "session-hub",
+      scope: { kind: "workspace", workspaceId: hubWorkspaceId },
+      workspaceId: hubWorkspaceId,
       cwd: root,
     });
     await sessionRegistry.create({
-      sessionId: "session-other-cockpit",
+      sessionId: "session-other-hub",
       scope: { kind: "workspace", workspaceId: otherWorkspaceId },
       workspaceId: otherWorkspaceId,
       cwd: root,
@@ -591,17 +591,17 @@ describe("daemon session control admission", () => {
         {
           kind: "session.list.request",
           scope: "workspace",
-          workspaceId: cockpitWorkspaceId,
-          workspaceBindingId: cockpitBindingId,
-          payload: { scope: { kind: "workspace", workspaceId: cockpitWorkspaceId } },
+          workspaceId: hubWorkspaceId,
+          workspaceBindingId: hubBindingId,
+          payload: { scope: { kind: "workspace", workspaceId: hubWorkspaceId } },
         },
       );
 
       expect(response.result.sessions).toEqual([
         expect.objectContaining({
-          sessionId: "session-cockpit",
-          scope: { kind: "workspace", workspaceId: cockpitWorkspaceId },
-          workspaceId: cockpitWorkspaceId,
+          sessionId: "session-hub",
+          scope: { kind: "workspace", workspaceId: hubWorkspaceId },
+          workspaceId: hubWorkspaceId,
         }),
       ]);
     } finally {

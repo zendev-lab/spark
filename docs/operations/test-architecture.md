@@ -12,8 +12,8 @@ its normal check and mutation evaluation can exercise it.
 | App unit / integration | `apps/*/src/**/*.test.ts` | App-owned composition, persistence, process, route, and rendering behavior |
 | Root integration | `pnpm test` (`test/**/*.test.ts`, excluding `test/process/`) | Behavior that genuinely crosses package or app ownership boundaries |
 | Source process | `pnpm run test:process:source` (`test/process/**/*.test.ts`) | Exact source-distributed executable lifecycle under isolated local state |
-| Browser component | `pnpm run test:browser:cockpit` | Browser-only interaction and DOM behavior |
-| Product process | `pnpm run smoke` | Packed, clean-installed public product lifecycle and Cockpit HTTP/client-asset smoke |
+| Browser component | `pnpm run test:browser:hub` | Browser-only interaction and DOM behavior |
+| Product process | `pnpm run smoke` | Packed, clean-installed public product lifecycle and Hub HTTP/client-asset smoke |
 | Capability CE | `pnpm run test:capability:ce` | Repeated zero-token Goal, Loop, and Repro sentinels, inventory stability, flakes, and duration variance |
 | Mutation CE | `pnpm run test:mutation` | Whether focused package tests detect plausible implementation faults |
 

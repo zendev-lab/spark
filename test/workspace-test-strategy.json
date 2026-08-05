@@ -27,17 +27,17 @@
       ]
     },
     "@zendev-lab/spark-hub": {
-      "path": "apps/spark-cockpit",
+      "path": "apps/spark-hub",
       "strategy": "browser-test",
       "primaryGate": {
         "command": "pnpm run test:browser:hub",
-        "paths": ["apps/spark-cockpit/src/**/*.browser.test.ts"],
+        "paths": ["apps/spark-hub/src/**/*.browser.test.ts"],
         "rules": ["vitest.browser.config.ts"]
       },
       "supplementalGates": [
         {
           "command": "pnpm --filter @zendev-lab/spark-hub run test",
-          "paths": ["apps/spark-cockpit/src/**/*.test.ts"],
+          "paths": ["apps/spark-hub/src/**/*.test.ts"],
           "rules": []
         }
       ]
@@ -122,22 +122,22 @@
       },
       "supplementalGates": []
     },
-    "@zendev-lab/spark-cockpit-coordination": {
-      "path": "packages/spark-cockpit-coordination",
+    "@zendev-lab/spark-hub-coordination": {
+      "path": "packages/spark-hub-coordination",
       "strategy": "local-test",
       "primaryGate": {
-        "command": "pnpm --filter @zendev-lab/spark-cockpit-coordination run check",
-        "paths": ["packages/spark-cockpit-coordination/src/**/*.test.ts"],
+        "command": "pnpm --filter @zendev-lab/spark-hub-coordination run check",
+        "paths": ["packages/spark-hub-coordination/src/**/*.test.ts"],
         "rules": []
       },
       "supplementalGates": []
     },
-    "@zendev-lab/spark-cockpit-db": {
-      "path": "packages/spark-cockpit-db",
+    "@zendev-lab/spark-hub-db": {
+      "path": "packages/spark-hub-db",
       "strategy": "local-test",
       "primaryGate": {
-        "command": "pnpm --filter @zendev-lab/spark-cockpit-db run check",
-        "paths": ["packages/spark-cockpit-db/src/**/*.test.ts"],
+        "command": "pnpm --filter @zendev-lab/spark-hub-db run check",
+        "paths": ["packages/spark-hub-db/src/**/*.test.ts"],
         "rules": ["check-schema-types"]
       },
       "supplementalGates": []
@@ -246,7 +246,7 @@
           "paths": [
             "packages/spark-i18n/src/index.test.ts",
             "packages/spark-i18n/src/extension.test.ts",
-            "packages/spark-i18n/src/cockpit/index.test.ts"
+            "packages/spark-i18n/src/hub/index.test.ts"
           ],
           "rules": ["hand-written facade tests"]
         }

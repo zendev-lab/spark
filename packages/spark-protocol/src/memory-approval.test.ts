@@ -95,7 +95,7 @@ function proposalFor(receipt: SparkMemoryDirectIntentReceipt): SparkMemoryPropos
 }
 
 describe("Spark memory feedback receipts", () => {
-  it.each(["tui", "cockpit", "channel"] as const)(
+  it.each(["tui", "hub", "channel"] as const)(
     "binds exact current-turn positive feedback on %s",
     async (surface) => {
       const receipt = await issueFeedbackReceipt({
@@ -175,9 +175,9 @@ describe("Spark memory feedback receipts", () => {
 });
 
 describe("Spark memory direct-intent receipts", () => {
-  it("normalizes one remember vector across TUI, Cockpit, and channel surfaces", async () => {
+  it("normalizes one remember vector across TUI, Hub, and channel surfaces", async () => {
     const receipts = await Promise.all(
-      (["tui", "cockpit", "channel"] as const).map(
+      (["tui", "hub", "channel"] as const).map(
         async (surface) =>
           await issueReceipt({
             surface,
@@ -224,7 +224,7 @@ describe("Spark memory direct-intent receipts", () => {
 
   it("fails signature verification after a proposal-relevant receipt field is tampered", async () => {
     const receipt = await issueReceipt({
-      surface: "cockpit",
+      surface: "hub",
       workspaceId: "workspace:direct-intent",
       sessionId: "session:direct-intent",
       turnId: "turn:direct-intent",

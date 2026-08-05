@@ -75,9 +75,9 @@ export function registerEvidenceTool(pi: SparkArtifactsHostApi): void {
     name: "evidence",
     label: "Evidence",
     description:
-      "Agent-internal ledger only (not Cockpit/user UI). Compact provenance-backed notes for other tools and later turns. User-facing issue/git_change/document use artifact.",
+      "Agent-internal ledger only (not Hub/user UI). Compact provenance-backed notes for other tools and later turns. User-facing issue/git_change/document use artifact.",
     promptGuidelines: [
-      "evidence is agent-private: never treat it as user-visible content; Cockpit shows only Artifacts (issue/git_change/document).",
+      "evidence is agent-private: never treat it as user-visible content; Hub shows only Artifacts (issue/git_change/document).",
       "Prefer format=json and kind=record with a compact body: { summary: string, data?: object }. Use kind=trace for raw/prunable tool dumps.",
       "Keep titles short; keep bodies small. Do not write long markdown essays into evidence.",
       "Use list/read to recover prior notes; use record to append. promote/archive/supersede only when curating durable ask/learning contracts.",

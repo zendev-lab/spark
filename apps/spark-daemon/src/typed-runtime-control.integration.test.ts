@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { migrate, openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
+import { migrate, openMemoryDatabase } from "@zendev-lab/spark-hub-db";
 import {
   createId,
   runtimeProtocolVersion,
@@ -17,7 +17,7 @@ import {
   requireRuntimeControlCommand,
   submitRuntimeControlCommand,
   type RuntimeWebSocketConnection,
-} from "@zendev-lab/spark-cockpit-coordination";
+} from "@zendev-lab/spark-hub-coordination";
 import {
   handleCommand,
   handleServerMessage,
@@ -32,7 +32,7 @@ import {
 import { openSparkDaemonDatabase } from "./store/schema.ts";
 import { registerWorkspace } from "./store/workspaces.ts";
 
-class CockpitSocket extends EventEmitter implements RuntimeWebSocketConnection {
+class HubSocket extends EventEmitter implements RuntimeWebSocketConnection {
   readonly sent: string[] = [];
 
   send(data: string): void {
@@ -68,14 +68,14 @@ it("typed runtime control reconnect executes once and stores one terminal result
       runtimeDir: join(root, "run"),
     },
   });
-  const cockpitDb = openMemoryDatabase();
+  const hubDb = openMemoryDatabase();
   const daemonDb = openSparkDaemonDatabase(paths);
   try {
-    migrate(cockpitDb);
+    migrate(hubDb);
     const now = "2026-07-15T00:00:00.000Z";
     const runtimeId = createId("rt");
     const bindingId = createId("rtwb");
-    cockpitDb
+    hubDb
       .prepare(
         `INSERT INTO runtime_connections
         (id, installation_id, name, status, protocol_version, capabilities_json, labels_json,
@@ -83,7 +83,7 @@ it("typed runtime control reconnect executes once and stores one terminal result
        VALUES (?, 'install-typed-control', 'Typed daemon', 'offline', ?, '{}', '{}', ?, ?)`,
       )
       .run(runtimeId, runtimeProtocolVersion, now, now);
-    cockpitDb
+    hubDb
       .prepare(
         `INSERT INTO runtime_workspace_bindings
         (id, runtime_id, local_workspace_key, local_path, display_name, status,
@@ -91,14 +91,14 @@ it("typed runtime control reconnect executes once and stores one terminal result
        VALUES (?, ?, 'typed-control', ?, 'Typed control', 'available', '{}', '{}', ?, ?)`,
       )
       .run(bindingId, runtimeId, root, now, now);
-    const workspace = createWorkspaceWithLease(cockpitDb, {
+    const workspace = createWorkspaceWithLease(hubDb, {
       slug: "typed-control",
       name: "Typed control",
       runtimeWorkspaceBindingId: bindingId,
       createdAt: now,
     });
     const daemonWorkspace = registerWorkspace(daemonDb, {
-      serverUrl: "https://cockpit.example.test/",
+      serverUrl: "https://hub.example.test/",
       serverBindingId: bindingId,
       serverWorkspaceId: workspace.id,
       serverStatus: "available",
@@ -109,7 +109,7 @@ it("typed runtime control reconnect executes once and stores one terminal result
       localPath: root,
       now,
     });
-    const queued = submitRuntimeControlCommand(cockpitDb, {
+    const queued = submitRuntimeControlCommand(hubDb, {
       runtimeId,
       workspaceId: workspace.id,
       idempotencyKey: createId("idem"),
@@ -122,8 +122,8 @@ it("typed runtime control reconnect executes once and stores one terminal result
       createdAt: now,
     });
 
-    const firstCockpitSocket = connectCockpit(cockpitDb, runtimeId, daemonWorkspace.id, now);
-    const firstDelivery = latestCommand(firstCockpitSocket);
+    const firstHubSocket = connectHub(hubDb, runtimeId, daemonWorkspace.id, now);
+    const firstDelivery = latestCommand(firstHubSocket);
     const firstDaemonSocket = new CapturingDaemonSocket();
     let executionCount = 0;
     const daemonContext = messageContext(paths, daemonDb, runtimeId, () => {
@@ -133,9 +133,9 @@ it("typed runtime control reconnect executes once and stores one terminal result
     expect(executionCount).toBe(1);
     expect(firstDaemonSocket.sent.some(isCommandResult)).toBe(true);
 
-    firstCockpitSocket.close(1006, "drop before ack and result");
-    const secondCockpitSocket = connectCockpit(cockpitDb, runtimeId, daemonWorkspace.id, now);
-    const redelivery = latestCommand(secondCockpitSocket);
+    firstHubSocket.close(1006, "drop before ack and result");
+    const secondHubSocket = connectHub(hubDb, runtimeId, daemonWorkspace.id, now);
+    const redelivery = latestCommand(secondHubSocket);
     expect(redelivery.commandId).toBe(firstDelivery.commandId);
     expect(redelivery.messageId).not.toBe(firstDelivery.messageId);
 
@@ -146,18 +146,18 @@ it("typed runtime control reconnect executes once and stores one terminal result
     expect(replayedTerminal).toBeDefined();
     if (!replayedTerminal) throw new Error("Expected a replayed terminal result.");
     expect(replayedTerminal.payload.replayed).toBe(true);
-    for (const message of secondDaemonSocket.sent) secondCockpitSocket.emitMessage(message);
-    secondCockpitSocket.emitMessage(replayedTerminal);
+    for (const message of secondDaemonSocket.sent) secondHubSocket.emitMessage(message);
+    secondHubSocket.emitMessage(replayedTerminal);
 
-    const cockpitRecord = requireRuntimeControlCommand(cockpitDb, queued.commandId);
-    const terminalEventCount = cockpitDb
+    const hubRecord = requireRuntimeControlCommand(hubDb, queued.commandId);
+    const terminalEventCount = hubDb
       .prepare(
         `SELECT COUNT(*) AS count FROM events
          WHERE kind = 'runtime.control.result' AND subject_id = ?`,
       )
       .get(queued.commandId) as { count: number };
     const daemonReceiptBeforeAck = runtimeCommandReceipt(daemonDb, queued.commandId);
-    const ingestAck = secondCockpitSocket.sent
+    const ingestAck = secondHubSocket.sent
       .map((message) => JSON.parse(message) as { type?: string; ackOf?: string })
       .findLast(
         (message) =>
@@ -168,7 +168,7 @@ it("typed runtime control reconnect executes once and stores one terminal result
     await handleServerMessage(new CapturingDaemonSocket(), JSON.stringify(ingestAck), {
       ...daemonContext,
       onIngestAck(ackOf) {
-        const message = secondCockpitSocket.sent
+        const message = secondHubSocket.sent
           .map((value) => JSON.parse(value) as { ackOf?: string })
           .find((value) => value.ackOf === ackOf);
         expect(message).toBeDefined();
@@ -180,8 +180,8 @@ it("typed runtime control reconnect executes once and stores one terminal result
       ...secondDaemonSocket.sent.map((message) => Buffer.byteLength(JSON.stringify(message))),
     );
 
-    expect(cockpitRecord.status).toBe("succeeded");
-    expect(cockpitRecord.attemptCount).toBe(2);
+    expect(hubRecord.status).toBe("succeeded");
+    expect(hubRecord.attemptCount).toBe(2);
     expect(terminalEventCount.count).toBe(1);
     expect(daemonReceiptBeforeAck?.deliveryCount).toBe(2);
     expect(daemonReceiptAfterAck?.terminalAckedAt).toBe(now);
@@ -190,7 +190,7 @@ it("typed runtime control reconnect executes once and stores one terminal result
       "SPARK_TYPED_CONTROL_RECONNECT_TRANSCRIPT",
       JSON.stringify({
         commandId: queued.commandId,
-        deliveryAttempts: cockpitRecord.attemptCount,
+        deliveryAttempts: hubRecord.attemptCount,
         daemonExecutionCount: executionCount,
         terminalResultCount: terminalEventCount.count,
         daemonDeliveryCount: daemonReceiptAfterAck?.deliveryCount,
@@ -198,19 +198,19 @@ it("typed runtime control reconnect executes once and stores one terminal result
       }),
     );
   } finally {
-    cockpitDb.close();
+    hubDb.close();
     daemonDb.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-function connectCockpit(
+function connectHub(
   db: ReturnType<typeof openMemoryDatabase>,
   runtimeId: string,
   bindingId: string,
   sentAt: string,
-): CockpitSocket {
-  const ws = new CockpitSocket();
+): HubSocket {
+  const ws = new HubSocket();
   attachRuntimeWebSocket(ws, { db, runtimeId });
   ws.emitMessage({
     protocolVersion: runtimeProtocolVersion,
@@ -236,7 +236,7 @@ function connectCockpit(
   return ws;
 }
 
-function latestCommand(ws: CockpitSocket): ServerCommandEnvelope {
+function latestCommand(ws: HubSocket): ServerCommandEnvelope {
   const raw = ws.sent
     .map((message) => JSON.parse(message) as unknown)
     .findLast(

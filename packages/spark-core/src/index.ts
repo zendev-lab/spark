@@ -839,7 +839,7 @@ export interface SparkHostCommandContext extends SparkHostContext {
  * Agent/domain ref kinds (`kind:id`, e.g. `task:…`, `proj:…`).
  *
  * This is the in-process graph / memory / tool identity vocabulary owned by
- * spark-core. It is intentionally separate from the daemon/Cockpit wire id
+ * spark-core. It is intentionally separate from the daemon/Hub wire id
  * vocabulary in `@zendev-lab/spark-protocol` (`prefix_hex`, see
  * `packages/spark-protocol/src/refs.ts`). Do not invent a third id scheme —
  * map at the boundary when crossing from domain refs to wire ids (or vice versa).

@@ -75,54 +75,52 @@
       "@zendev-lab/spark-ui/headless": ["./packages/spark-ui/src/ui/headless.ts"],
       "@zendev-lab/spark-ui/markdown": ["./packages/spark-ui/src/markdown/index.ts"],
       "@zendev-lab/spark-ui/git-change": ["./packages/spark-ui/src/git-change.ts"],
-      "@zendev-lab/spark-cockpit-db": ["./packages/spark-cockpit-db/src/index.ts"],
+      "@zendev-lab/spark-hub-db": ["./packages/spark-hub-db/src/index.ts"],
       "@zendev-lab/spark-i18n": ["./packages/spark-i18n/src/index.ts"],
       "@zendev-lab/spark-i18n/cli": ["./packages/spark-i18n/src/cli.ts"],
-      "@zendev-lab/spark-i18n/cockpit": ["./packages/spark-i18n/src/cockpit/index.ts"],
+      "@zendev-lab/spark-i18n/hub": ["./packages/spark-i18n/src/hub/index.ts"],
       "@zendev-lab/spark-i18n/extension": ["./packages/spark-i18n/src/extension.ts"],
       "@zendev-lab/spark-tui-app/headless-role-executor": [
         "./apps/spark-tui/src/headless-role-executor.ts"
       ],
       "@zendev-lab/spark-protocol": ["./packages/spark-protocol/src/index.ts"],
       "@zendev-lab/spark-runtime": ["./packages/spark-runtime/src/index.ts"],
-      "@zendev-lab/spark-cockpit-coordination": [
-        "./packages/spark-cockpit-coordination/src/index.ts"
+      "@zendev-lab/spark-hub-coordination": ["./packages/spark-hub-coordination/src/index.ts"],
+      "@zendev-lab/spark-hub-coordination/agents-product": [
+        "./packages/spark-hub-coordination/src/agents-product.ts"
       ],
-      "@zendev-lab/spark-cockpit-coordination/agents-product": [
-        "./packages/spark-cockpit-coordination/src/agents-product.ts"
+      "@zendev-lab/spark-hub-coordination/artifact-cache": [
+        "./packages/spark-hub-coordination/src/artifact-cache.ts"
       ],
-      "@zendev-lab/spark-cockpit-coordination/artifact-cache": [
-        "./packages/spark-cockpit-coordination/src/artifact-cache.ts"
+      "@zendev-lab/spark-hub-coordination/hub-queries": [
+        "./packages/spark-hub-coordination/src/hub-queries.ts"
       ],
-      "@zendev-lab/spark-cockpit-coordination/cockpit-queries": [
-        "./packages/spark-cockpit-coordination/src/cockpit-queries.ts"
+      "@zendev-lab/spark-hub-coordination/command-submission": [
+        "./packages/spark-hub-coordination/src/command-submission.ts"
       ],
-      "@zendev-lab/spark-cockpit-coordination/command-submission": [
-        "./packages/spark-cockpit-coordination/src/command-submission.ts"
+      "@zendev-lab/spark-hub-coordination/events": [
+        "./packages/spark-hub-coordination/src/events.ts"
       ],
-      "@zendev-lab/spark-cockpit-coordination/events": [
-        "./packages/spark-cockpit-coordination/src/events.ts"
+      "@zendev-lab/spark-hub-coordination/liveness": [
+        "./packages/spark-hub-coordination/src/liveness.ts"
       ],
-      "@zendev-lab/spark-cockpit-coordination/liveness": [
-        "./packages/spark-cockpit-coordination/src/liveness.ts"
+      "@zendev-lab/spark-hub-coordination/project-hub": [
+        "./packages/spark-hub-coordination/src/project-hub.ts"
       ],
-      "@zendev-lab/spark-cockpit-coordination/project-cockpit": [
-        "./packages/spark-cockpit-coordination/src/project-cockpit.ts"
+      "@zendev-lab/spark-hub-coordination/projection-services": [
+        "./packages/spark-hub-coordination/src/projection-services.ts"
       ],
-      "@zendev-lab/spark-cockpit-coordination/projection-services": [
-        "./packages/spark-cockpit-coordination/src/projection-services.ts"
+      "@zendev-lab/spark-hub-coordination/runtime-registration": [
+        "./packages/spark-hub-coordination/src/runtime-registration.ts"
       ],
-      "@zendev-lab/spark-cockpit-coordination/runtime-registration": [
-        "./packages/spark-cockpit-coordination/src/runtime-registration.ts"
+      "@zendev-lab/spark-hub-coordination/runtime-ws": [
+        "./packages/spark-hub-coordination/src/runtime-ws.ts"
       ],
-      "@zendev-lab/spark-cockpit-coordination/runtime-ws": [
-        "./packages/spark-cockpit-coordination/src/runtime-ws.ts"
+      "@zendev-lab/spark-hub-coordination/routing": [
+        "./packages/spark-hub-coordination/src/routing.ts"
       ],
-      "@zendev-lab/spark-cockpit-coordination/routing": [
-        "./packages/spark-cockpit-coordination/src/routing.ts"
-      ],
-      "@zendev-lab/spark-cockpit-coordination/security": [
-        "./packages/spark-cockpit-coordination/src/security.ts"
+      "@zendev-lab/spark-hub-coordination/security": [
+        "./packages/spark-hub-coordination/src/security.ts"
       ],
       "@zendev-lab/spark-turn": ["./packages/spark-turn/src/agent-loop.ts"],
       "@zendev-lab/spark-update": ["./packages/spark-update/src/index.ts"],

@@ -7,7 +7,7 @@ npm retain their own package licenses and notices.
 
 - Source: <https://github.com/SikandarJODD/ai-elements>
 - Revision: `fa4bc217f84bc571378bc371332a154106772614`
-- Use: source-derived Cockpit conversation, model-selector, and response components
+- Use: source-derived Hub conversation, model-selector, and response components
 - Relationship: the upstream project describes itself as an unofficial Svelte port of Vercel AI
   Elements
 
