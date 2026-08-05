@@ -28,13 +28,13 @@ test("workspace strategy ledger covers architecture with exact classifications",
   const result = validateWorkspaceTestStrategy({ ledger: strategy, architecture, root });
   assert.deepEqual(result.errors, []);
   assert.deepEqual(result.counts, {
-    "local-test": 30,
+    "local-test": 31,
     "browser-test": 1,
     "process-test": 1,
     "boundary-contract": 7,
     "generated-only": 1,
   });
-  assert.equal(result.total, 40);
+  assert.equal(result.total, 41);
   assert.equal(result.unclassified, 0);
   assert.deepEqual((strategy as any).workspaces["@zendev-lab/spark-cli"], {
     path: "apps/spark-cli",
@@ -157,11 +157,11 @@ test("workspace strategy checker fails closed for missing, extra, enum, count, a
   }
 });
 
-test("mutation ledger covers 12 included and 28 deferred workspaces without reports", () => {
+test("mutation ledger covers 12 included and 29 deferred workspaces without reports", () => {
   const result = validateMutationOwnership({ ledger: mutation, architecture, root, runnerSource });
   assert.deepEqual(result.errors, []);
-  assert.deepEqual(result.counts, { included: 12, deferred: 28 });
-  assert.equal(result.total, 40);
+  assert.deepEqual(result.counts, { included: 12, deferred: 29 });
+  assert.equal(result.total, 41);
   assert.equal(result.unclassified, 0);
 });
 
