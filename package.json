@@ -45,6 +45,8 @@
     "test:capability": "node scripts/run-capability-sentinels.mjs",
     "test:capability:ce": "node --experimental-strip-types scripts/run-nightly-capability-ce.mts",
     "test:mutation": "node scripts/run-leaf-mutation.mjs",
+    "bench:lens": "vp test bench --config benchmarks/lens/vitest.config.ts",
+    "bench:lens:codspeed": "vp test bench --config benchmarks/lens/vitest.config.ts --run",
     "build": "pnpm --filter @zendev-lab/spark-daemon run build && pnpm --filter @zendev-lab/spark-hub run build",
     "release:pack": "node scripts/pack-release.mjs",
     "build:docs": "pnpm --filter @zendev-lab/spark-docs run build",
@@ -90,6 +92,7 @@
     "typebox": "catalog:"
   },
   "devDependencies": {
+    "@codspeed/vitest-plugin": "5.7.1",
     "@earendil-works/pi-coding-agent": "^0.83.0",
     "@j178/prek": "0.4.11",
     "@types/node": "^26.1.1",

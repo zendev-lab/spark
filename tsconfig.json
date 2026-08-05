@@ -4,6 +4,7 @@
     "packages/**/*.ts",
     "apps/spark-cli/**/*.ts",
     "apps/spark-tui/**/*.ts",
+    "benchmarks/**/*.ts",
     "test/**/*.ts"
   ],
   "exclude": ["apps/spark-cockpit/**", "packages/spark-mcp-spike/**"]
