@@ -526,7 +526,7 @@ test("Spark extension refreshes SparkWidget after claim and TODO tools", async (
     );
     assert.equal(widgetCalls.length, 1);
     assert.equal(widgetCalls[0]?.key, "spark-status");
-    assert.deepEqual(widgetCalls[0]?.opts, { placement: "aboveEditor" });
+    assert.deepEqual(widgetCalls[0]?.opts, { placement: "belowEditor" });
     assert.equal(renderRequests, 1);
     const claimedWidget = widgetComponent as WidgetComponent | undefined;
     assert.ok(claimedWidget);
