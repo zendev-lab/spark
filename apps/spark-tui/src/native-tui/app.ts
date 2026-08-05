@@ -1052,12 +1052,6 @@ export class SparkNativeTuiApp implements Component, Focusable {
         break;
       case "task.update": {
         this.cockpit.tasks.set(parsed.task.ref, parsed.task);
-        this.session.addCustomMessage({
-          customType: "task-view",
-          content: `${parsed.task.ref} [${parsed.task.status}] ${parsed.task.title}`,
-          display: true,
-          details: { task: parsed.task },
-        });
         const evidenceSummary = this.taskCompletionEvidenceSummary(parsed.task);
         if (evidenceSummary) this.session.addSystemMessage(evidenceSummary);
         break;
@@ -1364,6 +1358,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
     const queue = this.renderInputQueue(width);
     const composer = [this.separatorLine(width), ...this.editor.render(width)];
     const footer = [
+      ...(this.widgets.has("spark-status") ? [] : this.renderTaskStatus(width)),
       ...this.renderWidgets("belowEditor", width),
       truncateToWidth(this.renderTheme.fg("muted", this.footerLine()), width),
     ];
@@ -1648,6 +1643,32 @@ export class SparkNativeTuiApp implements Component, Focusable {
           : (widget.lines ?? []);
         return lines.map((line) => truncateToWidth(line, width));
       });
+  }
+
+  private renderTaskStatus(width: number): string[] {
+    const tasks = [...this.cockpit.tasks.values()]
+      .filter((task) => task.status !== "done" && task.status !== "cancelled")
+      .sort((left, right) => taskStatusRank(left.status) - taskStatusRank(right.status));
+    return tasks.slice(0, MAX_COCKPIT_PANEL_ROWS).map((task, index, visibleTasks) => {
+      const marker = index === 0 ? "◆" : index === visibleTasks.length - 1 ? "└─" : "├─";
+      const doneTodos = task.todos.filter((todo) => todo.status === "done").length;
+      const todos = task.todos.length > 0 ? " · todos " + doneTodos + "/" + task.todos.length : "";
+      const owner = task.owner?.trim() ? " · " + task.owner.trim() : "";
+      return truncateToWidth(
+        this.renderTheme.fg("dim", marker) +
+          " " +
+          this.renderTheme.fg(taskStatusColor(task.status), taskStatusIcon(task.status)) +
+          " " +
+          task.ref +
+          " [" +
+          task.status +
+          "] " +
+          task.title +
+          todos +
+          owner,
+        width,
+      );
+    });
   }
 
   private renderActiveCockpitPanel(width: number): string[] {
@@ -2271,5 +2292,60 @@ export class SparkNativeTuiApp implements Component, Focusable {
     if (message.role === "tool") return `tool:${message.toolName ?? "tool"}> `;
     if (message.role === "thinking") return "thinking> ";
     return "system> ";
+  }
+}
+
+function taskStatusRank(status: SparkTaskView["status"]): number {
+  switch (status) {
+    case "running":
+      return 0;
+    case "blocked":
+      return 1;
+    case "ready":
+      return 2;
+    case "pending":
+      return 3;
+    case "failed":
+      return 4;
+    case "done":
+      return 5;
+    case "cancelled":
+      return 6;
+  }
+}
+
+function taskStatusIcon(status: SparkTaskView["status"]): string {
+  switch (status) {
+    case "running":
+      return "→";
+    case "blocked":
+      return "⏸";
+    case "ready":
+      return "◇";
+    case "pending":
+      return "○";
+    case "failed":
+      return "✗";
+    case "done":
+      return "✓";
+    case "cancelled":
+      return "⊘";
+  }
+}
+
+function taskStatusColor(status: SparkTaskView["status"]): string {
+  switch (status) {
+    case "running":
+      return "accent";
+    case "blocked":
+      return "warning";
+    case "failed":
+      return "error";
+    case "done":
+      return "success";
+    case "ready":
+    case "pending":
+    case "cancelled":
+      return "dim";
   }
 }

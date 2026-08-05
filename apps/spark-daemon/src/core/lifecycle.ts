@@ -76,13 +76,54 @@ export class SparkDaemonRestartRequestedError extends Error {
 }
 
 /**
+ * A restart has two observability points with different ordering requirements:
+ * active turns must see the intent synchronously at safe checkpoints, while
+ * process teardown must wait one timer turn so the restart RPC ACK can enter
+ * the socket write buffer. `aborted` and `reason` expose the former; the
+ * `abort` event exposes the latter.
+ */
+class SparkDaemonRestartSignal extends EventTarget implements AbortSignal {
+  readonly [Symbol.toStringTag] = "AbortSignal";
+  onabort: ((this: AbortSignal, event: Event) => unknown) | null = null;
+  private requested = false;
+  private published = false;
+  private requestReason: unknown;
+
+  get aborted(): boolean {
+    return this.requested;
+  }
+
+  get reason(): unknown {
+    return this.requestReason;
+  }
+
+  request(reason: unknown): void {
+    if (this.requested) return;
+    this.requested = true;
+    this.requestReason = reason;
+  }
+
+  publishAbort(): void {
+    if (!this.requested || this.published) return;
+    this.published = true;
+    const event = new Event("abort");
+    this.dispatchEvent(event);
+    this.onabort?.call(this, event);
+  }
+
+  throwIfAborted(): void {
+    if (this.requested) throw this.requestReason;
+  }
+}
+
+/**
  * Process-local lifecycle intent. Requesting a restart is deliberately split
  * from process replacement: the daemon drains work, while its service helper
  * owns starting the next process generation.
  */
 export class SparkDaemonLifecycle {
   private readonly drainController = new AbortController();
-  private readonly restartController = new AbortController();
+  private readonly restart = new SparkDaemonRestartSignal();
   private readonly identity: SparkDaemonProcessIdentity;
   private restartId: string | undefined;
   private targetInstanceId: string | undefined;
@@ -121,9 +162,12 @@ export class SparkDaemonLifecycle {
     return this.drainController.signal;
   }
 
-  /** Asynchronous exit gate: delayed so the restart RPC ACK can be written first. */
+  /**
+   * Two-phase restart gate. `aborted` is synchronous for execution checkpoints;
+   * the `abort` event is delayed so process teardown cannot outrun the RPC ACK.
+   */
   get restartSignal(): AbortSignal {
-    return this.restartController.signal;
+    return this.restart;
   }
 
   get restartRequested(): boolean {
@@ -224,11 +268,12 @@ export class SparkDaemonLifecycle {
       this.targetVersion = resolvedTarget.version;
       this.targetBuildFingerprint = resolvedTarget.buildFingerprint;
       const reason = new SparkDaemonRestartRequestedError();
+      this.restart.request(reason);
       this.drainController.abort(reason);
       // Let the local-RPC response enter the socket write buffer before the
       // zero-active fast path starts tearing down the server.
       setTimeout(() => {
-        this.restartController.abort(reason);
+        this.restart.publishAbort();
       }, 0);
     }
     return {

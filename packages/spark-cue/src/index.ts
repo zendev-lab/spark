@@ -73,6 +73,7 @@ export {
   resolveCueWorkingDirectory,
   normalizeCueResourceNeeds,
   resolvePythonRunner,
+  cueShellCommandSyntaxIssue,
 } from "./tools/register.ts";
 
 export { default } from "./tools/register.ts";

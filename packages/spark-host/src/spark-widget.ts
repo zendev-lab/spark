@@ -5,7 +5,7 @@ import type { SessionTodoEntry, SessionTodoStatus } from "@zendev-lab/spark-task
 export type { SessionTodoEntry, SessionTodoStatus } from "@zendev-lab/spark-tasks";
 
 /**
- * spark-widget.ts — Above-editor widget showing durable Spark project/task state plus
+ * spark-widget.ts — Bottom status widget showing durable Spark project/task state plus
  * claimed task TODO working sets.
  *
  * Display model:

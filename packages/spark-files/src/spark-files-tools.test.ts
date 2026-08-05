@@ -39,6 +39,7 @@ interface ToolResult {
 
 interface ToolConfig {
   name: string;
+  parameters: unknown;
   execute(
     toolCallId: string,
     params: Record<string, unknown>,
@@ -54,6 +55,15 @@ function collectTools(
   const tools = new Map<string, ToolConfig>();
   register({ registerTool: (config) => tools.set(config.name, config as ToolConfig) });
   return tools;
+}
+
+function requiredParameters(tool: ToolConfig | undefined): string[] {
+  const schema = tool?.parameters;
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return [];
+  const required = (schema as { required?: unknown }).required;
+  return Array.isArray(required)
+    ? required.filter((value): value is string => typeof value === "string")
+    : [];
 }
 
 const noop = () => {};
@@ -138,6 +148,90 @@ test("read expectedVersion fails closed without returning a newer snapshot", asy
   });
 });
 
+test("file tool schemas keep artifactRef out of required inputs", () => {
+  const tools = collectTools(piFilesExtension);
+  for (const name of ["read", "write", "edit", "grep", "find"] as const) {
+    const required = requiredParameters(tools.get(name));
+    assert.equal(required.includes("artifactRef"), false, `${name} requires artifactRef`);
+  }
+});
+
+test("blank artifactRef uses the selected cwd across file tools", async () => {
+  await withTempDir(async (dir) => {
+    const tools = collectTools(piFilesExtension);
+    const write = tools.get("write")!;
+    const read = tools.get("read")!;
+    const edit = tools.get("edit")!;
+    const grep = tools.get("grep")!;
+    const find = tools.get("find")!;
+
+    const created = await write.execute(
+      "blank-artifact-write",
+      {
+        path: "selected.txt",
+        artifactRef: "",
+        content: "needle before\n",
+        expectedVersion: "missing",
+      },
+      undefined,
+      noop,
+      { cwd: dir },
+    );
+    assert.equal(created.isError ?? false, false);
+
+    const selected = await read.execute(
+      "blank-artifact-read",
+      { path: "selected.txt", artifactRef: "" },
+      undefined,
+      noop,
+      { cwd: dir },
+    );
+    assert.match(text(selected), /needle before/u);
+
+    const edited = await edit.execute(
+      "blank-artifact-edit",
+      {
+        path: "selected.txt",
+        artifactRef: "",
+        edits: [{ oldText: "needle before", newText: "needle after" }],
+      },
+      undefined,
+      noop,
+      { cwd: dir },
+    );
+    assert.equal(edited.isError ?? false, false);
+
+    const matches = await grep.execute(
+      "blank-artifact-grep",
+      { pattern: "needle after", artifactRef: "" },
+      undefined,
+      noop,
+      { cwd: dir },
+    );
+    assert.match(text(matches), /selected\.txt:1: needle after/u);
+
+    const files = await find.execute(
+      "blank-artifact-find",
+      { pattern: "*.txt", artifactRef: "" },
+      undefined,
+      noop,
+      { cwd: dir },
+    );
+    assert.match(text(files), /selected\.txt/u);
+
+    await assert.rejects(
+      read.execute(
+        "invalid-artifact-read",
+        { path: "selected.txt", artifactRef: "not-an-artifact" },
+        undefined,
+        noop,
+        { cwd: dir },
+      ),
+      /artifactRef must be an artifact: ref/u,
+    );
+  });
+});
+
 test("batch CAS checks every file before promoting any content", async () => {
   await withTempDir(async (dir) => {
     const first = join(dir, "first.txt");
@@ -219,6 +313,65 @@ test("relative paths route through an attached git_change Artifact worktree", as
     );
     assert.match(text(result), /from artifact worktree/u);
     assert.equal(result.details?.artifactRef, artifact.ref);
+
+    const write = collectTools(piFilesExtension).get("write")!;
+    const artifactWrite = await write.execute(
+      "artifact-write",
+      {
+        path: "created-in-artifact.txt",
+        artifactRef: artifact.ref,
+        content: "created in artifact worktree\n",
+        expectedVersion: "missing",
+      },
+      undefined,
+      noop,
+      { cwd: sessionCwd, sparkStateRoot: join(dir, ".spark") },
+    );
+    assert.equal(artifactWrite.isError ?? false, false);
+    assert.equal(
+      await readFile(join(worktree, "created-in-artifact.txt"), "utf8"),
+      "created in artifact worktree\n",
+    );
+
+    const edit = collectTools(piFilesExtension).get("edit")!;
+    const artifactEdit = await edit.execute(
+      "artifact-edit",
+      {
+        path: "artifact.txt",
+        artifactRef: artifact.ref,
+        edits: [{ oldText: "from artifact worktree", newText: "from edited artifact worktree" }],
+      },
+      undefined,
+      noop,
+      { cwd: sessionCwd, sparkStateRoot: join(dir, ".spark") },
+    );
+    assert.equal(artifactEdit.isError ?? false, false);
+    assert.equal(
+      await readFile(join(worktree, "artifact.txt"), "utf8"),
+      "from edited artifact worktree\n",
+    );
+
+    const grep = collectTools(piFilesExtension).get("grep")!;
+    const artifactMatch = await grep.execute(
+      "artifact-grep",
+      { pattern: "from edited artifact", artifactRef: artifact.ref },
+      undefined,
+      noop,
+      { cwd: sessionCwd, sparkStateRoot: join(dir, ".spark") },
+    );
+    assert.match(text(artifactMatch), /artifact\.txt:1: from edited artifact worktree/u);
+    assert.equal(artifactMatch.details?.artifactRef, artifact.ref);
+
+    const find = collectTools(piFilesExtension).get("find")!;
+    const artifactFile = await find.execute(
+      "artifact-find",
+      { pattern: "artifact.txt", artifactRef: artifact.ref },
+      undefined,
+      noop,
+      { cwd: sessionCwd, sparkStateRoot: join(dir, ".spark") },
+    );
+    assert.match(text(artifactFile), /artifact\.txt/u);
+    assert.equal(artifactFile.details?.artifactRef, artifact.ref);
 
     const selected = await read.execute(
       "selected-cwd-read",

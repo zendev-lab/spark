@@ -98,6 +98,11 @@ type SparkNativeDaemonObservation = {
   userMessageDisplayed?: boolean;
 };
 
+function nativeMessageDetail(message: SparkNativeMessage, key: string): string | undefined {
+  const value = message.details?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
 function hasDaemonQueueCapabilities(
   responder: SparkNativeResponder,
 ): responder is SparkNativeResponder &
@@ -301,6 +306,17 @@ export class SparkNativeSession {
       return messages.findIndex(
         (existing) => existing.role === "tool" && existing.toolCallId === native.toolCallId,
       );
+    }
+    if (native.role === "user") {
+      const invocationId = nativeMessageDetail(native, "invocationId");
+      if (invocationId) {
+        const optimistic = messages.findIndex(
+          (existing) =>
+            existing.role === "user" &&
+            nativeMessageDetail(existing, "invocationId") === invocationId,
+        );
+        if (optimistic >= 0) return optimistic;
+      }
     }
     return -1;
   }
@@ -530,7 +546,11 @@ export class SparkNativeSession {
       this.queuedFollowUps.push({ text, mode, submissionId });
     } else {
       observation.userMessageDisplayed = true;
-      this.pushMessage({ role: "user", text: displayNativeSubmittedInput(text) });
+      this.pushMessage({
+        role: "user",
+        text: displayNativeSubmittedInput(text),
+        details: { submissionId },
+      });
     }
 
     const admissionPromise = this.daemonAdmissionTail
@@ -637,6 +657,7 @@ export class SparkNativeSession {
       observation.admissionAbort = undefined;
     }
     observation.admission = admission;
+    this.bindOptimisticUserMessage(observation.submissionId, admission.invocationId);
     this.observedDaemonInvocationIds.add(admission.invocationId);
     this.removeOptimisticInput(observation.submissionId);
     this.removeFailedAdmission(observation.submissionId);
@@ -1100,6 +1121,32 @@ export class SparkNativeSession {
       role: "system",
       text: nativeTuiStrings.admissionRejected(nativeDaemonErrorMessage(error)),
     });
+  }
+
+  private bindOptimisticUserMessage(submissionId: string, invocationId: string): void {
+    const optimisticIndex = this.messages.findIndex(
+      (candidate) =>
+        candidate.role === "user" &&
+        nativeMessageDetail(candidate, "submissionId") === submissionId,
+    );
+    if (optimisticIndex < 0) return;
+    const projectedIndex = this.messages.findIndex(
+      (candidate, index) =>
+        index !== optimisticIndex &&
+        candidate.role === "user" &&
+        nativeMessageDetail(candidate, "invocationId") === invocationId,
+    );
+    if (projectedIndex >= 0) {
+      const optimistic = this.messages[optimisticIndex]!;
+      const projected = this.messages[projectedIndex]!;
+      const keepIndex = Math.min(optimisticIndex, projectedIndex);
+      const dropIndex = Math.max(optimisticIndex, projectedIndex);
+      this.messages[keepIndex] = this.normalizeMessage(projected, optimistic);
+      this.messages.splice(dropIndex, 1);
+      return;
+    }
+    const optimistic = this.messages[optimisticIndex]!;
+    optimistic.details = { ...optimistic.details, invocationId };
   }
 
   private removeFailedAdmission(submissionId: string): void {

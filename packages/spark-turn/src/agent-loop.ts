@@ -133,6 +133,7 @@ import {
   mergeToolResultDetails,
   normalizeApprovalMethod,
   normalizeApprovalRejectAction,
+  normalizeToolCallArguments,
   rawToolOutputProducer,
   rawToolResultEvidenceBody,
   rawToolResultRecoveryPath,
@@ -1141,11 +1142,15 @@ export class SparkAgentLoop {
         return errorToolResult(toolCall, `tool execution denied by host policy: ${toolCall.name}`);
       }
 
+      const normalizedToolCall: ToolCall = {
+        ...toolCall,
+        arguments: normalizeToolCallArguments(tool.config.parameters, toolCall.arguments),
+      };
       const ctx: SparkHostContext = this.host.makeContext({
         model: this.getModel(),
         sessionId: this.viewSessionId,
       });
-      const approval = await this.requestToolApprovalIfNeeded(toolCall, tool, signal);
+      const approval = await this.requestToolApprovalIfNeeded(normalizedToolCall, tool, signal);
       if (!approval.approved) return errorToolResult(toolCall, approval.message);
       if (this.host.getTool(toolCall.name) !== tool) {
         return errorToolResult(
@@ -1172,14 +1177,20 @@ export class SparkAgentLoop {
       const cleanupAbort = relayAbort(signal, toolAbort);
       try {
         const result = await runWithTimeout(
-          tool.config.execute(toolCall.id, toolCall.arguments, toolAbort.signal, onUpdate, ctx),
+          tool.config.execute(
+            normalizedToolCall.id,
+            normalizedToolCall.arguments,
+            toolAbort.signal,
+            onUpdate,
+            ctx,
+          ),
           this.toolTimeoutMs,
           `Spark tool "${toolCall.name}" timed out after ${this.toolTimeoutMs}ms`,
           (error) => toolAbort.abort(error),
         );
         const compacted = compactToolResultContent({
           toolName: toolCall.name,
-          args: toolCall.arguments,
+          args: normalizedToolCall.arguments,
           content: result.content,
         });
         const recoveryDecision = shouldRecordRawToolResultEvidence({
@@ -1189,7 +1200,7 @@ export class SparkAgentLoop {
         });
         const rawRecovery = recoveryDecision.record
           ? await this.recordRawToolResultEvidence({
-              toolCall,
+              toolCall: normalizedToolCall,
               result,
               ctx,
               decision: recoveryDecision,
@@ -1383,9 +1394,7 @@ export class SparkAgentLoop {
     }
     return {
       approved: false,
-      message:
-        response.message ??
-        `tool "${toolCall.name}" was not approved (${response.status || "blocked"})`,
+      message: renderToolApprovalRejection(toolCall.name, response.status, response.message),
     };
   }
 
@@ -2014,3 +2023,23 @@ function formatAssistantUsageSummary(assistant: AssistantMessage): string | unde
 }
 
 export { SparkAgentLoop as SparkTurnRunner };
+
+function renderToolApprovalRejection(
+  toolName: string,
+  status: string | undefined,
+  message: string | undefined,
+): string {
+  const detail = typeof message === "string" ? message.trim() : "";
+  if (/^escape$/iu.test(detail)) {
+    return (
+      "Tool " +
+      JSON.stringify(toolName) +
+      " approval cancelled by user (Escape); no tool execution occurred. Retry the same call only after approval is available."
+    );
+  }
+  const state =
+    status === "cancelled" ? "cancelled" : status === "blocked" ? "blocked" : "rejected";
+  return detail
+    ? "Tool " + JSON.stringify(toolName) + " approval " + state + ": " + detail
+    : "Tool " + JSON.stringify(toolName) + " approval " + state + "; no tool execution occurred.";
+}

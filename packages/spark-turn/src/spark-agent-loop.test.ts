@@ -2448,7 +2448,7 @@ test("SparkAgentLoop blocks approval-required tools without explicit approval", 
           requestId: request.requestId,
           status: "blocked",
           approved: false,
-          message: "approval unavailable",
+          message: "escape",
           metadata: {},
         };
       },
@@ -2508,7 +2508,8 @@ test("SparkAgentLoop blocks approval-required tools without explicit approval", 
   const toolResult = loop.getMessages().find((message) => message.role === "toolResult");
   assert.equal(toolResult !== undefined, true);
   assert.equal((toolResult as { isError: boolean }).isError, true);
-  assert.match(JSON.stringify(toolResult), /approval unavailable/);
+  assert.match(JSON.stringify(toolResult), /dangerous.*approval cancelled.*Escape/u);
+  assert.match(JSON.stringify(toolResult), /no tool execution occurred/u);
 });
 
 test("SparkAgentLoop skip approvalMethod executes requiresApproval tools without interaction", async () => {
@@ -3496,6 +3497,55 @@ test("SparkAgentLoop refuses concurrent submit while in flight", async () => {
   resolveStream(buildAssistant([{ type: "text", text: "ok" }]));
   await first;
   assert.equal(loop.getState(), "idle");
+});
+
+test("SparkAgentLoop strips provider-filled blank optional arguments before dispatch", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-agent-loop-optional-args-test" });
+  let executedArgs: Record<string, unknown> | undefined;
+  host.registerTool({
+    name: "optional_args_probe",
+    description: "records normalized optional arguments",
+    parameters: {
+      type: "object",
+      properties: {
+        action: { type: "string" },
+        artifactRef: { type: "string" },
+        cwd: { type: "string" },
+      },
+      required: ["action"],
+    },
+    policy: { effect: "read", executionMode: "parallel", approval: "none" },
+    async execute(_id: string, args: Record<string, unknown>) {
+      executedArgs = args;
+      return { content: [{ type: "text", text: "normalized" }] };
+    },
+  } as never);
+  const call = {
+    type: "toolCall",
+    id: "optional-args-call",
+    name: "optional_args_probe",
+    arguments: { action: "inspect", artifactRef: "", cwd: "   " },
+  };
+  const loop = new SparkAgentLoop({
+    host,
+    streamFunction: makeFakeStream({
+      rounds: [
+        [{ type: "done", reason: "toolUse", message: buildAssistant([call], "toolUse") }],
+        [
+          {
+            type: "done",
+            reason: "stop",
+            message: buildAssistant([{ type: "text", text: "done" }]),
+          },
+        ],
+      ],
+    }),
+    getModel: () => TEST_MODEL,
+  });
+
+  await loop.submit("normalize optional args");
+
+  assert.deepEqual(executedArgs, { action: "inspect" });
 });
 
 test("SIDE-EFFECT-003 SparkAgentLoop rechecks host effect policy immediately before dispatch", async () => {

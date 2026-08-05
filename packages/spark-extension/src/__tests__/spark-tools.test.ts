@@ -461,6 +461,7 @@ test("Spark tool normalizer groups reject invalid explicit parameters instead of
       [() => normalizeSparkProjectOptionalString(" Demo ", "title"), "Demo"],
       [() => normalizeSparkProjectOutputLanguage(undefined), undefined],
       [() => normalizeSparkProjectOutputLanguage("zh"), "zh"],
+      [() => normalizeSparkProjectOutputLanguage(""), undefined],
       [
         () =>
           normalizeSparkProjectPatch({
