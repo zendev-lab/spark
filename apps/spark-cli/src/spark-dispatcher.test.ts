@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { test } from "vitest";
 
 import {
@@ -185,6 +186,20 @@ test("dispatcher resolves source companion executables without importing app CLI
   const update = resolveTargetCommand("update");
   assert.match(update.command, /packages\/spark-update\/bin\/spark-update$/u);
   assert.deepEqual(update.args, []);
+});
+
+test("dispatcher honors an explicit packaged updater command", () => {
+  const previous = process.env.SPARK_UPDATE_COMMAND;
+  const executable = fileURLToPath(
+    new URL("../../../packages/spark-update/bin/spark-update", import.meta.url),
+  );
+  process.env.SPARK_UPDATE_COMMAND = executable;
+  try {
+    assert.equal(resolveTargetCommand("update").command, executable);
+  } finally {
+    if (previous === undefined) delete process.env.SPARK_UPDATE_COMMAND;
+    else process.env.SPARK_UPDATE_COMMAND = previous;
+  }
 });
 
 test("spark-cli package depends only on shared libraries", () => {

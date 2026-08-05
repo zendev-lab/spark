@@ -304,6 +304,7 @@ function packagedTargetCommand(target: SparkDispatcherTarget): string | undefine
     hub: "SPARK_HUB_COMMAND",
     mcp: "SPARK_MCP_COMMAND",
     tui: "SPARK_TUI_COMMAND",
+    update: "SPARK_UPDATE_COMMAND",
   };
   const variable = variableByTarget[target];
   return variable ? process.env[variable]?.trim() : undefined;
