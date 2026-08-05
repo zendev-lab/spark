@@ -76,7 +76,7 @@ export class SparkWidgetController {
     (key, cb) => {
       (
         this.ctx?.ui as { setWidget?: (...args: unknown[]) => void } | null | undefined
-      )?.setWidget?.(key, cb, { placement: "aboveEditor" });
+      )?.setWidget?.(key, cb, { placement: "belowEditor" });
     },
   );
 

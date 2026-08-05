@@ -144,13 +144,13 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       const action = normalizeGitAction(params.action);
 
       if (action === "inspect") {
-        const artifactRef =
-          params.artifactRef === undefined
-            ? undefined
-            : await resolveGitChangeRef(store, params.artifactRef);
+        const requestedArtifactRef = stringOrUndefined(params.artifactRef);
+        const artifactRef = requestedArtifactRef
+          ? await resolveGitChangeRef(store, requestedArtifactRef, action)
+          : undefined;
         const body = await service.inspect({
           artifactRef,
-          worktreePath: typeof params.worktreePath === "string" ? params.worktreePath : undefined,
+          worktreePath: stringOrUndefined(params.worktreePath),
         });
         return gitResult(action, renderBody(body), { gitChange: body });
       }
@@ -181,7 +181,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
         return changedResult(action, artifact);
       }
 
-      const artifactRef = await resolveGitChangeRef(store, params.artifactRef);
+      const artifactRef = await resolveGitChangeRef(store, params.artifactRef, action);
       if (action === "layer_add") {
         return changedResult(
           action,
@@ -258,11 +258,26 @@ function gitResult(action: GitLifecycleAction, text: string, details: Record<str
 async function resolveGitChangeRef(
   store: ReturnType<typeof defaultArtifactStore>,
   value: unknown,
+  action: GitLifecycleAction,
 ): Promise<ArtifactRef> {
-  if (typeof value !== "string" || !value.startsWith("artifact:")) {
-    throw new Error("artifactRef must be an artifact: ref");
+  const requestedValue = stringOrUndefined(value);
+  if (!requestedValue) {
+    throw new Error(
+      "git action " +
+        JSON.stringify(action) +
+        " requires artifactRef (an artifact: ref or unambiguous prefix); omit artifactRef only for git action inspect.",
+    );
   }
-  const requested = value as ArtifactRef;
+  if (!requestedValue.startsWith("artifact:")) {
+    throw new Error(
+      "git action " +
+        JSON.stringify(action) +
+        " received invalid artifactRef " +
+        JSON.stringify(requestedValue) +
+        "; expected an artifact: ref or unambiguous prefix.",
+    );
+  }
+  const requested = requestedValue as ArtifactRef;
   const exact = await store.tryGet(requested);
   if (exact) {
     if (exact.body.kind !== "git_change") throw new Error(`${exact.ref} is not git_change`);

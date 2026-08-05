@@ -571,6 +571,58 @@ async function resolveCueExecTarget(
   };
 }
 
+export function cueShellCommandSyntaxIssue(command: string): string | undefined {
+  let quote: "single" | "double" | undefined;
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index];
+    if (char === "\\" && quote !== "single") {
+      index += 1;
+      continue;
+    }
+    if (quote === "single") {
+      if (char === "'") quote = undefined;
+      continue;
+    }
+    if (quote === "double") {
+      if (char === '"') quote = undefined;
+      continue;
+    }
+    if (char === "'") {
+      quote = "single";
+      continue;
+    }
+    if (char === '"') {
+      quote = "double";
+      continue;
+    }
+    if (char === ";")
+      return "cue_exec received bash ';' syntax. Use cue-shell '->' or '~>' between jobs, or make separate cue_exec calls.";
+    if (char === "<")
+      return "cue_exec received shell redirection '<'. cue-shell is direct-exec; pass input through a file tool or a supported command argument instead.";
+    if (char === ">" && command[index - 1] !== "|")
+      return "cue_exec received shell redirection '>'. cue-shell is direct-exec; inspect stderr with the returned job output instead of redirecting it.";
+    if (char !== "|") continue;
+    if (command[index + 1] === ">") {
+      index += 1;
+      continue;
+    }
+    if (command[index + 1] === "&" && command[index + 2] === ">") {
+      index += 2;
+      continue;
+    }
+    if (command[index + 1] === "?" && command[index + 2] === "|") {
+      index += 2;
+      continue;
+    }
+    if (command[index + 1] === "|") {
+      while (command[index + 1] === "|") index += 1;
+      continue;
+    }
+    return "cue_exec received a bare bash pipe '|'. Use cue-shell '|>' for stdout piping, or use separate cue_exec/file-tool calls.";
+  }
+  return undefined;
+}
+
 function normalizeRequiredCueString(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error(`${field} must be a non-empty string`);
@@ -580,10 +632,11 @@ function normalizeRequiredCueString(value: unknown, field: string): string {
 
 function normalizeOptionalCueString(value: unknown, field: string): string | undefined {
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`${field} must be a non-empty string`);
+  if (typeof value !== "string") {
+    throw new Error(field + " must be a string when provided");
   }
-  return value.trim();
+  const trimmed = value.trim();
+  return trimmed || undefined;
 }
 
 const CUE_ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -930,6 +983,7 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
       "cue-shell is direct-exec (execvp), not bash: do not use shell-only syntax such as semicolon command lists, redirection, or subshell tests. " +
       "Its composition operators are: |> pipes stdout within one job, &&/|| are job-internal logical operators, -> runs jobs serially on success, ~> runs serially ignoring failure, ||| runs jobs in parallel, and |?| races jobs until one succeeds. " +
       "Prefer direct-exec commands and Pi file tools; do not use shell wrappers for shell-only syntax. " +
+      "Use Spark grep/find tools for repository search; do not rely on environment wrappers such as rtk to translate find/rg flags. " +
       "Set background=true to start without waiting; track with cue_jobs action=status/wait, stop with cue_jobs action=stop. " +
       "For resource-gated jobs, pass needs={ gpu: 1, gpu_mem: '24GiB' } instead of embedding :run(need...) in command. " +
       "Runs without a PTY by default; set pty=true only for commands that genuinely need terminal semantics. " +
@@ -1002,6 +1056,8 @@ export function registerSparkCueTools(pi: SparkCueHostApi) {
     ) {
       rejectRemovedCueParam(params, "tail", "tail_bytes", "cue_exec");
       const command = normalizeRequiredCueString(params.command, "cue_exec command");
+      const syntaxIssue = cueShellCommandSyntaxIssue(command);
+      if (syntaxIssue) throw new Error(syntaxIssue);
       const background = normalizeCueBoolean(params.background, false, "cue_exec background");
       const pty = normalizeCueBoolean(params.pty, false, "cue_exec pty");
       const requestedCwd = normalizeOptionalCueString(params.cwd, "cue_exec cwd");

@@ -264,7 +264,9 @@ or error out:
 | `cmd1 \| cmd2`                     | `cmd1 \|> cmd2`                                                   | `                                                       | `is reserved; use`\|>` for stdout pipe |
 
 When in doubt: cue-shell is direct-exec with its own grammar. If you
-catch yourself writing bash-isms, check the operator table above first.
+catch yourself writing bash-isms, check the operator table above first. For
+repository search, prefer Spark's `grep`/`find` tools; environment wrappers
+such as `rtk find` can reject flags that the native command would accept.
 
 **⚠️ Multiple sync `cue_exec()` calls in the same function_call block may be
 merged by the agent framework into a single job.** If you need true

@@ -629,7 +629,7 @@ test("SparkNativeTuiApp renders component widget factories natively", () => {
       render: () => [theme.fg("accent", `◆ Spark status width=${tui.terminal.columns}`)],
       invalidate: () => undefined,
     }),
-    { placement: "aboveEditor" },
+    { placement: "belowEditor" },
   );
 
   const rendered = app.render(100).join("\n");
@@ -1227,6 +1227,41 @@ test("native UI transport consumes view model events without concrete TUI protoc
   );
   assert.match(narrow, /gpt-5\.6-sol • xhigh/);
   assert.doesNotMatch(narrow, /\(baidu-oneapi\)/);
+});
+
+test("native UI transport projects task.update without a task-view transcript message", async () => {
+  const session = new SparkNativeSession();
+  const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
+  const ui = createSparkNativeUiTransport(app, session);
+
+  ui.publishView?.({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "task.update",
+    task: {
+      version: SPARK_PROTOCOL_VERSION,
+      ref: "task:bottom-status",
+      title: "Keep task status at the bottom",
+      status: "running",
+      todos: [{ id: "todo-1", content: "render the projection", status: "in_progress", notes: [] }],
+      runRefs: [],
+      evidenceRefs: [],
+      artifactRefs: [],
+      metadata: {},
+    },
+  });
+
+  assert.equal(app.cockpitSnapshot().tasks, 1);
+  app.setEditorText("draft task prompt");
+  const rendered = stripAnsi(app.render(120).join("\n"));
+  assert.match(
+    rendered,
+    /task:bottom-status \[running\] Keep task status at the bottom · todos 0\/1/,
+  );
+  assert.doesNotMatch(rendered, /custom:task-view>/);
+  assert.ok(
+    rendered.indexOf("task:bottom-status [running]") > rendered.indexOf("draft task prompt"),
+    "task status must be rendered below the composer",
+  );
 });
 
 test("native UI transport prints task completion evidence summaries", () => {
