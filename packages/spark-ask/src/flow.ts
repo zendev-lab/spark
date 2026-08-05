@@ -3,7 +3,7 @@ import type {
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
 } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-tui/text";
+import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
 import { Type } from "typebox";
 
 import { SparkAskFlowController } from "./ui/controller.ts";

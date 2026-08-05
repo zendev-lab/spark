@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-roles",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Canonical role execution, dedicated Skill workers, and reusable role specs.",
   "license": "MIT",
@@ -24,7 +24,7 @@
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-host": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
-    "@zendev-lab/spark-tui": "workspace:^",
+    "@zendev-lab/spark-tui-adapter": "workspace:^",
     "es-toolkit": "catalog:",
     "typebox": "catalog:"
   },

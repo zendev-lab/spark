@@ -1,5 +1,5 @@
 {
-  "name": "spark",
+  "name": "@zendev-lab/spark",
   "version": "0.2.1",
   "private": true,
   "description": "Spark monorepo: daemon-first agent orchestration across TUI, Hub, and channels, with Pi retained only as an SDK kernel.",
@@ -24,8 +24,7 @@
   "workspaces": {
     "packages": [
       "apps/*",
-      "packages/*",
-      "!packages/spark-mcp-spike"
+      "packages/*"
     ]
   },
   "os": [
@@ -35,7 +34,7 @@
   "type": "module",
   "scripts": {
     "check": "pnpm run check:static && pnpm run check:docs && pnpm run test:unit && pnpm run test:process:source",
-    "check:static": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/check-architecture-ratchets.mjs && node scripts/check-npm-product.mjs && node --experimental-strip-types scripts/check-lens-release.mts && pnpm run check:evidence-surface && pnpm run check:boundaries && pnpm run check:test-quality && pnpm run check:test-ownership && node scripts/check-doc-terminology.mjs && vp fmt . --check && vp lint --quiet && pnpm run typecheck",
+    "check:static": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && pnpm --filter @zendev-lab/spark-docs exec astro sync && node scripts/sync-workspace-versions.mjs && node scripts/check-architecture-ratchets.mjs && node scripts/check-npm-product.mjs && node --experimental-strip-types scripts/check-lens-release.mts && pnpm run check:evidence-surface && pnpm run check:boundaries && pnpm run check:test-quality && pnpm run check:test-ownership && node scripts/check-doc-terminology.mjs && vp fmt . --check && vp lint --quiet && pnpm run typecheck",
     "check:evidence-surface": "node scripts/check-evidence-surface.mjs",
     "check:boundaries": "depcruise --config .dependency-cruiser.cjs apps packages test && node scripts/check-spark-ui-import-boundary.mjs",
     "fix": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && vp fmt . --write && vp lint --fix --quiet && pnpm run typecheck",
@@ -78,6 +77,7 @@
     "@zendev-lab/spark-graft": "workspace:^",
     "@zendev-lab/spark-host": "workspace:^",
     "@zendev-lab/spark-loop": "workspace:^",
+    "@zendev-lab/spark-mcp": "workspace:^",
     "@zendev-lab/spark-memory": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-repro": "workspace:^",
@@ -86,7 +86,7 @@
     "@zendev-lab/spark-session": "workspace:^",
     "@zendev-lab/spark-tasks": "workspace:^",
     "@zendev-lab/spark-tui": "workspace:^",
-    "@zendev-lab/spark-tui-app": "workspace:^",
+    "@zendev-lab/spark-tui-adapter": "workspace:^",
     "@zendev-lab/spark-turn": "workspace:^",
     "@zendev-lab/spark-update": "workspace:^",
     "@zendev-lab/spark-web": "workspace:^",

@@ -114,6 +114,7 @@ export class SparkUpdateManager {
       channel,
       env: this.#env,
       productRoot: this.#productRoot,
+      packageName: this.#buildInfo.packageName,
       commandPath: managed ? this.paths.launcherPath : this.#commandPath,
       platform: this.#platform,
     });
@@ -355,6 +356,7 @@ export class SparkUpdateManager {
         installation.method,
         version,
         installation.commandPath,
+        this.#buildInfo.packageName,
       );
       const result = await this.#run(update.command, update.args, {
         env: this.#env,
@@ -1069,6 +1071,7 @@ child.on("exit", (code, signal) => {
       installation.method,
       version,
       installation.commandPath,
+      this.#buildInfo.packageName,
     );
     const result = await this.#run(update.command, update.args, {
       env: this.#env,

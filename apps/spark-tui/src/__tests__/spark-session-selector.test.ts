@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 
 import type { SparkSessionRegistryRecord } from "@zendev-lab/spark-protocol";
-import { visibleWidth } from "@zendev-lab/spark-tui/text";
+import { visibleWidth } from "@zendev-lab/spark-tui-adapter/text";
 import type { Component } from "../tui/pi-tui-adapter.ts";
 import {
   createSparkSessionSelectorComponent,

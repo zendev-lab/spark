@@ -14,7 +14,10 @@ export function parseMigrationArguments(argv) {
     args: argv,
     options: {
       "baseline-version": { type: "string" },
+      "daemon-tarball": { type: "string" },
+      "hub-tarball": { type: "string" },
       tarball: { type: "string" },
+      "tui-tarball": { type: "string" },
     },
     strict: true,
   });
@@ -28,7 +31,13 @@ export function parseMigrationArguments(argv) {
   if (baselineVersion && !isStableVersion(baselineVersion)) {
     throw new Error(`Baseline version must be a stable x.y.z release: ${baselineVersion}`);
   }
-  return { candidateTarball, baselineVersion };
+  return {
+    candidateTarball,
+    baselineVersion,
+    ...(values["daemon-tarball"] ? { daemonTarball: values["daemon-tarball"] } : {}),
+    ...(values["hub-tarball"] ? { hubTarball: values["hub-tarball"] } : {}),
+    ...(values["tui-tarball"] ? { tuiTarball: values["tui-tarball"] } : {}),
+  };
 }
 
 export function selectPublishedBaselineVersion(published, currentVersion, explicitVersion) {
@@ -189,12 +198,19 @@ export async function runMixedVersionIpcMatrix(
 }
 
 async function main() {
-  const { candidateTarball, baselineVersion: explicitBaseline } = parseMigrationArguments(
-    process.argv.slice(2),
-  );
+  const {
+    candidateTarball,
+    baselineVersion: explicitBaseline,
+    daemonTarball,
+    hubTarball,
+    tuiTarball,
+  } = parseMigrationArguments(process.argv.slice(2));
   const root = process.cwd();
   const candidatePath = resolve(root, candidateTarball);
-  await access(candidatePath);
+  const companionPaths = [daemonTarball, hubTarball, tuiTarball]
+    .filter((path) => typeof path === "string")
+    .map((path) => resolve(root, path));
+  await Promise.all([access(candidatePath), ...companionPaths.map((path) => access(path))]);
   const currentVersion = JSON.parse(await readFile(join(root, "package.json"), "utf8")).version;
   await readCandidateArtifactIdentity(candidatePath, currentVersion);
   const npm = (args) => runCommand("npm", args, { cwd: root, env: process.env });
@@ -225,7 +241,7 @@ async function main() {
     await Promise.all([mkdir(baselineRoot), mkdir(candidateRoot)]);
     await Promise.all([
       install(baselineRoot, `${packageName}@${baselineVersion}`, npm),
-      install(candidateRoot, candidatePath, npm),
+      install(candidateRoot, [candidatePath, ...companionPaths], npm),
     ]);
     await runMixedVersionIpcMatrix({
       baselineSpark: join(baselineRoot, "node_modules", ".bin", "spark"),
@@ -251,6 +267,7 @@ async function main() {
 }
 
 async function install(prefix, specifier, npm) {
+  const specifiers = Array.isArray(specifier) ? specifier : [specifier];
   await npm([
     "install",
     "--prefix",
@@ -259,7 +276,7 @@ async function install(prefix, specifier, npm) {
     "--omit=dev",
     "--no-package-lock",
     "--no-save",
-    specifier,
+    ...specifiers,
   ]);
 }
 

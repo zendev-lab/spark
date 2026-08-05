@@ -1,7 +1,6 @@
 packages:
   - "apps/*"
   - "packages/*"
-  - "!packages/spark-mcp-spike"
 
 # Keep pnpm run/exec read-only while prek temporarily hides unstaged manifests.
 verifyDepsBeforeRun: warn

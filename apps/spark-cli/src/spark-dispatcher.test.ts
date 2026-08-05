@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { test } from "vitest";
 
 import {
@@ -38,6 +39,11 @@ test("parseSparkDispatcherArgs routes canonical planes and rejects removed alias
     kind: "dispatch",
     target: "acp",
     argv: [],
+  });
+  assert.deepEqual(parseSparkDispatcherArgs(["mcp", "--help"]), {
+    kind: "dispatch",
+    target: "mcp",
+    argv: ["--help"],
   });
   for (const removed of [
     ["sessions", "list", "--all-workspaces"],
@@ -174,9 +180,26 @@ test("dispatcher resolves source companion executables without importing app CLI
   const acp = resolveTargetCommand("acp");
   assert.match(acp.command, /packages\/spark-acp\/scripts\/stdio\.ts$/u);
   assert.deepEqual(acp.args, []);
+  const mcp = resolveTargetCommand("mcp");
+  assert.match(mcp.command, /packages\/spark-mcp\/scripts\/stdio\.ts$/u);
+  assert.deepEqual(mcp.args, []);
   const update = resolveTargetCommand("update");
   assert.match(update.command, /packages\/spark-update\/bin\/spark-update$/u);
   assert.deepEqual(update.args, []);
+});
+
+test("dispatcher honors an explicit packaged updater command", () => {
+  const previous = process.env.SPARK_UPDATE_COMMAND;
+  const executable = fileURLToPath(
+    new URL("../../../packages/spark-update/bin/spark-update", import.meta.url),
+  );
+  process.env.SPARK_UPDATE_COMMAND = executable;
+  try {
+    assert.equal(resolveTargetCommand("update").command, executable);
+  } finally {
+    if (previous === undefined) delete process.env.SPARK_UPDATE_COMMAND;
+    else process.env.SPARK_UPDATE_COMMAND = previous;
+  }
 });
 
 test("spark-cli package depends only on shared libraries", () => {
@@ -221,7 +244,7 @@ test("runSparkDispatcher fails fast for non-TTY TUI while preserving canonical h
     },
   };
   const launcher = {
-    run: async (target: "tui" | "daemon" | "hub" | "acp" | "update", argv: string[]) => {
+    run: async (target: "tui" | "daemon" | "hub" | "acp" | "mcp" | "update", argv: string[]) => {
       calls.push({ target, argv });
       return 0;
     },

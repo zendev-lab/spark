@@ -50,6 +50,13 @@ canonical tools:
 Shell execution, role fan-out, assignment, and workflow execution remain
 disabled on that surface.
 
+## MCP clients
+
+`spark mcp` (or the companion `spark-mcp`) is an explicit read-only stdio
+adapter for MCP clients. It delegates Memory status and list calls to the
+canonical Spark Memory owner; it does not add another store, session, or
+executor.
+
 ## ACP clients
 
 `spark acp` is a stdio adapter for compatible editor clients. It uses canonical

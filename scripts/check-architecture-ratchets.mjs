@@ -20,6 +20,12 @@ const frozenCompatibilityExtensions = new Set([
   "./packages/spark-ai/src/baidu-oneapi-compat-extension.ts",
   "./packages/spark-extension/src/extension/index.ts",
 ]);
+const validDistributions = new Set([
+  "bundled-only",
+  "private",
+  "public-npm",
+  "public-npm-compatibility",
+]);
 const validLayers = new Set([
   "adapter",
   "application",
@@ -50,7 +56,6 @@ const legacyDaemonClientCompatibilitySources = new Set([
 
 function runArchitectureRatchets() {
   const failures = [];
-  const sealedPackagePaths = new Set(architecture.sealedPackagePaths ?? []);
   const workspacePackages = ["apps", "packages"].flatMap((workspaceDir) =>
     readdirSync(join(root, workspaceDir), { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -58,22 +63,12 @@ function runArchitectureRatchets() {
       .map((entry) => {
         const path = `${workspaceDir}/${entry.name}`;
         return { path, manifest: readJson(join(root, path, "package.json")) };
-      })
-      .filter(({ path }) => !sealedPackagePaths.has(path)),
+      }),
   );
   const workspaceByName = new Map(
     workspacePackages.map((workspacePackage) => [workspacePackage.manifest.name, workspacePackage]),
   );
   const declaredPackages = architecture.packages ?? {};
-
-  for (const sealedPath of sealedPackagePaths) {
-    if (!isFile(join(root, sealedPath, "package.json"))) {
-      failures.push(`sealed package ${sealedPath} must retain its source manifest`);
-    }
-    if (Object.values(declaredPackages).some((declaration) => declaration.path === sealedPath)) {
-      failures.push(`sealed package ${sealedPath} must not remain in the package inventory`);
-    }
-  }
 
   if (workspacePackages.length > architecture.maxWorkspacePackages) {
     failures.push(
@@ -104,9 +99,12 @@ function runArchitectureRatchets() {
     if (!validStateWriters.has(declaration.stateWriter)) {
       failures.push(`${manifest.name} has invalid stateWriter ${declaration.stateWriter}.`);
     }
+    if (!validDistributions.has(declaration.distribution ?? "bundled-only")) {
+      failures.push(`${manifest.name} has invalid distribution ${declaration.distribution}.`);
+    }
     if (manifest.private !== true) {
       failures.push(
-        `${manifest.name} must remain private; @zendev-lab/spark is the only published product.`,
+        `${manifest.name} source workspace must remain private; public npm artifacts are generated from declared application distributions.`,
       );
     }
 

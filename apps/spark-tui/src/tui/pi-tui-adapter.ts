@@ -12,7 +12,7 @@ export {
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
-} from "@zendev-lab/spark-tui/pi-tui";
+} from "@zendev-lab/spark-tui-adapter/pi-tui";
 export type {
   AutocompleteItem,
   AutocompleteProvider,
@@ -27,4 +27,4 @@ export type {
   SelectListLayoutOptions,
   SelectListTheme,
   SlashCommand,
-} from "@zendev-lab/spark-tui/pi-tui";
+} from "@zendev-lab/spark-tui-adapter/pi-tui";

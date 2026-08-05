@@ -1,4 +1,4 @@
-# @zendev-lab/spark-tui-app
+# @zendev-lab/spark-tui
 
 Spark's native terminal host. Prompts use the daemon `turn.submit` path; foreground streaming follows `turn.stream` and completion follows `turn.status`.
 
@@ -13,11 +13,15 @@ spark daemon model list --all
 ```
 
 Spark 0.2 removes the Pi-style `--print`, `--mode`, and `--list-models`
-compatibility flags. `spark-tui` remains the private terminal-host executable;
-use the unified `spark` CLI for product commands.
+compatibility flags. `@zendev-lab/spark-tui` is the public standalone terminal
+app; the complete `@zendev-lab/spark` package installs the same lockstep version
+and exposes it through `spark tui`.
+
+The app's source workspace remains private, but the generated
+`@zendev-lab/spark-tui` npm distribution is independently installable and
+contains compiled JavaScript only.
 
 ## Configuration
-
 Spark follows the standard XDG config, data, cache, state, and runtime roots by default. Set `SPARK_HOME` only when one self-contained root is preferred:
 
 ```sh

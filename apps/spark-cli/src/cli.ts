@@ -8,7 +8,7 @@ import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-syst
 
 const dispatcherStrings = sparkCliDispatcherStrings();
 
-export type SparkDispatcherTarget = "tui" | "daemon" | "hub" | "acp" | "update";
+export type SparkDispatcherTarget = "tui" | "daemon" | "hub" | "acp" | "mcp" | "update";
 
 export type SparkDispatcherCommand =
   | {
@@ -75,6 +75,8 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
       return { kind: "dispatch", target: "hub", argv: rest };
     case "acp":
       return { kind: "dispatch", target: "acp", argv: rest };
+    case "mcp":
+      return { kind: "dispatch", target: "mcp", argv: rest };
     default:
       return errorCommand(dispatcherStrings.unknownSubcommand(first, argv));
   }
@@ -286,12 +288,26 @@ function targetLabel(target: SparkDispatcherTarget): string {
 }
 
 function localTargetCommand(target: SparkDispatcherTarget): string | undefined {
+  const configured = packagedTargetCommand(target);
+  if (configured && existsSync(configured)) return realpathSync(configured);
   const adjacent = adjacentTargetCommand(target);
   if (adjacent && existsSync(adjacent)) return realpathSync(adjacent);
   const sourceExecutable = sourceCheckoutTargetCommand(target);
   return sourceExecutable && existsSync(sourceExecutable)
     ? realpathSync(sourceExecutable)
     : undefined;
+}
+
+function packagedTargetCommand(target: SparkDispatcherTarget): string | undefined {
+  const variableByTarget: Partial<Record<SparkDispatcherTarget, string>> = {
+    daemon: "SPARK_DAEMON_COMMAND",
+    hub: "SPARK_HUB_COMMAND",
+    mcp: "SPARK_MCP_COMMAND",
+    tui: "SPARK_TUI_COMMAND",
+    update: "SPARK_UPDATE_COMMAND",
+  };
+  const variable = variableByTarget[target];
+  return variable ? process.env[variable]?.trim() : undefined;
 }
 
 function adjacentTargetCommand(target: SparkDispatcherTarget): string | undefined {
@@ -311,6 +327,7 @@ function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | un
     daemon: "../spark-daemon/bin/spark-daemon",
     hub: "../spark-cockpit/bin/spark-hub",
     acp: "../../packages/spark-acp/scripts/stdio.ts",
+    mcp: "../../packages/spark-mcp/scripts/stdio.ts",
     update: "../../packages/spark-update/bin/spark-update",
   };
   return resolve(cliRoot, entryByTarget[target]);
