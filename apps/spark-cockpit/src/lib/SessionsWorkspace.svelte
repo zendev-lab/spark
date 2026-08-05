@@ -31,6 +31,7 @@
   import { workspaceSessionsPath } from "$lib/workspace-routes";
   import {
     createId,
+    DEFAULT_SPARK_THINKING_LEVEL,
     sparkSlashActionBarForInput,
     sparkThinkingLevelOptions,
     type SparkActionView,
@@ -255,7 +256,9 @@
   );
   let effectiveModel = $derived(statusIdentity.model ?? null);
   let effectiveModelValue = $derived(effectiveModel ? modelValue(effectiveModel) : "");
-  let effectiveThinkingLevel = $derived(statusIdentity.thinkingLevel ?? "medium");
+  let effectiveThinkingLevel = $derived(
+    statusIdentity.thinkingLevel ?? DEFAULT_SPARK_THINKING_LEVEL,
+  );
   let effectiveModelAvailable = $derived(
     Boolean(
       effectiveModelValue &&

@@ -143,6 +143,26 @@ export function jsonSafe(value: unknown, seen = new WeakSet<object>()): unknown 
   );
 }
 
+export function normalizeToolCallArguments(
+  parameters: unknown,
+  args: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  if (!isPlainRecord(parameters) || !isPlainRecord(parameters.properties)) return { ...args };
+  const required = new Set(
+    Array.isArray(parameters.required)
+      ? parameters.required.filter((value): value is string => typeof value === "string")
+      : [],
+  );
+  const properties = parameters.properties;
+  return Object.fromEntries(
+    Object.entries(args).filter(([key, value]) => {
+      if (required.has(key) || !(key in properties)) return true;
+      if (value === undefined || value === null) return false;
+      return typeof value !== "string" || value.trim().length > 0;
+    }),
+  );
+}
+
 export function collectToolCalls(message: AssistantMessage): ToolCall[] {
   const toolCalls = message.content.filter((part): part is ToolCall => part.type === "toolCall");
   const seenIds = new Set<string>();

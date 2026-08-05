@@ -1,5 +1,5 @@
 import { untrack } from "svelte";
-import { createId } from "@zendev-lab/spark-protocol";
+import { createId, DEFAULT_SPARK_THINKING_LEVEL } from "@zendev-lab/spark-protocol";
 import {
   readSessionDraft,
   readSessionPendingSubmission,
@@ -66,10 +66,12 @@ export function createComposerController(sources: ComposerSources) {
   let sessionModel = $state("");
   let startThinkingLevel = $state(
     untrack(() =>
-      formIntent === "startConversation" ? (formValues?.thinkingLevel ?? "medium") : "medium",
+      formIntent === "startConversation"
+        ? (formValues?.thinkingLevel ?? DEFAULT_SPARK_THINKING_LEVEL)
+        : DEFAULT_SPARK_THINKING_LEVEL,
     ),
   );
-  let sessionThinkingLevel = $state("medium");
+  let sessionThinkingLevel = $state<string>(DEFAULT_SPARK_THINKING_LEVEL);
   let startMessage = $state(
     untrack(() => (formIntent === "startConversation" ? (formValues?.message ?? "") : "")),
   );

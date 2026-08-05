@@ -362,10 +362,14 @@ async function syncArtifact(
   cwd: string,
   params: Record<string, unknown>,
 ): Promise<Artifact> {
-  if (typeof params.artifactRef !== "string") {
+  const requestedArtifactRef =
+    typeof params.artifactRef === "string" && params.artifactRef.trim()
+      ? params.artifactRef.trim()
+      : undefined;
+  if (!requestedArtifactRef) {
     return createArtifact(store, cwd, { ...params, kind: params.kind ?? "issue" });
   }
-  const existing = await resolveArtifact(store, params.artifactRef);
+  const existing = await resolveArtifact(store, requestedArtifactRef);
   if (existing.body.kind === "git_change") {
     throw new Error("use git({ action: 'refresh' | 'sync' }) for git_change artifacts");
   }

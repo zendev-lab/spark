@@ -29,6 +29,7 @@ import {
   mergeSparkProviderSpecs,
 } from "@zendev-lab/spark-ai/control";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
+import { DEFAULT_SPARK_THINKING_LEVEL } from "@zendev-lab/spark-protocol";
 import { DEFAULT_SPARK_COMPACTION_SETTINGS, type SparkCompactionSettings } from "./compaction.ts";
 import { DEFAULT_SPARK_EXTENSION_SPECS } from "./extension-specs.ts";
 
@@ -85,6 +86,7 @@ export const DEFAULT_SPARK_CONFIG: SparkConfig = {
   themes: [],
   contextFiles: [],
   trustedWorkspaces: [],
+  activeThinkingLevel: DEFAULT_SPARK_THINKING_LEVEL,
   compact: { ...DEFAULT_SPARK_COMPACTION_SETTINGS },
 };
 
@@ -147,7 +149,8 @@ export function mergeWithDefault(raw: unknown): SparkConfig {
     activeProvider: typeof fields.activeProvider === "string" ? fields.activeProvider : undefined,
     activeModel: typeof fields.activeModel === "string" ? fields.activeModel : undefined,
     compact: parseSparkCompactionSettings(fields.compact),
-    activeThinkingLevel: parseThinkingLevel(fields.activeThinkingLevel),
+    activeThinkingLevel:
+      parseThinkingLevel(fields.activeThinkingLevel) ?? DEFAULT_SPARK_THINKING_LEVEL,
   };
 }
 
@@ -230,6 +233,7 @@ function cloneDefault(): SparkConfig {
     themes: [...(DEFAULT_SPARK_CONFIG.themes ?? [])],
     contextFiles: [...(DEFAULT_SPARK_CONFIG.contextFiles ?? [])],
     trustedWorkspaces: [...(DEFAULT_SPARK_CONFIG.trustedWorkspaces ?? [])],
+    activeThinkingLevel: DEFAULT_SPARK_CONFIG.activeThinkingLevel,
     compact: DEFAULT_SPARK_CONFIG.compact ? { ...DEFAULT_SPARK_CONFIG.compact } : undefined,
   };
 }

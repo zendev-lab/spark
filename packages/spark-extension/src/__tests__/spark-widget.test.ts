@@ -476,7 +476,12 @@ test("spark widget controller lets active loop use the foreground slot instead o
     const controller = new SparkWidgetController();
     await controller.refresh(dir, {
       ui: {
-        setWidget(_key: string, cb: SparkWidgetRegistration["cb"] | undefined) {
+        setWidget(
+          _key: string,
+          cb: SparkWidgetRegistration["cb"] | undefined,
+          options?: { placement?: "aboveEditor" | "belowEditor" },
+        ) {
+          assert.equal(options?.placement, "belowEditor");
           component = cb?.(tui, theme);
         },
       },

@@ -6,6 +6,7 @@ import { test } from "vitest";
 
 import {
   CueError,
+  cueShellCommandSyntaxIssue,
   defaultSocketPath,
   type JobInfo,
   type ScriptResult,
@@ -573,6 +574,17 @@ test("script_run executes python through uv run and script_eval uses uv run --sc
       ),
     /script_eval venv is only supported for language=python/,
   );
+});
+
+test("cue-shell command preflight explains bash syntax before dispatch", () => {
+  assert.equal(cueShellCommandSyntaxIssue("cargo build |> grep error"), undefined);
+  assert.equal(cueShellCommandSyntaxIssue("cargo build |&> grep error"), undefined);
+  assert.equal(cueShellCommandSyntaxIssue("cargo build -> cargo test"), undefined);
+  assert.equal(cueShellCommandSyntaxIssue("cargo build ~> cargo test"), undefined);
+  assert.match(cueShellCommandSyntaxIssue("git status | head") ?? "", /bare bash pipe/u);
+  assert.match(cueShellCommandSyntaxIssue("git status; git diff") ?? "", /bash ';' syntax/u);
+  assert.match(cueShellCommandSyntaxIssue("git status 2>/dev/null") ?? "", /redirection/u);
+  assert.equal(cueShellCommandSyntaxIssue("echo 'a | b'"), undefined);
 });
 
 test("spark-cue tool descriptions match cue-shell chain operator contract", () => {
