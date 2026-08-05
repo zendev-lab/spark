@@ -6,8 +6,69 @@ import { join, resolve } from "node:path";
 import { resolveProductRuntimeDependencies } from "./product-runtime-closure.mjs";
 
 const root = process.cwd();
-const productDirectory = resolve(root, "dist/npm-package");
-const productManifestPath = resolve(productDirectory, "package.json");
+const productsDirectory = resolve(root, "dist/npm-products");
+const products = [
+  {
+    id: "node",
+    directory: resolve(productsDirectory, "node"),
+    packageName: "@zendev-lab/spark",
+    bins: ["spark", "spark-tui", "spark-daemon", "spark-acp", "spark-update"],
+    requiredAssets: [
+      "bin/spark",
+      "bin/spark-tui",
+      "bin/spark-daemon",
+      "bin/spark-acp",
+      "bin/spark-update",
+      "dist/spark-cli.js",
+      "dist/spark-tui.js",
+      "dist/spark-daemon.js",
+      "dist/spark-headless-role-executor.js",
+      "dist/spark-acp.js",
+      "dist/spark-update.js",
+      "dist/build-info.json",
+      "dist/migrations/0001_initial.sql",
+      "skills/spark-cue/SKILL.md",
+      "THIRD_PARTY_NOTICES.md",
+    ],
+    forbiddenAssets: [
+      "bin/spark-hub",
+      "dist/spark-hub.js",
+      "dist/spark-hub-server.js",
+      "dist/spark-hub-web-service.js",
+      "build/handler.js",
+    ],
+  },
+  {
+    id: "hub",
+    directory: resolve(productsDirectory, "hub"),
+    packageName: "@zendev-lab/spark-hub",
+    bins: ["spark-hub"],
+    requiredAssets: [
+      "bin/spark-hub",
+      "dist/spark-hub.js",
+      "dist/spark-hub-server.js",
+      "dist/spark-hub-web-service.js",
+      "dist/build-info.json",
+      "THIRD_PARTY_NOTICES.md",
+      "build/handler.js",
+    ],
+    forbiddenAssets: [
+      "bin/spark",
+      "bin/spark-tui",
+      "bin/spark-daemon",
+      "bin/spark-acp",
+      "bin/spark-update",
+      "dist/spark-cli.js",
+      "dist/spark-tui.js",
+      "dist/spark-daemon.js",
+      "dist/spark-headless-role-executor.js",
+      "dist/spark-acp.js",
+      "dist/spark-update.js",
+      "dist/migrations/0001_initial.sql",
+      "skills/spark-cue/SKILL.md",
+    ],
+  },
+];
 
 async function exists(path) {
   try {
@@ -23,6 +84,16 @@ async function countFiles(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (entry.isDirectory()) count += await countFiles(join(directory, entry.name));
     else if (entry.isFile()) count += 1;
+  }
+  return count;
+}
+
+async function countSourceMaps(directory) {
+  let count = 0;
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) count += await countSourceMaps(path);
+    else if (entry.isFile() && entry.name.endsWith(".map")) count += 1;
   }
   return count;
 }
@@ -70,93 +141,89 @@ for (const workspaceRoot of ["apps", "packages"]) {
     }
   }
 }
-if (await exists(productManifestPath)) {
+
+for (const product of products) {
+  const productManifestPath = resolve(product.directory, "package.json");
+  if (!(await exists(productManifestPath))) continue;
   const manifest = JSON.parse(await readFile(productManifestPath, "utf8"));
-  if (manifest.name !== "@zendev-lab/spark")
-    failures.push("product name must be @zendev-lab/spark");
-  if (manifest.private === true) failures.push("generated npm product must be publishable");
-  for (const name of [
-    "spark",
-    "spark-tui",
-    "spark-daemon",
-    "spark-hub",
-    "spark-acp",
-    "spark-update",
-  ]) {
+  if (manifest.name !== product.packageName) {
+    failures.push(`${product.id} product name must be ${product.packageName}`);
+  }
+  if (manifest.version !== rootManifest.version) {
+    failures.push(`${product.id} product version must match the monorepo version`);
+  }
+  if (manifest.private === true) failures.push(`${product.id} npm product must be publishable`);
+  const actualBins = Object.keys(manifest.bin ?? {}).sort();
+  const expectedBins = [...product.bins].sort();
+  if (JSON.stringify(actualBins) !== JSON.stringify(expectedBins)) {
+    failures.push(
+      `${product.id} product bins must be exactly ${expectedBins.join(", ")}; received ${actualBins.join(", ")}`,
+    );
+  }
+  for (const name of product.bins) {
     if (manifest.bin?.[name] !== `./bin/${name}`) {
-      failures.push(`product must expose ${name} as a companion executable`);
+      failures.push(`${product.id} product must expose ${name} at ./bin/${name}`);
     }
   }
   if (manifest.bin?.["spark-cockpit"] !== undefined) {
-    failures.push("product must not expose the retired spark-cockpit executable");
+    failures.push(`${product.id} product must not expose the retired spark-cockpit executable`);
   }
   if (
     manifest.publishConfig?.access !== "public" ||
     manifest.publishConfig?.registry !== "https://registry.npmjs.org/"
   ) {
-    failures.push("product publishConfig must target the public npm registry");
+    failures.push(`${product.id} publishConfig must target the public npm registry`);
   }
   for (const field of ["keywords", "repository", "homepage", "bugs"]) {
     if (rootManifest[field] !== undefined && manifest[field] === undefined) {
-      failures.push(`product must retain root ${field} metadata`);
+      failures.push(`${product.id} product must retain root ${field} metadata`);
     }
   }
   if (!manifest.files?.includes("THIRD_PARTY_NOTICES.md")) {
-    failures.push("product files must include THIRD_PARTY_NOTICES.md");
+    failures.push(`${product.id} product files must include THIRD_PARTY_NOTICES.md`);
   }
-  const expectedDependencies = await resolveProductRuntimeDependencies(root, productDirectory);
+  const expectedDependencies = await resolveProductRuntimeDependencies(root, product.directory);
   if (JSON.stringify(manifest.dependencies) !== JSON.stringify(expectedDependencies)) {
-    failures.push("product dependencies must match the generated runtime closure");
+    failures.push(`${product.id} dependencies must match its generated runtime closure`);
   }
-  for (const asset of [
-    "bin/spark",
-    "bin/spark-tui",
-    "bin/spark-daemon",
-    "bin/spark-hub",
-    "bin/spark-acp",
-    "bin/spark-update",
-    "dist/spark-cli.js",
-    "dist/spark-tui.js",
-    "dist/spark-daemon.js",
-    "dist/spark-headless-role-executor.js",
-    "dist/spark-cockpit-server.js",
-    "dist/spark-cockpit-web-service.js",
-    "dist/spark-update.js",
-    "dist/migrations/0001_initial.sql",
-    "skills/spark-cue/SKILL.md",
-    "THIRD_PARTY_NOTICES.md",
-    "build/handler.js",
-  ]) {
-    if (!(await exists(resolve(productDirectory, asset))))
-      failures.push(`missing product asset: ${asset}`);
-  }
-  if (await exists(resolve(productDirectory, "bin/spark-cockpit"))) {
-    failures.push("generated product must omit bin/spark-cockpit");
-  }
-  if (await exists(resolve(productDirectory, "skills/model-reproduction"))) {
-    failures.push("generated product must not include the model-reproduction domain skill");
-  }
-  const sourceMaps = await (async function countSourceMaps(directory) {
-    let count = 0;
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) count += await countSourceMaps(path);
-      else if (entry.isFile() && entry.name.endsWith(".map")) count += 1;
+  for (const asset of product.requiredAssets) {
+    if (!(await exists(resolve(product.directory, asset)))) {
+      failures.push(`${product.id} product is missing asset: ${asset}`);
     }
-    return count;
-  })(productDirectory);
-  if (sourceMaps > 0)
-    failures.push(`product must omit runtime-unneeded source maps (found ${sourceMaps})`);
+  }
+  for (const asset of product.forbiddenAssets) {
+    if (await exists(resolve(product.directory, asset))) {
+      failures.push(`${product.id} product must omit asset: ${asset}`);
+    }
+  }
+  if (await exists(resolve(product.directory, "skills/model-reproduction"))) {
+    failures.push(`${product.id} product must not include the model-reproduction domain skill`);
+  }
+  const buildInfo = JSON.parse(
+    await readFile(resolve(product.directory, "dist/build-info.json"), "utf8"),
+  );
+  if (
+    buildInfo.packageName !== product.packageName ||
+    buildInfo.version !== rootManifest.version ||
+    !buildInfo.fingerprint
+  ) {
+    failures.push(`${product.id} product must expose matching build-info identity`);
+  }
+  const sourceMaps = await countSourceMaps(product.directory);
+  if (sourceMaps > 0) {
+    failures.push(`${product.id} product must omit runtime-unneeded source maps (${sourceMaps})`);
+  }
 }
 
 if (failures.length) {
-  throw new Error(`Invalid npm product:\n- ${failures.join("\n- ")}`);
+  throw new Error(`Invalid npm distributions:\n- ${failures.join("\n- ")}`);
 }
-if (await exists(productManifestPath)) {
-  const bytes = (await stat(productManifestPath)).size;
-  console.log(
-    `Npm product policy valid (${await countFiles(productDirectory)} files; manifest ${bytes} bytes).`,
+const built = [];
+for (const product of products) {
+  const manifestPath = resolve(product.directory, "package.json");
+  if (!(await exists(manifestPath))) continue;
+  built.push(
+    `${product.id}: ${await countFiles(product.directory)} files; manifest ${(await stat(manifestPath)).size} bytes`,
   );
-} else {
-  console.log("Npm product policy valid.");
 }
+console.log(built.length ? `Npm distribution policy valid (${built.join("; ")}).` : "Npm distribution policy valid.");

@@ -30,13 +30,16 @@ Run a foreground task without opening the TUI:
 spark run "Summarize this repository and identify its validation command."
 ```
 
-Open the Hub management application:
+Install the Hub distribution only on the machine or server that owns the global
+control plane:
 
 ```bash
+npm install --global @zendev-lab/spark-hub
 spark-hub
 ```
 
-The equivalent dispatcher form is:
+When both distributions are on `PATH`, the node dispatcher can use the equivalent
+convenience form:
 
 ```bash
 spark hub
@@ -119,7 +122,8 @@ knowledge of internal packages or storage.
 
 The top-level dispatcher accepts `spark daemon`, `spark hub`, `spark tui`, and
 `spark acp` as convenience forms and executes the matching `spark-*` companion.
-Run `spark --help` for the current command map. The complete command reference is
+`spark hub` therefore requires the separately installed Hub distribution. Run
+`spark --help` for the current command map. The complete command reference is
 maintained in the [user documentation][cli-reference].
 
 ## Documentation
@@ -136,14 +140,24 @@ maintained in the [user documentation][cli-reference].
 
 ## Distribution and status
 
-`@zendev-lab/spark` is the only public npm product. It exposes the `spark`
-dispatcher and the companion executables `spark-daemon`, `spark-hub`,
-`spark-tui`, `spark-acp`, and `spark-update`. Source workspaces are private
-implementation boundaries compiled into that product rather than separately
-supported packages.
+Spark publishes two lockstep-versioned npm distributions from the same private
+monorepo:
 
-Spark is under active development. Managed installations provide explicit
-update and rollback behavior; source checkouts are never self-modified.
+- `@zendev-lab/spark` is the **node distribution**. It exposes `spark`,
+  `spark-daemon`, `spark-tui`, `spark-acp`, and `spark-update`, and contains only
+  the local execution/runtime closure.
+- `@zendev-lab/spark-hub` is the **Hub distribution**. It exposes `spark-hub`
+  and contains the global control plane plus its embedded Web UI.
+
+The split is a deployment and trust boundary, not a source-code ownership split.
+`apps/spark-daemon`, `apps/spark-tui`, and `apps/spark-cockpit` remain private
+composition roots, while reusable behavior remains in private `packages/*`
+workspaces. The two artifacts share a release version and protocol compatibility
+contract but can be installed and deployed independently.
+
+Spark is under active development. Managed node installations provide explicit
+update and rollback behavior; source checkouts are never self-modified. Hub
+updates are owned by its package manager or container deployment.
 
 Spark is MIT-licensed. Source-derived component notices are recorded in
 [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).

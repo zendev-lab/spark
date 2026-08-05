@@ -9,43 +9,52 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const releaseDirectory = resolve(root, "dist/release");
 const artifactOnly = process.argv.includes("--artifact-only");
 const rootManifest = await readJson(resolve(root, "package.json"));
-const releaseManifest = await readJson(resolve(releaseDirectory, "release-manifest.json"));
 const expectedTag = `v${rootManifest.version}`;
 const tag = process.env.GITHUB_REF_NAME?.trim() || expectedTag;
-const expectedAssetName = `spark-${expectedTag}.tgz`;
 const gitSha = process.env.GITHUB_SHA?.trim();
+const releases = [
+  {
+    id: "node",
+    packageName: "@zendev-lab/spark",
+    assetName: `spark-${expectedTag}.tgz`,
+    manifest: await readJson(resolve(releaseDirectory, "release-manifest.json")),
+  },
+  {
+    id: "hub",
+    packageName: "@zendev-lab/spark-hub",
+    assetName: `spark-hub-${expectedTag}.tgz`,
+    manifest: await readJson(resolve(releaseDirectory, "hub-release-manifest.json")),
+  },
+];
 
 assertEqual(tag, expectedTag, "Git tag");
-assertEqual(releaseManifest.packageName, "@zendev-lab/spark", "release package");
-assertEqual(releaseManifest.version, rootManifest.version, "release version");
-assertEqual(releaseManifest.assetName, expectedAssetName, "release asset name");
-assertEqual(
-  releaseManifest.npmTag,
-  rootManifest.version.includes("-") ? "next" : "latest",
-  "npm distribution tag",
-);
-if (gitSha) assertEqual(releaseManifest.gitSha, gitSha, "release Git SHA");
-
-const artifact = await readFile(resolve(releaseDirectory, releaseManifest.assetName));
-const assetSha256 = createHash("sha256").update(artifact).digest("hex");
-const npmIntegrity = `sha512-${createHash("sha512").update(artifact).digest("base64")}`;
-assertEqual(releaseManifest.assetSha256, assetSha256, "release asset SHA256");
-assertEqual(releaseManifest.npmIntegrity, npmIntegrity, "release npm integrity");
+for (const release of releases) {
+  verifyManifestIdentity(release);
+  await verifyLocalArtifact(release.manifest);
+}
 
 if (artifactOnly) {
-  console.log(`Verified ${releaseManifest.assetName} for ${expectedTag}.`);
+  console.log(`Verified ${releases.map((release) => release.assetName).join(" and ")} for ${expectedTag}.`);
   process.exit(0);
 }
 
-const npmPublished = await verifyNpmState(releaseManifest);
+const npmState = Object.fromEntries(
+  await Promise.all(
+    releases.map(async (release) => [release.id, await verifyNpmState(release.manifest)]),
+  ),
+);
 const githubRelease = await findGithubRelease(tag);
 const githubPublished = githubRelease !== null && githubRelease.draft !== true;
+const npmPublished = releases.every((release) => npmState[release.id] === true);
 
 if (githubPublished && !npmPublished) {
-  throw new Error(`GitHub Release ${tag} is published, but npm has no matching version.`);
+  const missing = releases
+    .filter((release) => npmState[release.id] !== true)
+    .map((release) => release.packageName);
+  throw new Error(`GitHub Release ${tag} is published, but npm is missing ${missing.join(", ")}.`);
 }
 if (githubPublished) {
-  await verifyGithubAsset(githubRelease, releaseManifest);
+  for (const release of releases) await verifyGithubAsset(githubRelease, release.manifest);
   assertEqual(
     githubRelease.prerelease === true,
     rootManifest.version.includes("-"),
@@ -57,15 +66,39 @@ await writeOutputs({
   github_published: githubPublished,
   github_release_exists: githubRelease !== null,
   npm_published: npmPublished,
+  npm_node_published: npmState.node,
+  npm_hub_published: npmState.hub,
 });
 console.log(
   JSON.stringify({
     tag,
-    npmPublished,
+    npmNodePublished: npmState.node,
+    npmHubPublished: npmState.hub,
     githubReleaseExists: githubRelease !== null,
     githubPublished,
   }),
 );
+
+function verifyManifestIdentity(release) {
+  const manifest = release.manifest;
+  assertEqual(manifest.packageName, release.packageName, `${release.id} release package`);
+  assertEqual(manifest.version, rootManifest.version, `${release.id} release version`);
+  assertEqual(manifest.assetName, release.assetName, `${release.id} release asset name`);
+  assertEqual(
+    manifest.npmTag,
+    rootManifest.version.includes("-") ? "next" : "latest",
+    `${release.id} npm distribution tag`,
+  );
+  if (gitSha) assertEqual(manifest.gitSha, gitSha, `${release.id} release Git SHA`);
+}
+
+async function verifyLocalArtifact(manifest) {
+  const artifact = await readFile(resolve(releaseDirectory, manifest.assetName));
+  const assetSha256 = createHash("sha256").update(artifact).digest("hex");
+  const npmIntegrity = `sha512-${createHash("sha512").update(artifact).digest("base64")}`;
+  assertEqual(manifest.assetSha256, assetSha256, `${manifest.packageName} asset SHA256`);
+  assertEqual(manifest.npmIntegrity, npmIntegrity, `${manifest.packageName} npm integrity`);
+}
 
 async function verifyNpmState(manifest) {
   const packagePath = encodeURIComponent(manifest.packageName);
@@ -78,7 +111,7 @@ async function verifyNpmState(manifest) {
     throw new Error(`npm registry returned ${response.status} for ${manifest.packageName}.`);
   }
   const metadata = await response.json();
-  assertEqual(metadata?.dist?.integrity, manifest.npmIntegrity, "published npm integrity");
+  assertEqual(metadata?.dist?.integrity, manifest.npmIntegrity, `${manifest.packageName} published npm integrity`);
   return true;
 }
 
@@ -91,8 +124,8 @@ async function findGithubRelease(releaseTag) {
   if (!response.ok) {
     throw new Error(`GitHub Releases API returned ${response.status} for ${repository}.`);
   }
-  const releases = await response.json();
-  return releases.find((release) => release.tag_name === releaseTag) ?? null;
+  const releaseEntries = await response.json();
+  return releaseEntries.find((release) => release.tag_name === releaseTag) ?? null;
 }
 
 async function verifyGithubAsset(release, manifest) {
@@ -110,7 +143,7 @@ async function verifyGithubAsset(release, manifest) {
   }
   const publishedArtifact = Buffer.from(await response.arrayBuffer());
   const publishedSha256 = createHash("sha256").update(publishedArtifact).digest("hex");
-  assertEqual(publishedSha256, manifest.assetSha256, "published GitHub asset SHA256");
+  assertEqual(publishedSha256, manifest.assetSha256, `${manifest.packageName} GitHub asset SHA256`);
 }
 
 async function githubFetch(url, options = {}) {

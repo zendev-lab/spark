@@ -34,18 +34,18 @@ ENV NODE_ENV=production \
     PORT=5173 \
     SPARK_HOME=/var/lib/spark \
     SPARK_INSTALL_METHOD=container \
-    SPARK_PRODUCT_DIST=/opt/spark/node_modules/@zendev-lab/spark/dist \
+    SPARK_PRODUCT_DIST=/opt/spark/node_modules/@zendev-lab/spark-hub/dist \
     SPARK_UPDATE_POLICY=manual \
     PATH=/opt/spark/node_modules/.bin:${PATH}
 
 WORKDIR /opt/spark
 
-COPY --from=build /src/dist/release/spark-v*.tgz /tmp/spark.tgz
+COPY --from=build /src/dist/release/spark-hub-v*.tgz /tmp/spark-hub.tgz
 COPY --from=build --chown=node:node /src/scripts/container-healthcheck.mjs /opt/spark/container-healthcheck.mjs
 
-RUN npm install --prefix /opt/spark --omit=dev --ignore-scripts /tmp/spark.tgz \
+RUN npm install --prefix /opt/spark --omit=dev --ignore-scripts /tmp/spark-hub.tgz \
     && npm cache clean --force \
-    && rm /tmp/spark.tgz \
+    && rm /tmp/spark-hub.tgz \
     && install -d -o node -g node /var/lib/spark
 
 USER node
@@ -57,4 +57,4 @@ STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["node", "/opt/spark/container-healthcheck.mjs"]
 
-CMD ["node", "/opt/spark/node_modules/@zendev-lab/spark/dist/spark-cockpit-server.js"]
+CMD ["node", "/opt/spark/node_modules/@zendev-lab/spark-hub/dist/spark-hub-server.js"]
