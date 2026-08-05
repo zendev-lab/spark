@@ -36,7 +36,11 @@ describe("Spark daemon multi-session restart continuation", () => {
       const successorShutdown = new AbortController();
       const allPredecessorSessionsStarted = deferred<void>();
       const releaseToRestartCheckpoint = deferred<void>();
-      const activeSessionIds = ["restart-session-a", "restart-session-b", "restart-session-c"] as const;
+      const activeSessionIds = [
+        "restart-session-a",
+        "restart-session-b",
+        "restart-session-c",
+      ] as const;
       const predecessorStarted = new Set<string>();
       let predecessor: Promise<void> | undefined;
       let successor: Promise<void> | undefined;
