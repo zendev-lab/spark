@@ -1237,6 +1237,7 @@ test("task updates stay in the bottom status block instead of transcript", () =>
     "◆ Phase: plan",
     "├─ ◇ Spark repro drive · tasks 7/11",
     "└─ ◇ Spark product improvement · tasks 8/8",
+    "◆ Goal(●): keep the durable objective visible",
   ]);
 
   app.applyViewModelEvent({
@@ -1259,6 +1260,7 @@ test("task updates stay in the bottom status block instead of transcript", () =>
   const rendered = stripAnsi(app.render(120).join("\n"));
   assert.equal(session.messages.filter((message) => message.customType === "task-view").length, 0);
   assert.doesNotMatch(rendered, /custom:task-view>|Phase: plan|Spark repro drive/u);
+  assert.match(rendered, /Goal\(●\): keep the durable objective visible/u);
   assert.match(rendered, /◆ ◇ task:active \[ready\] 将 task-view 改为底部常驻状态/u);
   assert.equal(app.cockpitSnapshot().tasks, 1);
 

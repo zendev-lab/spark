@@ -1351,12 +1351,14 @@ export class SparkNativeTuiApp implements Component, Focusable {
     const context = this.renderWorkspaceSessionState(width);
     const detail = this.renderActiveCockpitPanel(width);
     const taskStatus = this.renderTaskStatus(width);
-    const aboveEditorWidgets = this.renderWidgets(
-      "aboveEditor",
-      width,
-      taskStatus.length > 0 ? new Set(["spark-status"]) : undefined,
-    );
-    const pinnedStatus = [...header, ...context, ...taskStatus, ...aboveEditorWidgets];
+    const aboveEditorWidgets = this.renderWidgets("aboveEditor", width);
+    const retainedAboveEditorWidgets =
+      taskStatus.length === 0
+        ? aboveEditorWidgets
+        : aboveEditorWidgets.filter(
+            (line) => !line.includes("Phase:") && !line.includes("· tasks "),
+          );
+    const pinnedStatus = [...header, ...context, ...retainedAboveEditorWidgets, ...taskStatus];
     const auxiliary = this.renderPendingAskPresentations(width);
     const transcript = this.session.messages.flatMap((message) =>
       this.renderMessage(message, width),
@@ -1638,13 +1640,9 @@ export class SparkNativeTuiApp implements Component, Focusable {
     return lines;
   }
 
-  private renderWidgets(
-    placement: "aboveEditor" | "belowEditor",
-    width: number,
-    excludedKeys?: ReadonlySet<string>,
-  ): string[] {
+  private renderWidgets(placement: "aboveEditor" | "belowEditor", width: number): string[] {
     return [...this.widgets.values()]
-      .filter((widget) => widget.placement === placement && !excludedKeys?.has(widget.key))
+      .filter((widget) => widget.placement === placement)
       .sort((a, b) => a.key.localeCompare(b.key))
       .flatMap((widget) => {
         const lines = widget.component
