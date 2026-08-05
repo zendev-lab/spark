@@ -19,12 +19,24 @@ test("release migration arguments require an explicit published baseline older t
     parseMigrationArguments([
       "--tarball",
       "dist/release/spark-v0.1.1.tgz",
+      "--cli-tarball",
+      "dist/release/spark-cli-v0.1.1.tgz",
+      "--daemon-tarball",
+      "dist/release/spark-daemon-v0.1.1.tgz",
+      "--hub-tarball",
+      "dist/release/spark-hub-v0.1.1.tgz",
+      "--tui-tarball",
+      "dist/release/spark-tui-v0.1.1.tgz",
       "--baseline-version",
       "0.1.0",
     ]),
     {
       candidateTarball: "dist/release/spark-v0.1.1.tgz",
       baselineVersion: "0.1.0",
+      cliTarball: "dist/release/spark-cli-v0.1.1.tgz",
+      daemonTarball: "dist/release/spark-daemon-v0.1.1.tgz",
+      hubTarball: "dist/release/spark-hub-v0.1.1.tgz",
+      tuiTarball: "dist/release/spark-tui-v0.1.1.tgz",
     },
   );
   assert.equal(selectPublishedBaselineVersion(["0.0.9", "0.1.0"], "0.1.1", "0.1.0"), "0.1.0");
