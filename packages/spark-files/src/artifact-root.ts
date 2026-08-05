@@ -5,7 +5,13 @@ export async function resolveArtifactFileRoot(
   value: unknown,
   stateCwd: string = cwd,
 ): Promise<{ cwd: string; artifactRef?: ArtifactRef }> {
-  if (value === undefined || value === null) return { cwd };
+  if (
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" && value.trim().length === 0)
+  ) {
+    return { cwd };
+  }
   if (typeof value !== "string" || !value.startsWith("artifact:")) {
     throw new Error("artifactRef must be an artifact: ref");
   }
