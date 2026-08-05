@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zendev-lab/spark/architecture/packages.schema.json",
+  "title": "Spark workspace architecture inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "maxWorkspacePackages", "packages"],
+  "properties": {
+    "$schema": { "const": "./packages.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "maxWorkspacePackages": { "type": "integer", "minimum": 1 },
+    "sealedPackagePaths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^packages/[a-z0-9-]+$" }
+    },
+    "packages": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^@zendev-lab/[a-z0-9-]+$" },
+      "additionalProperties": { "$ref": "#/$defs/package" }
+    }
+  },
+  "$defs": {
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "layer", "owner", "stability", "stateWriter"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^(apps|packages)/[a-z0-9-]+$" },
+        "layer": {
+          "enum": [
+            "adapter",
+            "application",
+            "capability",
+            "client",
+            "compatibility",
+            "composition",
+            "contract",
+            "experiment",
+            "foundation",
+            "private-adapter",
+            "runtime"
+          ]
+        },
+        "owner": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "stability": {
+          "enum": ["experimental", "frozen", "internal", "private", "supported"]
+        },
+        "stateWriter": {
+          "enum": ["cockpit", "daemon", "external", "host", "none", "user", "workspace"]
+        },
+        "allowedWorkspaceDependencies": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^@zendev-lab/[a-z0-9-]+$" }
+        }
+      }
+    }
+  }
+}

@@ -12,7 +12,20 @@ const {
   findUnsafePiCompatibilityImports,
   findUnsafePiCompatibilityImportsInGraph,
   isLegacyDaemonClientBoundaryExempt,
+  workspaceImports,
 } = architectureRatchets;
+
+describe("workspace dependency declaration ratchet", () => {
+  it("extracts root package names from static and dynamic workspace imports", () => {
+    expect(
+      workspaceImports(`
+        import { value } from "@zendev-lab/spark-memory";
+        import("@zendev-lab/spark-protocol/session");
+        export { helper } from "@zendev-lab/spark-memory/helpers";
+      `),
+    ).toEqual(new Set(["@zendev-lab/spark-memory", "@zendev-lab/spark-protocol"]));
+  });
+});
 
 describe("legacy daemon client architecture ratchet", () => {
   it("rejects the compatibility subpath and legacy request symbols", () => {

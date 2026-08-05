@@ -61,6 +61,50 @@ test("dependency-cruiser config loads and encodes required boundary rules", () =
   assert.doesNotMatch(piAiBoundary?.comment ?? "", /pi-parity-commands/u);
 });
 
+test("architecture inventory schema rejects missing and invalid policy fields", async () => {
+  const root = await mkdtemp(join(tmpdir(), "spark-architecture-schema-"));
+  try {
+    const invalid = join(root, "packages.json");
+    await writeFile(
+      invalid,
+      JSON.stringify({
+        $schema: "./packages.schema.json",
+        schemaVersion: 1,
+        maxWorkspacePackages: 1,
+        packages: {
+          "@zendev-lab/invalid": {
+            path: "packages/invalid",
+            layer: "unknown",
+            owner: "",
+            stability: "supported",
+          },
+        },
+      }),
+    );
+    const result = spawnSync(
+      "pnpm",
+      [
+        "exec",
+        "ajv",
+        "validate",
+        "--spec=draft2020",
+        "--strict=true",
+        "--all-errors",
+        "--errors=text",
+        "-s",
+        "architecture/packages.schema.json",
+        "-d",
+        invalid,
+      ],
+      { cwd: resolve("."), encoding: "utf8" },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /stateWriter|layer|owner/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("production circular rule rejects a real TypeScript cycle", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-depcruise-cycle-"));
   try {

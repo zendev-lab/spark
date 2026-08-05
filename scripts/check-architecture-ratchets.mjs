@@ -20,29 +20,6 @@ const frozenCompatibilityExtensions = new Set([
   "./packages/spark-ai/src/baidu-oneapi-compat-extension.ts",
   "./packages/spark-extension/src/extension/index.ts",
 ]);
-const validLayers = new Set([
-  "adapter",
-  "application",
-  "capability",
-  "client",
-  "compatibility",
-  "composition",
-  "contract",
-  "experiment",
-  "foundation",
-  "private-adapter",
-  "runtime",
-]);
-const validStabilities = new Set(["experimental", "frozen", "internal", "private", "supported"]);
-const validStateWriters = new Set([
-  "cockpit",
-  "daemon",
-  "external",
-  "host",
-  "none",
-  "user",
-  "workspace",
-]);
 const legacyDaemonClientCompatibilitySources = new Set([
   "packages/spark-daemon-client/src/daemon-client.ts",
   "packages/spark-daemon-client/src/daemon-local-rpc.ts",
@@ -91,18 +68,6 @@ function runArchitectureRatchets() {
       failures.push(
         `${manifest.name} is declared at ${declaration.path}, but its manifest is at ${path}.`,
       );
-    }
-    if (!validLayers.has(declaration.layer)) {
-      failures.push(`${manifest.name} has invalid architecture layer ${declaration.layer}.`);
-    }
-    if (!declaration.owner?.trim()) {
-      failures.push(`${manifest.name} must declare a non-empty architecture owner.`);
-    }
-    if (!validStabilities.has(declaration.stability)) {
-      failures.push(`${manifest.name} has invalid stability ${declaration.stability}.`);
-    }
-    if (!validStateWriters.has(declaration.stateWriter)) {
-      failures.push(`${manifest.name} has invalid stateWriter ${declaration.stateWriter}.`);
     }
     if (manifest.private !== true) {
       failures.push(
@@ -230,7 +195,7 @@ function runArchitectureRatchets() {
     process.exitCode = 1;
   } else {
     console.log(
-      `Architecture ratchet passed (${workspacePackages.length}/${architecture.maxWorkspacePackages} workspaces classified; production imports declared; daemon RPC facade enforced; production files <= ${maxProductionFileLines} lines; compatibility surface frozen with safe Pi imports).`,
+      `Architecture ratchet passed (${workspacePackages.length}/${architecture.maxWorkspacePackages} workspaces classified; Spark ownership policy and workspace dependency declarations enforced; daemon RPC facade enforced; production files <= ${maxProductionFileLines} lines; compatibility surface frozen with safe Pi imports).`,
     );
   }
 }
@@ -414,7 +379,7 @@ export function isLegacyDaemonClientBoundaryExempt(repositoryPath) {
   );
 }
 
-function workspaceImports(source) {
+export function workspaceImports(source) {
   const imports = new Set();
   const pattern =
     /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["'](@zendev-lab\/[^/"']+)(?:\/[^"']*)?["']/gu;

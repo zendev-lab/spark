@@ -10,6 +10,33 @@ workspace declares a `layer`, `owner`, `stability`, and authoritative
 an undeclared production dependency, a stale export, a second public package,
 or growth beyond the current 39/40-workspace budget.
 
+## Governance tooling
+
+Generic monorepo mechanics are delegated to maintained open-source tools:
+
+| Concern | Authority |
+| --- | --- |
+| inventory JSON shape, required fields, and enums | JSON Schema 2020-12 in `architecture/packages.schema.json`, validated by pinned Ajv CLI |
+| dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` |
+| cycles and dependency direction | Dependency Cruiser |
+| Spark package identity, owner/state ownership, workspace dependency declarations, budget, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus the reduced `scripts/check-architecture-ratchets.mjs` |
+
+`pnpm run check:architecture` validates the schema, runs Syncpack, and then
+executes the Spark-specific ratchets. `pnpm run check:boundaries` runs
+Dependency Cruiser. The custom checker no longer duplicates required/enum
+validation or dependency-version consistency. Its workspace-import declaration
+check remains because Dependency Cruiser's generic `npm-no-pkg` classification
+uses the monorepo root manifest under the current pnpm resolution mode and does
+not fail for a dependency missing only from an individual workspace manifest.
+
+Manypkg was not selected because its mandatory private-root dependency policy
+conflicts with Spark's deliberate root product-composition dependencies. `Sherif`
+was not selected because its broader zero-config policy overlaps repository
+formatting and dependency-placement decisions instead of replacing a precise
+owner. Nx was not adopted: Dependency Cruiser already owns the import graph,
+and adding an application framework only to encode tags would increase rather
+than reduce the governance surface.
+
 ## Dependency direction
 
 ```text

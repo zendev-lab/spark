@@ -12,6 +12,7 @@ const canonicalRootScripts = [
   "build",
   "build:docs",
   "check",
+  "check:architecture",
   "check:evidence-surface",
   "check:boundaries",
   "check:docs",
@@ -73,6 +74,10 @@ test("root package exposes one compact validation and release surface", async ()
   );
   assert.equal(scripts["build:docs"], "pnpm --filter @zendev-lab/spark-docs run build");
   assert.equal(scripts["check:docs"], "pnpm --filter @zendev-lab/spark-docs run check");
+  assert.equal(
+    scripts["check:architecture"],
+    "ajv validate --spec=draft2020 --strict=true --all-errors --errors=text -s architecture/packages.schema.json -d architecture/packages.json && syncpack lint --config .syncpackrc.json --no-ansi && node scripts/check-architecture-ratchets.mjs",
+  );
   assert.equal(scripts["check:evidence-surface"], "node scripts/check-evidence-surface.mjs");
   assert.equal(
     scripts["check:boundaries"],
@@ -85,7 +90,7 @@ test("root package exposes one compact validation and release surface", async ()
   assert.match(scripts.fix ?? "", /^pnpm --filter @zendev-lab\/spark-hub exec svelte-kit sync/u);
   for (const requiredCheckPhase of [
     "pnpm --filter @zendev-lab/spark-docs exec astro sync",
-    "node scripts/check-architecture-ratchets.mjs",
+    "pnpm run check:architecture",
     "node scripts/check-npm-product.mjs",
     "node --experimental-strip-types scripts/check-lens-release.mts",
     "pnpm run check:evidence-surface",
@@ -130,7 +135,7 @@ test("root package exposes one compact validation and release surface", async ()
   assert.match(scripts.typecheck ?? "", /@zendev-lab\/spark-daemon run check$/u);
   assert.doesNotMatch(
     Object.keys(scripts).join("\n"),
-    /(?:test:file|(?:build|check|test|publish):npm-product|check:(?:architecture|distribution))/u,
+    /(?:test:file|(?:build|check|test|publish):npm-product|check:distribution)/u,
   );
 });
 
