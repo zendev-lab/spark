@@ -45,6 +45,12 @@ daemon 提交。它不拥有 task、session 或执行真相。Provider 返回结
 
 Shell 执行、role fan-out、assign 和 workflow execution 在该表面保持禁用。
 
+## MCP 客户端
+
+`spark mcp`（或 companion executable `spark-mcp`）是供 MCP client 显式启动的
+只读 stdio adapter。Memory status/list 会委托给 canonical Spark Memory owner；
+它不会增加新的 store、session 或 executor。
+
 ## ACP 客户端
 
 `spark acp` 是兼容编辑器客户端的 stdio adapter。文本 prompt、取消、流式更新和

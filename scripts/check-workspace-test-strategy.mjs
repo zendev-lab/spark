@@ -11,7 +11,7 @@ const strategies = new Set([
   "generated-only",
 ]);
 const expectedCounts = {
-  "local-test": 30,
+  "local-test": 31,
   "browser-test": 1,
   "process-test": 1,
   "boundary-contract": 7,

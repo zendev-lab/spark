@@ -206,7 +206,7 @@ try {
     PATH: cleanPath(),
     SPARK_HOME: resolve(temporary, "spark-home"),
   };
-  console.log("Probing installed dispatcher, TUI, and daemon...");
+  console.log("Probing installed dispatcher, TUI, MCP, and daemon...");
   await run(spark, [...sparkArgvPrefix, "--help"], { cwd: installRoot, env: environment });
   const version = await run(spark, [...sparkArgvPrefix, "version", "--json"], {
     cwd: installRoot,
@@ -224,6 +224,13 @@ try {
     throw new Error("installed product did not expose the default managed-update projection");
   }
   await run(spark, [...sparkArgvPrefix, "tui", "--help"], { cwd: installRoot, env: environment });
+  const mcpHelp = await run(spark, [...sparkArgvPrefix, "mcp", "--help"], {
+    cwd: installRoot,
+    env: environment,
+  });
+  if (!mcpHelp.stdout.includes("Spark Model Context Protocol stdio adapter")) {
+    throw new Error("installed product did not expose the spark-mcp companion");
+  }
   await exerciseSparkDaemonLifecycle({
     command: spark,
     argvPrefix: sparkArgvPrefix,

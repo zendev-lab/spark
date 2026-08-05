@@ -8,7 +8,7 @@ The machine-readable source of truth is
 workspace declares a `layer`, `owner`, `stability`, and authoritative
 `stateWriter`. `pnpm run check:architecture` rejects an unclassified workspace,
 an undeclared production dependency, a stale export, a second public package,
-or growth beyond the current 39/40-workspace budget.
+or growth beyond the current 40/41-workspace budget.
 
 ## Dependency direction
 
@@ -40,6 +40,7 @@ spark-daemon
 spark-hub
 spark-tui
 spark-acp
+spark-mcp
 spark-update
 ```
 
@@ -119,11 +120,12 @@ changes extension specifiers and user configuration compatibility.
 - `spark-acp` is the supported stateless ACP adapter. It depends on
   `spark-daemon-client` and `spark-protocol`, while daemon session/invocation
   stores remain the only writers.
+- `spark-mcp` is the supported explicit MCP stdio adapter. It delegates
+  read-only tools to the canonical `spark-memory` owner and does not own a
+  store, scheduler, session, or daemon lifecycle.
 - `spark-lens` owns provider, capability-route, observation, verdict, and
   workspace-revision primitives. It performs no durable writes; the daemon owns
   provider sessions, cancellation, caches, and persisted Lens state.
-- `spark-mcp-spike` source remains in place as a sealed experiment, but it is
-  excluded from the workspace and package inventory.
 - `spark-context` was removed after all callers converged on
   `spark-host/context`; compatibility-only re-export packages are not permanent
   architecture.
@@ -163,7 +165,9 @@ The design borrows three useful patterns without adopting their toolchains:
 - [Nx module boundaries](https://nx.dev/docs/features/enforce-module-boundaries)
   enforce dependency constraints from project tags, including multiple
   dimensions. Spark uses the same principle through the inventory,
-  dependency-cruiser, and repository-specific ratchets.
+  dependency-cruiser, and repository-specific ratchets. The supported
+`spark-mcp` workspace consumes the final slot in the current 40/41-workspace
+budget.
 
 Workspace symlinks can otherwise hide missing manifest edges; npm's
 [workspace documentation](https://docs.npmjs.com/cli/using-npm/workspaces/)

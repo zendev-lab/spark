@@ -6,6 +6,7 @@ import type { AddressInfo } from "node:net";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   StreamableHTTPServerTransport,
@@ -15,9 +16,9 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { SparkMemoryStore } from "@zendev-lab/spark-memory";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createSparkMemoryMcpServer } from "./index.ts";
+import { createSparkMcpServer } from "./index.ts";
 
-describe("spark-mcp-spike", () => {
+describe("spark-mcp", () => {
   const tempDirs: string[] = [];
 
   afterEach(async () => {
@@ -25,7 +26,7 @@ describe("spark-mcp-spike", () => {
   });
 
   it("exposes memory status and list tools over an in-memory MCP transport", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "spark-mcp-spike-"));
+    const dir = await mkdtemp(join(tmpdir(), "spark-mcp-"));
     tempDirs.push(dir);
     const storePath = join(dir, "memory.json");
     await writeFile(
@@ -51,8 +52,8 @@ describe("spark-mcp-spike", () => {
     );
 
     const store = new SparkMemoryStore(storePath);
-    const server = createSparkMemoryMcpServer({ store });
-    const client = new Client({ name: "spark-mcp-spike-test", version: "0.0.0" });
+    const server = createSparkMcpServer({ store });
+    const client = new Client({ name: "spark-mcp-test", version: "0.0.0" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
@@ -83,8 +84,71 @@ describe("spark-mcp-spike", () => {
     }
   });
 
+  it("initializes, invokes Memory, and shuts down over the product stdio entry", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-mcp-stdio-"));
+    tempDirs.push(dir);
+    const storePath = join(dir, "memory.json");
+    await writeFile(storePath, JSON.stringify({ version: 1, entries: [] }), "utf8");
+    const entry = new URL("../scripts/stdio.ts", import.meta.url).pathname;
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: ["--experimental-strip-types", entry],
+      cwd: dir,
+      env: { ...process.env, SPARK_MCP_MEMORY_FILE: storePath },
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "spark-mcp-stdio-test", version: "0.0.0" });
+
+    await client.connect(transport);
+    try {
+      const tools = await client.listTools();
+      expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
+        "spark_memory_list",
+        "spark_memory_status",
+      ]);
+      const status = await client.callTool({ name: "spark_memory_status", arguments: {} });
+      expect(status.isError).toBeFalsy();
+      expect(textContent(status)).toContain(storePath);
+    } finally {
+      await client.close();
+    }
+    expect(transport.pid).toBeNull();
+  });
+
+  it("reports schema-invalid calls and canonical-owner failures as MCP tool errors", async () => {
+    const unavailableStore = {
+      filePath: "/unavailable/memory.json",
+      list: async () => {
+        throw new Error("canonical memory owner unavailable");
+      },
+      status: async () => {
+        throw new Error("canonical memory owner unavailable");
+      },
+    };
+    const server = createSparkMcpServer({ store: unavailableStore });
+    const client = new Client({ name: "spark-mcp-errors-test", version: "0.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    try {
+      const invalid = await client.callTool({
+        name: "spark_memory_list",
+        arguments: { limit: 101 },
+      });
+      expect(invalid.isError).toBe(true);
+      expect(textContent(invalid)).toMatch(/invalid|100|limit/iu);
+
+      const unavailable = await client.callTool({ name: "spark_memory_status", arguments: {} });
+      expect(unavailable.isError).toBe(true);
+      expect(textContent(unavailable)).toContain("canonical memory owner unavailable");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("connects, lists tools, and calls a tool over stateless Streamable HTTP", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "spark-mcp-spike-http-"));
+    const dir = await mkdtemp(join(tmpdir(), "spark-mcp-http-"));
     tempDirs.push(dir);
     const storePath = join(dir, "memory.json");
     await writeFile(
@@ -98,14 +162,14 @@ describe("spark-mcp-spike", () => {
 
     const store = new SparkMemoryStore(storePath);
     const activeMcpServers = new Set<{
-      server: ReturnType<typeof createSparkMemoryMcpServer>;
+      server: ReturnType<typeof createSparkMcpServer>;
       transport: StreamableHTTPServerTransport;
     }>();
     const observedServerSessionIds: Array<string | undefined> = [];
 
     const httpServer = createServer((request, response) => {
       void (async () => {
-        const server = createSparkMemoryMcpServer({ store });
+        const server = createSparkMcpServer({ store });
         // SDK 1.29's declarations were emitted without exactOptionalPropertyTypes;
         // `undefined` is its documented explicit stateless mode.
         const transport = new StreamableHTTPServerTransport({
@@ -144,7 +208,7 @@ describe("spark-mcp-spike", () => {
     });
 
     const address = httpServer.address() as AddressInfo;
-    const client = new Client({ name: "spark-mcp-spike-http-test", version: "0.0.0" });
+    const client = new Client({ name: "spark-mcp-http-test", version: "0.0.0" });
     const clientTransport = new StreamableHTTPClientTransport(
       new URL(`http://127.0.0.1:${address.port}/mcp`),
     );

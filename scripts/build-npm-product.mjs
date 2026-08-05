@@ -41,6 +41,7 @@ const productBins = {
   "spark-daemon": "spark-daemon.js",
   "spark-hub": "spark-cockpit.js",
   "spark-acp": "spark-acp.js",
+  "spark-mcp": "spark-mcp.js",
   "spark-update": "spark-update.js",
 };
 
@@ -217,6 +218,7 @@ await Promise.all([
   ),
   bundle("apps/spark-cockpit/server/index.ts", resolve(productDist, "spark-cockpit-server.js")),
   bundle("packages/spark-acp/scripts/stdio.ts", resolve(productDist, "spark-acp.js")),
+  bundle("packages/spark-mcp/scripts/stdio.ts", resolve(productDist, "spark-mcp.js")),
   bundle("packages/spark-update/src/entry.ts", resolve(productDist, "spark-update.js")),
 ]);
 

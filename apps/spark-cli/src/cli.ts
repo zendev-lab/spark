@@ -8,7 +8,7 @@ import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-syst
 
 const dispatcherStrings = sparkCliDispatcherStrings();
 
-export type SparkDispatcherTarget = "tui" | "daemon" | "hub" | "acp" | "update";
+export type SparkDispatcherTarget = "tui" | "daemon" | "hub" | "acp" | "mcp" | "update";
 
 export type SparkDispatcherCommand =
   | {
@@ -75,6 +75,8 @@ export function parseSparkDispatcherArgs(argv: string[]): SparkDispatcherCommand
       return { kind: "dispatch", target: "hub", argv: rest };
     case "acp":
       return { kind: "dispatch", target: "acp", argv: rest };
+    case "mcp":
+      return { kind: "dispatch", target: "mcp", argv: rest };
     default:
       return errorCommand(dispatcherStrings.unknownSubcommand(first, argv));
   }
@@ -311,6 +313,7 @@ function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | un
     daemon: "../spark-daemon/bin/spark-daemon",
     hub: "../spark-cockpit/bin/spark-hub",
     acp: "../../packages/spark-acp/scripts/stdio.ts",
+    mcp: "../../packages/spark-mcp/scripts/stdio.ts",
     update: "../../packages/spark-update/bin/spark-update",
   };
   return resolve(cliRoot, entryByTarget[target]);

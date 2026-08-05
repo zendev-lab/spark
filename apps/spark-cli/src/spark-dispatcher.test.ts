@@ -39,6 +39,11 @@ test("parseSparkDispatcherArgs routes canonical planes and rejects removed alias
     target: "acp",
     argv: [],
   });
+  assert.deepEqual(parseSparkDispatcherArgs(["mcp", "--help"]), {
+    kind: "dispatch",
+    target: "mcp",
+    argv: ["--help"],
+  });
   for (const removed of [
     ["sessions", "list", "--all-workspaces"],
     ["session", "replay", "--session", "s1"],
@@ -174,6 +179,9 @@ test("dispatcher resolves source companion executables without importing app CLI
   const acp = resolveTargetCommand("acp");
   assert.match(acp.command, /packages\/spark-acp\/scripts\/stdio\.ts$/u);
   assert.deepEqual(acp.args, []);
+  const mcp = resolveTargetCommand("mcp");
+  assert.match(mcp.command, /packages\/spark-mcp\/scripts\/stdio\.ts$/u);
+  assert.deepEqual(mcp.args, []);
   const update = resolveTargetCommand("update");
   assert.match(update.command, /packages\/spark-update\/bin\/spark-update$/u);
   assert.deepEqual(update.args, []);
@@ -221,7 +229,7 @@ test("runSparkDispatcher fails fast for non-TTY TUI while preserving canonical h
     },
   };
   const launcher = {
-    run: async (target: "tui" | "daemon" | "hub" | "acp" | "update", argv: string[]) => {
+    run: async (target: "tui" | "daemon" | "hub" | "acp" | "mcp" | "update", argv: string[]) => {
       calls.push({ target, argv });
       return 0;
     },

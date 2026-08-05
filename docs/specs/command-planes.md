@@ -24,6 +24,7 @@ companion. It does not import a second implementation of that plane.
 | `spark-hub` | `spark hub` | global control plane and management host | user/daemon authentication, workspace registry, cross-workspace delegation state, delivery outbox, idempotency, audit, bounded receipts, and embedded Web lifecycle | target execution state, local repositories, or internal evidence bodies |
 | `spark-tui` | `spark tui` | local terminal control surface | interactive terminal UI, attach/resume, visible transcript, theme, export | canonical business-state ownership |
 | `spark-acp` | `spark acp` | ACP stdio adapter | protocol translation for new/prompt/cancel/permission | durable sessions, invocations, provider policy, or execution truth |
+| `spark-mcp` | `spark mcp` | MCP stdio adapter | read-only protocol translation to canonical Memory owner APIs | memory state, approvals, sessions, or execution truth |
 | `spark-update` | `spark update` | installation and update surface | build-info inspection, install/update policy, release transition | daemon or Hub state |
 | slash `system` | n/a | TUI kernel command source | `/help`, `/exit`, `/quit`, `/clear`, `/reload` | project/task/goal/session/workflow commands |
 | slash `extension` | n/a | extension command source | extension-owned resource commands | TUI kernel lifecycle |
@@ -44,6 +45,10 @@ surface.
 
 `spark-acp` is a stateless adapter: its session id is the canonical daemon
 session id and only connection-local active-invocation routing is retained.
+
+`spark-mcp` is also stateless. It is launched explicitly by an MCP client,
+resolves the canonical workspace Memory owner, and exposes read-only tools. It
+never starts another store, daemon, session registry, or scheduler.
 
 ## Boundary invariants
 
@@ -137,7 +142,7 @@ a measured requirement.
 
 Spark v0.1 has one public npm product: `@zendev-lab/spark`. It exposes `spark`
 and the companion executables `spark-daemon`, `spark-hub`, `spark-tui`,
-`spark-acp`, and `spark-update`. Source workspaces remain private implementation
+`spark-acp`, `spark-mcp`, and `spark-update`. Source workspaces remain private implementation
 and owner boundaries; apps, Hub-private packages, protocol/runtime packages,
 experiments, and compatibility facades are not independently published merely
 because the product uses them.

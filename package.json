@@ -24,8 +24,7 @@
   "workspaces": {
     "packages": [
       "apps/*",
-      "packages/*",
-      "!packages/spark-mcp-spike"
+      "packages/*"
     ]
   },
   "type": "module",
@@ -74,6 +73,7 @@
     "@zendev-lab/spark-graft": "workspace:^",
     "@zendev-lab/spark-host": "workspace:^",
     "@zendev-lab/spark-loop": "workspace:^",
+    "@zendev-lab/spark-mcp": "workspace:^",
     "@zendev-lab/spark-memory": "workspace:^",
     "@zendev-lab/spark-protocol": "workspace:^",
     "@zendev-lab/spark-repro": "workspace:^",

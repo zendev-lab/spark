@@ -1,6 +1,6 @@
 ---
 title: CLI reference
-description: Stable public Spark dispatcher commands and common daemon, Hub, and ACP operations.
+description: Stable public Spark dispatcher commands and common daemon, Hub, ACP, and MCP operations.
 ---
 
 ## Dispatcher
@@ -18,6 +18,7 @@ spark version [--json]
 spark daemon <command> [args...]
 spark hub [command] [args...]
 spark acp
+spark mcp
 spark --help
 spark --version
 ```
@@ -34,6 +35,7 @@ spark --version
 - `spark hub` addresses cross-workspace coordination, access, and Hub instance resources.
 - `spark hub` also starts or administers the embedded Web management UI.
 - `spark acp` starts the ACP NDJSON stdio adapter over daemon-owned sessions.
+- `spark mcp` starts the read-only MCP stdio adapter over canonical workspace Memory.
 
 Unknown subcommands fail instead of being treated as prompts.
 
@@ -171,6 +173,17 @@ adapter currently supports session new, text prompt, cancel, streamed assistant
 and tool updates, and tool permission. Session load/resume/fork, provider
 selection, and MCP-over-ACP are not advertised. stdout is reserved for ACP
 NDJSON; startup recovery details go to stderr.
+
+## MCP clients
+
+Configure an MCP client to launch `spark-mcp`, or invoke the equivalent
+`spark mcp` dispatcher command. The client should start it with the intended
+workspace as `cwd`; `SPARK_MCP_MEMORY_FILE` can explicitly select the canonical
+workspace memory file when that is not possible.
+
+The supported tools are `spark_memory_status` and `spark_memory_list`. Both are
+read-only and delegate to Spark's Memory owner. stdout is reserved for MCP
+frames; startup diagnostics go to stderr.
 
 ## Workspaces and remote Hub
 

@@ -61,8 +61,8 @@ operation.
   `document` artifacts, with verification kept separate from user-facing
   results.
 - **Multiple interfaces** — use the native TUI, Hub Web UI, messaging channels,
-  headless JSON commands, or the stateless ACP adapter over the same execution
-  model.
+  headless JSON commands, ACP-compatible clients, or the read-only MCP adapter
+  over the same owning domains.
 - **Local-first boundaries** — each daemon retains local execution and side
   effects; Hub coordination carries routing state, audit data, and bounded
   receipts.
@@ -87,6 +87,7 @@ browser / future app ──────────► spark-hub ◄────
 | `spark-daemon` | Sessions, invocations, channels, execution, retry, and recovery | Cross-workspace coordination |
 | `spark-hub` | Authentication, daemon gateway, workspace registry, delegation, audit, and embedded management UI | Target execution, repositories, or internal evidence |
 | `spark-acp` | Stateless protocol translation | Sessions or invocations |
+| `spark-mcp` | Read-only MCP translation | Memory state or lifecycle |
 
 The detailed ownership and command grammar are specified in
 [`docs/specs/command-planes.md`](./docs/specs/command-planes.md). Package
@@ -116,9 +117,11 @@ knowledge of internal packages or storage.
 | `spark-daemon` | Execution inspection and operator control |
 | `spark-hub` | Global browser management, coordination, and delegation |
 | `spark-acp` | ACP-compatible clients over canonical daemon sessions |
+| `spark-mcp` | Read-only MCP clients over canonical Spark Memory |
 
-The top-level dispatcher accepts `spark daemon`, `spark hub`, `spark tui`, and
-`spark acp` as convenience forms and executes the matching `spark-*` companion.
+The top-level dispatcher accepts `spark daemon`, `spark hub`, `spark tui`,
+`spark acp`, and `spark mcp` as convenience forms and executes the matching
+`spark-*` companion.
 Run `spark --help` for the current command map. The complete command reference is
 maintained in the [user documentation][cli-reference].
 
@@ -138,7 +141,7 @@ maintained in the [user documentation][cli-reference].
 
 `@zendev-lab/spark` is the only public npm product. It exposes the `spark`
 dispatcher and the companion executables `spark-daemon`, `spark-hub`,
-`spark-tui`, `spark-acp`, and `spark-update`. Source workspaces are private
+`spark-tui`, `spark-acp`, `spark-mcp`, and `spark-update`. Source workspaces are private
 implementation boundaries compiled into that product rather than separately
 supported packages.
 

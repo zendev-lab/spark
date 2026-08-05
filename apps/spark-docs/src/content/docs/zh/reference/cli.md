@@ -1,6 +1,6 @@
 ---
 title: CLI 参考
-description: 稳定的公开 Spark 分发命令，以及常用 daemon、Hub 与 ACP 操作。
+description: 稳定的公开 Spark 分发命令，以及常用 daemon、Hub、ACP 与 MCP 操作。
 ---
 
 ## 分发器
@@ -18,6 +18,7 @@ spark version [--json]
 spark daemon <command> [args...]
 spark hub [command] [args...]
 spark acp
+spark mcp
 spark --help
 spark --version
 ```
@@ -34,6 +35,7 @@ spark --version
 - `spark hub` 操作跨 workspace 协调、访问与 Hub instance 资源。
 - `spark hub` 也启动或管理内嵌的 Web 管理界面。
 - `spark acp` 在 daemon-owned session 上启动 ACP NDJSON stdio adapter。
+- `spark mcp` 在 canonical workspace Memory 上启动只读 MCP stdio adapter。
 
 未知子命令会失败，不会被解释为 prompt。
 
@@ -159,6 +161,15 @@ workspace 的内部 evidence store。
 session new、文本 prompt、cancel、assistant/tool 流式更新和 tool permission；
 不宣告 session load/resume/fork、provider selection 或 MCP-over-ACP。stdout
 只用于 ACP NDJSON，启动失败的恢复提示写入 stderr。
+
+## MCP 客户端
+
+配置 MCP client 启动 `spark-mcp`，或使用等价的 `spark mcp` 分发命令。
+Client 应以目标 workspace 作为 `cwd` 启动；无法做到时，可通过
+`SPARK_MCP_MEMORY_FILE` 显式指定该 workspace 的 canonical memory 文件。
+
+当前支持 `spark_memory_status` 与 `spark_memory_list`。两者都是只读操作，
+并委托给 Spark Memory owner。stdout 只用于 MCP frame，启动诊断写入 stderr。
 
 ## Workspace 与远程 Hub
 

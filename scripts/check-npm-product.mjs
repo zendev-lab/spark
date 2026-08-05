@@ -81,6 +81,7 @@ if (await exists(productManifestPath)) {
     "spark-daemon",
     "spark-hub",
     "spark-acp",
+    "spark-mcp",
     "spark-update",
   ]) {
     if (manifest.bin?.[name] !== `./bin/${name}`) {
@@ -114,6 +115,7 @@ if (await exists(productManifestPath)) {
     "bin/spark-daemon",
     "bin/spark-hub",
     "bin/spark-acp",
+    "bin/spark-mcp",
     "bin/spark-update",
     "dist/spark-cli.js",
     "dist/spark-tui.js",
@@ -121,6 +123,7 @@ if (await exists(productManifestPath)) {
     "dist/spark-headless-role-executor.js",
     "dist/spark-cockpit-server.js",
     "dist/spark-cockpit-web-service.js",
+    "dist/spark-mcp.js",
     "dist/spark-update.js",
     "dist/migrations/0001_initial.sql",
     "skills/spark-cue/SKILL.md",
