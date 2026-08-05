@@ -63,6 +63,7 @@ jobs:
         run: >-
           node scripts/test-release-migration.mjs
           --tarball dist/release/spark-${{ github.ref_name }}.tgz
+          --cli-tarball dist/release/spark-cli-${{ github.ref_name }}.tgz
           --daemon-tarball dist/release/spark-daemon-${{ github.ref_name }}.tgz
           --tui-tarball dist/release/spark-tui-${{ github.ref_name }}.tgz
           --hub-tarball dist/release/spark-hub-${{ github.ref_name }}.tgz
