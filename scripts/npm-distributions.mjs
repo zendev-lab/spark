@@ -59,6 +59,7 @@ export const npmDistributions = [
     exports: {
       "./cli": "./dist/spark-cli.js",
       "./executable": "./bin/spark",
+      "./update-executable": "./bin/spark-update",
     },
     skills: true,
     migrationSource: resolve(root, "apps/spark-daemon/dist/migrations"),

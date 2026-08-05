@@ -301,6 +301,7 @@ function packagedTargetCommand(target: SparkDispatcherTarget): string | undefine
     daemon: "SPARK_DAEMON_COMMAND",
     hub: "SPARK_HUB_COMMAND",
     tui: "SPARK_TUI_COMMAND",
+    update: "SPARK_UPDATE_COMMAND",
   };
   const variable = variableByTarget[target];
   return variable ? process.env[variable]?.trim() : undefined;

@@ -146,7 +146,7 @@ async function writeBuildInfo(distribution, gitSha, protocolVersion) {
   );
 }
 
-function launcherPrelude() {
+function launcherPrelude(preserveBuildInfo = false) {
   return `#!/usr/bin/env node
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -154,7 +154,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const productDist = resolve(packageDirectory, "dist");
 process.env.SPARK_PRODUCT_DIST = productDist;
-process.env.SPARK_BUILD_INFO_PATH = resolve(productDist, "build-info.json");
+${preserveBuildInfo ? 'process.env.SPARK_BUILD_INFO_PATH ??= resolve(productDist, "build-info.json");' : 'process.env.SPARK_BUILD_INFO_PATH = resolve(productDist, "build-info.json");'}
 `;
 }
 
@@ -168,8 +168,8 @@ const cliCompanionExecutables = {
   "spark-tui": "@zendev-lab/spark-tui/executable",
 };
 
-function distributionPrelude(distribution) {
-  const common = launcherPrelude();
+function distributionPrelude(distribution, executableName) {
+  const common = launcherPrelude(distribution.id === "cli" && executableName === "spark-update");
   switch (distribution.id) {
     case "spark":
     case "cli":
@@ -178,6 +178,7 @@ process.env.SPARK_DAEMON_ENTRYPOINT = ${resolvedDependencyPath("@zendev-lab/spar
 process.env.SPARK_HEADLESS_EXECUTOR_MODULE = ${resolvedDependencyPath("@zendev-lab/spark-daemon/headless-role-executor")};
 process.env.SPARK_HUB_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-hub/executable")};
 process.env.SPARK_TUI_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-tui/executable")};
+process.env.SPARK_UPDATE_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/update-executable")};
 `;
     case "daemon":
       return `${common}process.env.SPARK_DAEMON_ENTRYPOINT = resolve(productDist, "spark-daemon.js");
@@ -214,22 +215,22 @@ async function writeLaunchers(distribution) {
     Object.entries(distribution.bins).map(async ([name, entry]) => {
       let launcher;
       if (distribution.id === "spark") {
-        launcher = `${distributionPrelude(distribution)}const { runSparkDispatcher } = await import("@zendev-lab/spark-cli/cli");
+        launcher = `${distributionPrelude(distribution, name)}const { runSparkDispatcher } = await import("@zendev-lab/spark-cli/cli");
 process.exitCode = await runSparkDispatcher(process.argv.slice(2));
 `;
       } else if (distribution.id === "cli" && cliCompanionExecutables[name]) {
-        launcher = `${distributionPrelude(distribution)}const entry = ${resolvedDependencyPath(cliCompanionExecutables[name])};
+        launcher = `${distributionPrelude(distribution, name)}const entry = ${resolvedDependencyPath(cliCompanionExecutables[name])};
 process.argv[1] = entry;
 await import(pathToFileURL(entry).href);
 `;
       } else if (name === "spark") {
-        launcher = `${distributionPrelude(distribution)}const { runSparkDispatcher } = await import(
+        launcher = `${distributionPrelude(distribution, name)}const { runSparkDispatcher } = await import(
   pathToFileURL(resolve(productDist, "spark-cli.js")).href
 );
 process.exitCode = await runSparkDispatcher(process.argv.slice(2));
 `;
       } else {
-        launcher = `${distributionPrelude(distribution)}const entry = resolve(productDist, ${JSON.stringify(entry)});
+        launcher = `${distributionPrelude(distribution, name)}const entry = resolve(productDist, ${JSON.stringify(entry)});
 process.argv[1] = entry;
 await import(pathToFileURL(entry).href);
 `;
