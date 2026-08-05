@@ -1,5 +1,6 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -17,6 +18,8 @@ import { SparkMemoryStore } from "@zendev-lab/spark-memory";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createSparkMcpServer } from "./index.ts";
+
+const packageManifest = createRequire(import.meta.url)("../package.json") as { version: string };
 
 describe("spark-mcp", () => {
   const tempDirs: string[] = [];
@@ -58,6 +61,7 @@ describe("spark-mcp", () => {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     try {
+      expect(client.getServerVersion()?.version).toBe(packageManifest.version);
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
         "spark_memory_list",

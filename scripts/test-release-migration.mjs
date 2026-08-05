@@ -144,9 +144,9 @@ export async function runMixedVersionIpcMatrix(
     const env = phaseEnvironment(baseEnv, root);
     const paths = daemonPaths(env.SPARK_HOME);
     await Promise.all(
-      [env.HOME, env.SPARK_HOME, env.XDG_RUNTIME_DIR].map(async (path) => {
-        await mkdir(path, { recursive: true, mode: 0o700 });
-      }),
+      [env.HOME, env.SPARK_HOME, env.XDG_RUNTIME_DIR].map((path) =>
+        mkdir(path, { recursive: true, mode: 0o700 }),
+      ),
     );
 
     let failure;
@@ -199,6 +199,27 @@ export async function runMixedVersionIpcMatrix(
   return results;
 }
 
+export async function runMixedVersionHubMigrationMatrix(
+  { baselineHub, candidateHub, temporaryRoot, baseEnv = process.env, cwd = process.cwd() },
+  dependencies = {},
+) {
+  const runHub =
+    dependencies.runHub ??
+    (async (command, args, { env }) => await runCommand(command, args, { cwd, env }));
+  const databasePath = join(temporaryRoot, "hub-migration.sqlite");
+  const env = {
+    ...baseEnv,
+    HOME: join(temporaryRoot, "hub-home"),
+    SPARK_HOME: join(temporaryRoot, "hub-spark-home"),
+  };
+  await Promise.all([env.HOME, env.SPARK_HOME].map((path) => mkdir(path, { recursive: true })));
+
+  await runHub(baselineHub, ["access", "list", "--database", databasePath, "--json"], { env });
+  await runHub(candidateHub, ["delegation", "list", "--database", databasePath, "--json"], { env });
+  await runHub(baselineHub, ["access", "list", "--database", databasePath, "--json"], { env });
+  return { databasePath };
+}
+
 async function main() {
   const {
     candidateTarball,
@@ -214,7 +235,14 @@ async function main() {
     .filter((path) => typeof path === "string")
     .map((path) => resolve(root, path));
   await Promise.all([access(candidatePath), ...companionPaths.map((path) => access(path))]);
-  const currentVersion = JSON.parse(await readFile(join(root, "package.json"), "utf8")).version;
+  const rootManifest = parseJson(
+    await readFile(join(root, "package.json"), "utf8"),
+    "root package.json",
+  );
+  const currentVersion = rootManifest.version;
+  if (typeof currentVersion !== "string" || !isStableVersion(currentVersion)) {
+    throw new Error(`Root package version must be a stable x.y.z release: ${currentVersion}`);
+  }
   await readCandidateArtifactIdentity(candidatePath, currentVersion);
   const npm = (args) => runCommand("npm", args, { cwd: root, env: process.env });
   const versions = await runOptional(["view", packageName, "versions", "--json"], npm);
@@ -226,7 +254,7 @@ async function main() {
     return;
   }
   const baselineVersion = selectPublishedBaselineVersion(
-    JSON.parse(versions.stdout),
+    parseJson(versions.stdout, `${packageName} published versions`),
     currentVersion,
     explicitBaseline,
   );
@@ -252,8 +280,14 @@ async function main() {
       temporaryRoot,
       cwd: root,
     });
+    await runMixedVersionHubMigrationMatrix({
+      baselineHub: join(baselineRoot, "node_modules", ".bin", "spark-cockpit"),
+      candidateHub: join(candidateRoot, "node_modules", ".bin", "spark-hub"),
+      temporaryRoot,
+      cwd: root,
+    });
     console.log(
-      `Mixed-version IPC gate passed: published ${baselineVersion} <-> candidate ${currentVersion}.`,
+      `Mixed-version daemon IPC and Hub migration gates passed: published ${baselineVersion} <-> candidate ${currentVersion}.`,
     );
   } catch (error) {
     preserveTemporaryRoot = error?.migrationCleanupUnsafe === true;
@@ -546,7 +580,7 @@ async function exists(path) {
 }
 
 function assertRunning(output, message) {
-  const result = JSON.parse(output.stdout);
+  const result = parseJson(output.stdout, `${message} output`);
   const values = [
     result?.running,
     result?.daemon?.running,
@@ -554,6 +588,14 @@ function assertRunning(output, message) {
     result?.result?.daemon?.running,
   ];
   if (!values.includes(true)) throw new Error(`${message}: daemon.running was not true`);
+}
+
+function parseJson(text, label) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${label} is not valid JSON`, { cause: error });
+  }
 }
 
 async function runCommand(command, args, { cwd, env }) {

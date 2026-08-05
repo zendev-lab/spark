@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-update",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "description": "Spark managed installation, update policy, release metadata, and rollback owner.",
   "bin": {

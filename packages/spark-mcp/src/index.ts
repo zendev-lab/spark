@@ -1,6 +1,10 @@
+import { createRequire } from "node:module";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SparkMemoryStore } from "@zendev-lab/spark-memory";
 import * as z from "zod/v4";
+
+const packageManifest = createRequire(import.meta.url)("../package.json") as { version: string };
 
 export type SparkMemoryReadStore = Pick<SparkMemoryStore, "filePath" | "list" | "status">;
 
@@ -24,7 +28,7 @@ export function createSparkMcpServer(options: SparkMcpServerOptions): McpServer 
   const listLimit = Math.min(Math.max(options.listLimit ?? 50, 1), 100);
   const server = new McpServer({
     name: options.name ?? "spark-mcp",
-    version: options.version ?? "0.2.1",
+    version: options.version ?? packageManifest.version,
   });
 
   server.registerTool(
