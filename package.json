@@ -39,7 +39,7 @@
     "check:test-quality": "node scripts/check-test-quality.mjs",
     "check:test-quality:update": "node scripts/check-test-quality.mjs --update",
     "test": "vp test run --config vitest.root.config.ts",
-    "test:unit": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && vp test run --config vitest.root.config.ts && pnpm -r --filter './packages/*' --if-present run check && pnpm --filter @zendev-lab/spark-hub run test && pnpm --filter @zendev-lab/spark-daemon run test",
+    "test:unit": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && vp test run --config vitest.root.config.ts && pnpm -r --filter './packages/*' --if-present run check && pnpm --filter @zendev-lab/spark-cli run check && pnpm --filter @zendev-lab/spark-tui-app run test && pnpm --filter @zendev-lab/spark-hub run test && pnpm --filter @zendev-lab/spark-daemon run test",
     "test:process:source": "vp test run --config vitest.process.config.ts",
     "test:browser:hub": "pnpm --filter @zendev-lab/spark-hub run test:browser",
     "test:capability": "node scripts/run-capability-sentinels.mjs",
@@ -119,6 +119,7 @@
     "node": ">=26.0.0 <27",
     "pnpm": ">=11 <12"
   },
+  "os": ["darwin", "linux"],
   "packageManager": "pnpm@11.18.0",
   "pi": {
     "extensions": [
