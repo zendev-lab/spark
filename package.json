@@ -28,6 +28,10 @@
       "!packages/spark-mcp-spike"
     ]
   },
+  "os": [
+    "darwin",
+    "linux"
+  ],
   "type": "module",
   "scripts": {
     "check": "pnpm run check:static && pnpm run check:docs && pnpm run test:unit && pnpm run test:process:source",
@@ -119,7 +123,6 @@
     "node": ">=26.0.0 <27",
     "pnpm": ">=11 <12"
   },
-  "os": ["darwin", "linux"],
   "packageManager": "pnpm@11.18.0",
   "pi": {
     "extensions": [
