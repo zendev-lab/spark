@@ -21,7 +21,7 @@ const serverProfileCredentialKeys = [
 
 type ServerProfileCredentialKey = (typeof serverProfileCredentialKeys)[number];
 
-/** Private runtime credentials scoped to one Cockpit origin. */
+/** Private runtime credentials scoped to one Hub origin. */
 export interface SparkDaemonServerProfile {
   serverUrl: string;
   runtimeId?: string;
@@ -87,13 +87,13 @@ export function sparkDaemonServerProfilesLockPath(paths: SparkPaths): string {
 export function normalizeSparkDaemonServerUrl(serverUrl: string): string {
   const parsed = new URL(serverUrl);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("Cockpit server URL must use http:// or https://.");
+    throw new Error("Hub server URL must use http:// or https://.");
   }
   if (parsed.username || parsed.password) {
-    throw new Error("Cockpit credentials must not be embedded in the server URL.");
+    throw new Error("Hub credentials must not be embedded in the server URL.");
   }
   if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
-    throw new Error("Cockpit server URL must be an origin without a path, query, or fragment.");
+    throw new Error("Hub server URL must be an origin without a path, query, or fragment.");
   }
   return `${parsed.origin}/`;
 }
@@ -111,7 +111,7 @@ export function listSparkDaemonServerProfiles(paths: SparkPaths): SparkDaemonSer
   );
 }
 
-/** Look up one Cockpit profile by its normalized origin. */
+/** Look up one Hub profile by its normalized origin. */
 export function getSparkDaemonServerProfile(
   paths: SparkPaths,
   serverUrl: string,

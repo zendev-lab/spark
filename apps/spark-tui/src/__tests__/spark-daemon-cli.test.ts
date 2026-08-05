@@ -3156,7 +3156,7 @@ test("native TUI explicit session attach requires matching workspace", async () 
   }
 });
 
-test("native TUI accepts durable session-dir session id and hydrates project cockpit", async () => {
+test("native TUI accepts durable session-dir session id and hydrates project hub", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-cli-durable-attach-"));
   const stateRoot = join(dir, ".spark");
   const now = "2026-06-19T00:00:00.000Z";
@@ -3214,8 +3214,8 @@ test("native TUI accepts durable session-dir session id and hydrates project coc
             workspaceSession: options.workspaceSession,
           });
           await options.configureApp?.(harness.app, harness.session);
-          assert.equal(harness.app.cockpitSnapshot().tasks, 2);
-          harness.app.toggleCockpitPanel("tasks");
+          assert.equal(harness.app.hubSnapshot().tasks, 2);
+          harness.app.toggleHubPanel("tasks");
           await harness.submit("/sessions list");
           capturedRender = harness.render(180);
         },

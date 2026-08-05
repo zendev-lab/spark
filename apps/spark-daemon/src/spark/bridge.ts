@@ -447,11 +447,11 @@ async function ensureSparkTaskBinding(input: {
     const project =
       graph
         .projects()
-        .find((candidate) => candidate.description.includes(`cockpitProjectId=${projectKey}`)) ??
+        .find((candidate) => candidate.description.includes(`hubProjectId=${projectKey}`)) ??
       graph.createProject({
-        title: `Spark Cockpit project ${projectKey}`,
-        description: `Spark daemon projected Spark project. cockpitProjectId=${projectKey}`,
-        purpose: "Execute cockpit-requested tasks through Spark runtime primitives.",
+        title: `Spark Hub project ${projectKey}`,
+        description: `Spark daemon projected Spark project. hubProjectId=${projectKey}`,
+        purpose: "Execute hub-requested tasks through Spark runtime primitives.",
       });
     const taskName = stableTaskName(input.taskRuntimeId);
     const existing = graph.tasks(project.ref).find((task) => task.name === taskName);
@@ -468,11 +468,9 @@ async function ensureSparkTaskBinding(input: {
         plan: {
           objective: input.prompt,
           contextRefs: [],
-          constraints: ["Execute from Spark daemon bridge; preserve cockpit protocol projections."],
-          nonGoals: ["Do not write cockpit SQLite as Spark source of truth."],
-          successCriteria: [
-            "Spark role-run reaches a terminal status and emits cockpit projections.",
-          ],
+          constraints: ["Execute from Spark daemon bridge; preserve hub protocol projections."],
+          nonGoals: ["Do not write hub SQLite as Spark source of truth."],
+          successCriteria: ["Spark role-run reaches a terminal status and emits hub projections."],
           evidenceRequired: ["Spark role-run Evidence and Spark daemon invocation projection."],
           items: [
             { title: "Run the requested task through Spark runtime." },

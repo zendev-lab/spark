@@ -138,7 +138,7 @@ describe("Spark daemon local RPC", () => {
     }
   });
 
-  it("preserves Cockpit binding ids across workspace.list RPC serialization", async () => {
+  it("preserves Hub binding ids across workspace.list RPC serialization", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-binding-"));
     const workspacePath = join(root, "workspace");
     const paths = resolveSparkPaths({
@@ -178,7 +178,7 @@ describe("Spark daemon local RPC", () => {
               displayName: "spark server",
               serverBindingId: "rtwb_33333333333341113333333333333333",
               serverWorkspaceId: "ws_22222222222241112222222222222222",
-              cockpitBindingState: "bound",
+              hubBindingState: "bound",
             }),
           ],
         },
@@ -742,7 +742,7 @@ describe("Spark daemon local RPC", () => {
     }
   });
 
-  it("keeps Cockpit relocation on the daemon-local RPC owner surface", async () => {
+  it("keeps Hub relocation on the daemon-local RPC owner surface", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-relocate-"));
     const paths = resolveSparkPaths({
       app: "daemon",
@@ -756,9 +756,9 @@ describe("Spark daemon local RPC", () => {
     });
     const db = openSparkDaemonDatabase(paths);
     const onUplinkReconfigure = vi.fn();
-    const relocateSparkDaemonCockpit = vi.fn(async () => ({
+    const relocateSparkDaemonHub = vi.fn(async () => ({
       relocated: true as const,
-      instanceId: "cockpit_11111111111111111111111111111111",
+      instanceId: "hub_11111111111111111111111111111111",
       installationId: "install-relocation",
       runtimeId: "rt_11111111111111111111111111111111",
       fromServerUrl: "https://source.example.test/",
@@ -782,19 +782,19 @@ describe("Spark daemon local RPC", () => {
         paths,
         db,
         undefined,
-        { relocateSparkDaemonCockpit, onUplinkReconfigure },
+        { relocateSparkDaemonHub, onUplinkReconfigure },
       );
 
       expect(response).toMatchObject({
         id: "rpc_relocate",
         ok: true,
         result: {
-          instanceId: "cockpit_11111111111111111111111111111111",
+          instanceId: "hub_11111111111111111111111111111111",
           runtimeId: "rt_11111111111111111111111111111111",
           workspaceCount: 1,
         },
       });
-      expect(relocateSparkDaemonCockpit).toHaveBeenCalledWith(
+      expect(relocateSparkDaemonHub).toHaveBeenCalledWith(
         paths,
         db,
         {
@@ -1025,7 +1025,7 @@ describe("Spark daemon local RPC", () => {
     try {
       mkdirSync(workspacePath);
       const workspace = registerWorkspace(db, {
-        serverUrl: "https://cockpit.example/",
+        serverUrl: "https://hub.example/",
         localPath: workspacePath,
         displayName: "project",
         serverBindingId: "rtwb_11111111111141111111111111111111",
@@ -1047,7 +1047,7 @@ describe("Spark daemon local RPC", () => {
         paths,
         db,
         undefined,
-        { unbindSparkDaemonWorkspaceFromCockpit: unbind },
+        { unbindSparkDaemonWorkspaceFromHub: unbind },
       );
       expect(preview).toMatchObject({
         ok: true,
@@ -1065,7 +1065,7 @@ describe("Spark daemon local RPC", () => {
         paths,
         db,
         undefined,
-        { unbindSparkDaemonWorkspaceFromCockpit: unbind },
+        { unbindSparkDaemonWorkspaceFromHub: unbind },
       );
       expect(applied).toMatchObject({
         ok: true,
@@ -1076,7 +1076,7 @@ describe("Spark daemon local RPC", () => {
         },
       });
       expect(unbind).toHaveBeenCalledWith(paths, {
-        serverUrl: "https://cockpit.example/",
+        serverUrl: "https://hub.example/",
         bindingId: "rtwb_11111111111141111111111111111111",
         allowInsecureHttp: true,
       });
@@ -2409,7 +2409,7 @@ describe("Spark daemon local RPC", () => {
         assignment: {
           goal: "wrong owner",
           target: { sessionId: "sess_workspace", workspaceId: "ws_other" },
-          source: { kind: "cockpit" },
+          source: { kind: "hub" },
         },
       });
       expect(spoofed).toMatchObject({
@@ -2916,7 +2916,7 @@ describe("Spark daemon local RPC", () => {
                       ] satisfies SparkSessionMailDeliveryReceipt[])
                     : [],
                 intent: "review.pull-request",
-                payload: { secret: `not-for-cockpit-${index}` },
+                payload: { secret: `not-for-hub-${index}` },
                 correlationId: `corr:${index}`,
                 replyToMessageId: null,
                 idempotencyKey: `secret-idempotency-${index}`,
@@ -2976,7 +2976,7 @@ describe("Spark daemon local RPC", () => {
           uncertain: 1,
         },
       });
-      expect(JSON.stringify(emptyResult.mailbox)).not.toContain("not-for-cockpit");
+      expect(JSON.stringify(emptyResult.mailbox)).not.toContain("not-for-hub");
       expect(JSON.stringify(emptyResult.mailbox)).not.toContain("secret-idempotency");
       expect(JSON.stringify(emptyResult.mailbox)).not.toContain("provider-secret");
       expect(JSON.stringify(emptyResult.mailbox)).not.toContain("provider-failure-secret");

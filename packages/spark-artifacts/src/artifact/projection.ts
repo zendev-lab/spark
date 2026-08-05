@@ -8,10 +8,10 @@ import type {
   PreviewContentFormat,
 } from "./types.ts";
 
-/** Keep Artifact projections within Cockpit's inline-preview budget. */
+/** Keep Artifact projections within Hub's inline-preview budget. */
 export const ARTIFACT_PROJECTION_MAX_INLINE_BYTES = 256 * 1024;
 
-/** Coarse transport formats accepted by the daemon/Cockpit projection spine. */
+/** Coarse transport formats accepted by the daemon/Hub projection spine. */
 export type ArtifactProjectionFormat = "markdown" | "json" | "text" | "blob";
 
 /**
@@ -44,7 +44,7 @@ export interface ArtifactProjection {
 
 /**
  * Convert a canonical Artifact into the bounded transport contract
- * consumed by daemon and Cockpit projections.
+ * consumed by daemon and Hub projections.
  */
 export function projectArtifact(artifact: Artifact): ArtifactProjection {
   if (artifact.body.kind === "document") {
@@ -73,7 +73,7 @@ export function projectArtifact(artifact: Artifact): ArtifactProjection {
     };
   }
 
-  // Cockpit renders inline JSON with a trailing newline. Include it in the
+  // Hub renders inline JSON with a trailing newline. Include it in the
   // budget/size calculation so a projection accepted here cannot overflow
   // while being materialized there.
   const canonicalBody = serializeBody(artifact.body);

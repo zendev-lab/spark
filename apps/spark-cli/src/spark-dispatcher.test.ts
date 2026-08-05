@@ -30,6 +30,11 @@ test("parseSparkDispatcherArgs routes canonical planes and rejects removed alias
   assert.equal(removedServer.kind, "error");
   assert.match(removedServer.kind === "error" ? removedServer.message : "", /spark hub/u);
   assert.equal(parseSparkDispatcherArgs(["cockpit", "web", "status"]).kind, "error");
+  assert.deepEqual(parseSparkDispatcherArgs(["hub", "web", "status"]), {
+    kind: "dispatch",
+    target: "hub",
+    argv: ["web", "status"],
+  });
   assert.deepEqual(parseSparkDispatcherArgs(["hub", "delegation", "list"]), {
     kind: "dispatch",
     target: "hub",
@@ -123,7 +128,7 @@ test("parseSparkDispatcherArgs keeps help local and forwards version to spark-up
   assert.match(command.kind === "error" ? command.message : "", /spark tui build this/u);
 });
 
-test("spark paths reports Hub semantics over the compatible storage path", async () => {
+test("spark paths reports canonical Hub paths", async () => {
   const previousSparkHome = process.env.SPARK_HOME;
   const root = `/tmp/spark-paths-${process.pid}-${Date.now()}`;
   const stdout: string[] = [];
@@ -160,7 +165,7 @@ test("spark paths reports Hub semantics over the compatible storage path", async
     assert.equal(paths.user.roleModelSettingsFile, `${root}/role-model-settings.json`);
     assert.equal(paths.user.memoryFile, `${root}/memory/memory.json`);
     assert.equal(paths.daemon.databasePath, `${root}/apps/daemon/data/daemon.sqlite`);
-    assert.equal(paths.hub.cacheDir, `${root}/apps/cockpit/cache`);
+    assert.equal(paths.hub.cacheDir, `${root}/apps/hub/cache`);
   } finally {
     if (previousSparkHome === undefined) delete process.env.SPARK_HOME;
     else process.env.SPARK_HOME = previousSparkHome;
@@ -175,7 +180,7 @@ test("dispatcher resolves source companion executables without importing app CLI
   assert.match(daemon.command, /apps\/spark-daemon\/bin\/spark-daemon$/u);
   assert.deepEqual(daemon.args, []);
   const hub = resolveTargetCommand("hub");
-  assert.match(hub.command, /apps\/spark-cockpit\/bin\/spark-hub$/u);
+  assert.match(hub.command, /apps\/spark-hub\/bin\/spark-hub$/u);
   assert.deepEqual(hub.args, []);
   const acp = resolveTargetCommand("acp");
   assert.match(acp.command, /packages\/spark-acp\/scripts\/stdio\.ts$/u);

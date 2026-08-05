@@ -55,7 +55,7 @@ const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10_000, 30_000, 60_000];
 const DEFAULT_QQBOT_CONNECT_TIMEOUT_MS = 30_000;
 // Passive reply slots are deliberately stable across daemon restarts. Even if
 // the in-memory budget is lost, one idempotent native ask=2 and final=4 cannot
-// collide. Group uses ask=1 and final=5. Later asks remain in Cockpit rather
+// collide. Group uses ask=1 and final=5. Later asks remain in Hub rather
 // than risking the final reply slot.
 const QQBOT_C2C_PASSIVE_REPLY_LIMIT = 4;
 const QQBOT_GROUP_PASSIVE_REPLY_LIMIT = 5;

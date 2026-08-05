@@ -73,7 +73,7 @@ export interface SparkDaemonHumanInteractionBrokerOptions {
   getRuntimeId(route: SparkDaemonHumanInteractionRoute): string | undefined;
   /** Wake/flush the durable request outbox after the registration commits. */
   onOutboxReady?: () => void | Promise<void>;
-  /** Optional channel projection (QQ keyboard); failure must not lose the Cockpit request. */
+  /** Optional channel projection (QQ keyboard); failure must not lose the Hub request. */
   onRequestOpened?: (input: SparkDaemonHumanInteractionOpened) => void | Promise<void>;
 }
 
@@ -86,7 +86,7 @@ export class SparkDaemonHumanInteractionBroker {
 
   /**
    * Settle a response accepted directly by this daemon and durably project the
-   * committed fact so the owning Cockpit closes its pending interaction.
+   * committed fact so the owning Hub closes its pending interaction.
    */
   async respond(
     wait: SparkDaemonHumanWaitRecord,
@@ -99,7 +99,7 @@ export class SparkDaemonHumanInteractionBroker {
       ...(wait.workspaceId ? { workspaceId: wait.workspaceId } : {}),
     });
     const runtimeId = route ? this.options.getRuntimeId(route)?.trim() : undefined;
-    const wasProjectedToCockpit = wait.context.cockpitProjected === true;
+    const wasProjectedToHub = wait.context.hubProjected === true;
     const humanResponseId = input.humanResponseId ?? createId("hres");
     const deliveryInput = {
       humanRequestId: wait.humanRequestId,
@@ -108,12 +108,12 @@ export class SparkDaemonHumanInteractionBroker {
       answers: input.answers,
       responseArtifactRefs: input.responseArtifactRefs,
     };
-    if (!wasProjectedToCockpit || wait.status !== "pending") {
+    if (!wasProjectedToHub || wait.status !== "pending") {
       return this.options.waits.deliver(deliveryInput);
     }
     if (!runtimeId || !route) {
       throw new Error(
-        `Daemon could not resolve the Cockpit route for human interaction ${wait.interactionRequestId}.`,
+        `Daemon could not resolve the Hub route for human interaction ${wait.interactionRequestId}.`,
       );
     }
 
@@ -161,23 +161,23 @@ export class SparkDaemonHumanInteractionBroker {
     const route = resolveHumanInteractionRoute(this.options.db, context);
     const runtimeId = route ? this.options.getRuntimeId(route)?.trim() : undefined;
     const localTui = context.sessionSource === "tui";
-    const cockpitProjected = Boolean(runtimeId && route);
+    const hubProjected = Boolean(runtimeId && route);
     const operatorAnswerable =
       context.sessionSource === "daemon" || context.sessionSource === "session";
-    if (!cockpitProjected && !localTui && !operatorAnswerable) {
+    if (!hubProjected && !localTui && !operatorAnswerable) {
       return createBlockedInteractionResponse(
         request,
-        "Daemon could not resolve a Cockpit runtime/workspace route for this ask.",
+        "Daemon could not resolve a Hub runtime/workspace route for this ask.",
       );
     }
-    if (!cockpitProjected && operatorAnswerable && !context.sessionId.trim()) {
+    if (!hubProjected && operatorAnswerable && !context.sessionId.trim()) {
       return createBlockedInteractionResponse(
         request,
         "A route-less daemon ask requires an owning session for local answering.",
       );
     }
     if (
-      !cockpitProjected &&
+      !hubProjected &&
       operatorAnswerable &&
       (durable.ask.delivery ?? "blocking") === "blocking" &&
       durable.ask.timeoutMs === undefined
@@ -203,7 +203,7 @@ export class SparkDaemonHumanInteractionBroker {
       interactionMetadata: request.metadata,
       sessionId: context.sessionId,
       ...(context.sessionSource ? { sessionSource: context.sessionSource } : {}),
-      cockpitProjected,
+      hubProjected,
       delivery,
       ...(request.kind === "toolApproval"
         ? {
@@ -260,7 +260,7 @@ export class SparkDaemonHumanInteractionBroker {
       contextArtifactRefs: [],
     };
     const envelope =
-      cockpitProjected && runtimeId && route
+      hubProjected && runtimeId && route
         ? runtimeEnvelope(
             "human.request.created",
             payload,
@@ -307,7 +307,7 @@ export class SparkDaemonHumanInteractionBroker {
         });
       } catch (error) {
         console.error(
-          "[spark-daemon] channel ask projection failed; Cockpit request remains pending",
+          "[spark-daemon] channel ask projection failed; Hub request remains pending",
           error,
         );
       }

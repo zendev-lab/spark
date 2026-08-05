@@ -579,7 +579,7 @@ export function createChannelIngressController(input: {
       // Update the visible session state only after durable admission. A
       // platform redelivery may refer to an invocation that is still running;
       // toggling running -> ready around that duplicate would hide the real
-      // in-flight turn from Cockpit. Registry projection failure is advisory:
+      // in-flight turn from Hub. Registry projection failure is advisory:
       // the invocation is already durable and must not receive a false failure
       // reply merely because its visible status could not be updated.
       try {
@@ -934,7 +934,7 @@ function channelReplyRecipient(message: IncomingMessage): string | undefined {
   }
 }
 
-/** Platform-owned identity; Cockpit renders the technical key with adapter/scope labels. */
+/** Platform-owned identity; Hub renders the technical key with adapter/scope labels. */
 function channelSessionTitle(message: IncomingMessage): string {
   if (message.adapter === "qqbot" && message.externalKey.startsWith("qqbot:c2c:")) {
     const label = message.senderName?.trim();

@@ -8,7 +8,7 @@
   //
   // This is the Spark-token analogue of shadcn-svelte's Dialog composition:
   // Bits UI stays the accessible focus-trap/escape/outside-click primitive, and
-  // Cockpit owns the visual layer. Consumers use the accepted primitives from
+  // Hub owns the visual layer. Consumers use the accepted primitives from
   // `@zendev-lab/spark-ui/headless` for Title/Description/Close and, via the optional
   // `trigger` snippet, Trigger — all rendered inside this wrapper's context.
 

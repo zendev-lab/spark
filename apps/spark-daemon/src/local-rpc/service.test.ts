@@ -215,7 +215,7 @@ describe("transport-neutral local RPC service", () => {
 
   it("never projects uplink credentials through service or legacy results", async () => {
     const { paths, db } = createFixture();
-    const serverUrl = "https://cockpit.example.test/";
+    const serverUrl = "https://hub.example.test/";
     await upsertSparkDaemonServerProfile(paths, {
       serverUrl,
       runtimeId: "rt_private",

@@ -1,0 +1,3 @@
+import { getHubDictionary } from "@zendev-lab/spark-i18n/hub";
+
+export const forbiddenHubMessage = getHubDictionary("en").common.justNow;

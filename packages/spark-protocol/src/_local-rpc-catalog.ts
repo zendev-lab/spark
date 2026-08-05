@@ -988,39 +988,48 @@ const sparkLocalRpcWorkspaceLifecycleStateSchema = z.discriminatedUnion("state",
   }),
 ]);
 
-export const sparkLocalRpcWorkspaceSchema = z.object({
-  id: z.string().min(1),
-  serverWorkspaceId: z.string().min(1).optional(),
-  serverBindingId: z.string().min(1).optional(),
-  cockpitBindingState: z.enum(["bound", "unbound"]).optional(),
-  workspaceAuthorization: workspaceBrowserAuthorizationSchema.optional(),
-  serverUrl: z.string(),
-  localWorkspaceKey: z.string(),
-  displayName: z.string(),
-  localPath: z.string().min(1),
-  status: runtimeWorkspaceBindingStatusSchema,
-  capabilities: sparkProtocolJsonObjectSchema,
-  diagnostics: sparkProtocolJsonObjectSchema,
-  profile: sparkLocalRpcWorkspaceProfileSchema.optional(),
-  borrowed: workspaceBorrowedStateSchema.optional(),
-  workspaceClients: z.array(workspaceClientProjectionSchema).optional(),
-  executor: executorClientProjectionSchema.optional(),
-  sessionCount: z.number().int().nonnegative().optional(),
-  lastSessionAt: isoDateTimeSchema.optional(),
-  recentSessions: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        project: z.string(),
-        model: z.string(),
-        lastActivityAt: isoDateTimeSchema,
-        state: z.string(),
-      }),
-    )
-    .optional(),
-  lifecycle: sparkLocalRpcWorkspaceLifecycleStateSchema.optional(),
-  updatedAt: isoDateTimeSchema,
-});
+export const sparkLocalRpcWorkspaceSchema = z
+  .object({
+    id: z.string().min(1),
+    serverWorkspaceId: z.string().min(1).optional(),
+    serverBindingId: z.string().min(1).optional(),
+    hubBindingState: z.enum(["bound", "unbound"]).optional(),
+    cockpitBindingState: z.enum(["bound", "unbound"]).optional(),
+    workspaceAuthorization: workspaceBrowserAuthorizationSchema.optional(),
+    serverUrl: z.string(),
+    localWorkspaceKey: z.string(),
+    displayName: z.string(),
+    localPath: z.string().min(1),
+    status: runtimeWorkspaceBindingStatusSchema,
+    capabilities: sparkProtocolJsonObjectSchema,
+    diagnostics: sparkProtocolJsonObjectSchema,
+    profile: sparkLocalRpcWorkspaceProfileSchema.optional(),
+    borrowed: workspaceBorrowedStateSchema.optional(),
+    workspaceClients: z.array(workspaceClientProjectionSchema).optional(),
+    executor: executorClientProjectionSchema.optional(),
+    sessionCount: z.number().int().nonnegative().optional(),
+    lastSessionAt: isoDateTimeSchema.optional(),
+    recentSessions: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          project: z.string(),
+          model: z.string(),
+          lastActivityAt: isoDateTimeSchema,
+          state: z.string(),
+        }),
+      )
+      .optional(),
+    lifecycle: sparkLocalRpcWorkspaceLifecycleStateSchema.optional(),
+    updatedAt: isoDateTimeSchema,
+  })
+  .transform((workspace) => {
+    const bindingState = workspace.hubBindingState ?? workspace.cockpitBindingState;
+    return {
+      ...workspace,
+      ...(bindingState ? { hubBindingState: bindingState, cockpitBindingState: bindingState } : {}),
+    };
+  });
 
 const sparkLocalRpcWorkspaceLifecycleMutationSchema = z.discriminatedUnion("action", [
   z.object({
@@ -1157,7 +1166,7 @@ export const sparkLocalRpcLeaseTransferRequestSchema = z.object({
 export const sparkLocalRpcLeaseTransferSettlementSchema = z.object({
   transferId: z.string().min(1),
   decision: z.enum(["accept", "reject", "auto-authorize"]),
-  source: z.enum(["cockpit", "tui", "cli", "timeout", "unknown"]),
+  source: z.enum(["hub", "cockpit", "tui", "cli", "timeout", "unknown"]),
   settledAt: isoDateTimeSchema,
 });
 
@@ -1179,7 +1188,7 @@ export const sparkLocalRpcUplinkPreferResultSchema = z.object({
     .object({
       transferId: z.string().min(1),
       decision: z.enum(["accept", "reject", "auto-authorize"]),
-      source: z.enum(["cockpit", "tui", "cli", "timeout", "unknown"]),
+      source: z.enum(["hub", "cockpit", "tui", "cli", "timeout", "unknown"]),
     })
     .optional(),
 });

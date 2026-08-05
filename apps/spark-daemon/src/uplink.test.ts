@@ -326,9 +326,9 @@ describe("daemon uplink park/prefer", () => {
     });
     attachWorkspaceClient(db, {
       workspaceId: workspace.id,
-      clientId: "wcl-cockpit-1",
+      clientId: "wcl-hub-1",
       kind: "interactive",
-      metadata: { surface: "cockpit" },
+      metadata: { surface: "hub" },
     });
 
     const transfers = new SparkDaemonLeaseTransferBroker();
@@ -339,7 +339,7 @@ describe("daemon uplink park/prefer", () => {
       { transfers, timeoutMs: 5_000 },
     );
     const pending = transfers.pendingForWorkspace(workspace.id)!;
-    transfers.respond(pending.transferId, "reject", "cockpit");
+    transfers.respond(pending.transferId, "reject", "hub");
     await expect(preferPromise).rejects.toMatchObject({
       name: "SparkDaemonControlError",
       code: "uplink_transfer_rejected",

@@ -134,7 +134,7 @@ export class SparkAgentSession {
               this.services.runtime.sessionSurface === "channel"
                 ? ("channel" as const)
                 : this.services.runtime.sessionSource === "web"
-                  ? ("cockpit" as const)
+                  ? ("hub" as const)
                   : ("tui" as const),
             workspaceId:
               runtimeContext.sessionLease?.()?.workspaceId ??

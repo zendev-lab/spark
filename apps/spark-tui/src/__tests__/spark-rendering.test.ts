@@ -299,7 +299,7 @@ test("SparkNativeTuiApp renders session, model, thinking, run, and queue state c
       thinkingLevel: () => "high",
     },
   });
-  app.hydrateCockpit({
+  app.hydrateHub({
     sessionId: "sess-native-status",
     sessionTitle: "Fix renderer",
     sessionStatus: "idle",
@@ -503,7 +503,7 @@ test("Spark native UI transport bridges notify, status, widget, and custom", asy
   assert.match(rendered, /second line/);
 });
 
-test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels", async () => {
+test("SparkNativeTuiApp records protocol hub state and renders Spark panels", async () => {
   const session = new SparkNativeSession();
   const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
 
@@ -512,7 +512,7 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
     type: "session.snapshot",
     session: {
       version: SPARK_PROTOCOL_VERSION,
-      sessionId: "native-cockpit-session",
+      sessionId: "native-hub-session",
       status: "idle",
       messages: [],
       tools: [],
@@ -542,8 +542,8 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
       tasks: [
         {
           version: SPARK_PROTOCOL_VERSION,
-          ref: "task:cockpit",
-          title: "Build cockpit",
+          ref: "task:hub",
+          title: "Build hub",
           status: "running",
           todos: [
             { id: "todo-1", content: "wire task board", status: "done", notes: [] },
@@ -606,9 +606,9 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
     metadata: {},
   });
 
-  assert.deepEqual(app.cockpitSnapshot(), {
+  assert.deepEqual(app.hubSnapshot(), {
     activePanel: undefined,
-    sessionId: "native-cockpit-session",
+    sessionId: "native-hub-session",
     sessionStatus: "idle",
     workflows: 1,
     workflowRuns: 1,
@@ -622,10 +622,10 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
   });
 
   assert.equal(await app.submitInput("/inspect"), "command");
-  assert.equal(app.cockpitSnapshot().activePanel, "overview");
+  assert.equal(app.hubSnapshot().activePanel, "overview");
   let rendered = app.render(120).join("\n");
   assert.match(rendered, /Session inspector: overview/);
-  assert.match(rendered, /Cross-session Cockpit: run spark cockpit in another terminal/);
+  assert.match(rendered, /Cross-session Hub: run spark hub in another terminal/);
   assert.match(rendered, /Workflow picker\/progress: 1 option\(s\), 1 workflow run\(s\)/);
   assert.match(rendered, /Role-run board: 1 role run\(s\), 1 interaction\(s\)/);
   assert.match(rendered, /Graft provenance\/patch status: 1 item\(s\)/);
@@ -644,7 +644,7 @@ test("SparkNativeTuiApp records protocol cockpit state and renders Spark panels"
   assert.equal(await app.submitInput("/tasks"), "command");
   rendered = app.render(120).join("\n");
   assert.match(rendered, /Session inspector: task\/project board/);
-  assert.match(rendered, /task:cockpit \[running\] todos=1\/2 evidence=1 Build cockpit/);
+  assert.match(rendered, /task:hub \[running\] todos=1\/2 evidence=1 Build hub/);
 
   assert.equal(await app.submitInput("/artifacts"), "command");
   rendered = app.render(120).join("\n");
@@ -789,22 +789,22 @@ test("SparkNativeTuiApp contains async keybinding failures and stays interactive
   assert.equal(attempts, 2);
 });
 
-test("SparkNativeTuiApp installs Ctrl+O/Ctrl+T and cockpit keybindings", async () => {
+test("SparkNativeTuiApp installs Ctrl+O/Ctrl+T and hub keybindings", async () => {
   const session = new SparkNativeSession();
   const keybindings = new SparkKeybindings();
   const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined, { keybindings });
 
   assert.equal(app.areToolsExpanded(), false);
   assert.equal(app.isThinkingExpanded(), false);
-  assert.equal(app.cockpitSnapshot().activePanel, undefined);
+  assert.equal(app.hubSnapshot().activePanel, undefined);
   assert.equal(await keybindings.executeKey("ctrl+o", {}), true);
   assert.equal(await keybindings.executeKey("ctrl+t", {}), true);
   assert.equal(await keybindings.executeKey("ctrl+k", {}), true);
   assert.equal(app.areToolsExpanded(), true);
   assert.equal(app.isThinkingExpanded(), true);
-  assert.equal(app.cockpitSnapshot().activePanel, "overview");
+  assert.equal(app.hubSnapshot().activePanel, "overview");
   assert.equal(await keybindings.executeKey("shift+ctrl+k", {}), true);
-  assert.equal(app.cockpitSnapshot().activePanel, "workflows");
+  assert.equal(app.hubSnapshot().activePanel, "workflows");
 });
 
 test("SparkNativeTuiApp handles local slash commands without submitting to responder", async () => {
@@ -834,7 +834,7 @@ test("SparkNativeTuiApp handles local slash commands without submitting to respo
   assert.match(rendered, /\/reload — reload extension-owned slash command state/);
   assert.doesNotMatch(rendered, /\/plan —/);
   assert.doesNotMatch(rendered, /\/goal —/);
-  assert.doesNotMatch(rendered, /\/cockpit —/);
+  assert.doesNotMatch(rendered, /\/hub —/);
   assert.match(
     rendered,
     /\/inspect \[overview\|workflows\|runs\|tasks\|artifacts\|reviews\|graft\|off\]/,
@@ -1336,7 +1336,7 @@ test("native UI transport projects task.update without a task-view transcript me
     },
   });
 
-  assert.equal(app.cockpitSnapshot().tasks, 1);
+  assert.equal(app.hubSnapshot().tasks, 1);
   app.setEditorText("draft task prompt");
   const rendered = stripAnsi(app.render(120).join("\n"));
   assert.match(

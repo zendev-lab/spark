@@ -185,7 +185,7 @@ export function parseSparkCliCommand(argv: string[]): SparkCliCommand {
   if (argv[0] === "server") {
     return {
       kind: "error",
-      message: '"server" is not a spark-tui command. Use "spark cockpit" instead.',
+      message: '"server" is not a spark-tui command. Use "spark hub" instead.',
     };
   }
   if (argv[0] === "sessions" || argv[0] === "session") {
@@ -999,7 +999,7 @@ async function durableSparkSessionListText(
   return lines.length > 1 ? lines.join("\n") : undefined;
 }
 
-async function hydrateNativeCockpitFromTaskRead(
+async function hydrateNativeHubFromTaskRead(
   services: SparkCliHostServices,
   app: SparkNativeTuiApp,
   workspaceSession: SparkNativeWorkspaceSessionState,
@@ -1009,7 +1009,7 @@ async function hydrateNativeCockpitFromTaskRead(
   let details: Record<string, unknown> | undefined;
   try {
     const result = await tool.execute(
-      "native-cockpit-hydrate",
+      "native-hub-hydrate",
       { action: "project_status", view: "active", format: "json", limit: 6 },
       new AbortController().signal,
       () => undefined,
@@ -1030,7 +1030,7 @@ async function hydrateNativeCockpitFromTaskRead(
   addCompactTaskView(tasks, details.currentClaim);
   addCompactTaskViews(tasks, details.ready);
   addCompactTaskView(tasks, details.selectedTask);
-  app.hydrateCockpit({
+  app.hydrateHub({
     sessionId: workspaceSession.attachTarget ?? workspaceSession.controlPlaneSessionId,
     ...(projectTitle ? { sessionTitle: projectTitle } : {}),
     sessionStatus: "idle",
@@ -1557,7 +1557,7 @@ async function runSparkCliTuiSelection(input: {
             });
           });
           if (workspaceSession.attachMatchesControlPlane) {
-            await hydrateNativeCockpitFromTaskRead(services, app, workspaceSession.state);
+            await hydrateNativeHubFromTaskRead(services, app, workspaceSession.state);
           }
           if (workspaceSession.shouldEmitSessionStart) {
             await services.runtime.emit("session_start", {
@@ -1637,7 +1637,7 @@ const NATIVE_SLASH_COMMAND_EXCLUSIONS = [
   "stop",
   "retry",
   "inspect",
-  "cockpit",
+  "hub",
   "runs",
   "run",
   "tasks",

@@ -38,7 +38,7 @@ supported packages.
 | `apps/spark-cli` | Thin public `spark` command dispatcher |
 | `apps/spark-tui` | Native terminal host and interaction adapters |
 | `apps/spark-daemon` | Durable sessions, invocations, channels, and execution |
-| `apps/spark-cockpit` | Browser presentation and control |
+| `apps/spark-hub` | Browser presentation and control |
 | `apps/spark-docs` | Public bilingual user documentation |
 | `packages/spark-*` | Shared contracts, capabilities, runtimes, clients, and adapters |
 | `architecture/packages.json` | Machine-readable package layer, owner, stability, and state-writer inventory |
@@ -60,11 +60,11 @@ and keep transports and presentation layers thin.
 | Domain | Authoritative owner |
 | --- | --- |
 | Sessions, invocations, channels, local execution, retry, and recovery | `apps/spark-daemon` |
-| Cross-workspace registry, delegation, delivery, and bounded receipts | Hub modules in `spark-cockpit-coordination` and `spark-cockpit-db` |
+| Cross-workspace registry, delegation, delivery, and bounded receipts | Hub modules in `spark-hub-coordination` and `spark-hub-db` |
 | Cross-surface schemas and semantics | `packages/spark-protocol` |
 | Product extension composition and policy | `packages/spark-extension` |
 | Terminal presentation | `apps/spark-tui` behind shared TUI boundaries |
-| Browser presentation | `apps/spark-cockpit` |
+| Browser presentation | `apps/spark-hub` |
 
 When behavior is shared by multiple surfaces, define its schema and semantics in
 the existing protocol or owner API before adding surface-specific adapters.
@@ -105,7 +105,7 @@ the change:
 | One root test file | `pnpm test test/name.test.ts` |
 | Package-local tests or invariants | `pnpm --filter <package> run test` or `run check` |
 | Source dispatcher and daemon lifecycle | `pnpm run test:process:source` |
-| Cockpit browser interactions | `pnpm run test:browser:cockpit` |
+| Hub browser interactions | `pnpm run test:browser:hub` |
 | User documentation | `pnpm run check:docs && pnpm run build:docs` |
 | Package dependency boundaries | `pnpm run check:boundaries` |
 | Packed public product and clean installation | `pnpm run smoke` |
@@ -154,7 +154,7 @@ contracts and foundations
 ```
 
 Foundations must not depend on applications or product-private adapters.
-Cockpit-private packages must not become dependencies of the daemon or shared
+Hub-private packages must not become dependencies of the daemon or shared
 Spark packages.
 
 Create a workspace only for a hard runtime, state, permission, protocol,

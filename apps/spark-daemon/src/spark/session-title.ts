@@ -135,7 +135,7 @@ function fallbackSessionRole(prompt: string): string {
   if (/运维|后台|守护进程|daemon|runtime|operations|deployment/u.test(normalized)) {
     return chinese ? "运行维护" : "Runtime Operations";
   }
-  if (/网页|前端|界面|交互|cockpit|frontend|\bui\b|web/u.test(normalized)) {
+  if (/网页|前端|界面|交互|hub|frontend|\bui\b|web/u.test(normalized)) {
     return chinese ? "前端体验" : "Frontend Engineering";
   }
   if (/消息平台|如流|飞书|qq|infoflow|channel|bot/u.test(normalized)) {

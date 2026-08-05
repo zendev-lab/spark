@@ -194,11 +194,11 @@ process.env.SPARK_DAEMON_ENTRYPOINT = ${resolvedDependencyPath("@zendev-lab/spar
 process.env.SPARK_HEADLESS_EXECUTOR_MODULE = ${resolvedDependencyPath("@zendev-lab/spark-daemon/headless-role-executor")};
 `;
     case "hub":
-      return `${common}process.env.SPARK_COCKPIT_SERVER_ENTRYPOINT = resolve(
+      return `${common}process.env.SPARK_HUB_SERVER_ENTRYPOINT = resolve(
   productDist,
   "spark-hub-server.js",
 );
-process.env.SPARK_COCKPIT_WEB_SERVICE_ENTRYPOINT = resolve(
+process.env.SPARK_HUB_WEB_SERVICE_ENTRYPOINT = resolve(
   productDist,
   "spark-hub-web-service.js",
 );
@@ -287,7 +287,7 @@ await Promise.all([
     resolve(root, "apps/spark-daemon/dist/cli.js"),
     resolve(daemon.directory, "dist/spark-daemon.js"),
   ),
-  cp(resolve(root, "apps/spark-cockpit/build"), resolve(hub.directory, "build"), {
+  cp(resolve(root, "apps/spark-hub/build"), resolve(hub.directory, "build"), {
     recursive: true,
   }),
   ...npmDistributions.map(copyCommonFiles),

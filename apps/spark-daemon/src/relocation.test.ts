@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import { runtimeProtocolVersion } from "@zendev-lab/spark-protocol";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import { readSparkDaemonConfig, writeSparkDaemonConfig } from "./config.ts";
-import { relocateSparkDaemonCockpit } from "./relocation.ts";
+import { relocateSparkDaemonHub } from "./relocation.ts";
 import {
   getSparkDaemonServerProfile,
   listSparkDaemonServerProfiles,
@@ -21,7 +21,7 @@ import { registerWorkspace } from "./store/workspaces.ts";
 const sourceUrl = "http://127.0.0.1:4173/";
 const targetUrl = "https://target.example.test/";
 const thirdUrl = "https://third.example.test/";
-const instanceId = "cockpit_11111111111111111111111111111111";
+const instanceId = "hub_11111111111111111111111111111111";
 const runtimeId = "rt_11111111111111111111111111111111";
 const now = "2026-07-15T00:00:00.000Z";
 
@@ -40,12 +40,12 @@ interface SetupOptions {
   includeThirdProfile?: boolean;
 }
 
-describe("daemon Cockpit relocation", () => {
+describe("daemon Hub relocation", () => {
   it("moves only source-origin routes while preserving stable identities", async () => {
     const h = await setup();
     const reconnect = vi.fn();
     try {
-      const result = await relocateSparkDaemonCockpit(
+      const result = await relocateSparkDaemonHub(
         h.paths,
         h.db,
         { fromServerUrl: sourceUrl, toServerUrl: targetUrl },
@@ -110,7 +110,7 @@ describe("daemon Cockpit relocation", () => {
   });
 
   it.each([
-    ["instance mismatch", { targetInstanceId: "cockpit_22222222222222222222222222222222" }],
+    ["instance mismatch", { targetInstanceId: "hub_22222222222222222222222222222222" }],
     ["runtime missing", { preflightStatus: 409, preflightCode: "relocation_runtime_not_found" }],
     ["token rejected", { preflightStatus: 401, preflightCode: "refresh_token_invalid" }],
     ["runtime mismatch", { responseRuntimeId: "rt_22222222222222222222222222222222" }],
@@ -122,7 +122,7 @@ describe("daemon Cockpit relocation", () => {
     const reconnect = vi.fn();
     try {
       await expect(
-        relocateSparkDaemonCockpit(
+        relocateSparkDaemonHub(
           h.paths,
           h.db,
           { fromServerUrl: sourceUrl, toServerUrl: targetUrl },
@@ -141,7 +141,7 @@ describe("daemon Cockpit relocation", () => {
     const h = await setup();
     try {
       await expect(
-        relocateSparkDaemonCockpit(
+        relocateSparkDaemonHub(
           h.paths,
           h.db,
           { fromServerUrl: sourceUrl, toServerUrl: targetUrl },
@@ -162,7 +162,7 @@ describe("daemon Cockpit relocation", () => {
     const h = await setup();
     try {
       await expect(
-        relocateSparkDaemonCockpit(
+        relocateSparkDaemonHub(
           h.paths,
           h.db,
           { fromServerUrl: sourceUrl, toServerUrl: targetUrl },
@@ -178,7 +178,7 @@ describe("daemon Cockpit relocation", () => {
     const h = await setup();
     try {
       await expect(
-        relocateSparkDaemonCockpit(h.paths, h.db, {
+        relocateSparkDaemonHub(h.paths, h.db, {
           fromServerUrl: sourceUrl,
           toServerUrl: "https://target.example.test/with-a-path",
         }),
@@ -205,7 +205,7 @@ describe("daemon Cockpit relocation", () => {
       const before = localDigest(h);
       const fetchFn = vi.fn<typeof fetch>();
       await expect(
-        relocateSparkDaemonCockpit(
+        relocateSparkDaemonHub(
           h.paths,
           h.db,
           { fromServerUrl: sourceUrl, toServerUrl: targetUrl },
@@ -232,7 +232,7 @@ describe("daemon Cockpit relocation", () => {
     const reconnect = vi.fn();
     try {
       await expect(
-        relocateSparkDaemonCockpit(
+        relocateSparkDaemonHub(
           h.paths,
           h.db,
           { fromServerUrl: sourceUrl, toServerUrl: targetUrl },
@@ -260,7 +260,7 @@ describe("daemon Cockpit relocation", () => {
   it("infers the only workspace-bound source profile when fromServerUrl is omitted", async () => {
     const h = await setup({ includeThirdProfile: false });
     try {
-      const result = await relocateSparkDaemonCockpit(
+      const result = await relocateSparkDaemonHub(
         h.paths,
         h.db,
         { toServerUrl: targetUrl },
@@ -280,7 +280,7 @@ describe("daemon Cockpit relocation", () => {
     const fetchFn = vi.fn<typeof fetch>();
     try {
       await expect(
-        relocateSparkDaemonCockpit(h.paths, h.db, { toServerUrl: targetUrl }, { fetchFn }),
+        relocateSparkDaemonHub(h.paths, h.db, { toServerUrl: targetUrl }, { fetchFn }),
       ).rejects.toMatchObject({ code: "RELOCATION_SOURCE_REQUIRED" });
       expect(fetchFn).not.toHaveBeenCalled();
     } finally {
@@ -291,7 +291,7 @@ describe("daemon Cockpit relocation", () => {
   it("migrates a legacy source tuple and leaves daemon.toml identity-only", async () => {
     const h = await setup({ sourceCredentials: "legacy" });
     try {
-      await relocateSparkDaemonCockpit(
+      await relocateSparkDaemonHub(
         h.paths,
         h.db,
         { fromServerUrl: sourceUrl, toServerUrl: targetUrl },

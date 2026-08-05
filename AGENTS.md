@@ -93,11 +93,11 @@ or experimental-lifecycle boundary. Otherwise add a module to the existing
 owner. Any workspace addition, removal, rename, or ownership change must update
 `architecture/packages.json`.
 
-Hub-private packages retain their physical `spark-cockpit-*` names during the
-compatibility period. They may be used by Hub but not by the daemon or shared
-Spark packages. Shared packages must not import concrete internals from
-`apps/spark-cli`, `apps/spark-tui`, `apps/spark-daemon`, or
-`apps/spark-cockpit`.
+Hub-private packages use physical `spark-hub-*` names. They may be used by Hub
+but not by the daemon or shared Spark packages. Compatibility reads for retired
+Cockpit state remain inside the current Hub owner and receive no new behavior.
+Shared packages must not import concrete internals from `apps/spark-cli`,
+`apps/spark-tui`, `apps/spark-daemon`, or `apps/spark-hub`.
 
 Compatibility adapters require explicit exit criteria and receive no new
 product behavior. Do not introduce an overlapping framework or service unless

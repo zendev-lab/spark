@@ -16,7 +16,7 @@ application UI, and daemon lifecycle do not.
 
 - Register existing capability and runtime owners; do not reimplement them.
 - Keep extension behavior host-neutral and depend on `SparkHostAPI` rather than
-  concrete TUI, Cockpit, CLI, daemon, or `pi-coding-agent` internals.
+  concrete TUI, Hub, CLI, daemon, or `pi-coding-agent` internals.
 - Retain the Pi SDK kernel only behind the established `spark-ai`, `spark-tui`,
   and related Spark boundaries.
 - Do not recreate a Pi product facade, parallel extension package, discovery

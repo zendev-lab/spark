@@ -98,7 +98,7 @@ export async function runSparkDispatcher(
       const payload = {
         sparkHome: process.env.SPARK_HOME?.trim() ?? null,
         user: resolveSparkUserPaths(),
-        hub: publicSparkPaths(resolveSparkPaths({ app: "cockpit" })),
+        hub: publicSparkPaths(resolveSparkPaths({ app: "hub" })),
         daemon: publicSparkPaths(resolveSparkPaths({ app: "daemon" })),
       };
       stdout.write(
@@ -325,7 +325,7 @@ function sourceCheckoutTargetCommand(target: SparkDispatcherTarget): string | un
   const entryByTarget: Record<SparkDispatcherTarget, string> = {
     tui: "../spark-tui/bin/spark-tui",
     daemon: "../spark-daemon/bin/spark-daemon",
-    hub: "../spark-cockpit/bin/spark-hub",
+    hub: "../spark-hub/bin/spark-hub",
     acp: "../../packages/spark-acp/scripts/stdio.ts",
     mcp: "../../packages/spark-mcp/scripts/stdio.ts",
     update: "../../packages/spark-update/bin/spark-update",

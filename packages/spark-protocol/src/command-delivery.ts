@@ -1,7 +1,7 @@
 /**
- * Canonical server-command delivery helpers shared by Cockpit projection and daemon runtime.
+ * Canonical server-command delivery helpers shared by Hub projection and daemon runtime.
  *
- * Cockpit persists commands in SQLite as a projection outbox; daemon execution is authoritative.
+ * Hub persists commands in SQLite as a projection outbox; daemon execution is authoritative.
  * All wire envelopes must be built through these helpers so clients do not drift.
  */
 

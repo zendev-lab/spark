@@ -56,7 +56,7 @@ function makeContext(): {
   const workspacePath = join(root, "workspace");
   mkdirSync(workspacePath);
   const workspace = registerWorkspace(db, {
-    serverUrl: "https://cockpit.example.test/",
+    serverUrl: "https://hub.example.test/",
     serverWorkspaceId: "ws_22222222222222222222222222222222",
     serverBindingId: "rtwb_22222222222222222222222222222222",
     localWorkspaceKey: "side-thread-workspace",

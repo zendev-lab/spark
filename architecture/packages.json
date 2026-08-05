@@ -12,11 +12,11 @@
       "distribution": "public-npm"
     },
     "@zendev-lab/spark-hub": {
-      "path": "apps/spark-cockpit",
+      "path": "apps/spark-hub",
       "layer": "application",
       "owner": "hub",
       "stability": "supported",
-      "stateWriter": "cockpit",
+      "stateWriter": "hub",
       "distribution": "public-npm"
     },
     "@zendev-lab/spark-daemon": {
@@ -79,19 +79,19 @@
       "stability": "supported",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-cockpit-coordination": {
-      "path": "packages/spark-cockpit-coordination",
+    "@zendev-lab/spark-hub-coordination": {
+      "path": "packages/spark-hub-coordination",
       "layer": "private-adapter",
       "owner": "hub",
       "stability": "private",
-      "stateWriter": "cockpit"
+      "stateWriter": "hub"
     },
-    "@zendev-lab/spark-cockpit-db": {
-      "path": "packages/spark-cockpit-db",
+    "@zendev-lab/spark-hub-db": {
+      "path": "packages/spark-hub-db",
       "layer": "private-adapter",
       "owner": "hub",
       "stability": "private",
-      "stateWriter": "cockpit"
+      "stateWriter": "hub"
     },
     "@zendev-lab/spark-ui": {
       "path": "packages/spark-ui",

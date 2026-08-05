@@ -16,7 +16,7 @@ import {
   ensureSparkDaemonRegistrationForWorkspace,
   registerSparkDaemonWithToken,
   startSparkDaemonDeviceAuthorization,
-  unbindSparkDaemonWorkspaceFromCockpit,
+  unbindSparkDaemonWorkspaceFromHub,
   validateRegistrationServerUrl,
   verifySparkDaemonWorkspaceConnection,
 } from "./registration.js";
@@ -33,7 +33,7 @@ describe("Spark daemon workspace registration", () => {
       displayName: "Test daemon",
     });
     const input = {
-      serverUrl: "https://cockpit.example.test",
+      serverUrl: "https://hub.example.test",
       registrationToken: "spark_wsreg_failure",
       workspaceRegistration: {
         localWorkspaceKey: "spark",
@@ -56,7 +56,7 @@ describe("Spark daemon workspace registration", () => {
       vi.stubGlobal(
         "fetch",
         vi.fn(async () =>
-          jsonResponse({ error: { code: "cockpit_overloaded", message: "try later" } }, 503),
+          jsonResponse({ error: { code: "hub_overloaded", message: "try later" } }, 503),
         ),
       );
       await expect(ensureSparkDaemonRegistrationForWorkspace(paths, input)).rejects.toMatchObject({
@@ -89,7 +89,7 @@ describe("Spark daemon workspace registration", () => {
       let failure: unknown;
       try {
         await ensureSparkDaemonRegistrationForWorkspace(paths, {
-          serverUrl: "https://cockpit.example.test",
+          serverUrl: "https://hub.example.test",
           registrationToken: "spark_wsreg_corrupt_response",
           workspaceRegistration: {
             localWorkspaceKey: "spark",
@@ -116,9 +116,9 @@ describe("Spark daemon workspace registration", () => {
     try {
       for (const serverUrl of [
         "not a URL",
-        "ftp://cockpit.example.test",
-        "https://user:secret@cockpit.example.test",
-        "https://cockpit.example.test/workspace",
+        "ftp://hub.example.test",
+        "https://user:secret@hub.example.test",
+        "https://hub.example.test/workspace",
         "http://192.168.1.8:5173",
       ]) {
         try {
@@ -134,7 +134,7 @@ describe("Spark daemon workspace registration", () => {
 
       await expect(
         ensureSparkDaemonRegistrationForWorkspace(paths, {
-          serverUrl: "https://cockpit.example.test",
+          serverUrl: "https://hub.example.test",
           workspaceRegistration: {
             localWorkspaceKey: "spark",
             displayName: "Spark",
@@ -143,13 +143,13 @@ describe("Spark daemon workspace registration", () => {
       ).rejects.toMatchObject({ code: "workspace_registration_invalid" });
 
       await upsertSparkDaemonServerProfile(paths, {
-        serverUrl: "https://cockpit.example.test",
+        serverUrl: "https://hub.example.test",
         runtimeId: "rt_11111111111141111111111111111111",
         runtimeToken: "spark_rt_access_11111111111111111111111111111111",
       });
       await expect(
         ensureSparkDaemonRegistrationForWorkspace(paths, {
-          serverUrl: "https://cockpit.example.test",
+          serverUrl: "https://hub.example.test",
           registrationToken: "spark_wsreg_missing_metadata",
         }),
       ).rejects.toMatchObject({ code: "workspace_registration_invalid" });
@@ -158,20 +158,20 @@ describe("Spark daemon workspace registration", () => {
     }
   });
 
-  it("authenticates a local Cockpit switch and validates the unbind response", async () => {
+  it("authenticates a local Hub switch and validates the unbind response", async () => {
     const { root, paths } = tempSparkPaths();
     writeSparkDaemonConfig(paths, {
       installationId: "install-test",
       displayName: "Test daemon",
     });
     await upsertSparkDaemonServerProfile(paths, {
-      serverUrl: "https://cockpit.example.test/",
+      serverUrl: "https://hub.example.test/",
       runtimeId: "rt_11111111111141111111111111111111",
       runtimeToken: "spark_rt_device_token_0000000000000000000000000000",
       runtimeTokenExpiresAt: "2099-07-20T00:00:00.000Z",
       refreshToken: "spark_rt_device_refresh_00000000000000000000000000",
       refreshTokenExpiresAt: "2099-07-21T00:00:00.000Z",
-      webSocketUrl: "wss://cockpit.example.test/runtime",
+      webSocketUrl: "wss://hub.example.test/runtime",
     });
     vi.stubGlobal(
       "fetch",
@@ -195,8 +195,8 @@ describe("Spark daemon workspace registration", () => {
 
     try {
       await expect(
-        unbindSparkDaemonWorkspaceFromCockpit(paths, {
-          serverUrl: "https://cockpit.example.test/",
+        unbindSparkDaemonWorkspaceFromHub(paths, {
+          serverUrl: "https://hub.example.test/",
           bindingId: "rtwb_11111111111141111111111111111111",
         }),
       ).resolves.toMatchObject({
@@ -222,9 +222,9 @@ describe("Spark daemon workspace registration", () => {
           {
             deviceCode: "spark_device_code_000000000000000000000000",
             userCode: "SPRK-1234",
-            verificationUri: "https://cockpit.example.test/daemon/authorize",
+            verificationUri: "https://hub.example.test/daemon/authorize",
             verificationUriComplete:
-              "https://cockpit.example.test/daemon/authorize?user_code=SPRK-1234",
+              "https://hub.example.test/daemon/authorize?user_code=SPRK-1234",
             expiresIn: 600,
             interval: 1,
           },
@@ -256,24 +256,24 @@ describe("Spark daemon workspace registration", () => {
     try {
       const authorization = await startSparkDaemonDeviceAuthorization(
         paths,
-        { serverUrl: "https://cockpit.example.test" },
+        { serverUrl: "https://hub.example.test" },
         { fetchFn: fetchFn as typeof fetch },
       );
       const registered = await completeSparkDaemonDeviceAuthorization(
         paths,
-        { serverUrl: "https://cockpit.example.test", authorization },
+        { serverUrl: "https://hub.example.test", authorization },
         { fetchFn: fetchFn as typeof fetch, sleep },
       );
 
       expect(registered.runtimeId).toBe("rt_11111111111141111111111111111111");
       expect(sleep).toHaveBeenCalledTimes(2);
-      expect(getSparkDaemonServerProfile(paths, "https://cockpit.example.test")).toMatchObject({
-        serverUrl: "https://cockpit.example.test/",
+      expect(getSparkDaemonServerProfile(paths, "https://hub.example.test")).toMatchObject({
+        serverUrl: "https://hub.example.test/",
         runtimeId: "rt_11111111111141111111111111111111",
         runtimeToken: "spark_rt_device_token_0000000000000000000000000000",
         refreshToken: "spark_rt_device_refresh_00000000000000000000000000",
         webSocketUrl:
-          "wss://cockpit.example.test/api/v1/runtime/runtimes/rt_11111111111141111111111111111111/ws",
+          "wss://hub.example.test/api/v1/runtime/runtimes/rt_11111111111141111111111111111111/ws",
       });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -299,7 +299,7 @@ describe("Spark daemon workspace registration", () => {
     try {
       await expect(
         registerSparkDaemonWithToken(paths, {
-          serverUrl: "https://cockpit.example.test",
+          serverUrl: "https://hub.example.test",
           registrationToken: "spark_wsreg_test",
           displayName: "Test daemon",
           installationId: "install-test",
@@ -316,8 +316,8 @@ describe("Spark daemon workspace registration", () => {
     const authorization = {
       deviceCode: "spark_device_code_000000000000000000000000",
       userCode: "SPRK-1234",
-      verificationUri: "https://cockpit.example.test/daemon/authorize",
-      verificationUriComplete: "https://cockpit.example.test/daemon/authorize?user_code=SPRK-1234",
+      verificationUri: "https://hub.example.test/daemon/authorize",
+      verificationUriComplete: "https://hub.example.test/daemon/authorize?user_code=SPRK-1234",
       expiresIn: 600,
       interval: 1,
     };
@@ -326,7 +326,7 @@ describe("Spark daemon workspace registration", () => {
       await expect(
         completeSparkDaemonDeviceAuthorization(
           paths,
-          { serverUrl: "https://cockpit.example.test", authorization },
+          { serverUrl: "https://hub.example.test", authorization },
           {
             sleep: async () => {},
             fetchFn: async () =>
@@ -348,14 +348,14 @@ describe("Spark daemon workspace registration", () => {
     writeSparkDaemonConfig(paths, {
       installationId: "install-test",
       displayName: "Test daemon",
-      serverUrl: "https://cockpit.example.test",
+      serverUrl: "https://hub.example.test",
       runtimeId: "rt_11111111111141111111111111111111",
       runtimeToken: "spark_rt_device_token_0000000000000000000000000000",
       runtimeTokenExpiresAt: "2099-07-13T02:00:00.000Z",
       refreshToken: "spark_rt_device_refresh_00000000000000000000000000",
       refreshTokenExpiresAt: "2099-08-12T01:00:00.000Z",
       webSocketUrl:
-        "wss://cockpit.example.test/api/v1/runtime/runtimes/rt_11111111111141111111111111111111/ws",
+        "wss://hub.example.test/api/v1/runtime/runtimes/rt_11111111111141111111111111111111/ws",
     });
     const fetchFn = vi.fn(async (_url: URL | string, init?: RequestInit) => {
       expect(parseRequestJson(init)).toEqual({
@@ -392,7 +392,7 @@ describe("Spark daemon workspace registration", () => {
 
     try {
       const registered = await ensureSparkDaemonRegistrationForWorkspace(paths, {
-        serverUrl: "https://cockpit.example.test",
+        serverUrl: "https://hub.example.test",
         registrationToken: "spark_wsreg_spore_once",
         workspaceRegistration: {
           localWorkspaceKey: "local-spore",
@@ -414,7 +414,7 @@ describe("Spark daemon workspace registration", () => {
     }
   });
 
-  it("reports the exact Cockpit origin and loopback scope on fetch failure", async () => {
+  it("reports the exact Hub origin and loopback scope on fetch failure", async () => {
     const { root, paths } = tempSparkPaths();
 
     try {
@@ -428,13 +428,13 @@ describe("Spark daemon workspace registration", () => {
             },
           },
         ),
-      ).rejects.toThrow(/Cockpit origin: http:\/\/127\.0\.0\.1:5173.*daemon machine only/);
+      ).rejects.toThrow(/Hub origin: http:\/\/127\.0\.0\.1:5173.*daemon machine only/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("requires HTTPS for non-loopback Cockpit credentials unless explicitly acknowledged", () => {
+  it("requires HTTPS for non-loopback Hub credentials unless explicitly acknowledged", () => {
     expect(validateRegistrationServerUrl("http://127.0.0.1:5173")).toBe("http://127.0.0.1:5173/");
     expect(() => validateRegistrationServerUrl("http://192.168.1.8:5173")).toThrow(
       /plaintext HTTP.*--allow-insecure-http/,
@@ -444,13 +444,13 @@ describe("Spark daemon workspace registration", () => {
         allowInsecureHttp: true,
       }),
     ).toBe("http://192.168.1.8:5173/");
-    expect(validateRegistrationServerUrl("https://cockpit.example.test")).toBe(
-      "https://cockpit.example.test/",
+    expect(validateRegistrationServerUrl("https://hub.example.test")).toBe(
+      "https://hub.example.test/",
     );
-    expect(() => validateRegistrationServerUrl("https://cockpit.example.test/spark")).toThrow(
+    expect(() => validateRegistrationServerUrl("https://hub.example.test/spark")).toThrow(
       /origin without a path/,
     );
-    expect(() => validateRegistrationServerUrl("ftp://cockpit.example.test")).toThrow(
+    expect(() => validateRegistrationServerUrl("ftp://hub.example.test")).toThrow(
       /http:\/\/ or https:\/\//,
     );
   });
@@ -553,7 +553,7 @@ describe("Spark daemon workspace registration", () => {
     }
   });
 
-  it("registers a new Cockpit without overwriting another server profile", async () => {
+  it("registers a new Hub without overwriting another server profile", async () => {
     const { root, paths } = tempSparkPaths();
     writeSparkDaemonConfig(paths, {
       installationId: "install-test",
@@ -720,7 +720,7 @@ function runtimeRegistrationResponse() {
     refreshTokenExpiresAt: "2026-08-12T01:00:00.000Z",
     protocolVersion: runtimeProtocolVersion,
     webSocketUrl:
-      "wss://cockpit.example.test/api/v1/runtime/runtimes/rt_11111111111141111111111111111111/ws",
+      "wss://hub.example.test/api/v1/runtime/runtimes/rt_11111111111141111111111111111111/ws",
     heartbeatIntervalMs: 15_000,
     staleAfterMs: 45_000,
     registeredAt: "2026-07-13T01:00:00.000Z",

@@ -3,7 +3,7 @@
 import {
   SPARK_NATIVE_KERNEL_SLASH_COMMANDS,
   SPARK_NATIVE_LOCAL_CONTROL_EXTENSION_ID,
-  type SparkNativeCockpitPanel,
+  type SparkNativeHubPanel,
   type SparkNativeRuntimeCommandHost,
   type SparkNativeRuntimeSlashCommandOptions,
   type SparkNativeSlashCommand,
@@ -27,7 +27,7 @@ export function parseSlashCommand(input: string): { name: string; args: string }
 
 export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCommandMap {
   const panelCommand = (
-    panel: SparkNativeCockpitPanel,
+    panel: SparkNativeHubPanel,
     canonicalCliTarget: string,
     resource: string,
     deprecatedAliasFor?: string,
@@ -38,15 +38,15 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
       extensionId: SPARK_NATIVE_LOCAL_CONTROL_EXTENSION_ID,
       plane: canonicalCliTarget.startsWith("spark daemon")
         ? "daemon"
-        : canonicalCliTarget.startsWith("spark cockpit")
-          ? "cockpit"
+        : canonicalCliTarget.startsWith("spark hub")
+          ? "hub"
           : "tui",
       resource,
       verbs: ["list", "open"],
       canonicalCliTarget,
       ...(deprecatedAliasFor ? { deprecatedAliasFor } : {}),
     },
-    handler: (_args, ctx) => ctx.app.openCockpitPanel(panel) || undefined,
+    handler: (_args, ctx) => ctx.app.openHubPanel(panel) || undefined,
   });
   return {
     stop: {
@@ -145,9 +145,9 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
         ["overview", "workflows", "runs", "tasks", "artifacts", "reviews", "graft", "off"]
           .filter((value) => value.startsWith(prefix.toLowerCase()))
           .map((value) => ({ value, label: value })),
-      handler: (args, ctx) => ctx.app.openCockpitPanelFromArgs(args) || undefined,
+      handler: (args, ctx) => ctx.app.openHubPanelFromArgs(args) || undefined,
     },
-    cockpit: {
+    hub: {
       description: "show the local session inspector",
       argumentHint: "[overview|workflows|runs|tasks|artifacts|reviews|graft|off]",
       metadata: {
@@ -162,28 +162,18 @@ export function createSparkNativeLocalControlSlashCommands(): SparkNativeSlashCo
         ["overview", "workflows", "runs", "tasks", "artifacts", "reviews", "graft", "off"]
           .filter((value) => value.startsWith(prefix.toLowerCase()))
           .map((value) => ({ value, label: value })),
-      handler: (args, ctx) => ctx.app.openCockpitPanelFromArgs(args) || undefined,
+      handler: (args, ctx) => ctx.app.openHubPanelFromArgs(args) || undefined,
     },
     runs: panelCommand("runs", "spark daemon run list", "run", "/run list"),
     run: panelCommand("runs", "spark daemon run list", "run"),
-    tasks: panelCommand("tasks", "spark cockpit task list", "task", "/task list"),
-    task: panelCommand("tasks", "spark cockpit task list", "task"),
-    artifacts: panelCommand(
-      "artifacts",
-      "spark cockpit artifact list",
-      "artifact",
-      "/artifact list",
-    ),
-    artifact: panelCommand("artifacts", "spark cockpit artifact list", "artifact"),
-    evidence: panelCommand(
-      "artifacts",
-      "spark cockpit artifact list",
-      "artifact",
-      "/artifact list",
-    ),
-    reviews: panelCommand("reviews", "spark cockpit review list", "review", "/review list"),
-    review: panelCommand("reviews", "spark cockpit review list", "review"),
-    graft: panelCommand("graft", "spark cockpit status", "graft"),
+    tasks: panelCommand("tasks", "spark hub task list", "task", "/task list"),
+    task: panelCommand("tasks", "spark hub task list", "task"),
+    artifacts: panelCommand("artifacts", "spark hub artifact list", "artifact", "/artifact list"),
+    artifact: panelCommand("artifacts", "spark hub artifact list", "artifact"),
+    evidence: panelCommand("artifacts", "spark hub artifact list", "artifact", "/artifact list"),
+    reviews: panelCommand("reviews", "spark hub review list", "review", "/review list"),
+    review: panelCommand("reviews", "spark hub review list", "review"),
+    graft: panelCommand("graft", "spark hub status", "graft"),
   };
 }
 

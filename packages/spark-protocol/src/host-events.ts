@@ -67,7 +67,7 @@ export const sparkRunOutcomeStatusSchema = z.enum(SPARK_RUN_OUTCOME_STATUSES);
 export type SparkRunOutcomeStatus = (typeof SPARK_RUN_OUTCOME_STATUSES)[number];
 
 /**
- * Cockpit/session activity phase projected from daemon pendingTurns + session
+ * Hub/session activity phase projected from daemon pendingTurns + session
  * view status. Subset of `sparkViewModelStatusSchema`.
  */
 export const SPARK_SESSION_ACTIVITY_PHASES = ["idle", "queued", "running"] as const;

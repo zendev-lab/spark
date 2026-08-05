@@ -1117,7 +1117,7 @@ export function sessionSourceForTask(
       return host;
     }
   }
-  if (task.assignment?.source.kind === "cockpit") return "web";
+  if (task.assignment?.source.kind === "hub") return "web";
   return "daemon";
 }
 

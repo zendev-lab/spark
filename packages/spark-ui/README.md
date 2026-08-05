@@ -12,5 +12,5 @@ daemon-authenticated Repro Workbench binding; emitted actions remain revision
 and Loop-generation bound and use the closed protocol action vocabulary.
 
 Only this package may import Bits UI, Lucide, or `svelte-streamdown`; product
-features consume its stable exports instead. Shared locale helpers and Cockpit
-product copy stay in `@zendev-lab/spark-i18n` and its `/cockpit` subpath.
+features consume its stable exports instead. Shared locale helpers and Hub
+product copy stay in `@zendev-lab/spark-i18n` and its `/hub` subpath.

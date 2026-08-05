@@ -1,10 +1,10 @@
-import type { SparkNativeCockpitPanel } from "./types.ts";
+import type { SparkNativeHubPanel } from "./types.ts";
 
 export interface SparkTerminalViewState {
   readonly focused: boolean;
   readonly toolsExpanded: boolean;
   readonly thinkingExpanded: boolean;
-  readonly activeCockpitPanel?: SparkNativeCockpitPanel;
+  readonly activeHubPanel?: SparkNativeHubPanel;
   readonly transcriptScrollOffset: number;
 }
 
@@ -12,12 +12,12 @@ export type SparkTerminalIntent =
   | { readonly type: "focus.set"; readonly focused: boolean }
   | { readonly type: "tools.toggle" }
   | { readonly type: "thinking.toggle" }
-  | { readonly type: "cockpit.toggle"; readonly panel: SparkNativeCockpitPanel }
-  | { readonly type: "cockpit.open"; readonly panel: SparkNativeCockpitPanel }
-  | { readonly type: "cockpit.close" }
+  | { readonly type: "hub.toggle"; readonly panel: SparkNativeHubPanel }
+  | { readonly type: "hub.open"; readonly panel: SparkNativeHubPanel }
+  | { readonly type: "hub.close" }
   | {
-      readonly type: "cockpit.cycle";
-      readonly panels: readonly SparkNativeCockpitPanel[];
+      readonly type: "hub.cycle";
+      readonly panels: readonly SparkNativeHubPanel[];
     }
   | { readonly type: "transcript.scroll"; readonly delta: number }
   | { readonly type: "transcript.tail" };
@@ -52,24 +52,23 @@ export class SparkTerminalController {
       case "thinking.toggle":
         this.#state = nextState(current, { thinkingExpanded: !current.thinkingExpanded });
         break;
-      case "cockpit.toggle":
+      case "hub.toggle":
         this.#state = nextState(current, {
-          activeCockpitPanel:
-            current.activeCockpitPanel === intent.panel ? undefined : intent.panel,
+          activeHubPanel: current.activeHubPanel === intent.panel ? undefined : intent.panel,
         });
         break;
-      case "cockpit.open":
-        this.#state = nextState(current, { activeCockpitPanel: intent.panel });
+      case "hub.open":
+        this.#state = nextState(current, { activeHubPanel: intent.panel });
         break;
-      case "cockpit.close":
-        this.#state = nextState(current, { activeCockpitPanel: undefined });
+      case "hub.close":
+        this.#state = nextState(current, { activeHubPanel: undefined });
         break;
-      case "cockpit.cycle": {
+      case "hub.cycle": {
         if (intent.panels.length === 0) break;
-        const currentPanel = current.activeCockpitPanel ?? intent.panels[0];
+        const currentPanel = current.activeHubPanel ?? intent.panels[0];
         const index = currentPanel ? intent.panels.indexOf(currentPanel) : -1;
-        const activeCockpitPanel = intent.panels[(Math.max(index, 0) + 1) % intent.panels.length];
-        this.#state = nextState(current, { activeCockpitPanel });
+        const activeHubPanel = intent.panels[(Math.max(index, 0) + 1) % intent.panels.length];
+        this.#state = nextState(current, { activeHubPanel });
         break;
       }
       case "transcript.scroll":
@@ -90,6 +89,6 @@ function nextState(
   patch: Partial<SparkTerminalViewState>,
 ): SparkTerminalViewState {
   const next = { ...current, ...patch };
-  if (next.activeCockpitPanel === undefined) delete next.activeCockpitPanel;
+  if (next.activeHubPanel === undefined) delete next.activeHubPanel;
   return Object.freeze(next);
 }

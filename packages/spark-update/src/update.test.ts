@@ -480,7 +480,7 @@ describe("package-manager update transaction", () => {
     const env = { HOME: root, PATH: "/usr/bin:/bin" };
     const commandPath = join(root, ".vite-plus", "bin", "spark");
     let installedVersion = "0.1.0";
-    let cockpitRunning = true;
+    let hubRunning = true;
     const run = vi.fn(async (command: string, args: string[]) => {
       if (command === "vp") {
         installedVersion = args.at(-1)!.split("@").at(-1)!;
@@ -489,20 +489,30 @@ describe("package-manager update transaction", () => {
       if (command === commandPath && args[0] === "version") {
         return { code: 0, stdout: JSON.stringify(testBuildInfo(installedVersion)), stderr: "" };
       }
-      if (command === commandPath && args[0] === "cockpit") {
+      if (command === commandPath && args[0] === "hub") {
+        if (args[2] === "status" && installedVersion === "0.1.0") {
+          return { code: 2, stdout: "", stderr: "Unknown spark subcommand: hub" };
+        }
         if (args[2] === "status") {
           return {
             code: 0,
             stdout: JSON.stringify({
-              running: cockpitRunning,
+              running: hubRunning,
               url: "http://127.0.0.1:5173",
             }),
             stderr: "",
           };
         }
-        if (args[2] === "stop") cockpitRunning = false;
-        if (args[2] === "start") cockpitRunning = true;
-        return { code: 0, stdout: JSON.stringify({ running: cockpitRunning }), stderr: "" };
+        if (args[2] === "stop") hubRunning = false;
+        if (args[2] === "start") hubRunning = true;
+        return { code: 0, stdout: JSON.stringify({ running: hubRunning }), stderr: "" };
+      }
+      if (command === commandPath && args[0] === "cockpit") {
+        return {
+          code: 0,
+          stdout: JSON.stringify({ running: hubRunning, url: "http://127.0.0.1:5173" }),
+          stderr: "",
+        };
       }
       if (command === commandPath && args[0] === "daemon") {
         return {
@@ -527,7 +537,7 @@ describe("package-manager update transaction", () => {
       run,
       fetch: vi.fn(async (input) => {
         if (String(input).includes("127.0.0.1")) {
-          return new Response(JSON.stringify({ service: "spark-cockpit", status: "ok" }));
+          return new Response(JSON.stringify({ service: "spark-hub", status: "ok" }));
         }
         return new Response(
           JSON.stringify({
@@ -549,12 +559,17 @@ describe("package-manager update transaction", () => {
     );
     expect(run).toHaveBeenCalledWith(
       commandPath,
-      ["cockpit", "web", "stop", "--json"],
+      ["cockpit", "web", "status", "--json"],
       expect.any(Object),
     );
     expect(run).toHaveBeenCalledWith(
       commandPath,
-      ["cockpit", "web", "start", "--json"],
+      ["hub", "web", "stop", "--json"],
+      expect.any(Object),
+    );
+    expect(run).toHaveBeenCalledWith(
+      commandPath,
+      ["hub", "web", "start", "--json"],
       expect.any(Object),
     );
   });

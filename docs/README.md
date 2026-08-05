@@ -15,11 +15,11 @@ map for internal contracts and operator procedures.
 - [`specs/sessions-and-channels.md`](./specs/sessions-and-channels.md): persistent sessions, daemon-owned Side Threads, origins, mail, and channel policy.
 - [`specs/daemon-autonomous-loops.md`](./specs/daemon-autonomous-loops.md): daemon-owned Loop cadence, bindings, retry, recovery, and fresh-continuity boundaries.
 - [`specs/human-interaction.md`](./specs/human-interaction.md): ask/approval waits, status vocabulary, and correlation.
-- [`specs/cockpit-product-design.md`](./specs/cockpit-product-design.md): daemon-truth, Work-first session hierarchy, interaction boundaries, and reachable-state UI verification.
+- [`specs/hub-product-design.md`](./specs/hub-product-design.md): daemon-truth, Work-first session hierarchy, interaction boundaries, and reachable-state UI verification.
 - [`specs/turn.md`](./specs/turn.md): daemon command and event vocabulary.
 - [`specs/spark-runtime-integration.md`](./specs/spark-runtime-integration.md): `spark run --json` integration.
-- [`specs/spark-cockpit-remote-access.md`](./specs/spark-cockpit-remote-access.md): remote Cockpit operation.
-- [`operations/cockpit-relocation.md`](./operations/cockpit-relocation.md): feature-only Cockpit snapshot relocation, HTTPS/WSS cutover, validation, and rollback.
+- [`specs/spark-hub-remote-access.md`](./specs/spark-hub-remote-access.md): remote Hub operation.
+- [`operations/hub-relocation.md`](./operations/hub-relocation.md): feature-only Hub snapshot relocation, HTTPS/WSS cutover, validation, and rollback.
 - [`operations/zellij-harness.md`](./operations/zellij-harness.md): real TUI validation and pane capture.
 - [`operations/renderer-readiness.md`](./operations/renderer-readiness.md): renderer-neutral controller and fail-closed OpenTUI release/PTY gates.
 - [`operations/test-architecture.md`](./operations/test-architecture.md): test ownership, assertion hierarchy, source-mirror ratchet, and golden-file policy.

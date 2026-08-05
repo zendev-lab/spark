@@ -9,7 +9,7 @@ import {
 import type { SparkPaths } from "@zendev-lab/spark-system";
 import {
   ensureSparkDaemonRegistrationForWorkspace,
-  unbindSparkDaemonWorkspaceFromCockpit,
+  unbindSparkDaemonWorkspaceFromHub,
   verifySparkDaemonWorkspaceConnection,
 } from "../registration.js";
 import { handleChannelRequest } from "./handlers/channel.ts";
@@ -207,8 +207,8 @@ function createLocalRpcDispatchContext(
       ensureSparkDaemonRegistrationForWorkspace,
     verifyWorkspaceConnection:
       options.verifySparkDaemonWorkspaceConnection ?? verifySparkDaemonWorkspaceConnection,
-    unbindWorkspaceFromCockpit:
-      options.unbindSparkDaemonWorkspaceFromCockpit ?? unbindSparkDaemonWorkspaceFromCockpit,
+    unbindWorkspaceFromHub:
+      options.unbindSparkDaemonWorkspaceFromHub ?? unbindSparkDaemonWorkspaceFromHub,
   };
 }
 

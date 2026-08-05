@@ -7,5 +7,5 @@
     "benchmarks/**/*.ts",
     "test/**/*.ts"
   ],
-  "exclude": ["apps/spark-cockpit/**"]
+  "exclude": ["apps/spark-hub/**"]
 }

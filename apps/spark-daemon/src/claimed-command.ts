@@ -305,11 +305,11 @@ function sendWorkspaceSnapshotResult({
 async function handleModelChannelCommand(input: ClaimedCommandExecution): Promise<void> {
   const { ws, command, context, route, commandWorkspace, sparkCommand } = input;
   if (!isSparkDaemonModelChannelPublicKind(sparkCommand.kind)) return;
-  // Cockpit routes workspace commands with both its workspace projection id
+  // Hub routes workspace commands with both its workspace projection id
   // and the daemon-owned binding id. Channel state is daemon-local, so execute
   // channel operations against the local binding instead of creating a
-  // parallel $SPARK_DATA_ROOT/workspaces/<cockpit-workspace-id> tree. Model
-  // operations keep the Cockpit id because daemon session scopes retain that
+  // parallel $SPARK_DATA_ROOT/workspaces/<hub-workspace-id> tree. Model
+  // operations keep the Hub id because daemon session scopes retain that
   // public workspace identity.
   const localizeWorkspace = commandWorkspace && sparkCommand.kind.startsWith("channel.");
   const workspaceId = localizeWorkspace ? commandWorkspace.id : command.workspaceId;
@@ -912,17 +912,17 @@ function parseWorkspaceClientAttachPayload(
       ? { ...(payload.metadata as Record<string, unknown>) }
       : {};
   const sessionId = workspaceClientSessionId(payload, baseMetadata, clientId);
-  // Runtime WSS occupancy is always a Cockpit browser session unit.
+  // Runtime WSS occupancy is always a Hub browser session unit.
   const metadata = {
     ...baseMetadata,
-    surface: "cockpit",
+    surface: "hub",
     sessionId,
   };
   return {
     workspaceId,
     ...(clientId ? { clientId } : { clientId: sessionId }),
     kind,
-    ...(displayName ? { displayName } : { displayName: "Cockpit workbench" }),
+    ...(displayName ? { displayName } : { displayName: "Hub workbench" }),
     ...(leaseTtlMs !== undefined ? { leaseTtlMs } : {}),
     metadata,
   };

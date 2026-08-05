@@ -463,7 +463,7 @@ test("ask flow custom input accepts bracketed paste split across terminal chunks
         required: true,
         options: [
           { value: "tui", label: "TUI" },
-          { value: "cockpit", label: "Cockpit" },
+          { value: "hub", label: "Hub" },
         ],
       },
     ],

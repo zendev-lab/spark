@@ -102,5 +102,5 @@ instruction source.
 
 The reusable SQLite contract is in
 `apps/spark-daemon/src/store/loops.contract.ts`; protocol tests cover the public
-schemas, daemon tests cover migration and recovery, and TUI/Cockpit tests render
+schemas, daemon tests cover migration and recovery, and TUI/Hub tests render
 every reachable Loop status without collapsing them.

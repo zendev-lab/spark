@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 export const LEASE_TRANSFER_TIMEOUT_MS = 30_000;
 
 export type LeaseTransferDecision = "accept" | "reject" | "auto-authorize";
-export type LeaseTransferResponseSource = "cockpit" | "tui" | "cli" | "timeout" | "unknown";
+export type LeaseTransferResponseSource = "hub" | "tui" | "cli" | "timeout" | "unknown";
 
 export interface LeaseTransferRequest {
   transferId: string;
@@ -108,7 +108,7 @@ export class SparkDaemonLeaseTransferBroker {
   respondByHumanRequest(
     humanRequestId: string,
     decision: "accept" | "reject",
-    source: LeaseTransferResponseSource = "cockpit",
+    source: LeaseTransferResponseSource = "hub",
   ): LeaseTransferSettlement | null {
     for (const pending of this.pending.values()) {
       if (pending.request.humanRequestId === humanRequestId) {

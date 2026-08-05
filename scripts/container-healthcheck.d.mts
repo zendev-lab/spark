@@ -1,13 +1,13 @@
-export interface CockpitHealthcheckRequest {
+export interface HubHealthcheckRequest {
   url: URL;
   headers: Record<string, string>;
 }
 
-export function createCockpitHealthcheckRequest(
+export function createHubHealthcheckRequest(
   env?: Record<string, string | undefined>,
-): CockpitHealthcheckRequest;
+): HubHealthcheckRequest;
 
-export function checkCockpitHealth(
+export function checkHubHealth(
   env?: Record<string, string | undefined>,
   fetcher?: typeof fetch,
 ): Promise<boolean>;

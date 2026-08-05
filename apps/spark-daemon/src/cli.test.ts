@@ -326,9 +326,9 @@ describe("Spark daemon CLI", () => {
     expect(capture.stderr()).toBe("");
   });
 
-  it("relocates Cockpit through the daemon-local RPC surface with redacted JSON", async () => {
+  it("relocates Hub through the daemon-local RPC surface with redacted JSON", async () => {
     const relocateWorkspaceInService = vi.fn(async () => ({
-      instanceId: "cockpit_11111111111111111111111111111111",
+      instanceId: "hub_11111111111111111111111111111111",
       installationId: "install-relocation",
       runtimeId: "rt_11111111111111111111111111111111",
       fromServerUrl: "https://source.example.test/",
@@ -365,7 +365,7 @@ describe("Spark daemon CLI", () => {
       toServerUrl: "https://target.example.test",
     });
     expect(JSON.parse(capture.stdout())).toMatchObject({
-      instanceId: "cockpit_11111111111111111111111111111111",
+      instanceId: "hub_11111111111111111111111111111111",
       runtimeId: "rt_11111111111111111111111111111111",
       workspaceCount: 1,
     });
@@ -373,7 +373,7 @@ describe("Spark daemon CLI", () => {
     expect(capture.stderr()).toBe("");
   });
 
-  it("doctor reports daemon, credential, workspace, and cockpit checks", async () => {
+  it("doctor reports daemon, credential, workspace, and hub checks", async () => {
     const capture = createCliIo();
 
     const code = await withTempSparkEnv(async () => await main(["doctor"], capture.io));
@@ -385,7 +385,7 @@ describe("Spark daemon CLI", () => {
     expect(payload.checks.daemon).toHaveProperty("ok");
     expect(payload.checks.credentials).toHaveProperty("ok");
     expect(payload.checks.workspace).toHaveProperty("ok");
-    expect(payload.checks.cockpit).toHaveProperty("ok");
+    expect(payload.checks.hub).toHaveProperty("ok");
     expect(capture.stderr()).toBe("");
   });
 
@@ -690,7 +690,7 @@ describe("Spark daemon CLI", () => {
     }
   });
 
-  it("refuses plaintext remote Cockpit login without explicit acknowledgement", async () => {
+  it("refuses plaintext remote Hub login without explicit acknowledgement", async () => {
     const capture = createCliIo();
     await withTempSparkEnv(async () => {
       await expect(
@@ -1950,7 +1950,7 @@ describe("Spark daemon CLI", () => {
     });
   });
 
-  it("does not misclassify a daemon-reported Cockpit fetch error as local RPC downtime", async () => {
+  it("does not misclassify a daemon-reported Hub fetch error as local RPC downtime", async () => {
     await withTempSparkEnv(async (root) => {
       mkdirSync(join(root, "checkout"), { recursive: true });
       process.env.INIT_CWD = root;
@@ -1961,7 +1961,7 @@ describe("Spark daemon CLI", () => {
       const capture = createCliIo({
         registerWorkspaceInService: vi.fn(async () => {
           throw new Error(
-            "Request to http://127.0.0.1:5173/api/v1/runtime failed (Cockpit origin: http://127.0.0.1:5173): fetch failed",
+            "Request to http://127.0.0.1:5173/api/v1/runtime failed (Hub origin: http://127.0.0.1:5173): fetch failed",
           );
         }),
       });
@@ -1980,7 +1980,7 @@ describe("Spark daemon CLI", () => {
           capture.io,
         ),
       ).resolves.toBe(1);
-      expect(capture.stderr()).toContain("Cockpit origin: http://127.0.0.1:5173");
+      expect(capture.stderr()).toContain("Hub origin: http://127.0.0.1:5173");
       expect(capture.stderr()).not.toContain("Spark daemon is running but cannot be reached");
     });
   });
@@ -2757,7 +2757,7 @@ describe("Spark daemon CLI", () => {
     });
   });
 
-  it("reports every Cockpit credential and connection without selecting a global server", async () => {
+  it("reports every Hub credential and connection without selecting a global server", async () => {
     await withTempSparkEnv(async () => {
       const paths = resolveSparkPaths({ app: "daemon" });
       writeSparkDaemonConfig(paths, {

@@ -48,7 +48,7 @@
           "enum": ["experimental", "frozen", "internal", "private", "supported"]
         },
         "stateWriter": {
-          "enum": ["cockpit", "daemon", "external", "host", "none", "user", "workspace"]
+          "enum": ["hub", "daemon", "external", "host", "none", "user", "workspace"]
         },
         "distribution": {
           "enum": ["bundled-only", "private", "public-npm", "public-npm-compatibility"]

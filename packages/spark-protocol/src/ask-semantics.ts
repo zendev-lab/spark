@@ -1,5 +1,5 @@
 /**
- * Transport-neutral ask answer semantics shared by TUI (`spark-ask`), Cockpit,
+ * Transport-neutral ask answer semantics shared by TUI (`spark-ask`), Hub,
  * and coordination projections. Presentation (Svelte forms, terminal UI, inbox
  * copy) stays surface-local; "does this answer count" must not fork.
  */

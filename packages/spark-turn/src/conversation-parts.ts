@@ -122,7 +122,7 @@ export function displaySafeAssistantText(content: unknown): string {
       const part = value as Record<string, unknown>;
       // Tool calls and thinking belong in structured `parts`, not the prose `text`
       // field. Embedding `[tool call: …]` here leaks into Infoflow answer bodies and
-      // Cockpit markdown fallbacks.
+      // Hub markdown fallbacks.
       if (
         part.type === "text" &&
         typeof part.text === "string" &&

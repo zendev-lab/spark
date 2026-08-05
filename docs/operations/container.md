@@ -1,7 +1,7 @@
-# Containerized Cockpit
+# Containerized Hub
 
-The Spark container boundary is the central Cockpit, not the machine-local
-daemon. Cockpit owns its database and Web surface in one persistent volume.
+The Spark container boundary is the central Hub, not the machine-local
+daemon. Hub owns its database and Web surface in one persistent volume.
 Daemons stay native on workstations so they can own local workspaces,
 credentials, processes, and Unix lifecycle integration without broad host
 mounts or a Docker socket.
@@ -23,12 +23,12 @@ From a clean Spark source checkout:
 ```sh
 docker build \
   --build-arg SPARK_BUILD_GIT_SHA="$(git rev-parse HEAD)" \
-  --tag spark-cockpit:local \
+  --tag spark-hub:local \
   .
 ```
 
 `SPARK_BUILD_GIT_SHA` defaults to `container-build` for ad hoc builds. Pass the
-commit SHA for any retained or deployed image so Cockpit build diagnostics are
+commit SHA for any retained or deployed image so Hub build diagnostics are
 traceable.
 
 ## Local smoke run
@@ -36,36 +36,36 @@ traceable.
 Use a named volume so Docker initializes it for the image's non-root user:
 
 ```sh
-docker volume create spark-cockpit-data
+docker volume create spark-hub-data
 docker run --detach \
-  --name spark-cockpit \
+  --name spark-hub \
   --publish 127.0.0.1:5173:5173 \
   --restart unless-stopped \
-  --volume spark-cockpit-data:/var/lib/spark \
-  spark-cockpit:local
+  --volume spark-hub-data:/var/lib/spark \
+  spark-hub:local
 ```
 
 Check both Docker health and the public health endpoint:
 
 ```sh
-docker inspect --format '{{.State.Health.Status}}' spark-cockpit
+docker inspect --format '{{.State.Health.Status}}' spark-hub
 curl --fail http://127.0.0.1:5173/api/v1/health
 ```
 
-Create the one-time Cockpit browser key against the same persistent state:
+Create the one-time Hub browser key against the same persistent state:
 
 ```sh
-docker exec spark-cockpit spark cockpit access create
+docker exec spark-hub spark hub access create
 ```
 
 Image replacement owns container upgrades, so the image identifies its install
 owner as `container` and defaults Spark's self-update policy to `manual`.
-Cockpit can report the running version, but `spark update apply` and Spark's
+Hub can report the running version, but `spark update apply` and Spark's
 package-manager rollback are intentionally unavailable. Rebuild or pull a newer
-image, then replace the container while retaining `spark-cockpit-data`; rollback
+image, then replace the container while retaining `spark-hub-data`; rollback
 means replacing it again with a previously pinned image.
 
-For a published stable image, replace `spark-cockpit:local` with
+For a published stable image, replace `spark-hub:local` with
 `ghcr.io/zendev-lab/spark:latest`. Pin an exact version for reproducible
 deployments. Publishing an image does not restart a running deployment; the
 Linux host still owns its pull-and-recreate policy.

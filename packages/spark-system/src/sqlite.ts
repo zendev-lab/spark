@@ -43,7 +43,7 @@ export function applySqlitePragmas(db: DatabaseSync): void {
   db.exec("PRAGMA busy_timeout = 5000");
 }
 
-/** Apply daemon-specific bounds without imposing process-global limits on Cockpit SQLite. */
+/** Apply daemon-specific bounds without imposing process-global limits on Hub SQLite. */
 export function applyDaemonSqliteResourceLimits(db: DatabaseSync): void {
   // Negative cache_size is a KiB ceiling. Keep SQLite's page cache and mmap
   // well below the 1 GiB process budget, and force temporary query state to

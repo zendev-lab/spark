@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 /**
  * Root integration suite under test/. The direct-memory protocol conformance is
  * the one explicit owner-test exception because it proves one normalized vector
- * across TUI, Cockpit, and channel surfaces.
+ * across TUI, Hub, and channel surfaces.
  */
 export default defineConfig({
   test: {

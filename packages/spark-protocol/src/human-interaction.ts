@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * Canonical human-interaction lifecycle owned by the daemon wait registry.
- * Cockpit `human_requests` / inbox rows project from this vocabulary and must
+ * Hub `human_requests` / inbox rows project from this vocabulary and must
  * not invent additional terminal states.
  */
 export const SPARK_HUMAN_INTERACTION_STATUSES = [
@@ -24,7 +24,7 @@ export type SparkHumanResponseStatus = (typeof SPARK_HUMAN_RESPONSE_STATUSES)[nu
 export const sparkHumanResponseStatusSchema = z.enum(SPARK_HUMAN_RESPONSE_STATUSES);
 
 /**
- * Cockpit outbox delivery of an operator response toward the daemon.
+ * Hub outbox delivery of an operator response toward the daemon.
  * Orthogonal to the interaction lifecycle above.
  */
 export const SPARK_HUMAN_RESPONSE_DELIVERY_STATUSES = ["delivering", "acked", "failed"] as const;

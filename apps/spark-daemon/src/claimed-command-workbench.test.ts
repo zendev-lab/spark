@@ -46,7 +46,7 @@ describe("claimed runtime Workbench command", () => {
     const localPath = join(root, "workspace");
     mkdirSync(localPath);
     const workspace = registerWorkspace(db, {
-      serverUrl: "https://cockpit.example.test/",
+      serverUrl: "https://hub.example.test/",
       serverWorkspaceId: "ws_22222222222222222222222222222222",
       serverBindingId: "rtwb_22222222222222222222222222222222",
       localWorkspaceKey: "workbench-workspace",

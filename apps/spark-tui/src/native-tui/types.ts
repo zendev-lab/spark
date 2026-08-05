@@ -14,15 +14,15 @@ import type { SparkKeybindingContext, SparkKeybindings } from "../host/keybindin
 import type { SparkHostMessageRenderer, RegisteredCommand } from "../host/types.ts";
 import type { SparkTheme } from "../host/theme.ts";
 import type { SparkNativeAppContract, SparkNativeSessionContract } from "./session-contracts.ts";
-import type { SparkNativeCockpitPanel } from "./cockpit-types.ts";
+import type { SparkNativeHubPanel } from "./hub-types.ts";
 
 export type {
-  SparkNativeCockpitPanel,
-  SparkNativeCockpitSnapshot,
-  SparkNativeCockpitState,
+  SparkNativeHubPanel,
+  SparkNativeHubSnapshot,
+  SparkNativeHubState,
   SparkNativeFooterMetrics,
   SparkNativeWorkflowOption,
-} from "./cockpit-types.ts";
+} from "./hub-types.ts";
 
 export type SparkNativeMessageRole =
   | "system"
@@ -260,7 +260,7 @@ export interface SparkNativeWidget {
   component?: SparkNativeWidgetComponent;
 }
 
-export const SPARK_COCKPIT_PANELS: readonly SparkNativeCockpitPanel[] = [
+export const SPARK_HUB_PANELS: readonly SparkNativeHubPanel[] = [
   "overview",
   "workflows",
   "runs",
@@ -272,6 +272,6 @@ export const SPARK_COCKPIT_PANELS: readonly SparkNativeCockpitPanel[] = [
 
 export const MAX_TRANSCRIPT_MESSAGES = 80;
 export const MAX_NATIVE_WIDGET_LINES = 12;
-export const MAX_COCKPIT_PANEL_ROWS = 6;
+export const MAX_HUB_PANEL_ROWS = 6;
 export const MAX_NATIVE_QUEUE_ITEMS = 4;
 export const SPARK_NATIVE_LOCAL_CONTROL_EXTENSION_ID = "spark-tui-local-control";

@@ -4,7 +4,7 @@ import {
   createServerCommandEnvelope,
   runtimeProtocolVersion,
 } from "@zendev-lab/spark-protocol";
-import { openMemoryDatabase } from "@zendev-lab/spark-cockpit-db";
+import { openMemoryDatabase } from "@zendev-lab/spark-hub-db";
 import {
   acknowledgeRuntimeCommandTerminal,
   acknowledgeRuntimeCommandTerminalForRoute,
@@ -89,7 +89,7 @@ function seedTerminal(
 }
 
 describe("runtime command receipts", () => {
-  it("filters terminals before limiting and rejects cross-Cockpit acknowledgements", () => {
+  it("filters terminals before limiting and rejects cross-Hub acknowledgements", () => {
     const db = openMemoryDatabase();
     migrateSparkDaemonDatabase(db);
     const serverA = "https://a.example.test/";

@@ -24,7 +24,7 @@ if (typeof rootManifest.version !== "string" || !rootManifest.version) {
 
 const expectedApplicationNames = new Map([
   ["apps/spark-cli", "@zendev-lab/spark-cli"],
-  ["apps/spark-cockpit", "@zendev-lab/spark-hub"],
+  ["apps/spark-hub", "@zendev-lab/spark-hub"],
   ["apps/spark-daemon", "@zendev-lab/spark-daemon"],
   ["apps/spark-tui", "@zendev-lab/spark-tui"],
 ]);

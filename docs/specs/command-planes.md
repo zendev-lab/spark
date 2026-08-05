@@ -31,14 +31,14 @@ a companion may also be installed directly for a single-process deployment.
 | slash `system` | n/a | TUI kernel command source | `/help`, `/exit`, `/quit`, `/clear`, `/reload` | project/task/goal/session/workflow commands |
 | slash `extension` | n/a | extension command source | extension-owned resource commands | TUI kernel lifecycle |
 
-The application formerly named Cockpit is now the Hub application because it
+The application formerly named Cockpit is the Hub application because it
 contains the control plane, daemon gateway, authentication boundary, and its
-embedded Web UI in one deployment. The first rename deliberately retains
-`apps/spark-cockpit`, `packages/spark-cockpit-*`, the
-`@zendev-lab/spark-i18n/cockpit` catalog subpath, and existing Cockpit XDG/
-SQLite paths as physical compatibility names. Package inventory ownership and
-all public process names use `hub`. Those physical paths change only through a
-separate idempotent migration with rollback coverage.
+embedded Web UI in one deployment. Source directories, private packages, the
+`@zendev-lab/spark-i18n/hub` catalog, public process names, environment
+variables, and fresh XDG/SQLite state all use `hub`. The Hub database owner
+migrates retired Cockpit paths and filenames explicitly; historical wire,
+snapshot, cookie, instance-ID, and schema markers remain bounded compatibility
+inputs.
 
 The retired `spark-cockpit` executable and `spark cockpit` dispatcher namespace
 are not compatibility routes. Keeping them would preserve the incorrect model
@@ -51,11 +51,11 @@ session id and only connection-local active-invocation routing is retained.
 ## Boundary invariants
 
 - Every stateful domain has exactly one authoritative owner. The Hub modules in
-  `packages/spark-cockpit-coordination` and `packages/spark-cockpit-db` own
+  `packages/spark-hub-coordination` and `packages/spark-hub-db` own
   cross-workspace coordination facts, but their projections are never execution
   truth for tasks, runs, artifacts, asks, reviews, or invocations. Their
-  `stateWriter: cockpit` inventory marker records the still-compatible storage
-  identity, not a second product owner.
+  `stateWriter: hub` inventory marker records the canonical storage owner, not
+  a second product owner.
 - Transports and app adapters translate through owner APIs; they do not
   duplicate execution or policy, and they must not read or write another
   owner's store. Typed oRPC is the primary local control path; the 0.1.x
@@ -75,8 +75,8 @@ session id and only connection-local active-invocation routing is retained.
 | autonomous goal/loop/repro/implement/workflow cadence, retry, and recovery | `apps/spark-daemon`; capability packages provide registered success/retry policy | TUI, Hub, and compatible hosts send controls and render `loop.update` |
 | model/tool turn execution and effect policy | `spark-turn` and `spark-host` | daemon and native host runners provide session context |
 | cross-surface schemas and semantics | `spark-protocol` | each transport performs validation and translation only |
-| projects, tasks, goals, reviews, workflows, and evidence coordination | `spark-cockpit-coordination` and the capability package named for the domain | Hub routes and Web UI are replaceable projections |
-| cross-workspace delegation, routing, and bounded receipts | Hub modules in `spark-cockpit-coordination` / `spark-cockpit-db` | `spark-hub`; target daemon retains execution truth |
+| projects, tasks, goals, reviews, workflows, and evidence coordination | `spark-hub-coordination` and the capability package named for the domain | Hub routes and Web UI are replaceable projections |
+| cross-workspace delegation, routing, and bounded receipts | Hub modules in `spark-hub-coordination` / `spark-hub-db` | `spark-hub`; target daemon retains execution truth |
 | terminal presentation and interaction | `apps/spark-tui` behind `spark-tui` / `spark-text` boundaries | no durable business-state ownership |
 | extension composition | `spark-extension` | compatible loaders may call the same host-neutral contract; no second facade owns behavior |
 
@@ -240,8 +240,8 @@ These shapes are not canonical and must fail:
 
 ```bash
 spark server status
-spark cockpit
-spark-cockpit
+spark hub
+spark-hub
 spark-daemon sessions list --all-workspaces
 spark-daemon task claim <task-ref>
 spark-daemon goal complete

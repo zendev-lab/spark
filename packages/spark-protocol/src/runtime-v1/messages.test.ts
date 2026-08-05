@@ -274,7 +274,7 @@ describe("runtime human response messages", () => {
     expect(
       humanResponseRecordedEnvelopeSchema.safeParse({
         ...envelope,
-        payload: { ...envelope.payload, source: "cockpit" },
+        payload: { ...envelope.payload, source: "hub" },
       }).success,
     ).toBe(false);
   });

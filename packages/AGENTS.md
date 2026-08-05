@@ -40,10 +40,10 @@ contracts and foundations
 - Contracts and foundations must remain dependency-light and policy-free.
 - Adapters translate external or host-specific behavior into an owner API; they
   do not own the domain they adapt.
-- `spark-cockpit-*` packages are Cockpit-private and must not become daemon or
+- `spark-hub-*` packages are Hub-private and must not become daemon or
   shared-package dependencies.
 - Retained Pi SDK adapters must remain behind Spark boundaries and independent
-  from Spark product and Cockpit composition.
+  from Spark product and Hub composition.
 - Shared packages must not depend on `spark-extension`, the product composition
   root.
 - `spark-ui` is the only package that may directly import Bits UI, Lucide, or

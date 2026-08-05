@@ -29,6 +29,7 @@ export type MemoryQuarantineTargetKind =
   | "revision"
   | "retrieval_index"
   | "telemetry_cache"
+  | "hub_projection"
   | "cockpit_projection"
   | "backup_ref";
 export type MemoryPurgeReceiptStatus = "pending" | "completed" | "failed";
@@ -1351,6 +1352,7 @@ function isTargetKind(value: unknown): value is MemoryQuarantineTargetKind {
     "revision",
     "retrieval_index",
     "telemetry_cache",
+    "hub_projection",
     "cockpit_projection",
     "backup_ref",
   ].includes(value as string);

@@ -30,7 +30,7 @@ $SPARK_HOME/agent/
 $SPARK_HOME/prompts/
 $SPARK_HOME/themes/
 $SPARK_HOME/apps/daemon/{data,cache,state,run}
-$SPARK_HOME/apps/cockpit/{data,cache,state,run}
+$SPARK_HOME/apps/hub/{data,cache,state,run}
 ```
 
 `auth.json` contains provider credentials. Do not commit or copy it into a
@@ -50,6 +50,20 @@ $XDG_RUNTIME_DIR/spark
 ```
 
 Platform defaults apply when an individual XDG variable is unset.
+
+## Cockpit-to-Hub upgrade
+
+On first use of the default Hub database, Spark automatically migrates the
+retired `cockpit.toml`, Cockpit XDG app directories, and `cockpit.sqlite` into
+the Hub paths above. Stop the old Cockpit and Hub processes before upgrading.
+The migration is idempotent and fail-closed: a live legacy database lock or an
+existing source **and** target stops startup without overwriting either tree.
+
+Copy any existing `SPARK_COCKPIT_*` values to their corresponding
+`SPARK_HUB_*` names. The old aliases are accepted during the upgrade window,
+but conflicting old and new values are rejected. Fresh state is written only
+under Hub names. Existing registered daemons keep their stable deployment ID;
+old Cockpit snapshot-v1 backups remain inspectable and restorable.
 
 ## Managed installation paths
 

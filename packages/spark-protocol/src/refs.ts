@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Daemon / Cockpit / local-RPC wire ids (`prefix_hex`, e.g. `sess_<32 hex>`,
+ * Daemon / Hub / local-RPC wire ids (`prefix_hex`, e.g. `sess_<32 hex>`,
  * `task_<32 hex>`, `inv_<32 hex>`).
  *
  * This vocabulary is owned by spark-protocol for transport and persistence

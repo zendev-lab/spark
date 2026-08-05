@@ -1,13 +1,13 @@
 # spark-artifacts
 
 Atomic Artifacts (`issue` / `git_change` / `document`) for users, plus an
-**agent-internal evidence ledger** that is not shown in Cockpit.
+**agent-internal evidence ledger** that is not shown in Hub.
 
 ## Two surfaces
 
 | Surface | Tool | Kinds | User-visible? | On-disk |
 |---|---|---|---|---|
-| **Artifacts** | `artifact`, `git` | `issue`, `git_change`, `document` | Yes (Cockpit `/artifacts`) | `.spark/artifacts/` |
+| **Artifacts** | `artifact`, `git` | `issue`, `git_change`, `document` | Yes (Hub `/artifacts`) | `.spark/artifacts/` |
 | **Internal evidence** | `evidence` | `record` (default), `trace`, `knowledge`, `document` | No | `.spark/evidence/` |
 
 - `issue` represents a forge issue.
@@ -29,7 +29,7 @@ Atomic Artifacts (`issue` / `git_change` / `document`) for users, plus an
   cwd-local regular, non-symlink UTF-8 file. The first report slice is capped
   at 32 KiB. A repeated identical sync is a no-op; metadata-only changes keep
   the content revision, while content or media-type changes advance it.
-- Cockpit artifact pages embed safe document views. Markdown can render in an
+- Hub artifact pages embed safe document views. Markdown can render in an
   attached TUI; other supported media receive an expiring, tokenized
   `127.0.0.1` URL only on a local browser-capable surface.
 - HTML previews run with scripts, forms, external media, framing, and network

@@ -17,39 +17,39 @@ import {
   type RuntimeRegistrationRequest,
 } from "@zendev-lab/spark-protocol";
 import {
-  createCockpitSnapshot,
-  ensureCockpitInstanceId,
-  inspectCockpitSnapshot,
+  createHubSnapshot,
+  ensureHubInstanceId,
+  inspectHubSnapshot,
   migrate,
   openDatabase,
   openMemoryDatabase,
-  restoreCockpitSnapshot,
-} from "@zendev-lab/spark-cockpit-db";
+  restoreHubSnapshot,
+} from "@zendev-lab/spark-hub-db";
 import {
   createRuntimeEnrollmentToken,
   preflightRuntimeRelocation,
   registerRuntime,
-} from "@zendev-lab/spark-cockpit-coordination/runtime-registration";
+} from "@zendev-lab/spark-hub-coordination/runtime-registration";
 import {
   attachRuntimeWebSocket,
   authenticateRuntimeToken,
-} from "@zendev-lab/spark-cockpit-coordination/runtime-ws";
+} from "@zendev-lab/spark-hub-coordination/runtime-ws";
 import { resolveSparkPaths, type SparkPaths } from "@zendev-lab/spark-system";
 
 import { createSparkDaemonUplinkControl } from "./daemon.ts";
 import { startSparkDaemon } from "./daemon-start.ts";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import { readSparkDaemonConfig, writeSparkDaemonConfig } from "./config.ts";
-import { relocateSparkDaemonCockpit } from "./relocation.ts";
+import { relocateSparkDaemonHub } from "./relocation.ts";
 import { getSparkDaemonServerProfile, listSparkDaemonServerProfiles } from "./server-profiles.ts";
 import { SparkInvocationStore } from "./store/invocations.ts";
 import { openSparkDaemonDatabase } from "./store/schema.ts";
 import { registerWorkspace, sparkDaemonServerStatusSummaries } from "./store/workspaces.ts";
 
-const instanceId = "cockpit_11111111111111111111111111111111";
+const instanceId = "hub_11111111111111111111111111111111";
 const installationId = "install-live-relocation";
 
-interface CockpitHarness {
+interface HubHarness {
   db: DatabaseSync;
   server: ReturnType<typeof createHttpsServer>;
   wss: WebSocketServer;
@@ -58,22 +58,22 @@ interface CockpitHarness {
   close(): Promise<void>;
 }
 
-test("live daemon relocates between snapshot-restored HTTPS/WSS Cockpits without restarting", async () => {
+test("live daemon relocates between snapshot-restored HTTPS/WSS Hubs without restarting", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-live-relocation-"));
   const previousTlsSetting = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
   const sourceDb = openMemoryDatabase();
   let targetDb: DatabaseSync | undefined;
   let daemonDb: DatabaseSync | undefined;
-  let source: CockpitHarness | undefined;
-  let target: CockpitHarness | undefined;
+  let source: HubHarness | undefined;
+  let target: HubHarness | undefined;
   let daemonRun: Promise<void> | undefined;
   const shutdown = new AbortController();
   const releaseInvocation = deferred<void>();
   const invocationStarted = deferred<void>();
   try {
     migrate(sourceDb);
-    ensureCockpitInstanceId(sourceDb, { instanceId });
+    ensureHubInstanceId(sourceDb, { instanceId });
     const enrollment = createRuntimeEnrollmentToken(sourceDb, {
       label: "Live relocation fixture",
       createdAt: new Date().toISOString(),
@@ -97,36 +97,36 @@ test("live daemon relocates between snapshot-restored HTTPS/WSS Cockpits without
     if (!registered.workspaceBinding) throw new Error("fixture workspace binding is missing");
 
     const snapshotPath = join(root, "snapshot");
-    const sourceManifest = await createCockpitSnapshot({ sourceDb, destination: snapshotPath });
-    const sourceInspection = inspectCockpitSnapshot(snapshotPath);
-    const targetDatabasePath = join(root, "target-data", "cockpit.sqlite");
+    const sourceManifest = await createHubSnapshot({ sourceDb, destination: snapshotPath });
+    const sourceInspection = inspectHubSnapshot(snapshotPath);
+    const targetDatabasePath = join(root, "target-data", "hub.sqlite");
     const targetSeedDb = openDatabase({ path: targetDatabasePath });
     migrate(targetSeedDb);
-    ensureCockpitInstanceId(targetSeedDb, {
-      instanceId: "cockpit_22222222222222222222222222222222",
+    ensureHubInstanceId(targetSeedDb, {
+      instanceId: "hub_22222222222222222222222222222222",
     });
     seedTargetBusinessData(targetSeedDb);
-    const targetSummaryBefore = cockpitBusinessSummary(targetSeedDb);
+    const targetSummaryBefore = hubBusinessSummary(targetSeedDb);
     targetSeedDb.close();
-    const restoreResult = await restoreCockpitSnapshot({
+    const restoreResult = await restoreHubSnapshot({
       snapshotPath,
       databasePath: targetDatabasePath,
       rollbackRoot: join(root, "target-backups"),
     });
     if (!restoreResult.rollbackSnapshotPath) throw new Error("target rollback snapshot is missing");
-    const targetBackupInspection = inspectCockpitSnapshot(restoreResult.rollbackSnapshotPath);
+    const targetBackupInspection = inspectHubSnapshot(restoreResult.rollbackSnapshotPath);
     targetDb = openDatabase({ path: targetDatabasePath });
     const tls = createTestCertificate(root);
-    source = await startCockpit(sourceDb, tls, false);
-    target = await startCockpit(targetDb, tls, true);
+    source = await startHub(sourceDb, tls, false);
+    target = await startHub(targetDb, tls, true);
     expect(sourceInspection).toMatchObject({ integrityCheck: "ok", foreignKeyViolations: 0 });
     expect(targetBackupInspection).toMatchObject({
       integrityCheck: "ok",
       foreignKeyViolations: 0,
-      manifest: { instanceId: "cockpit_22222222222222222222222222222222" },
+      manifest: { instanceId: "hub_22222222222222222222222222222222" },
     });
     expect(existsSync(join(restoreResult.rollbackSnapshotPath, "manifest.json"))).toBe(true);
-    expect(ensureCockpitInstanceId(targetDb)).toBe(instanceId);
+    expect(ensureHubInstanceId(targetDb)).toBe(instanceId);
 
     const paths = resolveSparkPaths({
       app: "daemon",
@@ -204,7 +204,7 @@ test("live daemon relocates between snapshot-restored HTTPS/WSS Cockpits without
       executeInvocation: async () => {
         invocationStarted.resolve(undefined);
         await releaseInvocation.promise;
-        return { text: "completed across Cockpit relocation" };
+        return { text: "completed across Hub relocation" };
       },
     });
 
@@ -215,11 +215,11 @@ test("live daemon relocates between snapshot-restored HTTPS/WSS Cockpits without
     const invocation = store.submit({
       workspaceBindingId: sourceWorkspace.id,
       sessionId: "relocation-live-session",
-      prompt: "stay active during Cockpit relocation",
+      prompt: "stay active during Hub relocation",
       task: {
         type: "session.run",
         sessionId: "relocation-live-session",
-        prompt: "stay active during Cockpit relocation",
+        prompt: "stay active during Hub relocation",
       },
     });
     await invocationStarted.promise;
@@ -236,7 +236,7 @@ test("live daemon relocates between snapshot-restored HTTPS/WSS Cockpits without
       const before = localStateDigest(paths, daemonDb);
       let reconfigureCount = 0;
       await expect(
-        relocateSparkDaemonCockpit(
+        relocateSparkDaemonHub(
           paths,
           daemonDb,
           { fromServerUrl: source.origin, toServerUrl: target.origin },
@@ -282,7 +282,7 @@ test("live daemon relocates between snapshot-restored HTTPS/WSS Cockpits without
       .run(target.origin, new Date().toISOString(), runtimeProtocolVersion);
     const collisionDigest = localStateDigest(paths, daemonDb);
     await expect(
-      relocateSparkDaemonCockpit(
+      relocateSparkDaemonHub(
         paths,
         daemonDb,
         { fromServerUrl: source.origin, toServerUrl: target.origin },
@@ -307,7 +307,7 @@ test("live daemon relocates between snapshot-restored HTTPS/WSS Cockpits without
 
     const sourceHeartbeatCountBefore = frameCount(source.frames, "runtime.heartbeat");
     const sourceReconcileCountBefore = frameCount(source.frames, "runtime.reconcile.report");
-    const relocation = await relocateSparkDaemonCockpit(
+    const relocation = await relocateSparkDaemonHub(
       paths,
       daemonDb,
       { fromServerUrl: source.origin, toServerUrl: target.origin },
@@ -353,7 +353,7 @@ test("live daemon relocates between snapshot-restored HTTPS/WSS Cockpits without
     await waitUntil(() => store.require(invocation.invocationId).status === "succeeded");
     expect(store.require(invocation.invocationId)).toMatchObject({
       status: "succeeded",
-      result: { text: "completed across Cockpit relocation" },
+      result: { text: "completed across Hub relocation" },
     });
     expect(hasInvocationStatus(source.frames, invocation.invocationId, "succeeded")).toBe(false);
     await waitUntil(() => source!.wss.clients.size === 0);
@@ -426,8 +426,8 @@ test("live daemon relocates between snapshot-restored HTTPS/WSS Cockpits without
     );
     console.log(
       `SPARK_RELOCATION_SUCCESS_EVIDENCE ${JSON.stringify({
-        sourceInstanceId: ensureCockpitInstanceId(sourceDb),
-        targetInstanceId: ensureCockpitInstanceId(targetDb),
+        sourceInstanceId: ensureHubInstanceId(sourceDb),
+        targetInstanceId: ensureHubInstanceId(targetDb),
         installationId,
         runtimeId: registered.runtimeId,
         bindingId: sourceWorkspace.id,
@@ -456,18 +456,16 @@ test("live daemon relocates between snapshot-restored HTTPS/WSS Cockpits without
     target = undefined;
     targetDb.close();
     targetDb = undefined;
-    const rollbackRestore = await restoreCockpitSnapshot({
+    const rollbackRestore = await restoreHubSnapshot({
       snapshotPath: restoreResult.rollbackSnapshotPath,
       databasePath: targetDatabasePath,
       rollbackRoot: join(root, "rollback-backups"),
     });
     const rolledBackDb = openDatabase({ path: targetDatabasePath });
     try {
-      const targetSummaryAfterRollback = cockpitBusinessSummary(rolledBackDb);
+      const targetSummaryAfterRollback = hubBusinessSummary(rolledBackDb);
       expect(targetSummaryAfterRollback).toEqual(targetSummaryBefore);
-      expect(ensureCockpitInstanceId(rolledBackDb)).toBe(
-        "cockpit_22222222222222222222222222222222",
-      );
+      expect(ensureHubInstanceId(rolledBackDb)).toBe("hub_22222222222222222222222222222222");
       console.log(
         `SPARK_RELOCATION_ROLLBACK_EVIDENCE ${JSON.stringify({
           sourceSnapshotIntegrity: sourceInspection.integrityCheck,
@@ -500,15 +498,15 @@ test("live daemon relocates between snapshot-restored HTTPS/WSS Cockpits without
   }
 });
 
-async function startCockpit(
+async function startHub(
   db: DatabaseSync,
   tls: { key: Buffer; cert: Buffer },
   acceptsPreflight: boolean,
-): Promise<CockpitHarness> {
+): Promise<HubHarness> {
   const frames: Array<Record<string, unknown>> = [];
   let origin = "";
   const server = createHttpsServer(tls, (request, response) => {
-    void handleCockpitRequest(db, origin, acceptsPreflight, request, response);
+    void handleHubRequest(db, origin, acceptsPreflight, request, response);
   });
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (request, socket, head) => {
@@ -558,7 +556,7 @@ async function startCockpit(
   };
 }
 
-async function handleCockpitRequest(
+async function handleHubRequest(
   db: DatabaseSync,
   origin: string,
   acceptsPreflight: boolean,
@@ -567,7 +565,7 @@ async function handleCockpitRequest(
 ): Promise<void> {
   if (request.method === "GET" && request.url === "/api/v1/runtime/relocation/metadata") {
     sendJson(response, 200, {
-      instanceId: ensureCockpitInstanceId(db),
+      instanceId: ensureHubInstanceId(db),
       protocolVersion: runtimeProtocolVersion,
     });
     return;
@@ -586,7 +584,7 @@ async function handleCockpitRequest(
         installationId: string;
         refreshToken: string;
       };
-      if (input.sourceInstanceId !== ensureCockpitInstanceId(db)) {
+      if (input.sourceInstanceId !== ensureHubInstanceId(db)) {
         sendJson(response, 409, {
           error: { code: "relocation_instance_mismatch", message: "instance mismatch" },
         });
@@ -594,7 +592,7 @@ async function handleCockpitRequest(
       }
       const refreshed = preflightRuntimeRelocation(db, input);
       sendJson(response, 200, {
-        instanceId: ensureCockpitInstanceId(db),
+        instanceId: ensureHubInstanceId(db),
         ...refreshed,
         webSocketUrl: `${origin.replace(/^https:/u, "wss:")}runtime`,
       });
@@ -660,9 +658,9 @@ function seedTargetBusinessData(db: DatabaseSync): void {
   ).run(now, now);
 }
 
-function cockpitBusinessSummary(db: DatabaseSync): Record<string, unknown> {
+function hubBusinessSummary(db: DatabaseSync): Record<string, unknown> {
   return {
-    instanceId: ensureCockpitInstanceId(db),
+    instanceId: ensureHubInstanceId(db),
     workspaces: db.prepare("SELECT id, slug, name, status FROM workspaces ORDER BY id").all(),
     projects: db
       .prepare(
@@ -725,7 +723,7 @@ function relocationFailureFetch(
       return Response.json({
         instanceId:
           scenario === "instance-mismatch" && url.origin === targetOrigin
-            ? "cockpit_22222222222222222222222222222222"
+            ? "hub_22222222222222222222222222222222"
             : instanceId,
         protocolVersion: runtimeProtocolVersion,
       });

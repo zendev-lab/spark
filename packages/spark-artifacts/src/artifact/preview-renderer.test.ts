@@ -122,7 +122,7 @@ describe("Artifact preview rendering", () => {
     expect(rendered.diagnostics.join("\n")).toContain("unsupported catalog");
   });
 
-  it("serves Cockpit previews on an expiring loopback URL", async () => {
+  it("serves Hub previews on an expiring loopback URL", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-preview-tool-"));
     let tool: ToolConfig | undefined;
     registerArtifactTool({
@@ -239,7 +239,7 @@ describe("Artifact preview rendering", () => {
     );
 
     expect(opened.details?.preview).toMatchObject({ target: "unsupported", supported: false });
-    expect(opened.content[0]?.text).toContain("attached local TUI or Cockpit surface");
+    expect(opened.content[0]?.text).toContain("attached local TUI or Hub surface");
   });
 
   it("returns raw markdown only to an attached TUI preview", async () => {

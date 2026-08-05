@@ -264,7 +264,7 @@ async function forwardEvent(input: {
       messageId: event.request.requestId,
       content: {
         type: "text",
-        text: "Spark is waiting for this interaction to be answered in TUI or Cockpit.",
+        text: "Spark is waiting for this interaction to be answered in TUI or Hub.",
       },
     });
     return;
