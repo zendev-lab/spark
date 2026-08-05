@@ -599,7 +599,12 @@ export function cueShellCommandSyntaxIssue(command: string): string | undefined 
       return "cue_exec received bash ';' syntax. Use cue-shell '->' or '~>' between jobs, or make separate cue_exec calls.";
     if (char === "<")
       return "cue_exec received shell redirection '<'. cue-shell is direct-exec; pass input through a file tool or a supported command argument instead.";
-    if (char === ">" && command[index - 1] !== "|")
+    if (
+      char === ">" &&
+      command[index - 1] !== "|" &&
+      command[index - 1] !== "-" &&
+      command[index - 1] !== "~"
+    )
       return "cue_exec received shell redirection '>'. cue-shell is direct-exec; inspect stderr with the returned job output instead of redirecting it.";
     if (char !== "|") continue;
     if (command[index + 1] === ">") {
