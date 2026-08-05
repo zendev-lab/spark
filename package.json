@@ -119,10 +119,7 @@
     "node": ">=26.0.0 <27",
     "pnpm": ">=11 <12"
   },
-  "os": [
-    "darwin",
-    "linux"
-  ],
+  "os": ["darwin", "linux"],
   "packageManager": "pnpm@11.18.0",
   "pi": {
     "extensions": [
