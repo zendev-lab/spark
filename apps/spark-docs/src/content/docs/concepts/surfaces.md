@@ -42,9 +42,10 @@ roots. See [configuration and paths](/reference/configuration-and-paths/).
 
 ## Product boundaries
 
-`@zendev-lab/spark` is the complete public installation. The executable apps
-are also published as lockstep packages: `@zendev-lab/spark-daemon`,
-`@zendev-lab/spark-tui`, and `@zendev-lab/spark-hub`. `@zendev-lab/spark-cli`
-is a compatibility shell that forwards to the complete package. Other source
+`@zendev-lab/spark` is the complete installation meta package. It pins the
+lockstep CLI and executable apps but contains no dispatcher implementation.
+`@zendev-lab/spark-cli` owns the real `spark` command, while
+`@zendev-lab/spark-daemon`, `@zendev-lab/spark-tui`, and
+`@zendev-lab/spark-hub` remain independently installable. Other source
 workspaces remain private implementation boundaries, not supported install
 targets.

@@ -153,21 +153,21 @@ jobs:
           provenance: true
           token: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish the exact root artifact to npm
-        if: steps.release.outputs.npm_spark_published != 'true'
+      - name: Publish the real spark CLI artifact to npm
+        if: steps.release.outputs.npm_cli_published != 'true'
         uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
         with:
-          package: dist/release/spark-${{ github.ref_name }}.tgz
+          package: dist/release/spark-cli-${{ github.ref_name }}.tgz
           access: public
           tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
           provenance: true
           token: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish the spark-cli compatibility artifact to npm
-        if: steps.release.outputs.npm_cli_published != 'true'
+      - name: Publish the complete Spark meta package to npm
+        if: steps.release.outputs.npm_spark_published != 'true'
         uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
         with:
-          package: dist/release/spark-cli-${{ github.ref_name }}.tgz
+          package: dist/release/spark-${{ github.ref_name }}.tgz
           access: public
           tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
           provenance: true

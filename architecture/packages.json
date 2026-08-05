@@ -9,7 +9,7 @@
       "owner": "cli",
       "stability": "supported",
       "stateWriter": "none",
-      "distribution": "public-npm-compatibility"
+      "distribution": "public-npm"
     },
     "@zendev-lab/spark-hub": {
       "path": "apps/spark-cockpit",

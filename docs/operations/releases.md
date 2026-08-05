@@ -29,7 +29,7 @@ manifests bind each app package to the same version, Git SHA, npm integrity,
 asset SHA256, and build fingerprint. Stable versions publish with npm tag
 `latest`; prereleases use `next` and a GitHub prerelease. The workflow validates
 all five artifacts before publishing in dependency order: daemon and Hub, then
-TUI, the complete root package, and finally the `spark-cli` compatibility shell.
+TUI, the real `spark-cli` package, and finally the complete `spark` meta package.
 A rerun compares every already-published npm and GitHub asset integrity and fails
 closed on any difference.
 

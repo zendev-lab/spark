@@ -1,8 +1,9 @@
 # @zendev-lab/spark-cli
 
-Compatibility package identity for the root `spark` command. Its generated npm
-artifact is an empty shell that depends on and forwards to `@zendev-lab/spark`;
-the dispatcher implementation remains here as the source application owner.
+The real package owner of the root `spark` dispatcher. The generated npm
+artifact contains the dispatcher, ACP and updater entrypoints, plus companion
+command shims. `@zendev-lab/spark` is only the complete-installation meta package
+that pins this package and the executable apps.
 
 ## Usage
 

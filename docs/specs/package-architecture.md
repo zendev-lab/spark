@@ -47,11 +47,11 @@ The top-level `spark` executable is only a dispatcher. `spark daemon ...`,
 `spark hub ...`, and the other canonical surface aliases resolve and execute the
 matching `spark-*` companion; they do not import or duplicate the target
 application. A companion can come from its independently installed app package or from the
-complete root package's exact dependencies. `spark hub ...` therefore resolves
-the `spark-hub` executable supplied by `@zendev-lab/spark-hub` without importing
-the Hub implementation into the dispatcher. A retired product name must not
-remain as another public executable or dispatcher namespace merely to avoid
-updating callers.
+complete installation meta package's exact dependencies. `spark hub ...`
+therefore resolves the `spark-hub` executable supplied by
+`@zendev-lab/spark-hub` without importing the Hub implementation into the
+dispatcher. A retired product name must not remain as another public executable
+or dispatcher namespace merely to avoid updating callers.
 
 The Hub source directory and its private database packages retain their
 `cockpit` physical names during the first rename step so existing XDG paths,
@@ -68,10 +68,10 @@ public package.
 
 ```text
 @zendev-lab/spark
-  spark + spark-acp + spark-update; companion shims and exact dependencies for daemon, TUI, and Hub
+  complete-installation meta package; thin spark forwarding launcher only
 
 @zendev-lab/spark-cli
-  compatibility shell forwarding spark to @zendev-lab/spark
+  real spark dispatcher + spark-acp + spark-update + app companion shims
 
 @zendev-lab/spark-daemon
   spark-daemon + daemon migrations + headless executor
@@ -83,12 +83,13 @@ public package.
   spark-hub + embedded Web build + Hub migrations
 ```
 
-The root package is the complete installation and managed-update identity.
-Daemon, TUI, and Hub are also independently installable deployment closures;
-`spark-cli` exists only as a package-name compatibility shell. All public
-packages share a version and protocol contract during v0.x. Each app artifact
-must omit the other apps' implementation assets, while the root package depends
-on their exact lockstep versions instead of repackaging them.
+The root package is the complete-installation meta package and managed-update
+identity; it contains no dispatcher implementation. `spark-cli` owns the real
+`spark` dispatcher, ACP and updater entrypoints. Daemon, TUI, and Hub are also
+independently installable deployment closures. All public packages share a
+version and protocol contract during v0.x. Each app artifact must omit the other
+apps' implementation assets, while the CLI and root meta package pin exact
+lockstep dependencies instead of repackaging those assets.
 
 Do not create publishable source manifests inside `apps/*` or `packages/*`.
 Source workspaces retain `private: true`; the release builder generates all five

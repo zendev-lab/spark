@@ -117,6 +117,22 @@ if (internalTui.name !== "@zendev-lab/spark-tui-adapter") {
 
 const assetPolicy = {
   spark: {
+    required: ["bin/spark", "dist/build-info.json"],
+    forbidden: [
+      "bin/spark-acp",
+      "bin/spark-daemon",
+      "bin/spark-hub",
+      "bin/spark-tui",
+      "bin/spark-update",
+      "dist/spark-cli.js",
+      "dist/spark-acp.js",
+      "dist/spark-update.js",
+      "dist/migrations/0001_initial.sql",
+      "skills/spark-cue/SKILL.md",
+      "build/handler.js",
+    ],
+  },
+  cli: {
     required: [
       "bin/spark",
       "bin/spark-acp",
@@ -136,16 +152,6 @@ const assetPolicy = {
       "dist/spark-hub.js",
       "dist/spark-tui.js",
       "build/handler.js",
-    ],
-  },
-  cli: {
-    required: ["bin/spark", "dist/build-info.json"],
-    forbidden: [
-      "bin/spark-daemon",
-      "bin/spark-hub",
-      "bin/spark-tui",
-      "dist/spark-cli.js",
-      "skills/spark-cue/SKILL.md",
     ],
   },
   daemon: {

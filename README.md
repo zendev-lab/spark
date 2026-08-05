@@ -142,14 +142,14 @@ maintained in the [user documentation][cli-reference].
 Spark publishes five lockstep-versioned npm distributions from the same private
 monorepo:
 
-- `@zendev-lab/spark` is the **complete root package**. It exposes `spark`,
-  `spark-acp`, and `spark-update`, keeps `spark-daemon`, `spark-tui`, and
-  `spark-hub` companion commands available, and installs the matching daemon,
-  TUI, and Hub app packages.
+- `@zendev-lab/spark` is the **complete installation meta package**. It pins the
+  matching CLI, daemon, TUI, and Hub packages and keeps `spark` available through
+  a thin forwarding launcher, but contains no dispatcher or app implementation.
+- `@zendev-lab/spark-cli` owns the real `spark` dispatcher, ACP and updater
+  entrypoints, and companion command shims.
+
 - `@zendev-lab/spark-daemon`, `@zendev-lab/spark-tui`, and
   `@zendev-lab/spark-hub` are independently installable executable apps.
-- `@zendev-lab/spark-cli` is a compatibility shell that forwards `spark` to the
-  complete root package without duplicating the dispatcher implementation.
 
 The split is a deployment and trust boundary, not a source-code ownership split.
 The private app composition roots and internal adapter/capability workspaces

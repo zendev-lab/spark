@@ -18,10 +18,11 @@ capabilities, not the product taxonomy.
 | ACP | Connect compatible editor clients to daemon-owned sessions | Adapter only |
 | Updater | Install, upgrade, roll back, and report build identity | Installed version |
 
-The complete package is `@zendev-lab/spark`. Daemon, TUI, and Hub are also
-available as independently installable, lockstep-versioned app packages;
-`@zendev-lab/spark-cli` is a compatibility shell. Other source workspaces are
-private implementation boundaries rather than supported products. See
+The complete installation meta package is `@zendev-lab/spark`; it pins the
+lockstep packages but contains no dispatcher implementation.
+`@zendev-lab/spark-cli` owns the real `spark` command. Daemon, TUI, and Hub are
+also independently installable app packages. Other source workspaces are private
+implementation boundaries rather than supported products. See
 [surfaces and ownership](/concepts/surfaces/) and the [CLI reference](/reference/cli/).
 
 For contributors, the source topology stays compact by family:

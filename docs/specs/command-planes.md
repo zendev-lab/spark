@@ -149,8 +149,8 @@ tag:
 
 | Distribution | Package | Executables | Deployment boundary |
 | --- | --- | --- | --- |
-| Complete Spark | `@zendev-lab/spark` | `spark`, `spark-acp`, `spark-update`, plus app companion shims | full installation and managed-update identity; depends on the matching app packages |
-| CLI compatibility | `@zendev-lab/spark-cli` | `spark` | empty package-name shell forwarding to the complete root package |
+| Complete Spark | `@zendev-lab/spark` | thin `spark` forwarding launcher | full-installation meta package and managed-update identity; pins the matching CLI and app packages but contains no dispatcher implementation |
+| Spark CLI | `@zendev-lab/spark-cli` | `spark`, `spark-acp`, `spark-update`, plus app companion shims | owns the real dispatcher and local command adapters |
 | Spark daemon | `@zendev-lab/spark-daemon` | `spark-daemon` | durable local execution, daemon migrations, and headless turns |
 | Spark TUI | `@zendev-lab/spark-tui` | `spark-tui` | local terminal host; depends on the matching daemon package |
 | Spark Hub | `@zendev-lab/spark-hub` | `spark-hub` | control-plane host with authentication, coordination, and embedded Web UI |
@@ -160,11 +160,12 @@ workspaces or create another repository. Reusable behavior remains in private
 packages and is bundled into the executable app that owns the process.
 
 All five distributions use the same semantic version and protocol compatibility
-contract in v0.x. `@zendev-lab/spark` keeps the full installation experience by
-using exact-version dependencies instead of embedding the daemon, TUI, and Hub
-assets. `@zendev-lab/spark-cli` contains no dispatcher copy; it forwards to the
-root package. Each executable app package rejects the other apps' implementation
-assets and can be installed directly.
+contract in v0.x. `@zendev-lab/spark` keeps the full installation experience as
+a dependency-only meta package with a thin `spark` forwarder.
+`@zendev-lab/spark-cli` contains the real dispatcher, ACP and updater entrypoints;
+it depends on exact-version app packages rather than embedding their assets. Each
+executable app package rejects the other apps' implementation assets and can be
+installed directly.
 
 `release-manifest.json` remains the root updater contract. The other packages
 receive bounded release manifests, while the container image remains Hub-only
@@ -180,7 +181,7 @@ published artifacts.
 The distribution stage of `pnpm run check:static` validates the generated
 manifest inventory, app names, lockstep versions, exact dependency edges, and
 cross-distribution assets. `pnpm run smoke` installs all five candidate tarballs,
-checks the CLI shell and complete root installation, then exercises independent
+checks the real CLI and complete meta installation, then exercises independent
 daemon, TUI, and Hub installations. `pnpm run release:pack` creates five
 immutable tarballs, bounded release manifests, and one checksum file. Only
 `.github/workflows/cd-publish.yml`, triggered by a version-matching tag, may

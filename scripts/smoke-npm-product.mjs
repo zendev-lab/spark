@@ -276,22 +276,23 @@ try {
     await Promise.all(Object.entries(tarballs).map(async ([id, path]) => [id, await stat(path)])),
   );
   console.log(
-    "Installing the complete product, CLI shell, and standalone apps from exact tarballs...",
+    "Installing the complete meta package, the real CLI package, and standalone apps from exact tarballs...",
   );
   const allIds = npmDistributions.map(({ id }) => id);
+  const cliIds = allIds.filter((id) => id !== "spark");
   const [completeRoot, cliRoot, daemonRoot, tuiRoot, hubRoot] = await Promise.all([
     installCandidates(temporary, "complete", allIds, tarballs),
-    installCandidates(temporary, "cli", allIds, tarballs),
+    installCandidates(temporary, "cli", cliIds, tarballs),
     installCandidates(temporary, "daemon", ["daemon"], tarballs),
     installCandidates(temporary, "tui", ["tui", "daemon"], tarballs),
     installCandidates(temporary, "hub", ["hub"], tarballs),
   ]);
 
   const spark = installedBin(completeRoot, "@zendev-lab/spark", "spark");
-  const completeDaemon = installedBin(completeRoot, "@zendev-lab/spark", "spark-daemon");
-  const completeHub = installedBin(completeRoot, "@zendev-lab/spark", "spark-hub");
-  const completeTui = installedBin(completeRoot, "@zendev-lab/spark", "spark-tui");
-  const cliShell = installedBin(cliRoot, "@zendev-lab/spark-cli", "spark");
+  const completeDaemon = installedBin(completeRoot, "@zendev-lab/spark-daemon", "spark-daemon");
+  const completeHub = installedBin(completeRoot, "@zendev-lab/spark-hub", "spark-hub");
+  const completeTui = installedBin(completeRoot, "@zendev-lab/spark-tui", "spark-tui");
+  const cli = installedBin(cliRoot, "@zendev-lab/spark-cli", "spark");
   const daemon = installedBin(daemonRoot, "@zendev-lab/spark-daemon", "spark-daemon");
   const tui = installedBin(tuiRoot, "@zendev-lab/spark-tui", "spark-tui");
   const hub = installedBin(hubRoot, "@zendev-lab/spark-hub", "spark-hub");
@@ -306,7 +307,7 @@ try {
     SPARK_HOME: resolve(temporary, "spark-hub-home"),
   };
 
-  console.log("Probing the complete root package and the spark-cli compatibility shell...");
+  console.log("Probing the complete meta package and the real spark CLI package...");
   await run(spark.command, [...spark.argvPrefix, "--help"], {
     cwd: completeRoot,
     env: nodeEnvironment,
@@ -319,16 +320,19 @@ try {
   if (buildInfo.packageName !== "@zendev-lab/spark" || !buildInfo.fingerprint) {
     throw new Error("root distribution did not expose valid build-info");
   }
-  const shellVersion = JSON.parse(
+  const cliBuildInfo = JSON.parse(
     (
-      await run(cliShell.command, [...cliShell.argvPrefix, "version", "--json"], {
+      await run(cli.command, [...cli.argvPrefix, "version", "--json"], {
         cwd: cliRoot,
         env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "spark-cli-home") },
       })
     ).stdout,
   );
-  if (shellVersion.fingerprint !== buildInfo.fingerprint) {
-    throw new Error("spark-cli shell did not forward to the root Spark build");
+  if (cliBuildInfo.packageName !== "@zendev-lab/spark-cli" || !cliBuildInfo.fingerprint) {
+    throw new Error("spark-cli distribution did not expose its own build identity");
+  }
+  if (cliBuildInfo.fingerprint === buildInfo.fingerprint) {
+    throw new Error("meta package and spark-cli must retain distinct build identities");
   }
   const updateStatus = await run(
     spark.command,
@@ -355,6 +359,10 @@ try {
       env: nodeEnvironment,
     }),
   ]);
+  await run(cli.command, [...cli.argvPrefix, "--help"], {
+    cwd: cliRoot,
+    env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "spark-cli-home") },
+  });
   await run(spark.command, [...spark.argvPrefix, "tui", "--help"], {
     cwd: completeRoot,
     env: nodeEnvironment,
