@@ -18,7 +18,8 @@
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
-    "test": "vp test run"
+    "test": "vp test run",
+    "test:mutation": "stryker run"
   },
   "dependencies": {},
   "devDependencies": {

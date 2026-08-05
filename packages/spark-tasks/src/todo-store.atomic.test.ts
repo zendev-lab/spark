@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { applyIndependentTodoOps, defaultTaskTodoStore } from "@zendev-lab/spark-tasks";
+import { applyIndependentTodoOps, defaultTaskTodoStore } from "./index.ts";
 
 describe("TaskTodoStore.updateSessionTodos", () => {
   it("serializes concurrent read-modify-write mutations without losing either update", async () => {

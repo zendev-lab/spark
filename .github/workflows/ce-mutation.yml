@@ -14,10 +14,9 @@ on:
       - "packages/spark-tasks/src/**"
       - "packages/spark-tasks/stryker.config.json"
       - "packages/spark-tasks/vitest.mutation.config.ts"
-      - "scripts/check-mutation-ce-ownership.mjs"
-      - "scripts/run-leaf-mutation.mjs"
-      - "test/mutation-ce-ownership.json"
-      - "test/task-todo-store-atomic.test.ts"
+      - "packages/*/package.json"
+      - "packages/*/stryker.config.json"
+      - "packages/spark-tasks/src/todo-store.atomic.test.ts"
 
 concurrency:
   group: ce-mutation-${{ github.event.pull_request.number || github.ref }}
@@ -46,15 +45,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Validate mutation ownership
-        run: node scripts/check-mutation-ce-ownership.mjs
-
       - name: Run focused mutation tests
         if: ${{ github.event_name == 'pull_request' }}
         run: >-
-          pnpm run test:mutation --
-          @zendev-lab/spark-extension
-          @zendev-lab/spark-tasks
+          pnpm --workspace-concurrency=1
+          --filter @zendev-lab/spark-extension
+          --filter @zendev-lab/spark-tasks
+          run test:mutation
 
       - name: Run full mutation CE
         if: ${{ github.event_name != 'pull_request' }}

@@ -12,6 +12,7 @@ const {
   findUnsafePiCompatibilityImports,
   findUnsafePiCompatibilityImportsInGraph,
   isLegacyDaemonClientBoundaryExempt,
+  presentationDependencyDeclarations,
   workspaceImports,
 } = architectureRatchets;
 
@@ -24,6 +25,22 @@ describe("workspace dependency declaration ratchet", () => {
         export { helper } from "@zendev-lab/spark-memory/helpers";
       `),
     ).toEqual(new Set(["@zendev-lab/spark-memory", "@zendev-lab/spark-protocol"]));
+  });
+});
+
+describe("presentation dependency manifest ownership", () => {
+  it("allows the UI owner and rejects every dependency field elsewhere", () => {
+    const manifest = {
+      dependencies: { "@lucide/svelte": "catalog:" },
+      devDependencies: { "bits-ui": "catalog:" },
+      peerDependencies: { "svelte-streamdown": "catalog:" },
+    };
+    expect(presentationDependencyDeclarations("packages/spark-ui", manifest)).toEqual([]);
+    expect(presentationDependencyDeclarations("apps/example", manifest)).toEqual([
+      "@lucide/svelte",
+      "bits-ui",
+      "svelte-streamdown",
+    ]);
   });
 });
 

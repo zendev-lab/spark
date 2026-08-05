@@ -31,6 +31,7 @@ test("dependency-cruiser config loads and encodes required boundary rules", () =
     "no-app-relative-packages-src-deep-link",
     "no-cross-package-relative-src-deep-link",
     "spark-i18n-cockpit-surface-private",
+    "spark-ui-owns-presentation-dependencies",
     "pi-no-product-adapters",
     "pi-only-foundation-spark",
     "spark-extension-no-spark-tui",
@@ -157,6 +158,25 @@ test("dependency-cruiser rejects non-Cockpit imports of the Cockpit i18n surface
 
     assert.notEqual(result.status, 0);
     assert.match(`${result.stdout}\n${result.stderr}`, /spark-i18n-cockpit-surface-private/u);
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("dependency-cruiser rejects presentation dependency imports outside spark-ui", async () => {
+  const fixtureParent = resolve(".spark");
+  await mkdir(fixtureParent, { recursive: true });
+  const fixtureRoot = await mkdtemp(join(fixtureParent, "depcruise-presentation-owner-"));
+  try {
+    const fixturePath = join(fixtureRoot, "index.ts");
+    await writeFile(fixturePath, 'import { Button } from "bits-ui";\nvoid Button;\n');
+    const result = spawnSync("pnpm", ["exec", "depcruise", "--config", configPath, fixturePath], {
+      cwd: resolve("."),
+      encoding: "utf8",
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /spark-ui-owns-presentation-dependencies/u);
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }

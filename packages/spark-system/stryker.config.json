@@ -6,7 +6,7 @@
   "vitest": {
     "configFile": "vitest.config.ts"
   },
-  "mutate": ["src/paths.ts", "src/daemon-local-rpc.ts"],
+  "mutate": ["src/paths.ts", "src/socket-message-port.ts"],
   "mutator": {
     "excludedMutations": ["StringLiteral"]
   },

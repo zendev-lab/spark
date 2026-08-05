@@ -40,23 +40,17 @@ drift, flakes, and duration violations as distinct failures. Mutation CE evaluat
 kill plausible source changes. Both publish reports without weakening the binary contracts used by
 pull-request verification.
 
-## Ownership and strategy ledgers
+## Test ownership and discovery
 
-`test/test-ownership.json` is the authoritative disposition for every root `test/**/*.test.ts` file at the recorded `origin/main` baseline commit. An `owner-local` entry has exactly one package or app owner and its `currentPath` must be under that owner's workspace; a `root-integration` entry remains under `test/`, names at least two owners, and must exercise only public package exports. Root integration is admitted only when the behavior crosses ownership boundaries; moving a test must not expand a public API solely to preserve a test import.
+Test ownership is structural instead of ledger-driven:
 
-`test/workspace-test-strategy.json` classifies every workspace in `architecture/packages.json` as `local-test`, `browser-test`, `process-test`, `boundary-contract`, or `generated-only`. Each entry names an executable primary gate and concrete paths/rules. A generated-only workspace may retain hand-written tests as supplemental coverage, but generated output is verified by its generation-and-diff gate.
+- package and app tests live under their owning workspace and run through that workspace's `test`/`check` scripts;
+- `vitest.root.config.ts` owns cross-workspace tests under `test/` and excludes the separate real-process lane;
+- `vitest.process.config.ts` owns `test/process/`;
+- Dependency Cruiser rejects root/app deep links into workspace `src/` internals and cross-package relative source imports;
+- `pnpm -r --filter './packages/*' --if-present run check` discovers package-local checks directly from manifests.
 
-`test/mutation-ce-ownership.json` is the single source for mutation CE selection. `included` entries must provide a Stryker config with explicit `src/` mutation paths; `deferred` entries must record an owner, risk level, risk rationale, and an executable alternate gate. Deferred mutation CE is a risk decision, not a claim that mutation testing succeeded. `scripts/run-leaf-mutation.mjs` derives its package set from this ledger.
-
-The corresponding checkers are:
-
-```bash
-node scripts/check-test-ownership.mjs
-node scripts/check-workspace-test-strategy.mjs
-node scripts/check-mutation-ce-ownership.mjs
-```
-
-All three must report zero unclassified or pending entries before a test-architecture change is complete.
+Mutation CE selection is also package-owned: every participating package declares a standard `test:mutation` script beside its `stryker.config.json`, and the root command uses pnpm recursive `--if-present` discovery. This avoids maintaining historical migration baselines or a second workspace inventory. Review package scripts, Vitest includes, and Dependency Cruiser rules together when changing a test boundary.
 
 ## Source-mirror debt
 

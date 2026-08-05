@@ -23,6 +23,8 @@ Weekly/manual [Stryker](https://stryker-mutator.io/) runs evaluate whether Vites
 | `@zendev-lab/spark-artifacts` | product store/forge/types/worktree |
 | `@zendev-lab/spark-repro` | `src/index.ts` |
 | `@zendev-lab/spark-i18n` | `index.ts`, `extension.ts` |
+| `@zendev-lab/spark-extension` | selected task/TODO/selector policy modules |
+| `@zendev-lab/spark-tasks` | task/TODO store modules shared by extension tests |
 
 Out of scope: root `test/*.test.ts` (Vitest integration suite; not in mutation CE), Cockpit/daemon full trees, and packages whose behavior is only covered by root integration tests (`spark-host`, `spark-turn`, `spark-ai`, …).
 
@@ -30,20 +32,20 @@ Out of scope: root `test/*.test.ts` (Vitest integration suite; not in mutation C
 
 ```bash
 pnpm run test:mutation
-pnpm --filter @zendev-lab/spark-channels exec stryker run
+pnpm --filter @zendev-lab/spark-channels run test:mutation
 ```
 
 CI: `.github/workflows/ce-mutation.yml` (Monday 03:17 UTC + `workflow_dispatch`, `continue-on-error`, uploads HTML/JSON reports).
 
 ## Timing comparison (local, Apple Silicon / Node 26)
 
-Measured with `ignoreStatic: true`, `StringLiteral` excluded, serial runner (`scripts/run-leaf-mutation.mjs`). Incremental reuse can make later CE runs much faster.
+Measured with `ignoreStatic: true`, `StringLiteral` excluded, and pnpm's serial recursive script runner. Each participating package owns a `test:mutation` script and `stryker.config.json`; `pnpm -r --if-present` discovers the active set without a second ownership ledger. Incremental reuse can make later CE runs much faster.
 
 | Lane | What it runs | Typical wall time | Gate? |
 | --- | --- | --- | --- |
 | Leaf/L1 unit (`vp test run`) | Vitest only | ~0.1–3 s per package | Yes, via package `check` |
 | Mutation CE L0 only | 4 packages | **~1.5 min** cold | No |
-| Mutation CE L0+L1 | 10 packages | **~15–40 min** cold (channels ~6 min, session ~3 min; coordination is the long pole) | No (weekly, 180 min budget) |
+| Mutation CE L0+L1 | 12 packages | **~15–40 min** cold (channels ~6 min, session ~3 min; coordination is the long pole) | No (weekly, 180 min budget) |
 | Root `pnpm test` | `test/**/*.test.ts`, excluding `test/process/` (Vitest / `vitest.root.config.ts`) | minutes | Yes, via `pnpm run check` |
 | Source process | `test/process/**/*.test.ts` (Vitest / `vitest.process.config.ts`) | seconds | Yes, isolated CI lane |
 | Full `pnpm run check` | static checks + unit/integration + source process | tens of minutes | Yes (PR/main, split into lanes) |

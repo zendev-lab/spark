@@ -24,6 +24,7 @@ const legacyDaemonClientCompatibilitySources = new Set([
   "packages/spark-daemon-client/src/daemon-client.ts",
   "packages/spark-daemon-client/src/daemon-local-rpc.ts",
 ]);
+const sparkUiPresentationDependencies = new Set(["@lucide/svelte", "bits-ui", "svelte-streamdown"]);
 
 function runArchitectureRatchets() {
   const failures = [];
@@ -80,6 +81,11 @@ function runArchitectureRatchets() {
       ...Object.keys(manifest.optionalDependencies ?? {}),
       ...Object.keys(manifest.peerDependencies ?? {}),
     ]);
+    for (const dependency of presentationDependencyDeclarations(path, manifest)) {
+      failures.push(
+        `${manifest.name} declares ${dependency}; presentation dependencies are owned by @zendev-lab/spark-ui.`,
+      );
+    }
     const workspaceRuntimeDependencies = [...declaredRuntimeDependencies].filter((dependency) =>
       workspaceByName.has(dependency),
     );
@@ -181,11 +187,6 @@ function runArchitectureRatchets() {
         `${path} duplicates the root typecheck with a boilerplate check script. Keep workspace scripts only when they add package-local validation.`,
       );
     }
-    if (manifest.scripts?.["test:mutation"] === "stryker run") {
-      failures.push(
-        `${path} duplicates the root mutation runner. Invoke the package's Stryker config through scripts/run-leaf-mutation.mjs instead.`,
-      );
-    }
   }
 
   if (failures.length > 0) {
@@ -195,7 +196,7 @@ function runArchitectureRatchets() {
     process.exitCode = 1;
   } else {
     console.log(
-      `Architecture ratchet passed (${workspacePackages.length}/${architecture.maxWorkspacePackages} workspaces classified; Spark ownership policy and workspace dependency declarations enforced; daemon RPC facade enforced; production files <= ${maxProductionFileLines} lines; compatibility surface frozen with safe Pi imports).`,
+      `Architecture ratchet passed (${workspacePackages.length}/${architecture.maxWorkspacePackages} workspaces classified; Spark ownership policy, workspace dependency declarations, and presentation dependency manifests enforced; daemon RPC facade enforced; production files <= ${maxProductionFileLines} lines; compatibility surface frozen with safe Pi imports).`,
     );
   }
 }
@@ -377,6 +378,18 @@ export function isLegacyDaemonClientBoundaryExempt(repositoryPath) {
     /(?:^|\/)(?:__fixtures__|__tests__|fixtures|test|tests)(?:\/|$)/u.test(normalized) ||
     /\.(?:fixture|spec|test)\.[^/]+$/u.test(normalized)
   );
+}
+
+export function presentationDependencyDeclarations(path, manifest) {
+  if (path === "packages/spark-ui") return [];
+  const declaredDependencies = new Set(
+    ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].flatMap(
+      (field) => Object.keys(manifest[field] ?? {}),
+    ),
+  );
+  return [...sparkUiPresentationDependencies]
+    .filter((dependency) => declaredDependencies.has(dependency))
+    .sort((left, right) => left.localeCompare(right));
 }
 
 export function workspaceImports(source) {

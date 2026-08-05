@@ -17,7 +17,6 @@ const canonicalRootScripts = [
   "check:boundaries",
   "check:docs",
   "check:static",
-  "check:test-ownership",
   "check:test-quality",
   "check:test-quality:update",
   "deploy:docs",
@@ -63,7 +62,11 @@ test("root package exposes one compact validation and release surface", async ()
     "node scripts/check-test-quality.mjs --update",
   );
   assert.equal(scripts["test:browser:hub"], "pnpm --filter @zendev-lab/spark-hub run test:browser");
-  assert.equal(scripts["test:capability"], "node scripts/run-capability-sentinels.mjs");
+  assert.equal(scripts["test:capability"], "vp test run --config vitest.capability.config.ts");
+  assert.equal(
+    scripts["test:mutation"],
+    "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run test:mutation",
+  );
   assert.equal(
     scripts["test:capability:ce"],
     "node --experimental-strip-types scripts/run-nightly-capability-ce.mts",
@@ -81,7 +84,7 @@ test("root package exposes one compact validation and release surface", async ()
   assert.equal(scripts["check:evidence-surface"], "node scripts/check-evidence-surface.mjs");
   assert.equal(
     scripts["check:boundaries"],
-    "depcruise --config .dependency-cruiser.cjs apps packages test && node scripts/check-spark-ui-import-boundary.mjs",
+    "depcruise --config .dependency-cruiser.cjs apps packages test",
   );
   assert.equal(scripts["deploy:docs"], "pnpm --filter @zendev-lab/spark-docs run deploy");
   assert.equal(scripts["dev:docs"], "pnpm --filter @zendev-lab/spark-docs run dev");
@@ -96,7 +99,6 @@ test("root package exposes one compact validation and release surface", async ()
     "pnpm run check:evidence-surface",
     "pnpm run check:boundaries",
     "pnpm run check:test-quality",
-    "pnpm run check:test-ownership",
     "node scripts/check-doc-terminology.mjs",
     "vp fmt . --check",
     "vp lint --quiet",
@@ -140,6 +142,7 @@ test("root package exposes one compact validation and release surface", async ()
 });
 
 test("workspace scripts contain package-local behavior instead of root boilerplate", async () => {
+  let mutationPackageCount = 0;
   for (const workspaceRoot of ["apps", "packages"]) {
     const entries = await readdir(resolve(workspaceRoot), { withFileTypes: true });
     for (const entry of entries) {
@@ -153,6 +156,7 @@ test("workspace scripts contain package-local behavior instead of root boilerpla
       }
       const manifest = JSON.parse(source) as {
         scripts?: Record<string, string>;
+        devDependencies?: Record<string, string>;
       };
       const workspace = `${workspaceRoot}/${entry.name}`;
       if (workspace !== "apps/spark-daemon") {
@@ -162,11 +166,17 @@ test("workspace scripts contain package-local behavior instead of root boilerpla
           `${workspace} should rely on the root typecheck`,
         );
       }
-      assert.notEqual(
-        manifest.scripts?.["test:mutation"],
-        "stryker run",
-        `${workspace} should rely on the root mutation runner`,
-      );
+      if (manifest.scripts?.["test:mutation"] !== undefined) {
+        mutationPackageCount += 1;
+        assert.equal(
+          manifest.scripts["test:mutation"],
+          "stryker run",
+          `${workspace} must use its package-local Stryker config`,
+        );
+        assert.equal(manifest.devDependencies?.["@stryker-mutator/core"], "catalog:");
+        assert.equal(manifest.devDependencies?.["@stryker-mutator/vitest-runner"], "catalog:");
+        await readFile(resolve(workspace, "stryker.config.json"), "utf8");
+      }
       if (workspaceRoot === "packages" && (await hasTestFiles(resolve(workspace)))) {
         assert.ok(manifest.scripts?.test, `${workspace} must expose its tests`);
         assert.match(
@@ -183,6 +193,7 @@ test("workspace scripts contain package-local behavior instead of root boilerpla
       }
     }
   }
+  assert.equal(mutationPackageCount, 12, "mutation CE coverage must not shrink silently");
 });
 
 test("docs production scripts separate Workers Builds build and deploy phases", async () => {
