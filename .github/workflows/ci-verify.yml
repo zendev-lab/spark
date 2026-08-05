@@ -54,6 +54,32 @@ jobs:
       - name: Source process tests
         run: pnpm run test:process:source
 
+  supported-platforms:
+    name: supported-platforms (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: CLI and TUI tests
+        run: |
+          pnpm --filter @zendev-lab/spark-cli run check
+          pnpm --filter @zendev-lab/spark-tui-app run test
+      - name: Daemon process lifecycle
+        run: pnpm run test:process:source
+
   smoke:
     name: smoke
     runs-on: ubuntu-latest
@@ -135,6 +161,7 @@ jobs:
     needs:
       - checks
       - tests
+      - supported-platforms
       - smoke
       - container
     runs-on: ubuntu-latest

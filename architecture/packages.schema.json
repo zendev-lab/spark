@@ -50,6 +50,9 @@
         "stateWriter": {
           "enum": ["cockpit", "daemon", "external", "host", "none", "user", "workspace"]
         },
+        "distribution": {
+          "enum": ["bundled-only", "private", "public-npm", "public-npm-compatibility"]
+        },
         "allowedWorkspaceDependencies": {
           "type": "array",
           "uniqueItems": true,

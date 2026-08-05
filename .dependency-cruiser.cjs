@@ -18,9 +18,9 @@ module.exports = {
     {
       name: "no-direct-pi-tui",
       comment:
-        "Direct @earendil-works/pi-tui imports must stay behind @zendev-lab/spark-tui / spark-text. " +
-        "direct pi-tui dependency must stay behind @zendev-lab/spark-tui; " +
-        "direct pi-tui imports must go through @zendev-lab/spark-tui.",
+        "Direct @earendil-works/pi-tui imports must stay behind @zendev-lab/spark-tui-adapter / spark-text. " +
+        "direct pi-tui dependency must stay behind @zendev-lab/spark-tui-adapter; " +
+        "direct pi-tui imports must go through @zendev-lab/spark-tui-adapter.",
       severity: "error",
       from: {
         pathNot: "^(packages/spark-tui/|packages/spark-text/)",
@@ -140,7 +140,7 @@ module.exports = {
         path: "^packages/spark-extension/",
       },
       to: {
-        path: "node_modules/.*/@zendev-lab/spark-tui|/node_modules/@zendev-lab/spark-tui|^packages/spark-tui/",
+        path: "node_modules/.*/@zendev-lab/spark-tui-adapter|/node_modules/@zendev-lab/spark-tui-adapter|^packages/spark-tui/",
       },
     },
 
@@ -278,13 +278,13 @@ module.exports = {
     {
       name: "daemon-no-tui-app",
       comment:
-        "spark-daemon must use @zendev-lab/spark-host/headless-loader instead of @zendev-lab/spark-tui-app.",
+        "spark-daemon must use @zendev-lab/spark-host/headless-loader instead of @zendev-lab/spark-tui.",
       severity: "error",
       from: {
         path: "^apps/spark-daemon/",
       },
       to: {
-        path: "node_modules/.*/@zendev-lab/spark-tui-app|/node_modules/@zendev-lab/spark-tui-app|^apps/spark-tui/",
+        path: "node_modules/.*/@zendev-lab/spark-tui|/node_modules/@zendev-lab/spark-tui|^apps/spark-tui/",
       },
     },
 
@@ -378,8 +378,8 @@ function sparkAppInternalResolvedPathPattern() {
   return [
     "node_modules/.*/@zendev-lab/spark-cli(?:/|$)",
     "/node_modules/@zendev-lab/spark-cli(?:/|$)",
-    "node_modules/.*/@zendev-lab/spark-tui-app(?:/|$)",
-    "/node_modules/@zendev-lab/spark-tui-app(?:/|$)",
+    "node_modules/.*/@zendev-lab/spark-tui(?:/|$)",
+    "/node_modules/@zendev-lab/spark-tui(?:/|$)",
     "^apps/spark-tui/",
     "^apps/spark-cli/",
   ].join("|");

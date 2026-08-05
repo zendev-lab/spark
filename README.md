@@ -30,13 +30,15 @@ Run a foreground task without opening the TUI:
 spark run "Summarize this repository and identify its validation command."
 ```
 
-Open the Hub management application:
+Install an executable app independently when a host needs only that process:
 
 ```bash
+npm install --global @zendev-lab/spark-hub
 spark-hub
 ```
 
-The equivalent dispatcher form is:
+The complete `@zendev-lab/spark` package installs matching daemon, TUI, and Hub
+companions, so its dispatcher can also use:
 
 ```bash
 spark hub
@@ -117,9 +119,11 @@ knowledge of internal packages or storage.
 | `spark-hub` | Global browser management, coordination, and delegation |
 | `spark-acp` | ACP-compatible clients over canonical daemon sessions |
 
-The top-level dispatcher accepts `spark daemon`, `spark hub`, `spark tui`, and
-`spark acp` as convenience forms and executes the matching `spark-*` companion.
-Run `spark --help` for the current command map. The complete command reference is
+The top-level dispatcher accepts `spark daemon`, `spark hub`, `spark tui`,
+`spark acp`, and `spark mcp` as convenience forms and executes the matching
+`spark-*` companion. The complete meta package installs every companion; the
+real dispatcher remains in `@zendev-lab/spark-cli`. Run `spark --help` for the
+current command map. The complete command reference is
 maintained in the [user documentation][cli-reference].
 
 ## Documentation
@@ -136,14 +140,27 @@ maintained in the [user documentation][cli-reference].
 
 ## Distribution and status
 
-`@zendev-lab/spark` is the only public npm product. It exposes the `spark`
-dispatcher and the companion executables `spark-daemon`, `spark-hub`,
-`spark-tui`, `spark-acp`, and `spark-update`. Source workspaces are private
-implementation boundaries compiled into that product rather than separately
-supported packages.
+Spark publishes five lockstep-versioned npm distributions from the same private
+monorepo:
 
-Spark is under active development. Managed installations provide explicit
-update and rollback behavior; source checkouts are never self-modified.
+- `@zendev-lab/spark` is the **complete installation meta package**. It pins the
+  matching CLI, daemon, TUI, and Hub packages and keeps `spark` available through
+  a thin forwarding launcher, but contains no dispatcher or app implementation.
+- `@zendev-lab/spark-cli` owns the real `spark` dispatcher, ACP, MCP and updater
+  entrypoints, and companion command shims.
+
+- `@zendev-lab/spark-daemon`, `@zendev-lab/spark-tui`, and
+  `@zendev-lab/spark-hub` are independently installable executable apps.
+
+The split is a deployment and trust boundary, not a source-code ownership split.
+The private app composition roots and internal adapter/capability workspaces
+remain unpublished source boundaries. All five public tarballs share one release
+version and protocol compatibility contract, while the app packages can be
+installed and deployed independently.
+
+Spark is under active development. Managed root installations provide explicit
+update and rollback behavior; source checkouts are never self-modified. Direct
+app installations are updated by their package manager or container deployment.
 
 Spark is MIT-licensed. Source-derived component notices are recorded in
 [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).

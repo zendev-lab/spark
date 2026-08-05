@@ -93,6 +93,7 @@ test("root package exposes one compact validation and release surface", async ()
   assert.match(scripts.fix ?? "", /^pnpm --filter @zendev-lab\/spark-hub exec svelte-kit sync/u);
   for (const requiredCheckPhase of [
     "pnpm --filter @zendev-lab/spark-docs exec astro sync",
+    "node scripts/sync-workspace-versions.mjs",
     "pnpm run check:architecture",
     "node scripts/check-npm-product.mjs",
     "node --experimental-strip-types scripts/check-lens-release.mts",

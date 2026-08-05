@@ -45,6 +45,18 @@ test("root dispatcher reaches spark-hub while rejecting removed namespaces", asy
   }
 }, 30_000);
 
+test("root dispatcher reaches supported stdio adapters", async () => {
+  const dispatcher = fileURLToPath(new URL("../bin/spark", import.meta.url));
+  const mcp = await execFileAsync(dispatcher, ["mcp", "--help"]);
+  assert.match(mcp.stdout, /spark-mcp - Spark Model Context Protocol stdio adapter/u);
+  assert.equal(mcp.stderr, "");
+  assert.deepEqual(parseSparkDispatcherArgs(["mcp"]), {
+    kind: "dispatch",
+    target: "mcp",
+    argv: [],
+  });
+});
+
 test("daemon and Hub-compatible status JSON contracts validate current envelopes", () => {
   const daemon = extractDaemonStatusContract({
     action: "status",

@@ -7,8 +7,8 @@ The machine-readable source of truth is
 [`../../architecture/packages.json`](../../architecture/packages.json). Every
 workspace declares a `layer`, `owner`, `stability`, and authoritative
 `stateWriter`. `pnpm run check:architecture` rejects an unclassified workspace,
-an undeclared production dependency, a stale export, a second public package,
-or growth beyond the current 39/40-workspace budget.
+an undeclared production dependency, a stale export, a public source workspace,
+or growth beyond the current 41-workspace budget.
 
 ## Governance tooling
 
@@ -98,13 +98,18 @@ spark-daemon
 spark-hub
 spark-tui
 spark-acp
+spark-mcp
 spark-update
 ```
 
 The top-level `spark` executable is only a dispatcher. `spark daemon ...`,
 `spark hub ...`, and the other canonical surface aliases resolve and execute the
 matching `spark-*` companion; they do not import or duplicate the target
-application. A retired product name must not remain as another public executable
+application. A companion can come from its independently installed app package or from the
+complete installation meta package's exact dependencies. `spark hub ...`
+therefore resolves the `spark-hub` executable supplied by
+`@zendev-lab/spark-hub` without importing the Hub implementation into the
+dispatcher. A retired product name must not remain as another public executable
 or dispatcher namespace merely to avoid updating callers.
 
 The Hub source directory and its private database packages retain their
@@ -113,6 +118,44 @@ SQLite files, migrations, deployment scripts, and rollback behavior are not
 silently reinterpreted. Their package inventory owner is `hub`; the temporary
 `stateWriter: cockpit` marker records this compatible storage identity. A later
 idempotent storage/path migration may rename both the paths and writer marker.
+
+### Distributions
+
+A distribution is a generated deployment closure, not a workspace layer. Source
+apps remain private even when their compiled entrypoints are assembled into a
+public package.
+
+```text
+@zendev-lab/spark
+  complete-installation meta package; thin spark forwarding launcher only
+
+@zendev-lab/spark-cli
+  real spark dispatcher + spark-acp + spark-mcp + spark-update + app companion shims
+
+@zendev-lab/spark-daemon
+  spark-daemon + daemon migrations + headless executor
+
+@zendev-lab/spark-tui
+  spark-tui
+
+@zendev-lab/spark-hub
+  spark-hub + embedded Web build + Hub migrations
+```
+
+The root package is the complete-installation meta package and managed-update
+identity; it contains no dispatcher implementation. `spark-cli` owns the real
+`spark` dispatcher, ACP, MCP and updater entrypoints. Daemon, TUI, and Hub are also
+independently installable deployment closures. All public packages share a
+version and protocol contract during v0.x. Each app artifact must omit the other
+apps' implementation assets, while the CLI and root meta package pin exact
+lockstep dependencies instead of repackaging those assets.
+
+Do not create publishable source manifests inside `apps/*` or `packages/*`.
+Source workspaces retain `private: true`; the release builder generates all five
+manifests under `dist/npm-products/`, computes runtime dependency closures
+independently, and publishes exact tarballs from one release tag. The root
+manifest owns the `@zendev-lab/spark` name and lockstep version, while source
+ownership, process ownership, and distribution placement remain separate axes.
 
 ### Agent tool packages
 
@@ -180,6 +223,9 @@ changes extension specifiers and user configuration compatibility.
 - `spark-lens` owns provider, capability-route, observation, verdict, and
   workspace-revision primitives. It performs no durable writes; the daemon owns
   provider sessions, cancellation, caches, and persisted Lens state.
+- `spark-mcp` is the supported stateless, read-only MCP adapter. It projects the
+  canonical `spark-memory` workspace store through MCP resources and tools; it
+  owns no writes, daemon execution, or second memory store.
 - `spark-mcp-spike` source remains in place as a sealed experiment, but it is
   excluded from the workspace and package inventory.
 - `spark-context` was removed after all callers converged on
@@ -188,7 +234,7 @@ changes extension specifiers and user configuration compatibility.
 
 The legacy `daemon.sock` path is removed only in a 0.2 release after a migrated
 0.1.x has shipped and the old-client/new-daemon, new-client/old-daemon,
-exact-tarball product, and updater/rollback gates pass. The compatibility
+exact-tarball node product, and updater/rollback gates pass. The compatibility
 adapter receives no new product behavior while it waits for that exit gate;
 `daemon-orpc.sock` remains the canonical socket after removal.
 

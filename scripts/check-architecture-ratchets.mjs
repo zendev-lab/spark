@@ -72,7 +72,7 @@ function runArchitectureRatchets() {
     }
     if (manifest.private !== true) {
       failures.push(
-        `${manifest.name} must remain private; @zendev-lab/spark is the only published product.`,
+        `${manifest.name} source workspace must remain private; public npm artifacts are generated from declared application distributions.`,
       );
     }
 

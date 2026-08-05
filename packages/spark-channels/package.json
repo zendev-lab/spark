@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-channels",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Spark IM channel adapters (Feishu, Infoflow, QQ Bot): I/O-only ingress and explicit outbound notify.",
   "license": "MIT",

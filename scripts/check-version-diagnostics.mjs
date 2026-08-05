@@ -264,7 +264,14 @@ function visit(path, callback) {
     return;
   }
   for (const entry of readdirSync(path, { withFileTypes: true })) {
-    if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+    if (
+      entry.name === "node_modules" ||
+      entry.name === "build" ||
+      entry.name === "dist" ||
+      entry.name.startsWith(".")
+    ) {
+      continue;
+    }
     visit(join(path, entry.name), callback);
   }
 }
