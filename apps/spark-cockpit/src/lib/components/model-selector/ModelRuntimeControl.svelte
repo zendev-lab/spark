@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    DEFAULT_SPARK_THINKING_LEVEL,
     sparkThinkingLevelOptions,
     type SparkThinkingLevel,
   } from "@zendev-lab/spark-protocol";
@@ -32,7 +33,7 @@
     id,
     open = $bindable(false),
     modelValue = $bindable(""),
-    thinkingValue = $bindable("medium"),
+    thinkingValue = $bindable(DEFAULT_SPARK_THINKING_LEVEL),
     groups,
     labels,
     modelName = "model",
@@ -67,7 +68,7 @@
   function commitThinking(next: string) {
     const level = (sparkThinkingLevelOptions as readonly string[]).includes(next)
       ? (next as SparkThinkingLevel)
-      : "medium";
+      : DEFAULT_SPARK_THINKING_LEVEL;
     thinkingValue = level;
     onThinkingCommit?.(level);
   }

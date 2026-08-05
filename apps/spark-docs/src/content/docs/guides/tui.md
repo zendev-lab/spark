@@ -37,7 +37,8 @@ The short help keeps the common path bounded:
 
 Model, thinking level, session selection, and queued input are available when
 needed. They are controls for the current interaction, not separate product
-features.
+features. New sessions use `high` thinking by default; an explicit session or
+saved user setting continues to take precedence.
 
 ## Inspect the current session
 
