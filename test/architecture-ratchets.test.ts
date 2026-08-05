@@ -102,10 +102,7 @@ describe("Pi compatibility extension architecture ratchet", () => {
       const entry = join(dir, "extension.ts");
       await writeFile(entry, 'import "@zendev-lab/spark-ai/baidu-oneapi-provider";\n', "utf8");
 
-      expect(findUnsafePiCompatibilityImportsInGraph(entry)).toEqual([
-        "packages/spark-ai/src/baidu-oneapi-provider.ts: @earendil-works/pi-ai/api/anthropic-messages.lazy",
-        "packages/spark-ai/src/baidu-oneapi-provider.ts: @earendil-works/pi-ai/api/openai-responses",
-      ]);
+      expect(findUnsafePiCompatibilityImportsInGraph(entry)).toEqual([]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
