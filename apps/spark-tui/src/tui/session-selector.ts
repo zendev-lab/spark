@@ -141,6 +141,7 @@ interface SparkSessionSelectionGroup {
   key: string;
   label: string;
   tabLabel: string;
+  suggested: boolean;
   items: SparkSessionSelectionItem[];
 }
 
@@ -258,7 +259,7 @@ class SparkSessionSelectorComponent implements Component {
   private renderGroupTabs(width: number): string {
     const tabs = this.groups.map((group, index) => {
       const count = sessionGroupCount(group);
-      const label = `${group.tabLabel} (${count})`;
+      const label = group.suggested ? group.tabLabel : `${group.tabLabel} (${count})`;
       return index === this.activeGroupIndex
         ? this.theme.selectedText(`[${label}]`)
         : this.theme.description(label);
@@ -315,17 +316,16 @@ function sessionSelectionGroups(
     const suggested = workspace.registration === "suggested";
     byKey.set(key, {
       key,
-      label: suggested
-        ? `Launch cwd suggestion • ${workspace.localPath}`
-        : `${workspace.displayName} • ${workspace.localPath}`,
-      tabLabel: suggested ? "Launch cwd" : workspace.displayName,
+      label: suggested ? "Create workspace" : workspace.displayName,
+      tabLabel: suggested ? "Create workspace" : workspace.displayName,
+      suggested,
       items: [
         {
           value: `${CREATE_SPARK_SESSION_SELECTION}:${workspace.canonicalId}`,
           selection: { kind: "create", workspaceId: workspace.canonicalId },
-          label: "+ New session",
+          label: suggested ? "+ Create workspace" : "+ New session",
           description: suggested
-            ? "Register this launch cwd only after selection"
+            ? `Use ${workspace.localPath}, then open a new session`
             : "Create a daemon-managed session in this workspace",
         },
       ],
@@ -372,6 +372,7 @@ function sessionSelectionGroups(
       key: ORPHAN_GROUP_KEY,
       label: "Orphaned Side Threads • missing visible parent",
       tabLabel: "Orphans",
+      suggested: false,
       items: orphans.sort((left, right) => left.value.localeCompare(right.value)),
     });
   }
@@ -381,6 +382,7 @@ function sessionSelectionGroups(
       key: "diagnostic:no-workspaces",
       label: "No registered or suggested workspaces",
       tabLabel: "No workspaces",
+      suggested: false,
       items: [],
     });
   }

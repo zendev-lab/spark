@@ -143,6 +143,9 @@ describe("Spark action-bar protocol", () => {
       "thinking.select",
     ]);
     expect(thinking?.actions.at(-1)?.payload).toEqual({ thinkingLevel: "xhigh" });
+    expect(thinking?.actions.filter((action) => action.tone === "primary")).toEqual([
+      expect.objectContaining({ id: "thinking-high", payload: { thinkingLevel: "high" } }),
+    ]);
     expect(sparkSlashActionBarForInput("/queue")?.actions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ intent: "queue.inspect" }),
