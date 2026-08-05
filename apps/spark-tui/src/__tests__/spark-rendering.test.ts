@@ -1229,6 +1229,44 @@ test("native UI transport consumes view model events without concrete TUI protoc
   assert.doesNotMatch(narrow, /\(baidu-oneapi\)/);
 });
 
+test("task updates stay in the bottom status block instead of transcript", () => {
+  const session = new SparkNativeSession();
+  session.addSystemMessage("existing transcript");
+  const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
+  app.setWidget("spark-status", [
+    "◆ Phase: plan",
+    "├─ ◇ Spark repro drive · tasks 7/11",
+    "└─ ◇ Spark product improvement · tasks 8/8",
+  ]);
+
+  app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "task.update",
+    task: {
+      version: SPARK_PROTOCOL_VERSION,
+      ref: "task:active",
+      title: "将 task-view 改为底部常驻状态",
+      status: "ready",
+      owner: "unassigned",
+      todos: [],
+      runRefs: [],
+      evidenceRefs: [],
+      artifactRefs: [],
+      metadata: {},
+    },
+  });
+
+  const rendered = stripAnsi(app.render(120).join("\n"));
+  assert.equal(session.messages.filter((message) => message.customType === "task-view").length, 0);
+  assert.doesNotMatch(rendered, /custom:task-view>|Phase: plan|Spark repro drive/u);
+  assert.match(rendered, /◆ ◇ task:active \[ready\] 将 task-view 改为底部常驻状态/u);
+  assert.equal(app.cockpitSnapshot().tasks, 1);
+
+  const taskIndex = rendered.indexOf("task:active");
+  const composerIndex = rendered.indexOf("Enter submit");
+  assert.ok(taskIndex >= 0 && composerIndex >= 0 && taskIndex < composerIndex);
+});
+
 test("native UI transport prints task completion evidence summaries", () => {
   const session = new SparkNativeSession();
   const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
