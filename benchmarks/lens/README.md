@@ -35,10 +35,12 @@ Run the same non-interactive command used by CodSpeed:
 pnpm run bench:lens:codspeed
 ```
 
-The workflow is `.github/workflows/codspeed.yml`. It grants only
+The benchmark job is part of `.github/workflows/ci-verify.yml`. The workflow grants only
 `contents: read`, pins every action to a commit SHA, and uses CodSpeed simulation
 mode. Public-repository uploads therefore do not require a token or OIDC write
-permission.
+permission. The job temporarily uses Node 24 because the `@codspeed/core` 5.7.1
+Linux addon is not yet compatible with the repository's Node 26 baseline; all
+product validation remains on `.node-version`.
 
 When adding a case, import a production export from `@zendev-lab/spark-lens`,
 keep inputs deterministic and offline, add or extend a correctness test, and

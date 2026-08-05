@@ -9,6 +9,8 @@ import { assertSafeCapabilityCeOutputDirectory } from "../scripts/capability-ce-
 const canonicalRootScripts = [
   "audit",
   "audit:renderer",
+  "bench:lens",
+  "bench:lens:codspeed",
   "build",
   "build:docs",
   "check",
