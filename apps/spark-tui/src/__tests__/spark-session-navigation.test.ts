@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "vitest";
 
-import { visibleWidth } from "@zendev-lab/spark-tui/text";
+import { visibleWidth } from "@zendev-lab/spark-tui-adapter/text";
 
 import {
   SparkHostRuntime,

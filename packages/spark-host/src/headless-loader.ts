@@ -138,7 +138,7 @@ export interface SparkHeadlessSessionModule {
 }
 
 export const DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE =
-  "@zendev-lab/spark-tui-app/headless-role-executor" as const;
+  "@zendev-lab/spark-tui/headless-role-executor" as const;
 
 /** Set by the single-package npm launcher to its compiled executor artifact. */
 export const SPARK_HEADLESS_EXECUTOR_MODULE_ENV = "SPARK_HEADLESS_EXECUTOR_MODULE" as const;

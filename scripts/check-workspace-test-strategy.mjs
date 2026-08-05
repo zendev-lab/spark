@@ -145,14 +145,14 @@ export function validateWorkspaceTestStrategy({ ledger, architecture, root = def
       errors,
       "spark-cli must retain its process primary gate and package-local supplemental check",
     );
-  const tui = entries["@zendev-lab/spark-tui-app"];
+  const tui = entries["@zendev-lab/spark-tui"];
   if (
     tui?.strategy !== "local-test" ||
-    tui.primaryGate?.command !== "pnpm --filter @zendev-lab/spark-tui-app run test" ||
+    tui.primaryGate?.command !== "pnpm --filter @zendev-lab/spark-tui run test" ||
     tui.primaryGate?.paths?.length !== 1 ||
     tui.primaryGate.paths[0] !== "apps/spark-tui/src/**/*.test.ts"
   )
-    fail(errors, "spark-tui-app must use its package-local check and test path");
+    fail(errors, "spark-tui must use its package-local check and test path");
   const ownerLocalPackages = [
     "spark-memory",
     "spark-phases",

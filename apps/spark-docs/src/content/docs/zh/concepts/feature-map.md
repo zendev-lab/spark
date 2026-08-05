@@ -17,9 +17,11 @@ description: 按产品表面、状态所有者和用户意图理解 Spark 全部
 | ACP | 把兼容编辑器接入 daemon 会话 | 只负责适配 |
 | Updater | 安装、升级、回滚和报告构建版本 | 已安装版本 |
 
-公开产品只有 `@zendev-lab/spark`。源码 workspace package 是实现边界，不是单独
-支持的产品。详情见[界面与所有权](/zh/concepts/surfaces/)和
-[CLI 参考](/zh/reference/cli/)。
+完整安装用的 meta package 是 `@zendev-lab/spark`：它锁定各包版本，但不包含
+dispatcher 实现。`@zendev-lab/spark-cli` 拥有真实的 `spark` 命令；Daemon、
+TUI 与 Hub 也可作为独立 app package 安装。其他源码 workspace 仍是私有实现
+边界，不是受支持的产品。详情见
+[界面与所有权](/zh/concepts/surfaces/)和 [CLI 参考](/zh/reference/cli/)。
 
 贡献者只需按家族理解源码拓扑：
 
@@ -28,7 +30,7 @@ description: 按产品表面、状态所有者和用户意图理解 Spark 全部
 | `apps/spark-cli`、`spark-tui`、`spark-daemon`、`apps/spark-cockpit`（Hub 兼容路径） | 可执行分发器与交互/运行时 host |
 | `packages/spark-extension`、`spark-daemon-client` | 产品组合根与共享 daemon client 边界 |
 | 能力与运行时 `packages/spark-*` | 文件、Web、任务、产物、记忆、工作流、模式、Role、Session 等可复用行为 |
-| `spark-protocol`、`spark-core`、`spark-runtime`、`spark-system`、`spark-tui` | 跨表面契约与低依赖基础层 |
+| `spark-protocol`、`spark-core`、`spark-runtime`、`spark-system`、`spark-tui-adapter` | 跨表面契约与低依赖基础层 |
 | `packages/spark-cockpit-*` | 兼容物理路径下的 Hub 私有数据库、协调与本地化实现 |
 
 贡献者可查看 `docs/specs/package-architecture.md` 的依赖规则，以及

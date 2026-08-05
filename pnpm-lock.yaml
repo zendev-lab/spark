@@ -131,10 +131,10 @@ importers:
         version: link:packages/spark-tasks
       '@zendev-lab/spark-tui':
         specifier: workspace:^
-        version: link:packages/spark-tui
-      '@zendev-lab/spark-tui-app':
-        specifier: workspace:^
         version: link:apps/spark-tui
+      '@zendev-lab/spark-tui-adapter':
+        specifier: workspace:^
+        version: link:packages/spark-tui
       '@zendev-lab/spark-turn':
         specifier: workspace:^
         version: link:packages/spark-turn
@@ -522,7 +522,7 @@ importers:
       '@zendev-lab/spark-tasks':
         specifier: workspace:^
         version: link:../../packages/spark-tasks
-      '@zendev-lab/spark-tui':
+      '@zendev-lab/spark-tui-adapter':
         specifier: workspace:^
         version: link:../../packages/spark-tui
       '@zendev-lab/spark-turn':
@@ -667,7 +667,7 @@ importers:
       '@zendev-lab/spark-text':
         specifier: workspace:^
         version: link:../spark-text
-      '@zendev-lab/spark-tui':
+      '@zendev-lab/spark-tui-adapter':
         specifier: workspace:^
         version: link:../spark-tui
       typebox:
@@ -786,7 +786,7 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
-      '@zendev-lab/spark-tui':
+      '@zendev-lab/spark-tui-adapter':
         specifier: workspace:^
         version: link:../spark-tui
       typebox:
@@ -1180,7 +1180,7 @@ importers:
       '@zendev-lab/spark-system':
         specifier: workspace:^
         version: link:../spark-system
-      '@zendev-lab/spark-tui':
+      '@zendev-lab/spark-tui-adapter':
         specifier: workspace:^
         version: link:../spark-tui
       es-toolkit:

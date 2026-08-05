@@ -42,6 +42,10 @@ roots. See [configuration and paths](/reference/configuration-and-paths/).
 
 ## Product boundaries
 
-`@zendev-lab/spark` is the only public npm product. Workspace packages in the
-source repository are implementation boundaries, not separately supported
-install targets.
+`@zendev-lab/spark` is the complete installation meta package. It pins the
+lockstep CLI and executable apps but contains no dispatcher implementation.
+`@zendev-lab/spark-cli` owns the real `spark` command, while
+`@zendev-lab/spark-daemon`, `@zendev-lab/spark-tui`, and
+`@zendev-lab/spark-hub` remain independently installable. Other source
+workspaces remain private implementation boundaries, not supported install
+targets.

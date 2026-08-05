@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Assemble the one public npm artifact. Source workspaces deliberately stay
- * private: this directory is the only registry boundary and contains no
- * TypeScript runtime entrypoints or workspace protocol dependencies.
+ * Assemble the public, lockstep-versioned npm distributions from the private
+ * source monorepo. The root manifest owns @zendev-lab/spark; executable apps
+ * own their package identities, while generated artifacts contain compiled JS
+ * and no workspace protocol dependencies.
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -12,17 +13,13 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { npmDistributions, productsDirectory, releaseVersion } from "./npm-distributions.mjs";
 import { resolveProductRuntimeDependencies } from "./product-runtime-closure.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const productDirectory = resolve(root, "dist/npm-package");
-const productDist = resolve(productDirectory, "dist");
-let rootManifest;
+const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
 
-// These packages are intentionally left outside the esbuild bundles. The final
-// dependency manifest is derived from every generated JS file below, including
-// SvelteKit's lazy server chunks, and pinned to the versions installed by pnpm.
 const externalPackages = [
   "@ast-grep/napi",
   "@core-workspace/infoflow-sdk-nodejs",
@@ -35,15 +32,6 @@ const externalPackages = [
   "web-push",
   "ws",
 ];
-const productBins = {
-  spark: "spark-cli.js",
-  "spark-tui": "spark-tui.js",
-  "spark-daemon": "spark-daemon.js",
-  "spark-hub": "spark-cockpit.js",
-  "spark-acp": "spark-acp.js",
-  "spark-mcp": "spark-mcp.js",
-  "spark-update": "spark-update.js",
-};
 
 async function run(command, args, options = {}) {
   try {
@@ -75,11 +63,25 @@ async function bundle(entry, output) {
   ]);
 }
 
-async function writeProductManifest(dependencies) {
+function sortedRecord(record) {
+  return Object.fromEntries(
+    Object.entries(record).sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+async function runtimeDependencies(distribution) {
+  const discovered = await resolveProductRuntimeDependencies(root, distribution.directory);
+  const exact = Object.fromEntries(
+    distribution.exactDependencies.map((name) => [name, releaseVersion]),
+  );
+  return sortedRecord({ ...discovered, ...exact });
+}
+
+async function writeProductManifest(distribution, dependencies) {
   const manifest = {
-    name: "@zendev-lab/spark",
-    version: rootManifest.version,
-    description: rootManifest.description,
+    name: distribution.packageName,
+    version: releaseVersion,
+    description: distribution.description,
     license: rootManifest.license,
     author: rootManifest.author,
     ...(rootManifest.keywords ? { keywords: rootManifest.keywords } : {}),
@@ -87,54 +89,60 @@ async function writeProductManifest(dependencies) {
     ...(rootManifest.homepage ? { homepage: rootManifest.homepage } : {}),
     ...(rootManifest.bugs ? { bugs: rootManifest.bugs } : {}),
     type: "module",
-    bin: Object.fromEntries(Object.keys(productBins).map((name) => [name, `./bin/${name}`])),
-    files: ["bin", "dist", "build", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
+    ...(Object.keys(distribution.bins).length > 0
+      ? {
+          bin: Object.fromEntries(
+            Object.keys(distribution.bins).map((name) => [name, `./bin/${name}`]),
+          ),
+        }
+      : {}),
+    ...(Object.keys(distribution.exports).length > 0 ? { exports: distribution.exports } : {}),
+    files: distribution.files,
     engines: { node: rootManifest.engines.node },
     publishConfig: {
       access: "public",
       registry: "https://registry.npmjs.org/",
     },
-    dependencies,
+    ...(Object.keys(dependencies).length > 0 ? { dependencies } : {}),
   };
   await writeFile(
-    resolve(productDirectory, "package.json"),
+    resolve(distribution.directory, "package.json"),
     `${JSON.stringify(manifest, null, 2)}\n`,
   );
 }
 
-async function writeBuildInfo() {
-  const migrationNames = (await readdir(resolve(productDist, "migrations")))
+async function latestMigrationName(distribution) {
+  if (!distribution.migrationSource) return "none";
+  const names = (await readdir(resolve(distribution.directory, "dist/migrations")))
     .filter((name) => name.endsWith(".sql"))
     .sort();
-  const migrationHead = migrationNames.at(-1) ?? "none";
-  const gitSha =
-    process.env.SPARK_BUILD_GIT_SHA?.trim() ||
-    (await run("git", ["rev-parse", "HEAD"])).stdout.trim();
-  const protocolSource = await readFile(
-    resolve(root, "packages/spark-protocol/src/version.ts"),
-    "utf8",
-  );
-  const protocolVersion = Number(/SPARK_PROTOCOL_VERSION\s*=\s*(\d+)/u.exec(protocolSource)?.[1]);
-  if (!Number.isSafeInteger(protocolVersion)) {
-    throw new TypeError("Unable to resolve SPARK_PROTOCOL_VERSION for build-info.json");
-  }
+  return names.at(-1) ?? "none";
+}
+
+async function writeBuildInfo(distribution, gitSha, protocolVersion) {
+  const migrationHead = await latestMigrationName(distribution);
   const fingerprint = `sha256:${createHash("sha256")
-    .update([rootManifest.version, gitSha, String(protocolVersion), migrationHead].join("\n"))
+    .update(
+      [releaseVersion, gitSha, String(protocolVersion), distribution.id, migrationHead].join("\n"),
+    )
     .digest("hex")}`;
-  const buildInfo = {
-    schemaVersion: 1,
-    packageName: "@zendev-lab/spark",
-    version: rootManifest.version,
-    gitSha,
-    protocolVersion,
-    minimumNodeVersion: rootManifest.engines.node,
-    migrationHead,
-    migrationMode: rootManifest.sparkRelease.migrationMode,
-    fingerprint,
-  };
   await writeFile(
-    resolve(productDist, "build-info.json"),
-    `${JSON.stringify(buildInfo, null, 2)}\n`,
+    resolve(distribution.directory, "dist/build-info.json"),
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        packageName: distribution.packageName,
+        version: releaseVersion,
+        gitSha,
+        protocolVersion,
+        minimumNodeVersion: rootManifest.engines.node,
+        migrationHead,
+        migrationMode: rootManifest.sparkRelease.migrationMode,
+        fingerprint,
+      },
+      null,
+      2,
+    )}\n`,
   );
 }
 
@@ -147,38 +155,86 @@ const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const productDist = resolve(packageDirectory, "dist");
 process.env.SPARK_PRODUCT_DIST = productDist;
 process.env.SPARK_BUILD_INFO_PATH = resolve(productDist, "build-info.json");
-process.env.SPARK_DAEMON_ENTRYPOINT = resolve(productDist, "spark-daemon.js");
-process.env.SPARK_COCKPIT_SERVER_ENTRYPOINT = resolve(productDist, "spark-cockpit-server.js");
-process.env.SPARK_COCKPIT_WEB_SERVICE_ENTRYPOINT = resolve(
-  productDist,
-  "spark-cockpit-web-service.js",
-);
+`;
+}
+
+function resolvedDependencyPath(specifier) {
+  return `fileURLToPath(import.meta.resolve(${JSON.stringify(specifier)}))`;
+}
+
+const cliCompanionExecutables = {
+  "spark-daemon": "@zendev-lab/spark-daemon/executable",
+  "spark-hub": "@zendev-lab/spark-hub/executable",
+  "spark-tui": "@zendev-lab/spark-tui/executable",
+};
+
+function distributionPrelude(distribution) {
+  const common = launcherPrelude();
+  switch (distribution.id) {
+    case "spark":
+    case "cli":
+      return `${common}process.env.SPARK_DAEMON_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-daemon/executable")};
+process.env.SPARK_DAEMON_ENTRYPOINT = ${resolvedDependencyPath("@zendev-lab/spark-daemon/entrypoint")};
+process.env.SPARK_HEADLESS_EXECUTOR_MODULE = ${resolvedDependencyPath("@zendev-lab/spark-daemon/headless-role-executor")};
+process.env.SPARK_HUB_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-hub/executable")};
+process.env.SPARK_MCP_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/mcp-executable")};
+process.env.SPARK_TUI_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-tui/executable")};
+`;
+    case "daemon":
+      return `${common}process.env.SPARK_DAEMON_ENTRYPOINT = resolve(productDist, "spark-daemon.js");
 process.env.SPARK_HEADLESS_EXECUTOR_MODULE = resolve(
   productDist,
   "spark-headless-role-executor.js",
 );
 `;
+    case "tui":
+      return `${common}process.env.SPARK_DAEMON_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-daemon/executable")};
+process.env.SPARK_DAEMON_ENTRYPOINT = ${resolvedDependencyPath("@zendev-lab/spark-daemon/entrypoint")};
+process.env.SPARK_HEADLESS_EXECUTOR_MODULE = ${resolvedDependencyPath("@zendev-lab/spark-daemon/headless-role-executor")};
+`;
+    case "hub":
+      return `${common}process.env.SPARK_COCKPIT_SERVER_ENTRYPOINT = resolve(
+  productDist,
+  "spark-hub-server.js",
+);
+process.env.SPARK_COCKPIT_WEB_SERVICE_ENTRYPOINT = resolve(
+  productDist,
+  "spark-hub-web-service.js",
+);
+`;
+    default:
+      return common;
+  }
 }
 
-async function writeLaunchers() {
-  const dispatcher = `${launcherPrelude()}
-const { runSparkDispatcher } = await import(
+async function writeLaunchers(distribution) {
+  const binDirectory = resolve(distribution.directory, "bin");
+  const productDist = resolve(distribution.directory, "dist");
+  await mkdir(binDirectory, { recursive: true });
+  await Promise.all(
+    Object.entries(distribution.bins).map(async ([name, entry]) => {
+      let launcher;
+      if (distribution.id === "spark") {
+        launcher = `${distributionPrelude(distribution)}const { runSparkDispatcher } = await import("@zendev-lab/spark-cli/cli");
+process.exitCode = await runSparkDispatcher(process.argv.slice(2));
+`;
+      } else if (distribution.id === "cli" && cliCompanionExecutables[name]) {
+        launcher = `${distributionPrelude(distribution)}const entry = ${resolvedDependencyPath(cliCompanionExecutables[name])};
+process.argv[1] = entry;
+await import(pathToFileURL(entry).href);
+`;
+      } else if (name === "spark") {
+        launcher = `${distributionPrelude(distribution)}const { runSparkDispatcher } = await import(
   pathToFileURL(resolve(productDist, "spark-cli.js")).href
 );
 process.exitCode = await runSparkDispatcher(process.argv.slice(2));
 `;
-  const binDirectory = resolve(productDirectory, "bin");
-  await mkdir(binDirectory, { recursive: true });
-  await Promise.all(
-    Object.entries(productBins).map(async ([name, entry]) => {
-      const launcher =
-        name === "spark"
-          ? dispatcher
-          : `${launcherPrelude()}
-const entry = resolve(productDist, ${JSON.stringify(entry)});
+      } else {
+        launcher = `${distributionPrelude(distribution)}const entry = resolve(productDist, ${JSON.stringify(entry)});
 process.argv[1] = entry;
 await import(pathToFileURL(entry).href);
 `;
+      }
       const destination = resolve(binDirectory, name);
       await writeFile(destination, launcher);
       await chmod(destination, 0o755);
@@ -189,58 +245,94 @@ await import(pathToFileURL(entry).href);
 async function removeSourceMaps(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = resolve(directory, entry.name);
-    if (entry.isDirectory()) {
-      await removeSourceMaps(path);
-    } else if (entry.isFile() && entry.name.endsWith(".map")) {
-      await rm(path);
-    }
+    if (entry.isDirectory()) await removeSourceMaps(path);
+    else if (entry.isFile() && entry.name.endsWith(".map")) await rm(path);
   }
 }
 
-await rm(productDirectory, { recursive: true, force: true });
-await mkdir(productDist, { recursive: true });
-rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
+async function copyCommonFiles(distribution) {
+  await Promise.all([
+    cp(resolve(root, "README.md"), resolve(distribution.directory, "README.md")),
+    cp(resolve(root, "LICENSE"), resolve(distribution.directory, "LICENSE")),
+    cp(
+      resolve(root, "THIRD_PARTY_NOTICES.md"),
+      resolve(distribution.directory, "THIRD_PARTY_NOTICES.md"),
+    ),
+  ]);
+}
 
+await rm(productsDirectory, { recursive: true, force: true });
+for (const distribution of npmDistributions) {
+  await mkdir(resolve(distribution.directory, "dist"), { recursive: true });
+}
+
+await run("node", ["scripts/sync-workspace-versions.mjs"]);
 await run("pnpm", ["--filter", "@zendev-lab/spark-daemon", "run", "build"]);
 await run("pnpm", ["--filter", "@zendev-lab/spark-hub", "run", "build"]);
 
-await Promise.all([
-  bundle("apps/spark-cli/src/cli.ts", resolve(productDist, "spark-cli.js")),
-  bundle("apps/spark-tui/src/cli.ts", resolve(productDist, "spark-tui.js")),
-  bundle(
-    "apps/spark-tui/src/headless-role-executor.ts",
-    resolve(productDist, "spark-headless-role-executor.js"),
+await Promise.all(
+  npmDistributions.flatMap((distribution) =>
+    Object.entries(distribution.bundles).map(([output, entry]) =>
+      bundle(entry, resolve(distribution.directory, "dist", output)),
+    ),
   ),
-  bundle("apps/spark-cockpit/src/cli-entry.ts", resolve(productDist, "spark-cockpit.js")),
-  bundle(
-    "apps/spark-cockpit/src/cli/web-service-entry.ts",
-    resolve(productDist, "spark-cockpit-web-service.js"),
-  ),
-  bundle("apps/spark-cockpit/server/index.ts", resolve(productDist, "spark-cockpit-server.js")),
-  bundle("packages/spark-acp/scripts/stdio.ts", resolve(productDist, "spark-acp.js")),
-  bundle("packages/spark-mcp/scripts/stdio.ts", resolve(productDist, "spark-mcp.js")),
-  bundle("packages/spark-update/src/entry.ts", resolve(productDist, "spark-update.js")),
-]);
-
-await Promise.all([
-  cp(resolve(root, "apps/spark-daemon/dist/cli.js"), resolve(productDist, "spark-daemon.js")),
-  cp(resolve(root, "apps/spark-daemon/dist/migrations"), resolve(productDist, "migrations"), {
-    recursive: true,
-  }),
-  cp(resolve(root, "apps/spark-cockpit/build"), resolve(productDirectory, "build"), {
-    recursive: true,
-  }),
-  cp(resolve(root, "README.md"), resolve(productDirectory, "README.md")),
-  cp(resolve(root, "LICENSE"), resolve(productDirectory, "LICENSE")),
-  cp(resolve(root, "THIRD_PARTY_NOTICES.md"), resolve(productDirectory, "THIRD_PARTY_NOTICES.md")),
-]);
-await cp(
-  resolve(root, "packages/spark-cue/skills/spark-cue"),
-  resolve(productDirectory, "skills/spark-cue"),
-  { recursive: true },
 );
-await removeSourceMaps(resolve(productDirectory, "build"));
-const dependencies = await resolveProductRuntimeDependencies(root, productDirectory);
-await Promise.all([writeProductManifest(dependencies), writeBuildInfo(), writeLaunchers()]);
 
-console.log(`Built npm artifact: ${productDirectory}`);
+const daemon = npmDistributions.find((distribution) => distribution.id === "daemon");
+const hub = npmDistributions.find((distribution) => distribution.id === "hub");
+if (!daemon || !hub) throw new Error("Missing daemon or Hub distribution configuration");
+await Promise.all([
+  cp(
+    resolve(root, "apps/spark-daemon/dist/cli.js"),
+    resolve(daemon.directory, "dist/spark-daemon.js"),
+  ),
+  cp(resolve(root, "apps/spark-cockpit/build"), resolve(hub.directory, "build"), {
+    recursive: true,
+  }),
+  ...npmDistributions.map(copyCommonFiles),
+  ...npmDistributions
+    .filter((distribution) => distribution.migrationSource)
+    .map((distribution) =>
+      cp(distribution.migrationSource, resolve(distribution.directory, "dist/migrations"), {
+        recursive: true,
+      }),
+    ),
+]);
+
+await Promise.all(
+  npmDistributions
+    .filter((distribution) => distribution.skills)
+    .map((distribution) =>
+      cp(
+        resolve(root, "packages/spark-cue/skills/spark-cue"),
+        resolve(distribution.directory, "skills/spark-cue"),
+        { recursive: true },
+      ),
+    ),
+);
+await removeSourceMaps(resolve(hub.directory, "build"));
+
+const gitSha =
+  process.env.SPARK_BUILD_GIT_SHA?.trim() ||
+  (await run("git", ["rev-parse", "HEAD"])).stdout.trim();
+const protocolSource = await readFile(
+  resolve(root, "packages/spark-protocol/src/version.ts"),
+  "utf8",
+);
+const protocolVersion = Number(/SPARK_PROTOCOL_VERSION\s*=\s*(\d+)/u.exec(protocolSource)?.[1]);
+if (!Number.isSafeInteger(protocolVersion)) {
+  throw new TypeError("Unable to resolve SPARK_PROTOCOL_VERSION for build-info.json");
+}
+
+for (const distribution of npmDistributions) {
+  await writeLaunchers(distribution);
+  const dependencies = await runtimeDependencies(distribution);
+  await Promise.all([
+    writeProductManifest(distribution, dependencies),
+    writeBuildInfo(distribution, gitSha, protocolVersion),
+  ]);
+}
+
+console.log(
+  `Built npm distributions: ${npmDistributions.map(({ packageName }) => packageName).join(", ")}`,
+);

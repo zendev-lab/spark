@@ -18,8 +18,11 @@ capabilities, not the product taxonomy.
 | ACP | Connect compatible editor clients to daemon-owned sessions | Adapter only |
 | Updater | Install, upgrade, roll back, and report build identity | Installed version |
 
-The published product is `@zendev-lab/spark`. Source-workspace packages are
-implementation boundaries, not separate supported products. See
+The complete installation meta package is `@zendev-lab/spark`; it pins the
+lockstep packages but contains no dispatcher implementation.
+`@zendev-lab/spark-cli` owns the real `spark` command. Daemon, TUI, and Hub are
+also independently installable app packages. Other source workspaces are private
+implementation boundaries rather than supported products. See
 [surfaces and ownership](/concepts/surfaces/) and the [CLI reference](/reference/cli/).
 
 For contributors, the source topology stays compact by family:
@@ -29,7 +32,7 @@ For contributors, the source topology stays compact by family:
 | `apps/spark-cli`, `spark-tui`, `spark-daemon`, `apps/spark-cockpit` (Hub compatibility path) | Executable dispatcher and presentation/runtime hosts |
 | `packages/spark-extension`, `spark-daemon-client` | Product composition and the shared daemon client boundary |
 | Capability/runtime `packages/spark-*` | Files, Web, tasks, artifacts, memory, workflows, modes, roles, sessions, and other reusable behavior |
-| `spark-protocol`, `spark-core`, `spark-runtime`, `spark-system`, `spark-tui` | Cross-surface contracts and dependency-light foundations |
+| `spark-protocol`, `spark-core`, `spark-runtime`, `spark-system`, `spark-tui-adapter` | Cross-surface contracts and dependency-light foundations |
 | `packages/spark-cockpit-*` | Hub-private database, coordination, and localization implementation under compatibility paths |
 
 Contributors can inspect `docs/specs/package-architecture.md` for dependency

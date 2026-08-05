@@ -20,6 +20,12 @@ const frozenCompatibilityExtensions = new Set([
   "./packages/spark-ai/src/baidu-oneapi-compat-extension.ts",
   "./packages/spark-extension/src/extension/index.ts",
 ]);
+const validDistributions = new Set([
+  "bundled-only",
+  "private",
+  "public-npm",
+  "public-npm-compatibility",
+]);
 const validLayers = new Set([
   "adapter",
   "application",
@@ -93,9 +99,12 @@ function runArchitectureRatchets() {
     if (!validStateWriters.has(declaration.stateWriter)) {
       failures.push(`${manifest.name} has invalid stateWriter ${declaration.stateWriter}.`);
     }
+    if (!validDistributions.has(declaration.distribution ?? "bundled-only")) {
+      failures.push(`${manifest.name} has invalid distribution ${declaration.distribution}.`);
+    }
     if (manifest.private !== true) {
       failures.push(
-        `${manifest.name} must remain private; @zendev-lab/spark is the only published product.`,
+        `${manifest.name} source workspace must remain private; public npm artifacts are generated from declared application distributions.`,
       );
     }
 

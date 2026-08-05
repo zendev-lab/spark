@@ -30,13 +30,15 @@ Run a foreground task without opening the TUI:
 spark run "Summarize this repository and identify its validation command."
 ```
 
-Open the Hub management application:
+Install an executable app independently when a host needs only that process:
 
 ```bash
+npm install --global @zendev-lab/spark-hub
 spark-hub
 ```
 
-The equivalent dispatcher form is:
+The complete `@zendev-lab/spark` package installs matching daemon, TUI, and Hub
+companions, so its dispatcher can also use:
 
 ```bash
 spark hub
@@ -61,8 +63,8 @@ operation.
   `document` artifacts, with verification kept separate from user-facing
   results.
 - **Multiple interfaces** — use the native TUI, Hub Web UI, messaging channels,
-  headless JSON commands, ACP-compatible clients, or the read-only MCP adapter
-  over the same owning domains.
+  headless JSON commands, or the stateless ACP adapter over the same execution
+  model.
 - **Local-first boundaries** — each daemon retains local execution and side
   effects; Hub coordination carries routing state, audit data, and bounded
   receipts.
@@ -87,7 +89,6 @@ browser / future app ──────────► spark-hub ◄────
 | `spark-daemon` | Sessions, invocations, channels, execution, retry, and recovery | Cross-workspace coordination |
 | `spark-hub` | Authentication, daemon gateway, workspace registry, delegation, audit, and embedded management UI | Target execution, repositories, or internal evidence |
 | `spark-acp` | Stateless protocol translation | Sessions or invocations |
-| `spark-mcp` | Read-only MCP translation | Memory state or lifecycle |
 
 The detailed ownership and command grammar are specified in
 [`docs/specs/command-planes.md`](./docs/specs/command-planes.md). Package
@@ -117,12 +118,12 @@ knowledge of internal packages or storage.
 | `spark-daemon` | Execution inspection and operator control |
 | `spark-hub` | Global browser management, coordination, and delegation |
 | `spark-acp` | ACP-compatible clients over canonical daemon sessions |
-| `spark-mcp` | Read-only MCP clients over canonical Spark Memory |
 
 The top-level dispatcher accepts `spark daemon`, `spark hub`, `spark tui`,
 `spark acp`, and `spark mcp` as convenience forms and executes the matching
-`spark-*` companion.
-Run `spark --help` for the current command map. The complete command reference is
+`spark-*` companion. The complete meta package installs every companion; the
+real dispatcher remains in `@zendev-lab/spark-cli`. Run `spark --help` for the
+current command map. The complete command reference is
 maintained in the [user documentation][cli-reference].
 
 ## Documentation
@@ -139,14 +140,27 @@ maintained in the [user documentation][cli-reference].
 
 ## Distribution and status
 
-`@zendev-lab/spark` is the only public npm product. It exposes the `spark`
-dispatcher and the companion executables `spark-daemon`, `spark-hub`,
-`spark-tui`, `spark-acp`, `spark-mcp`, and `spark-update`. Source workspaces are private
-implementation boundaries compiled into that product rather than separately
-supported packages.
+Spark publishes five lockstep-versioned npm distributions from the same private
+monorepo:
 
-Spark is under active development. Managed installations provide explicit
-update and rollback behavior; source checkouts are never self-modified.
+- `@zendev-lab/spark` is the **complete installation meta package**. It pins the
+  matching CLI, daemon, TUI, and Hub packages and keeps `spark` available through
+  a thin forwarding launcher, but contains no dispatcher or app implementation.
+- `@zendev-lab/spark-cli` owns the real `spark` dispatcher, ACP, MCP and updater
+  entrypoints, and companion command shims.
+
+- `@zendev-lab/spark-daemon`, `@zendev-lab/spark-tui`, and
+  `@zendev-lab/spark-hub` are independently installable executable apps.
+
+The split is a deployment and trust boundary, not a source-code ownership split.
+The private app composition roots and internal adapter/capability workspaces
+remain unpublished source boundaries. All five public tarballs share one release
+version and protocol compatibility contract, while the app packages can be
+installed and deployed independently.
+
+Spark is under active development. Managed root installations provide explicit
+update and rollback behavior; source checkouts are never self-modified. Direct
+app installations are updated by their package manager or container deployment.
 
 Spark is MIT-licensed. Source-derived component notices are recorded in
 [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).

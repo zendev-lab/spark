@@ -1,4 +1,4 @@
-# @zendev-lab/spark-tui
+# @zendev-lab/spark-tui-adapter
 
 Spark-owned TUI boundary over `@earendil-works/pi-tui`.
 

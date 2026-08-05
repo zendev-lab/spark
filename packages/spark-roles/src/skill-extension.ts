@@ -12,7 +12,7 @@ import {
   type SparkSkillResolverOptions,
 } from "@zendev-lab/spark-host/skill-resolver";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
-import { truncateToWidth } from "@zendev-lab/spark-tui/text";
+import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
 import { Type } from "typebox";
 import { runRole, type RoleRunRef } from "./role-runtime.ts";
 

@@ -288,12 +288,25 @@ function targetLabel(target: SparkDispatcherTarget): string {
 }
 
 function localTargetCommand(target: SparkDispatcherTarget): string | undefined {
+  const configured = packagedTargetCommand(target);
+  if (configured && existsSync(configured)) return realpathSync(configured);
   const adjacent = adjacentTargetCommand(target);
   if (adjacent && existsSync(adjacent)) return realpathSync(adjacent);
   const sourceExecutable = sourceCheckoutTargetCommand(target);
   return sourceExecutable && existsSync(sourceExecutable)
     ? realpathSync(sourceExecutable)
     : undefined;
+}
+
+function packagedTargetCommand(target: SparkDispatcherTarget): string | undefined {
+  const variableByTarget: Partial<Record<SparkDispatcherTarget, string>> = {
+    daemon: "SPARK_DAEMON_COMMAND",
+    hub: "SPARK_HUB_COMMAND",
+    mcp: "SPARK_MCP_COMMAND",
+    tui: "SPARK_TUI_COMMAND",
+  };
+  const variable = variableByTarget[target];
+  return variable ? process.env[variable]?.trim() : undefined;
 }
 
 function adjacentTargetCommand(target: SparkDispatcherTarget): string | undefined {
