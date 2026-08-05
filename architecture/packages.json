@@ -1,28 +1,31 @@
 {
+  "$schema": "./packages.schema.json",
   "schemaVersion": 1,
-  "maxWorkspacePackages": 40,
-  "sealedPackagePaths": ["packages/spark-mcp-spike"],
+  "maxWorkspacePackages": 41,
   "packages": {
     "@zendev-lab/spark-cli": {
       "path": "apps/spark-cli",
       "layer": "application",
       "owner": "cli",
       "stability": "supported",
-      "stateWriter": "none"
+      "stateWriter": "none",
+      "distribution": "public-npm"
     },
     "@zendev-lab/spark-hub": {
       "path": "apps/spark-cockpit",
       "layer": "application",
       "owner": "hub",
       "stability": "supported",
-      "stateWriter": "cockpit"
+      "stateWriter": "cockpit",
+      "distribution": "public-npm"
     },
     "@zendev-lab/spark-daemon": {
       "path": "apps/spark-daemon",
       "layer": "application",
       "owner": "daemon",
       "stability": "supported",
-      "stateWriter": "daemon"
+      "stateWriter": "daemon",
+      "distribution": "public-npm"
     },
     "@zendev-lab/spark-docs": {
       "path": "apps/spark-docs",
@@ -30,14 +33,16 @@
       "owner": "docs",
       "stability": "supported",
       "stateWriter": "none",
-      "allowedWorkspaceDependencies": []
+      "allowedWorkspaceDependencies": [],
+      "distribution": "private"
     },
-    "@zendev-lab/spark-tui-app": {
+    "@zendev-lab/spark-tui": {
       "path": "apps/spark-tui",
       "layer": "application",
       "owner": "tui",
       "stability": "supported",
-      "stateWriter": "host"
+      "stateWriter": "host",
+      "distribution": "public-npm"
     },
     "@zendev-lab/spark-acp": {
       "path": "packages/spark-acp",
@@ -172,6 +177,13 @@
       "stability": "internal",
       "stateWriter": "none"
     },
+    "@zendev-lab/spark-mcp": {
+      "path": "packages/spark-mcp",
+      "layer": "adapter",
+      "owner": "mcp",
+      "stability": "supported",
+      "stateWriter": "none"
+    },
     "@zendev-lab/spark-memory": {
       "path": "packages/spark-memory",
       "layer": "capability",
@@ -251,7 +263,7 @@
       "stability": "supported",
       "stateWriter": "none"
     },
-    "@zendev-lab/spark-tui": {
+    "@zendev-lab/spark-tui-adapter": {
       "path": "packages/spark-tui",
       "layer": "adapter",
       "owner": "presentation",

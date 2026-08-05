@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-tasks",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Generic project/task/TODO/run graph capability and canonical task tools for Spark capability hosts.",
   "license": "MIT",
@@ -15,10 +15,21 @@
     ".": "./src/index.ts",
     "./extension": "./src/extension.ts"
   },
+  "scripts": {
+    "check": "vp check --no-fmt --no-lint . && vp test run",
+    "test": "vp test run",
+    "test:mutation": "stryker run"
+  },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-text": "workspace:^",
     "es-toolkit": "catalog:",
     "typebox": "catalog:"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

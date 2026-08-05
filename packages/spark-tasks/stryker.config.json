@@ -3,19 +3,19 @@
   "testRunner": "vitest",
   "plugins": ["@stryker-mutator/vitest-runner"],
   "vitest": {
-    "configFile": "packages/spark-tasks/vitest.mutation.config.ts",
+    "configFile": "vitest.mutation.config.ts",
     "related": false
   },
   "mutator": {
     "excludedMutations": ["StringLiteral", "BlockStatement"]
   },
-  "ignorePatterns": ["packages/spark-tasks/reports", ".stryker-tmp"],
+  "ignorePatterns": ["reports", ".stryker-tmp"],
   "reporters": ["clear-text", "progress", "html", "json"],
   "htmlReporter": {
-    "fileName": "packages/spark-tasks/reports/mutation/session-todos.html"
+    "fileName": "reports/mutation/session-todos.html"
   },
   "jsonReporter": {
-    "fileName": "packages/spark-tasks/reports/mutation/session-todos.json"
+    "fileName": "reports/mutation/session-todos.json"
   },
   "incremental": false,
   "coverageAnalysis": "off",
@@ -26,5 +26,5 @@
   },
   "timeoutMS": 30000,
   "concurrency": 2,
-  "mutate": ["packages/spark-tasks/src/todo-store.ts:133:0-158:0"]
+  "mutate": ["src/todo-store.ts:133:0-158:0"]
 }

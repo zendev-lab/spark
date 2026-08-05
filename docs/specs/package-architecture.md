@@ -7,8 +7,66 @@ The machine-readable source of truth is
 [`../../architecture/packages.json`](../../architecture/packages.json). Every
 workspace declares a `layer`, `owner`, `stability`, and authoritative
 `stateWriter`. `pnpm run check:architecture` rejects an unclassified workspace,
-an undeclared production dependency, a stale export, a second public package,
-or growth beyond the current 39/40-workspace budget.
+an undeclared production dependency, a stale export, a public source workspace,
+or growth beyond the current 41-workspace budget.
+
+## Governance tooling
+
+Generic monorepo mechanics are delegated to maintained open-source tools:
+
+| Concern | Authority |
+| --- | --- |
+| inventory JSON shape, required fields, and enums | JSON Schema 2020-12 in `architecture/packages.schema.json`, validated by pinned Ajv CLI |
+| dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` |
+| cycles and dependency direction | Dependency Cruiser |
+| Spark package identity, owner/state ownership, workspace dependency declarations, budget, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus the reduced `scripts/check-architecture-ratchets.mjs` |
+
+`pnpm run check:architecture` validates the schema, runs Syncpack, and then
+executes the Spark-specific ratchets. `pnpm run check:boundaries` runs
+Dependency Cruiser. The custom checker no longer duplicates required/enum
+validation or dependency-version consistency. Its workspace-import declaration
+check remains because Dependency Cruiser's generic `npm-no-pkg` classification
+uses the monorepo root manifest under the current pnpm resolution mode and does
+not fail for a dependency missing only from an individual workspace manifest.
+Presentation imports are enforced by Dependency Cruiser; the reduced custom
+checker covers only the corresponding manifest ownership because import graph
+tools do not inspect unused dependency declarations.
+
+Test and mutation discovery follow the same rule. Vitest configs define the
+root, process, browser, and capability suites; pnpm recursive `--if-present`
+commands discover package-local checks; packages participating in mutation CE
+own a standard `test:mutation` script and Stryker config. Historical ownership,
+strategy, and mutation-selection ledgers are not parallel workspace inventories.
+
+### Repository script policy
+
+Top-level scripts are permitted only when declarative configuration or an
+existing maintained tool cannot express the product contract. The retained
+categories are:
+
+- public-product assembly, runtime-closure validation, clean-install smoke,
+  release identity, rollback, and mixed-version migration checks;
+- Spark-specific AST and compatibility ratchets for Evidence, diagnostics,
+  source-mirror tests, and compatibility loaders;
+- English/Chinese documentation surface and CLI/help synchronization;
+- Lens/capability continuous-evaluation evidence projection;
+- live Cue, Zellij, provider, daemon, and renderer acceptance harnesses.
+
+Do not keep one-shot task seeders, completed migration wrappers, detached manual
+matrices, or duplicate subprocess wrappers under `scripts/`. Use canonical
+Spark task commands for task creation, package-owner migrations for startup
+migration, Vitest config for deterministic test selection, and pnpm recursive
+scripts for package discovery. Knip remains the advisory dead-file check; a
+script that intentionally survives only as an operator command must have a
+package script, workflow, test, or operations-document caller.
+
+Manypkg was not selected because its mandatory private-root dependency policy
+conflicts with Spark's deliberate root product-composition dependencies. `Sherif`
+was not selected because its broader zero-config policy overlaps repository
+formatting and dependency-placement decisions instead of replacing a precise
+owner. Nx was not adopted: Dependency Cruiser already owns the import graph,
+and adding an application framework only to encode tags would increase rather
+than reduce the governance surface.
 
 ## Dependency direction
 
@@ -40,13 +98,18 @@ spark-daemon
 spark-hub
 spark-tui
 spark-acp
+spark-mcp
 spark-update
 ```
 
 The top-level `spark` executable is only a dispatcher. `spark daemon ...`,
 `spark hub ...`, and the other canonical surface aliases resolve and execute the
 matching `spark-*` companion; they do not import or duplicate the target
-application. A retired product name must not remain as another public executable
+application. A companion can come from its independently installed app package or from the
+complete installation meta package's exact dependencies. `spark hub ...`
+therefore resolves the `spark-hub` executable supplied by
+`@zendev-lab/spark-hub` without importing the Hub implementation into the
+dispatcher. A retired product name must not remain as another public executable
 or dispatcher namespace merely to avoid updating callers.
 
 The Hub source directory and its private database packages retain their
@@ -55,6 +118,44 @@ SQLite files, migrations, deployment scripts, and rollback behavior are not
 silently reinterpreted. Their package inventory owner is `hub`; the temporary
 `stateWriter: cockpit` marker records this compatible storage identity. A later
 idempotent storage/path migration may rename both the paths and writer marker.
+
+### Distributions
+
+A distribution is a generated deployment closure, not a workspace layer. Source
+apps remain private even when their compiled entrypoints are assembled into a
+public package.
+
+```text
+@zendev-lab/spark
+  complete-installation meta package; thin spark forwarding launcher only
+
+@zendev-lab/spark-cli
+  real spark dispatcher + spark-acp + spark-mcp + spark-update + app companion shims
+
+@zendev-lab/spark-daemon
+  spark-daemon + daemon migrations + headless executor
+
+@zendev-lab/spark-tui
+  spark-tui
+
+@zendev-lab/spark-hub
+  spark-hub + embedded Web build + Hub migrations
+```
+
+The root package is the complete-installation meta package and managed-update
+identity; it contains no dispatcher implementation. `spark-cli` owns the real
+`spark` dispatcher, ACP, MCP and updater entrypoints. Daemon, TUI, and Hub are also
+independently installable deployment closures. All public packages share a
+version and protocol contract during v0.x. Each app artifact must omit the other
+apps' implementation assets, while the CLI and root meta package pin exact
+lockstep dependencies instead of repackaging those assets.
+
+Do not create publishable source manifests inside `apps/*` or `packages/*`.
+Source workspaces retain `private: true`; the release builder generates all five
+manifests under `dist/npm-products/`, computes runtime dependency closures
+independently, and publishes exact tarballs from one release tag. The root
+manifest owns the `@zendev-lab/spark` name and lockstep version, while source
+ownership, process ownership, and distribution placement remain separate axes.
 
 ### Agent tool packages
 
@@ -122,6 +223,9 @@ changes extension specifiers and user configuration compatibility.
 - `spark-lens` owns provider, capability-route, observation, verdict, and
   workspace-revision primitives. It performs no durable writes; the daemon owns
   provider sessions, cancellation, caches, and persisted Lens state.
+- `spark-mcp` is the supported stateless, read-only MCP adapter. It projects the
+  canonical `spark-memory` workspace store through MCP resources and tools; it
+  owns no writes, daemon execution, or second memory store.
 - `spark-mcp-spike` source remains in place as a sealed experiment, but it is
   excluded from the workspace and package inventory.
 - `spark-context` was removed after all callers converged on
@@ -130,7 +234,7 @@ changes extension specifiers and user configuration compatibility.
 
 The legacy `daemon.sock` path is removed only in a 0.2 release after a migrated
 0.1.x has shipped and the old-client/new-daemon, new-client/old-daemon,
-exact-tarball product, and updater/rollback gates pass. The compatibility
+exact-tarball node product, and updater/rollback gates pass. The compatibility
 adapter receives no new product behavior while it waits for that exit gate;
 `daemon-orpc.sock` remains the canonical socket after removal.
 

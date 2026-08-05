@@ -12,7 +12,37 @@ const {
   findUnsafePiCompatibilityImports,
   findUnsafePiCompatibilityImportsInGraph,
   isLegacyDaemonClientBoundaryExempt,
+  presentationDependencyDeclarations,
+  workspaceImports,
 } = architectureRatchets;
+
+describe("workspace dependency declaration ratchet", () => {
+  it("extracts root package names from static and dynamic workspace imports", () => {
+    expect(
+      workspaceImports(`
+        import { value } from "@zendev-lab/spark-memory";
+        import("@zendev-lab/spark-protocol/session");
+        export { helper } from "@zendev-lab/spark-memory/helpers";
+      `),
+    ).toEqual(new Set(["@zendev-lab/spark-memory", "@zendev-lab/spark-protocol"]));
+  });
+});
+
+describe("presentation dependency manifest ownership", () => {
+  it("allows the UI owner and rejects every dependency field elsewhere", () => {
+    const manifest = {
+      dependencies: { "@lucide/svelte": "catalog:" },
+      devDependencies: { "bits-ui": "catalog:" },
+      peerDependencies: { "svelte-streamdown": "catalog:" },
+    };
+    expect(presentationDependencyDeclarations("packages/spark-ui", manifest)).toEqual([]);
+    expect(presentationDependencyDeclarations("apps/example", manifest)).toEqual([
+      "@lucide/svelte",
+      "bits-ui",
+      "svelte-streamdown",
+    ]);
+  });
+});
 
 describe("legacy daemon client architecture ratchet", () => {
   it("rejects the compatibility subpath and legacy request symbols", () => {

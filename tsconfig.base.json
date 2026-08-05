@@ -80,7 +80,7 @@
       "@zendev-lab/spark-i18n/cli": ["./packages/spark-i18n/src/cli.ts"],
       "@zendev-lab/spark-i18n/cockpit": ["./packages/spark-i18n/src/cockpit/index.ts"],
       "@zendev-lab/spark-i18n/extension": ["./packages/spark-i18n/src/extension.ts"],
-      "@zendev-lab/spark-tui-app/headless-role-executor": [
+      "@zendev-lab/spark-tui/headless-role-executor": [
         "./apps/spark-tui/src/headless-role-executor.ts"
       ],
       "@zendev-lab/spark-protocol": ["./packages/spark-protocol/src/index.ts"],
@@ -132,10 +132,10 @@
         "./packages/spark-extension/src/host-support.ts"
       ],
       "@zendev-lab/spark-roles/reviewer-runner": ["./packages/spark-roles/src/reviewer-runner.ts"],
-      "@zendev-lab/spark-tui": ["./packages/spark-tui/src/index.ts"],
-      "@zendev-lab/spark-tui/input": ["./packages/spark-tui/src/input.ts"],
-      "@zendev-lab/spark-tui/pi-tui": ["./packages/spark-tui/src/pi-tui.ts"],
-      "@zendev-lab/spark-tui/text": ["./packages/spark-tui/src/text.ts"]
+      "@zendev-lab/spark-tui-adapter": ["./packages/spark-tui/src/index.ts"],
+      "@zendev-lab/spark-tui-adapter/input": ["./packages/spark-tui/src/input.ts"],
+      "@zendev-lab/spark-tui-adapter/pi-tui": ["./packages/spark-tui/src/pi-tui.ts"],
+      "@zendev-lab/spark-tui-adapter/text": ["./packages/spark-tui/src/text.ts"]
     },
     "lib": ["ES2024", "DOM", "DOM.Iterable"]
   }

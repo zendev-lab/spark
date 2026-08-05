@@ -27,7 +27,7 @@ map for internal contracts and operator procedures.
 - [`operations/nightly-capability-ce.md`](./operations/nightly-capability-ce.md): repeated zero-token capability evaluation, variance reporting, budgets, artifacts, and triage.
 - [`operations/mutation-ce.md`](./operations/mutation-ce.md): leaf-package Stryker continuous evaluation, timing table, and hygiene.
 - [`operations/acp.md`](./operations/acp.md): supported opt-in ACP stdio adapter, daemon mapping, permissions, and capability boundary.
-- [`operations/mcp-spike.md`](./operations/mcp-spike.md): experimental MCP server exposing read-only Spark memory tools (not default-enabled).
+- [`operations/mcp.md`](./operations/mcp.md): supported read-only MCP stdio adapter and Memory ownership boundary.
 - [`operations/durable-execution-notes.md`](./operations/durable-execution-notes.md): Inngest/Restate step-checkpoint notes mapped to workflows/loop/invocations.
 - [`operations/releases.md`](./operations/releases.md): tag-only npm/GitHub releases, managed installation, automatic-update policy, rollback, and first-publish setup.
 

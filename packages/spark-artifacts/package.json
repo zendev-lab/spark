@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-artifacts",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Atomic issue/git_change/document Artifacts, Git lifecycle, and internal evidence storage for Spark hosts.",
   "license": "MIT",
@@ -20,7 +20,8 @@
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
-    "test": "vp test run"
+    "test": "vp test run",
+    "test:mutation": "stryker run"
   },
   "dependencies": {
     "@zendev-lab/spark-core": "workspace:^",

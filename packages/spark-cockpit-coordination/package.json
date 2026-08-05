@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-cockpit-coordination",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Cockpit-private cross-daemon coordination plane for runtime registration, command delivery, projections, and Cockpit queries.",
   "license": "MIT",
@@ -35,7 +35,8 @@
   },
   "scripts": {
     "check": "vp check --no-fmt --no-lint . && vp test run",
-    "test": "vp test run"
+    "test": "vp test run",
+    "test:mutation": "stryker run"
   },
   "dependencies": {
     "@zendev-lab/spark-protocol": "workspace:*",
@@ -48,6 +49,7 @@
     "@stryker-mutator/vitest-runner": "catalog:",
     "@types/ws": "catalog:",
     "@zendev-lab/spark-cockpit-db": "workspace:*",
+    "tsx": "^4.20.5",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },

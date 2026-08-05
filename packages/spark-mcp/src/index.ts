@@ -2,40 +2,42 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { SparkMemoryStore } from "@zendev-lab/spark-memory";
 import * as z from "zod/v4";
 
-export interface SparkMemoryMcpServerOptions {
+export type SparkMemoryReadStore = Pick<SparkMemoryStore, "filePath" | "list" | "status">;
+
+export interface SparkMcpServerOptions {
   name?: string;
   version?: string;
-  store: SparkMemoryStore;
-  /** Max entries returned by spark_memory_list (hard cap 100). */
+  store: SparkMemoryReadStore;
+  /** Maximum entries returned by spark_memory_list. Hard-capped at 100. */
   listLimit?: number;
 }
 
 /**
- * Minimal MCP server that exposes read-only Spark memory status/list tools.
+ * Create the supported stateless MCP adapter over Spark's canonical Memory owner.
  *
- * Intended for opt-in interop (Cursor / Claude Desktop / etc.). Does not start
- * with the daemon; call `connect(transport)` from an experimental entrypoint.
+ * The adapter receives a read-only store facade and never creates or persists its
+ * own state. Product entrypoints resolve the canonical SparkMemoryStore path and
+ * inject that owner API here.
  */
-export function createSparkMemoryMcpServer(options: SparkMemoryMcpServerOptions): McpServer {
+export function createSparkMcpServer(options: SparkMcpServerOptions): McpServer {
   const store = options.store;
   const listLimit = Math.min(Math.max(options.listLimit ?? 50, 1), 100);
   const server = new McpServer({
-    name: options.name ?? "spark-mcp-spike",
-    version: options.version ?? "0.1.0",
+    name: options.name ?? "spark-mcp",
+    version: options.version ?? "0.2.1",
   });
 
   server.registerTool(
     "spark_memory_status",
     {
       description:
-        "Read-only Spark memory store status (path + active/forgotten counts by category).",
+        "Read-only Spark memory store status (path and active/forgotten counts by category).",
       inputSchema: {},
     },
     async () => {
       const summary = await store.status();
-      const text = JSON.stringify(summary, null, 2);
       return {
-        content: [{ type: "text" as const, text }],
+        content: [{ type: "text" as const, text: JSON.stringify(summary, null, 2) }],
         structuredContent: summary as unknown as Record<string, unknown>,
       };
     },
@@ -44,7 +46,7 @@ export function createSparkMemoryMcpServer(options: SparkMemoryMcpServerOptions)
   server.registerTool(
     "spark_memory_list",
     {
-      description: "List active Spark memory entries (read-only; truncated).",
+      description: "List Spark memory entries through the canonical read-only Memory owner API.",
       inputSchema: {
         limit: z
           .number()
@@ -52,7 +54,7 @@ export function createSparkMemoryMcpServer(options: SparkMemoryMcpServerOptions)
           .min(1)
           .max(100)
           .optional()
-          .describe(`Max entries to return (default ${listLimit}, max 100).`),
+          .describe(`Maximum entries to return (default ${listLimit}, max 100).`),
         includeForgotten: z.boolean().optional().describe("When true, include forgotten entries."),
       },
     },

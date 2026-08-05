@@ -7,8 +7,9 @@ sidebar:
 
 ## Requirements
 
-Spark currently requires Node.js `>=26 <27`. The published product contains the
-CLI dispatcher, native TUI, daemon, and Hub host.
+Spark currently requires Node.js `>=26 <27`. `@zendev-lab/spark` is the complete
+installation and brings matching daemon, TUI, and Hub app packages. Those apps
+can also be installed independently for single-process deployments.
 
 ## Install
 
@@ -21,11 +22,18 @@ spark version --json
 spark update status --json
 ```
 
-You can instead keep the package manager in charge of the installation:
+You can instead keep the package manager in charge of the complete installation:
 
 ```bash
 npm install --global @zendev-lab/spark
 spark --help
+```
+
+Install an app package directly when a host needs only that executable:
+
+```bash
+npm install --global @zendev-lab/spark-daemon  # or spark-tui / spark-hub
+spark-daemon --help
 ```
 
 Global npm, pnpm, Yarn, Bun, and Vite+ installations delegate exact-version
