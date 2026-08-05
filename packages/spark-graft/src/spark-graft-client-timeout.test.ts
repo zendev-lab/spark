@@ -52,6 +52,34 @@ test("runDirectGraft abort signal cancels a hung graft CLI process", async () =>
   }
 });
 
+test("runDirectGraft waits for inherited stdout to close after the CLI process exits", async () => {
+  const root = await mkdtemp(join(tmpdir(), "spark-graft-stdout-close-"));
+  const previousGraftBin = process.env.GRAFT_BIN;
+  try {
+    const graftBin = join(root, "graft-delayed-stdout.js");
+    await writeExecutable(
+      graftBin,
+      `const { spawn } = require("node:child_process");
+const child = spawn(process.execPath, ["-e", "setTimeout(() => process.stdout.write('late\\\\n'), 20)"], {
+  detached: true,
+  stdio: ["ignore", 1, "ignore"],
+});
+child.unref();
+`,
+    );
+    process.env.GRAFT_BIN = graftBin;
+
+    const result = await runDirectGraft(root, ["status"], { timeoutMs: 10_000 });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, "late\n");
+  } finally {
+    if (previousGraftBin === undefined) delete process.env.GRAFT_BIN;
+    else process.env.GRAFT_BIN = previousGraftBin;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("runDirectGraft successful calls still complete before timeout", async () => {
   const root = await mkdtemp(join(tmpdir(), "spark-graft-success-"));
   const previousGraftBin = process.env.GRAFT_BIN;
