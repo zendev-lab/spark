@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SparkDaemonLifecycle, SparkDaemonRestartRequestedError } from "./lifecycle.ts";
 
 describe("SparkDaemonLifecycle", () => {
@@ -35,6 +35,8 @@ describe("SparkDaemonLifecycle", () => {
       generation: "generation-1",
       startedAt: "2026-07-15T00:00:00.000Z",
     });
+    const onRestartExit = vi.fn();
+    lifecycle.restartSignal.addEventListener("abort", onRestartExit);
 
     expect(lifecycle.snapshot()).toEqual({
       state: "running",
@@ -96,11 +98,15 @@ describe("SparkDaemonLifecycle", () => {
     });
     expect(lifecycle.drainSignal.aborted).toBe(true);
     expect(lifecycle.drainSignal.reason).toBeInstanceOf(SparkDaemonRestartRequestedError);
-    expect(lifecycle.restartSignal.aborted).toBe(false);
-
-    await delay(0);
     expect(lifecycle.restartSignal.aborted).toBe(true);
     expect(lifecycle.restartSignal.reason).toBeInstanceOf(SparkDaemonRestartRequestedError);
+    expect(() => lifecycle.restartSignal.throwIfAborted()).toThrow(
+      SparkDaemonRestartRequestedError,
+    );
+    expect(onRestartExit).not.toHaveBeenCalled();
+
+    await delay(0);
+    expect(onRestartExit).toHaveBeenCalledOnce();
   });
 
   it("closes readiness synchronously and exposes the owner of stop teardown", () => {

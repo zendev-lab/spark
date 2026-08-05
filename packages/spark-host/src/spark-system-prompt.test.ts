@@ -19,6 +19,8 @@ test("Spark identity prompt does not imply work continues after a final response
   assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /one owning worktree/u);
   assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /submit drafts by default/u);
   assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /do not post routine duplicate PR comments/u);
+  assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /Omit optional tool fields/u);
+  assert.match(DEFAULT_SPARK_IDENTITY_PROMPT, /never invent empty artifactRef/u);
 });
 
 test("persistent session role prompt keeps work grouped by division of labour", () => {

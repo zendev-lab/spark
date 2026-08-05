@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { sparkProtocolJsonObjectSchema } from "./command-events.ts";
+import { DEFAULT_SPARK_THINKING_LEVEL, sparkThinkingLevelOptions } from "./model-control.ts";
 
 /**
  * Stable, surface-neutral intents exposed by a Spark action bar.
@@ -162,12 +163,12 @@ const thinkingActionBar = actionBar({
   title: "Thinking level",
   description: "Choose the reasoning effort for subsequent turns.",
   actions: [
-    ...(["off", "minimal", "low", "medium", "high", "xhigh"] as const).map((thinkingLevel) =>
+    ...sparkThinkingLevelOptions.map((thinkingLevel) =>
       action(
         `thinking-${thinkingLevel}`,
         thinkingLevel,
         "thinking.select",
-        thinkingLevel === "medium" ? "primary" : undefined,
+        thinkingLevel === DEFAULT_SPARK_THINKING_LEVEL ? "primary" : undefined,
         { thinkingLevel },
       ),
     ),

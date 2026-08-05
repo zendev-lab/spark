@@ -119,7 +119,7 @@ test("native TUI composes a bounded conversation frame", () => {
       "└─ ◇ Memory 生命周期治理 · tasks 2/6 · ready 2",
       "◆ Goal(●): keep the durable objective visible",
     ],
-    { placement: "aboveEditor" },
+    { placement: "belowEditor" },
   );
   harness.app.setEditorText("draft prompt");
   harness.app.invalidate();
@@ -138,8 +138,8 @@ test("native TUI composes a bounded conversation frame", () => {
   const project = firstMarkerIndex(plain, /Session 与 Evidence 边界治理/);
   const goal = firstMarkerIndex(plain, /Goal\(●\)/);
   const composer = firstMarkerIndex(plain, /draft prompt/);
-  assert.ok(message < context && context < phase);
-  assert.ok(phase < workflow && workflow < project && project < goal && goal < composer);
+  assert.ok(message < context && context < composer);
+  assert.ok(composer < phase && phase < workflow && workflow < project && project < goal);
 });
 
 test("native TUI invalidates its cached frame when terminal height changes", () => {

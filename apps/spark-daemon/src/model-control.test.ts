@@ -69,6 +69,26 @@ describe("daemon model control", () => {
     expect(prepareModel).toHaveBeenCalledWith("baidu-oneapi/ernie-4.6");
   });
 
+  it("defaults thinking to high while preserving an explicit session level", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-thinking-control-"));
+    roots.push(root);
+    const sessionRegistry = createDaemonSessionRegistry(root, {
+      daemonId: "install-thinking-control",
+      daemonCwd: root,
+    });
+    await sessionRegistry.create({ sessionId: "sess_thinking", workspaceId: "ws_demo" });
+    const control = createSparkDaemonModelControl({
+      providerControl: fakeProviderControl(),
+      sessionRegistry,
+    });
+
+    await expect(control.effectiveThinkingLevel()).resolves.toBe("high");
+    await expect(control.effectiveThinkingLevel("sess_thinking")).resolves.toBe("high");
+
+    await control.setSessionThinkingLevel("sess_thinking", "medium");
+    await expect(control.effectiveThinkingLevel("sess_thinking")).resolves.toBe("medium");
+  });
+
   it("maps OAuth interaction state without credential material", async () => {
     const root = await mkdtemp(join(tmpdir(), "spark-model-oauth-"));
     roots.push(root);

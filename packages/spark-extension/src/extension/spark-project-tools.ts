@@ -50,6 +50,7 @@ export function normalizeSparkProjectOptionalString(
 
 export function normalizeSparkProjectOutputLanguage(value: unknown): "zh" | "en" | undefined {
   if (value === undefined || value === null) return undefined;
+  if (typeof value === "string" && value.trim() === "") return undefined;
   if (value === "zh" || value === "en") return value;
   throw new Error("outputLanguage must be zh or en");
 }
