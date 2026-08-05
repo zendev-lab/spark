@@ -14,6 +14,7 @@ export function parseMigrationArguments(argv) {
     args: argv,
     options: {
       "baseline-version": { type: "string" },
+      "cli-tarball": { type: "string" },
       "daemon-tarball": { type: "string" },
       "hub-tarball": { type: "string" },
       tarball: { type: "string" },
@@ -24,7 +25,7 @@ export function parseMigrationArguments(argv) {
   const candidateTarball = values.tarball;
   if (!candidateTarball) {
     throw new Error(
-      "Usage: test-release-migration.mjs --tarball <candidate.tgz> [--baseline-version <published-version>]",
+      "Usage: test-release-migration.mjs --tarball <candidate.tgz> [--cli-tarball <cli.tgz>] [--baseline-version <published-version>]",
     );
   }
   const baselineVersion = values["baseline-version"];
@@ -34,6 +35,7 @@ export function parseMigrationArguments(argv) {
   return {
     candidateTarball,
     baselineVersion,
+    ...(values["cli-tarball"] ? { cliTarball: values["cli-tarball"] } : {}),
     ...(values["daemon-tarball"] ? { daemonTarball: values["daemon-tarball"] } : {}),
     ...(values["hub-tarball"] ? { hubTarball: values["hub-tarball"] } : {}),
     ...(values["tui-tarball"] ? { tuiTarball: values["tui-tarball"] } : {}),
@@ -201,13 +203,14 @@ async function main() {
   const {
     candidateTarball,
     baselineVersion: explicitBaseline,
+    cliTarball,
     daemonTarball,
     hubTarball,
     tuiTarball,
   } = parseMigrationArguments(process.argv.slice(2));
   const root = process.cwd();
   const candidatePath = resolve(root, candidateTarball);
-  const companionPaths = [daemonTarball, hubTarball, tuiTarball]
+  const companionPaths = [cliTarball, daemonTarball, hubTarball, tuiTarball]
     .filter((path) => typeof path === "string")
     .map((path) => resolve(root, path));
   await Promise.all([access(candidatePath), ...companionPaths.map((path) => access(path))]);
