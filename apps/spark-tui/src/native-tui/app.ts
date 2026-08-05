@@ -1350,15 +1350,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
     ];
     const context = this.renderWorkspaceSessionState(width);
     const detail = this.renderActiveCockpitPanel(width);
-    const taskStatus = this.renderTaskStatus(width);
-    const aboveEditorWidgets = this.renderWidgets("aboveEditor", width);
-    const retainedAboveEditorWidgets =
-      taskStatus.length === 0
-        ? aboveEditorWidgets
-        : aboveEditorWidgets.filter(
-            (line) => !line.includes("Phase:") && !line.includes("· tasks "),
-          );
-    const pinnedStatus = [...header, ...context, ...retainedAboveEditorWidgets, ...taskStatus];
+    const pinnedStatus = [...header, ...context, ...this.renderWidgets("aboveEditor", width)];
     const auxiliary = this.renderPendingAskPresentations(width);
     const transcript = this.session.messages.flatMap((message) =>
       this.renderMessage(message, width),
@@ -1366,6 +1358,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
     const queue = this.renderInputQueue(width);
     const composer = [this.separatorLine(width), ...this.editor.render(width)];
     const footer = [
+      ...(this.widgets.has("spark-status") ? [] : this.renderTaskStatus(width)),
       ...this.renderWidgets("belowEditor", width),
       truncateToWidth(this.renderTheme.fg("muted", this.footerLine()), width),
     ];
@@ -1659,13 +1652,20 @@ export class SparkNativeTuiApp implements Component, Focusable {
     return tasks.slice(0, MAX_COCKPIT_PANEL_ROWS).map((task, index, visibleTasks) => {
       const marker = index === 0 ? "◆" : index === visibleTasks.length - 1 ? "└─" : "├─";
       const doneTodos = task.todos.filter((todo) => todo.status === "done").length;
-      const todos = task.todos.length > 0 ? ` · todos ${doneTodos}/${task.todos.length}` : "";
-      const owner = task.owner?.trim() ? ` · ${task.owner.trim()}` : "";
+      const todos = task.todos.length > 0 ? " · todos " + doneTodos + "/" + task.todos.length : "";
+      const owner = task.owner?.trim() ? " · " + task.owner.trim() : "";
       return truncateToWidth(
-        `${this.renderTheme.fg("dim", marker)} ${this.renderTheme.fg(
-          taskStatusColor(task.status),
-          taskStatusIcon(task.status),
-        )} ${task.ref} [${task.status}] ${task.title}${todos}${owner}`,
+        this.renderTheme.fg("dim", marker) +
+          " " +
+          this.renderTheme.fg(taskStatusColor(task.status), taskStatusIcon(task.status)) +
+          " " +
+          task.ref +
+          " [" +
+          task.status +
+          "] " +
+          task.title +
+          todos +
+          owner,
         width,
       );
     });

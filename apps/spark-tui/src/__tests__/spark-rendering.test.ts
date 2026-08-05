@@ -87,6 +87,92 @@ test("SparkNativeSession responder context streams assistant chunks without dupl
   assert.equal(assistantMessages[0]!.streaming, false);
 });
 
+test("SparkNativeSession merges a daemon user projection into its optimistic input", async () => {
+  let releaseObservation: (() => void) | undefined;
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async () => ({
+        invocationId: "inv_user_dedup",
+        status: "running" as const,
+        acceptedAt: "2026-08-05T00:00:00.000Z",
+      }),
+      observe: async () =>
+        await new Promise<string>((resolve) => {
+          releaseObservation = () => resolve("");
+        }),
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      }),
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+  const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
+
+  await session.submit("render once", { submissionId: "idem_user_dedup" });
+  await waitUntil(() =>
+    session.messages.some(
+      (message) => message.role === "user" && message.details?.invocationId === "inv_user_dedup",
+    ),
+  );
+  session.addMessageView({
+    version: SPARK_PROTOCOL_VERSION,
+    id: "daemon-user-message",
+    role: "user",
+    text: "render once",
+    status: "done",
+    createdAt: "2026-08-05T00:00:00.000Z",
+    metadata: { invocationId: "inv_user_dedup" },
+  });
+
+  assert.equal(session.messages.filter((message) => message.role === "user").length, 1);
+  assert.equal((stripAnsi(app.render(100).join("\n")).match(/you> render once/gu) ?? []).length, 1);
+  releaseObservation?.();
+  await waitUntil(() => !session.isProcessing);
+});
+
+test("SparkNativeSession deduplicates a daemon user projection that wins the admission race", async () => {
+  let acceptAdmission: (() => void) | undefined;
+  const responder = Object.assign(
+    async (_input: string, _context: SparkNativeResponderContext) => "compatibility path",
+    {
+      admit: async () => {
+        await new Promise<void>((resolve) => {
+          acceptAdmission = resolve;
+        });
+        return {
+          invocationId: "inv_user_race",
+          status: "running" as const,
+          acceptedAt: "2026-08-05T00:00:00.000Z",
+        };
+      },
+      observe: async () => "",
+      cancel: async (invocationId: string) => ({
+        invocationId,
+        status: "cancelled" as const,
+        cancelRequested: true,
+      }),
+    },
+  ) satisfies SparkNativeResponder;
+  const session = new SparkNativeSession(responder);
+
+  await session.submit("race once", { submissionId: "idem_user_race" });
+  session.addMessageView({
+    version: SPARK_PROTOCOL_VERSION,
+    id: "daemon-user-race",
+    role: "user",
+    text: "race once",
+    status: "done",
+    metadata: { invocationId: "inv_user_race" },
+  });
+  assert.equal(session.messages.filter((message) => message.role === "user").length, 2);
+  acceptAdmission?.();
+  await waitUntil(() => !session.isProcessing);
+  assert.equal(session.messages.filter((message) => message.role === "user").length, 1);
+});
+
 test("native secret masking preserves only prompt, reverse-video CSI, and the Pi cursor marker", () => {
   const cursorMarker = "\x1b_pi:c\x07";
   const redCsi = "\x1b[31m";
@@ -629,7 +715,7 @@ test("SparkNativeTuiApp renders component widget factories natively", () => {
       render: () => [theme.fg("accent", `◆ Spark status width=${tui.terminal.columns}`)],
       invalidate: () => undefined,
     }),
-    { placement: "aboveEditor" },
+    { placement: "belowEditor" },
   );
 
   const rendered = app.render(100).join("\n");
@@ -1229,27 +1315,20 @@ test("native UI transport consumes view model events without concrete TUI protoc
   assert.doesNotMatch(narrow, /\(baidu-oneapi\)/);
 });
 
-test("task updates stay in the bottom status block instead of transcript", () => {
+test("native UI transport projects task.update without a task-view transcript message", async () => {
   const session = new SparkNativeSession();
-  session.addSystemMessage("existing transcript");
   const app = new SparkNativeTuiApp(fakeTui(), session, () => undefined);
-  app.setWidget("spark-status", [
-    "◆ Phase: plan",
-    "├─ ◇ Spark repro drive · tasks 7/11",
-    "└─ ◇ Spark product improvement · tasks 8/8",
-    "◆ Goal(●): keep the durable objective visible",
-  ]);
+  const ui = createSparkNativeUiTransport(app, session);
 
-  app.applyViewModelEvent({
+  ui.publishView?.({
     version: SPARK_PROTOCOL_VERSION,
     type: "task.update",
     task: {
       version: SPARK_PROTOCOL_VERSION,
-      ref: "task:active",
-      title: "将 task-view 改为底部常驻状态",
-      status: "ready",
-      owner: "unassigned",
-      todos: [],
+      ref: "task:bottom-status",
+      title: "Keep task status at the bottom",
+      status: "running",
+      todos: [{ id: "todo-1", content: "render the projection", status: "in_progress", notes: [] }],
       runRefs: [],
       evidenceRefs: [],
       artifactRefs: [],
@@ -1257,16 +1336,18 @@ test("task updates stay in the bottom status block instead of transcript", () =>
     },
   });
 
-  const rendered = stripAnsi(app.render(120).join("\n"));
-  assert.equal(session.messages.filter((message) => message.customType === "task-view").length, 0);
-  assert.doesNotMatch(rendered, /custom:task-view>|Phase: plan|Spark repro drive/u);
-  assert.match(rendered, /Goal\(●\): keep the durable objective visible/u);
-  assert.match(rendered, /◆ ◇ task:active \[ready\] 将 task-view 改为底部常驻状态/u);
   assert.equal(app.cockpitSnapshot().tasks, 1);
-
-  const taskIndex = rendered.indexOf("task:active");
-  const composerIndex = rendered.indexOf("Enter submit");
-  assert.ok(taskIndex >= 0 && composerIndex >= 0 && taskIndex < composerIndex);
+  app.setEditorText("draft task prompt");
+  const rendered = stripAnsi(app.render(120).join("\n"));
+  assert.match(
+    rendered,
+    /task:bottom-status \[running\] Keep task status at the bottom · todos 0\/1/,
+  );
+  assert.doesNotMatch(rendered, /custom:task-view>/);
+  assert.ok(
+    rendered.indexOf("task:bottom-status [running]") > rendered.indexOf("draft task prompt"),
+    "task status must be rendered below the composer",
+  );
 });
 
 test("native UI transport prints task completion evidence summaries", () => {

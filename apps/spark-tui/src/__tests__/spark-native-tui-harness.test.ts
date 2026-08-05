@@ -119,7 +119,7 @@ test("native TUI composes a bounded conversation frame", () => {
       "└─ ◇ Memory 生命周期治理 · tasks 2/6 · ready 2",
       "◆ Goal(●): keep the durable objective visible",
     ],
-    { placement: "aboveEditor" },
+    { placement: "belowEditor" },
   );
   harness.app.setEditorText("draft prompt");
   harness.app.invalidate();
@@ -138,8 +138,8 @@ test("native TUI composes a bounded conversation frame", () => {
   const project = firstMarkerIndex(plain, /Session 与 Evidence 边界治理/);
   const goal = firstMarkerIndex(plain, /Goal\(●\)/);
   const composer = firstMarkerIndex(plain, /draft prompt/);
-  assert.ok(message < context && context < phase);
-  assert.ok(phase < workflow && workflow < project && project < goal && goal < composer);
+  assert.ok(message < context && context < composer);
+  assert.ok(composer < phase && phase < workflow && workflow < project && project < goal);
 });
 
 test("native TUI invalidates its cached frame when terminal height changes", () => {
@@ -2370,7 +2370,7 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
   );
 });
 
-test("task updates stay pinned above the composer instead of entering the transcript", () => {
+test("task updates stay below the composer instead of entering the transcript", () => {
   const harness = createSparkNativeTuiHarness({ cols: 100, rows: 20 });
   harness.session.messages.push({ role: "assistant", text: "previous answer" });
   harness.app.setEditorText("next prompt");
@@ -2405,7 +2405,7 @@ test("task updates stay pinned above the composer instead of entering the transc
     /task:pinned-status \[running\] Keep task status visible · todos 1\/2/u,
   );
   const composerIndex = firstMarkerIndex(running, /next prompt/u);
-  assert.ok(transcriptIndex < taskIndex && taskIndex < composerIndex);
+  assert.ok(transcriptIndex < composerIndex && composerIndex < taskIndex);
   assert.equal(
     harness.session.messages.some((message) => message.customType === "task-view"),
     false,

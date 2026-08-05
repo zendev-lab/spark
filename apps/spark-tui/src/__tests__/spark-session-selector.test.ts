@@ -194,6 +194,32 @@ test("Spark session selector renders explicit workspace creation and managed ses
   assert.deepEqual(selected, [{ kind: "create", workspaceId: "workspace-1" }]);
 });
 
+test("Spark session selector presents an unregistered cwd as a workspace creation action", () => {
+  const component = createSparkSessionSelectorComponent({
+    sessions: [],
+    workspaces: [
+      {
+        id: "__spark_launch_cwd_workspace__",
+        canonicalId: "__spark_launch_cwd_workspace__",
+        displayName: "new-project",
+        localPath: "/workspace/new-project",
+        registration: "suggested",
+      },
+      workspaces[0]!,
+    ],
+    suggestedWorkspaceId: "__spark_launch_cwd_workspace__",
+    onSelect: () => undefined,
+  });
+
+  const rendered = component.render(120).join("\n");
+  assert.match(rendered, /\[Create workspace\]/u);
+  assert.match(rendered, /\+ Create workspace/u);
+  assert.match(rendered, /Use \/workspace\/new-project, then open a new session/u);
+  assert.doesNotMatch(rendered, /Launch cwd|Create workspace \(0\)|new-project \(0\)/u);
+  assert.match(rendered, /spark \(0\)/u);
+  assert.doesNotMatch(rendered, /spark • \/workspace\/spark/u);
+});
+
 test("Spark session selector uses the Cockpit fallback for untitled sessions", () => {
   const component = createSparkSessionSelectorComponent({
     sessions: [untitledSession],
@@ -354,8 +380,9 @@ test("Spark session list text uses the same workspace groups as the selector", (
   });
 
   assert.match(text, /^Spark workspace sessions:/u);
-  assert.match(text, /spark • \/workspace\/spark \(2\)/u);
-  assert.match(text, /spore • \/workspace\/other \(1\)/u);
+  assert.match(text, /^spark \(2\)$/mu);
+  assert.match(text, /^spore \(1\)$/mu);
+  assert.doesNotMatch(text, /\/workspace\/(?:spark|other)/u);
   assert.doesNotMatch(text, /Daemon conversation/u);
   assert.match(text, /Ops room • status=ready • session-channel-bound • feishu/u);
 });
