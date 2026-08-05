@@ -7,7 +7,7 @@ The machine-readable source of truth is
 [`../../architecture/packages.json`](../../architecture/packages.json). Every
 workspace declares a `layer`, `owner`, `stability`, and authoritative
 `stateWriter`. `pnpm run check:architecture` rejects an unclassified workspace,
-an undeclared production dependency, a stale export, a second public package,
+an undeclared production dependency, a stale export, a public source workspace,
 or growth beyond the current 39/40-workspace budget.
 
 ## Dependency direction
@@ -46,8 +46,10 @@ spark-update
 The top-level `spark` executable is only a dispatcher. `spark daemon ...`,
 `spark hub ...`, and the other canonical surface aliases resolve and execute the
 matching `spark-*` companion; they do not import or duplicate the target
-application. A retired product name must not remain as another public executable
-or dispatcher namespace merely to avoid updating callers.
+application. A companion can be supplied by another distribution, so
+`spark hub ...` works when `@zendev-lab/spark-hub` installs `spark-hub` on
+`PATH`. A retired product name must not remain as another public executable or
+dispatcher namespace merely to avoid updating callers.
 
 The Hub source directory and its private database packages retain their
 `cockpit` physical names during the first rename step so existing XDG paths,
@@ -55,6 +57,33 @@ SQLite files, migrations, deployment scripts, and rollback behavior are not
 silently reinterpreted. Their package inventory owner is `hub`; the temporary
 `stateWriter: cockpit` marker records this compatible storage identity. A later
 idempotent storage/path migration may rename both the paths and writer marker.
+
+### Distributions
+
+A distribution is a generated deployment closure, not a workspace layer. Source
+apps remain private even when their compiled entrypoints are assembled into a
+public package.
+
+```text
+@zendev-lab/spark
+  spark + spark-daemon + spark-tui + spark-acp + spark-update
+
+@zendev-lab/spark-hub
+  spark-hub + embedded Web build
+```
+
+The node distribution corresponds to a local execution trust domain; the Hub
+distribution corresponds to the global coordination trust domain. They share a
+version and protocol contract during v0.x, but neither artifact may contain the
+other domain's executable closure. In particular, `@zendev-lab/spark` omits Hub
+server/Web assets and `@zendev-lab/spark-hub` omits the dispatcher, daemon, TUI,
+ACP, updater, daemon migrations, and local coding skills.
+
+Do not create public manifests inside `apps/*` or `packages/*`. The release
+builder generates both manifests under `dist/npm-products/`, computes each
+runtime dependency closure independently, and publishes exact tarballs from one
+release tag. This keeps source ownership, process ownership, and distribution
+placement as separate axes.
 
 ### Agent tool packages
 
@@ -130,7 +159,7 @@ changes extension specifiers and user configuration compatibility.
 
 The legacy `daemon.sock` path is removed only in a 0.2 release after a migrated
 0.1.x has shipped and the old-client/new-daemon, new-client/old-daemon,
-exact-tarball product, and updater/rollback gates pass. The compatibility
+exact-tarball node product, and updater/rollback gates pass. The compatibility
 adapter receives no new product behavior while it waits for that exit gate;
 `daemon-orpc.sock` remains the canonical socket after removal.
 
