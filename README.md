@@ -30,16 +30,15 @@ Run a foreground task without opening the TUI:
 spark run "Summarize this repository and identify its validation command."
 ```
 
-Install the Hub distribution only on the machine or server that owns the global
-control plane:
+Install an executable app independently when a host needs only that process:
 
 ```bash
 npm install --global @zendev-lab/spark-hub
 spark-hub
 ```
 
-When both distributions are on `PATH`, the node dispatcher can use the equivalent
-convenience form:
+The complete `@zendev-lab/spark` package installs matching daemon, TUI, and Hub
+companions, so its dispatcher can also use:
 
 ```bash
 spark hub
@@ -140,24 +139,27 @@ maintained in the [user documentation][cli-reference].
 
 ## Distribution and status
 
-Spark publishes two lockstep-versioned npm distributions from the same private
+Spark publishes five lockstep-versioned npm distributions from the same private
 monorepo:
 
-- `@zendev-lab/spark` is the **node distribution**. It exposes `spark`,
-  `spark-daemon`, `spark-tui`, `spark-acp`, and `spark-update`, and contains only
-  the local execution/runtime closure.
-- `@zendev-lab/spark-hub` is the **Hub distribution**. It exposes `spark-hub`
-  and contains the global control plane plus its embedded Web UI.
+- `@zendev-lab/spark` is the **complete root package**. It exposes `spark`,
+  `spark-acp`, and `spark-update`, keeps `spark-daemon`, `spark-tui`, and
+  `spark-hub` companion commands available, and installs the matching daemon,
+  TUI, and Hub app packages.
+- `@zendev-lab/spark-daemon`, `@zendev-lab/spark-tui`, and
+  `@zendev-lab/spark-hub` are independently installable executable apps.
+- `@zendev-lab/spark-cli` is a compatibility shell that forwards `spark` to the
+  complete root package without duplicating the dispatcher implementation.
 
 The split is a deployment and trust boundary, not a source-code ownership split.
-`apps/spark-daemon`, `apps/spark-tui`, and `apps/spark-cockpit` remain private
-composition roots, while reusable behavior remains in private `packages/*`
-workspaces. The two artifacts share a release version and protocol compatibility
-contract but can be installed and deployed independently.
+The private app composition roots and internal adapter/capability workspaces
+remain unpublished source boundaries. All five public tarballs share one release
+version and protocol compatibility contract, while the app packages can be
+installed and deployed independently.
 
-Spark is under active development. Managed node installations provide explicit
-update and rollback behavior; source checkouts are never self-modified. Hub
-updates are owned by its package manager or container deployment.
+Spark is under active development. Managed root installations provide explicit
+update and rollback behavior; source checkouts are never self-modified. Direct
+app installations are updated by their package manager or container deployment.
 
 Spark is MIT-licensed. Source-derived component notices are recorded in
 [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md).

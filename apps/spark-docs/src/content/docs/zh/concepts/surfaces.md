@@ -38,5 +38,7 @@ Workspace 内的 Spark 状态位于 `.spark/`。用户配置和服务状态在�
 
 ## 产品边界
 
-`@zendev-lab/spark` 是唯一公开 npm 产品。源码仓库中的 workspace packages
-是实现边界，不是独立支持的安装目标。
+`@zendev-lab/spark` 是完整公开安装包。可执行 app 也以锁步版本分别发布：
+`@zendev-lab/spark-daemon`、`@zendev-lab/spark-tui` 与
+`@zendev-lab/spark-hub`。`@zendev-lab/spark-cli` 是转发到完整包的兼容空壳。
+其他源码 workspace 仍是私有实现边界，不是受支持的安装目标。

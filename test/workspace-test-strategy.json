@@ -62,11 +62,11 @@
       },
       "supplementalGates": []
     },
-    "@zendev-lab/spark-tui-app": {
+    "@zendev-lab/spark-tui": {
       "path": "apps/spark-tui",
       "strategy": "local-test",
       "primaryGate": {
-        "command": "pnpm --filter @zendev-lab/spark-tui-app run test",
+        "command": "pnpm --filter @zendev-lab/spark-tui run test",
         "paths": ["apps/spark-tui/src/**/*.test.ts"],
         "rules": []
       },
@@ -401,7 +401,7 @@
       },
       "supplementalGates": []
     },
-    "@zendev-lab/spark-tui": {
+    "@zendev-lab/spark-tui-adapter": {
       "path": "packages/spark-tui",
       "strategy": "boundary-contract",
       "primaryGate": {

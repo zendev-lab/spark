@@ -4,7 +4,7 @@ Spark production releases use one immutable source:
 
 ```text
 version-matching Git tag
-  → one generated @zendev-lab/spark tarball
+  → five generated lockstep npm tarballs
   → npm registry
   → published GitHub Release
 ```
@@ -20,17 +20,18 @@ browser tests, exact-tarball product smoke, and the N-1 expand-only migration
 gate. `pnpm run release:pack` builds once and writes:
 
 - `dist/release/*.tgz`
+- `dist/release/*-release-manifest.json`
 - `dist/release/release-manifest.json`
 - `dist/release/SHA256SUMS`
 
-The manifest binds npm integrity, asset SHA256, Git SHA, build fingerprint,
-minimum updater version, rollback range, and migration mode. Stable versions
-publish with npm tag `latest`; prereleases use `next` and a GitHub prerelease.
-The workflow passes the immutable candidate between jobs with GitHub's artifact
-actions, stages a draft with `softprops/action-gh-release`, publishes the exact
-tarball with `JS-DevTools/npm-publish`, and publishes the GitHub Release only
-after npm succeeds. A rerun compares the already-published npm and GitHub asset
-integrities and fails closed on any difference.
+The root manifest remains the managed updater contract; the bounded companion
+manifests bind each app package to the same version, Git SHA, npm integrity,
+asset SHA256, and build fingerprint. Stable versions publish with npm tag
+`latest`; prereleases use `next` and a GitHub prerelease. The workflow validates
+all five artifacts before publishing in dependency order: daemon and Hub, then
+TUI, the complete root package, and finally the `spark-cli` compatibility shell.
+A rerun compares every already-published npm and GitHub asset integrity and fails
+closed on any difference.
 
 Configure the GitHub `npm-release` environment with required reviewers and
 enable immutable releases in repository settings. Give the workflow
@@ -42,8 +43,8 @@ The first publication may use a short-lived, package-scoped granular
 `NPM_TOKEN` stored only in the protected `npm-release` environment:
 
 1. Push the first reviewed version tag and let the protected workflow publish.
-2. Configure npm trusted publishing for repository `zendev-lab/spark`, workflow
-   `cd-publish.yml`, and environment `npm-release`.
+2. Configure npm trusted publishing for all five package identities in repository
+   `zendev-lab/spark`, workflow `cd-publish.yml`, and environment `npm-release`.
 3. Rerun a prerelease through OIDC provenance to verify trusted publishing.
 4. Revoke and remove the one-time token from npm and GitHub.
 

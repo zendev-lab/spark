@@ -14,9 +14,9 @@ spark <plane> <resource> <verb> [args...]
 ```
 
 The dispatcher resolves the plane and executes the matching `spark-*`
-companion. It does not import a second implementation of that plane. A
-companion may come from another installed distribution; notably, `spark hub`
-resolves the `spark-hub` executable supplied by `@zendev-lab/spark-hub`.
+companion. It does not import a second implementation of that plane. The
+complete `@zendev-lab/spark` installation supplies exact-version app packages;
+a companion may also be installed directly for a single-process deployment.
 
 ## Executable namespaces
 
@@ -144,49 +144,48 @@ A **source app**, an **executable**, and a **distribution** are different axes:
 - an npm distribution is the minimal independently installable runtime closure
   for one deployment and trust domain.
 
-Spark publishes two public npm distributions from the same monorepo and release
+Spark publishes five public npm distributions from the same monorepo and release
 tag:
 
 | Distribution | Package | Executables | Deployment boundary |
 | --- | --- | --- | --- |
-| Spark node | `@zendev-lab/spark` | `spark`, `spark-daemon`, `spark-tui`, `spark-acp`, `spark-update` | a developer machine or execution node; owns local repositories and execution truth |
-| Spark Hub | `@zendev-lab/spark-hub` | `spark-hub` | a control-plane host; owns authentication, workspace registry, delegation, audit, and the embedded Web UI |
+| Complete Spark | `@zendev-lab/spark` | `spark`, `spark-acp`, `spark-update`, plus app companion shims | full installation and managed-update identity; depends on the matching app packages |
+| CLI compatibility | `@zendev-lab/spark-cli` | `spark` | empty package-name shell forwarding to the complete root package |
+| Spark daemon | `@zendev-lab/spark-daemon` | `spark-daemon` | durable local execution, daemon migrations, and headless turns |
+| Spark TUI | `@zendev-lab/spark-tui` | `spark-tui` | local terminal host; depends on the matching daemon package |
+| Spark Hub | `@zendev-lab/spark-hub` | `spark-hub` | control-plane host with authentication, coordination, and embedded Web UI |
 
-The split does **not** move daemon, Hub, or TUI implementations into generic
-packages and does not create a second repository. `apps/spark-daemon`,
-`apps/spark-tui`, and `apps/spark-cockpit` remain executable apps. Reusable
-behavior remains in private packages and is bundled into whichever distribution
-needs it.
+The split does **not** move implementation ownership out of the private source
+workspaces or create another repository. Reusable behavior remains in private
+packages and is bundled into the executable app that owns the process.
 
-The node distribution deliberately omits Hub server code, Hub database/runtime
-dependencies, and built Web assets. The Hub distribution deliberately omits the
-root dispatcher, TUI, daemon, ACP, updater, daemon migrations, and local coding
-skills. `spark hub ...` remains a convenience dispatch form only when
-`spark-hub` is installed on `PATH`; the canonical Hub operator entrypoint is
-`spark-hub ...`.
+All five distributions use the same semantic version and protocol compatibility
+contract in v0.x. `@zendev-lab/spark` keeps the full installation experience by
+using exact-version dependencies instead of embedding the daemon, TUI, and Hub
+assets. `@zendev-lab/spark-cli` contains no dispatcher copy; it forwards to the
+root package. Each executable app package rejects the other apps' implementation
+assets and can be installed directly.
 
-Both distributions use the same semantic version and protocol compatibility
-contract in v0.x, but they are separate npm package identities and release
-artifacts. `release-manifest.json` remains the node updater contract;
-`hub-release-manifest.json` records the Hub artifact. The container image is
-built only from the Hub artifact. Node N-1 migration checks remain scoped to the
-node artifact because Hub deployment rollback belongs to the package manager or
-container orchestrator.
+`release-manifest.json` remains the root updater contract. The other packages
+receive bounded release manifests, while the container image remains Hub-only
+and N-1 daemon migration checks install the root package with its candidate app
+closure. Direct app package updates belong to npm or the deployment orchestrator.
 
-Generated packages contain compiled JavaScript and only their own runtime
+Generated packages contain compiled JavaScript and only their declared runtime
 closure. They must not execute `.ts` from `node_modules`, depend on unpublished
 workspace packages, discover a sibling checkout, or require the repository's
 `PATH`. Source roots remain private monorepo safety boundaries rather than
-published products.
+published artifacts.
 
-The distribution stage of `pnpm run check:static` validates both generated
-manifests and rejects cross-distribution assets. `pnpm run smoke` installs the
-node and Hub tarballs independently, exercises daemon and Hub lifecycles, and
-then verifies that the root dispatcher can discover a separately installed
-`spark-hub`. `pnpm run release:pack` creates two immutable tarballs plus separate
-release manifests and one checksum file. Only `.github/workflows/cd-publish.yml`,
-triggered by a version-matching tag, may publish those exact artifacts to npm and
-GitHub Releases; `main` and source checkouts are never update sources.
+The distribution stage of `pnpm run check:static` validates the generated
+manifest inventory, app names, lockstep versions, exact dependency edges, and
+cross-distribution assets. `pnpm run smoke` installs all five candidate tarballs,
+checks the CLI shell and complete root installation, then exercises independent
+daemon, TUI, and Hub installations. `pnpm run release:pack` creates five
+immutable tarballs, bounded release manifests, and one checksum file. Only
+`.github/workflows/cd-publish.yml`, triggered by a version-matching tag, may
+publish those exact artifacts to npm and GitHub Releases; `main` and source
+checkouts are never update sources.
 
 ## Canonical examples
 

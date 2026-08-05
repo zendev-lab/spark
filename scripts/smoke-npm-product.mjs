@@ -1,31 +1,56 @@
 #!/usr/bin/env node
 
 import { execFile, spawn } from "node:child_process";
-import { chmod, lstat, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
+import { npmDistributions, releaseVersion } from "./npm-distributions.mjs";
 import { exerciseSparkDaemonLifecycle } from "../test/support/spark-process-harness.ts";
 
 const execFileAsync = promisify(execFile);
 const root = process.cwd();
-const legacyTarball = argumentValue("--tarball");
-const suppliedNodeTarball = argumentValue("--node-tarball") ?? legacyTarball;
-const suppliedHubTarball = argumentValue("--hub-tarball");
-if ((suppliedNodeTarball && !suppliedHubTarball) || (!suppliedNodeTarball && suppliedHubTarball)) {
-  throw new Error(
-    "Supply both --node-tarball and --hub-tarball (legacy --tarball supplies node only)",
-  );
+const supplied = suppliedTarballs();
+
+function argumentValue(...names) {
+  for (const name of names) {
+    const index = process.argv.indexOf(name);
+    if (index < 0) continue;
+    const value = process.argv[index + 1];
+    if (!value) throw new Error(`${name} requires a path`);
+    return value;
+  }
+  return undefined;
 }
 
-function argumentValue(name) {
-  const index = process.argv.indexOf(name);
-  if (index < 0) return undefined;
-  const value = process.argv[index + 1];
-  if (!value) throw new Error(`${name} requires a path`);
-  return value;
+function suppliedTarballs() {
+  const values = {
+    spark: argumentValue("--spark-tarball", "--node-tarball", "--tarball"),
+    cli: argumentValue("--cli-tarball"),
+    daemon: argumentValue("--daemon-tarball"),
+    tui: argumentValue("--tui-tarball"),
+    hub: argumentValue("--hub-tarball"),
+  };
+  const count = Object.values(values).filter(Boolean).length;
+  if (count !== 0 && count !== npmDistributions.length) {
+    throw new Error(
+      "Supply all five release tarballs: --spark-tarball, --cli-tarball, --daemon-tarball, --tui-tarball, and --hub-tarball",
+    );
+  }
+  return count === 0 ? undefined : values;
 }
 
 function cleanPath(extra = []) {
@@ -142,9 +167,8 @@ async function probeHubRoute(url, child, output) {
   for (const source of clientAssetSources) {
     const assetUrl = new URL(source, response.url);
     const asset = await fetch(assetUrl);
-    if (!asset.ok) {
+    if (!asset.ok)
       throw new Error(`Hub client asset ${assetUrl.pathname} returned ${asset.status}`);
-    }
     await asset.arrayBuffer();
   }
   return {
@@ -167,26 +191,31 @@ function terminateProcessTree(child) {
 }
 
 function installedBin(installRoot, packageName, name) {
-  if (process.platform === "win32") {
-    return {
-      command: process.execPath,
-      argvPrefix: [resolve(installRoot, "node_modules", packageName, "bin", name)],
-    };
-  }
   return {
-    command: resolve(installRoot, "node_modules/.bin", name),
-    argvPrefix: [],
+    command: process.execPath,
+    argvPrefix: [resolve(installRoot, "node_modules", packageName, "bin", name)],
   };
 }
 
-async function installTarball(temporary, id, tarballPath) {
+function fileSpecifier(_fromDirectory, file) {
+  return pathToFileURL(file).href;
+}
+
+async function installCandidates(temporary, id, packageIds, tarballs) {
   const installRoot = resolve(temporary, `install-${id}`);
   await mkdir(installRoot, { recursive: true });
-  await run("npm", ["init", "--yes"], {
-    cwd: installRoot,
-    env: { ...process.env, PATH: cleanPath() },
-  });
-  await run("npm", ["install", "--ignore-scripts", tarballPath], {
+  const dependencies = Object.fromEntries(
+    packageIds.map((packageId) => {
+      const distribution = npmDistributions.find(({ id: candidate }) => candidate === packageId);
+      if (!distribution) throw new Error(`Unknown distribution ${packageId}`);
+      return [distribution.packageName, fileSpecifier(installRoot, tarballs[packageId])];
+    }),
+  );
+  await writeFile(
+    resolve(installRoot, "package.json"),
+    `${JSON.stringify({ private: true, dependencies }, null, 2)}\n`,
+  );
+  await run("npm", ["install", "--ignore-scripts", "--no-package-lock"], {
     cwd: installRoot,
     env: { ...process.env, PATH: cleanPath() },
     timeout: 300_000,
@@ -194,16 +223,16 @@ async function installTarball(temporary, id, tarballPath) {
   return installRoot;
 }
 
-async function packProduct(temporary, id) {
-  const destination = resolve(temporary, `pack-${id}`);
+async function packProduct(temporary, distribution) {
+  const destination = resolve(temporary, `pack-${distribution.id}`);
   await mkdir(destination, { recursive: true });
-  await run("pnpm", ["pack", "--pack-destination", destination], {
-    cwd: resolve(root, "dist/npm-products", id),
+  await run("npm", ["pack", "--json", "--pack-destination", destination], {
+    cwd: distribution.directory,
     env: { ...process.env, npm_config_ignore_scripts: "true" },
   });
   const tarballs = (await readdir(destination)).filter((name) => name.endsWith(".tgz"));
   if (tarballs.length !== 1) {
-    throw new Error(`${id} pack expected one tarball, found ${tarballs.join(", ")}`);
+    throw new Error(`${distribution.id} pack expected one tarball, found ${tarballs.join(", ")}`);
   }
   return resolve(destination, tarballs[0]);
 }
@@ -219,12 +248,12 @@ async function countFiles(directory) {
 
 const temporary = await temporaryRoot();
 try {
-  let nodeTarballPath;
-  let hubTarballPath;
-  if (suppliedNodeTarball && suppliedHubTarball) {
-    nodeTarballPath = resolve(root, suppliedNodeTarball);
-    hubTarballPath = resolve(root, suppliedHubTarball);
-    console.log(`Using prebuilt distributions ${nodeTarballPath} and ${hubTarballPath}...`);
+  let tarballs;
+  if (supplied) {
+    tarballs = Object.fromEntries(
+      Object.entries(supplied).map(([id, path]) => [id, resolve(root, path)]),
+    );
+    console.log(`Using five prebuilt npm distributions at ${releaseVersion}...`);
   } else {
     console.log("Building npm distributions...");
     await run("node", ["scripts/build-npm-product.mjs"], {
@@ -233,21 +262,39 @@ try {
       timeout: 300_000,
     });
     console.log("Packing generated npm distributions...");
-    [nodeTarballPath, hubTarballPath] = await Promise.all([
-      packProduct(temporary, "node"),
-      packProduct(temporary, "hub"),
-    ]);
+    tarballs = Object.fromEntries(
+      await Promise.all(
+        npmDistributions.map(async (distribution) => [
+          distribution.id,
+          await packProduct(temporary, distribution),
+        ]),
+      ),
+    );
   }
 
-  const [nodePacked, hubPacked] = await Promise.all([stat(nodeTarballPath), stat(hubTarballPath)]);
-  console.log("Installing node and Hub distributions independently...");
-  const [nodeInstallRoot, hubInstallRoot] = await Promise.all([
-    installTarball(temporary, "node", nodeTarballPath),
-    installTarball(temporary, "hub", hubTarballPath),
+  const packedStats = Object.fromEntries(
+    await Promise.all(Object.entries(tarballs).map(async ([id, path]) => [id, await stat(path)])),
+  );
+  console.log(
+    "Installing the complete product, CLI shell, and standalone apps from exact tarballs...",
+  );
+  const allIds = npmDistributions.map(({ id }) => id);
+  const [completeRoot, cliRoot, daemonRoot, tuiRoot, hubRoot] = await Promise.all([
+    installCandidates(temporary, "complete", allIds, tarballs),
+    installCandidates(temporary, "cli", allIds, tarballs),
+    installCandidates(temporary, "daemon", ["daemon"], tarballs),
+    installCandidates(temporary, "tui", ["tui", "daemon"], tarballs),
+    installCandidates(temporary, "hub", ["hub"], tarballs),
   ]);
 
-  const node = installedBin(nodeInstallRoot, "@zendev-lab/spark", "spark");
-  const hub = installedBin(hubInstallRoot, "@zendev-lab/spark-hub", "spark-hub");
+  const spark = installedBin(completeRoot, "@zendev-lab/spark", "spark");
+  const completeDaemon = installedBin(completeRoot, "@zendev-lab/spark", "spark-daemon");
+  const completeHub = installedBin(completeRoot, "@zendev-lab/spark", "spark-hub");
+  const completeTui = installedBin(completeRoot, "@zendev-lab/spark", "spark-tui");
+  const cliShell = installedBin(cliRoot, "@zendev-lab/spark-cli", "spark");
+  const daemon = installedBin(daemonRoot, "@zendev-lab/spark-daemon", "spark-daemon");
+  const tui = installedBin(tuiRoot, "@zendev-lab/spark-tui", "spark-tui");
+  const hub = installedBin(hubRoot, "@zendev-lab/spark-hub", "spark-hub");
   const nodeEnvironment = {
     ...process.env,
     PATH: cleanPath(),
@@ -259,51 +306,81 @@ try {
     SPARK_HOME: resolve(temporary, "spark-hub-home"),
   };
 
-  console.log("Probing the installed node dispatcher, TUI, updater, and daemon...");
-  await run(node.command, [...node.argvPrefix, "--help"], {
-    cwd: nodeInstallRoot,
+  console.log("Probing the complete root package and the spark-cli compatibility shell...");
+  await run(spark.command, [...spark.argvPrefix, "--help"], {
+    cwd: completeRoot,
     env: nodeEnvironment,
   });
-  const version = await run(node.command, [...node.argvPrefix, "version", "--json"], {
-    cwd: nodeInstallRoot,
+  const version = await run(spark.command, [...spark.argvPrefix, "version", "--json"], {
+    cwd: completeRoot,
     env: nodeEnvironment,
   });
   const buildInfo = JSON.parse(version.stdout);
   if (buildInfo.packageName !== "@zendev-lab/spark" || !buildInfo.fingerprint) {
-    throw new Error("node distribution did not expose valid build-info");
+    throw new Error("root distribution did not expose valid build-info");
   }
-  const updateStatus = await run(node.command, [...node.argvPrefix, "update", "status", "--json"], {
-    cwd: nodeInstallRoot,
-    env: nodeEnvironment,
-  });
+  const shellVersion = JSON.parse(
+    (
+      await run(cliShell.command, [...cliShell.argvPrefix, "version", "--json"], {
+        cwd: cliRoot,
+        env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "spark-cli-home") },
+      })
+    ).stdout,
+  );
+  if (shellVersion.fingerprint !== buildInfo.fingerprint) {
+    throw new Error("spark-cli shell did not forward to the root Spark build");
+  }
+  const updateStatus = await run(
+    spark.command,
+    [...spark.argvPrefix, "update", "status", "--json"],
+    {
+      cwd: completeRoot,
+      env: nodeEnvironment,
+    },
+  );
   if (JSON.parse(updateStatus.stdout).config?.policy !== "notify") {
-    throw new Error("node distribution did not expose the default managed-update projection");
+    throw new Error("root distribution did not expose the default managed-update projection");
   }
-  await run(node.command, [...node.argvPrefix, "tui", "--help"], {
-    cwd: nodeInstallRoot,
+  await Promise.all([
+    run(completeDaemon.command, [...completeDaemon.argvPrefix, "--help"], {
+      cwd: completeRoot,
+      env: nodeEnvironment,
+    }),
+    run(completeHub.command, [...completeHub.argvPrefix, "--help"], {
+      cwd: completeRoot,
+      env: nodeEnvironment,
+    }),
+    run(completeTui.command, [...completeTui.argvPrefix, "--help"], {
+      cwd: completeRoot,
+      env: nodeEnvironment,
+    }),
+  ]);
+  await run(spark.command, [...spark.argvPrefix, "tui", "--help"], {
+    cwd: completeRoot,
     env: nodeEnvironment,
   });
   await exerciseSparkDaemonLifecycle({
-    command: node.command,
-    argvPrefix: node.argvPrefix,
-    cwd: nodeInstallRoot,
+    command: spark.command,
+    argvPrefix: spark.argvPrefix,
+    cwd: completeRoot,
     env: nodeEnvironment,
     timeoutMs: 120_000,
   });
 
-  console.log("Probing separately installed Hub discovery through the root dispatcher...");
-  await run(node.command, [...node.argvPrefix, "hub", "--help"], {
-    cwd: nodeInstallRoot,
-    env: {
-      ...nodeEnvironment,
-      PATH: cleanPath([resolve(hubInstallRoot, "node_modules/.bin")]),
-    },
+  console.log("Probing independently installed daemon and TUI packages...");
+  await run(daemon.command, [...daemon.argvPrefix, "--help"], {
+    cwd: daemonRoot,
+    env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-daemon-home") },
+  });
+  await run(tui.command, [...tui.argvPrefix, "--help"], {
+    cwd: tuiRoot,
+    env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "standalone-tui-home") },
   });
 
   const port = await availablePort();
-  console.log("Starting installed Hub health probe...");
+  console.log("Starting independently installed Hub health probe...");
   const hubProcess = spawn(hub.command, [...hub.argvPrefix], {
-    cwd: hubInstallRoot,
+    cwd: hubRoot,
     env: {
       ...hubEnvironment,
       HOST: "127.0.0.1",
@@ -355,7 +432,7 @@ try {
     const started = JSON.parse(
       (
         await run(hub.command, [...hub.argvPrefix, "web", "start", "--json"], {
-          cwd: hubInstallRoot,
+          cwd: hubRoot,
           env: backgroundEnvironment,
         })
       ).stdout,
@@ -365,7 +442,7 @@ try {
     const status = JSON.parse(
       (
         await run(hub.command, [...hub.argvPrefix, "web", "status", "--json"], {
-          cwd: hubInstallRoot,
+          cwd: hubRoot,
           env: backgroundEnvironment,
         })
       ).stdout,
@@ -373,17 +450,25 @@ try {
     if (!status.running) throw new Error("Hub background service status was not running");
   } finally {
     await run(hub.command, [...hub.argvPrefix, "web", "stop", "--json"], {
-      cwd: hubInstallRoot,
+      cwd: hubRoot,
       env: backgroundEnvironment,
     });
   }
 
-  const [nodeFileCount, hubFileCount] = await Promise.all([
-    countFiles(resolve(nodeInstallRoot, "node_modules/@zendev-lab/spark")),
-    countFiles(resolve(hubInstallRoot, "node_modules/@zendev-lab/spark-hub")),
-  ]);
+  const fileCounts = Object.fromEntries(
+    await Promise.all(
+      npmDistributions.map(async (distribution) => [
+        distribution.id,
+        await countFiles(
+          resolve(completeRoot, "node_modules", ...distribution.packageName.split("/")),
+        ),
+      ]),
+    ),
+  );
   console.log(
-    `Npm distribution smoke passed (node ${nodePacked.size} bytes/${nodeFileCount} files; hub ${hubPacked.size} bytes/${hubFileCount} files).`,
+    `Npm distribution smoke passed (${npmDistributions
+      .map(({ id }) => `${id} ${packedStats[id].size} bytes/${fileCounts[id]} files`)
+      .join("; ")}).`,
   );
 } finally {
   await rm(temporary, { recursive: true, force: true });

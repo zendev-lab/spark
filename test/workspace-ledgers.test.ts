@@ -72,11 +72,11 @@ test("workspace strategy ledger covers architecture with exact classifications",
       },
     ],
   });
-  assert.deepEqual((strategy as any).workspaces["@zendev-lab/spark-tui-app"], {
+  assert.deepEqual((strategy as any).workspaces["@zendev-lab/spark-tui"], {
     path: "apps/spark-tui",
     strategy: "local-test",
     primaryGate: {
-      command: "pnpm --filter @zendev-lab/spark-tui-app run test",
+      command: "pnpm --filter @zendev-lab/spark-tui run test",
       paths: ["apps/spark-tui/src/**/*.test.ts"],
       rules: [],
     },

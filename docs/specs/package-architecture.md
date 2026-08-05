@@ -46,10 +46,12 @@ spark-update
 The top-level `spark` executable is only a dispatcher. `spark daemon ...`,
 `spark hub ...`, and the other canonical surface aliases resolve and execute the
 matching `spark-*` companion; they do not import or duplicate the target
-application. A companion can be supplied by another distribution, so
-`spark hub ...` works when `@zendev-lab/spark-hub` installs `spark-hub` on
-`PATH`. A retired product name must not remain as another public executable or
-dispatcher namespace merely to avoid updating callers.
+application. A companion can come from its independently installed app package or from the
+complete root package's exact dependencies. `spark hub ...` therefore resolves
+the `spark-hub` executable supplied by `@zendev-lab/spark-hub` without importing
+the Hub implementation into the dispatcher. A retired product name must not
+remain as another public executable or dispatcher namespace merely to avoid
+updating callers.
 
 The Hub source directory and its private database packages retain their
 `cockpit` physical names during the first rename step so existing XDG paths,
@@ -66,24 +68,34 @@ public package.
 
 ```text
 @zendev-lab/spark
-  spark + spark-daemon + spark-tui + spark-acp + spark-update
+  spark + spark-acp + spark-update; companion shims and exact dependencies for daemon, TUI, and Hub
+
+@zendev-lab/spark-cli
+  compatibility shell forwarding spark to @zendev-lab/spark
+
+@zendev-lab/spark-daemon
+  spark-daemon + daemon migrations + headless executor
+
+@zendev-lab/spark-tui
+  spark-tui
 
 @zendev-lab/spark-hub
-  spark-hub + embedded Web build
+  spark-hub + embedded Web build + Hub migrations
 ```
 
-The node distribution corresponds to a local execution trust domain; the Hub
-distribution corresponds to the global coordination trust domain. They share a
-version and protocol contract during v0.x, but neither artifact may contain the
-other domain's executable closure. In particular, `@zendev-lab/spark` omits Hub
-server/Web assets and `@zendev-lab/spark-hub` omits the dispatcher, daemon, TUI,
-ACP, updater, daemon migrations, and local coding skills.
+The root package is the complete installation and managed-update identity.
+Daemon, TUI, and Hub are also independently installable deployment closures;
+`spark-cli` exists only as a package-name compatibility shell. All public
+packages share a version and protocol contract during v0.x. Each app artifact
+must omit the other apps' implementation assets, while the root package depends
+on their exact lockstep versions instead of repackaging them.
 
-Do not create public manifests inside `apps/*` or `packages/*`. The release
-builder generates both manifests under `dist/npm-products/`, computes each
-runtime dependency closure independently, and publishes exact tarballs from one
-release tag. This keeps source ownership, process ownership, and distribution
-placement as separate axes.
+Do not create publishable source manifests inside `apps/*` or `packages/*`.
+Source workspaces retain `private: true`; the release builder generates all five
+manifests under `dist/npm-products/`, computes runtime dependency closures
+independently, and publishes exact tarballs from one release tag. The root
+manifest owns the `@zendev-lab/spark` name and lockstep version, while source
+ownership, process ownership, and distribution placement remain separate axes.
 
 ### Agent tool packages
 

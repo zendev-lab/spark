@@ -26,8 +26,9 @@ pnpm install
 pnpm run check
 ```
 
-The source tree is a monorepo of private workspaces that builds one public npm
-product: `@zendev-lab/spark`. Do not treat internal workspaces as separately
+The source tree is a monorepo of private workspaces that builds one complete
+public npm package plus independently installable executable app packages. Do
+not treat internal capability, runtime, or adapter workspaces as separately
 supported packages.
 
 ## Repository map

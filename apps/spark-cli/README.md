@@ -1,6 +1,8 @@
-# spark-cli
+# @zendev-lab/spark-cli
 
-Thin dispatcher package for the root `spark` command.
+Compatibility package identity for the root `spark` command. Its generated npm
+artifact is an empty shell that depends on and forwards to `@zendev-lab/spark`;
+the dispatcher implementation remains here as the source application owner.
 
 ## Usage
 
@@ -29,6 +31,7 @@ is under `spark daemon auth`; `spark daemon login` remains machine connectivity
 for daemon/Cockpit.
 
 Unknown subcommands fail loudly and suggest `spark tui ...` for prompt text. The
-dispatcher has no dependency on companion app CLIs; it resolves `spark-tui`,
-`spark-daemon`, `spark-cockpit`, `spark-acp`, and `spark-update` beside itself or
-on `PATH`.
+dispatcher has no direct implementation dependency on companion app CLIs. A
+generated complete installation injects exact daemon, TUI, and Hub app
+entrypoints; source checkouts use adjacent executables and standalone installs
+may resolve canonical `spark-*` commands from `PATH`.

@@ -116,7 +116,7 @@
       "riskReason": "docs application behavior is outside the current mutation CE set",
       "alternateGate": "pnpm --filter @zendev-lab/spark-docs run check"
     },
-    "@zendev-lab/spark-tui-app": {
+    "@zendev-lab/spark-tui": {
       "path": "apps/spark-tui",
       "status": "deferred",
       "risk": "high",
@@ -266,7 +266,7 @@
       "riskReason": "presentation-primitives foundation behavior is outside the current mutation CE set",
       "alternateGate": "pnpm test test/spark-rendering.test.ts test/tool-rendering.test.ts"
     },
-    "@zendev-lab/spark-tui": {
+    "@zendev-lab/spark-tui-adapter": {
       "path": "packages/spark-tui",
       "status": "deferred",
       "risk": "medium",

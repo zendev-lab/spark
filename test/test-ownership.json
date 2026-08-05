@@ -6,7 +6,7 @@
   "entries": [
     {
       "baselinePath": "test/architecture-ratchets.test.ts",
-      "owners": ["@zendev-lab/spark-daemon-client", "@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-daemon-client", "@zendev-lab/spark-tui"],
       "disposition": "root-integration",
       "currentPath": "test/architecture-ratchets.test.ts",
       "gate": "pnpm test test/architecture-ratchets.test.ts",
@@ -142,10 +142,10 @@
     },
     {
       "baselinePath": "test/spark-agent-session.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-agent-session.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated primary destination is apps/spark-tui/src/__tests__/spark-agent-session.test.ts."
     },
     {
@@ -214,7 +214,7 @@
     },
     {
       "baselinePath": "test/spark-ask-flow.test.ts",
-      "owners": ["@zendev-lab/spark-ask", "@zendev-lab/spark-tui"],
+      "owners": ["@zendev-lab/spark-ask", "@zendev-lab/spark-tui-adapter"],
       "disposition": "root-integration",
       "currentPath": "test/spark-ask-flow.test.ts",
       "gate": "pnpm test test/spark-ask-flow.test.ts",
@@ -242,10 +242,10 @@
     },
     {
       "baselinePath": "test/spark-auth.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-auth.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated primary destination is apps/spark-tui/src/__tests__/spark-auth.test.ts."
     },
     {
@@ -266,26 +266,26 @@
     },
     {
       "baselinePath": "test/spark-cli-bootstrap.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-cli-bootstrap.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated primary destination is apps/spark-tui/src/__tests__/spark-cli-bootstrap.test.ts."
     },
     {
       "baselinePath": "test/spark-cli-resource-parity.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-cli-resource-parity.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
       "baselinePath": "test/spark-cli.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-cli.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated primary destination is apps/spark-tui/src/__tests__/spark-cli.test.ts. Supplemental owner file: apps/spark-tui/src/__tests__/spark-cli-resource-parity.test.ts; primary CLI blocks live in TUI."
     },
     {
@@ -306,19 +306,19 @@
     },
     {
       "baselinePath": "test/spark-compaction.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-compaction.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated primary destination is apps/spark-tui/src/__tests__/spark-compaction.test.ts."
     },
     {
       "baselinePath": "test/spark-config.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-config.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
-      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui-app package runner."
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
+      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui package runner."
     },
     {
       "baselinePath": "test/spark-context-recall.test.ts",
@@ -354,18 +354,18 @@
     },
     {
       "baselinePath": "test/spark-daemon-cli.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-daemon-cli.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated primary destination is apps/spark-tui/src/__tests__/spark-daemon-cli.test.ts. Supplemental owner file: apps/spark-daemon/src/spark-daemon-cli.test.ts; primary CLI integration blocks live in TUI."
     },
     {
       "baselinePath": "test/spark-daemon-control-transport.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-daemon-control-transport.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
@@ -426,18 +426,18 @@
     },
     {
       "baselinePath": "test/spark-ext-host-contract.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-ext-host-contract.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
       "baselinePath": "test/spark-extension-loader.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-extension-loader.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
@@ -475,10 +475,10 @@
     },
     {
       "baselinePath": "test/spark-fusion-native.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-fusion-native.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
@@ -523,11 +523,11 @@
     },
     {
       "baselinePath": "test/spark-headless-role-executor.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-headless-role-executor.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
-      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui-app package runner."
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
+      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui package runner."
     },
     {
       "baselinePath": "test/spark-hidden-role-run-inbox.test.ts",
@@ -539,26 +539,26 @@
     },
     {
       "baselinePath": "test/spark-host-runtime-cross.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-host-runtime-cross.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated primary destination is apps/spark-tui/src/__tests__/spark-host-runtime-cross.test.ts."
     },
     {
       "baselinePath": "test/spark-host-runtime.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-host-runtime.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
       "baselinePath": "test/spark-html-export.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-html-export.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
@@ -579,10 +579,10 @@
     },
     {
       "baselinePath": "test/spark-keybindings.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-keybindings.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
@@ -631,18 +631,18 @@
     },
     {
       "baselinePath": "test/spark-model-control-client.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-model-control-client.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
-      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui-app package runner."
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
+      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui package runner."
     },
     {
       "baselinePath": "test/spark-model-selector.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-model-selector.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
@@ -655,19 +655,19 @@
     },
     {
       "baselinePath": "test/spark-native-side-thread.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-native-side-thread.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
-      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui-app package runner."
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
+      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui package runner."
     },
     {
       "baselinePath": "test/spark-native-tui-harness.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-native-tui-harness.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
-      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui-app package runner."
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
+      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui package runner."
     },
     {
       "baselinePath": "test/spark-plane-golden-path.test.ts",
@@ -679,10 +679,10 @@
     },
     {
       "baselinePath": "test/spark-plugin-loader.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-plugin-loader.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
@@ -695,10 +695,10 @@
     },
     {
       "baselinePath": "test/spark-prompt-templates.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-prompt-templates.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
@@ -727,11 +727,11 @@
     },
     {
       "baselinePath": "test/spark-provider-registry.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-provider-registry.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
-      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui-app package runner."
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
+      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui package runner."
     },
     {
       "baselinePath": "test/spark-reflection-candidate-inbox.test.ts",
@@ -807,11 +807,11 @@
     },
     {
       "baselinePath": "test/spark-role-run-diagnostics.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-role-run-diagnostics.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
-      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui-app package runner."
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
+      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui package runner."
     },
     {
       "baselinePath": "test/spark-role-run-observability.test.ts",
@@ -879,10 +879,10 @@
     },
     {
       "baselinePath": "test/spark-session-navigation.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-session-navigation.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
@@ -895,18 +895,18 @@
     },
     {
       "baselinePath": "test/spark-session-selector.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-session-selector.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
       "baselinePath": "test/spark-session-store.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-session-store.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
@@ -919,11 +919,11 @@
     },
     {
       "baselinePath": "test/spark-skill-resolver.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-skill-resolver.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
-      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui-app package runner."
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
+      "reason": "Owner-local behavior now runs from the @zendev-lab/spark-tui package runner."
     },
     {
       "baselinePath": "test/spark-store-v2-contract.test.ts",
@@ -951,10 +951,10 @@
     },
     {
       "baselinePath": "test/spark-theme.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-theme.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
@@ -967,10 +967,10 @@
     },
     {
       "baselinePath": "test/spark-tui-pure-cli.test.ts",
-      "owners": ["@zendev-lab/spark-tui-app"],
+      "owners": ["@zendev-lab/spark-tui"],
       "disposition": "owner-local",
       "currentPath": "apps/spark-tui/src/__tests__/spark-tui-pure-cli.test.ts",
-      "gate": "pnpm --filter @zendev-lab/spark-tui-app run test",
+      "gate": "pnpm --filter @zendev-lab/spark-tui run test",
       "reason": "Migrated to the dominant owning workspace and covered by its package-local check."
     },
     {
@@ -1078,7 +1078,7 @@
         "@zendev-lab/spark-graft",
         "@zendev-lab/spark-roles",
         "@zendev-lab/spark-session",
-        "@zendev-lab/spark-tui"
+        "@zendev-lab/spark-tui-adapter"
       ],
       "disposition": "root-integration",
       "currentPath": "test/tool-rendering.test.ts",

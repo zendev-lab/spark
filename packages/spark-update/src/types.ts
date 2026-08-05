@@ -2,7 +2,12 @@ export const SPARK_UPDATE_STATE_SCHEMA_VERSION = 1;
 
 export type SparkUpdatePolicy = "manual" | "notify" | "auto";
 export type SparkUpdateChannel = "latest" | "next";
-export type SparkDistributionPackageName = "@zendev-lab/spark" | "@zendev-lab/spark-hub";
+export type SparkDistributionPackageName =
+  | "@zendev-lab/spark"
+  | "@zendev-lab/spark-cli"
+  | "@zendev-lab/spark-daemon"
+  | "@zendev-lab/spark-hub"
+  | "@zendev-lab/spark-tui";
 export type SparkInstallMethod =
   | "managed"
   | "vp"

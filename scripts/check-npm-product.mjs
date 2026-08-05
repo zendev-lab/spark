@@ -3,72 +3,11 @@
 import { access, readFile, readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
+import { npmDistributions, productsDirectory, releaseVersion } from "./npm-distributions.mjs";
 import { resolveProductRuntimeDependencies } from "./product-runtime-closure.mjs";
 
 const root = process.cwd();
-const productsDirectory = resolve(root, "dist/npm-products");
-const products = [
-  {
-    id: "node",
-    directory: resolve(productsDirectory, "node"),
-    packageName: "@zendev-lab/spark",
-    bins: ["spark", "spark-tui", "spark-daemon", "spark-acp", "spark-update"],
-    requiredAssets: [
-      "bin/spark",
-      "bin/spark-tui",
-      "bin/spark-daemon",
-      "bin/spark-acp",
-      "bin/spark-update",
-      "dist/spark-cli.js",
-      "dist/spark-tui.js",
-      "dist/spark-daemon.js",
-      "dist/spark-headless-role-executor.js",
-      "dist/spark-acp.js",
-      "dist/spark-update.js",
-      "dist/build-info.json",
-      "dist/migrations/0001_initial.sql",
-      "skills/spark-cue/SKILL.md",
-      "THIRD_PARTY_NOTICES.md",
-    ],
-    forbiddenAssets: [
-      "bin/spark-hub",
-      "dist/spark-hub.js",
-      "dist/spark-hub-server.js",
-      "dist/spark-hub-web-service.js",
-      "build/handler.js",
-    ],
-  },
-  {
-    id: "hub",
-    directory: resolve(productsDirectory, "hub"),
-    packageName: "@zendev-lab/spark-hub",
-    bins: ["spark-hub"],
-    requiredAssets: [
-      "bin/spark-hub",
-      "dist/spark-hub.js",
-      "dist/spark-hub-server.js",
-      "dist/spark-hub-web-service.js",
-      "dist/build-info.json",
-      "dist/migrations/0001_initial.sql",
-      "THIRD_PARTY_NOTICES.md",
-      "build/handler.js",
-    ],
-    forbiddenAssets: [
-      "bin/spark",
-      "bin/spark-tui",
-      "bin/spark-daemon",
-      "bin/spark-acp",
-      "bin/spark-update",
-      "dist/spark-cli.js",
-      "dist/spark-tui.js",
-      "dist/spark-daemon.js",
-      "dist/spark-headless-role-executor.js",
-      "dist/spark-acp.js",
-      "dist/spark-update.js",
-      "skills/spark-cue/SKILL.md",
-    ],
-  },
-];
+const failures = [];
 
 async function exists(path) {
   try {
@@ -98,8 +37,21 @@ async function countSourceMaps(directory) {
   return count;
 }
 
+function sortedRecord(record) {
+  return Object.fromEntries(
+    Object.entries(record).sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
 const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
-const failures = [];
+if (rootManifest.name !== "@zendev-lab/spark") {
+  failures.push("root manifest must own the @zendev-lab/spark product identity");
+}
+if (rootManifest.private !== true) failures.push("source monorepo root must remain private");
+if (rootManifest.version !== releaseVersion) {
+  failures.push("distribution version must come from the root manifest");
+}
+
 const thirdPartyNoticePath = resolve(root, "THIRD_PARTY_NOTICES.md");
 if (!(await exists(thirdPartyNoticePath))) {
   failures.push("source tree must include THIRD_PARTY_NOTICES.md");
@@ -127,40 +79,152 @@ if (
 ) {
   failures.push("Spark must not embed the model-reproduction domain skill");
 }
-if (rootManifest.private !== true) failures.push("source monorepo root must remain private");
+
+const expectedApplicationNames = new Map([
+  ["spark-cli", "@zendev-lab/spark-cli"],
+  ["spark-cockpit", "@zendev-lab/spark-hub"],
+  ["spark-daemon", "@zendev-lab/spark-daemon"],
+  ["spark-tui", "@zendev-lab/spark-tui"],
+]);
 for (const workspaceRoot of ["apps", "packages"]) {
   for (const entry of await readdir(resolve(root, workspaceRoot), { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const manifestPath = join(root, workspaceRoot, entry.name, "package.json");
     if (!(await exists(manifestPath))) continue;
     const workspace = JSON.parse(await readFile(manifestPath, "utf8"));
-    if (workspace.private !== true)
+    if (workspace.private !== true) {
       failures.push(`${workspace.name}: source workspace must be private`);
+    }
     if (workspace.publishConfig !== undefined) {
       failures.push(`${workspace.name}: source workspace must not declare publishConfig`);
+    }
+    if (entry.name !== "spark-mcp-spike" && workspace.version !== releaseVersion) {
+      failures.push(`${workspace.name}: source workspace version must match ${releaseVersion}`);
+    }
+    const expectedName = workspaceRoot === "apps" ? expectedApplicationNames.get(entry.name) : null;
+    if (expectedName && workspace.name !== expectedName) {
+      failures.push(`apps/${entry.name} must own ${expectedName}, received ${workspace.name}`);
     }
   }
 }
 
-for (const product of products) {
-  const productManifestPath = resolve(product.directory, "package.json");
-  if (!(await exists(productManifestPath))) continue;
-  const manifest = JSON.parse(await readFile(productManifestPath, "utf8"));
+const internalTui = JSON.parse(
+  await readFile(resolve(root, "packages/spark-tui/package.json"), "utf8"),
+);
+if (internalTui.name !== "@zendev-lab/spark-tui-adapter") {
+  failures.push("packages/spark-tui must use the internal spark-tui-adapter identity");
+}
+
+const assetPolicy = {
+  spark: {
+    required: [
+      "bin/spark",
+      "bin/spark-acp",
+      "bin/spark-daemon",
+      "bin/spark-hub",
+      "bin/spark-tui",
+      "bin/spark-update",
+      "dist/spark-cli.js",
+      "dist/spark-acp.js",
+      "dist/spark-update.js",
+      "dist/build-info.json",
+      "dist/migrations/0001_initial.sql",
+      "skills/spark-cue/SKILL.md",
+    ],
+    forbidden: [
+      "dist/spark-daemon.js",
+      "dist/spark-hub.js",
+      "dist/spark-tui.js",
+      "build/handler.js",
+    ],
+  },
+  cli: {
+    required: ["bin/spark", "dist/build-info.json"],
+    forbidden: [
+      "bin/spark-daemon",
+      "bin/spark-hub",
+      "bin/spark-tui",
+      "dist/spark-cli.js",
+      "skills/spark-cue/SKILL.md",
+    ],
+  },
+  daemon: {
+    required: [
+      "bin/spark-daemon",
+      "dist/spark-daemon.js",
+      "dist/spark-headless-role-executor.js",
+      "dist/build-info.json",
+      "dist/migrations/0001_initial.sql",
+      "skills/spark-cue/SKILL.md",
+    ],
+    forbidden: [
+      "bin/spark",
+      "bin/spark-hub",
+      "bin/spark-tui",
+      "dist/spark-cli.js",
+      "dist/spark-hub.js",
+      "dist/spark-tui.js",
+      "build/handler.js",
+    ],
+  },
+  tui: {
+    required: [
+      "bin/spark-tui",
+      "dist/spark-tui.js",
+      "dist/build-info.json",
+      "skills/spark-cue/SKILL.md",
+    ],
+    forbidden: [
+      "bin/spark",
+      "bin/spark-daemon",
+      "bin/spark-hub",
+      "dist/spark-cli.js",
+      "dist/spark-daemon.js",
+      "dist/spark-hub.js",
+      "build/handler.js",
+    ],
+  },
+  hub: {
+    required: [
+      "bin/spark-hub",
+      "dist/spark-hub.js",
+      "dist/spark-hub-server.js",
+      "dist/spark-hub-web-service.js",
+      "dist/build-info.json",
+      "dist/migrations/0001_initial.sql",
+      "build/handler.js",
+    ],
+    forbidden: [
+      "bin/spark",
+      "bin/spark-daemon",
+      "bin/spark-tui",
+      "dist/spark-cli.js",
+      "dist/spark-daemon.js",
+      "dist/spark-tui.js",
+      "skills/spark-cue/SKILL.md",
+    ],
+  },
+};
+
+for (const product of npmDistributions) {
+  const manifestPath = resolve(product.directory, "package.json");
+  if (!(await exists(manifestPath))) continue;
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   if (manifest.name !== product.packageName) {
     failures.push(`${product.id} product name must be ${product.packageName}`);
   }
-  if (manifest.version !== rootManifest.version) {
-    failures.push(`${product.id} product version must match the monorepo version`);
+  if (manifest.version !== releaseVersion) {
+    failures.push(`${product.id} product version must match ${releaseVersion}`);
   }
   if (manifest.private === true) failures.push(`${product.id} npm product must be publishable`);
   const actualBins = Object.keys(manifest.bin ?? {}).sort();
-  const expectedBins = [...product.bins].sort();
+  const expectedBins = Object.keys(product.bins).sort();
   if (JSON.stringify(actualBins) !== JSON.stringify(expectedBins)) {
     failures.push(
       `${product.id} product bins must be exactly ${expectedBins.join(", ")}; received ${actualBins.join(", ")}`,
     );
   }
-  for (const name of product.bins) {
+  for (const name of expectedBins) {
     if (manifest.bin?.[name] !== `./bin/${name}`) {
       failures.push(`${product.id} product must expose ${name} at ./bin/${name}`);
     }
@@ -182,16 +246,31 @@ for (const product of products) {
   if (!manifest.files?.includes("THIRD_PARTY_NOTICES.md")) {
     failures.push(`${product.id} product files must include THIRD_PARTY_NOTICES.md`);
   }
-  const expectedDependencies = await resolveProductRuntimeDependencies(root, product.directory);
-  if (JSON.stringify(manifest.dependencies) !== JSON.stringify(expectedDependencies)) {
+  const discovered = await resolveProductRuntimeDependencies(root, product.directory);
+  const expectedDependencies = sortedRecord({
+    ...discovered,
+    ...Object.fromEntries(product.exactDependencies.map((name) => [name, releaseVersion])),
+  });
+  if (
+    JSON.stringify(sortedRecord(manifest.dependencies ?? {})) !==
+    JSON.stringify(expectedDependencies)
+  ) {
     failures.push(`${product.id} dependencies must match its generated runtime closure`);
   }
-  for (const asset of product.requiredAssets) {
+  if (
+    Object.values(manifest.dependencies ?? {}).some((specifier) =>
+      String(specifier).startsWith("workspace:"),
+    )
+  ) {
+    failures.push(`${product.id} product must not expose workspace dependency protocols`);
+  }
+  const policy = assetPolicy[product.id];
+  for (const asset of policy.required) {
     if (!(await exists(resolve(product.directory, asset)))) {
       failures.push(`${product.id} product is missing asset: ${asset}`);
     }
   }
-  for (const asset of product.forbiddenAssets) {
+  for (const asset of policy.forbidden) {
     if (await exists(resolve(product.directory, asset))) {
       failures.push(`${product.id} product must omit asset: ${asset}`);
     }
@@ -204,7 +283,7 @@ for (const product of products) {
   );
   if (
     buildInfo.packageName !== product.packageName ||
-    buildInfo.version !== rootManifest.version ||
+    buildInfo.version !== releaseVersion ||
     !buildInfo.fingerprint
   ) {
     failures.push(`${product.id} product must expose matching build-info identity`);
@@ -219,7 +298,7 @@ if (failures.length) {
   throw new Error(`Invalid npm distributions:\n- ${failures.join("\n- ")}`);
 }
 const built = [];
-for (const product of products) {
+for (const product of npmDistributions) {
   const manifestPath = resolve(product.directory, "package.json");
   if (!(await exists(manifestPath))) continue;
   built.push(
@@ -229,5 +308,5 @@ for (const product of products) {
 console.log(
   built.length
     ? `Npm distribution policy valid (${built.join("; ")}).`
-    : "Npm distribution policy valid.",
+    : `Npm distribution policy valid (${npmDistributions.length} public package identities configured).`,
 );

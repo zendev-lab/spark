@@ -10,7 +10,10 @@ import type { SparkBuildInfo, SparkDistributionPackageName } from "./types.ts";
 const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const DISTRIBUTION_PACKAGE_NAMES = new Set<SparkDistributionPackageName>([
   "@zendev-lab/spark",
+  "@zendev-lab/spark-cli",
+  "@zendev-lab/spark-daemon",
   "@zendev-lab/spark-hub",
+  "@zendev-lab/spark-tui",
 ]);
 
 export function readSparkBuildInfo(

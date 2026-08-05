@@ -7,29 +7,16 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import {
+  npmDistributions,
+  npmTag,
+  releaseDirectory,
+  releaseVersion,
+} from "./npm-distributions.mjs";
+
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const productsDirectory = resolve(root, "dist/npm-products");
-const releaseDirectory = resolve(root, "dist/release");
 const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
-const prerelease = rootManifest.version.includes("-");
-
-const distributions = [
-  {
-    id: "node",
-    packageName: "@zendev-lab/spark",
-    directory: resolve(productsDirectory, "node"),
-    assetName: `spark-v${rootManifest.version}.tgz`,
-    manifestName: "release-manifest.json",
-  },
-  {
-    id: "hub",
-    packageName: "@zendev-lab/spark-hub",
-    directory: resolve(productsDirectory, "hub"),
-    assetName: `spark-hub-v${rootManifest.version}.tgz`,
-    manifestName: "hub-release-manifest.json",
-  },
-];
 
 await rm(releaseDirectory, { recursive: true, force: true });
 await mkdir(releaseDirectory, { recursive: true });
@@ -40,7 +27,7 @@ await execFileAsync("node", ["scripts/build-npm-product.mjs"], {
 });
 
 const manifests = [];
-for (const distribution of distributions) {
+for (const distribution of npmDistributions) {
   const packedResult = await execFileAsync(
     "npm",
     ["pack", "--json", "--pack-destination", releaseDirectory],
@@ -53,16 +40,17 @@ for (const distribution of distributions) {
   const packedMetadata = JSON.parse(packedResult.stdout)[0];
   if (
     packedMetadata?.name !== distribution.packageName ||
-    packedMetadata?.version !== rootManifest.version
+    packedMetadata?.version !== releaseVersion
   ) {
     throw new Error(
       `Packed the wrong ${distribution.id} manifest: ${packedMetadata?.name ?? "unknown"}@${packedMetadata?.version ?? "unknown"}`,
     );
   }
-  const reportedAsset = packedMetadata.filename;
-  if (!reportedAsset) throw new Error(`npm did not report the ${distribution.id} tarball name`);
+  if (!packedMetadata.filename) {
+    throw new Error(`npm did not report the ${distribution.id} tarball name`);
+  }
   await rename(
-    resolve(releaseDirectory, reportedAsset),
+    resolve(releaseDirectory, packedMetadata.filename),
     resolve(releaseDirectory, distribution.assetName),
   );
   const tarball = await readFile(resolve(releaseDirectory, distribution.assetName));
@@ -79,8 +67,8 @@ for (const distribution of distributions) {
   const manifest = {
     schemaVersion: 1,
     packageName: distribution.packageName,
-    version: rootManifest.version,
-    npmTag: prerelease ? "next" : "latest",
+    version: releaseVersion,
+    npmTag,
     npmIntegrity,
     assetName: distribution.assetName,
     assetSha256,
@@ -98,8 +86,8 @@ for (const distribution of distributions) {
 }
 
 const tarballs = (await readdir(releaseDirectory)).filter((name) => name.endsWith(".tgz"));
-if (tarballs.length !== distributions.length) {
-  throw new Error(`Expected ${distributions.length} release tarballs, found ${tarballs.length}`);
+if (tarballs.length !== npmDistributions.length) {
+  throw new Error(`Expected ${npmDistributions.length} release tarballs, found ${tarballs.length}`);
 }
 await writeFile(
   resolve(releaseDirectory, "SHA256SUMS"),

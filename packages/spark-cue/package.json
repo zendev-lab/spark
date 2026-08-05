@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-cue",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Spark extension package that adds cue-shell as a durable, observable execution backend.",
   "license": "MIT",
@@ -24,7 +24,7 @@
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-retry": "workspace:^",
     "@zendev-lab/spark-system": "workspace:^",
-    "@zendev-lab/spark-tui": "workspace:^",
+    "@zendev-lab/spark-tui-adapter": "workspace:^",
     "typebox": "catalog:"
   },
   "devDependencies": {

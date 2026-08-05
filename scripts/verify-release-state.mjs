@@ -5,27 +5,24 @@ import { appendFile, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  npmDistributions,
+  npmTag,
+  releaseDirectory,
+  releaseVersion,
+} from "./npm-distributions.mjs";
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const releaseDirectory = resolve(root, "dist/release");
 const artifactOnly = process.argv.includes("--artifact-only");
-const rootManifest = await readJson(resolve(root, "package.json"));
-const expectedTag = `v${rootManifest.version}`;
+const expectedTag = `v${releaseVersion}`;
 const tag = process.env.GITHUB_REF_NAME?.trim() || expectedTag;
 const gitSha = process.env.GITHUB_SHA?.trim();
-const releases = [
-  {
-    id: "node",
-    packageName: "@zendev-lab/spark",
-    assetName: `spark-${expectedTag}.tgz`,
-    manifest: await readJson(resolve(releaseDirectory, "release-manifest.json")),
-  },
-  {
-    id: "hub",
-    packageName: "@zendev-lab/spark-hub",
-    assetName: `spark-hub-${expectedTag}.tgz`,
-    manifest: await readJson(resolve(releaseDirectory, "hub-release-manifest.json")),
-  },
-];
+const releases = await Promise.all(
+  npmDistributions.map(async (distribution) => ({
+    ...distribution,
+    manifest: await readJson(resolve(releaseDirectory, distribution.manifestName)),
+  })),
+);
 
 assertEqual(tag, expectedTag, "Git tag");
 for (const release of releases) {
@@ -35,7 +32,7 @@ for (const release of releases) {
 
 if (artifactOnly) {
   console.log(
-    `Verified ${releases.map((release) => release.assetName).join(" and ")} for ${expectedTag}.`,
+    `Verified ${releases.map((release) => release.assetName).join(", ")} for ${expectedTag}.`,
   );
   process.exit(0);
 }
@@ -59,23 +56,24 @@ if (githubPublished) {
   for (const release of releases) await verifyGithubAsset(githubRelease, release.manifest);
   assertEqual(
     githubRelease.prerelease === true,
-    rootManifest.version.includes("-"),
+    releaseVersion.includes("-"),
     "GitHub prerelease state",
   );
 }
 
-await writeOutputs({
+const outputs = {
   github_published: githubPublished,
   github_release_exists: githubRelease !== null,
   npm_published: npmPublished,
-  npm_node_published: npmState.node,
-  npm_hub_published: npmState.hub,
-});
+  ...Object.fromEntries(
+    releases.map((release) => [`npm_${release.id}_published`, npmState[release.id]]),
+  ),
+};
+await writeOutputs(outputs);
 console.log(
   JSON.stringify({
     tag,
-    npmNodePublished: npmState.node,
-    npmHubPublished: npmState.hub,
+    npm: npmState,
     githubReleaseExists: githubRelease !== null,
     githubPublished,
   }),
@@ -84,13 +82,9 @@ console.log(
 function verifyManifestIdentity(release) {
   const manifest = release.manifest;
   assertEqual(manifest.packageName, release.packageName, `${release.id} release package`);
-  assertEqual(manifest.version, rootManifest.version, `${release.id} release version`);
+  assertEqual(manifest.version, releaseVersion, `${release.id} release version`);
   assertEqual(manifest.assetName, release.assetName, `${release.id} release asset name`);
-  assertEqual(
-    manifest.npmTag,
-    rootManifest.version.includes("-") ? "next" : "latest",
-    `${release.id} npm distribution tag`,
-  );
+  assertEqual(manifest.npmTag, npmTag, `${release.id} npm distribution tag`);
   if (gitSha) assertEqual(manifest.gitSha, gitSha, `${release.id} release Git SHA`);
 }
 

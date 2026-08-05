@@ -42,7 +42,7 @@ jobs:
       - name: Run Hub browser tests
         run: pnpm run test:browser:hub
 
-      - name: Build both release artifacts once
+      - name: Build all release artifacts once
         env:
           SPARK_BUILD_GIT_SHA: ${{ github.sha }}
         run: pnpm run release:pack
@@ -50,14 +50,23 @@ jobs:
       - name: Verify release metadata
         run: node scripts/verify-release-state.mjs --artifact-only
 
-      - name: Smoke the exact node and Hub artifacts
+      - name: Smoke the exact lockstep artifacts
         run: >-
           node scripts/smoke-npm-product.mjs
-          --node-tarball dist/release/spark-${{ github.ref_name }}.tgz
+          --spark-tarball dist/release/spark-${{ github.ref_name }}.tgz
+          --cli-tarball dist/release/spark-cli-${{ github.ref_name }}.tgz
+          --daemon-tarball dist/release/spark-daemon-${{ github.ref_name }}.tgz
+          --tui-tarball dist/release/spark-tui-${{ github.ref_name }}.tgz
           --hub-tarball dist/release/spark-hub-${{ github.ref_name }}.tgz
 
       - name: Verify N-1 expand-only node migration compatibility
-        run: node scripts/test-release-migration.mjs --tarball dist/release/spark-${{ github.ref_name }}.tgz --baseline-version 0.1.0
+        run: >-
+          node scripts/test-release-migration.mjs
+          --tarball dist/release/spark-${{ github.ref_name }}.tgz
+          --daemon-tarball dist/release/spark-daemon-${{ github.ref_name }}.tgz
+          --tui-tarball dist/release/spark-tui-${{ github.ref_name }}.tgz
+          --hub-tarball dist/release/spark-hub-${{ github.ref_name }}.tgz
+          --baseline-version 0.1.0
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -109,17 +118,16 @@ jobs:
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            dist/release/spark-${{ github.ref_name }}.tgz
-            dist/release/spark-hub-${{ github.ref_name }}.tgz
+            dist/release/*.tgz
+            dist/release/*-release-manifest.json
             dist/release/release-manifest.json
-            dist/release/hub-release-manifest.json
             dist/release/SHA256SUMS
 
-      - name: Publish the exact node artifact to npm
-        if: steps.release.outputs.npm_node_published != 'true'
+      - name: Publish the exact daemon artifact to npm
+        if: steps.release.outputs.npm_daemon_published != 'true'
         uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
         with:
-          package: dist/release/spark-${{ github.ref_name }}.tgz
+          package: dist/release/spark-daemon-${{ github.ref_name }}.tgz
           access: public
           tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
           provenance: true
@@ -135,17 +143,41 @@ jobs:
           provenance: true
           token: ${{ secrets.NPM_TOKEN }}
 
-      - name: Attest node release artifact
-        if: steps.release.outputs.github_published != 'true'
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+      - name: Publish the exact TUI artifact to npm
+        if: steps.release.outputs.npm_tui_published != 'true'
+        uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
         with:
-          subject-path: dist/release/spark-${{ github.ref_name }}.tgz
+          package: dist/release/spark-tui-${{ github.ref_name }}.tgz
+          access: public
+          tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
+          provenance: true
+          token: ${{ secrets.NPM_TOKEN }}
 
-      - name: Attest Hub release artifact
+      - name: Publish the exact root artifact to npm
+        if: steps.release.outputs.npm_spark_published != 'true'
+        uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
+        with:
+          package: dist/release/spark-${{ github.ref_name }}.tgz
+          access: public
+          tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
+          provenance: true
+          token: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish the spark-cli compatibility artifact to npm
+        if: steps.release.outputs.npm_cli_published != 'true'
+        uses: JS-DevTools/npm-publish@0fd2f4369c5d6bcfcde6091a7c527d810b9b5c3f # v4.1.5
+        with:
+          package: dist/release/spark-cli-${{ github.ref_name }}.tgz
+          access: public
+          tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
+          provenance: true
+          token: ${{ secrets.NPM_TOKEN }}
+
+      - name: Attest npm release artifacts
         if: steps.release.outputs.github_published != 'true'
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-path: dist/release/spark-hub-${{ github.ref_name }}.tgz
+          subject-path: dist/release/*.tgz
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
