@@ -2370,6 +2370,67 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
   );
 });
 
+test("task updates stay below the composer instead of entering the transcript", () => {
+  const harness = createSparkNativeTuiHarness({ cols: 100, rows: 20 });
+  harness.session.messages.push({ role: "assistant", text: "previous answer" });
+  harness.app.setEditorText("next prompt");
+
+  const task = {
+    version: SPARK_PROTOCOL_VERSION,
+    ref: "task:pinned-status",
+    name: "pinned-status",
+    title: "Keep task status visible",
+    kind: "implement" as const,
+    status: "running" as const,
+    projectRef: "proj:demo",
+    todos: [
+      { id: "done", content: "Completed item", status: "done" as const, notes: [] },
+      { id: "active", content: "Active item", status: "in_progress" as const, notes: [] },
+    ],
+    runRefs: [],
+    evidenceRefs: [],
+    artifactRefs: [],
+    metadata: {},
+  };
+  harness.app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "task.update",
+    task,
+  });
+
+  const running = stripAnsi(harness.render()).split("\n");
+  const transcriptIndex = firstMarkerIndex(running, /previous answer/u);
+  const taskIndex = firstMarkerIndex(
+    running,
+    /task:pinned-status \[running\] Keep task status visible · todos 1\/2/u,
+  );
+  const composerIndex = firstMarkerIndex(running, /next prompt/u);
+  assert.ok(transcriptIndex < composerIndex && composerIndex < taskIndex);
+  assert.equal(
+    harness.session.messages.some((message) => message.customType === "task-view"),
+    false,
+  );
+
+  harness.app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "task.update",
+    task: { ...task, status: "blocked", title: "Waiting for workspace" },
+  });
+  assert.match(
+    stripAnsi(harness.render()),
+    /task:pinned-status \[blocked\] Waiting for workspace/u,
+  );
+
+  harness.app.applyViewModelEvent({
+    version: SPARK_PROTOCOL_VERSION,
+    type: "task.update",
+    task: { ...task, status: "done", title: "Task complete" },
+  });
+  const completed = stripAnsi(harness.render());
+  assert.doesNotMatch(completed, /task:pinned-status \[done\] Task complete/u);
+  assert.match(completed, /task done/u);
+});
+
 test("Spark cockpit supports selectable workflow run keyboard controls", async () => {
   const invoked: Array<{ name: string; args: string }> = [];
   const slashCommands = Object.fromEntries(
