@@ -226,8 +226,6 @@ changes extension specifiers and user configuration compatibility.
 - `spark-mcp` is the supported stateless, read-only MCP adapter. It projects the
   canonical `spark-memory` workspace store through MCP resources and tools; it
   owns no writes, daemon execution, or second memory store.
-- `spark-mcp-spike` source remains in place as a sealed experiment, but it is
-  excluded from the workspace and package inventory.
 - `spark-context` was removed after all callers converged on
   `spark-host/context`; compatibility-only re-export packages are not permanent
   architecture.
