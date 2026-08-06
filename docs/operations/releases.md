@@ -33,10 +33,16 @@ the newest published stable `@zendev-lab/spark` version strictly older than the
 candidate, and adapts to either the current `spark-hub`
 or legacy `spark-cockpit` command contract. An explicit `--baseline-version`
 remains available for local incident reproduction, but production publication
-does not pin a historical baseline. For the first split release, `v0.3.0`, the
-automatic selection resolved to the legacy all-in-one
-`@zendev-lab/spark@0.2.1`; the four new package identities had no independently
-published N-1 artifact. `pnpm run release:pack` builds once and writes:
+does not pin a historical baseline. The normative adjacent-release and
+database-upgrade requirements are defined by
+[`docs/specs/release-compatibility.md`](../specs/release-compatibility.md) and
+[`architecture/release-compatibility.json`](../../architecture/release-compatibility.json).
+For the first split release, `v0.3.0`, the automatic selection resolved to the
+legacy all-in-one `@zendev-lab/spark@0.2.1`; the four new package identities had
+no independently published N-1 artifact. Starting with `0.4.0`, the repository
+gate must fail closed unless the release workflow runs the four exact-tarball
+Hub ↔ daemon and daemon ↔ TUI adjacent-version phases and both daemon and Hub
+migration manifests are present. `pnpm run release:pack` builds once and writes:
 
 - `dist/release/*.tgz`
 - `dist/release/*-release-manifest.json`

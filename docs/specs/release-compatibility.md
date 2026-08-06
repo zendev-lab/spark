@@ -96,7 +96,13 @@ verified backup.
 ### Migration metadata
 
 Starting with the first release after `0.3.0`, each database migration set must
-have machine-readable metadata containing at least:
+have machine-readable metadata. The contract inventories both product-level
+SQLite owners and their required manifests:
+
+- daemon: `apps/spark-daemon/src/store/migrations/manifest.json`;
+- Hub: `packages/spark-hub-db/src/migrations/manifest.json`.
+
+Each manifest must contain at least:
 
 - immutable migration identity and SQL checksum;
 - phase (`expand`, `backfill`, or `contract`);

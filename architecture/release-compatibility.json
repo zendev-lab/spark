@@ -58,6 +58,16 @@
   },
   "database": {
     "metadataRequiredFrom": "0.4.0",
+    "owners": [
+      {
+        "id": "daemon",
+        "migrationManifest": "apps/spark-daemon/src/store/migrations/manifest.json"
+      },
+      {
+        "id": "hub",
+        "migrationManifest": "packages/spark-hub-db/src/migrations/manifest.json"
+      }
+    ],
     "migrationPhases": ["expand", "backfill", "contract"],
     "automaticUpdatePhases": ["expand"],
     "minimumContractDelayReleases": 2,

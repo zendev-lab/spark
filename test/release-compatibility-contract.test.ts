@@ -27,6 +27,7 @@ interface CompatibilityContract {
   };
   database: {
     metadataRequiredFrom: string;
+    owners: Array<{ id: string; migrationManifest: string }>;
     migrationPhases: string[];
     automaticUpdatePhases: string[];
     minimumContractDelayReleases: number;
@@ -61,9 +62,7 @@ function compareVersions(left: string, right: string): number {
 }
 
 test("adjacent release compatibility is an explicit two-edge contract", async () => {
-  const contract = await readJson<CompatibilityContract>(
-    "architecture/release-compatibility.json",
-  );
+  const contract = await readJson<CompatibilityContract>("architecture/release-compatibility.json");
 
   assert.equal(contract.schemaVersion, 1);
   assert.equal(contract.adjacentReleaseWindow, 1);
@@ -92,9 +91,7 @@ test("adjacent release compatibility is an explicit two-edge contract", async ()
 });
 
 test("the legacy 0.2.1 exception is bounded to the first split release", async () => {
-  const contract = await readJson<CompatibilityContract>(
-    "architecture/release-compatibility.json",
-  );
+  const contract = await readJson<CompatibilityContract>("architecture/release-compatibility.json");
   const exception = contract.releaseGate.firstSplitReleaseException;
 
   assert.equal(contract.firstSplitRelease, "0.3.0");
@@ -116,9 +113,7 @@ test("the tag release keeps the existing exact-artifact migration gate", async (
 
 test("the first post-split release cannot ship without the real product matrix", async () => {
   const manifest = await readJson<{ version: string }>("package.json");
-  const contract = await readJson<CompatibilityContract>(
-    "architecture/release-compatibility.json",
-  );
+  const contract = await readJson<CompatibilityContract>("architecture/release-compatibility.json");
   if (compareVersions(manifest.version, contract.fullMatrixRequiredFrom) < 0) return;
 
   const harness = "scripts/test-adjacent-product-compatibility.mjs";
@@ -129,11 +124,19 @@ test("the first post-split release cannot ship without the real product matrix",
 
 test("database compatibility metadata becomes mandatory after the split baseline", async () => {
   const manifest = await readJson<{ version: string }>("package.json");
-  const contract = await readJson<CompatibilityContract>(
-    "architecture/release-compatibility.json",
-  );
+  const contract = await readJson<CompatibilityContract>("architecture/release-compatibility.json");
   const database = contract.database;
 
+  assert.deepEqual(database.owners, [
+    {
+      id: "daemon",
+      migrationManifest: "apps/spark-daemon/src/store/migrations/manifest.json",
+    },
+    {
+      id: "hub",
+      migrationManifest: "packages/spark-hub-db/src/migrations/manifest.json",
+    },
+  ]);
   assert.deepEqual(database.migrationPhases, ["expand", "backfill", "contract"]);
   assert.deepEqual(database.automaticUpdatePhases, ["expand"]);
   assert.equal(database.minimumContractDelayReleases, 2);
@@ -146,5 +149,7 @@ test("database compatibility metadata becomes mandatory after the split baseline
   assert.equal(database.rollbackRestoresDatabase, false);
 
   if (compareVersions(manifest.version, database.metadataRequiredFrom) < 0) return;
-  await access(join(root, "packages/spark-hub-db/src/migrations/manifest.json"));
+  await Promise.all(
+    database.owners.map(({ migrationManifest }) => access(join(root, migrationManifest))),
+  );
 });
