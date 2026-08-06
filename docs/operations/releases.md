@@ -16,8 +16,12 @@ must match it exactly (`vX.Y.Z`).
 ## Release gate
 
 `.github/workflows/cd-publish.yml` runs the complete repository gate, Cockpit
-browser tests, exact-tarball product smoke, and the N-1 expand-only migration
-gate. `pnpm run release:pack` builds once and writes:
+browser tests, exact-tarball product smoke, the N-1 daemon IPC matrix, and the
+N-1 Hub database migration/readability matrix against the explicitly reviewed
+published baseline. For the first split
+release, `v0.3.0`, that baseline is the legacy all-in-one
+`@zendev-lab/spark@0.2.1`; the four new package identities have no independently
+published N-1 artifact. `pnpm run release:pack` builds once and writes:
 
 - `dist/release/*.tgz`
 - `dist/release/*-release-manifest.json`
@@ -37,7 +41,11 @@ Configure the GitHub `npm-release` environment with required reviewers and
 enable immutable releases in repository settings. Give the workflow
 `contents`, `id-token`, and attestation write permissions only.
 
-### First npm publication
+### First split npm publication
+
+`v0.3.0` is the first version in which all five public package identities exist
+in lockstep. `@zendev-lab/spark@0.2.1` remains the immutable legacy all-in-one
+baseline and must never be overwritten or described as a split-package release.
 
 The first publication may use a short-lived, package-scoped granular
 `NPM_TOKEN` stored only in the protected `npm-release` environment:
@@ -115,7 +123,7 @@ discards daemon sessions/messages.
 Keep the pre-1.0 rollout deliberately gated:
 
 1. Land build fingerprints, target-fenced daemon restart, and `daemon sync --wait`.
-2. Publish the first reviewed npm package and matching GitHub Release.
+2. Publish the reviewed `v0.3.0` five-package set and matching GitHub Release.
 3. Exercise managed install plus manual apply/rollback on macOS.
 4. Enable the `notify` launchd job by default; keep `auto` opt-in.
 5. Open `auto` only after three real upgrades and one failed-candidate rollback

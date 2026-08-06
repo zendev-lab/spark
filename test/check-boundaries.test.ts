@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
 
+const architectureInventoryValidatorPath = resolve("scripts/validate-architecture-inventory.mjs");
 const configPath = resolve(".dependency-cruiser.cjs");
 const docTerminologyScriptPath = resolve("scripts/check-doc-terminology.mjs");
 const cockpitI18nBoundaryFixturePath = resolve(
@@ -82,23 +83,10 @@ test("architecture inventory schema rejects missing and invalid policy fields", 
         },
       }),
     );
-    const result = spawnSync(
-      "pnpm",
-      [
-        "exec",
-        "ajv",
-        "validate",
-        "--spec=draft2020",
-        "--strict=true",
-        "--all-errors",
-        "--errors=text",
-        "-s",
-        "architecture/packages.schema.json",
-        "-d",
-        invalid,
-      ],
-      { cwd: resolve("."), encoding: "utf8" },
-    );
+    const result = spawnSync(process.execPath, [architectureInventoryValidatorPath, invalid], {
+      cwd: resolve("."),
+      encoding: "utf8",
+    });
     assert.notEqual(result.status, 0);
     assert.match(`${result.stdout}\n${result.stderr}`, /stateWriter|layer|owner/u);
   } finally {

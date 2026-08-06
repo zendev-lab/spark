@@ -81,7 +81,7 @@ test("root package exposes one compact validation and release surface", async ()
   assert.equal(scripts["check:docs"], "pnpm --filter @zendev-lab/spark-docs run check");
   assert.equal(
     scripts["check:architecture"],
-    "ajv validate --spec=draft2020 --strict=true --all-errors --errors=text -s architecture/packages.schema.json -d architecture/packages.json && syncpack lint --config .syncpackrc.json --no-ansi && node scripts/check-architecture-ratchets.mjs",
+    "node scripts/validate-architecture-inventory.mjs && syncpack lint --config .syncpackrc.json --no-ansi && node scripts/check-architecture-ratchets.mjs",
   );
   assert.equal(scripts["check:evidence-surface"], "node scripts/check-evidence-surface.mjs");
   assert.equal(
@@ -229,6 +229,13 @@ test("CI and prek consume the canonical package scripts", async () => {
   assert.match(verifyWorkflow, /pnpm run test:browser:hub/u);
   assert.match(verifyWorkflow, /name: required/u);
   assert.doesNotMatch(verifyWorkflow, /test:npm-product/u);
+
+  const publishWorkflow = await readFile(resolve(".github/workflows/cd-publish.yml"), "utf8");
+  assert.match(publishWorkflow, /--baseline-version 0\.2\.1/u);
+  assert.match(
+    publishWorkflow,
+    /--cli-tarball dist\/release\/spark-cli-\$\{\{ github\.ref_name \}\}\.tgz/u,
+  );
   assert.match(hygieneWorkflow, /pnpm run report:hygiene/u);
   assert.doesNotMatch(hygieneWorkflow, /pnpm exec (?:knip|jscpd)/u);
   assert.match(capabilityWorkflow, /pnpm run test:capability:ce/u);

@@ -10,6 +10,7 @@ import * as migrationGate from "../scripts/test-release-migration.mjs";
 const {
   parseMigrationArguments,
   readCandidateArtifactIdentity,
+  runMixedVersionHubMigrationMatrix,
   runMixedVersionIpcMatrix,
   selectPublishedBaselineVersion,
 } = migrationGate;
@@ -80,6 +81,57 @@ test("candidate artifact package and build-info identities must both match the r
     }),
     /build-info identity .*0\.1\.0.*0\.1\.1/u,
   );
+});
+
+test("mixed-version Hub gate migrates the published database and proves N-1 remains readable", async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "spark-release-hub-migration-test-"));
+  const baselineHub = "/fixture/published/spark-cockpit";
+  const candidateHub = "/fixture/candidate/spark-hub";
+  const observations: Array<{ command: string; args: string[]; sparkHome: string }> = [];
+
+  try {
+    const result = await runMixedVersionHubMigrationMatrix(
+      {
+        baselineHub,
+        candidateHub,
+        temporaryRoot,
+        baseEnv: { PATH: process.env.PATH },
+        cwd: temporaryRoot,
+      },
+      {
+        runHub: async (
+          command: string,
+          args: string[],
+          options: { env: Record<string, string> },
+        ) => {
+          observations.push({ command, args, sparkHome: options.env.SPARK_HOME });
+          return { stdout: "{}", stderr: "" };
+        },
+      },
+    );
+
+    assert.equal(result.databasePath, join(temporaryRoot, "hub-migration.sqlite"));
+    assert.deepEqual(
+      observations.map(({ command, args }) => ({ command, args })),
+      [
+        {
+          command: baselineHub,
+          args: ["access", "list", "--database", result.databasePath, "--json"],
+        },
+        {
+          command: candidateHub,
+          args: ["delegation", "list", "--database", result.databasePath, "--json"],
+        },
+        {
+          command: baselineHub,
+          args: ["access", "list", "--database", result.databasePath, "--json"],
+        },
+      ],
+    );
+    assert.equal(new Set(observations.map((entry) => entry.sparkHome)).size, 1);
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
 });
 
 test("mixed-version IPC gate isolates phases and proves both compatibility directions plus oRPC", async () => {
