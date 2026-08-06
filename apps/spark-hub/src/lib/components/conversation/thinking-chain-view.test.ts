@@ -69,6 +69,24 @@ describe("thinking chain presentation", () => {
     expect(thinkingChainHeadline(steps)).toBe("Validated the compact process summary");
   });
 
+  it("retains a recovered summary after an earlier failed attempt", () => {
+    const steps = [
+      {
+        type: "tool" as const,
+        callId: "call-failed",
+        name: "edit",
+        state: "failed" as const,
+      },
+      {
+        type: "commentary" as const,
+        summary: "Recovered and validated the final change",
+        state: "complete" as const,
+      },
+    ];
+
+    expect(thinkingChainHeadline(steps)).toBe("Recovered and validated the final change");
+  });
+
   it("flags terminal failures that do not include an error summary", () => {
     const missing = [
       { type: "tool" as const, callId: "call-1", name: "edit", state: "failed" as const },
@@ -100,7 +118,7 @@ describe("thinking chain presentation", () => {
       },
     ]);
     expect(JSON.stringify(visibleInternalFailure)).not.toContain("TRANSPORT_RESOLVE_FAILED");
-    expect(thinkingChainHeadline(visibleInternalFailure)).toBe("cue_exec");
+    expect(thinkingChainHeadline(visibleInternalFailure)).toBeUndefined();
     expect(isVisibleThinkingChain("complete", [internalFailure])).toBe(true);
     expect(thinkingChainHasTerminalIssue([internalFailure])).toBe(true);
     expect(thinkingChainNeedsFailureSummary([internalFailure])).toBe(true);
