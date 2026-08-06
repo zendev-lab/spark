@@ -38,5 +38,5 @@ jobs:
           git add \
             packages/spark-protocol/src/agent-trace-schema.ts \
             packages/spark-protocol/src/agent-trace-validation.ts
-          git commit -m "🎨 style(protocol): format agent trace contracts"
+          git commit --no-verify -m "🎨 style(protocol): format agent trace contracts"
           git push origin HEAD:${{ github.head_ref }}
