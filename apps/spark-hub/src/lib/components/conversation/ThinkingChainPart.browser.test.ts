@@ -22,17 +22,16 @@ function byCss(screen: RenderResult<typeof ThinkingChainPart>, selector: string)
   return page.elementLocator(element);
 }
 
-test("opens streaming execution and presents step and failure states", async () => {
+test("opens streaming execution and presents its live summary, steps, and failure states", async () => {
   const screen = await render(ThinkingChainPart, props);
   const chain = byCss(screen, "details.thinking-chain");
 
   await expect.element(chain).toHaveAttribute("open");
-  await expect.element(screen.getByText("CHAIN_STREAMING")).toBeVisible();
-  await expect.element(screen.getByText("Investigating the first divergence")).toBeVisible();
-  await expect.element(screen.getByText("The focused probe is running")).toBeVisible();
   await expect
     .element(screen.getByText("Running focused probe", { exact: true }).first())
     .toBeVisible();
+  await expect.element(screen.getByText("Investigating the first divergence")).toBeVisible();
+  await expect.element(screen.getByText("The focused probe is running")).toBeVisible();
   await expect.element(screen.getByText("search", { exact: true })).toBeVisible();
   await expect.element(screen.getByText("STATUS_pending", { exact: true })).toBeVisible();
   await expect.element(screen.getByText("exec", { exact: true })).toBeVisible();
@@ -45,13 +44,15 @@ test("opens streaming execution and presents step and failure states", async () 
   await expect.element(byCss(screen, "details.thinking-chain")).not.toHaveAttribute("open");
 });
 
-test("folds when streaming completes and preserves a later user expansion", async () => {
+test("folds to the process summary when streaming completes and preserves user expansion", async () => {
   const screen = await render(ThinkingChainPart, props);
 
   await expect.element(byCss(screen, "details.thinking-chain")).toHaveAttribute("open");
   await screen.rerender({ ...props, state: "complete" });
   await expect.element(byCss(screen, "details.thinking-chain")).not.toHaveAttribute("open");
-  await expect.element(screen.getByText("CHAIN_COMPLETE")).toBeVisible();
+  await expect
+    .element(screen.getByText("Running focused probe", { exact: true }).first())
+    .toBeVisible();
 
   await byCss(screen, "details.thinking-chain > summary").click();
   await expect.element(byCss(screen, "details.thinking-chain")).toHaveAttribute("open");
