@@ -14,6 +14,7 @@ import {
   type GitChangeArtifactBody,
 } from "../artifact/index.ts";
 import { GitLifecycleService, type GitLifecycleAction } from "./lifecycle.ts";
+import { gitChangeReviewState } from "./review-state.ts";
 
 export interface GitLifecycleExtensionApi {
   registerTool(config: ToolConfig): void;
@@ -53,7 +54,8 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
     promptGuidelines: [
       "Use one git_change Artifact and one writable worktree for the complete dependent stack.",
       "gh stack is the only writable topology authority; do not emulate stack topology in Spark.",
-      "submit creates drafts by default. Pass ready=true only when the stack is genuinely ready for review.",
+      "Submit or update the stack as draft while implementation, review, or validation remains. When the requested PR delivery is complete, required verification passes, and no blocker remains, submit again with ready=true; promotion to Ready and the refreshed git_change Artifact are part of completion.",
+      "A request to submit or open a PR authorizes this draft-to-Ready lifecycle; do not ask again solely for promotion unless target, scope, or external impact materially changes.",
       "Do not post routine PR comments or boilerplate about stacking/testing. Report substantive state in the task or final response.",
       "cleanup is conservative: Spark ownership, a clean worktree, remote-covered commits, and terminal PRs are all required.",
     ],
@@ -128,7 +130,10 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
         Type.Boolean({ description: "Stage tracked modifications/deletions with git add -u." }),
       ),
       ready: Type.Optional(
-        Type.Boolean({ description: "Submit new/existing PRs as ready instead of draft." }),
+        Type.Boolean({
+          description:
+            "For submit: promote the complete verified stack to Ready instead of keeping it draft.",
+        }),
       ),
     }),
     renderCall(args, theme) {
@@ -157,7 +162,10 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
           artifactRef,
           worktreePath: stringOrUndefined(params.worktreePath),
         });
-        return gitResult(action, renderBody(body), { gitChange: body });
+        return gitResult(action, renderBody(body), {
+          gitChange: body,
+          reviewState: gitChangeReviewState(body),
+        });
       }
 
       if (action === "init") {
@@ -229,14 +237,17 @@ export function registerSparkGitLifecycleTool(pi: SparkHostAPI): void {
 }
 
 function changedResult(action: GitLifecycleAction, artifact: Artifact<GitChangeArtifactBody>) {
+  const reviewState = gitChangeReviewState(artifact.body);
   return gitResult(action, `${artifact.ref} ${artifact.title}\n${renderBody(artifact.body)}`, {
     changed: true,
+    reviewState,
     refs: { artifactRef: artifact.ref },
     artifact: {
       ref: artifact.ref,
       kind: artifact.kind,
       title: artifact.title,
       body: artifact.body,
+      reviewState,
       updatedAt: artifact.updatedAt,
     },
   });
@@ -247,10 +258,17 @@ function renderBody(body: GitChangeArtifactBody): string {
     `repository=${body.repository.repo}`,
     `worktree=${body.worktree.status}${body.worktree.path ? ` ${body.worktree.path}` : ""}`,
     `stack=${body.stack.authority} trunk=${body.trunk} layers=${body.stack.entries.length}`,
-    `lifecycle=${body.lifecycle}`,
+    `lifecycle=${body.lifecycle} review=${gitChangeReviewState(body)}`,
     ...body.stack.entries.map((entry) => {
       const pr = entry.pullRequest ? ` PR #${entry.pullRequest.number}` : "";
-      return `- ${entry.branch}${pr}${entry.needsRebase ? " needs-rebase" : ""}`;
+      const review = entry.pullRequest
+        ? entry.pullRequest.draft === true
+          ? " draft"
+          : entry.pullRequest.draft === false
+            ? " ready"
+            : " review-unknown"
+        : "";
+      return `- ${entry.branch}${pr}${review}${entry.needsRebase ? " needs-rebase" : ""}`;
     }),
   ].join("\n");
 }
