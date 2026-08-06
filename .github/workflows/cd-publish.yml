@@ -2,19 +2,93 @@ name: "CD - Publish"
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
+  pull_request:
+  merge_group:
+    types:
+      - checks_requested
 
 concurrency:
   group: cd-publish-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 permissions:
   contents: read
 
 jobs:
+  documentation:
+    name: Documentation Deployment Dry Run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:docs
+      - run: pnpm --filter @zendev-lab/spark-docs exec wrangler deploy --dry-run
+
+  container:
+    name: Container Build and Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Build Hub container
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          pull: true
+          tags: spark-hub:ci
+          build-args: |
+            SPARK_BUILD_GIT_SHA=${{ github.sha }}
+      - name: Smoke Hub container
+        run: |
+          container_id="$(docker run --detach \
+            --env HOST=127.0.0.1 \
+            --env SPARK_HUB_PUBLIC_URL=https://spark.example.test \
+            --env SPARK_HUB_TRUST_PROXY=loopback \
+            spark-hub:ci)"
+          test -n "${container_id}"
+          trap 'test -z "${container_id:-}" || docker rm --force "${container_id}" >/dev/null' EXIT
+          status=starting
+          for _ in {1..30}; do
+            status="$(docker inspect --format '{{.State.Health.Status}}' "${container_id}")"
+            test "${status}" != healthy || break
+            running="$(docker inspect --format '{{.State.Running}}' "${container_id}")"
+            test "${running}" = true || break
+            sleep 1
+          done
+          if test "${status}" != healthy; then
+            docker inspect --format '{{json .State}}' "${container_id}"
+            docker logs "${container_id}"
+            exit 1
+          fi
+          docker exec "${container_id}" node -e '
+            const response = await fetch("http://127.0.0.1:5173/workspaces/new", {
+              headers: {
+                accept: "text/html",
+                host: "spark.example.test",
+                "x-forwarded-for": "127.0.0.1",
+                "x-forwarded-proto": "https",
+              },
+            });
+            if (!response.ok) throw new Error(`workspace route returned ${response.status}`);
+          '
+
   build:
-    name: build
+    name: Release Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -27,7 +101,6 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-          cache: pnpm
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
@@ -42,33 +115,49 @@ jobs:
       - name: Run Hub browser tests
         run: pnpm run test:browser:hub
 
+      - name: Resolve release tag
+        run: |
+          node -e '
+            const { appendFileSync, readFileSync } = require("node:fs");
+            const version = JSON.parse(readFileSync("package.json", "utf8")).version;
+            if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+              throw new Error("Invalid release version: " + JSON.stringify(version));
+            }
+            appendFileSync(process.env.GITHUB_ENV, "RELEASE_TAG=v" + version + "\n");
+          '
+
       - name: Build all release artifacts once
         env:
           SPARK_BUILD_GIT_SHA: ${{ github.sha }}
         run: pnpm run release:pack
 
       - name: Verify release metadata
-        run: node scripts/verify-release-state.mjs --artifact-only
+        run: |
+          if test "${GITHUB_REF_TYPE}" != tag; then
+            export GITHUB_REF_NAME="${RELEASE_TAG}"
+          fi
+          node scripts/verify-release-state.mjs --artifact-only
 
       - name: Smoke the exact lockstep artifacts
         run: >-
           node scripts/smoke-npm-product.mjs
-          --spark-tarball dist/release/spark-${{ github.ref_name }}.tgz
-          --cli-tarball dist/release/spark-cli-${{ github.ref_name }}.tgz
-          --daemon-tarball dist/release/spark-daemon-${{ github.ref_name }}.tgz
-          --tui-tarball dist/release/spark-tui-${{ github.ref_name }}.tgz
-          --hub-tarball dist/release/spark-hub-${{ github.ref_name }}.tgz
+          --spark-tarball "dist/release/spark-${RELEASE_TAG}.tgz"
+          --cli-tarball "dist/release/spark-cli-${RELEASE_TAG}.tgz"
+          --daemon-tarball "dist/release/spark-daemon-${RELEASE_TAG}.tgz"
+          --tui-tarball "dist/release/spark-tui-${RELEASE_TAG}.tgz"
+          --hub-tarball "dist/release/spark-hub-${RELEASE_TAG}.tgz"
 
       - name: Verify N-1 expand-only migration compatibility
         run: >-
           node scripts/test-release-migration.mjs
-          --tarball dist/release/spark-${{ github.ref_name }}.tgz
-          --cli-tarball dist/release/spark-cli-${{ github.ref_name }}.tgz
-          --daemon-tarball dist/release/spark-daemon-${{ github.ref_name }}.tgz
-          --tui-tarball dist/release/spark-tui-${{ github.ref_name }}.tgz
-          --hub-tarball dist/release/spark-hub-${{ github.ref_name }}.tgz
+          --tarball "dist/release/spark-${RELEASE_TAG}.tgz"
+          --cli-tarball "dist/release/spark-cli-${RELEASE_TAG}.tgz"
+          --daemon-tarball "dist/release/spark-daemon-${RELEASE_TAG}.tgz"
+          --tui-tarball "dist/release/spark-tui-${RELEASE_TAG}.tgz"
+          --hub-tarball "dist/release/spark-hub-${RELEASE_TAG}.tgz"
 
       - name: Upload release artifacts
+        if: github.ref_type == 'tag'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: spark-release-${{ github.ref_name }}
@@ -77,8 +166,12 @@ jobs:
           retention-days: 7
 
   publish:
-    name: publish
-    needs: build
+    name: Publish Release
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs:
+      - documentation
+      - container
+      - build
     runs-on: ubuntu-latest
     environment: npm-release
     permissions:

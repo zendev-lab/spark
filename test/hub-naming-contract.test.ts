@@ -45,7 +45,6 @@ test("manifests, architecture inventory, build, deployment, and dependency rules
     dependencyRules,
     rootManifest,
     dockerfile,
-    verifyWorkflow,
     releaseWorkflow,
     npmDistributions,
     npmBuild,
@@ -59,7 +58,6 @@ test("manifests, architecture inventory, build, deployment, and dependency rules
     readFile(resolve(root, ".dependency-cruiser.cjs"), "utf8"),
     readJson("package.json"),
     readFile(resolve(root, "Dockerfile"), "utf8"),
-    readFile(resolve(root, ".github/workflows/ci-verify.yml"), "utf8"),
     readFile(resolve(root, ".github/workflows/cd-publish.yml"), "utf8"),
     readFile(resolve(root, "scripts/npm-distributions.mjs"), "utf8"),
     readFile(resolve(root, "scripts/build-npm-product.mjs"), "utf8"),
@@ -84,10 +82,8 @@ test("manifests, architecture inventory, build, deployment, and dependency rules
   assert.match(dockerfile, /spark-hub-v\*\.tgz/u);
   assert.doesNotMatch(dockerfile, /spark-cockpit/iu);
 
-  assert.match(verifyWorkflow, /spark-hub:ci/u);
-  assert.match(verifyWorkflow, /SPARK_HUB_PUBLIC_URL/u);
-  assert.doesNotMatch(verifyWorkflow, /spark-cockpit|SPARK_COCKPIT/iu);
-
+  assert.match(releaseWorkflow, /spark-hub:ci/u);
+  assert.match(releaseWorkflow, /SPARK_HUB_PUBLIC_URL/u);
   assert.match(releaseWorkflow, /spark-hub-\$\{\{ github\.ref_name \}\}\.tgz/u);
   assert.match(releaseWorkflow, /scope=spark-hub/u);
   assert.doesNotMatch(releaseWorkflow, /spark-cockpit|SPARK_COCKPIT/iu);
