@@ -1,0 +1,39 @@
+name: "CI - Benchmarks"
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  merge_group:
+    types:
+      - checks_requested
+
+concurrency:
+  group: ci-benchmarks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lens:
+    name: Lens Production Paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # @codspeed/core 5.7.1's Linux addon is not compatible with Node 26 yet.
+          # This exception is benchmark-only; product CI remains on .node-version.
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --config.engine-strict=false
+      - name: Run CodSpeed benchmarks
+        uses: CodSpeedHQ/action@0ca9cbbf4623b599a6c3ed4fc8a922942705d9f1 # v5.0.2
+        with:
+          mode: simulation
+          run: pnpm run bench:lens:codspeed

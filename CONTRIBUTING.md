@@ -202,14 +202,17 @@ an archived release.
 
 ## Pull requests
 
-Keep PRs focused and explain:
+Keep pull requests focused and explain:
 
 - what changed;
 - why the change belongs in the selected owner;
 - user or developer impact;
 - compatibility, migration, or security implications;
-- exact validation performed;
 - stack dependencies when the PR does not target `main`.
+
+Repository CI owns automated validation reporting; the PR body does not need
+to duplicate command lists or test counts. Use `Notes` for manual checks,
+known limitations, or exceptions that CI cannot express.
 
 PR titles are checked by CI. Follow the repository's emoji conventional-title
 style, for example:

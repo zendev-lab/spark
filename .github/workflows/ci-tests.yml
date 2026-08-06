@@ -1,4 +1,4 @@
-name: "CI - Static Checks"
+name: "CI - Tests"
 
 on:
   push:
@@ -10,37 +10,24 @@ on:
       - checks_requested
 
 concurrency:
-  group: ci-static-${{ github.ref }}
+  group: ci-tests-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  pre-commit:
-    name: Pre-commit Checks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      # Use the repo-pinned prek binary. The action cache is PR-ref scoped and
-      # restoring it twice cost substantially more than the hooks themselves.
-      - run: pnpm exec prek run --all-files --skip spark-check-fix
-
-  project:
-    name: Project Checks
-    runs-on: ubuntu-latest
+  source:
+    name: Source Tests (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu
+            os: ubuntu-latest
+          - name: macOS
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,10 +39,34 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run check:static
+      - run: pnpm run test:unit
 
-  documentation:
-    name: Documentation Checks
+  process:
+    name: Process Tests (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu
+            os: ubuntu-latest
+          - name: macOS
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test:process:source
+
+  browser:
+    name: Browser Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,4 +78,5 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run check:docs
+      - run: pnpm --filter @zendev-lab/spark-hub run setup:browser
+      - run: pnpm run test:browser:hub

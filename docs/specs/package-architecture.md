@@ -48,7 +48,8 @@ categories are:
   release identity, rollback, and mixed-version migration checks;
 - Spark-specific AST and compatibility ratchets for Evidence, diagnostics,
   source-mirror tests, and compatibility loaders;
-- daemon RPC facade and public distribution policy;
+- daemon RPC facade, public distribution policy, and pull-request metadata
+  validation;
 - English/Chinese documentation surface and CLI/help synchronization;
 - Lens/capability continuous-evaluation evidence projection;
 - live Cue, Zellij, provider, daemon, and renderer acceptance harnesses.

@@ -257,33 +257,50 @@ test("docs production scripts separate Workers Builds build and deploy phases", 
 });
 
 test("CI and prek consume the canonical package scripts", async () => {
-  const [verifyWorkflow, hygieneWorkflow, capabilityWorkflow, prek] = await Promise.all([
-    readFile(resolve(".github/workflows/ci-verify.yml"), "utf8"),
+  const [
+    staticWorkflow,
+    releaseWorkflow,
+    testsWorkflow,
+    smokeWorkflow,
+    hygieneWorkflow,
+    capabilityWorkflow,
+    prek,
+  ] = await Promise.all([
+    readFile(resolve(".github/workflows/ci-static-checks.yml"), "utf8"),
+    readFile(resolve(".github/workflows/cd-publish.yml"), "utf8"),
+    readFile(resolve(".github/workflows/ci-tests.yml"), "utf8"),
+    readFile(resolve(".github/workflows/ci-smoke.yml"), "utf8"),
     readFile(resolve(".github/workflows/ce-hygiene.yml"), "utf8"),
     readFile(resolve(".github/workflows/ce-capability-nightly.yml"), "utf8"),
     readFile(resolve("prek.toml"), "utf8"),
   ]);
 
-  assert.match(verifyWorkflow, /pnpm run check:static/u);
-  assert.match(verifyWorkflow, /pnpm run test:unit/u);
-  assert.match(verifyWorkflow, /pnpm run test:process:source/u);
-  assert.match(verifyWorkflow, /pnpm run smoke/u);
-  assert.match(verifyWorkflow, /pnpm run check:docs/u);
-  assert.match(verifyWorkflow, /wrangler deploy --dry-run/u);
-  assert.match(verifyWorkflow, /re-actors\/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe/u);
-  assert.match(verifyWorkflow, /jobs: \$\{\{ toJSON\(needs\) \}\}/u);
-  assert.match(verifyWorkflow, /pnpm run test:browser:hub/u);
-  assert.match(verifyWorkflow, /name: required/u);
-  assert.doesNotMatch(verifyWorkflow, /test:npm-product/u);
+  assert.match(staticWorkflow, /pnpm run check:static/u);
+  assert.match(staticWorkflow, /pnpm run check:docs/u);
+  assert.match(releaseWorkflow, /pull_request:/u);
+  assert.match(releaseWorkflow, /merge_group:/u);
+  assert.match(releaseWorkflow, /name: Documentation Deployment Dry Run/u);
+  assert.match(releaseWorkflow, /wrangler deploy --dry-run/u);
+  assert.match(releaseWorkflow, /name: Container Build and Smoke/u);
+  assert.match(releaseWorkflow, /name: Release Build/u);
+  assert.match(releaseWorkflow, /if: github\.ref_type == 'tag'/u);
+  assert.match(releaseWorkflow, /if: github\.event_name == 'push' && github\.ref_type == 'tag'/u);
+  assert.match(testsWorkflow, /pnpm run test:unit/u);
+  assert.match(testsWorkflow, /pnpm run test:process:source/u);
+  assert.match(testsWorkflow, /pnpm run test:browser:hub/u);
+  assert.match(smokeWorkflow, /pnpm run smoke/u);
+  for (const workflow of [staticWorkflow, releaseWorkflow, testsWorkflow, smokeWorkflow]) {
+    assert.doesNotMatch(workflow, /test:npm-product/u);
+    assert.doesNotMatch(workflow, /re-actors\/alls-green/u);
+    assert.doesNotMatch(workflow, /name: required/u);
+  }
+  await assert.rejects(readFile(resolve(".github/workflows/ci-build.yml"), "utf8"));
+  await assert.rejects(readFile(resolve(".github/workflows/ci-verify.yml"), "utf8"));
 
-  const publishWorkflow = await readFile(resolve(".github/workflows/cd-publish.yml"), "utf8");
-  assert.doesNotMatch(publishWorkflow, /--baseline-version/u);
-  assert.doesNotMatch(publishWorkflow, /secrets\.NPM_TOKEN/u);
-  assert.match(publishWorkflow, /id-token: write/u);
-  assert.match(
-    publishWorkflow,
-    /--cli-tarball dist\/release\/spark-cli-\$\{\{ github\.ref_name \}\}\.tgz/u,
-  );
+  assert.doesNotMatch(releaseWorkflow, /--baseline-version/u);
+  assert.doesNotMatch(releaseWorkflow, /secrets\.NPM_TOKEN/u);
+  assert.match(releaseWorkflow, /id-token: write/u);
+  assert.match(releaseWorkflow, /--cli-tarball "dist\/release\/spark-cli-\$\{RELEASE_TAG\}\.tgz"/u);
   assert.match(hygieneWorkflow, /pnpm run report:hygiene/u);
   assert.doesNotMatch(hygieneWorkflow, /pnpm exec (?:knip|jscpd)/u);
   assert.match(capabilityWorkflow, /pnpm run test:capability:ce/u);
@@ -295,6 +312,37 @@ test("CI and prek consume the canonical package scripts", async () => {
   assert.match(prek, /id = "spark-check-fix"/u);
   assert.match(prek, /entry = "pnpm run fix"/u);
   assert.doesNotMatch(prek, /pnpm run check:/u);
+});
+
+test("replacement CI owners pin every direct action to an immutable commit", async () => {
+  const ownerPaths = [
+    ".github/workflows/ci-pr-checks.yml",
+    ".github/workflows/ci-static-checks.yml",
+    ".github/workflows/cd-publish.yml",
+    ".github/workflows/ci-tests.yml",
+    ".github/workflows/ci-smoke.yml",
+    ".github/workflows/ci-benchmarks.yml",
+  ];
+  for (const path of ownerPaths) {
+    const source = await readFile(resolve(path), "utf8");
+    const actions = [...source.matchAll(/^\s+(?:-\s+)?uses: ([^\s#]+)/gmu)].map(
+      (match) => match[1],
+    );
+    assert.ok(actions.length > 0, `${path} must declare at least one action`);
+    for (const action of actions) {
+      assert.match(action, /@[a-f0-9]{40}$/u, `${path} must pin ${action}`);
+    }
+  }
+
+  for (const retiredPath of [
+    ".github/workflows/ci.yml",
+    ".github/workflows/ci-build.yml",
+    ".github/workflows/ci-context-migration.yml",
+    ".github/workflows/ci-typos.yml",
+    ".github/workflows/ci-verify.yml",
+  ]) {
+    await assert.rejects(readFile(resolve(retiredPath), "utf8"));
+  }
 });
 
 test("capability CE output cleanup cannot traverse reports symlinks", async () => {

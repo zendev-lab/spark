@@ -19,7 +19,7 @@ const {
 } = architectureRatchets;
 
 const architectureGovernanceFixtureSha256 =
-  "3d205e16e25cf6133f681589acec7e2dad2815de44205ca40011b9adbcea054f";
+  "a71e361a7a5722abf3d4c78062f279e1ca4cd8bca9899059578563858e66c4c6";
 const requiredInventoryFields = ["layer", "owner", "stability", "stateWriter"] as const;
 const invalidInventoryCases = [
   { field: "layer", value: "invalid" },
@@ -313,7 +313,10 @@ describe("architecture governance contracts", () => {
       for (const caller of entry.callers) {
         if (caller === "operator/manual entrypoint") continue;
         const callerSource = await readFile(caller, "utf8");
-        expect(callerSource, `${caller} must call ${entry.path}`).toContain(basename(entry.path));
+        const callerToken = entry.path.endsWith(".d.mts")
+          ? basename(entry.path, ".d.mts")
+          : basename(entry.path);
+        expect(callerSource, `${caller} must call or type ${entry.path}`).toContain(callerToken);
       }
     }
   });
