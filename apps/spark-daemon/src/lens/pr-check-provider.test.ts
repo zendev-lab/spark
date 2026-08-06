@@ -19,13 +19,67 @@ test("PR checks fail closed for uncommitted content and missing required checks"
   );
   expect(dirty.verdict).toBe("stale");
 
-  const missing = await runGitHubPrChecks("/workspace", undefined, fixtureRunner({ checks: [] }));
+  const missing = await runGitHubPrChecks(
+    "/workspace",
+    undefined,
+    fixtureRunner({ requiredChecks: [] }),
+  );
   expect(missing.verdict).toBe("inconclusive");
   expect(missing.message).toMatch(/No required PR checks/u);
 });
 
+test("merged PRs fall back to their complete recorded check set", async () => {
+  const report = await runGitHubPrChecks(
+    "/workspace",
+    undefined,
+    fixtureRunner({
+      state: "MERGED",
+      requiredChecks: [],
+      requiredCode: 1,
+      requiredStderr: "no required checks reported",
+      recordedChecks: [
+        { name: "required", state: "SUCCESS", bucket: "pass", workflow: "CI" },
+        { name: "smoke", state: "SUCCESS", bucket: "pass", workflow: "CI" },
+      ],
+    }),
+  );
+
+  expect(report.verdict).toBe("pass");
+  expect(report.checks).toHaveLength(2);
+  expect(report.message).toMatch(/All merged PR checks passed/u);
+});
+
+test("merged PR recorded checks remain fail-closed", async () => {
+  const failed = await runGitHubPrChecks(
+    "/workspace",
+    undefined,
+    fixtureRunner({
+      state: "MERGED",
+      requiredChecks: [],
+      recordedChecks: [{ name: "smoke", state: "FAILURE", bucket: "fail" }],
+    }),
+  );
+  expect(failed.verdict).toBe("fail");
+
+  const missing = await runGitHubPrChecks(
+    "/workspace",
+    undefined,
+    fixtureRunner({ state: "MERGED", requiredChecks: [], recordedChecks: [] }),
+  );
+  expect(missing.verdict).toBe("inconclusive");
+  expect(missing.message).toMatch(/No checks were recorded/u);
+});
+
 function fixtureRunner(
-  options: { status?: string; remoteHead?: string; checks?: unknown[] } = {},
+  options: {
+    status?: string;
+    remoteHead?: string;
+    state?: string;
+    requiredChecks?: unknown[];
+    requiredCode?: number;
+    requiredStderr?: string;
+    recordedChecks?: unknown[];
+  } = {},
 ): PrCheckCommandRunner {
   return async (command, args) => {
     const operation = `${command} ${args.join(" ")}`;
@@ -43,24 +97,28 @@ function fixtureRunner(
           url: "https://github.com/acme/repo/pull/42",
           headRefOid: options.remoteHead ?? "head-1",
           isDraft: true,
+          state: options.state ?? "OPEN",
         }),
         stderr: "",
       };
     }
     if (operation.startsWith("gh pr checks")) {
+      const required = operation.includes(" --required ");
       return {
-        code: 0,
+        code: required ? (options.requiredCode ?? 0) : 0,
         stdout: JSON.stringify(
-          options.checks ?? [
-            {
-              name: "required",
-              state: "SUCCESS",
-              bucket: "pass",
-              workflow: "CI",
-            },
-          ],
+          required
+            ? (options.requiredChecks ?? [
+                {
+                  name: "required",
+                  state: "SUCCESS",
+                  bucket: "pass",
+                  workflow: "CI",
+                },
+              ])
+            : (options.recordedChecks ?? []),
         ),
-        stderr: "",
+        stderr: required ? (options.requiredStderr ?? "") : "",
       };
     }
     throw new Error(`unexpected command: ${operation}`);
