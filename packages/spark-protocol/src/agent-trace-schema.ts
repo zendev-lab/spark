@@ -8,12 +8,8 @@ const occurredAtSchema = z.string().datetime({ offset: true });
 const fingerprintSchema = z
   .string()
   .regex(/^[a-f0-9]{16,64}$/u, "must be a lowercase opaque fingerprint");
-const sha256Schema = z
-  .string()
-  .regex(/^[a-f0-9]{64}$/u, "must be a lowercase SHA-256 digest");
-const evidenceRefSchema = z
-  .string()
-  .regex(/^evidence:.+$/u, "must be an evidence: ref");
+const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/u, "must be a lowercase SHA-256 digest");
+const evidenceRefSchema = z.string().regex(/^evidence:.+$/u, "must be an evidence: ref");
 
 export const SPARK_AGENT_TRACE_EVENT_KINDS = [
   "agent.run.started",
@@ -27,9 +23,7 @@ export const SPARK_AGENT_TRACE_EVENT_KINDS = [
   "tool.call.finished",
 ] as const;
 
-export const sparkAgentTraceEventKindSchema = z.enum(
-  SPARK_AGENT_TRACE_EVENT_KINDS,
-);
+export const sparkAgentTraceEventKindSchema = z.enum(SPARK_AGENT_TRACE_EVENT_KINDS);
 
 export const SPARK_AGENT_RUN_SOURCES = [
   "user_submit",
@@ -42,15 +36,9 @@ export const SPARK_AGENT_RUN_SOURCES = [
 
 export const sparkAgentRunSourceSchema = z.enum(SPARK_AGENT_RUN_SOURCES);
 
-export const SPARK_AGENT_TRACE_OUTCOMES = [
-  "completed",
-  "aborted",
-  "failed",
-] as const;
+export const SPARK_AGENT_TRACE_OUTCOMES = ["completed", "aborted", "failed"] as const;
 
-export const sparkAgentTraceOutcomeSchema = z.enum(
-  SPARK_AGENT_TRACE_OUTCOMES,
-);
+export const sparkAgentTraceOutcomeSchema = z.enum(SPARK_AGENT_TRACE_OUTCOMES);
 
 export const SPARK_AGENT_TOOL_EFFECTS = [
   "read",
@@ -84,9 +72,7 @@ export const SPARK_AGENT_TOOL_FAILURE_STAGES = [
   "result_processing",
 ] as const;
 
-export const sparkAgentToolFailureStageSchema = z.enum(
-  SPARK_AGENT_TOOL_FAILURE_STAGES,
-);
+export const sparkAgentToolFailureStageSchema = z.enum(SPARK_AGENT_TOOL_FAILURE_STAGES);
 
 export const SPARK_AGENT_TOOL_FAILURE_TYPES = [
   "unknown_tool",
@@ -103,9 +89,7 @@ export const SPARK_AGENT_TOOL_FAILURE_TYPES = [
   "unknown",
 ] as const;
 
-export const sparkAgentToolFailureTypeSchema = z.enum(
-  SPARK_AGENT_TOOL_FAILURE_TYPES,
-);
+export const sparkAgentToolFailureTypeSchema = z.enum(SPARK_AGENT_TOOL_FAILURE_TYPES);
 
 export const SPARK_AGENT_SKILL_SELECTION_MODES = [
   "explicit",
@@ -114,19 +98,11 @@ export const SPARK_AGENT_SKILL_SELECTION_MODES = [
   "none",
 ] as const;
 
-export const sparkAgentSkillSelectionModeSchema = z.enum(
-  SPARK_AGENT_SKILL_SELECTION_MODES,
-);
+export const sparkAgentSkillSelectionModeSchema = z.enum(SPARK_AGENT_SKILL_SELECTION_MODES);
 
-export const SPARK_AGENT_SKILL_LOAD_STATUSES = [
-  "succeeded",
-  "failed",
-  "blocked",
-] as const;
+export const SPARK_AGENT_SKILL_LOAD_STATUSES = ["succeeded", "failed", "blocked"] as const;
 
-export const sparkAgentSkillLoadStatusSchema = z.enum(
-  SPARK_AGENT_SKILL_LOAD_STATUSES,
-);
+export const sparkAgentSkillLoadStatusSchema = z.enum(SPARK_AGENT_SKILL_LOAD_STATUSES);
 
 export const SPARK_AGENT_SKILL_LOAD_FAILURE_TYPES = [
   "not_found",
@@ -137,9 +113,7 @@ export const SPARK_AGENT_SKILL_LOAD_FAILURE_TYPES = [
   "unknown",
 ] as const;
 
-export const sparkAgentSkillLoadFailureTypeSchema = z.enum(
-  SPARK_AGENT_SKILL_LOAD_FAILURE_TYPES,
-);
+export const sparkAgentSkillLoadFailureTypeSchema = z.enum(SPARK_AGENT_SKILL_LOAD_FAILURE_TYPES);
 
 export const sparkAgentArgumentFingerprintSchema = z
   .object({
@@ -207,50 +181,48 @@ const modelSchema = z
   })
   .strict();
 
-export const sparkAgentModelRoundtripStartedTraceEventSchema =
-  childEventSchema
-    .extend({
-      kind: z.literal("model.roundtrip.started"),
-      roundtrip: z.number().int().positive(),
-      model: modelSchema,
-      promptVersion: labelSchema,
-      stablePromptHash: sha256Schema,
-      dynamicPromptHash: sha256Schema,
-      toolProfileFingerprint: fingerprintSchema,
-    })
-    .strict();
+export const sparkAgentModelRoundtripStartedTraceEventSchema = childEventSchema
+  .extend({
+    kind: z.literal("model.roundtrip.started"),
+    roundtrip: z.number().int().positive(),
+    model: modelSchema,
+    promptVersion: labelSchema,
+    stablePromptHash: sha256Schema,
+    dynamicPromptHash: sha256Schema,
+    toolProfileFingerprint: fingerprintSchema,
+  })
+  .strict();
 
-export const sparkAgentModelRoundtripFinishedTraceEventSchema =
-  childEventSchema
-    .extend({
-      kind: z.literal("model.roundtrip.finished"),
-      roundtrip: z.number().int().positive(),
-      outcome: sparkAgentTraceOutcomeSchema,
-      stopReason: labelSchema.optional(),
-      durationMs: z.number().int().nonnegative(),
-      inputTokens: z.number().int().nonnegative().optional(),
-      outputTokens: z.number().int().nonnegative().optional(),
-      cacheReadTokens: z.number().int().nonnegative().optional(),
-      cacheWriteTokens: z.number().int().nonnegative().optional(),
-      errorCode: labelSchema.optional(),
-    })
-    .strict()
-    .superRefine((event, context) => {
-      if (event.outcome === "completed" && event.stopReason === undefined) {
-        context.addIssue({
-          code: "custom",
-          path: ["stopReason"],
-          message: "completed roundtrips require stopReason",
-        });
-      }
-      if (event.outcome === "completed" && event.errorCode !== undefined) {
-        context.addIssue({
-          code: "custom",
-          path: ["errorCode"],
-          message: "completed roundtrips cannot carry errorCode",
-        });
-      }
-    });
+export const sparkAgentModelRoundtripFinishedTraceEventSchema = childEventSchema
+  .extend({
+    kind: z.literal("model.roundtrip.finished"),
+    roundtrip: z.number().int().positive(),
+    outcome: sparkAgentTraceOutcomeSchema,
+    stopReason: labelSchema.optional(),
+    durationMs: z.number().int().nonnegative(),
+    inputTokens: z.number().int().nonnegative().optional(),
+    outputTokens: z.number().int().nonnegative().optional(),
+    cacheReadTokens: z.number().int().nonnegative().optional(),
+    cacheWriteTokens: z.number().int().nonnegative().optional(),
+    errorCode: labelSchema.optional(),
+  })
+  .strict()
+  .superRefine((event, context) => {
+    if (event.outcome === "completed" && event.stopReason === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["stopReason"],
+        message: "completed roundtrips require stopReason",
+      });
+    }
+    if (event.outcome === "completed" && event.errorCode !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["errorCode"],
+        message: "completed roundtrips cannot carry errorCode",
+      });
+    }
+  });
 
 export const sparkAgentSkillSelectionTraceEventSchema = childEventSchema
   .extend({
@@ -279,10 +251,7 @@ export const sparkAgentSkillSelectionTraceEventSchema = childEventSchema
         message: "selection mode none cannot contain Skills",
       });
     }
-    if (
-      event.candidateCount !== undefined &&
-      event.candidateCount < event.skills.length
-    ) {
+    if (event.candidateCount !== undefined && event.candidateCount < event.skills.length) {
       context.addIssue({
         code: "custom",
         path: ["candidateCount"],
@@ -413,8 +382,7 @@ export const sparkAgentToolCallFinishedTraceEventSchema = childEventSchema
     }
     if (
       event.status === "cancelled" &&
-      (event.failureStage !== "cancellation" ||
-        event.failureType !== "cancelled")
+      (event.failureStage !== "cancellation" || event.failureType !== "cancelled")
     ) {
       context.addIssue({
         code: "custom",
@@ -424,13 +392,9 @@ export const sparkAgentToolCallFinishedTraceEventSchema = childEventSchema
     if (
       event.status === "blocked" &&
       event.failureStage !== undefined &&
-      ![
-        "resolution",
-        "argument_validation",
-        "availability",
-        "policy",
-        "approval",
-      ].includes(event.failureStage)
+      !["resolution", "argument_validation", "availability", "policy", "approval"].includes(
+        event.failureStage,
+      )
     ) {
       context.addIssue({
         code: "custom",
@@ -452,42 +416,16 @@ export const sparkAgentTraceEventSchema = z.discriminatedUnion("kind", [
   sparkAgentToolCallFinishedTraceEventSchema,
 ]);
 
-export type SparkAgentTraceEventKind = z.infer<
-  typeof sparkAgentTraceEventKindSchema
->;
-export type SparkAgentRunSource = z.infer<
-  typeof sparkAgentRunSourceSchema
->;
-export type SparkAgentTraceOutcome = z.infer<
-  typeof sparkAgentTraceOutcomeSchema
->;
-export type SparkAgentToolEffect = z.infer<
-  typeof sparkAgentToolEffectSchema
->;
-export type SparkAgentToolStatus = z.infer<
-  typeof sparkAgentToolStatusSchema
->;
-export type SparkAgentToolFailureStage = z.infer<
-  typeof sparkAgentToolFailureStageSchema
->;
-export type SparkAgentToolFailureType = z.infer<
-  typeof sparkAgentToolFailureTypeSchema
->;
-export type SparkAgentSkillSelectionMode = z.infer<
-  typeof sparkAgentSkillSelectionModeSchema
->;
-export type SparkAgentSkillLoadStatus = z.infer<
-  typeof sparkAgentSkillLoadStatusSchema
->;
-export type SparkAgentSkillLoadFailureType = z.infer<
-  typeof sparkAgentSkillLoadFailureTypeSchema
->;
-export type SparkAgentArgumentFingerprint = z.infer<
-  typeof sparkAgentArgumentFingerprintSchema
->;
-export type SparkAgentTraceSkill = z.infer<
-  typeof sparkAgentTraceSkillSchema
->;
-export type SparkAgentTraceEvent = z.infer<
-  typeof sparkAgentTraceEventSchema
->;
+export type SparkAgentTraceEventKind = z.infer<typeof sparkAgentTraceEventKindSchema>;
+export type SparkAgentRunSource = z.infer<typeof sparkAgentRunSourceSchema>;
+export type SparkAgentTraceOutcome = z.infer<typeof sparkAgentTraceOutcomeSchema>;
+export type SparkAgentToolEffect = z.infer<typeof sparkAgentToolEffectSchema>;
+export type SparkAgentToolStatus = z.infer<typeof sparkAgentToolStatusSchema>;
+export type SparkAgentToolFailureStage = z.infer<typeof sparkAgentToolFailureStageSchema>;
+export type SparkAgentToolFailureType = z.infer<typeof sparkAgentToolFailureTypeSchema>;
+export type SparkAgentSkillSelectionMode = z.infer<typeof sparkAgentSkillSelectionModeSchema>;
+export type SparkAgentSkillLoadStatus = z.infer<typeof sparkAgentSkillLoadStatusSchema>;
+export type SparkAgentSkillLoadFailureType = z.infer<typeof sparkAgentSkillLoadFailureTypeSchema>;
+export type SparkAgentArgumentFingerprint = z.infer<typeof sparkAgentArgumentFingerprintSchema>;
+export type SparkAgentTraceSkill = z.infer<typeof sparkAgentTraceSkillSchema>;
+export type SparkAgentTraceEvent = z.infer<typeof sparkAgentTraceEventSchema>;

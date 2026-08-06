@@ -1,21 +1,9 @@
 import type { SparkAgentTraceEvent } from "./agent-trace-schema.ts";
 
-type RunStartedEvent = Extract<
-  SparkAgentTraceEvent,
-  { kind: "agent.run.started" }
->;
-type RoundtripStartedEvent = Extract<
-  SparkAgentTraceEvent,
-  { kind: "model.roundtrip.started" }
->;
-type SkillLoadStartedEvent = Extract<
-  SparkAgentTraceEvent,
-  { kind: "skill.load.started" }
->;
-type ToolCallStartedEvent = Extract<
-  SparkAgentTraceEvent,
-  { kind: "tool.call.started" }
->;
+type RunStartedEvent = Extract<SparkAgentTraceEvent, { kind: "agent.run.started" }>;
+type RoundtripStartedEvent = Extract<SparkAgentTraceEvent, { kind: "model.roundtrip.started" }>;
+type SkillLoadStartedEvent = Extract<SparkAgentTraceEvent, { kind: "skill.load.started" }>;
+type ToolCallStartedEvent = Extract<SparkAgentTraceEvent, { kind: "tool.call.started" }>;
 
 type StartedTraceEvent =
   | RunStartedEvent
@@ -83,17 +71,9 @@ export function validateCompletedSparkAgentTrace(
     });
   };
 
-  const registerStart = (
-    event: StartedTraceEvent,
-    eventIndex: number,
-  ): void => {
+  const registerStart = (event: StartedTraceEvent, eventIndex: number): void => {
     if (spans.has(event.spanId) || instantSpanIds.has(event.spanId)) {
-      issue(
-        "duplicate_span",
-        `span ${event.spanId} was already registered`,
-        event,
-        eventIndex,
-      );
+      issue("duplicate_span", `span ${event.spanId} was already registered`, event, eventIndex);
       return;
     }
     spans.set(event.spanId, { started: event, finished: false });
@@ -111,17 +91,9 @@ export function validateCompletedSparkAgentTrace(
 
   return { valid: issues.length === 0, issues };
 
-  function validateEventIdentity(
-    event: SparkAgentTraceEvent,
-    eventIndex: number,
-  ): void {
+  function validateEventIdentity(event: SparkAgentTraceEvent, eventIndex: number): void {
     if (eventIds.has(event.eventId)) {
-      issue(
-        "duplicate_event",
-        `event ${event.eventId} appears more than once`,
-        event,
-        eventIndex,
-      );
+      issue("duplicate_event", `event ${event.eventId} appears more than once`, event, eventIndex);
     }
     eventIds.add(event.eventId);
 
@@ -136,19 +108,11 @@ export function validateCompletedSparkAgentTrace(
     }
 
     if (runFinishedIndex !== undefined) {
-      issue(
-        "root_order",
-        "events cannot appear after agent.run.finished",
-        event,
-        eventIndex,
-      );
+      issue("root_order", "events cannot appear after agent.run.finished", event, eventIndex);
     }
   }
 
-  function validateEventParent(
-    event: SparkAgentTraceEvent,
-    eventIndex: number,
-  ): void {
+  function validateEventParent(event: SparkAgentTraceEvent, eventIndex: number): void {
     if (!("parentSpanId" in event)) return;
 
     const parent = spans.get(event.parentSpanId);
@@ -166,8 +130,7 @@ export function validateCompletedSparkAgentTrace(
     if (expectedKind !== undefined && parent.started.kind !== expectedKind) {
       issue(
         "invalid_parent",
-        `${event.kind} requires parent ${expectedKind}, ` +
-          `observed ${parent.started.kind}`,
+        `${event.kind} requires parent ${expectedKind}, ` + `observed ${parent.started.kind}`,
         event,
         eventIndex,
       );
@@ -183,10 +146,7 @@ export function validateCompletedSparkAgentTrace(
     }
   }
 
-  function consumeEvent(
-    event: SparkAgentTraceEvent,
-    eventIndex: number,
-  ): void {
+  function consumeEvent(event: SparkAgentTraceEvent, eventIndex: number): void {
     switch (event.kind) {
       case "agent.run.started":
         if (eventIndex !== 0 || runSpanId !== undefined) {
@@ -221,19 +181,11 @@ export function validateCompletedSparkAgentTrace(
   }
 
   function registerInstantEvent(
-    event: Extract<
-      SparkAgentTraceEvent,
-      { kind: "skill.selection.finished" }
-    >,
+    event: Extract<SparkAgentTraceEvent, { kind: "skill.selection.finished" }>,
     eventIndex: number,
   ): void {
     if (spans.has(event.spanId) || instantSpanIds.has(event.spanId)) {
-      issue(
-        "duplicate_span",
-        `span ${event.spanId} was already registered`,
-        event,
-        eventIndex,
-      );
+      issue("duplicate_span", `span ${event.spanId} was already registered`, event, eventIndex);
     }
     instantSpanIds.add(event.spanId);
   }
@@ -253,12 +205,7 @@ export function validateCompletedSparkAgentTrace(
   ): void {
     const span = spans.get(event.spanId);
     if (!span) {
-      issue(
-        "orphan_finish",
-        `span ${event.spanId} finished without a start`,
-        event,
-        eventIndex,
-      );
+      issue("orphan_finish", `span ${event.spanId} finished without a start`, event, eventIndex);
       return;
     }
 
@@ -273,12 +220,7 @@ export function validateCompletedSparkAgentTrace(
     }
 
     if (span.finished) {
-      issue(
-        "duplicate_finish",
-        `span ${event.spanId} finished more than once`,
-        event,
-        eventIndex,
-      );
+      issue("duplicate_finish", `span ${event.spanId} finished more than once`, event, eventIndex);
     }
     span.finished = true;
 
@@ -286,12 +228,7 @@ export function validateCompletedSparkAgentTrace(
 
     if (event.kind === "agent.run.finished") {
       if (event.spanId !== runSpanId) {
-        issue(
-          "span_metadata_mismatch",
-          "run finish does not match run start",
-          event,
-          eventIndex,
-        );
+        issue("span_metadata_mismatch", "run finish does not match run start", event, eventIndex);
       }
       reportedRoundtrips = event.roundtrips;
       runFinishedIndex = eventIndex;
@@ -354,20 +291,11 @@ export function validateCompletedSparkAgentTrace(
 
   function validateRoot(): void {
     if (events.length === 0 || events[0]?.kind !== "agent.run.started") {
-      issue(
-        "root_order",
-        "completed trace requires agent.run.started",
-        events[0],
-        0,
-      );
+      issue("root_order", "completed trace requires agent.run.started", events[0], 0);
     }
 
     if (runFinishedIndex === undefined) {
-      issue(
-        "root_order",
-        "completed trace requires agent.run.finished",
-        events.at(-1),
-      );
+      issue("root_order", "completed trace requires agent.run.finished", events.at(-1));
       return;
     }
 
@@ -384,36 +312,26 @@ export function validateCompletedSparkAgentTrace(
   function validateClosedSpans(): void {
     for (const [spanId, span] of spans) {
       if (!span.finished) {
-        issue(
-          "unclosed_span",
-          `span ${spanId} has no terminal event`,
-          span.started,
-        );
+        issue("unclosed_span", `span ${spanId} has no terminal event`, span.started);
       }
     }
   }
 
   function validateRoundtripCount(): void {
-    if (
-      reportedRoundtrips === undefined ||
-      reportedRoundtrips === observedRoundtrips
-    ) {
+    if (reportedRoundtrips === undefined || reportedRoundtrips === observedRoundtrips) {
       return;
     }
 
     issue(
       "roundtrip_count_mismatch",
-      `run reported ${reportedRoundtrips} roundtrips, ` +
-        `observed ${observedRoundtrips}`,
+      `run reported ${reportedRoundtrips} roundtrips, ` + `observed ${observedRoundtrips}`,
       runFinishedIndex === undefined ? undefined : events[runFinishedIndex],
       runFinishedIndex,
     );
   }
 }
 
-function expectedParentKind(
-  event: SparkAgentTraceEvent,
-): StartedTraceEvent["kind"] | undefined {
+function expectedParentKind(event: SparkAgentTraceEvent): StartedTraceEvent["kind"] | undefined {
   switch (event.kind) {
     case "model.roundtrip.started":
     case "model.roundtrip.finished":
@@ -450,10 +368,7 @@ function expectedStartKind(
 
 function sameSkillLoad(
   started: SkillLoadStartedEvent,
-  finished: Extract<
-    SparkAgentTraceEvent,
-    { kind: "skill.load.finished" }
-  >,
+  finished: Extract<SparkAgentTraceEvent, { kind: "skill.load.finished" }>,
 ): boolean {
   return (
     started.appliesFromRoundtrip === finished.appliesFromRoundtrip &&
@@ -465,10 +380,7 @@ function sameSkillLoad(
 
 function sameToolCall(
   started: ToolCallStartedEvent,
-  finished: Extract<
-    SparkAgentTraceEvent,
-    { kind: "tool.call.finished" }
-  >,
+  finished: Extract<SparkAgentTraceEvent, { kind: "tool.call.finished" }>,
 ): boolean {
   return (
     started.roundtrip === finished.roundtrip &&
