@@ -364,8 +364,8 @@
     {
       "pattern": "test/hub-naming-contract.test.ts",
       "category": "canonical-name-contract-test",
-      "approvedOccurrenceCount": 11,
-      "approvedOccurrencesSha256": "85b836e674e66562fe87bf5f8fbf748f3237275b2a6108b6bd38001c8ee36c32"
+      "approvedOccurrenceCount": 10,
+      "approvedOccurrencesSha256": "fe0ae860ad00e2fb34bbf051915d539625adea78c3bea3f6abf8313bd5b32f07"
     },
     {
       "pattern": "test/hub-terminology-contract.test.ts",

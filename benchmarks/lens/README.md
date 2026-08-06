@@ -35,7 +35,7 @@ Run the same non-interactive command used by CodSpeed:
 pnpm run bench:lens:codspeed
 ```
 
-The benchmark job is part of `.github/workflows/ci-verify.yml`. The workflow grants only
+The benchmark job is part of `.github/workflows/ci-benchmarks.yml`. The workflow grants only
 `contents: read`, pins every action to a commit SHA, and uses CodSpeed simulation
 mode. Public-repository uploads therefore do not require a token or OIDC write
 permission. The job temporarily uses Node 24 because the `@codspeed/core` 5.7.1
