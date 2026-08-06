@@ -19,6 +19,7 @@ test("source-distributed spark bin starts, reports, and stops the daemon", async
       cwd: root,
       env: {
         ...process.env,
+        SPARK_DAEMON_SERVICE_MODE: "detached",
         SPARK_HOME: resolve(temporary, "spark-home"),
       },
     });

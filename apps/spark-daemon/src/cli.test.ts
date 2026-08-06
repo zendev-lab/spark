@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,7 @@ import { readSparkDaemonConfig, writeSparkDaemonConfig } from "./config.js";
 import { LocalRpcUnavailableError, type LocalHumanInteractionListResult } from "./local-rpc.js";
 import { RegistrationGrantRefusedError } from "./registration.js";
 import { getSparkDaemonServerProfile, upsertSparkDaemonServerProfile } from "./server-profiles.js";
+import { publishSparkDaemonProcessOwnership } from "./service.js";
 import { openSparkDaemonDatabase } from "./store/schema.js";
 import {
   addWorkspace,
@@ -2936,6 +2937,73 @@ describe("Spark daemon CLI", () => {
     expect(code).toBe(4);
     expect(capture.stderr()).toContain("Pass --yes to confirm");
     expect(capture.stderr()).toContain("Stop Spark daemon");
+  });
+
+  it("waits for the exact daemon process to exit when stop uses --wait", async () => {
+    await withTempSparkEnv(async () => {
+      const paths = resolveSparkPaths({ app: "daemon" });
+      const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 10_000)"], {
+        stdio: "ignore",
+      });
+      if (!child.pid) throw new Error("test daemon process did not start");
+      const childExit = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+      try {
+        mkdirSync(paths.runtimeDir, { recursive: true });
+        writeFileSync(paths.pidFile, `${child.pid}\n`);
+        publishSparkDaemonProcessOwnership(paths, {
+          pid: child.pid,
+          instanceId: "stop-wait-instance",
+          generation: "stop-wait-generation",
+        });
+        const daemonStopFromService = vi.fn(async () => {
+          setTimeout(() => child.kill("SIGTERM"), 100);
+          return {
+            stopping: true as const,
+            observedAt: "2026-08-06T00:00:00.000Z",
+          };
+        });
+        const capture = createCliIo({ daemonStopFromService });
+
+        await expect(main(["daemon", "stop", "--yes", "--wait"], capture.io)).resolves.toBe(0);
+        await childExit;
+
+        expect(daemonStopFromService).toHaveBeenCalledOnce();
+        expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+        expect(capture.stderr()).toBe("");
+      } finally {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      }
+    });
+  });
+
+  it("accepts a replacement process identity even when the pid is reused", async () => {
+    await withTempSparkEnv(async () => {
+      const paths = resolveSparkPaths({ app: "daemon" });
+      mkdirSync(paths.runtimeDir, { recursive: true });
+      writeFileSync(paths.pidFile, `${process.pid}\n`);
+      publishSparkDaemonProcessOwnership(paths, {
+        pid: process.pid,
+        instanceId: "predecessor-instance",
+        generation: "predecessor-generation",
+      });
+      const daemonStopFromService = vi.fn(async () => {
+        publishSparkDaemonProcessOwnership(paths, {
+          pid: process.pid,
+          instanceId: "successor-instance",
+          generation: "successor-generation",
+        });
+        return {
+          stopping: true as const,
+          observedAt: "2026-08-06T00:00:00.000Z",
+        };
+      });
+      const capture = createCliIo({ daemonStopFromService });
+
+      await expect(main(["daemon", "stop", "--yes", "--wait"], capture.io)).resolves.toBe(0);
+
+      expect(daemonStopFromService).toHaveBeenCalledOnce();
+      expect(capture.stderr()).toBe("");
+    });
   });
 
   it("requests the local daemon to stop before falling back to process termination", async () => {

@@ -71,11 +71,13 @@ import {
   publishSparkDaemonProcessOwnership,
   readRunningPid,
   readSparkDaemonActiveRestart,
+  readSparkDaemonProcessOwnership,
   readSparkDaemonRestartTerminal,
   releaseSparkDaemonProcessOwnership,
   runSparkDaemonRestartSuccessor,
   scheduleSparkDaemonRestartSuccessor,
   rotateSparkDaemonServiceLogs,
+  sparkDaemonProcessOwnershipIsCurrent,
   stopSparkDaemonService,
 } from "./service.js";
 import {
@@ -108,7 +110,7 @@ let logsCommand: (
   throw new Error("logs command is not bound");
 };
 
-const daemonReadinessTimeoutMs = 60_000;
+const daemonReadinessTimeoutMs = 120_000;
 
 export function bindCliDaemonLogs(fn: typeof logsCommand): void {
   logsCommand = fn;
@@ -475,7 +477,8 @@ export async function stop(
   args: string[],
   io: CliIo,
 ): Promise<number> {
-  if (!(await confirmAction(io, parseFlags(args), "Stop Spark daemon?"))) {
+  const flags = parseFlags(args);
+  if (!(await confirmAction(io, flags, "Stop Spark daemon?"))) {
     io.stdout.write("Cancelled.\n");
     return 4;
   }
@@ -485,17 +488,23 @@ export async function stop(
   if (!pid) {
     return stopWithoutPid(paths, io, cancelledRestart);
   }
+  const ownership = readSparkDaemonProcessOwnership(paths);
 
+  let exitCode: number;
   try {
     await (io.daemonStopFromService ?? requestDaemonStop)(paths);
-    return reportStoppedDaemon(paths, pid, io);
+    exitCode = reportStoppedDaemon(paths, pid, io);
   } catch (error) {
     if (!(error instanceof LocalRpcUnavailableError)) {
       throw error;
     }
+    exitCode = stopUnreachableDaemon(paths, pid, io);
   }
+  if (exitCode !== 0 || !shouldWaitForDaemon(flags)) return exitCode;
 
-  return stopUnreachableDaemon(paths, pid, io);
+  if (await waitForDaemonStoppedOrReplaced(paths, pid, ownership)) return 0;
+  io.stderr.write(`Spark daemon process ${pid} did not stop before timeout.\n`);
+  return 1;
 }
 
 function stopWithoutPid(
@@ -1101,16 +1110,41 @@ function isRestartRpcUnsupported(error: unknown): boolean {
 async function waitForDaemonStoppedOrReplaced(
   paths: ReturnType<typeof resolveSparkPaths>,
   previousPid: number | null,
+  previousOwnership = previousPid === null ? null : readSparkDaemonProcessOwnership(paths),
   timeoutMs = 10_000,
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const currentPid = readRunningPid(paths);
-    const previousStillAlive = previousPid !== null && isProcessAlive(previousPid);
-    if (!previousStillAlive && (currentPid === null || currentPid !== previousPid)) return true;
+    const currentOwnership = readSparkDaemonProcessOwnership(paths);
+    const previousStillAlive = previousOwnership
+      ? sparkDaemonProcessOwnershipIsCurrent(previousOwnership)
+      : previousPid !== null && isProcessAlive(previousPid);
+    const previousWasReplaced =
+      previousOwnership !== null &&
+      currentOwnership !== null &&
+      !sameDaemonProcessOwnership(previousOwnership, currentOwnership);
+    if (
+      previousWasReplaced ||
+      (!previousStillAlive && (currentPid === null || currentPid !== previousPid))
+    ) {
+      return true;
+    }
     await delay(50);
   }
   return false;
+}
+
+function sameDaemonProcessOwnership(
+  left: NonNullable<ReturnType<typeof readSparkDaemonProcessOwnership>>,
+  right: NonNullable<ReturnType<typeof readSparkDaemonProcessOwnership>>,
+): boolean {
+  return (
+    left.pid === right.pid &&
+    left.processStartToken === right.processStartToken &&
+    left.instanceId === right.instanceId &&
+    left.generation === right.generation
+  );
 }
 
 function isProcessAlive(pid: number): boolean {

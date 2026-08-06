@@ -26,6 +26,7 @@ import {
   attachSparkWorkspaceClient,
   clientRespondHumanInteraction,
   createSparkDaemonNativeResponder,
+  ensureSparkDaemonClientRunning,
   handleSparkDaemonHumanInteractionRequest,
   handleSparkDaemonCliCommand,
   parseSparkDaemonCliArgs,
@@ -1804,6 +1805,346 @@ function runningDaemonStatus() {
     invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
   };
 }
+
+test("daemon client repairs a live pid whose local RPC socket is unreachable", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-daemon-unreachable-repair-"));
+  const paths = testDaemonPaths(dir);
+  const serviceCommands: string[][] = [];
+  let clock = 0;
+  const server = createServer((socket) => {
+    readLocalRpcRequest(socket, (request) => {
+      assert.equal(request.method, "daemon.status");
+      socket.end(
+        `${JSON.stringify({
+          id: request.id,
+          ok: true,
+          result: {
+            servers: [],
+            invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
+            invocationHealth: {},
+            lifecycle: { state: "running", phase: "serving" },
+            observedAt: "2026-08-06T00:00:00.000Z",
+          },
+        })}\n`,
+      );
+    });
+  });
+  try {
+    await mkdir(paths.runtimeDir, { recursive: true });
+    await writeFile(paths.pidFile, `${process.pid}\n`);
+
+    await ensureSparkDaemonClientRunning({
+      paths,
+      now: () => clock,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      serviceCommand: async (argv) => {
+        serviceCommands.push(argv);
+        if (argv[0] === "start") await listenLocalRpcServer(server, paths.socketPath);
+        return 0;
+      },
+    });
+
+    assert.deepEqual(serviceCommands, [
+      ["stop", "--yes", "--wait"],
+      ["start", "--wait"],
+    ]);
+  } finally {
+    await closeLocalRpcServer(server);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("daemon client never repairs a freshly published process identity before readiness", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-daemon-startup-grace-"));
+  const paths = testDaemonPaths(dir);
+  const serviceCommands: string[][] = [];
+  let clock = Date.now();
+  try {
+    await mkdir(paths.runtimeDir, { recursive: true });
+    await writeFile(paths.pidFile, `${process.pid}\n`);
+    await writeFile(
+      join(paths.runtimeDir, "daemon.identity.json"),
+      `${JSON.stringify({
+        pid: process.pid,
+        processStartToken: "test-current-process",
+        instanceId: "starting-instance",
+        generation: "starting-generation",
+      })}\n`,
+    );
+
+    await assert.rejects(
+      ensureSparkDaemonClientRunning({
+        paths,
+        now: () => clock,
+        sleep: async (ms) => {
+          clock += ms;
+        },
+        serviceCommand: async (argv) => {
+          serviceCommands.push(argv);
+          return 0;
+        },
+      }),
+      /not reachable|unavailable/iu,
+    );
+
+    assert.deepEqual(serviceCommands, []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("daemon repair never starts before the identity-fenced stop completes", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-daemon-repair-ordering-"));
+  const paths = testDaemonPaths(dir);
+  const serviceCommands: string[][] = [];
+  let clock = 0;
+  let stopCompleted = false;
+  const server = createServer((socket) => {
+    readLocalRpcRequest(socket, (request) => {
+      socket.end(
+        `${JSON.stringify({
+          id: request.id,
+          ok: true,
+          result: {
+            servers: [],
+            invocations: { queued: 0, running: 0, succeeded: 0, failed: 0, cancelled: 0 },
+            invocationHealth: {},
+            lifecycle: { state: "running", phase: "serving" },
+            observedAt: "2026-08-06T00:00:00.000Z",
+          },
+        })}\n`,
+      );
+    });
+  });
+  try {
+    await mkdir(paths.runtimeDir, { recursive: true });
+    await writeFile(paths.pidFile, `${process.pid}\n`);
+
+    await ensureSparkDaemonClientRunning({
+      paths,
+      now: () => clock,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      serviceCommand: async (argv) => {
+        serviceCommands.push(argv);
+        if (argv[0] === "stop") {
+          await new Promise<void>((resolve) => setTimeout(resolve, 10));
+          stopCompleted = true;
+        } else {
+          assert.equal(stopCompleted, true);
+          await listenLocalRpcServer(server, paths.socketPath);
+        }
+        return 0;
+      },
+    });
+
+    assert.deepEqual(serviceCommands, [
+      ["stop", "--yes", "--wait"],
+      ["start", "--wait"],
+    ]);
+  } finally {
+    await closeLocalRpcServer(server);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("daemon client fails closed when an unreachable service cannot be stopped", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-daemon-unreachable-stop-failed-"));
+  const paths = testDaemonPaths(dir);
+  const serviceCommands: string[][] = [];
+  let clock = 0;
+  try {
+    await mkdir(paths.runtimeDir, { recursive: true });
+    await writeFile(paths.pidFile, `${process.pid}\n`);
+
+    await assert.rejects(
+      ensureSparkDaemonClientRunning({
+        paths,
+        now: () => clock,
+        sleep: async (ms) => {
+          clock += ms;
+        },
+        serviceCommand: async (argv) => {
+          serviceCommands.push(argv);
+          return 1;
+        },
+      }),
+      /could not stop the unreachable service/u,
+    );
+
+    assert.deepEqual(serviceCommands, [["stop", "--yes", "--wait"]]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("daemon client does not repair a reachable daemon remote error", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-daemon-remote-error-"));
+  const paths = testDaemonPaths(dir);
+  const serviceCommands: string[][] = [];
+  const server = createServer((socket) => {
+    readLocalRpcRequest(socket, (request) => {
+      socket.end(
+        `${JSON.stringify({
+          id: request.id,
+          ok: false,
+          error: { code: "INTERNAL_SERVER_ERROR", message: "status projection failed" },
+        })}\n`,
+      );
+    });
+  });
+  try {
+    await mkdir(paths.runtimeDir, { recursive: true });
+    await writeFile(paths.pidFile, `${process.pid}\n`);
+    await listenLocalRpcServer(server, paths.socketPath);
+
+    await assert.rejects(
+      ensureSparkDaemonClientRunning({
+        paths,
+        serviceCommand: async (argv) => {
+          serviceCommands.push(argv);
+          return 0;
+        },
+      }),
+      /status projection failed/u,
+    );
+    assert.deepEqual(serviceCommands, []);
+  } finally {
+    await closeLocalRpcServer(server);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("daemon client does not repair a reachable daemon protocol mismatch", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-daemon-protocol-error-"));
+  const paths = testDaemonPaths(dir);
+  const serviceCommands: string[][] = [];
+  const server = createServer((socket) => {
+    readLocalRpcRequest(socket, (request) => {
+      socket.end(`${JSON.stringify({ id: request.id, ok: true, result: { invalid: true } })}\n`);
+    });
+  });
+  try {
+    await mkdir(paths.runtimeDir, { recursive: true });
+    await writeFile(paths.pidFile, `${process.pid}\n`);
+    await listenLocalRpcServer(server, paths.socketPath);
+
+    await assert.rejects(
+      ensureSparkDaemonClientRunning({
+        paths,
+        serviceCommand: async (argv) => {
+          serviceCommands.push(argv);
+          return 0;
+        },
+      }),
+      /protocol/iu,
+    );
+    assert.deepEqual(serviceCommands, []);
+  } finally {
+    await closeLocalRpcServer(server);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("daemon client retries daemon_starting without destructive repair", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-daemon-starting-"));
+  const paths = testDaemonPaths(dir);
+  const serviceCommands: string[][] = [];
+  let clock = 0;
+  const server = createServer((socket) => {
+    readLocalRpcRequest(socket, (request) => {
+      socket.end(
+        `${JSON.stringify({
+          id: request.id,
+          ok: false,
+          error: {
+            code: "daemon_starting",
+            message: "Spark daemon is still starting; retry after readiness.",
+          },
+        })}\n`,
+      );
+    });
+  });
+  try {
+    await mkdir(paths.runtimeDir, { recursive: true });
+    await writeFile(paths.pidFile, `${process.pid}\n`);
+    await listenLocalRpcServer(server, paths.socketPath);
+
+    await assert.rejects(
+      ensureSparkDaemonClientRunning({
+        paths,
+        now: () => clock,
+        sleep: async (ms) => {
+          clock += ms;
+        },
+        serviceCommand: async (argv) => {
+          serviceCommands.push(argv);
+          return 0;
+        },
+      }),
+      (error) => error instanceof SparkDaemonRemoteError,
+    );
+    assert.deepEqual(serviceCommands, []);
+    assert.ok(clock >= 2_000);
+  } finally {
+    await closeLocalRpcServer(server);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("daemon client keeps a proven starting endpoint non-destructive after disconnect", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-daemon-starting-disconnect-"));
+  const paths = testDaemonPaths(dir);
+  const serviceCommands: string[][] = [];
+  let clock = 0;
+  let requestCount = 0;
+  const server = createServer((socket) => {
+    readLocalRpcRequest(socket, (request) => {
+      requestCount += 1;
+      if (requestCount === 1) {
+        socket.end(
+          `${JSON.stringify({
+            id: request.id,
+            ok: false,
+            error: {
+              code: "daemon_starting",
+              message: "Spark daemon is still starting; retry after readiness.",
+            },
+          })}\n`,
+        );
+        return;
+      }
+      socket.destroy();
+    });
+  });
+  try {
+    await mkdir(paths.runtimeDir, { recursive: true });
+    await writeFile(paths.pidFile, `${process.pid}\n`);
+    await listenLocalRpcServer(server, paths.socketPath);
+
+    await assert.rejects(
+      ensureSparkDaemonClientRunning({
+        paths,
+        now: () => clock,
+        sleep: async (ms) => {
+          clock += ms;
+        },
+        serviceCommand: async (argv) => {
+          serviceCommands.push(argv);
+          return 0;
+        },
+      }),
+      (error) => error instanceof SparkDaemonRemoteError,
+    );
+    assert.deepEqual(serviceCommands, []);
+  } finally {
+    await closeLocalRpcServer(server);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test("handleSparkRpcLine always routes prompt/state through daemon IPC", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-daemon-rpc-"));
