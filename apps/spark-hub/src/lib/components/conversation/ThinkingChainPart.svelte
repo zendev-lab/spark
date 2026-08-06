@@ -25,9 +25,11 @@
   let visibleSteps = $derived(visibleThinkingChainSteps(steps));
   let needsFailureSummary = $derived(thinkingChainNeedsFailureSummary(steps));
   let shouldRender = $derived(isVisibleThinkingChain(chainState, steps));
+  let derivedHeadline = $derived(thinkingChainHeadline(visibleSteps));
+  let usesFailureHeadline = $derived(!derivedHeadline && needsFailureSummary);
   let headline = $derived(
-    thinkingChainHeadline(visibleSteps) ??
-      (needsFailureSummary
+    derivedHeadline ??
+      (usesFailureHeadline
         ? labels.chainFailed
         : chainState === "streaming"
           ? labels.chainStreaming
@@ -69,7 +71,7 @@
 </script>
 
 {#if shouldRender}
-  <details class="thinking-chain {chainState}" class:issue={needsFailureSummary} bind:open={expanded}>
+  <details class="thinking-chain {chainState}" class:issue={usesFailureHeadline} bind:open={expanded}>
     <summary onclick={toggleExpanded} title={headline}>
       <span class:streaming={chainState === "streaming"} class="chain-icon" aria-hidden="true">
         <Icon name="spark" size={11} stroke={2.1} />
