@@ -24,7 +24,7 @@ migrate(db);
 
 const tables = db
   .prepare(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    "SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY name",
   )
   .all()
   .map((row) => String(row.name));
@@ -96,7 +96,7 @@ if (extraInTypes.length > 0 || columnMismatches.length > 0) {
 }
 
 console.log(
-  `spark-db schema types OK (${tables.length} tables, ${declaredTables.length} SparkDatabase entries)`,
+  `spark-db schema types OK (${tables.length} relations, ${declaredTables.length} SparkDatabase entries)`,
 );
 
 function quoteIdent(name) {

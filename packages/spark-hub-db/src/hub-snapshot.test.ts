@@ -261,9 +261,12 @@ describe("Hub instance snapshots", () => {
       expect(count(target, "hub_access_tokens")).toBe(0);
       expect(
         target
-          .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+          .prepare("SELECT type FROM sqlite_master WHERE name = ?")
           .get("cockpit_access_tokens"),
-      ).toBeUndefined();
+      ).toEqual({ type: "table" });
+      expect(
+        target.prepare("SELECT type FROM sqlite_master WHERE name = ?").get("hub_access_tokens"),
+      ).toEqual({ type: "view" });
     } finally {
       target.close();
     }

@@ -8,6 +8,12 @@ function tableExists(db: ReturnType<typeof openMemoryDatabase>, table: string) {
     .get(table) as { name: string } | undefined;
 }
 
+function relationType(db: ReturnType<typeof openMemoryDatabase>, relation: string) {
+  return db.prepare("SELECT type FROM sqlite_master WHERE name = ?").get(relation) as
+    | { type: "table" | "view" }
+    | undefined;
+}
+
 function indexExists(db: ReturnType<typeof openMemoryDatabase>, index: string) {
   return db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
@@ -56,13 +62,14 @@ describe("migrations", () => {
       "runtime_ephemeral_secret_audit",
       "event_ingest_sequence",
       "workspace_access_tokens",
-      "hub_access_tokens",
       "workspace_leases",
       "workspace_delegations",
       "workspace_delegation_messages",
     ]) {
       expect(tableExists(db, table)?.name).toBe(table);
     }
+
+    expect(relationType(db, "hub_access_tokens")).toEqual({ type: "view" });
 
     for (const index of [
       "projects_workspace_status_idx",
@@ -153,7 +160,7 @@ describe("migrations", () => {
     db.close();
   });
 
-  it("renames legacy Cockpit auth state while preserving tokens and the stable instance id", () => {
+  it("graduates Cockpit auth state while preserving writable rollback compatibility", () => {
     const db = openMemoryDatabase();
     const migrations = loadMigrations();
     migrate(
@@ -176,11 +183,39 @@ describe("migrations", () => {
     migrate(db, migrations);
     migrate(db, migrations);
 
-    expect(tableExists(db, "cockpit_access_tokens")).toBeUndefined();
-    expect(tableExists(db, "hub_access_tokens")?.name).toBe("hub_access_tokens");
+    expect(tableExists(db, "cockpit_access_tokens")?.name).toBe("cockpit_access_tokens");
+    expect(relationType(db, "hub_access_tokens")).toEqual({ type: "view" });
+    expect(tableExists(db, "hub_access_tokens")).toBeUndefined();
     expect(db.prepare("SELECT token_hash AS tokenHash FROM hub_access_tokens").get()).toEqual({
       tokenHash: "legacy-hash",
     });
+
+    const legacyInsert = db
+      .prepare(
+        `INSERT INTO cockpit_access_tokens
+          (id, token_hash, label, created_at, expires_at)
+         VALUES ('catok_rollback', 'rollback-hash', 'Rollback browser', ?, ?)`,
+      )
+      .run(now, "2026-08-22T00:00:00.000Z");
+    expect(legacyInsert.changes).toBe(1);
+    expect(
+      db.prepare("SELECT label FROM hub_access_tokens WHERE id = 'catok_rollback'").get(),
+    ).toEqual({ label: "Rollback browser" });
+    const legacyRevoke = db
+      .prepare("UPDATE cockpit_access_tokens SET revoked_at = ? WHERE id = ?")
+      .run("2026-07-22T00:00:00.000Z", "catok_rollback");
+    expect(legacyRevoke.changes).toBe(1);
+    expect(
+      db
+        .prepare(
+          "SELECT revoked_at AS revokedAt FROM hub_access_tokens WHERE id = 'catok_rollback'",
+        )
+        .get(),
+    ).toEqual({ revokedAt: "2026-07-22T00:00:00.000Z" });
+    db.prepare("DELETE FROM cockpit_access_tokens WHERE id = ?").run("catok_rollback");
+    expect(
+      db.prepare("SELECT id FROM hub_access_tokens WHERE id = 'catok_rollback'").get(),
+    ).toBeUndefined();
     expect(
       db
         .prepare("SELECT value_json AS valueJson FROM app_settings WHERE key = ?")

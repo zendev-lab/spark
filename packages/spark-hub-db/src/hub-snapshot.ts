@@ -414,9 +414,9 @@ function prepareRestoredDatabase(
     const workspaceAccessTokensDeleted = changes(
       db.prepare("DELETE FROM workspace_access_tokens WHERE used_at IS NULL").run(),
     );
-    const hubAccessTokensDeleted = changes(
-      db.prepare("DELETE FROM hub_access_tokens WHERE used_at IS NULL").run(),
-    );
+    const hubAccessTokensDeleted = db
+      .prepare("DELETE FROM hub_access_tokens WHERE used_at IS NULL RETURNING id")
+      .all().length;
     const runtimeSessionsClosed = changes(
       db
         .prepare(
