@@ -19,7 +19,6 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { npmDistributions, releaseVersion } from "./npm-distributions.mjs";
-import { exerciseSparkDaemonLifecycle } from "../test/support/spark-process-harness.ts";
 
 const execFileAsync = promisify(execFile);
 const root = process.cwd();
@@ -188,6 +187,118 @@ function terminateProcessTree(child) {
     }
   }
   child.kill("SIGTERM");
+}
+
+async function processStartToken(pid) {
+  try {
+    if (process.platform === "linux") {
+      const details = await readFile(`/proc/${pid}/stat`, "utf8");
+      const fields = details
+        .slice(details.lastIndexOf(")") + 2)
+        .trim()
+        .split(/\s+/u);
+      return fields[19] ? `linux:${fields[19]}` : undefined;
+    }
+    const result = await run("ps", ["-o", "lstart=", "-p", String(pid)], {
+      env: process.env,
+      timeout: 10_000,
+    });
+    return result.stdout.trim() ? `${process.platform}:${result.stdout.trim()}` : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function isOwnedAlive(identity) {
+  try {
+    process.kill(identity.pid, 0);
+  } catch {
+    return false;
+  }
+  return (await processStartToken(identity.pid)) === identity.startToken;
+}
+
+async function waitForOwnedExit(identity, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && (await isOwnedAlive(identity))) {
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  }
+  return !(await isOwnedAlive(identity));
+}
+
+async function exerciseInstalledDaemonLifecycle({ dispatcher, daemon, cwd, env }) {
+  const child = spawn(daemon.command, [...daemon.argvPrefix, "__service-start"], {
+    cwd,
+    env,
+    detached: process.platform !== "win32",
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  if (!child.pid) throw new Error("packaged daemon foreground process has no PID");
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderr = `${stderr}${chunk}`.slice(-16_384);
+  });
+  const identity = { pid: child.pid, startToken: await processStartToken(child.pid) };
+  if (!identity.startToken) {
+    terminateProcessTree(child);
+    throw new Error("packaged daemon PID/start token is unverifiable");
+  }
+
+  try {
+    const deadline = Date.now() + 60_000;
+    let status;
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        throw new Error(
+          `packaged daemon foreground process exited${stderr.trim() ? `: ${stderr.trim()}` : ""}`,
+        );
+      }
+      try {
+        const result = await run(
+          dispatcher.command,
+          [...dispatcher.argvPrefix, "daemon", "status", "--json"],
+          { cwd, env, timeout: 10_000 },
+        );
+        status = JSON.parse(result.stdout);
+        if (status?.daemon?.running === true && status?.daemon?.pid === identity.pid) break;
+      } catch {
+        // The packaged daemon may still be opening its local RPC transport.
+      }
+      await new Promise((resolveWait) => setTimeout(resolveWait, 100));
+    }
+    if (status?.daemon?.running !== true || status?.daemon?.pid !== identity.pid) {
+      throw new Error(
+        `packaged daemon foreground process did not become ready within 60 seconds${stderr.trim() ? `: ${stderr.trim()}` : ""}`,
+      );
+    }
+
+    await run(dispatcher.command, [...dispatcher.argvPrefix, "daemon", "stop", "--yes"], {
+      cwd,
+      env,
+    });
+    if (!(await waitForOwnedExit(identity, 10_000))) {
+      throw new Error("packaged daemon did not exit after dispatcher stop");
+    }
+    const stopped = JSON.parse(
+      (
+        await run(dispatcher.command, [...dispatcher.argvPrefix, "daemon", "status", "--json"], {
+          cwd,
+          env,
+        })
+      ).stdout,
+    );
+    if (stopped?.daemon?.running !== false) {
+      throw new Error("packaged daemon dispatcher did not report the stopped owner");
+    }
+  } finally {
+    if (await isOwnedAlive(identity)) {
+      terminateProcessTree(child);
+      if (!(await waitForOwnedExit(identity, 5_000))) {
+        throw new Error("packaged daemon cleanup could not verify process exit");
+      }
+    }
+  }
 }
 
 function installedBin(installRoot, packageName, name) {
@@ -381,12 +492,11 @@ try {
     cwd: completeRoot,
     env: nodeEnvironment,
   });
-  await exerciseSparkDaemonLifecycle({
-    command: spark.command,
-    argvPrefix: spark.argvPrefix,
+  await exerciseInstalledDaemonLifecycle({
+    dispatcher: spark,
+    daemon: completeDaemon,
     cwd: completeRoot,
     env: nodeEnvironment,
-    timeoutMs: 120_000,
   });
 
   console.log("Probing independently installed daemon and TUI packages...");
@@ -493,5 +603,5 @@ try {
       .join("; ")}).`,
   );
 } finally {
-  await rm(temporary, { recursive: true, force: true });
+  await rm(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }

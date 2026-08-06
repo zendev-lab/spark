@@ -17,3 +17,7 @@ Retired Pi/component-specific path variables are not active overrides.
 See [`../../docs/specs/configuration-and-paths.md`](../../docs/specs/configuration-and-paths.md) for layout, precedence, and migration policy.
 
 This package is part of the Spark monorepo and targets Node 26.
+
+## SQLite migration manifests
+
+The package exports dependency-free strict parsers for Spark owner migration manifests and the hidden exact-artifact database probe protocol. Migration schema v2 separates pre-governance SQL inventory from governed migrations: packaged checksums prove current artifact bytes, while `legacy-unverified` provenance prevents retroactive claims about old database history. Validation covers exact fields, checksum evidence kind/path, SHA-256 formatting, automatic-update eligibility, schema-head ranges, and delayed governed expand/contract relationships. Database execution, canonical schema descriptors, sentinels, and applied-state ledgers remain in each SQLite owner.

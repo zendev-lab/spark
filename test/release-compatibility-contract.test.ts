@@ -2,44 +2,12 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "vitest";
+import Ajv2020 from "ajv/dist/2020.js";
 
-interface CompatibilityContract {
-  schemaVersion: number;
-  adjacentReleaseWindow: number;
-  firstSplitRelease: string;
-  fullMatrixRequiredFrom: string;
-  components: string[];
-  edges: Array<{ id: string; left: string; right: string; surfaces: string[] }>;
-  releaseGate: {
-    artifactMode: string;
-    requiredPhases: Array<{ id: string; left: string; right: string }>;
-    sameVersionSanity: boolean;
-    firstSplitReleaseException: {
-      candidateVersion: string;
-      baselineVersion: string;
-      reason: string;
-    };
-  };
-  protocol: {
-    productVersionIsWireVersion: boolean;
-    featureNegotiation: string;
-    breakingChangeBridgeReleases: number;
-  };
-  database: {
-    metadataRequiredFrom: string;
-    owners: Array<{ id: string; migrationManifest: string }>;
-    migrationPhases: string[];
-    automaticUpdatePhases: string[];
-    minimumContractDelayReleases: number;
-    requireMigrationChecksums: boolean;
-    requireImmutableAppliedMigrations: boolean;
-    requireNMinusOneReadWrite: boolean;
-    requireIdempotentReopen: boolean;
-    requireCrashRecovery: boolean;
-    rejectUnsupportedFutureSchema: boolean;
-    rollbackRestoresDatabase: boolean;
-  };
-}
+import {
+  loadAndValidateReleaseCompatibility,
+  validateCompatibilitySemantics,
+} from "../scripts/validate-release-compatibility.mjs";
 
 const root = process.cwd();
 
@@ -47,35 +15,40 @@ async function readJson<T>(path: string): Promise<T> {
   return JSON.parse(await readFile(join(root, path), "utf8")) as T;
 }
 
-function compareVersions(left: string, right: string): number {
-  const parse = (value: string) => {
-    const match = /^(\d+)\.(\d+)\.(\d+)(?:-|$)/u.exec(value);
-    assert.ok(match, `invalid stable version: ${value}`);
-    return match.slice(1, 4).map(Number);
-  };
-  const a = parse(left);
-  const b = parse(right);
-  for (let index = 0; index < 3; index += 1) {
-    if (a[index] !== b[index]) return a[index]! - b[index]!;
-  }
-  return 0;
+async function contractAndSchema() {
+  return await Promise.all([
+    readJson<Record<string, any>>("architecture/release-compatibility.json"),
+    readJson<Record<string, any>>("architecture/release-compatibility.schema.json"),
+  ]);
 }
 
-test("adjacent release compatibility is an explicit two-edge contract", async () => {
-  const contract = await readJson<CompatibilityContract>("architecture/release-compatibility.json");
+function clone<T>(value: T): T {
+  return structuredClone(value);
+}
 
+test("the adjacent-release contract passes its closed runtime schema and semantic graph", async () => {
+  const contract = await loadAndValidateReleaseCompatibility(root);
   assert.equal(contract.schemaVersion, 1);
-  assert.equal(contract.adjacentReleaseWindow, 1);
   assert.deepEqual(contract.components, ["hub", "daemon", "tui"]);
   assert.deepEqual(
-    contract.edges.map(({ id, left, right }) => ({ id, left, right })),
+    contract.edges.map(({ id, left, right, surfaces }: any) => ({ id, left, right, surfaces })),
     [
-      { id: "hub-daemon", left: "hub", right: "daemon" },
-      { id: "daemon-tui", left: "daemon", right: "tui" },
+      {
+        id: "hub-daemon",
+        left: "hub",
+        right: "daemon",
+        surfaces: ["runtime-websocket", "local-control-rpc"],
+      },
+      {
+        id: "daemon-tui",
+        left: "daemon",
+        right: "tui",
+        surfaces: ["local-control-rpc", "view-event-stream"],
+      },
     ],
   );
   assert.deepEqual(
-    contract.releaseGate.requiredPhases.map(({ id }) => id),
+    contract.releaseGate.requiredPhases.map(({ id }: any) => id),
     [
       "candidate-hub--baseline-daemon",
       "baseline-hub--candidate-daemon",
@@ -83,73 +56,98 @@ test("adjacent release compatibility is an explicit two-edge contract", async ()
       "baseline-tui--candidate-daemon",
     ],
   );
-  assert.equal(contract.releaseGate.artifactMode, "exact-tarballs");
-  assert.equal(contract.releaseGate.sameVersionSanity, true);
-  assert.equal(contract.protocol.productVersionIsWireVersion, false);
-  assert.equal(contract.protocol.featureNegotiation, "intersection");
-  assert.equal(contract.protocol.breakingChangeBridgeReleases, 1);
+  assert.equal(contract.protocol.unknownOptionalFields, "ignore-with-deterministic-defaults");
+  assert.equal(contract.protocol.unknownRequiredCapabilities, "reject-with-actionable-diagnostic");
 });
 
-test("the legacy 0.2.1 exception is bounded to the first split release", async () => {
-  const contract = await readJson<CompatibilityContract>("architecture/release-compatibility.json");
-  const exception = contract.releaseGate.firstSplitReleaseException;
+test("the contract schema rejects missing, unknown, and malformed policy", async () => {
+  const [contract, schema] = await contractAndSchema();
+  const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
 
+  for (const mutate of [
+    (value: any) => delete value.protocol.unknownRequiredCapabilities,
+    (value: any) => (value.releaseGate.placeholder = true),
+    (value: any) => (value.fullMatrixRequiredFrom = "next"),
+    (value: any) => (value.database.automaticUpdatePhases = ["expand", "backfill"]),
+  ]) {
+    const invalid = clone(contract);
+    mutate(invalid);
+    assert.equal(validate(invalid), false, JSON.stringify(invalid));
+  }
+});
+
+test("semantic validation rejects broken product graphs and a leaked legacy exception", async () => {
+  const [contract] = await contractAndSchema();
+
+  const duplicate = clone(contract);
+  duplicate.releaseGate.requiredPhases[1] = clone(duplicate.releaseGate.requiredPhases[0]);
+  assert.throws(() => validateCompatibilitySemantics(duplicate), /duplicate release phase/u);
+
+  const wrongEdge = clone(contract);
+  wrongEdge.releaseGate.requiredPhases[0].edge = "daemon-tui";
+  assert.throws(() => validateCompatibilitySemantics(wrongEdge), /does not cover/u);
+
+  const leakedException = clone(contract);
+  leakedException.releaseGate.firstSplitReleaseException.candidateVersion = "0.4.0";
+  assert.throws(() => validateCompatibilitySemantics(leakedException), /first split release/u);
+});
+
+test("the legacy all-in-one exception is bounded and reports split phases as not-applicable", async () => {
+  const contract = await loadAndValidateReleaseCompatibility(root);
+  const exception = contract.releaseGate.firstSplitReleaseException;
   assert.equal(contract.firstSplitRelease, "0.3.0");
   assert.equal(contract.fullMatrixRequiredFrom, "0.4.0");
-  assert.equal(exception.candidateVersion, contract.firstSplitRelease);
-  assert.equal(exception.baselineVersion, "0.2.1");
+  assert.deepEqual(exception, {
+    candidateVersion: "0.3.0",
+    baselineVersion: "0.2.1",
+    phaseStatus: "not-applicable",
+    reason: exception.reason,
+  });
   assert.match(exception.reason, /no independently published Hub or TUI artifacts/u);
-  assert.ok(compareVersions(contract.fullMatrixRequiredFrom, contract.firstSplitRelease) > 0);
 });
 
-test("the tag release keeps the existing exact-artifact migration gate", async () => {
-  const workflow = await readFile(join(root, ".github/workflows/cd-publish.yml"), "utf8");
-  assert.match(workflow, /pnpm run release:pack/u);
-  assert.match(workflow, /scripts\/test-release-migration\.mjs/u);
-  assert.match(workflow, /--daemon-tarball/u);
-  assert.match(workflow, /--hub-tarball/u);
-  assert.match(workflow, /--tui-tarball/u);
-});
-
-test("the first post-split release cannot ship without the real product matrix", async () => {
-  const manifest = await readJson<{ version: string }>("package.json");
-  const contract = await readJson<CompatibilityContract>("architecture/release-compatibility.json");
-  if (compareVersions(manifest.version, contract.fullMatrixRequiredFrom) < 0) return;
-
-  const harness = "scripts/test-adjacent-product-compatibility.mjs";
-  await access(join(root, harness));
-  const workflow = await readFile(join(root, ".github/workflows/cd-publish.yml"), "utf8");
-  assert.match(workflow, new RegExp(harness.replaceAll("/", "\\/"), "u"));
-});
-
-test("database compatibility metadata becomes mandatory after the split baseline", async () => {
-  const manifest = await readJson<{ version: string }>("package.json");
-  const contract = await readJson<CompatibilityContract>("architecture/release-compatibility.json");
-  const database = contract.database;
-
-  assert.deepEqual(database.owners, [
-    {
-      id: "daemon",
-      migrationManifest: "apps/spark-daemon/src/store/migrations/manifest.json",
-    },
-    {
-      id: "hub",
-      migrationManifest: "packages/spark-hub-db/src/migrations/manifest.json",
-    },
+test("the canonical release gate and both owner manifests are present now, not at a future placeholder", async () => {
+  const contract = await loadAndValidateReleaseCompatibility(root);
+  await Promise.all([
+    access(join(root, contract.releaseGate.harness)),
+    access(join(root, contract.releaseGate.productHarness)),
+    access(join(root, contract.database.harness)),
+    ...contract.database.owners.map(({ migrationManifest }: any) =>
+      access(join(root, migrationManifest)),
+    ),
   ]);
-  assert.deepEqual(database.migrationPhases, ["expand", "backfill", "contract"]);
-  assert.deepEqual(database.automaticUpdatePhases, ["expand"]);
-  assert.equal(database.minimumContractDelayReleases, 2);
-  assert.equal(database.requireMigrationChecksums, true);
-  assert.equal(database.requireImmutableAppliedMigrations, true);
-  assert.equal(database.requireNMinusOneReadWrite, true);
-  assert.equal(database.requireIdempotentReopen, true);
-  assert.equal(database.requireCrashRecovery, true);
-  assert.equal(database.rejectUnsupportedFutureSchema, true);
-  assert.equal(database.rollbackRestoresDatabase, false);
-
-  if (compareVersions(manifest.version, database.metadataRequiredFrom) < 0) return;
-  await Promise.all(
-    database.owners.map(({ migrationManifest }) => access(join(root, migrationManifest))),
+  assert.equal(contract.releaseGate.harness, "scripts/test-release-compatibility.mjs");
+  assert.equal(
+    contract.releaseGate.productHarness,
+    "scripts/test-adjacent-product-compatibility.mjs",
   );
+  assert.equal(contract.database.harness, "scripts/test-adjacent-database-compatibility.mjs");
+  assert.deepEqual(contract.database.requiredPhases, [
+    "baseline-create-write",
+    "candidate-migrate-read-write",
+    "baseline-reopen-read-write",
+    "candidate-idempotent-reopen",
+    "candidate-fresh-baseline-read-write",
+    "interruption-recovery",
+    "reject-unsafe-states",
+  ]);
+});
+
+test("the tag workflow unconditionally runs the canonical gate before artifact upload", async () => {
+  const workflow = await readFile(join(root, ".github/workflows/cd-publish.yml"), "utf8");
+  const pack = workflow.indexOf("pnpm run release:pack");
+  const gate = workflow.indexOf("node scripts/test-release-compatibility.mjs");
+  const upload = workflow.indexOf("name: Upload release artifacts");
+  assert.ok(
+    pack >= 0 && gate > pack && upload > gate,
+    "release gate must run after pack and before upload",
+  );
+  const gateStep = workflow.slice(
+    workflow.lastIndexOf("      - name:", gate),
+    workflow.indexOf("\n      - name:", gate),
+  );
+  assert.match(gateStep, /run: >-\s+node scripts\/test-release-compatibility\.mjs/u);
+  assert.doesNotMatch(gateStep, /continue-on-error|if:/u);
+  assert.match(workflow, /dist\/release\/adjacent-product-compatibility\.json/u);
+  assert.match(workflow, /dist\/release\/adjacent-database-compatibility\.json/u);
 });

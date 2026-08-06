@@ -1,21 +1,248 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import {
   applyDaemonSqliteResourceLimits,
   openSqliteDatabase,
   type SparkPaths,
+  parseSparkSqliteMigrationManifest,
+  sha256Text,
+  type SparkSqliteMigrationManifest,
 } from "@zendev-lab/spark-system";
 
 export function openSparkDaemonDatabase(paths: SparkPaths): DatabaseSync {
-  const db = openSqliteDatabase(paths.databasePath, { autoVacuum: "incremental" });
-  applyDaemonSqliteResourceLimits(db);
-  migrateSparkDaemonDatabase(db);
-  return db;
+  return openSparkDaemonDatabasePath(paths.databasePath);
 }
 
-export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
-  renameLegacySparkDaemonTables(db);
-  db.exec(`
+export function openSparkDaemonDatabasePath(
+  databasePath: string,
+  options: { interrupt?: (boundary: "after-schema" | "before-commit") => void } = {},
+): DatabaseSync {
+  const db = openSqliteDatabase(databasePath, { autoVacuum: "incremental" });
+  try {
+    applyDaemonSqliteResourceLimits(db);
+    migrateSparkDaemonDatabase(db, options);
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+}
+
+function daemonManifestPath(): string {
+  return (
+    process.env.SPARK_DAEMON_MIGRATION_MANIFEST ??
+    (process.env.SPARK_PRODUCT_DIST
+      ? join(process.env.SPARK_PRODUCT_DIST, "migrations/daemon/manifest.json")
+      : join(dirname(fileURLToPath(import.meta.url)), "migrations/manifest.json"))
+  );
+}
+
+export interface DaemonCanonicalSchemaDescriptor {
+  schemaVersion: 1;
+  databaseId: "spark-daemon-sqlite";
+  comparison: "required-subset";
+  tables: Array<{
+    name: string;
+    columns: Array<{
+      name: string;
+      type: string;
+      notNull: boolean;
+      primaryKeyPosition: number;
+    }>;
+    indexes: string[];
+  }>;
+}
+
+function loadDaemonBaselineDescriptor(
+  manifest: SparkSqliteMigrationManifest,
+  manifestPath = daemonManifestPath(),
+): DaemonCanonicalSchemaDescriptor {
+  const descriptorPath = join(dirname(manifestPath), manifest.baseline.checksumPath);
+  if (!existsSync(descriptorPath))
+    throw new Error("Daemon canonical schema descriptor not found: " + descriptorPath);
+  const text = readFileSync(descriptorPath, "utf8");
+  if (sha256Text(text) !== manifest.baseline.checksum)
+    throw new Error("Daemon canonical schema descriptor checksum mismatch");
+  const descriptor = JSON.parse(text) as Partial<DaemonCanonicalSchemaDescriptor>;
+  if (
+    descriptor.schemaVersion !== 1 ||
+    descriptor.databaseId !== "spark-daemon-sqlite" ||
+    descriptor.comparison !== "required-subset" ||
+    !Array.isArray(descriptor.tables)
+  ) {
+    throw new Error("Daemon canonical schema descriptor is invalid");
+  }
+  return descriptor as DaemonCanonicalSchemaDescriptor;
+}
+
+export function loadDaemonMigrationManifest(
+  manifestPath = daemonManifestPath(),
+): SparkSqliteMigrationManifest {
+  if (!existsSync(manifestPath))
+    throw new Error("Daemon migration manifest not found: " + manifestPath);
+  const manifest = parseSparkSqliteMigrationManifest(
+    JSON.parse(readFileSync(manifestPath, "utf8")),
+  );
+  if (manifest.owner !== "daemon" || manifest.databaseId !== "spark-daemon-sqlite")
+    throw new Error("Daemon migration manifest owner/database mismatch");
+  if (
+    manifest.baseline.id !== "legacy-inline-v0" ||
+    manifest.baseline.kind !== "validated-legacy-shape" ||
+    manifest.baseline.checksumKind !== "canonical-schema-descriptor" ||
+    manifest.baseline.provenance !== "legacy-unverified" ||
+    manifest.baseline.introducedRelease !== null ||
+    manifest.baseline.historicalMigrationHistoryAvailable
+  )
+    throw new Error("Daemon manifest must use the honest legacy-inline-v0 baseline");
+  if (
+    manifest.preGovernanceMigrations.length !== 0 ||
+    manifest.migrations.length !== 0 ||
+    manifest.currentSchemaHead !== "legacy-inline-v0"
+  )
+    throw new Error("Daemon manifest cannot claim numbered historical migrations");
+  loadDaemonBaselineDescriptor(manifest, manifestPath);
+  return manifest;
+}
+
+function validateDaemonCanonicalSchema(
+  db: DatabaseSync,
+  manifest: SparkSqliteMigrationManifest,
+): void {
+  const descriptor = loadDaemonBaselineDescriptor(manifest);
+  for (const table of descriptor.tables) {
+    if (!tableExists(db, table.name))
+      throw new Error("Daemon schema is missing baseline table: " + table.name);
+    const columns = new Map(
+      (
+        db.prepare(`PRAGMA table_info(${JSON.stringify(table.name)})`).all() as Array<{
+          name: string;
+          type: string;
+          notnull: number;
+          pk: number;
+        }>
+      ).map((column) => [column.name, column]),
+    );
+    for (const expected of table.columns) {
+      const actual = columns.get(expected.name);
+      if (
+        !actual ||
+        actual.type.toUpperCase() !== expected.type.toUpperCase() ||
+        Boolean(actual.notnull) !== expected.notNull ||
+        actual.pk !== expected.primaryKeyPosition
+      ) {
+        throw new Error(
+          `Daemon schema column does not match baseline descriptor: ${table.name}.${expected.name}`,
+        );
+      }
+    }
+    const indexes = new Set(
+      (
+        db.prepare(`PRAGMA index_list(${JSON.stringify(table.name)})`).all() as Array<{
+          name: string;
+        }>
+      ).map(({ name }) => name),
+    );
+    for (const index of table.indexes) {
+      if (!indexes.has(index)) throw new Error("Daemon schema is missing baseline index: " + index);
+    }
+  }
+}
+
+function daemonSchemaFingerprint(db: DatabaseSync, manifest: SparkSqliteMigrationManifest): string {
+  const descriptor = loadDaemonBaselineDescriptor(manifest);
+  const projection = descriptor.tables.map((table) => {
+    const actualColumns = new Map(
+      (
+        db.prepare(`PRAGMA table_info(${JSON.stringify(table.name)})`).all() as Array<{
+          name: string;
+          type: string;
+          notnull: number;
+          pk: number;
+        }>
+      ).map((column) => [column.name, column]),
+    );
+    const actualIndexes = new Set(
+      (
+        db.prepare(`PRAGMA index_list(${JSON.stringify(table.name)})`).all() as Array<{
+          name: string;
+        }>
+      ).map(({ name }) => name),
+    );
+    return {
+      name: table.name,
+      columns: table.columns.map((expected) => {
+        const actual = actualColumns.get(expected.name);
+        return actual
+          ? {
+              name: actual.name,
+              type: actual.type.toUpperCase(),
+              notNull: Boolean(actual.notnull),
+              primaryKeyPosition: actual.pk,
+            }
+          : { name: expected.name, missing: true };
+      }),
+      indexes: table.indexes.map((name) => ({ name, present: actualIndexes.has(name) })),
+    };
+  });
+  return sha256Text(JSON.stringify(projection));
+}
+
+function validateDaemonSchemaMarker(
+  db: DatabaseSync,
+  manifest: SparkSqliteMigrationManifest,
+): void {
+  if (!tableExists(db, "daemon_meta")) return;
+  const rows = db
+    .prepare("SELECT key, value FROM daemon_meta WHERE key LIKE 'schema.compatibility.%'")
+    .all() as Array<{ key: string; value: string }>;
+  const marker = new Map(rows.map((row) => [row.key, row.value]));
+  const head = marker.get("schema.compatibility.head");
+  const checksum = marker.get("schema.compatibility.baseline_checksum");
+  const state = marker.get("schema.compatibility.state");
+  const fingerprint = marker.get("schema.compatibility.schema_fingerprint");
+  if (head && head !== manifest.currentSchemaHead)
+    throw new Error("Daemon database has unknown or future schema head: " + head);
+  if (checksum && checksum !== manifest.baseline.checksum)
+    throw new Error("Daemon legacy baseline checksum mismatch");
+  if (fingerprint && fingerprint !== daemonSchemaFingerprint(db, manifest))
+    throw new Error("Daemon validated baseline schema fingerprint mismatch");
+  if (state === "dirty" || state === "failed")
+    throw new Error("Daemon schema compatibility marker is not clean: " + state);
+}
+
+function recordDaemonSchemaMarker(db: DatabaseSync, manifest: SparkSqliteMigrationManifest): void {
+  validateDaemonCanonicalSchema(db, manifest);
+  const now = new Date().toISOString();
+  const fingerprint = daemonSchemaFingerprint(db, manifest);
+  const entries = [
+    ["schema.compatibility.owner", manifest.owner],
+    ["schema.compatibility.database", manifest.databaseId],
+    ["schema.compatibility.head", manifest.currentSchemaHead],
+    ["schema.compatibility.baseline", manifest.baseline.id],
+    ["schema.compatibility.baseline_checksum", manifest.baseline.checksum],
+    ["schema.compatibility.state", "legacy-unverified"],
+    ["schema.compatibility.schema_fingerprint", fingerprint],
+  ] as const;
+  const statement = db.prepare(
+    "INSERT INTO daemon_meta (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+  );
+  for (const [key, value] of entries) statement.run(key, value, now);
+}
+
+export function migrateSparkDaemonDatabase(
+  db: DatabaseSync,
+  options: { interrupt?: (boundary: "after-schema" | "before-commit") => void } = {},
+): void {
+  const manifest = loadDaemonMigrationManifest();
+  validateDaemonSchemaMarker(db, manifest);
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec("BEGIN IMMEDIATE");
+  try {
+    renameLegacySparkDaemonTables(db);
+    db.exec(`
     CREATE TABLE IF NOT EXISTS daemon_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
@@ -488,30 +715,38 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS lens_code_edges_to_idx
       ON lens_code_edges(workspace_root, revision_digest, to_path);
   `);
-  migrateWorkbenchCheckpointKey(db);
-  migrateSessionRequestCompletionDeliverySchema(db);
-  migrateChannelDeliverySchema(db);
-  addMissingRuntimeCommandReceiptColumns(db);
-  addMissingInvocationColumns(db);
-  addMissingUsageExecutionColumns(db);
-  migrateLegacyDriverTables(db);
-  addMissingLoopColumns(db);
-  db.exec(`
+    migrateWorkbenchCheckpointKey(db);
+    migrateSessionRequestCompletionDeliverySchema(db);
+    migrateChannelDeliverySchema(db);
+    addMissingRuntimeCommandReceiptColumns(db);
+    addMissingInvocationColumns(db);
+    addMissingUsageExecutionColumns(db);
+    migrateLegacyDriverTables(db);
+    addMissingLoopColumns(db);
+    db.exec(`
     INSERT OR IGNORE INTO invocation_event_delivery_consumers (destination, registered_at)
     SELECT DISTINCT destination, MIN(updated_at)
     FROM invocation_event_deliveries
     GROUP BY destination
   `);
-  const humanWaitColumns = workspaceColumns(db, "daemon_human_waits");
-  if (!humanWaitColumns.has("accepted_response_id")) {
-    db.exec("ALTER TABLE daemon_human_waits ADD COLUMN accepted_response_id TEXT");
+    const humanWaitColumns = workspaceColumns(db, "daemon_human_waits");
+    if (!humanWaitColumns.has("accepted_response_id")) {
+      db.exec("ALTER TABLE daemon_human_waits ADD COLUMN accepted_response_id TEXT");
+    }
+    retireLegacyDaemonErrorOutbox(db);
+    migrateWorkspacesTable(db);
+    db.exec("CREATE INDEX IF NOT EXISTS workspaces_status_idx ON workspaces(status)");
+    migrateWorkspaceLifecycleTable(db);
+    migrateSparkDaemonRegistrationTables(db);
+    backfillSparkDaemonRegistrationTables(db);
+    options.interrupt?.("after-schema");
+    recordDaemonSchemaMarker(db, manifest);
+    options.interrupt?.("before-commit");
+    if (ownsTransaction) db.exec("COMMIT");
+  } catch (error) {
+    if (ownsTransaction && db.isTransaction) db.exec("ROLLBACK");
+    throw error;
   }
-  retireLegacyDaemonErrorOutbox(db);
-  migrateWorkspacesTable(db);
-  db.exec("CREATE INDEX IF NOT EXISTS workspaces_status_idx ON workspaces(status)");
-  migrateWorkspaceLifecycleTable(db);
-  migrateSparkDaemonRegistrationTables(db);
-  backfillSparkDaemonRegistrationTables(db);
 }
 
 function migrateWorkbenchCheckpointKey(db: DatabaseSync): void {
@@ -525,7 +760,8 @@ function migrateWorkbenchCheckpointKey(db: DatabaseSync): void {
     .sort((left, right) => left.pk - right.pk)
     .map((column) => column.name);
   if (primaryKey.join(",") === "binding_id,checkpoint_id") return;
-  db.exec("BEGIN IMMEDIATE");
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec("BEGIN IMMEDIATE");
   try {
     db.exec(`
       ALTER TABLE workbench_checkpoints RENAME TO workbench_checkpoints_legacy_key;
@@ -552,9 +788,9 @@ function migrateWorkbenchCheckpointKey(db: DatabaseSync): void {
       CREATE INDEX IF NOT EXISTS workbench_checkpoints_binding_idx
         ON workbench_checkpoints(binding_id, created_at);
     `);
-    db.exec("COMMIT");
+    if (ownsTransaction) db.exec("COMMIT");
   } catch (error) {
-    if (db.isTransaction) db.exec("ROLLBACK");
+    if (ownsTransaction && db.isTransaction) db.exec("ROLLBACK");
     throw error;
   }
 }
@@ -672,7 +908,8 @@ function migrateChannelDeliverySchema(db: DatabaseSync): void {
   const columns = workspaceColumns(db, "channel_deliveries");
   const dispatchedAt = columns.has("dispatched_at") ? "dispatched_at" : "NULL";
 
-  db.exec("BEGIN IMMEDIATE");
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec("BEGIN IMMEDIATE");
   try {
     db.exec(`
       DROP INDEX IF EXISTS channel_deliveries_due_idx;
@@ -718,9 +955,9 @@ function migrateChannelDeliverySchema(db: DatabaseSync): void {
           SELECT RAISE(ABORT, 'channel delivery idempotency_key is immutable');
         END;
     `);
-    db.exec("COMMIT");
+    if (ownsTransaction) db.exec("COMMIT");
   } catch (error) {
-    db.exec("ROLLBACK");
+    if (ownsTransaction && db.isTransaction) db.exec("ROLLBACK");
     throw error;
   }
 }
@@ -729,7 +966,8 @@ function migrateChannelDeliverySchema(db: DatabaseSync): void {
 function migrateLegacyDriverTables(db: DatabaseSync): void {
   if (!tableExists(db, "driver_wakeups")) return;
   const now = new Date().toISOString();
-  db.exec("BEGIN IMMEDIATE");
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec("BEGIN IMMEDIATE");
   try {
     const legacyColumns = workspaceColumns(db, "driver_wakeups");
     if (!legacyColumns.has("wake_prompt")) {
@@ -820,9 +1058,9 @@ function migrateLegacyDriverTables(db: DatabaseSync): void {
        VALUES ('migration.driver-to-loop-v1', 'complete', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
     ).run(now);
-    db.exec("COMMIT");
+    if (ownsTransaction) db.exec("COMMIT");
   } catch (error) {
-    db.exec("ROLLBACK");
+    if (ownsTransaction && db.isTransaction) db.exec("ROLLBACK");
     throw error;
   }
 }
@@ -839,7 +1077,8 @@ function migrateLegacyDriverTables(db: DatabaseSync): void {
 function retireLegacyDaemonErrorOutbox(db: DatabaseSync): void {
   const migrationKey = "migration.retire-daemon-error-outbox-v1";
   const now = new Date().toISOString();
-  db.exec("BEGIN IMMEDIATE");
+  const ownsTransaction = !db.isTransaction;
+  if (ownsTransaction) db.exec("BEGIN IMMEDIATE");
   try {
     db.prepare("DELETE FROM outbox WHERE kind = 'daemon.error'").run();
     db.prepare(
@@ -849,9 +1088,9 @@ function retireLegacyDaemonErrorOutbox(db: DatabaseSync): void {
          value = excluded.value,
          updated_at = excluded.updated_at`,
     ).run(migrationKey, now);
-    db.exec("COMMIT");
+    if (ownsTransaction) db.exec("COMMIT");
   } catch (error) {
-    db.exec("ROLLBACK");
+    if (ownsTransaction && db.isTransaction) db.exec("ROLLBACK");
     throw error;
   }
 }

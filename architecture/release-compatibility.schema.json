@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zendev-lab/spark/architecture/release-compatibility.schema.json",
+  "title": "Spark adjacent-release compatibility contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "adjacentReleaseWindow",
+    "firstSplitRelease",
+    "fullMatrixRequiredFrom",
+    "components",
+    "edges",
+    "releaseGate",
+    "protocol",
+    "database"
+  ],
+  "properties": {
+    "$schema": { "const": "./release-compatibility.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "adjacentReleaseWindow": { "const": 1 },
+    "firstSplitRelease": { "$ref": "#/$defs/stableVersion" },
+    "fullMatrixRequiredFrom": { "$ref": "#/$defs/stableVersion" },
+    "components": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": { "enum": ["hub", "daemon", "tui"] }
+    },
+    "edges": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/edge" }
+    },
+    "releaseGate": { "$ref": "#/$defs/releaseGate" },
+    "protocol": { "$ref": "#/$defs/protocol" },
+    "database": { "$ref": "#/$defs/database" }
+  },
+  "$defs": {
+    "stableVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "repoPath": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)+$"
+    },
+    "component": {
+      "enum": ["hub", "daemon", "tui"]
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "left", "right", "surfaces"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)+$" },
+        "left": { "$ref": "#/$defs/component" },
+        "right": { "$ref": "#/$defs/component" },
+        "surfaces": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        }
+      }
+    },
+    "releasePhase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "edge", "left", "right", "assertions"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^(candidate|baseline)-[a-z]+--(candidate|baseline)-[a-z]+$"
+        },
+        "edge": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)+$" },
+        "left": { "type": "string", "pattern": "^(candidate|baseline)-(hub|daemon|tui)$" },
+        "right": { "type": "string", "pattern": "^(candidate|baseline)-(hub|daemon|tui)$" },
+        "assertions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+        }
+      }
+    },
+    "releaseGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifactMode",
+        "harness",
+        "productHarness",
+        "reportPath",
+        "baselineSelection",
+        "requiredPhases",
+        "sameVersionSanity",
+        "sameVersionPhase",
+        "firstSplitReleaseException"
+      ],
+      "properties": {
+        "artifactMode": { "const": "exact-tarballs" },
+        "harness": { "$ref": "#/$defs/repoPath" },
+        "productHarness": { "$ref": "#/$defs/repoPath" },
+        "reportPath": { "$ref": "#/$defs/repoPath" },
+        "baselineSelection": { "const": "latest-published-stable-before-candidate" },
+        "requiredPhases": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/releasePhase" }
+        },
+        "sameVersionSanity": { "const": true },
+        "sameVersionPhase": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "components", "assertions"],
+          "properties": {
+            "id": { "const": "candidate-same-version" },
+            "components": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/component" }
+            },
+            "assertions": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" }
+            }
+          }
+        },
+        "firstSplitReleaseException": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["candidateVersion", "baselineVersion", "phaseStatus", "reason"],
+          "properties": {
+            "candidateVersion": { "$ref": "#/$defs/stableVersion" },
+            "baselineVersion": { "$ref": "#/$defs/stableVersion" },
+            "phaseStatus": { "const": "not-applicable" },
+            "reason": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "productVersionIsWireVersion",
+        "featureNegotiation",
+        "unknownOptionalFields",
+        "unknownRequiredCapabilities",
+        "breakingChangeBridgeReleases"
+      ],
+      "properties": {
+        "productVersionIsWireVersion": { "const": false },
+        "featureNegotiation": { "const": "intersection" },
+        "unknownOptionalFields": { "const": "ignore-with-deterministic-defaults" },
+        "unknownRequiredCapabilities": { "const": "reject-with-actionable-diagnostic" },
+        "breakingChangeBridgeReleases": { "const": 1 }
+      }
+    },
+    "databaseOwner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "migrationManifest", "probeCommand"],
+      "properties": {
+        "id": { "enum": ["daemon", "hub"] },
+        "migrationManifest": { "$ref": "#/$defs/repoPath" },
+        "probeCommand": { "type": "string", "pattern": "^spark-(daemon|hub) __compat-database$" }
+      }
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metadataRequiredFrom",
+        "harness",
+        "reportPath",
+        "owners",
+        "requiredPhases",
+        "migrationPhases",
+        "automaticUpdatePhases",
+        "minimumContractDelayReleases",
+        "requireMigrationChecksums",
+        "requireImmutableAppliedMigrations",
+        "requireNMinusOneReadWrite",
+        "requireIdempotentReopen",
+        "requireCrashRecovery",
+        "rejectUnsupportedFutureSchema",
+        "rollbackRestoresDatabase"
+      ],
+      "properties": {
+        "metadataRequiredFrom": { "$ref": "#/$defs/stableVersion" },
+        "harness": { "$ref": "#/$defs/repoPath" },
+        "reportPath": { "$ref": "#/$defs/repoPath" },
+        "owners": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/databaseOwner" }
+        },
+        "requiredPhases": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "baseline-create-write",
+              "candidate-migrate-read-write",
+              "baseline-reopen-read-write",
+              "candidate-idempotent-reopen",
+              "candidate-fresh-baseline-read-write",
+              "interruption-recovery",
+              "reject-unsafe-states"
+            ]
+          }
+        },
+        "migrationPhases": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": { "enum": ["expand", "backfill", "contract"] }
+        },
+        "automaticUpdatePhases": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": { "const": "expand" }
+        },
+        "minimumContractDelayReleases": { "type": "integer", "minimum": 2 },
+        "requireMigrationChecksums": { "const": true },
+        "requireImmutableAppliedMigrations": { "const": true },
+        "requireNMinusOneReadWrite": { "const": true },
+        "requireIdempotentReopen": { "const": true },
+        "requireCrashRecovery": { "const": true },
+        "rejectUnsupportedFutureSchema": { "const": true },
+        "rollbackRestoresDatabase": { "const": false }
+      }
+    }
+  }
+}
