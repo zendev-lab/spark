@@ -98,14 +98,15 @@ export function revokeHubAccessToken(
   db: DatabaseSync,
   input: { tokenId: string; revokedAt?: string },
 ): boolean {
-  const result = db
+  const revoked = db
     .prepare(
       `UPDATE hub_access_tokens
        SET revoked_at = ?
-       WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL`,
+       WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL
+       RETURNING id`,
     )
-    .run(input.revokedAt ?? new Date().toISOString(), input.tokenId);
-  return result.changes === 1;
+    .get(input.revokedAt ?? new Date().toISOString(), input.tokenId);
+  return Boolean(revoked);
 }
 
 /** Consume inside the caller's transaction so session creation is atomic with one-time use. */
@@ -154,10 +155,11 @@ export function consumeHubAccessToken(
     .prepare(
       `UPDATE hub_access_tokens
        SET used_at = ?
-       WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?`,
+       WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+       RETURNING id`,
     )
-    .run(consumedAt, row.id, consumedAt);
-  if (consumed.changes !== 1) {
+    .get(consumedAt, row.id, consumedAt);
+  if (!consumed) {
     throw new HubAccessTokenError(
       "Hub access token has already been used.",
       "HUB_ACCESS_TOKEN_USED",
