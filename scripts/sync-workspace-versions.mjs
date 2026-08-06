@@ -44,7 +44,7 @@ const failures = [];
 let updates = 0;
 for (const workspaceRoot of ["apps", "packages"]) {
   for (const entry of await readdir(resolve(root, workspaceRoot), { withFileTypes: true })) {
-    if (!entry.isDirectory() || entry.name === "spark-mcp-spike") continue;
+    if (!entry.isDirectory()) continue;
     const manifestPath = resolve(root, workspaceRoot, entry.name, "package.json");
     let manifest;
     try {
