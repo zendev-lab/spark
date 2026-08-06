@@ -150,7 +150,7 @@ function completeTrace(): SparkAgentTraceEvent[] {
   ];
 }
 
-function toolFinish(overrides: Record<string, unknown> = {}): unknown {
+function toolFinish(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     schemaVersion: 1,
     eventId: "event:tool:finish",
