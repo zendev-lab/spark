@@ -1,0 +1,32 @@
+name: TEMP - Agent Trace Format Diff
+
+on:
+  pull_request:
+    paths:
+      - packages/spark-protocol/src/agent-trace-schema.ts
+      - packages/spark-protocol/src/agent-trace-validation.ts
+      - .github/workflows/agent-trace-format-debug.yml
+
+permissions:
+  contents: read
+
+jobs:
+  format-diff:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Print canonical format diff
+        run: |
+          pnpm exec vp fmt \
+            packages/spark-protocol/src/agent-trace-schema.ts \
+            packages/spark-protocol/src/agent-trace-validation.ts
+          git diff -- \
+            packages/spark-protocol/src/agent-trace-schema.ts \
+            packages/spark-protocol/src/agent-trace-validation.ts
+          test -n "$(git status --short -- packages/spark-protocol/src/agent-trace-*.ts)"
