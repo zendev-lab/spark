@@ -5,9 +5,16 @@ import { fileURLToPath } from "node:url";
 
 import { SPARK_PROTOCOL_VERSION } from "@zendev-lab/spark-protocol";
 
-import type { SparkBuildInfo } from "./types.ts";
+import type { SparkBuildInfo, SparkDistributionPackageName } from "./types.ts";
 
 const SOURCE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const DISTRIBUTION_PACKAGE_NAMES = new Set<SparkDistributionPackageName>([
+  "@zendev-lab/spark",
+  "@zendev-lab/spark-cli",
+  "@zendev-lab/spark-daemon",
+  "@zendev-lab/spark-hub",
+  "@zendev-lab/spark-tui",
+]);
 
 export function readSparkBuildInfo(
   options: {
@@ -65,7 +72,8 @@ export function isSparkBuildInfo(value: unknown): value is SparkBuildInfo {
   const candidate = value as Partial<SparkBuildInfo>;
   return (
     candidate.schemaVersion === 1 &&
-    candidate.packageName === "@zendev-lab/spark" &&
+    typeof candidate.packageName === "string" &&
+    DISTRIBUTION_PACKAGE_NAMES.has(candidate.packageName as SparkDistributionPackageName) &&
     typeof candidate.version === "string" &&
     typeof candidate.gitSha === "string" &&
     typeof candidate.protocolVersion === "number" &&

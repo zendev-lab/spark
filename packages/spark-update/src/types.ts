@@ -2,6 +2,12 @@ export const SPARK_UPDATE_STATE_SCHEMA_VERSION = 1;
 
 export type SparkUpdatePolicy = "manual" | "notify" | "auto";
 export type SparkUpdateChannel = "latest" | "next";
+export type SparkDistributionPackageName =
+  | "@zendev-lab/spark"
+  | "@zendev-lab/spark-cli"
+  | "@zendev-lab/spark-daemon"
+  | "@zendev-lab/spark-hub"
+  | "@zendev-lab/spark-tui";
 export type SparkInstallMethod =
   | "managed"
   | "vp"
@@ -24,7 +30,7 @@ export interface SparkInstallation {
 
 export interface SparkBuildInfo {
   schemaVersion: 1;
-  packageName: "@zendev-lab/spark";
+  packageName: SparkDistributionPackageName;
   version: string;
   gitSha: string;
   protocolVersion: number;

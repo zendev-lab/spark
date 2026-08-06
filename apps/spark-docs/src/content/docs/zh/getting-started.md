@@ -7,8 +7,9 @@ sidebar:
 
 ## 环境要求
 
-Spark 当前要求 Node.js `>=26 <27`。公开产品同时包含 CLI 分发器、原生 TUI、
-daemon 与 Hub host。
+Spark 当前要求 Node.js `>=26 <27`。`@zendev-lab/spark` 是完整安装包，并会
+安装版本匹配的 daemon、TUI 与 Hub app package。仅部署单个进程时，也可以独立
+安装对应 app。
 
 ## 安装
 
@@ -20,11 +21,18 @@ spark version --json
 spark update status --json
 ```
 
-也可以继续由 package manager 管理安装：
+也可以继续由 package manager 管理完整安装：
 
 ```bash
 npm install --global @zendev-lab/spark
 spark --help
+```
+
+如果某个 host 只需要一个可执行程序，可以直接安装对应 app package：
+
+```bash
+npm install --global @zendev-lab/spark-daemon  # 或 spark-tui / spark-hub
+spark-daemon --help
 ```
 
 全局 npm、pnpm、Yarn、Bun 与 Vite+ 安装会把精确版本更新委托给原安装所有者；源码

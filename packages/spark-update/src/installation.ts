@@ -1,7 +1,12 @@
 import { accessSync, constants, existsSync } from "node:fs";
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import type { SparkInstallation, SparkInstallMethod, SparkUpdateChannel } from "./types.ts";
+import type {
+  SparkDistributionPackageName,
+  SparkInstallation,
+  SparkInstallMethod,
+  SparkUpdateChannel,
+} from "./types.ts";
 
 export const SPARK_PACKAGE_NAME = "@zendev-lab/spark";
 
@@ -17,6 +22,7 @@ export function detectSparkInstallation(options: {
   channel: SparkUpdateChannel;
   env?: NodeJS.ProcessEnv;
   productRoot?: string;
+  packageName?: SparkDistributionPackageName;
   commandPath?: string;
   platform?: NodeJS.Platform;
 }): SparkInstallation {
@@ -45,7 +51,12 @@ export function detectSparkInstallation(options: {
 
   const method = detectPackageManager(options.productRoot, env);
   if (isPackageManagerMethod(method)) {
-    const update = packageManagerUpdateCommand(method, options.channel, commandPath);
+    const update = packageManagerUpdateCommand(
+      method,
+      options.channel,
+      commandPath,
+      options.packageName,
+    );
     return {
       method,
       ...(options.version ? { version: options.version } : {}),
@@ -80,9 +91,10 @@ export function packageManagerUpdateCommand(
   method: Exclude<SparkInstallMethod, "managed" | "container" | "source" | "unknown">,
   target: string,
   sparkCommandPath?: string,
+  packageName: SparkDistributionPackageName = SPARK_PACKAGE_NAME,
 ): SparkPackageUpdateCommand {
   const command = siblingCommand(method, sparkCommandPath);
-  const spec = `${SPARK_PACKAGE_NAME}@${target}`;
+  const spec = `${packageName}@${target}`;
   const args =
     method === "yarn"
       ? ["global", "add", "--ignore-scripts", spec]

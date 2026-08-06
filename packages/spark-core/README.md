@@ -71,4 +71,4 @@ these types:
    exercise both hosts via the new shape.
 4. Implement on both hosts; only land the change once both pass.
 5. If the change touches native Spark TUI boot/loading, also run the relevant
-   `@zendev-lab/spark-tui-app` host tests (extension loader, runtime contract, and bootstrap).
+   `@zendev-lab/spark-tui` host tests (extension loader, runtime contract, and bootstrap).

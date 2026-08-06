@@ -1,7 +1,7 @@
 /** Host/tool registration types and policies for spark-cue. */
 
 import type { ToolEffect, ToolExecutionMode, ToolPolicy } from "@zendev-lab/spark-core";
-import { truncateToWidth } from "@zendev-lab/spark-tui/text";
+import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
 import type { CueClient, CueResolvedTransport } from "../client/cue-client.ts";
 
 export interface SparkCueHostApi {

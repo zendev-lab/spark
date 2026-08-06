@@ -161,6 +161,11 @@ describe("Spark installation ownership", () => {
       command: "vp",
       args: ["install", "-g", "--ignore-scripts", "@zendev-lab/spark@0.1.2"],
     });
+    expect(
+      packageManagerUpdateCommand("npm", "0.1.2", undefined, "@zendev-lab/spark-cli"),
+    ).toMatchObject({
+      args: ["install", "-g", "--ignore-scripts", "@zendev-lab/spark-cli@0.1.2"],
+    });
     expect(packageManagerUpdateCommand("pnpm", "0.1.2").display).toContain("pnpm install -g");
     expect(packageManagerUpdateCommand("yarn", "0.1.2").display).toContain("yarn global add");
     expect(packageManagerUpdateCommand("bun", "0.1.2").display).toContain("bun install -g");

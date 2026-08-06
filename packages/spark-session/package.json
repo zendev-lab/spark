@@ -1,6 +1,6 @@
 {
   "name": "@zendev-lab/spark-session",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Daemon-owned persistent session registry, channel bindings, and durable local mailbox mechanism.",
   "license": "MIT",
