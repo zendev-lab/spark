@@ -2,6 +2,8 @@ name: "CE - Capability Nightly"
 
 on:
   pull_request:
+    branches:
+      - main
     paths:
       - ".github/workflows/ce-capability-nightly.yml"
       - "package.json"
