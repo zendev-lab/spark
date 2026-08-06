@@ -2,18 +2,23 @@ name: "CI - PR Checks"
 
 on:
   pull_request:
+    branches:
+      - main
     types:
       - opened
       - edited
       - reopened
       - synchronize
+  merge_group:
+    types:
+      - checks_requested
 
 permissions:
   contents: read
   pull-requests: read
 
 concurrency:
-  group: pr-checks-${{ github.event.pull_request.number }}
+  group: pr-checks-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -22,11 +27,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request'
         with:
           persist-credentials: false
 
       - name: Check PR title
-        if: github.event.pull_request.user.login != 'renovate[bot]'
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.user.login != 'renovate[bot]'
         uses: zrr1999/zendev/actions/validate-title@v0.0.7
         with:
           text: ${{ github.event.pull_request.title }}
+
+      - name: Confirm queued PR titles were already checked
+        if: github.event_name == 'merge_group'
+        run: echo "PR titles passed required checks before entering the merge queue."

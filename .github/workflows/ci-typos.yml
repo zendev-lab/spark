@@ -1,18 +1,6 @@
 name: "CI - Typos"
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/**"
-      - "_typos.toml"
-      - "AGENTS.md"
-      - "README.md"
-      - "apps/**"
-      - "docs/**"
-      - "packages/**"
-      - "test/**"
   pull_request:
     branches:
       - main
@@ -25,6 +13,9 @@ on:
       - "docs/**"
       - "packages/**"
       - "test/**"
+  merge_group:
+    types:
+      - checks_requested
   workflow_dispatch:
 
 permissions:
