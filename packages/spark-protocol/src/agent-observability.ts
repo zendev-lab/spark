@@ -246,11 +246,13 @@ export const sparkAgentFeedbackSchema = z
       feedback.sentiment === undefined &&
       feedback.score === undefined &&
       feedback.label === undefined &&
-      feedback.commentRef === undefined
+      feedback.commentRef === undefined &&
+      feedback.expectedBehaviorRef === undefined
     ) {
       context.addIssue({
         code: "custom",
-        message: "feedback requires sentiment, score, label, or commentRef",
+        message:
+          "feedback requires sentiment, score, label, commentRef, or expectedBehaviorRef",
       });
     }
   });
