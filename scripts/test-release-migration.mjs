@@ -43,7 +43,7 @@ export function parseMigrationArguments(argv) {
 }
 
 export function selectPublishedBaselineVersion(published, currentVersion, explicitVersion) {
-  const stable = (Array.isArray(published) ? published : [published])
+  const stable = [...new Set(Array.isArray(published) ? published : [published])]
     .filter((version) => typeof version === "string" && isStableVersion(version))
     .sort(compareVersions);
   if (explicitVersion) {
@@ -58,6 +58,26 @@ export function selectPublishedBaselineVersion(published, currentVersion, explic
     return explicitVersion;
   }
   return stable.filter((version) => compareVersions(version, currentVersion) < 0).at(-1);
+}
+
+export async function resolvePublishedHubProbe(baselineRoot, dependencies = {}) {
+  const pathExists = dependencies.exists ?? exists;
+  const candidates = [
+    {
+      command: join(baselineRoot, "node_modules", ".bin", "spark-hub"),
+      listArgs: ["delegation", "list"],
+    },
+    {
+      command: join(baselineRoot, "node_modules", ".bin", "spark-cockpit"),
+      listArgs: ["access", "list"],
+    },
+  ];
+  for (const candidate of candidates) {
+    if (await pathExists(candidate.command)) return candidate;
+  }
+  throw new Error(
+    `Published Spark baseline under ${baselineRoot} exposes neither spark-hub nor spark-cockpit.`,
+  );
 }
 
 export async function readCandidateArtifactIdentity(
@@ -200,7 +220,14 @@ export async function runMixedVersionIpcMatrix(
 }
 
 export async function runMixedVersionHubMigrationMatrix(
-  { baselineHub, candidateHub, temporaryRoot, baseEnv = process.env, cwd = process.cwd() },
+  {
+    baselineHub,
+    baselineHubListArgs = ["access", "list"],
+    candidateHub,
+    temporaryRoot,
+    baseEnv = process.env,
+    cwd = process.cwd(),
+  },
   dependencies = {},
 ) {
   const runHub =
@@ -214,9 +241,13 @@ export async function runMixedVersionHubMigrationMatrix(
   };
   await Promise.all([env.HOME, env.SPARK_HOME].map((path) => mkdir(path, { recursive: true })));
 
-  await runHub(baselineHub, ["access", "list", "--database", databasePath, "--json"], { env });
+  await runHub(baselineHub, [...baselineHubListArgs, "--database", databasePath, "--json"], {
+    env,
+  });
   await runHub(candidateHub, ["delegation", "list", "--database", databasePath, "--json"], { env });
-  await runHub(baselineHub, ["access", "list", "--database", databasePath, "--json"], { env });
+  await runHub(baselineHub, [...baselineHubListArgs, "--database", databasePath, "--json"], {
+    env,
+  });
   return { databasePath };
 }
 
@@ -244,7 +275,11 @@ async function main() {
     throw new Error(`Root package version must be a stable x.y.z release: ${currentVersion}`);
   }
   await readCandidateArtifactIdentity(candidatePath, currentVersion);
-  const npm = (args) => runCommand("npm", args, { cwd: root, env: process.env });
+  const npmEnvironment = {
+    ...process.env,
+    npm_config_registry: "https://registry.npmjs.org/",
+  };
+  const npm = (args) => runCommand("npm", args, { cwd: root, env: npmEnvironment });
   const versions = await runOptional(["view", packageName, "versions", "--json"], npm);
   if (!versions) {
     if (explicitBaseline) {
@@ -274,6 +309,7 @@ async function main() {
       install(baselineRoot, `${packageName}@${baselineVersion}`, npm),
       install(candidateRoot, [candidatePath, ...companionPaths], npm),
     ]);
+    const baselineHubProbe = await resolvePublishedHubProbe(baselineRoot);
     await runMixedVersionIpcMatrix({
       baselineSpark: join(baselineRoot, "node_modules", ".bin", "spark"),
       candidateSpark: join(candidateRoot, "node_modules", ".bin", "spark"),
@@ -281,7 +317,8 @@ async function main() {
       cwd: root,
     });
     await runMixedVersionHubMigrationMatrix({
-      baselineHub: join(baselineRoot, "node_modules", ".bin", "spark-cockpit"),
+      baselineHub: baselineHubProbe.command,
+      baselineHubListArgs: baselineHubProbe.listArgs,
       candidateHub: join(candidateRoot, "node_modules", ".bin", "spark-hub"),
       temporaryRoot,
       cwd: root,
