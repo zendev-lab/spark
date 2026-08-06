@@ -106,6 +106,41 @@ describe("Message browser contract", () => {
     writeText.mockRestore();
   });
 
+  it("collapses a settled execution chain into its persistent one-line summary", async () => {
+    const screen = await render(Message, {
+      ...baseProps,
+      item: message([
+        {
+          type: "chain",
+          state: "complete",
+          steps: [
+            {
+              type: "commentary",
+              summary: "Inspecting the conversation renderer",
+              state: "complete",
+            },
+            {
+              type: "tool",
+              callId: "call-edit",
+              name: "edit",
+              state: "completed",
+              summary: "Optimized interaction design",
+            },
+          ],
+        },
+        { type: "text", text: "Final answer", streaming: false },
+      ]),
+    });
+
+    const chain = screen.container.querySelector<HTMLDetailsElement>(".thinking-chain");
+    expect(chain).not.toBeNull();
+    await vi.waitFor(() => expect(chain?.open).toBe(false));
+    expect(chain?.querySelector("summary")?.textContent).toContain("Optimized interaction design");
+    expect(screen.container.textContent).not.toContain("Inspecting the conversation renderer");
+    expect(screen.container.textContent).toContain("Final answer");
+    await screen.unmount();
+  });
+
   it("passes active state to a completed thinking chain so it remains expanded", async () => {
     const screen = await render(Message, {
       ...baseProps,
