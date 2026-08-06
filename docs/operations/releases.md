@@ -17,11 +17,15 @@ must match it exactly (`vX.Y.Z`).
 
 `.github/workflows/cd-publish.yml` runs the complete repository gate, Hub
 browser tests, exact-tarball product smoke, the N-1 daemon IPC matrix, and the
-N-1 Hub database migration/readability matrix against the explicitly reviewed
-published baseline. For the first split release, `v0.3.0`, that baseline is the
-legacy all-in-one `@zendev-lab/spark@0.2.1`; the four new package identities
-have no independently published N-1 artifact. `pnpm run release:pack` builds
-once and writes:
+N-1 Hub database migration/readability matrix. The gate queries the canonical
+npm registry, selects the newest published stable `@zendev-lab/spark` version
+strictly older than the candidate, and adapts to either the current `spark-hub`
+or legacy `spark-cockpit` command contract. An explicit `--baseline-version`
+remains available for local incident reproduction, but production publication
+does not pin a historical baseline. For the first split release, `v0.3.0`, the
+automatic selection resolved to the legacy all-in-one
+`@zendev-lab/spark@0.2.1`; the four new package identities had no independently
+published N-1 artifact. `pnpm run release:pack` builds once and writes:
 
 - `dist/release/*.tgz`
 - `dist/release/*-release-manifest.json`
@@ -37,26 +41,22 @@ TUI, the real `spark-cli` package, and finally the complete `spark` meta package
 A rerun compares every already-published npm and GitHub asset integrity and fails
 closed on any difference.
 
-Configure the GitHub `npm-release` environment with required reviewers and
-enable immutable releases in repository settings. Give the workflow
-`contents`, `id-token`, and attestation write permissions only.
+Production npm publication is OIDC-only. Each of the five npm package
+identities must configure trusted publishing for repository
+`zendev-lab/spark`, workflow `cd-publish.yml`, and environment `npm-release`.
+The publish job obtains short-lived credentials through `id-token: write`; do
+not add an npm write token fallback. Configure the GitHub `npm-release`
+environment with required reviewers and enable immutable releases in repository
+settings. Give the workflow `contents`, `id-token`, and attestation write
+permissions only.
 
-### First split npm publication
+### Split-package baseline
 
 `v0.3.0` is the first version in which all five public package identities exist
 in lockstep. `@zendev-lab/spark@0.2.1` remains the immutable legacy all-in-one
 baseline and must never be overwritten or described as a split-package release.
-
-The first publication may use a short-lived, package-scoped granular
-`NPM_TOKEN` stored only in the protected `npm-release` environment:
-
-1. Push the first reviewed version tag and let the protected workflow publish.
-2. Configure npm trusted publishing for all five package identities in repository
-   `zendev-lab/spark`, workflow `cd-publish.yml`, and environment `npm-release`.
-3. Rerun a prerelease through OIDC provenance to verify trusted publishing.
-4. Revoke and remove the one-time token from npm and GitHub.
-
-Do not retain a broad automation token as a fallback.
+It is retained here only to explain the compatibility edge used when the
+automatic N-1 gate crosses the split-package boundary.
 
 ## Managed layout
 

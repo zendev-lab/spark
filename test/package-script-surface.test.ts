@@ -231,7 +231,9 @@ test("CI and prek consume the canonical package scripts", async () => {
   assert.doesNotMatch(verifyWorkflow, /test:npm-product/u);
 
   const publishWorkflow = await readFile(resolve(".github/workflows/cd-publish.yml"), "utf8");
-  assert.match(publishWorkflow, /--baseline-version 0\.2\.1/u);
+  assert.doesNotMatch(publishWorkflow, /--baseline-version/u);
+  assert.doesNotMatch(publishWorkflow, /secrets\.NPM_TOKEN/u);
+  assert.match(publishWorkflow, /id-token: write/u);
   assert.match(
     publishWorkflow,
     /--cli-tarball dist\/release\/spark-cli-\$\{\{ github\.ref_name \}\}\.tgz/u,

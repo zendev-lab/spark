@@ -67,7 +67,6 @@ jobs:
           --daemon-tarball dist/release/spark-daemon-${{ github.ref_name }}.tgz
           --tui-tarball dist/release/spark-tui-${{ github.ref_name }}.tgz
           --hub-tarball dist/release/spark-hub-${{ github.ref_name }}.tgz
-          --baseline-version 0.2.1
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -132,7 +131,6 @@ jobs:
           access: public
           tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
           provenance: true
-          token: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish the exact Hub artifact to npm
         if: steps.release.outputs.npm_hub_published != 'true'
@@ -142,7 +140,6 @@ jobs:
           access: public
           tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
           provenance: true
-          token: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish the exact TUI artifact to npm
         if: steps.release.outputs.npm_tui_published != 'true'
@@ -152,7 +149,6 @@ jobs:
           access: public
           tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
           provenance: true
-          token: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish the real spark CLI artifact to npm
         if: steps.release.outputs.npm_cli_published != 'true'
@@ -162,7 +158,6 @@ jobs:
           access: public
           tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
           provenance: true
-          token: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish the complete Spark meta package to npm
         if: steps.release.outputs.npm_spark_published != 'true'
@@ -172,7 +167,6 @@ jobs:
           access: public
           tag: ${{ contains(github.ref_name, '-') && 'next' || 'latest' }}
           provenance: true
-          token: ${{ secrets.NPM_TOKEN }}
 
       - name: Attest npm release artifacts
         if: steps.release.outputs.github_published != 'true'

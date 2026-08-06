@@ -10,12 +10,17 @@ import * as migrationGate from "../scripts/test-release-migration.mjs";
 const {
   parseMigrationArguments,
   readCandidateArtifactIdentity,
+  resolvePublishedHubProbe,
   runMixedVersionHubMigrationMatrix,
   runMixedVersionIpcMatrix,
   selectPublishedBaselineVersion,
 } = migrationGate;
 
-test("release migration arguments require an explicit published baseline older than the candidate", () => {
+test("release migration arguments support automatic and explicit published baselines", () => {
+  assert.deepEqual(parseMigrationArguments(["--tarball", "dist/release/spark-v0.1.1.tgz"]), {
+    candidateTarball: "dist/release/spark-v0.1.1.tgz",
+    baselineVersion: undefined,
+  });
   assert.deepEqual(
     parseMigrationArguments([
       "--tarball",
@@ -42,6 +47,10 @@ test("release migration arguments require an explicit published baseline older t
   );
   assert.equal(selectPublishedBaselineVersion(["0.0.9", "0.1.0"], "0.1.1", "0.1.0"), "0.1.0");
   assert.equal(selectPublishedBaselineVersion(["0.0.9", "0.1.0", "0.1.1"], "0.1.1"), "0.1.0");
+  assert.equal(
+    selectPublishedBaselineVersion(["0.3.0", "0.2.1", "0.3.0-rc.1", "0.3.0", "invalid"], "0.3.1"),
+    "0.3.0",
+  );
   assert.throws(
     () => selectPublishedBaselineVersion(["0.1.0"], "0.1.0", "0.1.0"),
     /must be older than candidate/u,
@@ -53,6 +62,29 @@ test("release migration arguments require an explicit published baseline older t
   assert.throws(
     () => selectPublishedBaselineVersion(["0.1.0"], "0.1.1", "0.0.9"),
     /not a published stable release/u,
+  );
+});
+
+test("published Hub probe prefers the current command and falls back to the legacy command", async () => {
+  const baselineRoot = "/fixture/published";
+  const currentHub = join(baselineRoot, "node_modules", ".bin", "spark-hub");
+  const legacyHub = join(baselineRoot, "node_modules", ".bin", "spark-cockpit");
+
+  assert.deepEqual(
+    await resolvePublishedHubProbe(baselineRoot, {
+      exists: async (path: string) => path === currentHub || path === legacyHub,
+    }),
+    { command: currentHub, listArgs: ["delegation", "list"] },
+  );
+  assert.deepEqual(
+    await resolvePublishedHubProbe(baselineRoot, {
+      exists: async (path: string) => path === legacyHub,
+    }),
+    { command: legacyHub, listArgs: ["access", "list"] },
+  );
+  await assert.rejects(
+    resolvePublishedHubProbe(baselineRoot, { exists: async () => false }),
+    /neither spark-hub nor spark-cockpit/u,
   );
 });
 
@@ -83,9 +115,9 @@ test("candidate artifact package and build-info identities must both match the r
   );
 });
 
-test("mixed-version Hub gate migrates the published database and proves N-1 remains readable", async () => {
+test("mixed-version Hub gate uses the selected published command contract around candidate migration", async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "spark-release-hub-migration-test-"));
-  const baselineHub = "/fixture/published/spark-cockpit";
+  const baselineHub = "/fixture/published/spark-hub";
   const candidateHub = "/fixture/candidate/spark-hub";
   const observations: Array<{ command: string; args: string[]; sparkHome: string }> = [];
 
@@ -93,6 +125,7 @@ test("mixed-version Hub gate migrates the published database and proves N-1 rema
     const result = await runMixedVersionHubMigrationMatrix(
       {
         baselineHub,
+        baselineHubListArgs: ["delegation", "list"],
         candidateHub,
         temporaryRoot,
         baseEnv: { PATH: process.env.PATH },
@@ -116,7 +149,7 @@ test("mixed-version Hub gate migrates the published database and proves N-1 rema
       [
         {
           command: baselineHub,
-          args: ["access", "list", "--database", result.databasePath, "--json"],
+          args: ["delegation", "list", "--database", result.databasePath, "--json"],
         },
         {
           command: candidateHub,
@@ -124,7 +157,7 @@ test("mixed-version Hub gate migrates the published database and proves N-1 rema
         },
         {
           command: baselineHub,
-          args: ["access", "list", "--database", result.databasePath, "--json"],
+          args: ["delegation", "list", "--database", result.databasePath, "--json"],
         },
       ],
     );
