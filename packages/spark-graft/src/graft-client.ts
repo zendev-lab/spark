@@ -182,7 +182,7 @@ async function spawnGraft(
     child.once("error", (error) => {
       finish(snapshot(error));
     });
-    child.once("exit", (code) => {
+    child.once("close", (code) => {
       finish({
         code,
         stdout: Buffer.concat(stdout).toString(),
