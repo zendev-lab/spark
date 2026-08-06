@@ -26,6 +26,7 @@ a companion may also be installed directly for a single-process deployment.
 | `spark-hub` | `spark hub` | global control plane and management host | user/daemon authentication, workspace registry, cross-workspace delegation state, delivery outbox, idempotency, audit, bounded receipts, and embedded Web lifecycle | target execution state, local repositories, or internal evidence bodies |
 | `spark-tui` | `spark tui` | local terminal control surface | interactive terminal UI, attach/resume, visible transcript, theme, export | canonical business-state ownership |
 | `spark-acp` | `spark acp` | ACP stdio adapter | protocol translation for new/prompt/cancel/permission | durable sessions, invocations, provider policy, or execution truth |
+| `spark-mcp` | `spark mcp` | read-only MCP stdio adapter | bounded projection of canonical workspace Memory | memory writes, daemon execution, or another memory store |
 | `spark-update` | `spark update` | installation and update surface | build-info inspection, install/update policy, release transition | daemon or Hub state |
 | slash `system` | n/a | TUI kernel command source | `/help`, `/exit`, `/quit`, `/clear`, `/reload` | project/task/goal/session/workflow commands |
 | slash `extension` | n/a | extension command source | extension-owned resource commands | TUI kernel lifecycle |
@@ -150,7 +151,7 @@ tag:
 | Distribution | Package | Executables | Deployment boundary |
 | --- | --- | --- | --- |
 | Complete Spark | `@zendev-lab/spark` | thin `spark` forwarding launcher | full-installation meta package and managed-update identity; pins the matching CLI and app packages but contains no dispatcher implementation |
-| Spark CLI | `@zendev-lab/spark-cli` | `spark`, `spark-acp`, `spark-update`, plus app companion shims | owns the real dispatcher and local command adapters |
+| Spark CLI | `@zendev-lab/spark-cli` | `spark`, `spark-acp`, `spark-mcp`, `spark-update`, plus app companion shims | owns the real dispatcher and local command adapters |
 | Spark daemon | `@zendev-lab/spark-daemon` | `spark-daemon` | durable local execution, daemon migrations, and headless turns |
 | Spark TUI | `@zendev-lab/spark-tui` | `spark-tui` | local terminal host; depends on the matching daemon package |
 | Spark Hub | `@zendev-lab/spark-hub` | `spark-hub` | control-plane host with authentication, coordination, and embedded Web UI |
@@ -162,7 +163,8 @@ packages and is bundled into the executable app that owns the process.
 All five distributions use the same semantic version and protocol compatibility
 contract in v0.x. `@zendev-lab/spark` keeps the full installation experience as
 a dependency-only meta package with a thin `spark` forwarder.
-`@zendev-lab/spark-cli` contains the real dispatcher, ACP and updater entrypoints;
+`@zendev-lab/spark-cli` contains the real dispatcher, ACP, MCP and updater
+entrypoints;
 it depends on exact-version app packages rather than embedding their assets. Each
 executable app package rejects the other apps' implementation assets and can be
 installed directly.

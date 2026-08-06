@@ -8,7 +8,7 @@ The machine-readable source of truth is
 workspace declares a `layer`, `owner`, `stability`, and authoritative
 `stateWriter`. `pnpm run check:architecture` rejects an unclassified workspace,
 an undeclared production dependency, a stale export, a public source workspace,
-or growth beyond the current 39/40-workspace budget.
+or growth beyond the current 41-workspace budget.
 
 ## Dependency direction
 
@@ -40,6 +40,7 @@ spark-daemon
 spark-hub
 spark-tui
 spark-acp
+spark-mcp
 spark-update
 ```
 
@@ -71,7 +72,7 @@ public package.
   complete-installation meta package; thin spark forwarding launcher only
 
 @zendev-lab/spark-cli
-  real spark dispatcher + spark-acp + spark-update + app companion shims
+  real spark dispatcher + spark-acp + spark-mcp + spark-update + app companion shims
 
 @zendev-lab/spark-daemon
   spark-daemon + daemon migrations + headless executor
@@ -85,7 +86,7 @@ public package.
 
 The root package is the complete-installation meta package and managed-update
 identity; it contains no dispatcher implementation. `spark-cli` owns the real
-`spark` dispatcher, ACP and updater entrypoints. Daemon, TUI, and Hub are also
+`spark` dispatcher, ACP, MCP and updater entrypoints. Daemon, TUI, and Hub are also
 independently installable deployment closures. All public packages share a
 version and protocol contract during v0.x. Each app artifact must omit the other
 apps' implementation assets, while the CLI and root meta package pin exact
@@ -164,6 +165,9 @@ changes extension specifiers and user configuration compatibility.
 - `spark-lens` owns provider, capability-route, observation, verdict, and
   workspace-revision primitives. It performs no durable writes; the daemon owns
   provider sessions, cancellation, caches, and persisted Lens state.
+- `spark-mcp` is the supported stateless, read-only MCP adapter. It projects the
+  canonical `spark-memory` workspace store through MCP resources and tools; it
+  owns no writes, daemon execution, or second memory store.
 - `spark-mcp-spike` source remains in place as a sealed experiment, but it is
   excluded from the workspace and package inventory.
 - `spark-context` was removed after all callers converged on

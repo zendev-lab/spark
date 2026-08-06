@@ -363,6 +363,20 @@ try {
     cwd: cliRoot,
     env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "spark-cli-home") },
   });
+  const cliMcpHelp = await run(cli.command, [...cli.argvPrefix, "mcp", "--help"], {
+    cwd: cliRoot,
+    env: { ...nodeEnvironment, SPARK_HOME: resolve(temporary, "spark-cli-home") },
+  });
+  if (!cliMcpHelp.stdout.includes("Spark Model Context Protocol stdio adapter")) {
+    throw new Error("spark-cli distribution did not expose the spark-mcp companion");
+  }
+  const rootMcpHelp = await run(spark.command, [...spark.argvPrefix, "mcp", "--help"], {
+    cwd: completeRoot,
+    env: nodeEnvironment,
+  });
+  if (!rootMcpHelp.stdout.includes("Spark Model Context Protocol stdio adapter")) {
+    throw new Error("complete meta package did not expose the spark-mcp companion");
+  }
   await run(spark.command, [...spark.argvPrefix, "tui", "--help"], {
     cwd: completeRoot,
     env: nodeEnvironment,

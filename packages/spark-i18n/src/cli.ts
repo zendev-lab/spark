@@ -5,7 +5,7 @@ export interface SparkCliDispatcherStrings {
   dispatchFailure: (targetLabel: string, detail: string) => string;
   signalExit: (targetLabel: string, signal: string) => string;
   helpText: string;
-  targetLabel: (target: "tui" | "daemon" | "hub" | "cockpit" | "acp" | "update") => string;
+  targetLabel: (target: "tui" | "daemon" | "hub" | "cockpit" | "acp" | "mcp" | "update") => string;
   tuiRequiresTty: string;
 }
 
@@ -35,7 +35,7 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
     dispatchFailure: (targetLabel, detail) => `Unable to dispatch to ${targetLabel}: ${detail}`,
     signalExit: (targetLabel, signal) => `${targetLabel} exited due to signal ${signal}`,
     helpText:
-      'spark - Spark command dispatcher\n\nUsage:\n  spark\n  spark run [--json] [--wait] [--resume <session>] <prompt>\n  spark bg [--session <id>] [--json] <prompt>\n  spark paths [--json]\n  spark doctor\n  spark tui [initial message]\n  spark install --managed [--version <version>] [--prefix <path>]\n  spark update status|check|apply|rollback|retry|configure\n  spark version [--json]\n  spark daemon auth <status|login|logout|import> [args...]\n  spark daemon model <list|status|set> [args...]\n  spark daemon <command> [args...]\n  spark hub [command] [args...]\n  spark cockpit web <start|status|stop|logs> [args...]\n  spark acp\n  spark --help\n  spark --version\n\nDispatches to Spark surfaces:\n  spark run       foreground headless run\n  spark bg        submit a background daemon invocation and return its receipt\n  spark paths     print public Spark configuration and state paths\n  spark doctor    top-level Spark health check via the daemon CLI\n  spark tui       tui local control plane: interactive terminal UI, attach/resume, local UI settings\n  spark update    managed installation, update policy, and rollback owner\n  spark daemon    daemon execution plane: auth, model, session, invocation, events, logs, process state\n  spark hub       cross-workspace logical coordination plane\n  spark cockpit   Web presentation host and lifecycle\n  spark acp       ACP NDJSON stdio adapter backed by canonical daemon sessions\n\nFlags:\n  --wait, -w    Wait for invocation to reach terminal status before exiting\n\nUnknown subcommands fail loudly instead of being interpreted as prompts. Use "spark tui ..." for interactive TUI input.\n',
+      'spark - Spark command dispatcher\n\nUsage:\n  spark\n  spark run [--json] [--wait] [--resume <session>] <prompt>\n  spark bg [--session <id>] [--json] <prompt>\n  spark paths [--json]\n  spark doctor\n  spark tui [initial message]\n  spark install --managed [--version <version>] [--prefix <path>]\n  spark update status|check|apply|rollback|retry|configure\n  spark version [--json]\n  spark daemon auth <status|login|logout|import> [args...]\n  spark daemon model <list|status|set> [args...]\n  spark daemon <command> [args...]\n  spark hub [command] [args...]\n  spark cockpit web <start|status|stop|logs> [args...]\n  spark acp\n  spark mcp\n  spark --help\n  spark --version\n\nDispatches to Spark surfaces:\n  spark run       foreground headless run\n  spark bg        submit a background daemon invocation and return its receipt\n  spark paths     print public Spark configuration and state paths\n  spark doctor    top-level Spark health check via the daemon CLI\n  spark tui       tui local control plane: interactive terminal UI, attach/resume, local UI settings\n  spark update    managed installation, update policy, and rollback owner\n  spark daemon    daemon execution plane: auth, model, session, invocation, events, logs, process state\n  spark hub       cross-workspace logical coordination plane\n  spark cockpit   Web presentation host and lifecycle\n  spark acp       ACP NDJSON stdio adapter backed by canonical daemon sessions\n  spark mcp       read-only MCP stdio adapter backed by canonical Memory\n\nFlags:\n  --wait, -w    Wait for invocation to reach terminal status before exiting\n\nUnknown subcommands fail loudly instead of being interpreted as prompts. Use "spark tui ..." for interactive TUI input.\n',
     tuiRequiresTty:
       'Spark TUI requires an interactive terminal (stdin and stdout must be TTYs). Use "spark run <prompt>", "spark acp", or "spark daemon submit ..." for non-interactive/headless use.',
     targetLabel: (target) => {
@@ -50,6 +50,8 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
           return "Spark Cockpit";
         case "acp":
           return "Spark ACP adapter";
+        case "mcp":
+          return "Spark MCP adapter";
         case "update":
           return "Spark updater";
       }
@@ -63,7 +65,7 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
     dispatchFailure: (targetLabel, detail) => `无法分发到 ${targetLabel}：${detail}`,
     signalExit: (targetLabel, signal) => `${targetLabel} 因信号 ${signal} 退出`,
     helpText:
-      'spark - Spark 命令分发器\n\n用法：\n  spark\n  spark run [--json] [--wait] [--resume <session>] <prompt>\n  spark bg [--session <id>] [--json] <prompt>\n  spark paths [--json]\n  spark doctor\n  spark tui [初始消息]\n  spark install --managed [--version <version>] [--prefix <path>]\n  spark update status|check|apply|rollback|retry|configure\n  spark version [--json]\n  spark daemon auth <status|login|logout|import> [参数...]\n  spark daemon model <list|status|set> [参数...]\n  spark daemon <命令> [参数...]\n  spark hub [命令] [参数...]\n  spark cockpit web <start|status|stop|logs> [参数...]\n  spark acp\n  spark --help\n  spark --version\n\n分发到 Spark 界面：\n  spark run       前台 headless 执行\n  spark bg        将后台 turn 提交到 Spark daemon 队列\n  spark paths     打印公开的 Spark 配置和状态路径\n  spark doctor    通过 daemon CLI 执行顶层 Spark 健康检查\n  spark tui       tui local control plane：interactive terminal UI、attach/resume、local UI settings\n  spark update    托管安装、更新策略和回滚状态所有者\n  spark daemon    daemon execution plane：auth、model、session、invocation、events、logs、process state\n  spark hub       跨 workspace 逻辑协调面\n  spark cockpit   Web 展示与生命周期\n  spark acp       使用 canonical daemon session 的 ACP NDJSON stdio adapter\n\nFlags：\n  --wait, -w    等待调用到达终态后再退出\n\n未知子命令会直接失败，不会被解释成 prompt。交互式 TUI 输入请使用 "spark tui ..."。\n',
+      'spark - Spark 命令分发器\n\n用法：\n  spark\n  spark run [--json] [--wait] [--resume <session>] <prompt>\n  spark bg [--session <id>] [--json] <prompt>\n  spark paths [--json]\n  spark doctor\n  spark tui [初始消息]\n  spark install --managed [--version <version>] [--prefix <path>]\n  spark update status|check|apply|rollback|retry|configure\n  spark version [--json]\n  spark daemon auth <status|login|logout|import> [参数...]\n  spark daemon model <list|status|set> [参数...]\n  spark daemon <命令> [参数...]\n  spark hub [命令] [参数...]\n  spark cockpit web <start|status|stop|logs> [参数...]\n  spark acp\n  spark mcp\n  spark --help\n  spark --version\n\n分发到 Spark 界面：\n  spark run       前台 headless 执行\n  spark bg        将后台 turn 提交到 Spark daemon 队列\n  spark paths     打印公开的 Spark 配置和状态路径\n  spark doctor    通过 daemon CLI 执行顶层 Spark 健康检查\n  spark tui       tui local control plane：interactive terminal UI、attach/resume、local UI settings\n  spark update    托管安装、更新策略和回滚状态所有者\n  spark daemon    daemon execution plane：auth、model、session、invocation、events、logs、process state\n  spark hub       跨 workspace 逻辑协调面\n  spark cockpit   Web 展示与生命周期\n  spark acp       使用 canonical daemon session 的 ACP NDJSON stdio adapter\n  spark mcp       使用 canonical Memory 的只读 MCP stdio adapter\n\nFlags：\n  --wait, -w    等待调用到达终态后再退出\n\n未知子命令会直接失败，不会被解释成 prompt。交互式 TUI 输入请使用 "spark tui ..."。\n',
     tuiRequiresTty:
       'Spark TUI 需要交互式终端（stdin 和 stdout 必须是 TTY）。非交互/headless 使用请改用 "spark run <prompt>"、"spark acp" 或 "spark daemon submit ..."。',
     targetLabel: (target) => {
@@ -78,6 +80,8 @@ const DISPATCHER: Record<SparkLanguage, SparkCliDispatcherStrings> = {
           return "Spark Cockpit";
         case "acp":
           return "Spark ACP adapter";
+        case "mcp":
+          return "Spark MCP adapter";
         case "update":
           return "Spark 更新器";
       }

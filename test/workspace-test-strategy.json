@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "architectureSource": "architecture/packages.json",
-  "workspaceCount": 40,
+  "workspaceCount": 41,
   "counts": {
-    "local-test": 30,
+    "local-test": 31,
     "browser-test": 1,
     "process-test": 1,
     "boundary-contract": 7,
@@ -271,6 +271,22 @@
         "rules": []
       },
       "supplementalGates": []
+    },
+    "@zendev-lab/spark-mcp": {
+      "path": "packages/spark-mcp",
+      "strategy": "local-test",
+      "primaryGate": {
+        "command": "pnpm --filter @zendev-lab/spark-mcp run check",
+        "paths": ["packages/spark-mcp/src/**/*.test.ts"],
+        "rules": ["stateless MCP protocol and canonical Memory ownership"]
+      },
+      "supplementalGates": [
+        {
+          "command": "pnpm --filter @zendev-lab/spark-cli run check",
+          "paths": ["apps/spark-cli/src/spark-dispatcher.test.ts"],
+          "rules": ["source dispatcher executable contract"]
+        }
+      ]
     },
     "@zendev-lab/spark-memory": {
       "path": "packages/spark-memory",

@@ -177,6 +177,7 @@ function distributionPrelude(distribution, executableName) {
 process.env.SPARK_DAEMON_ENTRYPOINT = ${resolvedDependencyPath("@zendev-lab/spark-daemon/entrypoint")};
 process.env.SPARK_HEADLESS_EXECUTOR_MODULE = ${resolvedDependencyPath("@zendev-lab/spark-daemon/headless-role-executor")};
 process.env.SPARK_HUB_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-hub/executable")};
+process.env.SPARK_MCP_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/mcp-executable")};
 process.env.SPARK_TUI_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-tui/executable")};
 process.env.SPARK_UPDATE_COMMAND = ${resolvedDependencyPath("@zendev-lab/spark-cli/update-executable")};
 `;

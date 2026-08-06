@@ -119,10 +119,11 @@ knowledge of internal packages or storage.
 | `spark-hub` | Global browser management, coordination, and delegation |
 | `spark-acp` | ACP-compatible clients over canonical daemon sessions |
 
-The top-level dispatcher accepts `spark daemon`, `spark hub`, `spark tui`, and
-`spark acp` as convenience forms and executes the matching `spark-*` companion.
-`spark hub` therefore requires the separately installed Hub distribution. Run
-`spark --help` for the current command map. The complete command reference is
+The top-level dispatcher accepts `spark daemon`, `spark hub`, `spark tui`,
+`spark acp`, and `spark mcp` as convenience forms and executes the matching
+`spark-*` companion. The complete meta package installs every companion; the
+real dispatcher remains in `@zendev-lab/spark-cli`. Run `spark --help` for the
+current command map. The complete command reference is
 maintained in the [user documentation][cli-reference].
 
 ## Documentation
@@ -145,7 +146,7 @@ monorepo:
 - `@zendev-lab/spark` is the **complete installation meta package**. It pins the
   matching CLI, daemon, TUI, and Hub packages and keeps `spark` available through
   a thin forwarding launcher, but contains no dispatcher or app implementation.
-- `@zendev-lab/spark-cli` owns the real `spark` dispatcher, ACP and updater
+- `@zendev-lab/spark-cli` owns the real `spark` dispatcher, ACP, MCP and updater
   entrypoints, and companion command shims.
 
 - `@zendev-lab/spark-daemon`, `@zendev-lab/spark-tui`, and

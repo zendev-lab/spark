@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "architectureSource": "architecture/packages.json",
   "runner": "scripts/run-leaf-mutation.mjs",
-  "workspaceCount": 40,
+  "workspaceCount": 41,
   "minimumIncludedCount": 12,
   "includedCount": 12,
-  "deferredCount": 28,
+  "deferredCount": 29,
   "workspaces": {
     "@zendev-lab/spark-retry": {
       "path": "packages/spark-retry",
@@ -221,6 +221,13 @@
       "risk": "high",
       "riskReason": "goals capability behavior is outside the current mutation CE set",
       "alternateGate": "pnpm --filter @zendev-lab/spark-loop run check"
+    },
+    "@zendev-lab/spark-mcp": {
+      "path": "packages/spark-mcp",
+      "status": "deferred",
+      "risk": "medium",
+      "riskReason": "MCP adapter behavior is covered by protocol and process gates outside mutation CE",
+      "alternateGate": "pnpm --filter @zendev-lab/spark-mcp run check"
     },
     "@zendev-lab/spark-memory": {
       "path": "packages/spark-memory",

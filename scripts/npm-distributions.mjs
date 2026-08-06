@@ -42,12 +42,14 @@ export const npmDistributions = [
       "spark-acp": "spark-acp.js",
       "spark-daemon": "spark-daemon-companion.js",
       "spark-hub": "spark-hub-companion.js",
+      "spark-mcp": "spark-mcp.js",
       "spark-tui": "spark-tui-companion.js",
       "spark-update": "spark-update.js",
     },
     bundles: {
       "spark-cli.js": "apps/spark-cli/src/cli.ts",
       "spark-acp.js": "packages/spark-acp/scripts/stdio.ts",
+      "spark-mcp.js": "packages/spark-mcp/scripts/stdio.ts",
       "spark-update.js": "packages/spark-update/src/entry.ts",
     },
     files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
@@ -58,6 +60,7 @@ export const npmDistributions = [
     ],
     exports: {
       "./cli": "./dist/spark-cli.js",
+      "./mcp-executable": "./bin/spark-mcp",
       "./executable": "./bin/spark",
       "./update-executable": "./bin/spark-update",
     },

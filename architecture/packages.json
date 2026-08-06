@@ -1,7 +1,6 @@
 {
   "schemaVersion": 1,
-  "maxWorkspacePackages": 40,
-  "sealedPackagePaths": ["packages/spark-mcp-spike"],
+  "maxWorkspacePackages": 41,
   "packages": {
     "@zendev-lab/spark-cli": {
       "path": "apps/spark-cli",
@@ -175,6 +174,13 @@
       "layer": "capability",
       "owner": "lens",
       "stability": "internal",
+      "stateWriter": "none"
+    },
+    "@zendev-lab/spark-mcp": {
+      "path": "packages/spark-mcp",
+      "layer": "adapter",
+      "owner": "mcp",
+      "stability": "supported",
       "stateWriter": "none"
     },
     "@zendev-lab/spark-memory": {
