@@ -48,6 +48,23 @@ const ignoredTestSearchDirectories = new Set([
 ]);
 const testFilePattern = /\.(?:spec|test)\.(?:[cm]?[jt]sx?|svelte)$/u;
 
+interface WorkspaceManifest {
+  scripts?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}
+
+function mutationOwnershipViolations(manifest: WorkspaceManifest): string[] {
+  const violations: string[] = [];
+  if (manifest.scripts?.["test:mutation"] !== "stryker run") violations.push("command");
+  if (manifest.devDependencies?.["@stryker-mutator/core"] !== "catalog:") {
+    violations.push("core dependency");
+  }
+  if (manifest.devDependencies?.["@stryker-mutator/vitest-runner"] !== "catalog:") {
+    violations.push("runner dependency");
+  }
+  return violations;
+}
+
 test("root package exposes one compact validation and release surface", async () => {
   const manifest = JSON.parse(await readFile(resolve("package.json"), "utf8")) as {
     scripts?: Record<string, string>;
@@ -158,10 +175,7 @@ test("workspace scripts contain package-local behavior instead of root boilerpla
       } catch {
         continue;
       }
-      const manifest = JSON.parse(source) as {
-        scripts?: Record<string, string>;
-        devDependencies?: Record<string, string>;
-      };
+      const manifest = JSON.parse(source) as WorkspaceManifest;
       const workspace = `${workspaceRoot}/${entry.name}`;
       if (workspace !== "apps/spark-daemon") {
         assert.notEqual(
@@ -172,13 +186,11 @@ test("workspace scripts contain package-local behavior instead of root boilerpla
       }
       if (manifest.scripts?.["test:mutation"] !== undefined) {
         mutationPackageCount += 1;
-        assert.equal(
-          manifest.scripts["test:mutation"],
-          "stryker run",
-          `${workspace} must use its package-local Stryker config`,
+        assert.deepEqual(
+          mutationOwnershipViolations(manifest),
+          [],
+          `${workspace} must use its package-local Stryker command and catalog dependencies`,
         );
-        assert.equal(manifest.devDependencies?.["@stryker-mutator/core"], "catalog:");
-        assert.equal(manifest.devDependencies?.["@stryker-mutator/vitest-runner"], "catalog:");
         await readFile(resolve(workspace, "stryker.config.json"), "utf8");
       }
       if (workspaceRoot === "packages" && (await hasTestFiles(resolve(workspace)))) {
@@ -198,6 +210,39 @@ test("workspace scripts contain package-local behavior instead of root boilerpla
     }
   }
   assert.equal(mutationPackageCount, 12, "mutation CE coverage must not shrink silently");
+});
+
+test("package-local mutation ownership rejects independently injected generic defects", () => {
+  const valid = {
+    scripts: { "test:mutation": "stryker run" },
+    devDependencies: {
+      "@stryker-mutator/core": "catalog:",
+      "@stryker-mutator/vitest-runner": "catalog:",
+    },
+  };
+  const defects = [
+    {
+      name: "command",
+      manifest: { ...valid, scripts: { "test:mutation": "node scripts/run-leaf-mutation.mjs" } },
+    },
+    {
+      name: "core dependency",
+      manifest: {
+        ...valid,
+        devDependencies: { ...valid.devDependencies, "@stryker-mutator/core": "1.0.0" },
+      },
+    },
+    {
+      name: "runner dependency",
+      manifest: {
+        ...valid,
+        devDependencies: { ...valid.devDependencies, "@stryker-mutator/vitest-runner": "1.0.0" },
+      },
+    },
+  ];
+  for (const defect of defects) {
+    assert.deepEqual(mutationOwnershipViolations(defect.manifest), [defect.name]);
+  }
 });
 
 test("docs production scripts separate Workers Builds build and deploy phases", async () => {

@@ -1,6 +1,7 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, relative } from "node:path";
+import { basename, join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -16,6 +17,83 @@ const {
   workspaceImports,
 } = architectureRatchets;
 
+const requiredInventoryFields = ["layer", "owner", "stability", "stateWriter"] as const;
+const invalidInventoryCases = [
+  { field: "layer", value: "invalid" },
+  { field: "owner", value: "   " },
+  { field: "stability", value: "invalid" },
+  { field: "stateWriter", value: "invalid" },
+  { field: "distribution", value: "invalid" },
+] as const;
+const removedCheckerRuleIds = [
+  "layer-enum",
+  "owner-nonempty",
+  "stability-enum",
+  "state-writer-enum",
+  "distribution-enum",
+  "mutation-script-ownership",
+] as const;
+
+interface ArchitectureInventory {
+  packages: Record<string, Record<string, unknown>>;
+}
+
+interface GovernanceFixture {
+  governanceTools: Array<{
+    name: string;
+    concerns: string[];
+    primarySource: string;
+  }>;
+  retainedSparkChecks: string[];
+  removedCheckerRules: Array<{
+    id: string;
+    removedSource: string;
+    rule: string;
+    authority: string;
+    independentDefect: string;
+  }>;
+  scriptsInventory: Array<{
+    path: string;
+    lineCount: number;
+    domainOwner: string;
+    callers: string[];
+    replacementAssessment: string;
+  }>;
+  removedScriptSourceLines: number;
+  removedScriptCount: number;
+  removedScripts: string[];
+  changeBase: string;
+  changeHead: string;
+  changedFiles: string[];
+  remainingCandidates: Array<{ path: string; assessment: string; blocker: string }>;
+  blockers: string[];
+}
+
+async function readJson<T>(path: string): Promise<T> {
+  return JSON.parse(await readFile(path, "utf8")) as T;
+}
+
+async function workspaceManifestPaths(): Promise<string[]> {
+  const manifests: string[] = [];
+  for (const root of ["apps", "packages"]) {
+    const entries = await readdir(root, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      try {
+        await readFile(join(root, entry.name, "package.json"), "utf8");
+        manifests.push(join(root, entry.name, "package.json"));
+      } catch {
+        // Non-workspace directories are outside the active package inventory.
+      }
+    }
+  }
+  return manifests.sort();
+}
+
+function lineCount(source: string): number {
+  return source.length === 0 ? 0 : source.split("\n").length - (source.endsWith("\n") ? 1 : 0);
+}
+
 describe("workspace dependency declaration ratchet", () => {
   it("extracts root package names from static and dynamic workspace imports", () => {
     expect(
@@ -25,6 +103,184 @@ describe("workspace dependency declaration ratchet", () => {
         export { helper } from "@zendev-lab/spark-memory/helpers";
       `),
     ).toEqual(new Set(["@zendev-lab/spark-memory", "@zendev-lab/spark-protocol"]));
+  });
+});
+
+describe("architecture governance contracts", () => {
+  it("requires every active workspace declaration to carry every ownership field", async () => {
+    const inventory = await readJson<ArchitectureInventory>("architecture/packages.json");
+    const workspacePaths = await workspaceManifestPaths();
+    expect(workspacePaths).not.toHaveLength(0);
+    for (const workspacePath of workspacePaths) {
+      const manifest = await readJson<{ name: string }>(workspacePath);
+      const declaration = inventory.packages[manifest.name];
+      expect(declaration, manifest.name).toBeDefined();
+      for (const field of requiredInventoryFields) {
+        expect(declaration?.[field], `${manifest.name}.${field}`).toBeTruthy();
+      }
+    }
+  });
+
+  it.each(requiredInventoryFields)("rejects an independently missing %s field", async (field) => {
+    const root = await mkdtemp(join(tmpdir(), `spark-architecture-${field}-`));
+    try {
+      const source = await readJson<ArchitectureInventory>("architecture/packages.json");
+      const declaration = { ...source.packages["@zendev-lab/spark-cli"] };
+      delete declaration[field];
+      await writeFile(
+        join(root, "packages.json"),
+        JSON.stringify({ ...source, packages: { "@zendev-lab/spark-invalid": declaration } }),
+      );
+      expect(() =>
+        execFileSync(
+          "pnpm",
+          [
+            "exec",
+            "ajv",
+            "validate",
+            "--spec=draft2020",
+            "--strict=true",
+            "--all-errors",
+            "--errors=text",
+            "-s",
+            "architecture/packages.schema.json",
+            "-d",
+            join(root, "packages.json"),
+          ],
+          { cwd: ".", encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+        ),
+      ).toThrow(new RegExp(field));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(invalidInventoryCases)(
+    "rejects an independently invalid $field value",
+    async ({ field, value }) => {
+      const root = await mkdtemp(join(tmpdir(), `spark-architecture-invalid-${field}-`));
+      try {
+        const source = await readJson<ArchitectureInventory>("architecture/packages.json");
+        const declaration = {
+          ...source.packages["@zendev-lab/spark-cli"],
+          [field]: value,
+        };
+        await writeFile(
+          join(root, "packages.json"),
+          JSON.stringify({ ...source, packages: { "@zendev-lab/spark-invalid": declaration } }),
+        );
+        expect(() =>
+          execFileSync(
+            "pnpm",
+            [
+              "exec",
+              "ajv",
+              "validate",
+              "--spec=draft2020",
+              "--strict=true",
+              "--all-errors",
+              "--errors=text",
+              "-s",
+              "architecture/packages.schema.json",
+              "-d",
+              join(root, "packages.json"),
+            ],
+            { cwd: ".", encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+          ),
+        ).toThrow(new RegExp(field));
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("checks the governance documentation against the checked tool contract", async () => {
+    const governance = await readJson<GovernanceFixture>(
+      "test/fixtures/architecture-governance.json",
+    );
+    const docs = await readFile("docs/specs/package-architecture.md", "utf8");
+    for (const tool of governance.governanceTools) {
+      expect(docs).toContain(tool.name);
+      expect(docs).toContain(tool.primarySource);
+      for (const concern of tool.concerns) expect(docs).toContain(concern);
+    }
+    for (const retained of governance.retainedSparkChecks) expect(docs).toContain(retained);
+  });
+
+  it("checks the removed generic-rule mapping and exact script inventory", async () => {
+    const governance = await readJson<GovernanceFixture>(
+      "test/fixtures/architecture-governance.json",
+    );
+    expect(governance.removedCheckerRules.map((rule) => rule.id)).toEqual([
+      ...removedCheckerRuleIds,
+    ]);
+    for (const rule of governance.removedCheckerRules) {
+      expect(rule.removedSource).toContain("scripts/check-architecture-ratchets.mjs");
+      expect(rule.rule).toBeTruthy();
+      expect(rule.authority).toBeTruthy();
+      expect(rule.independentDefect).toMatch(/^test\//u);
+      await expect(readFile(rule.independentDefect.split(" ")[0]!, "utf8")).resolves.toBeTruthy();
+    }
+    expect(governance.removedScriptSourceLines).toBe(3150);
+    expect(governance.removedScriptCount).toBe(governance.removedScripts.length);
+    expect(
+      execFileSync(
+        "git",
+        ["diff", "--name-only", `${governance.changeBase}..${governance.changeHead}`],
+        {
+          encoding: "utf8",
+        },
+      )
+        .trim()
+        .split("\n")
+        .filter(Boolean),
+    ).toEqual(governance.changedFiles);
+    const removedScriptStatus = execFileSync(
+      "git",
+      [
+        "diff",
+        "--name-status",
+        `${governance.changeBase}..${governance.changeHead}`,
+        "--",
+        "scripts",
+      ],
+      { encoding: "utf8" },
+    )
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => line.split("\t"))
+      .filter(([status]) => status === "D")
+      .map(([, path]) => path!);
+    expect(removedScriptStatus).toEqual(governance.removedScripts);
+    const removedSourceLines = governance.removedScripts.reduce((total, path) => {
+      const source = execFileSync("git", ["show", `${governance.changeBase}:${path}`], {
+        encoding: "utf8",
+      });
+      return total + lineCount(source);
+    }, 0);
+    expect(removedSourceLines).toBe(governance.removedScriptSourceLines);
+    const actualScripts = (await readdir("scripts", { withFileTypes: true }))
+      .filter((entry) => entry.isFile())
+      .map((entry) => `scripts/${entry.name}`)
+      .sort();
+    expect(actualScripts).toEqual(governance.scriptsInventory.map((entry) => entry.path).sort());
+    expect(governance.removedScripts).toHaveLength(18);
+    expect(governance.remainingCandidates).toHaveLength(2);
+    expect(governance.blockers).toHaveLength(2);
+    for (const entry of governance.scriptsInventory) {
+      expect(entry.path).toMatch(/^scripts\//u);
+      const source = await readFile(entry.path, "utf8");
+      expect(lineCount(source), `${entry.path} line count`).toBe(entry.lineCount);
+      expect(entry.domainOwner).toBeTruthy();
+      expect(entry.callers.length).toBeGreaterThan(0);
+      expect(entry.replacementAssessment).toBeTruthy();
+      for (const caller of entry.callers) {
+        if (caller === "operator/manual entrypoint") continue;
+        const callerSource = await readFile(caller, "utf8");
+        expect(callerSource, `${caller} must call ${entry.path}`).toContain(basename(entry.path));
+      }
+    }
   });
 });
 
