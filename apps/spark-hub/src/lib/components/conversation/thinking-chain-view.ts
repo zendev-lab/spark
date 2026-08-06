@@ -28,8 +28,8 @@ export function visibleThinkingChainSteps(
 
 /**
  * Produce the one-line, display-safe process summary retained after a turn settles.
- * Prefer the latest authored progress or tool result; a bare tool name is only a
- * last-resort fallback when the trace contains no readable narrative.
+ * Prefer the latest authored progress or tool result; a successful bare tool name
+ * is only a last-resort fallback when the trace contains no readable narrative.
  */
 export function thinkingChainHeadline(
   steps: readonly ConversationChainStep[],
@@ -42,7 +42,9 @@ export function thinkingChainHeadline(
     if (step.type === "tool") {
       const summary = compactChainHeadline(step.summary);
       if (summary) return summary;
-      toolNameFallback ??= compactChainHeadline(step.name);
+      if (!TERMINAL_ISSUE_STATES.has(step.state)) {
+        toolNameFallback ??= compactChainHeadline(step.name);
+      }
       continue;
     }
     if (step.type === "reasoning" && step.redacted) continue;
