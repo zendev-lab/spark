@@ -1,18 +1,96 @@
 import { describe, expect, it } from "vitest";
 import {
-  sparkAgentEvaluationSchema,
-  sparkAgentFeedbackSchema,
   sparkAgentTraceEventSchema,
+  validateCompletedSparkAgentTrace,
+  type SparkAgentTraceEvent,
 } from "./index.ts";
 
 const occurredAt = "2026-08-06T10:00:00.000Z";
 const fingerprint = "a".repeat(16);
 const hash = "b".repeat(64);
+const argumentFingerprint = {
+  scheme: "hmac-sha256-v1" as const,
+  value: "c".repeat(64),
+  keyScope: "installation" as const,
+};
 
-describe("agent observability protocol", () => {
-  it("parses a privacy-safe tool lifecycle", () => {
-    const started = sparkAgentTraceEventSchema.parse({
+function event<T extends SparkAgentTraceEvent>(value: T): T {
+  return sparkAgentTraceEventSchema.parse(value) as T;
+}
+
+function completeTrace(): SparkAgentTraceEvent[] {
+  return [
+    event({
       schemaVersion: 1,
+      eventId: "event:run:start",
+      traceId: "invocation:123",
+      spanId: "run:123",
+      occurredAt,
+      kind: "agent.run.started",
+      source: "user_submit",
+      sessionFingerprint: fingerprint,
+      phase: "implement",
+    }),
+    event({
+      schemaVersion: 1,
+      eventId: "event:skills:selected",
+      traceId: "invocation:123",
+      spanId: "skills:selection:1",
+      parentSpanId: "run:123",
+      occurredAt,
+      kind: "skill.selection.finished",
+      appliesFromRoundtrip: 1,
+      mode: "automatic",
+      skills: [
+        { name: "github", version: "v1", contentHash: hash },
+        { name: "gh-fix-ci", version: "v2", contentHash: "d".repeat(64) },
+      ],
+      candidateCount: 4,
+      selectorVersion: "skill-router-v2",
+      selectionFingerprint: fingerprint,
+    }),
+    event({
+      schemaVersion: 1,
+      eventId: "event:skill-load:start",
+      traceId: "invocation:123",
+      spanId: "skill-load:github",
+      parentSpanId: "run:123",
+      occurredAt,
+      kind: "skill.load.started",
+      appliesFromRoundtrip: 1,
+      skill: { name: "github", version: "v1", contentHash: hash },
+    }),
+    event({
+      schemaVersion: 1,
+      eventId: "event:skill-load:finish",
+      traceId: "invocation:123",
+      spanId: "skill-load:github",
+      parentSpanId: "run:123",
+      occurredAt,
+      kind: "skill.load.finished",
+      appliesFromRoundtrip: 1,
+      skill: { name: "github", version: "v1", contentHash: hash },
+      status: "succeeded",
+      durationMs: 3,
+    }),
+    event({
+      schemaVersion: 1,
+      eventId: "event:roundtrip:start",
+      traceId: "invocation:123",
+      spanId: "roundtrip:1",
+      parentSpanId: "run:123",
+      occurredAt,
+      kind: "model.roundtrip.started",
+      roundtrip: 1,
+      model: { provider: "openai", id: "gpt-5.6" },
+      promptVersion: "spark-prompt-v2",
+      stablePromptHash: hash,
+      dynamicPromptHash: hash,
+      toolProfileFingerprint: fingerprint,
+    }),
+    event({
+      schemaVersion: 1,
+      eventId: "event:tool:start",
       traceId: "invocation:123",
       spanId: "tool:call-1",
       parentSpanId: "roundtrip:1",
@@ -24,11 +102,12 @@ describe("agent observability protocol", () => {
       effect: "read",
       executionMode: "parallel",
       approval: "none",
-      argumentFingerprint: fingerprint,
+      argumentFingerprint,
       argumentBytes: 48,
-    });
-    const finished = sparkAgentTraceEventSchema.parse({
+    }),
+    event({
       schemaVersion: 1,
+      eventId: "event:tool:finish",
       traceId: "invocation:123",
       spanId: "tool:call-1",
       parentSpanId: "roundtrip:1",
@@ -41,27 +120,102 @@ describe("agent observability protocol", () => {
       durationMs: 12,
       resultBytes: 128,
       evidenceRefs: ["evidence:tool-output-1"],
+    }),
+    event({
+      schemaVersion: 1,
+      eventId: "event:roundtrip:finish",
+      traceId: "invocation:123",
+      spanId: "roundtrip:1",
+      parentSpanId: "run:123",
+      occurredAt,
+      kind: "model.roundtrip.finished",
+      roundtrip: 1,
+      outcome: "completed",
+      stopReason: "stop",
+      durationMs: 20,
+      inputTokens: 10,
+      outputTokens: 5,
+    }),
+    event({
+      schemaVersion: 1,
+      eventId: "event:run:finish",
+      traceId: "invocation:123",
+      spanId: "run:123",
+      occurredAt,
+      kind: "agent.run.finished",
+      outcome: "completed",
+      roundtrips: 1,
+      durationMs: 30,
+    }),
+  ];
+}
+
+describe("agent trace protocol", () => {
+  it("accepts a complete run, skill, model, and tool trace", () => {
+    expect(validateCompletedSparkAgentTrace(completeTrace())).toEqual({
+      valid: true,
+      issues: [],
+    });
+  });
+
+  it("records pre-execution unknown-tool failures", () => {
+    const started = event({
+      schemaVersion: 1,
+      eventId: "event:unknown:start",
+      traceId: "invocation:123",
+      spanId: "tool:unknown",
+      parentSpanId: "roundtrip:1",
+      occurredAt,
+      kind: "tool.call.started",
+      roundtrip: 1,
+      toolCallId: "call-unknown",
+      toolName: "missing_tool",
+      effect: "unknown",
+      executionMode: "unknown",
+      approval: "unknown",
+      argumentFingerprint,
+    });
+    const finished = event({
+      schemaVersion: 1,
+      eventId: "event:unknown:finish",
+      traceId: "invocation:123",
+      spanId: "tool:unknown",
+      parentSpanId: "roundtrip:1",
+      occurredAt,
+      kind: "tool.call.finished",
+      roundtrip: 1,
+      toolCallId: "call-unknown",
+      toolName: "missing_tool",
+      status: "blocked",
+      durationMs: 0,
+      failureStage: "resolution",
+      failureType: "unknown_tool",
+      retryable: false,
     });
 
     expect(started.kind).toBe("tool.call.started");
     expect(finished.kind).toBe("tool.call.finished");
-    expect(finished.evidenceRefs).toEqual(["evidence:tool-output-1"]);
   });
 
-  it("rejects raw arguments and results from trace envelopes", () => {
+  it("rejects raw arguments, results, prompts, and skill bodies", () => {
+    const baseToolStart = {
+      schemaVersion: 1,
+      eventId: "event:tool:start",
+      traceId: "invocation:123",
+      spanId: "tool:call-1",
+      parentSpanId: "roundtrip:1",
+      occurredAt,
+      kind: "tool.call.started",
+      roundtrip: 1,
+      toolCallId: "call-1",
+      toolName: "read_file",
+      effect: "read",
+      executionMode: "sequential",
+      approval: "none",
+    };
     expect(() =>
       sparkAgentTraceEventSchema.parse({
-        schemaVersion: 1,
-        traceId: "invocation:123",
-        spanId: "tool:call-1",
-        occurredAt,
-        kind: "tool.call.started",
-        roundtrip: 1,
-        toolCallId: "call-1",
-        toolName: "read_file",
-        effect: "read",
-        executionMode: "sequential",
-        approval: "none",
+        ...baseToolStart,
         arguments: { path: "/private/secret" },
       }),
     ).toThrow();
@@ -69,8 +223,10 @@ describe("agent observability protocol", () => {
     expect(() =>
       sparkAgentTraceEventSchema.parse({
         schemaVersion: 1,
+        eventId: "event:tool:finish",
         traceId: "invocation:123",
         spanId: "tool:call-1",
+        parentSpanId: "roundtrip:1",
         occurredAt,
         kind: "tool.call.finished",
         roundtrip: 1,
@@ -81,95 +237,155 @@ describe("agent observability protocol", () => {
         result: "secret file contents",
       }),
     ).toThrow();
-  });
 
-  it("records skill selection without retaining skill bodies", () => {
-    const event = sparkAgentTraceEventSchema.parse({
-      schemaVersion: 1,
-      traceId: "invocation:123",
-      spanId: "skills:1",
-      parentSpanId: "roundtrip:1",
-      occurredAt,
-      kind: "skill.selection.finished",
-      roundtrip: 1,
-      selectedSkills: ["github", "gh-fix-ci"],
-      selectorVersion: "skill-router-v2",
-      selectionFingerprint: fingerprint,
-    });
-
-    expect(event.kind).toBe("skill.selection.finished");
-    if (event.kind === "skill.selection.finished") {
-      expect(event.selectedSkills).toEqual(["github", "gh-fix-ci"]);
-    }
-  });
-
-  it("requires a concrete feedback signal", () => {
     expect(() =>
-      sparkAgentFeedbackSchema.parse({
+      sparkAgentTraceEventSchema.parse({
         schemaVersion: 1,
-        feedbackId: "feedback:1",
-        target: { kind: "trace", traceId: "invocation:123" },
-        source: "user",
-        createdAt: occurredAt,
+        eventId: "event:roundtrip:start",
+        traceId: "invocation:123",
+        spanId: "roundtrip:1",
+        parentSpanId: "run:123",
+        occurredAt,
+        kind: "model.roundtrip.started",
+        roundtrip: 1,
+        model: { provider: "openai", id: "gpt-5.6" },
+        promptVersion: "v1",
+        stablePromptHash: hash,
+        dynamicPromptHash: hash,
+        toolProfileFingerprint: fingerprint,
+        prompt: "private prompt",
       }),
     ).toThrow();
 
-    const feedback = sparkAgentFeedbackSchema.parse({
-      schemaVersion: 1,
-      feedbackId: "feedback:1",
-      target: {
-        kind: "span",
+    expect(() =>
+      sparkAgentTraceEventSchema.parse({
+        schemaVersion: 1,
+        eventId: "event:skill-load:start",
+        traceId: "invocation:123",
+        spanId: "skill-load:github",
+        parentSpanId: "run:123",
+        occurredAt,
+        kind: "skill.load.started",
+        appliesFromRoundtrip: 1,
+        skill: { name: "github" },
+        body: "private skill body",
+      }),
+    ).toThrow();
+  });
+
+  it("requires failure classification on every non-success terminal event", () => {
+    expect(() =>
+      sparkAgentTraceEventSchema.parse({
+        schemaVersion: 1,
+        eventId: "event:tool:finish",
         traceId: "invocation:123",
         spanId: "tool:call-1",
-      },
-      source: "reviewer",
-      sentiment: "negative",
-      label: "wrong_tool",
-      commentRef: "evidence:feedback-1",
-      createdAt: occurredAt,
-    });
+        parentSpanId: "roundtrip:1",
+        occurredAt,
+        kind: "tool.call.finished",
+        roundtrip: 1,
+        toolCallId: "call-1",
+        toolName: "read_file",
+        status: "failed",
+        durationMs: 12,
+      }),
+    ).toThrow();
 
-    expect(feedback.target.kind).toBe("span");
+    expect(() =>
+      sparkAgentTraceEventSchema.parse({
+        schemaVersion: 1,
+        eventId: "event:tool:timeout",
+        traceId: "invocation:123",
+        spanId: "tool:call-1",
+        parentSpanId: "roundtrip:1",
+        occurredAt,
+        kind: "tool.call.finished",
+        roundtrip: 1,
+        toolCallId: "call-1",
+        toolName: "read_file",
+        status: "timed_out",
+        durationMs: 12,
+        failureStage: "execution",
+        failureType: "timeout",
+      }),
+    ).toThrow();
   });
 
-  it("parses deterministic evaluation records with numeric metrics", () => {
-    const evaluation = sparkAgentEvaluationSchema.parse({
-      schemaVersion: 1,
-      evaluationId: "evaluation:1",
-      traceId: "invocation:123",
-      evaluator: {
-        kind: "deterministic",
-        name: "tool-selection",
-        version: "v1",
-      },
-      verdict: "fail",
-      metrics: {
-        toolErrors: 1,
-        repeatedCalls: 2,
-      },
-      evidenceRefs: ["evidence:evaluation-1"],
-      createdAt: occurredAt,
-    });
-
-    expect(evaluation.metrics).toEqual({ toolErrors: 1, repeatedCalls: 2 });
+  it("rejects contradictory success records", () => {
+    expect(() =>
+      sparkAgentTraceEventSchema.parse({
+        schemaVersion: 1,
+        eventId: "event:tool:finish",
+        traceId: "invocation:123",
+        spanId: "tool:call-1",
+        parentSpanId: "roundtrip:1",
+        occurredAt,
+        kind: "tool.call.finished",
+        roundtrip: 1,
+        toolCallId: "call-1",
+        toolName: "read_file",
+        status: "succeeded",
+        durationMs: 12,
+        failureStage: "execution",
+        failureType: "tool_returned_error",
+      }),
+    ).toThrow();
   });
 
-  it("parses model roundtrip fingerprints without prompt content", () => {
-    const event = sparkAgentTraceEventSchema.parse({
+  it("requires unique selected skills and coherent candidate counts", () => {
+    const selection = {
       schemaVersion: 1,
+      eventId: "event:skills:selected",
       traceId: "invocation:123",
-      spanId: "roundtrip:1",
-      parentSpanId: "run:1",
+      spanId: "skills:selection:1",
+      parentSpanId: "run:123",
       occurredAt,
-      kind: "model.roundtrip.started",
-      roundtrip: 1,
-      model: { provider: "openai", id: "gpt-5.6" },
-      promptVersion: "spark-prompt-v2",
-      stablePromptHash: hash,
-      dynamicPromptHash: hash,
-      toolProfileFingerprint: fingerprint,
-    });
+      kind: "skill.selection.finished",
+      appliesFromRoundtrip: 1,
+      mode: "automatic",
+      skills: [{ name: "github" }, { name: "github" }],
+      candidateCount: 1,
+    };
+    expect(() => sparkAgentTraceEventSchema.parse(selection)).toThrow();
+  });
 
-    expect(event.kind).toBe("model.roundtrip.started");
+  it("detects missing parents, unmatched finishes, and unclosed spans", () => {
+    const trace = completeTrace();
+    const withoutToolStart = trace.filter((entry) => entry.eventId !== "event:tool:start");
+    const result = validateCompletedSparkAgentTrace(withoutToolStart);
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain("orphan_finish");
+
+    const withoutRoundtripFinish = trace.filter(
+      (entry) => entry.eventId !== "event:roundtrip:finish",
+    );
+    const unclosed = validateCompletedSparkAgentTrace(withoutRoundtripFinish);
+    expect(unclosed.issues.map((issue) => issue.code)).toContain("unclosed_span");
+
+    const missingParent = trace.map((entry) =>
+      entry.eventId === "event:tool:start"
+        ? ({ ...entry, parentSpanId: "roundtrip:missing" } as SparkAgentTraceEvent)
+        : entry,
+    );
+    expect(validateCompletedSparkAgentTrace(missingParent).issues.map((issue) => issue.code)).toContain(
+      "missing_parent",
+    );
+  });
+
+  it("detects duplicate events and mismatched terminal metadata", () => {
+    const trace = completeTrace();
+    const toolFinishIndex = trace.findIndex((entry) => entry.eventId === "event:tool:finish");
+    trace[toolFinishIndex] = {
+      ...trace[toolFinishIndex]!,
+      toolName: "different_tool",
+    } as SparkAgentTraceEvent;
+    trace.splice(toolFinishIndex + 1, 0, trace[toolFinishIndex]!);
+
+    const result = validateCompletedSparkAgentTrace(trace);
+    expect(result.valid).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toContain("duplicate_event");
+    expect(result.issues.map((issue) => issue.code)).toContain("duplicate_finish");
+    expect(result.issues.map((issue) => issue.code)).toContain("span_metadata_mismatch");
   });
 });
