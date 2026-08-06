@@ -558,7 +558,7 @@ test("native TUI renders compact session status before project UI", () => {
   harness.app.setWidget("project", [
     "Project: Spark daemon session UX",
     "Goal: improve the session workflow",
-    "Ready: @zellij-driven-session-harness",
+    "Ready: @direct-pty-session-harness",
   ]);
 
   assert.equal(harness.state.exited, false);

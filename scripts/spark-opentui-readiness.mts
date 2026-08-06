@@ -77,7 +77,10 @@ export function inspectOpenTuiReadiness(root = repositoryRoot()): OpenTuiReadine
     );
   const ptyContractVerified =
     process.env.SPARK_OPENTUI_PTY_EVIDENCE === "verified" &&
-    existsSync(resolve(root, "scripts/spark-zellij-harness.mts"));
+    existsSync(resolve(root, "apps/spark-tui/src/__tests__/spark-native-tui-direct-pty.test.ts")) &&
+    existsSync(
+      resolve(root, "apps/spark-tui/src/test-support/spark-native-tui-direct-pty-harness.ts"),
+    );
   return evaluateOpenTuiReadiness({
     nodeVersion: process.versions.node,
     ffiFlagSupported: process.allowedNodeEnvironmentFlags.has("--experimental-ffi"),

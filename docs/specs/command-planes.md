@@ -287,5 +287,5 @@ rejects repeated workspaces, including self-delegation.
 
 State commands must provide stable `--json` output. Human-readable output is not
 an automation contract. CLI owns canonical placement; slash commands are
-interactive aliases. Zellij is an operator validation tool, never a runtime
-dependency.
+interactive aliases. The component and Direct PTY test lanes validate terminal
+behavior; no terminal multiplexer is a runtime or validation dependency.
