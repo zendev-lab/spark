@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "vitest";
@@ -25,7 +26,7 @@ test("an injected unallowlisted Cockpit reference fails closed", async () => {
     await mkdir(join(root, "test", "fixtures"), { recursive: true });
     await writeFile(join(root, "active-product.ts"), 'export const product = "Cockpit";\n');
     const fixtureAllowlist = join(root, "test", "fixtures", "allowlist.json");
-    await writeFile(fixtureAllowlist, JSON.stringify({ schemaVersion: 1, rules: [] }));
+    await writeFile(fixtureAllowlist, JSON.stringify({ schemaVersion: 2, rules: [] }));
 
     const result = runChecker(root, fixtureAllowlist);
     assert.notEqual(result.status, 0);
@@ -35,6 +36,52 @@ test("an injected unallowlisted Cockpit reference fails closed", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("an injected Cockpit reference inside an allowlisted file fails closed", async () => {
+  const root = await mkdtemp(join(tmpdir(), "spark-hub-terminology-bound-"));
+  try {
+    await mkdir(join(root, "test", "fixtures"), { recursive: true });
+    const approvedPath = "approved.ts";
+    const approvedLine = 'export const legacy = "Cockpit";';
+    await writeFile(join(root, approvedPath), `${approvedLine}\n`);
+    const fixtureAllowlist = join(root, "test", "fixtures", "allowlist.json");
+    await writeFile(
+      fixtureAllowlist,
+      JSON.stringify({
+        schemaVersion: 2,
+        rules: [
+          {
+            pattern: approvedPath,
+            category: "legacy-test",
+            approvedOccurrenceCount: 1,
+            approvedOccurrencesSha256: occurrenceDigest([`${approvedPath}\u0000${approvedLine}`]),
+          },
+        ],
+      }),
+    );
+
+    const approved = runChecker(root, fixtureAllowlist);
+    assert.equal(approved.status, 0, approved.stderr);
+
+    await appendFile(join(root, approvedPath), 'export const injected = "Cockpit";\n');
+    const injected = runChecker(root, fixtureAllowlist);
+    assert.notEqual(injected.status, 0);
+    assert.match(injected.stderr, /approved occurrence set changed/u);
+    assert.match(injected.stderr, /count 1 -> 2/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+function occurrenceDigest(occurrenceIds: string[]) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify(
+        [...occurrenceIds].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)),
+      ),
+    )
+    .digest("hex");
+}
 
 function runChecker(root: string, allowlistPath: string) {
   return spawnSync(process.execPath, [checker], {
