@@ -31,9 +31,11 @@ async function writeSkill(
   return path;
 }
 
-function testTool(
-  options: { builtinDirs: string[]; maxCombinedSkillChars?: number },
-): ToolConfig {
+function countOccurrences(value: string, needle: string): number {
+  return value.split(needle).length - 1;
+}
+
+function testTool(options: { builtinDirs: string[]; maxCombinedSkillChars?: number }): ToolConfig {
   return createSparkSkillAgentTool({
     ...options,
     workspaceAgentsDirs: [],
@@ -47,16 +49,12 @@ test("skill_agent runs the complete Skill set in one restricted anonymous Agent"
   const dir = await mkdtemp(join(tmpdir(), "spark-skill-agent-"));
   try {
     const skillsDir = join(dir, "skills");
-    const auditPath = await writeSkill(
-      skillsDir,
-      "release-audit",
-      "# Release audit\n\nInspect the requested release and verify its checks.\n",
-    );
-    const publishPath = await writeSkill(
-      skillsDir,
-      "github-publish",
-      "# GitHub publish\n\nPublish only after the requested verification passes.\n",
-    );
+    const auditBody =
+      "# Release audit\n\nInspect the requested release and verify RELEASE_AUDIT_SENTINEL.\n";
+    const publishBody =
+      "# GitHub publish\n\nPublish only after PUBLISH_READY_SENTINEL verification passes.\n";
+    const auditPath = await writeSkill(skillsDir, "release-audit", auditBody);
+    const publishPath = await writeSkill(skillsDir, "github-publish", publishBody);
     const tool = testTool({ builtinDirs: [skillsDir] });
     assert.deepEqual(tool.policy?.phases, ["implement"]);
     assert.equal(
@@ -108,21 +106,21 @@ test("skill_agent runs the complete Skill set in one restricted anonymous Agent"
     assert.equal(captured.record.sessionPersistence, "anonymous");
     assert.equal(captured.model, "fake-provider/fake-model");
     assert.equal(captured.timeoutMs, 30_000);
-    assert.match(captured.role.systemPrompt, /dedicated Spark Agent/);
-    assert.match(captured.role.systemPrompt, /release-audit, github-publish/);
-    assert.match(captured.role.systemPrompt, /already included below/);
-    assert.match(captured.role.systemPrompt, /# Release audit/);
-    assert.match(captured.role.systemPrompt, /# GitHub publish/);
-    assert.match(
-      captured.role.systemPrompt,
-      new RegExp(auditPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    assert.equal(countOccurrences(captured.role.systemPrompt, auditBody.trim()), 1);
+    assert.equal(countOccurrences(captured.role.systemPrompt, publishBody.trim()), 1);
+    assert.equal(countOccurrences(captured.role.systemPrompt, auditPath), 1);
+    assert.equal(countOccurrences(captured.role.systemPrompt, publishPath), 1);
+    assert.equal(countOccurrences(captured.role.systemPrompt, "<skill>"), 2);
+    assert.equal(
+      captured.instruction.instruction,
+      [
+        "Audit the current release candidate and publish only when it passes.",
+        "",
+        "Bounded inputs:",
+        "- package.json",
+        "- CI must pass",
+      ].join("\n"),
     );
-    assert.match(
-      captured.role.systemPrompt,
-      new RegExp(publishPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
-    );
-    assert.match(captured.instruction.instruction, /Bounded inputs:/);
-    assert.match(captured.instruction.instruction, /package\.json/);
     assert.deepEqual(captured.role.allowedTools, [...SKILL_AGENT_ALLOWED_TOOLS]);
     const allowedTools = new Set<string>(captured.role.allowedTools);
     for (const forbidden of [
@@ -145,10 +143,12 @@ test("skill_agent runs the complete Skill set in one restricted anonymous Agent"
       assert.equal(allowedTools.has(forbidden), false);
     }
     assert.equal(result.isError, undefined);
-    assert.match(result.content[0]!.text, /Skill Agent completed: release-audit, github-publish/);
-    assert.match(result.content[0]!.text, /publication ready/);
     assert.equal(result.details?.runName, "skills:release-audit,github-publish");
-    assert.equal((result.details?.skills as unknown[]).length, 2);
+    assert.equal(result.details?.output, "Release audit complete and publication ready.");
+    assert.deepEqual(
+      (result.details?.skills as Array<{ name: string }>).map((skill) => skill.name),
+      ["release-audit", "github-publish"],
+    );
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
