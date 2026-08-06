@@ -362,6 +362,12 @@
       "approvedOccurrencesSha256": "3eaa2695be2946028b62157487a24816a7690893c106a28b063c46c73c5cb578"
     },
     {
+      "pattern": "test/fixtures/architecture-governance.json",
+      "category": "historical-change-evidence",
+      "approvedOccurrenceCount": 2,
+      "approvedOccurrencesSha256": "64dd880a6201d1dd088323dcd1d82fee04cda66b404c45e99aed2127b84b9f46"
+    },
+    {
       "pattern": "test/hub-naming-contract.test.ts",
       "category": "canonical-name-contract-test",
       "approvedOccurrenceCount": 10,

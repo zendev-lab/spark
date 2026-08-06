@@ -1,0 +1,543 @@
+{
+  "schemaVersion": 1,
+  "governanceTools": [
+    {
+      "id": "ajv",
+      "name": "Ajv CLI",
+      "concerns": ["inventory JSON shape, required fields, and enums"],
+      "authority": "architecture/packages.schema.json",
+      "primarySource": "https://ajv.js.org/packages/ajv-cli.html"
+    },
+    {
+      "id": "syncpack",
+      "name": "Syncpack",
+      "concerns": ["dependency-version/specifier consistency across manifests"],
+      "authority": ".syncpackrc.json",
+      "primarySource": "https://github.com/JoshuaKGoldberg/syncpack"
+    },
+    {
+      "id": "dependency-cruiser",
+      "name": "Dependency Cruiser",
+      "concerns": ["cycles and dependency direction"],
+      "authority": ".dependency-cruiser.cjs",
+      "primarySource": "https://github.com/sverweij/dependency-cruiser"
+    }
+  ],
+  "retainedSparkChecks": [
+    "Spark package identity",
+    "owner/state ownership",
+    "workspace dependency declarations",
+    "workspace budget",
+    "frozen compatibility",
+    "daemon RPC facade",
+    "public distribution",
+    "release",
+    "migration",
+    "documentation",
+    "evidence",
+    "Lens",
+    "acceptance"
+  ],
+  "removedCheckerRules": [
+    {
+      "id": "layer-enum",
+      "removedSource": "scripts/check-architecture-ratchets.mjs validLayers",
+      "rule": "architecture layer must be one of the approved values",
+      "authority": "architecture/packages.schema.json + Ajv CLI",
+      "independentDefect": "test/architecture-ratchets.test.ts injects invalid layer"
+    },
+    {
+      "id": "owner-nonempty",
+      "removedSource": "scripts/check-architecture-ratchets.mjs owner trim check",
+      "rule": "owner must contain a non-whitespace value",
+      "authority": "architecture/packages.schema.json + Ajv CLI",
+      "independentDefect": "test/architecture-ratchets.test.ts injects blank owner"
+    },
+    {
+      "id": "stability-enum",
+      "removedSource": "scripts/check-architecture-ratchets.mjs validStabilities",
+      "rule": "stability must be one of the approved values",
+      "authority": "architecture/packages.schema.json + Ajv CLI",
+      "independentDefect": "test/architecture-ratchets.test.ts injects invalid stability"
+    },
+    {
+      "id": "state-writer-enum",
+      "removedSource": "scripts/check-architecture-ratchets.mjs validStateWriters",
+      "rule": "stateWriter must be one of the approved values",
+      "authority": "architecture/packages.schema.json + Ajv CLI",
+      "independentDefect": "test/architecture-ratchets.test.ts injects invalid stateWriter"
+    },
+    {
+      "id": "distribution-enum",
+      "removedSource": "scripts/check-architecture-ratchets.mjs validDistributions",
+      "rule": "distribution, when present, must be one of the approved values",
+      "authority": "architecture/packages.schema.json + Ajv CLI",
+      "independentDefect": "test/architecture-ratchets.test.ts injects invalid distribution"
+    },
+    {
+      "id": "mutation-script-ownership",
+      "removedSource": "scripts/check-architecture-ratchets.mjs root mutation-runner duplication check",
+      "rule": "mutation participants use the canonical package-local Stryker command and dependencies",
+      "authority": "package-local test:mutation scripts, Stryker configs, and test/package-script-surface.test.ts",
+      "independentDefect": "test/package-script-surface.test.ts injects an invalid mutation command"
+    }
+  ],
+  "scriptsInventory": [
+    {
+      "path": "scripts/build-npm-product.mjs",
+      "lineCount": 339,
+      "domainOwner": "distribution",
+      "callers": [
+        "scripts/pack-release.mjs",
+        "scripts/smoke-npm-product.mjs",
+        "test/hub-naming-contract.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/capability-ce-output-directory.mts",
+      "lineCount": 39,
+      "domainOwner": "capability-ce",
+      "callers": [
+        ".github/workflows/ce-capability-nightly.yml",
+        ".github/workflows/ce-scripted-provider-nightly.yml",
+        "scripts/run-nightly-capability-ce.mts",
+        "scripts/run-scripted-provider-ce.mts",
+        "test/package-script-surface.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/check-architecture-ratchets.mjs",
+      "lineCount": 440,
+      "domainOwner": "architecture",
+      "callers": [
+        "docs/specs/command-planes.md",
+        "docs/specs/package-architecture.md",
+        "package.json",
+        "test/architecture-ratchets.test.ts",
+        "test/package-script-surface.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/check-doc-terminology.mjs",
+      "lineCount": 190,
+      "domainOwner": "documentation",
+      "callers": [
+        "package.json",
+        "test/check-boundaries.test.ts",
+        "test/package-script-surface.test.ts",
+        "test/spark-invocation-docs.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/check-evidence-surface.mjs",
+      "lineCount": 316,
+      "domainOwner": "evidence",
+      "callers": ["package.json", "test/package-script-surface.test.ts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/check-hub-terminology.mjs",
+      "lineCount": 167,
+      "domainOwner": "hub-compatibility",
+      "callers": [
+        "package.json",
+        "test/fixtures/hub-compatibility-allowlist.json",
+        "test/hub-terminology-contract.test.ts",
+        "test/package-script-surface.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/check-lens-release.mts",
+      "lineCount": 95,
+      "domainOwner": "lens",
+      "callers": [
+        "package.json",
+        "test/lens-release-gate.test.ts",
+        "test/package-script-surface.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/check-npm-product.mjs",
+      "lineCount": 322,
+      "domainOwner": "distribution",
+      "callers": [
+        "package.json",
+        "test/fixtures/hub-compatibility-allowlist.json",
+        "test/hub-naming-contract.test.ts",
+        "test/package-script-surface.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/check-test-quality.d.mts",
+      "lineCount": 11,
+      "domainOwner": "test-quality",
+      "callers": ["operator/manual entrypoint"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/check-test-quality.mjs",
+      "lineCount": 304,
+      "domainOwner": "test-quality",
+      "callers": [
+        "package.json",
+        "test/package-script-surface.test.ts",
+        "test/test-quality-ratchet.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/check-user-docs.mjs",
+      "lineCount": 495,
+      "domainOwner": "documentation",
+      "callers": [
+        "apps/spark-docs/README.md",
+        "apps/spark-docs/package.json",
+        "test/fixtures/hub-compatibility-allowlist.json"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/check-version-diagnostics.mjs",
+      "lineCount": 282,
+      "domainOwner": "diagnostics",
+      "callers": ["test/version-diagnostics.test.ts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/container-healthcheck.d.mts",
+      "lineCount": 13,
+      "domainOwner": "operations",
+      "callers": ["operator/manual entrypoint"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/container-healthcheck.mjs",
+      "lineCount": 54,
+      "domainOwner": "operations",
+      "callers": [
+        "test/container-healthcheck.test.ts",
+        "test/fixtures/hub-compatibility-allowlist.json",
+        "test/hub-naming-contract.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/lens-scorecard-io.mts",
+      "lineCount": 42,
+      "domainOwner": "lens",
+      "callers": [
+        "scripts/check-lens-release.mts",
+        "scripts/run-lens-scorecard.mts",
+        "test/lens-scorecard-fixtures.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/npm-distributions.mjs",
+      "lineCount": 130,
+      "domainOwner": "distribution",
+      "callers": [
+        "scripts/build-npm-product.mjs",
+        "scripts/check-npm-product.mjs",
+        "scripts/pack-release.mjs",
+        "scripts/smoke-npm-product.mjs",
+        "scripts/sync-workspace-versions.mjs",
+        "scripts/verify-release-state.mjs",
+        "test/hub-naming-contract.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/pack-release.mjs",
+      "lineCount": 102,
+      "domainOwner": "distribution",
+      "callers": ["package.json", "test/package-script-surface.test.ts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/product-runtime-closure.mjs",
+      "lineCount": 124,
+      "domainOwner": "distribution",
+      "callers": ["scripts/build-npm-product.mjs", "scripts/check-npm-product.mjs"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/report-hygiene.mjs",
+      "lineCount": 111,
+      "domainOwner": "quality-reporting",
+      "callers": ["package.json"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/require-docs-deploy-env.mjs",
+      "lineCount": 27,
+      "domainOwner": "documentation",
+      "callers": ["apps/spark-docs/README.md", "apps/spark-docs/package.json"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/run-lens-scorecard.mts",
+      "lineCount": 21,
+      "domainOwner": "lens",
+      "callers": ["benchmarks/lens/scorecard.json", "packages/spark-lens/src/scorecard.ts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/run-nightly-capability-ce.mts",
+      "lineCount": 473,
+      "domainOwner": "capability-ce",
+      "callers": [
+        ".github/workflows/ce-capability-nightly.yml",
+        "package.json",
+        "test/package-script-surface.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/run-scripted-provider-ce.mts",
+      "lineCount": 498,
+      "domainOwner": "capability-ce",
+      "callers": [
+        ".github/workflows/ce-scripted-provider-nightly.yml",
+        "docs/operations/scripted-provider-ce.md"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/smoke-npm-product.mjs",
+      "lineCount": 497,
+      "domainOwner": "distribution",
+      "callers": [
+        ".github/workflows/cd-publish.yml",
+        "package.json",
+        "test/package-script-surface.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/spark-cue-contract-harness.mts",
+      "lineCount": 641,
+      "domainOwner": "acceptance",
+      "callers": ["scripts/spark-zellij-harness.mts", "test/spark-cue-contract-harness.test.ts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/spark-cue-harness.mts",
+      "lineCount": 198,
+      "domainOwner": "acceptance",
+      "callers": ["scripts/spark-zellij-harness.mts", "test/spark-cue-harness.test.ts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/spark-cursor-live-acceptance.mts",
+      "lineCount": 122,
+      "domainOwner": "acceptance",
+      "callers": ["packages/spark-ai/README.md"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/spark-daemon-readiness.mts",
+      "lineCount": 291,
+      "domainOwner": "acceptance",
+      "callers": ["test/spark-daemon-readiness.test.ts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/spark-native-assignment-harness.mts",
+      "lineCount": 183,
+      "domainOwner": "acceptance",
+      "callers": ["scripts/spark-zellij-harness.mts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/spark-opentui-readiness.mts",
+      "lineCount": 116,
+      "domainOwner": "acceptance",
+      "callers": ["package.json", "test/spark-opentui-readiness.test.ts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/spark-zellij-harness.mts",
+      "lineCount": 1124,
+      "domainOwner": "acceptance",
+      "callers": ["docs/operations/zellij-harness.md", "scripts/spark-opentui-readiness.mts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/sync-workspace-versions.mjs",
+      "lineCount": 81,
+      "domainOwner": "distribution",
+      "callers": [
+        "package.json",
+        "scripts/build-npm-product.mjs",
+        "test/package-script-surface.test.ts",
+        "test/spark-mcp-architecture-contract.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/test-release-migration.mjs",
+      "lineCount": 667,
+      "domainOwner": "release-migration",
+      "callers": [
+        ".github/workflows/cd-publish.yml",
+        "test/fixtures/hub-compatibility-allowlist.json",
+        "test/release-migration-gate.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/validate-architecture-inventory.mjs",
+      "lineCount": 39,
+      "domainOwner": "architecture",
+      "callers": [
+        "package.json",
+        "test/check-boundaries.test.ts",
+        "test/package-script-surface.test.ts"
+      ],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/validate-pr-body.d.mts",
+      "lineCount": 17,
+      "domainOwner": "ci-governance",
+      "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/validate-pr-body.mjs",
+      "lineCount": 78,
+      "domainOwner": "ci-governance",
+      "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/validate-pr-title.d.mts",
+      "lineCount": 10,
+      "domainOwner": "ci-governance",
+      "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/validate-pr-title.mjs",
+      "lineCount": 58,
+      "domainOwner": "ci-governance",
+      "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/verify-release-state.mjs",
+      "lineCount": 177,
+      "domainOwner": "release",
+      "callers": [".github/workflows/cd-publish.yml"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    }
+  ],
+  "removedScriptSourceLines": 3150,
+  "removedScriptCount": 18,
+  "removedScripts": [
+    "scripts/capability-sentinel-suite.mjs",
+    "scripts/check-mutation-ce-ownership.d.mts",
+    "scripts/check-mutation-ce-ownership.mjs",
+    "scripts/check-spark-ui-import-boundary.mjs",
+    "scripts/check-test-ownership.d.mts",
+    "scripts/check-test-ownership.mjs",
+    "scripts/check-workspace-test-strategy.d.mts",
+    "scripts/check-workspace-test-strategy.mjs",
+    "scripts/run-capability-sentinels.mjs",
+    "scripts/run-leaf-mutation.mjs",
+    "scripts/spark-extension-manual-matrix.mts",
+    "scripts/spark-task-claim-lease-live-support.mts",
+    "scripts/spark-task-claim-lease-live.mts",
+    "scripts/spark-zellij-daemon-cycle.mts",
+    "scripts/spark-zellij-session-resume-capture.mts",
+    "scripts/spark-zellij-task-assignment.mts",
+    "scripts/unify-session-transcripts.mts",
+    "scripts/write-compact-v2-plan.ts"
+  ],
+  "remainingCandidates": [
+    {
+      "path": "scripts/check-version-diagnostics.mjs",
+      "assessment": "candidate for a future compiler-native diagnostic baseline",
+      "blocker": "Spark-specific family budgets and source-contract diagnostics are not represented by a maintained generic tool"
+    },
+    {
+      "path": "scripts/spark-zellij-harness.mts",
+      "assessment": "candidate for consolidation with other live acceptance harnesses",
+      "blocker": "side-effectful terminal orchestration and recovery evidence remain product-specific"
+    }
+  ],
+  "blockers": [
+    "No maintained tool owns Spark distribution closure, release migration, Evidence/Lens projection, or live acceptance semantics.",
+    "Operator-only live harnesses must retain explicit documentation callers until an equivalent deterministic acceptance owner exists."
+  ],
+  "changeBase": "1f521d5fe8132e3aad4ae7bdb43a4a8340bb2523",
+  "changeHead": "6db854e968628336357df81a15b4d9124b5a637a",
+  "changedFiles": [
+    ".dependency-cruiser.cjs",
+    ".github/workflows/ce-capability-nightly.yml",
+    ".github/workflows/ce-mutation.yml",
+    ".syncpackrc.json",
+    "_typos.toml",
+    "architecture/packages.json",
+    "architecture/packages.schema.json",
+    "docs/operations/mutation-ce.md",
+    "docs/operations/test-architecture.md",
+    "docs/specs/package-architecture.md",
+    "package.json",
+    "packages/spark-artifacts/package.json",
+    "packages/spark-channels/package.json",
+    "packages/spark-cockpit-coordination/package.json",
+    "packages/spark-cockpit-db/package.json",
+    "packages/spark-extension/package.json",
+    "packages/spark-i18n/package.json",
+    "packages/spark-protocol/package.json",
+    "packages/spark-repro/package.json",
+    "packages/spark-retry/package.json",
+    "packages/spark-session/package.json",
+    "packages/spark-system/package.json",
+    "packages/spark-system/stryker.config.json",
+    "packages/spark-tasks/package.json",
+    "packages/spark-tasks/src/todo-store.atomic.test.ts",
+    "packages/spark-tasks/stryker.config.json",
+    "packages/spark-tasks/vitest.mutation.config.ts",
+    "pnpm-lock.yaml",
+    "scripts/capability-sentinel-suite.mjs",
+    "scripts/check-architecture-ratchets.mjs",
+    "scripts/check-mutation-ce-ownership.d.mts",
+    "scripts/check-mutation-ce-ownership.mjs",
+    "scripts/check-spark-ui-import-boundary.mjs",
+    "scripts/check-test-ownership.d.mts",
+    "scripts/check-test-ownership.mjs",
+    "scripts/check-workspace-test-strategy.d.mts",
+    "scripts/check-workspace-test-strategy.mjs",
+    "scripts/run-capability-sentinels.mjs",
+    "scripts/run-leaf-mutation.mjs",
+    "scripts/run-nightly-capability-ce.mts",
+    "scripts/spark-extension-manual-matrix.mts",
+    "scripts/spark-task-claim-lease-live-support.mts",
+    "scripts/spark-task-claim-lease-live.mts",
+    "scripts/spark-zellij-daemon-cycle.mts",
+    "scripts/spark-zellij-session-resume-capture.mts",
+    "scripts/spark-zellij-task-assignment.mts",
+    "scripts/unify-session-transcripts.mts",
+    "scripts/write-compact-v2-plan.ts",
+    "test/architecture-ratchets.test.ts",
+    "test/check-boundaries.test.ts",
+    "test/check-test-ownership.test.ts",
+    "test/mutation-ce-ownership.json",
+    "test/package-consistency.test.ts",
+    "test/package-script-surface.test.ts",
+    "test/test-ownership.json",
+    "test/workspace-ledgers.test.ts",
+    "test/workspace-test-strategy.json",
+    "vitest.capability.config.ts"
+  ]
+}

@@ -14,12 +14,12 @@ or growth beyond the current 41-workspace budget.
 
 Generic monorepo mechanics are delegated to maintained open-source tools:
 
-| Concern | Authority |
-| --- | --- |
-| inventory JSON shape, required fields, and enums | JSON Schema 2020-12 in `architecture/packages.schema.json`, validated by pinned Ajv CLI |
-| dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` |
-| cycles and dependency direction | Dependency Cruiser |
-| Spark package identity, owner/state ownership, workspace dependency declarations, budget, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus the reduced `scripts/check-architecture-ratchets.mjs` |
+| Concern | Authority | Primary source |
+| --- | --- | --- |
+| inventory JSON shape, required fields, and enums | JSON Schema 2020-12 in `architecture/packages.schema.json`, validated by pinned Ajv CLI | [Ajv CLI](https://ajv.js.org/packages/ajv-cli.html) |
+| dependency-version/specifier consistency across manifests | pinned Syncpack using `.syncpackrc.json` | [Syncpack](https://github.com/JoshuaKGoldberg/syncpack) |
+| cycles and dependency direction | Dependency Cruiser | [Dependency Cruiser](https://github.com/sverweij/dependency-cruiser) |
+| Spark package identity, owner/state ownership, workspace dependency declarations, budget, frozen compatibility, and product-specific boundaries | `architecture/packages.json` plus the reduced `scripts/check-architecture-ratchets.mjs` | Spark-owned contract |
 
 `pnpm run check:architecture` validates the schema, runs Syncpack, and then
 executes the Spark-specific ratchets. `pnpm run check:boundaries` runs
@@ -48,6 +48,8 @@ categories are:
   release identity, rollback, and mixed-version migration checks;
 - Spark-specific AST and compatibility ratchets for Evidence, diagnostics,
   source-mirror tests, and compatibility loaders;
+- daemon RPC facade, public distribution policy, and pull-request metadata
+  validation;
 - English/Chinese documentation surface and CLI/help synchronization;
 - Lens/capability continuous-evaluation evidence projection;
 - live Cue, Zellij, provider, daemon, and renderer acceptance harnesses.
