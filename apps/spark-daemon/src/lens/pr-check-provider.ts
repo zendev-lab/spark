@@ -65,7 +65,7 @@ export async function runGitHubPrChecks(
 
   const view = await commandRunner(
     "gh",
-    ["pr", "view", "--json", "number,url,headRefOid,isDraft"],
+    ["pr", "view", "--json", "number,url,headRefOid,isDraft,state"],
     workspaceRoot,
     signal,
   );
@@ -78,7 +78,13 @@ export async function runGitHubPrChecks(
     };
   }
 
-  let metadata: { number?: unknown; url?: unknown; headRefOid?: unknown; isDraft?: unknown };
+  let metadata: {
+    number?: unknown;
+    url?: unknown;
+    headRefOid?: unknown;
+    isDraft?: unknown;
+    state?: unknown;
+  };
   try {
     metadata = JSON.parse(view.stdout) as typeof metadata;
   } catch {
@@ -93,6 +99,7 @@ export async function runGitHubPrChecks(
   const prNumber = typeof metadata.number === "number" ? metadata.number : undefined;
   const url = typeof metadata.url === "string" ? metadata.url : undefined;
   const isDraft = typeof metadata.isDraft === "boolean" ? metadata.isDraft : undefined;
+  const state = typeof metadata.state === "string" ? metadata.state : undefined;
   const withPr = {
     ...base,
     remoteHeadOid,
@@ -129,26 +136,49 @@ export async function runGitHubPrChecks(
       message: "GitHub returned malformed required-check data",
     };
   }
-  const checks = normalizeChecks(rawChecks);
+  let checks = normalizeChecks(rawChecks);
+  let checkSet = "required" as "required" | "recorded";
+  if (checks.length === 0 && state === "MERGED") {
+    const mergedChecksResult = await commandRunner(
+      "gh",
+      ["pr", "checks", String(prNumber), "--json", "name,state,bucket,link,workflow"],
+      workspaceRoot,
+      signal,
+    );
+    try {
+      checks = normalizeChecks(JSON.parse(mergedChecksResult.stdout || "[]"));
+    } catch {
+      return {
+        ...withPr,
+        verdict: "inconclusive",
+        message: "GitHub returned malformed merged-PR check data",
+      };
+    }
+    checkSet = "recorded";
+  }
   if (checks.length === 0) {
     return {
       ...withPr,
       checks,
       verdict: "inconclusive",
-      message: "No required PR checks were reported",
+      message:
+        checkSet === "recorded"
+          ? "No checks were recorded for the merged pull request"
+          : "No required PR checks were reported",
     };
   }
   const failed = checks.some((check) => check.bucket === "fail" || check.bucket === "cancel");
   const pending = checks.some((check) => check.bucket !== "pass");
+  const checkLabel = checkSet === "recorded" ? "merged PR checks" : "required PR checks";
   return {
     ...withPr,
     checks,
     verdict: failed ? "fail" : pending ? "inconclusive" : "pass",
     message: failed
-      ? "One or more required PR checks failed"
+      ? `One or more ${checkLabel} failed`
       : pending
-        ? "Required PR checks are not complete"
-        : "All required PR checks passed for the current head commit",
+        ? `${checkLabel[0]!.toUpperCase()}${checkLabel.slice(1)} are not complete`
+        : `All ${checkLabel} passed for the current head commit`,
   };
 }
 
