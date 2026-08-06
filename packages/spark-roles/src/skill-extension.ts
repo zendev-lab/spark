@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type {
   RoleRef,
@@ -7,6 +7,7 @@ import type {
   ToolRenderComponent,
 } from "@zendev-lab/spark-core";
 import {
+  loadSparkSkillByName,
   SparkSkillResolver,
   type SparkLoadedSkill,
   type SparkSkillResolverOptions,
@@ -16,7 +17,7 @@ import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
 import { Type } from "typebox";
 import { runRole, type RoleRunRef } from "./role-runtime.ts";
 
-export interface SparkSkillDelegateToolOptions {
+export interface SparkSkillAgentToolOptions {
   sparkHome?: string;
   configPath?: string;
   builtinDirs?: string[];
@@ -26,30 +27,31 @@ export interface SparkSkillDelegateToolOptions {
   userAgentsDir?: string;
   skillDirs?: string[];
   defaultTimeoutMs?: number;
-  maxSkillChars?: number;
+  maxCombinedSkillChars?: number;
 }
 
-export interface SparkSkillDelegateHostApi {
+export interface SparkSkillAgentHostApi {
   registerTool(config: ToolConfig): void;
 }
 
-const DEFAULT_SKILL_DELEGATE_TIMEOUT_MS = 300_000;
-const MAX_SKILL_DELEGATE_TIMEOUT_MS = 1_200_000;
-const DEFAULT_MAX_SKILL_CHARS = 64_000;
+const DEFAULT_SKILL_AGENT_TIMEOUT_MS = 300_000;
+const MAX_SKILL_AGENT_TIMEOUT_MS = 1_200_000;
+const DEFAULT_MAX_COMBINED_SKILL_CHARS = 64_000;
+const MAX_SKILL_AGENT_SKILLS = 8;
 const MAX_SKILL_NAME_CHARS = 64;
-const MAX_SKILL_DELEGATE_INSTRUCTION_CHARS = 12_000;
-const MAX_SKILL_DELEGATE_INPUTS = 32;
-const MAX_SKILL_DELEGATE_INPUT_CHARS = 2_048;
-const MAX_SKILL_DELEGATE_OUTPUT_CHARS = 12_000;
+const MAX_SKILL_AGENT_INSTRUCTION_CHARS = 12_000;
+const MAX_SKILL_AGENT_INPUTS = 32;
+const MAX_SKILL_AGENT_INPUT_CHARS = 2_048;
+const MAX_SKILL_AGENT_OUTPUT_CHARS = 12_000;
 const SKILL_NAME_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*$";
 const SKILL_NAME_REGEX = new RegExp(SKILL_NAME_PATTERN, "u");
 
 /**
- * The parent owns orchestration and durable coordination. A Skill worker gets
- * only direct investigation/execution tools and cannot recurse into Roles,
- * Sessions, Tasks, Skill delegation, Git publication, Artifacts, or Evidence.
+ * The parent owns orchestration and durable coordination. A dedicated Skill
+ * Agent gets only direct investigation/execution tools and cannot recurse into
+ * Roles, Sessions, Tasks, Skill Agents, Git publication, Artifacts, or Evidence.
  */
-export const SKILL_DELEGATE_ALLOWED_TOOLS = [
+export const SKILL_AGENT_ALLOWED_TOOLS = [
   "read",
   "grep",
   "find",
@@ -68,7 +70,7 @@ export const SKILL_DELEGATE_ALLOWED_TOOLS = [
   "write",
 ] as const;
 
-const SKILL_DELEGATE_POLICY = {
+const SKILL_AGENT_POLICY = {
   effect: "external_write",
   executionMode: "sequential",
   domains: ["skills", "roles"],
@@ -88,116 +90,128 @@ class ToolCallText implements ToolRenderComponent {
   }
 }
 
-export function createSparkSkillDelegateTool(
-  options: SparkSkillDelegateToolOptions = {},
+export function createSparkSkillAgentTool(
+  options: SparkSkillAgentToolOptions = {},
 ): ToolConfig {
   const defaultTimeoutMs = normalizeConfiguredTimeout(options.defaultTimeoutMs);
-  const maxSkillChars = normalizeMaxSkillChars(options.maxSkillChars);
+  const maxCombinedSkillChars = normalizeMaxCombinedSkillChars(options.maxCombinedSkillChars);
   return {
-    name: "skill_delegate",
-    label: "Skill Delegate",
+    name: "skill_agent",
+    label: "Skill Agent",
     description:
-      "Delegate one discovered Skill to a fresh anonymous Worker. The tool resolves and loads SKILL.md internally, so the parent can hand off a self-contained request instead of executing the Skill itself.",
+      "Run one dedicated anonymous Agent with one or more discovered Skills loaded in full exactly once. Use it for a self-contained unit of work jointly governed by the selected Skills.",
     promptGuidelines: [
-      "Use skill_delegate when a Skill can own a self-contained unit of work; use read only when the current session itself must follow that Skill.",
-      "Pass a complete instruction because the temporary Worker cannot see the parent transcript.",
-      "Do not explicitly read the Skill before delegating it, and do not duplicate the delegated work in the parent session.",
+      "Use skill_agent once with the complete matching Skill set when one or more Skills jointly own a self-contained unit of work; use read only when the current session itself must inspect and follow Skill instructions.",
+      "Pass a complete instruction because the dedicated Agent cannot see the parent transcript.",
+      "Do not explicitly read selected Skills before calling skill_agent, and do not duplicate the assigned work in the parent session.",
     ],
-    policy: SKILL_DELEGATE_POLICY,
-    effect: SKILL_DELEGATE_POLICY.effect,
-    executionMode: SKILL_DELEGATE_POLICY.executionMode,
+    policy: SKILL_AGENT_POLICY,
+    effect: SKILL_AGENT_POLICY.effect,
+    executionMode: SKILL_AGENT_POLICY.executionMode,
     parameters: Type.Object(
       {
-        skill: Type.String({
-          minLength: 1,
-          maxLength: MAX_SKILL_NAME_CHARS,
-          pattern: SKILL_NAME_PATTERN,
-          description: "Exact Skill name from the available Skill catalog.",
-        }),
+        skills: Type.Array(
+          Type.String({
+            minLength: 1,
+            maxLength: MAX_SKILL_NAME_CHARS,
+            pattern: SKILL_NAME_PATTERN,
+            description: "Exact Skill name from the available Skill catalog.",
+          }),
+          {
+            minItems: 1,
+            maxItems: MAX_SKILL_AGENT_SKILLS,
+            description:
+              "Complete set of Skills that jointly govern this dedicated Agent invocation.",
+          },
+        ),
         instruction: Type.String({
           minLength: 1,
-          maxLength: MAX_SKILL_DELEGATE_INSTRUCTION_CHARS,
+          maxLength: MAX_SKILL_AGENT_INSTRUCTION_CHARS,
           description:
-            "Self-contained request for the temporary Worker, including expected output and verification.",
+            "Self-contained request for the dedicated Agent, including expected output and verification.",
         }),
         inputs: Type.Optional(
           Type.Array(
             Type.String({
               minLength: 1,
-              maxLength: MAX_SKILL_DELEGATE_INPUT_CHARS,
+              maxLength: MAX_SKILL_AGENT_INPUT_CHARS,
               description: "Relevant path, ref, constraint, or bounded context item.",
             }),
             {
-              maxItems: MAX_SKILL_DELEGATE_INPUTS,
-              description: "Optional bounded inputs supplied to the Worker.",
+              maxItems: MAX_SKILL_AGENT_INPUTS,
+              description: "Optional bounded inputs supplied to the Agent.",
             },
           ),
         ),
         timeoutMs: Type.Optional(
           Type.Integer({
             minimum: 1_000,
-            maximum: MAX_SKILL_DELEGATE_TIMEOUT_MS,
-            description: `Worker timeout in milliseconds. Default: ${defaultTimeoutMs}.`,
+            maximum: MAX_SKILL_AGENT_TIMEOUT_MS,
+            description: `Agent timeout in milliseconds. Default: ${defaultTimeoutMs}.`,
           }),
         ),
       },
       { additionalProperties: false },
     ),
     renderCall(args, theme) {
-      const skill = typeof args.skill === "string" ? args.skill : "?";
+      const skills = Array.isArray(args.skills)
+        ? args.skills.filter((value): value is string => typeof value === "string")
+        : [];
+      const skillLabel = skills.length > 0 ? skills.join(",") : "?";
       const inputs = Array.isArray(args.inputs) ? `inputs=${args.inputs.length}` : undefined;
-      const text = ["skill_delegate", skill, inputs].filter(Boolean).join(" ");
+      const text = ["skill_agent", skillLabel, inputs].filter(Boolean).join(" ");
       return new ToolCallText(theme.bold ? theme.bold(text) : text);
     },
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       signal.throwIfAborted();
       const cwd = requiredCwd(ctx);
-      const skillName = requiredBoundedString(
-        params.skill,
-        "skill_delegate.skill",
-        MAX_SKILL_NAME_CHARS,
-      );
-      if (!SKILL_NAME_REGEX.test(skillName)) {
-        throw new Error("skill_delegate.skill must use lowercase letters, digits, and hyphens");
-      }
+      const skillNames = normalizeSkillNames(params.skills);
       const instruction = requiredBoundedString(
         params.instruction,
-        "skill_delegate.instruction",
-        MAX_SKILL_DELEGATE_INSTRUCTION_CHARS,
+        "skill_agent.instruction",
+        MAX_SKILL_AGENT_INSTRUCTION_CHARS,
       );
-      const inputs = optionalStringArray(params.inputs, "skill_delegate.inputs");
+      const inputs = optionalStringArray(params.inputs, "skill_agent.inputs");
       const timeoutMs = normalizeTimeout(params.timeoutMs, defaultTimeoutMs);
       const model = sessionModelName(ctx);
-      if (!model) throw new Error("skill_delegate requires an active session model");
+      if (!model) throw new Error("skill_agent requires an active session model");
 
       const resolver = await createSkillResolver(cwd, options);
-      const loaded = await resolver.loadSkill(skillName);
-      if (!loaded) {
-        const { skills } = await resolver.resolve();
-        throw unknownSkillError(
-          skillName,
-          skills.filter((skill) => !skill.disableModelInvocation).map((skill) => skill.name),
+      const { skills: resolvedSkills } = await resolver.resolve();
+      const loaded = await Promise.all(
+        skillNames.map((name) => loadSparkSkillByName(resolvedSkills, name)),
+      );
+      const missing = skillNames.filter((_name, index) => loaded[index] === undefined);
+      if (missing.length > 0) {
+        throw unknownSkillsError(
+          missing,
+          resolvedSkills
+            .filter((skill) => !skill.disabled && !skill.disableModelInvocation)
+            .map((skill) => skill.name),
         );
       }
-      if (loaded.content.length > maxSkillChars) {
+      const loadedSkills = loaded.filter((skill): skill is SparkLoadedSkill => skill !== undefined);
+      const combinedChars = loadedSkills.reduce((sum, skill) => sum + skill.content.length, 0);
+      if (combinedChars > maxCombinedSkillChars) {
         throw new Error(
-          `skill_delegate refuses ${skillName}: Skill source is ${loaded.content.length} characters, above the ${maxSkillChars} character execution limit`,
+          `skill_agent refuses ${skillNames.join(", ")}: combined Skill source is ${combinedChars} characters, above the ${maxCombinedSkillChars} character execution limit`,
         );
       }
 
-      const roleRef = `role:skill-${loaded.skill.name}` as RoleRef;
+      const identity = skillAgentIdentity(skillNames);
+      const roleRef = `role:${identity}` as RoleRef;
       const runRef = `run:${randomUUID()}` as RoleRunRef;
-      const runName = `skill:${loaded.skill.name}`;
-      const workerInstruction = renderSkillWorkerInstruction(instruction, inputs);
+      const runName = `skills:${skillNames.join(",")}`;
+      const agentInstruction = renderSkillAgentInstruction(instruction, inputs);
       const result = await runRole({
         usageExecutionKind: "role_run",
         runRef,
         roleRef,
-        roleId: `skill-${loaded.skill.name}`,
+        roleId: identity,
         runName,
-        systemPrompt: renderSkillWorkerSystemPrompt(loaded),
-        instruction: workerInstruction,
-        allowedTools: [...SKILL_DELEGATE_ALLOWED_TOOLS],
+        systemPrompt: renderSkillAgentSystemPrompt(loadedSkills),
+        instruction: agentInstruction,
+        allowedTools: [...SKILL_AGENT_ALLOWED_TOOLS],
         cwd,
         timeoutMs,
         signal,
@@ -208,13 +222,14 @@ export function createSparkSkillDelegateTool(
         nativeExecutor: ctx.runRole,
       });
 
-      const output = boundedWorkerOutput(result.stdout);
+      const output = boundedAgentOutput(result.stdout);
       const succeeded =
         result.record.status === "succeeded" &&
         (result.outcome === undefined || result.outcome.kind === "completed");
+      const skillSummary = skillNames.join(", ");
       const lines = [
-        `Skill Worker ${succeeded ? "completed" : result.record.status}: ${loaded.skill.name}`,
-        output || "(Worker returned no text output.)",
+        `Skill Agent ${succeeded ? "completed" : result.record.status}: ${skillSummary}`,
+        output || "(Agent returned no text output.)",
         !succeeded && result.outcome?.reason ? `Outcome: ${result.outcome.reason}` : undefined,
         !succeeded && result.stderr.trim()
           ? `stderr:\n${tailText(result.stderr.trim(), 8_000)}`
@@ -224,12 +239,13 @@ export function createSparkSkillDelegateTool(
       return {
         content: [{ type: "text", text: lines.join("\n\n") }],
         details: {
-          skill: {
-            name: loaded.skill.name,
-            description: loaded.skill.description,
-            layer: loaded.skill.layer,
-            filePath: loaded.skill.filePath,
-          },
+          skills: loadedSkills.map(({ skill }) => ({
+            name: skill.name,
+            description: skill.description,
+            layer: skill.layer,
+            filePath: skill.filePath,
+          })),
+          combinedSkillChars: combinedChars,
           runRef,
           runName,
           model,
@@ -245,38 +261,48 @@ export function createSparkSkillDelegateTool(
   };
 }
 
-export function registerSparkSkillDelegateTool(
-  api: SparkSkillDelegateHostApi,
-  options: SparkSkillDelegateToolOptions = {},
+export function registerSparkSkillAgentTool(
+  api: SparkSkillAgentHostApi,
+  options: SparkSkillAgentToolOptions = {},
 ): void {
-  api.registerTool(createSparkSkillDelegateTool(options));
+  api.registerTool(createSparkSkillAgentTool(options));
 }
 
-export function renderSkillWorkerSystemPrompt(loaded: SparkLoadedSkill): string {
-  const { skill } = loaded;
-  return [
-    `You are a temporary Spark Worker dedicated to the ${skill.name} Skill.`,
-    "Execute only the assigned request. The parent transcript is intentionally unavailable.",
-    "Treat the Skill instructions below as your specialized operating procedure and the incoming instruction as the concrete task.",
-    `Resolve every relative Skill reference against: ${skill.baseDir}`,
-    "Do not ask interactively, spawn another Role, delegate another Skill, or mutate Task, Session, Artifact, Evidence, or Git coordination state.",
-    "Do not widen scope. Return the produced output or changed files, verification performed, and any exact blocker.",
+export function renderSkillAgentSystemPrompt(loadedSkills: readonly SparkLoadedSkill[]): string {
+  const skillNames = loadedSkills.map(({ skill }) => skill.name);
+  const lines = [
+    `You are a dedicated Spark Agent for executing the following Skills: ${skillNames.join(", ")}.`,
+    "Complete the assigned task autonomously within the combined scope of these Skills. Follow every applicable Skill instruction and the concrete task instruction.",
+    "All selected Skill instructions are already included below. Do not search for, read, reload, or delegate these Skills again.",
+    "Apply each Skill to the part of the task it governs. The Skills have equal authority. Reconcile compatible instructions. If applicable instructions materially conflict and cannot all be satisfied, stop and report the exact conflict to the parent Agent instead of silently choosing one.",
+    "The parent transcript is intentionally unavailable. Execute only the assigned request and do not widen its scope.",
+    "Do not ask interactively, spawn another Role, call another Skill Agent, or mutate Task, Session, Goal, Loop, Repro, Workflow, Artifact, Evidence, Memory, or Git publication state.",
+    "Return the completed result or changed files, verification performed and its outcome, and any exact blocker, missing user decision, or authorization required.",
     "",
-    `Skill file: ${skill.filePath}`,
-    "--- Skill instructions ---",
-    loaded.body.trim(),
-    "--- End Skill instructions ---",
-  ].join("\n");
+    "<skills>",
+  ];
+  for (const loaded of loadedSkills) {
+    lines.push("  <skill>");
+    lines.push(`    <name>${loaded.skill.name}</name>`);
+    lines.push(`    <source>${loaded.skill.filePath}</source>`);
+    lines.push(`    <base_dir>${loaded.skill.baseDir}</base_dir>`);
+    lines.push("    <instructions>");
+    lines.push(loaded.body.trim());
+    lines.push("    </instructions>");
+    lines.push("  </skill>");
+  }
+  lines.push("</skills>");
+  return lines.join("\n");
 }
 
-function renderSkillWorkerInstruction(instruction: string, inputs: readonly string[]): string {
+function renderSkillAgentInstruction(instruction: string, inputs: readonly string[]): string {
   if (inputs.length === 0) return instruction;
   return [instruction, "", "Bounded inputs:", ...inputs.map((input) => `- ${input}`)].join("\n");
 }
 
 async function createSkillResolver(
   cwd: string,
-  options: SparkSkillDelegateToolOptions,
+  options: SparkSkillAgentToolOptions,
 ): Promise<SparkSkillResolver> {
   const skillDirs = options.skillDirs ?? (await loadConfiguredSkillDirs(cwd, options));
   const resolverOptions: SparkSkillResolverOptions = {
@@ -294,7 +320,7 @@ async function createSkillResolver(
 
 async function loadConfiguredSkillDirs(
   cwd: string,
-  options: Pick<SparkSkillDelegateToolOptions, "sparkHome" | "configPath">,
+  options: Pick<SparkSkillAgentToolOptions, "sparkHome" | "configPath">,
 ): Promise<string[]> {
   const configPath =
     options.configPath ?? resolveSparkUserPaths({ sparkHome: options.sparkHome, cwd }).configFile;
@@ -309,10 +335,40 @@ async function loadConfiguredSkillDirs(
   }
 }
 
-function unknownSkillError(name: string, skillNames: readonly string[]): Error {
+function normalizeSkillNames(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_SKILL_AGENT_SKILLS) {
+    throw new Error(
+      `skill_agent.skills must be an array with 1-${MAX_SKILL_AGENT_SKILLS} Skill names`,
+    );
+  }
+  const names = value.map((item, index) => {
+    const name = requiredBoundedString(
+      item,
+      `skill_agent.skills[${index}]`,
+      MAX_SKILL_NAME_CHARS,
+    );
+    if (!SKILL_NAME_REGEX.test(name)) {
+      throw new Error(
+        `skill_agent.skills[${index}] must use lowercase letters, digits, and hyphens`,
+      );
+    }
+    return name;
+  });
+  if (new Set(names).size !== names.length) {
+    throw new Error("skill_agent.skills must not contain duplicate Skill names");
+  }
+  return names;
+}
+
+function unknownSkillsError(names: readonly string[], skillNames: readonly string[]): Error {
   const available = [...new Set(skillNames)].sort((a, b) => a.localeCompare(b)).slice(0, 20);
   const suffix = available.length > 0 ? ` Available Skills: ${available.join(", ")}.` : "";
-  return new Error(`skill_delegate could not resolve Skill ${JSON.stringify(name)}.${suffix}`);
+  return new Error(`skill_agent could not resolve Skills ${JSON.stringify(names)}.${suffix}`);
+}
+
+function skillAgentIdentity(skillNames: readonly string[]): string {
+  const digest = createHash("sha256").update(skillNames.join("\0")).digest("hex").slice(0, 12);
+  return `skill-agent-${digest}`;
 }
 
 function sessionModelName(ctx: SparkHostContext): string | undefined {
@@ -323,7 +379,7 @@ function sessionModelName(ctx: SparkHostContext): string | undefined {
 
 function requiredCwd(ctx: SparkHostContext): string {
   if (typeof ctx.cwd === "string" && ctx.cwd.trim()) return ctx.cwd.trim();
-  throw new Error("skill_delegate requires ctx.cwd");
+  throw new Error("skill_agent requires ctx.cwd");
 }
 
 function requiredString(value: unknown, field: string): string {
@@ -346,15 +402,15 @@ function optionalString(value: unknown): string | undefined {
 
 function optionalStringArray(value: unknown, field: string): string[] {
   if (value === undefined || value === null) return [];
-  if (!Array.isArray(value) || value.length > MAX_SKILL_DELEGATE_INPUTS) {
-    throw new Error(`${field} must be an array with at most ${MAX_SKILL_DELEGATE_INPUTS} items`);
+  if (!Array.isArray(value) || value.length > MAX_SKILL_AGENT_INPUTS) {
+    throw new Error(`${field} must be an array with at most ${MAX_SKILL_AGENT_INPUTS} items`);
   }
   return value.map((item, index) => {
     const normalized = optionalString(item);
     if (!normalized) throw new Error(`${field}[${index}] must be a non-empty string`);
-    if (normalized.length > MAX_SKILL_DELEGATE_INPUT_CHARS) {
+    if (normalized.length > MAX_SKILL_AGENT_INPUT_CHARS) {
       throw new Error(
-        `${field}[${index}] must contain at most ${MAX_SKILL_DELEGATE_INPUT_CHARS} characters`,
+        `${field}[${index}] must contain at most ${MAX_SKILL_AGENT_INPUT_CHARS} characters`,
       );
     }
     return normalized;
@@ -362,7 +418,7 @@ function optionalStringArray(value: unknown, field: string): string[] {
 }
 
 function normalizeConfiguredTimeout(value: number | undefined): number {
-  return normalizeTimeout(value, DEFAULT_SKILL_DELEGATE_TIMEOUT_MS);
+  return normalizeTimeout(value, DEFAULT_SKILL_AGENT_TIMEOUT_MS);
 }
 
 function normalizeTimeout(value: unknown, fallback: number): number {
@@ -371,26 +427,26 @@ function normalizeTimeout(value: unknown, fallback: number): number {
     typeof value !== "number" ||
     !Number.isInteger(value) ||
     value < 1_000 ||
-    value > MAX_SKILL_DELEGATE_TIMEOUT_MS
+    value > MAX_SKILL_AGENT_TIMEOUT_MS
   ) {
     throw new Error(
-      `skill_delegate.timeoutMs must be an integer between 1000 and ${MAX_SKILL_DELEGATE_TIMEOUT_MS}`,
+      `skill_agent.timeoutMs must be an integer between 1000 and ${MAX_SKILL_AGENT_TIMEOUT_MS}`,
     );
   }
   return value;
 }
 
-function normalizeMaxSkillChars(value: number | undefined): number {
-  if (value === undefined) return DEFAULT_MAX_SKILL_CHARS;
+function normalizeMaxCombinedSkillChars(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_MAX_COMBINED_SKILL_CHARS;
   if (!Number.isInteger(value) || value < 1_000) {
-    throw new Error("skill_delegate maxSkillChars must be an integer of at least 1000");
+    throw new Error("skill_agent maxCombinedSkillChars must be an integer of at least 1000");
   }
   return value;
 }
 
-function boundedWorkerOutput(stdout: string): string | undefined {
+function boundedAgentOutput(stdout: string): string | undefined {
   const output = stdout.trim();
-  return output ? tailText(output, MAX_SKILL_DELEGATE_OUTPUT_CHARS) : undefined;
+  return output ? tailText(output, MAX_SKILL_AGENT_OUTPUT_CHARS) : undefined;
 }
 
 function tailText(value: string, maxLength: number): string {
