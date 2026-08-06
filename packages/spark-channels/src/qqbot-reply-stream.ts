@@ -234,7 +234,7 @@ export function createQqbotC2CReplyStream(options: QqbotC2CReplyStreamOptions): 
       answer = text;
       scheduleFlush();
     },
-    // Keep tool/progress off the C2C stream body; Cockpit/TUI remain the
+    // Keep tool/progress off the C2C stream body; Hub/TUI remain the
     // process surfaces. Still refresh the frame so long tool waits do not
     // idle-out the platform stream before final delivery.
     notifyToolStart() {

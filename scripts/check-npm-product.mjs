@@ -82,7 +82,7 @@ if (
 
 const expectedApplicationNames = new Map([
   ["spark-cli", "@zendev-lab/spark-cli"],
-  ["spark-cockpit", "@zendev-lab/spark-hub"],
+  ["spark-hub", "@zendev-lab/spark-hub"],
   ["spark-daemon", "@zendev-lab/spark-daemon"],
   ["spark-tui", "@zendev-lab/spark-tui"],
 ]);
@@ -98,7 +98,7 @@ for (const workspaceRoot of ["apps", "packages"]) {
     if (workspace.publishConfig !== undefined) {
       failures.push(`${workspace.name}: source workspace must not declare publishConfig`);
     }
-    if (entry.name !== "spark-mcp-spike" && workspace.version !== releaseVersion) {
+    if (workspace.version !== releaseVersion) {
       failures.push(`${workspace.name}: source workspace version must match ${releaseVersion}`);
     }
     const expectedName = workspaceRoot === "apps" ? expectedApplicationNames.get(entry.name) : null;

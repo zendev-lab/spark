@@ -1340,7 +1340,7 @@ function decodeCanonicalSessionImage(data: string): Buffer | undefined {
 /**
  * Provider failures commonly carry an empty assistant content array, so the
  * normal part projection has nothing to render. Preserve the failure as a
- * bounded text part without copying an upstream HTML error page into Cockpit.
+ * bounded text part without copying an upstream HTML error page into Hub.
  */
 function providerErrorParts(entry: NativeSessionEntry): SparkConversationPart[] {
   const message = entry.message;

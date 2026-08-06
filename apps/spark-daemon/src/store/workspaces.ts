@@ -29,7 +29,7 @@ export interface SparkDaemonWorkspace {
   id: string;
   serverWorkspaceId?: string;
   serverBindingId?: string;
-  cockpitBindingState?: RuntimeWorkspaceBindingAssignment["state"];
+  hubBindingState?: RuntimeWorkspaceBindingAssignment["state"];
   /** Returned once by workspace registration; never persisted or listed later. */
   workspaceAuthorization?: NonNullable<RuntimeRegistrationResponse["workspaceAuthorization"]>;
   serverUrl: string;
@@ -334,7 +334,7 @@ export function registerWorkspace(
 }
 
 /**
- * Point an existing daemon workspace at another Cockpit origin (prefer / temporary borrow).
+ * Point an existing daemon workspace at another Hub origin (prefer / temporary borrow).
  * Does not register or relocate credentials — the target profile must already exist.
  */
 export function rebindWorkspaceServerUrl(
@@ -443,7 +443,7 @@ export function planWorkspaceRegistration(
   }
   if (!existingPath && pathMatches.length > 1) {
     throw new WorkspacePathConflictError(
-      `Workspace path ${localPath} has multiple legacy Cockpit bindings. Unbind the duplicates before reconnecting it.`,
+      `Workspace path ${localPath} has multiple legacy Hub bindings. Unbind the duplicates before reconnecting it.`,
       "same-path",
     );
   }
@@ -633,7 +633,7 @@ export function markSparkDaemonServerConnected(
 }
 
 /**
- * Record loss of the optional Cockpit projection connection.
+ * Record loss of the optional Hub projection connection.
  *
  * Workspace availability is daemon-local execution state (path, detach, and
  * capability health). A disconnected projection server must not make an
@@ -651,8 +651,8 @@ export function markSparkDaemonServerDisconnected(
   ).run(reason, serverUrl);
 }
 
-/** Apply the Cockpit's authoritative lease projection returned in hello/heartbeat acks. */
-export function applyCockpitWorkspaceBindingAssignments(
+/** Apply the Hub's authoritative lease projection returned in hello/heartbeat acks. */
+export function applyHubWorkspaceBindingAssignments(
   db: DatabaseSync,
   serverUrl: string,
   assignments: RuntimeWorkspaceBindingAssignment[],
@@ -904,7 +904,7 @@ export function resolveWorkspaceLocalPath(
 
 /**
  * Resolve any session-facing workspace identity to the binding identity used
- * by the Cockpit uplink. Channel sessions commonly retain the server
+ * by the Hub uplink. Channel sessions commonly retain the server
  * workspace id or the pre-registration local key, while invocation delivery
  * must be fenced by the current runtime workspace binding id.
  */
@@ -1701,8 +1701,8 @@ export function isBorrowedWorkspace(
 }
 
 /**
- * Policy gate for Cockpit/runtime mutations: foreign interactive sessions block,
- * cockpit-only occupancy does not (same Cockpit holds the origin lease).
+ * Policy gate for Hub/runtime mutations: foreign interactive sessions block,
+ * hub-only occupancy does not (same Hub holds the origin lease).
  */
 export function isMutationBlockingBorrowedWorkspace(
   db: DatabaseSync,
@@ -1752,7 +1752,7 @@ export function reconcileWorkspaces(
 
 /**
  * Collapse legacy same-path workspace rows onto one daemon identity.
- * Prefers a Cockpit-bound projection over an empty local-only duplicate.
+ * Prefers a Hub-bound projection over an empty local-only duplicate.
  */
 export function consolidateSamePathWorkspaces(
   db: DatabaseSync,
@@ -1803,7 +1803,7 @@ function samePathWorkspaceScore(workspace: SparkDaemonWorkspace): number {
   let score = 0;
   if (workspace.serverWorkspaceId) score += 8;
   if (workspace.serverUrl) score += 4;
-  if (workspace.cockpitBindingState === "bound") score += 2;
+  if (workspace.hubBindingState === "bound") score += 2;
   if (workspace.status === "available") score += 1;
   return score;
 }
@@ -1951,7 +1951,7 @@ function mapWorkspaceRow(
     id: row.id,
     ...serverProjection,
     ...(row.serverUrl
-      ? { cockpitBindingState: serverProjection.serverWorkspaceId ? "bound" : "unbound" }
+      ? { hubBindingState: serverProjection.serverWorkspaceId ? "bound" : "unbound" }
       : {}),
     serverUrl: row.serverUrl,
     localWorkspaceKey: row.localWorkspaceKey,
@@ -2106,7 +2106,7 @@ export function workspaceClientSurface(client: {
   metadata: Record<string, unknown>;
 }): WorkspaceSessionSurface {
   const surface = client.metadata.surface;
-  if (surface === "tui" || surface === "cockpit" || surface === "unknown") return surface;
+  if (surface === "tui" || surface === "hub" || surface === "unknown") return surface;
   // Legacy interactive clients (pre-surface metadata) were TUI leases.
   return "tui";
 }
@@ -2121,7 +2121,7 @@ export function workspaceClientSessionId(client: {
   return typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : client.id;
 }
 
-/** Interactive occupancy that blocks Cockpit server mutations (non-cockpit surfaces). */
+/** Interactive occupancy that blocks Hub server mutations (non-hub surfaces). */
 export function isForeignInteractiveOccupiedWorkspace(
   db: DatabaseSync,
   workspaceId: string,
@@ -2131,7 +2131,7 @@ export function isForeignInteractiveOccupiedWorkspace(
     (client) =>
       client.status === "connected" &&
       client.kind === "interactive" &&
-      workspaceClientSurface(client) !== "cockpit",
+      workspaceClientSurface(client) !== "hub",
   );
 }
 

@@ -510,7 +510,7 @@ test("default Spark extension profile exposes a bounded everyday TUI catalog", a
     true,
   );
   assert.equal(
-    visible.some((entry) => entry.name === "cockpit"),
+    visible.some((entry) => entry.name === "hub"),
     false,
   );
   assert.equal(
@@ -527,7 +527,7 @@ test("default Spark extension profile exposes a bounded everyday TUI catalog", a
     all.find((entry) => entry.name === "workflow-runs")?.deprecatedAliasFor,
     "/workflow runs [runRef]",
   );
-  assert.equal(all.find((entry) => entry.name === "cockpit")?.deprecatedAliasFor, "/inspect");
+  assert.equal(all.find((entry) => entry.name === "hub")?.deprecatedAliasFor, "/inspect");
 });
 
 test("root Pi extension list and native builtins both expose self-extension tools", async () => {

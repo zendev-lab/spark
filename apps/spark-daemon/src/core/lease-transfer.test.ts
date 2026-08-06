@@ -47,7 +47,7 @@ describe("SparkDaemonLeaseTransferBroker", () => {
     await expect(settlement).resolves.toMatchObject({ decision: "reject", source: "tui" });
   });
 
-  it("maps cockpit human answers onto accept/reject", () => {
+  it("maps hub human answers onto accept/reject", () => {
     expect(leaseTransferDecisionFromAnswers("answered", { decision: "accept" })).toBe("accept");
     expect(leaseTransferDecisionFromAnswers("answered", { decision: "reject" })).toBe("reject");
     expect(leaseTransferDecisionFromAnswers("cancelled", {})).toBe("reject");

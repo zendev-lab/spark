@@ -105,8 +105,8 @@ jobs:
         run: |
           container_id="$(docker run --detach \
             --env HOST=127.0.0.1 \
-            --env SPARK_COCKPIT_PUBLIC_URL=https://spark.example.test \
-            --env SPARK_COCKPIT_TRUST_PROXY=loopback \
+            --env SPARK_HUB_PUBLIC_URL=https://spark.example.test \
+            --env SPARK_HUB_TRUST_PROXY=loopback \
             spark-hub:ci)"
           test -n "${container_id}"
           trap 'test -z "${container_id:-}" || docker rm --force "${container_id}" >/dev/null' EXIT

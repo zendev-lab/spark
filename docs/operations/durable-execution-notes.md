@@ -18,11 +18,11 @@ must name the checkpoint, deduplication key, retry boundary, and external-system
 | --- | --- | --- |
 | execution identity | daemon invocation id; workflow and loop refs are parent scopes | no single step identity across every execution surface |
 | checkpoint | workflow events/snapshots and invocation restart checkpoints | general tool/model side effects are not step-memoized |
-| event history | daemon invocation events and Cockpit projections | projections are not a replay journal for the turn engine |
+| event history | daemon invocation events and Hub projections | projections are not a replay journal for the turn engine |
 | retry | daemon invocation attempts and workflow retry policy | most retries restart the owning turn or run |
 | wait | ask/approval lifecycle and driver scheduling | no general durable timer/await record for arbitrary work |
 
-The daemon remains the execution owner. Cockpit data is a projection, and `spark-loop` remains
+The daemon remains the execution owner. Hub data is a projection, and `spark-loop` remains
 continuation policy rather than a second execution journal.
 
 ## Small validation slice
@@ -42,4 +42,4 @@ workflow state cannot represent.
 
 - Do not add Inngest or Restate as a production dependency from these notes.
 - Do not claim general exactly-once execution for Spark.
-- Do not migrate Cockpit schemas before a daemon-owned journal shape is validated.
+- Do not migrate Hub schemas before a daemon-owned journal shape is validated.

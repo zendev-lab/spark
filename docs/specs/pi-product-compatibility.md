@@ -8,7 +8,7 @@ with the external Pi **product loader**. It does not govern the retained SDK
 kernel.
 
 Pi product compatibility is a bounded adapter surface, not a product parity
-commitment. Spark-native TUI, Cockpit, channels, ACP, and daemon interfaces are
+commitment. Spark-native TUI, Hub, channels, ACP, and daemon interfaces are
 the supported product surfaces and may add behavior without extending Pi
 compatibility.
 

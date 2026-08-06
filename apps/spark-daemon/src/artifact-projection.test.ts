@@ -83,7 +83,7 @@ describe("Artifact daemon projection", () => {
       const runtimeId = createId("rt");
       try {
         const workspace = registerWorkspace(db, {
-          serverUrl: "https://cockpit.example.test/",
+          serverUrl: "https://hub.example.test/",
           serverWorkspaceId: workspaceId,
           serverBindingId: workspaceBindingId,
           localWorkspaceKey: "artifact-test",
@@ -101,7 +101,7 @@ describe("Artifact daemon projection", () => {
           persisted.type,
           persisted as unknown as Record<string, unknown>,
         );
-        const pending = store.pendingDeliveries("cockpit:test", 1, [
+        const pending = store.pendingDeliveries("hub:test", 1, [
           workspace.id,
           workspaceBindingId,
         ])[0];
@@ -111,7 +111,7 @@ describe("Artifact daemon projection", () => {
               store,
               db,
               runtimeId,
-              serverUrl: "https://cockpit.example.test/",
+              serverUrl: "https://hub.example.test/",
             })
           : null;
 

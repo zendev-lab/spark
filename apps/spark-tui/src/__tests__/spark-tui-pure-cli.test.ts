@@ -3,14 +3,14 @@ import { test } from "vitest";
 
 import { parseSparkCliCommand } from "../cli.ts";
 
-test("spark-tui rejects the removed server route with Cockpit guidance", () => {
+test("spark-tui rejects the removed server route with Hub guidance", () => {
   assert.deepEqual(parseSparkCliCommand(["server", "task", "list"]), {
     kind: "error",
-    message: '"server" is not a spark-tui command. Use "spark cockpit" instead.',
+    message: '"server" is not a spark-tui command. Use "spark hub" instead.',
   });
   assert.deepEqual(parseSparkCliCommand(["server", "instance", "status"]), {
     kind: "error",
-    message: '"server" is not a spark-tui command. Use "spark cockpit" instead.',
+    message: '"server" is not a spark-tui command. Use "spark hub" instead.',
   });
 });
 

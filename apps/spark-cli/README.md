@@ -29,7 +29,7 @@ The dispatcher does not own terminal rendering, daemon execution, provider/model
 Spark 0.2 rejects the former Pi-style `--print`, `--mode`, `--list-models`,
 root session aliases, and resource-management commands. Provider authentication
 is under `spark daemon auth`; `spark daemon login` remains machine connectivity
-for daemon/Cockpit.
+for daemon/Hub.
 
 Unknown subcommands fail loudly and suggest `spark tui ...` for prompt text. The
 dispatcher has no direct implementation dependency on companion app CLIs. A

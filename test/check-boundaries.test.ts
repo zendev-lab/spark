@@ -9,8 +9,8 @@ import { test } from "vitest";
 const architectureInventoryValidatorPath = resolve("scripts/validate-architecture-inventory.mjs");
 const configPath = resolve(".dependency-cruiser.cjs");
 const docTerminologyScriptPath = resolve("scripts/check-doc-terminology.mjs");
-const cockpitI18nBoundaryFixturePath = resolve(
-  "test/fixtures/boundaries/spark-i18n-cockpit-surface-private.ts.fixture",
+const hubI18nBoundaryFixturePath = resolve(
+  "test/fixtures/boundaries/spark-i18n-hub-surface-private.ts.fixture",
 );
 
 test("dependency-cruiser config loads and encodes required boundary rules", () => {
@@ -31,7 +31,7 @@ test("dependency-cruiser config loads and encodes required boundary rules", () =
     "no-workspace-package-src-specifier",
     "no-app-relative-packages-src-deep-link",
     "no-cross-package-relative-src-deep-link",
-    "spark-i18n-cockpit-surface-private",
+    "spark-i18n-hub-surface-private",
     "spark-ui-owns-presentation-dependencies",
     "pi-no-product-adapters",
     "pi-only-foundation-spark",
@@ -132,20 +132,20 @@ test("production circular rule rejects a real TypeScript cycle", async () => {
   }
 });
 
-test("dependency-cruiser rejects non-Cockpit imports of the Cockpit i18n surface", async () => {
+test("dependency-cruiser rejects non-Hub imports of the Hub i18n surface", async () => {
   const fixtureParent = resolve(".spark");
   await mkdir(fixtureParent, { recursive: true });
-  const fixtureRoot = await mkdtemp(join(fixtureParent, "depcruise-cockpit-i18n-"));
+  const fixtureRoot = await mkdtemp(join(fixtureParent, "depcruise-hub-i18n-"));
   try {
     const fixturePath = join(fixtureRoot, "index.ts");
-    await writeFile(fixturePath, await readFile(cockpitI18nBoundaryFixturePath, "utf8"));
+    await writeFile(fixturePath, await readFile(hubI18nBoundaryFixturePath, "utf8"));
     const result = spawnSync("pnpm", ["exec", "depcruise", "--config", configPath, fixturePath], {
       cwd: resolve("."),
       encoding: "utf8",
     });
 
     assert.notEqual(result.status, 0);
-    assert.match(`${result.stdout}\n${result.stderr}`, /spark-i18n-cockpit-surface-private/u);
+    assert.match(`${result.stdout}\n${result.stderr}`, /spark-i18n-hub-surface-private/u);
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }

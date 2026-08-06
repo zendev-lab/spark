@@ -109,14 +109,14 @@ For a background local Hub:
 ```bash
 HOST=127.0.0.1 \
 PORT=5174 \
-SPARK_COCKPIT_PUBLIC_URL=http://127.0.0.1:5174 \
+SPARK_HUB_PUBLIC_URL=http://127.0.0.1:5174 \
 spark hub web start --json
 
 spark hub web status --json
 ```
 
 Open the exact public URL. The scheme, hostname, and port used by the browser
-must match `SPARK_COCKPIT_PUBLIC_URL`; for example, do not switch between
+must match `SPARK_HUB_PUBLIC_URL`; for example, do not switch between
 `localhost` and `127.0.0.1` during setup.
 
 Use `spark hub` instead when you want the foreground production host. The
@@ -252,7 +252,7 @@ Use these surfaces together:
   scheduled, running, retry-waiting, dormant, blocked, and stopped states.
 
 Continue with [TUI](/guides/tui/), [runs and sessions](/guides/runs-and-sessions/),
-[Hub Web](/guides/cockpit/), and [long-running work](/guides/automation/).
+[Hub Web](/guides/hub/), and [long-running work](/guides/automation/).
 
 ### Renderer status
 
@@ -270,7 +270,7 @@ Use HTTPS or an encrypted private path for every non-loopback Hub.
 Machine connectivity and browser access are separate:
 
 ```bash
-spark daemon login --server-url https://cockpit.example
+spark daemon login --server-url https://hub.example
 spark hub access create
 spark hub workspace access create --workspace <hub-workspace-id>
 ```

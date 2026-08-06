@@ -662,7 +662,7 @@ function requestWorkspaceAliases(
   // A local workspace key is a useful legacy alias only while it identifies
   // one daemon workspace. Local paths are deliberately not aliases: distinct
   // workspace identities may share a checkout and must remain separate in
-  // Cockpit/session routing.
+  // Hub/session routing.
   const localKeyMatches = listWorkspaces(db).filter(
     (workspace) => workspace.localWorkspaceKey === routeWorkspace.localWorkspaceKey,
   );

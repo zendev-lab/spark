@@ -168,12 +168,12 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
 
   const local = createSparkNativeLocalControlSlashCommands();
   assert.equal(local.tasks?.metadata?.source, "extension");
-  assert.equal(local.tasks?.metadata?.plane, "cockpit");
+  assert.equal(local.tasks?.metadata?.plane, "hub");
   assert.equal(local.tasks?.metadata?.resource, "task");
-  assert.equal(local.tasks?.metadata?.canonicalCliTarget, "spark cockpit task list");
-  assert.equal(local.task?.metadata?.canonicalCliTarget, "spark cockpit task list");
-  assert.equal(local.artifact?.metadata?.canonicalCliTarget, "spark cockpit artifact list");
-  assert.equal(local.review?.metadata?.canonicalCliTarget, "spark cockpit review list");
+  assert.equal(local.tasks?.metadata?.canonicalCliTarget, "spark hub task list");
+  assert.equal(local.task?.metadata?.canonicalCliTarget, "spark hub task list");
+  assert.equal(local.artifact?.metadata?.canonicalCliTarget, "spark hub artifact list");
+  assert.equal(local.review?.metadata?.canonicalCliTarget, "spark hub review list");
   assert.equal(local.run?.metadata?.canonicalCliTarget, "spark daemon run list");
   assert.equal(local.stop?.metadata?.canonicalCliTarget, "spark daemon run cancel <run>");
   assert.equal(local.tasks?.metadata?.deprecatedAliasFor, "/task list");
@@ -297,12 +297,12 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   } as const;
   const expectedTargets = {
     "/session list": "spark daemon session list",
-    "/task list": "spark cockpit task list",
+    "/task list": "spark hub task list",
     "/goal status": undefined,
     "/workflow list": undefined,
     "/workflow-pause": undefined,
-    "/review list": "spark cockpit review list",
-    "/artifact list": "spark cockpit artifact list",
+    "/review list": "spark hub review list",
+    "/artifact list": "spark hub artifact list",
     "/run list": "spark daemon run list",
   } as const;
   for (const [input, command] of Object.entries(slashFixture)) {
@@ -351,7 +351,7 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
   );
   assert.match(
     rendered,
-    /\/tasks — open the tasks local session panel \[extension\] → spark cockpit task list[\s\S]*?compatibility\s+alias for \/task list/,
+    /\/tasks — open the tasks local session panel \[extension\] → spark hub task list[\s\S]*?compatibility\s+alias for \/task list/,
   );
   assert.match(
     rendered,
@@ -887,7 +887,7 @@ test("native TUI renders daemon ask flow and every question has a custom reply f
   });
   assert.equal(overlay.visible, false);
   assert.equal(harness.state.focused, harness.app);
-  assert.equal(harness.app.cockpitSnapshot().interactions, 0);
+  assert.equal(harness.app.hubSnapshot().interactions, 0);
 });
 
 test("native TUI closes the human ask overlay when its wait times out", async () => {
@@ -926,7 +926,7 @@ test("native TUI closes the human ask overlay when its wait times out", async ()
   assert.equal(overlay.visible, false);
   assert.equal(harness.state.focused, harness.app);
   assert.equal(markerIndexes(harness.renderLines().map(stripAnsi), /Ask pending/).length, 0);
-  assert.equal(harness.app.cockpitSnapshot().interactions, 0);
+  assert.equal(harness.app.hubSnapshot().interactions, 0);
 });
 
 test("native TUI falls back to a custom reply when a choice question has no options", async () => {
@@ -1708,11 +1708,11 @@ test("action bar executes semantic actions and only explicit inspection emits le
   messageCount = harness.session.messages.length;
   await harness.submit("/workflow-runs");
   await pressFocused("\r");
-  assert.equal(harness.app.cockpitSnapshot().activePanel, "runs");
+  assert.equal(harness.app.hubSnapshot().activePanel, "runs");
   assert.equal(harness.session.messages.length, messageCount);
 
   await harness.submit("/inspect runs");
-  assert.equal(harness.app.cockpitSnapshot().activePanel, "runs");
+  assert.equal(harness.app.hubSnapshot().activePanel, "runs");
   assert.equal(harness.session.messages.length, messageCount);
 });
 
@@ -2197,7 +2197,7 @@ test("Spark native TUI labels channel users and cross-session agents", () => {
   assert.match(rendered, /you> 网页消息/);
 });
 
-test("Spark cockpit renders shared workflow, run, task, artifact, review, and Graft view models", async () => {
+test("Spark hub renders shared workflow, run, task, artifact, review, and Graft view models", async () => {
   const harness = createSparkNativeTuiHarness({
     cols: 120,
     slashCommands: createSparkNativeLocalControlSlashCommands(),
@@ -2209,7 +2209,7 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
     session: {
       version: SPARK_PROTOCOL_VERSION,
       sessionId: "session:dogfood",
-      title: "Dogfood cockpit session",
+      title: "Dogfood hub session",
       status: "streaming",
       messages: [],
       tools: [],
@@ -2250,15 +2250,15 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
       tasks: [
         {
           version: SPARK_PROTOCOL_VERSION,
-          ref: "task:spark-cockpit-superpowers",
-          name: "spark-cockpit-superpowers",
-          title: "Spark cockpit superpowers",
+          ref: "task:spark-hub-superpowers",
+          name: "spark-hub-superpowers",
+          title: "Spark hub superpowers",
           kind: "implement",
           status: "running",
           projectRef: "proj:demo",
           todos: [
             { id: "map", content: "Map data surfaces", status: "done", notes: [] },
-            { id: "render", content: "Render cockpit panels", status: "in_progress", notes: [] },
+            { id: "render", content: "Render hub panels", status: "in_progress", notes: [] },
           ],
           runRefs: ["run:release-readiness"],
           evidenceRefs: ["evidence:review-ok"],
@@ -2270,7 +2270,7 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
         {
           version: SPARK_PROTOCOL_VERSION,
           ref: "evidence:review-ok",
-          title: "Reviewer verdict for cockpit task",
+          title: "Reviewer verdict for hub task",
           kind: "record",
           format: "json",
           status: "approved",
@@ -2299,7 +2299,7 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
     },
   });
 
-  assert.deepEqual(harness.app.cockpitSnapshot(), {
+  assert.deepEqual(harness.app.hubSnapshot(), {
     activePanel: undefined,
     sessionId: "session:dogfood",
     sessionStatus: "streaming",
@@ -2314,7 +2314,7 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
     interactions: 0,
   });
 
-  assert.equal(harness.app.toggleCockpitPanel("overview"), true);
+  assert.equal(harness.app.toggleHubPanel("overview"), true);
   assert.match(
     stripAnsi(harness.render()),
     /Workflow picker\/progress: 1 option\(s\), 1 workflow run\(s\)/,
@@ -2322,7 +2322,7 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
   assert.match(stripAnsi(harness.render()), /Role-run board: 1 role run\(s\), 0 interaction\(s\)/);
 
   assert.equal(await harness.submit("/inspect runs"), "command");
-  assert.equal(harness.app.cockpitSnapshot().activePanel, "runs");
+  assert.equal(harness.app.hubSnapshot().activePanel, "runs");
   assert.match(
     stripAnsi(harness.render()),
     /role role:reviewer \[running\] 40% evidence=1 Reviewer pass/,
@@ -2339,7 +2339,7 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
   assert.equal(await harness.submit("/tasks"), "command");
   assert.match(
     stripAnsi(harness.render()),
-    /task:spark-cockpit-superpowers \[running\] todos=1\/2 evidence=1 Spark cockpit superpowers/,
+    /task:spark-hub-superpowers \[running\] todos=1\/2 evidence=1 Spark hub superpowers/,
   );
 
   assert.equal(await harness.submit("/artifacts"), "command");
@@ -2355,7 +2355,7 @@ test("Spark cockpit renders shared workflow, run, task, artifact, review, and Gr
   assert.equal(await harness.submit("/reviews"), "command");
   assert.match(
     stripAnsi(harness.render()),
-    /evidence:review-ok \[approved\] Reviewer verdict for cockpit task/,
+    /evidence:review-ok \[approved\] Reviewer verdict for hub task/,
   );
   assert.match(stripAnsi(harness.render()), /role:role:reviewer \[approved\] Reviewer pass/);
 
@@ -2431,7 +2431,7 @@ test("task updates stay below the composer instead of entering the transcript", 
   assert.match(completed, /task done/u);
 });
 
-test("Spark cockpit supports selectable workflow run keyboard controls", async () => {
+test("Spark hub supports selectable workflow run keyboard controls", async () => {
   const invoked: Array<{ name: string; args: string }> = [];
   const slashCommands = Object.fromEntries(
     ["inspect", "pause", "resume", "stop", "restart", "save", "ack"].map((action) => [
@@ -2520,10 +2520,10 @@ test("Spark cockpit supports selectable workflow run keyboard controls", async (
   assert.deepEqual(invoked.at(-1), { name: "workflow-ack", args: "run:first" });
 
   await harness.press("\x1B");
-  assert.equal(harness.app.cockpitSnapshot().activePanel, undefined);
+  assert.equal(harness.app.hubSnapshot().activePanel, undefined);
 });
 
-test("Spark cockpit records workflow picker requests and exposes slash command navigation", async () => {
+test("Spark hub records workflow picker requests and exposes slash command navigation", async () => {
   const harness = createSparkNativeTuiHarness({
     cols: 110,
     slashCommands: createSparkNativeLocalControlSlashCommands(),
@@ -2557,7 +2557,7 @@ test("Spark cockpit records workflow picker requests and exposes slash command n
 
   assert.equal(response.status, "blocked");
   assert.equal(response.kind, "workflowPicker");
-  assert.deepEqual(harness.app.cockpitSnapshot(), {
+  assert.deepEqual(harness.app.hubSnapshot(), {
     activePanel: undefined,
     sessionId: undefined,
     sessionStatus: undefined,
@@ -2573,7 +2573,7 @@ test("Spark cockpit records workflow picker requests and exposes slash command n
   });
 
   assert.equal(await harness.submit("/inspect workflows"), "command");
-  assert.equal(harness.app.cockpitSnapshot().activePanel, "workflows");
+  assert.equal(harness.app.hubSnapshot().activePanel, "workflows");
   const workflows = harness.render();
   assert.match(workflows, /picker pick-workflow: Choose a Spark workflow \(2 option\(s\)\)/);
   assert.match(
@@ -2582,19 +2582,19 @@ test("Spark cockpit records workflow picker requests and exposes slash command n
   );
   assert.match(workflows, /picker builtin:review: Review — Audit implementation evidence\./);
 
-  assert.equal(harness.app.cycleCockpitPanel(), "runs");
-  assert.equal(harness.app.cockpitSnapshot().activePanel, "runs");
+  assert.equal(harness.app.cycleHubPanel(), "runs");
+  assert.equal(harness.app.hubSnapshot().activePanel, "runs");
 
   assert.equal(await harness.submit("/inspect off"), "command");
-  assert.equal(harness.app.cockpitSnapshot().activePanel, undefined);
+  assert.equal(harness.app.hubSnapshot().activePanel, undefined);
 
   assert.equal(await harness.submit("/help commands"), "command");
   assert.match(
     stripAnsi(harness.render()),
     /\/inspect \[overview\|workflows\|runs\|tasks\|artifacts\|reviews\|graft\|off\]/,
   );
-  assert.doesNotMatch(stripAnsi(harness.render()), /\/cockpit \[overview/);
-  assert.doesNotMatch(stripAnsi(harness.render()), /Ctrl\+K — toggle Spark cockpit overview/);
+  assert.doesNotMatch(stripAnsi(harness.render()), /\/hub \[overview/);
+  assert.doesNotMatch(stripAnsi(harness.render()), /Ctrl\+K — toggle Spark hub overview/);
 });
 
 async function typeEditorText(

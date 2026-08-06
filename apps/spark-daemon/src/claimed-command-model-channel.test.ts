@@ -38,7 +38,7 @@ class CapturingSocket implements ServerSocket {
 }
 
 describe("claimed runtime model/channel commands", () => {
-  it("maps Cockpit workspace ids to the daemon-owned binding for QQ QR auth", async () => {
+  it("maps Hub workspace ids to the daemon-owned binding for QQ QR auth", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-claimed-model-channel-"));
     roots.push(root);
     const paths = resolveSparkPaths({
@@ -55,7 +55,7 @@ describe("claimed runtime model/channel commands", () => {
     const localPath = join(root, "workspace");
     mkdirSync(localPath);
     const workspace = registerWorkspace(db, {
-      serverUrl: "https://cockpit.example.test/",
+      serverUrl: "https://hub.example.test/",
       serverWorkspaceId: "ws_22222222222222222222222222222222",
       serverBindingId: "rtwb_22222222222222222222222222222222",
       localWorkspaceKey: "qq-workspace",

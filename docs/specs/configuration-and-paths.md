@@ -50,7 +50,7 @@ $SPARK_HOME/
 ├── cache/cued-version.json        # cue-shell release discovery cache
 ├── workspaces/<id>/               # workspace-scoped channel settings
 └── apps/
-    ├── cockpit/{data,cache,state,run}/
+    ├── hub/{data,cache,state,run}/
     └── daemon/{data,cache,state,run}/
 ```
 
@@ -58,10 +58,10 @@ With `SPARK_HOME` unset, files are split by XDG ownership:
 
 ```text
 $XDG_CONFIG_HOME/spark/        config, auth, ask, role model settings, prompts, themes, keybindings, app TOML files
-$XDG_DATA_HOME/spark/          sessions, memory/, exports, share, workspaces, cockpit/, daemon/
-$XDG_CACHE_HOME/spark/         model/release caches, cockpit/, daemon/
-$XDG_STATE_HOME/spark/         cockpit/, daemon/ state and logs
-$XDG_RUNTIME_DIR/spark/        cockpit/, daemon/ sockets and pid files (app state `run/` fallback)
+$XDG_DATA_HOME/spark/          sessions, memory/, exports, share, workspaces, hub/, daemon/
+$XDG_CACHE_HOME/spark/         model/release caches, hub/, daemon/
+$XDG_STATE_HOME/spark/         hub/, daemon/ state and logs
+$XDG_RUNTIME_DIR/spark/        hub/, daemon/ sockets and pid files (app state `run/` fallback)
 ```
 
 The namespace is added after the XDG root, so the default config path is `$HOME/.config/spark/config.json`, not `$HOME/.config/config.json`. If `XDG_RUNTIME_DIR` is unset, each app uses `$XDG_STATE_HOME/spark/<app>/run`.
@@ -96,16 +96,46 @@ These variables have no current path-resolution implementation and are ignored:
 - `SPARK_MEMORY_HOME`
 - `SPARK_MEMORY_COMPAT_DIR`
 - `SPARK_AGENT_DIR`
-- `SPARK_COCKPIT_*_DIR`
+- `SPARK_HUB_*_DIR`
 - `SPARK_DAEMON_*_DIR`
 
 Explicit API path overrides remain available for embedded hosts and tests.
 
 ## Migration
 
-Spark does **not** automatically move credentials, SQLite databases, sessions, or unrelated user-authored files. Stop Spark daemon and Cockpit before copying mutable databases or runtime state.
+### Cockpit to Hub
 
-Serialized marker names and paths under `.spark/` are public persistence contracts. Change them only through an explicit, idempotent migration with compatibility tests; a package or command rename alone must not rewrite persisted markers.
+Opening the default Hub database first runs the Hub-owned, idempotent Cockpit
+layout migration. Stop old Cockpit and Hub processes before upgrading. The
+migration moves only the known app-owned paths:
+
+| Retired Cockpit path | Canonical Hub path |
+| --- | --- |
+| `$XDG_CONFIG_HOME/spark/cockpit.toml` | `$XDG_CONFIG_HOME/spark/hub.toml` |
+| `$XDG_DATA_HOME/spark/cockpit/cockpit.sqlite` | `$XDG_DATA_HOME/spark/hub/hub.sqlite` |
+| `$XDG_CACHE_HOME/spark/cockpit/` | `$XDG_CACHE_HOME/spark/hub/` |
+| `$XDG_STATE_HOME/spark/cockpit/` | `$XDG_STATE_HOME/spark/hub/` |
+| `$XDG_RUNTIME_DIR/spark/cockpit/` | `$XDG_RUNTIME_DIR/spark/hub/` |
+| `$SPARK_HOME/apps/cockpit/{data,cache,state,run}` | `$SPARK_HOME/apps/hub/{data,cache,state,run}` |
+
+Preflight happens before any rename. If both a source and target exist, or a
+live legacy database lock is present, startup fails without changing either
+tree. If a later rename fails, completed renames are reversed. Re-running after
+success is a no-op. The SQLite owner then renames active Hub tables and setting
+keys through migration `0022`; the stable legacy `cockpit_…` instance ID is
+preserved so registered daemons continue to recognize the same deployment.
+Legacy Cockpit snapshot-v1 manifests remain readable.
+
+Canonical configuration uses `SPARK_HUB_*`. Supported `SPARK_COCKPIT_*`
+aliases are read only for upgrade compatibility; specifying different values
+under both names fails closed. New files, environment documentation, cookies,
+tokens, snapshots, and database rows use Hub names only.
+
+Spark does **not** automatically move unrelated credentials, sessions, or
+user-authored files. Serialized marker names and paths under `.spark/` remain
+public persistence contracts and are not rewritten by the product rename.
+
+### Memory layout
 
 Memory-related layout migration **is** automatic and idempotent via `migrateSparkMemoryLayout` (triggered on memory `session_start` and memory tool access):
 
@@ -130,4 +160,4 @@ spark paths
 spark paths --json
 ```
 
-The command is read-only and reports effective user, Cockpit, and daemon paths. It does not create directories or migrate files.
+The command is read-only and reports effective user, Hub, and daemon paths. It does not create directories or migrate files.

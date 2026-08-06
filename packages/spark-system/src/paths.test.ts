@@ -1,13 +1,18 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { resolveSparkHome, resolveSparkPaths, resolveSparkUserPaths } from "./paths.js";
+import {
+  resolveLegacyCockpitPaths,
+  resolveSparkHome,
+  resolveSparkPaths,
+  resolveSparkUserPaths,
+} from "./paths.js";
 
 const home = "/Users/example";
 
 describe("Spark path resolution", () => {
   it("uses standard XDG defaults when SPARK_HOME is unset", () => {
     const user = resolveSparkUserPaths({ env: { HOME: home }, cwd: "/" });
-    const cockpit = resolveSparkPaths({ app: "cockpit", env: { HOME: home }, cwd: "/" });
+    const hub = resolveSparkPaths({ app: "hub", env: { HOME: home }, cwd: "/" });
 
     expect(resolveSparkHome({ env: { HOME: home }, cwd: "/" })).toBe(
       join(home, ".local", "share", "spark"),
@@ -33,13 +38,23 @@ describe("Spark path resolution", () => {
       keybindingsFile: join(home, ".config", "spark", "agent", "keybindings.json"),
       cueVersionCacheFile: join(home, ".cache", "spark", "cued-version.json"),
     });
-    expect(cockpit.configFile).toBe(join(home, ".config", "spark", "cockpit.toml"));
-    expect(cockpit.databasePath).toBe(
+    expect(hub.configFile).toBe(join(home, ".config", "spark", "hub.toml"));
+    expect(hub.databasePath).toBe(join(home, ".local", "share", "spark", "hub", "hub.sqlite"));
+    expect(hub.cacheDir).toBe(join(home, ".cache", "spark", "hub"));
+    expect(hub.stateDir).toBe(join(home, ".local", "state", "spark", "hub"));
+    expect(hub.runtimeDir).toBe(join(home, ".local", "state", "spark", "hub", "run"));
+  });
+
+  it("resolves the retired Cockpit tree only for explicit migrations", () => {
+    const legacy = resolveLegacyCockpitPaths({ env: { HOME: home }, cwd: "/" });
+
+    expect(legacy.configFile).toBe(join(home, ".config", "spark", "cockpit.toml"));
+    expect(legacy.databasePath).toBe(
       join(home, ".local", "share", "spark", "cockpit", "cockpit.sqlite"),
     );
-    expect(cockpit.cacheDir).toBe(join(home, ".cache", "spark", "cockpit"));
-    expect(cockpit.stateDir).toBe(join(home, ".local", "state", "spark", "cockpit"));
-    expect(cockpit.runtimeDir).toBe(join(home, ".local", "state", "spark", "cockpit", "run"));
+    expect(legacy.cacheDir).toBe(join(home, ".cache", "spark", "cockpit"));
+    expect(legacy.stateDir).toBe(join(home, ".local", "state", "spark", "cockpit"));
+    expect(legacy.runtimeDir).toBe(join(home, ".local", "state", "spark", "cockpit", "run"));
   });
 
   it("honors every XDG directory independently", () => {
@@ -65,9 +80,9 @@ describe("Spark path resolution", () => {
     expect(daemon.artifactBlobsDir).toBe("/xdg/data/spark/daemon/artifacts/blobs/sha256");
     expect(daemon.piAgentDir).toBe("/xdg/data/spark/daemon/pi-agent");
 
-    const cockpit = resolveSparkPaths({ app: "cockpit", env, cwd: "/" });
-    expect(cockpit.artifactBlobsDir).toBe("/xdg/cache/spark/cockpit/artifacts/blobs/sha256");
-    expect(cockpit.piAgentDir).toBeUndefined();
+    const hub = resolveSparkPaths({ app: "hub", env, cwd: "/" });
+    expect(hub.artifactBlobsDir).toBe("/xdg/cache/spark/hub/artifacts/blobs/sha256");
+    expect(hub.piAgentDir).toBeUndefined();
   });
 
   it("trims SPARK_HOME and empty XDG overrides", () => {
@@ -122,17 +137,17 @@ describe("Spark path resolution", () => {
       SPARK_MEMORY_HOME: "/retired/memory",
       SPARK_MEMORY_COMPAT_DIR: "/retired/compat-memory",
       SPARK_AGENT_DIR: "/retired/agent",
-      SPARK_COCKPIT_DATA_DIR: "/retired/cockpit-data",
+      SPARK_HUB_DATA_DIR: "/retired/hub-data",
       SPARK_DAEMON_RUNTIME_DIR: "/retired/daemon-run",
     };
     const user = resolveSparkUserPaths({ env, cwd: "/workspace" });
-    const cockpit = resolveSparkPaths({ app: "cockpit", env, cwd: "/workspace" });
+    const hub = resolveSparkPaths({ app: "hub", env, cwd: "/workspace" });
     const daemon = resolveSparkPaths({ app: "daemon", env, cwd: "/workspace" });
 
     expect(user.rolesDir).toBe(join(home, ".agents", "roles"));
     expect(user.memoryFile).toBe(join(home, ".local", "share", "spark", "memory", "memory.json"));
     expect(user.keybindingsFile).toBe(join(home, ".config", "spark", "agent", "keybindings.json"));
-    expect(cockpit.dataDir).toBe(join(home, ".local", "share", "spark", "cockpit"));
+    expect(hub.dataDir).toBe(join(home, ".local", "share", "spark", "hub"));
     expect(daemon.runtimeDir).toBe(join(home, ".local", "state", "spark", "daemon", "run"));
   });
 

@@ -26,7 +26,7 @@ interface CapturedRuntimeFrame {
   };
 }
 
-interface TestCockpit {
+interface TestHub {
   serverUrl: string;
   webSocketUrl: string;
   frames: CapturedRuntimeFrame[];
@@ -38,7 +38,7 @@ interface TestCockpit {
   close(): Promise<void>;
 }
 
-describe("Spark daemon multi-Cockpit uplinks", () => {
+describe("Spark daemon multi-Hub uplinks", () => {
   it("connects each server profile independently and keeps the other uplink alive", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-multi-uplink-"));
     const paths = resolveSparkPaths({
@@ -54,8 +54,8 @@ describe("Spark daemon multi-Cockpit uplinks", () => {
     });
     const db = openSparkDaemonDatabase(paths);
     const shutdown = new AbortController();
-    const cockpitA = await startTestCockpit();
-    const cockpitB = await startTestCockpit();
+    const hubA = await startTestHub();
+    const hubB = await startTestHub();
     let running: Promise<void> | undefined;
 
     try {
@@ -65,7 +65,7 @@ describe("Spark daemon multi-Cockpit uplinks", () => {
       mkdirSync(workspacePathB, { recursive: true });
 
       const workspaceA = registerWorkspace(db, {
-        serverUrl: cockpitA.serverUrl,
+        serverUrl: hubA.serverUrl,
         serverWorkspaceId: "ws_11111111111141111111111111111111",
         serverBindingId: "rtwb_11111111111141111111111111111111",
         localWorkspaceKey: "workspace-a",
@@ -73,7 +73,7 @@ describe("Spark daemon multi-Cockpit uplinks", () => {
         localPath: workspacePathA,
       });
       const workspaceB = registerWorkspace(db, {
-        serverUrl: cockpitB.serverUrl,
+        serverUrl: hubB.serverUrl,
         serverWorkspaceId: "ws_22222222222242222222222222222222",
         serverBindingId: "rtwb_22222222222242222222222222222222",
         localWorkspaceKey: "workspace-b",
@@ -82,16 +82,16 @@ describe("Spark daemon multi-Cockpit uplinks", () => {
       });
 
       await upsertSparkDaemonServerProfile(paths, {
-        serverUrl: cockpitA.serverUrl,
+        serverUrl: hubA.serverUrl,
         runtimeId: "rt_11111111111141111111111111111111",
         runtimeToken: "runtime-token-a",
-        webSocketUrl: cockpitA.webSocketUrl,
+        webSocketUrl: hubA.webSocketUrl,
       });
       await upsertSparkDaemonServerProfile(paths, {
-        serverUrl: cockpitB.serverUrl,
+        serverUrl: hubB.serverUrl,
         runtimeId: "rt_22222222222242222222222222222222",
         runtimeToken: "runtime-token-b",
-        webSocketUrl: cockpitB.webSocketUrl,
+        webSocketUrl: hubB.webSocketUrl,
       });
 
       running = startSparkDaemon({
@@ -103,18 +103,18 @@ describe("Spark daemon multi-Cockpit uplinks", () => {
           displayName: "Multi-uplink test daemon",
           // A process may have started from a legacy tuple before this origin
           // was re-registered. The persisted per-server profile must win.
-          serverUrl: cockpitA.serverUrl,
+          serverUrl: hubA.serverUrl,
           runtimeId: "rt_99999999999949999999999999999999",
           runtimeToken: "stale-runtime-token-a",
-          webSocketUrl: cockpitA.webSocketUrl,
+          webSocketUrl: hubA.webSocketUrl,
         },
         signal: shutdown.signal,
         runScheduler: false,
         serverReconnectDelayMs: 60_000,
       });
 
-      const [helloA, helloB] = await Promise.all([cockpitA.hello.promise, cockpitB.hello.promise]);
-      await Promise.all([cockpitA.heartbeat.promise, cockpitB.heartbeat.promise]);
+      const [helloA, helloB] = await Promise.all([hubA.hello.promise, hubB.hello.promise]);
+      await Promise.all([hubA.heartbeat.promise, hubB.heartbeat.promise]);
 
       expect(helloA.payload).toMatchObject({
         runtimeId: "rt_11111111111141111111111111111111",
@@ -126,11 +126,11 @@ describe("Spark daemon multi-Cockpit uplinks", () => {
         workspaceBindings: [{ bindingId: workspaceB.id }],
       });
       expect(helloB.payload?.workspaceBindings).toHaveLength(1);
-      expect(cockpitA.authorizationHeaders).toEqual(["Bearer runtime-token-a"]);
-      expect(cockpitB.authorizationHeaders).toEqual(["Bearer runtime-token-b"]);
+      expect(hubA.authorizationHeaders).toEqual(["Bearer runtime-token-a"]);
+      expect(hubB.authorizationHeaders).toEqual(["Bearer runtime-token-b"]);
 
-      const socketA = cockpitA.socket();
-      const socketB = cockpitB.socket();
+      const socketA = hubA.socket();
+      const socketB = hubB.socket();
       const socketAClosed = once(socketA, "close");
       socketA.terminate();
       await socketAClosed;
@@ -155,24 +155,24 @@ describe("Spark daemon multi-Cockpit uplinks", () => {
         }),
       );
 
-      await expect(cockpitB.commandReject.promise).resolves.toMatchObject({
+      await expect(hubB.commandReject.promise).resolves.toMatchObject({
         type: "runtime.command.reject",
         runtimeId: "rt_22222222222242222222222222222222",
         workspaceBindingId: workspaceB.id,
         payload: { reasonCode: "WORKSPACE_ROUTE_MISMATCH" },
       });
-      expect(cockpitB.socket()).toBe(socketB);
+      expect(hubB.socket()).toBe(socketB);
       expect(socketB.readyState).toBe(WebSocket.OPEN);
     } finally {
       shutdown.abort();
       await running?.catch(() => undefined);
-      await Promise.all([cockpitA.close(), cockpitB.close()]);
+      await Promise.all([hubA.close(), hubB.close()]);
       db.close();
       rmSync(root, { recursive: true, force: true });
     }
   });
 
-  it("reconfigures only the targeted Cockpit after its workspace routes change", async () => {
+  it("reconfigures only the targeted Hub after its workspace routes change", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-targeted-uplink-reconfigure-"));
     const paths = resolveSparkPaths({
       app: "daemon",
@@ -188,8 +188,8 @@ describe("Spark daemon multi-Cockpit uplinks", () => {
     const db = openSparkDaemonDatabase(paths);
     const shutdown = new AbortController();
     const uplinkControl = createSparkDaemonUplinkControl();
-    const cockpitA = await startTestCockpit();
-    const cockpitB = await startTestCockpit();
+    const hubA = await startTestHub();
+    const hubB = await startTestHub();
     let running: Promise<void> | undefined;
 
     try {
@@ -201,7 +201,7 @@ describe("Spark daemon multi-Cockpit uplinks", () => {
       mkdirSync(workspacePathB, { recursive: true });
 
       const workspaceA1 = registerWorkspace(db, {
-        serverUrl: cockpitA.serverUrl,
+        serverUrl: hubA.serverUrl,
         serverWorkspaceId: "ws_11111111111141111111111111111111",
         serverBindingId: "rtwb_11111111111141111111111111111111",
         localWorkspaceKey: "workspace-a-1",
@@ -209,7 +209,7 @@ describe("Spark daemon multi-Cockpit uplinks", () => {
         localPath: workspacePathA1,
       });
       const workspaceB = registerWorkspace(db, {
-        serverUrl: cockpitB.serverUrl,
+        serverUrl: hubB.serverUrl,
         serverWorkspaceId: "ws_22222222222242222222222222222222",
         serverBindingId: "rtwb_22222222222242222222222222222222",
         localWorkspaceKey: "workspace-b",
@@ -218,16 +218,16 @@ describe("Spark daemon multi-Cockpit uplinks", () => {
       });
 
       await upsertSparkDaemonServerProfile(paths, {
-        serverUrl: cockpitA.serverUrl,
+        serverUrl: hubA.serverUrl,
         runtimeId: "rt_11111111111141111111111111111111",
         runtimeToken: "runtime-token-a",
-        webSocketUrl: cockpitA.webSocketUrl,
+        webSocketUrl: hubA.webSocketUrl,
       });
       await upsertSparkDaemonServerProfile(paths, {
-        serverUrl: cockpitB.serverUrl,
+        serverUrl: hubB.serverUrl,
         runtimeId: "rt_22222222222242222222222222222222",
         runtimeToken: "runtime-token-b",
-        webSocketUrl: cockpitB.webSocketUrl,
+        webSocketUrl: hubB.webSocketUrl,
       });
 
       running = startSparkDaemon({
@@ -244,38 +244,38 @@ describe("Spark daemon multi-Cockpit uplinks", () => {
         serverReconnectDelayMs: 60_000,
       });
 
-      await Promise.all([cockpitA.hello.promise, cockpitB.hello.promise]);
-      await Promise.all([cockpitA.heartbeat.promise, cockpitB.heartbeat.promise]);
+      await Promise.all([hubA.hello.promise, hubB.hello.promise]);
+      await Promise.all([hubA.heartbeat.promise, hubB.heartbeat.promise]);
 
-      const socketABefore = cockpitA.socket();
-      const socketBBefore = cockpitB.socket();
-      expect(cockpitA.authorizationHeaders).toHaveLength(1);
-      expect(cockpitB.authorizationHeaders).toHaveLength(1);
+      const socketABefore = hubA.socket();
+      const socketBBefore = hubB.socket();
+      expect(hubA.authorizationHeaders).toHaveLength(1);
+      expect(hubB.authorizationHeaders).toHaveLength(1);
 
       const workspaceA2 = registerWorkspace(db, {
-        serverUrl: cockpitA.serverUrl,
+        serverUrl: hubA.serverUrl,
         serverWorkspaceId: "ws_33333333333343333333333333333333",
         serverBindingId: "rtwb_33333333333343333333333333333333",
         localWorkspaceKey: "workspace-a-2",
         displayName: "Workspace A2",
         localPath: workspacePathA2,
       });
-      uplinkControl.requestReconfigure(cockpitA.serverUrl);
+      uplinkControl.requestReconfigure(hubA.serverUrl);
 
-      await waitUntil(() => cockpitA.authorizationHeaders.length === 2);
-      await waitUntil(() => runtimeHelloFrames(cockpitA).length === 2);
+      await waitUntil(() => hubA.authorizationHeaders.length === 2);
+      await waitUntil(() => runtimeHelloFrames(hubA).length === 2);
 
-      const reconfiguredHelloA = runtimeHelloFrames(cockpitA).at(-1);
+      const reconfiguredHelloA = runtimeHelloFrames(hubA).at(-1);
       expect(
         reconfiguredHelloA?.payload?.workspaceBindings?.map(({ bindingId }) => bindingId),
       ).toEqual(expect.arrayContaining([workspaceA1.id, workspaceA2.id]));
       expect(reconfiguredHelloA?.payload?.workspaceBindings).toHaveLength(2);
-      expect(cockpitA.socket()).not.toBe(socketABefore);
-      expect(cockpitA.socket().readyState).toBe(WebSocket.OPEN);
+      expect(hubA.socket()).not.toBe(socketABefore);
+      expect(hubA.socket().readyState).toBe(WebSocket.OPEN);
 
-      expect(cockpitB.authorizationHeaders).toHaveLength(1);
-      expect(runtimeHelloFrames(cockpitB)).toHaveLength(1);
-      expect(cockpitB.socket()).toBe(socketBBefore);
+      expect(hubB.authorizationHeaders).toHaveLength(1);
+      expect(runtimeHelloFrames(hubB)).toHaveLength(1);
+      expect(hubB.socket()).toBe(socketBBefore);
       expect(socketBBefore.readyState).toBe(WebSocket.OPEN);
 
       socketBBefore.send(
@@ -297,27 +297,27 @@ describe("Spark daemon multi-Cockpit uplinks", () => {
         }),
       );
 
-      await expect(cockpitB.commandReject.promise).resolves.toMatchObject({
+      await expect(hubB.commandReject.promise).resolves.toMatchObject({
         type: "runtime.command.reject",
         runtimeId: "rt_22222222222242222222222222222222",
         workspaceBindingId: workspaceB.id,
         payload: { reasonCode: "WORKSPACE_ROUTE_MISMATCH" },
       });
-      expect(cockpitB.authorizationHeaders).toHaveLength(1);
-      expect(cockpitB.socket()).toBe(socketBBefore);
+      expect(hubB.authorizationHeaders).toHaveLength(1);
+      expect(hubB.socket()).toBe(socketBBefore);
       expect(socketBBefore.readyState).toBe(WebSocket.OPEN);
     } finally {
       shutdown.abort();
       await running?.catch(() => undefined);
-      await Promise.all([cockpitA.close(), cockpitB.close()]);
+      await Promise.all([hubA.close(), hubB.close()]);
       db.close();
       rmSync(root, { recursive: true, force: true });
     }
   });
 });
 
-function runtimeHelloFrames(cockpit: TestCockpit): CapturedRuntimeFrame[] {
-  return cockpit.frames.filter((frame) => frame.type === "runtime.hello");
+function runtimeHelloFrames(hub: TestHub): CapturedRuntimeFrame[] {
+  return hub.frames.filter((frame) => frame.type === "runtime.hello");
 }
 
 async function waitUntil(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
@@ -330,7 +330,7 @@ async function waitUntil(predicate: () => boolean, timeoutMs = 5_000): Promise<v
   }
 }
 
-async function startTestCockpit(): Promise<TestCockpit> {
+async function startTestHub(): Promise<TestHub> {
   const server = new WebSocketServer({ port: 0 });
   const frames: CapturedRuntimeFrame[] = [];
   const authorizationHeaders: Array<string | undefined> = [];
@@ -372,7 +372,7 @@ async function startTestCockpit(): Promise<TestCockpit> {
   await once(server, "listening");
   const address = server.address();
   if (!address || typeof address === "string") {
-    throw new Error("expected test Cockpit to listen on a TCP port");
+    throw new Error("expected test Hub to listen on a TCP port");
   }
   const port = (address as AddressInfo).port;
 
@@ -386,7 +386,7 @@ async function startTestCockpit(): Promise<TestCockpit> {
     commandReject,
     socket() {
       if (!connectedSocket) {
-        throw new Error("test Cockpit has no active runtime connection");
+        throw new Error("test Hub has no active runtime connection");
       }
       return connectedSocket;
     },

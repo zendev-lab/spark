@@ -36,7 +36,7 @@ Spark-native TUI registers one `/btw` command, not a family of colon-suffixed sl
 
 `show` creates or reuses the parent's child through the daemon and displays its mode, generation, status, effective model/thinking settings, pending count, and recent visible exchanges. `ask` submits to that child; `reset` starts a new generation; model/thinking commands set or clear child-only overrides; handoff admits the pinned current head to the parent and resets the child after acceptance. Generation, head, idempotency, isolation, and read-only enforcement are daemon contracts, not TUI state.
 
-TUI and Cockpit use the same daemon-owned Side Thread contract; presentation stays separate from lifecycle, isolation, and handoff semantics. Full lifecycle and safety semantics are in [`sessions-and-channels.md`](./sessions-and-channels.md#side-threads).
+TUI and Hub use the same daemon-owned Side Thread contract; presentation stays separate from lifecycle, isolation, and handoff semantics. Full lifecycle and safety semantics are in [`sessions-and-channels.md`](./sessions-and-channels.md#side-threads).
 
 ## State and execution
 
@@ -84,7 +84,7 @@ Task and goal state may adopt this projection pattern only after their multi-ses
 Direct role/session calls do not create task attribution.
 
 These commands and their tools send `loop.*` controls to the
-daemon. TUI, Cockpit, and compatible extension hosts never own their timer,
+daemon. TUI, Hub, and compatible extension hosts never own their timer,
 generation, retry, or next-turn continuation. The full runtime contract is in
 [`daemon-autonomous-loops.md`](./daemon-autonomous-loops.md).
 
@@ -114,7 +114,7 @@ generation, retry, or next-turn continuation. The full runtime contract is in
 ## Evidence and context
 
 - `ask` is the only structured question surface; cancellation is not approval.
-- `evidence` is an **agent-internal ledger** (not Cockpit/user UI): compact provenance-backed `record | trace | knowledge | document` notes. Prefer `format=json` bodies `{ summary, data? }`. Tool-result side channels publish `evidence.update` (not `artifact.update`).
+- `evidence` is an **agent-internal ledger** (not Hub/user UI): compact provenance-backed `record | trace | knowledge | document` notes. Prefer `format=json` bodies `{ summary, data? }`. Tool-result side channels publish `evidence.update` (not `artifact.update`).
 - `artifact` owns product-facing atomic deliverables only:
   `issue | git_change | document`. `git_change` is one aggregate containing
   one owning worktree and one native GitHub PR stack; stack entries are not

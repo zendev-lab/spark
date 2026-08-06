@@ -93,7 +93,7 @@ describe("SparkDaemonHumanWaitRegistry", () => {
     }
   });
 
-  it("filters before limiting so one Cockpit cannot starve another Cockpit's outbox", () => {
+  it("filters before limiting so one Hub cannot starve another Hub's outbox", () => {
     const { db, waits } = createHarness();
     const runtimeA = "rt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const runtimeB = "rt_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";

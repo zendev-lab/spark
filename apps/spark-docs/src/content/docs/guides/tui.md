@@ -55,7 +55,7 @@ It shows projections already published to this TUI. It is not Hub Web and does
 not create another execution owner. Run `spark hub` in another
 terminal for cross-session and workspace supervision.
 
-The older `/cockpit` spelling remains executable as a compatibility alias but
+The older `/hub` spelling remains executable as a compatibility alias but
 is hidden from normal completion.
 
 ## Reveal more only when needed

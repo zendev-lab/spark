@@ -23,24 +23,24 @@ describe("Spark daemon server profiles", () => {
 
     try {
       await upsertSparkDaemonServerProfile(paths, {
-        serverUrl: "https://COCKPIT.example.test:443",
+        serverUrl: "https://HUB.example.test:443",
         runtimeId: "rt_11111111111141111111111111111111",
         runtimeToken: "spark_rt_a",
         refreshToken: "spark_refresh_a",
       });
 
-      expect(getSparkDaemonServerProfile(paths, "https://cockpit.example.test")).toEqual({
-        serverUrl: "https://cockpit.example.test/",
+      expect(getSparkDaemonServerProfile(paths, "https://hub.example.test")).toEqual({
+        serverUrl: "https://hub.example.test/",
         runtimeId: "rt_11111111111141111111111111111111",
         runtimeToken: "spark_rt_a",
         refreshToken: "spark_refresh_a",
       });
       expect(statSync(sparkDaemonServerProfilesFile(paths)).mode & 0o777).toBe(0o600);
       expect(readdirSync(join(root, "config"))).toEqual(["daemon-server-profiles.json"]);
-      await expect(
-        removeSparkDaemonServerProfile(paths, "https://cockpit.example.test"),
-      ).resolves.toBe(true);
-      expect(getSparkDaemonServerProfile(paths, "https://cockpit.example.test")).toBeUndefined();
+      await expect(removeSparkDaemonServerProfile(paths, "https://hub.example.test")).resolves.toBe(
+        true,
+      );
+      expect(getSparkDaemonServerProfile(paths, "https://hub.example.test")).toBeUndefined();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

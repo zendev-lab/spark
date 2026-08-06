@@ -313,7 +313,7 @@ function promptLeaseTransfer(
         response.status === "cancelled" ? "cancelled" : "answered",
         response.answers,
       );
-      options.transfers.respondByHumanRequest(humanRequestId, decision, "cockpit");
+      options.transfers.respondByHumanRequest(humanRequestId, decision, "hub");
     });
   }
 }

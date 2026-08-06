@@ -23,7 +23,7 @@ export const SPARK_CHANNEL_SESSION_EXECUTION_PROMPT = [
 
 /** Artifact vs internal Evidence division for local coding hosts. */
 export const SPARK_ARTIFACT_EVIDENCE_BOUNDARY_PROMPT = [
-  "User-facing Artifacts are issue, git_change, and document; they are visible in Cockpit.",
+  "User-facing Artifacts are issue, git_change, and document; they are visible in Hub.",
   "The evidence tool is an agent-internal compact ledger only (prefer format=json kind=record with { summary, data? }); never treat evidence as user-facing content.",
   "When producing a webpage, MDX, or Markdown deliverable, create and continuously update a document Artifact; preview is a view, not a kind.",
   "Use git({ action }) for git_change lifecycle. One git_change owns one worktree and one native GitHub PR stack; keep every stack layer in that worktree.",

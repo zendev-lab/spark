@@ -216,7 +216,7 @@ describe("Spark daemon command dispatcher", () => {
         commandId: "cmd_22222222222222222222222222222222",
         payload: {
           kind: "workspace.client.attach.request",
-          payload: { clientId: "wcl_cockpit", kind: "interactive" },
+          payload: { clientId: "wcl_hub", kind: "interactive" },
         },
       }),
     );

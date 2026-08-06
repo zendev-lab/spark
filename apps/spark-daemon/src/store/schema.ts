@@ -829,7 +829,7 @@ function migrateLegacyDriverTables(db: DatabaseSync): void {
 
 /**
  * `daemon.error` rows were historically written to the business outbox even
- * though no transport consumed them. A disconnected Cockpit could therefore
+ * though no transport consumed them. A disconnected Hub could therefore
  * create one permanent pending row per reconnect attempt. Scrub those rows on
  * every open as well as recording the migration: this remains safe if an old
  * daemon briefly writes again while a newer CLI is stopping/replacing it.

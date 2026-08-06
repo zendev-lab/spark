@@ -1,5 +1,5 @@
 /**
- * Spark state ownership boundaries (daemon canonical, Cockpit projection).
+ * Spark state ownership boundaries (daemon canonical, Hub projection).
  *
  * Inspired by cue-shell's single-daemon truth model: execution state lives in the
  * runtime/daemon; web/TUI clients observe and submit commands through protocol envelopes.
@@ -11,15 +11,15 @@
 export const SPARK_STATE_OWNERS = {
   /** Workspace agent runtime: tasks, artifacts, sessions, workflow runs. */
   workspaceRuntime: "daemon",
-  /** Cockpit SQLite: read-model projection + command outbox for reconnect delivery. */
-  cockpitProjection: "cockpit",
+  /** Hub SQLite: read-model projection + command outbox for reconnect delivery. */
+  hubProjection: "hub",
   /** Local queue + daemon metadata under XDG spark/daemon. */
   daemonControlPlane: "daemon",
 } as const;
 
 export type SparkStateOwner = (typeof SPARK_STATE_OWNERS)[keyof typeof SPARK_STATE_OWNERS];
 
-/** Scopes where daemon/runtime is the canonical writer; Cockpit only projects. */
+/** Scopes where daemon/runtime is the canonical writer; Hub only projects. */
 export const DAEMON_OWNED_SCOPES = [
   "task_graph",
   "artifacts",
@@ -31,29 +31,29 @@ export const DAEMON_OWNED_SCOPES = [
 
 export type DaemonOwnedScope = (typeof DAEMON_OWNED_SCOPES)[number];
 
-/** Scopes where Cockpit may write before daemon acknowledges over the runtime protocol. */
-export const COCKPIT_OUTBOX_SCOPES = ["commands", "human_responses"] as const;
+/** Scopes where Hub may write before daemon acknowledges over the runtime protocol. */
+export const HUB_OUTBOX_SCOPES = ["commands", "human_responses"] as const;
 
-export type CockpitOutboxScope = (typeof COCKPIT_OUTBOX_SCOPES)[number];
+export type HubOutboxScope = (typeof HUB_OUTBOX_SCOPES)[number];
 
 export function isDaemonOwnedScope(scope: string): scope is DaemonOwnedScope {
   return (DAEMON_OWNED_SCOPES as readonly string[]).includes(scope);
 }
 
-export function isCockpitOutboxScope(scope: string): scope is CockpitOutboxScope {
-  return (COCKPIT_OUTBOX_SCOPES as readonly string[]).includes(scope);
+export function isHubOutboxScope(scope: string): scope is HubOutboxScope {
+  return (HUB_OUTBOX_SCOPES as readonly string[]).includes(scope);
 }
 
 /**
- * Guard for Cockpit-side writers. Daemon-owned scopes must arrive via projection
- * from the daemon; Cockpit may only enqueue outbox scopes (`commands`,
+ * Guard for Hub-side writers. Daemon-owned scopes must arrive via projection
+ * from the daemon; Hub may only enqueue outbox scopes (`commands`,
  * `human_responses`).
  */
-export function assertCockpitMayWriteScope(scope: string): asserts scope is CockpitOutboxScope {
-  if (isCockpitOutboxScope(scope)) return;
+export function assertHubMayWriteScope(scope: string): asserts scope is HubOutboxScope {
+  if (isHubOutboxScope(scope)) return;
   if (isDaemonOwnedScope(scope)) {
     throw new Error(
-      `Cockpit cannot write daemon-owned scope "${scope}"; project from the daemon instead.`,
+      `Hub cannot write daemon-owned scope "${scope}"; project from the daemon instead.`,
     );
   }
   throw new Error(`Unknown Spark state scope "${scope}".`);
@@ -64,5 +64,5 @@ export function assertCockpitMayWriteScope(scope: string): asserts scope is Cock
  */
 export function assertDaemonOwnsScope(scope: string): asserts scope is DaemonOwnedScope {
   if (isDaemonOwnedScope(scope)) return;
-  throw new Error(`Daemon cannot claim ownership of Cockpit outbox scope "${scope}".`);
+  throw new Error(`Daemon cannot claim ownership of Hub outbox scope "${scope}".`);
 }

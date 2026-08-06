@@ -98,7 +98,7 @@ export interface SparkReproDecisionRequest {
     to: SparkReproWorkStage;
   };
   evidenceRefs: EvidenceRef[];
-  /** Typed Cockpit action target; Markdown may render this ref but never dispatch it. */
+  /** Typed Hub action target; Markdown may render this ref but never dispatch it. */
   askRef: AskRef;
 }
 

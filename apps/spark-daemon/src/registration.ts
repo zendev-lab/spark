@@ -231,7 +231,7 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
   if (!input.registrationToken) {
     throw new SparkDaemonControlError(
       "workspace_registration_invalid",
-      `Workspace registration for ${serverUrl} requires a new one-time workspace token. Cockpit machine credentials do not grant access to additional workspaces.`,
+      `Workspace registration for ${serverUrl} requires a new one-time workspace token. Hub machine credentials do not grant access to additional workspaces.`,
     );
   }
   if (!input.workspaceRegistration) {
@@ -272,7 +272,7 @@ export async function ensureSparkDaemonRegistrationForWorkspace(
   };
 }
 
-export async function unbindSparkDaemonWorkspaceFromCockpit(
+export async function unbindSparkDaemonWorkspaceFromHub(
   paths: SparkPaths,
   input: { serverUrl: string; bindingId: string; allowInsecureHttp?: boolean },
 ): Promise<SparkDaemonWorkspaceUnbindResult> {
@@ -312,7 +312,7 @@ export async function unbindSparkDaemonWorkspaceFromCockpit(
     !value.workspaceIds.every((workspaceId) => typeof workspaceId === "string") ||
     typeof value.unboundAt !== "string"
   ) {
-    throw new Error("Cockpit returned an invalid workspace unbind response.");
+    throw new Error("Hub returned an invalid workspace unbind response.");
   }
   return value as unknown as SparkDaemonWorkspaceUnbindResult;
 }
@@ -352,19 +352,19 @@ export function validateRegistrationServerUrl(
   } catch {
     throw new SparkDaemonControlError(
       "workspace_registration_invalid",
-      "Cockpit server URL must be a valid absolute URL.",
+      "Hub server URL must be a valid absolute URL.",
     );
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new SparkDaemonControlError(
       "workspace_registration_invalid",
-      "Cockpit server URL must use http:// or https://.",
+      "Hub server URL must use http:// or https://.",
     );
   }
   if (parsed.username || parsed.password) {
     throw new SparkDaemonControlError(
       "workspace_registration_invalid",
-      "Cockpit credentials must not be embedded in --server-url.",
+      "Hub credentials must not be embedded in --server-url.",
     );
   }
   const forbiddenParams = ["token", "registration", "enrollment"];
@@ -386,7 +386,7 @@ export function validateRegistrationServerUrl(
   if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
     throw new SparkDaemonControlError(
       "workspace_registration_invalid",
-      "Cockpit server URL must be an origin without a path, query, or fragment.",
+      "Hub server URL must be an origin without a path, query, or fragment.",
     );
   }
 
@@ -397,7 +397,7 @@ export function validateRegistrationServerUrl(
   ) {
     throw new SparkDaemonControlError(
       "workspace_registration_invalid",
-      `Refusing insecure Cockpit URL ${parsed.origin}: daemon credentials would cross the network over plaintext HTTP. Use HTTPS, or pass --allow-insecure-http only on a trusted private network.`,
+      `Refusing insecure Hub URL ${parsed.origin}: daemon credentials would cross the network over plaintext HTTP. Use HTTPS, or pass --allow-insecure-http only on a trusted private network.`,
     );
   }
 
@@ -532,14 +532,14 @@ function validateRuntimeWebSocketUrl(serverUrl: string, webSocketUrl: string): s
   } else if (parsed.protocol === "https:") {
     parsed.protocol = "wss:";
   } else if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
-    throw new Error("Cockpit runtime WebSocket URL must use ws:// or wss://.");
+    throw new Error("Hub runtime WebSocket URL must use ws:// or wss://.");
   }
 
   const expectedOrigin = new URL(serverUrl).origin;
   const actualOrigin = new URL(serverUrlFromWebSocketUrl(parsed.toString())).origin;
   if (actualOrigin !== expectedOrigin) {
     throw new Error(
-      `Cockpit returned a cross-origin runtime WebSocket URL (${actualOrigin}); expected ${expectedOrigin}.`,
+      `Hub returned a cross-origin runtime WebSocket URL (${actualOrigin}); expected ${expectedOrigin}.`,
     );
   }
   return parsed.toString();
@@ -666,7 +666,7 @@ async function persistSparkDaemonCredentials(
     webSocketUrl,
   });
   // The upsert migrates any legacy tuple before daemon.toml is reduced to the
-  // stable daemon identity. Do not select the newly registered Cockpit globally.
+  // stable daemon identity. Do not select the newly registered Hub globally.
   writeSparkDaemonConfig(paths, {
     installationId: input.installationId,
     displayName: input.displayName,

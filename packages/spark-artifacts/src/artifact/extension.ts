@@ -202,11 +202,11 @@ async function openArtifactPreview(
     });
   }
 
-  const cockpitCapable =
+  const hubCapable =
     ctx.sessionSource === "web" ||
     (ctx.hasUI === true && ctx.sessionSource !== "tui" && ctx.sessionSurface !== "channel");
-  if (!cockpitCapable) {
-    const message = "Document preview requires an attached local TUI or Cockpit surface.";
+  if (!hubCapable) {
+    const message = "Document preview requires an attached local TUI or Hub surface.";
     return toolResult("open_preview", message, {
       artifact: compactDetail(artifact),
       preview: { ...previewBase, target: "unsupported", supported: false, reason: message },

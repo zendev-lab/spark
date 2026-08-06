@@ -30,7 +30,7 @@ $SPARK_HOME/agent/
 $SPARK_HOME/prompts/
 $SPARK_HOME/themes/
 $SPARK_HOME/apps/daemon/{data,cache,state,run}
-$SPARK_HOME/apps/cockpit/{data,cache,state,run}
+$SPARK_HOME/apps/hub/{data,cache,state,run}
 ```
 
 `auth.json` 包含 provider 凭据。不要提交它，也不要把它复制到 workspace 中。
@@ -48,6 +48,18 @@ $XDG_RUNTIME_DIR/spark
 ```
 
 某个 XDG 变量没有设置时使用对应的平台默认值。
+
+## Cockpit 到 Hub 的升级迁移
+
+首次使用默认 Hub 数据库时，Spark 会自动把已退役的 `cockpit.toml`、
+Cockpit XDG 应用目录和 `cockpit.sqlite` 迁移到上面的 Hub 路径。升级前应停止旧
+Cockpit 与 Hub 进程。迁移可重复执行并采用 fail-closed 策略：检测到仍活动的旧
+数据库锁，或源路径与目标路径同时存在时，启动会停止，不会覆盖任一目录。
+
+请把已有 `SPARK_COCKPIT_*` 值复制到对应的 `SPARK_HUB_*` 名称。升级窗口内
+仍会读取旧别名，但新旧名称的值发生冲突时会拒绝启动。新状态只写入 Hub 名称。
+已经注册的 daemon 会保留稳定 deployment ID；旧 Cockpit snapshot-v1 备份仍可
+检查与恢复。
 
 ## Managed installation 路径
 

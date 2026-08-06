@@ -48,7 +48,7 @@ describe("Spark action-bar protocol", () => {
       expect(serialized).not.toMatch(/"(?:slash|cli|command)"\s*:/u);
       expect(serialized).not.toContain("spark tui");
       expect(serialized).not.toContain("spark daemon");
-      expect(serialized).not.toContain("spark cockpit");
+      expect(serialized).not.toContain("spark hub");
     }
   });
 

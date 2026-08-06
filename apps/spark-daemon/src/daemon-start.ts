@@ -231,7 +231,7 @@ async function createPreparedDaemonRuntime(
     createDaemonRuntimeSignal(options);
   if (options.managePidFile !== false) writePrivateFile(options.paths.pidFile, `${process.pid}\n`);
   // Local execution truth is established independently of the optional
-  // Cockpit projection. This also repairs status left by older daemons that
+  // Hub projection. This also repairs status left by older daemons that
   // conflated a server disconnect with an unavailable workspace.
   reconcileWorkspaces(options.db);
   const invocationRegistry = options.invocationRegistry ?? new SparkDaemonInvocationRegistry();
@@ -1228,7 +1228,7 @@ function projectChannelAskRequest(
   if (!channelIngress) return;
   void projectChannelAsk(channelIngress, request, channelDeliveryOutbox).catch((error: unknown) => {
     console.error(
-      "[spark-daemon] channel ask outbox enqueue failed; Cockpit request remains pending",
+      "[spark-daemon] channel ask outbox enqueue failed; Hub request remains pending",
       error,
     );
   });
@@ -1444,8 +1444,8 @@ function shouldReplaceUplink(
 }
 
 /**
- * Keep one independently reconnecting projection uplink per Cockpit origin.
- * Workspace rows choose the Cockpit; daemon.toml only supplies daemon identity
+ * Keep one independently reconnecting projection uplink per Hub origin.
+ * Workspace rows choose the Hub; daemon.toml only supplies daemon identity
  * and the private profile store supplies that origin's runtime credentials.
  */
 async function runSparkDaemonUplinkSupervisor(
@@ -1467,7 +1467,7 @@ async function runSparkDaemonUplinkSupervisor(
       const message = error instanceof Error ? error.message : String(error);
       if (message !== lastReconcileError) {
         lastReconcileError = message;
-        console.error(`[spark-daemon] Cockpit uplink configuration is invalid: ${message}`);
+        console.error(`[spark-daemon] Hub uplink configuration is invalid: ${message}`);
       }
       return;
     }
@@ -1475,7 +1475,7 @@ async function runSparkDaemonUplinkSupervisor(
     for (const [serverUrl, current] of active) {
       const next = desired.get(serverUrl);
       if (shouldReplaceUplink(current, next, forceServerUrl, serverUrl)) {
-        current.controller.abort(new Error(`Spark Cockpit uplink reconfigured for ${serverUrl}`));
+        current.controller.abort(new Error(`Spark Hub uplink reconfigured for ${serverUrl}`));
       }
     }
 
@@ -1538,7 +1538,7 @@ async function runSparkDaemonServerReconnectLoop(
     try {
       await runSparkDaemonServerConnection({ ...options, config, signal });
     } catch {
-      // Cockpit is an optional projection. A failure on one origin must neither
+      // Hub is an optional projection. A failure on one origin must neither
       // stop local execution nor disturb another origin's healthy uplink.
     }
     if (!signal.aborted) {
@@ -1635,7 +1635,7 @@ async function runSparkDaemonServerConnection(
     let artifactReconcileRun: Promise<void> | undefined;
     const invocationStore = new SparkInvocationStore(options.db);
     const artifactReconciler = new ArtifactProjectionReconciler();
-    const deliveryDestination = `cockpit:${runtimeId}`;
+    const deliveryDestination = `hub:${runtimeId}`;
     const currentWorkspaceBindingIds = () =>
       serverUrl
         ? listWorkspacesForServer(options.db, serverUrl).flatMap((workspace) =>

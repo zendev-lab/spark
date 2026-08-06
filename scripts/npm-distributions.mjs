@@ -111,14 +111,14 @@ export const npmDistributions = [
     manifestName: "hub-release-manifest.json",
     bins: { "spark-hub": "spark-hub.js" },
     bundles: {
-      "spark-hub.js": "apps/spark-cockpit/src/cli-entry.ts",
-      "spark-hub-server.js": "apps/spark-cockpit/server/index.ts",
-      "spark-hub-web-service.js": "apps/spark-cockpit/src/cli/web-service-entry.ts",
+      "spark-hub.js": "apps/spark-hub/src/cli-entry.ts",
+      "spark-hub-server.js": "apps/spark-hub/server/index.ts",
+      "spark-hub-web-service.js": "apps/spark-hub/src/cli/web-service-entry.ts",
     },
     files: ["bin", "dist", "build", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: [],
     exports: { "./executable": "./bin/spark-hub" },
-    migrationSource: resolve(root, "packages/spark-cockpit-db/src/migrations"),
+    migrationSource: resolve(root, "packages/spark-hub-db/src/migrations"),
   },
 ];
 

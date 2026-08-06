@@ -35,7 +35,7 @@ export const runtimeConnectionProjectionSchema = z.object({
 
 export const workspaceClientKindSchema = z.enum(["interactive", "headless", "executor"]);
 export const workspaceClientStatusSchema = z.enum(["connected", "disconnected"]);
-export const workspaceSessionSurfaceSchema = z.enum(["tui", "cockpit", "unknown"]);
+export const workspaceSessionSurfaceSchema = z.enum(["tui", "hub", "cockpit", "unknown"]);
 
 export const workspaceClientProjectionSchema = z.object({
   clientId: z.string().min(1),
@@ -317,7 +317,7 @@ export const runtimeCommandResultPayloadSchema = z
   });
 
 /**
- * Same identity field as `sparkAskOptionViewSchema.value`. Legacy Cockpit /
+ * Same identity field as `sparkAskOptionViewSchema.value`. Legacy Hub /
  * outbox payloads used `id`; accept both on read and normalize to `value`.
  */
 export const humanQuestionOptionSchema = z.preprocess(
@@ -464,7 +464,7 @@ export const invocationLogChunkPayloadSchema = z.object({
   /**
    * Ordered invocation output stream. `assistant` chunks are token/text deltas
    * for chat transcript assembly; `agent` remains accepted for legacy runtime
-   * output and is treated as readable assistant output by older Cockpit views.
+   * output and is treated as readable assistant output by older Hub views.
    */
   stream: invocationLogChunkStreamSchema,
   /** Monotonic per-invocation sequence used for replay, dedupe, and transcript assembly. */

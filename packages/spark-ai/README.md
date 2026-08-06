@@ -72,7 +72,7 @@ spark-ai does not alias `oneapi` credentials or `OPENAI_API_KEY` into `baidu-one
 `@zendev-lab/spark-ai/openai-codex-provider` is the thin Spark adapter over
 pi-ai's maintained OpenAI Codex catalog and transport. The daemon and native
 TUI load it as a bundled provider, while Spark's shared provider control owns
-model selection and its own OAuth credential store. Configure it from Cockpit
+model selection and its own OAuth credential store. Configure it from Hub
 or the native login flow; Spark does not read Pi or Codex CLI auth files at
 runtime.
 

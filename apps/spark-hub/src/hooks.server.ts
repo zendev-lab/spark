@@ -1,0 +1,228 @@
+import { createId } from "@zendev-lab/spark-protocol";
+import type { Handle, HandleServerError, RequestEvent } from "@sveltejs/kit";
+import {
+  getCurrentHubSession,
+  getCurrentWorkspaceSession,
+  isRemoteWorkspaceDataPath,
+  legacyCockpitSessionCookieName,
+  legacyCockpitSessionRefreshCookieName,
+  refreshHubSession,
+  refreshWorkspaceSession,
+  sessionCookieName,
+  sessionRefreshCookieName,
+  setHubSessionCookies,
+  setWorkspaceSessionCookies,
+  workspaceSessionAllowsRequest,
+  workspaceSessionCookieName,
+  workspaceSessionRefreshCookieName,
+} from "$lib/server/auth";
+import { getDatabase, pinDatabase, unpinDatabase } from "$lib/server/db";
+import { presentHubServerError } from "$lib/server/error-presentation";
+import { INVOCATION_ROUTE_UNAVAILABLE_ERROR_CODE } from "$lib/error-codes";
+import { legacyCockpitLocaleCookieName, localeCookieName, resolveRequestLocale } from "$lib/i18n";
+import {
+  activeWorkspaceCookieName,
+  legacyCockpitActiveWorkspaceCookieName,
+} from "$lib/server/active-workspace";
+import { remoteAccessDecision } from "$lib/server/remote-access";
+
+export const handle: Handle = async ({ event, resolve }) => {
+  migrateLegacyHubCookies(event);
+  pinDatabase();
+  try {
+    event.locals.requestId = createId("msg");
+    const db = getDatabase();
+
+    event.locals.sessionToken = event.cookies.get(sessionCookieName) ?? null;
+    let hubSession = getCurrentHubSession(db, event.locals.sessionToken);
+    if (!hubSession) {
+      const refreshed = refreshHubSession(db, event.cookies.get(sessionRefreshCookieName) ?? null);
+      if (refreshed) {
+        setHubSessionCookies(event.cookies, refreshed, {
+          secure: event.url.protocol === "https:",
+        });
+        event.locals.sessionToken = refreshed.sessionToken;
+        hubSession = refreshed;
+      }
+    }
+
+    event.locals.workspaceSessionToken = event.cookies.get(workspaceSessionCookieName) ?? null;
+    let workspaceSession = getCurrentWorkspaceSession(db, event.locals.workspaceSessionToken);
+    if (!workspaceSession) {
+      const refreshed = refreshWorkspaceSession(
+        db,
+        event.cookies.get(workspaceSessionRefreshCookieName) ?? null,
+      );
+      if (refreshed) {
+        setWorkspaceSessionCookies(event.cookies, refreshed, {
+          secure: event.url.protocol === "https:",
+        });
+        event.locals.workspaceSessionToken = refreshed.sessionToken;
+        workspaceSession = refreshed;
+      }
+    }
+    event.locals.workspaceId = workspaceSession?.workspaceId ?? null;
+
+    const clientAddress = getClientAddress(event);
+    const decision = remoteAccessDecision({ url: event.url, clientAddress });
+    if (decision.required && !hubSession && !workspaceSession) {
+      return remoteAccessRequiredResponse(event, "hub");
+    }
+    if (
+      decision.required &&
+      hubSession &&
+      !workspaceSession &&
+      isRemoteWorkspaceDataPath(event.url.pathname)
+    ) {
+      const slug = workspaceSlugFromPath(event.url.pathname);
+      if (slug) {
+        return remoteAccessRequiredResponse(event, "workspace", slug);
+      }
+    }
+    if (
+      decision.required &&
+      workspaceSession &&
+      !workspaceSessionAllowsRequest(db, workspaceSession.workspaceId, event.url.pathname)
+    ) {
+      // Hub owner sessions may still use control-plane routes.
+      if (!hubSession || isRemoteWorkspaceDataPath(event.url.pathname)) {
+        return workspaceAccessForbiddenResponse(workspaceSession.workspaceSlug);
+      }
+    }
+
+    const locale = resolveRequestLocale({
+      requestedLocale: event.url.searchParams.get("lang"),
+      cookieLocale: event.cookies.get(localeCookieName),
+      acceptLanguage: event.request.headers.get("accept-language"),
+    });
+
+    return await resolve(event, {
+      transformPageChunk: ({ html }) => html.replace("%spark.locale%", locale),
+    });
+  } finally {
+    unpinDatabase();
+  }
+};
+
+export const handleError: HandleServerError = ({ error, event, status, message }) => {
+  const presented = presentHubServerError({
+    error,
+    status,
+    fallbackMessage: message,
+    requestId: event.locals.requestId,
+  });
+  if (presented.code === INVOCATION_ROUTE_UNAVAILABLE_ERROR_CODE) {
+    console.warn(
+      `[spark-hub] ${presented.requestId} invocation belongs to another Spark service (${event.url.pathname})`,
+    );
+  } else {
+    console.error(
+      `[spark-hub] ${presented.requestId} ${status} ${event.request.method} ${event.url.pathname}`,
+      error,
+    );
+  }
+  return presented;
+};
+
+function migrateLegacyHubCookies(event: RequestEvent): void {
+  const secure = event.url.protocol === "https:";
+  migrateLegacyCookie(event, sessionCookieName, legacyCockpitSessionCookieName, {
+    httpOnly: true,
+    secure,
+    maxAge: 15 * 60,
+  });
+  migrateLegacyCookie(event, sessionRefreshCookieName, legacyCockpitSessionRefreshCookieName, {
+    httpOnly: true,
+    secure,
+    maxAge: 30 * 24 * 60 * 60,
+  });
+  migrateLegacyCookie(event, localeCookieName, legacyCockpitLocaleCookieName, {
+    httpOnly: false,
+    secure,
+    maxAge: 365 * 24 * 60 * 60,
+  });
+  migrateLegacyCookie(event, activeWorkspaceCookieName, legacyCockpitActiveWorkspaceCookieName, {
+    httpOnly: true,
+    secure,
+    maxAge: 365 * 24 * 60 * 60,
+  });
+}
+
+function migrateLegacyCookie(
+  event: RequestEvent,
+  canonical: string,
+  legacy: string,
+  options: { httpOnly: boolean; secure: boolean; maxAge: number },
+): void {
+  if (event.cookies.get(canonical)) return;
+  const value = event.cookies.get(legacy);
+  if (!value) return;
+  event.cookies.set(canonical, value, {
+    path: "/",
+    sameSite: "lax",
+    ...options,
+  });
+}
+
+function getClientAddress(event: RequestEvent): string | null {
+  try {
+    return event.getClientAddress();
+  } catch {
+    return null;
+  }
+}
+
+function workspaceSlugFromPath(pathname: string): string | null {
+  const segment = pathname.split("/").filter(Boolean)[0];
+  if (!segment) return null;
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+function remoteAccessRequiredResponse(
+  event: RequestEvent,
+  layer: "hub" | "workspace",
+  workspaceSlug?: string,
+): Response {
+  const acceptsHtml = event.request.headers.get("accept")?.includes("text/html") ?? false;
+  if ((event.request.method === "GET" || event.request.method === "HEAD") && acceptsHtml) {
+    const next = `${event.url.pathname}${event.url.search}`;
+    const location =
+      layer === "workspace" && workspaceSlug
+        ? `/${encodeURIComponent(workspaceSlug)}/login?next=${encodeURIComponent(next)}`
+        : `/login?next=${encodeURIComponent(next)}`;
+    return new Response(null, {
+      status: 303,
+      headers: { location },
+    });
+  }
+
+  return new Response(
+    JSON.stringify({
+      error: layer === "workspace" ? "workspace_access_auth_required" : "hub_access_auth_required",
+      message:
+        layer === "workspace"
+          ? "Spark Hub requires a workspace-scoped access session for this path."
+          : "Spark Hub requires a Hub access session.",
+    }),
+    {
+      status: 401,
+      headers: {
+        "content-type": "application/json",
+      },
+    },
+  );
+}
+
+function workspaceAccessForbiddenResponse(workspaceSlug: string): Response {
+  return new Response(
+    JSON.stringify({
+      error: "workspace_access_forbidden",
+      message: `This browser session grants only workspace ${workspaceSlug}.`,
+    }),
+    { status: 403, headers: { "content-type": "application/json" } },
+  );
+}

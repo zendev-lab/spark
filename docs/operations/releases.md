@@ -15,13 +15,13 @@ must match it exactly (`vX.Y.Z`).
 
 ## Release gate
 
-`.github/workflows/cd-publish.yml` runs the complete repository gate, Cockpit
+`.github/workflows/cd-publish.yml` runs the complete repository gate, Hub
 browser tests, exact-tarball product smoke, the N-1 daemon IPC matrix, and the
 N-1 Hub database migration/readability matrix against the explicitly reviewed
-published baseline. For the first split
-release, `v0.3.0`, that baseline is the legacy all-in-one
-`@zendev-lab/spark@0.2.1`; the four new package identities have no independently
-published N-1 artifact. `pnpm run release:pack` builds once and writes:
+published baseline. For the first split release, `v0.3.0`, that baseline is the
+legacy all-in-one `@zendev-lab/spark@0.2.1`; the four new package identities
+have no independently published N-1 artifact. `pnpm run release:pack` builds
+once and writes:
 
 - `dist/release/*.tgz`
 - `dist/release/*-release-manifest.json`
@@ -73,7 +73,7 @@ $PREFIX/bin/spark
 
 The executable under `$PREFIX/bin` is version-independent. launchd and daemon
 restart helpers always reference it. The updater owns update state; daemon and
-Cockpit only read its projection.
+Hub only read its projection.
 
 Default policy:
 
@@ -109,7 +109,7 @@ candidate; retry requires an explicit command or a newer version.
 For global npm, pnpm, Yarn, Bun, and Vite+ installs, the package manager remains
 the installation owner. Spark delegates an exact-version install, verifies the
 new build through the stable command, safely hands off the daemon, and restarts
-Cockpit only when its background web service was already running. The single
+Hub only when its background web service was already running. The single
 launchd tick wakes periodically, while `checkIntervalHours` gates registry
 traffic to the configured daily cadence.
 
@@ -127,7 +127,7 @@ Keep the pre-1.0 rollout deliberately gated:
 3. Exercise managed install plus manual apply/rollback on macOS.
 4. Enable the `notify` launchd job by default; keep `auto` opt-in.
 5. Open `auto` only after three real upgrades and one failed-candidate rollback
-   preserve the daemon database, sessions, transcripts, Cockpit reconnection,
+   preserve the daemon database, sessions, transcripts, Hub reconnection,
    and exact successor build identity.
 
 Linux uses the same launcher, layout, lock, transaction, and CLI contracts.

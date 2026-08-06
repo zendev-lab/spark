@@ -1,12 +1,12 @@
 # Sessions and channels
 
-The daemon owns persistent conversations. TUI, Cockpit, local RPC, and channel adapters use one registry and invocation scheduler; they do not maintain parallel session state machines.
+The daemon owns persistent conversations. TUI, Hub, local RPC, and channel adapters use one registry and invocation scheduler; they do not maintain parallel session state machines.
 
 A workspace identity is created only by the explicit `spark daemon workspace register <path> ...` control path. Starting TUI, headless execution, an ACP client, or a test harness in an unregistered directory fails with `workspace_not_found`; runtime attachment may resolve or re-attach an existing registration but must never mint a workspace implicitly. Git worktrees and temporary directories therefore remain ordinary directories unless an operator deliberately registers them.
 
 ## Session turn admission (dual layer)
 
-- **Daemon `pendingTurns`** is the durable, cross-surface admission truth (`queued` / `running` invocations). Cockpit SessionQueue projects only this list.
+- **Daemon `pendingTurns`** is the durable, cross-surface admission truth (`queued` / `running` invocations). Hub SessionQueue projects only this list.
 - **TUI `queuedFollowUps`** is an optimistic local layer for steer coalesce, follow-up turns, and editor restore before / until `turn.submit` is acknowledged. It must not invent a second durable admission list.
 - When both are present, UI may show local unacked items plus daemon `pendingTurns`; after ack, drop the matching optimistic row and trust the daemon projection.
 
@@ -39,20 +39,20 @@ Every new top-level session belongs to a registered workspace. A session has two
 
 `session.create` accepts a workspace-relative cwd, an absolute workspace descendant, or a path inside one of that workspace's attached GitChange worktrees. `cwdArtifactRef` selects a GitChange root explicitly, with relative cwd resolved below it. The daemon canonicalizes with `realpath`, rejects missing/non-directory/root/escaping paths, and persists the normalized absolute cwd plus the matched ref. Clients may call `workspace.resolve-session-cwd` to map an invocation directory to its existing workspace, but `session.create` repeats admission independently. A disappeared cwd fails execution and never falls back to the workspace root. Old records without cwd retain the workspace-root default.
 
-TUI, Cockpit, and ACP all use this contract. Starting TUI/ACP below a workspace or in a registered worktree keeps one owning workspace instead of registering the worktree as another workspace. Side threads, Task execution sessions, and Loop ticks inherit the owner cwd; switching TUI sessions rebinds session ID, cwd, workspace ID, and workspace `.spark` root as one host context. Daemon-global scope remains a read-only legacy shape so old transcripts can be recovered; startup migration maps records whose `cwd` identifies one workspace and archives unmatched records without deleting their transcript pointers. The migration keeps an exact hash-manifested backup, replaces the registry atomically, and is idempotent after registry v4.
+TUI, Hub, and ACP all use this contract. Starting TUI/ACP below a workspace or in a registered worktree keeps one owning workspace instead of registering the worktree as another workspace. Side threads, Task execution sessions, and Loop ticks inherit the owner cwd; switching TUI sessions rebinds session ID, cwd, workspace ID, and workspace `.spark` root as one host context. Daemon-global scope remains a read-only legacy shape so old transcripts can be recovered; startup migration maps records whose `cwd` identifies one workspace and archives unmatched records without deleting their transcript pointers. The migration keeps an exact hash-manifested backup, replaces the registry atomically, and is idempotent after registry v4.
 
 Registry records and bindings are authoritative. Adapter liveness comes from daemon `channel.status`.
 
 ## Repro Workbench interaction
 
-Cockpit mounts a native A2UI renderer inside the owning Repro Session only when
+Hub mounts a native A2UI renderer inside the owning Repro Session only when
 the current daemon Session snapshot binds the exact Workbench Artifact ref,
 revision, Loop id, generation, and live lifecycle. Artifact pages and ordinary
 Agent-authored A2UI remain read-only. Form state stays browser-local until an
 explicit action is submitted.
 
 The only interactive actions are `pause`, `resume`, `run_now`,
-`retry_checkpoint`, and confirmed `stop`. Cockpit sends the official A2UI v0.9
+`retry_checkpoint`, and confirmed `stop`. Hub sends the official A2UI v0.9
 action envelope through the runtime command route; the daemon then rechecks the
 managed Document hash/revision, binding provenance, Loop generation, owning
 Session, and idempotency receipt before applying typed Loop control. A stale or
@@ -62,10 +62,10 @@ invocation.
 
 ## Side threads
 
-A Side Thread is a daemon-owned, read-only child conversation attached to one persistent parent session. The daemon registry, native transcript, and invocation scheduler are the only state owners; TUI and Cockpit are control/projection adapters.
+A Side Thread is a daemon-owned, read-only child conversation attached to one persistent parent session. The daemon registry, native transcript, and invocation scheduler are the only state owners; TUI and Hub are control/projection adapters.
 
 - A non-side-thread parent has at most one active child. The child has the same scope and working directory as its parent, cannot itself be a parent, and is archived when the parent is archived.
-- The child relation stores `parentSessionId`, `generation`, and `mode` (`contextual | tangent`). Ordinary registry lists and the Cockpit session rail hide child records. Its JSONL header is also marked `visibility=internal` / `purpose=side_thread`, so public history, ref lookup, show/tree/fork, export/share, and `--session` fallback surfaces cannot reopen the inherited seed; owning daemon code uses the registry's exact path.
+- The child relation stores `parentSessionId`, `generation`, and `mode` (`contextual | tangent`). Ordinary registry lists and the Hub session rail hide child records. Its JSONL header is also marked `visibility=internal` / `purpose=side_thread`, so public history, ref lookup, show/tree/fork, export/share, and `--session` fallback surfaces cannot reopen the inherited seed; owning daemon code uses the registry's exact path.
 - `contextual` creation or reset seeds a new native transcript with the parent's stable history through the last completed assistant turn. `tangent` starts with no parent messages. A durable seed-boundary marker separates inherited context from side-thread exchanges: inherited messages never appear in the child snapshot and are never included in a handoff.
 - A reset creates a fresh, uniquely named transcript, increments `generation`, and preserves the selected mode. The registry's `sessionPath` is passed explicitly to the headless executor; execution never guesses between same-id generation files by recency. Model and thinking overrides are child-only configuration; clearing an override returns to the parent's effective setting.
 
@@ -86,7 +86,7 @@ The executable contract is layered rather than inferred from prompt text. Exact 
 
 Snapshots are display projections capped below the runtime command envelope: oversized prompts and answers are UTF-8-safely shortened with explicit truncation metadata, and older exchanges are paged out before transport. The native transcript remains intact. `handoff full` admits the complete visible side-thread exchanges from that transcript to the parent subject to its separate 48 KiB admission cap; `handoff summary` admits a compact bounded rendering. Both treat the material as untrusted analysis that the parent must verify. The daemon admits the parent invocation before it resets the child generation, and an idempotent replay completes any still-pending reset without submitting a second parent turn.
 
-The Spark-native TUI exposes this controller through one `/btw` command with subcommands. Cockpit exposes the same ensure, submit, reset, configure, and handoff operations inside the authorized parent session. Both adapters send the protocol command shapes to the daemon and refresh its projection; neither owns a second Side Thread state machine or writes the native transcript directly.
+The Spark-native TUI exposes this controller through one `/btw` command with subcommands. Hub exposes the same ensure, submit, reset, configure, and handoff operations inside the authorized parent session. Both adapters send the protocol command shapes to the daemon and refresh its projection; neither owns a second Side Thread state machine or writes the native transcript directly.
 
 ## Message origin
 

@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-export type SparkApp = "cockpit" | "daemon";
+export type SparkApp = "hub" | "daemon";
 
 export interface ResolveSparkHomeOptions {
   sparkHome?: string | undefined;
@@ -61,8 +61,8 @@ export interface ResolveSparkPathsOptions extends ResolveSparkHomeOptions {
   overrides?: SparkPathOverrides;
 }
 
-export interface SparkPaths {
-  app: SparkApp;
+export interface SparkPaths<App extends SparkApp | "cockpit" = SparkApp> {
+  app: App;
   configDir: string;
   configFile: string;
   dataDir: string;
@@ -79,7 +79,7 @@ export interface SparkPaths {
 }
 
 const appDatabaseNames: Record<SparkApp, string> = {
-  cockpit: "cockpit.sqlite",
+  hub: "hub.sqlite",
   daemon: "daemon.sqlite",
 };
 
@@ -149,8 +149,22 @@ export function resolveSparkUserPaths(options: ResolveSparkHomeOptions = {}): Sp
 }
 
 export function resolveSparkPaths(options: ResolveSparkPathsOptions): SparkPaths {
+  return resolveAppPaths(options.app, appDatabaseNames[options.app], options);
+}
+
+/** Resolve the retired Cockpit layout for explicit, read-only migration probes. */
+export function resolveLegacyCockpitPaths(
+  options: ResolveSparkHomeOptions = {},
+): SparkPaths<"cockpit"> {
+  return resolveAppPaths("cockpit", "cockpit.sqlite", options);
+}
+
+function resolveAppPaths<App extends SparkApp | "cockpit">(
+  app: App,
+  databaseName: string,
+  options: ResolveSparkHomeOptions & { overrides?: SparkPathOverrides },
+): SparkPaths<App> {
   const cwd = options.cwd ?? process.cwd();
-  const app = options.app;
   const overrides = options.overrides ?? {};
   const user = resolveSparkUserPaths(options);
   const unifiedRoot = Boolean(
@@ -191,7 +205,7 @@ export function resolveSparkPaths(options: ResolveSparkPathsOptions): SparkPaths
     cacheDir,
     stateDir,
     runtimeDir,
-    databasePath: join(dataDir, appDatabaseNames[app]),
+    databasePath: join(dataDir, databaseName),
     artifactCacheDir,
     artifactBlobsDir:
       app === "daemon"

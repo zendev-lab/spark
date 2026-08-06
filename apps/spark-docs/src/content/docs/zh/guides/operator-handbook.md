@@ -96,7 +96,7 @@ spark daemon status --json
 ```bash
 HOST=127.0.0.1 \
 PORT=5174 \
-SPARK_COCKPIT_PUBLIC_URL=http://127.0.0.1:5174 \
+SPARK_HUB_PUBLIC_URL=http://127.0.0.1:5174 \
 spark hub web start --json
 
 spark hub web status --json
@@ -226,7 +226,7 @@ no-op。`/status`、action bar 和 palette 的普通动作一次 Enter 即执行
   retry-waiting、dormant、blocked 和 stopped 状态。
 
 继续阅读 [TUI](/zh/guides/tui/)、[运行与会话](/zh/guides/runs-and-sessions/)、
-[Hub Web](/zh/guides/cockpit/) 和 [长期工作](/zh/guides/automation/)。
+[Hub Web](/zh/guides/hub/) 和 [长期工作](/zh/guides/automation/)。
 
 ### Renderer 状态
 
@@ -243,7 +243,7 @@ fail-closed readiness 报告。在 launcher flag、native artifact、PTY 生命�
 机器连通性和浏览器访问权限互相独立：
 
 ```bash
-spark daemon login --server-url https://cockpit.example
+spark daemon login --server-url https://hub.example
 spark hub access create
 spark hub workspace access create --workspace <hub-workspace-id>
 ```

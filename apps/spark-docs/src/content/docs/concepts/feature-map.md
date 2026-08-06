@@ -29,11 +29,11 @@ For contributors, the source topology stays compact by family:
 
 | Source family | Responsibility |
 | --- | --- |
-| `apps/spark-cli`, `spark-tui`, `spark-daemon`, `apps/spark-cockpit` (Hub compatibility path) | Executable dispatcher and presentation/runtime hosts |
+| `apps/spark-cli`, `spark-tui`, `spark-daemon`, `apps/spark-hub` | Executable dispatcher and presentation/runtime hosts |
 | `packages/spark-extension`, `spark-daemon-client` | Product composition and the shared daemon client boundary |
 | Capability/runtime `packages/spark-*` | Files, Web, tasks, artifacts, memory, workflows, modes, roles, sessions, and other reusable behavior |
 | `spark-protocol`, `spark-core`, `spark-runtime`, `spark-system`, `spark-tui-adapter` | Cross-surface contracts and dependency-light foundations |
-| `packages/spark-cockpit-*` | Hub-private database, coordination, and localization implementation under compatibility paths |
+| `packages/spark-hub-*` | Hub-private database, coordination, and localization implementation |
 
 Contributors can inspect `docs/specs/package-architecture.md` for dependency
 rules and `architecture/packages.json` for the exhaustive owner/stability
@@ -54,7 +54,7 @@ attach, resume, and cancellation.
 
 - Use the [TUI](/guides/tui/) for fast local conversation, Plan/Implement,
   steering, model selection, and the current session inspector.
-- Use [Hub Web](/guides/cockpit/) for workspace overview, conversations,
+- Use [Hub Web](/guides/hub/) for workspace overview, conversations,
   Inbox, artifacts, resources, and cross-daemon supervision.
 - Use the CLI when you already know the operation and want a scriptable result.
 
