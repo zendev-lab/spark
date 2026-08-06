@@ -6,8 +6,6 @@ import { fileURLToPath } from "node:url";
 
 import { npmDistributions } from "./npm-distributions.mjs";
 
-await import("./tmp-format-probe.mjs");
-
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const write = process.argv.includes("--write");
 const unknownArguments = process.argv.slice(2).filter((argument) => argument !== "--write");
