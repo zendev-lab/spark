@@ -1,4 +1,5 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, relative } from "node:path";
@@ -17,6 +18,8 @@ const {
   workspaceImports,
 } = architectureRatchets;
 
+const architectureGovernanceFixtureSha256 =
+  "3d205e16e25cf6133f681589acec7e2dad2815de44205ca40011b9adbcea054f";
 const requiredInventoryFields = ["layer", "owner", "stability", "stateWriter"] as const;
 const invalidInventoryCases = [
   { field: "layer", value: "invalid" },
@@ -90,6 +93,23 @@ async function workspaceManifestPaths(): Promise<string[]> {
   return manifests.sort();
 }
 
+function gitCommitExists(sha: string): boolean {
+  return (
+    spawnSync("git", ["cat-file", "-e", `${sha}^{commit}`], {
+      encoding: "utf8",
+      stdio: "ignore",
+    }).status === 0
+  );
+}
+
+function shouldCrossCheckHistoricalGitObjects(
+  base: string,
+  head: string,
+  commitExists: (sha: string) => boolean = gitCommitExists,
+): boolean {
+  return commitExists(base) && commitExists(head);
+}
+
 function lineCount(source: string): number {
   return source.length === 0 ? 0 : source.split("\n").length - (source.endsWith("\n") ? 1 : 0);
 }
@@ -107,6 +127,17 @@ describe("workspace dependency declaration ratchet", () => {
 });
 
 describe("architecture governance contracts", () => {
+  it("uses the sealed fixture when a shallow checkout omits historical Git objects", () => {
+    const observed: string[] = [];
+    expect(
+      shouldCrossCheckHistoricalGitObjects("base", "head", (sha) => {
+        observed.push(sha);
+        return false;
+      }),
+    ).toBe(false);
+    expect(observed).toEqual(["base"]);
+  });
+
   it("requires every active workspace declaration to carry every ownership field", async () => {
     const inventory = await readJson<ArchitectureInventory>("architecture/packages.json");
     const workspacePaths = await workspaceManifestPaths();
@@ -208,9 +239,11 @@ describe("architecture governance contracts", () => {
   });
 
   it("checks the removed generic-rule mapping and exact script inventory", async () => {
-    const governance = await readJson<GovernanceFixture>(
-      "test/fixtures/architecture-governance.json",
+    const fixtureSource = await readFile("test/fixtures/architecture-governance.json", "utf8");
+    expect(createHash("sha256").update(fixtureSource).digest("hex")).toBe(
+      architectureGovernanceFixtureSha256,
     );
+    const governance = JSON.parse(fixtureSource) as GovernanceFixture;
     expect(governance.removedCheckerRules.map((rule) => rule.id)).toEqual([
       ...removedCheckerRuleIds,
     ]);
@@ -223,43 +256,45 @@ describe("architecture governance contracts", () => {
     }
     expect(governance.removedScriptSourceLines).toBe(3150);
     expect(governance.removedScriptCount).toBe(governance.removedScripts.length);
-    expect(
-      execFileSync(
+    if (shouldCrossCheckHistoricalGitObjects(governance.changeBase, governance.changeHead)) {
+      expect(
+        execFileSync(
+          "git",
+          ["diff", "--name-only", `${governance.changeBase}..${governance.changeHead}`],
+          {
+            encoding: "utf8",
+          },
+        )
+          .trim()
+          .split("\n")
+          .filter(Boolean),
+      ).toEqual(governance.changedFiles);
+      const removedScriptStatus = execFileSync(
         "git",
-        ["diff", "--name-only", `${governance.changeBase}..${governance.changeHead}`],
-        {
-          encoding: "utf8",
-        },
+        [
+          "diff",
+          "--name-status",
+          `${governance.changeBase}..${governance.changeHead}`,
+          "--",
+          "scripts",
+        ],
+        { encoding: "utf8" },
       )
         .trim()
         .split("\n")
-        .filter(Boolean),
-    ).toEqual(governance.changedFiles);
-    const removedScriptStatus = execFileSync(
-      "git",
-      [
-        "diff",
-        "--name-status",
-        `${governance.changeBase}..${governance.changeHead}`,
-        "--",
-        "scripts",
-      ],
-      { encoding: "utf8" },
-    )
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => line.split("\t"))
-      .filter(([status]) => status === "D")
-      .map(([, path]) => path!);
-    expect(removedScriptStatus).toEqual(governance.removedScripts);
-    const removedSourceLines = governance.removedScripts.reduce((total, path) => {
-      const source = execFileSync("git", ["show", `${governance.changeBase}:${path}`], {
-        encoding: "utf8",
-      });
-      return total + lineCount(source);
-    }, 0);
-    expect(removedSourceLines).toBe(governance.removedScriptSourceLines);
+        .filter(Boolean)
+        .map((line) => line.split("\t"))
+        .filter(([status]) => status === "D")
+        .map(([, path]) => path!);
+      expect(removedScriptStatus).toEqual(governance.removedScripts);
+      const removedSourceLines = governance.removedScripts.reduce((total, path) => {
+        const source = execFileSync("git", ["show", `${governance.changeBase}:${path}`], {
+          encoding: "utf8",
+        });
+        return total + lineCount(source);
+      }, 0);
+      expect(removedSourceLines).toBe(governance.removedScriptSourceLines);
+    }
     const actualScripts = (await readdir("scripts", { withFileTypes: true }))
       .filter((entry) => entry.isFile())
       .map((entry) => `scripts/${entry.name}`)
