@@ -26,10 +26,12 @@
   let needsFailureSummary = $derived(thinkingChainNeedsFailureSummary(steps));
   let shouldRender = $derived(isVisibleThinkingChain(chainState, steps));
   let headline = $derived(
-    needsFailureSummary
-      ? labels.chainFailed
-      : thinkingChainHeadline(visibleSteps) ??
-          (chainState === "streaming" ? labels.chainStreaming : labels.chain),
+    thinkingChainHeadline(visibleSteps) ??
+      (needsFailureSummary
+        ? labels.chainFailed
+        : chainState === "streaming"
+          ? labels.chainStreaming
+          : labels.chain),
   );
   let expanded = $state(false);
   let userToggled = $state(false);
