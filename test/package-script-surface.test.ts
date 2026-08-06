@@ -103,6 +103,7 @@ test("root package exposes one compact validation and release surface", async ()
     "pnpm run check:boundaries",
     "pnpm run check:test-quality",
     "node scripts/check-doc-terminology.mjs",
+    "node scripts/check-hub-terminology.mjs",
     "vp fmt . --check",
     "vp lint --quiet",
     "pnpm run typecheck",

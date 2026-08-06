@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "rules": [
+    { "pattern": "AGENTS.md", "category": "migration-governance" },
+    {
+      "pattern": "apps/spark-cli/src/spark-command-planes-contract.test.ts",
+      "category": "retired-command-rejection-test"
+    },
+    {
+      "pattern": "apps/spark-cli/src/spark-dispatcher.test.ts",
+      "category": "retired-command-rejection-test"
+    },
+    { "pattern": "apps/spark-daemon/src/local-rpc/results.ts", "category": "legacy-wire-read" },
+    {
+      "pattern": "apps/spark-docs/src/content/docs/0.2/**",
+      "category": "archived-0.2-documentation"
+    },
+    {
+      "pattern": "apps/spark-docs/src/content/docs/zh/0.2/**",
+      "category": "archived-0.2-documentation"
+    },
+    {
+      "pattern": "apps/spark-docs/src/content/versions/0.2.json",
+      "category": "archived-0.2-navigation"
+    },
+    {
+      "pattern": "apps/spark-docs/src/content/docs/guides/hub.md",
+      "category": "upgrade-documentation"
+    },
+    {
+      "pattern": "apps/spark-docs/src/content/docs/reference/configuration-and-paths.md",
+      "category": "upgrade-documentation"
+    },
+    {
+      "pattern": "apps/spark-docs/src/content/docs/zh/guides/hub.md",
+      "category": "upgrade-documentation"
+    },
+    {
+      "pattern": "apps/spark-docs/src/content/docs/zh/reference/configuration-and-paths.md",
+      "category": "upgrade-documentation"
+    },
+    { "pattern": "apps/spark-hub/AGENTS.md", "category": "migration-governance" },
+    {
+      "pattern": "apps/spark-hub/server/index.ts",
+      "category": "legacy-layout-migration-entrypoint"
+    },
+    {
+      "pattern": "apps/spark-hub/src/cli/production-start.ts",
+      "category": "legacy-environment-read"
+    },
+    { "pattern": "apps/spark-hub/src/cli/web-service.ts", "category": "legacy-environment-read" },
+    {
+      "pattern": "apps/spark-hub/src/hooks.server.ts",
+      "category": "legacy-cookie-read-and-expiry"
+    },
+    {
+      "pattern": "apps/spark-hub/src/lib/components/**/VENDOR.md*",
+      "category": "vendored-provenance"
+    },
+    { "pattern": "apps/spark-hub/src/lib/i18n.ts", "category": "legacy-cookie-read" },
+    {
+      "pattern": "apps/spark-hub/src/lib/server/active-workspace.ts",
+      "category": "legacy-cookie-read"
+    },
+    { "pattern": "apps/spark-hub/src/lib/server/auth.ts", "category": "legacy-cookie-read" },
+    {
+      "pattern": "apps/spark-hub/src/lib/server/db.ts",
+      "category": "legacy-layout-migration-owner"
+    },
+    {
+      "pattern": "apps/spark-hub/src/lib/server/public-url.ts",
+      "category": "legacy-environment-read"
+    },
+    {
+      "pattern": "apps/spark-hub/src/lib/server/public-url.test.ts",
+      "category": "legacy-environment-test"
+    },
+    { "pattern": "apps/spark-hub/src/lib/server/web-push.ts", "category": "legacy-setting-read" },
+    {
+      "pattern": "apps/spark-hub/src/routes/logout/+server.ts",
+      "category": "legacy-cookie-expiry"
+    },
+    { "pattern": "docs/operations/releases.md", "category": "n-minus-one-release-operations" },
+    { "pattern": "docs/specs/command-planes.md", "category": "migration-design" },
+    { "pattern": "docs/specs/configuration-and-paths.md", "category": "migration-design" },
+    { "pattern": "docs/specs/package-architecture.md", "category": "migration-design" },
+    {
+      "pattern": "packages/spark-hub-db/src/client.ts",
+      "category": "legacy-layout-migration-owner"
+    },
+    { "pattern": "packages/spark-hub-db/src/hub-snapshot.ts", "category": "legacy-snapshot-read" },
+    {
+      "pattern": "packages/spark-hub-db/src/hub-snapshot.test.ts",
+      "category": "legacy-snapshot-test"
+    },
+    {
+      "pattern": "packages/spark-hub-db/src/layout-migration.ts",
+      "category": "legacy-layout-migration"
+    },
+    {
+      "pattern": "packages/spark-hub-db/src/layout-migration.test.ts",
+      "category": "legacy-layout-migration-test"
+    },
+    { "pattern": "packages/spark-hub-db/src/migrate.ts", "category": "legacy-database-upgrade" },
+    {
+      "pattern": "packages/spark-hub-db/src/migrate.test.ts",
+      "category": "legacy-database-upgrade-test"
+    },
+    {
+      "pattern": "packages/spark-hub-db/src/migrations/00**",
+      "category": "immutable-database-history"
+    },
+    { "pattern": "packages/spark-i18n/src/cli.ts", "category": "retired-command-error-message" },
+    {
+      "pattern": "packages/spark-i18n/src/index.test.ts",
+      "category": "retired-command-rejection-test"
+    },
+    {
+      "pattern": "packages/spark-memory/src/quarantine.ts",
+      "category": "legacy-persisted-enum-read"
+    },
+    {
+      "pattern": "packages/spark-protocol/src/_local-rpc-catalog.ts",
+      "category": "legacy-wire-read"
+    },
+    {
+      "pattern": "packages/spark-protocol/src/command-sources.ts",
+      "category": "frozen-wire-value"
+    },
+    {
+      "pattern": "packages/spark-protocol/src/command-sources.test.ts",
+      "category": "frozen-wire-value-test"
+    },
+    { "pattern": "packages/spark-protocol/src/memory-approval.ts", "category": "legacy-wire-read" },
+    { "pattern": "packages/spark-protocol/src/protocol.ts", "category": "legacy-wire-read" },
+    {
+      "pattern": "packages/spark-protocol/src/runtime-v1/messages.ts",
+      "category": "legacy-wire-read"
+    },
+    {
+      "pattern": "packages/spark-protocol/src/runtime-v1/registration.ts",
+      "category": "legacy-instance-id-read"
+    },
+    {
+      "pattern": "packages/spark-protocol/src/session-assignment.ts",
+      "category": "legacy-wire-read"
+    },
+    {
+      "pattern": "packages/spark-system/src/environment.test.ts",
+      "category": "legacy-environment-test"
+    },
+    { "pattern": "packages/spark-system/src/paths.ts", "category": "legacy-layout-read" },
+    { "pattern": "packages/spark-system/src/paths.test.ts", "category": "legacy-layout-test" },
+    { "pattern": "packages/spark-ui/src/markdown/VENDOR.md*", "category": "vendored-provenance" },
+    {
+      "pattern": "packages/spark-update/src/manager.ts",
+      "category": "n-minus-one-updater-compatibility"
+    },
+    {
+      "pattern": "packages/spark-update/src/update.test.ts",
+      "category": "n-minus-one-updater-test"
+    },
+    {
+      "pattern": "scripts/check-hub-terminology.mjs",
+      "category": "compatibility-allowlist-checker"
+    },
+    { "pattern": "scripts/check-npm-product.mjs", "category": "retired-distribution-rejection" },
+    { "pattern": "scripts/check-user-docs.mjs", "category": "retired-command-rejection" },
+    { "pattern": "scripts/container-healthcheck.mjs", "category": "legacy-health-response-read" },
+    {
+      "pattern": "scripts/test-release-migration.mjs",
+      "category": "n-minus-one-release-migration"
+    },
+    { "pattern": "test/container-healthcheck.test.ts", "category": "legacy-health-response-test" },
+    { "pattern": "test/hub-naming-contract.test.ts", "category": "canonical-name-contract-test" },
+    {
+      "pattern": "test/hub-terminology-contract.test.ts",
+      "category": "compatibility-allowlist-test"
+    },
+    {
+      "pattern": "test/release-migration-gate.test.ts",
+      "category": "n-minus-one-release-migration-test"
+    }
+  ]
+}
