@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { extname, join, relative, resolve } from "node:path";
 
@@ -40,17 +41,24 @@ const textExtensions = new Set([
   ".yml",
 ]);
 const textFileNames = new Set(["AGENTS.md", "Dockerfile", "README.md"]);
-if (allowlist.schemaVersion !== 1 || !Array.isArray(allowlist.rules)) {
-  throw new Error("Hub compatibility allowlist must use schemaVersion 1 with a rules array.");
+if (allowlist.schemaVersion !== 2 || !Array.isArray(allowlist.rules)) {
+  throw new Error("Hub compatibility allowlist must use schemaVersion 2 with a rules array.");
 }
 
 const rules = allowlist.rules.map((rule) => {
-  if (typeof rule?.pattern !== "string" || typeof rule?.category !== "string") {
+  if (
+    typeof rule?.pattern !== "string" ||
+    typeof rule?.category !== "string" ||
+    !Number.isInteger(rule?.approvedOccurrenceCount) ||
+    rule.approvedOccurrenceCount < 1 ||
+    typeof rule?.approvedOccurrencesSha256 !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(rule.approvedOccurrencesSha256)
+  ) {
     throw new Error(
-      "Every Hub compatibility allowlist rule needs string pattern and category fields.",
+      "Every Hub compatibility allowlist rule needs pattern, category, a positive approvedOccurrenceCount, and approvedOccurrencesSha256.",
     );
   }
-  return { ...rule, regex: globToRegExp(rule.pattern), matches: 0 };
+  return { ...rule, regex: globToRegExp(rule.pattern), occurrenceIds: [] };
 });
 const occurrences = [];
 const violations = [];
@@ -68,18 +76,30 @@ for (const relativePath of await listRepositoryFiles(root)) {
       return;
     }
     const [rule] = matchingRules;
-    rule.matches += 1;
+    const source = normalizeOccurrenceSource(line);
+    rule.occurrenceIds.push(`${relativePath}\u0000${source}`);
     occurrences.push({
       path: relativePath,
       line: index + 1,
       category: rule.category,
-      source: line.trim().replace(/\s+/gu, " "),
+      source,
     });
   });
 }
 
 for (const rule of rules) {
-  if (rule.matches === 0) violations.push(`${rule.pattern}: stale compatibility allowlist rule`);
+  const actualCount = rule.occurrenceIds.length;
+  const actualDigest = approvedOccurrencesDigest(rule.occurrenceIds);
+  if (
+    actualCount !== rule.approvedOccurrenceCount ||
+    actualDigest !== rule.approvedOccurrencesSha256
+  ) {
+    violations.push(
+      `${rule.pattern}: approved occurrence set changed ` +
+        `(count ${rule.approvedOccurrenceCount} -> ${actualCount}, ` +
+        `sha256 ${rule.approvedOccurrencesSha256} -> ${actualDigest})`,
+    );
+  }
 }
 
 if (violations.length > 0) {
@@ -120,6 +140,20 @@ function isTextSource(path) {
     textFileNames.has(path.split("/").at(-1)) ||
     path.endsWith(".md.golden")
   );
+}
+
+function normalizeOccurrenceSource(line) {
+  return line.trim().replace(/\s+/gu, " ");
+}
+
+function approvedOccurrencesDigest(occurrenceIds) {
+  return createHash("sha256")
+    .update(JSON.stringify([...occurrenceIds].sort(compareOccurrenceIds)))
+    .digest("hex");
+}
+
+function compareOccurrenceIds(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function globToRegExp(pattern) {
