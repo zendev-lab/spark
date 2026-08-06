@@ -1,4 +1,5 @@
 export * from "./protocol.ts";
+export * from "./agent-observability.ts";
 export * from "./local-rpc-orpc-contract.ts";
 export * from "./task-claim.ts";
 export * from "./memory-approval.ts";
