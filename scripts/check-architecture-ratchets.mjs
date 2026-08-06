@@ -20,42 +20,15 @@ const frozenCompatibilityExtensions = new Set([
   "./packages/spark-ai/src/baidu-oneapi-compat-extension.ts",
   "./packages/spark-extension/src/extension/index.ts",
 ]);
-const validDistributions = new Set([
-  "bundled-only",
-  "private",
-  "public-npm",
-  "public-npm-compatibility",
-]);
-const validLayers = new Set([
-  "adapter",
-  "application",
-  "capability",
-  "client",
-  "compatibility",
-  "composition",
-  "contract",
-  "experiment",
-  "foundation",
-  "private-adapter",
-  "runtime",
-]);
-const validStabilities = new Set(["experimental", "frozen", "internal", "private", "supported"]);
-const validStateWriters = new Set([
-  "cockpit",
-  "daemon",
-  "external",
-  "host",
-  "none",
-  "user",
-  "workspace",
-]);
 const legacyDaemonClientCompatibilitySources = new Set([
   "packages/spark-daemon-client/src/daemon-client.ts",
   "packages/spark-daemon-client/src/daemon-local-rpc.ts",
 ]);
+const sparkUiPresentationDependencies = new Set(["@lucide/svelte", "bits-ui", "svelte-streamdown"]);
 
 function runArchitectureRatchets() {
   const failures = [];
+  const sealedPackagePaths = new Set(architecture.sealedPackagePaths ?? []);
   const workspacePackages = ["apps", "packages"].flatMap((workspaceDir) =>
     readdirSync(join(root, workspaceDir), { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
@@ -63,12 +36,22 @@ function runArchitectureRatchets() {
       .map((entry) => {
         const path = `${workspaceDir}/${entry.name}`;
         return { path, manifest: readJson(join(root, path, "package.json")) };
-      }),
+      })
+      .filter(({ path }) => !sealedPackagePaths.has(path)),
   );
   const workspaceByName = new Map(
     workspacePackages.map((workspacePackage) => [workspacePackage.manifest.name, workspacePackage]),
   );
   const declaredPackages = architecture.packages ?? {};
+
+  for (const sealedPath of sealedPackagePaths) {
+    if (!isFile(join(root, sealedPath, "package.json"))) {
+      failures.push(`sealed package ${sealedPath} must retain its source manifest`);
+    }
+    if (Object.values(declaredPackages).some((declaration) => declaration.path === sealedPath)) {
+      failures.push(`sealed package ${sealedPath} must not remain in the package inventory`);
+    }
+  }
 
   if (workspacePackages.length > architecture.maxWorkspacePackages) {
     failures.push(
@@ -87,21 +70,6 @@ function runArchitectureRatchets() {
         `${manifest.name} is declared at ${declaration.path}, but its manifest is at ${path}.`,
       );
     }
-    if (!validLayers.has(declaration.layer)) {
-      failures.push(`${manifest.name} has invalid architecture layer ${declaration.layer}.`);
-    }
-    if (!declaration.owner?.trim()) {
-      failures.push(`${manifest.name} must declare a non-empty architecture owner.`);
-    }
-    if (!validStabilities.has(declaration.stability)) {
-      failures.push(`${manifest.name} has invalid stability ${declaration.stability}.`);
-    }
-    if (!validStateWriters.has(declaration.stateWriter)) {
-      failures.push(`${manifest.name} has invalid stateWriter ${declaration.stateWriter}.`);
-    }
-    if (!validDistributions.has(declaration.distribution ?? "bundled-only")) {
-      failures.push(`${manifest.name} has invalid distribution ${declaration.distribution}.`);
-    }
     if (manifest.private !== true) {
       failures.push(
         `${manifest.name} source workspace must remain private; public npm artifacts are generated from declared application distributions.`,
@@ -113,6 +81,11 @@ function runArchitectureRatchets() {
       ...Object.keys(manifest.optionalDependencies ?? {}),
       ...Object.keys(manifest.peerDependencies ?? {}),
     ]);
+    for (const dependency of presentationDependencyDeclarations(path, manifest)) {
+      failures.push(
+        `${manifest.name} declares ${dependency}; presentation dependencies are owned by @zendev-lab/spark-ui.`,
+      );
+    }
     const workspaceRuntimeDependencies = [...declaredRuntimeDependencies].filter((dependency) =>
       workspaceByName.has(dependency),
     );
@@ -214,11 +187,6 @@ function runArchitectureRatchets() {
         `${path} duplicates the root typecheck with a boilerplate check script. Keep workspace scripts only when they add package-local validation.`,
       );
     }
-    if (manifest.scripts?.["test:mutation"] === "stryker run") {
-      failures.push(
-        `${path} duplicates the root mutation runner. Invoke the package's Stryker config through scripts/run-leaf-mutation.mjs instead.`,
-      );
-    }
   }
 
   if (failures.length > 0) {
@@ -228,7 +196,7 @@ function runArchitectureRatchets() {
     process.exitCode = 1;
   } else {
     console.log(
-      `Architecture ratchet passed (${workspacePackages.length}/${architecture.maxWorkspacePackages} workspaces classified; production imports declared; daemon RPC facade enforced; production files <= ${maxProductionFileLines} lines; compatibility surface frozen with safe Pi imports).`,
+      `Architecture ratchet passed (${workspacePackages.length}/${architecture.maxWorkspacePackages} workspaces classified; Spark ownership policy, workspace dependency declarations, and presentation dependency manifests enforced; daemon RPC facade enforced; production files <= ${maxProductionFileLines} lines; compatibility surface frozen with safe Pi imports).`,
     );
   }
 }
@@ -412,7 +380,19 @@ export function isLegacyDaemonClientBoundaryExempt(repositoryPath) {
   );
 }
 
-function workspaceImports(source) {
+export function presentationDependencyDeclarations(path, manifest) {
+  if (path === "packages/spark-ui") return [];
+  const declaredDependencies = new Set(
+    ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"].flatMap(
+      (field) => Object.keys(manifest[field] ?? {}),
+    ),
+  );
+  return [...sparkUiPresentationDependencies]
+    .filter((dependency) => declaredDependencies.has(dependency))
+    .sort((left, right) => left.localeCompare(right));
+}
+
+export function workspaceImports(source) {
   const imports = new Set();
   const pattern =
     /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s*)["'](@zendev-lab\/[^/"']+)(?:\/[^"']*)?["']/gu;

@@ -85,6 +85,25 @@ module.exports = {
           "^@zendev-lab/spark-i18n/cockpit(?:/|$)",
       },
     },
+    {
+      name: "spark-ui-owns-presentation-dependencies",
+      comment:
+        "Presentation dependencies must stay behind @zendev-lab/spark-ui instead of leaking into apps or other packages.",
+      severity: "error",
+      from: {
+        pathNot: "^packages/spark-ui/",
+      },
+      to: {
+        path: [
+          "node_modules/.*/@lucide/svelte(?:/|$)",
+          "/node_modules/@lucide/svelte(?:/|$)",
+          "^@lucide/svelte(?:/|$)",
+          "node_modules/.*/(?:bits-ui|svelte-streamdown)(?:/|$)",
+          "/node_modules/(?:bits-ui|svelte-streamdown)(?:/|$)",
+          "^(?:bits-ui|svelte-streamdown)(?:/|$)",
+        ].join("|"),
+      },
+    },
 
     // --- retained pi-* kernel adapter packages ---
     {

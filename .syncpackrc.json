@@ -1,0 +1,4 @@
+{
+  "source": ["package.json", "apps/*/package.json", "packages/*/package.json"],
+  "$schema": "./node_modules/syncpack/schema.json"
+}

@@ -11,7 +11,7 @@ import {
 import {
   capabilitySentinelCommand,
   capabilitySentinelTestFiles,
-} from "./capability-sentinel-suite.mjs";
+} from "../vitest.capability.config.ts";
 import { assertSafeCapabilityCeOutputDirectory } from "./capability-ce-output-directory.mts";
 
 interface NightlyCapabilityCeConfiguration {

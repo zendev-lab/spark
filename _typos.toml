@@ -8,6 +8,7 @@ extend-ignore-re = [
 [default.extend-words]
 agentic = "agentic"
 earendil = "earendil"
+sherif = "sherif"
 spark-md = "spark-md"
 sixbones = "sixbones"
 unsupport = "unsupport"

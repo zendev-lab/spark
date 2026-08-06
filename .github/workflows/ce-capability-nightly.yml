@@ -13,9 +13,8 @@ on:
       - "packages/spark-turn/package.json"
       - "packages/spark-turn/src/behavior-ce.ts"
       - "packages/spark-turn/src/spark-behavior-ce.test.ts"
-      - "scripts/capability-sentinel-suite.mjs"
+      - "vitest.capability.config.ts"
       - "scripts/capability-ce-output-directory.mts"
-      - "scripts/run-capability-sentinels.mjs"
       - "scripts/run-nightly-capability-ce.mts"
   schedule:
     # Daily 18:37 UTC (03:37 JST)

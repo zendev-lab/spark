@@ -31,6 +31,7 @@ test("dependency-cruiser config loads and encodes required boundary rules", () =
     "no-app-relative-packages-src-deep-link",
     "no-cross-package-relative-src-deep-link",
     "spark-i18n-cockpit-surface-private",
+    "spark-ui-owns-presentation-dependencies",
     "pi-no-product-adapters",
     "pi-only-foundation-spark",
     "spark-extension-no-spark-tui",
@@ -59,6 +60,50 @@ test("dependency-cruiser config loads and encodes required boundary rules", () =
   const piAiBoundary = rules.find((rule) => rule.name === "no-direct-pi-ai");
   assert.equal(piAiBoundary?.from?.pathNot, "^packages/spark-ai/");
   assert.doesNotMatch(piAiBoundary?.comment ?? "", /pi-parity-commands/u);
+});
+
+test("architecture inventory schema rejects missing and invalid policy fields", async () => {
+  const root = await mkdtemp(join(tmpdir(), "spark-architecture-schema-"));
+  try {
+    const invalid = join(root, "packages.json");
+    await writeFile(
+      invalid,
+      JSON.stringify({
+        $schema: "./packages.schema.json",
+        schemaVersion: 1,
+        maxWorkspacePackages: 1,
+        packages: {
+          "@zendev-lab/invalid": {
+            path: "packages/invalid",
+            layer: "unknown",
+            owner: "",
+            stability: "supported",
+          },
+        },
+      }),
+    );
+    const result = spawnSync(
+      "pnpm",
+      [
+        "exec",
+        "ajv",
+        "validate",
+        "--spec=draft2020",
+        "--strict=true",
+        "--all-errors",
+        "--errors=text",
+        "-s",
+        "architecture/packages.schema.json",
+        "-d",
+        invalid,
+      ],
+      { cwd: resolve("."), encoding: "utf8" },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /stateWriter|layer|owner/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("production circular rule rejects a real TypeScript cycle", async () => {
@@ -113,6 +158,25 @@ test("dependency-cruiser rejects non-Cockpit imports of the Cockpit i18n surface
 
     assert.notEqual(result.status, 0);
     assert.match(`${result.stdout}\n${result.stderr}`, /spark-i18n-cockpit-surface-private/u);
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("dependency-cruiser rejects presentation dependency imports outside spark-ui", async () => {
+  const fixtureParent = resolve(".spark");
+  await mkdir(fixtureParent, { recursive: true });
+  const fixtureRoot = await mkdtemp(join(fixtureParent, "depcruise-presentation-owner-"));
+  try {
+    const fixturePath = join(fixtureRoot, "index.ts");
+    await writeFile(fixturePath, 'import { Button } from "bits-ui";\nvoid Button;\n');
+    const result = spawnSync("pnpm", ["exec", "depcruise", "--config", configPath, fixturePath], {
+      cwd: resolve("."),
+      encoding: "utf8",
+    });
+
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /spark-ui-owns-presentation-dependencies/u);
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }
