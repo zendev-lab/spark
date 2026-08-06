@@ -31,9 +31,7 @@ export function visibleThinkingChainSteps(
  * Prefer the latest authored progress or tool result; a successful bare tool name
  * is only a last-resort fallback when the trace contains no readable narrative.
  */
-export function thinkingChainHeadline(
-  steps: readonly ConversationChainStep[],
-): string | undefined {
+export function thinkingChainHeadline(steps: readonly ConversationChainStep[]): string | undefined {
   const visibleSteps = visibleThinkingChainSteps(steps);
   let toolNameFallback: string | undefined;
 
