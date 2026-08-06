@@ -1,0 +1,22 @@
+{
+  "$schema": "spark.repro-golden-fixture/v1",
+  "objective": "Align the target normalization behavior with the runnable reference and deliver a validated Draft PR.",
+  "referenceCommand": ["node", "verify.mjs", "reference"],
+  "targetCommand": ["node", "verify.mjs", "target"],
+  "decision": {
+    "id": "approve-target-repair",
+    "question": "Apply the localized normalization repair to the target implementation?",
+    "options": ["approve", "stop"],
+    "acceptedValue": "approve"
+  },
+  "change": {
+    "path": "target/normalize.mjs",
+    "constraint": "Do not modify the verifier, vectors, or reference implementation."
+  },
+  "expected": {
+    "reference": "pass",
+    "targetBeforeRepair": "fail",
+    "targetAfterRepair": "pass",
+    "delivery": "draft_pr"
+  }
+}
