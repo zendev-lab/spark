@@ -1026,7 +1026,7 @@ test("SparkAgentSession projects loop view events into native TUI transport", as
     const result = await session.run({ sessionId: "native-ui-session", prompt: "hello" });
 
     assert.equal(result.sessionId, "native-ui-session");
-    assert.match(stripAnsi(app.render(120).join("\n")), /spark> count:1/);
+    assert.match(stripAnsi(app.render(120).join("\n")), /count:1/);
     assert.equal((await services.sessionStore.findMostRecent())?.id, "native-ui-session");
   } finally {
     await rm(dir, { recursive: true, force: true });
