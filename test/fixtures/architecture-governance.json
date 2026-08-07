@@ -325,14 +325,14 @@
       "path": "scripts/spark-cue-contract-harness.mts",
       "lineCount": 641,
       "domainOwner": "acceptance",
-      "callers": ["scripts/spark-zellij-harness.mts", "test/spark-cue-contract-harness.test.ts"],
+      "callers": ["test/spark-cue-contract-harness.test.ts"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/spark-cue-harness.mts",
       "lineCount": 198,
       "domainOwner": "acceptance",
-      "callers": ["scripts/spark-zellij-harness.mts", "test/spark-cue-harness.test.ts"],
+      "callers": ["test/spark-cue-harness.test.ts"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
@@ -353,7 +353,7 @@
       "path": "scripts/spark-native-assignment-harness.mts",
       "lineCount": 183,
       "domainOwner": "acceptance",
-      "callers": ["scripts/spark-zellij-harness.mts"],
+      "callers": ["operator/manual entrypoint"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
@@ -361,13 +361,6 @@
       "lineCount": 116,
       "domainOwner": "acceptance",
       "callers": ["package.json", "test/spark-opentui-readiness.test.ts"],
-      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
-    },
-    {
-      "path": "scripts/spark-zellij-harness.mts",
-      "lineCount": 1124,
-      "domainOwner": "acceptance",
-      "callers": ["docs/operations/zellij-harness.md", "scripts/spark-opentui-readiness.mts"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
@@ -406,14 +399,14 @@
     },
     {
       "path": "scripts/validate-pr-body.d.mts",
-      "lineCount": 17,
+      "lineCount": 25,
       "domainOwner": "ci-governance",
       "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/validate-pr-body.mjs",
-      "lineCount": 78,
+      "lineCount": 143,
       "domainOwner": "ci-governance",
       "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
@@ -467,11 +460,6 @@
       "path": "scripts/check-version-diagnostics.mjs",
       "assessment": "candidate for a future compiler-native diagnostic baseline",
       "blocker": "Spark-specific family budgets and source-contract diagnostics are not represented by a maintained generic tool"
-    },
-    {
-      "path": "scripts/spark-zellij-harness.mts",
-      "assessment": "candidate for consolidation with other live acceptance harnesses",
-      "blocker": "side-effectful terminal orchestration and recovery evidence remain product-specific"
     }
   ],
   "blockers": [
