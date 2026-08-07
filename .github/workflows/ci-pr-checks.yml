@@ -65,8 +65,10 @@ jobs:
           github.event_name == 'pull_request' &&
           github.event.pull_request.user.login != 'renovate[bot]'
         uses: zendev-lab/zendev/actions/validate-body@344af123be2442a48ae791935bf4df5f8fb2539b # v0.1.0
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         with:
-          body: ${{ github.event.pull_request.body }}
+          body: ${{ env.PR_BODY }}
 
       - name: Skip PR body check for Renovate
         if: >-
