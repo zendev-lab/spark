@@ -4,21 +4,27 @@
     {
       "id": "ajv",
       "name": "Ajv CLI",
-      "concerns": ["inventory JSON shape, required fields, and enums"],
+      "concerns": [
+        "inventory JSON shape, required fields, and enums"
+      ],
       "authority": "architecture/packages.schema.json",
       "primarySource": "https://ajv.js.org/packages/ajv-cli.html"
     },
     {
       "id": "syncpack",
       "name": "Syncpack",
-      "concerns": ["dependency-version/specifier consistency across manifests"],
+      "concerns": [
+        "dependency-version/specifier consistency across manifests"
+      ],
       "authority": ".syncpackrc.json",
       "primarySource": "https://github.com/JoshuaKGoldberg/syncpack"
     },
     {
       "id": "dependency-cruiser",
       "name": "Dependency Cruiser",
-      "concerns": ["cycles and dependency direction"],
+      "concerns": [
+        "cycles and dependency direction"
+      ],
       "authority": ".dependency-cruiser.cjs",
       "primarySource": "https://github.com/sverweij/dependency-cruiser"
     }
@@ -136,7 +142,10 @@
       "path": "scripts/check-evidence-surface.mjs",
       "lineCount": 316,
       "domainOwner": "evidence",
-      "callers": ["package.json", "test/package-script-surface.test.ts"],
+      "callers": [
+        "package.json",
+        "test/package-script-surface.test.ts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
@@ -178,7 +187,9 @@
       "path": "scripts/check-test-quality.d.mts",
       "lineCount": 11,
       "domainOwner": "test-quality",
-      "callers": ["operator/manual entrypoint"],
+      "callers": [
+        "operator/manual entrypoint"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
@@ -207,14 +218,18 @@
       "path": "scripts/check-version-diagnostics.mjs",
       "lineCount": 282,
       "domainOwner": "diagnostics",
-      "callers": ["test/version-diagnostics.test.ts"],
+      "callers": [
+        "test/version-diagnostics.test.ts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/container-healthcheck.d.mts",
       "lineCount": 13,
       "domainOwner": "operations",
-      "callers": ["operator/manual entrypoint"],
+      "callers": [
+        "operator/manual entrypoint"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
@@ -258,35 +273,49 @@
       "path": "scripts/pack-release.mjs",
       "lineCount": 102,
       "domainOwner": "distribution",
-      "callers": ["package.json", "test/package-script-surface.test.ts"],
+      "callers": [
+        "package.json",
+        "test/package-script-surface.test.ts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/product-runtime-closure.mjs",
       "lineCount": 124,
       "domainOwner": "distribution",
-      "callers": ["scripts/build-npm-product.mjs", "scripts/check-npm-product.mjs"],
+      "callers": [
+        "scripts/build-npm-product.mjs",
+        "scripts/check-npm-product.mjs"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/report-hygiene.mjs",
       "lineCount": 111,
       "domainOwner": "quality-reporting",
-      "callers": ["package.json"],
+      "callers": [
+        "package.json"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/require-docs-deploy-env.mjs",
       "lineCount": 27,
       "domainOwner": "documentation",
-      "callers": ["apps/spark-docs/README.md", "apps/spark-docs/package.json"],
+      "callers": [
+        "apps/spark-docs/README.md",
+        "apps/spark-docs/package.json"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/run-lens-scorecard.mts",
       "lineCount": 21,
       "domainOwner": "lens",
-      "callers": ["benchmarks/lens/scorecard.json", "packages/spark-lens/src/scorecard.ts"],
+      "callers": [
+        "benchmarks/lens/scorecard.json",
+        "packages/spark-lens/src/scorecard.ts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
@@ -325,49 +354,67 @@
       "path": "scripts/spark-cue-contract-harness.mts",
       "lineCount": 641,
       "domainOwner": "acceptance",
-      "callers": ["scripts/spark-zellij-harness.mts", "test/spark-cue-contract-harness.test.ts"],
+      "callers": [
+        "scripts/spark-zellij-harness.mts",
+        "test/spark-cue-contract-harness.test.ts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/spark-cue-harness.mts",
       "lineCount": 198,
       "domainOwner": "acceptance",
-      "callers": ["scripts/spark-zellij-harness.mts", "test/spark-cue-harness.test.ts"],
+      "callers": [
+        "scripts/spark-zellij-harness.mts",
+        "test/spark-cue-harness.test.ts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/spark-cursor-live-acceptance.mts",
       "lineCount": 122,
       "domainOwner": "acceptance",
-      "callers": ["packages/spark-ai/README.md"],
+      "callers": [
+        "packages/spark-ai/README.md"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/spark-daemon-readiness.mts",
       "lineCount": 291,
       "domainOwner": "acceptance",
-      "callers": ["test/spark-daemon-readiness.test.ts"],
+      "callers": [
+        "test/spark-daemon-readiness.test.ts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/spark-native-assignment-harness.mts",
       "lineCount": 183,
       "domainOwner": "acceptance",
-      "callers": ["scripts/spark-zellij-harness.mts"],
+      "callers": [
+        "scripts/spark-zellij-harness.mts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/spark-opentui-readiness.mts",
       "lineCount": 116,
       "domainOwner": "acceptance",
-      "callers": ["package.json", "test/spark-opentui-readiness.test.ts"],
+      "callers": [
+        "package.json",
+        "test/spark-opentui-readiness.test.ts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/spark-zellij-harness.mts",
       "lineCount": 1124,
       "domainOwner": "acceptance",
-      "callers": ["docs/operations/zellij-harness.md", "scripts/spark-opentui-readiness.mts"],
+      "callers": [
+        "docs/operations/zellij-harness.md",
+        "scripts/spark-opentui-readiness.mts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
@@ -408,35 +455,49 @@
       "path": "scripts/validate-pr-body.d.mts",
       "lineCount": 17,
       "domainOwner": "ci-governance",
-      "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
+      "callers": [
+        ".github/workflows/ci-pr-checks.yml",
+        "test/pr-body-validation.test.ts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/validate-pr-body.mjs",
-      "lineCount": 78,
+      "lineCount": 143,
       "domainOwner": "ci-governance",
-      "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
+      "callers": [
+        ".github/workflows/ci-pr-checks.yml",
+        "test/pr-body-validation.test.ts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/validate-pr-title.d.mts",
       "lineCount": 10,
       "domainOwner": "ci-governance",
-      "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
+      "callers": [
+        ".github/workflows/ci-pr-checks.yml",
+        "test/pr-body-validation.test.ts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/validate-pr-title.mjs",
       "lineCount": 58,
       "domainOwner": "ci-governance",
-      "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
+      "callers": [
+        ".github/workflows/ci-pr-checks.yml",
+        "test/pr-body-validation.test.ts"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/verify-release-state.mjs",
       "lineCount": 177,
       "domainOwner": "release",
-      "callers": [".github/workflows/cd-publish.yml"],
+      "callers": [
+        ".github/workflows/cd-publish.yml"
+      ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     }
   ],
