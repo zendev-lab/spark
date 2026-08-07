@@ -6,6 +6,7 @@ import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { newRef, nowIso, type EvidenceRef, type JsonValue } from "@zendev-lab/spark-core";
 import {
   normalizeSparkReproWorkSummary,
+  sparkReproCompletionEvidenceRefs,
   SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA,
   type SparkReproWorkSummary,
 } from "@zendev-lab/spark-repro/work-summary";
@@ -53,7 +54,7 @@ export const reproCompletionEvaluator: SparkTrustedLoopEvaluator = async (contex
     };
   }
   const evidenceRefs = uniqueEvidenceRefs([
-    ...work.gates.flatMap((gate) => gate.evidenceRefs),
+    ...sparkReproCompletionEvidenceRefs(work),
     ...work.conclusions.flatMap((conclusion) => conclusion.evidenceRefs),
   ]);
   if (work.pendingDecisions.length > 0) {
@@ -126,11 +127,7 @@ async function resolveAcceptedFormalEvidence(
   cwd: string,
   work: SparkReproWorkSummary,
 ): Promise<void> {
-  const refs = uniqueEvidenceRefs(
-    work.gates
-      .filter((gate) => gate.evidenceClass === "formal" && gate.status === "accepted")
-      .flatMap((gate) => gate.evidenceRefs),
-  );
+  const refs = sparkReproCompletionEvidenceRefs(work);
   const store = defaultEvidenceStore(cwd);
   const resolved = await Promise.all(refs.map((ref) => store.tryGet(ref)));
   for (let index = 0; index < refs.length; index += 1) {

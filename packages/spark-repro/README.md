@@ -49,7 +49,10 @@ gate denominators serialize as `quantified=false` and `percent=null`.
 
 A Profile binds model scope, compute scope, frozen step denominator, exact
 `dp/tp/pp/ep/etp/cp/sp/worldSize`, canonical strategy identities, and runtime
-facts. The technical target is achieved only when `minimum_complete` has a ready
+facts. In v2, `worldSize = dp × tp × pp × cp × max(ep, etp)` and each active
+axis has exactly one frozen strategy identity. Legacy missing topology/runtime
+facts remain typed `unknownFields`; they cannot enter formal progress.
+The technical target is achieved only when `minimum_complete` has a ready
 reference and target, reaches `requiredSteps`, and validates the complete exact
 reference-parity topology and strategy set in one owning-entrypoint receipt;
 separate partial-topology gates cannot be unioned into parity.
@@ -68,8 +71,9 @@ The package root remains the compatibility execution and persistence model for
 session snapshots. SparkSessionRepro v7 adds a versioned dual-lane binding over
 the existing five-stage plan/subgoal protocol. Migrating v6 creates empty Explore
 observations, candidates, and unresolved bindings and does not promote legacy
-proof into Normative retirement. Plan revisions rebind the lane state to the new
-revision and ordered step definitions.
+proof into Normative retirement. A later plan revision preserves observation and
+unresolved identities, but resets revision-bound candidates and retirement rather
+than inferring them from legacy `done` status.
 
 The legacy protocol includes four durable structures:
 

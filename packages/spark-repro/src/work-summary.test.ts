@@ -13,6 +13,8 @@ import {
   reconcileSparkReproNormativeRetirement,
   recordSparkReproRetirementCandidate,
   registerSparkReproUnresolved,
+  sparkReproProfileDigest,
+  supersedeSparkReproUnresolved,
   validateSparkReproProfile,
   type SparkReproActiveExperiment,
   type SparkReproDecisionRequest,
@@ -49,20 +51,15 @@ describe("Spark Repro work summary", () => {
     });
   });
 
-  it("derives active, waiting_decision, and complete without an unbound status flag", () => {
+  it("migrates legacy summaries without promoting gates into formal progress", () => {
     const active = buildSparkReproWorkSummary(baseInput());
     expect(active.status).toBe("active");
-    expect(active.progress.percent).toBe(95);
-    expect(active.technicalGoal).toMatchObject({
-      achieved: true,
-      checks: {
-        minimumCompleteReferenceReady: true,
-        minimumCompleteTargetReady: true,
-        requiredStepsAligned: true,
-        referenceParity: true,
-      },
-      alignedSteps: 100,
-      validatedReferenceStrategies: ["pp", "ep"],
+    expect(active.progress).toMatchObject({ quantified: false, percent: null });
+    expect(active.technicalGoal.achieved).toBe(false);
+    expect(active.migration).toEqual({
+      sourceSchema: "spark.repro.work-summary/v1",
+      revision: 1,
+      legacyProofAuthority: "not_promoted",
     });
 
     const waiting = buildSparkReproWorkSummary({
@@ -72,25 +69,19 @@ describe("Spark Repro work summary", () => {
     expect(waiting.status).toBe("waiting_decision");
     expect(waiting.pendingDecisions).toHaveLength(1);
 
-    const completedInput = baseInput();
-    completedInput.stage = "delivery";
-    completedInput.gates = completedInput.gates.map((gate) =>
+    const legacyCompletedInput = baseInput();
+    legacyCompletedInput.stage = "delivery";
+    legacyCompletedInput.gates = legacyCompletedInput.gates.map((gate) =>
       gate.stage === "delivery"
         ? { ...gate, status: "accepted", evidenceRefs: [evidence("delivery")] }
         : gate,
     );
-    const complete = buildSparkReproWorkSummary(completedInput);
-    expect(complete.status).toBe("complete");
-    expect(complete.progress.percent).toBe(100);
-
-    const completeGatesButWaiting = buildSparkReproWorkSummary({
-      ...completedInput,
-      pendingDecisions: [pendingDecision("publish")],
-    });
-    expect(completeGatesButWaiting.status).toBe("waiting_decision");
+    const migrated = buildSparkReproWorkSummary(legacyCompletedInput);
+    expect(migrated.status).toBe("active");
+    expect(migrated.validationMatrix.rows.every((row) => row.evidenceClass === "probe")).toBe(true);
   });
 
-  it("counts only accepted formal minimum-complete gates", () => {
+  it("keeps all legacy formal and diagnostic gates outside acceptedGateIds", () => {
     const input = baseInput();
     input.gates = [
       ...input.gates.map((gate) =>
@@ -132,17 +123,9 @@ describe("Spark Repro work summary", () => {
     };
 
     const summary = buildSparkReproWorkSummary(input);
-    expect(summary.progress.percent).toBe(55);
-    expect(summary.progress.stages.find((stage) => stage.stage === "target")).toMatchObject({
-      acceptedGateIds: ["target-ready"],
-      percent: 50,
-      contribution: 12.5,
-    });
-    expect(summary.progress.stages.find((stage) => stage.stage === "alignment")).toMatchObject({
-      acceptedGateIds: ["required-alignment"],
-      percent: 50,
-      contribution: 27.5,
-    });
+    expect(summary.progress).toMatchObject({ quantified: false, percent: null });
+    expect(summary.progress.stages.flatMap((stage) => stage.acceptedGateIds)).toEqual([]);
+    expect(summary.validationMatrix.rows.every((row) => row.evidenceClass === "probe")).toBe(true);
   });
 
   it("keeps technical completion limited to minimum-complete steps and reference parity", () => {
@@ -459,6 +442,8 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
             candidateId: "C1",
             planRevision: 7,
             stepDefinitionDigest: "digest:alignment",
+            profile: input.target.acceptanceProfile!,
+            profileDigest: sparkReproProfileDigest(input.target.acceptanceProfile!),
             evidenceRefs: [evidence("S1-retired")],
           },
         ],
@@ -611,6 +596,92 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
     expect(summary.status).toBe("active");
   });
 
+  it("rejects isolated diagnostics and incomplete Profiles that claim entrypoint authority", () => {
+    const isolated = v2Input();
+    isolated.validationMatrix!.rows[0] = {
+      ...isolated.validationMatrix!.rows[0]!,
+      invocationClass: "isolated_diagnostic",
+      evidenceClass: "entrypoint",
+    };
+    expect(() => buildSparkReproWorkSummary(isolated)).toThrow(
+      "entrypoint evidence requires invocationClass=owning_entrypoint",
+    );
+
+    const incomplete = v2Input();
+    incomplete.validationMatrix!.rows[0] = {
+      ...incomplete.validationMatrix!.rows[0]!,
+      profile: v2Profile({ completed: 0, target: 100 }),
+    };
+    expect(() => buildSparkReproWorkSummary(incomplete)).toThrow(
+      "entrypoint Profile must exactly match target.acceptanceProfile",
+    );
+  });
+
+  it("rejects an accepted Normative candidate outside the frozen acceptance Profile", () => {
+    const state = dualLaneState();
+    expect(() =>
+      recordSparkReproRetirementCandidate(state, {
+        ...candidate("probe-candidate", "S1", []),
+        profile: v2Profile({ modelScope: "probe", computeScope: "forward", completed: 0 }),
+      }),
+    ).toThrow("candidate profile does not match the frozen acceptance Profile");
+  });
+
+  it("requires a superseded unresolved chain to discharge before retirement", () => {
+    let state = registerSparkReproUnresolved(dualLaneState(), unresolved("u-original"));
+    state = registerSparkReproUnresolved(state, {
+      ...unresolved("u-successor"),
+      ownerStepId: "S2",
+      stepDefinitionDigest: "digest:S2",
+    });
+    state = supersedeSparkReproUnresolved(state, {
+      id: "u-original",
+      supersededBy: "u-successor",
+      planRevision: 7,
+    });
+    state = recordSparkReproRetirementCandidate(state, candidate("C1", "S1", []));
+    expect(reconcileSparkReproNormativeRetirement(state).normativeCursor.retirementLog).toEqual([]);
+
+    state = dischargeSparkReproUnresolved(state, {
+      id: "u-successor",
+      planRevision: 7,
+      stepDefinitionDigest: "digest:S2",
+      evidenceRefs: [evidence("u-successor-discharge")],
+    });
+    expect(
+      reconcileSparkReproNormativeRetirement(state).normativeCursor.retirementLog.map(
+        (entry) => entry.stepId,
+      ),
+    ).toEqual(["S1"]);
+  });
+
+  it("rejects inconsistent world size and duplicate strategy axes", () => {
+    const input = v2Input();
+    const wrongWorld = structuredClone(input.profile);
+    wrongWorld.topology.worldSize = 7;
+    wrongWorld.validationTopology!.worldSize = 7;
+    expect(() =>
+      validateSparkReproProfile(wrongWorld, input.target, {
+        requireVNext: true,
+        field: "profile",
+      }),
+    ).toThrow("worldSize must equal");
+
+    const duplicateAxis = structuredClone(input.profile);
+    const duplicate = {
+      ...duplicateAxis.validationTopology!.strategies![0]!,
+      id: "duplicate-axis",
+    };
+    duplicateAxis.validationTopology!.strategies!.push(duplicate);
+    duplicateAxis.topology.strategies!.push(structuredClone(duplicate));
+    expect(() =>
+      validateSparkReproProfile(duplicateAxis, input.target, {
+        requireVNext: true,
+        field: "profile",
+      }),
+    ).toThrow("exactly one strategy per active axis");
+  });
+
   it("buffers S3/S2 candidates and retires S1,S2,S3 only in dependency order", () => {
     let state = dualLaneState();
     state = recordSparkReproRetirementCandidate(state, candidate("C3", "S3", ["S2"]));
@@ -753,6 +824,12 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
     const second = normalizeSparkReproWorkSummary(first);
     expect(second).toEqual(first);
     expect(first.schema).toBe(SPARK_REPRO_WORK_SUMMARY_SCHEMA);
+    expect(first.migration).toEqual({
+      sourceSchema: "spark.repro.work-summary/v1",
+      revision: 1,
+      legacyProofAuthority: "not_promoted",
+    });
+    expect(first.profile.unknownFields).toEqual(["runtime"]);
     expect(first.progress).toMatchObject({ quantified: false, percent: null });
     expect(first.validationMatrix.rows.every((row) => row.evidenceClass === "probe")).toBe(true);
     expect(
@@ -996,6 +1073,7 @@ function unresolved(id: string): SparkReproUnresolvedItem {
 
 function dualLaneState(): SparkReproDualLaneState {
   return {
+    acceptanceProfile: v2Profile(),
     exploreFrontier: {
       stage: "reference",
       profile: v2Profile({ modelScope: "probe", computeScope: "forward", completed: 1 }),

@@ -44,7 +44,6 @@ describe("stable Repro report Artifact", () => {
     expect(first.artifact.body.progress).toEqual({
       stage: "contract",
       label: "contract · active",
-      percent: 0,
     });
     expect(second.changed).toBe(false);
     expect(second.reportArtifactRef).toBe(first.reportArtifactRef);
@@ -56,7 +55,7 @@ describe("stable Repro report Artifact", () => {
     expect(stageChanged.reportArtifactRef).toBe(first.reportArtifactRef);
     expect(stageChanged.artifact.body).toMatchObject({
       revision: 2,
-      progress: { stage: "reference", label: "reference · active", percent: 5 },
+      progress: { stage: "reference", label: "reference · active" },
     });
     expect(Date.parse(stageChanged.artifact.updatedAt)).toBeGreaterThan(
       Date.parse(first.artifact.updatedAt),
@@ -89,7 +88,6 @@ describe("stable Repro report Artifact", () => {
     expect(synced.artifact.body.progress).toEqual({
       stage: "alignment",
       label: "alignment · waiting_decision",
-      percent: 5,
     });
   });
 
