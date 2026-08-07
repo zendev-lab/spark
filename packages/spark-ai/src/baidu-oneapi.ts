@@ -26,14 +26,17 @@ const OPENAI_RESPONSES_FALLBACK_INSTRUCTIONS = "You are a helpful assistant.";
 const GATEWAY_MODEL_BY_ID: Record<string, string> = {
   "claude-opus-4.6": "Claude Opus 4.6",
   "claude-opus-5": "Opus 5",
+  "deepseek-v4-flash": "DeepSeek-V4-Flash",
   "gpt-5.6-luna": "gpt-5.6-luna",
   "gpt-5.6-sol": "gpt-5.6-sol",
   "gpt-5.6-terra": "gpt-5.6-terra",
+  "grok-4.5": "grok-4.5",
 };
 const BAIDU_ONEAPI_OPENAI_RESPONSES_MODEL_IDS = new Set([
   "gpt-5.6-luna",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
+  "grok-4.5",
 ]);
 
 function gatewayModelId(modelId: string): string {
@@ -97,6 +100,18 @@ const CLAUDE_OPUS_COST = {
   output: 27.5,
   cacheRead: 0.55,
   cacheWrite: 6.875,
+};
+const DEEPSEEK_V4_FLASH_COST = {
+  input: 0.14,
+  output: 0.28,
+  cacheRead: 0.0028,
+  cacheWrite: 0.14,
+};
+const GROK_4_5_COST = {
+  input: 2,
+  output: 6,
+  cacheRead: 0.3,
+  cacheWrite: 2,
 };
 
 // The compat factory imports the transport after stream() returns, so the process-wide
@@ -503,6 +518,24 @@ function registerBaiduOneApiProvider(
         maxTokens: 32000,
       },
       {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        transportApi: "anthropic-messages",
+        transportModelId: gatewayModelId("deepseek-v4-flash"),
+        reasoning: true,
+        thinkingLevelMap: {
+          minimal: "low",
+          low: "low",
+          medium: "medium",
+          high: "high",
+          xhigh: "high",
+        },
+        input: ["text"],
+        cost: DEEPSEEK_V4_FLASH_COST,
+        contextWindow: 1_000_000,
+        maxTokens: 65_536,
+      },
+      {
         id: "gpt-5.6-sol",
         name: "GPT-5.6 Sol",
         baseUrl: process.env.BAIDU_ONEAPI_OPENAI_BASE_URL ?? BAIDU_ONEAPI_OPENAI_BASE_URL,
@@ -540,6 +573,19 @@ function registerBaiduOneApiProvider(
         cost: GPT_5_6_TERRA_COST,
         contextWindow: 258000,
         maxTokens: 32768,
+      },
+      {
+        id: "grok-4.5",
+        name: "Grok 4.5",
+        baseUrl: process.env.BAIDU_ONEAPI_OPENAI_BASE_URL ?? BAIDU_ONEAPI_OPENAI_BASE_URL,
+        transportApi: "openai-responses",
+        transportModelId: gatewayModelId("grok-4.5"),
+        reasoning: true,
+        thinkingLevelMap: GPT_THINKING_LEVEL_MAP,
+        input: ["text", "image"],
+        cost: GROK_4_5_COST,
+        contextWindow: 500_000,
+        maxTokens: 32_768,
       },
     ],
   });
