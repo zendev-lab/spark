@@ -6881,8 +6881,8 @@ test("Spark extension exposes canonical tools instead of removed spark_* tools",
   assert.equal(run.tools.has("workflow_run"), false);
   assert.equal(run.tools.has("drive"), false);
   assert.equal(run.tools.has("driver"), false);
-  assert.ok(run.tools.has("phase"));
-  assert.equal(run.tools.has("mode"), false);
+  assert.ok(run.tools.has("mode"));
+  assert.equal(run.tools.has("phase"), false);
   assert.deepEqual(
     run
       .getActiveToolNames()
@@ -6892,32 +6892,29 @@ test("Spark extension exposes canonical tools instead of removed spark_* tools",
   );
 });
 
-test("phase tool returns requirements and persists session phase", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-phase-tool-"));
+test("mode tool returns requirements and persists session mode", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-mode-tool-"));
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
     const { tools } = registerSparkToolsForTest();
     await executeSparkTool(tools, "impl_use_project", ctx, { project: "Tool persistence" });
 
-    const switched = await executeSparkTool(tools, "phase", ctx, {
+    const switched = await executeSparkTool(tools, "mode", ctx, {
       action: "plan",
       focus: "tighten task graph",
     });
-    assert.deepEqual(switched.details, { phase: "plan", statusOnly: false });
-    assert.match(toolText(switched), /Phase set to: plan/);
-    assert.deepEqual(await loadSparkMode(dir, ctx), {
-      phase: "plan",
-      projectRef: (await loadCurrentProjectState(dir, ctx))?.projectRef,
-    });
+    assert.deepEqual(switched.details, { mode: "plan", statusOnly: false });
+    assert.match(toolText(switched), /Mode set to: plan/);
+    assert.deepEqual(await loadSparkMode(dir, ctx), { mode: "plan" });
 
-    const status = await executeSparkTool(tools, "phase", ctx, { action: "status" });
-    assert.deepEqual(status.details, { phase: "plan", statusOnly: true });
-    assert.match(toolText(status), /Current phase: plan/);
+    const status = await executeSparkTool(tools, "mode", ctx, { action: "status" });
+    assert.deepEqual(status.details, { mode: "plan", statusOnly: true });
+    assert.match(toolText(status), /Current mode: plan/);
 
     await assert.rejects(
-      () => executeSparkTool(tools, "phase", ctx, { action: "research" }),
-      /phase action must be one of: plan, implement, status/u,
+      () => executeSparkTool(tools, "mode", ctx, { action: "research" }),
+      /mode action must be one of: plan, execute, status/u,
     );
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
@@ -7724,10 +7721,10 @@ test("structured status and list facades default to compact text summaries", asy
     assert.match(toolText(loopStatus), /No active Spark loop|Spark loop/);
     assert.ok(loopStatus.details);
 
-    const phaseStatus = await executeSparkTool(tools, "phase", ctx, { action: "status" });
-    assertToolTextIsCompactSummary(phaseStatus);
-    assert.match(toolText(phaseStatus), /Current phase:/);
-    assert.ok(phaseStatus.details);
+    const modeStatus = await executeSparkTool(tools, "mode", ctx, { action: "status" });
+    assertToolTextIsCompactSummary(modeStatus);
+    assert.match(toolText(modeStatus), /Current mode:/);
+    assert.ok(modeStatus.details);
 
     const runStatusList = await executeSparkTool(tools, "task_read", ctx, {
       action: "run_status",
