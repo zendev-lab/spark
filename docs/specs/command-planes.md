@@ -18,6 +18,11 @@ companion. It does not import a second implementation of that plane. The
 complete `@zendev-lab/spark` installation supplies exact-version app packages;
 a companion may also be installed directly for a single-process deployment.
 
+User-facing command syntax and examples are owned by
+[`apps/spark-docs/src/content/docs/reference/cli.md`](../../apps/spark-docs/src/content/docs/reference/cli.md).
+This specification defines placement and ownership only; it must not maintain a
+second CLI catalog.
+
 ## Executable namespaces
 
 | Executable | Dispatcher alias | Role | Owns | Does not own |
@@ -190,64 +195,16 @@ immutable tarballs, bounded release manifests, and one checksum file. Only
 publish those exact artifacts to npm and GitHub Releases; `main` and source
 checkouts are never update sources.
 
-## Canonical examples
+## Invalid placements
 
-```bash
-spark-daemon session list --json
-spark-daemon session create --workspace <id> --json
-spark-daemon submit --session <session-id> --prompt <text> --json
-spark-daemon invocation list --status failed --since 24h --limit 50 --json
-spark-daemon invocation status <invocation-id> --json
-spark-daemon invocation result <invocation-id> --json
-spark-daemon invocation stream <invocation-id> --after <cursor> --limit 500 --json
-spark-daemon invocation cancel <invocation-id> --reason <text> --json
-spark-daemon invocation retry <invocation-id> --json
-spark-daemon invocation retention --before <iso-time> --limit 100 --json
-spark-daemon channel status --json
-spark-daemon events watch --json
-
-spark-hub status --json
-spark-hub workspace list --json
-spark-hub delegation create --source <workspace> --target <workspace> --goal "..." --json
-spark-hub delegation list --workspace <workspace> --json
-spark-hub delegation show <delegation-id> --json
-spark-hub delegation reply <delegation-id> --text "..." --json
-spark-hub delegation cancel <delegation-id> --reason "..." --json
-spark-hub access list --json
-spark-hub instance status --json
-spark-hub web start --json
-spark-hub web status --json
-
-spark-tui attach <session-id>
-spark-tui --help
-```
-
-The dispatcher aliases are equivalent convenience forms when the matching
-companion executable is installed:
-
-```bash
-spark daemon session list --json
-spark hub status --json
-spark tui --help
-```
+The grammar is intentionally closed. Namespaces that would create a second
+owner, preserve a retired plane, or put domain behavior on a presentation
+process must fail rather than being accepted as convenience aliases. Concrete
+supported command syntax belongs in the public CLI reference; negative
+placement tests are the executable contract for rejected shapes.
 
 Session identity and channel policy are specified in
 [`sessions-and-channels.md`](./sessions-and-channels.md).
-
-## Invalid placements
-
-These shapes are not canonical and must fail:
-
-```bash
-spark server status
-spark hub
-spark-hub
-spark-daemon sessions list --all-workspaces
-spark-daemon task claim <task-ref>
-spark-daemon goal complete
-spark-tui task list
-spark gateway ...
-```
 
 ## Workspace main sessions and delegation
 

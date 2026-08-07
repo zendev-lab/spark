@@ -1,22 +1,17 @@
-# Spark runtime integration
+# Spark runtime integration contract
 
-Use the root CLI for scheduler, CI, or local manager integration:
+This specification owns the machine-consumable acceptance and invocation
+semantics used by schedulers, CI, and local managers. User-facing command syntax
+and examples belong in the public
+[`CLI reference`](../../apps/spark-docs/src/content/docs/reference/cli.md).
 
-```text
-spark run "fix the failing tests"
-spark run --json "fix the failing tests"
-spark run --resume <session-id> "continue"
-spark bg --session <session-id> "continue"
-spark doctor
-```
-
-Spark 0.2 rejects the former `spark --print`, `spark -p`, and
-`spark --mode json --print` aliases. Integrations must use `spark run` and parse
-only JSON output.
+Integrations must use the canonical headless run/background surfaces and parse
+only their documented machine output. Removed legacy root aliases are not
+compatibility inputs.
 
 ## JSONL acceptance stream
 
-`spark run --json` emits one UTF-8 JSON object per line in this order:
+The JSON headless run surface emits one UTF-8 JSON object per line in this order:
 
 1. `session`
 2. `agent_start`
@@ -25,7 +20,8 @@ only JSON output.
 5. `turn_end`
 6. `agent_end`
 
-`queue_update` reports steering or follow-up input. Consumers must ignore unknown fields and tolerate added event types.
+`queue_update` reports steering or follow-up input. Consumers must ignore unknown
+fields and tolerate added event types.
 
 The durable acknowledgement is `turn_end.result`:
 
@@ -43,19 +39,27 @@ The durable acknowledgement is `turn_end.result`:
 }
 ```
 
-Persist the session ID from the `session` event and the invocation ID from this receipt. A non-zero process exit before `turn_end` means no accepted acknowledgement was returned.
+Consumers persist the Session ID from the `session` event and the invocation ID
+from this receipt. A non-zero process exit before `turn_end` means no accepted
+acknowledgement was returned.
 
 ## Invocation control
 
-```text
-spark daemon submit --session <session-id> --prompt <text> --json
-spark daemon invocation status <invocation-id> --json
-spark daemon invocation stream <invocation-id> --after <cursor> --json
-spark daemon invocation cancel <invocation-id> --reason <text> --json
-spark daemon session export --session <session-id> --format jsonl
-spark daemon session replay --session <session-id>
-```
+The daemon invocation surface exposes submit, bounded status/stream reads,
+cancel, result recovery, and Session export/replay. Exact command spelling is
+owned by the public CLI reference; these semantics are the contract:
 
-`submit` returns `{ invocationId, status: "queued", acceptedAt }`. Status and stream are cursor-based and bounded. A stream client must retain `nextCursor`, retry transport disconnects with the same `after` value, and treat cursor-gap or unknown-invocation errors as terminal diagnostics rather than reconnect signals. Status never contains an event array. Automation must parse JSON output only.
+- submit returns `{ invocationId, status: "queued", acceptedAt }` only after
+  durable admission;
+- status never embeds an unbounded event array;
+- stream is cursor-based and bounded;
+- a stream consumer retains `nextCursor` and retries transport disconnects with
+  the same `after` cursor;
+- cursor-gap or unknown-invocation errors are terminal diagnostics, not reconnect
+  signals;
+- automation parses JSON output rather than human-readable rendering.
 
-Use `spark bg` for fire-and-return behavior. Pass a manager-owned session ID when correlation and continuity matter; otherwise Spark creates one. Project-bound integrations should retain later evidence and review refs in addition to the process receipt.
+Fire-and-return behavior may allocate a Session when the manager does not supply
+one. Integrations that need correlation/continuity retain the manager-owned
+Session ID; project-bound integrations retain later Evidence/Artifact/review refs
+in addition to the process receipt.

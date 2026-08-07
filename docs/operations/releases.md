@@ -1,5 +1,12 @@
 # Releases and managed updates
 
+This runbook owns **release engineering and updater compatibility gates**.
+User-facing installation/update commands and path guidance live in the public
+[`CLI reference`](../../apps/spark-docs/src/content/docs/reference/cli.md#managed-installation-and-updates)
+and
+[`configuration reference`](../../apps/spark-docs/src/content/docs/reference/configuration-and-paths.md#managed-installation-paths).
+Do not maintain a second user command/path catalog here.
+
 Spark production releases use one immutable source:
 
 ```text
@@ -15,11 +22,15 @@ must match it exactly (`vX.Y.Z`).
 
 ## Release gate
 
-`.github/workflows/cd-publish.yml` runs the complete repository gate, Hub
-browser tests, exact-tarball product smoke, the N-1 daemon IPC matrix, and the
-N-1 Hub database migration/readability matrix. The gate queries the canonical
-npm registry, selects the newest published stable `@zendev-lab/spark` version
-strictly older than the candidate, and adapts to either the current `spark-hub`
+`.github/workflows/cd-publish.yml` assumes the source commit has already passed
+the ordinary CI checks and validates only release-specific surfaces: the docs
+deployment dry run, Hub container build/smoke, exact generated tarballs, and N-1
+migration compatibility. It does not rerun the repository source/unit/process or
+Hub browser suites owned by CI.
+
+For release compatibility, the gate queries the canonical npm registry, selects
+the newest published stable `@zendev-lab/spark` version strictly older than the
+candidate, and adapts to either the current `spark-hub`
 or legacy `spark-cockpit` command contract. An explicit `--baseline-version`
 remains available for local incident reproduction, but production publication
 does not pin a historical baseline. For the first split release, `v0.3.0`, the
@@ -58,60 +69,24 @@ baseline and must never be overwritten or described as a split-package release.
 It is retained here only to explain the compatibility edge used when the
 automatic N-1 gate crosses the split-package boundary.
 
-## Managed layout
+## Managed updater contract
 
-`spark install --managed` creates:
+The updater switches immutable installed versions rather than rewriting a source
+checkout. The version-independent launcher and service-manager entries resolve
+the selected version; updater transaction state is separately owned and exposed
+through the public update/status surface.
 
-```text
-$XDG_DATA_HOME/spark/versions/<version>/
-$XDG_DATA_HOME/spark/versions/current
-$XDG_CONFIG_HOME/spark/update.toml
-$XDG_STATE_HOME/spark/update/
-$XDG_CACHE_HOME/spark/update/
-$PREFIX/bin/spark
-```
+`notify` is the default policy and `auto` remains opt-in. Automatic application
+requires a provably idle daemon and an expand-only candidate and never crosses a
+pre-1.0 minor boundary. Global npm, pnpm, Yarn, Bun, and Vite+ installations
+remain owned by their package managers; Spark delegates the exact-version change
+instead of treating those installations as managed trees.
 
-The executable under `$PREFIX/bin` is version-independent. launchd and daemon
-restart helpers always reference it. The updater owns update state; daemon and
-Hub only read its projection.
-
-Default policy:
-
-```toml
-policy = "notify"
-channel = "latest"
-checkIntervalHours = 24
-```
-
-`SPARK_UPDATE_POLICY` and `SPARK_UPDATE_CHANNEL` override the file. `manual`
-disables background network checks. `auto` is opt-in, requires a provably idle
-daemon and an expand-only candidate, and never crosses a pre-1.0 minor
-boundary.
-
-Useful commands:
-
-```text
-spark update status --json
-spark update check
-spark update apply 0.1.1 --yes --wait
-spark update rollback --yes --wait
-spark update retry 0.1.1 --yes
-spark update configure --policy notify --channel latest --interval-hours 24
-spark version --json
-```
-
-An update downloads and verifies one exact npm version, runs candidate smoke
-under an isolated `SPARK_HOME`, switches `current` atomically, and fences daemon
-restart to the target build fingerprint. Three matching health checks are
+A candidate is downloaded and verified at one exact version, smoked under an
+isolated `SPARK_HOME`, switched atomically, and fenced to the expected build
+fingerprint before health is accepted. Three matching health checks are
 required. Failure switches back to the rollback version and quarantines the
-candidate; retry requires an explicit command or a newer version.
-
-For global npm, pnpm, Yarn, Bun, and Vite+ installs, the package manager remains
-the installation owner. Spark delegates an exact-version install, verifies the
-new build through the stable command, safely hands off the daemon, and restarts
-Hub only when its background web service was already running. The single
-launchd tick wakes periodically, while `checkIntervalHours` gates registry
-traffic to the configured daily cadence.
+candidate; retry requires explicit operator intent or a newer version.
 
 Database migrations eligible for automatic update must be expand-only and
 readable by N-1. Destructive migrations require manual confirmation. Rollback
@@ -122,7 +97,7 @@ discards daemon sessions/messages.
 
 Keep the pre-1.0 rollout deliberately gated:
 
-1. Land build fingerprints, target-fenced daemon restart, and `daemon sync --wait`.
+1. Land build fingerprints and target-fenced daemon restart.
 2. Publish the reviewed `v0.3.0` five-package set and matching GitHub Release.
 3. Exercise managed install plus manual apply/rollback on macOS.
 4. Enable the `notify` launchd job by default; keep `auto` opt-in.

@@ -59,6 +59,27 @@ spark hub workspace access create --workspace <id>
 在 `/{slug}/login` 交换它。两种 key 都应视为秘密。非 loopback 访问要求 HTTPS，
 除非你明确在受信任的私有网络上允许不安全 HTTP。
 
+## 受信任的反向代理
+
+让 Hub 自身继续只监听 loopback，由受信任代理终止公网 HTTPS：
+
+```bash
+HOST=127.0.0.1 \
+SPARK_HUB_PUBLIC_URL=https://spark.example.com \
+SPARK_HUB_TRUST_PROXY=loopback \
+spark hub
+```
+
+`SPARK_HUB_PUBLIC_URL` 必须是根路径 `/` 上的 `http(s)` origin，不支持挂载到子路径。
+代理必须保留预期公网 host、清理 forwarding headers、提供
+`X-Forwarded-For` 与 `X-Forwarded-Proto`、转发 WebSocket upgrade 和未缓冲的
+streaming response，并拒绝未知公网 host。
+
+当 forwarding chain 中存在多个受信任代理时，可设置
+`SPARK_HUB_PROXY_HOPS=1..10`。`SPARK_HUB_PUBLIC_URL=auto` 只能在同一个受信任
+loopback proxy 后使用。公网 origin 改变会改变 daemon 的 server identity，因此应
+显式重新注册受影响的 workspace。
+
 ## 注册远程 workspace
 
 先授权 daemon 机器，再用独立的新 registration token 注册每个 workspace：

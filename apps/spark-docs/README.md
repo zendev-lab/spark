@@ -1,8 +1,21 @@
 # @zendev-lab/spark-docs
 
-User-facing Spark documentation. This private workspace builds a bilingual
-Astro/Starlight static site and has no runtime dependency on another Spark
-workspace.
+User-facing Spark documentation. This private workspace builds the bilingual
+Astro/Starlight documentation site and has no runtime dependency on another
+Spark workspace.
+
+This tree owns **how users operate Spark**: installation, workflows, public
+commands and tools, user-visible configuration and paths, client setup, and
+troubleshooting. Repository-internal contracts and maintainer runbooks live in
+[`../../docs`](../../docs/README.md) and must link here instead of maintaining a
+second public reference.
+
+Public behavior should be documented at the highest useful level. Keep
+implementation ownership, internal state-machine detail, test matrices, CI/CD/CE
+procedures, and design rationale out of the site unless they directly affect a
+user-visible contract. When the runtime can report an exact value (`--help`,
+`spark paths --json`, status output), prefer teaching that inspection path over
+copying a larger implementation inventory into the site.
 
 ```text
 pnpm run dev:docs

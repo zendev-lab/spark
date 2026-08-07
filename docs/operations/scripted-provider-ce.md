@@ -13,10 +13,12 @@ scripted provider CE
   provider stream → AgentLoop → tool execution → provider follow-up
 ```
 
-The workflow is `.github/workflows/ce-scripted-provider-nightly.yml`. Relevant
-pull requests run two independent samples. The scheduled and manual default is
-eight samples, daily at 19:07 UTC (04:07 JST). The workflow remains
-non-blocking and retains reports for 30 days.
+The repeated lane runs in `.github/workflows/ce-behavior.yml`. Ordinary CI
+already executes the focused scripted-provider owner test once on pull requests;
+CE owns only repeated statistical sampling. The scheduled and manual default is
+eight samples, daily at 18:37 UTC (03:37 JST). The workflow shares one runner
+setup with capability CE, remains non-blocking, and retains the combined
+behavior reports for 30 days.
 
 ## Run locally
 

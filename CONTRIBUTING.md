@@ -42,8 +42,8 @@ supported packages.
 | `apps/spark-docs` | Public bilingual user documentation |
 | `packages/spark-*` | Shared contracts, capabilities, runtimes, clients, and adapters |
 | `architecture/packages.json` | Machine-readable package layer, owner, stability, and state-writer inventory |
-| `docs/specs` | Normative architecture and behavior contracts |
-| `docs/operations` | Operator procedures and validation runbooks |
+| `docs/specs` | Normative architecture and behavior contracts for implementers |
+| `docs/operations` | Maintainer-only procedures and validation runbooks |
 | `test` | Root integration and cross-package behavior tests |
 | `scripts` | Repository checks, packaging, migration, and validation tooling |
 
@@ -154,8 +154,8 @@ contracts and foundations
 ```
 
 Foundations must not depend on applications or product-private adapters.
-Hub-private packages must not become dependencies of the daemon or shared
-Spark packages.
+Hub-private packages must not become dependencies of the daemon or shared Spark
+packages.
 
 Create a workspace only for a hard runtime, state, permission, protocol,
 adapter, or experimental-lifecycle boundary. Otherwise add a module to the
@@ -167,6 +167,14 @@ rationale in the same change.
 ## Documentation ownership
 
 Keep each fact in the narrowest authoritative document and link to it elsewhere.
+The boundary is based on the question being answered, not merely the directory
+name:
+
+```text
+apps/spark-docs → How do I use Spark?
+docs/specs      → What must Spark guarantee?
+docs/operations → How do maintainers validate, migrate, deploy, or release it?
+```
 
 | Document | Owns |
 | --- | --- |
@@ -174,10 +182,22 @@ Keep each fact in the narrowest authoritative document and link to it elsewhere.
 | `CONTRIBUTING.md` | Human setup, workflow, validation, documentation ownership, and PR conventions |
 | `AGENTS.md` | Stable repository-wide constraints for coding agents |
 | `SPARK.md` | Project intent, goals, non-goals, open questions, and current direction |
-| `apps/spark-docs` | Public installation, workflows, feature guides, CLI, tools, and troubleshooting |
-| `docs/specs` | Normative internal contracts and architectural invariants |
-| `docs/operations` | Operational procedures, release steps, and validation runbooks |
+| `apps/spark-docs` | Public installation, workflows, command/tool references, user-visible configuration/paths, client setup, and troubleshooting |
+| `docs/specs` | Normative ownership, state-machine, protocol, persistence, and compatibility invariants |
+| `docs/operations` | Maintainer procedures, release/deployment gates, migration execution, incident handling, and validation runbooks |
 | Package READMEs | Package-local purpose, API, and implementation guidance |
+
+Do not maintain the same catalog in two documentation surfaces. Public command
+syntax/examples, agent-tool catalogs, user-visible path guidance, and ACP/MCP
+client setup belong in `apps/spark-docs`. Specs may mention those names only as
+part of an invariant; operations may invoke them only as steps in a maintainer
+procedure. Link to the public owner instead of copying a second usage section.
+
+Conversely, public docs should describe observable behavior rather than copying
+internal package ownership, state-machine transitions, CI matrices, test IDs,
+or release-engineering details. When exact information is available from
+runtime help/status/path inspection or a machine-readable inventory, teach or
+link to that authoritative surface instead of duplicating a long Markdown list.
 
 Do not duplicate exhaustive CLI references, validation command lists, package
 inventories, migration histories, or operator procedures in `README.md` or
@@ -210,9 +230,9 @@ Keep pull requests focused and explain:
 - compatibility, migration, or security implications;
 - stack dependencies when the PR does not target `main`.
 
-Repository CI owns automated validation reporting; the PR body does not need
-to duplicate command lists or test counts. Use `Notes` for manual checks,
-known limitations, or exceptions that CI cannot express.
+Repository CI owns automated validation reporting; the PR body does not need to
+duplicate command lists or test counts. Use `Notes` for manual checks, known
+limitations, or exceptions that CI cannot express.
 
 PR titles are checked by CI. Follow the repository's emoji conventional-title
 style, for example:
