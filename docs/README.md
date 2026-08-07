@@ -23,6 +23,7 @@ map for internal contracts and operator procedures.
 - [`operations/zellij-harness.md`](./operations/zellij-harness.md): real TUI validation and pane capture.
 - [`operations/renderer-readiness.md`](./operations/renderer-readiness.md): renderer-neutral controller and fail-closed OpenTUI release/PTY gates.
 - [`operations/test-architecture.md`](./operations/test-architecture.md): test ownership, assertion hierarchy, source-mirror ratchet, and golden-file policy.
+- [`operations/execution-isolation-baseline.md`](./operations/execution-isolation-baseline.md): reproducible single-daemon event-loop, session-fence, synchronous I/O, and descendant-process baseline.
 - [`operations/capability-sentinels.md`](./operations/capability-sentinels.md): deterministic Goal, Loop, and Repro release sentinels, budgets, and failure triage.
 - [`operations/nightly-capability-ce.md`](./operations/nightly-capability-ce.md): repeated zero-token capability evaluation, variance reporting, budgets, artifacts, and triage.
 - [`operations/mutation-ce.md`](./operations/mutation-ce.md): leaf-package Stryker continuous evaluation, timing table, and hygiene.

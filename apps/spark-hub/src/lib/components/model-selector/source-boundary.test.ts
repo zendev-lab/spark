@@ -29,7 +29,7 @@ function walk(value: unknown, visit: (node: Record<string, unknown>) => void) {
 describe("source-derived model selector boundary", () => {
   it("pins the complete upstream provenance and license documents", () => {
     expect(sha256(file("VENDOR.md"))).toBe(
-      "25a1ec9fb0d8fcd096042a9ffccf08496c7e7d375288aa0cfbb46c8c06f3743a",
+      "6831ecabe67d835dc1f64cd6f02a44f06de1d73f60929e3594f16266f6fca66d",
     );
     expect(sha256(file("UPSTREAM-LICENSE.txt"))).toBe(
       "4c77bfa732c9331e487ffb1fd25ec4483da6bf0200c0bb9bb2f62ab644d1f24f",

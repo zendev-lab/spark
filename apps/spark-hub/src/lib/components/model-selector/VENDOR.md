@@ -17,9 +17,9 @@
   primitives and Spark design tokens.
 - Replaced upstream model/provider shapes with the small `ModelPickerGroup` presentation contract.
 - Removed AI SDK, Tailwind, shadcn-svelte runtime, and `models.dev` logo requests.
-- Uses local monograms so Cockpit remains useful without external UI assets.
+- Uses local monograms so Hub remains useful without external UI assets.
 - Leaves provider authentication, catalog truth, session model changes, and SvelteKit form submission
-  in the owning Cockpit route and Spark daemon.
+  in the owning Hub route and Spark daemon.
 
 Review upstream manually and port useful behavior deliberately. Do not run the registry installer over
 this directory.

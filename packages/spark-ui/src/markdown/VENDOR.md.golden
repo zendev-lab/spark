@@ -12,9 +12,9 @@
 
 - Kept the upstream `Streamdown` composition and selected `svelte-streamdown` with its opt-in code,
   math, and Mermaid components.
-- Replaced Tailwind and `mode-watcher` with Cockpit token CSS and the renderer's automatic
+- Replaced Tailwind and `mode-watcher` with Hub token CSS and the renderer's automatic
   light/dark Shiki themes.
-- Kept renderer props open so Cockpit can select streaming/static parsing, animation, controls,
+- Kept renderer props open so Hub can select streaming/static parsing, animation, controls,
   and security policy without owning a second Markdown parser.
-- Added a Cockpit-owned streaming caret and a fixed validation origin so relative local media
+- Added a Hub-owned streaming caret and a fixed validation origin so relative local media
   remains valid without broadening the renderer's URL protocol policy.
