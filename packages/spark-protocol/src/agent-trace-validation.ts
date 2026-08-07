@@ -250,7 +250,7 @@ export function validateCompletedSparkAgentTrace(
         eventIndex,
       );
     }
-    expectedRoundtrip = Math.max(expectedRoundtrip, event.roundtrip) + 1;
+    expectedRoundtrip = Math.max(expectedRoundtrip, event.roundtrip + 1);
 
     if (roundtripSpans.has(event.roundtrip)) {
       issue(

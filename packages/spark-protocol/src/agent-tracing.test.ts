@@ -32,7 +32,10 @@ function runStarted(): SparkAgentTraceEvent {
   });
 }
 
-function roundtripStarted(roundtrip: number, spanId = `roundtrip:${roundtrip}`): SparkAgentTraceEvent {
+function roundtripStarted(
+  roundtrip: number,
+  spanId = `roundtrip:${roundtrip}`,
+): SparkAgentTraceEvent {
   return parseEvent({
     schemaVersion: 1,
     eventId: `event:${spanId}:start`,
@@ -50,7 +53,10 @@ function roundtripStarted(roundtrip: number, spanId = `roundtrip:${roundtrip}`):
   });
 }
 
-function roundtripFinished(roundtrip: number, spanId = `roundtrip:${roundtrip}`): SparkAgentTraceEvent {
+function roundtripFinished(
+  roundtrip: number,
+  spanId = `roundtrip:${roundtrip}`,
+): SparkAgentTraceEvent {
   return parseEvent({
     schemaVersion: 1,
     eventId: `event:${spanId}:finish`,
@@ -366,13 +372,13 @@ describe("agent trace protocol", () => {
     const trace = completeTrace();
     const toolStartIndex = trace.findIndex((entry) => entry.kind === "tool.call.started");
     trace[toolStartIndex] = parseEvent({
-      ...trace[toolStartIndex],
+      ...trace[toolStartIndex]!,
       parentSpanId: "roundtrip:1",
     });
 
     const toolFinishIndex = trace.findIndex((entry) => entry.kind === "tool.call.finished");
     trace[toolFinishIndex] = parseEvent({
-      ...trace[toolFinishIndex],
+      ...trace[toolFinishIndex]!,
       toolName: "different_tool",
     });
     trace.splice(toolFinishIndex + 1, 0, trace[toolFinishIndex]!);
@@ -412,16 +418,16 @@ describe("agent trace protocol", () => {
       (event) => event.kind === "model.roundtrip.finished" && event.roundtrip === 1,
     );
     overlapping.splice(firstFinish, 0, roundtripStarted(2));
-    expect(validateCompletedSparkAgentTrace(overlapping).issues.map((issue) => issue.code)).toContain(
-      "roundtrip_overlap",
-    );
+    expect(
+      validateCompletedSparkAgentTrace(overlapping).issues.map((issue) => issue.code),
+    ).toContain("roundtrip_overlap");
   });
 
   it("requires model-origin links to reference a completed matching roundtrip", () => {
     const mismatch = completeTrace();
     const toolStartIndex = mismatch.findIndex((event) => event.kind === "tool.call.started");
     mismatch[toolStartIndex] = parseEvent({
-      ...mismatch[toolStartIndex],
+      ...mismatch[toolStartIndex]!,
       modelOrigin: { roundtrip: 2, spanId: "roundtrip:1" },
     });
     expect(validateCompletedSparkAgentTrace(mismatch).issues.map((issue) => issue.code)).toContain(
@@ -435,8 +441,8 @@ describe("agent trace protocol", () => {
     const [finish] = openOrigin.splice(firstFinish, 1);
     const toolFinishIndex = openOrigin.findIndex((event) => event.kind === "tool.call.finished");
     openOrigin.splice(toolFinishIndex + 1, 0, finish!);
-    expect(validateCompletedSparkAgentTrace(openOrigin).issues.map((issue) => issue.code)).toContain(
-      "model_origin_open",
-    );
+    expect(
+      validateCompletedSparkAgentTrace(openOrigin).issues.map((issue) => issue.code),
+    ).toContain("model_origin_open");
   });
 });
