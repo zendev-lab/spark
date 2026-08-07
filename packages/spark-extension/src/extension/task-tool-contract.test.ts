@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,10 @@ import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
 import { preserveTaskPlanItemMetadata, terminalTaskPlanInputs } from "./task-tool-contracts.ts";
 import { saveCurrentProjectRef, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
 import type { SparkRegisteredToolConfig, SparkToolContext } from "./spark-tool-registration.ts";
+
+function digest(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
 
 function testContext(cwd: string): SparkToolContext {
   const sessionId = "session:task-contract";
@@ -338,6 +343,8 @@ describe("task tool mutation boundaries", () => {
       await saveCurrentProjectRef(cwd, ctx, project.ref);
       const beforeTask = graph.getTask(target.ref);
       const beforeTodos = graph.taskTodos(target.ref);
+      const beforePlanDigest = digest(beforeTask.plan);
+      const beforeTodosDigest = digest(beforeTodos);
 
       const result = await capturePlanTool({ failOnPlanDecision: true }).execute(
         "dependency-only",
@@ -356,6 +363,8 @@ describe("task tool mutation boundaries", () => {
       const persisted = await store.load();
       expect(persisted?.getTask(target.ref)).toEqual(beforeTask);
       expect(persisted?.taskTodos(target.ref)).toEqual(beforeTodos);
+      expect(digest(persisted?.getTask(target.ref).plan)).toBe(beforePlanDigest);
+      expect(digest(persisted?.taskTodos(target.ref))).toBe(beforeTodosDigest);
       expect(persisted?.dependencies(project.ref)).toEqual([
         { taskRef: target.ref, dependsOn: next.ref },
       ]);
@@ -431,7 +440,7 @@ describe("task tool mutation boundaries", () => {
       });
       await store.save(graph);
       await saveCurrentProjectRef(cwd, ctx, project.ref);
-      const baseline = JSON.stringify((await store.load())?.snapshot());
+      const baseline = digest((await store.load())?.snapshot());
       const tool = capturePlanTool({ failOnPlanDecision: true });
       const cases = [
         {
@@ -502,7 +511,7 @@ describe("task tool mutation boundaries", () => {
           code: scenario.code,
         });
         expect(result.content[0]?.text, scenario.label).toMatch(scenario.message);
-        expect(JSON.stringify((await store.load())?.snapshot()), scenario.label).toBe(baseline);
+        expect(digest((await store.load())?.snapshot()), scenario.label).toBe(baseline);
       }
 
       const mixedBatch = await tool.execute(
@@ -526,7 +535,7 @@ describe("task tool mutation boundaries", () => {
         error: "task_dependency_patch_error",
         code: "dependency_patch_mixed_batch",
       });
-      expect(JSON.stringify((await store.load())?.snapshot())).toBe(baseline);
+      expect(digest((await store.load())?.snapshot())).toBe(baseline);
       const normalizationCases = [
         {
           label: "mixed fields",
@@ -566,7 +575,7 @@ describe("task tool mutation boundaries", () => {
           error: "task_dependency_patch_error",
           code: scenario.code,
         });
-        expect(JSON.stringify((await store.load())?.snapshot()), scenario.label).toBe(baseline);
+        expect(digest((await store.load())?.snapshot()), scenario.label).toBe(baseline);
       }
 
       const duplicateTarget = await tool.execute(
@@ -585,7 +594,7 @@ describe("task tool mutation boundaries", () => {
         error: "task_dependency_patch_error",
         code: "dependency_patch_duplicate_target",
       });
-      expect(JSON.stringify((await store.load())?.snapshot())).toBe(baseline);
+      expect(digest((await store.load())?.snapshot())).toBe(baseline);
 
       const laterEntryFailure = await tool.execute(
         "dependency-reject-later-entry",
@@ -603,7 +612,7 @@ describe("task tool mutation boundaries", () => {
         error: "task_dependency_patch_error",
         code: "dependency_patch_cross_project",
       });
-      expect(JSON.stringify((await store.load())?.snapshot())).toBe(baseline);
+      expect(digest((await store.load())?.snapshot())).toBe(baseline);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
