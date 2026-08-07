@@ -34,9 +34,8 @@ catalog:
   ws: "^8.18.3"
 
 minimumReleaseAgeExclude:
-  - "@types/node@26.0.1"
-  - "@earendil-works/pi-ai"
-  - "@earendil-works/pi-tui"
+  - "@types/node"
+  - "@earendil-works/*"
 
 overrides:
   "@connectrpc/connect-node>undici": "8.9.0"

@@ -312,6 +312,10 @@ test("CI and prek consume the canonical package scripts", async () => {
   assert.match(prek, /id = "spark-check-fix"/u);
   assert.match(prek, /entry = "pnpm run fix"/u);
   assert.doesNotMatch(prek, /pnpm run check:/u);
+  assert.doesNotMatch(
+    prek,
+    /architecture-ratchet-check|pi-boundary-check|spark-doc-terminology-check/u,
+  );
 });
 
 test("replacement CI owners pin every direct action to an immutable commit", async () => {

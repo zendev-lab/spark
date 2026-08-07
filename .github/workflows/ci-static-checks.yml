@@ -34,8 +34,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # Use the repo-pinned prek binary. The action cache is PR-ref scoped and
-      # restoring it twice cost substantially more than the hooks themselves.
       - run: pnpm exec prek run --all-files --skip spark-check-fix
 
   project:
