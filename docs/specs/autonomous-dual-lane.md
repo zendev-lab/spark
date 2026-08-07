@@ -52,13 +52,16 @@ manifest + Repro/Goal state + lanes + validation ledger + eval + repositories
                                            │
                                            ▼
                                       ReportModel
-                              ┌────────────┼──────────────┐
-                              ▼            ▼              ▼
-                    stable Markdown    Workbench A2UI   Widget/Hub/TUI
-                    Document Artifact   projection      projections
-                              │
-                              └── optional explicit standard-Markdown export
+                    ┌──────────────────┼──────────────────┐
+                    ▼                  ▼                  ▼
+          structured summary    stable Markdown    Workbench A2UI
+          JSON/wire projection  Document Artifact  projection
+                                                               └──▶ Widget/Hub/TUI projections
+                                     │
+                                     └── optional explicit standard-Markdown export
 ```
+
+The structured summary is a versioned, storage-neutral sibling projection used for bounded wire/persistence compatibility. It is not a second ReportModel store and cannot be parsed from Markdown. Widget/Hub/TUI may consume ReportModel directly or that typed summary adapter, never rendered text.
 
 Forbidden reverse edges:
 
