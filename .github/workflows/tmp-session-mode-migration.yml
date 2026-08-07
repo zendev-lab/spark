@@ -3,7 +3,7 @@ name: Temporary Session Mode Migration
 on:
   pull_request:
     branches:
-      - agent/prompt-operating-model
+      - main
 
 permissions:
   contents: write
@@ -43,7 +43,6 @@ jobs:
               if text != old:
                   path.write_text(text)
 
-          # The generic operating-lens package is private and is entirely about Session modes.
           mv('packages/spark-phases', 'packages/spark-modes')
           mv('packages/spark-modes/src/spark-phases.test.ts', 'packages/spark-modes/src/spark-modes.test.ts')
           for path in Path('packages/spark-modes').rglob('*'):
@@ -56,7 +55,6 @@ jobs:
                       ('implement', 'execute'),
                   ])
 
-          # Spark's Session-specific phase implementation becomes mode implementation.
           mv('packages/spark-extension/src/extension/phase', 'packages/spark-extension/src/extension/mode')
           mv('packages/spark-extension/src/extension/mode/spark-phase-layer.ts', 'packages/spark-extension/src/extension/mode/spark-mode-layer.ts')
           mv('packages/spark-extension/src/extension/mode/spark-phase-renderers.ts', 'packages/spark-extension/src/extension/mode/spark-mode-renderers.ts')
@@ -84,7 +82,6 @@ jobs:
                           ('implement', 'execute'),
                       ])
 
-          # Exact Session-mode symbols used outside those dedicated files.
           symbols = [
               ('@zendev-lab/spark-phases', '@zendev-lab/spark-modes'),
               ('packages/spark-phases', 'packages/spark-modes'),
@@ -133,7 +130,6 @@ jobs:
               except UnicodeDecodeError:
                   pass
 
-          # Persisted Session state: v1 phase is read once and normalized into canonical v2 mode.
           Path('packages/spark-extension/src/extension/current-project-state-schema.ts').write_text('''import { type ProjectRef, type TaskRef } from "@zendev-lab/spark-core";
 import { JsonStoreFormatError } from "./json-store.ts";
 
@@ -212,23 +208,19 @@ function optionalString(value: unknown, filePath: string, path: string): string 
 }
 ''')
 
-          # Current-project persistence follows v2 and rewrites any v1 file on read.
           p = Path('packages/spark-extension/src/extension/current-project-state.ts')
           text = p.read_text()
-          text = text.replace('type SparkAgentMode,', 'type SparkAgentMode,')
           text = text.replace('version: 1,', 'version: 2,')
           text = text.replace('existing?.phase', 'existing?.mode').replace('{ phase: existing.phase }', '{ mode: existing.mode }')
           text = text.replace('if (existing?.phase) {', 'if (existing?.mode) {')
           text = text.replace('{ version: 2, phase: existing.phase }', '{ version: 2, mode: existing.mode }')
           text = text.replace('export async function saveSessionMode(\n  cwd: string,\n  ctx: SparkSessionContext | undefined,\n  phase: SparkAgentMode,', 'export async function saveSessionMode(\n  cwd: string,\n  ctx: SparkSessionContext | undefined,\n  mode: SparkAgentMode,')
           text = text.replace('    phase,\n  });\n}', '    mode,\n  });\n}', 1)
-          # Rewrite a normalized legacy current-path snapshot immediately.
           old = '  const raw = await readJsonFileOptional<Record<string, unknown>>(filePath);\n  if (raw) return normalizeCurrentProjectStoreSnapshot(raw, filePath);'
           new = '  const raw = await readJsonFileOptional<Record<string, unknown>>(filePath);\n  if (raw) {\n    const snapshot = normalizeCurrentProjectStoreSnapshot(raw, filePath);\n    if (raw.version !== 2) await saveCurrentProjectState(cwd, ctx, snapshot);\n    return snapshot;\n  }'
           text = text.replace(old, new)
           p.write_text(text)
 
-          # Remove the misleading clear operation: it historically cleared project selection, not phase/mode.
           p = Path('packages/spark-extension/src/extension/session-mode.ts')
           text = p.read_text()
           text = re.sub(r'\nexport async function clearSparkMode\([\s\S]*?\n}\n\nexport const SPARK_SESSION_MODES', '\nexport const SPARK_SESSION_MODES', text, count=1)
@@ -238,7 +230,6 @@ function optionalString(value: unknown, filePath: string, path: string): string 
           text = p.read_text().replace('  clearSparkMode,\n', '')
           p.write_text(text)
 
-          # Session entry state uses mode fields; Repro's own phase/stage fields are untouched.
           targeted = [
               'packages/spark-extension/src/extension/spark-command-registration.ts',
               'packages/spark-extension/src/extension/spark-entry-application.ts',
@@ -264,7 +255,6 @@ function optionalString(value: unknown, filePath: string, path: string): string 
                   text = text.replace('/implement', '/execute')
               p.write_text(text)
 
-          # Agent-loop Session routing and ToolPolicy use mode terminology.
           p = Path('packages/spark-core/src/index.ts')
           text = p.read_text().replace('phase values', 'mode values').replace('phases?:', 'modes?:').replace('readonly phases:', 'readonly modes:').replace('policy?.phases', 'policy?.modes').replace('phases: Object.freeze', 'modes: Object.freeze')
           p.write_text(text)
@@ -283,7 +273,6 @@ function optionalString(value: unknown, filePath: string, path: string): string 
               text = text.replace('"implement"', '"execute"')
               path.write_text(text)
 
-          # Tool policies that explicitly gate plan/implement are Session-mode policies.
           for path in root.rglob('*.ts'):
               s = '/' + path.as_posix()
               if '/0.2/' in s: continue
@@ -295,7 +284,6 @@ function optionalString(value: unknown, filePath: string, path: string): string 
               text = re.sub(r'phases:\s*\[([^\]\n]*(?:"plan"|"implement")[^\]\n]*)\]', repl, text)
               if text != old: path.write_text(text)
 
-          # Canonical active docs/commands use /execute; archived 0.2 docs remain immutable history.
           for base in [Path('README.md'), Path('SPARK.md'), Path('docs'), Path('apps/spark-docs/src/content/docs')]:
               paths = base.rglob('*') if base.is_dir() else [base]
               for path in paths:
@@ -307,12 +295,10 @@ function optionalString(value: unknown, filePath: string, path: string): string 
                   new = text.replace('/implement', '/execute').replace('plan-and-implement', 'plan-and-execute')
                   if new != text: path.write_text(new)
 
-          # Rename current docs guide paths; archived 0.2 remains untouched.
           mv('apps/spark-docs/src/content/docs/guides/plan-and-implement.md', 'apps/spark-docs/src/content/docs/guides/plan-and-execute.md')
           mv('apps/spark-docs/src/content/docs/zh/guides/plan-and-implement.md', 'apps/spark-docs/src/content/docs/zh/guides/plan-and-execute.md')
           PY
 
-          # Let pnpm regenerate the private workspace importer after package rename.
           pnpm install --lockfile-only
           pnpm exec vp fmt . --write
 
