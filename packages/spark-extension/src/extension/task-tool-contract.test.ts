@@ -447,6 +447,18 @@ describe("task tool mutation boundaries", () => {
           message: /unknown dependency/,
         },
         {
+          label: "ambiguous prerequisite",
+          code: "dependency_patch_prerequisite_ambiguous",
+          task: { name: prerequisite.name, dependsOn: [target.title] },
+          message: /ambiguous dependency title/,
+        },
+        {
+          label: "cross-project target",
+          code: "dependency_patch_cross_project",
+          task: { taskRef: outsider.ref, dependsOn: [] },
+          message: /outside project/,
+        },
+        {
           label: "self",
           code: "dependency_patch_self_dependency",
           task: { name: target.name, dependsOn: [target.ref] },
