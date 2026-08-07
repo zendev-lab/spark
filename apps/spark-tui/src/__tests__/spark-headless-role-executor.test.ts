@@ -390,7 +390,7 @@ test("runSparkHeadlessRoleInstruction records completed and blocked structured o
       },
     });
 
-    assert.equal(sessionMode, "implement");
+    assert.equal(sessionMode, "execute");
     assert.deepEqual(result.outcome, {
       kind: expected.kind,
       code: expected.code,
