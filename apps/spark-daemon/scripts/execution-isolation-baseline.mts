@@ -15,6 +15,7 @@ import {
 } from "@zendev-lab/spark-turn";
 
 import { SparkInvocationScheduler } from "../src/core/invocation-scheduler.ts";
+import { ExecutionAttemptStore } from "../src/execution/state.ts";
 import type { SparkDaemonSessionRunTask, SparkDaemonTaskExecutor } from "../src/core/types.ts";
 import { executeSparkDaemonSessionRunTask } from "../src/spark/session-run.ts";
 import { SparkInvocationStore } from "../src/store/invocations.ts";
@@ -866,6 +867,14 @@ async function createHarness(
   const store = new SparkInvocationStore(db);
   const scheduler = new SparkInvocationScheduler({
     store,
+    executionAttemptStore: new ExecutionAttemptStore(db),
+    executionOwnerHandlers: {
+      taskClaim: async () => ({}),
+      humanInteraction: async () => ({}),
+      loopSchedule: async () => ({}),
+      loopStop: async () => ({}),
+    },
+    executionAttemptGeneration: 1,
     executeTask,
     concurrency: SCHEDULER_CONCURRENCY,
     taskTimeoutMs: timeoutMs,

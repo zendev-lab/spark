@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
+import { ExecutionAttemptStore } from "../execution/state.ts";
+import { SparkInvocationStore } from "../store/invocations.ts";
 import { releaseWorkspaceClient } from "../store/workspaces.ts";
 import { acquireMainTaskClaim } from "./authority.ts";
 import { MAIN_TASK_CLAIM_EXPIRY_GRACE_MS, MAIN_TASK_CLAIM_LEASE_MS } from "./policy.ts";
@@ -16,6 +18,40 @@ function after(ms: number): string {
 }
 
 describe("daemon main task claim reconciler", () => {
+  it("keeps Task Claim session-owned across execution attempt replacement", async () => {
+    await withTaskClaimTestContext(async (context) => {
+      const lease = attachTaskClaimTestSession(context, "session:attempt-owner", taskClaimTestNow);
+      await acquireMainTaskClaim(
+        context.db,
+        { ...lease, taskRef: context.task.ref },
+        taskClaimTestNow,
+      );
+      const invocationId = "inv_task_claim_attempt";
+      new SparkInvocationStore(context.db).submit({
+        invocationId,
+        sessionId: "session:attempt-owner",
+        prompt: "execute task",
+        task: {
+          type: "session.run",
+          sessionId: "session:attempt-owner",
+          prompt: "execute task",
+        },
+      });
+      const attempts = new ExecutionAttemptStore(context.db);
+      const first = attempts.create(invocationId, 1, "corr_task_claim", taskClaimTestNow);
+      expect(
+        attempts.crash(first, "process_spawn_failed", taskClaimTestNow).replacement,
+      ).toMatchObject({ attemptEpoch: 2 });
+
+      const reconciled = await reconcileMainTaskClaims(context.db, { now: taskClaimTestNow });
+      expect(reconciled.expired).toEqual([]);
+      expect((await loadedTaskClaimTestTask(context))?.claim).toMatchObject({
+        kind: "main",
+        sessionId: "session:attempt-owner",
+      });
+    });
+  });
+
   it("revives a fresh session beyond the legacy ten-minute boundary", async () => {
     await withTaskClaimTestContext(async (context) => {
       const graph = await defaultTaskGraphStore(context.root).load();

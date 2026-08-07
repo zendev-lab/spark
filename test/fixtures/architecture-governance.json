@@ -140,6 +140,13 @@
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
+      "path": "scripts/check-execution-worker-boundary.mjs",
+      "lineCount": 185,
+      "domainOwner": "daemon execution",
+      "callers": ["apps/spark-daemon/src/execution/worker-boundary.test.ts"],
+      "replacementAssessment": "retained Spark-specific fault-isolation import boundary"
+    },
+    {
       "path": "scripts/check-hub-terminology.mjs",
       "lineCount": 167,
       "domainOwner": "hub-compatibility",
