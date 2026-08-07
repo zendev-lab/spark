@@ -268,6 +268,70 @@ describe("SparkDaemonHumanInteractionBroker", () => {
     }
   });
 
+  it("replays a settled ask after restart by stable toolCallId, not interaction flow text", async () => {
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    seedHumanRoute(db);
+    const opened = vi.fn(async () => undefined);
+    const firstWaits = new SparkDaemonHumanWaitRegistry(db);
+    const firstBroker = new SparkDaemonHumanInteractionBroker({
+      db,
+      waits: firstWaits,
+      getRuntimeId: primaryRuntimeId,
+      onRequestOpened: opened,
+    });
+
+    try {
+      const initial = await firstBroker.interact(askRequest("interaction-before-restart", "async"), {
+        ...interactionContext(),
+        toolCallId: "tool-call-repro-repair",
+      });
+      if (initial.kind !== "askFlow" || !initial.humanRequestId) {
+        throw new Error("expected an async ask response with humanRequestId");
+      }
+      const wait = firstWaits.get(initial.humanRequestId);
+      if (!wait) throw new Error("expected the durable async wait");
+      await firstBroker.respond(wait, {
+        status: "answered",
+        provenance: "direct_user",
+        answers: { decision: "yes" },
+        responseArtifactRefs: [],
+      });
+
+      const restartedWaits = new SparkDaemonHumanWaitRegistry(db);
+      const restartedBroker = new SparkDaemonHumanInteractionBroker({
+        db,
+        waits: restartedWaits,
+        getRuntimeId: primaryRuntimeId,
+        onRequestOpened: opened,
+      });
+      const resumed = await restartedBroker.interact(
+        askRequest("interaction-after-restart", "blocking", 500),
+        {
+          ...interactionContext(),
+          invocationId: "invocation-2",
+          toolCallId: "tool-call-repro-repair",
+        },
+      );
+
+      expect(resumed).toMatchObject({
+        kind: "askFlow",
+        requestId: "interaction-after-restart",
+        humanRequestId: initial.humanRequestId,
+        status: "answered",
+        answers: { decision: "yes" },
+        nextAction: "resume",
+        metadata: { delivery: "blocking", humanResponseId: expect.stringMatching(/^hres_/u) },
+      });
+      expect(opened).toHaveBeenCalledTimes(1);
+      expect(
+        db.prepare("SELECT COUNT(*) AS count FROM daemon_human_waits").get(),
+      ).toEqual({ count: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
   it("keeps a blocking ask pending until delivery resolves its attached continuation", async () => {
     const db = new DatabaseSync(":memory:");
     migrateSparkDaemonDatabase(db);

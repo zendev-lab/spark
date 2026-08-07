@@ -100,7 +100,8 @@ export interface SparkDaemonHumanWaitOutboxRoute {
 }
 
 export interface SparkDaemonHumanWaitInteractionLookup {
-  interactionRequestId: string;
+  interactionRequestId?: string;
+  toolCallId?: string;
   sessionId?: string;
   invocationId?: string;
 }
@@ -120,6 +121,7 @@ export class SparkDaemonHumanWaitLookupError extends Error {
 
 interface ActiveHumanWait {
   wait: SparkDaemonHumanWaitRecord;
+  response: Promise<SparkDaemonHumanWaitResponse>;
   resolve(response: SparkDaemonHumanWaitResponse): void;
 }
 
@@ -261,8 +263,34 @@ export class SparkDaemonHumanWaitRegistry {
     const response = new Promise<SparkDaemonHumanWaitResponse>((done) => {
       resolve = done;
     });
-    this.active.set(wait.humanRequestId, { wait, resolve });
+    this.active.set(wait.humanRequestId, { wait, response, resolve });
     return { wait, response, created: true };
+  }
+
+  /** Reattach a blocking continuation using the daemon-owned request row. */
+  resume(humanRequestId: string): SparkDaemonHumanWaitRegistration {
+    const stored = this.readRow(humanRequestId);
+    if (!stored) {
+      throw new SparkDaemonHumanWaitLookupError(
+        "human_interaction_not_found",
+        `No daemon-owned human interaction matched ${humanRequestId}.`,
+      );
+    }
+    if (stored.response) {
+      return { wait: stored.wait, response: Promise.resolve(stored.response), created: false };
+    }
+    const attached = this.active.get(humanRequestId);
+    if (attached) {
+      return { wait: attached.wait, response: attached.response, created: false };
+    }
+    if (stored.wait.delivery === "async") return { wait: stored.wait, created: false };
+
+    let resolve!: (response: SparkDaemonHumanWaitResponse) => void;
+    const response = new Promise<SparkDaemonHumanWaitResponse>((done) => {
+      resolve = done;
+    });
+    this.active.set(humanRequestId, { wait: stored.wait, response, resolve });
+    return { wait: stored.wait, response, created: false };
   }
 
   deliver(
@@ -591,6 +619,23 @@ export class SparkDaemonHumanWaitRegistry {
     );
   }
 
+  /** Return no match without weakening ambiguous-match failures. */
+  findUniqueInteraction(
+    input: SparkDaemonHumanWaitInteractionLookup,
+  ): SparkDaemonHumanWaitRecord | null {
+    try {
+      return this.requireUniqueInteraction(input);
+    } catch (error) {
+      if (
+        error instanceof SparkDaemonHumanWaitLookupError &&
+        error.code === "human_interaction_not_found"
+      ) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
   hasActive(humanRequestId: string): boolean {
     return this.active.has(humanRequestId);
   }
@@ -776,25 +821,34 @@ function requireUniqueInteractionMatch(
   input: SparkDaemonHumanWaitInteractionLookup,
   statusLabel: string,
 ): SparkDaemonHumanWaitRecord {
-  const interactionRequestId = input.interactionRequestId.trim();
+  const interactionRequestId = input.interactionRequestId?.trim();
+  const toolCallId = input.toolCallId?.trim();
   const sessionId = input.sessionId?.trim();
   const invocationId = input.invocationId?.trim();
+  if (!interactionRequestId && !toolCallId) {
+    throw new SparkDaemonHumanWaitLookupError(
+      "human_interaction_not_found",
+      "A daemon-owned human interaction lookup requires interactionRequestId or toolCallId.",
+    );
+  }
   const matches = waits.filter(
     (wait) =>
-      wait.interactionRequestId === interactionRequestId &&
+      (!interactionRequestId || wait.interactionRequestId === interactionRequestId) &&
+      (!toolCallId || wait.toolCallId === toolCallId) &&
       (!sessionId || wait.sessionId === sessionId) &&
       (!invocationId || wait.invocationId === invocationId),
   );
+  const lookup = interactionRequestId || toolCallId || "(empty)";
   if (matches.length === 0) {
     throw new SparkDaemonHumanWaitLookupError(
       "human_interaction_not_found",
-      `No ${statusLabel}daemon-owned human interaction matched ${interactionRequestId || "(empty)"}.`,
+      `No ${statusLabel}daemon-owned human interaction matched ${lookup}.`,
     );
   }
   if (matches.length > 1) {
     throw new SparkDaemonHumanWaitLookupError(
       "human_interaction_ambiguous",
-      `Multiple ${statusLabel}daemon-owned human interactions matched ${interactionRequestId}; include sessionId or invocationId.`,
+      `Multiple ${statusLabel}daemon-owned human interactions matched ${lookup}; include sessionId or invocationId.`,
     );
   }
   return matches[0]!;
