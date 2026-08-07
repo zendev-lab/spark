@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,10 @@ import { resolveSessionClaimedTask } from "./task-claim-selection.ts";
 import { preserveTaskPlanItemMetadata, terminalTaskPlanInputs } from "./task-tool-contracts.ts";
 import { saveCurrentProjectRef, sparkSessionKey, sparkStateCwd } from "./session-state.ts";
 import type { SparkRegisteredToolConfig, SparkToolContext } from "./spark-tool-registration.ts";
+
+function digest(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
 
 function testContext(cwd: string): SparkToolContext {
   const sessionId = "session:task-contract";
@@ -52,13 +57,24 @@ function executionReadyPlan(item: string): TaskPlan {
   };
 }
 
-function capturePlanTool(): SparkRegisteredToolConfig {
+function capturePlanTool(
+  options: { failOnPlanDecision?: boolean } = {},
+): SparkRegisteredToolConfig {
   let tool: SparkRegisteredToolConfig | undefined;
   registerSparkPlanTasksTool(
     (registered) => {
       tool = registered;
     },
-    { refreshSparkWidget: async () => undefined },
+    {
+      refreshSparkWidget: async () => undefined,
+      ...(options.failOnPlanDecision
+        ? {
+            decideTaskPlan: () => {
+              throw new Error("dependency-only patch must not evaluate plan readiness");
+            },
+          }
+        : {}),
+    },
   );
   expect(tool).toBeTruthy();
   return tool!;
@@ -286,6 +302,320 @@ describe("task tool mutation boundaries", () => {
       added,
       enriched,
     ]);
+  });
+
+  it("replaces existing-task dependencies without rewriting or reviewing its plan", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-task-dependency-only-"));
+    try {
+      const ctx = testContext(cwd);
+      const stateCwd = sparkStateCwd(cwd, ctx);
+      const store = defaultTaskGraphStore(stateCwd);
+      const graph = new TaskGraph();
+      const project = graph.createProject({
+        title: "Dependency-only planning",
+        description: "Preserve a reviewed task while changing only dependency edges.",
+      });
+      const target = graph.createTask({
+        projectRef: project.ref,
+        name: "target",
+        title: "Target",
+        description: "Keep every non-dependency field unchanged.",
+        kind: "implement",
+        status: "pending",
+        plan: executionReadyPlan("preserve reviewed target plan"),
+      });
+      const previous = graph.createTask({
+        projectRef: project.ref,
+        name: "previous",
+        title: "Previous dependency",
+        description: "Dependency to remove.",
+        status: "done",
+      });
+      const next = graph.createTask({
+        projectRef: project.ref,
+        name: "next",
+        title: "Next dependency",
+        description: "Dependency to add.",
+        status: "pending",
+      });
+      graph.replaceTaskDependencies(target.ref, [previous.ref]);
+      await store.save(graph);
+      await saveCurrentProjectRef(cwd, ctx, project.ref);
+      const beforeTask = graph.getTask(target.ref);
+      const beforeTodos = graph.taskTodos(target.ref);
+      const beforePlanDigest = digest(beforeTask.plan);
+      const beforeTodosDigest = digest(beforeTodos);
+
+      const result = await capturePlanTool({ failOnPlanDecision: true }).execute(
+        "dependency-only",
+        { tasks: [{ name: target.name, dependsOn: [next.name] }] },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      );
+
+      expect(result.details).toMatchObject({
+        mode: "dependency_only",
+        reviewSkipped: "unchanged_plan",
+        planDecisions: [],
+        patches: [{ added: 1, removed: 1, unchanged: 0 }],
+      });
+      const persisted = await store.load();
+      expect(persisted?.getTask(target.ref)).toEqual(beforeTask);
+      expect(persisted?.taskTodos(target.ref)).toEqual(beforeTodos);
+      expect(digest(persisted?.getTask(target.ref).plan)).toBe(beforePlanDigest);
+      expect(digest(persisted?.taskTodos(target.ref))).toBe(beforeTodosDigest);
+      expect(persisted?.dependencies(project.ref)).toEqual([
+        { taskRef: target.ref, dependsOn: next.ref },
+      ]);
+
+      const cleared = await capturePlanTool({ failOnPlanDecision: true }).execute(
+        "dependency-clear",
+        { tasks: [{ taskRef: target.ref, dependsOn: [] }] },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      );
+      expect(cleared.details).toMatchObject({
+        mode: "dependency_only",
+        reviewSkipped: "unchanged_plan",
+        patches: [{ added: 0, removed: 1, unchanged: 0 }],
+      });
+      expect((await store.load())?.dependencies(project.ref)).toEqual([]);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unsafe dependency-only patches without saving graph changes", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-task-dependency-reject-"));
+    try {
+      const ctx = testContext(cwd);
+      const stateCwd = sparkStateCwd(cwd, ctx);
+      const store = defaultTaskGraphStore(stateCwd);
+      const graph = new TaskGraph();
+      const project = graph.createProject({
+        title: "Dependency patch rejection",
+        description: "Reject ambiguous or unsafe dependency updates.",
+      });
+      const target = graph.createTask({
+        projectRef: project.ref,
+        name: "target",
+        title: "Duplicate title",
+        description: "Target dependency patch.",
+        status: "pending",
+        plan: executionReadyPlan("keep target graph atomic"),
+      });
+      graph.createTask({
+        projectRef: project.ref,
+        name: "duplicate-title",
+        title: target.title,
+        description: "Make title selection ambiguous.",
+        status: "pending",
+      });
+      const prerequisite = graph.createTask({
+        projectRef: project.ref,
+        name: "prerequisite",
+        title: "Prerequisite",
+        description: "Existing prerequisite.",
+        status: "pending",
+      });
+      graph.replaceTaskDependencies(target.ref, [prerequisite.ref]);
+      const cancelled = graph.createTask({
+        projectRef: project.ref,
+        name: "cancelled",
+        title: "Cancelled",
+        description: "Cancelled prerequisite.",
+        status: "cancelled",
+      });
+      const otherProject = graph.createProject({
+        title: "Other project",
+        description: "Cross-project dependency source.",
+      });
+      const outsider = graph.createTask({
+        projectRef: otherProject.ref,
+        name: "outsider",
+        title: "Outsider",
+        description: "Outside selected project.",
+      });
+      await store.save(graph);
+      await saveCurrentProjectRef(cwd, ctx, project.ref);
+      const baseline = digest((await store.load())?.snapshot());
+      const tool = capturePlanTool({ failOnPlanDecision: true });
+      const cases = [
+        {
+          label: "unknown target",
+          code: "dependency_patch_target_not_found",
+          task: { name: "missing-target", dependsOn: [] },
+          message: /unknown task dependency patch target/,
+        },
+        {
+          label: "unknown",
+          code: "dependency_patch_prerequisite_not_found",
+          task: { name: target.name, dependsOn: ["missing"] },
+          message: /unknown dependency/,
+        },
+        {
+          label: "ambiguous prerequisite",
+          code: "dependency_patch_prerequisite_ambiguous",
+          task: { name: prerequisite.name, dependsOn: [target.title] },
+          message: /ambiguous dependency title/,
+        },
+        {
+          label: "cross-project target",
+          code: "dependency_patch_cross_project",
+          task: { taskRef: outsider.ref, dependsOn: [] },
+          message: /outside project/,
+        },
+        {
+          label: "self",
+          code: "dependency_patch_self_dependency",
+          task: { name: target.name, dependsOn: [target.ref] },
+          message: /itself/,
+        },
+        {
+          label: "cancelled",
+          code: "dependency_patch_cancelled_prerequisite",
+          task: { name: target.name, dependsOn: [cancelled.ref] },
+          message: /cancelled/,
+        },
+        {
+          label: "cross-project",
+          code: "dependency_patch_cross_project",
+          task: { name: target.name, dependsOn: [outsider.ref] },
+          message: /cross projects/,
+        },
+        {
+          label: "cycle",
+          code: "dependency_patch_cycle",
+          task: { name: prerequisite.name, dependsOn: [target.name] },
+          message: /cyclic/,
+        },
+        {
+          label: "ambiguous target",
+          code: "dependency_patch_target_ambiguous",
+          task: { title: target.title, dependsOn: [] },
+          message: /ambiguous task dependency patch target/,
+        },
+      ];
+      for (const scenario of cases) {
+        const result = await tool.execute(
+          `dependency-reject-${scenario.label}`,
+          { tasks: [scenario.task] },
+          new AbortController().signal,
+          () => undefined,
+          ctx,
+        );
+        expect(result.details, scenario.label).toMatchObject({
+          error: "task_dependency_patch_error",
+          code: scenario.code,
+        });
+        expect(result.content[0]?.text, scenario.label).toMatch(scenario.message);
+        expect(digest((await store.load())?.snapshot()), scenario.label).toBe(baseline);
+      }
+
+      const mixedBatch = await tool.execute(
+        "dependency-reject-mixed-batch",
+        {
+          tasks: [
+            { name: target.name, dependsOn: [] },
+            {
+              name: "full-task",
+              title: "Full task",
+              description: "A full task cannot share a dependency-only batch.",
+              plan: executionReadyPlan("reject mixed batch"),
+            },
+          ],
+        },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      );
+      expect(mixedBatch.details).toMatchObject({
+        error: "task_dependency_patch_error",
+        code: "dependency_patch_mixed_batch",
+      });
+      expect(digest((await store.load())?.snapshot())).toBe(baseline);
+      const normalizationCases = [
+        {
+          label: "mixed fields",
+          code: "dependency_patch_mixed_fields",
+          task: { name: target.name, dependsOn: [], status: "pending" },
+        },
+        {
+          label: "missing selector",
+          code: "dependency_patch_selector_missing",
+          task: { dependsOn: [] },
+        },
+        {
+          label: "ambiguous selector",
+          code: "dependency_patch_selector_ambiguous",
+          task: { name: target.name, title: target.title, dependsOn: [] },
+        },
+        {
+          label: "missing dependsOn",
+          code: "dependency_patch_depends_on_missing",
+          task: { taskRef: target.ref },
+        },
+        {
+          label: "blank prerequisite selector",
+          code: "dependency_patch_prerequisite_invalid",
+          task: { name: target.name, dependsOn: [" \t"] },
+        },
+      ];
+      for (const scenario of normalizationCases) {
+        const result = await tool.execute(
+          `dependency-reject-${scenario.label}`,
+          { tasks: [scenario.task] },
+          new AbortController().signal,
+          () => undefined,
+          ctx,
+        );
+        expect(result.details, scenario.label).toMatchObject({
+          error: "task_dependency_patch_error",
+          code: scenario.code,
+        });
+        expect(digest((await store.load())?.snapshot()), scenario.label).toBe(baseline);
+      }
+
+      const duplicateTarget = await tool.execute(
+        "dependency-reject-duplicate-target",
+        {
+          tasks: [
+            { name: target.name, dependsOn: [] },
+            { taskRef: target.ref, dependsOn: [] },
+          ],
+        },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      );
+      expect(duplicateTarget.details).toMatchObject({
+        error: "task_dependency_patch_error",
+        code: "dependency_patch_duplicate_target",
+      });
+      expect(digest((await store.load())?.snapshot())).toBe(baseline);
+
+      const laterEntryFailure = await tool.execute(
+        "dependency-reject-later-entry",
+        {
+          tasks: [
+            { name: target.name, dependsOn: [] },
+            { name: prerequisite.name, dependsOn: [outsider.ref] },
+          ],
+        },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      );
+      expect(laterEntryFailure.details).toMatchObject({
+        error: "task_dependency_patch_error",
+        code: "dependency_patch_cross_project",
+      });
+      expect(digest((await store.load())?.snapshot())).toBe(baseline);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   for (const status of ["done", "failed"] as const) {

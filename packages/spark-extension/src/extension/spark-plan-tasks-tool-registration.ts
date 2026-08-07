@@ -1,7 +1,14 @@
 import { Type } from "typebox";
 import type { RoleRegistry } from "@zendev-lab/spark-roles";
-import { DependencyError } from "@zendev-lab/spark-core";
 import {
+  DependencyError,
+  NotFoundError,
+  type ProjectRef,
+  type Task,
+  type TaskRef,
+} from "@zendev-lab/spark-core";
+import {
+  TaskDependencyPatchError,
   collectNonConcreteTaskIssues,
   decideTaskPlanBeforeCreate,
   defaultTaskGraphStore,
@@ -51,17 +58,34 @@ const SPARK_PLAN_TASKS_READINESS_RULES = [
   "- Every task plan must use concrete, checkable objective/success/evidence/item wording and must not lower the bar with basic/minimal/quick/best-effort/if possible/smoke-only style qualifiers.",
   "- Planning may create or update unfinished work and may cancel obsolete unclaimed work. done and failed are completion transitions owned by task finish/recovery flows and are rejected here.",
   renderTaskPlanReadinessRules(),
-  '- dependsOn resolution is active-project scoped and includes both existing project tasks and every task created/updated in the same task_write({ action: "plan" }) batch before dependencies are added. Use a bare task name (displayed as @name, passed without @), exact task title, or task:* ref; unresolved dependencies block the plan, and cross-project dependencies are unsupported.',
+  "- dependsOn resolution is active-project scoped and includes both existing project tasks and every task created/updated in the same full-plan batch before dependencies are added. Full creates/updates use a bare task name (displayed as @name, passed without @), exact task title, or task:* ref; unresolved dependencies block the plan, and cross-project dependencies are unsupported.",
+  "- Existing-task dependency-only patch: pass exactly one selector (taskRef, name, or exact title) plus dependsOn, and no other task fields. This atomically replaces that task dependency set, preserves its plan and plan items, and skips plan readiness because the plan bytes are unchanged. An empty dependsOn clears the set.",
 ].join("\n");
 
 interface SparkPlanTasksToolDeps {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
+  decideTaskPlan?: typeof decideTaskPlanBeforeCreate;
 }
+
+export interface SparkTaskDependencyPatchInput {
+  mode: "dependency_only";
+  selectorKind: "taskRef" | "name" | "title";
+  selector: string;
+  taskRef?: string;
+  name?: string;
+  title?: string;
+  description?: undefined;
+  status?: undefined;
+  plan?: undefined;
+  dependsOn: string[];
+}
+
+type SparkPlanTaskMutationInput = TaskPlanInput | SparkTaskDependencyPatchInput;
 
 export function normalizeSparkPlanTaskInputs(
   params: Record<string, unknown>,
   registry: RoleRegistry,
-): TaskPlanInput[] | undefined {
+): SparkPlanTaskMutationInput[] | undefined {
   const rawTasks = params.tasks;
   if (rawTasks === undefined || rawTasks === null) return undefined;
   if (!Array.isArray(rawTasks)) throw new Error("tasks must be a non-empty array");
@@ -79,7 +103,7 @@ export function registerSparkPlanTasksTool(
     name: "impl_plan_tasks",
     label: "Spark Plan Tasks",
     description: [
-      'Implementation for task_write({ action: "plan" }): create, update, or cancel durable Spark tasks in the current project from a concrete task plan. Tasks must be concrete executable/review/validation/research work, not standalone design/planning placeholders; design discussion belongs in conversation with the user and in each task.plan after decisions are clear. done and failed statuses are rejected: use task_write({ action: "finish" }) or recovery/retry flows for completion transitions. cancelled remains available here for retiring obsolete unclaimed work and retains dependency safety checks. The tool writes directly once tasks have high-bar objectives, dependencies, objectively verifiable success criteria, concrete evidence requirements, and executable/checkable plan items, so clarify all planning-affecting questions before calling it and refine by calling it again with concrete updates.',
+      'Implementation for task_write({ action: "plan" }): create, update, or cancel durable Spark tasks from a concrete task plan, or atomically replace dependsOn for an existing task without resubmitting its unchanged plan. Full task changes must remain concrete executable/review/validation/research work, not standalone design/planning placeholders; done and failed remain owned by finish/recovery flows. A dependency-only patch must contain exactly one existing-task selector plus dependsOn and no other task fields; it preserves the task plan and plan items while retaining not-found, cross-project, cancelled-prerequisite, self-dependency, and cycle checks.',
       "",
       SPARK_PLAN_TASKS_READINESS_RULES,
     ].join("\n"),
@@ -95,14 +119,30 @@ export function registerSparkPlanTasksTool(
       ),
       tasks: Type.Array(
         Type.Object({
-          name: Type.Optional(
-            Type.String({ description: "Stable simple @name handle for the task." }),
+          taskRef: Type.Optional(
+            Type.String({
+              description:
+                "Exact existing task ref for a dependency-only patch. Do not combine with name/title or any plan field.",
+            }),
           ),
-          title: Type.String({ description: "Human-readable task title shown as @name: title." }),
-          description: Type.String({
-            description:
-              "Concrete task objective/instruction; do not use this for abstract design/planning placeholders.",
-          }),
+          name: Type.Optional(
+            Type.String({
+              description:
+                "Stable simple @name handle. In a dependency-only patch, this uniquely selects the existing task.",
+            }),
+          ),
+          title: Type.Optional(
+            Type.String({
+              description:
+                "Human-readable task title. Required for full create/update; usable alone as an exact existing-task selector for a dependency-only patch.",
+            }),
+          ),
+          description: Type.Optional(
+            Type.String({
+              description:
+                "Concrete task objective/instruction. Required for full create/update and forbidden in a dependency-only patch.",
+            }),
+          ),
           kind: Type.Optional(
             Type.String({
               description: taskKindDescription(),
@@ -126,7 +166,7 @@ export function registerSparkPlanTasksTool(
             Type.Array(
               Type.String({
                 description:
-                  "Dependency task ref, bare task name (displayed as @name), or exact task title in this plan/project.",
+                  "For full create/update, dependency task refs, bare names, or exact titles to add. For an existing-task dependency-only patch, the complete replacement dependency set; [] clears it.",
               }),
             ),
           ),
@@ -165,13 +205,120 @@ export function registerSparkPlanTasksTool(
           details: { found: false, error: projectSelector ? "project_not_found" : undefined },
         };
       const registry = await createSparkRoleRegistry(sparkStateCwd(cwd, ctx));
-      const normalizedTasks = normalizeSparkPlanTaskInputs(params, registry);
+      let normalizedTasks: SparkPlanTaskMutationInput[] | undefined;
+      try {
+        normalizedTasks = normalizeSparkPlanTaskInputs(params, registry);
+      } catch (error) {
+        if (error instanceof TaskDependencyPatchError) {
+          return {
+            content: [{ type: "text", text: `Task dependency patch error: ${error.message}` }],
+            details: {
+              found: true,
+              error: "task_dependency_patch_error",
+              code: error.patchCode,
+              message: error.message,
+            },
+          };
+        }
+        throw error;
+      }
       if (!normalizedTasks)
         return {
           content: [{ type: "text", text: "Task plan is required." }],
           details: { found: true, error: "missing_tasks" },
         };
-      const terminalTasks = terminalTaskPlanInputs(normalizedTasks);
+      const dependencyPatches = normalizedTasks.filter(isTaskDependencyPatchInput);
+      if (dependencyPatches.length > 0) {
+        if (dependencyPatches.length !== normalizedTasks.length) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "Task dependency patch error: dependency-only entries cannot be mixed with full task plan entries in one batch.",
+              },
+            ],
+            details: {
+              found: true,
+              error: "task_dependency_patch_error",
+              code: "dependency_patch_mixed_batch",
+            },
+          };
+        }
+        let patches;
+        try {
+          const seenTaskRefs = new Set<TaskRef>();
+          const inputs = dependencyPatches.map((patch) => {
+            const task = resolveDependencyPatchTask(graph, project.ref, patch);
+            if (seenTaskRefs.has(task.ref))
+              throw new TaskDependencyPatchError(
+                "dependency_patch_duplicate_target",
+                `duplicate dependency patch target: ${task.ref}`,
+              );
+            seenTaskRefs.add(task.ref);
+            return {
+              taskRef: task.ref,
+              dependsOnRefs: patch.dependsOn.map((selector) =>
+                resolveDependencyPatchPrerequisite(graph, project.ref, selector),
+              ),
+            };
+          });
+          const batch = graph.replaceTaskDependenciesBatch(inputs);
+          patches = batch.replacements.map((replacement) => ({
+            task: compactTaskDetail(replacement.task),
+            dependencies: replacement.dependencies,
+            added: replacement.added.length,
+            removed: replacement.removed.length,
+            unchanged: replacement.unchanged.length,
+          }));
+        } catch (error) {
+          if (error instanceof TaskDependencyPatchError) {
+            return {
+              content: [{ type: "text", text: `Task dependency patch error: ${error.message}` }],
+              details: {
+                found: true,
+                error: "task_dependency_patch_error",
+                code: error.patchCode,
+                message: error.message,
+              },
+            };
+          }
+          if (error instanceof DependencyError || error instanceof NotFoundError) {
+            return {
+              content: [{ type: "text", text: `Task dependency patch error: ${error.message}` }],
+              details: {
+                found: true,
+                error: "task_dependency_patch_error",
+                code: error.code,
+                message: error.message,
+              },
+            };
+          }
+          throw error;
+        }
+        await saveSparkGraphAndTodos(cwd, graph, ctx, store);
+        await deps.refreshSparkWidget(cwd, ctx);
+        const changedDependencies = patches.reduce(
+          (total, patch) => total + patch.added + patch.removed,
+          0,
+        );
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Updated task dependencies: tasks=${patches.length} changed=${changedDependencies} review=skipped(unchanged_plan)`,
+            },
+          ],
+          details: {
+            found: true,
+            mode: "dependency_only",
+            reviewSkipped: "unchanged_plan",
+            patches,
+            planDecisions: [],
+          },
+        };
+      }
+      const fullTaskInputs = normalizedTasks as TaskPlanInput[];
+      const terminalTasks = terminalTaskPlanInputs(fullTaskInputs);
       if (terminalTasks.length > 0) {
         const rows = terminalTasks.map(
           (task) => `- @${task.name ?? "unnamed"}: ${task.title} requested status=${task.status}`,
@@ -200,7 +347,7 @@ export function registerSparkPlanTasksTool(
       }
       const roadmapResult = roadmapPlanningContext(graph, project.ref);
       const roadmapContext = roadmapResult?.context;
-      const tasks: TaskPlanInput[] = normalizedTasks.map((task) =>
+      const tasks: TaskPlanInput[] = fullTaskInputs.map((task) =>
         applyRoadmapHintsToTaskPlanInput(task, roadmapContext?.item),
       );
       const concreteIssues = collectNonConcreteTaskIssues(tasks);
@@ -263,7 +410,8 @@ export function registerSparkPlanTasksTool(
         throw error;
       }
       const changedForDecision = [...result.created, ...result.updated];
-      const planDecisions = changedForDecision.map((task) => decideTaskPlanBeforeCreate(task));
+      const decidePlan = deps.decideTaskPlan ?? decideTaskPlanBeforeCreate;
+      const planDecisions = changedForDecision.map((task) => decidePlan(task));
       const rejectedIndex = planDecisions.findIndex((decision) => !decision.accepted);
       if (rejectedIndex >= 0) {
         const task = changedForDecision[rejectedIndex];
@@ -350,8 +498,9 @@ function normalizeSparkPlanTaskInput(
   value: unknown,
   registry: RoleRegistry,
   position: number,
-): TaskPlanInput {
+): SparkPlanTaskMutationInput {
   if (!isRecord(value)) throw new Error(`tasks[${position - 1}] must be an object`);
+  if (isDependencyPatchIntent(value)) return normalizeTaskDependencyPatch(value, position);
   const name = normalizeOptionalToolString(value.name, `tasks[${position - 1}].name`);
   const title = normalizeRequiredToolString(value.title, `tasks[${position - 1}].title`);
   const description = normalizeRequiredToolString(
@@ -381,6 +530,149 @@ function normalizeSparkPlanTaskInput(
     dependsOn: normalizeToolStringArray(value.dependsOn, `tasks[${position - 1}].dependsOn`),
     rationale: normalizeOptionalToolString(value.rationale, `tasks[${position - 1}].rationale`),
   };
+}
+
+function isDependencyPatchIntent(value: Record<string, unknown>): boolean {
+  return (
+    Object.hasOwn(value, "taskRef") ||
+    (Object.hasOwn(value, "dependsOn") && !Object.hasOwn(value, "description"))
+  );
+}
+
+function normalizeTaskDependencyPatch(
+  value: Record<string, unknown>,
+  position: number,
+): SparkTaskDependencyPatchInput {
+  const path = `tasks[${position - 1}]`;
+  const allowed = new Set(["taskRef", "name", "title", "dependsOn"]);
+  const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unexpected.length > 0)
+    throw new TaskDependencyPatchError(
+      "dependency_patch_mixed_fields",
+      `${path} dependency-only patch only accepts taskRef, name, title, and dependsOn; unexpected: ${unexpected.join(", ")}`,
+    );
+  if (!Object.hasOwn(value, "dependsOn"))
+    throw new TaskDependencyPatchError(
+      "dependency_patch_depends_on_missing",
+      `${path} dependency-only patch requires dependsOn`,
+    );
+  const selectors = [
+    ["taskRef", normalizeOptionalToolString(value.taskRef, `${path}.taskRef`)],
+    ["name", normalizeOptionalToolString(value.name, `${path}.name`)],
+    ["title", normalizeOptionalToolString(value.title, `${path}.title`)],
+  ].filter((entry): entry is [SparkTaskDependencyPatchInput["selectorKind"], string] =>
+    Boolean(entry[1]),
+  );
+  if (selectors.length !== 1)
+    throw new TaskDependencyPatchError(
+      selectors.length === 0
+        ? "dependency_patch_selector_missing"
+        : "dependency_patch_selector_ambiguous",
+      `${path} dependency-only patch requires exactly one selector: taskRef, name, or title`,
+    );
+  if (!Array.isArray(value.dependsOn) || value.dependsOn.some((item) => typeof item !== "string"))
+    throw new TaskDependencyPatchError(
+      "dependency_patch_depends_on_invalid",
+      `${path}.dependsOn must be an array of strings`,
+    );
+  const dependsOn = value.dependsOn.map((item) => item.trim());
+  if (dependsOn.some((selector) => selector.length === 0))
+    throw new TaskDependencyPatchError(
+      "dependency_patch_prerequisite_invalid",
+      `${path}.dependsOn entries must be non-empty selectors`,
+    );
+  const [selectorKind, selector] = selectors[0];
+  return {
+    mode: "dependency_only",
+    selectorKind,
+    selector,
+    [selectorKind]: selector,
+    dependsOn,
+  };
+}
+
+function isTaskDependencyPatchInput(
+  input: SparkPlanTaskMutationInput,
+): input is SparkTaskDependencyPatchInput {
+  return "mode" in input && input.mode === "dependency_only";
+}
+
+function resolveDependencyPatchTask(
+  graph: TaskGraph,
+  projectRef: ProjectRef,
+  patch: SparkTaskDependencyPatchInput,
+): Task {
+  if (patch.selectorKind === "taskRef") {
+    try {
+      const task = graph.getTask(patch.selector as TaskRef);
+      if (task.projectRef !== projectRef)
+        throw new TaskDependencyPatchError(
+          "dependency_patch_cross_project",
+          `task dependency patch target is outside project: ${patch.selector}`,
+        );
+      return task;
+    } catch (error) {
+      if (error instanceof NotFoundError)
+        throw new TaskDependencyPatchError(
+          "dependency_patch_target_not_found",
+          `unknown task dependency patch target: ${patch.selector}`,
+        );
+      throw error;
+    }
+  }
+  const selectorKind: "name" | "title" = patch.selectorKind;
+  const matches = graph.tasks(projectRef).filter((task) => task[selectorKind] === patch.selector);
+  if (matches.length === 0)
+    throw new TaskDependencyPatchError(
+      "dependency_patch_target_not_found",
+      `unknown task dependency patch target by ${patch.selectorKind}: ${patch.selector}`,
+    );
+  if (matches.length > 1)
+    throw new TaskDependencyPatchError(
+      "dependency_patch_target_ambiguous",
+      `ambiguous task dependency patch target by ${patch.selectorKind}: ${patch.selector}`,
+    );
+  return matches[0];
+}
+
+function resolveDependencyPatchPrerequisite(
+  graph: TaskGraph,
+  projectRef: ProjectRef,
+  selector: string,
+): TaskRef {
+  if (selector.startsWith("task:")) {
+    try {
+      const task = graph.getTask(selector as TaskRef);
+      if (task.projectRef !== projectRef)
+        throw new TaskDependencyPatchError(
+          "dependency_patch_cross_project",
+          `task dependencies cannot cross projects: dependency is outside project: ${selector}`,
+        );
+      return task.ref;
+    } catch (error) {
+      if (error instanceof NotFoundError)
+        throw new TaskDependencyPatchError(
+          "dependency_patch_prerequisite_not_found",
+          `unknown dependency: ${selector}`,
+        );
+      throw error;
+    }
+  }
+  const tasks = graph.tasks(projectRef);
+  const nameMatch = tasks.find((task) => task.name === selector);
+  if (nameMatch) return nameMatch.ref;
+  const titleMatches = tasks.filter((task) => task.title === selector);
+  if (titleMatches.length === 0)
+    throw new TaskDependencyPatchError(
+      "dependency_patch_prerequisite_not_found",
+      `unknown dependency: ${selector}`,
+    );
+  if (titleMatches.length > 1)
+    throw new TaskDependencyPatchError(
+      "dependency_patch_prerequisite_ambiguous",
+      `ambiguous dependency title: ${selector}`,
+    );
+  return titleMatches[0].ref;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
