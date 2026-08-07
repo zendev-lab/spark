@@ -1,57 +1,85 @@
-# Spark Hub remote access
+# Spark Hub remote-access contract
 
-Hub is local-first and listens on loopback by default. Remote browser authority is progressive:
+This specification owns remote-access **authority, trust, and security
+invariants**. User-facing Hub startup, browser-key, workspace-registration, and
+reverse-proxy setup belong in the public
+[`Hub Web guide`](../../apps/spark-docs/src/content/docs/guides/hub.md).
 
-1. **Hub access** — one-time `spark_hub_auth_…` key exchanged at `/login` for a Hub owner session (control plane).
-2. **Workspace access** — one-time `spark_workspace_auth_…` key exchanged at `/{slug}/login` for that workspace only.
+## Authority layers
 
-Minting stays in `@zendev-lab/spark-hub-coordination` on the Hub host (single source of truth):
+Hub browser authority is progressive and must remain separated:
 
-```sh
-spark hub access create|list|revoke [--label <text>] [--json]
-spark hub workspace access create|list|revoke --workspace <id> [--label <text>] [--json]
-```
+1. **Hub access** authorizes the control plane.
+2. **Workspace access** authorizes exactly one workspace projection.
+3. **Runtime enrollment/WebSocket credentials** authorize daemon connectivity
+   and are not browser credentials.
 
-`spark daemon workspace register` may print one workspace browser key as part of binding. Additional browsers use the Hub CLI above—not a second daemon mint path. Prefer workspace **id** as the CLI marker; name/slug are display helpers.
+Minting stays in `@zendev-lab/spark-hub-coordination` on the Hub host. Daemon
+registration may return a one-time workspace browser credential as a bounded
+registration result, but it does not create another minting authority.
 
-## Direct private-network access
+A Hub session alone must not open another workspace's sessions, artifacts, or
+SSE. A workspace session must not open global Hub settings or another workspace.
+Runtime credentials must never be accepted by either browser session boundary.
 
-```sh
-pnpm --filter @zendev-lab/spark-hub run build
-HOST=0.0.0.0 PORT=5173 spark hub
-```
+## Network boundary
 
-Prefer an encrypted private path such as Tailscale, WireGuard, or SSH forwarding. Protected non-loopback requests redirect to `/login` until the browser exchanges a Hub key. Workspace data routes then require `/{slug}/login`.
+Hub is local-first and listens on loopback by default. Remote access must use
+HTTPS or an explicitly opted-in insecure path on a trusted private network.
+An encrypted private overlay or tunnel is preferred over exposing the Hub
+listener directly.
 
-## Trusted reverse proxy
+A configured public URL must be an `http(s)` origin rooted at `/`; path mounting
+is unsupported. A changed public origin changes daemon server identity and
+requires affected workspace registrations to be refreshed deliberately.
 
-```sh
-HOST=127.0.0.1 \
-SPARK_HUB_PUBLIC_URL=https://spark.example.com \
-SPARK_HUB_TRUST_PROXY=loopback \
-spark hub
-```
+## Trusted proxy contract
 
-`SPARK_HUB_PUBLIC_URL` must be an `http(s)` origin at `/`; path mounting is unsupported. `SPARK_HUB_TRUST_PROXY=loopback` is valid only with a loopback listener. The proxy must:
+Proxy trust is explicit rather than inferred from forwarding headers.
+`SPARK_HUB_TRUST_PROXY=loopback` is valid only when the Hub listener itself is
+loopback-bound. A trusted proxy must:
 
-- preserve the public host;
+- preserve the intended public host;
 - replace or sanitize forwarding headers;
-- send `X-Forwarded-For` and `X-Forwarded-Proto`;
+- provide the trusted `X-Forwarded-For` and `X-Forwarded-Proto` chain;
 - forward WebSocket upgrades and unbuffered streaming responses;
 - reject unknown public hosts.
 
-`SPARK_HUB_PROXY_HOPS` accepts 1-10 trusted entries from the right of `X-Forwarded-For`. A changed public origin changes daemon server identity; re-register affected workspaces with fresh workspace tokens.
+`SPARK_HUB_PROXY_HOPS` bounds the trusted entries selected from the right side
+of `X-Forwarded-For` to 1–10 hops. Automatic public-URL discovery is valid only
+behind the same explicitly trusted loopback proxy.
 
-Use `SPARK_HUB_PUBLIC_URL=auto` only behind the same trusted loopback proxy when the proxy supplies the hostname.
+Untrusted requests must not be allowed to select scheme, host, client address,
+or authorization scope through forwarded headers.
 
-## Progressive authorization flow
+## Browser credential contract
 
-1. On the Hub host, mint a Hub browser key: `spark hub access create`. Open `/login` and exchange it for Hub session cookies (`spark_hub_session` + rotating refresh).
-2. Create or open a workspace in the control plane. In connection settings (or via daemon registration), obtain a workspace registration token and run `spark daemon workspace register ... --token ...` from the daemon-owned directory.
-3. Successful registration binds that directory and may print a `spark_workspace_auth_...` browser key plus `/{slug}/login`. The key expires after 10 minutes and can be consumed once. Additional browsers use `spark hub workspace access create --workspace <id>`.
-4. `/{slug}/login` exchanges the workspace key for workspace session cookies (`spark_workspace_session` + rotating refresh). Refresh rotates both credentials; replaying the previous refresh credential fails.
-5. A Hub session alone does not open another workspace’s sessions, artifacts, or SSE. A workspace session for A cannot open workspace B or global Hub settings without a Hub session.
+Hub and workspace browser keys are one-time credentials with bounded expiry.
+They are exchanged for scope-specific browser sessions; replay after successful
+exchange or explicit revocation fails.
 
-Loopback clients retain the local owner flow for the control plane. Runtime enrollment and runtime WebSocket endpoints under `/api/v1/runtime/` use separate runtime credentials. Static PWA assets plus `/login`, `/{slug}/login`, and `/logout` remain available before the matching browser login.
+Workspace credentials are scoped to a stable workspace identity. Name and slug
+are display/routing helpers and must not become authority identifiers.
 
-Use HTTPS or an encrypted overlay network. Revoking an unused browser key prevents its exchange; logout revokes current browser sessions.
+Session refresh rotates credentials. Replaying the previous refresh credential
+must fail. Static PWA assets and the minimum login/logout routes may remain
+available before authorization, but protected data and event routes require the
+matching scope.
+
+## Workspace registration boundary
+
+Machine connectivity credentials and one-time workspace registration tokens are
+different authorities and cannot substitute for one another. Each registration
+consumes its own token and binds one daemon-owned directory to the existing Hub
+workspace identity.
+
+Successful registration may project a workspace browser credential, but target
+execution remains daemon-owned. Browser authorization never grants direct
+repository, daemon-store, or execution-state access outside the owner APIs.
+
+## Failure policy
+
+Remote-access configuration fails closed when trust inputs conflict or cannot be
+validated. In particular, ambiguous proxy trust, conflicting public origins,
+replayed credentials, and cross-scope browser access must be rejected rather
+than downgraded to local-owner behavior.
