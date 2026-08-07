@@ -727,7 +727,6 @@ export function buildSparkReproWorkSummary(
     input.stage === "delivery" &&
     normativeComplete &&
     progress.quantified &&
-    progress.quantified &&
     progress.percent === 100 &&
     technicalGoal.achieved &&
     retirementBlockers.length === 0 &&
