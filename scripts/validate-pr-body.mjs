@@ -78,7 +78,9 @@ export function validatePrBody(body, template) {
   const sections = extractTemplateSections(template);
   const expected = sections.map((section) => section.heading);
   const required = sections.filter((section) => section.required).map((section) => section.heading);
-  const optional = sections.filter((section) => !section.required).map((section) => section.heading);
+  const optional = sections
+    .filter((section) => !section.required)
+    .map((section) => section.heading);
   const actual = extractH2Headings(body);
   const positions = new Map(expected.map((heading, index) => [heading, index]));
   const actualPositions = actual.map((heading) => positions.get(heading));
@@ -86,7 +88,10 @@ export function validatePrBody(body, template) {
   const unique = new Set(actual).size === actual.length;
   const declared = actualPositions.every((position) => position !== undefined);
   const ordered =
-    declared && actualPositions.every((position, index) => index === 0 || position > actualPositions[index - 1]);
+    declared &&
+    actualPositions.every(
+      (position, index) => index === 0 || position > actualPositions[index - 1],
+    );
   const complete = required.every((heading) => actual.includes(heading));
 
   return {
