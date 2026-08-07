@@ -50,6 +50,11 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Show canonical formatter diff
+        run: |
+          vp fmt test/documentation-ownership.test.ts test/fixtures/architecture-governance.json --write
+          git diff -- test/documentation-ownership.test.ts test/fixtures/architecture-governance.json
+          git checkout -- test/documentation-ownership.test.ts test/fixtures/architecture-governance.json
       - run: pnpm run check:static
 
   documentation:
