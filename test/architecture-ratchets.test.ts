@@ -19,7 +19,7 @@ const {
 } = architectureRatchets;
 
 const architectureGovernanceFixtureSha256 =
-  "e05a704faed7af249cae2c2dc30955502543edfc5185233310b1953bc4310eb3";
+  "9ffe1bc981e9e27e4e8143070967ebd37de4d12d1b54865e29339d5eb5281eef";
 const requiredInventoryFields = ["layer", "owner", "stability", "stateWriter"] as const;
 const invalidInventoryCases = [
   { field: "layer", value: "invalid" },
@@ -301,7 +301,7 @@ describe("architecture governance contracts", () => {
       .sort();
     expect(actualScripts).toEqual(governance.scriptsInventory.map((entry) => entry.path).sort());
     expect(governance.removedScripts).toHaveLength(18);
-    expect(governance.remainingCandidates).toHaveLength(2);
+    expect(governance.remainingCandidates).toHaveLength(1);
     expect(governance.blockers).toHaveLength(2);
     for (const entry of governance.scriptsInventory) {
       expect(entry.path).toMatch(/^scripts\//u);
