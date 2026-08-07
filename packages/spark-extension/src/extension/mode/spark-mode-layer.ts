@@ -9,7 +9,7 @@ import {
 } from "@zendev-lab/spark-modes";
 import { sparkActiveMode } from "../spark-mode-state.ts";
 import type { SparkLanguage } from "../spark-i18n.ts";
-import { sparkSystemPromptLanguageDirective } from "../spark-i18n.ts";
+import { sparkSystemPromptLanguageDirective } from "../spark-model-prompts.ts";
 import { loadSparkMode, saveSparkMode } from "../session-state.ts";
 import type { SparkToolRegistrar } from "../spark-tool-registration.ts";
 

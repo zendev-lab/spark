@@ -3,11 +3,7 @@ import { isUnfinishedTaskStatus } from "@zendev-lab/spark-tasks";
 import { isClaimOwnedBySession, taskClaimedBy } from "./task-ownership.ts";
 import type { SparkSessionGoal } from "./spark-session-goals.ts";
 import { truncateInline } from "./tool-rendering.ts";
-import {
-  activeSparkContextStrings,
-  sparkLanguageForProject,
-  type SparkLanguage,
-} from "./spark-i18n.ts";
+import { activeSparkContextStrings } from "./spark-model-prompts.ts";
 
 const SPARK_CONTEXT_TODO_LIMIT = 3;
 const SPARK_CONTEXT_CLAIMED_TASK_LIMIT = 1;
@@ -22,16 +18,8 @@ export function renderActiveSparkContext(input: {
   sessionKey: string;
   sessionGoal?: SparkSessionGoal;
   sparkMd?: string;
-  language?: SparkLanguage;
 }): string | undefined {
-  const language =
-    input.language ??
-    sparkLanguageForProject({
-      project: input.project,
-      goal: input.sessionGoal,
-      fallbackText: input.sparkMd,
-    });
-  const strings = activeSparkContextStrings(language);
+  const strings = activeSparkContextStrings();
   const stateLines = input.project
     ? renderActiveSparkProjectSummary(
         input.graph,

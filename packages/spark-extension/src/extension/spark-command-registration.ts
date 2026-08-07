@@ -35,13 +35,8 @@ import {
 } from "./spark-session-repro.ts";
 import { createProjectBackedSessionRepro } from "./spark-repro-project.ts";
 import { renderReproTickInstruction } from "./spark-repro-tool-registration.ts";
-import {
-  goalContextStrings,
-  goalInstructions,
-  goalNotifications,
-  sparkLanguageForProject,
-  type SparkLanguage,
-} from "./spark-i18n.ts";
+import { goalNotifications, sparkLanguageForProject, type SparkLanguage } from "./spark-i18n.ts";
+import { goalContextStrings, goalInstructions } from "./spark-model-prompts.ts";
 import { renderSparkGoalLoopPrompt } from "./spark-phase-prompts.ts";
 import {
   enterSparkUltracodeWorkflow,
@@ -582,7 +577,7 @@ export function registerSparkCommands(
       await deps.refreshSparkWidget(ctx.cwd, ctx);
       const summary = renderEmptyGoalInferContext(graph, project, language);
       ctx.ui?.notify?.(notifications.noActiveGoal, "info");
-      const instructions = goalInstructions(language);
+      const instructions = goalInstructions();
       const instruction = [
         instructions.emptyGoalNotSet,
         instructions.emptyGoalReadContext,
@@ -627,7 +622,7 @@ export function registerSparkCommands(
     project: SparkProjectLike | undefined,
     language: SparkLanguage,
   ): string {
-    const strings = goalContextStrings(language);
+    const strings = goalContextStrings();
     if (!graph) return strings.notInitialized;
     const lines: string[] = [];
     if (project) {
@@ -713,7 +708,7 @@ export function registerSparkCommands(
   ): Promise<void> {
     const graph = await loadSparkGraph(ctx.cwd, ctx);
     const project = graph ? await currentSparkProject(ctx.cwd, ctx, graph) : undefined;
-    const instructions = goalInstructions(language);
+    const instructions = goalInstructions();
     const instruction = [
       instructions.goalActiveHeader,
       projectTitle ? instructions.currentProject(projectTitle) : undefined,
@@ -797,7 +792,7 @@ export function registerSparkCommands(
     language: SparkLanguage,
     loop: ReturnType<typeof createLoop>,
   ): string {
-    const instructions = goalInstructions(language);
+    const instructions = goalInstructions();
     const status = renderForegroundGoalTickStatus(graph, project, language);
     return [
       instructions.loopTickHeader,
@@ -838,7 +833,7 @@ export function registerSparkCommands(
     const unfinished = tasks.filter((task) => isUnfinishedTaskStatus(task.status));
     const ready = graph.readyTasks(project.ref);
     const readyHead = ready.slice(0, 3).map((task) => task.title);
-    return goalContextStrings(language).projectStatus(unfinished.length, ready.length, readyHead);
+    return goalContextStrings().projectStatus(unfinished.length, ready.length, readyHead);
   }
 
   function renderGoalBootstrapStatus(language: SparkLanguage): string {

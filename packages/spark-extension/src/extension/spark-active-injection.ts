@@ -89,7 +89,6 @@ async function renderActiveSparkContextWithLanguage(
     sessionKey,
     sessionGoal,
     sparkMd,
-    language,
   });
   if (!content) return undefined;
   return { content, language };
