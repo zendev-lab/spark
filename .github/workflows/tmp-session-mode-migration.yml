@@ -1,0 +1,330 @@
+name: Temporary Session Mode Migration
+
+on:
+  pull_request:
+    branches:
+      - agent/prompt-operating-model
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: agent/session-mode-execute
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply controlled Session mode migration
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re, subprocess
+
+          root = Path('.')
+
+          def mv(src: str, dst: str):
+              if Path(src).exists() and not Path(dst).exists():
+                  subprocess.run(['git', 'mv', src, dst], check=True)
+
+          def rewrite(path: Path, replacements):
+              if not path.exists() or not path.is_file():
+                  return
+              text = path.read_text()
+              old = text
+              for a, b in replacements:
+                  text = text.replace(a, b)
+              if text != old:
+                  path.write_text(text)
+
+          # The generic operating-lens package is private and is entirely about Session modes.
+          mv('packages/spark-phases', 'packages/spark-modes')
+          mv('packages/spark-modes/src/spark-phases.test.ts', 'packages/spark-modes/src/spark-modes.test.ts')
+          for path in Path('packages/spark-modes').rglob('*'):
+              if path.is_file():
+                  rewrite(path, [
+                      ('@zendev-lab/spark-phases', '@zendev-lab/spark-modes'),
+                      ('spark-phases', 'spark-modes'),
+                      ('PHASE', 'MODE'), ('Phase', 'Mode'), ('phase', 'mode'),
+                      ('Implementation', 'Execution'), ('implementation', 'execution'),
+                      ('implement', 'execute'),
+                  ])
+
+          # Spark's Session-specific phase implementation becomes mode implementation.
+          mv('packages/spark-extension/src/extension/phase', 'packages/spark-extension/src/extension/mode')
+          mv('packages/spark-extension/src/extension/mode/spark-phase-layer.ts', 'packages/spark-extension/src/extension/mode/spark-mode-layer.ts')
+          mv('packages/spark-extension/src/extension/mode/spark-phase-renderers.ts', 'packages/spark-extension/src/extension/mode/spark-mode-renderers.ts')
+          mv('packages/spark-extension/src/extension/session-phase.ts', 'packages/spark-extension/src/extension/session-mode.ts')
+          mv('packages/spark-extension/src/extension/spark-phase-state.ts', 'packages/spark-extension/src/extension/spark-mode-state.ts')
+          mv('packages/spark-extension/src/extension/spark-phase-entry.ts', 'packages/spark-extension/src/extension/spark-mode-entry.ts')
+          mv('packages/spark-extension/src/__tests__/spark-session-phase.test.ts', 'packages/spark-extension/src/__tests__/spark-session-mode.test.ts')
+          mv('packages/spark-extension/src/__tests__/spark-phase-state.test.ts', 'packages/spark-extension/src/__tests__/spark-mode-state.test.ts')
+
+          for base in [
+              Path('packages/spark-extension/src/extension/mode'),
+              Path('packages/spark-extension/src/extension/session-mode.ts'),
+              Path('packages/spark-extension/src/extension/spark-mode-state.ts'),
+              Path('packages/spark-extension/src/extension/spark-mode-entry.ts'),
+              Path('packages/spark-extension/src/extension/spark-entry.ts'),
+          ]:
+              paths = base.rglob('*') if base.is_dir() else [base]
+              for path in paths:
+                  if path.is_file():
+                      rewrite(path, [
+                          ('@zendev-lab/spark-phases', '@zendev-lab/spark-modes'),
+                          ('spark-phases', 'spark-modes'),
+                          ('PHASE', 'MODE'), ('Phase', 'Mode'), ('phase', 'mode'),
+                          ('Implementation', 'Execution'), ('implementation', 'execution'),
+                          ('implement', 'execute'),
+                      ])
+
+          # Exact Session-mode symbols used outside those dedicated files.
+          symbols = [
+              ('@zendev-lab/spark-phases', '@zendev-lab/spark-modes'),
+              ('packages/spark-phases', 'packages/spark-modes'),
+              ('SparkAgentPhase', 'SparkAgentMode'),
+              ('SparkPlanningPhaseSource', 'SparkPlanningModeSource'),
+              ('SparkSessionPhase', 'SparkSessionMode'),
+              ('SparkSessionPhaseInput', 'SparkSessionModeInput'),
+              ('SparkSessionPhaseState', 'SparkSessionModeState'),
+              ('saveSessionPhase', 'saveSessionMode'),
+              ('normalizeSparkAgentPhase', 'normalizeSparkAgentMode'),
+              ('loadSparkPhase', 'loadSparkMode'),
+              ('saveSparkPhase', 'saveSparkMode'),
+              ('nextSparkSessionPhase', 'nextSparkSessionMode'),
+              ('SPARK_SESSION_PHASE_CYCLE', 'SPARK_SESSION_MODES'),
+              ('SparkActivePhaseState', 'SparkActiveModeState'),
+              ('sparkActiveLensPhase', 'sparkActiveModeValue'),
+              ('sparkActiveLens', 'sparkActiveMode'),
+              ('SparkEntryPhase', 'SparkEntryMode'),
+              ('analyzeSparkEntryPhase', 'analyzeSparkEntryMode'),
+              ('enterSparkPlanningPhase', 'enterSparkPlanMode'),
+              ('enterSparkImplementationPhase', 'enterSparkExecuteMode'),
+              ('SparkPhaseMessageApi', 'SparkModeMessageApi'),
+              ('SparkPhaseEntryDeps', 'SparkModeEntryDeps'),
+              ('renderSparkPlanningPhasePrompt', 'renderSparkPlanModePrompt'),
+              ('renderSparkImplementationPhasePrompt', 'renderSparkExecuteModePrompt'),
+              ('renderSparkPhaseVisibleMessage', 'renderSparkModeVisibleMessage'),
+              ('renderSparkPhaseSystemPrompt', 'renderSparkModeSystemPrompt'),
+              ('registerSparkPhaseTool', 'registerSparkModeTool'),
+              ('createSparkPhaseRegistry', 'createSparkModeRegistry'),
+              ('defaultSparkPhaseRegistry', 'defaultSparkModeRegistry'),
+              ('renderPhasePrompt', 'renderModePrompt'),
+              ('renderPhaseFocus', 'renderModeFocus'),
+              ('spark-phase-request', 'spark-mode-request'),
+              ('./phase/index.ts', './mode/index.ts'),
+              ('./spark-phase-state.ts', './spark-mode-state.ts'),
+              ('./spark-phase-entry.ts', './spark-mode-entry.ts'),
+              ('./session-phase.ts', './session-mode.ts'),
+          ]
+          excluded = ('/0.2/', '/node_modules/', '/.git/')
+          for path in root.rglob('*'):
+              s = '/' + path.as_posix()
+              if not path.is_file() or any(x in s for x in excluded):
+                  continue
+              try:
+                  rewrite(path, symbols)
+              except UnicodeDecodeError:
+                  pass
+
+          # Persisted Session state: v1 phase is read once and normalized into canonical v2 mode.
+          Path('packages/spark-extension/src/extension/current-project-state-schema.ts').write_text('''import { type ProjectRef, type TaskRef } from "@zendev-lab/spark-core";
+import { JsonStoreFormatError } from "./json-store.ts";
+
+export type SparkRunStrategy = "sequential" | "parallel";
+export type SparkPlanningModeSource = "auto" | "direct";
+export type SparkAgentMode = "plan" | "execute";
+
+export interface CurrentProjectStoreSnapshot {
+  version: 2;
+  projectRef?: ProjectRef;
+  currentTaskRef?: TaskRef;
+  mode?: SparkAgentMode;
+}
+
+export function normalizeCurrentProjectStoreSnapshot(
+  raw: Record<string, unknown>,
+  filePath: string,
+): CurrentProjectStoreSnapshot {
+  if (raw.version === undefined || raw.version === 1) {
+    const projectRef = optionalString(raw.projectRef, filePath, "projectRef") as
+      | ProjectRef
+      | undefined;
+    const currentTaskRef = optionalString(raw.currentTaskRef, filePath, "currentTaskRef") as
+      | TaskRef
+      | undefined;
+    const mode = normalizeLegacySparkAgentPhase(raw.phase, filePath);
+    return {
+      version: 2,
+      ...(projectRef ? { projectRef } : {}),
+      ...(currentTaskRef ? { currentTaskRef } : {}),
+      ...(mode ? { mode } : {}),
+    };
+  }
+  if (raw.version !== 2) {
+    throw new JsonStoreFormatError(filePath, "version must be 2");
+  }
+  const projectRef = optionalString(raw.projectRef, filePath, "projectRef") as
+    | ProjectRef
+    | undefined;
+  const currentTaskRef = optionalString(raw.currentTaskRef, filePath, "currentTaskRef") as
+    | TaskRef
+    | undefined;
+  const mode = normalizeSparkAgentMode(raw.mode, filePath);
+  return {
+    version: 2,
+    ...(projectRef ? { projectRef } : {}),
+    ...(currentTaskRef ? { currentTaskRef } : {}),
+    ...(mode ? { mode } : {}),
+  };
+}
+
+export function normalizeSparkAgentMode(
+  value: unknown,
+  filePath = "<input>",
+): SparkAgentMode | undefined {
+  if (value === undefined) return undefined;
+  if (value === "plan" || value === "execute") return value;
+  throw new JsonStoreFormatError(filePath, "mode must be plan or execute");
+}
+
+function normalizeLegacySparkAgentPhase(
+  value: unknown,
+  filePath: string,
+): SparkAgentMode | undefined {
+  if (value === undefined) return undefined;
+  if (value === "research" || value === "plan") return "plan";
+  if (value === "implement") return "execute";
+  throw new JsonStoreFormatError(filePath, "legacy phase must be research, plan, or implement");
+}
+
+function optionalString(value: unknown, filePath: string, path: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string")
+    throw new JsonStoreFormatError(filePath, `${path} must be a string`);
+  return value.trim() || undefined;
+}
+''')
+
+          # Current-project persistence follows v2 and rewrites any v1 file on read.
+          p = Path('packages/spark-extension/src/extension/current-project-state.ts')
+          text = p.read_text()
+          text = text.replace('type SparkAgentMode,', 'type SparkAgentMode,')
+          text = text.replace('version: 1,', 'version: 2,')
+          text = text.replace('existing?.phase', 'existing?.mode').replace('{ phase: existing.phase }', '{ mode: existing.mode }')
+          text = text.replace('if (existing?.phase) {', 'if (existing?.mode) {')
+          text = text.replace('{ version: 2, phase: existing.phase }', '{ version: 2, mode: existing.mode }')
+          text = text.replace('export async function saveSessionMode(\n  cwd: string,\n  ctx: SparkSessionContext | undefined,\n  phase: SparkAgentMode,', 'export async function saveSessionMode(\n  cwd: string,\n  ctx: SparkSessionContext | undefined,\n  mode: SparkAgentMode,')
+          text = text.replace('    phase,\n  });\n}', '    mode,\n  });\n}', 1)
+          # Rewrite a normalized legacy current-path snapshot immediately.
+          old = '  const raw = await readJsonFileOptional<Record<string, unknown>>(filePath);\n  if (raw) return normalizeCurrentProjectStoreSnapshot(raw, filePath);'
+          new = '  const raw = await readJsonFileOptional<Record<string, unknown>>(filePath);\n  if (raw) {\n    const snapshot = normalizeCurrentProjectStoreSnapshot(raw, filePath);\n    if (raw.version !== 2) await saveCurrentProjectState(cwd, ctx, snapshot);\n    return snapshot;\n  }'
+          text = text.replace(old, new)
+          p.write_text(text)
+
+          # Remove the misleading clear operation: it historically cleared project selection, not phase/mode.
+          p = Path('packages/spark-extension/src/extension/session-mode.ts')
+          text = p.read_text()
+          text = re.sub(r'\nexport async function clearSparkMode\([\s\S]*?\n}\n\nexport const SPARK_SESSION_MODES', '\nexport const SPARK_SESSION_MODES', text, count=1)
+          text = text.replace('  clearCurrentProjectRef,\n', '')
+          p.write_text(text)
+          p = Path('packages/spark-extension/src/extension/session-state.ts')
+          text = p.read_text().replace('  clearSparkMode,\n', '')
+          p.write_text(text)
+
+          # Session entry state uses mode fields; Repro's own phase/stage fields are untouched.
+          targeted = [
+              'packages/spark-extension/src/extension/spark-command-registration.ts',
+              'packages/spark-extension/src/extension/spark-entry-application.ts',
+              'packages/spark-extension/src/extension/spark-entry-resolution.ts',
+              'packages/spark-extension/src/extension/spark-extension-events.ts',
+              'packages/spark-extension/src/extension/spark-active-injection.ts',
+              'packages/spark-extension/src/extension/spark-widget-controller.ts',
+              'packages/spark-extension/src/extension/spark-workflow-loop-entry.ts',
+              'packages/spark-extension/src/extension/spark-repro-tool-registration.ts',
+              'packages/spark-extension/src/extension/spark-tool-registration.ts',
+          ]
+          for name in targeted:
+              p = Path(name)
+              if not p.exists(): continue
+              text = p.read_text()
+              text = text.replace('sparkActiveMode?.phase', 'sparkActiveMode?.mode')
+              text = text.replace('sparkActiveMode: {\n    phase:', 'sparkActiveMode: {\n    mode:')
+              text = text.replace('sparkActiveMode?: {\n    phase:', 'sparkActiveMode?: {\n    mode:')
+              if name.endswith('spark-command-registration.ts'):
+                  text = text.replace('registerCommand("implement"', 'registerCommand("execute"')
+                  text = text.replace('phase: "plan"', 'mode: "plan"', 1)
+                  text = text.replace('phase: "implement"', 'mode: "execute"', 1)
+                  text = text.replace('/implement', '/execute')
+              p.write_text(text)
+
+          # Agent-loop Session routing and ToolPolicy use mode terminology.
+          p = Path('packages/spark-core/src/index.ts')
+          text = p.read_text().replace('phase values', 'mode values').replace('phases?:', 'modes?:').replace('readonly phases:', 'readonly modes:').replace('policy?.phases', 'policy?.modes').replace('phases: Object.freeze', 'modes: Object.freeze')
+          p.write_text(text)
+
+          p = Path('packages/spark-turn/src/prompt-manifest.ts')
+          text = p.read_text().replace('SPARK_PROMPT_MANIFEST_VERSION = 2', 'SPARK_PROMPT_MANIFEST_VERSION = 3')
+          text = text.replace('phases?:', 'modes?:').replace('  phases: string[];', '  modes: string[];').replace('    phases:', '    modes:').replace('input.phases', 'input.modes')
+          p.write_text(text)
+
+          for path in [Path('packages/spark-turn/src/agent-loop.ts'), Path('apps/spark-tui/src/host/agent-loop.ts')]:
+              if not path.exists(): continue
+              text = path.read_text()
+              text = text.replace('SparkAgentMode = "plan" | "implement"', 'SparkAgentMode = "plan" | "execute"')
+              text = text.replace('currentPhase', 'currentMode').replace('setCurrentPhase', 'setCurrentMode').replace('getCurrentPhase', 'getCurrentMode')
+              text = text.replace('.phases', '.modes').replace('phases:', 'modes:')
+              text = text.replace('"implement"', '"execute"')
+              path.write_text(text)
+
+          # Tool policies that explicitly gate plan/implement are Session-mode policies.
+          for path in root.rglob('*.ts'):
+              s = '/' + path.as_posix()
+              if '/0.2/' in s: continue
+              text = path.read_text()
+              old = text
+              def repl(m):
+                  values = m.group(1).replace('"implement"', '"execute"')
+                  return 'modes: [' + values + ']'
+              text = re.sub(r'phases:\s*\[([^\]\n]*(?:"plan"|"implement")[^\]\n]*)\]', repl, text)
+              if text != old: path.write_text(text)
+
+          # Canonical active docs/commands use /execute; archived 0.2 docs remain immutable history.
+          for base in [Path('README.md'), Path('SPARK.md'), Path('docs'), Path('apps/spark-docs/src/content/docs')]:
+              paths = base.rglob('*') if base.is_dir() else [base]
+              for path in paths:
+                  if not path.is_file() or '/0.2/' in '/' + path.as_posix(): continue
+                  try:
+                      text = path.read_text()
+                  except UnicodeDecodeError:
+                      continue
+                  new = text.replace('/implement', '/execute').replace('plan-and-implement', 'plan-and-execute')
+                  if new != text: path.write_text(new)
+
+          # Rename current docs guide paths; archived 0.2 remains untouched.
+          mv('apps/spark-docs/src/content/docs/guides/plan-and-implement.md', 'apps/spark-docs/src/content/docs/guides/plan-and-execute.md')
+          mv('apps/spark-docs/src/content/docs/zh/guides/plan-and-implement.md', 'apps/spark-docs/src/content/docs/zh/guides/plan-and-execute.md')
+          PY
+
+          # Let pnpm regenerate the private workspace importer after package rename.
+          pnpm install --lockfile-only
+          pnpm exec vp fmt . --write
+
+          echo '--- remaining Session phase symbols ---'
+          rg -n 'Spark(Session|Agent|Entry|Active).*Phase|loadSparkPhase|saveSparkPhase|sparkActiveLens|@zendev-lab/spark-phases|packages/spark-phases|/implement|"implement"' \
+            --glob '!apps/spark-docs/src/content/docs/0.2/**' \
+            --glob '!apps/spark-docs/src/content/docs/zh/0.2/**' || true
+
+      - name: Commit migration result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit --no-verify -m "♻️ refactor(mode): rename phase to execute mode"
+          git push origin HEAD:agent/session-mode-execute
