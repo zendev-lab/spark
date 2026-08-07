@@ -2,7 +2,8 @@ import { access, readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
-const WORKFLOW_PATH = new URL("../.github/workflows/ci-verify.yml", import.meta.url);
+const WORKFLOW_PATH = new URL("../.github/workflows/ci-benchmarks.yml", import.meta.url);
+const LEGACY_WORKFLOW_PATH = new URL("../.github/workflows/ci-verify.yml", import.meta.url);
 const SEPARATE_WORKFLOW_PATH = new URL("../.github/workflows/codspeed.yml", import.meta.url);
 
 async function workflowSource(): Promise<string> {
@@ -10,17 +11,18 @@ async function workflowSource(): Promise<string> {
 }
 
 function benchmarkJob(source: string): string {
-  const match = source.match(/^  benchmarks:\n[\s\S]*?(?=^  required:)/mu);
+  const match = source.match(/^  lens:\n[\s\S]*$/mu);
   if (!match) {
-    throw new Error("CI verify workflow must define the benchmarks job before required");
+    throw new Error("CI benchmarks workflow must define the Lens job");
   }
   return match[0];
 }
 
 describe("CodSpeed workflow contract", () => {
-  it("keeps the benchmark in CI Verify with read-only permissions", async () => {
+  it("keeps the benchmark in its dedicated read-only workflow", async () => {
     const source = await workflowSource();
     const job = benchmarkJob(source);
+    await expect(access(LEGACY_WORKFLOW_PATH)).rejects.toThrow();
     await expect(access(SEPARATE_WORKFLOW_PATH)).rejects.toThrow();
     expect(source).toMatch(/^permissions:\n  contents: read$/mu);
     expect(job).not.toMatch(/^\s+id-token:/mu);

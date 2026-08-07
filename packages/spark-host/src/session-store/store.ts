@@ -1,7 +1,7 @@
 /** Filesystem JSONL SparkSessionStore for host-managed sessions. */
 
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { resolveSparkHome } from "@zendev-lab/spark-system";
 
@@ -143,10 +143,41 @@ export class SparkSessionStore {
 
   async findAllById(sessionId: string): Promise<SparkSessionRecord[]> {
     const normalized = normalizeSessionRef(sessionId);
-    const matches = (await this.list()).filter(
-      (info) => info.id === sessionId || info.id === normalized,
-    );
-    return await Promise.all(matches.map(async (info) => await this.load(info.path)));
+    const acceptedIds = new Set([sessionId, normalized]);
+    const paths = await this.findSessionPathsById(acceptedIds);
+    return await Promise.all(paths.map(async (path) => await this.load(path)));
+  }
+
+  /**
+   * Find transcript generations without parsing their complete JSONL bodies.
+   * Startup migrations call this once per registry session, so using list()
+   * here would repeatedly parse the entire workspace transcript directory.
+   */
+  private async findSessionPathsById(acceptedIds: ReadonlySet<string>): Promise<string[]> {
+    let names: string[];
+    try {
+      names = await readdir(this.sessionDir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+
+    const matches: Array<{ path: string; header: SparkSessionHeader }> = [];
+    for (const name of names) {
+      if (!name.endsWith(".jsonl")) continue;
+      const path = join(this.sessionDir, name);
+      const header = await readSessionHeader(path);
+      if (header && acceptedIds.has(header.id) && header.visibility !== "internal") {
+        matches.push({ path, header });
+      }
+    }
+    return matches
+      .sort(
+        (left, right) =>
+          right.header.timestamp.localeCompare(left.header.timestamp) ||
+          right.path.localeCompare(left.path),
+      )
+      .map((match) => match.path);
   }
 
   async loadByRef(sessionRef: string): Promise<SparkSessionRecord> {
@@ -230,6 +261,34 @@ export function parseSparkSessionEntries(content: string): SparkSessionFileEntry
   const header = entries[0];
   if (header.type !== "session" || typeof header.id !== "string") return [];
   return entries;
+}
+
+async function readSessionHeader(path: string): Promise<SparkSessionHeader | undefined> {
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    handle = await open(path, "r");
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const newline = buffer.indexOf(0x0a, 0, bytesRead);
+    if (newline < 0 && bytesRead === buffer.length) return undefined;
+    return parseSessionHeaderLine(buffer.subarray(0, newline >= 0 ? newline : bytesRead));
+  } catch {
+    // Match list(): invalid, incomplete, or inaccessible transcripts are skipped.
+    return undefined;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+function parseSessionHeaderLine(line: Buffer): SparkSessionHeader | undefined {
+  const trimmed = line.toString("utf8").trim();
+  if (!trimmed) return undefined;
+  try {
+    const value = JSON.parse(trimmed) as SparkSessionFileEntry;
+    return value.type === "session" && typeof value.id === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function writeJsonLinesAtomically(

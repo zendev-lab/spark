@@ -98,12 +98,6 @@
       "approvedOccurrencesSha256": "0a5b3f3d70726f1b585ead670bf66b26b5efaa56c07183b190df680dcaf9d4fc"
     },
     {
-      "pattern": "apps/spark-hub/src/lib/components/**/VENDOR.md*",
-      "category": "vendored-provenance",
-      "approvedOccurrenceCount": 10,
-      "approvedOccurrencesSha256": "c513cc24758727c49f05d978fd035c989708d28b53d73386f800cdf4980e87cb"
-    },
-    {
       "pattern": "apps/spark-hub/src/lib/i18n.ts",
       "category": "legacy-cookie-read",
       "approvedOccurrenceCount": 1,
@@ -308,12 +302,6 @@
       "approvedOccurrencesSha256": "bae44b50cf0a07ac4ca1ecf37b6f152b74a2f87ecee34ad4de2859a41d845044"
     },
     {
-      "pattern": "packages/spark-ui/src/markdown/VENDOR.md*",
-      "category": "vendored-provenance",
-      "approvedOccurrenceCount": 6,
-      "approvedOccurrencesSha256": "eacf562350d941d4cbb345704a9c757980a3f97304e551e9992d6b068b68afd6"
-    },
-    {
       "pattern": "packages/spark-update/src/manager.ts",
       "category": "n-minus-one-updater-compatibility",
       "approvedOccurrenceCount": 5,
@@ -362,10 +350,16 @@
       "approvedOccurrencesSha256": "3eaa2695be2946028b62157487a24816a7690893c106a28b063c46c73c5cb578"
     },
     {
+      "pattern": "test/fixtures/architecture-governance.json",
+      "category": "historical-change-evidence",
+      "approvedOccurrenceCount": 2,
+      "approvedOccurrencesSha256": "64dd880a6201d1dd088323dcd1d82fee04cda66b404c45e99aed2127b84b9f46"
+    },
+    {
       "pattern": "test/hub-naming-contract.test.ts",
       "category": "canonical-name-contract-test",
-      "approvedOccurrenceCount": 11,
-      "approvedOccurrencesSha256": "85b836e674e66562fe87bf5f8fbf748f3237275b2a6108b6bd38001c8ee36c32"
+      "approvedOccurrenceCount": 10,
+      "approvedOccurrencesSha256": "fe0ae860ad00e2fb34bbf051915d539625adea78c3bea3f6abf8313bd5b32f07"
     },
     {
       "pattern": "test/hub-terminology-contract.test.ts",

@@ -14,6 +14,22 @@
  */
 
 export {
+  inspectCueCommandContract,
+  requireCueCommandContract,
+  renderCueCommandFailure,
+  runCueCommand,
+} from "./command-contract.ts";
+export type {
+  CueCommandContract,
+  CueCommandInspection,
+  CueCommandInspectionOptions,
+  CueCommandInstallationStatus,
+  CueCommandRunner,
+  CueCommandSpec,
+  CueProcessResult,
+} from "./command-contract.ts";
+
+export {
   CueClient,
   CueError,
   CueTransportError,

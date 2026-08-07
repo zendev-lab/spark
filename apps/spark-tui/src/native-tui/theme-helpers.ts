@@ -8,16 +8,6 @@ import {
 } from "../host/theme.ts";
 
 export const DEFAULT_NATIVE_THEME = BUILTIN_SPARK_THEMES.find((theme) => theme.id === "dark")!;
-export const SPARK_APP_KEYS = new Set([
-  "shift+tab",
-  "ctrl+k",
-  "shift+ctrl+k",
-  "ctrl+l",
-  "ctrl+p",
-  "shift+ctrl+p",
-  "ctrl+o",
-  "ctrl+t",
-]);
 export function createEditorTheme(theme: SparkTheme) {
   const renderTheme = createSparkHostRenderTheme(theme);
   const editorSelectListTheme: SelectListTheme = {
@@ -31,10 +21,6 @@ export function createEditorTheme(theme: SparkTheme) {
     borderColor: (text: string) => renderTheme.fg("border", text),
     selectList: editorSelectListTheme,
   };
-}
-
-export function isSparkAppKey(key: string): boolean {
-  return SPARK_APP_KEYS.has(key);
 }
 
 export function isOverlayRequest(value: unknown): value is {

@@ -19,7 +19,20 @@ export interface FakeSparkNativeTuiState {
   exited: boolean;
 }
 
-export interface SparkNativeTuiHarness {
+export interface SparkNativeTuiComponentSnapshot {
+  readonly rows: number;
+  readonly columns: number;
+  readonly focused: boolean;
+  readonly exited: boolean;
+  readonly toolsExpanded: boolean;
+  readonly thinkingExpanded: boolean;
+  readonly hub: ReturnType<SparkNativeTuiApp["hubSnapshot"]>;
+  readonly actionBar: ReturnType<SparkNativeTuiApp["actionBarSnapshot"]>;
+  readonly renderRequests: readonly boolean[];
+  readonly renderedLines: readonly string[];
+}
+
+export interface SparkNativeTuiComponentHarness {
   readonly tui: TUI;
   readonly app: SparkNativeTuiApp;
   readonly session: SparkNativeSession;
@@ -27,12 +40,16 @@ export interface SparkNativeTuiHarness {
   readonly width: number;
   render(width?: number): string;
   renderLines(width?: number): string[];
+  snapshot(width?: number): SparkNativeTuiComponentSnapshot;
+  resize(columns: number, rows: number): Promise<void>;
   press(data: string): Promise<void>;
+  type(text: string): Promise<void>;
+  submitEditor(input: string): Promise<void>;
   submit(input: string): Promise<Awaited<ReturnType<SparkNativeTuiApp["submitInput"]>>>;
   flush(): Promise<void>;
 }
 
-export interface SparkNativeTuiHarnessOptions {
+export interface SparkNativeTuiComponentHarnessOptions {
   rows?: number;
   cols?: number;
   responder?: SparkNativeResponder;
@@ -47,9 +64,9 @@ export interface SparkNativeTuiHarnessOptions {
   workspaceSession?: SparkNativeWorkspaceSessionState;
 }
 
-export function createSparkNativeTuiHarness(
-  options: SparkNativeTuiHarnessOptions = {},
-): SparkNativeTuiHarness {
+export function createSparkNativeTuiComponentHarness(
+  options: SparkNativeTuiComponentHarnessOptions = {},
+): SparkNativeTuiComponentHarness {
   const width = options.cols ?? 100;
   const state: FakeSparkNativeTuiState = {
     children: [],
@@ -58,8 +75,9 @@ export function createSparkNativeTuiHarness(
     focused: undefined,
     exited: false,
   };
+  const terminal = { rows: options.rows ?? 30, columns: width };
   const fakeTui = {
-    terminal: { rows: options.rows ?? 30, columns: width },
+    terminal,
     requestRender(force?: boolean) {
       state.renderRequests.push(force === true);
     },
@@ -103,15 +121,48 @@ export function createSparkNativeTuiHarness(
     app,
     session,
     state,
-    width,
+    get width() {
+      return terminal.columns;
+    },
     render(renderWidth = width) {
       return app.render(renderWidth).join("\n");
     },
-    renderLines(renderWidth = width) {
+    renderLines(renderWidth = terminal.columns) {
       return app.render(renderWidth);
+    },
+    snapshot(renderWidth = terminal.columns) {
+      return {
+        rows: terminal.rows,
+        columns: renderWidth,
+        focused: app.focused,
+        exited: state.exited,
+        toolsExpanded: app.areToolsExpanded(),
+        thinkingExpanded: app.isThinkingExpanded(),
+        hub: app.hubSnapshot(),
+        actionBar: app.actionBarSnapshot(),
+        renderRequests: [...state.renderRequests],
+        renderedLines: app.render(renderWidth),
+      };
+    },
+    async resize(columns: number, rows: number) {
+      terminal.columns = Math.max(1, columns);
+      terminal.rows = Math.max(1, rows);
+      app.invalidate();
+      await flushNativeTuiMicrotasks();
     },
     async press(data: string) {
       app.handleInput(data);
+      await flushNativeTuiMicrotasks();
+    },
+    async type(text: string) {
+      for (const character of text) {
+        app.handleInput(character);
+      }
+      await flushNativeTuiMicrotasks();
+    },
+    async submitEditor(input: string) {
+      app.setEditorText(input);
+      app.handleInput("\r");
       await flushNativeTuiMicrotasks();
     },
     async submit(input: string) {

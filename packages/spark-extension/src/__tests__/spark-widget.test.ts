@@ -193,7 +193,7 @@ test("spark widget shows compact workflow-run progress above project details", (
 test("spark widget keeps goal/project summary free of static evidence review hints", () => {
   const lines = renderSparkWidgetLines(
     widgetState({
-      goal: { status: "active", objective: "improve the zellij session workflow" },
+      goal: { status: "active", objective: "improve the terminal session workflow" },
       projects: [
         {
           title: "Spark daemon session UX",

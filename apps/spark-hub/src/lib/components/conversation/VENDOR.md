@@ -53,12 +53,12 @@
 ## Local changes
 
 These are source-derived Spark components, not a registry snapshot. The composition and interaction
-ideas above were translated to Svelte 5 components that use Cockpit's scoped CSS and Spark tokens.
+ideas above were translated to Svelte 5 components that use Hub's scoped CSS and Spark tokens.
 
 - Removed Tailwind, shadcn-svelte, Bits UI, `runed`, and AI SDK dependencies from the conversation
   shell. Markdown rendering now delegates to the separately vendored Svelte AI Elements Response
   boundary in `../response/`.
-- Replaced AI SDK message, tool, file, and chat state types with Cockpit-local `ConversationPart` types.
+- Replaced AI SDK message, tool, file, and chat state types with Hub-local `ConversationPart` types.
 - Kept the daemon session snapshot and SvelteKit form actions as the only conversation truth and
   submission path. The components own presentation state such as scroll position and disclosure only.
 - Conversation text renders through `SafeMarkdown` and the Response/Streamdown boundary. Typed
@@ -73,7 +73,7 @@ ideas above were translated to Svelte 5 components that use Cockpit's scoped CSS
   slash-command listbox, jump-to-latest, message copy, reduced-motion behavior, and Spark i18n labels
   supplied by the route shell. The composer keeps a Header/Body/command-surface/Footer split while
   leaving command semantics and form submission in their existing Spark owners.
-- Approval actions are an optional snippet. Cockpit must provide it only when a canonical daemon
+- Approval actions are an optional snippet. Hub must provide it only when a canonical daemon
   interaction action exists; this directory does not create browser-local approval semantics.
 - Ported Queue's collapsible count, bounded list, long-message treatment, and hover/focus action
   affordance into `SessionQueue`. The component receives daemon-projected items and an optional
@@ -82,4 +82,4 @@ ideas above were translated to Svelte 5 components that use Cockpit's scoped CSS
 ## Update procedure
 
 Review the pinned upstream files manually, port useful behavior deliberately, update this record, and
-run the Cockpit boundary, check, and test gates. Do not run an install-time registry overwrite.
+run the Hub boundary, check, and test gates. Do not run an install-time registry overwrite.

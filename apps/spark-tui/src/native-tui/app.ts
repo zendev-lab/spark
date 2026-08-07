@@ -117,12 +117,7 @@ import {
   presentNativeSecretPrompt,
   presentNativeSelectPrompt,
 } from "./prompt.ts";
-import {
-  createEditorTheme,
-  DEFAULT_NATIVE_THEME,
-  isOverlayRequest,
-  isSparkAppKey,
-} from "./theme-helpers.ts";
+import { createEditorTheme, DEFAULT_NATIVE_THEME, isOverlayRequest } from "./theme-helpers.ts";
 import {
   NATIVE_WORKING_SPINNER_FRAMES,
   NATIVE_WORKING_SPINNER_INTERVAL_MS,
@@ -392,16 +387,16 @@ export class SparkNativeTuiApp implements Component, Focusable {
       this.tui.requestRender();
       return;
     }
-    if (this.handleSparkKeybinding(data)) return;
     if (matchesKey(data, Key.ctrl("c")) || matchesKey(data, Key.ctrl("d"))) {
       this.onExit();
       return;
     }
-    if (matchesKey(data, Key.ctrl("o"))) {
+    if (this.handleSparkKeybinding(data)) return;
+    if (!this.keybindings && matchesKey(data, Key.ctrl("o"))) {
       this.toggleTools();
       return;
     }
-    if (matchesKey(data, Key.ctrl("t"))) {
+    if (!this.keybindings && matchesKey(data, Key.ctrl("t"))) {
       this.toggleThinking();
       return;
     }
@@ -1255,7 +1250,7 @@ export class SparkNativeTuiApp implements Component, Focusable {
   private handleSparkKeybinding(data: string): boolean {
     const key = parseKey(data) ?? data;
     const keybindings = this.keybindings;
-    if (!keybindings || !isSparkAppKey(key)) return false;
+    if (!keybindings || !keybindings.canExecuteKey(key, this.keybindingContext)) return false;
     void keybindings.executeKey(key, this.keybindingContext).then(
       (didHandle) => {
         if (didHandle) {
@@ -2274,14 +2269,10 @@ export class SparkNativeTuiApp implements Component, Focusable {
 
   private messagePrefix(message: SparkNativeMessage): string {
     if (message.role === "user") {
-      if (!message.queued) {
-        const senderLabel = userSenderLabelFromDetails(message.details);
-        return senderLabel ? `${senderLabel}> ` : "you> ";
-      }
-      const mode = stringFromRecord(message.details ?? {}, "queueMode");
-      return nativeTuiStrings.queuedUserPrefix(mode === "followUp" ? "followUp" : "steer");
+      const senderLabel = userSenderLabelFromDetails(message.details);
+      return senderLabel ? `> ${senderLabel}: ` : "> ";
     }
-    if (message.role === "assistant") return "spark> ";
+    if (message.role === "assistant") return "";
     if (message.role === "custom") return `custom:${message.customType ?? "custom"}> `;
     if (message.role === "tool") return `tool:${message.toolName ?? "tool"}> `;
     if (message.role === "thinking") return "thinking> ";

@@ -35,7 +35,7 @@ hooks = [{ id = "actionlint", stages = ["pre-commit"] }]
 
 [[repos]]
 repo = "https://github.com/crate-ci/typos"
-rev = "v1.33.1"
+rev = "v1.48.0"
 hooks = [{ id = "typos", args = ["--force-exclude"], stages = ["pre-commit"] }]
 
 [[repos]]

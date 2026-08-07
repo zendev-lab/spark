@@ -464,6 +464,53 @@ describe("Spark daemon restart successor", () => {
     expect(stopDetached).toHaveBeenCalledOnce();
   });
 
+  it("keeps an explicit detached service root away from the macOS global supervisor", () => {
+    const startLaunchd = vi.fn(() => ({
+      kind: "launchd" as const,
+      alreadyRunning: false,
+      detail: "launchd",
+    }));
+    const startDetached = vi.fn(() => ({
+      kind: "detached" as const,
+      alreadyRunning: false,
+      detail: "detached",
+    }));
+    const stopLaunchd = vi.fn(() => ({
+      kind: "launchd" as const,
+      alreadyRunning: false,
+      detail: "launchd stopped",
+    }));
+    const stopDetached = vi.fn(() => ({
+      kind: "detached" as const,
+      alreadyRunning: false,
+      detail: "detached stopped",
+    }));
+
+    expect(
+      startSparkDaemonService(paths, {
+        serviceMode: "detached",
+        platform: "darwin",
+        guiDomainAvailable: () => true,
+        startLaunchd,
+        startDetached,
+      }).kind,
+    ).toBe("detached");
+    expect(startLaunchd).not.toHaveBeenCalled();
+    expect(startDetached).toHaveBeenCalledOnce();
+
+    expect(
+      stopSparkDaemonService(paths, {
+        serviceMode: "detached",
+        platform: "darwin",
+        supervisorRegistered: () => true,
+        stopLaunchd,
+        stopDetached,
+      })?.kind,
+    ).toBe("detached");
+    expect(stopLaunchd).not.toHaveBeenCalled();
+    expect(stopDetached).toHaveBeenCalledOnce();
+  });
+
   it("starts exactly one replacement when no supervisor appears", async () => {
     let started = false;
     const startService = vi.fn(() => {

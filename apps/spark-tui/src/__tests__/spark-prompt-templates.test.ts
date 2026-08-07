@@ -11,7 +11,7 @@ import {
   substituteSparkPromptTemplateArgs,
   type SparkPromptTemplate,
 } from "../host/index.ts";
-import { createSparkNativeTuiHarness } from "../test-support/spark-native-tui-harness.ts";
+import { createSparkNativeTuiComponentHarness } from "../test-support/spark-native-tui-component-harness.ts";
 
 const ESC = String.fromCharCode(27);
 const ANSI_PATTERN = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, "gu");
@@ -143,7 +143,7 @@ test("Spark prompt templates register as slash commands without overriding built
     assert.ok(commands.component);
 
     const submitted: string[] = [];
-    const harness = createSparkNativeTuiHarness({
+    const harness = createSparkNativeTuiComponentHarness({
       slashCommands: commands,
       autocompleteBasePath: dir,
       responder: (input) => {
@@ -188,7 +188,7 @@ function promptTemplate(
 }
 
 async function typeEditorText(
-  harness: ReturnType<typeof createSparkNativeTuiHarness>,
+  harness: ReturnType<typeof createSparkNativeTuiComponentHarness>,
   text: string,
 ): Promise<void> {
   for (const char of text) await harness.press(char);

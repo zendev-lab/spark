@@ -2,8 +2,6 @@ name: "CI - PR Checks"
 
 on:
   pull_request:
-    branches:
-      - main
     types:
       - opened
       - edited
@@ -23,22 +21,63 @@ concurrency:
 
 jobs:
   title:
-    name: PR title
+    name: PR Title
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: github.event_name == 'pull_request'
         with:
           persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: github.event_name == 'pull_request'
+        with:
+          node-version-file: .node-version
 
       - name: Check PR title
         if: >-
           github.event_name == 'pull_request' &&
           github.event.pull_request.user.login != 'renovate[bot]'
-        uses: zrr1999/zendev/actions/validate-title@v0.0.7
-        with:
-          text: ${{ github.event.pull_request.title }}
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: node scripts/validate-pr-title.mjs
+
+      - name: Skip PR title check for Renovate
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.user.login == 'renovate[bot]'
+        run: echo "Renovate PR titles are exempt from the repository title convention."
 
       - name: Confirm queued PR titles were already checked
         if: github.event_name == 'merge_group'
         run: echo "PR titles passed required checks before entering the merge queue."
+
+  body:
+    name: PR Body
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: github.event_name == 'pull_request'
+        with:
+          node-version-file: .node-version
+
+      - name: Check PR body
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.user.login != 'renovate[bot]'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/validate-pr-body.mjs
+
+      - name: Skip PR body check for Renovate
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.user.login == 'renovate[bot]'
+        run: echo "Renovate PR bodies are exempt from the human PR description template."
+
+      - name: Confirm queued PR bodies were already checked
+        if: github.event_name == 'merge_group'
+        run: echo "PR bodies passed required checks before entering the merge queue."

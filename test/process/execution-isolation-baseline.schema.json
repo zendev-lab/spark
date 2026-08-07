@@ -1,0 +1,385 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spark.zendev-lab.dev/schemas/execution-isolation-baseline/v1.json",
+  "title": "Spark execution isolation baseline report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "version", "generatedAt", "environment", "assertions", "fixtures"],
+  "properties": {
+    "$schema": {
+      "const": "./test/process/execution-isolation-baseline.schema.json"
+    },
+    "version": {
+      "const": 1
+    },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform",
+        "release",
+        "arch",
+        "node",
+        "commit",
+        "sourceTreeDirty",
+        "schedulerConcurrency",
+        "controlProbeIntervalMs",
+        "controlResponsiveGapLimitMs",
+        "invocationTimeoutMsByFixture",
+        "fixtureParameters"
+      ],
+      "properties": {
+        "platform": {
+          "enum": ["darwin", "linux"]
+        },
+        "release": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "node": {
+          "type": "string",
+          "pattern": "^v26\\."
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "sourceTreeDirty": {
+          "type": "boolean"
+        },
+        "schedulerConcurrency": {
+          "const": 2
+        },
+        "controlProbeIntervalMs": {
+          "const": 100
+        },
+        "controlResponsiveGapLimitMs": {
+          "type": "integer",
+          "minimum": 250,
+          "maximum": 1000
+        },
+        "invocationTimeoutMsByFixture": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["default", "abortIgnoringTool", "hungExternalChild"],
+          "properties": {
+            "default": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "abortIgnoringTool": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "hungExternalChild": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "fixtureParameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "syncCpuDurationMs",
+            "asyncProviderReleaseDelayMs",
+            "abortIgnoringReleaseDelayMs",
+            "attachmentBytes",
+            "childTermGraceMs"
+          ],
+          "properties": {
+            "syncCpuDurationMs": {
+              "const": 5000
+            },
+            "asyncProviderReleaseDelayMs": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "abortIgnoringReleaseDelayMs": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "attachmentBytes": {
+              "const": 12582912
+            },
+            "childTermGraceMs": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "assertions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cpuGapObserved",
+        "cpuSecondTerminalAfterRelease",
+        "asyncProviderControlResponsive",
+        "asyncProviderSecondTerminalBeforeRelease",
+        "abortIgnoringControlResponsive",
+        "abortIgnoringTerminalBeforeSettlement",
+        "abortIgnoringSecondQueuedUntilRelease",
+        "hungChildTerminalBeforeHarnessCleanup",
+        "hungChildSecondQueuedUntilRelease",
+        "hungChildRequiredSigkill",
+        "hungChildSignalTimelineOrdered",
+        "hungChildHarnessCleanupExplicit"
+      ],
+      "properties": {
+        "cpuGapObserved": { "const": true },
+        "cpuSecondTerminalAfterRelease": { "const": true },
+        "asyncProviderControlResponsive": { "const": true },
+        "asyncProviderSecondTerminalBeforeRelease": { "const": true },
+        "abortIgnoringControlResponsive": { "const": true },
+        "abortIgnoringTerminalBeforeSettlement": { "const": true },
+        "abortIgnoringSecondQueuedUntilRelease": { "const": true },
+        "hungChildTerminalBeforeHarnessCleanup": { "const": true },
+        "hungChildSecondQueuedUntilRelease": { "const": true },
+        "hungChildRequiredSigkill": { "const": true },
+        "hungChildSignalTimelineOrdered": { "const": true },
+        "hungChildHarnessCleanupExplicit": { "const": true }
+      }
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "$ref": "#/$defs/fixture"
+      }
+    }
+  },
+  "$defs": {
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["intervalMs", "sampleCount", "samples", "maxGapMs", "rssBytes"],
+      "properties": {
+        "intervalMs": {
+          "const": 100
+        },
+        "sampleCount": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "samples": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "$ref": "#/$defs/probeSample"
+          }
+        },
+        "maxGapMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rssBytes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["before", "peak", "after"],
+          "properties": {
+            "before": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "peak": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "after": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    },
+    "probeSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timestampMs",
+        "heartbeat",
+        "rssBytes",
+        "primaryStatus",
+        "secondStatus",
+        "secondTerminalAtMs"
+      ],
+      "properties": {
+        "timestampMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "heartbeat": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "rssBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "primaryStatus": {
+          "type": ["string", "null"],
+          "enum": ["queued", "running", "succeeded", "failed", "cancelled", null]
+        },
+        "secondStatus": {
+          "type": ["string", "null"],
+          "enum": ["queued", "running", "succeeded", "failed", "cancelled", null]
+        },
+        "secondTerminalAtMs": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "invocationId",
+        "sessionId",
+        "status",
+        "createdAtMs",
+        "startedAtMs",
+        "terminalAtMs"
+      ],
+      "properties": {
+        "invocationId": {
+          "type": "string",
+          "pattern": "^inv_[A-Za-z0-9]+$"
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": ["queued", "running", "succeeded", "failed", "cancelled"]
+        },
+        "createdAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "startedAtMs": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "terminalAtMs": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      }
+    },
+    "child": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pid",
+        "spawnedAtMs",
+        "termSentAtMs",
+        "killSentAtMs",
+        "exitedAtMs",
+        "cleanupOwner",
+        "productionCleanupObserved"
+      ],
+      "properties": {
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "spawnedAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "termSentAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "killSentAtMs": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "exitedAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cleanupOwner": {
+          "const": "test-harness"
+        },
+        "productionCleanupObserved": {
+          "const": false
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "classification", "executionPath", "probe"],
+      "properties": {
+        "id": {
+          "enum": [
+            "idle-control",
+            "sync-cpu",
+            "async-provider",
+            "abort-ignoring-tool",
+            "attachment-sync-io",
+            "hung-external-child"
+          ]
+        },
+        "classification": {
+          "enum": [
+            "control",
+            "event-loop-blocked",
+            "async-wait",
+            "session-fence-occupancy",
+            "sync-io",
+            "external-child-lifecycle"
+          ]
+        },
+        "executionPath": {
+          "enum": [
+            "control-probe",
+            "SparkAgentLoop.provider",
+            "SparkAgentLoop.tool",
+            "sessionRunPrompt.materializeTurnFiles"
+          ]
+        },
+        "probe": {
+          "$ref": "#/$defs/probe"
+        },
+        "primary": {
+          "$ref": "#/$defs/invocation"
+        },
+        "second": {
+          "$ref": "#/$defs/invocation"
+        },
+        "releaseAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "terminalBeforeExecutorSettlement": {
+          "type": "boolean"
+        },
+        "secondQueuedUntilRelease": {
+          "type": "boolean"
+        },
+        "attachmentBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "child": {
+          "$ref": "#/$defs/child"
+        }
+      }
+    }
+  }
+}

@@ -17,7 +17,7 @@ import {
 } from "../host/index.ts";
 import { createEditorTheme } from "../native-tui/theme-helpers.ts";
 import { SparkNativeSession } from "../native-tui.ts";
-import { createSparkNativeTuiHarness } from "../test-support/spark-native-tui-harness.ts";
+import { createSparkNativeTuiComponentHarness } from "../test-support/spark-native-tui-component-harness.ts";
 
 const ESC = String.fromCharCode(27);
 
@@ -195,7 +195,7 @@ test("loadSparkThemeCatalog loads builtin and user themes with active fallback",
 });
 
 test("Spark native renderer applies theme colors to markdown and diff/tool output", () => {
-  const harness = createSparkNativeTuiHarness({ cols: 100, theme: testTheme });
+  const harness = createSparkNativeTuiComponentHarness({ cols: 100, theme: testTheme });
   harness.session.appendAssistantChunk("# Heading\n\nHere is `code`.");
   harness.session.finishAssistantMessage();
   harness.session.addToolMessage({
@@ -206,7 +206,7 @@ test("Spark native renderer applies theme colors to markdown and diff/tool outpu
   harness.app.toggleTools();
 
   const rendered = harness.render();
-  assert.match(rendered, /spark> .*Heading/);
+  assert.match(rendered, /Heading/);
   assert.match(rendered, /Here is .*code/);
   assert.match(rendered, /tool:edit \[succeeded\]/);
   assert.equal(rendered.includes(`${ESC}[38;2;1;2;3m+added line${ESC}[0m`), true);

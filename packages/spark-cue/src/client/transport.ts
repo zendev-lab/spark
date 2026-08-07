@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { env } from "node:process";
 import { cueShellProcessEnvironment } from "../executable-environment.ts";
+import { requireCueCommandContract } from "../command-contract.ts";
 import { CueError, type CueResolvedTransport } from "../wire/types.ts";
 
 export type { CueResolvedTransport };
@@ -19,36 +20,26 @@ export function defaultSocketPath(): string {
   return join(runtimeDir, APP_DIR, SOCK_NAME);
 }
 
-interface ResolverAttempt {
-  command: string;
-  args: string[];
+export async function resolveCueTransport(): Promise<CueResolvedTransport> {
+  const timeoutMs = timeoutMsFromEnv("PI_CUE_RESOLVER_TIMEOUT_MS", DEFAULT_CUE_RESOLVER_TIMEOUT_MS);
+  const contract = await requireCueCommandContract({ timeoutMs });
+  const command = contract.client.command;
+  const args = [...contract.client.args, "target", "resolve", "--json"];
+  try {
+    const stdout = await runResolverAttempt({ command, args });
+    return parseResolvedTransport(stdout, `${command} ${args.join(" ")}`);
+  } catch (error) {
+    throw new CueError(
+      "TRANSPORT_RESOLVE_FAILED",
+      `failed to resolve cue-shell client transport via ${contract.status} command ${command} ${args.join(" ")}: ${(error as Error).message}`,
+    );
+  }
 }
 
 export const DEFAULT_CUE_RESOLVER_TIMEOUT_MS = 10_000;
 export const DEFAULT_CUE_CONNECT_TIMEOUT_MS = 10_000;
 
-const RESOLVER_ATTEMPTS: ResolverAttempt[] = [
-  { command: "cue-client", args: ["target", "resolve", "--json"] },
-  { command: "cue", args: ["client", "target", "resolve", "--json"] },
-];
-
-export async function resolveCueTransport(): Promise<CueResolvedTransport> {
-  const failures: string[] = [];
-  for (const attempt of RESOLVER_ATTEMPTS) {
-    try {
-      const stdout = await runResolverAttempt(attempt);
-      return parseResolvedTransport(stdout, `${attempt.command} ${attempt.args.join(" ")}`);
-    } catch (error) {
-      failures.push(`${attempt.command} ${attempt.args.join(" ")}: ${(error as Error).message}`);
-    }
-  }
-  throw new CueError(
-    "TRANSPORT_RESOLVE_FAILED",
-    `failed to resolve cue-shell client transport via cue-client. Tried:\n${failures.join("\n")}`,
-  );
-}
-
-function runResolverAttempt(attempt: ResolverAttempt): Promise<string> {
+function runResolverAttempt(attempt: { command: string; args: string[] }): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(attempt.command, attempt.args, {
       env: cueShellProcessEnvironment(),

@@ -108,10 +108,14 @@ modified.
 ```text
 spark daemon status [--json]
 spark daemon start
-spark daemon stop
+spark daemon stop [--yes] [--wait]
 spark daemon restart [--yes] [--wait]
 spark daemon logs [--follow] [--lines <n>]
 ```
+
+`spark daemon stop --wait` returns only after the exact owned daemon process
+has exited or been replaced. Recovery paths use this fence before starting a
+successor.
 
 `spark daemon login` authorizes this machine to connect to Hub. It never
 configures an AI provider.
