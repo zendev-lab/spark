@@ -7,6 +7,15 @@ Spark does not bundle a model-specific reproduction skill. The reproduction
 workspace owns its methodology, templates, and project-specific diagnostics;
 Spark supplies the generic state, scheduling, and evidence boundaries.
 
+## Autonomous vNext contract
+
+The normative dual-lane, asynchronous-evidence, Profile/progress, numerical
+frontier, ReportModel, and completion semantics are defined in
+[`../../docs/specs/autonomous-dual-lane.md`](../../docs/specs/autonomous-dual-lane.md).
+The current work-summary/session adapters remain compatibility inputs until their
+explicit versioned migrations land; callers must not emulate vNext by parsing
+reports or adding another scheduler/store.
+
 ## Canonical work summary
 
 New cross-surface Repro state is written through
@@ -31,9 +40,12 @@ run at the frozen `validationTopology`; separate partial-topology gates cannot b
 unioned into parity.
 
 Evidence and user-visible artifacts use separate namespaces. Gates, decisions,
-experiments, and conclusions carry `evidenceRefs`; `artifactRefs` bind presentation
-artifacts, with optional `reportArtifactRef` identifying the stable per-run Markdown
-report Document.
+experiments, and conclusions carry `evidenceRefs`; workspace-local machine
+receipts use distinct `evidencePaths`; `artifactRefs` bind presentation
+artifacts, with optional `reportArtifactRef` identifying the stable per-run
+Markdown Document. A standard-Markdown workspace export may be produced for
+offline handoff, but it is not a state source or a required live-Artifact
+intermediate.
 
 ## Legacy session protocol
 
