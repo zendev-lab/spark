@@ -112,6 +112,7 @@ import { collectReproExperimentIssues } from "../extension/spark-repro-experimen
 import { normalizeSparkClaimTaskInput } from "../extension/spark-claim-task-tool-registration.ts";
 import { normalizeSparkFinishTaskInput } from "../extension/spark-finish-task-tool-registration.ts";
 import {
+  quarantineLegacyArtifactSubjectReviews,
   rebuildSubjectReviewIndex,
   rebuildWorkspaceReviewIndex,
   subjectReviewRecordPath,
@@ -5828,7 +5829,7 @@ test("subject review rebuild rejects controlled mixed canonical and legacy Evide
   }
 });
 
-test("workspace review rebuild quarantines legacy Artifact reviews without blocking Evidence reviews", async () => {
+test("workspace review migration quarantines legacy Artifact reviews without promoting them", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-subject-review-workspace-mixed-"));
   try {
     const reviewDir = join(
@@ -5853,8 +5854,9 @@ test("workspace review rebuild quarantines legacy Artifact reviews without block
         reviewedAt: "2026-07-02T00:00:00.000Z",
       }),
     );
+    const sourcePath = join(reviewDir, "artifact-legacy.json");
     await writeFile(
-      join(reviewDir, "artifact-legacy.json"),
+      sourcePath,
       JSON.stringify({
         version: 1,
         subjectKind: "task",
@@ -5866,22 +5868,36 @@ test("workspace review rebuild quarantines legacy Artifact reviews without block
       }),
     );
 
+    const dryRun = await quarantineLegacyArtifactSubjectReviews(dir, { apply: false });
+    assert.equal(dryRun.applied, false);
+    assert.deepEqual(dryRun.entries, [
+      {
+        sourcePath: ".spark/projects/proj-current/tasks/task-current/reviews/artifact-legacy.json",
+        quarantinePath:
+          ".spark/reviews/legacy-artifact-records/projects/proj-current/tasks/task-current/reviews/artifact-legacy.json",
+        legacyArtifactRef: "artifact:legacy-review",
+      },
+    ]);
+    assert.equal(existsSync(sourcePath), true);
+
+    const migration = await quarantineLegacyArtifactSubjectReviews(dir, { apply: true });
+    assert.equal(migration.applied, true);
+    assert.equal(existsSync(sourcePath), false);
+    assert.equal(existsSync(join(dir, migration.entries[0]!.quarantinePath)), true);
+    assert.match(
+      await readFile(join(dir, migration.manifestPath), "utf8"),
+      /"legacyArtifactRef": "artifact:legacy-review"/,
+    );
+
     const index = await rebuildWorkspaceReviewIndex(dir);
     assert.deepEqual(
       index.reviews.map((review) => review.evidenceRef),
       ["evidence:current-review"],
     );
-    assert.deepEqual(index.skipped, [
-      {
-        path: "projects/proj-current/tasks/task-current/reviews/artifact-legacy.json",
-        reason: "legacy_artifact_review_not_promoted",
-        legacyArtifactRef: "artifact:legacy-review",
-      },
-    ]);
-    assert.match(
-      await readFile(join(dir, ".spark", "reviews", "index.json"), "utf8"),
-      /"legacyArtifactRef": "artifact:legacy-review"/,
-    );
+    assert.deepEqual(index.skipped, []);
+    const repeated = await quarantineLegacyArtifactSubjectReviews(dir, { apply: true });
+    assert.equal(repeated.applied, true);
+    assert.deepEqual(repeated.entries, migration.entries);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
