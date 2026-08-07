@@ -14,6 +14,7 @@ function registered(name: string, promptGuidelines?: string[]): SparkTurnRegiste
     description: `${name} description`,
     parameters: { type: "object", properties: {} },
     ...(promptGuidelines ? { promptGuidelines } : {}),
+    execute: async () => ({ content: [{ type: "text", text: name }] }),
   };
   return { config, active: true };
 }
