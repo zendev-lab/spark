@@ -36,6 +36,8 @@ jobs:
 
       # Use the repo-pinned prek binary. The action cache is PR-ref scoped and
       # restoring it twice cost substantially more than the hooks themselves.
+      # Skip the fix-class hook; pure checks are enforced by the project job via
+      # check:static.
       - run: pnpm exec prek run --all-files --skip spark-check-fix
 
   project:
