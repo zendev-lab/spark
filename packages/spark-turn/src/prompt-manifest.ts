@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const SPARK_PROMPT_MANIFEST_VERSION = 3 as const;
+export const SPARK_PROMPT_MANIFEST_VERSION = 4 as const;
 
 export type SparkPromptManifestToolEffect =
   | "read"
@@ -19,6 +19,7 @@ export interface SparkPromptManifestToolInput {
   requiresApproval?: boolean;
   domains?: readonly string[];
   modes?: readonly string[];
+  promptGuidelines?: readonly string[];
 }
 
 export interface SparkPromptManifestTool {
@@ -28,6 +29,7 @@ export interface SparkPromptManifestTool {
   approval: "none" | "required";
   domains: string[];
   modes: string[];
+  guidanceHash?: string;
 }
 
 export interface SparkPromptManifestRoundtrip {
@@ -137,6 +139,7 @@ export function buildSparkPromptManifest(
 }
 
 function normalizeTool(input: SparkPromptManifestToolInput): SparkPromptManifestTool {
+  const guidance = guidanceHash(input.promptGuidelines);
   return {
     name: normalizedLabel(input.name) ?? "unknown",
     effect: normalizeEffect(input.effect),
@@ -144,7 +147,13 @@ function normalizeTool(input: SparkPromptManifestToolInput): SparkPromptManifest
     approval: input.requiresApproval === true ? "required" : "none",
     domains: uniqueLabels(input.domains ?? []),
     modes: uniqueLabels(input.modes ?? []),
+    ...(guidance ? { guidanceHash: guidance } : {}),
   };
+}
+
+function guidanceHash(values: readonly string[] | undefined): string | undefined {
+  const normalized = uniqueLabels(values ?? []);
+  return normalized.length > 0 ? hashText(JSON.stringify(normalized)).slice(0, 16) : undefined;
 }
 
 function normalizeEffect(value: string | undefined): SparkPromptManifestToolEffect {
