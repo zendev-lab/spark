@@ -29,6 +29,7 @@ import type {
   HeartbeatTaskClaimInput,
   ProjectTodoSummary,
   TaskGraphSnapshot,
+  TaskDependencyReplacementResult,
   TaskPlanInput,
   TaskPlanResult,
   TaskTodoOp,
@@ -649,6 +650,44 @@ export class TaskGraph {
       this.#tasks.set(taskRef, { ...task, status: "pending", updatedAt: nowIso() });
     }
     return dependency;
+  }
+
+  replaceTaskDependencies(
+    taskRef: TaskRef,
+    dependsOnRefs: readonly TaskRef[],
+  ): TaskDependencyReplacementResult {
+    const task = this.getTask(taskRef);
+    const uniqueDependsOnRefs = [...new Set(dependsOnRefs)];
+    const replacements = uniqueDependsOnRefs.map((dependsOn) => {
+      const prerequisite = this.getTask(dependsOn);
+      if (task.projectRef !== prerequisite.projectRef)
+        throw new DependencyError("task dependencies cannot cross projects");
+      if (taskRef === dependsOn) throw new DependencyError("task cannot depend on itself");
+      if (prerequisite.status === "cancelled" && task.status !== "cancelled")
+        throw new DependencyError(
+          `task cannot depend on cancelled task: ${taskRef} depends on ${dependsOn}`,
+        );
+      return { taskRef, dependsOn };
+    });
+    const existing = this.#dependencies.filter((dependency) => dependency.taskRef === taskRef);
+    const next = [
+      ...this.#dependencies.filter((dependency) => dependency.taskRef !== taskRef),
+      ...replacements,
+    ];
+    assertAcyclic(next);
+    const existingRefs = new Set(existing.map((dependency) => dependency.dependsOn));
+    const replacementRefs = new Set(replacements.map((dependency) => dependency.dependsOn));
+    const added = replacements.filter((dependency) => !existingRefs.has(dependency.dependsOn));
+    const removed = existing.filter((dependency) => !replacementRefs.has(dependency.dependsOn));
+    const unchanged = replacements.filter((dependency) => existingRefs.has(dependency.dependsOn));
+    this.#dependencies = next;
+    return {
+      task: this.getTask(taskRef),
+      dependencies: replacements,
+      added,
+      removed,
+      unchanged,
+    };
   }
 
   readyTasks(projectRef?: ProjectRef): Task[] {

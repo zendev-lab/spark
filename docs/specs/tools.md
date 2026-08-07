@@ -41,7 +41,7 @@ TUI and Hub use the same daemon-owned Side Thread contract; presentation stays s
 ## State and execution
 
 - `task_read` inspects task, project, workspace, project-list, and run state.
-- `task_write` selects projects and plans, claims, finishes, recovers, or updates tasks. New and claimed tasks require an objectively verifiable plan.
+- `task_write` selects projects and plans, claims, finishes, recovers, or updates tasks. New tasks and any update that changes task-plan content require an objectively verifiable plan. To change only an existing task's dependency set, `action: "plan"` accepts one exact `taskRef`, `name`, or `title` selector plus `dependsOn`; the array atomically replaces the complete set (`[]` clears it), preserves plan items, and skips unchanged-plan readiness review while still rejecting unknown, cross-project, cancelled-prerequisite, self, and cyclic edges.
 - `assign` dispatches the ready frontier and dry-runs by default. Callers may
   pass an explicit `taskRefs` allowlist; an active Repro requires the verified
   safe frontier and fails closed without it.

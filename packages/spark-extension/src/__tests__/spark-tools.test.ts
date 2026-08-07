@@ -555,6 +555,35 @@ test("Spark tool normalizer groups reject invalid explicit parameters instead of
   assert.equal(taskInputs?.[0]?.plan?.riskLevel, "high");
   assert.deepEqual(taskInputs?.[0]?.plan?.successCriteria, ["command passes"]);
 
+  const dependencyPatch = normalizeSparkPlanTaskInputs(
+    { tasks: [{ name: " existing-task ", dependsOn: [" first ", "second"] }] },
+    new RoleRegistry(),
+  );
+  assert.deepEqual(dependencyPatch, [
+    {
+      mode: "dependency_only",
+      selectorKind: "name",
+      selector: "existing-task",
+      name: "existing-task",
+      dependsOn: ["first", "second"],
+    },
+  ]);
+  assert.deepEqual(
+    normalizeSparkPlanTaskInputs(
+      { tasks: [{ taskRef: " task:existing ", dependsOn: [] }] },
+      new RoleRegistry(),
+    ),
+    [
+      {
+        mode: "dependency_only",
+        selectorKind: "taskRef",
+        selector: "task:existing",
+        taskRef: "task:existing",
+        dependsOn: [],
+      },
+    ],
+  );
+
   const claimInput = normalizeSparkClaimTaskInput(
     {
       name: " focused-claim ",
@@ -663,6 +692,38 @@ test("Spark tool normalizer groups reject invalid explicit parameters instead of
             new RoleRegistry(),
           ),
         /tasks\[0\]\.title must be a string/,
+      ],
+      [
+        () =>
+          normalizeSparkPlanTaskInputs(
+            { tasks: [{ name: "Focused task", dependsOn: [], status: "pending" }] },
+            new RoleRegistry(),
+          ),
+        /dependency-only patch only accepts/,
+      ],
+      [
+        () =>
+          normalizeSparkPlanTaskInputs(
+            { tasks: [{ name: "Focused task", title: "Focused task", dependsOn: [] }] },
+            new RoleRegistry(),
+          ),
+        /requires exactly one selector/,
+      ],
+      [
+        () =>
+          normalizeSparkPlanTaskInputs(
+            { tasks: [{ taskRef: "task:focused" }] },
+            new RoleRegistry(),
+          ),
+        /requires dependsOn/,
+      ],
+      [
+        () =>
+          normalizeSparkPlanTaskInputs(
+            { tasks: [{ name: "Focused task", dependsOn: [1] }] },
+            new RoleRegistry(),
+          ),
+        /tasks\[0\]\.dependsOn must be an array of strings/,
       ],
       [
         () =>

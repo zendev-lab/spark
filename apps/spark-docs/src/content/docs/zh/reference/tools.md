@@ -36,6 +36,13 @@ Skill，并使用当前模型启动一个全新匿名 Worker。Worker 只接收 
 递归调用 Role 或 Skill、管理持久 Session、修改 Task，或发布 Git、Artifact、Evidence
 状态。只有父会话本身需要查看并遵循 `SKILL.md` 时，才改用 `read`。
 
+如果只调整已有 Task 的依赖集合，无需复制其完整已审计划。使用
+`task_write({ action: "plan", tasks: [{ name: "existing-task", dependsOn:
+["prerequisite"] }] })`；也可用 `taskRef` 或精确 `title` 代替 `name`。
+`dependsOn` 会完整替换依赖集合，`[]` 表示清空。Spark 保留原 plan 与 plan items，
+并跳过未改变 plan 的 readiness review，但仍拒绝缺失、歧义、跨项目、已取消前置、
+自依赖和循环依赖。只要包含其他 Task 字段，就继续走完整 plan 路径及其 readiness 检查。
+
 ## Shell 与脚本工具
 
 原生 profile 包含十个 cue-shell 工具：

@@ -211,7 +211,7 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
       "Project/task graph mutation capability. Use intent-specific actions to select/finish/rename/update projects, claim/plan/finish/release tasks, update task plan items, or clean task-owned caches.",
     promptGuidelines: [
       "Use task_write for project/task graph mutations.",
-      "Creating or claiming a task is plan-locked: every task must have a bound high-bar task.plan before claim/creation completes; objectives, success criteria, evidence, and plan items must be concrete and objectively verifiable.",
+      "Creating or changing task-plan content is plan-locked: every such task must have a bound high-bar task.plan with concrete, objectively verifiable objectives, success criteria, evidence, and plan items. Existing-task dependency-only patches may instead pass exactly one task selector plus dependsOn; they preserve the unchanged plan and still enforce dependency safety.",
       "Use action=release to give up this session's unfinished task claim without finishing or cancelling the task; use action=plan_update to refine claimed task plan items.",
       "Use artifact_link/artifact_unlink to maintain the task's durable product Artifact references.",
       "Use the session-bound todo tool for standalone session checklists.",
@@ -265,7 +265,7 @@ export function registerSparkTaskTool(pi: SparkTaskHostApi, options: SparkTaskTo
         Type.Array(
           Type.Any({
             description:
-              "Concrete task plan entries with high-bar objectives, verifiable success criteria, concrete evidence, and checkable plan items.",
+              "Concrete full task plan entries, or a dependency-only existing-task patch containing exactly one taskRef/name/title selector plus the complete replacement dependsOn array.",
           }),
         ),
       ),

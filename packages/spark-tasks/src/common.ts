@@ -161,6 +161,14 @@ export interface TaskPlanResult {
   dependencies: TaskDependency[];
 }
 
+export interface TaskDependencyReplacementResult {
+  task: Task;
+  dependencies: TaskDependency[];
+  added: TaskDependency[];
+  removed: TaskDependency[];
+  unchanged: TaskDependency[];
+}
+
 export interface NonConcreteTaskIssue {
   name?: string;
   title: string;
