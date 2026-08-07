@@ -45,7 +45,7 @@ export function foregroundUnfinishedTaskPhase(
   tasks: readonly Pick<Task, "kind">[],
 ): SparkEntryMode {
   if (tasks.length === 0) return "implement";
-  if (tasks.some((task) => task.kind === "implement" || task.kind === "generic")) {
+  if (tasks.some((task) => task.kind === "execute" || task.kind === "generic")) {
     return "implement";
   }
   if (tasks.some((task) => task.kind !== "research" && task.kind !== "review")) {

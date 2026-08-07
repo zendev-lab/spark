@@ -377,7 +377,7 @@ test("runSparkHeadlessRoleInstruction records completed and blocked structured o
       expectedStatus: "failed" as const,
     },
   ]) {
-    let executionPhase: "plan" | "implement" | undefined;
+    let executionPhase: "plan" | "execute" | undefined;
     const services = headlessRoleServices(async (tools) => {
       await executeRoleOutcomeTool(tools, expected);
       return successfulOutcome("structured outcome recorded");

@@ -55,7 +55,7 @@ export interface SparkToolContext {
   modelRegistry?: unknown;
   runRole?: ExtensionRoleRunner;
   sparkActiveMode?: {
-    mode: "plan" | "implement";
+    mode: "plan" | "execute";
   };
   isIdle?: () => boolean;
   sessionManager?: {

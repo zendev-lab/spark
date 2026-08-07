@@ -36,7 +36,7 @@ const RESEARCH_SUBAGENT_STRATEGY =
 export const PARALLEL_EXECUTION_WORKFLOW_STRATEGY =
   'For ordinary single-task execution, work directly with focused tools. Use the workflow runtime only when the user asks for workflow/fan-out/multi-agent orchestration, or when the execution work is clearly parallelizable, repetitive, or suited to scripted orchestration. In those cases, discover definitions with workflow({ action: "list" }), read candidates with workflow({ action: "read" }), and execute a selected definition with workflow({ action: "run" }).';
 
-export function renderSparkPlanningModePrompt(
+export function renderSparkPlanModePrompt(
   graph: TaskGraph,
   selectedProjectRef: ProjectRef | undefined,
   focus: string | undefined,
@@ -73,7 +73,7 @@ export function renderSparkPlanningModePrompt(
   return renderModePrompt(graph, selectedProjectRef, focus, "Planning", requirements, roadmapLine);
 }
 
-export function renderSparkExecutionModePrompt(
+export function renderSparkExecuteModePrompt(
   graph: TaskGraph,
   selectedProjectRef: ProjectRef | undefined,
   focus: string | undefined,

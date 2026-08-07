@@ -70,7 +70,7 @@ export interface SparkHeadlessRoleInstructionInput {
   };
   cwd: string;
   timeoutMs: number;
-  phase?: "plan" | "implement";
+  phase?: "plan" | "execute";
   requireStructuredOutcome?: boolean;
   signal?: AbortSignal;
   sessionDir?: string;

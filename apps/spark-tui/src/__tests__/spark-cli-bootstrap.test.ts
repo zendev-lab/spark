@@ -22,7 +22,7 @@ import {
 async function setPhaseThroughTool(
   cwd: string,
   context: ReturnType<SparkHostRuntime["makeContext"]>,
-  phase: "plan" | "implement",
+  phase: "plan" | "execute",
 ): Promise<void> {
   const runtime = new SparkHostRuntime({ cwd });
   sparkExtension(runtime as Parameters<typeof sparkExtension>[0]);
@@ -322,16 +322,16 @@ test("native host keeps prompt phase and executable tool profile on one loaded s
       providerImporter: async () => fakeProviderModule(captured),
     });
 
-    assert.equal(services.agentLoop.getCurrentPhase(), "plan");
+    assert.equal(services.agentLoop.getCurrentMode(), "plan");
 
     await setPhaseThroughTool(dir, services.runtime.makeContext(), "implement");
     await services.agentLoop.submit("refresh the phase profile");
-    assert.equal(services.agentLoop.getCurrentPhase(), "implement");
+    assert.equal(services.agentLoop.getCurrentMode(), "implement");
     assert.match(captured.systemPrompt ?? "", /Spark phase: implement\./);
 
     await setPhaseThroughTool(dir, services.runtime.makeContext(), "plan");
     await services.runtime.emit("before_agent_start", {});
-    assert.equal(services.agentLoop.getCurrentPhase(), "plan");
+    assert.equal(services.agentLoop.getCurrentMode(), "plan");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -385,7 +385,7 @@ test("background turns use a driver profile and the next user submit restores pe
       },
     });
     await setPhaseThroughTool(dir, services.runtime.makeContext(), "plan");
-    assert.equal(services.agentLoop.getCurrentPhase(), "plan");
+    assert.equal(services.agentLoop.getCurrentMode(), "plan");
 
     const backgroundDone = new Promise<void>((resolve) => {
       const unsubscribe = services.agentLoop.onEvent((event) => {
@@ -410,7 +410,7 @@ test("background turns use a driver profile and the next user submit restores pe
     }
 
     assert.equal(writeExecutions, 1);
-    assert.equal(services.agentLoop.getCurrentPhase(), undefined);
+    assert.equal(services.agentLoop.getCurrentMode(), undefined);
     for (const snapshot of captured.promptSnapshots?.slice(0, 2) ?? []) {
       assert.match(snapshot.systemPrompt ?? "", /You are Spark,/u);
       assert.match(snapshot.systemPrompt ?? "", /<available_skills>/u);
@@ -422,7 +422,7 @@ test("background turns use a driver profile and the next user submit restores pe
 
     await services.agentLoop.submit("resume the real user plan");
 
-    assert.equal(services.agentLoop.getCurrentPhase(), "plan");
+    assert.equal(services.agentLoop.getCurrentMode(), "plan");
     assert.match(captured.promptSnapshots?.[2]?.systemPrompt ?? "", /Spark phase: plan\./u);
     assert.equal(captured.toolSnapshots?.[2]?.includes("implement_write"), false);
   } finally {

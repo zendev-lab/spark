@@ -11,7 +11,7 @@ import {
   injectSparkHints,
   type SparkInputModeRouter,
 } from "../extension/spark-active-injection.ts";
-import { renderSparkPlanModePrompt } from "../extension/phase/spark-phase-renderers.ts";
+import { renderSparkPlanModePrompt } from "../extension/mode/spark-mode-renderers.ts";
 import { analyzeSparkEntryMode } from "../extension/spark-entry.ts";
 import { loadSparkMode, saveCurrentProjectRef } from "../extension/session-state.ts";
 import { setSessionGoal } from "@zendev-lab/spark-loop";

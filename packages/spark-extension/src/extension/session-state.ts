@@ -40,7 +40,6 @@ export {
   type SparkRunStrategy,
 } from "./current-project-state.ts";
 export {
-  clearSparkPhase,
   loadSparkMode,
   nextSparkSessionMode,
   saveSparkMode,

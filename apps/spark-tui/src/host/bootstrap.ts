@@ -325,7 +325,7 @@ export async function createSparkCliHostServices(
           selectedSkillsPrompt,
         );
         agentLoop.setSystemPrompt(promptState.systemPrompt);
-        agentLoop.setCurrentPhase(options.executionPhase ?? promptState.phase);
+        agentLoop.setCurrentMode(options.executionPhase ?? promptState.phase);
       }
     },
     finishUserSubmit: () => clearRequestSkillSelection(),
@@ -361,7 +361,7 @@ export async function createSparkCliHostServices(
       };
     },
   });
-  agentLoop.setCurrentPhase(options.executionPhase ?? initialPromptState.phase);
+  agentLoop.setCurrentMode(options.executionPhase ?? initialPromptState.phase);
   clearRequestSkillSelection = () => {
     const hadSelection = selectedSkillMatches.length > 0 || selectedSkillsPrompt.length > 0;
     selectedSkillMatches = [];
@@ -373,7 +373,7 @@ export async function createSparkCliHostServices(
         baseSystemPrompt,
         skillsCatalogPrompt,
         selectedSkillsPrompt,
-        agentLoop.getCurrentPhase() ?? initialPromptState.phase,
+        agentLoop.getCurrentMode() ?? initialPromptState.phase,
       ),
     );
   };
@@ -388,7 +388,7 @@ export async function createSparkCliHostServices(
           options.executionPhase,
         ),
       );
-      agentLoop.setCurrentPhase(options.executionPhase);
+      agentLoop.setCurrentMode(options.executionPhase);
       return;
     }
     if (sparkAgentLifecycleSource(event) === "triggerTurn") {
@@ -400,7 +400,7 @@ export async function createSparkCliHostServices(
       agentLoop.setSystemPrompt(
         composeSparkCliLoopSystemPrompt(cwd, baseSystemPrompt, skillsCatalogPrompt),
       );
-      agentLoop.setCurrentPhase(undefined);
+      agentLoop.setCurrentMode(undefined);
       return;
     }
     const promptState = await resolveSparkCliAgentPromptState(
@@ -411,7 +411,7 @@ export async function createSparkCliHostServices(
       selectedSkillsPrompt,
     );
     agentLoop.setSystemPrompt(promptState.systemPrompt);
-    agentLoop.setCurrentPhase(promptState.phase);
+    agentLoop.setCurrentMode(promptState.phase);
   });
 
   return {
@@ -519,7 +519,7 @@ async function resolveSparkCliAgentPromptState(
   baseSystemPrompt: string,
   skillsCatalogPrompt: string,
   selectedSkillsPrompt: string,
-): Promise<{ systemPrompt: string; phase: "plan" | "implement" }> {
+): Promise<{ systemPrompt: string; phase: "plan" | "execute" }> {
   const phase = (await loadSparkMode(cwd, ctx)).phase;
   return {
     phase,
@@ -538,7 +538,7 @@ function composeSparkCliAgentSystemPrompt(
   baseSystemPrompt: string,
   skillsCatalogPrompt: string,
   selectedSkillsPrompt: string,
-  phase: "plan" | "implement",
+  phase: "plan" | "execute",
 ): string {
   return composeAgentSystemPrompt([
     renderSparkActiveSystemPrompt(baseSystemPrompt, phase),

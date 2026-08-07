@@ -6,7 +6,7 @@ import { test } from "vitest";
 
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { registerSparkExtensionEvents } from "../extension/spark-extension-events.ts";
-import type { SparkModeMessageApi } from "../extension/spark-phase-entry.ts";
+import type { SparkModeMessageApi } from "../extension/spark-mode-entry.ts";
 import { saveIndependentTodos } from "../extension/session-todos.ts";
 import {
   currentSparkProject,

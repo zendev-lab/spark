@@ -540,8 +540,8 @@ export class SparkAgentLoop {
    * Select the transient tool profile for subsequent model/tool turns.
    * Undefined preserves compatibility by allowing every host-active tool.
    */
-  setCurrentMode(phase: SparkAgentMode | undefined): void {
-    this.currentMode = phase;
+  setCurrentMode(mode: SparkAgentMode | undefined): void {
+    this.currentMode = mode;
   }
 
   getCurrentMode(): SparkAgentMode | undefined {
@@ -1426,10 +1426,8 @@ export class SparkAgentLoop {
   /** The single availability boundary shared by schemas, manifests, and dispatch. */
   private isToolAvailable(tool: SparkTurnRegisteredTool): boolean {
     if (!tool.active) return false;
-    const phases = resolvedRegisteredToolPolicy(tool).modes;
-    return (
-      this.currentMode === undefined || phases.length === 0 || phases.includes(this.currentMode)
-    );
+    const modes = resolvedRegisteredToolPolicy(tool).modes;
+    return this.currentMode === undefined || modes.length === 0 || modes.includes(this.currentMode);
   }
 
   private isToolDispatchAllowed(toolName: string, tool: SparkTurnRegisteredTool): boolean {
@@ -1438,8 +1436,8 @@ export class SparkAgentLoop {
 
   private toolUnavailableMessage(toolName: string, tool: SparkTurnRegisteredTool): string {
     if (!tool.active) return `inactive tool: ${toolName}`;
-    const phases = resolvedRegisteredToolPolicy(tool).modes;
-    return `phase-inactive tool: ${toolName} (current phase=${this.currentMode ?? "none"}; allowed phases=${phases.join(",") || "all"})`;
+    const modes = resolvedRegisteredToolPolicy(tool).modes;
+    return `mode-inactive tool: ${toolName} (current mode=${this.currentMode ?? "none"}; allowed modes=${modes.join(",") || "all"})`;
   }
 
   private async injectBeforeAgentStartMessages(source: SparkAgentLifecycleSource): Promise<number> {

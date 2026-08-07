@@ -12,7 +12,7 @@ export {
   PARALLEL_EXECUTION_WORKFLOW_STRATEGY,
   WORKFLOW_AND_SUBAGENT_ARE_TOOLS,
   renderModePrompt,
-  renderSparkExecutionModePrompt,
+  renderSparkExecuteModePrompt,
   renderSparkModeVisibleMessage,
-  renderSparkPlanningModePrompt,
+  renderSparkPlanModePrompt,
 } from "./spark-mode-renderers.ts";

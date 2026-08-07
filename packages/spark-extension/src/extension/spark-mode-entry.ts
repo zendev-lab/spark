@@ -1,8 +1,8 @@
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
-  renderSparkExecutionModePrompt,
+  renderSparkExecuteModePrompt,
   renderSparkModeVisibleMessage,
-  renderSparkPlanningModePrompt,
+  renderSparkPlanModePrompt,
 } from "./mode/index.ts";
 import { roadmapPlanningContext } from "../flows/roadmap-flow.ts";
 import {
@@ -72,7 +72,7 @@ export async function dispatchSparkAgentInstruction(
   );
 }
 
-export async function enterSparkPlanningMode(
+export async function enterSparkPlanMode(
   piApi: SparkModeMessageApi,
   deps: SparkModeEntryDeps,
   ctx: SparkToolContext,
@@ -98,12 +98,12 @@ export async function enterSparkPlanningMode(
     piApi,
     deps,
     ctx,
-    renderSparkPlanningModePrompt(graph, project?.ref, focus, source, roadmapResult?.context),
+    renderSparkPlanModePrompt(graph, project?.ref, focus, source, roadmapResult?.context),
     renderSparkModeVisibleMessage("plan", project?.title, focus),
   );
 }
 
-export async function enterSparkExecutionMode(
+export async function enterSparkExecuteMode(
   piApi: SparkModeMessageApi,
   deps: SparkModeEntryDeps,
   ctx: SparkToolContext,
@@ -123,7 +123,7 @@ export async function enterSparkExecutionMode(
     piApi,
     deps,
     ctx,
-    renderSparkExecutionModePrompt(graph, project?.ref, focus),
+    renderSparkExecuteModePrompt(graph, project?.ref, focus),
     renderSparkModeVisibleMessage("execute", project?.title, focus),
   );
 }

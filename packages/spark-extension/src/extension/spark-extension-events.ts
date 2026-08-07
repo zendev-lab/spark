@@ -249,7 +249,7 @@ export async function syncSparkGoalAskAutoAnswerPolicy(
 
   // Repro decisions remain real-user evidence. Timeout closes the wait and
   // leaves a blocker; it must never mint a reviewer-authored decision receipt.
-  if (phase === "implement" || activeRepro) {
+  if (phase === "execute" || activeRepro) {
     delete ctx.askAutoAnswer;
     delete ctx.askAutoAnswerResolver;
     return;

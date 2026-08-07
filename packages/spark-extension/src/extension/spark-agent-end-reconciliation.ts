@@ -1,6 +1,6 @@
 import type { Task } from "@zendev-lab/spark-core";
 import { isActiveSessionTodo, type SessionTodoEntry } from "@zendev-lab/spark-tasks";
-import { renderSparkExecuteModePrompt } from "./phase/spark-phase-renderers.ts";
+import { renderSparkExecuteModePrompt } from "./mode/spark-mode-renderers.ts";
 import { loadIndependentTodos } from "./session-todos.ts";
 import {
   currentSparkProject,

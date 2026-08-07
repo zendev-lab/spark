@@ -22,7 +22,7 @@ import {
   type SparkGoalContractStatus,
 } from "@zendev-lab/spark-loop";
 
-export type SparkSessionMode = "plan" | "implement";
+export type SparkSessionPhase = "plan" | "implement";
 
 export type SparkReproStageName = "contract" | "reference" | "target" | "alignment" | "delivery";
 
@@ -30,7 +30,7 @@ interface SparkReproRequirementBase {
   /** Stable machine identifier; descriptions are presentation only. */
   id: string;
   description: string;
-  phase: SparkSessionMode;
+  phase: SparkSessionPhase;
 }
 
 export interface SparkReproEvidenceRequirement extends SparkReproRequirementBase {
@@ -82,7 +82,7 @@ export interface SparkReproGate {
 export interface SparkReproStage {
   name: SparkReproStageName;
   title: string;
-  phases: SparkSessionMode[];
+  phases: SparkSessionPhase[];
   acceptance: SparkReproRequirement[];
   gate?: SparkReproGate;
 }
@@ -96,7 +96,7 @@ export interface SparkSessionReproV3 {
   status: SparkReproStatus;
   objective?: string;
   currentStageIndex: number;
-  currentPhase: SparkSessionMode;
+  currentPhase: SparkSessionPhase;
   stages: SparkReproStage[];
   createdAt: string;
   updatedAt: string;
@@ -212,7 +212,7 @@ export interface SparkSessionReproV4 {
   plan: SparkReproPlanV4;
   stopGuard: SparkReproStopGuard;
   currentStageIndex: number;
-  currentPhase: SparkSessionMode;
+  currentPhase: SparkSessionPhase;
   stages: SparkReproStage[];
   createdAt: string;
   updatedAt: string;
@@ -263,7 +263,7 @@ export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
   {
     name: "contract",
     title: "Contract",
-    modes: ["plan"],
+    phases: ["plan"],
     acceptance: [
       evidenceRequirement(
         "repro-contract-frozen",
@@ -310,7 +310,7 @@ export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
   {
     name: "reference",
     title: "Reference",
-    modes: ["execute"],
+    phases: ["implement"],
     acceptance: [
       evidenceRequirement("project-structure-created", "Project structure created", "implement"),
       validationRequirement(
@@ -323,7 +323,7 @@ export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
   {
     name: "target",
     title: "Target",
-    modes: ["execute"],
+    phases: ["implement"],
     acceptance: [
       validationRequirement(
         "bitwise-pass-20",
@@ -340,7 +340,7 @@ export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
   {
     name: "alignment",
     title: "Alignment",
-    modes: ["execute"],
+    phases: ["implement"],
     acceptance: [
       validationRequirement(
         "target-scale-convergence",
@@ -357,7 +357,7 @@ export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
   {
     name: "delivery",
     title: "Delivery",
-    modes: ["execute"],
+    phases: ["implement"],
     acceptance: [
       evidenceRequirement("pr-submitted", "PR submitted", "implement"),
       validationRequirement("no-runtime-patches", "No runtime patches remain", "implement"),
@@ -416,7 +416,7 @@ export function reproRequirementBlockers(requirement: SparkReproRequirement): st
   }
 }
 
-export function isPhaseComplete(repro: SparkSessionRepro, phase?: SparkSessionMode): boolean {
+export function isPhaseComplete(repro: SparkSessionRepro, phase?: SparkSessionPhase): boolean {
   const targetPhase = phase ?? repro.currentPhase;
   const requirements = currentReproStage(repro).acceptance.filter(
     (requirement) => requirement.phase === targetPhase,
@@ -2117,7 +2117,7 @@ function normalizeDifficulty(value: number): number {
 function evidenceRequirement(
   id: string,
   description: string,
-  phase: SparkSessionMode,
+  phase: SparkSessionPhase,
 ): SparkReproEvidenceRequirement {
   return { id, kind: "evidence", description, phase, evidenceRefs: [] };
 }
@@ -2125,7 +2125,7 @@ function evidenceRequirement(
 function decisionRequirement(
   id: string,
   description: string,
-  phase: SparkSessionMode,
+  phase: SparkSessionPhase,
 ): SparkReproDecisionRequirement {
   return { id, kind: "decision", description, phase };
 }
@@ -2133,7 +2133,7 @@ function decisionRequirement(
 function validationRequirement(
   id: string,
   description: string,
-  phase: SparkSessionMode,
+  phase: SparkSessionPhase,
 ): SparkReproValidationRequirement {
   return { id, kind: "validation", description, phase };
 }
