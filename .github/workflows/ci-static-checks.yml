@@ -17,53 +17,6 @@ permissions:
   contents: read
 
 jobs:
-  mode-migration:
-    name: Temporary Session Mode Migration
-    if: github.event_name == 'pull_request' && github.head_ref == 'agent/session-mode-execute'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: agent/session-mode-execute
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Apply controlled migration from the temporary migration definition
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
-          source = Path('.github/workflows/tmp-session-mode-migration.yml').read_text()
-          body = source.split("python3 <<'PY'\n", 1)[1].split("\n          PY", 1)[0]
-          body = "\n".join(line[10:] if line.startswith("          ") else line for line in body.splitlines())
-          exec(compile(body, 'tmp-session-mode-migration.py', 'exec'))
-          PY
-          pnpm install --lockfile-only
-          git restore -- \
-            .github/workflows/ci-static-checks.yml \
-            .github/workflows/tmp-session-mode-migration.yml \
-            .github/workflows/tmp-session-mode-trigger.yml
-          git diff --name-only --diff-filter=ACMR -z | xargs -0 -r pnpm exec vp fmt --write
-          echo '--- remaining Session phase symbols ---'
-          rg -n 'Spark(Session|Agent|Entry|Active).*Phase|loadSparkPhase|saveSparkPhase|sparkActiveLens|@zendev-lab/spark-phases|packages/spark-phases|/implement|"implement"' \
-            --glob '!apps/spark-docs/src/content/docs/0.2/**' \
-            --glob '!apps/spark-docs/src/content/docs/zh/0.2/**' || true
-      - name: Commit migration result
-        run: |
-          if git diff --quiet; then
-            echo "Migration is already applied"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit --no-verify -m "♻️ refactor(mode): rename phase to execute mode"
-          git push origin HEAD:agent/session-mode-execute
-
   pre-commit:
     name: Pre-commit Checks
     runs-on: ubuntu-latest
