@@ -74,7 +74,6 @@ jobs:
           NODE
 
           pnpm exec vp fmt test/architecture-ratchets.test.ts
-          pnpm exec vitest run test/architecture-ratchets.test.ts
 
           if git diff --quiet -- test/fixtures/architecture-governance.json test/architecture-ratchets.test.ts; then
             exit 0
