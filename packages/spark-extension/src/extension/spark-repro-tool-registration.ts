@@ -320,6 +320,8 @@ export function registerSparkReproTool(
         const ownerSessionId = await prepareSparkDaemonLoopOwner(ctx, deps.loopControl);
         const objective = normalizeOptionalReproObjective(params.objective);
         const requestedReproId = normalizeOptionalReproId(params.reproId);
+        const requestedDifficulty =
+          typeof params.difficulty === "number" ? params.difficulty : undefined;
         const stored = await readSessionRepro(cwd, ctx);
         if (
           stored &&
@@ -380,6 +382,7 @@ export function registerSparkReproTool(
         const { repro } = await createProjectBackedSessionRepro(cwd, ctx, {
           objective,
           ...(requestedReproId ? { reproId: requestedReproId } : {}),
+          ...(requestedDifficulty !== undefined ? { difficulty: requestedDifficulty } : {}),
         });
         const loopHealth = await ensureActiveReproLoop(ctx, deps.loopControl, repro, {
           ownerSessionId,

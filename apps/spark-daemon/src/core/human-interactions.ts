@@ -14,6 +14,8 @@ import {
   SparkDaemonHumanWaitRegistry,
   type SparkDaemonHumanWaitDeliveryResult,
   type SparkDaemonHumanWaitRecord,
+  type SparkDaemonHumanWaitRegistration,
+  type SparkDaemonHumanWaitResponse,
 } from "./human-waits.ts";
 
 export interface SparkDaemonHumanInteractionContext {
@@ -188,11 +190,36 @@ export class SparkDaemonHumanInteractionBroker {
       );
     }
 
+    const delivery = durable.ask.delivery ?? "blocking";
+    const interactionFlow = durable.ask.flow?.trim();
+    const toolCallId =
+      context.toolCallId ?? (request.kind === "toolApproval" ? request.toolCallId : undefined);
+    const reusable =
+      context.sessionId.trim() && (interactionFlow || toolCallId)
+        ? this.options.waits.findUniqueInteraction({
+            ...(interactionFlow ? { interactionFlow } : { toolCallId }),
+            sessionId: context.sessionId,
+          })
+        : null;
+    if (reusable) {
+      const registration =
+        reusable.status === "pending" && delivery === "async"
+          ? { wait: reusable }
+          : this.options.waits.resume(reusable.humanRequestId);
+      return await resolveHumanInteractionRegistration({
+        request,
+        ask: durable.ask,
+        registration,
+        delivery,
+        context,
+        respond: async (wait, input) => await this.respond(wait, input),
+      });
+    }
+
     const humanRequestId = createId("hreq");
     const messageId = createId("msg");
     const invocationId = runtimeInvocationId(context.invocationId);
     const callbackOptions = createCallbackOptions(durable.ask);
-    const delivery = durable.ask.delivery ?? "blocking";
     const prompt =
       durable.ask.prompt?.trim() ||
       durable.ask.questions.map((question) => question.prompt).join("\n");
@@ -201,6 +228,7 @@ export class SparkDaemonHumanInteractionBroker {
       interactionRequestId: request.requestId,
       interactionSource: request.source,
       interactionMetadata: request.metadata,
+      ...(interactionFlow ? { interactionFlow } : {}),
       sessionId: context.sessionId,
       ...(context.sessionSource ? { sessionSource: context.sessionSource } : {}),
       hubProjected,
@@ -230,8 +258,6 @@ export class SparkDaemonHumanInteractionBroker {
           }
         : {}),
     };
-    const toolCallId =
-      context.toolCallId ?? (request.kind === "toolApproval" ? request.toolCallId : undefined);
     const payload = {
       kind: "ask_user" as const,
       delivery,
@@ -279,6 +305,7 @@ export class SparkDaemonHumanInteractionBroker {
       {
         humanRequestId,
         interactionRequestId: request.requestId,
+        interactionFlow,
         sessionId: context.sessionId,
         invocationId,
         workspaceBindingId: route?.workspaceBindingId ?? context.workspaceBindingId,
@@ -313,84 +340,124 @@ export class SparkDaemonHumanInteractionBroker {
       }
     }
 
-    if (delivery === "async") {
-      return {
-        version: SPARK_PROTOCOL_VERSION,
-        kind: "askFlow",
-        requestId: request.requestId,
-        humanRequestId,
-        status: "pending",
-        answers: {},
-        nextAction: "resume",
-        metadata: { delivery: "async" },
-      };
-    }
+    return await resolveHumanInteractionRegistration({
+      request,
+      ask: durable.ask,
+      registration,
+      delivery,
+      context,
+      respond: async (wait, input) => await this.respond(wait, input),
+    });
+  }
+}
 
-    if (!registration.response) {
-      return createBlockedInteractionResponse(
-        request,
-        "Daemon failed to attach the blocking ask continuation.",
-      );
-    }
-    const timeoutResponseId = durable.ask.timeoutMs ? createId("hres") : undefined;
-    const cancel = (humanResponseId?: string) => {
-      void this.respond(registration.wait, {
-        ...(humanResponseId ? { humanResponseId } : {}),
-        status: "cancelled",
-        answers: {},
-        responseArtifactRefs: [],
-      }).catch((error: unknown) => {
-        console.error("[spark-daemon] failed to cancel daemon-owned human interaction", error);
-      });
-    };
-    const response = await awaitHumanResponse(
-      registration.response,
-      context.signal,
-      () => cancel(),
-      durable.ask.timeoutMs && timeoutResponseId
-        ? { timeoutMs: durable.ask.timeoutMs, cancel: () => cancel(timeoutResponseId) }
-        : undefined,
-    );
-    const timedOut =
-      response.status === "cancelled" && response.humanResponseId === timeoutResponseId;
-    const answers = sparkJsonObjectSchema.parse(response.answers);
-    if (request.kind === "toolApproval") {
-      const approved =
-        response.status === "answered" && isToolApprovalAnswerApproved(answers, durable.ask);
-      return {
-        version: SPARK_PROTOCOL_VERSION,
-        kind: "toolApproval",
-        requestId: request.requestId,
-        status: response.status === "answered" ? "answered" : "cancelled",
-        approved,
-        message: approved
-          ? undefined
-          : response.status === "answered"
-            ? `tool "${request.toolName}" was rejected`
-            : undefined,
-        metadata: {
-          delivery: "blocking",
-          humanResponseId: response.humanResponseId,
-          humanRequestId,
-          ...(timedOut ? { timedOut: true } : {}),
-        },
-      };
-    }
+async function resolveHumanInteractionRegistration(input: {
+  request: SparkInteractionRequest;
+  ask: DurableAskFlowRequest;
+  registration: SparkDaemonHumanWaitRegistration;
+  delivery: "blocking" | "async";
+  context: SparkDaemonHumanInteractionContext;
+  respond: SparkDaemonHumanInteractionResponder;
+}): Promise<SparkInteractionResponse> {
+  const { request, ask, registration, delivery, context } = input;
+  const humanRequestId = registration.wait.humanRequestId;
+  if (delivery === "async" && registration.wait.status === "pending") {
     return {
       version: SPARK_PROTOCOL_VERSION,
       kind: "askFlow",
       requestId: request.requestId,
       humanRequestId,
+      status: "pending",
+      answers: {},
+      nextAction: "resume",
+      metadata: { delivery: "async" },
+    };
+  }
+
+  if (!registration.response) {
+    return createBlockedInteractionResponse(
+      request,
+      "Daemon failed to attach the blocking ask continuation.",
+    );
+  }
+  const timeoutResponseId = ask.timeoutMs ? createId("hres") : undefined;
+  const cancel = (humanResponseId?: string) => {
+    void input
+      .respond(registration.wait, {
+        ...(humanResponseId ? { humanResponseId } : {}),
+        status: "cancelled",
+        answers: {},
+        responseArtifactRefs: [],
+      })
+      .catch((error: unknown) => {
+        console.error("[spark-daemon] failed to cancel daemon-owned human interaction", error);
+      });
+  };
+  const response = await awaitHumanResponse(
+    registration.response,
+    context.signal,
+    () => cancel(),
+    ask.timeoutMs && timeoutResponseId
+      ? { timeoutMs: ask.timeoutMs, cancel: () => cancel(timeoutResponseId) }
+      : undefined,
+  );
+  return interactionResponseFromHumanWait({
+    request,
+    ask,
+    delivery,
+    response,
+    humanRequestId,
+    timeoutResponseId,
+  });
+}
+
+function interactionResponseFromHumanWait(input: {
+  request: SparkInteractionRequest;
+  ask: DurableAskFlowRequest;
+  delivery: "blocking" | "async";
+  response: SparkDaemonHumanWaitResponse;
+  humanRequestId: string;
+  timeoutResponseId?: string;
+}): SparkInteractionResponse {
+  const { request, ask, response, humanRequestId, timeoutResponseId } = input;
+  const timedOut =
+    response.status === "cancelled" && response.humanResponseId === timeoutResponseId;
+  const answers = sparkJsonObjectSchema.parse(response.answers);
+  if (request.kind === "toolApproval") {
+    const approved = response.status === "answered" && isToolApprovalAnswerApproved(answers, ask);
+    return {
+      version: SPARK_PROTOCOL_VERSION,
+      kind: "toolApproval",
+      requestId: request.requestId,
       status: response.status === "answered" ? "answered" : "cancelled",
-      answers,
-      nextAction: response.status === "answered" ? "resume" : "cancel",
+      approved,
+      message: approved
+        ? undefined
+        : response.status === "answered"
+          ? `tool "${request.toolName}" was rejected`
+          : undefined,
       metadata: {
-        delivery: "blocking",
+        delivery: input.delivery,
         humanResponseId: response.humanResponseId,
+        humanRequestId,
         ...(timedOut ? { timedOut: true } : {}),
       },
     };
   }
+  return {
+    version: SPARK_PROTOCOL_VERSION,
+    kind: "askFlow",
+    requestId: request.requestId,
+    humanRequestId,
+    status: response.status === "answered" ? "answered" : "cancelled",
+    answers,
+    nextAction: response.status === "answered" ? "resume" : "cancel",
+    metadata: {
+      delivery: input.delivery,
+      humanResponseId: response.humanResponseId,
+      ...(timedOut ? { timedOut: true } : {}),
+    },
+  };
 }
 
 type DurableAskFlowRequest = Extract<SparkInteractionRequest, { kind: "askFlow" }>;

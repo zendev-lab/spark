@@ -34,6 +34,7 @@ const canonicalRootScripts = [
   "test:browser:hub",
   "test:capability",
   "test:capability:ce",
+  "test:journey:repro",
   "test:mutation",
   "test:process:source",
   "test:unit",
@@ -82,6 +83,10 @@ test("root package exposes one compact validation and release surface", async ()
   );
   assert.equal(scripts["test:browser:hub"], "pnpm --filter @zendev-lab/spark-hub run test:browser");
   assert.equal(scripts["test:capability"], "vp test run --config vitest.capability.config.ts");
+  assert.equal(
+    scripts["test:journey:repro"],
+    "vp test run test/process/repro-golden-journey.test.ts --config vitest.process.config.ts",
+  );
   assert.equal(
     scripts["test:mutation"],
     "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run test:mutation",

@@ -69,6 +69,7 @@ function askRequest(
   requestId: string,
   delivery: "blocking" | "async",
   timeoutMs?: number,
+  flow?: string,
 ): SparkInteractionRequest {
   return parseSparkInteractionRequest({
     requestId,
@@ -78,6 +79,7 @@ function askRequest(
     delivery,
     ...(timeoutMs ? { timeoutMs } : {}),
     mode: "decision",
+    ...(flow ? { flow } : {}),
     source: "daemon",
     questions: [
       {
@@ -204,6 +206,74 @@ describe("SparkDaemonHumanInteractionBroker", () => {
         value: "yes",
         label: "Continue",
       });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("replays an answered async ask into the same tool call after daemon restart", async () => {
+    const db = new DatabaseSync(":memory:");
+    migrateSparkDaemonDatabase(db);
+    seedHumanRoute(db);
+    const firstWaits = new SparkDaemonHumanWaitRegistry(db);
+    const opened = vi.fn(async () => undefined);
+    const firstBroker = new SparkDaemonHumanInteractionBroker({
+      db,
+      waits: firstWaits,
+      getRuntimeId: primaryRuntimeId,
+      onRequestOpened: opened,
+    });
+
+    try {
+      const initial = await firstBroker.interact(
+        askRequest("interaction-before-restart", "async", undefined, "repro-repair"),
+        {
+          ...interactionContext(),
+          toolCallId: undefined,
+        },
+      );
+      if (initial.kind !== "askFlow" || !initial.humanRequestId) {
+        throw new Error("expected an async ask response with humanRequestId");
+      }
+      const wait = firstWaits.get(initial.humanRequestId);
+      if (!wait) throw new Error("expected the durable async wait");
+      await firstBroker.respond(wait, {
+        status: "answered",
+        answers: { decision: { values: ["yes"], labels: ["Continue"] } },
+        responseArtifactRefs: [],
+      });
+
+      const restartedWaits = new SparkDaemonHumanWaitRegistry(db);
+      const restartedBroker = new SparkDaemonHumanInteractionBroker({
+        db,
+        waits: restartedWaits,
+        getRuntimeId: primaryRuntimeId,
+        onRequestOpened: opened,
+      });
+      const resumed = await restartedBroker.interact(
+        askRequest("interaction-after-restart", "blocking", 500, "repro-repair"),
+        {
+          ...interactionContext(),
+          invocationId: "invocation-2",
+          toolCallId: undefined,
+        },
+      );
+
+      expect(resumed).toMatchObject({
+        kind: "askFlow",
+        requestId: "interaction-after-restart",
+        humanRequestId: initial.humanRequestId,
+        status: "answered",
+        answers: { decision: { values: ["yes"], labels: ["Continue"] } },
+        nextAction: "resume",
+        metadata: { delivery: "blocking", humanResponseId: expect.stringMatching(/^hres_/u) },
+      });
+      expect(opened).toHaveBeenCalledTimes(1);
+      expect(firstWaits.listPending()).toEqual([]);
+      const count = db.prepare("SELECT COUNT(*) AS count FROM daemon_human_waits").get() as {
+        count: number;
+      };
+      expect(count.count).toBe(1);
     } finally {
       db.close();
     }

@@ -7,6 +7,7 @@ import { sparkCliDispatcherStrings } from "@zendev-lab/spark-i18n/cli";
 import { resolveSparkPaths, resolveSparkUserPaths } from "@zendev-lab/spark-system";
 
 const dispatcherStrings = sparkCliDispatcherStrings();
+type SparkDispatcherIpcMessage = Parameters<NonNullable<typeof process.send>>[0];
 
 export type SparkDispatcherTarget = "tui" | "daemon" | "hub" | "acp" | "mcp" | "update";
 
@@ -252,13 +253,34 @@ const defaultLauncher: SparkDispatcherLauncher = {
   run(target, argv, options) {
     return new Promise((resolve) => {
       const command = resolveTargetCommand(target);
-      const child = spawn(command.command, [...command.args, ...argv], options);
+      const relayIpc = typeof process.send === "function";
+      const child = spawn(command.command, [...command.args, ...argv], {
+        ...options,
+        ...(relayIpc ? { stdio: ["inherit", "inherit", "inherit", "ipc"] } : {}),
+      });
+      const forwardToParent = (message: unknown) => {
+        if (process.send) process.send(message as SparkDispatcherIpcMessage);
+      };
+      const forwardToChild = (message: unknown) => {
+        if (child.connected) child.send(message as SparkDispatcherIpcMessage);
+      };
+      if (relayIpc) {
+        child.on("message", forwardToParent);
+        process.on("message", forwardToChild);
+      }
+      const detachIpcRelay = () => {
+        if (!relayIpc) return;
+        child.off("message", forwardToParent);
+        process.off("message", forwardToChild);
+      };
       child.on("error", (error: NodeJS.ErrnoException) => {
+        detachIpcRelay();
         const detail = error.code === "ENOENT" ? "executable was not found on PATH" : error.message;
         process.stderr.write(`${dispatcherStrings.dispatchFailure(command.label, detail)}\n`);
         resolve(error.code === "ENOENT" ? 127 : 1);
       });
       child.on("close", (code, signal) => {
+        detachIpcRelay();
         if (signal) {
           process.stderr.write(`${dispatcherStrings.signalExit(command.label, signal)}\n`);
           resolve(1);

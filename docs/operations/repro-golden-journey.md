@@ -72,6 +72,41 @@ A process-level Golden Journey must not use an in-memory SQLite database, call
 store mutation methods directly, or replace the production component under test
 with `vi.mock`.
 
+## Source-process lane
+
+Run the authoritative happy path with:
+
+```sh
+pnpm run test:journey:repro
+```
+
+The lane creates an isolated `HOME`, `SPARK_HOME`, XDG state, Hub database,
+daemon database and socket, local port, provider ledger, forge ledger, and
+fixture Git repository. The file-backed provider plugin is loaded through the
+normal provider registry and active-model selection path. Zero-tool auxiliary
+requests, such as compaction, are recorded separately and do not advance the
+Journey cursor.
+
+The first Ask opens asynchronously so the daemon can restart while the durable
+request is pending. The test answers it through `spark daemon ask answer`, then
+replays the same response over public local RPC to prove idempotency. A blocking
+replay with the same stable `flow` reattaches to the settled request and records
+the canonical Ask Evidence; it does not insert another decision row. The isolated reviewer model setting routes
+Git external-write review through the same scripted provider, which returns a valid
+structured approval without advancing the main Journey cursor or creating a second
+human request. The test fails closed if a tool-approval Ask appears.
+
+Local Git remains real. The forge shim replaces only `gh stack`/GitHub network
+operations and records exactly one Draft PR. The typed summary is compared with
+the canonical JSON embedded in the Markdown projection, every accepted formal
+gate must carry Evidence, two report synchronizations converge on one stable
+Document Artifact ref, and the terminal assertions require a sealed Workbench,
+no pending interaction, no active invocation, and no live Hub or daemon PID.
+
+The source dispatcher must preserve Node IPC while forwarding daemon lifecycle
+commands. Otherwise the daemon-owned restart helper cannot transfer ownership
+to its successor when the test runs from source.
+
 ## Minimal alignment fixture
 
 `test/fixtures/repro/minimal-alignment` is the canonical first task. It contains:

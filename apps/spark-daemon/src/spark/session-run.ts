@@ -866,7 +866,7 @@ function sessionExecutionPolicy(
         }
       : {}),
     ...(sessionContext.sideThread ? { allowedToolEffects: ["read"] as const } : {}),
-    ...(loop?.binding.workflowRunId ? { allowedTools: ["workflow"] } : {}),
+    ...(loop?.binding.workflowRunId && !loop.binding.reproId ? { allowedTools: ["workflow"] } : {}),
   };
 }
 

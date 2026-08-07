@@ -192,6 +192,7 @@ export async function runSparkHeadlessSession(
     workspaceId: input.workspaceId,
     sparkStateRoot: input.sparkStateRoot,
     sparkHome: options.sparkHome ?? input.sparkHome,
+    ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
     ...controlPlaneServicePaths(options.controlSparkHome),
     // Workspace business state stays under sparkStateRoot even when cwd points
     // at a workspace subdirectory or an attached GitChange worktree.
@@ -310,6 +311,7 @@ export async function runSparkHeadlessRoleInstruction(
   const services = await createServices({
     cwd: input.cwd,
     sparkHome: options.sparkHome,
+    ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
     ...controlPlaneServicePaths(options.controlSparkHome),
     hasUI: false,
     systemPrompt: input.role.systemPrompt,
