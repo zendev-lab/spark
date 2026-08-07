@@ -23,7 +23,7 @@ function graphWith(input: {
 test("foreground goal phase continues concrete unfinished implement work instead of replanning", () => {
   const graph = graphWith({ tasks: [{ status: "pending", kind: "implement" }] });
 
-  assert.equal(suggestForegroundGoalPhase(graph, projectRef, "按 GOAL.md 要求复现"), "implement");
+  assert.equal(suggestForegroundGoalPhase(graph, projectRef, "按 GOAL.md 要求复现"), "execute");
 });
 
 test("foreground goal phase plans research/review unfinished work", () => {

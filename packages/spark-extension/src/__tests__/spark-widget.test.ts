@@ -183,7 +183,7 @@ test("spark widget shows compact workflow-run progress above project details", (
     theme,
   );
 
-  assertLineIncludes(lines[0], ["Spark UX redesign", "Phase: plan"]);
+  assertLineIncludes(lines[0], ["Spark UX redesign", "Mode: plan"]);
   assert.ok(!lines[0]?.includes("Tasks("), lines[0]);
   assert.ok(!lines[0]?.includes("total="), lines[0]);
   assert.ok(!lines[0]?.includes("claimed="), lines[0]);
@@ -242,7 +242,7 @@ test("spark widget shows active dynamic workflow snapshot progress", () => {
     theme,
   );
 
-  assertLineIncludes(lines[0], ["Spark UX redesign", "Phase: plan"]);
+  assertLineIncludes(lines[0], ["Spark UX redesign", "Mode: plan"]);
   assert.ok(!lines[0]?.includes("Tasks("), lines[0]);
   assert.ok(!lines[0]?.includes("total="), lines[0]);
   assertLineIncludes(lines[1], [
@@ -308,7 +308,7 @@ test("spark widget suppresses duplicate background row when session agent is sho
     theme,
   );
 
-  assert.match(lines.join("\n"), /◆ Spark UX redesign · Phase: plan/);
+  assert.match(lines.join("\n"), /◆ Spark UX redesign · Mode: plan/);
   assert.doesNotMatch(lines.join("\n"), /Tasks\(/);
   assert.doesNotMatch(lines.join("\n"), /Background work/);
 });
@@ -368,7 +368,7 @@ test("spark widget shows session goal before project task state", () => {
   );
 
   assert.match(lines[0] ?? "", /◆ Goal\(●\): Advance Spark mode-as-state UX rework/);
-  assert.match(lines[1] ?? "", /◆ Spark UX redesign · Phase: plan/);
+  assert.match(lines[1] ?? "", /◆ Spark UX redesign · Mode: plan/);
   assert.doesNotMatch(lines[1] ?? "", /Tasks\(/);
   assert.doesNotMatch(lines[1] ?? "", /Goal\(●\):/);
 });
@@ -1201,7 +1201,7 @@ test("spark widget summarizes tasks and current-session in-memory running role-r
   ).join("\n");
 
   const header = lines.split("\n")[0] ?? "";
-  assert.match(header, /◆ Spark UX redesign · Phase: plan/);
+  assert.match(header, /◆ Spark UX redesign · Mode: plan/);
   assert.doesNotMatch(header, /Tasks\(|a1b2c3d4|0c5a1efe|2dd9591d|stale-worker/);
 });
 
@@ -1214,7 +1214,7 @@ test("spark widget renders phase on the project header", () => {
     { terminal: { columns: 120 }, requestRender() {} },
     theme,
   );
-  assert.match(planLines[0] ?? "", /^◆ Spark UX redesign · Phase: plan/);
+  assert.match(planLines[0] ?? "", /^◆ Spark UX redesign · Mode: plan/);
 
   const implementLines = renderSparkWidgetLines(
     widgetState({
@@ -1224,7 +1224,7 @@ test("spark widget renders phase on the project header", () => {
     { terminal: { columns: 120 }, requestRender() {} },
     theme,
   );
-  assert.match(implementLines[0] ?? "", /^◆ Spark UX redesign · Phase: implement/);
+  assert.match(implementLines[0] ?? "", /^◆ Spark UX redesign · Mode: execute/);
   assert.doesNotMatch(implementLines[0] ?? "", /Lens:/);
 });
 
@@ -1245,7 +1245,7 @@ test("spark widget renders declarative project kind panels", () => {
     theme,
   );
 
-  assert.match(lines[0] ?? "", /^◆ Spark UX redesign · Phase: plan/);
+  assert.match(lines[0] ?? "", /^◆ Spark UX redesign · Mode: plan/);
   assert.match(lines[1] ?? "", /^◇ \[demo\] Target: CLI smoke/);
   assert.match(lines[2] ?? "", /^◇ \[demo\] Metrics: 1\/2/);
 });
@@ -1281,7 +1281,7 @@ test("spark widget keeps task summary out of the project header", () => {
     theme,
   );
 
-  assert.match(lines[0] ?? "", /^◆ Spark UX redesign · Phase: plan/);
+  assert.match(lines[0] ?? "", /^◆ Spark UX redesign · Mode: plan/);
   assert.doesNotMatch(lines[0] ?? "", /Tasks\(/);
   assert.doesNotMatch(lines[0] ?? "", /a1b2c3d4|^├─/);
   assert.ok(

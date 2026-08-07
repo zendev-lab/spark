@@ -406,7 +406,7 @@ test("Spark prompt defaults to plan and changes for implementation mode", () => 
   assert.equal(planPrompt, defaultPrompt);
   assert.notEqual(executePrompt, planPrompt);
   assert.match(planPrompt, /\bplan\b/);
-  assert.match(executePrompt, /\bimplement\b/);
+  assert.match(executePrompt, /\bexecute\b/);
 });
 
 test("builtin Pi roles report blockers upward instead of asking interactively", () => {

@@ -900,9 +900,12 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     assert.equal(initializedRun.messages.length, 0);
     assert.equal(initializedRun.loopControl.loops.size, 0);
     assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
-    assert.match(initializedRun.customMessages.at(-1)?.content ?? "", /Implementation phase/u);
+    assert.match(
+      initializedRun.customMessages.at(-1)?.content ?? "",
+      /Execution mode requirements/u,
+    );
     assert.deepEqual(initializedCtx.sparkActiveMode, {
-      phase: "implement",
+      mode: "execute",
     });
 
     initializedCtx.ui.select = async () =>
@@ -1016,7 +1019,7 @@ Collect incident facts and decide the bounded response.
     await workflowCommand.handler("builtin:research Compare design options", initializedCtx);
     assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
     assert.deepEqual(initializedCtx.sparkActiveMode, {
-      phase: "plan",
+      mode: "plan",
     });
 
     await workflowCommand.handler(
@@ -1025,7 +1028,7 @@ Collect incident facts and decide the bounded response.
     );
     assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
     assert.deepEqual(initializedCtx.sparkActiveMode, {
-      phase: "plan",
+      mode: "plan",
     });
 
     await researchWorkflowCommand.handler(
@@ -1034,7 +1037,7 @@ Collect incident facts and decide the bounded response.
     );
     assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
     assert.deepEqual(initializedCtx.sparkActiveMode, {
-      phase: "plan",
+      mode: "plan",
     });
 
     let workflowNavigatorOptions: string[] = [];
@@ -1155,7 +1158,7 @@ test("/plan dispatches through an externally owned command turn bridge", async (
     assert.equal(forwarded.length, 1);
     assert.match(forwarded[0] ?? "", /## Planning focus\nTrace the visible turn path/u);
     assert.equal(run.customMessages.length, 0);
-    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1256,7 +1259,7 @@ test("/plan includes active roadmap item context and matches focus to an existin
 
     assert.equal(run.messages.length, 0);
     assert.equal(run.customMessages.at(-1)?.customType, "spark-mode-request");
-    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
     const graph = await defaultTaskGraphStore(dir).load();
     const project = graph?.projects()[0];
     assert.ok(project?.roadmap);
@@ -1727,7 +1730,7 @@ test("/implement continues through the agent-end hook without auto-answering or 
     assert.equal(run.loopControl.loops.size, 0);
     assert.equal(run.customMessages.at(-1)?.customType, "spark-mode-request");
     assert.deepEqual(ctx.sparkActiveMode, {
-      phase: "implement",
+      mode: "execute",
     });
 
     await executeSparkTool(run.tools, "impl_claim_task", ctx, {
@@ -1780,7 +1783,7 @@ test("/implement continues through the agent-end hook without auto-answering or 
     assert.match(continuation.content, /@second-ready/u);
     assert.equal(run.loopControl.loops.size, 0);
     assert.deepEqual(ctx.sparkActiveMode, {
-      phase: "implement",
+      mode: "execute",
     });
 
     const graph = await defaultTaskGraphStore(dir).load();
@@ -5930,7 +5933,7 @@ test("/repro rolls back newly persisted active state when driver start fails", a
     );
 
     assert.equal(await readSessionRepro(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -5972,7 +5975,7 @@ test("repro tool reports driver startup failure and clears new active state", as
     assert.match(toolText(result), /Repro did not start: tool driver start failed/u);
     assert.equal(await readSessionRepro(dir, ctx), undefined);
     assert.deepEqual(await loadSessionGoal(dir, ctx), previousGoal);
-    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -6454,7 +6457,7 @@ test("/implement canonical ask uses UI instead of reviewer auto-answer", async (
     assert.ok(implementCommand, "missing /execute command");
     await implementCommand.handler("work until a human decision is needed", ctx);
     assert.deepEqual(ctx.sparkActiveMode, {
-      phase: "implement",
+      mode: "execute",
     });
 
     const asked = await executeSparkTool(run.tools, "ask", ctx, {
@@ -6936,7 +6939,7 @@ test("/repro command starts, reports, and stops the Repro", async () => {
     }
     const repro = await readSessionRepro(dir, ctx);
     assert.equal(repro?.status, "active");
-    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
     assert.equal(ctx.askWaitTimeoutMs, 15 * 60_000);
     assert.equal(ctx.askAutoAnswer, undefined);
     const driver = activeTestLoop(run, "repro");
@@ -6948,7 +6951,7 @@ test("/repro command starts, reports, and stops the Repro", async () => {
 
     await reproCommand.handler("stop", ctx);
     assert.equal(await readSessionRepro(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
@@ -6969,7 +6972,7 @@ test("/repro command treats non-action text as the repro objective", async () =>
     const repro = await readSessionRepro(dir, ctx);
     assert.equal(repro?.status, "active");
     assert.equal(repro?.objective, objective);
-    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
     assert.equal(activeTestLoop(run, "repro")?.loopId, repro?.reproId);
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Spark repro active:/);
     assert.match(ctx.notifications.at(-1)?.message ?? "", new RegExp(objective));
@@ -7586,7 +7589,7 @@ test("foreground driver slash commands share status, stop, and restart grammar",
     assert.equal((await loadSessionGoal(dir, ctx))?.objective, "Replace foreground goal grammar");
     await goalCommand.handler("stop", ctx);
     assert.equal(await loadSessionGoal(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { mode: "plan" });
 
     await loopCommand.handler("Unify foreground loop grammar", ctx);
     assert.equal((await loadSessionLoop(dir, ctx))?.objective, "Unify foreground loop grammar");
@@ -8025,13 +8028,24 @@ test("current project store ignores legacy mode and run control blocks", async (
 
     await writeFile(stateFile, `${JSON.stringify({ projectRef: "proj:legacy" })}\n`, "utf8");
     assert.deepEqual(await loadCurrentProjectState(dir, ctx), {
-      version: 1,
+      version: 2,
       projectRef: "proj:legacy",
     });
 
     await writeFile(
       stateFile,
-      `${JSON.stringify({ version: 2, projectRef: "proj:demo" })}\n`,
+      `${JSON.stringify({ version: 2, projectRef: "proj:demo", mode: "plan" })}\n`,
+      "utf8",
+    );
+    assert.deepEqual(await loadCurrentProjectState(dir, ctx), {
+      version: 2,
+      projectRef: "proj:demo",
+      mode: "plan",
+    });
+
+    await writeFile(
+      stateFile,
+      `${JSON.stringify({ version: 3, projectRef: "proj:demo" })}\n`,
       "utf8",
     );
     await assert.rejects(
@@ -8039,7 +8053,7 @@ test("current project store ignores legacy mode and run control blocks", async (
       (error) =>
         error instanceof JsonStoreFormatError &&
         error.filePath === stateFile &&
-        /version must be 1/.test(error.message),
+        /version must be 2/.test(error.message),
     );
 
     await writeFile(stateFile, `${JSON.stringify({ version: 1, projectRef: 42 })}\n`, "utf8");
@@ -8067,7 +8081,7 @@ test("current project store ignores legacy mode and run control blocks", async (
       "utf8",
     );
     assert.deepEqual(await loadCurrentProjectState(dir, ctx), {
-      version: 1,
+      version: 2,
       projectRef: "proj:demo",
     });
 
@@ -8087,7 +8101,7 @@ test("current project store ignores legacy mode and run control blocks", async (
       "utf8",
     );
     const runControlState = await loadCurrentProjectState(dir, ctx);
-    assert.deepEqual(runControlState, { version: 1, projectRef: "proj:demo" });
+    assert.deepEqual(runControlState, { version: 2, projectRef: "proj:demo" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

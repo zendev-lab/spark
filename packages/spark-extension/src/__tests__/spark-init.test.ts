@@ -118,9 +118,9 @@ test("initializeSparkIdea does not overwrite an existing initialized project", a
   }
 });
 
-test("Spark prompt preserves base prompt and stays a single-line phase marker", () => {
+test("Spark prompt preserves base prompt and stays a single-line mode marker", () => {
   const prompt = renderSparkActiveSystemPrompt("Base prompt");
-  assert.match(prompt, /^Base prompt\n\nSpark phase: plan\./);
+  assert.match(prompt, /^Base prompt\n\nSpark mode: plan\./);
   assert.match(prompt, /Tools:/);
   assert.match(
     prompt,
