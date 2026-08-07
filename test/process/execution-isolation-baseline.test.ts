@@ -49,6 +49,7 @@ interface BaselineReport {
     sourceTreeDirty: boolean;
     schedulerConcurrency: number;
     controlProbeIntervalMs: number;
+    controlResponsiveGapLimitMs: number;
   };
   assertions: Record<string, boolean>;
   fixtures: BaselineFixture[];
@@ -89,6 +90,8 @@ test("source process records the single-daemon execution isolation baseline", as
     assert.equal(typeof report.environment.sourceTreeDirty, "boolean");
     assert.equal(report.environment.schedulerConcurrency, 2);
     assert.equal(report.environment.controlProbeIntervalMs, 100);
+    assert.ok(report.environment.controlResponsiveGapLimitMs >= 250);
+    assert.ok(report.environment.controlResponsiveGapLimitMs <= 1_000);
     assert.deepEqual(
       report.fixtures.map((fixture) => fixture.id),
       [
@@ -111,7 +114,7 @@ test("source process records the single-daemon execution isolation baseline", as
     const provider = fixture(report, "async-provider");
     assert.equal(provider.classification, "async-wait");
     assert.equal(provider.executionPath, "SparkAgentLoop.provider");
-    assert.ok(provider.probe.maxGapMs < 250);
+    assert.ok(provider.probe.maxGapMs < report.environment.controlResponsiveGapLimitMs);
     assert.ok(requiredNumber(provider.second?.terminalAtMs) < requiredNumber(provider.releaseAtMs));
     assert.ok(
       provider.probe.samples.some(
@@ -122,7 +125,7 @@ test("source process records the single-daemon execution isolation baseline", as
     const abortIgnoring = fixture(report, "abort-ignoring-tool");
     assert.equal(abortIgnoring.classification, "session-fence-occupancy");
     assert.equal(abortIgnoring.executionPath, "SparkAgentLoop.tool");
-    assert.ok(abortIgnoring.probe.maxGapMs < 250);
+    assert.ok(abortIgnoring.probe.maxGapMs < report.environment.controlResponsiveGapLimitMs);
     assert.ok(
       abortIgnoring.probe.samples.some(
         (sample) => sample.primaryStatus === "failed" && sample.secondStatus === "queued",
