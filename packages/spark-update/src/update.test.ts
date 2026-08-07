@@ -1,5 +1,15 @@
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readlink, realpath, rm, writeFile } from "node:fs/promises";
+import { execFile, fork } from "node:child_process";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -332,8 +342,9 @@ describe("managed filesystem transaction", () => {
         await writeFile(join(product, "dist", "build-info.json"), JSON.stringify(build));
         await writeFile(
           join(product, "bin", "spark"),
-          '#!/usr/bin/env node\nif (process.argv[2] === "probe-launcher") console.log(JSON.stringify({ launcher: process.env.SPARK_STABLE_LAUNCHER, state: process.env.SPARK_MANAGED_STATE_DIR }));\n',
+          '#!/usr/bin/env node\nif (process.argv[2] === "probe-launcher") console.log(JSON.stringify({ launcher: process.env.SPARK_STABLE_LAUNCHER, state: process.env.SPARK_MANAGED_STATE_DIR }));\nif (process.argv[2] === "ipc-probe") { process.send?.({ type: "target-ready" }); process.on("message", (message) => { if (message?.type === "parent-ping") process.send?.({ type: "target-pong" }); }); setInterval(() => {}, 1000); }\n',
         );
+        await chmod(join(product, "bin", "spark"), 0o755);
         return { code: 0, stdout: "", stderr: "" };
       }
       if (command === process.execPath) {
@@ -397,6 +408,22 @@ describe("managed filesystem transaction", () => {
       launcher: await realpath(manager.paths.launcherPath),
       state: manager.paths.stateDir,
     });
+
+    const relayed = fork(manager.paths.launcherPath, ["ipc-probe"], {
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+    });
+    try {
+      const [ready] = await once(relayed, "message");
+      expect(ready).toEqual({ type: "target-ready" });
+      relayed.send({ type: "parent-ping" });
+      const [pong] = await once(relayed, "message");
+      expect(pong).toEqual({ type: "target-pong" });
+    } finally {
+      relayed.kill();
+      await once(relayed, "exit");
+    }
+
     daemonBusy = true;
     await manager.apply("0.1.1", { automatic: true, wait: true });
     expect(await readlink(manager.paths.currentLink)).toBe("0.1.0");

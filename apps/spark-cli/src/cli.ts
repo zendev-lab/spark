@@ -1,4 +1,4 @@
-import { spawn, type SpawnOptions } from "node:child_process";
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -246,11 +246,46 @@ function isInteractiveTerminal(io: SparkDispatcherIo): boolean {
   );
 }
 
+type IpcChildProcess = ChildProcess & {
+  connected: boolean;
+  send(message: unknown, callback?: (error?: Error) => void): boolean;
+  disconnect(): void;
+};
+
+type IpcParentProcess = NodeJS.Process & {
+  connected?: boolean;
+  send(message: unknown, callback?: (error?: Error) => void): boolean;
+  disconnect(): void;
+};
+
+const ipcProcess = process as IpcParentProcess;
+
 const defaultLauncher: SparkDispatcherLauncher = {
   run(target, argv, options) {
     return new Promise((resolve) => {
       const command = resolveTargetCommand(target);
-      const child = spawn(command.command, [...command.args, ...argv], options);
+      const child = (
+        process.send
+          ? spawn(command.command, [...command.args, ...argv], {
+              ...options,
+              stdio: ["ignore", "inherit", "inherit", "ipc"] as SpawnOptions["stdio"],
+            })
+          : spawn(command.command, [...command.args, ...argv], options)
+      ) as IpcChildProcess;
+      if (process.send) {
+        process.on("message", (message) => {
+          if (child.connected) child.send(message, () => {});
+        });
+        child.on("message", (message: unknown) => {
+          if (ipcProcess.connected) ipcProcess.send(message, () => {});
+        });
+        process.on("disconnect", () => {
+          if (child.connected) child.disconnect();
+        });
+        child.on("disconnect", () => {
+          if (ipcProcess.connected) ipcProcess.disconnect();
+        });
+      }
       child.on("error", (error: NodeJS.ErrnoException) => {
         const detail = error.code === "ENOENT" ? "executable was not found on PATH" : error.message;
         process.stderr.write(`${dispatcherStrings.dispatchFailure(command.label, detail)}\n`);

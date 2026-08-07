@@ -48,7 +48,16 @@ export async function handleDaemonRequest(
           "Spark daemon restart control is not available.",
         );
       }
-      return await options.onRestart();
+      try {
+        return await options.onRestart();
+      } catch (error) {
+        if (error instanceof SparkDaemonControlError) throw error;
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new SparkDaemonControlError(
+          "daemon_restart_unavailable",
+          `Spark daemon restart could not be armed: ${detail}`,
+        );
+      }
     }
   }
 }

@@ -3460,6 +3460,46 @@ describe("Spark daemon local RPC", () => {
     }
   });
 
+  it("preserves a restart arming failure as an actionable daemon error", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-restart-error-"));
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: {
+        dataDir: join(root, "data"),
+        cacheDir: join(root, "cache"),
+        stateDir: join(root, "state"),
+        runtimeDir: join(root, "run"),
+      },
+    });
+    const db = openSparkDaemonDatabase(paths);
+
+    try {
+      const response = await handleLocalRpcLine(
+        JSON.stringify({ id: "restart_error", method: "daemon.restart" }),
+        paths,
+        db,
+        undefined,
+        {
+          onRestart: async () => {
+            throw new Error("Spark daemon restart helper IPC is unavailable.");
+          },
+        },
+      );
+      expect(response).toEqual({
+        id: "restart_error",
+        ok: false,
+        error: {
+          code: "daemon_restart_unavailable",
+          message:
+            "Spark daemon restart could not be armed: Spark daemon restart helper IPC is unavailable.",
+        },
+      });
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   it("writes the restart acknowledgement before the zero-active socket closes", async () => {
     const root = mkdtempSync(join(tmpdir(), "spark-daemon-rpc-restart-"));
     const paths = resolveSparkPaths({
