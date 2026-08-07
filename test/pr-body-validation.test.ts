@@ -152,9 +152,7 @@ describe("PR body validation", () => {
   it("fails closed for empty or structurally ambiguous templates", () => {
     expect(validatePrBody("", "No sections here.").valid).toBe(false);
     expect(() =>
-      extractTemplateSections(
-        "<!-- pr-body:optional -->\n<!-- pr-body:required -->\n## Why\n",
-      ),
+      extractTemplateSections("<!-- pr-body:optional -->\n<!-- pr-body:required -->\n## Why\n"),
     ).toThrow(/multiple pr-body directives/u);
     expect(() => extractTemplateSections("## Why\n\n<!-- pr-body:optional -->\n")).toThrow(
       /not followed by an H2/u,
