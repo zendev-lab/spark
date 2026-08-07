@@ -131,6 +131,13 @@ export const sparkAgentTraceSkillSchema = z
   })
   .strict();
 
+export const sparkAgentToolModelOriginSchema = z
+  .object({
+    roundtrip: z.number().int().positive(),
+    spanId: idSchema,
+  })
+  .strict();
+
 const rootEventSchema = z.object({
   schemaVersion: z.literal(SPARK_AGENT_TRACE_SCHEMA_VERSION),
   eventId: idSchema,
@@ -263,7 +270,7 @@ export const sparkAgentSkillSelectionTraceEventSchema = childEventSchema
 export const sparkAgentSkillLoadStartedTraceEventSchema = childEventSchema
   .extend({
     kind: z.literal("skill.load.started"),
-    appliesFromRoundtrip: z.number().int().positive(),
+    appliesFromRoundtrip: z.number().int().positive().optional(),
     skill: sparkAgentTraceSkillSchema,
   })
   .strict();
@@ -271,7 +278,7 @@ export const sparkAgentSkillLoadStartedTraceEventSchema = childEventSchema
 export const sparkAgentSkillLoadFinishedTraceEventSchema = childEventSchema
   .extend({
     kind: z.literal("skill.load.finished"),
-    appliesFromRoundtrip: z.number().int().positive(),
+    appliesFromRoundtrip: z.number().int().positive().optional(),
     skill: sparkAgentTraceSkillSchema,
     status: sparkAgentSkillLoadStatusSchema,
     durationMs: z.number().int().nonnegative(),
@@ -314,9 +321,9 @@ export const sparkAgentSkillLoadFinishedTraceEventSchema = childEventSchema
 export const sparkAgentToolCallStartedTraceEventSchema = childEventSchema
   .extend({
     kind: z.literal("tool.call.started"),
-    roundtrip: z.number().int().positive(),
     toolCallId: idSchema,
     toolName: labelSchema,
+    modelOrigin: sparkAgentToolModelOriginSchema.optional(),
     effect: sparkAgentToolEffectSchema,
     executionMode: z.enum(["parallel", "sequential", "unknown"]),
     approval: z.enum(["none", "required", "unknown"]),
@@ -329,9 +336,9 @@ export const sparkAgentToolCallStartedTraceEventSchema = childEventSchema
 export const sparkAgentToolCallFinishedTraceEventSchema = childEventSchema
   .extend({
     kind: z.literal("tool.call.finished"),
-    roundtrip: z.number().int().positive(),
     toolCallId: idSchema,
     toolName: labelSchema,
+    modelOrigin: sparkAgentToolModelOriginSchema.optional(),
     status: sparkAgentToolStatusSchema,
     durationMs: z.number().int().nonnegative(),
     resultBytes: z.number().int().nonnegative().optional(),
@@ -428,4 +435,5 @@ export type SparkAgentSkillLoadStatus = z.infer<typeof sparkAgentSkillLoadStatus
 export type SparkAgentSkillLoadFailureType = z.infer<typeof sparkAgentSkillLoadFailureTypeSchema>;
 export type SparkAgentArgumentFingerprint = z.infer<typeof sparkAgentArgumentFingerprintSchema>;
 export type SparkAgentTraceSkill = z.infer<typeof sparkAgentTraceSkillSchema>;
+export type SparkAgentToolModelOrigin = z.infer<typeof sparkAgentToolModelOriginSchema>;
 export type SparkAgentTraceEvent = z.infer<typeof sparkAgentTraceEventSchema>;
