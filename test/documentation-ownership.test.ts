@@ -34,9 +34,9 @@ test("public docs own usage while engineering docs own contracts and runbooks", 
     source("apps/spark-docs/src/content/docs/reference/configuration-and-paths.md"),
   ]);
 
-  assert.match(engineeringIndex, /apps\/spark-docs.*How do I use Spark\?/su);
-  assert.match(engineeringIndex, /docs\/specs.*What must Spark guarantee\?/su);
-  assert.match(engineeringIndex, /docs\/operations.*maintainers/su);
+  assert.match(engineeringIndex, /\| `apps\/spark-docs` \| Spark users and operators \|/u);
+  assert.match(engineeringIndex, /\| `docs\/specs` \| Spark implementers and reviewers \|/u);
+  assert.match(engineeringIndex, /\| `docs\/operations` \| Spark maintainers \|/u);
   assert.match(publicIndex, /This tree owns \*\*how users operate Spark\*\*/u);
 
   assert.match(commandPlanes, /apps\/spark-docs\/src\/content\/docs\/reference\/cli\.md/u);
@@ -45,7 +45,7 @@ test("public docs own usage while engineering docs own contracts and runbooks", 
 
   assert.match(toolContracts, /apps\/spark-docs\/src\/content\/docs\/reference\/tools\.md/u);
   assert.doesNotMatch(toolContracts, /^## Foreground commands$/mu);
-  assert.doesNotMatch(toolContracts, /^## Native `\/btw`$/mu);
+  assert.doesNotMatch(toolContracts, /^### Native `\/btw`$/mu);
 
   assert.match(
     pathContract,
