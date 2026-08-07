@@ -85,7 +85,7 @@
   "scriptsInventory": [
     {
       "path": "scripts/build-npm-product.mjs",
-      "lineCount": 339,
+      "lineCount": 338,
       "domainOwner": "distribution",
       "callers": [
         "scripts/pack-release.mjs",
@@ -333,13 +333,6 @@
       "lineCount": 198,
       "domainOwner": "acceptance",
       "callers": ["test/spark-cue-harness.test.ts"],
-      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
-    },
-    {
-      "path": "scripts/spark-cursor-live-acceptance.mts",
-      "lineCount": 122,
-      "domainOwner": "acceptance",
-      "callers": ["packages/spark-ai/README.md"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {

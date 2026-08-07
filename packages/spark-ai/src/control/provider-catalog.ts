@@ -4,7 +4,6 @@ import { dirname, resolve } from "node:path";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
 import { SparkProviderRegistry, type ProviderRegistrationAPI } from "../provider-registry.ts";
 import registerBaiduOneApiProvider from "../baidu-oneapi-provider.ts";
-import registerCursorProvider from "../cursor-provider.ts";
 import registerOpenAiCodexProvider from "../openai-codex-provider.ts";
 import { withPathMutation } from "./path-mutation.ts";
 
@@ -178,9 +177,6 @@ async function defaultImporter(specifier: string): Promise<unknown> {
   }
   if (specifier === "@zendev-lab/spark-ai/openai-codex-provider") {
     return { default: registerOpenAiCodexProvider };
-  }
-  if (specifier === "@zendev-lab/spark-ai/cursor-provider") {
-    return { default: registerCursorProvider };
   }
   return import(specifier);
 }

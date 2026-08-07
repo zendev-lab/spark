@@ -17,7 +17,6 @@
     "./baidu-oneapi-compat-extension": "./src/baidu-oneapi-compat-extension.ts",
     "./baidu-oneapi-provider": "./src/baidu-oneapi-provider.ts",
     "./openai-codex-provider": "./src/openai-codex-provider.ts",
-    "./cursor-provider": "./src/cursor-provider.ts",
     "./models-extension": "./src/models-extension.ts"
   },
   "scripts": {
@@ -25,7 +24,6 @@
     "test": "vp test run"
   },
   "dependencies": {
-    "@cursor/sdk": "1.0.26",
     "@earendil-works/pi-ai": "^0.83.0",
     "@zendev-lab/spark-core": "workspace:^",
     "@zendev-lab/spark-retry": "workspace:^",
