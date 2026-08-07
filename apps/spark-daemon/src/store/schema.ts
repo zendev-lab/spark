@@ -322,6 +322,8 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
 
     CREATE TABLE IF NOT EXISTS daemon_human_waits (
       human_request_id TEXT PRIMARY KEY,
+      interaction_request_id TEXT,
+      evidence_request_json TEXT,
       invocation_id TEXT,
       workspace_binding_id TEXT,
       workspace_id TEXT,
@@ -334,6 +336,18 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       accepted_response_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS daemon_human_answer_events (
+      answer_event_id TEXT PRIMARY KEY,
+      human_request_id TEXT NOT NULL REFERENCES daemon_human_waits(human_request_id) ON DELETE CASCADE,
+      interaction_request_id TEXT NOT NULL,
+      human_response_id TEXT NOT NULL,
+      event_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      wake_completed_at TEXT,
+      UNIQUE (human_request_id, human_response_id),
+      UNIQUE (interaction_request_id, human_response_id)
     );
 
     CREATE TABLE IF NOT EXISTS lens_provider_results (
@@ -469,6 +483,8 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       ON runtime_command_receipts(terminal_acked_at, completed_at)
       WHERE terminal_json IS NOT NULL;
     CREATE INDEX IF NOT EXISTS daemon_human_waits_status_idx ON daemon_human_waits(status, created_at);
+    CREATE INDEX IF NOT EXISTS daemon_human_answer_events_request_idx
+      ON daemon_human_answer_events(human_request_id, created_at);
     CREATE INDEX IF NOT EXISTS lens_provider_results_revision_idx
       ON lens_provider_results(revision_digest, capability);
     CREATE INDEX IF NOT EXISTS lens_observations_revision_idx
@@ -506,6 +522,21 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
   if (!humanWaitColumns.has("accepted_response_id")) {
     db.exec("ALTER TABLE daemon_human_waits ADD COLUMN accepted_response_id TEXT");
   }
+  if (!humanWaitColumns.has("interaction_request_id")) {
+    db.exec("ALTER TABLE daemon_human_waits ADD COLUMN interaction_request_id TEXT");
+  }
+  if (!humanWaitColumns.has("evidence_request_json")) {
+    db.exec("ALTER TABLE daemon_human_waits ADD COLUMN evidence_request_json TEXT");
+  }
+  const humanAnswerEventColumns = workspaceColumns(db, "daemon_human_answer_events");
+  if (!humanAnswerEventColumns.has("wake_completed_at")) {
+    db.exec("ALTER TABLE daemon_human_answer_events ADD COLUMN wake_completed_at TEXT");
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS daemon_human_waits_evidence_interaction_idx
+      ON daemon_human_waits(interaction_request_id)
+      WHERE evidence_request_json IS NOT NULL;
+  `);
   retireLegacyDaemonErrorOutbox(db);
   migrateWorkspacesTable(db);
   db.exec("CREATE INDEX IF NOT EXISTS workspaces_status_idx ON workspaces(status)");

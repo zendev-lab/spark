@@ -3,6 +3,7 @@ import type {
   ExtensionInteractionResponse,
   ExtensionRoleRunner,
   SparkHostLoopContext,
+  SparkHostContext,
   SparkSessionLeaseIdentity,
 } from "@zendev-lab/spark-core";
 import type { ToolCallComponent, ToolCallRenderTheme } from "./tool-rendering.ts";
@@ -73,6 +74,7 @@ export interface SparkToolContext {
   askReviewerFallbackAfterMs?: number;
 
   sparkAutonomousGoalTurn?: { goalId: string };
+  sparkAutonomousAsk?: SparkHostContext["sparkAutonomousAsk"];
   ui?: {
     notify?: (message: string, level?: "info" | "warning" | "error" | "success") => void;
     confirm?: (title: string, message: string) => Promise<boolean>;

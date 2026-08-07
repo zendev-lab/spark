@@ -100,6 +100,7 @@ export interface MessageContext {
   cancelSparkInvocation: CancelSparkInvocationFn;
   invocationRegistry?: SparkDaemonInvocationRegistry;
   humanWaits?: SparkDaemonHumanWaitRegistry;
+  respondHumanInteraction?: SparkDaemonHumanInteractionResponder;
   modelControl?: SparkDaemonModelControl;
   channelIngress?: DaemonChannelIngressRuntime;
   sessionRegistry?: DaemonSessionRegistry;

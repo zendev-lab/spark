@@ -1,20 +1,26 @@
+import { createHash } from "node:crypto";
 import { Type } from "typebox";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import type {
   SparkHostContext,
   JsonValue,
+  ExtensionEvidenceRequestBinding,
   ToolConfig,
   ToolRenderComponent,
   ToolRenderTheme,
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-text";
-import { parseSparkMemoryApprovalBinding } from "@zendev-lab/spark-protocol";
+import {
+  parseSparkMemoryApprovalBinding,
+  sparkEvidenceRequestBindingSchema,
+} from "@zendev-lab/spark-protocol";
 import {
   isExplicitMemoryApprovalEvidenceBody,
   isUserAnsweredAskEvidenceBody,
   recordCanonicalAskEvidenceReceipt,
   type SparkAskEvidenceBody,
 } from "./evidence.ts";
+import { SparkAutonomousAsyncOnlyError } from "./autonomous-policy.ts";
 import { summarizeAskResult, type AskSummaryAnswer } from "./summary.ts";
 
 export type SparkAskAction = "ask" | "flow";
@@ -184,7 +190,15 @@ export function registerSparkAskActionTool(
       const autoAnswer = normalizeAskAutoAnswerMode(
         params.autoAnswer ?? contextAutoAnswerMode(ctx),
       );
-      if (params.recordAsEvidence === true && params.delivery === "async") {
+      const autonomous = ctx.sparkAutonomousAsk;
+      if (autonomous && (params.delivery !== "async" || autoAnswer)) {
+        throw new SparkAutonomousAsyncOnlyError(
+          autoAnswer
+            ? "autoAnswer/reviewer fallback is forbidden in active Goal/Repro"
+            : "delivery must be explicitly async in active Goal/Repro",
+        );
+      }
+      if (params.recordAsEvidence === true && params.delivery === "async" && !autonomous) {
         throw new Error("ask.recordAsEvidence cannot be combined with delivery=async");
       }
       if (params.recordAsEvidence === true && autoAnswer) {
@@ -196,15 +210,27 @@ export function registerSparkAskActionTool(
       const target = selectAskTarget(action, params);
       const tool = options.resolveTool(target);
       if (!tool) throw new Error(`ask action adapter could not find ${target}`);
-      const forwarded = stripAdapterOnlyParams(params);
+      let forwarded = stripAdapterOnlyParams(params);
+      if (autonomous) {
+        const bound = await createAutonomousEvidenceRequest(params, autonomous);
+        forwarded = {
+          ...forwarded,
+          delivery: "async",
+          interactionRequestId: bound.interactionRequestId,
+          evidenceRequest: bound.evidenceRequest,
+        };
+      }
       const waitTimeoutMs = contextAskWaitTimeoutMs(ctx);
       const humanParams =
         params.delivery !== "async" && hasProtocolInteraction(ctx)
           ? { ...forwarded, timeoutMs: waitTimeoutMs }
           : forwarded;
+      const dispatchCtx = autonomous
+        ? ({ ...ctx, sparkCanonicalAskDispatch: true } as SparkHostContext)
+        : ctx;
       if (!autoAnswer) {
-        const result = await tool.execute(toolCallId, humanParams, signal, onUpdate, ctx);
-        return maybeRecordAskEvidence(params, result, ctx);
+        const result = await tool.execute(toolCallId, humanParams, signal, onUpdate, dispatchCtx);
+        return autonomous ? result : maybeRecordAskEvidence(params, result, ctx);
       }
       if (hasProtocolInteraction(ctx)) {
         const humanResult = await tool.execute(toolCallId, humanParams, signal, onUpdate, ctx);
@@ -296,6 +322,75 @@ function normalizeAskAutoAnswerMode(value: unknown): SparkAskAutoAnswerMode | un
   if (value === undefined || value === null || value === false) return undefined;
   if (value === true) return true;
   throw new Error("ask.autoAnswer must be a boolean when provided");
+}
+
+async function createAutonomousEvidenceRequest(
+  params: Record<string, unknown>,
+  policy: NonNullable<SparkHostContext["sparkAutonomousAsk"]>,
+): Promise<{
+  interactionRequestId: string;
+  evidenceRequest: ExtensionEvidenceRequestBinding;
+}> {
+  const resolved = await policy.resolveBinding(params);
+  const requestHash = createHash("sha256")
+    .update(
+      canonicalJson({
+        request: decodeAutoAnswerRequest(params),
+        ownerSessionId: policy.ownerSessionId,
+        goalOrReproId: policy.goalOrReproId,
+        modeScope: policy.modeScope,
+        ...resolved,
+      }),
+    )
+    .digest("hex");
+  const evidenceRequest = sparkEvidenceRequestBindingSchema.parse({
+    schema: "spark.evidence-request/v1",
+    askRef: `ask:${requestHash}`,
+    ownerSessionId: policy.ownerSessionId,
+    goalOrReproId: policy.goalOrReproId,
+    modeScope: policy.modeScope,
+    planRevision: resolved.planRevision,
+    ownerStepOrUnresolvedId: resolved.ownerStepOrUnresolvedId,
+    stepDefinitionDigest: resolved.stepDefinitionDigest,
+    requestHash,
+    expectedAnswerKind: expectedAutonomousAnswerKind(params),
+  }) as ExtensionEvidenceRequestBinding;
+  return {
+    interactionRequestId: `ask_async:${requestHash}`,
+    evidenceRequest,
+  };
+}
+
+function expectedAutonomousAnswerKind(
+  params: Record<string, unknown>,
+): ExtensionEvidenceRequestBinding["expectedAnswerKind"] {
+  if (params.mode === "approval") return "approval";
+  const questions = Array.isArray(params.questions)
+    ? (params.questions as Array<Record<string, unknown>>)
+    : [];
+  if (questions.some((question) => question.type === "freeform")) return "freeform";
+  if (questions.some((question) => question.type === "multi")) return "multi";
+  return "single";
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new TypeError("Ask request contains a non-finite number");
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .filter((key) => record[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(",")}}`;
+  }
+  throw new TypeError(`Ask request contains unsupported ${typeof value}`);
 }
 
 function contextAutoAnswerMode(ctx: SparkHostContext): unknown {

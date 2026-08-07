@@ -1,6 +1,8 @@
 import type {
   ExtensionInteractionRequest,
   ExtensionInteractionResponse,
+  ExtensionEvidenceRequestBinding,
+  SparkHostContext,
 } from "@zendev-lab/spark-core";
 import { truncateToWidth } from "@zendev-lab/spark-tui-adapter/text";
 import {
@@ -9,6 +11,7 @@ import {
 } from "@zendev-lab/spark-protocol";
 import { Type } from "typebox";
 
+import { rejectAutonomousAskAlias } from "./autonomous-policy.ts";
 import { normalizeSparkAskAnswerSource, type SparkAskAnswerSource } from "./answer-source.ts";
 
 import { summarizeAskResult } from "./summary.ts";
@@ -53,6 +56,10 @@ export interface SparkAskRequest {
   timeoutMs?: number;
   context?: string;
   approvalBinding?: SparkMemoryApprovalBinding;
+  /** Host-only correlation injected by canonical ask after autonomous policy checks. */
+  interactionRequestId?: string;
+  /** Host-only detached EvidenceRequest binding; raw ask_user cannot set this. */
+  evidenceRequest?: ExtensionEvidenceRequestBinding;
   questions: SparkAskQuestion[];
 }
 
@@ -281,6 +288,7 @@ export function registerSparkAskTools(pi: SparkAskHostApi): void {
       );
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      rejectAutonomousAskAlias(ctx as SparkHostContext);
       const request = decodeAskRequest(params);
       const rawResult = await askUser(request, ctxUi(ctx));
       const result = annotateAskUserAnswerSource(rawResult, ctx);
@@ -332,6 +340,12 @@ function decodeAskRequest(params: Record<string, unknown>): SparkAskRequest {
       params.approvalBinding === undefined
         ? undefined
         : parseSparkMemoryApprovalBinding(params.approvalBinding),
+    interactionRequestId:
+      typeof params.interactionRequestId === "string" ? params.interactionRequestId : undefined,
+    evidenceRequest:
+      params.evidenceRequest && typeof params.evidenceRequest === "object"
+        ? (params.evidenceRequest as ExtensionEvidenceRequestBinding)
+        : undefined,
     questions,
   });
 }
@@ -386,12 +400,13 @@ function createAskUserInteractionRequest(request: SparkAskRequest): ExtensionInt
   return {
     version: 1,
     kind: "askFlow",
-    requestId: `ask_user:${Date.now().toString(36)}`,
+    requestId: request.interactionRequestId ?? `ask_user:${Date.now().toString(36)}`,
     title: request.title?.trim() || "Ask user",
     prompt: request.context,
     source: "extension",
     metadata: { tool: "ask_user" },
     delivery: request.delivery ?? "blocking",
+    ...(request.evidenceRequest ? { evidenceRequest: request.evidenceRequest } : {}),
     ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
     mode: request.mode ?? "clarification",
     questions: request.questions.map((question) => ({
@@ -690,6 +705,7 @@ function truncateInline(value: string, maxLength: number): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
+export * from "./autonomous-policy.ts";
 export type { SparkAskAnswerSource } from "./answer-source.ts";
 export * from "./schema.ts";
 export * from "./flow.ts";

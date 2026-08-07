@@ -1,6 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
-import { parseSparkInteractionRequest } from "@zendev-lab/spark-protocol";
+import {
+  parseSparkInteractionRequest,
+  type SparkEvidenceAnswerEvent,
+} from "@zendev-lab/spark-protocol";
 import { SparkDaemonHumanWaitRegistry } from "../core/human-waits.ts";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import type { DaemonChannelIngressRuntime } from "./ingress.ts";
@@ -385,14 +388,40 @@ describe("daemon channel human interactions", () => {
     const db = daemonDatabase();
     try {
       const waits = new SparkDaemonHumanWaitRegistry(db);
+      const onAnswerEvent = vi.fn<(event: SparkEvidenceAnswerEvent) => Promise<void>>(
+        async () => undefined,
+      );
       waits.register({
         humanRequestId: "hreq_callback",
+        interactionRequestId: "ask_async:callback",
+        sessionId: "session:channel-owner",
         workspaceBindingId: "rtwb_1",
         workspaceId: "ws_1",
         delivery: "async",
+        evidenceRequest: {
+          schema: "spark.evidence-request/v1",
+          askRef: "ask:callback",
+          ownerSessionId: "session:channel-owner",
+          goalOrReproId: "goal:channel",
+          modeScope: "goal",
+          planRevision: 1,
+          ownerStepOrUnresolvedId: "unresolved:channel",
+          stepDefinitionDigest: "channel-digest",
+          requestHash: "a".repeat(64),
+          expectedAnswerKind: "single",
+        },
         kind: "ask_user",
         title: "Choose",
         prompt: "Choose",
+        questions: [
+          {
+            id: "route",
+            type: "single",
+            prompt: "Route?",
+            required: true,
+            options: [{ value: "safe", label: "Safe" }],
+          },
+        ],
         context: {
           channel: {
             workspaceId: "ws_1",
@@ -418,8 +447,9 @@ describe("daemon channel human interactions", () => {
         },
       };
 
-      await settleChannelAskInteraction(channelIngress, waits, input, { runtimeId: "rt_test" });
-      await settleChannelAskInteraction(channelIngress, waits, input, { runtimeId: "rt_test" });
+      const options = { runtimeId: "rt_test", onAnswerEvent };
+      await settleChannelAskInteraction(channelIngress, waits, input, options);
+      await settleChannelAskInteraction(channelIngress, waits, input, options);
       await settleChannelAskInteraction(
         channelIngress,
         waits,
@@ -427,8 +457,17 @@ describe("daemon channel human interactions", () => {
           ...input,
           event: { ...input.event, interactionId: "interaction_2" },
         },
-        { runtimeId: "rt_test" },
+        options,
       );
+
+      expect(onAnswerEvent).toHaveBeenCalledTimes(2);
+      expect(onAnswerEvent.mock.calls[0]?.[0]).toMatchObject({
+        schema: "spark.evidence-answer-event/v1",
+        provenance: "direct_user",
+        binding: { askRef: "ask:callback" },
+        answers: { route: "safe" },
+      });
+      expect(waits.listEvidenceAnswerEvents("hreq_callback")).toHaveLength(1);
 
       expect(ackInteraction.mock.calls.map((call) => call[3])).toEqual([
         "success",
@@ -451,7 +490,12 @@ describe("daemon channel human interactions", () => {
         type: "human.response.recorded",
         runtimeId: "rt_test",
         humanRequestId: "hreq_callback",
-        payload: { source: "channel", status: "answered", answers: { route: "safe" } },
+        payload: {
+          source: "channel",
+          provenance: "direct_user",
+          status: "answered",
+          answers: { route: "safe" },
+        },
       });
     } finally {
       db.close();

@@ -3,6 +3,7 @@ import {
   assertHubMayWriteScope,
   assertDaemonOwnsScope,
   createId,
+  projectInboxItemStatus,
   type ArtifactProjectionPayload,
   type HumanRequestCreatedPayload,
   type HumanResponseAckPayload,
@@ -72,6 +73,9 @@ export function recordHumanRequestFromRuntime(db: DatabaseSync, input: RecordHum
       toJson({
         ...input.payload.context,
         ...(input.payload.sessionId ? { sessionId: input.payload.sessionId } : {}),
+        ...(input.payload.evidenceRequest
+          ? { evidenceRequest: input.payload.evidenceRequest }
+          : {}),
         toolCallId: input.payload.toolCallId,
         commandId: input.commandId,
         invocationId: input.invocationId,
@@ -837,12 +841,7 @@ export function recordHumanResponseAck(db: DatabaseSync, input: RecordHumanRespo
           `UPDATE inbox_items
            SET status = ?, resolved_as = ?, updated_at = ?
            WHERE human_request_id = ?`,
-        ).run(
-          answerStatus === "answered" ? "resolved" : "archived",
-          answerStatus,
-          timestamp,
-          input.humanRequestId,
-        );
+        ).run(projectInboxItemStatus(answerStatus), answerStatus, timestamp, input.humanRequestId);
       }
     } else if (outcome === "transient") {
       db.prepare(

@@ -1,4 +1,5 @@
 import { fail, redirect, error as kitError } from "@sveltejs/kit";
+import { hasNonEmptySparkHumanAnswer } from "@zendev-lab/spark-protocol";
 import { getRequestDictionary, localeCookieName } from "$lib/i18n";
 import {
   buildApprovalDecisionPayload,
@@ -178,6 +179,9 @@ export const actions: Actions = {
 
     if (missingRequired.length > 0 && status === "answered") {
       return fail(400, { message: `${t.missingRequiredPrefix} ${missingRequired[0]}` });
+    }
+    if (status === "answered" && !hasNonEmptySparkHumanAnswer(answers)) {
+      return fail(400, { message: t.answerRequired });
     }
 
     try {

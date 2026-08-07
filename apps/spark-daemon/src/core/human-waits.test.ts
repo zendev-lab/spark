@@ -349,6 +349,167 @@ describe("SparkDaemonHumanWaitRegistry", () => {
     }
   });
 
+  it("persists a revision-fenced async binding and emits exactly one direct-user AnswerEvent", () => {
+    const { db, waits } = createHarness();
+    try {
+      const evidenceRequest = {
+        schema: "spark.evidence-request/v1" as const,
+        askRef: "ask:topology",
+        ownerSessionId: "session-1",
+        goalOrReproId: "repro:glm52",
+        modeScope: "repro" as const,
+        planRevision: 7,
+        ownerStepOrUnresolvedId: "step:topology",
+        stepDefinitionDigest: "topology-digest",
+        requestHash: "c".repeat(64),
+        expectedAnswerKind: "single" as const,
+      };
+      expect(() =>
+        waits.register({
+          ...waitInput("hreq-evidence-blocking", "blocking"),
+          evidenceRequest,
+        }),
+      ).toThrow(/requires async delivery and correlation/u);
+      const firstRegistration = waits.register({
+        ...waitInput("hreq-evidence"),
+        questions: [
+          {
+            id: "topology",
+            type: "single",
+            prompt: "Topology?",
+            required: true,
+            options: [{ value: "tp2", label: "TP2" }],
+          },
+        ],
+        evidenceRequest,
+      });
+      const repeatedRegistration = waits.register({
+        ...waitInput("hreq-evidence-retry"),
+        interactionRequestId: "interaction-hreq-evidence",
+        evidenceRequest,
+      });
+      expect(firstRegistration.created).toBe(true);
+      expect(repeatedRegistration).toMatchObject({
+        created: false,
+        wait: { humanRequestId: "hreq-evidence", evidenceRequest },
+      });
+      expect(() =>
+        waits.register({
+          ...waitInput("hreq-evidence-conflict"),
+          interactionRequestId: "interaction-hreq-evidence",
+          evidenceRequest: { ...evidenceRequest, planRevision: 8 },
+        }),
+      ).toThrow(/retried with a different binding/u);
+
+      const accepted = waits.deliver({
+        humanRequestId: "hreq-evidence",
+        humanResponseId: "hres-evidence",
+        status: "answered",
+        provenance: "direct_user",
+        answers: { topology: "tp2" },
+      });
+      const replayed = waits.deliver({
+        humanRequestId: "hreq-evidence",
+        humanResponseId: "hres-evidence",
+        status: "answered",
+        provenance: "direct_user",
+        answers: { topology: "tampered" },
+      });
+
+      expect(accepted).toMatchObject({
+        outcome: "accepted",
+        returnedToTool: false,
+        answerEvent: {
+          schema: "spark.evidence-answer-event/v1",
+          answerEventId: expect.stringMatching(/^answer-event:[a-f0-9]{64}$/u),
+          humanRequestId: "hreq-evidence",
+          interactionRequestId: "interaction-hreq-evidence",
+          humanResponseId: "hres-evidence",
+          provenance: "direct_user",
+          binding: evidenceRequest,
+          answers: { topology: "tp2" },
+        },
+      });
+      expect(replayed).toMatchObject({
+        outcome: "replayed",
+        answerEvent: { answers: { topology: "tp2" } },
+      });
+      const restarted = new SparkDaemonHumanWaitRegistry(db);
+      expect(restarted.listEvidenceAnswerEvents("hreq-evidence")).toEqual([accepted.answerEvent]);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM daemon_human_waits").get()).toEqual({
+        count: 1,
+      });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM daemon_human_answer_events").get()).toEqual({
+        count: 1,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps cancelled, archived, empty, and system answers out of AnswerEvent evidence", () => {
+    const { db, waits } = createHarness();
+    const evidenceRequest = {
+      schema: "spark.evidence-request/v1" as const,
+      askRef: "ask:publish",
+      ownerSessionId: "session-1",
+      goalOrReproId: "goal:release",
+      modeScope: "goal" as const,
+      planRevision: 2,
+      ownerStepOrUnresolvedId: "unresolved:publish",
+      stepDefinitionDigest: "publish-digest",
+      requestHash: "d".repeat(64),
+      expectedAnswerKind: "approval" as const,
+    };
+    try {
+      for (const [suffix, status, provenance, answers] of [
+        ["cancelled", "cancelled", "direct_user", {}],
+        ["archived", "archived", "direct_user", { approval: "approve" }],
+        ["empty", "answered", "direct_user", { approval: "  " }],
+        ["system", "answered", "system", { approval: "approve" }],
+        ["wrong-kind", "answered", "direct_user", { approval: ["approve", "reject"] }],
+      ] as const) {
+        const humanRequestId = `hreq-${suffix}`;
+        waits.register({
+          ...waitInput(humanRequestId),
+          questions: [
+            {
+              id: "approval",
+              type: "single",
+              prompt: "Approve?",
+              required: true,
+              options: [
+                { value: "approve", label: "Approve" },
+                { value: "reject", label: "Reject" },
+              ],
+            },
+          ],
+          evidenceRequest,
+        });
+        waits.deliver({
+          humanRequestId,
+          humanResponseId: `hres-${suffix}`,
+          status,
+          provenance,
+          answers,
+        });
+      }
+      expect(waits.listEvidenceAnswerEvents()).toEqual([]);
+      expect(
+        waits.deliver({
+          humanRequestId: "hreq-cancelled",
+          humanResponseId: "hres-late",
+          status: "answered",
+          provenance: "direct_user",
+          answers: { approval: "approve" },
+        }),
+      ).toMatchObject({ outcome: "already_resolved" });
+      expect(waits.listEvidenceAnswerEvents()).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("distinguishes an attached blocking continuation from an orphaned one", async () => {
     const { db, waits } = createHarness();
     try {

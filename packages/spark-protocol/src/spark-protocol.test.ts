@@ -6,6 +6,8 @@ import { test } from "vitest";
 import {
   SPARK_PROTOCOL_VERSION,
   createBlockedInteractionResponse,
+  hasNonEmptySparkHumanAnswer,
+  isTerminalSparkHumanInteractionDelivery,
   parseSparkDaemonEvent,
   parseSparkInteractionRequest,
   parseSparkInteractionResponse,
@@ -94,6 +96,15 @@ test("run and task views keep Artifacts separate from internal Evidence", () => 
   );
 });
 
+test("spark protocol centralizes human answer content and terminal delivery semantics", () => {
+  assert.equal(hasNonEmptySparkHumanAnswer({ choice: { values: ["approve"] } }), true);
+  assert.equal(hasNonEmptySparkHumanAnswer({ choice: { values: [], customText: "  " } }), false);
+  assert.equal(isTerminalSparkHumanInteractionDelivery("accepted"), true);
+  assert.equal(isTerminalSparkHumanInteractionDelivery("replayed"), true);
+  assert.equal(isTerminalSparkHumanInteractionDelivery("transient"), false);
+  assert.equal(isTerminalSparkHumanInteractionDelivery("unknown_request"), false);
+});
+
 test("spark protocol validates interaction requests and typed responses", () => {
   const ask = parseSparkInteractionRequest({
     requestId: "req-ask",
@@ -112,6 +123,55 @@ test("spark protocol validates interaction requests and typed responses", () => 
   });
   assert.equal(ask.kind, "askFlow");
   assert.equal(ask.timeoutMs, 60 * 60_000);
+
+  const evidenceBinding = {
+    schema: "spark.evidence-request/v1" as const,
+    askRef: "ask:req-async-evidence",
+    ownerSessionId: "session:owner",
+    goalOrReproId: "repro:glm52",
+    modeScope: "repro" as const,
+    planRevision: 7,
+    ownerStepOrUnresolvedId: "step:numerical-boundary",
+    stepDefinitionDigest: "step-digest",
+    requestHash: "a".repeat(64),
+    expectedAnswerKind: "single" as const,
+  };
+  const asyncEvidence = parseSparkInteractionRequest({
+    requestId: "req-async-evidence",
+    kind: "askFlow",
+    title: "Choose reference topology",
+    delivery: "async",
+    mode: "decision",
+    evidenceRequest: evidenceBinding,
+    questions: [
+      {
+        id: "topology",
+        prompt: "Use topology A?",
+        type: "single",
+        options: [{ value: "a", label: "Topology A" }],
+      },
+    ],
+  });
+  assert.equal(asyncEvidence.kind, "askFlow");
+  assert.deepEqual(asyncEvidence.evidenceRequest, evidenceBinding);
+  assert.equal(
+    sparkInteractionRequestSchema.safeParse({
+      ...asyncEvidence,
+      evidenceRequest: { ...evidenceBinding, askRef: undefined },
+    }).success,
+    false,
+  );
+  assert.equal(
+    sparkInteractionRequestSchema.safeParse({
+      ...asyncEvidence,
+      evidenceRequest: { ...evidenceBinding, expectedAnswerKind: "unknown" },
+    }).success,
+    false,
+  );
+  assert.equal(
+    sparkInteractionRequestSchema.safeParse({ ...asyncEvidence, delivery: "blocking" }).success,
+    false,
+  );
 
   const model = parseSparkInteractionRequest({
     requestId: "req-model",

@@ -425,6 +425,19 @@ export interface ExtensionInteractionRequestBase {
   metadata?: Record<string, unknown> | undefined;
 }
 
+export interface ExtensionEvidenceRequestBinding {
+  schema: "spark.evidence-request/v1";
+  askRef: string;
+  ownerSessionId: string;
+  goalOrReproId: string;
+  modeScope: "goal" | "repro";
+  planRevision: number;
+  ownerStepOrUnresolvedId: string;
+  stepDefinitionDigest: string;
+  requestHash: string;
+  expectedAnswerKind: "single" | "multi" | "freeform" | "approval";
+}
+
 export interface ExtensionAskFlowInteractionRequest extends ExtensionInteractionRequestBase {
   kind: "askFlow";
   delivery?: "blocking" | "async" | undefined;
@@ -433,6 +446,7 @@ export interface ExtensionAskFlowInteractionRequest extends ExtensionInteraction
   flow?: string | undefined;
   questions: ExtensionAskQuestionView[];
   allowElaborate?: boolean | undefined;
+  evidenceRequest?: ExtensionEvidenceRequestBinding | undefined;
 }
 
 export interface ExtensionModelRef {
@@ -797,6 +811,23 @@ export interface SparkHostContext {
   loop?: SparkHostLoopContext;
   /** Session IDs already participating in a synchronous question chain. */
   sessionQuestionChain?: string[];
+  /** Host-owned policy for detached asynchronous Goal/Repro evidence requests. */
+  sparkAutonomousAsk?: {
+    modeScope: "goal" | "repro";
+    goalOrReproId: string;
+    ownerSessionId: string;
+    resolveBinding(request: Readonly<Record<string, unknown>>):
+      | Promise<{
+          planRevision: number;
+          ownerStepOrUnresolvedId: string;
+          stepDefinitionDigest: string;
+        }>
+      | {
+          planRevision: number;
+          ownerStepOrUnresolvedId: string;
+          stepDefinitionDigest: string;
+        };
+  };
   model?: SessionModelRef;
   hasUI?: boolean;
   ui?: ExtensionUi;

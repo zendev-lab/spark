@@ -6,6 +6,7 @@ import {
   createId,
   parseSparkInteractionRequest,
   sparkJsonObjectSchema,
+  type SparkEvidenceAnswerEvent,
   type SparkInteractionRequest,
   type SparkInteractionResponse,
 } from "@zendev-lab/spark-protocol";
@@ -57,7 +58,8 @@ export interface SparkDaemonHumanInteractionRoute {
 export interface SparkDaemonHumanInteractionResponseInput {
   /** Stable across client retries so an accepted response can be replayed safely. */
   humanResponseId?: string;
-  status: "answered" | "cancelled";
+  status: "answered" | "cancelled" | "archived";
+  provenance: "direct_user" | "system";
   answers: Record<string, unknown>;
   responseArtifactRefs: string[];
 }
@@ -71,6 +73,11 @@ export interface SparkDaemonHumanInteractionBrokerOptions {
   db: DatabaseSync;
   waits: SparkDaemonHumanWaitRegistry;
   getRuntimeId(route: SparkDaemonHumanInteractionRoute): string | undefined;
+  /** Project a committed direct-user AnswerEvent into owner-visible Evidence. */
+  onAnswerEvent?: (
+    event: SparkEvidenceAnswerEvent,
+    wait: SparkDaemonHumanWaitRecord,
+  ) => void | Promise<void>;
   /** Wake/flush the durable request outbox after the registration commits. */
   onOutboxReady?: () => void | Promise<void>;
   /** Optional channel projection (QQ keyboard); failure must not lose the Hub request. */
@@ -105,11 +112,12 @@ export class SparkDaemonHumanInteractionBroker {
       humanRequestId: wait.humanRequestId,
       humanResponseId,
       status: input.status,
+      provenance: input.provenance,
       answers: input.answers,
       responseArtifactRefs: input.responseArtifactRefs,
     };
     if (!wasProjectedToHub || wait.status !== "pending") {
-      return this.options.waits.deliver(deliveryInput);
+      return await this.deliverResponse(deliveryInput);
     }
     if (!runtimeId || !route) {
       throw new Error(
@@ -118,13 +126,14 @@ export class SparkDaemonHumanInteractionBroker {
     }
 
     const messageId = createId("msg");
-    const result = this.options.waits.deliver(deliveryInput, {
+    const result = await this.deliverResponse(deliveryInput, {
       messageId,
       kind: "human.response.recorded",
       envelope: runtimeEnvelope(
         "human.response.recorded",
         {
           source: "daemon",
+          provenance: input.provenance,
           status: input.status,
           answers: input.answers,
           responseArtifactRefs: input.responseArtifactRefs,
@@ -142,6 +151,21 @@ export class SparkDaemonHumanInteractionBroker {
       ),
     });
     await Promise.resolve(this.options.onOutboxReady?.());
+    return result;
+  }
+
+  private async deliverResponse(
+    input: Parameters<SparkDaemonHumanWaitRegistry["deliver"]>[0],
+    outbox?: Parameters<SparkDaemonHumanWaitRegistry["deliver"]>[1],
+  ): Promise<SparkDaemonHumanWaitDeliveryResult> {
+    const result = this.options.waits.deliver(input, outbox);
+    if (
+      (result.outcome === "accepted" || result.outcome === "replayed") &&
+      result.answerEvent &&
+      result.wait
+    ) {
+      await Promise.resolve(this.options.onAnswerEvent?.(result.answerEvent, result.wait));
+    }
     return result;
   }
 
@@ -236,6 +260,7 @@ export class SparkDaemonHumanInteractionBroker {
       kind: "ask_user" as const,
       delivery,
       interactionRequestId: request.requestId,
+      ...(durable.ask.evidenceRequest ? { evidenceRequest: durable.ask.evidenceRequest } : {}),
       sessionId: context.sessionId,
       ...(toolCallId ? { toolCallId } : {}),
       title: durable.ask.title,
@@ -286,6 +311,7 @@ export class SparkDaemonHumanInteractionBroker {
         projectId: context.projectId,
         toolCallId,
         delivery,
+        ...(durable.ask.evidenceRequest ? { evidenceRequest: durable.ask.evidenceRequest } : {}),
         kind: "ask_user",
         title: durable.ask.title,
         prompt,
@@ -296,8 +322,8 @@ export class SparkDaemonHumanInteractionBroker {
       envelope ? { messageId, kind: "human.request.created", envelope } : undefined,
     );
 
-    if (envelope) await Promise.resolve(this.options.onOutboxReady?.());
-    if (this.options.onRequestOpened) {
+    if (registration.created && envelope) await Promise.resolve(this.options.onOutboxReady?.());
+    if (registration.created && this.options.onRequestOpened) {
       try {
         await this.options.onRequestOpened({
           wait: registration.wait,
@@ -318,11 +344,14 @@ export class SparkDaemonHumanInteractionBroker {
         version: SPARK_PROTOCOL_VERSION,
         kind: "askFlow",
         requestId: request.requestId,
-        humanRequestId,
+        humanRequestId: registration.wait.humanRequestId,
         status: "pending",
         answers: {},
         nextAction: "resume",
-        metadata: { delivery: "async" },
+        metadata: {
+          delivery: "async",
+          ...(durable.ask.evidenceRequest ? { evidenceRequest: durable.ask.evidenceRequest } : {}),
+        },
       };
     }
 
@@ -337,6 +366,7 @@ export class SparkDaemonHumanInteractionBroker {
       void this.respond(registration.wait, {
         ...(humanResponseId ? { humanResponseId } : {}),
         status: "cancelled",
+        provenance: "system",
         answers: {},
         responseArtifactRefs: [],
       }).catch((error: unknown) => {

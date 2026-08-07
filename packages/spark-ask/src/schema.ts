@@ -1,4 +1,5 @@
 import { Type, type Static } from "typebox";
+import type { ExtensionEvidenceRequestBinding } from "@zendev-lab/spark-core";
 import type { SparkMemoryApprovalBinding } from "@zendev-lab/spark-protocol";
 
 import type { SparkAskAnswerSource } from "./answer-source.ts";
@@ -107,6 +108,10 @@ export const SparkAskFlowRequestSchema = Type.Object({
 export interface SparkAskFlowRequest extends Static<typeof SparkAskFlowRequestSchema> {
   flow?: string;
   approvalBinding?: SparkMemoryApprovalBinding;
+  /** Host-only correlation injected by canonical ask after autonomous policy checks. */
+  interactionRequestId?: string;
+  /** Host-only detached EvidenceRequest binding; not exposed in the raw alias schema. */
+  evidenceRequest?: ExtensionEvidenceRequestBinding;
 }
 
 // ---- Answer types ----

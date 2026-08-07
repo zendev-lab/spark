@@ -1,7 +1,12 @@
 /** Spark repro tool adapter for the host-neutral reproduction contract. */
 
+import { createHash } from "node:crypto";
 import { Type } from "typebox";
-import type { SparkLoopView } from "@zendev-lab/spark-protocol";
+import {
+  sparkEvidenceAnswerEventSchema,
+  type SparkEvidenceAnswerEvent,
+  type SparkLoopView,
+} from "@zendev-lab/spark-protocol";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import { verifyCanonicalAskEvidence } from "@zendev-lab/spark-ask";
@@ -1158,6 +1163,42 @@ async function verifyReproStepEvidence(
   }
 
   for (const entry of presentEntries) {
+    const answerEvent = canonicalProjectedAnswerEvent(entry);
+    if (answerEvent) {
+      const expectedBinding = createReproStepAskBinding(repro, step);
+      const binding = answerEvent.binding;
+      const selectedValues = answerEventSelectedValues(answerEvent.answers);
+      if (
+        binding.modeScope === "repro" &&
+        binding.goalOrReproId === repro.reproId &&
+        binding.ownerSessionId === repro.sessionKey &&
+        binding.planRevision === expectedBinding.planRevision &&
+        binding.ownerStepOrUnresolvedId === expectedBinding.stepId &&
+        binding.stepDefinitionDigest === expectedBinding.definitionDigest &&
+        (step.authority === "ask_approval"
+          ? binding.expectedAnswerKind === "approval"
+          : binding.expectedAnswerKind !== "approval") &&
+        selectedValues.length > 0 &&
+        (step.authority !== "ask_approval" ||
+          (selectedValues.length === 1 && selectedValues[0] === "approve"))
+      ) {
+        return verifyReproStepPass(repro, step.id, {
+          verdict: "Pass",
+          planRevision: expectedBinding.planRevision,
+          definitionDigest: expectedBinding.definitionDigest,
+          proofKind: step.authority === "ask_approval" ? "approval" : "decision",
+          evidenceRefs,
+          verifiedDoneWhen: [...step.doneWhen],
+          askRequestHash: binding.requestHash,
+          acceptedAnswerHash: createHash("sha256")
+            .update(JSON.stringify(answerEvent.answers))
+            .digest("hex"),
+          selectedValues,
+          ...(step.authority === "ask_approval" ? { approvalResult: "approved" as const } : {}),
+        });
+      }
+      continue;
+    }
     const verified = await verifyCanonicalAskEvidence(cwd, entry);
     if (!verified) continue;
     const binding = decodeReproStepAskBinding(verified.request.context);
@@ -1191,6 +1232,44 @@ async function verifyReproStepEvidence(
   };
 }
 
+function canonicalProjectedAnswerEvent(entry: {
+  ref: string;
+  body: unknown;
+  provenance: { producer: string };
+  links?: readonly { to: string; relation: string }[];
+}): SparkEvidenceAnswerEvent | undefined {
+  const parsed = sparkEvidenceAnswerEventSchema.safeParse(entry.body);
+  if (!parsed.success) return undefined;
+  if (entry.ref !== `evidence:${parsed.data.answerEventId}`) return undefined;
+  if (entry.provenance.producer !== "ask") return undefined;
+  if (
+    !entry.links?.some(
+      (link) => link.relation === "answer-to" && link.to === parsed.data.binding.askRef,
+    )
+  ) {
+    return undefined;
+  }
+  return parsed.data;
+}
+
+function answerEventSelectedValues(answers: Record<string, unknown>): string[] {
+  const selected = Object.values(answers).flatMap((answer) => {
+    if (typeof answer === "string") return answer.trim() ? [answer.trim()] : [];
+    if (Array.isArray(answer)) {
+      return answer.filter((value): value is string => typeof value === "string" && Boolean(value));
+    }
+    if (!isRecord(answer)) return [];
+    if (Array.isArray(answer.values)) {
+      return answer.values.filter(
+        (value): value is string => typeof value === "string" && Boolean(value.trim()),
+      );
+    }
+    const value = answer.value ?? answer.selected ?? answer.choice ?? answer.customText;
+    return typeof value === "string" && value.trim() ? [value.trim()] : [];
+  });
+  return [...new Set(selected)];
+}
+
 function isStepProofEvidence(value: unknown): value is SparkReproStepProofEvidence {
   return (
     isRecord(value) &&
@@ -1217,10 +1296,11 @@ async function validateReproStepEvidence(cwd: string, step: SparkReproStep): Pro
   }
   if (step.status !== "done" || step.authority === "safe_local") return;
   for (const entry of evidence) {
+    if (entry && canonicalProjectedAnswerEvent(entry)) return;
     if (entry && (await verifyCanonicalAskEvidence(cwd, entry))) return;
   }
   throw new Error(
-    `${step.authority} step ${step.id} requires canonical ask evidence with a valid receipt`,
+    `${step.authority} step ${step.id} requires direct-user AnswerEvent or canonical ask evidence`,
   );
 }
 
@@ -1546,9 +1626,9 @@ function renderPlanStepNextAction(repro: SparkSessionRepro, step: SparkReproStep
     case "safe_local":
       return `Next typed step: ${step.goal}. Execute the smallest safe-local action that can satisfy: ${step.doneWhen.join("; ")}. Capture ${step.evidenceRequired.join("; ")}, ${checkpoint}.`;
     case "ask_decision":
-      return `Next typed step: ${step.goal}. Research enough to narrow the choice, then call canonical ask with delivery="blocking", mode="decision", context=${JSON.stringify(askContext)}, and recordAsEvidence=true. ${checkpoint}; the evidence must be the canonical ask receipt.`;
+      return `Next typed step: ${step.goal}. Research enough to narrow the choice, then call canonical ask with delivery="async", mode="decision", context=${JSON.stringify(askContext)}. Continue every independent ready action while the detached EvidenceRequest is pending; after a direct user AnswerEvent is projected to canonical Evidence, ${checkpoint}.`;
     case "ask_approval":
-      return `Next typed step: ${step.goal}. Do not perform the external, destructive, or scope-expanding action yet. Call canonical ask with delivery="blocking", mode="approval", context=${JSON.stringify(askContext)}, a single approval option value="approve" or value="reject", and recordAsEvidence=true. ${checkpoint}; only value="approve" can pass this Step.`;
+      return `Next typed step: ${step.goal}. Do not perform the external, destructive, or scope-expanding action yet. Call canonical ask with delivery="async", mode="approval", context=${JSON.stringify(askContext)}, and a single approval option value="approve" or value="reject". Continue independent ready work; after a direct user AnswerEvent is projected to canonical Evidence, ${checkpoint}; only value="approve" can pass this Step.`;
     default: {
       const exhaustive: never = step.authority;
       return exhaustive;
