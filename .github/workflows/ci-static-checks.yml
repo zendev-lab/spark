@@ -17,38 +17,6 @@ permissions:
   contents: read
 
 jobs:
-  mode-lock-fix:
-    name: Temporary Mode Lock Fix
-    if: github.event_name == 'pull_request' && github.head_ref == 'agent/session-mode-execute'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: agent/session-mode-execute
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --no-frozen-lockfile
-      - name: Verify renamed workspace package resolves
-        run: |
-          node --input-type=module -e 'console.log(await import("@zendev-lab/spark-modes"))'
-          pnpm --filter @zendev-lab/spark-daemon run check
-      - name: Commit lock repair
-        run: |
-          if git diff --quiet -- pnpm-lock.yaml; then
-            echo "lockfile unchanged"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pnpm-lock.yaml
-          git commit --no-verify -m "🐛 fix(mode): relink renamed workspace package"
-          git push origin HEAD:agent/session-mode-execute
-
   pre-commit:
     name: Pre-commit Checks
     runs-on: ubuntu-latest
