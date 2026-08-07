@@ -779,7 +779,7 @@ importers:
         version: link:../spark-memory
       '@zendev-lab/spark-modes':
         specifier: workspace:^
-        version: link:../spark-phases
+        version: link:../spark-modes
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
