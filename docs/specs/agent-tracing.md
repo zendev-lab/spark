@@ -30,7 +30,7 @@ It covers:
 
 - Agent run lifecycle;
 - model roundtrip lifecycle;
-- Skill routing selection;
+- Skill routing;
 - actual Skill-body load lifecycle;
 - Tool-call lifecycle, including pre-execution failures;
 - stable failure classification;
@@ -106,7 +106,7 @@ An accepted daemon invocation is the preferred trace root. Local in-process exec
 
 ```text
 Agent run span
-├── Skill selection event
+├── Skill routing event
 ├── Skill load span (only when a body is actually loaded)
 ├── model roundtrip span 1
 ├── Tool call span A ── causal link ──> model roundtrip 1
@@ -187,18 +187,18 @@ Skill routing and Skill-body loading are different facts and must not be conflat
 
 Event:
 
-- `skill.selection.finished`
+- `skill.routing.finished`
 
 The native request-matching path currently selects routing metadata: Skill name, description/title/location metadata, and score. It intentionally does not load the Skill body. Therefore a selection event does **not** imply a load event.
 
 Selection records:
 
 - the roundtrip from which the routing context applies;
-- selection mode (`explicit | automatic | inherited | none`);
+- routing mode (`explicit | automatic | inherited | none`);
 - selected Skill identities;
-- optional candidate count, selector version, and selection fingerprint.
+- optional candidate count, selector version, and routing fingerprint.
 
-Selected Skill names must be unique. `mode: none` cannot contain Skills.
+Routed Skill names must be unique. `mode: none` cannot contain Skills.
 
 ### Body load
 
@@ -213,7 +213,7 @@ A body load may optionally record `appliesFromRoundtrip` when the caller knows w
 
 The terminal event records status, duration, stable failure type/code, and Evidence refs.
 
-A selected routing metadata entry must never fabricate a successful Skill load merely to make the trace look complete.
+A routed metadata entry must never fabricate a successful Skill load merely to make the trace look complete.
 
 ## Tool lifecycle
 
@@ -334,7 +334,9 @@ Instrumentation belongs at shared execution boundaries rather than inside each T
 
 ### Run and model boundary
 
-`SparkAgentLoop.runTurns()` owns run/model lifecycle emission. The existing prompt manifest provides the model, prompt hashes, Tool-profile fingerprint, selected Skill names, and roundtrip index without retaining prompt text.
+The run trace context must exist **before request-scoped preparation**. Native user submission currently awaits `prepareUserSubmit()` before calling the shared core `submitWithOutcome()`, and automatic Skill routing occurs inside that preparation hook. Therefore `agent.run.started` must wrap preparation plus core execution for a real user submit; trigger and restart-resume paths create the same run context at their equivalent entry boundary.
+
+`SparkAgentLoop.runTurns()` owns model-roundtrip lifecycle inside that already-open run. The existing prompt manifest provides the model, prompt hashes, Tool-profile fingerprint, routed Skill names, and roundtrip index without retaining prompt text.
 
 The model finish event is emitted when the provider response reaches its terminal outcome, before any returned Tool call is dispatched.
 
@@ -476,7 +478,7 @@ The tracing foundation is ready for downstream analysis when:
 - Tool spans remain temporally valid when execution happens after their origin model roundtrip closes;
 - every populated `modelOrigin` references the matching completed model span;
 - restart/resume does not duplicate a Tool span or invent unavailable model-origin metadata;
-- Skill routing selection is recorded without falsely claiming that a Skill body was loaded;
+- Skill routing is recorded without falsely claiming that a Skill body was loaded;
 - every actual Skill-body load has one terminal load result;
 - no trace event contains raw prompt, user, Skill body, Tool argument, Tool result, or secret content;
 - parallel Tool execution remains parallel while trace and transcript ordering remain explainable;

@@ -228,7 +228,7 @@ export function validateCompletedSparkAgentTrace(
       case "tool.call.started":
         registerStart(event, eventIndex);
         return;
-      case "skill.selection.finished":
+      case "skill.routing.finished":
         registerInstantEvent(event, eventIndex);
         return;
       case "agent.run.finished":
@@ -277,7 +277,7 @@ export function validateCompletedSparkAgentTrace(
   }
 
   function registerInstantEvent(
-    event: Extract<SparkAgentTraceEvent, { kind: "skill.selection.finished" }>,
+    event: Extract<SparkAgentTraceEvent, { kind: "skill.routing.finished" }>,
     eventIndex: number,
   ): void {
     if (spans.has(event.spanId) || instantSpanIds.has(event.spanId)) {
@@ -414,7 +414,7 @@ function expectedParentKind(event: SparkAgentTraceEvent): StartedTraceEvent["kin
   switch (event.kind) {
     case "model.roundtrip.started":
     case "model.roundtrip.finished":
-    case "skill.selection.finished":
+    case "skill.routing.finished":
     case "skill.load.started":
     case "skill.load.finished":
     case "tool.call.started":

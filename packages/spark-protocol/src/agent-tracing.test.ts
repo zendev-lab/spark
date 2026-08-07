@@ -140,12 +140,12 @@ function completeTrace(): SparkAgentTraceEvent[] {
     runStarted(),
     parseEvent({
       schemaVersion: 1,
-      eventId: "event:skills:selected",
+      eventId: "event:skills:routed",
       traceId: "invocation:123",
       spanId: "skills:selection:1",
       parentSpanId: "run:123",
       occurredAt,
-      kind: "skill.selection.finished",
+      kind: "skill.routing.finished",
       appliesFromRoundtrip: 1,
       mode: "automatic",
       skills: [
@@ -154,7 +154,7 @@ function completeTrace(): SparkAgentTraceEvent[] {
       ],
       candidateCount: 4,
       selectorVersion: "skill-router-v2",
-      selectionFingerprint: fingerprint,
+      routingFingerprint: fingerprint,
     }),
     roundtripStarted(1),
     roundtripFinished(1),
@@ -176,7 +176,7 @@ describe("agent trace protocol", () => {
 
   it("does not require metadata-only Skill selection to fabricate a Skill load", () => {
     const trace = completeTrace();
-    expect(trace.some((event) => event.kind === "skill.selection.finished")).toBe(true);
+    expect(trace.some((event) => event.kind === "skill.routing.finished")).toBe(true);
     expect(trace.some((event) => event.kind === "skill.load.started")).toBe(false);
     expect(validateCompletedSparkAgentTrace(trace).valid).toBe(true);
   });
@@ -341,12 +341,12 @@ describe("agent trace protocol", () => {
     expect(() =>
       sparkAgentTraceEventSchema.parse({
         schemaVersion: 1,
-        eventId: "event:skills:selected",
+        eventId: "event:skills:routed",
         traceId: "invocation:123",
         spanId: "skills:selection:1",
         parentSpanId: "run:123",
         occurredAt,
-        kind: "skill.selection.finished",
+        kind: "skill.routing.finished",
         appliesFromRoundtrip: 1,
         mode: "automatic",
         skills: [{ name: "github" }, { name: "github" }],

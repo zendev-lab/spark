@@ -16,7 +16,7 @@ export const SPARK_AGENT_TRACE_EVENT_KINDS = [
   "agent.run.finished",
   "model.roundtrip.started",
   "model.roundtrip.finished",
-  "skill.selection.finished",
+  "skill.routing.finished",
   "skill.load.started",
   "skill.load.finished",
   "tool.call.started",
@@ -91,14 +91,14 @@ export const SPARK_AGENT_TOOL_FAILURE_TYPES = [
 
 export const sparkAgentToolFailureTypeSchema = z.enum(SPARK_AGENT_TOOL_FAILURE_TYPES);
 
-export const SPARK_AGENT_SKILL_SELECTION_MODES = [
+export const SPARK_AGENT_SKILL_ROUTING_MODES = [
   "explicit",
   "automatic",
   "inherited",
   "none",
 ] as const;
 
-export const sparkAgentSkillSelectionModeSchema = z.enum(SPARK_AGENT_SKILL_SELECTION_MODES);
+export const sparkAgentSkillRoutingModeSchema = z.enum(SPARK_AGENT_SKILL_ROUTING_MODES);
 
 export const SPARK_AGENT_SKILL_LOAD_STATUSES = ["succeeded", "failed", "blocked"] as const;
 
@@ -231,15 +231,15 @@ export const sparkAgentModelRoundtripFinishedTraceEventSchema = childEventSchema
     }
   });
 
-export const sparkAgentSkillSelectionTraceEventSchema = childEventSchema
+export const sparkAgentSkillRoutingTraceEventSchema = childEventSchema
   .extend({
-    kind: z.literal("skill.selection.finished"),
+    kind: z.literal("skill.routing.finished"),
     appliesFromRoundtrip: z.number().int().positive(),
-    mode: sparkAgentSkillSelectionModeSchema,
+    mode: sparkAgentSkillRoutingModeSchema,
     skills: z.array(sparkAgentTraceSkillSchema).max(64),
     candidateCount: z.number().int().nonnegative().optional(),
     selectorVersion: labelSchema.optional(),
-    selectionFingerprint: fingerprintSchema.optional(),
+    routingFingerprint: fingerprintSchema.optional(),
   })
   .strict()
   .superRefine((event, context) => {
@@ -416,7 +416,7 @@ export const sparkAgentTraceEventSchema = z.discriminatedUnion("kind", [
   sparkAgentRunFinishedTraceEventSchema,
   sparkAgentModelRoundtripStartedTraceEventSchema,
   sparkAgentModelRoundtripFinishedTraceEventSchema,
-  sparkAgentSkillSelectionTraceEventSchema,
+  sparkAgentSkillRoutingTraceEventSchema,
   sparkAgentSkillLoadStartedTraceEventSchema,
   sparkAgentSkillLoadFinishedTraceEventSchema,
   sparkAgentToolCallStartedTraceEventSchema,
@@ -430,7 +430,7 @@ export type SparkAgentToolEffect = z.infer<typeof sparkAgentToolEffectSchema>;
 export type SparkAgentToolStatus = z.infer<typeof sparkAgentToolStatusSchema>;
 export type SparkAgentToolFailureStage = z.infer<typeof sparkAgentToolFailureStageSchema>;
 export type SparkAgentToolFailureType = z.infer<typeof sparkAgentToolFailureTypeSchema>;
-export type SparkAgentSkillSelectionMode = z.infer<typeof sparkAgentSkillSelectionModeSchema>;
+export type SparkAgentSkillRoutingMode = z.infer<typeof sparkAgentSkillRoutingModeSchema>;
 export type SparkAgentSkillLoadStatus = z.infer<typeof sparkAgentSkillLoadStatusSchema>;
 export type SparkAgentSkillLoadFailureType = z.infer<typeof sparkAgentSkillLoadFailureTypeSchema>;
 export type SparkAgentArgumentFingerprint = z.infer<typeof sparkAgentArgumentFingerprintSchema>;
