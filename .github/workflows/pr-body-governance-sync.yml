@@ -1,9 +1,11 @@
 name: TEMP - Sync PR Body Governance Inventory
 
 on:
-  push:
-    branches:
-      - ci/pr-body-section-contract
+  pull_request:
+    paths:
+      - .github/workflows/pr-body-governance-sync.yml
+      - test/fixtures/architecture-governance.json
+      - test/architecture-ratchets.test.ts
 
 permissions:
   contents: write
@@ -13,6 +15,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ci/pr-body-section-contract
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
@@ -22,7 +26,6 @@ jobs:
       - name: Sync current script inventory
         run: |
           node --input-type=module <<'NODE'
-          import { createHash } from "node:crypto";
           import { readFileSync, writeFileSync } from "node:fs";
 
           const fixturePath = "test/fixtures/architecture-governance.json";
