@@ -1,411 +1,484 @@
-# Agent Trace Recording
+# Agent Tracing
 
 Status: proposed
 
-This specification defines Spark's canonical agent execution trace. It covers identity, lifecycle events, failure classification, privacy, ordering, restart behavior, and completeness validation for Agent runs, model roundtrips, Skill selection/loading, and Tool calls.
+This specification defines the canonical execution trace for Spark Agent runs. The immediate goal is trustworthy recording: every model interaction, Skill routing/load attempt, and Tool call must be attributable, terminal, replayable, privacy-safe, and structurally checkable.
 
-Autonomous evaluation and improvement are future consumers of this trace. They are intentionally outside this specification until the trace is complete, durable, and trustworthy.
+Autonomous improvement is a future consumer of this data. It is deliberately not part of this specification.
 
-## Decision
+## Why
 
-Spark records one append-only causal trace for each accepted Agent execution:
+Spark already records useful fragments:
 
-```text
-Agent run
-  -> Skill selection and loading
-  -> model roundtrip
-       -> Tool call
-       -> Tool call
-  -> model roundtrip
-  -> terminal run outcome
-```
+- `SparkPromptManifest` captures privacy-safe model, prompt, Tool-profile, and selected-Skill metadata for model roundtrips;
+- `SparkAgentLoopEvent` exposes prompt manifests, Tool results, turn completion, run outcomes, aborts, and errors;
+- daemon invocation events provide durable sequence ordering, cursors, replay, retention, and Hub projection;
+- Evidence stores large diagnostic content outside bounded event envelopes;
+- restart checkpoints preserve pending assistant Tool calls across daemon replacement.
 
-For daemon-owned execution, the invocation is the trace root and the existing invocation event sequence is the durable order. Spark does not create a second telemetry database or a second execution owner.
+Those fragments do not yet form one causal trace. In particular, a Tool result alone cannot prove when the call began, how long approval or execution took, where it failed, whether a missing result is a crash or omission, or which model response caused it.
 
-Every lifecycle envelope is recorded. Raw execution content is not recorded in the trace row.
+The tracing contract therefore has one primary invariant:
 
-## Goals
+> Every lifecycle fact that starts must terminate exactly once, and every causal relationship must be explicit rather than inferred from transcript text.
 
-- Correlate each accepted Agent run with one terminal outcome.
-- Record every model roundtrip attempted by the turn loop.
-- Record Skill selection and the load result of each selected Skill.
-- Record every Tool call, including failures before Tool execution begins.
-- Distinguish where and why Tool and Skill operations fail.
-- Preserve parent-child causality across parallel Tool calls and daemon restart.
-- Reject contradictory or structurally incomplete terminal traces.
-- Keep prompt text, user content, Skill bodies, Tool arguments, Tool results, and secrets out of trace events.
-- Reuse daemon invocation ordering, replay, retention, and Hub delivery.
+## Scope
 
-## Non-goals
+The first implementation slice defines and validates the protocol contract only.
 
-- Recording chain-of-thought or hidden reasoning.
-- Defining user feedback, evaluator, reflection, proposal, or promotion schemas.
-- Building dashboards, anomaly detection, or autonomous improvement in this change.
-- Automatically replaying Tool side effects.
-- Treating an optional OpenTelemetry export as Spark's source of truth.
-- Persisting arbitrary Tool or model content in bounded invocation event rows.
+It covers:
 
-## Existing baseline
+- Agent run lifecycle;
+- model roundtrip lifecycle;
+- Skill routing selection;
+- actual Skill-body load lifecycle;
+- Tool-call lifecycle, including pre-execution failures;
+- stable failure classification;
+- privacy-safe argument equality fingerprints;
+- causal and temporal relationships;
+- restart-safe identities;
+- completed-trace structural validation.
 
-Spark already provides:
+It does not yet:
 
-- explicit `SparkRunOutcome` terminal states;
-- per-roundtrip `SparkPromptManifest` metadata;
-- a shared `SparkAgentLoop` Tool dispatch boundary;
-- selected Skill names at request/roundtrip preparation;
-- `ToolResultMessage.isError` and recoverable Evidence references;
-- daemon invocation events with monotonic sequence, cursor replay, retention, and Hub delivery;
-- durable restart checkpoints for pending Tool calls.
+- emit trace events from production runtime paths;
+- persist them in daemon invocation history;
+- expose trace query APIs or UI;
+- collect user feedback;
+- evaluate or aggregate traces;
+- generate improvement proposals;
+- change production behavior based on traces.
 
-The missing contract is a complete causal trace that makes these facts attributable and machine-checkable.
+## Core invariants
 
-## Terms
+### One execution truth
 
-- **Trace**: one logical Agent execution, normally rooted at one daemon invocation.
-- **Span**: a duration-bearing operation with matching started and finished events.
-- **Instant event**: a fact without a duration, such as a completed Skill selection decision.
-- **Event ID**: stable identity used to deduplicate at-least-once delivery.
-- **Invocation sequence**: daemon-assigned durable ordering after persistence.
-- **Occurrence time**: runtime wall-clock time carried by the event; it does not replace invocation sequence.
+The daemon remains the owner of accepted invocations, durable ordering, restart recovery, and retention. Tracing observes execution; it never becomes a second scheduler or execution owner.
 
-## Identity and restart
+### Append-only facts
 
-### Daemon-owned execution
+Trace events describe facts that happened. Consumers may derive summaries or evaluations later, but they never rewrite the original lifecycle events.
 
-- `traceId` is the accepted `invocationId`.
-- The daemon issues or freezes the run span identity before execution.
-- Restart/resume preserves the same `traceId` and run span.
-- Pending Tool calls preserve Tool span identity derived from their durable Tool call identity.
-- Re-emitted deterministic event IDs are deduplicated by the persistence/projection boundary.
+### Complete envelopes, minimized content
 
-A planned restart must not create a second logical run or a second Tool call merely because process ownership changed.
+Spark records lifecycle envelopes, not arbitrary runtime content.
 
-### Local in-process execution
+Trace events may contain:
 
-Execution without a daemon invocation may use a generated trace root. Such traces are useful for tests and local diagnostics but do not claim daemon durability until projected into invocation history.
+- event, trace, span, and parent identities;
+- Tool and Skill names;
+- model and prompt version metadata;
+- opaque hashes or keyed fingerprints;
+- policy/effect/execution-mode metadata;
+- timestamps, durations, token counts, and bounded byte counts;
+- stable failure stage/type/code;
+- Evidence refs.
 
-### Stable event identity
+Trace events must not contain:
 
-Started and finished events use distinct stable `eventId` values while sharing one `spanId`. Event IDs should be deterministic from the logical trace/span/event identity where restart can replay emission.
+- raw user messages or prompt text;
+- hidden reasoning or chain-of-thought;
+- Skill bodies;
+- raw Tool arguments;
+- raw Tool results;
+- file contents or shell output;
+- environment variables, credentials, or secrets.
+
+Large or sensitive diagnostics belong in Evidence after policy-controlled redaction and retention.
+
+### Temporal parent is not causal origin
+
+Span parentage represents temporal ownership, not merely causality.
+
+A model roundtrip ends when the provider interaction ends. Spark executes Tool calls only after the assistant Tool-call message has completed and the before-Tool checkpoint has settled. Therefore Tool spans are **not** children of model roundtrip spans.
+
+Instead:
+
+- model roundtrip spans are children of the Agent run;
+- Tool spans are children of the Agent run;
+- Tool events may carry `modelOrigin` linking them to the completed model roundtrip that emitted the Tool call.
+
+This preserves truthful duration semantics and allows the validator to reject a Tool call that claims a model origin which has not completed yet.
 
 ## Trace hierarchy
 
+An accepted daemon invocation is the preferred trace root. Local in-process execution may use the current run-view identity until daemon correlation exists.
+
 ```text
-agent.run span
-  skill.selection instant event
-  skill.load span
-  skill.load span
-  model.roundtrip span
-    tool.call span
-    tool.call span
-  model.roundtrip span
-agent.run finished
+Agent run span
+├── Skill selection event
+├── Skill load span (only when a body is actually loaded)
+├── model roundtrip span 1
+├── Tool call span A ── causal link ──> model roundtrip 1
+├── Tool call span B ── causal link ──> model roundtrip 1
+└── model roundtrip span 2
 ```
 
-Parent rules:
+Started and finished events for one span share the same `traceId`, `spanId`, and temporal parent. The daemon invocation sequence supplies total persisted ordering; `occurredAt` preserves runtime time.
 
-- model roundtrips are children of the Agent run;
-- Skill selection and Skill loads are children of the Agent run;
-- Tool calls are children of the model roundtrip that emitted them;
-- root run events do not carry `parentSpanId`.
+The public protocol surface is `@zendev-lab/spark-protocol/agent-tracing`.
 
-A terminal trace begins with `agent.run.started` and ends with the matching `agent.run.finished`.
+## Event identity
 
-## Protocol surface
+Every event has:
 
-The protocol contract lives at `@zendev-lab/spark-protocol/agent-observability`.
+- `schemaVersion`;
+- `eventId`;
+- `traceId`;
+- `spanId`;
+- `occurredAt`;
+- `parentSpanId` for non-root events.
 
-### Agent run
+`eventId` is an idempotency identity, not merely a random log-row id. When the same logical fact is re-projected after restart, its identity must remain stable enough for the persistence boundary to deduplicate it.
+
+For daemon-owned runs, implementations should derive trace/span/event identities from stable invocation identity plus logical lifecycle coordinates rather than process-local counters alone.
+
+## Agent run lifecycle
+
+Events:
 
 - `agent.run.started`
 - `agent.run.finished`
 
-The start records source, a hashed session fingerprint, and the active plan/implement phase when known. The finish records explicit outcome, roundtrip count, duration, stable error code when available, and Evidence references.
+The run span is the temporal parent for model, Skill, and Tool activity.
 
-A completed run cannot carry an error code.
+The terminal event records:
 
-### Model roundtrip
+- `completed | aborted | failed`;
+- total model roundtrip count;
+- run duration;
+- stable error code when applicable;
+- Evidence refs when useful.
+
+A completed trace has exactly one run start as its first event and one matching run finish as its final event.
+
+## Model roundtrip lifecycle
+
+Events:
 
 - `model.roundtrip.started`
 - `model.roundtrip.finished`
 
-The start records:
+A model roundtrip represents exactly one provider interaction. It does **not** include Tool execution time triggered by the returned assistant message.
 
-- roundtrip index;
-- model/provider/reasoning identity;
+The started event records:
+
+- strictly increasing roundtrip number beginning at 1;
+- model/provider metadata;
 - prompt version;
-- stable/dynamic system-prompt hashes;
-- active Tool-profile fingerprint.
+- stable and dynamic prompt hashes from the prompt manifest;
+- Tool-profile fingerprint.
 
-It never records prompt or conversation content.
+The finished event records:
 
-The finish records outcome, stop reason, duration, and bounded token usage. A completed roundtrip requires a stop reason and cannot carry an error code.
+- outcome;
+- stop reason for completed responses;
+- provider-interaction duration;
+- bounded token usage when available;
+- stable error code when applicable.
 
-Provider-internal retries remain inside the same logical roundtrip when the provider contract treats them as one request. A new turn-loop model attempt increments the roundtrip index.
+Completed-trace validation rejects duplicate, skipped, or overlapping roundtrip starts and verifies the run's reported count against observed starts.
 
-### Skill selection
+## Skill routing and loading
+
+Skill routing and Skill-body loading are different facts and must not be conflated.
+
+### Selection
+
+Event:
 
 - `skill.selection.finished`
 
-The event records:
+The native request-matching path currently selects routing metadata: Skill name, description/title/location metadata, and score. It intentionally does not load the Skill body. Therefore a selection event does **not** imply a load event.
 
-- whether selection was explicit, automatic, inherited, or disabled;
-- the first roundtrip to which it applies;
-- selected Skill names;
-- optional Skill version and content hash;
-- optional candidate count, selector version, and opaque selection fingerprint.
+Selection records:
 
-Skill names must be unique. Skill bodies are never embedded.
+- the roundtrip from which the routing context applies;
+- selection mode (`explicit | automatic | inherited | none`);
+- selected Skill identities;
+- optional candidate count, selector version, and selection fingerprint.
 
-Selection describes the effective Skill set. It is separate from loading because a selected Skill may fail before entering the effective prompt context.
+Selected Skill names must be unique. `mode: none` cannot contain Skills.
 
-### Skill loading
+### Body load
+
+Events:
 
 - `skill.load.started`
 - `skill.load.finished`
 
-Each selected Skill has an independent load span. The terminal status is:
+These events exist only when Spark actually attempts to read and parse a Skill body for use. Examples include an explicit Skill load or a dedicated Skill Agent loading its assigned Skills.
 
-- `succeeded`: the Skill entered the effective context;
-- `failed`: loading or validation failed;
-- `blocked`: policy or bounded context budget prevented loading.
+A body load may optionally record `appliesFromRoundtrip` when the caller knows which parent-session roundtrip will consume it. The field is not mandatory because not every legitimate load maps one-to-one to a parent model roundtrip.
 
-Stable failure types are:
+The terminal event records status, duration, stable failure type/code, and Evidence refs.
 
-- `not_found`
-- `invalid_manifest`
-- `read_failed`
-- `budget_exceeded`
-- `policy_denied`
-- `unknown`
+A selected routing metadata entry must never fabricate a successful Skill load merely to make the trace look complete.
 
-Non-success terminal events require a failure type. Successful loads cannot carry failure fields.
+## Tool lifecycle
 
-### Tool calls
+Events:
 
 - `tool.call.started`
 - `tool.call.finished`
 
-A Tool start event is emitted as soon as the model-supplied Tool call is accepted for dispatch analysis, before Tool resolution. This is essential: unknown tools, invalid arguments, inactive tools, policy denial, and approval rejection must still produce complete Tool spans.
+Every logical assistant Tool call receives one Tool span even if it fails before the Tool implementation executes.
 
-When Tool resolution has not succeeded, the start event records `unknown` effect, execution mode, or approval policy as needed.
+### Temporal parent
 
-The start records:
+Tool spans are direct children of the Agent run.
 
-- roundtrip and Tool call identity;
-- Tool name;
-- resolved effect, execution mode, and approval policy when available;
-- bounded argument byte size;
-- optional installation-local keyed argument fingerprint;
-- optional parallel batch identity.
+### Causal model origin
 
-The finish records:
+When available, `modelOrigin` records:
 
-- terminal status and duration;
-- bounded result byte size;
-- failure stage and type for every non-success outcome;
-- stable error code and retryability when known;
-- Evidence references.
+```ts
+{
+  roundtrip: number;
+  spanId: string;
+}
+```
 
-Successful Tool calls cannot carry failure fields.
+The referenced model span must:
+
+- exist in the same trace;
+- have the same roundtrip number;
+- already be terminal before Tool execution begins.
+
+For newly created checkpoints, runtime wiring should preserve enough origin metadata to populate this field after restart. A legacy version-1 restart checkpoint currently preserves Tool calls but not the originating roundtrip number, so `modelOrigin` is optional rather than allowing the trace to invent an attribution.
+
+Missing origin is therefore an explicit information gap, not a sentinel value such as roundtrip `0`.
+
+### Start envelope
+
+The started event records:
+
+- `toolCallId` and Tool name;
+- optional `modelOrigin`;
+- resolved effect where known;
+- execution mode;
+- approval requirement;
+- optional keyed argument fingerprint and argument byte size;
+- optional parallel-batch identity.
+
+For unresolved Tool names, policy fields may be `unknown` because resolution failed before those facts existed.
+
+### Terminal envelope
+
+The finished event records:
+
+- `succeeded | failed | blocked | cancelled | timed_out`;
+- duration;
+- optional result byte size;
+- failure stage/type/code when not successful;
+- retryability when known;
+- Evidence refs.
+
+Successful calls cannot carry failure fields. Non-successful calls require both failure stage and failure type.
 
 ## Argument fingerprints
 
-Raw Tool arguments do not belong in trace events. Repeated-call analysis may use:
+Repeated-call analysis needs equality without retaining arguments.
+
+Plain hashes are not sufficient because low-entropy Tool arguments can be recovered by dictionary attacks. When argument equality is recorded, Spark uses an installation-local keyed HMAC:
 
 ```text
-scheme: hmac-sha256-v1
-keyScope: installation
-value: 64 lowercase hexadecimal characters
+scheme = hmac-sha256-v1
+keyScope = installation
 ```
 
-The input must use canonical JSON serialization after argument normalization. The secret telemetry key remains installation-local and is never exported with the fingerprint.
+The telemetry key is never stored in or exported with trace events.
 
-Plain SHA-256 of arguments is prohibited because low-entropy arguments can be recovered through dictionary attacks.
+The fingerprint answers only "same canonical arguments under this installation key?". It is not a portable content identity.
 
-Fingerprints support equality within one installation. They do not provide a portable global identity.
+Canonicalization must be deterministic for semantically identical JSON-compatible Tool arguments before HMAC computation.
 
-## Tool failure taxonomy
+## Failure taxonomy
 
-Failure has two dimensions:
+Tool failure is classified on two axes.
 
-- **stage** answers where progress stopped;
-- **type** answers what happened.
+### Stage: where execution stopped
 
-Stages:
+- `resolution`: Tool name could not be resolved;
+- `argument_validation`: arguments failed the Tool contract;
+- `availability`: Tool inactive, phase-inactive, or dependency unavailable;
+- `policy`: host/effect policy denied dispatch;
+- `approval`: automatic or human approval rejected dispatch;
+- `execution`: Tool implementation ran and failed;
+- `timeout`: execution deadline expired;
+- `cancellation`: parent abort/cancellation won;
+- `result_processing`: result validation, compaction, or serialization failed.
 
-- `resolution`
-- `argument_validation`
-- `availability`
-- `policy`
-- `approval`
-- `execution`
-- `timeout`
-- `cancellation`
-- `result_processing`
+### Type: what kind of failure occurred
 
-Types:
+Stable low-cardinality types include:
 
-- `unknown_tool`
-- `invalid_arguments`
-- `inactive_tool`
-- `policy_denied`
-- `approval_rejected`
-- `dependency_failure`
-- `tool_returned_error`
-- `uncaught_exception`
-- `timeout`
-- `cancelled`
-- `invalid_result`
-- `unknown`
+- `unknown_tool`;
+- `invalid_arguments`;
+- `inactive_tool`;
+- `policy_denied`;
+- `approval_rejected`;
+- `dependency_failure`;
+- `tool_returned_error`;
+- `uncaught_exception`;
+- `timeout`;
+- `cancelled`;
+- `invalid_result`;
+- `unknown`.
 
-Status constraints:
-
-- `succeeded` carries no failure fields;
-- `blocked` stops at resolution, argument validation, availability, policy, or approval;
-- `timed_out` uses timeout stage and timeout type;
-- `cancelled` uses cancellation stage and cancelled type;
-- every other non-success outcome still requires stage and type.
-
-Original error text is diagnostic content, not an aggregation key. It may be placed in redacted Evidence when necessary.
-
-## Privacy boundary
-
-Always-recorded trace metadata may include:
-
-- trace, event, span, and parent identity;
-- Tool and Skill names and versions;
-- prompt/model/Tool-profile fingerprints;
-- Tool policy and effect;
-- timing, status, failure taxonomy, retryability, and bounded sizes;
-- Evidence references.
-
-Trace events reject:
-
-- prompt and user text;
-- model response text;
-- Skill bodies;
-- raw Tool arguments;
-- raw Tool results;
-- file content and shell output;
-- environment variables, credentials, and secrets.
-
-Large or sensitive diagnostic content remains outside the event row. When retained, it is redacted, access-controlled, assigned an explicit retention policy, and referenced through `evidence:`.
+Original exception strings are diagnostic content and are excluded from the trace envelope unless separately redacted into Evidence.
 
 ## Collection boundaries
 
+Instrumentation belongs at shared execution boundaries rather than inside each Tool.
+
 ### Run and model boundary
 
-`SparkAgentLoop.runTurns()` owns Agent run and model roundtrip events because it owns explicit outcomes and roundtrip counting.
+`SparkAgentLoop.runTurns()` owns run/model lifecycle emission. The existing prompt manifest provides the model, prompt hashes, Tool-profile fingerprint, selected Skill names, and roundtrip index without retaining prompt text.
+
+The model finish event is emitted when the provider response reaches its terminal outcome, before any returned Tool call is dispatched.
 
 ### Skill boundary
 
-The request-scoped Skill resolver/loader owns selection and load facts. The turn loop consumes the resulting effective Skill metadata but does not infer whether loading succeeded from names alone.
+The resolver emits selection facts where request matching produces routing metadata. Actual body-loading helpers emit Skill load lifecycle only around real file/body loading and parsing.
+
+This distinction must survive later `skill_agent` or delegation refactors: selecting a Skill and executing a child Agent are not the same span.
 
 ### Tool boundary
 
-`SparkAgentLoop.dispatchToolCall()` owns Tool lifecycle emission. Instrumentation wraps the complete path:
+The common Tool lifecycle must cover the **entire per-call path in `dispatchToolCalls()`**, not only the current `dispatchToolCall()` helper.
 
-1. receive model Tool call;
-2. normalize and size arguments;
-3. resolve Tool and policy;
-4. validate availability and host policy;
-5. obtain approval;
-6. execute with timeout/cancellation;
-7. compact and validate result;
-8. extract Evidence references;
-9. emit exactly one terminal event.
+Today, some abort, availability, and policy branches can produce an error Tool result before `dispatchToolCall()` is entered. Runtime instrumentation must therefore either:
 
-Individual Tools may provide domain error codes and Evidence references, but they do not implement the common lifecycle.
+1. refactor every logical call through one traced per-call helper; or
+2. wrap every per-call branch in `dispatchToolCalls()` with the same start/finish recorder.
 
-## Parallel Tool calls
+The invariant is more important than the helper name: every assistant Tool call gets exactly one terminal trace event, including calls skipped before execution.
 
-Parallel execution creates one span per Tool call and an optional shared batch ID.
+## Parallel Tool semantics
 
-- start events may be emitted in assistant call order;
-- finishes may occur in completion order;
-- transcript Tool results remain committed in original assistant call order;
-- span identity, not list position, correlates start and finish;
-- one failed Tool does not erase sibling spans.
+Parallel execution has two orders:
 
-## Durable projection
+- runtime timing order;
+- assistant transcript order.
 
-Headless execution serializes validated `trace_event` records alongside existing loop events. The daemon adds authoritative workspace, project, session, invocation, and sequence context before persistence.
+Trace `occurredAt` and daemon sequence describe observed lifecycle timing. `toolCallId` and optional `parallelBatchId` identify calls within a batch. Existing transcript assembly may still append Tool result messages in original assistant Tool-call order.
 
-The existing invocation event store remains the durable source of truth. Trace persistence inherits:
+Tracing must not serialize parallel execution merely to obtain deterministic logs.
 
-- monotonic per-invocation sequence;
-- cursor reads and reconnect replay;
-- at-least-once delivery with stable event deduplication;
-- retention and consumer-watermark rules;
-- Hub projection and resumption.
+## Restart and resume
 
-Exporter failure must never fail the originating Agent execution.
+A daemon replacement must not create a second logical Tool call for the same pending assistant Tool call.
+
+The current `SparkBeforeToolCallsCheckpoint` already knows the model roundtrip count before Tool dispatch, while the durable version-1 `SparkTurnResumeCheckpoint` persists the Tool calls but not that count. Runtime tracing should therefore evolve checkpoint persistence so new checkpoints retain model-origin correlation while continuing to read version-1 checkpoints.
+
+Stable trace/span/event identities must be derivable after restart from daemon-owned invocation identity and persisted logical coordinates. Re-emission after recovery should be idempotent at the persistence boundary.
+
+A restart does not justify fabricating missing historical metadata. If an old checkpoint lacks model origin, the Tool span remains valid with `modelOrigin` absent.
+
+## Persistence projection
+
+The follow-up runtime/persistence work should add one validated `trace_event` projection to the existing AgentLoop → headless → daemon invocation event path.
+
+The invocation event stream remains authoritative for:
+
+- total sequence ordering;
+- cursor replay;
+- retention;
+- restart recovery;
+- Hub delivery/deduplication.
+
+No parallel trace database or second write-ahead lifecycle is required for the execution path.
+
+An optional future OTLP exporter may map retained Spark events to OpenTelemetry, but exporter failure must never fail the originating Agent run.
 
 ## Completed-trace validation
 
-`validateCompletedSparkAgentTrace` validates a terminal, deduplicated event sequence. It checks:
+`validateCompletedSparkAgentTrace()` checks structural invariants over a terminal, ordered trace.
 
-- one trace identity;
-- unique event IDs;
-- a unique first run start and final matching run finish;
-- child events reference an already-started parent of the correct kind;
-- each duration-bearing span starts once and finishes once;
-- start/finish metadata matches for roundtrips, Skills, and Tools;
-- no events occur after run finish;
-- no spans remain open;
-- reported roundtrip count equals observed model roundtrip spans.
+It rejects:
 
-Live traces are expected to contain open spans. Completed-trace validation is applied only after a run reaches terminal state.
+- duplicate event IDs;
+- mixed trace IDs;
+- missing, invalid, or already-closed temporal parents;
+- duplicate span registration;
+- orphan or duplicate finishes;
+- finish kind mismatches;
+- parent or identity metadata changes between start and finish;
+- unclosed spans;
+- duplicate, skipped, or overlapping model roundtrips;
+- run roundtrip count mismatches;
+- Tool model-origin links to missing/wrong roundtrip spans;
+- Tool execution claiming an origin model span that is still open.
 
-## Implementation slices
+This validator is intentionally stricter than per-event Zod parsing. A set of individually valid rows can still be an invalid trace.
 
-### PR 1: trace protocol and invariants
+## Privacy and retention
 
-- strict event schemas;
-- Skill selection/load lifecycle;
-- Tool pre-execution failure coverage;
-- keyed argument fingerprint contract;
-- terminal field consistency;
-- completed-trace structural validator and focused tests.
+Recommended policy:
 
-### PR 2: AgentLoop and Skill emission
+- trace envelopes: retained with invocation history according to workspace policy;
+- raw diagnostic Evidence: shorter-lived by default;
+- secrets: never admitted to trace fields;
+- exported traces: contain the same minimized envelope, not a richer hidden copy.
 
-- daemon-injected trace context;
-- run and roundtrip lifecycle emission;
-- Skill selection/load emission;
-- Tool lifecycle emission around the complete dispatch path;
-- deterministic event/span IDs across restart;
-- failure classification from actual control-flow branches.
+If Evidence expires, the trace may retain the ref while reporting that the target is unavailable. It must not silently rewrite historical facts.
 
-### PR 3: daemon projection and persistence
+## Implementation sequence
 
-- validated daemon trace event envelope;
-- headless serialization and session-run projection;
-- invocation event persistence and bounded query;
-- replay, deduplication, retention, and restart tests;
-- Hub forwarding without rendering raw content.
+### PR 1: trace contract
 
-### PR 4: operational trace verification
+This PR:
 
-- source-process tests covering successful, blocked, failed, timed-out, cancelled, parallel, and restart-resumed runs;
-- completeness checks for every terminal invocation;
-- retention and missing-Evidence behavior;
-- optional OTLP mapping after daemon-native behavior is stable.
+- defines strict lifecycle schemas;
+- defines Tool and Skill failure taxonomies;
+- defines keyed argument fingerprints;
+- defines temporal parent and causal model-origin semantics;
+- adds completed-trace validation;
+- proves privacy and structural failure cases with focused tests.
+
+### PR 2: runtime emission
+
+- emit run/model lifecycle from `runTurns()`;
+- emit metadata-only Skill selection separately from body loads;
+- cover every per-call branch in `dispatchToolCalls()`;
+- preserve model origin in new restart checkpoints while reading legacy version-1 checkpoints;
+- derive stable IDs from invocation/logical coordinates;
+- add parallel, abort, approval, invalid-argument, unknown-Tool, timeout, and restart tests.
+
+### PR 3: daemon persistence
+
+- add validated `trace_event` projection;
+- persist through existing invocation sequence;
+- verify cursor replay and event-ID deduplication;
+- verify retention and Hub forwarding;
+- add source-process restart/resume coverage.
+
+### PR 4: trace query and operational views
+
+Only after recording is proven complete:
+
+- bounded trace query APIs;
+- Tool/Skill failure summaries;
+- latency and completeness diagnostics;
+- operator-facing trace inspection.
+
+Feedback, evaluation, aggregation for self-improvement, and automated proposal generation remain later work.
 
 ## Acceptance criteria
 
-Trace recording is ready for downstream evaluation only when:
+The tracing foundation is ready for downstream analysis when:
 
-- every terminal accepted Agent invocation has one valid completed trace;
-- every model attempt has one matching roundtrip span;
-- every effective Skill selection is recorded and every selected Skill has a load outcome;
-- every model Tool call has one start and exactly one terminal event, including pre-execution failures;
-- parallel Tool calls remain individually attributable;
-- restart/resume preserves logical trace and pending Tool identity;
-- terminal records contain stable failure classification without contradictions;
-- raw prompt, user, Skill, argument, result, file, shell, environment, and secret content cannot enter trace events;
-- daemon persistence preserves ordering, replay, deduplication, and retention semantics;
-- completed-trace validation passes against source-process acceptance fixtures.
-
-Only after these criteria hold should feedback, evaluation, aggregation, reflection, or autonomous change generation be designed on top of the trace.
+- every accepted Agent run has one terminal run outcome;
+- every provider roundtrip has one start and one matching terminal event;
+- model roundtrip numbers are contiguous and non-overlapping;
+- every assistant Tool call has one start and one terminal event, including pre-execution failures;
+- Tool spans remain temporally valid when execution happens after their origin model roundtrip closes;
+- every populated `modelOrigin` references the matching completed model span;
+- restart/resume does not duplicate a Tool span or invent unavailable model-origin metadata;
+- Skill routing selection is recorded without falsely claiming that a Skill body was loaded;
+- every actual Skill-body load has one terminal load result;
+- no trace event contains raw prompt, user, Skill body, Tool argument, Tool result, or secret content;
+- parallel Tool execution remains parallel while trace and transcript ordering remain explainable;
+- completed-trace validation can prove span closure, parentage, roundtrip sequencing, and causal-link integrity;
+- persisted trace replay is deterministic from daemon invocation history.
