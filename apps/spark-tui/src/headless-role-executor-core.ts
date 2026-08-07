@@ -653,7 +653,7 @@ function registerRoleOutcomeTool(
     policy: {
       effect: "local_write",
       executionMode: "sequential",
-      phases: ["implement"],
+      modes: ["execute"],
       approval: "none",
     },
     async execute(_toolCallId, params) {

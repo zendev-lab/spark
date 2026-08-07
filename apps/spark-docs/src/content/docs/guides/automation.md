@@ -1,9 +1,9 @@
 ---
 title: Automate long-running work
-description: Choose a goal, loop, reproduction, or workflow only after the ordinary plan-and-implement path is not enough.
+description: Choose a goal, loop, reproduction, or workflow only after the ordinary plan-and-execute path is not enough.
 ---
 
-Start with [plan and implement](/guides/plan-and-implement/) for ordinary
+Start with [plan and implement](/guides/plan-and-execute/) for ordinary
 project changes. Choose automation when the work must continue autonomously
 across multiple steps, repeat, follow reproduction gates, or use a saved
 procedure.

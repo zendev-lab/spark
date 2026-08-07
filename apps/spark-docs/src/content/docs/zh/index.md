@@ -23,7 +23,7 @@ Spark 是一套受控的 coding-agent 工具，只有一个公开的 `spark` 命
 - 用于 Web 控制与投影的 **Hub Web**。
 
 先阅读[安装与首次运行](/zh/getting-started/)，然后
-[规划并实现一个修改](/zh/guides/plan-and-implement/)。想了解 CLI、daemon、TUI、
+[规划并实现一个修改](/zh/guides/plan-and-execute/)。想了解 CLI、daemon、TUI、
 Hub、工具、自动推进和协作如何组合时，查看[完整功能地图](/zh/concepts/feature-map/)。
 只有需要远程运维或诊断系统时，才需要理解[界面与所有权](/zh/concepts/surfaces/)。
 

@@ -20,15 +20,15 @@ import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   normalizeCurrentProjectStoreSnapshot,
   type CurrentProjectStoreSnapshot,
-  type SparkAgentPhase,
+  type SparkAgentMode,
   type SparkRunStrategy,
 } from "./current-project-state-schema.ts";
 import { readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 
 export type {
   CurrentProjectStoreSnapshot,
-  SparkAgentPhase,
-  SparkPlanningPhaseSource,
+  SparkAgentMode,
+  SparkPlanningModeSource,
   SparkRunStrategy,
 } from "./current-project-state-schema.ts";
 
@@ -38,7 +38,11 @@ export async function loadCurrentProjectState(
 ): Promise<CurrentProjectStoreSnapshot | undefined> {
   const filePath = currentProjectStorePath(cwd, ctx);
   const raw = await readJsonFileOptional<Record<string, unknown>>(filePath);
-  if (raw) return normalizeCurrentProjectStoreSnapshot(raw, filePath);
+  if (raw) {
+    const snapshot = normalizeCurrentProjectStoreSnapshot(raw, filePath);
+    if (raw.version !== 2) await saveCurrentProjectState(cwd, ctx, snapshot);
+    return snapshot;
+  }
 
   const legacyPath = legacySessionKeyStatePath(cwd, ctx);
   if (!legacyPath) return undefined;
@@ -69,10 +73,10 @@ export async function saveCurrentProjectRef(
 ): Promise<void> {
   const existing = await loadCurrentProjectState(cwd, ctx);
   await saveCurrentProjectState(cwd, ctx, {
-    version: 1,
+    version: 2,
     projectRef,
     ...(currentTaskRef ? { currentTaskRef } : {}),
-    ...(existing?.phase ? { phase: existing.phase } : {}),
+    ...(existing?.mode ? { mode: existing.mode } : {}),
   });
 }
 
@@ -89,25 +93,25 @@ export async function clearCurrentProjectRef(
   ctx: SparkSessionContext | undefined,
 ): Promise<void> {
   const existing = await loadCurrentProjectState(cwd, ctx);
-  if (existing?.phase) {
-    await saveCurrentProjectState(cwd, ctx, { version: 1, phase: existing.phase });
+  if (existing?.mode) {
+    await saveCurrentProjectState(cwd, ctx, { version: 2, mode: existing.mode });
     return;
   }
   await rm(currentProjectStorePath(cwd, ctx), { force: true });
   await rebuildSessionIndex(cwd, ctx);
 }
 
-export async function saveSessionPhase(
+export async function saveSessionMode(
   cwd: string,
   ctx: SparkSessionContext | undefined,
-  phase: SparkAgentPhase,
+  mode: SparkAgentMode,
 ): Promise<void> {
   const existing = await loadCurrentProjectState(cwd, ctx);
   await saveCurrentProjectState(cwd, ctx, {
-    version: 1,
+    version: 2,
     ...(existing?.projectRef ? { projectRef: existing.projectRef } : {}),
     ...(existing?.currentTaskRef ? { currentTaskRef: existing.currentTaskRef } : {}),
-    phase,
+    mode,
   });
 }
 

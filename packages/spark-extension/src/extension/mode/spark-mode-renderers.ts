@@ -2,11 +2,11 @@ import type { ProjectRef } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import type { RoadmapPlanningContext } from "../../flows/roadmap-flow.ts";
 import { renderRoadmapPlanningContext } from "../../flows/roadmap-flow.ts";
-import type { SparkEntryPhase } from "../spark-entry.ts";
-import type { SparkPlanningPhaseSource } from "../session-state.ts";
+import type { SparkEntryMode } from "../spark-entry.ts";
+import type { SparkPlanningModeSource } from "../session-state.ts";
 
 const PLANNING_AFFECTING_CHOICES =
-  "scope, dependencies, priorities, success criteria, evidence, architecture, dependency choices, or implementation order";
+  "scope, dependencies, priorities, success criteria, evidence, architecture, dependency choices, or execution order";
 
 export const ASK_BEFORE_GUESSING = `Do not guess user intent. Unless the user explicitly asks you to infer or research, if a user-facing open question or decision would change ${PLANNING_AFFECTING_CHOICES}, call ask with context-specific questions before narrowing scope, planning durable work, or finishing execution.`;
 
@@ -25,22 +25,22 @@ const NO_CANNED_ASKS =
   "Keep asks dynamic and grounded in inspected context; do not use canned intake templates or ask questions whose answers would not change the task plan.";
 
 export const WORKFLOW_AND_SUBAGENT_ARE_TOOLS =
-  "Workflow and subagent role runs are execution tools, not session phases. First select the governing phase (plan or implement), then use role/workflow only within that phase's responsibility and evidence boundaries.";
+  "Workflow and subagent role runs are execution tools, not session modes. First select the governing mode (plan or execute), then use role/workflow only within that mode's responsibility and evidence boundaries.";
 
 export const DURABLE_STATE_AUTHORITY =
-  'Compact summaries, restored conversation history, and hidden phase text are historical hints only. Before planning, claiming, finishing, or deciding a goal/project transition, verify durable state with scoped tools: task_read({ action: "project_status" }) for the selected project, task_read({ action: "workspace_status" }) or task_read({ action: "project_list" }) before selecting a project, and goal({ action: "status" }) before relying on a goal.';
+  'Compact summaries, restored conversation history, and hidden mode text are historical hints only. Before planning, claiming, finishing, or deciding a goal/project transition, verify durable state with scoped tools: task_read({ action: "project_status" }) for the selected project, task_read({ action: "workspace_status" }) or task_read({ action: "project_list" }) before selecting a project, and goal({ action: "status" }) before relying on a goal.';
 
 const RESEARCH_SUBAGENT_STRATEGY =
   'Default lightweight research should use anonymous role calls plus main-agent synthesis when parallel inspection, cross-checking, or specialist review materially improves coverage. Call role({ action: "call", role, instruction }) with focused read-only research briefs; use session({ action: "call", sessionId, instruction }) only when persistent conversation continuity is intentional. The main agent remains responsible for summarizing, reconciling, and qualifying the findings.';
 
 export const PARALLEL_EXECUTION_WORKFLOW_STRATEGY =
-  'For ordinary single-task implementation, work directly with focused tools. Use the workflow runtime only when the user asks for workflow/fan-out/multi-agent orchestration, or when the execution work is clearly parallelizable, repetitive, or suited to scripted orchestration. In those cases, discover definitions with workflow({ action: "list" }), read candidates with workflow({ action: "read" }), and execute a selected definition with workflow({ action: "run" }).';
+  'For ordinary single-task execution, work directly with focused tools. Use the workflow runtime only when the user asks for workflow/fan-out/multi-agent orchestration, or when the execution work is clearly parallelizable, repetitive, or suited to scripted orchestration. In those cases, discover definitions with workflow({ action: "list" }), read candidates with workflow({ action: "read" }), and execute a selected definition with workflow({ action: "run" }).';
 
-export function renderSparkPlanningPhasePrompt(
+export function renderSparkPlanningModePrompt(
   graph: TaskGraph,
   selectedProjectRef: ProjectRef | undefined,
   focus: string | undefined,
-  source: SparkPlanningPhaseSource,
+  source: SparkPlanningModeSource,
   roadmapContext?: RoadmapPlanningContext,
 ): string {
   const roadmapLine = renderRoadmapPlanningContext(roadmapContext);
@@ -56,10 +56,10 @@ export function renderSparkPlanningPhasePrompt(
     'Ordinary investigation, explanation, review, and commentary do not require task_write({ action: "project_use" | "plan" }); report the answer directly without creating durable state.',
     "Before generating or changing a durable plan, outline the plan shape and keep clarifying until every material planning-affecting choice is either clear from inspected context or answered through context-specific ask questions.",
     DURABLE_PLANNING_RULES,
-    'When durable planning is warranted and concrete executable/review/validation/research tasks meet the planning bar, call task_write({ action: "plan" }) directly; refine it with concrete updates rather than a separate dry-run/apply phase.',
+    'When durable planning is warranted and concrete executable/review/validation/research tasks meet the planning bar, call task_write({ action: "plan" }) directly; refine it with concrete updates rather than a separate dry-run/apply mode.',
     NO_CANNED_ASKS,
     ASK_BEFORE_GUESSING,
-    "Do not execute tasks yet unless the user explicitly asks to switch to implementation.",
+    "Do not execute tasks yet unless the user explicitly asks to switch to execution.",
   ];
   const requirements = selectedProjectRef
     ? [
@@ -70,58 +70,58 @@ export function renderSparkPlanningPhasePrompt(
         ...sharedRequirements,
         'No current project is selected. Continue read-only investigation and answer directly when no durable plan is needed. If durable planning is warranted and the intended project is clear, call task_write({ action: "project_use", title, description }) before task_write({ action: "plan" }); ask only when project identity or material scope remains ambiguous.',
       ];
-  return renderPhasePrompt(graph, selectedProjectRef, focus, "Planning", requirements, roadmapLine);
+  return renderModePrompt(graph, selectedProjectRef, focus, "Planning", requirements, roadmapLine);
 }
 
-export function renderSparkImplementationPhasePrompt(
+export function renderSparkExecutionModePrompt(
   graph: TaskGraph,
   selectedProjectRef: ProjectRef | undefined,
   focus: string | undefined,
 ): string {
   const requirements = selectedProjectRef
     ? [
-        'Read the current project/task plan and inspect ready tasks with task_read({ action: "project_status" }). Claim one concrete ready task at a time with task_write({ action: "claim" }), execute it, verify the required evidence with evidence/memory/context as needed, then call task_write({ action: "finish" }). After each successful finish, inspect project_status again and continue with the next ready task until no ready task remains, validation fails, review/ask approval is pending, or a real blocker requires user input or external action. Projects are permanent records; do not use a Project finish/status lifecycle or request goal completion from /implement.',
-        "Implementation phase is human-blocking: use canonical ask for material user decisions and wait for the answer; do not auto-answer asks, do not make goal-style autonomous policy decisions, and do not request reviewer-gated goal completion from /implement.",
+        'Read the current project/task plan and inspect ready tasks with task_read({ action: "project_status" }). Claim one concrete ready task at a time with task_write({ action: "claim" }), execute it, verify the required evidence with evidence/memory/context as needed, then call task_write({ action: "finish" }). After each successful finish, inspect project_status again and continue with the next ready task until no ready task remains, validation fails, review/ask approval is pending, or a real blocker requires user input or external action. Projects are permanent records; do not use a Project finish/status lifecycle or request goal completion from /execute.',
+        "Execution mode is human-blocking: use canonical ask for material user decisions and wait for the answer; do not auto-answer asks, do not make goal-style autonomous policy decisions, and do not request reviewer-gated goal completion from /execute.",
         WORKFLOW_AND_SUBAGENT_ARE_TOOLS,
         PARALLEL_EXECUTION_WORKFLOW_STRATEGY,
         "If work becomes open-ended with no natural completion condition, suggest /loop. If the user wants autonomous completion with auto-decision policy and reviewer-gated completion, suggest /goal. If the user wants a scripted saved workflow, suggest /workflow.",
-        "Implementation continuation is lifecycle-hook owned, not a daemon Loop tick. Before ending, reconcile the session-owned running task and ready frontier; the agent-end hook may queue one bounded follow-up when actionable work remains.",
+        "Execution continuation is lifecycle-hook owned, not a daemon Loop tick. Before ending, reconcile the session-owned running task and ready frontier; the agent-end hook may queue one bounded follow-up when actionable work remains.",
         ASK_BEFORE_GUESSING,
       ]
     : [
         'Select a current project with task_write({ action: "project_use" }) before claiming project-bound work; use task_read({ action: "workspace_status" }) to inspect available projects first if needed.',
         "Do not claim project-bound work until a current project is selected.",
-        "Without a current project there is no actionable implementation frontier; do not schedule background continuation.",
+        "Without a current project there is no actionable execution frontier; do not schedule background continuation.",
         ASK_BEFORE_GUESSING,
       ];
-  return renderPhasePrompt(graph, selectedProjectRef, focus, "Implementation", requirements);
+  return renderModePrompt(graph, selectedProjectRef, focus, "Execution", requirements);
 }
 
-export function renderPhasePrompt(
+export function renderModePrompt(
   graph: TaskGraph,
   selectedProjectRef: ProjectRef | undefined,
   focus: string | undefined,
-  phase: "Planning" | "Implementation" | "Goal Loop" | "Workflow",
+  mode: "Planning" | "Execution" | "Goal Loop" | "Workflow",
   requirements: string[],
   extraContext?: string,
 ): string {
   const scopedRequirements = [DURABLE_STATE_AUTHORITY, ...requirements];
   const sections = [
     renderSparkProjectSummary(graph, selectedProjectRef),
-    renderPhaseFocus(phase, focus),
+    renderModeFocus(mode, focus),
     extraContext?.trim() || undefined,
     [
-      phase.endsWith("Loop") ? `## ${phase} requirements` : `## ${phase} phase requirements`,
+      mode.endsWith("Loop") ? `## ${mode} requirements` : `## ${mode} mode requirements`,
       ...scopedRequirements.map((item) => `- ${item}`),
     ].join("\n"),
   ].filter((section): section is string => Boolean(section));
   return sections.join("\n\n");
 }
 
-function renderPhaseFocus(phase: string, focus: string | undefined): string | undefined {
+function renderModeFocus(mode: string, focus: string | undefined): string | undefined {
   const trimmed = focus?.trim();
   if (!trimmed) return undefined;
-  return `## ${phase} focus\n${trimmed}`;
+  return `## ${mode} focus\n${trimmed}`;
 }
 
 function renderSparkProjectSummary(graph: TaskGraph, selectedProjectRef?: ProjectRef): string {
@@ -155,12 +155,12 @@ function renderSparkProjectSummary(graph: TaskGraph, selectedProjectRef?: Projec
     .join("\n");
 }
 
-export function renderSparkPhaseVisibleMessage(
-  phase: SparkEntryPhase,
+export function renderSparkModeVisibleMessage(
+  mode: SparkEntryMode,
   projectTitle: string | undefined,
   focus: string | undefined,
 ): string {
-  const title = phase === "plan" ? "Spark plan phase requested" : "Spark implement phase requested";
+  const title = mode === "plan" ? "Spark plan mode requested" : "Spark execute mode requested";
   const parts = [title];
   if (projectTitle?.trim()) parts.push(`project: ${projectTitle.trim()}`);
   if (focus?.trim()) parts.push(`focus: ${focus.trim()}`);

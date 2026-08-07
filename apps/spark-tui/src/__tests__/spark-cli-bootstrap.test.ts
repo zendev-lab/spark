@@ -376,7 +376,7 @@ test("background turns use a driver profile and the next user submit restores pe
       policy: {
         effect: "local_write",
         executionMode: "sequential",
-        phases: ["implement"],
+        modes: ["execute"],
         approval: "none",
       },
       async execute() {

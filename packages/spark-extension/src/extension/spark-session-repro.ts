@@ -17,7 +17,7 @@ import {
   type SparkReproRequirement,
   type SparkReproStage,
   type SparkReproStep,
-  type SparkSessionPhase,
+  type SparkSessionMode,
   type SparkSessionRepro,
   type SparkSessionReproV3,
   type SparkSessionReproV4,
@@ -58,7 +58,7 @@ interface SparkSessionReproSnapshotV3 {
 
 interface LegacySparkReproAcceptanceCondition {
   description: string;
-  phase: SparkSessionPhase | "research";
+  phase: SparkSessionMode | "research";
   satisfied: boolean;
   evidenceRef?: string;
 }
@@ -73,7 +73,7 @@ interface LegacySparkReproGate {
 interface LegacySparkReproStage {
   name: SparkReproStage["name"];
   title: string;
-  phases: Array<SparkSessionPhase | "research">;
+  phases: Array<SparkSessionMode | "research">;
   acceptance: LegacySparkReproAcceptanceCondition[];
   gate?: LegacySparkReproGate;
 }
@@ -83,7 +83,7 @@ interface LegacySparkSessionRepro extends Omit<
   "version" | "currentPhase" | "stages"
 > {
   version: 1 | 2;
-  currentPhase: SparkSessionPhase | "research";
+  currentPhase: SparkSessionMode | "research";
   stages: LegacySparkReproStage[];
 }
 
@@ -288,7 +288,7 @@ function legacyDescriptionsFor(id: string, description: string): string[] {
   }
 }
 
-function normalizeLegacyPhase(phase: SparkSessionPhase | "research"): SparkSessionPhase {
+function normalizeLegacyPhase(phase: SparkSessionMode | "research"): SparkSessionMode {
   return phase === "research" ? "plan" : phase;
 }
 

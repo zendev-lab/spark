@@ -19,7 +19,7 @@ evidence before calling it complete.
 ```
 
 You do not need to select tools, a Loop, or a command plane first. Use
-`/plan` for a multi-step change and `/implement` after the plan is ready.
+`/plan` for a multi-step change and `/execute` after the plan is ready.
 
 ## Everyday controls
 
@@ -28,7 +28,7 @@ The short help keeps the common path bounded:
 ```text
 /help
 /plan <goal>
-/implement [focus]
+/execute [focus]
 /status
 /stop [reason]
 /retry

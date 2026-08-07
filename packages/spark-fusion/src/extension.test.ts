@@ -45,7 +45,7 @@ describe("Spark Fusion extension", () => {
       effect: "read",
       executionMode: "sequential",
       domains: ["models", "deliberation"],
-      phases: ["plan", "implement"],
+      modes: ["plan", "execute"],
       approval: "required",
     });
     expect(registered?.renderCall?.({ action: "deliberate" }, {}, undefined).render(80)).toEqual([

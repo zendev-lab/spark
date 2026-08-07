@@ -86,7 +86,7 @@ Spark starts or contacts the local daemon as needed. Run `spark daemon status
 
 - Follow the [operator handbook](/guides/operator-handbook/) for the complete
   daemon, Hub, workspace, session, and durable execution path.
-- [Plan and implement your first change](/guides/plan-and-implement/).
+- [Plan and implement your first change](/guides/plan-and-execute/).
 - Browse the [complete feature map](/concepts/feature-map/) without learning every command.
 - Learn the [TUI's progressive controls](/guides/tui/).
 - Choose between [foreground runs, background work, and sessions](/guides/runs-and-sessions/).

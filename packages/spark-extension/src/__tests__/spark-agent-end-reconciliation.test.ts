@@ -6,21 +6,21 @@ import { test } from "vitest";
 
 import { defaultTaskGraphStore, TaskGraph } from "@zendev-lab/spark-tasks";
 import { registerSparkExtensionEvents } from "../extension/spark-extension-events.ts";
-import type { SparkPhaseMessageApi } from "../extension/spark-phase-entry.ts";
+import type { SparkModeMessageApi } from "../extension/spark-phase-entry.ts";
 import { saveIndependentTodos } from "../extension/session-todos.ts";
 import {
   currentSparkProject,
   loadSparkGraph,
-  loadSparkPhase,
+  loadSparkMode,
   saveCurrentProjectRef,
-  saveSparkPhase,
+  saveSparkMode,
 } from "../extension/session-state.ts";
 import { createSparkAgentEndReconciliationController } from "../extension/spark-agent-end-reconciliation.ts";
 import type { SparkToolContext } from "../extension/spark-tool-registration.ts";
 
 type SentMessage = {
-  message: Parameters<SparkPhaseMessageApi["sendMessage"]>[0];
-  options: Parameters<SparkPhaseMessageApi["sendMessage"]>[1];
+  message: Parameters<SparkModeMessageApi["sendMessage"]>[0];
+  options: Parameters<SparkModeMessageApi["sendMessage"]>[1];
 };
 
 test("agent-end TODO reconciliation queues one guarded follow-up per input cycle", async () => {
@@ -79,7 +79,7 @@ test("agent-end reconciliation continues an implement ready frontier without a d
   const ctx: SparkToolContext = {
     cwd,
     sessionId: "implement-reconciliation",
-    sparkActiveLens: { phase: "implement" },
+    sparkActiveMode: { phase: "implement" },
   };
   const sent: SentMessage[] = [];
   const controller = createSparkAgentEndReconciliationController({
@@ -117,10 +117,10 @@ test("agent-end reconciliation continues an implement ready frontier without a d
     });
     await defaultTaskGraphStore(cwd).save(graph);
     await saveCurrentProjectRef(cwd, ctx, project.ref);
-    await saveSparkPhase(cwd, ctx, { phase: "implement", projectRef: project.ref });
+    await saveSparkMode(cwd, ctx, { phase: "implement", projectRef: project.ref });
     const loadedGraph = await loadSparkGraph(cwd, ctx);
     assert.ok(loadedGraph);
-    assert.equal((await loadSparkPhase(cwd, ctx)).phase, "implement");
+    assert.equal((await loadSparkMode(cwd, ctx)).phase, "implement");
     assert.equal((await currentSparkProject(cwd, ctx, loadedGraph))?.ref, project.ref);
     const readiness = loadedGraph.taskPlanReadiness(task.ref);
     assert.equal(readiness.ready, true, JSON.stringify(readiness.issues));
@@ -136,8 +136,8 @@ test("agent-end reconciliation continues an implement ready frontier without a d
     assert.deepEqual(sent[0]?.message.details?.readyImplementTaskRefs, [task.ref]);
     assert.equal(await controller.reconcile(ctx), false, "the follow-up must remain bounded");
 
-    await saveSparkPhase(cwd, ctx, { phase: "plan", projectRef: project.ref });
-    ctx.sparkActiveLens = { phase: "plan" };
+    await saveSparkMode(cwd, ctx, { phase: "plan", projectRef: project.ref });
+    ctx.sparkActiveMode = { phase: "plan" };
     controller.reset(ctx);
     assert.equal(await controller.reconcile(ctx), false, "plan phase must not auto-implement");
   } finally {

@@ -190,7 +190,7 @@ export type SparkAgentStreamFunction = (
 };
 
 export type SparkAgentLoopState = "idle" | "streaming" | "tooling" | "aborting";
-export type SparkAgentPhase = "plan" | "implement";
+export type SparkAgentMode = "plan" | "execute";
 export type SparkAgentLifecycleSource = "agentLoop" | "triggerTurn" | "restartResume";
 
 export const SPARK_TURN_RESTART_YIELD_ERROR_CODE = "SPARK_TURN_RESTART_YIELD";
@@ -476,7 +476,7 @@ export class SparkAgentLoop {
   private readonly consumedOutboxDeliveryIdsBySession = new Map<string, Set<string>>();
   private readonly deferredTriggerOutbox: SparkTurnOutboxEnvelope[] = [];
   private state: SparkAgentLoopState = "idle";
-  private currentPhase: SparkAgentPhase | undefined;
+  private currentMode: SparkAgentMode | undefined;
   private currentAbort: AbortController | undefined;
   private currentAbortReason: string | undefined;
   private lastOutcome: SparkRunOutcome | undefined;
@@ -540,12 +540,12 @@ export class SparkAgentLoop {
    * Select the transient tool profile for subsequent model/tool turns.
    * Undefined preserves compatibility by allowing every host-active tool.
    */
-  setCurrentPhase(phase: SparkAgentPhase | undefined): void {
-    this.currentPhase = phase;
+  setCurrentMode(phase: SparkAgentMode | undefined): void {
+    this.currentMode = phase;
   }
 
-  getCurrentPhase(): SparkAgentPhase | undefined {
-    return this.currentPhase;
+  getCurrentMode(): SparkAgentMode | undefined {
+    return this.currentMode;
   }
 
   /** Reserve idle prompt state while a native host prepares a real user submit. */
@@ -887,7 +887,7 @@ export class SparkAgentLoop {
                 executionMode: policy.executionMode,
                 requiresApproval: policy.approval === "required",
                 domains: policy.domains,
-                phases: policy.phases,
+                modes: policy.modes,
               };
             }),
             selectedSkills: safeSelectedSkills(this.promptManifestOptions.getSelectedSkills),
@@ -1426,9 +1426,9 @@ export class SparkAgentLoop {
   /** The single availability boundary shared by schemas, manifests, and dispatch. */
   private isToolAvailable(tool: SparkTurnRegisteredTool): boolean {
     if (!tool.active) return false;
-    const phases = resolvedRegisteredToolPolicy(tool).phases;
+    const phases = resolvedRegisteredToolPolicy(tool).modes;
     return (
-      this.currentPhase === undefined || phases.length === 0 || phases.includes(this.currentPhase)
+      this.currentMode === undefined || phases.length === 0 || phases.includes(this.currentMode)
     );
   }
 
@@ -1438,8 +1438,8 @@ export class SparkAgentLoop {
 
   private toolUnavailableMessage(toolName: string, tool: SparkTurnRegisteredTool): string {
     if (!tool.active) return `inactive tool: ${toolName}`;
-    const phases = resolvedRegisteredToolPolicy(tool).phases;
-    return `phase-inactive tool: ${toolName} (current phase=${this.currentPhase ?? "none"}; allowed phases=${phases.join(",") || "all"})`;
+    const phases = resolvedRegisteredToolPolicy(tool).modes;
+    return `phase-inactive tool: ${toolName} (current phase=${this.currentMode ?? "none"}; allowed phases=${phases.join(",") || "all"})`;
   }
 
   private async injectBeforeAgentStartMessages(source: SparkAgentLifecycleSource): Promise<number> {

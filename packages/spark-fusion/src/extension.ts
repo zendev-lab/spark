@@ -53,7 +53,7 @@ export function createSparkFusionTool(): ToolConfig {
       effect: "read",
       executionMode: "sequential",
       domains: ["models", "deliberation"],
-      phases: ["plan", "implement"],
+      modes: ["plan", "execute"],
       approval: "required",
     },
     parameters: Type.Object(

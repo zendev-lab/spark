@@ -16,11 +16,11 @@ import {
   renderAgentRuntimeContextPrompt,
 } from "@zendev-lab/spark-host/system-prompt";
 import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
-import { composeAgentSystemPrompt } from "@zendev-lab/spark-phases";
+import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
 import {
   SparkRolesReviewerRunner,
   createSparkRoleRegistry,
-  loadSparkPhase,
+  loadSparkMode,
   renderSparkActiveSystemPrompt,
   type SparkSessionContext,
 } from "@zendev-lab/spark-extension/host-support";
@@ -520,7 +520,7 @@ async function resolveSparkCliAgentPromptState(
   skillsCatalogPrompt: string,
   selectedSkillsPrompt: string,
 ): Promise<{ systemPrompt: string; phase: "plan" | "implement" }> {
-  const phase = (await loadSparkPhase(cwd, ctx)).phase;
+  const phase = (await loadSparkMode(cwd, ctx)).phase;
   return {
     phase,
     systemPrompt: composeSparkCliAgentSystemPrompt(

@@ -54,8 +54,8 @@ export interface SparkToolContext {
   /** Daemon-backed model catalog projection supplied by the native host. */
   modelRegistry?: unknown;
   runRole?: ExtensionRoleRunner;
-  sparkActiveLens?: {
-    phase: "plan" | "implement";
+  sparkActiveMode?: {
+    mode: "plan" | "implement";
   };
   isIdle?: () => boolean;
   sessionManager?: {

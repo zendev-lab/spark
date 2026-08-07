@@ -77,7 +77,7 @@ session id and only connection-local active-invocation routing is retained.
 | Domain | Authoritative owner | Adapters and projections |
 | --- | --- | --- |
 | persistent sessions, invocations, Side Threads, channel execution | `apps/spark-daemon` using the shared registry/store contracts | local RPC, runtime WebSocket, TUI, Hub, ACP, channel transports |
-| autonomous goal/loop/repro/implement/workflow cadence, retry, and recovery | `apps/spark-daemon`; capability packages provide registered success/retry policy | TUI, Hub, and compatible hosts send controls and render `loop.update` |
+| autonomous goal/loop/repro/execute/workflow cadence, retry, and recovery | `apps/spark-daemon`; capability packages provide registered success/retry policy | TUI, Hub, and compatible hosts send controls and render `loop.update` |
 | model/tool turn execution and effect policy | `spark-turn` and `spark-host` | daemon and native host runners provide session context |
 | cross-surface schemas and semantics | `spark-protocol` | each transport performs validation and translation only |
 | projects, tasks, goals, reviews, workflows, and evidence coordination | `spark-hub-coordination` and the capability package named for the domain | Hub routes and Web UI are replaceable projections |

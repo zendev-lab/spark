@@ -321,7 +321,7 @@ The refactor is delivered as reviewable slices:
    - rename `phase` to `mode` and `implement` to `execute`;
    - migrate persisted current-project state from v1 `phase` to v2 `mode`;
    - do not retain private API aliases after migration;
-   - keep `/plan` and replace `/implement` with `/execute` when the published
+   - keep `/plan` and replace `/execute` with `/execute` when the published
      command contract permits the breaking change.
 3. **Prompt ownership**
    - remove model-facing behavior from i18n;

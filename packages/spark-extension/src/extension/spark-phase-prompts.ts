@@ -4,8 +4,8 @@ import {
   ASK_BEFORE_GUESSING,
   MAIN_SESSION_SCHEDULING_FIRST,
   MUST_ASK_ON_PROBLEMS,
-  renderPhasePrompt,
-} from "./phase/index.ts";
+  renderModePrompt,
+} from "./mode/index.ts";
 import {
   renderSparkUltracodeWorkflowGuidance,
   renderSparkWorkflowGuidance,
@@ -74,7 +74,7 @@ export function renderSparkGoalModePrompt(
         MUST_ASK_ON_PROBLEMS,
         ASK_BEFORE_GUESSING,
       ];
-  return renderPhasePrompt(graph, selectedProjectRef, focus, "Goal Loop", requirements);
+  return renderModePrompt(graph, selectedProjectRef, focus, "Goal Loop", requirements);
 }
 
 const PLANNING_AFFECTING_CHOICES =

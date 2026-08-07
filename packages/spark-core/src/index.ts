@@ -130,14 +130,14 @@ export type ToolApprovalPolicy = "none" | "required";
 
 /**
  * Declarative tool policy owned by the package that implements the tool.
- * Domain and phase values are intentionally opaque strings: the shared
+ * Domain and mode values are intentionally opaque strings: the shared
  * extension contract carries policy data but does not own product routing.
  */
 export interface ToolPolicy {
   readonly effect?: ToolEffect;
   readonly executionMode?: ToolExecutionMode;
   readonly domains?: readonly string[];
-  readonly phases?: readonly string[];
+  readonly modes?: readonly string[];
   readonly approval?: ToolApprovalPolicy;
 }
 
@@ -148,7 +148,7 @@ export interface ResolvedToolPolicy {
   readonly effect: ResolvedToolEffect;
   readonly executionMode: ToolExecutionMode;
   readonly domains: readonly string[];
-  readonly phases: readonly string[];
+  readonly modes: readonly string[];
   readonly approval: ToolApprovalPolicy;
 }
 
@@ -222,7 +222,7 @@ export function resolveToolPolicy(config: ToolConfig): ResolvedToolPolicy {
     !isOptionalToolApproval(policy?.approval) ||
     (config.requiresApproval !== undefined && typeof config.requiresApproval !== "boolean") ||
     !isOptionalPolicyLabels(policy?.domains) ||
-    !isOptionalPolicyLabels(policy?.phases);
+    !isOptionalPolicyLabels(policy?.modes);
 
   const canonicalEffect = policy?.effect;
   const legacyEffect: unknown = config.effect;
@@ -243,7 +243,7 @@ export function resolveToolPolicy(config: ToolConfig): ResolvedToolPolicy {
     effect,
     executionMode,
     domains: Object.freeze(normalizePolicyLabels(policy?.domains)),
-    phases: Object.freeze(normalizePolicyLabels(policy?.phases)),
+    modes: Object.freeze(normalizePolicyLabels(policy?.modes)),
     approval,
   });
 }
@@ -275,7 +275,7 @@ function unknownRequiredToolPolicy(): ResolvedToolPolicy {
     effect: "unknown",
     executionMode: "sequential",
     domains: Object.freeze([]),
-    phases: Object.freeze([]),
+    modes: Object.freeze([]),
     approval: "required",
   });
 }

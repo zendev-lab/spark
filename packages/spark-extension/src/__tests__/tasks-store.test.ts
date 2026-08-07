@@ -4466,7 +4466,7 @@ const childOutputSuccessCases: ChildOutputSuccessCase[] = [
         type: "message_start",
         message: {
           role: "custom",
-          customType: "spark-phase-request",
+          customType: "spark-mode-request",
           content: "Spark mode request could not proceed.",
           details: { status: "blocked", reason: "no_selection" },
         },

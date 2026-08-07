@@ -54,7 +54,7 @@ Spark 0.2.0 会直接拒绝旧的根级 `session`/`sessions`、`--print`/`-p`、
 
 ```text
 /plan <目标>
-/implement [关注点]
+/execute [关注点]
 /inspect [overview|workflows|runs|tasks|artifacts|reviews|graft|off]
 /automate
 /goal [start|status|stop|restart] [目标]

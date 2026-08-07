@@ -72,11 +72,11 @@ Spark 提供文件、搜索、shell/script、任务、产物、询问、记忆�
 Project → Task plan → claim 或 assign → Run → Artifact → Review
 ```
 
-`/plan` 创建可验证工作，但不实施；`/implement` 持续处理 ready task，直到完成、
+`/plan` 创建可验证工作，但不实施；`/execute` 持续处理 ready task，直到完成、
 阻塞、验证失败或需要决策。Goal、Loop、Repro 和 Workflow 为需要持续或重复的
 工作提供 daemon 所有的续跑能力。`/automate` 只是这些已有模式的选择器。
 
-先读[规划并实现一个修改](/zh/guides/plan-and-implement/)，需要长期工作时再读
+先读[规划并实现一个修改](/zh/guides/plan-and-execute/)，需要长期工作时再读
 [长期自动推进](/zh/guides/automation/)。
 
 ## 5. 渠道与多会话协作

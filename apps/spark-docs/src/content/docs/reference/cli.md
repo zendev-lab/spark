@@ -55,7 +55,7 @@ want to change how Spark proceeds:
 
 ```text
 /plan <goal>
-/implement [focus]
+/execute [focus]
 /inspect [overview|workflows|runs|tasks|artifacts|reviews|graft|off]
 /automate
 /goal [start|status|stop|restart] [objective]

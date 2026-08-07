@@ -934,7 +934,7 @@ function readOnlyMemoryToolPolicy(
     effect: "read",
     executionMode,
     domains: ["memory"],
-    phases: ["plan", "implement"],
+    modes: ["plan", "execute"],
     approval: "none",
   };
 }

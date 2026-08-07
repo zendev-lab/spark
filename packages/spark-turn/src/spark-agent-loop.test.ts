@@ -357,7 +357,7 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
       effect: "read",
       executionMode: "parallel",
       domains: ["files"],
-      phases: ["implement"],
+      modes: ["execute"],
       approval: "none",
     },
     async execute() {
@@ -444,7 +444,7 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
       executionMode: "parallel",
       approval: "none",
       domains: ["files"],
-      phases: ["implement"],
+      modes: ["execute"],
     },
   ]);
   assert.deepEqual(manifest.roundtrip, { index: 1 });
@@ -481,7 +481,7 @@ test("SparkAgentLoop applies one phase profile to schemas, manifests, and dispat
     name: "plan_probe",
     description: "available only while planning",
     parameters: { type: "object" },
-    policy: { effect: "read", executionMode: "parallel", phases: ["plan"], approval: "none" },
+    policy: { effect: "read", executionMode: "parallel", modes: ["plan"], approval: "none" },
     async execute() {
       return { content: [{ type: "text", text: "plan" }] };
     },
@@ -493,7 +493,7 @@ test("SparkAgentLoop applies one phase profile to schemas, manifests, and dispat
     policy: {
       effect: "local_write",
       executionMode: "sequential",
-      phases: ["implement"],
+      modes: ["execute"],
       approval: "none",
     },
     async execute() {
@@ -590,7 +590,7 @@ test("SparkAgentLoop rechecks phase availability after async approval", async ()
     policy: {
       effect: "local_write",
       executionMode: "sequential",
-      phases: ["implement"],
+      modes: ["execute"],
       approval: "required",
     },
     async execute() {

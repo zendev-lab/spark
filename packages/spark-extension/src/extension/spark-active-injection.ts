@@ -5,18 +5,18 @@ import { ensureSparkGraphInvariants } from "./spark-graph-invariants.ts";
 import {
   currentSparkProject,
   loadSparkGraph,
-  loadSparkPhase,
+  loadSparkMode,
   saveSparkGraphAndTodos,
   sparkStateCwd,
   sparkSessionKey,
   type SparkSessionContext,
-  type SparkSessionPhase,
+  type SparkSessionMode,
 } from "./session-state.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { sparkLanguageForProject, type SparkLanguage } from "./spark-i18n.ts";
-import { renderSparkPhaseSystemPrompt } from "./phase/index.ts";
+import { renderSparkModeSystemPrompt } from "./mode/index.ts";
 import { renderBaseSystemPromptsCatalogPrompt } from "@zendev-lab/spark-host/builtin-skills";
-import type { SparkPhaseEntryDeps, SparkPhaseMessageApi } from "./spark-phase-entry.ts";
+import type { SparkModeEntryDeps, SparkModeMessageApi } from "./spark-mode-entry.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 
 interface SparkInputEvent {
@@ -25,8 +25,8 @@ interface SparkInputEvent {
 }
 
 export interface SparkInputModeRouter {
-  piApi: SparkPhaseMessageApi;
-  deps: SparkPhaseEntryDeps;
+  piApi: SparkModeMessageApi;
+  deps: SparkModeEntryDeps;
 }
 
 export async function handleSparkInput(
@@ -45,7 +45,7 @@ export async function injectSparkHints(event: unknown, ctx: SparkToolContext): P
   // Spark is always available: inject the standing phase marker even when no
   // local .spark/ state exists yet. The richer active-context block is only
   // appended once a task graph is present.
-  const phase = (await loadSparkPhase(ctx.cwd, ctx)).phase;
+  const phase = (await loadSparkMode(ctx.cwd, ctx)).phase;
   const graph = await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
   const summary = graph ? await renderActiveSparkContextWithLanguage(ctx.cwd, ctx) : undefined;
   const sparkPrompt = renderSparkActiveSystemPrompt(
@@ -112,10 +112,10 @@ export async function ensureSparkStateForActiveWorkspace(
 
 export function renderSparkActiveSystemPrompt(
   basePrompt: string,
-  phase: SparkSessionPhase = "plan",
+  phase: SparkSessionMode = "plan",
   language?: SparkLanguage,
 ): string {
-  return renderSparkPhaseSystemPrompt({ basePrompt, phase, language });
+  return renderSparkModeSystemPrompt({ basePrompt, phase, language });
 }
 
 function isSparkInputEvent(event: unknown): event is SparkInputEvent {

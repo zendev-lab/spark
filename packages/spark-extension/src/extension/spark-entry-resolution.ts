@@ -3,10 +3,10 @@ import { basename, join } from "node:path";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
 import { hasNonSparkProjectFiles } from "./spark-activation.ts";
 import {
-  analyzeSparkEntryPhase,
+  analyzeSparkEntryMode,
   type SparkCommandProjectState,
   type SparkEntryIntent,
-  type SparkEntryPhaseChoice,
+  type SparkEntryModeChoice,
   type SparkEntryResolution,
 } from "./spark-entry.ts";
 import { currentSparkProject } from "./session-state.ts";
@@ -110,9 +110,9 @@ async function chooseInitializedSparkPhase(
   graph: TaskGraph,
   projectState: SparkCommandProjectState,
   prompt: string,
-): Promise<SparkEntryPhaseChoice | undefined> {
+): Promise<SparkEntryModeChoice | undefined> {
   const project = await currentSparkProject(ctx.cwd, ctx, graph);
-  const analysis = analyzeSparkEntryPhase(graph, projectState, prompt, project);
+  const analysis = analyzeSparkEntryMode(graph, projectState, prompt, project);
   return analysis.recommendation;
 }
 

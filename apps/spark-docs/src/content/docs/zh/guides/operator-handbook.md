@@ -203,7 +203,7 @@ fail closed，不能自动 replay。
 
 ```text
 /plan <goal>
-/implement [focus]
+/execute [focus]
 /inspect
 /goal start <objective>
 /repro start <objective>

@@ -1,12 +1,12 @@
 import type { ProjectRef, Task } from "@zendev-lab/spark-core";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
-import type { SparkEntryPhase } from "./spark-entry.ts";
+import type { SparkEntryMode } from "./spark-entry.ts";
 
 export function suggestForegroundGoalPhase(
   graph: TaskGraph,
   selectedProjectRef: ProjectRef | undefined,
   objective: string,
-): SparkEntryPhase {
+): SparkEntryMode {
   const normalized = objective.trim();
   if (!selectedProjectRef) return "plan";
 
@@ -43,7 +43,7 @@ function selectedProjectForegroundState(
 
 export function foregroundUnfinishedTaskPhase(
   tasks: readonly Pick<Task, "kind">[],
-): SparkEntryPhase {
+): SparkEntryMode {
   if (tasks.length === 0) return "implement";
   if (tasks.some((task) => task.kind === "implement" || task.kind === "generic")) {
     return "implement";

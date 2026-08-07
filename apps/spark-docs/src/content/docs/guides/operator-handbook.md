@@ -226,7 +226,7 @@ Inside the TUI, use:
 
 ```text
 /plan <goal>
-/implement [focus]
+/execute [focus]
 /inspect
 /goal start <objective>
 /repro start <objective>

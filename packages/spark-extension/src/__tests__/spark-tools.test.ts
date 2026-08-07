@@ -78,7 +78,7 @@ import type { SparkTaskClaimDaemonClient } from "../extension/spark-task-claim-d
 import {
   loadCurrentProjectState,
   loadHiddenRoleRunInboxState,
-  loadSparkPhase,
+  loadSparkMode,
   saveCurrentProjectRef,
   sparkSessionKey,
 } from "../extension/session-state.ts";
@@ -770,7 +770,7 @@ type TestSparkContext = {
   askAutoAnswerResolver?: (request: unknown, ctx: SparkToolContext) => Promise<unknown>;
   askWaitTimeoutMs?: number;
   askReviewerFallbackAfterMs?: number;
-  sparkActiveLens?: {
+  sparkActiveMode?: {
     phase: "plan" | "implement";
   };
   ui: {
@@ -847,7 +847,7 @@ test("/ultracode enters opt-in high-effort workflow generation mode", async () =
     await ultracode.handler("design and validate a workflow parity suite", ctx);
 
     const message = run.customMessages.at(-1);
-    assert.equal(message?.customType, "spark-phase-request");
+    assert.equal(message?.customType, "spark-mode-request");
     assert.equal(message?.display, false);
     assert.equal(run.messages.length, 0);
   } finally {
@@ -871,8 +871,8 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     assert.equal(existsSync(join(existingDir, "SPARK.md")), false);
     assert.equal(existingRun.messages.length, 0);
     assert.equal(existingRun.customMessages.length, 1);
-    assert.equal(existingRun.customMessages.at(-1)?.customType, "spark-phase-request");
-    assert.equal(existingCtx.sparkActiveLens?.phase, "plan");
+    assert.equal(existingRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.equal(existingCtx.sparkActiveMode?.phase, "plan");
 
     await writeEmptySparkProject(initializedDir);
     const initializedCtx = testSparkContext(initializedDir, "main");
@@ -899,9 +899,9 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     await executeCommand.handler("Finish the direct execution task", initializedCtx);
     assert.equal(initializedRun.messages.length, 0);
     assert.equal(initializedRun.loopControl.loops.size, 0);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
     assert.match(initializedRun.customMessages.at(-1)?.content ?? "", /Implementation phase/u);
-    assert.deepEqual(initializedCtx.sparkActiveLens, {
+    assert.deepEqual(initializedCtx.sparkActiveMode, {
       phase: "implement",
     });
 
@@ -911,7 +911,7 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     await executeCommand.handler("keep going until done", initializedCtx);
     assert.equal(initializedRun.loopControl.loops.size, 0);
     assert.equal(initializedRun.customMessages.length, implementMessageCount + 1);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
     const askedGoalState = JSON.parse(
       await readFile(currentProjectStatePath(initializedDir, initializedCtx), "utf8"),
     ) as { projectRef?: string; executionMode?: unknown };
@@ -1011,11 +1011,11 @@ Collect incident facts and decide the bounded response.
     assert.ok(researchWorkflowCommand, "missing /workflow:research command");
     assert.equal(initializedRun.commands.get("workflow:triage"), undefined);
     await workflowCommand.handler("workspace:triage Review with a workflow", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
 
     await workflowCommand.handler("builtin:research Compare design options", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
-    assert.deepEqual(initializedCtx.sparkActiveLens, {
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.deepEqual(initializedCtx.sparkActiveMode, {
       phase: "plan",
     });
 
@@ -1023,8 +1023,8 @@ Collect incident facts and decide the bounded response.
       "run research Compare canonical workflow actions",
       initializedCtx,
     );
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
-    assert.deepEqual(initializedCtx.sparkActiveLens, {
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.deepEqual(initializedCtx.sparkActiveMode, {
       phase: "plan",
     });
 
@@ -1032,8 +1032,8 @@ Collect incident facts and decide the bounded response.
       "Compare default panel and judge behavior",
       initializedCtx,
     );
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
-    assert.deepEqual(initializedCtx.sparkActiveLens, {
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.deepEqual(initializedCtx.sparkActiveMode, {
       phase: "plan",
     });
 
@@ -1045,15 +1045,15 @@ Collect incident facts and decide the bounded response.
     initializedCtx.selected = "builtin:review";
     initializedCtx.inputValue = "Review the workflow UI direction";
     await workflowCommand.handler("", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
 
     initializedCtx.selected = "builtin:research";
     await workflowCommand.handler("list Canonical navigator focus", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
 
     initializedCtx.selected = "workspace:triage";
     await workflowsCommand.handler("Navigator supplied focus", initializedCtx);
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
 
     const navigatorStore = defaultSparkDynamicWorkflowEventStore(initializedDir);
     const navigatorRun = await navigatorStore.start({
@@ -1105,7 +1105,7 @@ Collect incident facts and decide the bounded response.
         "```",
       initializedCtx,
     );
-    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-phase-request");
+    assert.equal(initializedRun.customMessages.at(-1)?.customType, "spark-mode-request");
 
     assert.equal(initializedRun.commands.get("run"), undefined);
     assert.equal(initializedRun.commands.get("run-sequential"), undefined);
@@ -1127,7 +1127,7 @@ Collect incident facts and decide the bounded response.
     assert.ok(emptyWorkflowCommand, "missing /workflow:research command");
     await emptyWorkflowCommand.handler("Investigate standalone workflow usage", emptyCtx);
     assert.equal(emptyRun.customMessages.length, 1);
-    assert.equal(emptyRun.customMessages.at(-1)?.customType, "spark-phase-request");
+    assert.equal(emptyRun.customMessages.at(-1)?.customType, "spark-mode-request");
   } finally {
     await rm(existingDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
     await rm(initializedDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
@@ -1155,7 +1155,7 @@ test("/plan dispatches through an externally owned command turn bridge", async (
     assert.equal(forwarded.length, 1);
     assert.match(forwarded[0] ?? "", /## Planning focus\nTrace the visible turn path/u);
     assert.equal(run.customMessages.length, 0);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1209,8 +1209,8 @@ test("latest direct Spark mode replaces older pending hidden mode context", asyn
     await planCommand.handler("revise the failed task plan", ctx);
 
     const hiddenMessage = run.customMessages.at(-1);
-    assert.equal(hiddenMessage?.customType, "spark-phase-request");
-    assert.equal(ctx.sparkActiveLens?.phase, "plan");
+    assert.equal(hiddenMessage?.customType, "spark-mode-request");
+    assert.equal(ctx.sparkActiveMode?.phase, "plan");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1255,8 +1255,8 @@ test("/plan includes active roadmap item context and matches focus to an existin
     await planCommand.handler("Roadmap assisted planning", ctx);
 
     assert.equal(run.messages.length, 0);
-    assert.equal(run.customMessages.at(-1)?.customType, "spark-phase-request");
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
+    assert.equal(run.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
     const graph = await defaultTaskGraphStore(dir).load();
     const project = graph?.projects()[0];
     assert.ok(project?.roadmap);
@@ -1725,8 +1725,8 @@ test("/implement continues through the agent-end hook without auto-answering or 
     assert.ok(executeCommand, "missing /implement command");
     await executeCommand.handler("work through the ready queue", ctx);
     assert.equal(run.loopControl.loops.size, 0);
-    assert.equal(run.customMessages.at(-1)?.customType, "spark-phase-request");
-    assert.deepEqual(ctx.sparkActiveLens, {
+    assert.equal(run.customMessages.at(-1)?.customType, "spark-mode-request");
+    assert.deepEqual(ctx.sparkActiveMode, {
       phase: "implement",
     });
 
@@ -1779,7 +1779,7 @@ test("/implement continues through the agent-end hook without auto-answering or 
     assert.ok(continuation, "ready implementation work should queue one hook continuation");
     assert.match(continuation.content, /@second-ready/u);
     assert.equal(run.loopControl.loops.size, 0);
-    assert.deepEqual(ctx.sparkActiveLens, {
+    assert.deepEqual(ctx.sparkActiveMode, {
       phase: "implement",
     });
 
@@ -5930,7 +5930,7 @@ test("/repro rolls back newly persisted active state when driver start fails", a
     );
 
     assert.equal(await readSessionRepro(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -5972,7 +5972,7 @@ test("repro tool reports driver startup failure and clears new active state", as
     assert.match(toolText(result), /Repro did not start: tool driver start failed/u);
     assert.equal(await readSessionRepro(dir, ctx), undefined);
     assert.deepEqual(await loadSessionGoal(dir, ctx), previousGoal);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -6453,7 +6453,7 @@ test("/implement canonical ask uses UI instead of reviewer auto-answer", async (
     const implementCommand = run.commands.get("implement");
     assert.ok(implementCommand, "missing /implement command");
     await implementCommand.handler("work until a human decision is needed", ctx);
-    assert.deepEqual(ctx.sparkActiveLens, {
+    assert.deepEqual(ctx.sparkActiveMode, {
       phase: "implement",
     });
 
@@ -6906,7 +6906,7 @@ test("phase tool returns requirements and persists session phase", async () => {
     });
     assert.deepEqual(switched.details, { phase: "plan", statusOnly: false });
     assert.match(toolText(switched), /Phase set to: plan/);
-    assert.deepEqual(await loadSparkPhase(dir, ctx), {
+    assert.deepEqual(await loadSparkMode(dir, ctx), {
       phase: "plan",
       projectRef: (await loadCurrentProjectState(dir, ctx))?.projectRef,
     });
@@ -6939,7 +6939,7 @@ test("/repro command starts, reports, and stops the Repro", async () => {
     }
     const repro = await readSessionRepro(dir, ctx);
     assert.equal(repro?.status, "active");
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
     assert.equal(ctx.askWaitTimeoutMs, 15 * 60_000);
     assert.equal(ctx.askAutoAnswer, undefined);
     const driver = activeTestLoop(run, "repro");
@@ -6951,7 +6951,7 @@ test("/repro command starts, reports, and stops the Repro", async () => {
 
     await reproCommand.handler("stop", ctx);
     assert.equal(await readSessionRepro(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
@@ -6972,7 +6972,7 @@ test("/repro command treats non-action text as the repro objective", async () =>
     const repro = await readSessionRepro(dir, ctx);
     assert.equal(repro?.status, "active");
     assert.equal(repro?.objective, objective);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
     assert.equal(activeTestLoop(run, "repro")?.loopId, repro?.reproId);
     assert.match(ctx.notifications.at(-1)?.message ?? "", /Spark repro active:/);
     assert.match(ctx.notifications.at(-1)?.message ?? "", new RegExp(objective));
@@ -7589,7 +7589,7 @@ test("foreground driver slash commands share status, stop, and restart grammar",
     assert.equal((await loadSessionGoal(dir, ctx))?.objective, "Replace foreground goal grammar");
     await goalCommand.handler("stop", ctx);
     assert.equal(await loadSessionGoal(dir, ctx), undefined);
-    assert.deepEqual(ctx.sparkActiveLens, { phase: "plan" });
+    assert.deepEqual(ctx.sparkActiveMode, { phase: "plan" });
 
     await loopCommand.handler("Unify foreground loop grammar", ctx);
     assert.equal((await loadSessionLoop(dir, ctx))?.objective, "Unify foreground loop grammar");

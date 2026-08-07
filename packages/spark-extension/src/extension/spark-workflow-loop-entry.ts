@@ -2,9 +2,9 @@ import { sparkStateCwd, type RunRef } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   dispatchSparkAgentInstruction,
-  type SparkPhaseEntryDeps,
-  type SparkPhaseMessageApi,
-} from "./spark-phase-entry.ts";
+  type SparkModeEntryDeps,
+  type SparkModeMessageApi,
+} from "./spark-mode-entry.ts";
 
 import {
   renderSparkUltracodeWorkflowPrompt,
@@ -26,7 +26,7 @@ import {
   type SparkDynamicWorkflowRunControlResult,
   type SparkDynamicWorkflowRunProjection,
 } from "./spark-dynamic-workflow-run-rendering.ts";
-import { sparkActiveLens } from "./spark-phase-state.ts";
+import { sparkActiveMode } from "./spark-mode-state.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 
 export type SparkWorkflowNavigatorAction =
@@ -44,8 +44,8 @@ type SparkWorkflowNavigatorSelection =
   | false;
 
 export async function enterSparkUltracodeWorkflow(
-  piApi: SparkPhaseMessageApi,
-  deps: SparkPhaseEntryDeps,
+  piApi: SparkModeMessageApi,
+  deps: SparkModeEntryDeps,
   ctx: SparkToolContext,
   focus?: string,
 ): Promise<void> {
@@ -62,8 +62,8 @@ export async function enterSparkUltracodeWorkflow(
 }
 
 export async function enterSparkWorkflow(
-  piApi: SparkPhaseMessageApi,
-  deps: SparkPhaseEntryDeps,
+  piApi: SparkModeMessageApi,
+  deps: SparkModeEntryDeps,
   ctx: SparkToolContext,
   _graph: TaskGraph | null,
   focus?: string,
@@ -87,7 +87,7 @@ export async function enterSparkWorkflow(
   const workflowSelector = workflow.selector;
   await deps.refreshSparkWidget(ctx.cwd, ctx);
   if (workflow.descriptor?.phase === "plan") {
-    ctx.sparkActiveLens = sparkActiveLens("plan");
+    ctx.sparkActiveMode = sparkActiveMode("plan");
     ctx.ui?.notify?.("Builtin workflow selected.", "info");
     await dispatchSparkAgentInstruction(
       piApi,
@@ -281,7 +281,7 @@ function parseDynamicWorkflowNavigatorOption(
 
 export async function executeDynamicWorkflowNavigatorAction(
   ctx: SparkToolContext,
-  deps: SparkPhaseEntryDeps,
+  deps: SparkModeEntryDeps,
   selection: { dynamicAction: SparkWorkflowNavigatorAction; runRef: RunRef },
 ): Promise<void> {
   const stateCwd = sparkStateCwd(ctx.cwd, ctx);

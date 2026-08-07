@@ -287,7 +287,7 @@ function contractFixtureExtension(pi: SparkHostAPI): void {
       effect: "read",
       executionMode: "parallel",
       domains: ["contract"],
-      phases: ["plan"],
+      modes: ["plan"],
       approval: "none",
     },
     async execute(toolCallId, params, _signal, onUpdate, ctx) {
@@ -447,7 +447,7 @@ test("SparkHostAPI contract fixture behaves the same on SparkHostRuntime and PiE
     effect: "read",
     executionMode: "parallel",
     domains: ["contract"],
-    phases: ["plan"],
+    modes: ["plan"],
     approval: "none",
   });
   assert.deepEqual(spark.commandNames, ["contract", "contract:1"]);

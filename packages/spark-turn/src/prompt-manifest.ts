@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const SPARK_PROMPT_MANIFEST_VERSION = 2 as const;
+export const SPARK_PROMPT_MANIFEST_VERSION = 3 as const;
 
 export type SparkPromptManifestToolEffect =
   | "read"
@@ -18,7 +18,7 @@ export interface SparkPromptManifestToolInput {
   executionMode?: string;
   requiresApproval?: boolean;
   domains?: readonly string[];
-  phases?: readonly string[];
+  modes?: readonly string[];
 }
 
 export interface SparkPromptManifestTool {
@@ -27,7 +27,7 @@ export interface SparkPromptManifestTool {
   executionMode: SparkPromptManifestExecutionMode;
   approval: "none" | "required";
   domains: string[];
-  phases: string[];
+  modes: string[];
 }
 
 export interface SparkPromptManifestRoundtrip {
@@ -143,7 +143,7 @@ function normalizeTool(input: SparkPromptManifestToolInput): SparkPromptManifest
     executionMode: input.executionMode === "parallel" ? "parallel" : "sequential",
     approval: input.requiresApproval === true ? "required" : "none",
     domains: uniqueLabels(input.domains ?? []),
-    phases: uniqueLabels(input.phases ?? []),
+    modes: uniqueLabels(input.modes ?? []),
   };
 }
 
