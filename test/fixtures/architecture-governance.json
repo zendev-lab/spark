@@ -85,7 +85,7 @@
   "scriptsInventory": [
     {
       "path": "scripts/build-npm-product.mjs",
-      "lineCount": 338,
+      "lineCount": 351,
       "domainOwner": "distribution",
       "callers": [
         "scripts/pack-release.mjs",
@@ -239,7 +239,7 @@
     },
     {
       "path": "scripts/npm-distributions.mjs",
-      "lineCount": 130,
+      "lineCount": 131,
       "domainOwner": "distribution",
       "callers": [
         "scripts/build-npm-product.mjs",
@@ -264,6 +264,20 @@
       "lineCount": 124,
       "domainOwner": "distribution",
       "callers": ["scripts/build-npm-product.mjs", "scripts/check-npm-product.mjs"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/release-compatibility-report.d.mts",
+      "domainOwner": "release-compatibility",
+      "callers": ["operator/manual entrypoint"],
+      "lineCount": 7,
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/release-compatibility-report.mjs",
+      "domainOwner": "release-compatibility",
+      "callers": ["test/release-compatibility-report.test.ts"],
+      "lineCount": 208,
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
@@ -303,7 +317,7 @@
     },
     {
       "path": "scripts/smoke-npm-product.mjs",
-      "lineCount": 497,
+      "lineCount": 607,
       "domainOwner": "distribution",
       "callers": [
         ".github/workflows/cd-publish.yml",
@@ -360,14 +374,45 @@
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
+      "path": "scripts/test-adjacent-database-compatibility.d.mts",
+      "domainOwner": "release-compatibility",
+      "callers": ["operator/manual entrypoint"],
+      "lineCount": 12,
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/test-adjacent-database-compatibility.mjs",
+      "domainOwner": "release-compatibility",
+      "callers": ["test/release-database-compatibility.test.ts"],
+      "lineCount": 780,
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/test-adjacent-product-compatibility.mjs",
+      "domainOwner": "release-compatibility",
+      "callers": ["test/release-product-compatibility.test.ts"],
+      "lineCount": 1319,
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/test-release-compatibility.d.mts",
+      "domainOwner": "release-compatibility",
+      "callers": ["operator/manual entrypoint"],
+      "lineCount": 20,
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/test-release-compatibility.mjs",
+      "domainOwner": "release-compatibility",
+      "callers": [".github/workflows/cd-publish.yml", "test/release-compatibility-gate.test.ts"],
+      "lineCount": 186,
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
       "path": "scripts/test-release-migration.mjs",
-      "lineCount": 667,
+      "lineCount": 732,
       "domainOwner": "release-migration",
-      "callers": [
-        ".github/workflows/cd-publish.yml",
-        "test/fixtures/hub-compatibility-allowlist.json",
-        "test/release-migration-gate.test.ts"
-      ],
+      "callers": ["scripts/test-release-compatibility.mjs", "test/release-migration-gate.test.ts"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
@@ -407,6 +452,20 @@
       "lineCount": 58,
       "domainOwner": "ci-governance",
       "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/validate-release-compatibility.d.mts",
+      "domainOwner": "release-compatibility",
+      "callers": ["operator/manual entrypoint"],
+      "lineCount": 3,
+      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
+    },
+    {
+      "path": "scripts/validate-release-compatibility.mjs",
+      "domainOwner": "release-compatibility",
+      "callers": ["package.json", "test/release-compatibility-contract.test.ts"],
+      "lineCount": 143,
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
