@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  goalNotifications,
-  normalizeSparkLanguage,
-  sparkLanguageForProject,
-} from "./extension";
+import { goalNotifications, normalizeSparkLanguage, sparkLanguageForProject } from "./extension";
 
 describe("spark extension i18n facade", () => {
   it("detects Spark project language without depending on extension host packages", () => {
