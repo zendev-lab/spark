@@ -8,11 +8,30 @@ import {
 } from "../scripts/validate-pr-title.mjs";
 import {
   extractH2Headings,
+  extractTemplateSections,
   runPrBodyValidation,
   validatePrBody,
 } from "../scripts/validate-pr-body.mjs";
 
-const template = "## Summary\n\nDescribe the change.\n\n## Notes\n\nAdd context.\n";
+const template = [
+  "## Why",
+  "",
+  "Explain the problem.",
+  "",
+  "## What changed",
+  "",
+  "Describe the change.",
+  "",
+  "<!-- pr-body:optional -->",
+  "## Notes",
+  "",
+  "Add context.",
+  "",
+  "<!-- pr-body:optional -->",
+  "## Next",
+  "",
+  "Describe follow-up work.",
+].join("\n");
 
 function captureOutput() {
   let output = "";
@@ -77,48 +96,76 @@ describe("PR title validation", () => {
 });
 
 describe("PR body validation", () => {
-  it("requires exactly the template H2 headings in order", () => {
-    expect(validatePrBody("## Summary\n\nDone.\n\n## Notes\n\nNone.\n", template)).toEqual({
-      valid: true,
-      expected: ["Summary", "Notes"],
-      actual: ["Summary", "Notes"],
-    });
-    expect(validatePrBody("## Summary\n\nDone.\n", template).valid).toBe(false);
-    expect(
-      validatePrBody("## Summary\n\nDone.\n\n## Validation\n\nTests.\n\n## Notes\n", template)
-        .valid,
-    ).toBe(false);
-    expect(validatePrBody("## Notes\n\nNone.\n\n## Summary\n\nDone.\n", template).valid).toBe(
-      false,
-    );
+  it("defaults unmarked template H2 sections to required", () => {
+    expect(extractTemplateSections("## Summary\n\n## Notes\n")).toEqual([
+      { heading: "Summary", required: true },
+      { heading: "Notes", required: true },
+    ]);
   });
 
-  it("ignores headings inside backtick and tilde fences", () => {
+  it("allows optional sections to be omitted or included in template order", () => {
+    const requiredOnly = "## Why\n\nReason.\n\n## What changed\n\nDone.\n";
+    const withNext = `${requiredOnly}\n## Next\n\nFollow-up.\n`;
+    const withAll = `${requiredOnly}\n## Notes\n\nNone.\n\n## Next\n\nFollow-up.\n`;
+
+    expect(validatePrBody(requiredOnly, template)).toMatchObject({
+      valid: true,
+      required: ["Why", "What changed"],
+      optional: ["Notes", "Next"],
+      actual: ["Why", "What changed"],
+    });
+    expect(validatePrBody(withNext, template).valid).toBe(true);
+    expect(validatePrBody(withAll, template).valid).toBe(true);
+  });
+
+  it("rejects missing required, extra, duplicate, and out-of-order sections", () => {
+    const invalidBodies = [
+      "## Why\n\nReason.\n",
+      "## Why\n\nReason.\n\n## What changed\n\nDone.\n\n## Validation\n\nTests.\n",
+      "## Why\n\nReason.\n\n## Why\n\nAgain.\n\n## What changed\n\nDone.\n",
+      "## What changed\n\nDone.\n\n## Why\n\nReason.\n",
+      "## Why\n\nReason.\n\n## Notes\n\nNone.\n\n## What changed\n\nDone.\n",
+    ];
+
+    for (const body of invalidBodies) expect(validatePrBody(body, template).valid).toBe(false);
+  });
+
+  it("ignores headings and requirement directives inside fences", () => {
     const markdown = [
-      "## Summary",
+      "## Why",
       "```md",
+      "<!-- pr-body:optional -->",
       "## Hidden",
       "```",
       "~~~text",
       "## Also hidden",
       "~~~~",
-      "## Notes",
+      "## What changed",
     ].join("\n");
-    expect(extractH2Headings(markdown)).toEqual(["Summary", "Notes"]);
+    expect(extractH2Headings(markdown)).toEqual(["Why", "What changed"]);
+    expect(extractTemplateSections(markdown)).toEqual([
+      { heading: "Why", required: true },
+      { heading: "What changed", required: true },
+    ]);
   });
 
-  it("fails closed when the template contains no H2 headings", () => {
-    expect(validatePrBody("", "No sections here.")).toEqual({
-      valid: false,
-      expected: [],
-      actual: [],
-    });
+  it("fails closed for empty or structurally ambiguous templates", () => {
+    expect(validatePrBody("", "No sections here.").valid).toBe(false);
+    expect(() =>
+      extractTemplateSections(
+        "<!-- pr-body:optional -->\n<!-- pr-body:required -->\n## Why\n",
+      ),
+    ).toThrow(/multiple pr-body directives/u);
+    expect(() => extractTemplateSections("## Why\n\n<!-- pr-body:optional -->\n")).toThrow(
+      /not followed by an H2/u,
+    );
+    expect(() => extractTemplateSections("## Why\n\n## Why\n")).toThrow(/must be unique/u);
   });
 
-  it("prints the repository-compatible error for an invalid body", async () => {
+  it("prints required and optional headings for an invalid body", async () => {
     const capture = captureOutput();
     const exitCode = await runPrBodyValidation({
-      body: "## Summary\n",
+      body: "## Why\n",
       templatePath: new URL("../.github/pull_request_template.md", import.meta.url).pathname,
       stdout: capture.stdout,
     });
@@ -126,6 +173,7 @@ describe("PR body validation", () => {
     expect(capture.read()).toContain(
       "::error::PR body headings do not match the repository template.",
     );
-    expect(capture.read()).toContain('Expected headings: ["Summary","Notes"]');
+    expect(capture.read()).toContain('Required headings: ["Why","What changed"]');
+    expect(capture.read()).toContain('Optional headings: ["Notes","Next"]');
   });
 });
