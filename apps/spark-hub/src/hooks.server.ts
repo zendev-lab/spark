@@ -17,7 +17,11 @@ import {
   workspaceSessionRefreshCookieName,
 } from "$lib/server/auth";
 import { getDatabase, pinDatabase, unpinDatabase } from "$lib/server/db";
-import { presentHubServerError } from "$lib/server/error-presentation";
+import {
+  hubServiceUnavailableResponse,
+  isHubServiceUnavailableError,
+  presentHubServerError,
+} from "$lib/server/error-presentation";
 import { INVOCATION_ROUTE_UNAVAILABLE_ERROR_CODE } from "$lib/error-codes";
 import { legacyCockpitLocaleCookieName, localeCookieName, resolveRequestLocale } from "$lib/i18n";
 import {
@@ -28,9 +32,11 @@ import { remoteAccessDecision } from "$lib/server/remote-access";
 
 export const handle: Handle = async ({ event, resolve }) => {
   migrateLegacyHubCookies(event);
-  pinDatabase();
+  event.locals.requestId = createId("msg");
+  let databasePinned = false;
   try {
-    event.locals.requestId = createId("msg");
+    pinDatabase();
+    databasePinned = true;
     const db = getDatabase();
 
     event.locals.sessionToken = event.cookies.get(sessionCookieName) ?? null;
@@ -99,8 +105,14 @@ export const handle: Handle = async ({ event, resolve }) => {
     return await resolve(event, {
       transformPageChunk: ({ html }) => html.replace("%spark.locale%", locale),
     });
+  } catch (error) {
+    if (!isHubServiceUnavailableError(error)) throw error;
+    console.warn(
+      `[spark-hub] ${event.locals.requestId} 503 ${event.request.method} ${event.url.pathname} dependency unavailable`,
+    );
+    return hubServiceUnavailableResponse(event.locals.requestId);
   } finally {
-    unpinDatabase();
+    if (databasePinned) unpinDatabase();
   }
 };
 
