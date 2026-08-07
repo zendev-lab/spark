@@ -849,9 +849,30 @@ process.env.SPARK_MANAGED_CONFIG_FILE = ${JSON.stringify(this.paths.configFile)}
 process.env.SPARK_MANAGED_STATE_DIR = ${JSON.stringify(this.paths.stateDir)};
 process.env.SPARK_MANAGED_CACHE_DIR = ${JSON.stringify(this.paths.cacheDir)};
 const child = spawn(process.execPath, [target, ...process.argv.slice(2)], {
-  stdio: "inherit",
+  stdio: process.send ? ["ignore", "inherit", "inherit", "ipc"] : "inherit",
   env: process.env,
 });
+
+// The managed launcher is itself the daemon's stable executable. When the
+// daemon starts a restart successor with an IPC channel, relay that channel
+// to the selected release instead of silently dropping it at this boundary.
+// Safe restart relies on the helper's ready/committed/armed handshake.
+if (process.send) {
+  process.on("message", (message) => {
+    if (!child.connected) return;
+    child.send(message, () => {});
+  });
+  child.on("message", (message) => {
+    if (process.connected) process.send(message, () => {});
+  });
+  process.on("disconnect", () => {
+    if (child.connected) child.disconnect();
+  });
+  child.on("disconnect", () => {
+    if (process.connected) process.disconnect();
+  });
+}
+
 child.on("error", (error) => {
   console.error(error.message);
   process.exitCode = 1;
