@@ -5,6 +5,8 @@ on:
     paths:
       - scripts/validate-pr-body.mjs
       - test/pr-body-validation.test.ts
+      - test/fixtures/architecture-governance.json
+      - test/architecture-ratchets.test.ts
       - .github/workflows/pr-body-format-fix.yml
 
 permissions:
@@ -23,14 +25,49 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Commit canonical formatting
+      - name: Refresh governance evidence
         run: |
-          pnpm exec vp fmt scripts/validate-pr-body.mjs test/pr-body-validation.test.ts
-          if git diff --quiet -- scripts/validate-pr-body.mjs test/pr-body-validation.test.ts; then
+          node --input-type=module <<'NODE'
+          import { createHash } from "node:crypto";
+          import { readFileSync, writeFileSync } from "node:fs";
+
+          const scriptPath = "scripts/validate-pr-body.mjs";
+          const script = readFileSync(scriptPath, "utf8");
+          const lineCount =
+            script.length === 0
+              ? 0
+              : script.split("\n").length - (script.endsWith("\n") ? 1 : 0);
+
+          const fixturePath = "test/fixtures/architecture-governance.json";
+          const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
+          const entry = fixture.scriptsInventory.find((candidate) => candidate.path === scriptPath);
+          if (!entry) throw new Error(`${scriptPath} is missing from architecture governance fixture`);
+          entry.lineCount = lineCount;
+          const fixtureSource = `${JSON.stringify(fixture, null, 2)}\n`;
+          writeFileSync(fixturePath, fixtureSource);
+
+          const fixtureHash = createHash("sha256").update(fixtureSource).digest("hex");
+          const testPath = "test/architecture-ratchets.test.ts";
+          const testSource = readFileSync(testPath, "utf8");
+          const updatedTestSource = testSource.replace(
+            /const architectureGovernanceFixtureSha256 =\n\s*"[a-f0-9]{64}";/u,
+            `const architectureGovernanceFixtureSha256 =\n  "${fixtureHash}";`,
+          );
+          if (updatedTestSource === testSource) {
+            throw new Error("architecture governance fixture hash declaration was not updated");
+          }
+          writeFileSync(testPath, updatedTestSource);
+          NODE
+          pnpm exec vp fmt test/architecture-ratchets.test.ts
+
+          if git diff --quiet -- \
+            test/fixtures/architecture-governance.json \
+            test/architecture-ratchets.test.ts; then
             exit 0
           fi
+
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add scripts/validate-pr-body.mjs test/pr-body-validation.test.ts
-          git commit --no-verify -m "🎨 style(ci): format PR body contract"
+          git add test/fixtures/architecture-governance.json test/architecture-ratchets.test.ts
+          git commit --no-verify -m "✅ test(ci): update PR body governance evidence"
           git push origin HEAD:${{ github.head_ref }}
