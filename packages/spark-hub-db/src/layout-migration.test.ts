@@ -73,6 +73,41 @@ describe("Cockpit-to-Hub filesystem migration", () => {
     expect(readFileSync(hub.configFile, "utf8")).toContain("4173");
   });
 
+  it("merges legacy cache entries into an existing Hub cache tree", async () => {
+    const { env } = await fixtureEnvironment();
+    const legacy = resolveLegacyCockpitPaths({ env, cwd: "/" });
+    const hub = resolveSparkPaths({ app: "hub", env, cwd: "/" });
+    mkdirSync(join(legacy.cacheDir, "nested"), { recursive: true });
+    mkdirSync(join(hub.cacheDir, "nested"), { recursive: true });
+    writeFileSync(join(legacy.cacheDir, "legacy-only"), "legacy");
+    writeFileSync(join(hub.cacheDir, "hub-only"), "hub");
+    writeFileSync(join(legacy.cacheDir, "nested", "shared"), "same");
+    writeFileSync(join(hub.cacheDir, "nested", "shared"), "same");
+
+    expect(migrateLegacyCockpitLayout({ env, cwd: "/" }).status).toBe("migrated");
+
+    expect(readFileSync(join(hub.cacheDir, "legacy-only"), "utf8")).toBe("legacy");
+    expect(readFileSync(join(hub.cacheDir, "hub-only"), "utf8")).toBe("hub");
+    expect(readFileSync(join(hub.cacheDir, "nested", "shared"), "utf8")).toBe("same");
+    expect(existsSync(legacy.cacheDir)).toBe(false);
+  });
+
+  it("fails before mutation when existing cache files differ", async () => {
+    const { env } = await fixtureEnvironment();
+    const legacy = resolveLegacyCockpitPaths({ env, cwd: "/" });
+    const hub = resolveSparkPaths({ app: "hub", env, cwd: "/" });
+    mkdirSync(legacy.cacheDir, { recursive: true });
+    mkdirSync(hub.cacheDir, { recursive: true });
+    writeFileSync(join(legacy.cacheDir, "shared"), "legacy");
+    writeFileSync(join(hub.cacheDir, "shared"), "hub");
+
+    expect(() => migrateLegacyCockpitLayout({ env, cwd: "/" })).toThrow(
+      HubLayoutMigrationConflictError,
+    );
+    expect(readFileSync(join(legacy.cacheDir, "shared"), "utf8")).toBe("legacy");
+    expect(readFileSync(join(hub.cacheDir, "shared"), "utf8")).toBe("hub");
+  });
+
   it("rolls completed renames back when a later migration step fails", async () => {
     const { env } = await fixtureEnvironment();
     const legacy = resolveLegacyCockpitPaths({ env, cwd: "/" });

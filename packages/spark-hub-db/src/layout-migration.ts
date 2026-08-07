@@ -1,4 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmdirSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import {
   resolveLegacyCockpitPaths,
@@ -42,11 +52,25 @@ interface HubLayoutMigrationTestHooks {
   afterMove?: (move: { from: string; to: string }, index: number) => void;
 }
 
+interface PlannedMove {
+  from: string;
+  to: string;
+}
+
+interface DirectoryMergePlan {
+  moves: PlannedMove[];
+  identicalSources: string[];
+}
+
 /**
  * Move the retired Cockpit XDG/SPARK_HOME tree into the canonical Hub tree.
  *
- * Preflight is fail-closed: no filesystem mutation occurs if any source and
- * target conflict. Every committed rename is reversed if a later rename fails.
+ * Preflight is fail-closed for stateful files and databases: no filesystem
+ * mutation occurs if any source and target conflict. The cache tree is
+ * mergeable because it is content-addressed/derived state; existing
+ * directories are traversed, identical files are removed from the retired
+ * tree, and non-identical files still fail closed. Every committed rename is
+ * reversed if a later rename fails.
  */
 export function migrateLegacyCockpitLayout(
   options: ResolveSparkHomeOptions = {},
@@ -65,6 +89,11 @@ export function migrateLegacyCockpitLayout(
     throw new HubLayoutMigrationLockedError(legacyWebLockPath);
   }
   const candidates = plannedMoves(legacy, hub);
+  const directoryMerge = planCacheDirectoryMerge(candidates, legacy.cacheDir);
+  const planned = candidates.flatMap((candidate) => {
+    if (candidate.from !== legacy.cacheDir) return [candidate];
+    return directoryMerge.moves;
+  });
   const legacyDataExists = existsSync(legacy.dataDir);
   const legacyStateExists = existsSync(legacy.stateDir);
   const legacyRuntimeExists = existsSync(legacy.runtimeDir);
@@ -83,21 +112,27 @@ export function migrateLegacyCockpitLayout(
       ? [join(hub.runtimeDir, "cockpit-web.lock")]
       : []),
   ]);
-  const moves = candidates.filter(({ from }) => existsSync(from) || producedSources.has(from));
+  const moves = planned.filter(({ from }) => existsSync(from) || producedSources.has(from));
 
   for (const move of moves) {
     if (existsSync(move.to) && !moves.some((candidate) => candidate.from === move.to)) {
-      throw new HubLayoutMigrationConflictError(move.from, move.to);
+      const cacheMergeMove = move.from.startsWith(`${legacy.cacheDir}/`);
+      if (!cacheMergeMove || !directoryMerge.identicalSources.includes(move.from)) {
+        throw new HubLayoutMigrationConflictError(move.from, move.to);
+      }
     }
   }
 
-  const completed: Array<{ from: string; to: string }> = [];
+  const completed: PlannedMove[] = [];
   try {
     for (const [index, move] of moves.entries()) {
       mkdirSync(dirname(move.to), { recursive: true, mode: 0o700 });
       renameSync(move.from, move.to);
       completed.push(move);
       testHooks.afterMove?.(move, index);
+    }
+    for (const source of directoryMerge.identicalSources) {
+      rmSync(source, { force: true });
     }
   } catch (error) {
     for (const move of completed.reverse()) {
@@ -110,7 +145,13 @@ export function migrateLegacyCockpitLayout(
   }
 
   removeEmptyLegacyDirectories(legacy);
-  return { status: completed.length > 0 ? "migrated" : "not-needed", moves: completed };
+  return {
+    status:
+      completed.length > 0 || directoryMerge.identicalSources.length > 0
+        ? "migrated"
+        : "not-needed",
+    moves: completed,
+  };
 }
 
 function plannedMoves(
@@ -156,9 +197,55 @@ function plannedMoves(
   return deduplicateMoves(moves);
 }
 
-function deduplicateMoves(
-  moves: Array<{ from: string; to: string }>,
-): Array<{ from: string; to: string }> {
+function planCacheDirectoryMerge(
+  candidates: PlannedMove[],
+  legacyCacheDir: string,
+): DirectoryMergePlan {
+  const rootMove = candidates.find((candidate) => candidate.from === legacyCacheDir);
+  if (!rootMove || !existsSync(rootMove.from) || !existsSync(rootMove.to)) {
+    return { moves: rootMove ? [rootMove] : [], identicalSources: [] };
+  }
+  if (!isDirectory(rootMove.from) || !isDirectory(rootMove.to)) {
+    throw new HubLayoutMigrationConflictError(rootMove.from, rootMove.to);
+  }
+
+  const plan: DirectoryMergePlan = { moves: [], identicalSources: [] };
+  visitMergeTree(rootMove.from, rootMove.to, plan);
+  return plan;
+}
+
+function visitMergeTree(source: string, target: string, plan: DirectoryMergePlan): void {
+  if (!existsSync(target)) {
+    plan.moves.push({ from: source, to: target });
+    return;
+  }
+
+  const sourceDirectory = isDirectory(source);
+  const targetDirectory = isDirectory(target);
+  if (!sourceDirectory || !targetDirectory) {
+    if (sourceDirectory !== targetDirectory || !filesAreIdentical(source, target)) {
+      throw new HubLayoutMigrationConflictError(source, target);
+    }
+    plan.identicalSources.push(source);
+    return;
+  }
+
+  for (const entry of readdirSync(source)) {
+    visitMergeTree(join(source, entry), join(target, entry), plan);
+  }
+}
+
+function isDirectory(path: string): boolean {
+  return lstatSync(path).isDirectory();
+}
+
+function filesAreIdentical(left: string, right: string): boolean {
+  const leftStat = lstatSync(left);
+  const rightStat = lstatSync(right);
+  if (!leftStat.isFile() || !rightStat.isFile() || leftStat.size !== rightStat.size) return false;
+  return readFileSync(left).equals(readFileSync(right));
+}
+function deduplicateMoves(moves: PlannedMove[]): PlannedMove[] {
   const seen = new Set<string>();
   return moves.filter((move) => {
     if (move.from === move.to || seen.has(move.from)) return false;
@@ -172,15 +259,32 @@ function isNestedUnder(path: string, parent: string): boolean {
 }
 
 function removeEmptyLegacyDirectories(paths: SparkPaths<"cockpit">): void {
-  for (const path of [paths.runtimeDir, paths.stateDir, paths.cacheDir, paths.dataDir]) {
+  for (const path of [paths.runtimeDir, paths.stateDir, paths.dataDir]) {
     try {
       if (existsSync(path) && statSync(path).isDirectory()) {
-        rmSync(path, { recursive: false });
+        rmdirSync(path);
       }
     } catch {
       // Parent may still contain user-authored or unrelated compatibility files.
     }
   }
+  try {
+    removeEmptyDirectories(paths.cacheDir);
+    const cacheAppDir = dirname(paths.cacheDir);
+    if (existsSync(cacheAppDir) && statSync(cacheAppDir).isDirectory()) {
+      rmdirSync(cacheAppDir);
+    }
+  } catch {
+    // Parent may still contain user-authored or unrelated compatibility files.
+  }
+}
+
+function removeEmptyDirectories(path: string): void {
+  if (!existsSync(path) || !isDirectory(path)) return;
+  for (const entry of readdirSync(path)) {
+    removeEmptyDirectories(join(path, entry));
+  }
+  if (readdirSync(path).length === 0) rmdirSync(path);
 }
 
 function processRecordIsActive(path: string): boolean {
