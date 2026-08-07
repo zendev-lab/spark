@@ -80,6 +80,7 @@ Repository policy belongs to dedicated static tools invoked by `pnpm run check:s
 - `check-github-actions.mjs` owns immutable Action references and benchmark credential policy;
 - `check-pnpm-workspace-policy.mjs` owns hook-time pnpm mutation safety;
 - `check-hub-source-boundaries.mjs` owns Hub source/state-owner boundaries;
+- `check-execution-worker-boundary.mjs` owns the daemon execution worker import graph;
 - Dependency Cruiser and the existing terminology, documentation, distribution, and evidence
   checkers own their declared repository surfaces.
 

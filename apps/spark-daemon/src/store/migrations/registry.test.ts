@@ -15,6 +15,7 @@ describe("daemon migration registry", () => {
     expect(daemonMigrations.every((migration) => migration.owner.length > 0)).toBe(true);
     expect(daemonMigrations.map((migration) => migration.id)).toEqual(
       expect.arrayContaining([
+        "execution-attempts.schema",
         "human-waits.answer-event-mailbox",
         "migration.driver-to-loop-v1",
         "migration.retire-daemon-error-outbox-v1",
@@ -125,6 +126,13 @@ describe("daemon migration registry", () => {
           db
             .prepare(
               "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'daemon_repro_formal_evidence_receipts'",
+            )
+            .get(),
+        ).toEqual({ present: 1 });
+        expect(
+          db
+            .prepare(
+              "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'execution_attempts'",
             )
             .get(),
         ).toEqual({ present: 1 });
