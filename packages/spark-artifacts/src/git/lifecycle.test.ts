@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -32,6 +32,29 @@ describe("git_change lifecycle", () => {
     expect(artifact.body.stack.entries[0]?.pullRequest?.number).toBe(41);
     expect(artifact.body.stack.entries[1]?.pullRequest).toBeUndefined();
     expect(artifact.body.lifecycle).toBe("local");
+  });
+
+  it("uses an explicit repository path when the session cwd is not a repository", async () => {
+    const sessionCwd = await mkdtemp(join(tmpdir(), "spark-git-session-cwd-"));
+    const repositoryPath = await mkdtemp(join(tmpdir(), "spark-git-repository-"));
+    const cwdCalls: string[] = [];
+    const baseRunner = stackRunner([]);
+    const service = new GitLifecycleService({
+      cwd: sessionCwd,
+      runner: async (command, args, cwd) => {
+        if (command === "git" && args[0] === "worktree" && args[1] === "add") {
+          await mkdir(args[3]!, { recursive: true });
+        }
+        cwdCalls.push(cwd);
+        return await baseRunner(command, args, cwd);
+      },
+      store: defaultArtifactStore(sessionCwd),
+    });
+
+    await service.init({ repositoryPath, branch: "fix/explicit-repository", trunk: "main" });
+
+    expect(cwdCalls).toContain(repositoryPath);
+    expect(cwdCalls).not.toContain(sessionCwd);
   });
 
   it("submits drafts by default and opens only when ready=true", async () => {
@@ -125,6 +148,12 @@ function stackRunner(calls: string[][]): GitCommandRunner {
     }
     if (command === "git" && args[0] === "rev-list") {
       return success("0\n");
+    }
+    if (command === "git" && args[0] === "worktree" && args[1] === "add") {
+      return success("");
+    }
+    if (command === "gh" && args[0] === "stack" && args[1] === "init") {
+      return success("");
     }
     if (command === "gh" && args.join(" ") === "stack view --json") {
       return success(

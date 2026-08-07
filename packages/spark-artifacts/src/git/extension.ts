@@ -115,6 +115,11 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       worktreePath: Type.Optional(
         Type.String({ description: "Existing worktree path for inspect/adopt." }),
       ),
+      repositoryPath: Type.Optional(
+        Type.String({
+          description: "Repository root for init/checkout when session cwd is not the target repo.",
+        }),
+      ),
       message: Type.Optional(Type.String({ description: "Commit message." })),
       paths: Type.Optional(
         Type.Array(Type.String({ description: "Explicit paths to stage for commit." })),
@@ -160,6 +165,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
           title: stringOrUndefined(params.title),
           branch: stringOrUndefined(params.branch),
           trunk: stringOrUndefined(params.trunk),
+          repositoryPath: stringOrUndefined(params.repositoryPath),
         });
         return changedResult(action, artifact);
       }
@@ -169,6 +175,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
         const artifact = await service.checkout({
           target,
           title: stringOrUndefined(params.title),
+          repositoryPath: stringOrUndefined(params.repositoryPath),
         });
         return changedResult(action, artifact);
       }

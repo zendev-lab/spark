@@ -44,11 +44,15 @@ export interface CreateGitChangeInput {
   title?: string;
   branch?: string;
   trunk?: string;
+  /** Explicit local repository root. Required when the session cwd is not the target repository. */
+  repositoryPath?: string;
 }
 
 export interface CheckoutGitChangeInput {
   target: string;
   title?: string;
+  /** Explicit local repository root. Required when the session cwd is not the target repository. */
+  repositoryPath?: string;
 }
 
 export interface AdoptGitChangeInput {
@@ -125,20 +129,21 @@ export class GitLifecycleService {
   }
 
   async init(input: CreateGitChangeInput = {}): Promise<Artifact<GitChangeArtifactBody>> {
+    const repositoryPath = resolve(input.repositoryPath ?? this.cwd);
     const ref = newArtifactRef();
-    const repository = await this.repositoryIdentity(this.cwd);
-    const trunk = input.trunk?.trim() || (await this.defaultTrunk(this.cwd));
+    const repository = await this.repositoryIdentity(repositoryPath);
+    const trunk = input.trunk?.trim() || (await this.defaultTrunk(repositoryPath));
     const branch = input.branch?.trim() || `codex/change-${artifactId(ref).slice(0, 8)}`;
     assertBranch(branch);
     const worktreePath = this.managedWorktreePath(repository.repo, ref);
     await this.assertWorktreeTargetAvailable(worktreePath);
     await mkdir(dirname(worktreePath), { recursive: true });
 
-    const startPoint = await this.trunkStartPoint(this.cwd, trunk);
+    const startPoint = await this.trunkStartPoint(repositoryPath, trunk);
     await this.runChecked(
       "git",
       ["worktree", "add", "--detach", worktreePath, startPoint],
-      this.cwd,
+      repositoryPath,
       "worktree_add_failed",
     );
     try {
@@ -165,16 +170,23 @@ export class GitLifecycleService {
   async checkout(input: CheckoutGitChangeInput): Promise<Artifact<GitChangeArtifactBody>> {
     const target = input.target.trim();
     if (!target) throw new GitLifecycleError("target_required", "checkout target is required");
+    const repositoryPath = resolve(input.repositoryPath ?? this.cwd);
     const ref = newArtifactRef();
-    const repository = await this.repositoryIdentity(this.cwd);
-    const trunk = await this.defaultTrunk(this.cwd);
+    const repository = await this.repositoryIdentity(repositoryPath);
+    const trunk = await this.defaultTrunk(repositoryPath);
     const worktreePath = this.managedWorktreePath(repository.repo, ref);
     await this.assertWorktreeTargetAvailable(worktreePath);
     await mkdir(dirname(worktreePath), { recursive: true });
     await this.runChecked(
       "git",
-      ["worktree", "add", "--detach", worktreePath, await this.trunkStartPoint(this.cwd, trunk)],
-      this.cwd,
+      [
+        "worktree",
+        "add",
+        "--detach",
+        worktreePath,
+        await this.trunkStartPoint(repositoryPath, trunk),
+      ],
+      repositoryPath,
       "worktree_add_failed",
     );
     try {
