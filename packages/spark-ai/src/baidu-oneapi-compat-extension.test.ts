@@ -20,9 +20,11 @@ import { SparkProviderRegistry } from "./provider-registry.ts";
 const BAIDU_MODEL_IDS = [
   "claude-opus-4.6",
   "claude-opus-5",
+  "deepseek-v4-flash",
   "gpt-5.6-sol",
   "gpt-5.6-luna",
   "gpt-5.6-terra",
+  "grok-4.5",
 ];
 
 function testModel(id: string): Model<Api> {

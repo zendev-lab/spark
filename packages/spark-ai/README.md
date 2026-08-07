@@ -41,10 +41,10 @@ surface instead of `SparkHostAPI`.
 `@zendev-lab/spark-ai/baidu-oneapi-provider` is the bundled standalone
 `baidu-oneapi` provider plugin for Spark's native model runtime. It exposes local
 adaptive-friendly model ids (`claude-opus-4.6`, `claude-opus-5`,
-`gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`) with provider-specific prices
-in USD per million tokens, while rewriting outbound payloads back to the
-gateway-required model ids (`Claude Opus 4.6`, `Opus 5`, `gpt-5.6-sol`,
-`gpt-5.6-luna`, `gpt-5.6-terra`).
+`deepseek-v4-flash`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`, `grok-4.5`)
+with provider-specific prices in USD per million tokens, while rewriting outbound
+payloads back to the gateway-required model ids (`Claude Opus 4.6`, `Opus 5`,
+`DeepSeek-V4-Flash`, `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`, `grok-4.5`).
 
 The root Pi compatibility profile loads the separate
 `@zendev-lab/spark-ai/baidu-oneapi-compat-extension` adapter. Only that entrypoint
@@ -52,7 +52,9 @@ imports Pi's temporary `compat` API factories; the native provider uses modern
 public `pi-ai` API subpaths. Both adapters share the model catalog, payload
 rewrites, normalization, and bounded retry behavior from `baidu-oneapi.ts`.
 
-The GPT-5.6 Responses adapter follows the OpenAI Codex prompt contract: the
+Claude and DeepSeek V4 Flash use Anthropic Messages. GPT-5.6 and Grok 4.5 use
+OpenAI Responses (DeepSeek's Responses path is not implemented on this gateway).
+The GPT/Grok Responses adapter follows the OpenAI Codex prompt contract: the
 complete caller `systemPrompt` is sent once as top-level `instructions` and is
 not duplicated as a developer input item. Malformed gateway JSON is retried
 only before visible output. The Claude adapters preserve Anthropic `system`
