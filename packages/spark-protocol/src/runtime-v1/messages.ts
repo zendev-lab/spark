@@ -5,7 +5,12 @@ import {
   runtimeServerCommandSupportsScope,
   sparkProtocolJsonObjectSchema,
 } from "../command-events.ts";
-import { sparkHumanResponseStatusSchema } from "../human-interaction.ts";
+import {
+  sparkDirectAnswerProvenanceSchema,
+  sparkEvidenceRequestBindingSchema,
+  sparkHumanInteractionDeliveryOutcomeSchema,
+  sparkHumanResponseStatusSchema,
+} from "../human-interaction.ts";
 import { sparkAuthFlowSchema } from "../model-control.ts";
 import { isoDateTimeSchema, prefixedIdSchema } from "../refs.ts";
 import { runtimeEnvelopeFor, runtimeFeatureSchema } from "./envelope.ts";
@@ -353,6 +358,7 @@ export const humanRequestCreatedPayloadSchema = z.object({
   kind: humanRequestKindSchema,
   delivery: z.enum(["blocking", "async"]).optional(),
   interactionRequestId: z.string().min(1).optional(),
+  evidenceRequest: sparkEvidenceRequestBindingSchema.optional(),
   sessionId: z.string().min(1).optional(),
   toolCallId: z.string().min(1).optional(),
   title: z.string().min(1),
@@ -376,13 +382,12 @@ export const humanResponseDeliverPayloadSchema = z.object({
  */
 export const humanResponseRecordedPayloadSchema = humanResponseDeliverPayloadSchema.extend({
   source: z.enum(["channel", "daemon"]),
+  provenance: sparkDirectAnswerProvenanceSchema.optional(),
 });
 
 export const humanResponseAckPayloadSchema = z.object({
   returnedToTool: z.boolean(),
-  outcome: z
-    .enum(["accepted", "replayed", "already_resolved", "orphaned", "unknown_request", "transient"])
-    .optional(),
+  outcome: sparkHumanInteractionDeliveryOutcomeSchema.optional(),
   retryable: z.boolean().optional(),
   winnerResponseId: prefixedIdSchema("hres").optional(),
   message: z.string().optional(),

@@ -72,6 +72,9 @@ export function recordHumanRequestFromRuntime(db: DatabaseSync, input: RecordHum
       toJson({
         ...input.payload.context,
         ...(input.payload.sessionId ? { sessionId: input.payload.sessionId } : {}),
+        ...(input.payload.evidenceRequest
+          ? { evidenceRequest: input.payload.evidenceRequest }
+          : {}),
         toolCallId: input.payload.toolCallId,
         commandId: input.commandId,
         invocationId: input.invocationId,

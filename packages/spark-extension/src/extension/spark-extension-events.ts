@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { createReproStepAskBinding, decodeReproStepAskBinding } from "@zendev-lab/spark-repro";
 import { defaultTaskGraphStore } from "@zendev-lab/spark-tasks";
 import {
   ensureSparkStateForActiveWorkspace,
@@ -22,7 +24,6 @@ import {
   formatHiddenRoleRunInbox,
   markHiddenRoleRunInboxDelivered,
 } from "./role-run-completions.ts";
-import { sparkActiveLensPhase } from "./spark-phase-state.ts";
 import { readSessionRepro } from "./spark-session-repro.ts";
 import type { SparkPhaseMessageApi } from "./spark-phase-entry.ts";
 import { createSparkAgentEndReconciliationController } from "./spark-agent-end-reconciliation.ts";
@@ -237,30 +238,83 @@ async function activePendingInstruction(
 
 export async function syncSparkGoalAskAutoAnswerPolicy(
   ctx: SparkToolContext,
-  deps: SparkExtensionEventDeps,
+  _deps: SparkExtensionEventDeps,
 ): Promise<void> {
-  const phase = sparkActiveLensPhase(ctx.sparkActiveLens);
-  const activeGoal = await hasActiveCurrentSessionGoal(ctx);
-  const activeRepro = (await readSessionRepro(ctx.cwd, ctx))?.status === "active";
+  const activeGoal = await currentActiveSessionGoal(ctx);
+  const repro = await readSessionRepro(ctx.cwd, ctx);
+  const activeRepro = repro?.status === "active" ? repro : undefined;
   ctx.askWaitTimeoutMs =
-    activeRepro || (phase !== "implement" && activeGoal)
+    activeRepro || activeGoal
       ? SPARK_AUTONOMOUS_ASK_WAIT_TIMEOUT_MS
       : SPARK_DEFAULT_ASK_WAIT_TIMEOUT_MS;
 
-  // Repro decisions remain real-user evidence. Timeout closes the wait and
-  // leaves a blocker; it must never mint a reviewer-authored decision receipt.
-  if (phase === "implement" || activeRepro) {
-    delete ctx.askAutoAnswer;
-    delete ctx.askAutoAnswerResolver;
+  delete ctx.askAutoAnswer;
+  delete ctx.askAutoAnswerResolver;
+  if (activeRepro) {
+    ctx.sparkAutonomousAsk = {
+      modeScope: "repro",
+      goalOrReproId: activeRepro.reproId,
+      ownerSessionId: sparkSessionOwnerKey(ctx),
+      resolveBinding(request) {
+        const binding = decodeReproStepAskBinding(optionalString(request.context));
+        if (!binding) {
+          throw new Error(
+            "AUTONOMOUS_EVIDENCE_BINDING_REQUIRED: Repro ask context must bind the current plan step",
+          );
+        }
+        const step = activeRepro.plan.steps.find((candidate) => candidate.id === binding.stepId);
+        let expected;
+        try {
+          expected = step ? createReproStepAskBinding(activeRepro, step) : undefined;
+        } catch {
+          expected = undefined;
+        }
+        const expectedMode = binding.authority === "ask_approval" ? "approval" : "decision";
+        if (
+          !expected ||
+          JSON.stringify(binding) !== JSON.stringify(expected) ||
+          request.mode !== expectedMode
+        ) {
+          throw new Error(
+            "AUTONOMOUS_EVIDENCE_BINDING_REQUIRED: Repro ask context must match the current plan revision, step definition, authority, and mode",
+          );
+        }
+        return {
+          planRevision: binding.planRevision,
+          ownerStepOrUnresolvedId: binding.stepId,
+          stepDefinitionDigest: binding.definitionDigest,
+        };
+      },
+    };
     return;
   }
   if (activeGoal) {
-    ctx.askAutoAnswer = true;
-    ctx.askAutoAnswerResolver = await deps.createAskAutoAnswerResolver?.(ctx);
+    ctx.sparkAutonomousAsk = {
+      modeScope: "goal",
+      goalOrReproId: activeGoal.goalId,
+      ownerSessionId: sparkSessionOwnerKey(ctx),
+      resolveBinding(request) {
+        const digest = createHash("sha256")
+          .update(
+            JSON.stringify({
+              goalId: activeGoal.goalId,
+              objective: activeGoal.objective,
+              updatedAt: activeGoal.updatedAt,
+              context: request.context,
+              questions: request.questions,
+            }),
+          )
+          .digest("hex");
+        return {
+          planRevision: 1,
+          ownerStepOrUnresolvedId: `unresolved:${digest.slice(0, 32)}`,
+          stepDefinitionDigest: digest,
+        };
+      },
+    };
     return;
   }
-  delete ctx.askAutoAnswer;
-  delete ctx.askAutoAnswerResolver;
+  delete ctx.sparkAutonomousAsk;
 }
 
 async function syncGoalInteractiveToolAvailability(
@@ -270,8 +324,10 @@ async function syncGoalInteractiveToolAvailability(
 ): Promise<void> {
   if (!pi.getActiveTools || !pi.setActiveTools) return;
   const key = `${ctx.cwd}:${sparkSessionOwnerKey(ctx)}`;
-  const activeGoal = await hasActiveCurrentSessionGoal(ctx);
-  if (activeGoal) {
+  const activeAutonomous =
+    (await hasActiveCurrentSessionGoal(ctx)) ||
+    (await readSessionRepro(ctx.cwd, ctx))?.status === "active";
+  if (activeAutonomous) {
     // Snapshot the currently *active* tools, not every registered tool. Using
     // getAllTools() here would re-activate tools that other extensions disabled
     // on purpose (e.g. spark-cue removes `bash` at session start), silently
@@ -287,9 +343,17 @@ async function syncGoalInteractiveToolAvailability(
   baselines.delete(key);
 }
 
-async function hasActiveCurrentSessionGoal(ctx: SparkToolContext): Promise<boolean> {
+async function currentActiveSessionGoal(ctx: SparkToolContext) {
   const goal = await loadSessionGoal(ctx.cwd, ctx);
-  return goal?.status === "active";
+  return goal?.status === "active" ? goal : undefined;
+}
+
+async function hasActiveCurrentSessionGoal(ctx: SparkToolContext): Promise<boolean> {
+  return Boolean(await currentActiveSessionGoal(ctx));
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 function isSparkWidgetRefreshToolEvent(event: unknown): boolean {

@@ -1,7 +1,14 @@
+import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   createId,
+  hasNonEmptySparkHumanAnswer,
+  sparkEvidenceAnswerEventSchema,
   type HumanRequestCreatedPayload,
+  type SparkDirectAnswerProvenance,
+  type SparkEvidenceAnswerEvent,
+  type SparkEvidenceRequestBinding,
+  type SparkHumanInteractionDeliveryOutcome,
   type SparkHumanInteractionStatus,
 } from "@zendev-lab/spark-protocol";
 
@@ -22,6 +29,7 @@ export interface SparkDaemonHumanWaitInput {
   projectId?: string;
   toolCallId?: string;
   delivery?: SparkDaemonHumanWaitDelivery;
+  evidenceRequest?: SparkEvidenceRequestBinding;
   kind: HumanRequestKind;
   title: string;
   prompt: string;
@@ -31,9 +39,10 @@ export interface SparkDaemonHumanWaitInput {
 }
 
 export interface SparkDaemonHumanWaitRecord extends Required<
-  Omit<SparkDaemonHumanWaitInput, "humanRequestId">
+  Omit<SparkDaemonHumanWaitInput, "humanRequestId" | "evidenceRequest">
 > {
   humanRequestId: string;
+  evidenceRequest?: SparkEvidenceRequestBinding;
   status: HumanWaitStatus;
   createdAt: string;
   updatedAt: string;
@@ -43,24 +52,21 @@ export interface SparkDaemonHumanWaitResponse {
   humanRequestId: string;
   humanResponseId: string;
   status: Exclude<HumanWaitStatus, "pending">;
+  provenance: SparkDirectAnswerProvenance;
   answers: JsonObject;
   responseArtifactRefs: string[];
+  answerEventId?: string;
   deliveredAt: string;
 }
 
 export interface SparkDaemonHumanWaitRegistration {
   wait: SparkDaemonHumanWaitRecord;
+  created: boolean;
   /** Defined only for blocking waits. Async asks intentionally own no suspended tool promise. */
   response?: Promise<SparkDaemonHumanWaitResponse>;
 }
 
-export type SparkDaemonHumanWaitDeliveryOutcome =
-  | "accepted"
-  | "replayed"
-  | "already_resolved"
-  | "orphaned"
-  | "unknown_request"
-  | "transient";
+export type SparkDaemonHumanWaitDeliveryOutcome = SparkHumanInteractionDeliveryOutcome;
 
 export interface SparkDaemonHumanWaitDeliveryResult {
   outcome: SparkDaemonHumanWaitDeliveryOutcome;
@@ -70,6 +76,7 @@ export interface SparkDaemonHumanWaitDeliveryResult {
   winnerResponseId?: string;
   wait?: SparkDaemonHumanWaitRecord;
   response?: SparkDaemonHumanWaitResponse;
+  answerEvent?: SparkEvidenceAnswerEvent;
 }
 
 export interface SparkDaemonHumanWaitCallback {
@@ -124,6 +131,10 @@ interface HumanWaitRow {
   updatedAt: string;
 }
 
+interface HumanAnswerEventRow {
+  eventJson: string;
+}
+
 /**
  * Daemon-owned human interaction state.
  *
@@ -143,6 +154,22 @@ export class SparkDaemonHumanWaitRegistry {
     input: SparkDaemonHumanWaitInput,
     outbox?: SparkDaemonHumanWaitOutboxInput,
   ): SparkDaemonHumanWaitRegistration {
+    if (input.evidenceRequest) {
+      if ((input.delivery ?? "blocking") !== "async" || !input.interactionRequestId?.trim()) {
+        throw new Error("evidence-bound human interaction requires async delivery and correlation");
+      }
+    }
+    if (input.evidenceRequest && input.interactionRequestId) {
+      const existing = this.readByEvidenceInteraction(input.interactionRequestId);
+      if (existing) {
+        if (JSON.stringify(existing.evidenceRequest) !== JSON.stringify(input.evidenceRequest)) {
+          throw new Error(
+            `async evidence interaction ${input.interactionRequestId} was retried with a different binding`,
+          );
+        }
+        return { wait: existing, created: false };
+      }
+    }
     const now = new Date().toISOString();
     const wait: SparkDaemonHumanWaitRecord = {
       humanRequestId: input.humanRequestId ?? createId("hreq"),
@@ -154,6 +181,7 @@ export class SparkDaemonHumanWaitRegistry {
       projectId: input.projectId ?? "",
       toolCallId: input.toolCallId ?? "",
       delivery: input.delivery ?? "blocking",
+      ...(input.evidenceRequest ? { evidenceRequest: input.evidenceRequest } : {}),
       kind: input.kind,
       title: input.title,
       prompt: input.prompt,
@@ -170,13 +198,15 @@ export class SparkDaemonHumanWaitRegistry {
       this.db
         .prepare(
           `INSERT INTO daemon_human_waits
-            (human_request_id, invocation_id, workspace_binding_id, workspace_id, project_id,
-             tool_call_id, kind, status, request_json, response_json, accepted_response_id,
-             created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, ?, ?)`,
+            (human_request_id, interaction_request_id, evidence_request_json, invocation_id,
+             workspace_binding_id, workspace_id, project_id, tool_call_id, kind, status,
+             request_json, response_json, accepted_response_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL, ?, ?)`,
         )
         .run(
           wait.humanRequestId,
+          nullable(wait.interactionRequestId),
+          wait.evidenceRequest ? JSON.stringify(wait.evidenceRequest) : null,
           nullable(wait.invocationId),
           nullable(wait.workspaceBindingId),
           nullable(wait.workspaceId),
@@ -201,14 +231,14 @@ export class SparkDaemonHumanWaitRegistry {
       throw error;
     }
 
-    if (wait.delivery === "async") return { wait };
+    if (wait.delivery === "async") return { wait, created: true };
 
     let resolve!: (response: SparkDaemonHumanWaitResponse) => void;
     const response = new Promise<SparkDaemonHumanWaitResponse>((done) => {
       resolve = done;
     });
     this.active.set(wait.humanRequestId, { wait, resolve });
-    return { wait, response };
+    return { wait, response, created: true };
   }
 
   deliver(
@@ -216,6 +246,7 @@ export class SparkDaemonHumanWaitRegistry {
       humanRequestId?: string;
       humanResponseId?: string;
       status: Exclude<HumanWaitStatus, "pending">;
+      provenance?: SparkDirectAnswerProvenance;
       answers?: JsonObject;
       responseArtifactRefs?: string[];
     },
@@ -232,13 +263,24 @@ export class SparkDaemonHumanWaitRegistry {
     }
 
     const humanResponseId = input.humanResponseId ?? createId("hres");
+    const provenance = input.provenance ?? "system";
+    const acceptedAt = new Date().toISOString();
+    const answerEvent = createEvidenceAnswerEvent(existing.wait, {
+      humanResponseId,
+      status: input.status,
+      provenance,
+      answers: input.answers ?? {},
+      acceptedAt,
+    });
     const response: SparkDaemonHumanWaitResponse = {
       humanRequestId: input.humanRequestId,
       humanResponseId,
       status: input.status,
+      provenance,
       answers: input.answers ?? {},
       responseArtifactRefs: input.responseArtifactRefs ?? [],
-      deliveredAt: new Date().toISOString(),
+      ...(answerEvent ? { answerEventId: answerEvent.answerEventId } : {}),
+      deliveredAt: acceptedAt,
     };
     let updateChanges = 0;
     this.db.exec("BEGIN IMMEDIATE");
@@ -258,6 +300,23 @@ export class SparkDaemonHumanWaitRegistry {
             response.humanRequestId,
           ).changes,
       );
+      if (updateChanges === 1 && answerEvent) {
+        this.db
+          .prepare(
+            `INSERT INTO daemon_human_answer_events
+              (answer_event_id, human_request_id, interaction_request_id, human_response_id,
+               event_json, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            answerEvent.answerEventId,
+            answerEvent.humanRequestId,
+            answerEvent.interactionRequestId,
+            answerEvent.humanResponseId,
+            JSON.stringify(answerEvent),
+            answerEvent.acceptedAt,
+          );
+      }
       if (updateChanges === 1 && outbox) {
         this.db
           .prepare(
@@ -291,6 +350,7 @@ export class SparkDaemonHumanWaitRegistry {
           winnerResponseId: humanResponseId,
           wait: existing.wait,
           response,
+          ...(answerEvent ? { answerEvent } : {}),
         };
       }
       if (existing.wait.delivery === "async") {
@@ -302,6 +362,7 @@ export class SparkDaemonHumanWaitRegistry {
           winnerResponseId: humanResponseId,
           wait: existing.wait,
           response,
+          ...(answerEvent ? { answerEvent } : {}),
         };
       }
       return {
@@ -312,6 +373,7 @@ export class SparkDaemonHumanWaitRegistry {
         winnerResponseId: humanResponseId,
         wait: existing.wait,
         response,
+        ...(answerEvent ? { answerEvent } : {}),
       };
     }
 
@@ -326,6 +388,7 @@ export class SparkDaemonHumanWaitRegistry {
         winnerResponseId: humanResponseId,
         wait: settled.wait,
         ...(settled.response ? { response: settled.response } : {}),
+        ...(settled.answerEvent ? { answerEvent: settled.answerEvent } : {}),
       };
     }
     return {
@@ -336,6 +399,7 @@ export class SparkDaemonHumanWaitRegistry {
       ...(settled.acceptedResponseId ? { winnerResponseId: settled.acceptedResponseId } : {}),
       wait: settled.wait,
       ...(settled.response ? { response: settled.response } : {}),
+      ...(settled.answerEvent ? { answerEvent: settled.answerEvent } : {}),
     };
   }
 
@@ -354,6 +418,26 @@ export class SparkDaemonHumanWaitRegistry {
       )
       .all() as unknown as HumanWaitRow[];
     return rows.map((row) => parseHumanWaitRow(row).wait);
+  }
+
+  listEvidenceAnswerEvents(humanRequestId?: string): SparkEvidenceAnswerEvent[] {
+    const rows = (humanRequestId
+      ? this.db
+          .prepare(
+            `SELECT event_json AS eventJson
+             FROM daemon_human_answer_events
+             WHERE human_request_id = ?
+             ORDER BY created_at, answer_event_id`,
+          )
+          .all(humanRequestId)
+      : this.db
+          .prepare(
+            `SELECT event_json AS eventJson
+             FROM daemon_human_answer_events
+             ORDER BY created_at, answer_event_id`,
+          )
+          .all()) as unknown as HumanAnswerEventRow[];
+    return rows.map((row) => sparkEvidenceAnswerEventSchema.parse(JSON.parse(row.eventJson)));
   }
 
   requireUniquePendingInteraction(
@@ -526,9 +610,24 @@ export class SparkDaemonHumanWaitRegistry {
     );
   }
 
+  private readByEvidenceInteraction(
+    interactionRequestId: string,
+  ): SparkDaemonHumanWaitRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT request_json AS requestJson, response_json AS responseJson,
+                accepted_response_id AS acceptedResponseId, status, updated_at AS updatedAt
+         FROM daemon_human_waits
+         WHERE interaction_request_id = ? AND evidence_request_json IS NOT NULL`,
+      )
+      .get(interactionRequestId) as HumanWaitRow | undefined;
+    return row ? parseHumanWaitRow(row).wait : null;
+  }
+
   private readRow(humanRequestId: string): {
     wait: SparkDaemonHumanWaitRecord;
     response?: SparkDaemonHumanWaitResponse;
+    answerEvent?: SparkEvidenceAnswerEvent;
     acceptedResponseId?: string;
   } | null {
     const row = this.db
@@ -539,7 +638,10 @@ export class SparkDaemonHumanWaitRegistry {
          WHERE human_request_id = ?`,
       )
       .get(humanRequestId) as HumanWaitRow | undefined;
-    return row ? parseHumanWaitRow(row) : null;
+    if (!row) return null;
+    const parsed = parseHumanWaitRow(row);
+    const [answerEvent] = this.listEvidenceAnswerEvents(humanRequestId);
+    return { ...parsed, ...(answerEvent ? { answerEvent } : {}) };
   }
 }
 
@@ -586,13 +688,103 @@ function parseHumanWaitRow(row: HumanWaitRow): {
     status: row.status,
     updatedAt: row.updatedAt,
   };
+  const storedResponse = row.responseJson
+    ? (JSON.parse(row.responseJson) as SparkDaemonHumanWaitResponse)
+    : undefined;
+  const response = storedResponse
+    ? { ...storedResponse, provenance: storedResponse.provenance ?? "system" }
+    : undefined;
   return {
     wait,
-    ...(row.responseJson
-      ? { response: JSON.parse(row.responseJson) as SparkDaemonHumanWaitResponse }
-      : {}),
+    ...(response ? { response } : {}),
     ...(row.acceptedResponseId ? { acceptedResponseId: row.acceptedResponseId } : {}),
   };
+}
+
+function createEvidenceAnswerEvent(
+  wait: SparkDaemonHumanWaitRecord,
+  input: {
+    humanResponseId: string;
+    status: Exclude<HumanWaitStatus, "pending">;
+    provenance: SparkDirectAnswerProvenance;
+    answers: JsonObject;
+    acceptedAt: string;
+  },
+): SparkEvidenceAnswerEvent | undefined {
+  if (
+    wait.delivery !== "async" ||
+    !wait.evidenceRequest ||
+    input.status !== "answered" ||
+    input.provenance !== "direct_user" ||
+    !hasExpectedEvidenceAnswer(wait, input.answers)
+  ) {
+    return undefined;
+  }
+  const answerEventId = `answer-event:${createHash("sha256")
+    .update(`${input.humanResponseId}\0${wait.interactionRequestId}`)
+    .digest("hex")}`;
+  return sparkEvidenceAnswerEventSchema.parse({
+    schema: "spark.evidence-answer-event/v1",
+    answerEventId,
+    humanRequestId: wait.humanRequestId,
+    interactionRequestId: wait.interactionRequestId,
+    humanResponseId: input.humanResponseId,
+    provenance: "direct_user",
+    binding: wait.evidenceRequest,
+    answers: input.answers,
+    acceptedAt: input.acceptedAt,
+  });
+}
+
+function hasExpectedEvidenceAnswer(wait: SparkDaemonHumanWaitRecord, answers: JsonObject): boolean {
+  const expected = wait.evidenceRequest?.expectedAnswerKind;
+  if (!expected) return false;
+  const eligibleQuestionTypes =
+    expected === "approval" || expected === "single"
+      ? new Set(["single", "preview"])
+      : new Set([expected]);
+  return wait.questions.some((question) => {
+    if (!eligibleQuestionTypes.has(question.type)) return false;
+    const answer = answers[question.id];
+    if (!hasNonEmptySparkHumanAnswer(answer)) return false;
+    const values = evidenceAnswerValues(answer);
+    switch (expected) {
+      case "approval":
+        return values.length === 1;
+      case "single":
+        return values.length === 1 || (values.length === 0 && hasEvidenceFreeformText(answer));
+      case "multi":
+        return values.length > 0 || hasEvidenceFreeformText(answer);
+      case "freeform":
+        return hasEvidenceFreeformText(answer);
+      default: {
+        const exhaustive: never = expected;
+        return exhaustive;
+      }
+    }
+  });
+}
+
+function evidenceAnswerValues(answer: unknown): string[] {
+  if (typeof answer === "string") return answer.trim() ? [answer.trim()] : [];
+  if (Array.isArray(answer)) {
+    return answer.flatMap((value) =>
+      typeof value === "string" && value.trim() ? [value.trim()] : [],
+    );
+  }
+  const record = recordValue(answer);
+  if (!record) return [];
+  if (Array.isArray(record.values)) return evidenceAnswerValues(record.values);
+  return typeof record.value === "string" && record.value.trim() ? [record.value.trim()] : [];
+}
+
+function hasEvidenceFreeformText(answer: unknown): boolean {
+  if (typeof answer === "string") return answer.trim().length > 0;
+  const record = recordValue(answer);
+  if (!record) return false;
+  return [record.customText, record.notes, record.comment].some(
+    (value) => typeof value === "string" && value.trim().length > 0,
+  );
 }
 
 function unknownRequest(message: string): SparkDaemonHumanWaitDeliveryResult {

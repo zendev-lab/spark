@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 import type { ChannelNotifySendResult } from "@zendev-lab/spark-channels";
 import {
   createId,
+  hasNonEmptySparkHumanAnswer,
+  isTerminalSparkHumanInteractionDelivery,
   parseSparkModelValue,
   parseSparkDaemonEvent,
   parseSparkInteractionResponse,
@@ -2842,7 +2844,10 @@ export async function handleSparkDaemonHumanInteractionRequest(
           sessionId: event.sessionId ?? options.currentSessionId,
           ...(event.invocationId ? { invocationId: event.invocationId } : {}),
           humanResponseId,
-          status: response.status === "answered" ? "answered" : "cancelled",
+          status:
+            response.status === "answered" && hasNonEmptySparkHumanAnswer(answers)
+              ? "answered"
+              : "cancelled",
           answers,
         },
         client,
@@ -2853,7 +2858,7 @@ export async function handleSparkDaemonHumanInteractionRequest(
     }
 
     if (options.signal?.aborted) return;
-    if (delivered && isTerminalHumanInteractionDelivery(delivered.outcome)) {
+    if (delivered && isTerminalSparkHumanInteractionDelivery(delivered.outcome)) {
       options.notify(
         delivered.message || `Ask response: ${delivered.outcome}`,
         delivered.outcome === "accepted" || delivered.outcome === "replayed"
@@ -2900,17 +2905,6 @@ function daemonHumanInteractionAnswers(
     return response.selector ? { selector: response.selector } : {};
   }
   return {};
-}
-
-function isTerminalHumanInteractionDelivery(
-  outcome: SparkDaemonHumanInteractionRespondResult["outcome"],
-): boolean {
-  return (
-    outcome === "accepted" ||
-    outcome === "replayed" ||
-    outcome === "already_resolved" ||
-    outcome === "orphaned"
-  );
 }
 
 function isRetryableHumanInteractionResponseError(error: unknown): boolean {

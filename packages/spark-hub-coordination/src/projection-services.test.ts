@@ -868,6 +868,18 @@ describe("projection services", () => {
           },
         ],
         context: {},
+        evidenceRequest: {
+          schema: "spark.evidence-request/v1",
+          askRef: "ask:scope",
+          ownerSessionId: "session:owner",
+          goalOrReproId: "goal:scope",
+          modeScope: "goal",
+          planRevision: 1,
+          ownerStepOrUnresolvedId: "unresolved:scope",
+          stepDefinitionDigest: "scope-digest",
+          requestHash: "a".repeat(64),
+          expectedAnswerKind: "single",
+        },
         contextArtifactRefs: [],
       },
       createdAt: now,
@@ -877,6 +889,23 @@ describe("projection services", () => {
       .prepare("SELECT status, kind FROM inbox_items WHERE human_request_id = ?")
       .get(request.humanRequestId) as { status: string; kind: string };
     expect(inbox).toEqual({ status: "pending", kind: "ask" });
+    const storedContext = db
+      .prepare("SELECT context_json AS contextJson FROM human_requests WHERE id = ?")
+      .get(request.humanRequestId) as { contextJson: string };
+    expect(parseJson(storedContext.contextJson, "human request context")).toMatchObject({
+      evidenceRequest: {
+        schema: "spark.evidence-request/v1",
+        askRef: "ask:scope",
+        ownerSessionId: "session:owner",
+        goalOrReproId: "goal:scope",
+        modeScope: "goal",
+        planRevision: 1,
+        ownerStepOrUnresolvedId: "unresolved:scope",
+        stepDefinitionDigest: "scope-digest",
+        requestHash: "a".repeat(64),
+        expectedAnswerKind: "single",
+      },
+    });
 
     const response = recordHumanResponse(db, {
       humanRequestId: request.humanRequestId,
