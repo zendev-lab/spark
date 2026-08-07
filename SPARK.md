@@ -76,7 +76,7 @@ updated: 2026-08-03
 - 继续对齐跨表面 ask / gate / submit 语义；Hub 已改用协议 option `value` 与 `parseSparkAskChoice`。
 - 文档与 AGENTS 边界语言已统一为“Pi SDK 内核 + 单一 `spark-extension` 组合根”。
 - 历史 `pi-extension` workspace 已并入 `spark-extension`；`"pi.extensions"` 兼容元数据只允许指向现有 Spark entries。
-- Spark 原生 Side Thread 已通过隔离的真实 TUI/Zellij 验收：提交与繁忙并行拒绝、daemon 重启恢复、model/thinking 配置、全文和摘要 handoff 均由真实 daemon invocation 验证。Hub 使用同一 daemon controller 提供完整 BTW 操作；旧 `pi-btw` 包、skill 与 Pi discovery 已删除。
+- Spark 原生 Side Thread 已通过隔离的 native TUI 组件与 Direct PTY 验收：提交与繁忙并行拒绝、daemon 重启恢复、model/thinking 配置、全文和摘要 handoff 均由真实 daemon invocation 验证。Hub 使用同一 daemon controller 提供完整 BTW 操作；旧 `pi-btw` 包、skill 与 Pi discovery 已删除。
 - 以 `pnpm run check` 的 architecture ratchet 守住工作区数量、生产文件体量和冻结 Pi manifest；前期 ceiling 保留适度扩展余量，但新增 workspace 仍须证明稳定依赖边界。先通过 `pnpm run report:hygiene` 分类 Knip/jscpd/complexity 的动态入口误报，再把稳定基线升级为非增长门禁。
 - Spark v0.1 通过生成的自包含 `@zendev-lab/spark` 产物发布 npm；源码 workspace 保持 private，完整 check 校验公开产品与内部 owner 分类，`pnpm run smoke` 在仓库外安装 tarball 并验证 dispatcher、TUI、daemon migrations/lifecycle 与 Hub health。
 - 本地 RPC 分两阶段收敛：0.1.x 将一方调用迁到统一 oRPC client，`daemon.sock` 只服务已发布的 N-1 客户端且不再承接新行为；仅在迁移版已发布、双向跨版本 IPC、精确 tarball smoke 与 updater/rollback 门禁通过后，0.2 才删除 legacy socket/client/adapter。

@@ -52,7 +52,7 @@ categories are:
   validation;
 - English/Chinese documentation surface and CLI/help synchronization;
 - Lens/capability continuous-evaluation evidence projection;
-- live Cue, Zellij, provider, daemon, and renderer acceptance harnesses.
+- live Cue, provider, daemon, Direct PTY, and renderer acceptance harnesses.
 
 Do not keep one-shot task seeders, completed migration wrappers, detached manual
 matrices, or duplicate subprocess wrappers under `scripts/`. Use canonical

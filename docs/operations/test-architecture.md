@@ -28,6 +28,12 @@ Keep Node SSR tests for deterministic rendered states and browser tests for beha
 focus, events, layout, or browser APIs. Browser tests remain outside the default and unit suites so
 Chromium setup does not slow down package tests; CI labels them as a dedicated smoke step.
 
+Native TUI validation has two app-local lanes. The component harness drives the real app/editor over
+a renderer-neutral fake `TUI` boundary for deterministic state, shortcut, and fixed-viewport
+contracts. The Direct PTY harness launches `runNativeSparkTui()` in a real pseudo-terminal for
+stdin/stdout bytes, raw mode, resize, redraw, and exit behavior. Do not simulate PTY semantics in
+the component harness or require a terminal multiplexer for either lane.
+
 Real process tests stay out of the root Vitest suite. Source and packed-product checks share the same
 daemon lifecycle harness, but invoke different executable targets. This prevents the source launcher
 and generated npm product from drifting while keeping failures attributable to distinct named steps.

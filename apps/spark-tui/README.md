@@ -50,4 +50,4 @@ spark daemon invocation cancel <invocation-id> --reason <text> --json
 
 Invocation status and streamed events come from the daemon. Attach and resume are restricted to the current workspace.
 
-Use the real zellij interaction/capture procedure in [`../../docs/operations/zellij-harness.md`](../../docs/operations/zellij-harness.md) for TUI UX validation.
+Run the component and Direct PTY validation lanes in [`../../docs/operations/native-tui-validation.md`](../../docs/operations/native-tui-validation.md) when changing native TUI interaction or process-terminal behavior.
