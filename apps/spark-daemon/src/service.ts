@@ -124,6 +124,7 @@ export function startSparkDaemonService(
   paths: SparkPaths,
   options: {
     expectedRestartId?: string;
+    serviceMode?: "managed" | "detached";
     platform?: NodeJS.Platform;
     guiDomainAvailable?: () => boolean;
     startLaunchd?: (paths: SparkPaths) => SparkDaemonServiceResult;
@@ -131,6 +132,7 @@ export function startSparkDaemonService(
   } = {},
 ): SparkDaemonServiceResult {
   if (
+    (options.serviceMode ?? sparkDaemonServiceMode()) !== "detached" &&
     (options.platform ?? process.platform) === "darwin" &&
     (options.guiDomainAvailable ?? isSparkDaemonGuiDomainAvailable)()
   ) {
@@ -143,6 +145,7 @@ export function startSparkDaemonService(
 export function stopSparkDaemonService(
   paths: SparkPaths,
   options: {
+    serviceMode?: "managed" | "detached";
     platform?: NodeJS.Platform;
     supervisorRegistered?: () => boolean;
     stopLaunchd?: () => SparkDaemonServiceResult;
@@ -150,6 +153,7 @@ export function stopSparkDaemonService(
   } = {},
 ): SparkDaemonServiceResult | null {
   if (
+    (options.serviceMode ?? sparkDaemonServiceMode()) !== "detached" &&
     (options.platform ?? process.platform) === "darwin" &&
     (options.supervisorRegistered ?? isSparkDaemonSupervisorRegistered)()
   ) {
@@ -1358,6 +1362,15 @@ export function readSparkDaemonProcessOwnership(
   }
 }
 
+export function sparkDaemonProcessOwnershipIsCurrent(
+  ownership: SparkDaemonProcessOwnership,
+): boolean {
+  return (
+    processStartTokenForPid(ownership.pid) === ownership.processStartToken &&
+    isProcessAlive(ownership.pid)
+  );
+}
+
 export function stopSparkDaemonRestartStartedService(
   _paths: SparkPaths,
   service: SparkDaemonServiceResult,
@@ -1714,6 +1727,10 @@ export function rotateSparkDaemonServiceLogs(
       closeSync(descriptor);
     }
   }
+}
+
+function sparkDaemonServiceMode(): "managed" | "detached" {
+  return process.env.SPARK_DAEMON_SERVICE_MODE === "detached" ? "detached" : "managed";
 }
 
 function serviceEnvironment(): Record<string, string> {
