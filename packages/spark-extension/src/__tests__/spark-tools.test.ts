@@ -7300,7 +7300,7 @@ test("repro sync_report reuses its per-run Artifact ref without mutating Repro t
     };
     assert.equal(firstDetails.changed, true);
     assert.equal(firstDetails.status, "active");
-    assert.equal(firstDetails.progressPercent, 40);
+    assert.equal(firstDetails.progressPercent, null);
     assert.equal(secondDetails.changed, false);
     assert.ok(firstDetails.refs?.reportArtifactRef);
     assert.equal(secondDetails.refs?.reportArtifactRef, firstDetails.refs.reportArtifactRef);
@@ -7384,13 +7384,18 @@ test("repro project_report writes canonical work plus daemon usage without mutat
       await readFile(join(dir, "outputs", "spark-summary.json"), "utf8"),
     ) as {
       format?: string;
-      work?: { reproId?: string; status?: string; progress?: { percent?: number } };
+      work?: {
+        reproId?: string;
+        status?: string;
+        progress?: { quantified?: boolean; percent?: number | null };
+      };
       tokenUsage?: { totalTokens?: number };
     };
     assert.equal(stored.format, "spark-repro-summary/v1");
     assert.equal(stored.work?.reproId, repro.reproId);
     assert.equal(stored.work?.status, "active");
-    assert.equal(stored.work?.progress?.percent, 40);
+    assert.equal(stored.work?.progress?.percent, null);
+    assert.equal(stored.work?.progress?.quantified, false);
     assert.equal(stored.tokenUsage?.totalTokens, 20);
     assert.match(
       await readFile(join(dir, "outputs", "report.md"), "utf8"),

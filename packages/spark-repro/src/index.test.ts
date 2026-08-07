@@ -184,6 +184,40 @@ describe("spark-repro", () => {
     expect(first.dualLane.normative.retiredStepIds).toEqual([]);
   });
 
+  it("keeps v6 proof outside Normative retirement after a later plan revision", () => {
+    const completed = completeStep(
+      createSparkSessionRepro("session:migrate-v6-revise"),
+      "repro-contract-frozen",
+    );
+    const { dualLane: _dualLane, ...withoutDualLane } = completed;
+    const legacy: SparkSessionReproV6 = { ...withoutDualLane, version: 6 };
+    let migrated = migrateSparkSessionReproV6(legacy);
+    migrated = {
+      ...migrated,
+      dualLane: {
+        ...migrated.dualLane,
+        explore: { ...migrated.dualLane.explore, observationIds: ["legacy-observation"] },
+        unresolvedIds: ["legacy-unresolved"],
+      },
+    };
+
+    const revised = reviseReproPlan(migrated, {
+      reason: "Change only the difficulty after migration",
+      difficulty: 9,
+    });
+    expect(revised.dualLane).toMatchObject({
+      planRevision: 2,
+      explore: { observationIds: ["legacy-observation"] },
+      normative: {
+        currentStepId: revised.plan.steps[0]?.id,
+        retiredStepIds: [],
+        candidateIds: [],
+      },
+      unresolvedIds: ["legacy-unresolved"],
+      migration: { sourceVersion: 6, legacyProofAuthority: "not_promoted" },
+    });
+  });
+
   it("buffers v7 StepVerifier completions and retires them only as an ordered prefix", () => {
     let repro = createSparkSessionRepro("session:ordered-retirement");
     const [s1, s2, s3, s4] = repro.plan.steps;
@@ -298,8 +332,8 @@ describe("spark-repro", () => {
       planRevision: 2,
       explore: { observationIds: [] },
       normative: {
-        currentStepId: "competitor-baseline-availability-researched",
-        retiredStepIds: ["repro-contract-frozen"],
+        currentStepId: "repro-contract-frozen",
+        retiredStepIds: [],
         candidateIds: [],
       },
       unresolvedIds: [],

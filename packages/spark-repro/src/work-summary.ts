@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   isRef,
   type ArtifactRef,
@@ -74,6 +76,8 @@ export interface SparkReproTopology {
   sp: boolean;
   worldSize?: number;
   strategies?: SparkReproStrategyEntry[];
+  /** Fields synthesized only for legacy read compatibility; strict v2 rejects them. */
+  unknownFields?: Array<"etp" | "worldSize" | "strategies">;
 }
 
 export const SPARK_REPRO_SINGLE_PROCESS_TOPOLOGY: SparkReproTopology = {
@@ -113,6 +117,8 @@ export interface SparkReproProfile {
   topology: SparkReproTopology;
   validationTopology?: SparkReproTopology;
   runtime?: SparkReproRuntimeProfile;
+  /** Fields synthesized only for legacy read compatibility; strict v2 rejects them. */
+  unknownFields?: Array<"runtime">;
 }
 
 export type SparkReproDecisionKind =
@@ -220,6 +226,8 @@ export interface SparkReproRetirementRecord {
   candidateId: string;
   planRevision: number;
   stepDefinitionDigest: string;
+  profile: SparkReproProfile;
+  profileDigest: string;
   evidenceRefs: EvidenceRef[];
 }
 
@@ -460,8 +468,15 @@ export interface SparkReproTechnicalGoal {
   missing: Array<keyof SparkReproTechnicalGoal["checks"]>;
 }
 
+export interface SparkReproWorkSummaryMigration {
+  sourceSchema: typeof SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA;
+  revision: 1;
+  legacyProofAuthority: "not_promoted";
+}
+
 export interface SparkReproWorkSummaryInput {
   schema?: typeof SPARK_REPRO_WORK_SUMMARY_SCHEMA;
+  migration?: SparkReproWorkSummaryMigration;
   reproId: string;
   title: string;
   stage: SparkReproWorkStage;
@@ -491,6 +506,7 @@ export interface SparkReproWorkSummaryInput {
 /** Canonical cross-surface write model; legacy session state is an input adapter concern. */
 export interface SparkReproWorkSummary {
   schema: typeof SPARK_REPRO_WORK_SUMMARY_SCHEMA;
+  migration?: SparkReproWorkSummaryMigration;
   reproId: string;
   title: string;
   status: SparkReproWorkStatus;
@@ -529,7 +545,26 @@ export function buildSparkReproWorkSummary(
   assertNonEmpty(input.reproId, "reproId");
   assertNonEmpty(input.title, "title");
   assertOneOf(input.stage, SPARK_REPRO_WORK_STAGES, "stage");
-  const strictVNext = input.schema === SPARK_REPRO_WORK_SUMMARY_SCHEMA;
+  const migration = input.migration;
+  const outputMigration: SparkReproWorkSummaryMigration | undefined =
+    migration ??
+    (input.schema === undefined
+      ? {
+          sourceSchema: SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA,
+          revision: 1,
+          legacyProofAuthority: "not_promoted",
+        }
+      : undefined);
+  const strictVNext = input.schema === SPARK_REPRO_WORK_SUMMARY_SCHEMA && migration === undefined;
+  if (migration) {
+    if (
+      migration.sourceSchema !== SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA ||
+      migration.revision !== 1 ||
+      migration.legacyProofAuthority !== "not_promoted"
+    ) {
+      throw new Error("work-summary migration binding is invalid");
+    }
+  }
   validateTechnicalTarget(input.target, strictVNext);
 
   validateSparkReproProfile(input.profile, input.target, {
@@ -545,6 +580,20 @@ export function buildSparkReproWorkSummary(
   const acceptanceProfile = canonicalProfile(rawAcceptanceProfile);
   if (acceptanceProfile.modelScope !== "minimum_complete") {
     throw new Error("acceptanceProfile.modelScope must be minimum_complete in work-summary/v2");
+  }
+  if (strictVNext) {
+    if (acceptanceProfile.computeScope !== "optimizer") {
+      throw new Error("acceptanceProfile.computeScope must be optimizer in work-summary/v2");
+    }
+    if (
+      acceptanceProfile.steps.completed !== input.target.requiredSteps ||
+      acceptanceProfile.steps.target !== input.target.requiredSteps
+    ) {
+      throw new Error("acceptanceProfile steps must equal target.requiredSteps");
+    }
+    if (!topologyEquals(acceptanceProfile.validationTopology!, input.target.validationTopology)) {
+      throw new Error("acceptanceProfile topology must equal target.validationTopology");
+    }
   }
 
   for (const [index, gate] of input.gates.entries()) {
@@ -606,7 +655,7 @@ export function buildSparkReproWorkSummary(
 
   const rawNormativeCursor =
     input.normativeCursor ?? emptyNormativeCursor(exploreFrontier.planRevision);
-  validateNormativeCursor(rawNormativeCursor, input.target, strictVNext);
+  validateNormativeCursor(rawNormativeCursor, input.target, acceptanceProfile, strictVNext);
   const normativeCursor = cloneNormativeCursor(rawNormativeCursor);
 
   const unresolved = (input.unresolved ?? []).map(cloneUnresolved);
@@ -615,18 +664,24 @@ export function buildSparkReproWorkSummary(
     validateUnresolved(item, index);
     validateUnresolvedCursorBinding(item, normativeCursor, index, strictVNext);
   }
+  validateUnresolvedSupersessionGraph(unresolved);
   validateExploreCursorBinding(exploreFrontier, normativeCursor, unresolved, strictVNext);
 
   const retirementBlockers = normalizeRetirementBlocks(input.retirementBlocks, pendingDecisions);
   validateUniqueIds(retirementBlockers, "retirementBlockers");
   for (const [index, block] of retirementBlockers.entries()) validateRetirementBlock(block, index);
 
-  const validationMatrix = input.validationMatrix
-    ? (() => {
-        validateValidationMatrix(input.validationMatrix!, input.gates, input.target, strictVNext);
-        return cloneValidationMatrix(input.validationMatrix!);
-      })()
-    : compatibilityValidationMatrix(gates, acceptanceProfile);
+  if (strictVNext && !input.validationMatrix) {
+    throw new Error("validationMatrix is required for strict work-summary/v2");
+  }
+  const validationMatrix = outputMigration
+    ? migrationValidationMatrix(gates, acceptanceProfile)
+    : input.validationMatrix
+      ? (() => {
+          validateValidationMatrix(input.validationMatrix!, input.gates, input.target, strictVNext);
+          return cloneValidationMatrix(input.validationMatrix!);
+        })()
+      : compatibilityValidationMatrix(gates, acceptanceProfile);
   if (!input.validationMatrix) {
     validateValidationMatrix(validationMatrix, gates, input.target, strictVNext);
   }
@@ -665,7 +720,7 @@ export function buildSparkReproWorkSummary(
     (task) => task.status === "done" || task.status === "cancelled",
   );
   const completionRequiredUnresolved = unresolved.filter(
-    (item) => item.completionRequired && item.status !== "discharged",
+    (item) => item.completionRequired && !isUnresolvedChainDischarged(item, unresolved),
   );
   const normativeComplete =
     normativeCursor.currentStepId === undefined &&
@@ -698,6 +753,7 @@ export function buildSparkReproWorkSummary(
 
   return {
     schema: SPARK_REPRO_WORK_SUMMARY_SCHEMA,
+    ...(outputMigration ? { migration: { ...outputMigration } } : {}),
     reproId: input.reproId.trim(),
     title: input.title.trim(),
     status,
@@ -852,6 +908,33 @@ export function deriveSparkReproTechnicalGoal(
   };
 }
 
+export function sparkReproCompletionEvidenceRefs(work: SparkReproWorkSummary): EvidenceRef[] {
+  const acceptedGateIds = new Set(work.progress.stages.flatMap((stage) => stage.acceptedGateIds));
+  return uniqueEvidenceRefs([
+    ...work.gates
+      .filter(
+        (gate) =>
+          gate.evidenceClass === "formal" &&
+          gate.status === "accepted" &&
+          acceptedGateIds.has(gate.id),
+      )
+      .flatMap((gate) => gate.evidenceRefs),
+    ...work.validationMatrix.rows
+      .filter(
+        (row) =>
+          row.evidenceClass === "entrypoint" &&
+          row.invocationClass === "owning_entrypoint" &&
+          row.verdict === "accepted" &&
+          acceptedGateIds.has(row.gateId),
+      )
+      .flatMap((row) => row.evidenceRefs),
+    ...work.normativeCursor.retirementLog.flatMap((record) => record.evidenceRefs),
+    ...work.unresolved
+      .filter((item) => item.status === "discharged")
+      .flatMap((item) => item.evidenceRefs),
+  ]);
+}
+
 export function validateSparkReproProfile(
   profile: SparkReproProfile,
   target: SparkReproTechnicalTarget,
@@ -899,6 +982,15 @@ export function validateSparkReproProfile(
   } else if (profile.runtime) {
     validateRuntimeProfile(profile.runtime, `${field}.runtime`);
   }
+  if (profile.unknownFields !== undefined) {
+    validateStringIds(profile.unknownFields, `${field}.unknownFields`);
+    if (profile.unknownFields.some((value) => value !== "runtime")) {
+      throw new Error(`${field}.unknownFields contains an unsupported field`);
+    }
+  }
+  if (options.requireVNext && profile.unknownFields?.length) {
+    throw new Error(`${field}.unknownFields must be empty for strict v2`);
+  }
   const unsupported = activeTopologyStrategies(profileTopology(profile)).filter(
     (strategy) => !target.referenceStrategies.includes(strategy),
   );
@@ -908,6 +1000,7 @@ export function validateSparkReproProfile(
 }
 
 export interface SparkReproDualLaneState {
+  acceptanceProfile: SparkReproProfile;
   exploreFrontier: SparkReproExploreFrontier;
   normativeCursor: SparkReproNormativeCursor;
   unresolved: SparkReproUnresolvedItem[];
@@ -1010,6 +1103,10 @@ export function dischargeSparkReproUnresolved(
   ) {
     throw new Error("stale unresolved discharge binding");
   }
+  const cursorDigest = state.normativeCursor.stepDefinitionDigests?.[item.ownerStepId];
+  if (cursorDigest !== undefined && cursorDigest !== item.stepDefinitionDigest) {
+    throw new Error("stale unresolved discharge cursor binding");
+  }
   if (item.status === "discharged") {
     if (JSON.stringify(item.evidenceRefs) === JSON.stringify(input.evidenceRefs)) {
       return structuredClone(state);
@@ -1048,9 +1145,9 @@ export function supersedeSparkReproUnresolved(
   if (!successor || successor.status !== "open") {
     throw new Error("unresolved successor must exist and remain open");
   }
-  if (!state.unresolved.some((item) => item.id === input.id)) {
-    throw new Error(`unknown unresolved item: ${input.id}`);
-  }
+  const original = state.unresolved.find((item) => item.id === input.id);
+  if (!original) throw new Error(`unknown unresolved item: ${input.id}`);
+  if (original.status !== "open") throw new Error("only an open unresolved item can be superseded");
   return {
     ...structuredClone(state),
     unresolved: state.unresolved.map((item) =>
@@ -1095,6 +1192,9 @@ export function recordSparkReproRetirementCandidate(
   ) {
     throw new Error("retirement candidate dependencies do not match the Normative plan");
   }
+  if (!profileMatchesAcceptance(candidate.profile, state.acceptanceProfile)) {
+    throw new Error("retirement candidate profile does not match the frozen acceptance Profile");
+  }
   const expectedDigest = state.normativeCursor.stepDefinitionDigests?.[candidate.stepId];
   if (expectedDigest !== undefined && expectedDigest !== candidate.stepDefinitionDigest) {
     throw new Error("stale retirement candidate step definition digest");
@@ -1126,14 +1226,21 @@ export function reconcileSparkReproNormativeRetirement(
     const candidate = candidates.find(
       (entry) =>
         entry.planRevision === next.normativeCursor.planRevision &&
+        next.normativeCursor.stepDefinitionDigests?.[entry.stepId] === entry.stepDefinitionDigest &&
+        JSON.stringify(next.normativeCursor.stepDependencies?.[entry.stepId] ?? []) ===
+          JSON.stringify(entry.dependsOn) &&
+        profileMatchesAcceptance(entry.profile, next.acceptanceProfile) &&
         entry.dependsOn.every((dependency) => retired.has(dependency)) &&
         !next.unresolved.some(
           (item) =>
-            item.ownerStepId === stepId && item.completionRequired && item.status === "open",
+            item.ownerStepId === stepId &&
+            item.completionRequired &&
+            !isUnresolvedChainDischarged(item, next.unresolved),
         ) &&
-        entry.unresolvedIds.every((id) =>
-          next.unresolved.some((item) => item.id === id && item.status === "discharged"),
-        ),
+        entry.unresolvedIds.every((id) => {
+          const item = next.unresolved.find((candidate) => candidate.id === id);
+          return item !== undefined && isUnresolvedChainDischarged(item, next.unresolved);
+        }),
     );
     if (!candidate) break;
     retired.add(stepId);
@@ -1143,6 +1250,8 @@ export function reconcileSparkReproNormativeRetirement(
       candidateId: candidate.id,
       planRevision: candidate.planRevision,
       stepDefinitionDigest: candidate.stepDefinitionDigest,
+      profile: canonicalProfile(candidate.profile),
+      profileDigest: sparkReproProfileDigest(candidate.profile),
       evidenceRefs: [...candidate.evidenceRefs],
     });
   }
@@ -1214,6 +1323,11 @@ export function migrateSparkReproWorkSummaryV1(
   };
   return buildSparkReproWorkSummary({
     reproId: legacy.reproId,
+    migration: {
+      sourceSchema: SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA,
+      revision: 1,
+      legacyProofAuthority: "not_promoted",
+    },
     title: legacy.title,
     stage: legacy.stage,
     target: legacy.target,
@@ -1230,6 +1344,23 @@ export function migrateSparkReproWorkSummaryV1(
     schedulerActivity: "dormant",
     independentReadyCount: 0,
   });
+}
+
+export function sparkReproProfileDigest(profile: SparkReproProfile): string {
+  const canonical = canonicalProfile(profile);
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        id: canonical.id,
+        modelScope: canonical.modelScope,
+        computeScope: canonical.computeScope,
+        steps: canonical.steps,
+        validationTopology: canonical.validationTopology,
+        runtime: canonical.runtime,
+        unknownFields: canonical.unknownFields ?? [],
+      }),
+    )
+    .digest("hex");
 }
 
 function gateCountsTowardProgress(gate: SparkReproEvidenceGate): boolean {
@@ -1472,6 +1603,7 @@ function validateExploreFrontier(
 function validateNormativeCursor(
   cursor: SparkReproNormativeCursor,
   target: SparkReproTechnicalTarget,
+  acceptanceProfile: SparkReproProfile,
   requireVNext: boolean,
 ): void {
   assertPositiveInteger(cursor.planRevision, "normativeCursor.planRevision");
@@ -1560,6 +1692,11 @@ function validateNormativeCursor(
       requireVNext,
       field: `normativeCursor.candidateBuffer[${index}].profile`,
     });
+    if (requireVNext && !profileMatchesAcceptance(candidate.profile, acceptanceProfile)) {
+      throw new Error(
+        `normativeCursor.candidateBuffer[${index}].profile must match acceptanceProfile`,
+      );
+    }
   }
   for (const [index, record] of cursor.retirementLog.entries()) {
     const field = `normativeCursor.retirementLog[${index}]`;
@@ -1572,6 +1709,17 @@ function validateNormativeCursor(
     const expectedDigest = cursor.stepDefinitionDigests?.[record.stepId];
     if (expectedDigest !== undefined && record.stepDefinitionDigest !== expectedDigest) {
       throw new Error(`${field}.stepDefinitionDigest is stale`);
+    }
+    validateSparkReproProfile(record.profile, target, {
+      requireVNext,
+      field: `${field}.profile`,
+    });
+    if (requireVNext && !profileMatchesAcceptance(record.profile, acceptanceProfile)) {
+      throw new Error(`${field}.profile must match acceptanceProfile`);
+    }
+    assertNonEmpty(record.profileDigest, `${field}.profileDigest`);
+    if (sparkReproProfileDigest(record.profile) !== record.profileDigest) {
+      throw new Error(`${field}.profileDigest does not match its retirement Profile`);
     }
     validateEvidenceRefs(record.evidenceRefs, `${field}.evidenceRefs`);
     if (record.evidenceRefs.length === 0) throw new Error(`${field} requires evidence`);
@@ -1677,6 +1825,39 @@ function validateExploreCursorBinding(
   }
 }
 
+function validateUnresolvedSupersessionGraph(items: readonly SparkReproUnresolvedItem[]): void {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  for (const item of items) {
+    if (item.status !== "superseded") continue;
+    const seen = new Set([item.id]);
+    let current: SparkReproUnresolvedItem | undefined = item;
+    while (current?.status === "superseded") {
+      const successorId = current.supersededBy!;
+      if (seen.has(successorId)) throw new Error(`unresolved supersession cycle at ${successorId}`);
+      seen.add(successorId);
+      current = byId.get(successorId);
+      if (!current) throw new Error(`unresolved successor does not exist: ${successorId}`);
+    }
+  }
+}
+
+function isUnresolvedChainDischarged(
+  item: SparkReproUnresolvedItem,
+  items: readonly SparkReproUnresolvedItem[],
+): boolean {
+  const byId = new Map(items.map((candidate) => [candidate.id, candidate]));
+  const seen = new Set<string>();
+  let current: SparkReproUnresolvedItem | undefined = item;
+  while (current) {
+    if (seen.has(current.id)) return false;
+    seen.add(current.id);
+    if (current.status === "discharged") return true;
+    if (current.status !== "superseded" || !current.supersededBy) return false;
+    current = byId.get(current.supersededBy);
+  }
+  return false;
+}
+
 function validateRetirementBlock(block: SparkReproRetirementBlock, index: number): void {
   const field = `retirementBlockers[${index}]`;
   assertOneOf(
@@ -1717,11 +1898,28 @@ function validateValidationMatrix(
       `${field}.invocationClass`,
     );
     assertOneOf(row.evidenceClass, ["entrypoint", "probe"] as const, `${field}.evidenceClass`);
+    if (row.evidenceClass === "entrypoint" && row.invocationClass !== "owning_entrypoint") {
+      throw new Error(`${field} entrypoint evidence requires invocationClass=owning_entrypoint`);
+    }
     assertOneOf(row.verdict, ["open", "accepted", "rejected"] as const, `${field}.verdict`);
     assertPositiveInteger(row.repetitions, `${field}.repetitions`);
     assertNonEmpty(row.exactScope, `${field}.exactScope`);
     validateSparkReproProfile(row.profile, target, { requireVNext, field: `${field}.profile` });
     validateEvidenceRefs(row.evidenceRefs, `${field}.evidenceRefs`);
+    if (requireVNext && row.evidenceClass === "entrypoint") {
+      const acceptanceProfile = target.acceptanceProfile;
+      if (!acceptanceProfile || !profileMatchesAcceptance(row.profile, acceptanceProfile)) {
+        throw new Error(`${field} entrypoint Profile must exactly match target.acceptanceProfile`);
+      }
+      if (row.verdict === "accepted" && gate.status !== "accepted") {
+        throw new Error(`${field} cannot accept entrypoint evidence for an unaccepted gate`);
+      }
+      for (const ref of gate.evidenceRefs) {
+        if (!row.evidenceRefs.includes(ref)) {
+          throw new Error(`${field}.evidenceRefs must include the accepted gate receipt ${ref}`);
+        }
+      }
+    }
     for (const [artifactIndex, ref] of row.artifactRefs.entries()) {
       validateArtifactRef(ref, `${field}.artifactRefs[${artifactIndex}]`);
     }
@@ -1871,12 +2069,26 @@ function validateTopology(topology: SparkReproTopology, field: string, requireVN
   }
   if (topology.etp !== undefined) assertPositiveInteger(topology.etp, `${field}.etp`);
   if (typeof topology.sp !== "boolean") throw new Error(`${field}.sp must be a boolean`);
-  if (topology.worldSize !== undefined)
+  if (topology.worldSize !== undefined) {
     assertPositiveInteger(topology.worldSize, `${field}.worldSize`);
+  }
+  if (topology.unknownFields !== undefined) {
+    validateStringIds(topology.unknownFields, `${field}.unknownFields`);
+    const allowed = new Set(["etp", "worldSize", "strategies"]);
+    if (topology.unknownFields.some((value) => !allowed.has(value))) {
+      throw new Error(`${field}.unknownFields contains an unsupported field`);
+    }
+  }
   if (requireVNext) {
+    if (topology.unknownFields?.length) {
+      throw new Error(`${field}.unknownFields must be empty for strict v2`);
+    }
     if (topology.etp === undefined) throw new Error(`${field}.etp is required`);
     if (topology.worldSize === undefined) throw new Error(`${field}.worldSize is required`);
     if (topology.strategies === undefined) throw new Error(`${field}.strategies is required`);
+    if (topology.worldSize !== expectedTopologyWorldSize(topology)) {
+      throw new Error(`${field}.worldSize must equal dp*tp*pp*cp*max(ep,etp) for this topology`);
+    }
   }
   if (
     topology.strategies !== undefined &&
@@ -1894,12 +2106,19 @@ function validateStrategies(
   field: string,
 ): void {
   const keys = new Set<string>();
+  const axesSeen = new Set<SparkReproDistributedStrategy>();
   for (const [index, strategy] of strategies.entries()) {
     assertOneOf(strategy.axis, SPARK_REPRO_DISTRIBUTED_STRATEGIES, `${field}[${index}].axis`);
     assertNonEmpty(strategy.id, `${field}[${index}].id`);
     assertOneOf(strategy.source, ["official", "reference"] as const, `${field}[${index}].source`);
     assertNonEmpty(strategy.revision, `${field}[${index}].revision`);
     assertNonEmpty(strategy.configDigest, `${field}[${index}].configDigest`);
+    if (axesSeen.has(strategy.axis)) {
+      throw new Error(
+        `${field} must contain exactly one strategy per active axis: ${strategy.axis}`,
+      );
+    }
+    axesSeen.add(strategy.axis);
     const key = strategyKey(strategy);
     if (keys.has(key)) throw new Error(`${field} contains a duplicate canonical strategy: ${key}`);
     keys.add(key);
@@ -1909,6 +2128,12 @@ function validateStrategies(
   if (JSON.stringify(active) !== JSON.stringify(axes)) {
     throw new Error(`${field} must describe exactly the active topology axes`);
   }
+}
+
+function expectedTopologyWorldSize(topology: SparkReproTopology): number {
+  return (
+    topology.dp * topology.tp * topology.pp * topology.cp * Math.max(topology.ep, topology.etp ?? 1)
+  );
 }
 
 function validateRuntimeProfile(
@@ -1975,6 +2200,7 @@ function profileMatchesAcceptance(
     left.id === right.id &&
     left.modelScope === right.modelScope &&
     left.computeScope === right.computeScope &&
+    left.steps.completed === right.steps.completed &&
     left.steps.target === right.steps.target &&
     topologyEquals(left.validationTopology!, right.validationTopology!) &&
     JSON.stringify(canonicalStrategies(left.validationTopology!.strategies ?? [])) ===
@@ -1997,6 +2223,8 @@ function profileTopology(profile: SparkReproProfile): SparkReproTopology {
 
 function canonicalProfile(profile: SparkReproProfile): SparkReproProfile {
   const topology = canonicalTopology(profileTopology(profile));
+  const runtimeUnknown =
+    profile.runtime === undefined || profile.unknownFields?.includes("runtime");
   const runtime = profile.runtime
     ? { ...profile.runtime }
     : {
@@ -2017,12 +2245,17 @@ function canonicalProfile(profile: SparkReproProfile): SparkReproProfile {
     topology: canonicalTopology(topology),
     validationTopology: canonicalTopology(topology),
     runtime,
+    ...(runtimeUnknown ? { unknownFields: ["runtime"] as Array<"runtime"> } : {}),
   };
 }
 
 function canonicalTopology(topology: SparkReproTopology): SparkReproTopology {
+  const unknownFields = new Set(topology.unknownFields ?? []);
+  if (topology.etp === undefined) unknownFields.add("etp");
+  if (topology.worldSize === undefined) unknownFields.add("worldSize");
+  if (topology.strategies === undefined) unknownFields.add("strategies");
   const etp = topology.etp ?? 1;
-  const worldSize = topology.worldSize ?? Math.max(1, topology.dp * topology.tp * topology.pp);
+  const worldSize = topology.worldSize ?? expectedTopologyWorldSize({ ...topology, etp });
   const suppliedStrategies = topology.strategies;
   const strategies =
     suppliedStrategies &&
@@ -2039,6 +2272,9 @@ function canonicalTopology(topology: SparkReproTopology): SparkReproTopology {
     sp: topology.sp,
     worldSize,
     strategies: canonicalStrategies(strategies),
+    ...(unknownFields.size > 0
+      ? { unknownFields: [...unknownFields].sort() as Array<"etp" | "worldSize" | "strategies"> }
+      : {}),
   };
 }
 
@@ -2094,6 +2330,7 @@ function topologyEquals(left: SparkReproTopology, right: SparkReproTopology): bo
     l.cp === r.cp &&
     l.sp === r.sp &&
     l.worldSize === r.worldSize &&
+    JSON.stringify(l.unknownFields ?? []) === JSON.stringify(r.unknownFields ?? []) &&
     JSON.stringify(canonicalStrategies(l.strategies ?? [])) ===
       JSON.stringify(canonicalStrategies(r.strategies ?? []))
   );
@@ -2104,6 +2341,30 @@ function orderedStrategies(
 ): SparkReproDistributedStrategy[] {
   const values = new Set(strategies);
   return SPARK_REPRO_DISTRIBUTED_STRATEGIES.filter((value) => values.has(value));
+}
+
+function migrationValidationMatrix(
+  gates: readonly SparkReproEvidenceGate[],
+  acceptanceProfile: SparkReproProfile,
+): SparkReproValidationMatrix {
+  return {
+    denominators: Object.fromEntries(
+      SPARK_REPRO_WORK_STAGES.map((stage) => [stage, null]),
+    ) as Record<SparkReproWorkStage, null>,
+    rows: gates.map((gate) => ({
+      id: `legacy-probe:${gate.id}`,
+      gateId: gate.id,
+      stage: gate.stage,
+      invocationClass: "isolated_diagnostic",
+      evidenceClass: "probe",
+      verdict: gate.status,
+      profile: canonicalProfile(gate.profile ?? acceptanceProfile),
+      repetitions: 1,
+      exactScope: "legacy authority unknown",
+      evidenceRefs: [...gate.evidenceRefs],
+      artifactRefs: [],
+    })),
+  };
 }
 
 function compatibilityValidationMatrix(
@@ -2327,6 +2588,7 @@ function cloneNormativeCursor(cursor: SparkReproNormativeCursor): SparkReproNorm
     candidateBuffer: cursor.candidateBuffer.map(cloneCandidate),
     retirementLog: cursor.retirementLog.map((record) => ({
       ...record,
+      profile: canonicalProfile(record.profile),
       evidenceRefs: [...record.evidenceRefs],
     })),
   };
@@ -2396,6 +2658,7 @@ function cloneConclusion(conclusion: SparkReproConclusion): SparkReproConclusion
 function workSummaryV2ToInput(summary: SparkReproWorkSummary): SparkReproWorkSummaryInput {
   return {
     schema: SPARK_REPRO_WORK_SUMMARY_SCHEMA,
+    ...(summary.migration ? { migration: summary.migration } : {}),
     reproId: summary.reproId,
     title: summary.title,
     stage: summary.stage,
@@ -2420,6 +2683,10 @@ function workSummaryV2ToInput(summary: SparkReproWorkSummary): SparkReproWorkSum
     artifactRefs: summary.artifactRefs,
     ...(summary.reportArtifactRef ? { reportArtifactRef: summary.reportArtifactRef } : {}),
   };
+}
+
+function uniqueEvidenceRefs(refs: readonly EvidenceRef[]): EvidenceRef[] {
+  return [...new Set(refs)];
 }
 
 function validateEvidenceRefs(refs: readonly EvidenceRef[], field: string): void {

@@ -774,7 +774,7 @@ export function reviseReproPlan(
     ...revised,
     subgoals: reconcileReproSubgoals(repro, revised, normalizedSubgoals, goalChanged, timestamp),
     ...(planChanged || goalChanged
-      ? { dualLane: createInitialDualLaneSessionState(revised.plan) }
+      ? { dualLane: rebaseDualLaneSessionState(revised.plan, repro.dualLane) }
       : {}),
   };
 }
@@ -1753,6 +1753,23 @@ export function migrateSparkSessionReproV6(repro: SparkSessionReproV6): SparkSes
     stopGuard: {
       ...migratedWithoutDigest.stopGuard,
       lastProgressDigest: reproProgressDigest(migratedWithoutDigest),
+    },
+  };
+}
+
+function rebaseDualLaneSessionState(
+  plan: SparkReproPlan,
+  prior: SparkReproDualLaneSessionState,
+): SparkReproDualLaneSessionState {
+  const orderedStepIds = plan.steps.map((step) => step.id);
+  return {
+    ...prior,
+    planRevision: plan.currentRevision,
+    normative: {
+      orderedStepIds,
+      ...(orderedStepIds[0] ? { currentStepId: orderedStepIds[0] } : {}),
+      retiredStepIds: [],
+      candidateIds: [],
     },
   };
 }
