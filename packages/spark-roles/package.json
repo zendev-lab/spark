@@ -2,7 +2,7 @@
   "name": "@zendev-lab/spark-roles",
   "version": "0.3.0",
   "private": true,
-  "description": "Canonical role execution, dedicated Skill workers, and reusable role specs.",
+  "description": "Canonical role execution, dedicated multi-Skill agents, and reusable role specs.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [

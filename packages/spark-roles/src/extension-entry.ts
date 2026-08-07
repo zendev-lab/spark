@@ -1,6 +1,6 @@
 import type { SparkHostAPI, ToolConfig } from "@zendev-lab/spark-core";
 import registerSparkRolesExtension from "./extension.ts";
-import { registerSparkSkillDelegateTool } from "./skill-extension.ts";
+import { registerSparkSkillAgentTool } from "./skill-extension.ts";
 
 export default function sparkRolesExtension(api: SparkHostAPI): void {
   if (!api.registerTool) throw new Error("spark-roles extension requires registerTool support");
@@ -10,7 +10,7 @@ export default function sparkRolesExtension(api: SparkHostAPI): void {
     },
   };
   registerSparkRolesExtension(host);
-  registerSparkSkillDelegateTool(host);
+  registerSparkSkillAgentTool(host);
 }
 
 export * from "./extension.ts";

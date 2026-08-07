@@ -19,7 +19,7 @@
     "./memory-direct-intent": "./src/memory-direct-intent.ts",
     "./system-prompt": "./src/system-prompt.ts",
     "./builtin-skills": "./src/builtin-skills.ts",
-    "./skill-resolver": "./src/skill-resolver.ts",
+    "./skill-resolver": "./src/skill-resolver-entry.ts",
     "./session-store": "./src/session-store/index.ts",
     "./spark-widget": "./src/spark-widget.ts",
     "./spark-widget-controller": "./src/spark-widget-controller.ts",

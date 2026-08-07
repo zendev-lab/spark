@@ -39,7 +39,8 @@ than copying another long list into Markdown.
 - [`specs/configuration-and-paths.md`](./specs/configuration-and-paths.md): path precedence, exact persistence layout, and migration invariants.
 - [`specs/compact-v2.md`](./specs/compact-v2.md): compaction thresholds, token sources, repeated-overflow bounds, and Memory handoff.
 - [`specs/tools.md`](./specs/tools.md): internal tool ownership, effect policy, activation, and cross-tool invariants.
-- [`specs/skill-delegation.md`](./specs/skill-delegation.md): dedicated anonymous Skill Workers, invocation, lifecycle, and authority boundaries.
+- [`specs/agent-operating-model.md`](./specs/agent-operating-model.md): model-facing prompt ownership, Session modes, continuation drivers, multi-Skill Agents, authority, and PR delivery lifecycle.
+- [`specs/skill-delegation.md`](./specs/skill-delegation.md): dedicated anonymous multi-Skill Agents, invocation, prompt composition, lifecycle, and authority boundaries.
 - [`specs/sessions-and-channels.md`](./specs/sessions-and-channels.md): persistent sessions, daemon-owned Side Threads, origins, mail, and channel policy.
 - [`specs/daemon-autonomous-loops.md`](./specs/daemon-autonomous-loops.md): daemon-owned Loop cadence, bindings, retry, recovery, and fresh-continuity boundaries.
 - [`specs/human-interaction.md`](./specs/human-interaction.md): ask/approval waits, status vocabulary, and correlation.
