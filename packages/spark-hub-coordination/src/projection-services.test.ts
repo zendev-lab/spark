@@ -1208,58 +1208,71 @@ describe("projection services", () => {
     db.close();
   });
 
-  it("treats legacy human response acks without an outcome as accepted", () => {
-    const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
-    const workspace = createWorkspaceWithLease(db, {
-      slug: "local-default",
-      name: "Local default",
-      runtimeWorkspaceBindingId,
-      createdAt: now,
-    });
-    const request = recordHumanRequestFromRuntime(db, {
-      runtimeWorkspaceBindingId,
-      workspaceId: workspace.id,
-      runtimeRequestId: "tool-call-legacy-ack",
-      payload: {
-        kind: "ask_user",
-        title: "Choose scope",
-        prompt: "Which scope?",
-        questions: [],
-        context: {},
-        contextArtifactRefs: [],
-      },
-      createdAt: now,
-    });
-    const response = recordHumanResponse(db, {
-      humanRequestId: request.humanRequestId,
-      payload: { status: "cancelled", answers: {}, responseArtifactRefs: [] },
-      createdAt: now,
-    });
+  it.each([
+    { answerStatus: "answered" as const, inboxStatus: "resolved" },
+    { answerStatus: "cancelled" as const, inboxStatus: "resolved" },
+    { answerStatus: "archived" as const, inboxStatus: "archived" },
+  ])(
+    "projects an accepted $answerStatus response through the shared inbox status contract",
+    ({ answerStatus, inboxStatus }) => {
+      const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
+      const workspace = createWorkspaceWithLease(db, {
+        slug: `local-${answerStatus}`,
+        name: "Local default",
+        runtimeWorkspaceBindingId,
+        createdAt: now,
+      });
+      const request = recordHumanRequestFromRuntime(db, {
+        runtimeWorkspaceBindingId,
+        workspaceId: workspace.id,
+        runtimeRequestId: `tool-call-${answerStatus}-ack`,
+        payload: {
+          kind: "ask_user",
+          title: "Choose scope",
+          prompt: "Which scope?",
+          questions: [],
+          context: {},
+          contextArtifactRefs: [],
+        },
+        createdAt: now,
+      });
+      const response = recordHumanResponse(db, {
+        humanRequestId: request.humanRequestId,
+        payload: {
+          status: answerStatus,
+          answers: answerStatus === "answered" ? { scope: "mvp" } : {},
+          responseArtifactRefs: [],
+        },
+        createdAt: now,
+      });
 
-    recordHumanResponseAck(db, {
-      runtimeWorkspaceBindingId,
-      humanRequestId: request.humanRequestId,
-      humanResponseId: response.humanResponseId,
-      payload: { returnedToTool: false },
-      acknowledgedAt: "2026-05-22T00:00:01.000Z",
-    });
+      recordHumanResponseAck(db, {
+        runtimeWorkspaceBindingId,
+        humanRequestId: request.humanRequestId,
+        humanResponseId: response.humanResponseId,
+        payload: { returnedToTool: false },
+        acknowledgedAt: "2026-05-22T00:00:01.000Z",
+      });
 
-    const projection = db
-      .prepare(
-        `SELECT hr.status AS requestStatus, ii.status AS inboxStatus, hres.status AS responseStatus
-         FROM human_requests hr
-         JOIN inbox_items ii ON ii.human_request_id = hr.id
-         JOIN human_responses hres ON hres.human_request_id = hr.id
-         WHERE hres.id = ?`,
-      )
-      .get(response.humanResponseId);
-    expect(projection).toEqual({
-      requestStatus: "cancelled",
-      inboxStatus: "archived",
-      responseStatus: "acked",
-    });
-    db.close();
-  });
+      const projection = db
+        .prepare(
+          `SELECT hr.status AS requestStatus, ii.status AS inboxStatus,
+                  ii.resolved_as AS resolvedAs, hres.status AS responseStatus
+           FROM human_requests hr
+           JOIN inbox_items ii ON ii.human_request_id = hr.id
+           JOIN human_responses hres ON hres.human_request_id = hr.id
+           WHERE hres.id = ?`,
+        )
+        .get(response.humanResponseId);
+      expect(projection).toEqual({
+        requestStatus: answerStatus,
+        inboxStatus,
+        resolvedAs: answerStatus,
+        responseStatus: "acked",
+      });
+      db.close();
+    },
+  );
 
   it("ingests task graph snapshots and artifact projections", () => {
     const { db, runtimeWorkspaceBindingId, now } = setupRuntimeBinding();
