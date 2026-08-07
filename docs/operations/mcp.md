@@ -1,12 +1,14 @@
-# MCP adapter
+# MCP adapter maintainer contract
 
-Status: **supported, explicit stdio adapter**. MCP is not started with the daemon
-or TUI. Clients launch `spark-mcp` (or `spark mcp`) when they need Model Context
-Protocol interoperability.
+Status: **supported, explicit stdio adapter**.
 
 Package: [`packages/spark-mcp`](../../packages/spark-mcp/).
+Official SDK:
+[`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk).
 
-Official SDK: [`@modelcontextprotocol/sdk`](https://www.npmjs.com/package/@modelcontextprotocol/sdk).
+User-facing MCP client setup belongs in the public
+[`CLI reference`](../../apps/spark-docs/src/content/docs/reference/cli.md#mcp-clients).
+This page owns only the adapter boundary and maintainer validation.
 
 ## Ownership boundary
 
@@ -19,36 +21,17 @@ owner API.
 MCP client ──stdio──► spark-mcp ──read-only owner API──► SparkMemoryStore
 ```
 
-## Tools
+## Protocol surface
 
-| Tool | Behavior |
-| --- | --- |
-| `spark_memory_status` | `SparkMemoryStore.status()` |
-| `spark_memory_list` | `SparkMemoryStore.list()` with a hard result cap of 100 |
+The adapter exposes only the bounded read projection required by the supported
+MCP contract. It delegates status/list reads to `SparkMemoryStore`, caps list
+results at 100, and exposes no write, forget, approval, lifecycle, or competing
+memory operation.
 
-No write, forget, approval, or lifecycle operation is exposed. Those actions
-remain on Spark's canonical memory surface.
+The exact public tool names and client invocation are documented once in the
+public CLI reference rather than copied here.
 
-## Client configuration
-
-Use the companion executable from the installed Spark product:
-
-```json
-{
-  "mcpServers": {
-    "spark": {
-      "command": "spark-mcp",
-      "args": []
-    }
-  }
-}
-```
-
-The client should start the command with the intended workspace as `cwd`. If
-that is not possible, set `SPARK_MCP_MEMORY_FILE` to the canonical workspace
-memory file. Stdout is reserved for MCP frames; diagnostics go to stderr.
-
-## Validation
+## Maintainer validation
 
 ```bash
 pnpm --filter @zendev-lab/spark-mcp run check
