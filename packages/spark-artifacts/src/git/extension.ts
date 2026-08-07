@@ -52,6 +52,7 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       "Manage one git_change Artifact: its owning worktree and native GitHub PR stack lifecycle.",
     promptGuidelines: [
       "Use one git_change Artifact and one writable worktree for the complete dependent stack.",
+      "Give init a meaningful title or branch; Spark uses it for the workspace-local worktree name.",
       "gh stack is the only writable topology authority; do not emulate stack topology in Spark.",
       "submit creates drafts by default. Pass ready=true only when the stack is genuinely ready for review.",
       "Do not post routine PR comments or boilerplate about stacking/testing. Report substantive state in the task or final response.",
@@ -104,12 +105,22 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
       artifactRef: Type.Optional(
         Type.String({ description: "git_change Artifact ref or unambiguous prefix." }),
       ),
-      title: Type.Optional(Type.String({ description: "Artifact title for init/checkout/adopt." })),
-      branch: Type.Optional(Type.String({ description: "Branch for init/layer_add." })),
+      title: Type.Optional(
+        Type.String({
+          description:
+            "Artifact title for init/checkout/adopt; init and checkout may use it for the semantic worktree name.",
+        }),
+      ),
+      branch: Type.Optional(
+        Type.String({
+          description: "Branch for init/layer_add; init prefers it for the semantic worktree name.",
+        }),
+      ),
       trunk: Type.Optional(Type.String({ description: "Trunk branch for init." })),
       target: Type.Optional(
         Type.String({
-          description: "Stack number, PR number/URL, or tracked branch for checkout.",
+          description:
+            "Stack number, PR number/URL, or tracked branch for checkout; used as the worktree name when title is omitted.",
         }),
       ),
       worktreePath: Type.Optional(
@@ -144,8 +155,9 @@ export function registerGitLifecycleTool(pi: GitLifecycleExtensionApi): void {
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const cwd = requireCwd(ctx);
-      const store = defaultArtifactStore(sparkStateCwd(cwd, ctx));
-      const service = new GitLifecycleService({ cwd, store });
+      const workspaceRoot = sparkStateCwd(cwd, ctx);
+      const store = defaultArtifactStore(workspaceRoot);
+      const service = new GitLifecycleService({ cwd, workspaceRoot, store });
       const action = normalizeGitAction(params.action);
 
       if (action === "inspect") {

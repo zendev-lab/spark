@@ -20,6 +20,52 @@ test("daemon headless loader resolves the real worker module and provider depend
   assert.equal(typeof headless.createSparkHeadlessSessionExecutor, "function");
 });
 
+test("runSparkHeadlessSession retains the control root for nested daemon-native roles", async () => {
+  let captured:
+    | {
+        sparkHome?: string;
+        controlSparkHome?: string;
+        configPath?: string;
+        authPath?: string;
+      }
+    | undefined;
+  await runSparkHeadlessSession(
+    { cwd: process.cwd(), sessionId: "session-control-root", prompt: "run" },
+    {
+      sparkHome: "/private/pi-agent",
+      controlSparkHome: "/control/spark",
+      createServices: async (options) => {
+        captured = options;
+        return eventfulHeadlessServices(0) as never;
+      },
+    },
+  );
+
+  assert.deepEqual(captured, {
+    cwd: process.cwd(),
+    workspaceId: undefined,
+    sparkStateRoot: undefined,
+    sparkHome: "/private/pi-agent",
+    controlSparkHome: "/control/spark",
+    configPath: "/control/spark/config.json",
+    authPath: "/control/spark/auth.json",
+    sessionSurface: undefined,
+    sessionSource: undefined,
+    sessionLease: undefined,
+    channelBinding: undefined,
+    invocationId: undefined,
+    tokenUsage: undefined,
+    stateOwnerSessionId: undefined,
+    loop: undefined,
+    sessionQuestionChain: undefined,
+    allowedTools: undefined,
+    allowedToolEffects: undefined,
+    hasUI: false,
+    streamTimeoutMs: 0,
+    approvalMethod: "auto",
+  });
+});
+
 test("runSparkHeadlessSession streams events without retaining a duplicate event array", async () => {
   let streamedCount = 0;
   const streamed = await runSparkHeadlessSession(
