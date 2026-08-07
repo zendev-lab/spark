@@ -21,15 +21,15 @@ deployment dry run, Hub container build/smoke, exact generated tarballs, and N-1
 migration compatibility. It does not rerun the repository source/unit/process or
 Hub browser suites owned by CI.
 
-The release gate queries the canonical npm registry, selects the newest
-published stable `@zendev-lab/spark` version strictly older than the candidate,
-and adapts to either the current `spark-hub` or legacy `spark-cockpit` command
-contract. An explicit `--baseline-version` remains available for local incident
-reproduction, but production publication does not pin a historical baseline.
-For the first split release, `v0.3.0`, the automatic selection resolved to the
-legacy all-in-one `@zendev-lab/spark@0.2.1`; the four new package identities had
-no independently published N-1 artifact. `pnpm run release:pack` builds once and
-writes:
+For release compatibility, the gate queries the canonical npm registry, selects
+the newest published stable `@zendev-lab/spark` version strictly older than the
+candidate, and adapts to either the current `spark-hub`
+or legacy `spark-cockpit` command contract. An explicit `--baseline-version`
+remains available for local incident reproduction, but production publication
+does not pin a historical baseline. For the first split release, `v0.3.0`, the
+automatic selection resolved to the legacy all-in-one
+`@zendev-lab/spark@0.2.1`; the four new package identities had no independently
+published N-1 artifact. `pnpm run release:pack` builds once and writes:
 
 - `dist/release/*.tgz`
 - `dist/release/*-release-manifest.json`
