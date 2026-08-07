@@ -421,22 +421,51 @@ export class SparkDaemonHumanWaitRegistry {
   }
 
   listEvidenceAnswerEvents(humanRequestId?: string): SparkEvidenceAnswerEvent[] {
-    const rows = (humanRequestId
-      ? this.db
-          .prepare(
-            `SELECT event_json AS eventJson
-             FROM daemon_human_answer_events
-             WHERE human_request_id = ?
-             ORDER BY created_at, answer_event_id`,
-          )
-          .all(humanRequestId)
-      : this.db
-          .prepare(
-            `SELECT event_json AS eventJson
-             FROM daemon_human_answer_events
-             ORDER BY created_at, answer_event_id`,
-          )
-          .all()) as unknown as HumanAnswerEventRow[];
+    return this.readEvidenceAnswerEvents(
+      humanRequestId ? "WHERE human_request_id = ?" : "",
+      humanRequestId ? [humanRequestId] : [],
+    );
+  }
+
+  listPendingEvidenceAnswerEvents(): SparkEvidenceAnswerEvent[] {
+    return this.readEvidenceAnswerEvents("WHERE wake_completed_at IS NULL", []);
+  }
+
+  isEvidenceAnswerEventWakePending(answerEventId: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT 1 FROM daemon_human_answer_events
+           WHERE answer_event_id = ? AND wake_completed_at IS NULL`,
+        )
+        .get(answerEventId),
+    );
+  }
+
+  markEvidenceAnswerEventWakeCompleted(
+    answerEventId: string,
+    completedAt = new Date().toISOString(),
+  ): boolean {
+    return (
+      this.db
+        .prepare(
+          `UPDATE daemon_human_answer_events
+           SET wake_completed_at = ?
+           WHERE answer_event_id = ? AND wake_completed_at IS NULL`,
+        )
+        .run(completedAt, answerEventId).changes === 1
+    );
+  }
+
+  private readEvidenceAnswerEvents(where: string, values: string[]): SparkEvidenceAnswerEvent[] {
+    const rows = this.db
+      .prepare(
+        `SELECT event_json AS eventJson
+         FROM daemon_human_answer_events
+         ${where}
+         ORDER BY created_at, answer_event_id`,
+      )
+      .all(...values) as unknown as HumanAnswerEventRow[];
     return rows.map((row) => sparkEvidenceAnswerEventSchema.parse(JSON.parse(row.eventJson)));
   }
 

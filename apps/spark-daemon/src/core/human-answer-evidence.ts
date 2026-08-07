@@ -5,7 +5,8 @@ import type { SparkDaemonHumanWaitRecord } from "./human-waits.ts";
 import type { SparkLoopStore } from "../store/loops.ts";
 
 interface PersistedHumanAnswerEventSource {
-  listEvidenceAnswerEvents(): SparkEvidenceAnswerEvent[];
+  listPendingEvidenceAnswerEvents(): SparkEvidenceAnswerEvent[];
+  markEvidenceAnswerEventWakeCompleted(answerEventId: string): boolean;
   get(humanRequestId: string): SparkDaemonHumanWaitRecord | null | undefined;
 }
 
@@ -107,7 +108,7 @@ export async function reconcileHumanAnswerEventEvidence(
     skipped: 0,
     failed: 0,
   };
-  for (const event of source.listEvidenceAnswerEvents()) {
+  for (const event of source.listPendingEvidenceAnswerEvents()) {
     const wait = source.get(event.humanRequestId);
     if (!wait) {
       result.skipped += 1;
@@ -120,9 +121,10 @@ export async function reconcileHumanAnswerEventEvidence(
     }
     try {
       const projection = await ensureHumanAnswerEventEvidence(cwd, event);
+      await Promise.resolve(onProjected(event, wait));
+      source.markEvidenceAnswerEventWakeCompleted(event.answerEventId);
       if (projection.created) {
         result.projected += 1;
-        await Promise.resolve(onProjected(event, wait));
       } else {
         result.existing += 1;
       }

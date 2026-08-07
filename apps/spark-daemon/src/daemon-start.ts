@@ -1225,8 +1225,10 @@ async function projectHumanAnswerForInput(
   if (!workspacePath) {
     throw new Error(`cannot resolve workspace path for AnswerEvent ${event.answerEventId}`);
   }
-  const projection = await ensureHumanAnswerEventEvidence(workspacePath, event);
-  if (projection.created) await Promise.resolve(input.onAnswerEvidenceProjected(event));
+  if (!input.humanWaits.isEvidenceAnswerEventWakePending(event.answerEventId)) return;
+  await ensureHumanAnswerEventEvidence(workspacePath, event);
+  await Promise.resolve(input.onAnswerEvidenceProjected(event));
+  input.humanWaits.markEvidenceAnswerEventWakeCompleted(event.answerEventId);
 }
 
 async function handleChannelInteraction(

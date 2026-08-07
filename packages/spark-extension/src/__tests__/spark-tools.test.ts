@@ -7663,7 +7663,12 @@ test("repro approval Step accepts only current direct-user AnswerEvent Evidence"
     const step = repro?.plan.steps.find((candidate) => candidate.id === stepId);
     if (!repro || !step) throw new Error("missing approval step");
     const binding = createReproStepAskBinding(repro, step);
-    const eventBody = (input: { response: string; revision?: number; provenance?: string }) => ({
+    const eventBody = (input: {
+      response: string;
+      revision?: number;
+      provenance?: string;
+      expectedAnswerKind?: "single" | "approval";
+    }) => ({
       schema: "spark.evidence-answer-event/v1",
       answerEventId: `answer-event:${input.response}`,
       humanRequestId: `hreq-${input.response}`,
@@ -7680,7 +7685,7 @@ test("repro approval Step accepts only current direct-user AnswerEvent Evidence"
         ownerStepOrUnresolvedId: binding.stepId,
         stepDefinitionDigest: binding.definitionDigest,
         requestHash: "a".repeat(64),
-        expectedAnswerKind: "approval",
+        expectedAnswerKind: input.expectedAnswerKind ?? "approval",
       },
       answers: { approval: "approve" },
       acceptedAt: new Date().toISOString(),
@@ -7703,6 +7708,24 @@ test("repro approval Step accepts only current direct-user AnswerEvent Evidence"
       stepEvidenceRefs: [stale.ref],
     });
     assert.equal(staleResult.isError, true);
+
+    const wrongKindBody = eventBody({ response: "wrong-kind", expectedAnswerKind: "single" });
+    const wrongKind = await store.put({
+      ref: `evidence:${wrongKindBody.answerEventId}` as EvidenceRef,
+      kind: "record",
+      title: "Wrong-kind AnswerEvent",
+      format: "json",
+      body: wrongKindBody,
+      provenance: { producer: "ask" },
+      links: [{ to: wrongKindBody.binding.askRef as AskRef, relation: "answer-to" as const }],
+    });
+    const wrongKindResult = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [wrongKind.ref],
+    });
+    assert.equal(wrongKindResult.isError, true);
 
     const synthetic = await store.put({
       kind: "record",
