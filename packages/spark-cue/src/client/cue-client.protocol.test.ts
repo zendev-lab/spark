@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import net, { type Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "vitest";
 
 import {
@@ -31,18 +31,54 @@ async function withTempPath(
   run: (dir: string) => Promise<void>,
 ): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "spark-cue-resolver-"));
-  const originalPath = process.env.PATH;
+  const original = {
+    PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    CARGO_HOME: process.env.CARGO_HOME,
+    UV_TOOL_BIN_DIR: process.env.UV_TOOL_BIN_DIR,
+  };
   try {
-    for (const [name, body] of Object.entries(files)) {
-      await writeExecutable(join(dir, name), body);
+    const fixtureFiles = { ...files };
+    if (fixtureFiles["cue-client"] && !fixtureFiles.cued) {
+      fixtureFiles.cued = "#!/bin/sh\necho unexpected cued invocation >&2\nexit 127\n";
     }
-    process.env.PATH = originalPath ? `${dir}:${originalPath}` : dir;
+    for (const [name, body] of Object.entries(fixtureFiles)) {
+      const implementation = join(dir, `.fixture-${name}`);
+      await writeExecutable(implementation, body);
+      await writeExecutable(join(dir, name), cueCommandFixtureWrapper(name, implementation));
+    }
+    process.env.PATH = [dir, dirname(process.execPath), "/usr/bin", "/bin"].join(":");
+    process.env.HOME = dir;
+    process.env.CARGO_HOME = join(dir, "cargo");
+    process.env.UV_TOOL_BIN_DIR = dir;
     await run(dir);
   } finally {
-    if (originalPath === undefined) delete process.env.PATH;
-    else process.env.PATH = originalPath;
+    for (const [key, value] of Object.entries(original)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     await rm(dir, { force: true, recursive: true });
   }
+}
+
+function cueCommandFixtureWrapper(name: string, implementation: string): string {
+  const identity =
+    name === "cue"
+      ? `
+if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then printf '%s\\n' 'cue 0.1.0'; exit 0; fi
+if [ "$#" -eq 2 ] && [ "$1 $2" = "client --version" ]; then printf '%s\\n' 'cue-client 0.1.0'; exit 0; fi
+if [ "$#" -eq 2 ] && [ "$1 $2" = "daemon --version" ]; then printf '%s\\n' 'Version: 0.1.0'; exit 0; fi
+`
+      : name === "cue-client"
+        ? `
+if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then printf '%s\\n' 'cue-client 0.1.0'; exit 0; fi
+`
+        : name === "cued"
+          ? `
+if [ "$#" -eq 1 ] && [ "$1" = "--version" ]; then printf '%s\\n' 'Version: 0.1.0'; exit 0; fi
+`
+          : "";
+  return `#!/bin/sh${identity}\nexec ${JSON.stringify(implementation)} "$@"\n`;
 }
 
 function encodeFrame(message: CueFrame): Buffer {
@@ -1622,17 +1658,16 @@ test("resolveCueTransport uses cue-client target resolver JSON", async () => {
   );
 });
 
-test("resolveCueTransport falls back to cue client namespace", async () => {
+test("resolveCueTransport uses the aggregate cue client namespace", async () => {
   await withTempPath(
     {
-      "cue-client": `#!/bin/sh\necho cue-client unavailable >&2\nexit 127\n`,
-      cue: `#!/bin/sh\nif [ "$1 $2 $3 $4" = "client target resolve --json" ]; then\n  printf '%s\n' '{"schema_version":1,"profile_name":"fallback","transport":"unix","socket_path":"/tmp/fallback.sock"}'\n  exit 0\nfi\necho unexpected args: "$@" >&2\nexit 2\n`,
+      cue: `#!/bin/sh\nif [ "$1 $2 $3 $4" = "client target resolve --json" ]; then\n  printf '%s\n' '{"schema_version":1,"profile_name":"aggregate","transport":"unix","socket_path":"/tmp/aggregate.sock"}'\n  exit 0\nfi\necho unexpected args: "$@" >&2\nexit 2\n`,
     },
     async () => {
       const resolved = await resolveCueTransport();
       assert.equal(resolved.transport, "unix");
-      assert.equal(resolved.profile_name, "fallback");
-      assert.equal(resolved.socket_path, "/tmp/fallback.sock");
+      assert.equal(resolved.profile_name, "aggregate");
+      assert.equal(resolved.socket_path, "/tmp/aggregate.sock");
     },
   );
 });
@@ -1649,7 +1684,11 @@ test("resolveCueTransport finds uv-installed cue-client outside a service PATH",
     await mkdir(userBin, { recursive: true });
     await writeExecutable(
       join(userBin, "cue-client"),
-      `#!/bin/sh\nprintf '%s\\n' '{"schema_version":1,"profile_name":"user-bin","transport":"unix","socket_path":"/tmp/user-bin.sock"}'\n`,
+      `#!/bin/sh\nif [ "$1" = "--version" ]; then\n  printf '%s\\n' 'cue-client 0.1.0'\nelse\n  printf '%s\\n' '{"schema_version":1,"profile_name":"user-bin","transport":"unix","socket_path":"/tmp/user-bin.sock"}'\nfi\n`,
+    );
+    await writeExecutable(
+      join(userBin, "cued"),
+      `#!/bin/sh\nif [ "$1" = "--version" ]; then printf '%s\\n' 'Version: 0.1.0'; else exit 96; fi\n`,
     );
     process.env.HOME = home;
     process.env.PATH = restrictedBin;
@@ -2031,7 +2070,7 @@ exit 1
             error instanceof CueError &&
             error.code === "DAEMON_UNREACHABLE" &&
             message.includes("Initial connection failure:") &&
-            message.includes("cued start exited with code 1") &&
+            message.includes(`cued start --socket ${socketPath} exited with code 1`) &&
             message.includes(`Attempted: cued start --socket ${socketPath}`) &&
             message.includes(`Socket: ${socketPath}`) &&
             message.includes("Config directory:") &&
