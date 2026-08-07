@@ -43,6 +43,10 @@ jobs:
           exec(compile(body, 'tmp-session-mode-migration.py', 'exec'))
           PY
           pnpm install --lockfile-only
+          git restore -- \
+            .github/workflows/ci-static-checks.yml \
+            .github/workflows/tmp-session-mode-migration.yml \
+            .github/workflows/tmp-session-mode-trigger.yml
           git diff --name-only --diff-filter=ACMR -z | xargs -0 -r pnpm exec vp fmt --write
           echo '--- remaining Session phase symbols ---'
           rg -n 'Spark(Session|Agent|Entry|Active).*Phase|loadSparkPhase|saveSparkPhase|sparkActiveLens|@zendev-lab/spark-phases|packages/spark-phases|/implement|"implement"' \
