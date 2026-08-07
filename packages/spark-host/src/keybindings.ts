@@ -176,6 +176,11 @@ export class SparkKeybindings {
     return this.bindings.get(id)?.defaultKey;
   }
 
+  /** Whether this key currently resolves to an active registered binding. */
+  canExecuteKey(key: string, ctx: SparkKeybindingContext): boolean {
+    return this.#resolveKeybinding(key, ctx) !== undefined;
+  }
+
   /**
    * The `executeKey(key, ctx)` entry point. Returns `true` when a registered
    * binding matched and ran. Conflict resolution:
@@ -188,16 +193,8 @@ export class SparkKeybindings {
    * over the default `app.thinking.cycle` on shift+tab.
    */
   async executeKey(key: string, ctx: SparkKeybindingContext): Promise<boolean> {
-    const candidates: SparkKeybindingDefinition[] = [];
-    for (const id of this.registrationOrder) {
-      const definition = this.bindings.get(id);
-      if (!definition) continue;
-      if (this.keyFor(id) !== key) continue;
-      if (definition.isActive && !definition.isActive(ctx)) continue;
-      candidates.push(definition);
-    }
-    if (candidates.length === 0) return false;
-    const winner = candidates[candidates.length - 1]!;
+    const winner = this.#resolveKeybinding(key, ctx);
+    if (!winner) return false;
     const previous = this.executionTails.get(winner.id) ?? Promise.resolve();
     const execution = previous.then(async () => await winner.handler(ctx));
     const tail = execution.then(
@@ -211,6 +208,20 @@ export class SparkKeybindings {
       if (this.executionTails.get(winner.id) === tail) this.executionTails.delete(winner.id);
     }
     return true;
+  }
+
+  #resolveKeybinding(
+    key: string,
+    ctx: SparkKeybindingContext,
+  ): SparkKeybindingDefinition | undefined {
+    let winner: SparkKeybindingDefinition | undefined;
+    for (const id of this.registrationOrder) {
+      const definition = this.bindings.get(id);
+      if (!definition || this.keyFor(id) !== key) continue;
+      if (definition.isActive && !definition.isActive(ctx)) continue;
+      winner = definition;
+    }
+    return winner;
   }
 
   snapshot(): SparkKeybindingsSnapshot {

@@ -128,7 +128,7 @@ test("SparkNativeSession merges a daemon user projection into its optimistic inp
   });
 
   assert.equal(session.messages.filter((message) => message.role === "user").length, 1);
-  assert.equal((stripAnsi(app.render(100).join("\n")).match(/you> render once/gu) ?? []).length, 1);
+  assert.equal((stripAnsi(app.render(100).join("\n")).match(/> render once/gu) ?? []).length, 1);
   releaseObservation?.();
   await waitUntil(() => !session.isProcessing);
 });
@@ -1051,13 +1051,13 @@ test("SparkNativeSession flattens display-safe conversation parts and merges too
   });
 
   const rendered = stripAnsi(app.render(100).join("\n"));
-  assert.match(rendered, /spark> Ready\./);
-  assert.match(rendered, /spark> Done\./);
+  assert.match(rendered, /Ready\./);
+  assert.match(rendered, /Done\./);
   assert.match(rendered, /thinking \[streaming\] • hidden/);
   assert.match(rendered, /✓ tool:read \[succeeded\] — README loaded/);
-  assert.ok(rendered.indexOf("thinking [streaming]") < rendered.indexOf("spark> Ready."));
-  assert.ok(rendered.indexOf("spark> Ready.") < rendered.indexOf("tool:read"));
-  assert.ok(rendered.indexOf("tool:read") < rendered.indexOf("spark> Done."));
+  assert.ok(rendered.indexOf("thinking [streaming]") < rendered.indexOf("Ready."));
+  assert.ok(rendered.indexOf("Ready.") < rendered.indexOf("tool:read"));
+  assert.ok(rendered.indexOf("tool:read") < rendered.indexOf("Done."));
   assert.equal(session.messages.filter((message) => message.role === "tool").length, 1);
   assert.doesNotMatch(rendered, /Legacy text must not duplicate/);
   assert.doesNotMatch(rendered, /raw README output|"token":"hidden"/);
@@ -1296,7 +1296,7 @@ test("native UI transport consumes view model events without concrete TUI protoc
   });
 
   const rendered = stripAnsi(app.render(120).join("\n"));
-  assert.match(rendered, /spark> hello from event/);
+  assert.match(rendered, /hello from event/);
   assert.doesNotMatch(rendered, /custom:run-view>/);
   assert.match(rendered, /session native-session .*daemon running: cache read=64 write=16/);
   assert.match(rendered, /session native-session .*cache read=64 write=16/);

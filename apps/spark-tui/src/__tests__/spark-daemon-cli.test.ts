@@ -21,7 +21,7 @@ import type { SparkCliHostServices } from "../host/bootstrap.ts";
 import { SparkHostRuntime } from "../host/runtime.ts";
 import { SparkSessionMailStore } from "../host/session-mail-store.ts";
 import { SparkSessionStore, workspaceSessionHash } from "../host/session-store.ts";
-import { createSparkNativeTuiHarness } from "../test-support/spark-native-tui-harness.ts";
+import { createSparkNativeTuiComponentHarness } from "../test-support/spark-native-tui-component-harness.ts";
 import {
   attachSparkWorkspaceClient,
   clientRespondHumanInteraction,
@@ -2654,7 +2654,7 @@ test("Spark TUI and headless print attach and release workspace clients", async 
           assert.equal(typeof input, "object");
           assert.notEqual(input, null);
           const options = input as Exclude<typeof input, string | undefined>;
-          const harness = createSparkNativeTuiHarness({
+          const harness = createSparkNativeTuiComponentHarness({
             autocompleteBasePath: options.autocompleteBasePath,
             responder: options.responder,
             slashCommands: options.slashCommands,
@@ -2908,7 +2908,7 @@ test("native TUI selects a History Session, restores it, and loads its snapshot"
           assert.equal(options.workspaceSession?.attachTarget, existing.sessionId);
           assert.equal(snapshotRequested, false);
           assert.equal(options.statusContext?.activeProvider?.(), undefined);
-          const harness = createSparkNativeTuiHarness({
+          const harness = createSparkNativeTuiComponentHarness({
             workspaceSession: options.workspaceSession,
           });
           await options.configureApp?.(harness.app, harness.session);
@@ -3033,7 +3033,7 @@ test("native /sessions reopens the startup selector and attaches the selected se
           attachedSessionIds.push(options.workspaceSession?.attachTarget ?? "missing");
           if (attachedSessionIds.length > 1) return;
 
-          const harness = createSparkNativeTuiHarness({
+          const harness = createSparkNativeTuiComponentHarness({
             slashCommands: options.slashCommands,
             workspaceSession: options.workspaceSession,
           });
@@ -3549,7 +3549,7 @@ test("native TUI accepts durable session-dir session id and hydrates project hub
           assert.notEqual(input, null);
           const options = input as Exclude<typeof input, string | undefined>;
           capturedMode = options.workspaceSession?.mode;
-          const harness = createSparkNativeTuiHarness({
+          const harness = createSparkNativeTuiComponentHarness({
             cols: 180,
             slashCommands: options.slashCommands,
             workspaceSession: options.workspaceSession,
@@ -3594,7 +3594,7 @@ test("native TUI attach corresponds to daemon workspace client record", async ()
           assert.notEqual(input, null);
           const options = input as Exclude<typeof input, string | undefined>;
           capturedControlPlaneSessionId = options.workspaceSession?.controlPlaneSessionId;
-          const harness = createSparkNativeTuiHarness({
+          const harness = createSparkNativeTuiComponentHarness({
             workspaceSession: options.workspaceSession,
           });
           await options.configureApp?.(harness.app, harness.session);
@@ -4169,7 +4169,7 @@ test("native TUI model selection and following turn share one managed session", 
           assert.notEqual(input, null);
           const options = input as Exclude<typeof input, string | undefined>;
           assert.equal(options.workspaceSession?.attachTarget, "same-session");
-          const harness = createSparkNativeTuiHarness({
+          const harness = createSparkNativeTuiComponentHarness({
             workspaceSession: options.workspaceSession,
           });
           await options.configureApp?.(harness.app, harness.session);
@@ -4467,7 +4467,7 @@ test("production TUI Shift+Tab overrides extension shortcut and updates session 
           assert.equal(typeof input, "object");
           assert.notEqual(input, null);
           const options = input as Exclude<typeof input, string | undefined>;
-          const harness = createSparkNativeTuiHarness({
+          const harness = createSparkNativeTuiComponentHarness({
             keybindings: options.keybindings,
             statusContext: options.statusContext,
             workspaceSession: options.workspaceSession,
