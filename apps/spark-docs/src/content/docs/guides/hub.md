@@ -67,6 +67,27 @@ Exchange that key at `/{slug}/login`. Treat both keys as secrets. Non-loopback
 access requires HTTPS unless you deliberately opt into insecure HTTP on a
 trusted private network.
 
+## Trusted reverse proxy
+
+Keep Hub itself on loopback and terminate public HTTPS at the trusted proxy:
+
+```bash
+HOST=127.0.0.1 \
+SPARK_HUB_PUBLIC_URL=https://spark.example.com \
+SPARK_HUB_TRUST_PROXY=loopback \
+spark hub
+```
+
+`SPARK_HUB_PUBLIC_URL` must be an `http(s)` origin at `/`; path mounting is not
+supported. The proxy must preserve the intended public host, sanitize forwarding
+headers, send `X-Forwarded-For` and `X-Forwarded-Proto`, forward WebSocket
+upgrades and unbuffered streaming responses, and reject unknown public hosts.
+
+Use `SPARK_HUB_PROXY_HOPS=1..10` when more than one trusted proxy is in the
+forwarding chain. `SPARK_HUB_PUBLIC_URL=auto` is only appropriate behind the
+same trusted loopback proxy. Changing the public origin changes daemon server
+identity, so re-register affected workspaces deliberately.
+
 ## Register a remote workspace
 
 Authorize the daemon machine, then register each workspace with its own fresh
