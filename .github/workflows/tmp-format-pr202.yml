@@ -1,11 +1,9 @@
 name: Temporary format PR 202
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/prompt-operating-model
-    paths:
-      - .github/workflows/tmp-format-pr202.yml
+      - main
 
 permissions:
   contents: write
