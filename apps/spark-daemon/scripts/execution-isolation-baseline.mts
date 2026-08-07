@@ -20,7 +20,7 @@ import { executeSparkDaemonSessionRunTask } from "../src/spark/session-run.ts";
 import { SparkInvocationStore } from "../src/store/invocations.ts";
 import { migrateSparkDaemonDatabase } from "../src/store/schema.ts";
 
-const REPORT_VERSION = 1 as const;
+const REPORT_VERSION = 2 as const;
 const SCHEMA_PATH = "./test/process/execution-isolation-baseline.schema.json";
 const PROBE_INTERVAL_MS = 100;
 const CPU_BLOCK_MS = 5_000;
@@ -85,15 +85,31 @@ interface FixtureObservation {
   releaseAtMs?: number;
   terminalBeforeExecutorSettlement?: boolean;
   secondQueuedUntilRelease?: boolean;
-  attachmentBytes?: number;
+  attachment?: {
+    bytes: number;
+    materializationStartedAtMs: number;
+    materializationCompletedAtMs: number;
+    materializationDurationMs: number;
+    probeGapBeforeMs: number;
+    probeGapAcrossMs: number;
+    probeGapAfterMs: number;
+  };
   child?: {
     pid: number;
     spawnedAtMs: number;
+    cancelAtMs: number;
+    aliveAfterProductionCancel: true;
     termSentAtMs: number;
     killSentAtMs: number | null;
-    exitedAtMs: number;
+    childExitAtMs: number;
+    executorSettledAtMs: number;
+    sessionFenceReleasedAtMs: number;
+    harnessCleanupAtMs: number;
     cleanupOwner: "test-harness";
     productionCleanupObserved: false;
+  };
+  teardown: {
+    liveChildPidCount: 0;
   };
 }
 
@@ -111,6 +127,7 @@ interface ProbeSnapshot {
   sampleCount: number;
   samples: ProbeSample[];
   maxGapMs: number;
+  p95GapMs: number;
   rssBytes: {
     before: number;
     peak: number;
@@ -165,12 +182,15 @@ class ControlProbe {
         (sample, index) =>
           sample.timestampMs - (this.samples[index]?.timestampMs ?? sample.timestampMs),
       );
+    const sortedGaps = [...gaps].sort((left, right) => left - right);
+    const p95Index = Math.max(0, Math.ceil(sortedGaps.length * 0.95) - 1);
     const rss = this.samples.map((sample) => sample.rssBytes);
     return {
       intervalMs: PROBE_INTERVAL_MS,
       sampleCount: this.samples.length,
       samples: [...this.samples],
       maxGapMs: gaps.length > 0 ? Math.max(...gaps) : 0,
+      p95GapMs: sortedGaps[p95Index] ?? 0,
       rssBytes: {
         before: rss[0] ?? process.memoryUsage().rss,
         peak: rss.length > 0 ? Math.max(...rss) : process.memoryUsage().rss,
@@ -213,9 +233,11 @@ async function main(): Promise<void> {
   const cpu = requiredFixture(byId, "sync-cpu");
   const provider = requiredFixture(byId, "async-provider");
   const abortIgnoring = requiredFixture(byId, "abort-ignoring-tool");
+  const attachment = requiredFixture(byId, "attachment-sync-io");
   const child = requiredFixture(byId, "hung-external-child");
   const assertions = {
     cpuGapObserved: cpu.probe.maxGapMs >= CPU_GAP_MIN_MS,
+    cpuPrimaryTerminal: isTerminalStatus(cpu.primary?.status) && cpu.primary?.terminalAtMs !== null,
     cpuSecondTerminalAfterRelease:
       requiredTimestamp(cpu.second?.terminalAtMs, "sync-cpu second terminal") >=
       requiredTimestamp(cpu.releaseAtMs, "sync-cpu release"),
@@ -224,6 +246,24 @@ async function main(): Promise<void> {
       requiredTimestamp(provider.releaseAtMs, "async-provider release"),
     abortIgnoringTerminalBeforeSettlement: abortIgnoring.terminalBeforeExecutorSettlement === true,
     abortIgnoringSecondQueuedUntilRelease: abortIgnoring.secondQueuedUntilRelease === true,
+    attachmentTimingRecorded:
+      requiredTimestamp(
+        attachment.attachment?.materializationCompletedAtMs,
+        "attachment materialization completion",
+      ) >=
+        requiredTimestamp(
+          attachment.attachment?.materializationStartedAtMs,
+          "attachment materialization start",
+        ) &&
+      attachment.attachment?.materializationDurationMs ===
+        requiredTimestamp(
+          attachment.attachment?.materializationCompletedAtMs,
+          "attachment materialization completion",
+        ) -
+          requiredTimestamp(
+            attachment.attachment?.materializationStartedAtMs,
+            "attachment materialization start",
+          ),
     hungChildTerminalBeforeHarnessCleanup:
       requiredTimestamp(child.primary?.terminalAtMs, "hung-child primary terminal") <=
       requiredTimestamp(child.child?.termSentAtMs, "hung-child SIGTERM timestamp"),
@@ -233,10 +273,21 @@ async function main(): Promise<void> {
       requiredTimestamp(child.child?.termSentAtMs, "hung-child SIGTERM timestamp") <=
         requiredTimestamp(child.child?.killSentAtMs, "hung-child SIGKILL timestamp") &&
       requiredTimestamp(child.child?.killSentAtMs, "hung-child SIGKILL timestamp") <=
-        requiredTimestamp(child.child?.exitedAtMs, "hung-child exit timestamp"),
+        requiredTimestamp(child.child?.childExitAtMs, "hung-child exit timestamp") &&
+      requiredTimestamp(child.child?.childExitAtMs, "hung-child exit timestamp") <=
+        requiredTimestamp(child.child?.harnessCleanupAtMs, "hung-child harness cleanup") &&
+      requiredTimestamp(child.child?.harnessCleanupAtMs, "hung-child harness cleanup") <=
+        requiredTimestamp(child.child?.executorSettledAtMs, "hung-child executor settlement") &&
+      requiredTimestamp(child.child?.executorSettledAtMs, "hung-child executor settlement") <=
+        requiredTimestamp(child.child?.sessionFenceReleasedAtMs, "hung-child fence release"),
+    hungChildProductionCancelLeftChildAlive:
+      child.child?.aliveAfterProductionCancel === true &&
+      requiredTimestamp(child.child.cancelAtMs, "hung-child cancel timestamp") <=
+        requiredTimestamp(child.child.termSentAtMs, "hung-child SIGTERM timestamp"),
     hungChildHarnessCleanupExplicit:
       child.child?.cleanupOwner === "test-harness" &&
       child.child.productionCleanupObserved === false,
+    allFixtureTeardownsClean: fixtures.every((fixture) => fixture.teardown.liveChildPidCount === 0),
   };
   for (const [name, passed] of Object.entries(assertions)) {
     if (!passed) throw new Error(`execution isolation baseline assertion failed: ${name}`);
@@ -267,6 +318,11 @@ async function main(): Promise<void> {
         attachmentBytes: 12 * 1024 * 1024,
         childTermGraceMs: CHILD_TERM_GRACE_MS,
       },
+      measurementUnits: {
+        timestamps: "unix-ms",
+        durations: "ms",
+        memory: "bytes",
+      },
     },
     assertions,
     fixtures,
@@ -283,6 +339,7 @@ async function runIdleControl(): Promise<FixtureObservation> {
     classification: "control",
     executionPath: "control-probe",
     probe: probe.stop(),
+    teardown: teardownObservation(),
   };
 }
 
@@ -322,6 +379,7 @@ async function runSyncCpu(): Promise<FixtureObservation> {
       primary: invocationObservation(harness.store, primary.invocationId),
       second: invocationObservation(harness.store, second.invocationId),
       releaseAtMs: requiredTimestamp(releaseAtMs, "sync-cpu release"),
+      teardown: teardownObservation(),
     };
   } finally {
     await harness.close();
@@ -365,6 +423,7 @@ async function runAsyncProvider(): Promise<FixtureObservation> {
       primary: invocationObservation(harness.store, primary.invocationId),
       second: invocationObservation(harness.store, second.invocationId),
       releaseAtMs,
+      teardown: teardownObservation(),
     };
   } finally {
     releaseProvider?.();
@@ -427,6 +486,7 @@ async function runAbortIgnoringTool(): Promise<FixtureObservation> {
       releaseAtMs,
       terminalBeforeExecutorSettlement: primaryTerminalBeforeSettlement === "failed",
       secondQueuedUntilRelease,
+      teardown: teardownObservation(),
     };
   } finally {
     releaseTool?.();
@@ -437,6 +497,8 @@ async function runAbortIgnoringTool(): Promise<FixtureObservation> {
 async function runAttachmentSyncIo(): Promise<FixtureObservation> {
   const attachmentBytes = 12 * 1024 * 1024;
   const payload = Buffer.alloc(6 * 1024 * 1024, 0x61).toString("base64");
+  let materializationStartedAtMs: number | undefined;
+  let materializationCompletedAtMs: number | undefined;
   const harness = await createHarness(async (task, context) => {
     if (task.type !== "session.run" || task.prompt !== "attachment-sync-io") {
       return { ok: true };
@@ -447,6 +509,13 @@ async function runAttachmentSyncIo(): Promise<FixtureObservation> {
         sparkHome: harness.root,
         overrides: { dataDir: join(harness.root, "attachment-data") },
       }),
+      observeAttachmentMaterialization: (event) => {
+        if (event.bytes !== attachmentBytes) {
+          throw new Error(`unexpected attachment materialization bytes: ${event.bytes}`);
+        }
+        if (event.phase === "start") materializationStartedAtMs = event.timestampMs;
+        else materializationCompletedAtMs = event.timestampMs;
+      },
       executeSession: async () => ({ assistantText: "done" }),
     });
   });
@@ -484,14 +553,30 @@ async function runAttachmentSyncIo(): Promise<FixtureObservation> {
     harness.scheduler.processBatch();
     await waitForTerminal(harness.store, second.invocationId, 3_000);
     await harness.scheduler.wait({ timeoutMs: 3_000 });
+    await warmProbe();
+    const probe = harness.probe.stop();
+    const materialization = probeGapsAround(
+      probe.samples,
+      requiredTimestamp(materializationStartedAtMs, "attachment materialization start"),
+      requiredTimestamp(materializationCompletedAtMs, "attachment materialization completion"),
+    );
     return {
       id: "attachment-sync-io",
       classification: "sync-io",
       executionPath: "sessionRunPrompt.materializeTurnFiles",
-      probe: harness.probe.stop(),
+      probe,
       primary: invocationObservation(harness.store, primary.invocationId),
       second: invocationObservation(harness.store, second.invocationId),
-      attachmentBytes,
+      attachment: {
+        bytes: attachmentBytes,
+        materializationStartedAtMs: materialization.startAtMs,
+        materializationCompletedAtMs: materialization.completedAtMs,
+        materializationDurationMs: materialization.completedAtMs - materialization.startAtMs,
+        probeGapBeforeMs: materialization.beforeGapMs,
+        probeGapAcrossMs: materialization.acrossGapMs,
+        probeGapAfterMs: materialization.afterGapMs,
+      },
+      teardown: teardownObservation(),
     };
   } finally {
     await harness.close();
@@ -501,13 +586,21 @@ async function runAttachmentSyncIo(): Promise<FixtureObservation> {
 async function runHungExternalChild(): Promise<FixtureObservation> {
   let child: ChildProcess | undefined;
   let childSpawnedAtMs: number | undefined;
-  let executorSettled = false;
+  let cancelAtMs: number | undefined;
+  let executorSettledAtMs: number | undefined;
   let settleExecutor: (() => void) | undefined;
   const executorGate = new Promise<void>((resolveGate) => {
     settleExecutor = resolveGate;
   });
   const harness = await createHarness(async (task, context) => {
     if (task.prompt !== "hung-external-child") return { ok: true };
+    context.signal.addEventListener(
+      "abort",
+      () => {
+        cancelAtMs ??= Date.now();
+      },
+      { once: true },
+    );
     try {
       return await runAgentLoopFixture(
         harness.root,
@@ -538,7 +631,7 @@ async function runHungExternalChild(): Promise<FixtureObservation> {
         },
       );
     } finally {
-      executorSettled = true;
+      executorSettledAtMs = Date.now();
     }
   }, CHILD_TIMEOUT_MS);
   try {
@@ -550,9 +643,14 @@ async function runHungExternalChild(): Promise<FixtureObservation> {
     harness.scheduler.processBatch();
     await waitFor(() => child?.pid !== undefined, 1_000, "child spawn");
     await waitForTerminal(harness.store, primary.invocationId, 1_000);
-    const terminalBeforeExecutorSettlement = !executorSettled;
+    await waitFor(() => cancelAtMs !== undefined, 1_000, "production cancellation");
+    const terminalBeforeExecutorSettlement = executorSettledAtMs === undefined;
     harness.scheduler.processBatch();
     const pid = requiredTimestamp(child?.pid, "child pid");
+    const aliveAfterProductionCancel = processExists(pid);
+    if (!aliveAfterProductionCancel) {
+      throw new Error("hung child exited during production cancellation observation");
+    }
     const termSentAtMs = Date.now();
     signalProcessGroup(pid, "SIGTERM");
     await delay(CHILD_TERM_GRACE_MS);
@@ -562,39 +660,100 @@ async function runHungExternalChild(): Promise<FixtureObservation> {
       signalProcessGroup(pid, "SIGKILL");
     }
     await waitFor(() => !processExists(pid), 2_000, "child exit");
-    const exitedAtMs = Date.now();
+    const childExitAtMs = Date.now();
+    const harnessCleanupAtMs = Date.now();
     harness.scheduler.processBatch();
     const secondQueuedUntilRelease =
       harness.store.getSummary(second.invocationId)?.status === "queued";
     const releaseAtMs = Date.now();
     settleExecutor?.();
+    await waitFor(() => executorSettledAtMs !== undefined, 2_000, "executor settlement");
     await waitForTerminal(harness.store, second.invocationId, 2_000);
     await harness.scheduler.wait({ timeoutMs: 2_000 });
+    const secondObservation = invocationObservation(harness.store, second.invocationId);
+    const sessionFenceReleasedAtMs = requiredTimestamp(
+      secondObservation.startedAtMs,
+      "hung-child session fence release",
+    );
     return {
       id: "hung-external-child",
       classification: "external-child-lifecycle",
       executionPath: "SparkAgentLoop.tool",
       probe: harness.probe.stop(),
       primary: invocationObservation(harness.store, primary.invocationId),
-      second: invocationObservation(harness.store, second.invocationId),
+      second: secondObservation,
+
       releaseAtMs,
       terminalBeforeExecutorSettlement,
       secondQueuedUntilRelease,
       child: {
         pid,
         spawnedAtMs: requiredTimestamp(childSpawnedAtMs, "child spawn timestamp"),
+        cancelAtMs: requiredTimestamp(cancelAtMs, "production cancellation timestamp"),
+        aliveAfterProductionCancel: true,
         termSentAtMs,
         killSentAtMs,
-        exitedAtMs,
+        childExitAtMs,
+        executorSettledAtMs: requiredTimestamp(executorSettledAtMs, "executor settlement"),
+        sessionFenceReleasedAtMs,
+        harnessCleanupAtMs,
         cleanupOwner: "test-harness",
         productionCleanupObserved: false,
       },
+      teardown: teardownObservation([pid]),
     };
   } finally {
     if (child?.pid && processExists(child.pid)) signalProcessGroup(child.pid, "SIGKILL");
     settleExecutor?.();
     await harness.close();
   }
+}
+
+function teardownObservation(pids: readonly number[] = []): { liveChildPidCount: 0 } {
+  const liveChildPidCount = pids.filter((pid) => processExists(pid)).length;
+  if (liveChildPidCount !== 0) {
+    throw new Error(`fixture teardown left ${liveChildPidCount} live child process(es)`);
+  }
+  return { liveChildPidCount: 0 };
+}
+
+function probeGapsAround(
+  samples: readonly ProbeSample[],
+  startAtMs: number,
+  completedAtMs: number,
+): {
+  startAtMs: number;
+  completedAtMs: number;
+  beforeGapMs: number;
+  acrossGapMs: number;
+  afterGapMs: number;
+} {
+  let beforeIndex = 0;
+  for (const [index, sample] of samples.entries()) {
+    if (sample.timestampMs <= startAtMs) beforeIndex = index;
+  }
+  const afterIndex = samples.findIndex(
+    (sample, index) => index > beforeIndex && sample.timestampMs >= completedAtMs,
+  );
+  if (afterIndex < 0) throw new Error("missing control probe sample after materialization");
+  const before = samples[beforeIndex];
+  const beforePrevious = samples[Math.max(0, beforeIndex - 1)];
+  const after = samples[afterIndex];
+  const afterNext = samples[Math.min(samples.length - 1, afterIndex + 1)];
+  if (!before || !beforePrevious || !after || !afterNext) {
+    throw new Error("incomplete materialization control probe window");
+  }
+  return {
+    startAtMs,
+    completedAtMs,
+    beforeGapMs: before.timestampMs - beforePrevious.timestampMs,
+    acrossGapMs: after.timestampMs - before.timestampMs,
+    afterGapMs: afterNext.timestampMs - after.timestampMs,
+  };
+}
+
+function isTerminalStatus(value: string | undefined): boolean {
+  return value === "succeeded" || value === "failed" || value === "cancelled";
 }
 
 async function runAgentLoopFixture(

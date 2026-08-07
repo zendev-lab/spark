@@ -98,6 +98,13 @@ export interface SparkDaemonTaskExecutorOptions {
   controlSparkHome?: string;
   /** Workspace channels config data root; defaults to controlSparkHome. */
   channelsSparkHome?: string;
+  /** Test/diagnostic observer around synchronous attachment materialization. */
+  observeAttachmentMaterialization?: (event: {
+    phase: "start" | "complete";
+    invocationId: string;
+    bytes: number;
+    timestampMs: number;
+  }) => void;
   modelControl?: Pick<SparkDaemonModelControl, "effectiveModel" | "prepareModel"> &
     Partial<Pick<SparkDaemonModelControl, "generateSessionRole">>;
   sessionRegistry?: Pick<
@@ -907,7 +914,12 @@ export async function executeSparkDaemonSessionRunTask(
       : "root_session";
   return await options.executeSession({
     ...(await sessionExecutionIdentity(task, options, sessionContext)),
-    prompt: await sessionRunPrompt(task, options.paths, context.invocationId),
+    prompt: await sessionRunPrompt(
+      task,
+      options.paths,
+      context.invocationId,
+      options.observeAttachmentMaterialization,
+    ),
     signal: context.signal,
     // The daemon scheduler is the single execution-time budget owner. It can
     // pause that budget while awaiting a human response; adding the headless
@@ -977,13 +989,19 @@ async function sessionRunPrompt(
   task: SparkDaemonSessionRunTask,
   paths: SparkPaths,
   invocationId: string,
+  observeAttachmentMaterialization?: SparkDaemonTaskExecutorOptions["observeAttachmentMaterialization"],
 ): Promise<Parameters<SparkHeadlessSessionExecutor>[0]["prompt"]> {
   const browserImages = (task.attachments ?? []).filter(
     (attachment) => attachment.kind === "image",
   );
   const channelImages = task.channelContext?.images ?? [];
   const files = (task.attachments ?? []).filter((attachment) => attachment.kind === "file");
-  const filePrompt = materializeTurnFiles(files, paths, invocationId);
+  const filePrompt = materializeTurnFiles(
+    files,
+    paths,
+    invocationId,
+    observeAttachmentMaterialization,
+  );
   const taskPrompt = filePrompt ? `${task.prompt}\n\n${filePrompt}` : task.prompt;
   const text = taskPrompt;
   if (browserImages.length === 0 && channelImages.length === 0) return text;
@@ -1006,8 +1024,16 @@ function materializeTurnFiles(
   files: NonNullable<SparkDaemonSessionRunTask["attachments"]>,
   paths: SparkPaths,
   invocationId: string,
+  observeAttachmentMaterialization?: SparkDaemonTaskExecutorOptions["observeAttachmentMaterialization"],
 ): string {
   if (files.length === 0) return "";
+  const bytes = files.reduce((sum, file) => sum + file.size, 0);
+  observeAttachmentMaterialization?.({
+    phase: "start",
+    invocationId,
+    bytes,
+    timestampMs: Date.now(),
+  });
   const attachmentDir = join(paths.dataDir, "turn-attachments", safePathSegment(invocationId));
   mkdirSync(attachmentDir, { recursive: true, mode: 0o700 });
   const entries = files.map((file, index) => {
@@ -1016,6 +1042,12 @@ function materializeTurnFiles(
     const filePath = join(attachmentDir, fileName);
     writeFileSync(filePath, Buffer.from(file.data, "base64"), { mode: 0o600 });
     return `- ${safeName} (${file.mediaType}, ${file.size} bytes): ${filePath}`;
+  });
+  observeAttachmentMaterialization?.({
+    phase: "complete",
+    invocationId,
+    bytes,
+    timestampMs: Date.now(),
   });
   return [
     "The user attached local files for this turn. Read them from these daemon-owned paths when needed:",
