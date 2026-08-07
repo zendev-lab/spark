@@ -358,7 +358,7 @@
     },
     {
       "path": "scripts/spark-opentui-readiness.mts",
-      "lineCount": 116,
+      "lineCount": 119,
       "domainOwner": "acceptance",
       "callers": ["package.json", "test/spark-opentui-readiness.test.ts"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
