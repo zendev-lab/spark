@@ -383,14 +383,14 @@
     },
     {
       "path": "scripts/validate-pr-body.d.mts",
-      "lineCount": 17,
+      "lineCount": 25,
       "domainOwner": "ci-governance",
       "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
       "path": "scripts/validate-pr-body.mjs",
-      "lineCount": 78,
+      "lineCount": 143,
       "domainOwner": "ci-governance",
       "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
