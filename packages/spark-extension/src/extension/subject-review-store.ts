@@ -66,6 +66,12 @@ export interface SubjectReviewIndexEntry {
   sessionKey?: string;
 }
 
+export interface SubjectReviewSkippedEntry {
+  path: string;
+  reason: "legacy_artifact_review_not_promoted";
+  legacyArtifactRef: `artifact:${string}`;
+}
+
 export interface SubjectReviewIndexSnapshot {
   version: 1;
   rebuildable: true;
@@ -73,6 +79,7 @@ export interface SubjectReviewIndexSnapshot {
   source: "subject-review-records";
   legacyImportOnly: string[];
   reviews: SubjectReviewIndexEntry[];
+  skipped: SubjectReviewSkippedEntry[];
 }
 
 export interface WorkspaceSubjectReviewIndexEntry extends SubjectReviewIndexEntry {
@@ -86,6 +93,7 @@ export interface WorkspaceSubjectReviewIndexSnapshot {
   source: "subject-review-records";
   legacyImportOnly: string[];
   reviews: WorkspaceSubjectReviewIndexEntry[];
+  skipped: SubjectReviewSkippedEntry[];
 }
 
 const LEGACY_REVIEW_IMPORT_ONLY = [".spark/review-gate.json"];
@@ -206,13 +214,20 @@ export async function rebuildSubjectReviewIndex(
   reviewDirectory: string,
 ): Promise<SubjectReviewIndexSnapshot> {
   const entries: SubjectReviewIndexEntry[] = [];
+  const skipped: SubjectReviewSkippedEntry[] = [];
   for (const fileName of await listReviewRecordFiles(reviewDirectory)) {
     const filePath = join(reviewDirectory, fileName);
     const record = await readJsonFileOptional<Record<string, unknown>>(filePath);
     if (!record) continue;
+    const legacySkip = legacyArtifactReviewSkip(record, fileName);
+    if (legacySkip) {
+      skipped.push(legacySkip);
+      continue;
+    }
     entries.push(subjectReviewIndexEntry(record, fileName));
   }
   entries.sort((left, right) => right.reviewedAt.localeCompare(left.reviewedAt));
+  skipped.sort((left, right) => left.path.localeCompare(right.path));
   const snapshot: SubjectReviewIndexSnapshot = {
     version: 1,
     rebuildable: true,
@@ -220,6 +235,7 @@ export async function rebuildSubjectReviewIndex(
     source: "subject-review-records",
     legacyImportOnly: LEGACY_REVIEW_IMPORT_ONLY,
     reviews: entries,
+    skipped,
   };
   await writeJsonFileAtomic(join(reviewDirectory, "index.json"), snapshot);
   return snapshot;
@@ -234,15 +250,23 @@ export async function rebuildWorkspaceReviewIndex(
     ...(await findSubjectReviewRecordFiles(join(root, "sessions"))),
   ];
   const reviews: WorkspaceSubjectReviewIndexEntry[] = [];
+  const skipped: SubjectReviewSkippedEntry[] = [];
   for (const filePath of files) {
     const record = await readJsonFileOptional<Record<string, unknown>>(filePath);
     if (!record) continue;
+    const path = relative(root, filePath);
+    const legacySkip = legacyArtifactReviewSkip(record, path);
+    if (legacySkip) {
+      skipped.push(legacySkip);
+      continue;
+    }
     reviews.push({
-      ...subjectReviewIndexEntry(record, relative(root, filePath)),
-      path: relative(root, filePath),
+      ...subjectReviewIndexEntry(record, path),
+      path,
     });
   }
   reviews.sort((left, right) => right.reviewedAt.localeCompare(left.reviewedAt));
+  skipped.sort((left, right) => left.path.localeCompare(right.path));
   const snapshot: WorkspaceSubjectReviewIndexSnapshot = {
     version: 1,
     rebuildable: true,
@@ -250,6 +274,7 @@ export async function rebuildWorkspaceReviewIndex(
     source: "subject-review-records",
     legacyImportOnly: LEGACY_REVIEW_IMPORT_ONLY,
     reviews,
+    skipped,
   };
   await writeJsonFileAtomic(join(root, "reviews", "index.json"), snapshot);
   return snapshot;
@@ -319,6 +344,25 @@ async function collectSubjectReviewRecordFiles(root: string, files: string[]): P
       files.push(path);
     }
   }
+}
+
+function legacyArtifactReviewSkip(
+  value: Record<string, unknown>,
+  path: string,
+): SubjectReviewSkippedEntry | undefined {
+  if (value.evidenceRef !== undefined || value.artifactRef === undefined) return undefined;
+  const legacyArtifactRef = stringField(value.artifactRef, "artifactRef");
+  if (
+    !legacyArtifactRef.startsWith("artifact:") ||
+    legacyArtifactRef.length === "artifact:".length
+  ) {
+    return undefined;
+  }
+  return {
+    path,
+    reason: "legacy_artifact_review_not_promoted",
+    legacyArtifactRef: legacyArtifactRef as `artifact:${string}`,
+  };
 }
 
 function subjectReviewIndexEntry(

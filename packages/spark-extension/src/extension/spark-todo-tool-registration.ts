@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { type EvidenceRef, type TaskPlanItem } from "@zendev-lab/spark-core";
 import {
   applyIndependentTodoOps,
   defaultTaskGraphStore,
@@ -20,7 +21,7 @@ interface SparkTodoToolDependencies {
   refreshSparkWidget: (cwd: string, ctx?: SparkToolContext) => Promise<void>;
 }
 
-type SparkTaskPlanItemOp = TaskTodoOp;
+type SparkTaskPlanItemOp = TaskTodoOp & { evidenceRefs?: EvidenceRef[] };
 
 /** Action-style ops for the session-bound `todo` tool that map onto a single TODO op. */
 const TODO_OP_ACTIONS = new Set<TaskTodoOp["op"]>([
@@ -128,6 +129,9 @@ export function registerSparkTodoTools(
           items: Type.Optional(Type.Array(Type.String())),
           text: Type.Optional(Type.String()),
           blockedBy: Type.Optional(Type.Array(Type.String())),
+          evidenceRefs: Type.Optional(
+            Type.Array(Type.String({ description: "EvidenceRecord refs proving this plan item." })),
+          ),
         }),
       ),
     }),
@@ -162,7 +166,10 @@ export function registerSparkTodoTools(
           if (ops.some((op) => op.op === "init")) return { task: mutated };
           if (!mutated.plan)
             throw new Error(`Task ${mutated.ref} lost its plan after applying TODO operations.`);
-          const items = preserveTaskPlanItemMetadata(beforeItems, mutated.plan.items ?? []);
+          const items = applyTaskPlanItemEvidenceRefs(
+            preserveTaskPlanItemMetadata(beforeItems, mutated.plan.items ?? []),
+            ops,
+          );
           const preserved = graph.updateTask(mutated.ref, {
             plan: {
               ...mutated.plan,
@@ -295,12 +302,56 @@ function normalizeSparkTodoOp(value: unknown, path: string): SparkTaskPlanItemOp
   const items = normalizeToolStringArray(value.items, `${path}.items`);
   const text = normalizeOptionalToolString(value.text, `${path}.text`);
   const blockedBy = normalizeToolStringArray(value.blockedBy, `${path}.blockedBy`);
+  const evidenceRefs = normalizeTaskPlanItemEvidenceRefs(
+    value.evidenceRefs,
+    `${path}.evidenceRefs`,
+  );
   if (id !== undefined) op.id = id;
   if (item !== undefined) op.item = item;
   if (items !== undefined) op.items = items;
   if (text !== undefined) op.text = text;
   if (blockedBy !== undefined) op.blockedBy = blockedBy;
+  if (evidenceRefs !== undefined) op.evidenceRefs = evidenceRefs;
   return op;
+}
+
+function normalizeTaskPlanItemEvidenceRefs(
+  value: unknown,
+  path: string,
+): EvidenceRef[] | undefined {
+  const refs = normalizeToolStringArray(value, path);
+  if (!refs) return undefined;
+  return refs.map((ref, index) => {
+    if (!ref.startsWith("evidence:") || ref.length === "evidence:".length) {
+      throw new Error(`${path}[${index}] must be an evidence: ref`);
+    }
+    return ref as EvidenceRef;
+  });
+}
+
+function applyTaskPlanItemEvidenceRefs(
+  items: readonly TaskPlanItem[],
+  ops: readonly SparkTaskPlanItemOp[],
+): TaskPlanItem[] {
+  let next = items.map((item) => ({ ...item }));
+  for (const op of ops) {
+    if (!op.evidenceRefs?.length) continue;
+    const target = op.id
+      ? next.find((item) => item.id === op.id)
+      : op.item
+        ? next.find((item) => item.title === op.item)
+        : undefined;
+    if (!target) throw new Error("plan item id or item is required when attaching evidenceRefs");
+    next = next.map((item) =>
+      item.id === target.id
+        ? {
+            ...item,
+            evidenceRefs: [...new Set([...(item.evidenceRefs ?? []), ...op.evidenceRefs!])],
+          }
+        : item,
+    );
+  }
+  return next;
 }
 
 function normalizeSparkTodoOpKind(value: unknown, path: string): SparkTaskPlanItemOp["op"] {

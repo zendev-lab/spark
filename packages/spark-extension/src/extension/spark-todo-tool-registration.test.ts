@@ -128,9 +128,19 @@ describe("task plan item updates", () => {
       await saveCurrentProjectRef(cwd, ctx, project.ref, distractor.ref);
 
       const tool = capturePlanUpdateTool();
+      const additionalEvidenceRef = "evidence:focused-validation" as EvidenceRef;
       await tool.execute(
         "plan-update",
-        { taskRef: target.ref, ops: [{ op: "done", id: "target-item" }] },
+        {
+          taskRef: target.ref,
+          ops: [
+            {
+              op: "done",
+              id: "target-item",
+              evidenceRefs: [additionalEvidenceRef, evidenceRef],
+            },
+          ],
+        },
         new AbortController().signal,
         () => undefined,
         ctx,
@@ -146,9 +156,60 @@ describe("task plan item updates", () => {
       expect(targetItem).toMatchObject({
         status: "done",
         description: "Execute the focused validation and retain this semantic detail.",
-        evidenceRefs: [evidenceRef],
+        evidenceRefs: [evidenceRef, additionalEvidenceRef],
       });
       expect(distractorItem?.status).toBe("in_progress");
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects cross-namespace plan item evidence", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-plan-item-evidence-namespace-"));
+    try {
+      const ctx = testContext(cwd);
+      const sessionKey = sparkSessionKey(ctx);
+      const store = defaultTaskGraphStore(sparkStateCwd(cwd, ctx));
+      const graph = new TaskGraph();
+      const project = graph.createProject({
+        title: "Plan item Evidence namespace",
+        description: "Reject Artifact refs in plan item Evidence",
+      });
+      const task = graph.createTask({
+        projectRef: project.ref,
+        name: "evidence-target",
+        title: "Evidence target",
+        description: "Attach only canonical Evidence refs",
+        status: "running",
+        plan: planWithMetadata({
+          id: "evidence-item",
+          title: "Attach focused evidence",
+          description: "Keep Evidence and Artifact namespaces separate.",
+          evidenceRef: "evidence:existing" as EvidenceRef,
+        }),
+      });
+      graph.claimTask(task.ref, {
+        kind: "main",
+        claimedBy: sessionKey,
+        sessionId: sessionKey,
+        leaseMs: 60_000,
+      });
+      await store.save(graph);
+      await saveCurrentProjectRef(cwd, ctx, project.ref, task.ref);
+
+      const tool = capturePlanUpdateTool();
+      await expect(
+        tool.execute(
+          "plan-update",
+          {
+            taskRef: task.ref,
+            ops: [{ op: "done", id: "evidence-item", evidenceRefs: ["artifact:not-evidence"] }],
+          },
+          new AbortController().signal,
+          () => undefined,
+          ctx,
+        ),
+      ).rejects.toThrow(/evidenceRefs\[0\] must be an evidence: ref/u);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
