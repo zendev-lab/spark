@@ -65,7 +65,10 @@ test("public docs own usage while engineering docs own contracts and runbooks", 
   assert.doesNotMatch(remoteAccessContract, /spark hub access create/u);
   assert.doesNotMatch(remoteAccessContract, /HOST=127\.0\.0\.1/u);
 
-  assert.match(runtimeIntegrationContract, /apps\/spark-docs\/src\/content\/docs\/reference\/cli\.md/u);
+  assert.match(
+    runtimeIntegrationContract,
+    /apps\/spark-docs\/src\/content\/docs\/reference\/cli\.md/u,
+  );
   assert.doesNotMatch(runtimeIntegrationContract, /spark run "fix the failing tests"/u);
   assert.doesNotMatch(runtimeIntegrationContract, /spark daemon submit --session/u);
 
@@ -77,7 +80,10 @@ test("public docs own usage while engineering docs own contracts and runbooks", 
   assert.doesNotMatch(mcpRunbook, /"mcpServers"/u);
 
   assert.match(releaseRunbook, /reference\/cli\.md#managed-installation-and-updates/u);
-  assert.match(releaseRunbook, /reference\/configuration-and-paths\.md#managed-installation-paths/u);
+  assert.match(
+    releaseRunbook,
+    /reference\/configuration-and-paths\.md#managed-installation-paths/u,
+  );
   assert.doesNotMatch(releaseRunbook, /^## Managed layout$/mu);
   assert.doesNotMatch(releaseRunbook, /^Useful commands:$/mu);
   assert.doesNotMatch(releaseRunbook, /spark update status --json/u);
