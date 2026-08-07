@@ -83,6 +83,8 @@ const MAX_RATE_LIMIT_RETRIES = 5;
 const RATE_LIMIT_BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 20_000] as const;
 const DAEMON_RESUME_NOTICE =
   "[Spark daemon resume] The previous attempt of this turn was interrupted mid-execution. Continue from the current session history. Do not repeat side effects that already completed.";
+const CONTEXT_OVERFLOW_RESUME_NOTICE =
+  "[Spark context recovery] Continue the current turn from the compacted checkpoint. Do not repeat tool calls or other side effects already recorded in the summary.";
 
 function delay(ms: number): Promise<void> {
   if (ms <= 0) return Promise.resolve();
@@ -184,16 +186,22 @@ export class SparkAgentSession {
         compactAttempt < MAX_CONTEXT_OVERFLOW_COMPACTIONS
       ) {
         await delay(CONTEXT_OVERFLOW_COMPACT_BACKOFF_MS[compactAttempt] ?? 10_000);
-        if (!(await this.tryCompact(record, "context_overflow", true, true))) break;
+        const recovery = await this.tryCompactAfterOverflow(record, beforeCount);
+        if (!recovery) break;
         compactAttempt += 1;
-        // The failed attempt only exists in the loop's transient prompt state.
-        // Reload from the persisted compacted record so the user prompt and
-        // provider error are neither duplicated nor written into session history.
+        // Reload from the persisted compacted record. A transient checkpoint
+        // already contains this turn's user/tool history, so continue without
+        // resubmitting the prompt; persisted-history recovery still submits it.
         beforeCount = this.loadPromptItems(record);
-        outcome = await this.services.agentLoop.submitWithOutcome(
-          prompt,
-          this.restartHooks(record, beforeCount, options),
-        );
+        outcome =
+          recovery === "continue"
+            ? await this.services.agentLoop.continueWithOutcome(
+                this.restartHooks(record, beforeCount, options),
+              )
+            : await this.services.agentLoop.submitWithOutcome(
+                prompt,
+                this.restartHooks(record, beforeCount, options),
+              );
       }
       let rateLimitAttempt = 0;
       while (
@@ -481,6 +489,92 @@ export class SparkAgentSession {
     }
   }
 
+  private appendPromptItemsToSessionRecord(
+    record: SparkSessionRecord,
+    items: readonly SparkPromptItem[],
+  ): void {
+    for (const item of items) {
+      if (item.persistence !== "session") continue;
+      if (item.content.kind === "runtime") {
+        this.services.sessionStore.appendCustomMessage(
+          record,
+          item.customType ?? "spark-runtime-message",
+          item.content.value,
+          item.visibility === "visible",
+          {
+            ...(item.details ?? {}),
+            [SPARK_PROMPT_ITEM_METADATA_KEY]: sparkPromptItemMetadata(item),
+          },
+        );
+        continue;
+      }
+      this.services.sessionStore.appendMessage(
+        record,
+        agentMessageToSessionMessage(item.content.message as Message),
+      );
+    }
+  }
+
+  private async tryCompactAfterOverflow(
+    record: SparkSessionRecord,
+    beforeCount: number,
+  ): Promise<"continue" | "resubmit" | false> {
+    const transientItems = this.services.agentLoop
+      .getPromptItems()
+      .slice(beforeCount)
+      .filter((item) => !isProviderErrorPromptItem(item));
+    const hasCompletedTurnContext = transientItems.some(
+      (item) => item.authority === "assistant" || item.authority === "tool",
+    );
+    if (!hasCompletedTurnContext) {
+      return (await this.tryCompact(record, "context_overflow", true, true)) ? "resubmit" : false;
+    }
+
+    // Compact a checkpoint rather than replaying the live turn. A micro pass is
+    // especially important here: full compaction intentionally keeps recent
+    // tool results, while one oversized result can itself cause the overflow.
+    const checkpoint = structuredClone(record) as SparkSessionRecord;
+    this.appendPromptItemsToSessionRecord(checkpoint, transientItems);
+    const recoveryItem = sparkRuntimePromptItem({
+      authority: "runtime_control",
+      trust: "trusted",
+      visibility: "hidden",
+      persistence: "session",
+      customType: "spark-context-overflow-resume",
+      content: CONTEXT_OVERFLOW_RESUME_NOTICE,
+    });
+    this.appendPromptItemsToSessionRecord(checkpoint, [recoveryItem]);
+    const settings = this.services.config.compact ?? DEFAULT_SPARK_COMPACTION_SETTINGS;
+    const replay = activeSessionReplayMessages(checkpoint);
+    let microSucceeded = false;
+    let microRequiresFull = false;
+    try {
+      const model = this.services.providerRegistry.buildActiveModel();
+      const contextWindow = positiveNumber(model?.contextWindow);
+      if (contextWindow) {
+        const micro = scheduleSparkCompaction(replay, contextWindow, settings).find(
+          (pass) => pass.type === "micro" && pass.compactedMessages > 0,
+        );
+        if (micro) {
+          microSucceeded = await this.tryPersistMicroCompaction(checkpoint, replay, micro);
+          microRequiresFull = micro.requiresFullPass === true;
+        }
+      }
+    } catch {
+      // Provider metadata is advisory during overflow recovery. Fall through to
+      // forced full compaction when it cannot be resolved.
+    }
+    if (
+      (!microSucceeded || microRequiresFull) &&
+      !(await this.tryCompact(checkpoint, "context_overflow", true, true))
+    ) {
+      return false;
+    }
+
+    record.entries = checkpoint.entries;
+    return "continue";
+  }
+
   private async tryCompact(
     record: SparkSessionRecord,
     reason: "auto" | "context_overflow",
@@ -590,6 +684,12 @@ export class SparkAgentSession {
       }
     }
   }
+}
+
+function isProviderErrorPromptItem(item: SparkPromptItem): boolean {
+  if (item.content.kind !== "provider_message") return false;
+  const message = item.content.message;
+  return message.role === "assistant" && message.stopReason === "error";
 }
 
 function restartCheckpointForTurn(

@@ -586,6 +586,73 @@ test("SparkAgentSession compacts persisted history and retries context overflow 
   }
 });
 
+test("SparkAgentSession checkpoints transient tool output before overflow recovery", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-transient-overflow-"));
+  try {
+    const cwd = join(dir, "repo");
+    const sparkHome = join(dir, ".spark");
+    await mkdir(cwd, { recursive: true });
+    let providerCalls = 0;
+    let toolExecutions = 0;
+    const overflow =
+      "Your input exceeds the context window of this model. Please adjust your input and try again.";
+    const services = await makeFakeServices(
+      { cwd, sparkHome },
+      {
+        contextWindow: 258_000,
+        maxTokens: 32_768,
+        streamSimple: () => {
+          providerCalls += 1;
+          if (providerCalls === 1) {
+            return {
+              ...assistant(""),
+              content: [
+                {
+                  type: "toolCall",
+                  id: "large-tool-call",
+                  name: "large_read",
+                  arguments: {},
+                },
+              ],
+              stopReason: "toolUse",
+            } as unknown as AssistantMessage;
+          }
+          if (providerCalls === 2) throw new Error(overflow);
+          return assistant("continued without replaying the tool");
+        },
+      },
+      { compactKeepRecentTokens: 100 },
+    );
+    services.runtime.registerTool({
+      name: "large_read",
+      description: "return a large read-only result",
+      parameters: { type: "object" },
+      async execute() {
+        toolExecutions += 1;
+        return { content: [{ type: "text", text: "large result ".repeat(80_000) }] };
+      },
+    });
+    services.runtime.setActiveTools([
+      ...new Set([...services.runtime.getActiveTools(), "large_read"]),
+    ]);
+
+    const result = await new SparkAgentSession(services).run({
+      sessionId: "transient-overflow-session",
+      prompt: "inspect once and continue",
+    });
+
+    assert.equal(providerCalls, 3);
+    assert.equal(toolExecutions, 1);
+    assert.equal(result.outcome?.status, "completed");
+    assert.equal(result.assistantText, "continued without replaying the tool");
+    const saved = await services.sessionStore.load(result.sessionPath);
+    assert.equal(saved.entries.filter((entry) => entry.type === "compaction").length, 1);
+    assert.equal(JSON.stringify(saved.entries).includes(overflow), false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("SparkAgentSession compacts a compacted leaf again after repeated context overflow", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-agent-session-repeated-overflow-"));
   try {

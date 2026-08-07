@@ -702,6 +702,24 @@ export class SparkAgentLoop {
     return this.runTurns({ initialToolCalls: toolCalls, hooks });
   }
 
+  /**
+   * Continue a turn from the current prompt log without adding another user
+   * message. Hosts use this after compacting a transient overflow checkpoint;
+   * replaying the original user prompt could duplicate completed tool effects.
+   */
+  async continueWithOutcome(hooks: SparkAgentLoopRunHooks = {}): Promise<SparkRunOutcome> {
+    if (this.state !== "idle" || this.triggerTurnRunning) {
+      throw new Error(
+        `SparkAgentLoop.continueWithOutcome refused: agent is not idle (state=${this.state}).`,
+      );
+    }
+    this.lastOutcome = undefined;
+    this.lastPromptManifest = undefined;
+    this.startViewRun("compaction resume");
+    this.currentAbortReason = undefined;
+    return this.runTurns({ hooks });
+  }
+
   /** Cancel the in-flight stream/tool, marking the agent idle again. */
   abort(reason: string = "user_abort"): void {
     if (this.state === "idle") return;
