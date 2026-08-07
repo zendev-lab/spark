@@ -312,7 +312,6 @@ test("CI and prek consume the canonical package scripts", async () => {
   assert.match(prek, /id = "spark-check-fix"/u);
   assert.match(prek, /entry = "pnpm run fix"/u);
   assert.doesNotMatch(prek, /pnpm run check:/u);
-  // Pure checks stay in check:static / CI; prek only keeps the fix-class hook.
   assert.doesNotMatch(
     prek,
     /architecture-ratchet-check|pi-boundary-check|spark-doc-terminology-check/u,
