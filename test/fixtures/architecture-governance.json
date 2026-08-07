@@ -382,20 +382,6 @@
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
-      "path": "scripts/validate-pr-body.d.mts",
-      "lineCount": 25,
-      "domainOwner": "ci-governance",
-      "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
-      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
-    },
-    {
-      "path": "scripts/validate-pr-body.mjs",
-      "lineCount": 143,
-      "domainOwner": "ci-governance",
-      "callers": [".github/workflows/ci-pr-checks.yml", "test/pr-body-validation.test.ts"],
-      "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
-    },
-    {
       "path": "scripts/validate-pr-title.d.mts",
       "lineCount": 10,
       "domainOwner": "ci-governance",
