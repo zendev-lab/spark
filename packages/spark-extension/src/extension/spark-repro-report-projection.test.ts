@@ -55,7 +55,8 @@ describe("canonical Repro report runtime projection", () => {
     expect(projected.warning).toBeUndefined();
     expect(projected.usageIncluded).toBe(true);
     expect(projected.work.status).toBe("active");
-    expect(projected.work.progress).toMatchObject({ quantified: false, percent: null });
+    expect(projected.work.progress.quantified).toBe(false);
+    expect(projected.work.progress).not.toHaveProperty("percent");
     expect(projected.work.reportArtifactRef).toBe(sparkReproReportArtifactRef("repro-42"));
     expect(usageControl.requests).toEqual([{ scope: { kind: "repro", reproId: "repro-42" } }]);
 
@@ -107,7 +108,8 @@ describe("canonical Repro report runtime projection", () => {
     expect(projected.usageIncluded).toBe(false);
     expect(projected.warning).toContain("daemon unavailable");
     expect(projected.summary.tokenUsage).toBeUndefined();
-    expect(projected.work.progress).toMatchObject({ quantified: false, percent: null });
+    expect(projected.work.progress.quantified).toBe(false);
+    expect(projected.work.progress).not.toHaveProperty("percent");
     const stored = JSON.parse(
       await readFile(join(cwd, SPARK_REPRO_REPORT_SUMMARY_PATH), "utf8"),
     ) as Record<string, unknown>;
@@ -128,7 +130,8 @@ describe("canonical Repro report runtime projection", () => {
       "token usage scope repro-other does not match work summary repro-42",
     );
     expect(projected.summary.tokenUsage).toBeUndefined();
-    expect(projected.work.progress).toMatchObject({ quantified: false, percent: null });
+    expect(projected.work.progress.quantified).toBe(false);
+    expect(projected.work.progress).not.toHaveProperty("percent");
   });
 
   it("rejects a non-stable report Artifact binding", async () => {
@@ -183,7 +186,8 @@ describe("canonical Repro report runtime projection", () => {
       usageControl: fixedUsageControl(usage("repro-42")),
     });
 
-    expect(projected.work.progress).toMatchObject({ quantified: false, percent: null });
+    expect(projected.work.progress.quantified).toBe(false);
+    expect(projected.work.progress).not.toHaveProperty("percent");
     expect(projected.summary.work.gates.filter((gate) => gate.status === "accepted")).toHaveLength(
       3,
     );

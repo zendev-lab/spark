@@ -196,9 +196,7 @@ async function projectLiveWorkbench(input: {
     progress: {
       stage: input.work.stage,
       label: `${input.work.stage} · ${input.work.status}`,
-      ...(input.work.progress.quantified && input.work.progress.percent !== null
-        ? { percent: input.work.progress.percent }
-        : {}),
+      ...(input.work.progress.quantified ? { percent: input.work.progress.percent } : {}),
     },
     seal: input.seal,
   });

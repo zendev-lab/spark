@@ -54,7 +54,8 @@ describe("Spark Repro work summary", () => {
   it("migrates legacy summaries without promoting gates into formal progress", () => {
     const active = buildSparkReproWorkSummary(baseInput());
     expect(active.status).toBe("active");
-    expect(active.progress).toMatchObject({ quantified: false, percent: null });
+    expect(active.progress.quantified).toBe(false);
+    expect(active.progress).not.toHaveProperty("percent");
     expect(active.technicalGoal.achieved).toBe(false);
     expect(active.migration).toEqual({
       sourceSchema: "spark.repro.work-summary/v1",
@@ -123,7 +124,8 @@ describe("Spark Repro work summary", () => {
     };
 
     const summary = buildSparkReproWorkSummary(input);
-    expect(summary.progress).toMatchObject({ quantified: false, percent: null });
+    expect(summary.progress.quantified).toBe(false);
+    expect(summary.progress).not.toHaveProperty("percent");
     expect(summary.progress.stages.flatMap((stage) => stage.acceptedGateIds)).toEqual([]);
     expect(summary.validationMatrix.rows.every((row) => row.evidenceClass === "probe")).toBe(true);
   });
@@ -408,7 +410,7 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
       },
     });
     expect(summary.formalProgress).toEqual(summary.progress);
-    expect(summary.progress.percent).toBe(95);
+    expect(summary.progress).toMatchObject({ quantified: true, percent: 95 });
     expect(summary.status).not.toBe("complete");
   });
 
@@ -502,7 +504,10 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
       contractOnly.gates,
       contractOnly.target.acceptanceProfile!,
     );
-    expect(buildSparkReproWorkSummary(contractOnly).progress.percent).toBe(5);
+    expect(buildSparkReproWorkSummary(contractOnly).progress).toMatchObject({
+      quantified: true,
+      percent: 5,
+    });
 
     const earlyAlignment = v2Input();
     earlyAlignment.validationMatrix = matrixFor(
@@ -510,19 +515,24 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
       earlyAlignment.target.acceptanceProfile!,
       { alignment: 22 },
     );
-    expect(buildSparkReproWorkSummary(earlyAlignment).progress.percent).toBe(42.5);
+    expect(buildSparkReproWorkSummary(earlyAlignment).progress).toMatchObject({
+      quantified: true,
+      percent: 42.5,
+    });
 
     const deliveryPending = v2Input();
-    expect(buildSparkReproWorkSummary(deliveryPending).progress.percent).toBe(95);
+    expect(buildSparkReproWorkSummary(deliveryPending).progress).toMatchObject({
+      quantified: true,
+      percent: 95,
+    });
 
     const unknown = v2Input();
     unknown.validationMatrix = matrixFor(unknown.gates, unknown.target.acceptanceProfile!, {
       alignment: null,
     });
-    expect(buildSparkReproWorkSummary(unknown).progress).toMatchObject({
-      quantified: false,
-      percent: null,
-    });
+    const unknownSummary = buildSparkReproWorkSummary(unknown);
+    expect(unknownSummary.progress.quantified).toBe(false);
+    expect(unknownSummary.progress).not.toHaveProperty("percent");
   });
 
   it("keeps probe validation diagnostic while entrypoint acceptance advances the gate", () => {
@@ -545,7 +555,7 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
       })),
     };
     const diagnostic = buildSparkReproWorkSummary(input);
-    expect(diagnostic.progress.percent).toBe(0);
+    expect(diagnostic.progress).toMatchObject({ quantified: true, percent: 0 });
     expect(diagnostic.progress.stages.flatMap((stage) => stage.acceptedGateIds)).toEqual([]);
 
     input.validationMatrix.rows.push(
@@ -564,7 +574,7 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
       })),
     );
     const formal = buildSparkReproWorkSummary(input);
-    expect(formal.progress.percent).toBe(95);
+    expect(formal.progress).toMatchObject({ quantified: true, percent: 95 });
     expect(formal.progress.stages.flatMap((stage) => stage.acceptedGateIds)).toEqual([
       "contract-frozen",
       "reference-ready",
@@ -592,7 +602,7 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
     input.independentReadyCount = 3;
     input.schedulerActivity = "running";
     const summary = buildSparkReproWorkSummary(input);
-    expect(summary.progress.percent).toBe(95);
+    expect(summary.progress).toMatchObject({ quantified: true, percent: 95 });
     expect(summary.status).toBe("active");
   });
 
@@ -830,7 +840,8 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
       legacyProofAuthority: "not_promoted",
     });
     expect(first.profile.unknownFields).toEqual(["runtime"]);
-    expect(first.progress).toMatchObject({ quantified: false, percent: null });
+    expect(first.progress.quantified).toBe(false);
+    expect(first.progress).not.toHaveProperty("percent");
     expect(first.validationMatrix.rows.every((row) => row.evidenceClass === "probe")).toBe(true);
     expect(
       first.validationMatrix.rows.every((row) => row.invocationClass === "isolated_diagnostic"),

@@ -86,7 +86,7 @@ export const reproCompletionEvaluator: SparkTrustedLoopEvaluator = async (contex
       inputSummary: {
         reproId: work.reproId,
         status: work.status,
-        progress: work.progress.percent,
+        ...(work.progress.quantified ? { progress: work.progress.percent } : {}),
       },
     };
   }
@@ -117,7 +117,7 @@ export const reproCompletionEvaluator: SparkTrustedLoopEvaluator = async (contex
     evidenceRefs: [evidence.ref],
     inputSummary: {
       reproId: work.reproId,
-      progress: work.progress.percent,
+      ...(work.progress.quantified ? { progress: work.progress.percent } : {}),
       workSummaryDigest: loopDefinitionDigest(work),
     },
   };
@@ -174,9 +174,7 @@ async function readBoundReproWork(
 }
 
 function formatFormalProgress(work: SparkReproWorkSummary): string {
-  return work.progress.quantified && work.progress.percent !== null
-    ? `${work.progress.percent}%`
-    : "unquantified";
+  return work.progress.quantified ? `${work.progress.percent}%` : "unquantified";
 }
 
 function uniqueEvidenceRefs(refs: readonly EvidenceRef[]): EvidenceRef[] {

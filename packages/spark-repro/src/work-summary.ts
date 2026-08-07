@@ -443,15 +443,13 @@ export interface SparkReproStageProgress {
   acceptedGateWeight: number;
   totalGateWeight: number | null;
   acceptedGateIds: string[];
-  percent: number | null;
-  contribution: number | null;
+  percent?: number;
+  contribution?: number;
 }
 
-export interface SparkReproProgress {
-  quantified: boolean;
-  percent: number | null;
-  stages: SparkReproStageProgress[];
-}
+export type SparkReproProgress =
+  | { quantified: true; percent: number; stages: SparkReproStageProgress[] }
+  | { quantified: false; stages: SparkReproStageProgress[] };
 
 export interface SparkReproTechnicalGoal {
   achieved: boolean;
@@ -729,6 +727,7 @@ export function buildSparkReproWorkSummary(
     input.stage === "delivery" &&
     normativeComplete &&
     progress.quantified &&
+    progress.quantified &&
     progress.percent === 100 &&
     technicalGoal.achieved &&
     retirementBlockers.length === 0 &&
@@ -827,8 +826,6 @@ export function calculateSparkReproProgress(
         acceptedGateWeight,
         totalGateWeight: null,
         acceptedGateIds: accepted.map((gate) => gate.id),
-        percent: null,
-        contribution: null,
       };
     }
     if (!Number.isFinite(totalGateWeight) || totalGateWeight <= 0) {
@@ -848,12 +845,11 @@ export function calculateSparkReproProgress(
       contribution: roundPercent(fraction * stageWeight),
     };
   });
-  const quantified = stages.every((stage) => stage.contribution !== null);
+  const quantified = stages.every((stage) => stage.totalGateWeight !== null);
+  if (!quantified) return { quantified: false, stages };
   return {
-    quantified,
-    percent: quantified
-      ? roundPercent(stages.reduce((total, stage) => total + (stage.contribution ?? 0), 0))
-      : null,
+    quantified: true,
+    percent: roundPercent(stages.reduce((total, stage) => total + (stage.contribution ?? 0), 0)),
     stages,
   };
 }
