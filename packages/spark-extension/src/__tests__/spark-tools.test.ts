@@ -13279,7 +13279,7 @@ test("repro start creates a generic project with one task per bound subgoal", as
     });
 
     const repro = await readSessionRepro(dir, ctx);
-    assert.equal(repro?.version, 6);
+    assert.equal(repro?.version, 7);
     assert.ok(repro?.projectRef);
     const graph = await defaultTaskGraphStore(dir).load();
     assert.ok(graph);
@@ -13322,7 +13322,7 @@ test("repro start creates a generic project with one task per bound subgoal", as
       version: number;
       repro?: { projectRef?: string };
     };
-    assert.equal(persisted.version, 6);
+    assert.equal(persisted.version, 7);
     assert.equal(persisted.repro?.projectRef, project.ref);
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });

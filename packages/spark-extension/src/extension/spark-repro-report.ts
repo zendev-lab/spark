@@ -38,7 +38,7 @@ export function renderSparkReproReportMarkdown(summary: SparkReproReportSummary)
     `- Repro: ${inlineCode(work.reproId)}`,
     `- Status: ${inlineCode(work.status)}`,
     `- Stage: ${inlineCode(work.stage)}`,
-    `- Progress: ${work.progress.percent}%`,
+    `- Progress: ${work.progress.quantified && work.progress.percent !== null ? `${work.progress.percent}%` : "unquantified"}`,
     `- Technical goal: ${work.technicalGoal.achieved ? "achieved" : "not achieved"}`,
     `- Gates: ${acceptedGates}/${work.gates.length} accepted`,
     `- Tasks: ${completedTasks}/${work.tasks.length} done`,
@@ -95,7 +95,9 @@ export async function syncSparkReproReportArtifact(
     progress: {
       stage: work.stage,
       label: `${work.stage} · ${work.status}`,
-      percent: work.progress.percent,
+      ...(work.progress.quantified && work.progress.percent !== null
+        ? { percent: work.progress.percent }
+        : {}),
     },
     store: defaultArtifactStore(cwd),
   });

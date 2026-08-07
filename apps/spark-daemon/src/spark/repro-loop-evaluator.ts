@@ -5,9 +5,9 @@ import { isDeepStrictEqual } from "node:util";
 import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import { newRef, nowIso, type EvidenceRef, type JsonValue } from "@zendev-lab/spark-core";
 import {
-  buildSparkReproWorkSummary,
+  normalizeSparkReproWorkSummary,
+  SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA,
   type SparkReproWorkSummary,
-  type SparkReproWorkSummaryInput,
 } from "@zendev-lab/spark-repro/work-summary";
 import type {
   SparkLoopEvaluationContext,
@@ -75,7 +75,7 @@ export const reproCompletionEvaluator: SparkTrustedLoopEvaluator = async (contex
     const blockers = [...openFormalGates, ...technicalBlockers];
     return {
       verdict: "not_achieved",
-      reason: `Repro remains ${work.status} at ${work.progress.percent}% formal coverage.`,
+      reason: `Repro remains ${work.status} at ${formatFormalProgress(work)} formal coverage.`,
       remainingWork:
         blockers.length > 0
           ? `Resolve ${blockers.slice(0, 12).join(", ")}.`
@@ -161,16 +161,25 @@ async function readBoundReproWork(
     throw new Error(`${REPRO_SUMMARY_PATH} is not a spark-repro-summary/v1 document`);
   }
   const stored = raw.work;
-  const work = buildSparkReproWorkSummary(stored as unknown as SparkReproWorkSummaryInput);
-  for (const field of ["schema", "status", "progress", "technicalGoal"] as const) {
-    if (!isDeepStrictEqual(stored[field], work[field])) {
-      throw new Error(`${REPRO_SUMMARY_PATH} work.${field} does not match canonical facts`);
+  const legacyWork = stored.schema === SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA;
+  const work = normalizeSparkReproWorkSummary(stored);
+  if (!legacyWork) {
+    for (const field of ["schema", "status", "progress", "technicalGoal"] as const) {
+      if (!isDeepStrictEqual(stored[field], work[field])) {
+        throw new Error(`${REPRO_SUMMARY_PATH} work.${field} does not match canonical facts`);
+      }
     }
   }
   if (work.reproId !== reproId) {
     throw new Error(`${REPRO_SUMMARY_PATH} belongs to Repro ${work.reproId}, not ${reproId}`);
   }
   return work;
+}
+
+function formatFormalProgress(work: SparkReproWorkSummary): string {
+  return work.progress.quantified && work.progress.percent !== null
+    ? `${work.progress.percent}%`
+    : "unquantified";
 }
 
 function uniqueEvidenceRefs(refs: readonly EvidenceRef[]): EvidenceRef[] {

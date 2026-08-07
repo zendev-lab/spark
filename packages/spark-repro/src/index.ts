@@ -254,9 +254,34 @@ export interface SparkSessionReproV5 extends Omit<SparkSessionReproV4, "version"
   subgoals: SparkReproSubgoalV5[];
 }
 
-export interface SparkSessionRepro extends Omit<SparkSessionReproV5, "version" | "subgoals"> {
+export interface SparkReproDualLaneSessionState {
+  schema: "spark.repro.dual-lane-session/v1";
+  planRevision: number;
+  explore: {
+    stage: SparkReproStageName;
+    observationIds: string[];
+  };
+  normative: {
+    orderedStepIds: string[];
+    currentStepId?: string;
+    retiredStepIds: string[];
+    candidateIds: string[];
+  };
+  unresolvedIds: string[];
+  migration: {
+    sourceVersion: 6 | 7;
+    legacyProofAuthority: "not_promoted";
+  };
+}
+
+export interface SparkSessionReproV6 extends Omit<SparkSessionReproV5, "version" | "subgoals"> {
   version: 6;
   subgoals: SparkReproSubgoal[];
+}
+
+export interface SparkSessionRepro extends Omit<SparkSessionReproV6, "version"> {
+  version: 7;
+  dualLane: SparkReproDualLaneSessionState;
 }
 
 export const DEFAULT_REPRO_STAGES: SparkReproStage[] = [
@@ -588,7 +613,7 @@ export function createSparkSessionRepro(
   const reproId = explicitReproId ?? crypto.randomUUID?.() ?? `repro-${Date.now()}`;
   const plan = createInitialReproPlan(resolvedStages, timestamp);
   const reproWithoutDigest: SparkSessionRepro = {
-    version: 6,
+    version: 7,
     reproId,
     sessionKey,
     status: "active",
@@ -596,6 +621,7 @@ export function createSparkSessionRepro(
     goalContract: createGoalContract(objective, timestamp),
     plan,
     subgoals: createInitialReproSubgoals(reproId, plan, timestamp, new Set(["contract"])),
+    dualLane: createInitialDualLaneSessionState(plan),
     stopGuard: {
       lastProgressDigest: "",
       stagnationCount: 0,
@@ -747,6 +773,9 @@ export function reviseReproPlan(
   return {
     ...revised,
     subgoals: reconcileReproSubgoals(repro, revised, normalizedSubgoals, goalChanged, timestamp),
+    ...(planChanged || goalChanged
+      ? { dualLane: createInitialDualLaneSessionState(revised.plan) }
+      : {}),
   };
 }
 
@@ -827,6 +856,7 @@ export function updateReproStep(
   return {
     ...updated,
     subgoals: synchronizeReproSubgoals(updated, repro.subgoals, timestamp),
+    dualLane: synchronizeDualLaneSessionState(updated, repro.dualLane, stepId, input.status),
   };
 }
 
@@ -911,7 +941,7 @@ export function verifyReproStepPass(
 }
 
 export function reproStepPlanRevision(
-  repro: SparkSessionRepro | SparkSessionReproV5,
+  repro: SparkSessionRepro | SparkSessionReproV6 | SparkSessionReproV5,
   stepId: string,
 ): number {
   return (
@@ -947,9 +977,14 @@ export function nextReproStep(repro: SparkSessionRepro): SparkReproStep | undefi
 export function normalizeStoredSparkSessionRepro(value: unknown): SparkSessionRepro | undefined {
   if (!isStoredSparkSessionRepro(value)) return undefined;
   try {
-    const repro = value.version === 5 ? migrateSparkSessionReproV5(value) : value;
+    const repro =
+      value.version === 5
+        ? migrateSparkSessionReproV5(value)
+        : value.version === 6
+          ? migrateSparkSessionReproV6(value)
+          : value;
     const stages = normalizeStoredReproStages(repro.stages);
-    const steps = repro.plan.steps.map((step) => {
+    const steps = repro.plan.steps.map((step: SparkReproStep) => {
       const evidenceRefs = step.evidenceRefs.filter(isStoredEvidenceRef);
       const mustReopen =
         step.status === "done" && !isStoredStepVerificationValid(repro, step, evidenceRefs);
@@ -960,10 +995,17 @@ export function normalizeStoredSparkSessionRepro(value: unknown): SparkSessionRe
         evidenceRefs,
       };
     });
+    const normalizedPlan = { ...repro.plan, steps };
+    const dualLane = normalizeDualLaneSessionState(normalizedPlan, repro.dualLane);
+    const semanticStateChanged =
+      JSON.stringify(stages) !== JSON.stringify(repro.stages) ||
+      JSON.stringify(steps) !== JSON.stringify(repro.plan.steps) ||
+      JSON.stringify(dualLane) !== JSON.stringify(repro.dualLane);
     const normalized: SparkSessionRepro = {
       ...repro,
       stages,
-      plan: { ...repro.plan, steps },
+      plan: normalizedPlan,
+      dualLane,
       stopGuard: {
         ...repro.stopGuard,
         limit:
@@ -976,7 +1018,7 @@ export function normalizeStoredSparkSessionRepro(value: unknown): SparkSessionRe
             : 0,
       },
     };
-    if (normalized.stopGuard.lastProgressDigest.trim()) return normalized;
+    if (!semanticStateChanged && normalized.stopGuard.lastProgressDigest.trim()) return normalized;
     return {
       ...normalized,
       stopGuard: {
@@ -1008,7 +1050,7 @@ export function currentReproSteps(repro: SparkSessionRepro): SparkReproStep[] {
 }
 
 export function reproProgressDigest(
-  repro: SparkSessionRepro | SparkSessionReproV4,
+  repro: SparkSessionRepro | SparkSessionReproV6 | SparkSessionReproV4,
   orchestration: SparkReproOrchestrationInput = {},
 ): string {
   const progress = {
@@ -1049,8 +1091,9 @@ export function reproProgressDigest(
       evidenceRefs: step.evidenceRefs,
       blocker: step.blocker,
     })),
-    ...(repro.version === 6
+    ...(repro.version === 7
       ? {
+          dualLane: repro.dualLane,
           subgoalTasks: [...repro.subgoals]
             .sort((left, right) => left.id.localeCompare(right.id))
             .map((subgoal) => ({
@@ -1145,8 +1188,9 @@ function normalizeStoredReproStages(stages: readonly SparkReproStage[]): SparkRe
 
 function isStoredSparkSessionRepro(
   value: unknown,
-): value is SparkSessionRepro | SparkSessionReproV5 {
-  if (!isRecord(value) || (value.version !== 5 && value.version !== 6)) return false;
+): value is SparkSessionRepro | SparkSessionReproV6 | SparkSessionReproV5 {
+  if (!isRecord(value) || (value.version !== 5 && value.version !== 6 && value.version !== 7))
+    return false;
   if (
     typeof value.reproId !== "string" ||
     typeof value.sessionKey !== "string" ||
@@ -1169,6 +1213,8 @@ function isStoredSparkSessionRepro(
     !value.subgoals.every(value.version === 5 ? isStoredReproSubgoalV5 : isStoredReproSubgoal)
   )
     return false;
+  if (value.version === 7 && !isStoredDualLaneSessionState(value.dualLane, value.plan))
+    return false;
   if (
     value.projectRef !== undefined &&
     (typeof value.projectRef !== "string" || !isRef(value.projectRef, "proj"))
@@ -1177,6 +1223,60 @@ function isStoredSparkSessionRepro(
   if (!isRecord(value.stopGuard) || !isStoredStopGuard(value.stopGuard)) return false;
   const currentStageIndex = Number(value.currentStageIndex);
   return currentStageIndex >= 0 && currentStageIndex < value.stages.length;
+}
+
+function isStoredDualLaneSessionState(
+  value: unknown,
+  plan: SparkReproPlan,
+): value is SparkReproDualLaneSessionState {
+  if (!isRecord(value) || value.schema !== "spark.repro.dual-lane-session/v1") return false;
+  if (value.planRevision !== plan.currentRevision) return false;
+  if (!isRecord(value.explore) || !isReproStageName(value.explore.stage)) return false;
+  if (!isStringArray(value.explore.observationIds)) return false;
+  if (!isRecord(value.normative)) return false;
+  if (
+    !isStringArray(value.normative.orderedStepIds) ||
+    !isStringArray(value.normative.retiredStepIds) ||
+    !isStringArray(value.normative.candidateIds) ||
+    (value.normative.currentStepId !== undefined &&
+      typeof value.normative.currentStepId !== "string")
+  )
+    return false;
+  const orderedStepIds = plan.steps.map((step) => step.id);
+  const retiredStepIds = value.normative.retiredStepIds;
+  const candidateIds = value.normative.candidateIds;
+  if (JSON.stringify(value.normative.orderedStepIds) !== JSON.stringify(orderedStepIds))
+    return false;
+  if (
+    new Set(retiredStepIds).size !== retiredStepIds.length ||
+    new Set(candidateIds).size !== candidateIds.length ||
+    JSON.stringify(retiredStepIds) !==
+      JSON.stringify(orderedStepIds.slice(0, retiredStepIds.length))
+  )
+    return false;
+  const retired = new Set(retiredStepIds);
+  if (
+    candidateIds.some(
+      (id) =>
+        !orderedStepIds.includes(id) ||
+        retired.has(id) ||
+        plan.steps.find((step) => step.id === id)?.status !== "done",
+    )
+  )
+    return false;
+  const currentStepId = orderedStepIds[retiredStepIds.length];
+  if (value.normative.currentStepId !== currentStepId) return false;
+  if (!isStringArray(value.unresolvedIds)) return false;
+  if (
+    new Set(value.explore.observationIds).size !== value.explore.observationIds.length ||
+    new Set(value.unresolvedIds).size !== value.unresolvedIds.length
+  )
+    return false;
+  return (
+    isRecord(value.migration) &&
+    (value.migration.sourceVersion === 6 || value.migration.sourceVersion === 7) &&
+    value.migration.legacyProofAuthority === "not_promoted"
+  );
 }
 
 function isStoredGoalContract(value: Record<string, unknown>): boolean {
@@ -1206,7 +1306,8 @@ function isStoredGoalAuthority(value: unknown): boolean {
   );
 }
 
-function isStoredReproPlan(value: Record<string, unknown>): boolean {
+function isStoredReproPlan(value: unknown): value is SparkReproPlan {
+  if (!isRecord(value)) return false;
   return (
     Number.isInteger(value.currentRevision) &&
     Number(value.currentRevision) > 0 &&
@@ -1578,9 +1679,10 @@ export function migrateSparkSessionReproV4(repro: SparkSessionReproV4): SparkSes
   const plan = migrateReproPlanV4(repro.plan);
   const migratedWithoutDigest: SparkSessionRepro = {
     ...repro,
-    version: 6,
+    version: 7,
     plan,
     subgoals: createInitialReproSubgoals(repro.reproId, plan, repro.updatedAt || nowIso()),
+    dualLane: createInitialDualLaneSessionState(plan, 6),
   };
   return {
     ...migratedWithoutDigest,
@@ -1600,7 +1702,7 @@ export function migrateSparkSessionReproV5(repro: SparkSessionReproV5): SparkSes
   }
   const migratedWithoutDigest: SparkSessionRepro = {
     ...repro,
-    version: 6,
+    version: 7,
     subgoals: repro.subgoals.map((legacy): SparkReproSubgoal => {
       const uniqueTaskRefs = [...new Set(legacy.taskRefs)];
       const taskRef =
@@ -1629,6 +1731,7 @@ export function migrateSparkSessionReproV5(repro: SparkSessionReproV5): SparkSes
         updatedAt: legacy.updatedAt,
       };
     }),
+    dualLane: createInitialDualLaneSessionState(repro.plan, 6),
   };
   return {
     ...migratedWithoutDigest,
@@ -1637,6 +1740,125 @@ export function migrateSparkSessionReproV5(repro: SparkSessionReproV5): SparkSes
       lastProgressDigest: reproProgressDigest(migratedWithoutDigest),
     },
   };
+}
+
+export function migrateSparkSessionReproV6(repro: SparkSessionReproV6): SparkSessionRepro {
+  const migratedWithoutDigest: SparkSessionRepro = {
+    ...repro,
+    version: 7,
+    dualLane: createInitialDualLaneSessionState(repro.plan, 6),
+  };
+  return {
+    ...migratedWithoutDigest,
+    stopGuard: {
+      ...migratedWithoutDigest.stopGuard,
+      lastProgressDigest: reproProgressDigest(migratedWithoutDigest),
+    },
+  };
+}
+
+function normalizeDualLaneSessionState(
+  plan: SparkReproPlan,
+  prior: SparkReproDualLaneSessionState,
+): SparkReproDualLaneSessionState {
+  const orderedStepIds = plan.steps.map((step) => step.id);
+  const verifiedIds = new Set([...prior.normative.retiredStepIds, ...prior.normative.candidateIds]);
+  const retiredStepIds: string[] = [];
+  for (const step of plan.steps) {
+    if (step.status !== "done" || !verifiedIds.has(step.id)) break;
+    retiredStepIds.push(step.id);
+  }
+  const retired = new Set(retiredStepIds);
+  const candidateIds = orderedStepIds.filter(
+    (id) =>
+      verifiedIds.has(id) &&
+      !retired.has(id) &&
+      plan.steps.find((step) => step.id === id)?.status === "done",
+  );
+  const currentStepId = orderedStepIds[retiredStepIds.length];
+  return {
+    ...prior,
+    planRevision: plan.currentRevision,
+    normative: {
+      orderedStepIds,
+      ...(currentStepId ? { currentStepId } : {}),
+      retiredStepIds,
+      candidateIds,
+    },
+  };
+}
+
+function synchronizeDualLaneSessionState(
+  repro: SparkSessionRepro,
+  prior: SparkReproDualLaneSessionState,
+  stepId: string,
+  status: SparkReproStepStatus,
+): SparkReproDualLaneSessionState {
+  const orderedStepIds = repro.plan.steps.map((step) => step.id);
+  const verifiedIds = new Set([...prior.normative.retiredStepIds, ...prior.normative.candidateIds]);
+  if (status === "done") verifiedIds.add(stepId);
+  else verifiedIds.delete(stepId);
+  const retiredStepIds: string[] = [];
+  while (retiredStepIds.length < orderedStepIds.length) {
+    const nextStepId = orderedStepIds[retiredStepIds.length]!;
+    const step = repro.plan.steps[retiredStepIds.length]!;
+    if (step.status !== "done" || !verifiedIds.has(nextStepId)) break;
+    retiredStepIds.push(nextStepId);
+  }
+  const retired = new Set(retiredStepIds);
+  const currentStepId = orderedStepIds[retiredStepIds.length];
+  return {
+    ...prior,
+    planRevision: repro.plan.currentRevision,
+    normative: {
+      orderedStepIds,
+      ...(currentStepId ? { currentStepId } : {}),
+      retiredStepIds,
+      candidateIds: orderedStepIds.filter((id) => verifiedIds.has(id) && !retired.has(id)),
+    },
+  };
+}
+
+function createInitialDualLaneSessionState(
+  plan: SparkReproPlan,
+  sourceVersion: 6 | 7 = 7,
+): SparkReproDualLaneSessionState {
+  const orderedStepIds = plan.steps.map((step) => step.id);
+  const retiredStepIds: string[] = [];
+  if (sourceVersion === 7) {
+    for (const step of plan.steps) {
+      if (step.status !== "done") break;
+      retiredStepIds.push(step.id);
+    }
+  }
+  const retired = new Set(retiredStepIds);
+  const candidateIds =
+    sourceVersion === 7
+      ? plan.steps
+          .filter((step) => step.status === "done" && !retired.has(step.id))
+          .map((step) => step.id)
+      : [];
+  const currentStepId = orderedStepIds.find((stepId) => !retired.has(stepId));
+  const initial: SparkReproDualLaneSessionState = {
+    schema: "spark.repro.dual-lane-session/v1",
+    planRevision: plan.currentRevision,
+    explore: {
+      stage: plan.steps[0]?.stage ?? "contract",
+      observationIds: [],
+    },
+    normative: {
+      orderedStepIds,
+      ...(currentStepId ? { currentStepId } : {}),
+      retiredStepIds,
+      candidateIds,
+    },
+    unresolvedIds: [],
+    migration: {
+      sourceVersion,
+      legacyProofAuthority: "not_promoted",
+    },
+  };
+  return initial;
 }
 
 function reconcileReproSubgoals(
