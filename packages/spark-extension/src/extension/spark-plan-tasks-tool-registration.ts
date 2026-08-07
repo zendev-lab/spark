@@ -8,6 +8,7 @@ import {
   type TaskRef,
 } from "@zendev-lab/spark-core";
 import {
+  TaskDependencyPatchError,
   collectNonConcreteTaskIssues,
   decideTaskPlanBeforeCreate,
   defaultTaskGraphStore,
@@ -204,7 +205,23 @@ export function registerSparkPlanTasksTool(
           details: { found: false, error: projectSelector ? "project_not_found" : undefined },
         };
       const registry = await createSparkRoleRegistry(sparkStateCwd(cwd, ctx));
-      const normalizedTasks = normalizeSparkPlanTaskInputs(params, registry);
+      let normalizedTasks: SparkPlanTaskMutationInput[] | undefined;
+      try {
+        normalizedTasks = normalizeSparkPlanTaskInputs(params, registry);
+      } catch (error) {
+        if (error instanceof TaskDependencyPatchError) {
+          return {
+            content: [{ type: "text", text: `Task dependency patch error: ${error.message}` }],
+            details: {
+              found: true,
+              error: "task_dependency_patch_error",
+              code: error.patchCode,
+              message: error.message,
+            },
+          };
+        }
+        throw error;
+      }
       if (!normalizedTasks)
         return {
           content: [{ type: "text", text: "Task plan is required." }],
@@ -220,30 +237,51 @@ export function registerSparkPlanTasksTool(
                 text: "Task dependency patch error: dependency-only entries cannot be mixed with full task plan entries in one batch.",
               },
             ],
-            details: { found: true, error: "task_dependency_patch_mixed_batch" },
+            details: {
+              found: true,
+              error: "task_dependency_patch_error",
+              code: "dependency_patch_mixed_batch",
+            },
           };
         }
-        const seenTaskRefs = new Set<TaskRef>();
-        const patches = [];
+        let patches;
         try {
-          for (const patch of dependencyPatches) {
+          const seenTaskRefs = new Set<TaskRef>();
+          const inputs = dependencyPatches.map((patch) => {
             const task = resolveDependencyPatchTask(graph, project.ref, patch);
             if (seenTaskRefs.has(task.ref))
-              throw new DependencyError(`duplicate dependency patch target: ${task.ref}`);
+              throw new TaskDependencyPatchError(
+                "dependency_patch_duplicate_target",
+                `duplicate dependency patch target: ${task.ref}`,
+              );
             seenTaskRefs.add(task.ref);
-            const dependsOnRefs = patch.dependsOn.map((selector) =>
-              resolveDependencyPatchPrerequisite(graph, project.ref, selector),
-            );
-            const replacement = graph.replaceTaskDependencies(task.ref, dependsOnRefs);
-            patches.push({
-              task: compactTaskDetail(replacement.task),
-              dependencies: replacement.dependencies,
-              added: replacement.added.length,
-              removed: replacement.removed.length,
-              unchanged: replacement.unchanged.length,
-            });
-          }
+            return {
+              taskRef: task.ref,
+              dependsOnRefs: patch.dependsOn.map((selector) =>
+                resolveDependencyPatchPrerequisite(graph, project.ref, selector),
+              ),
+            };
+          });
+          const batch = graph.replaceTaskDependenciesBatch(inputs);
+          patches = batch.replacements.map((replacement) => ({
+            task: compactTaskDetail(replacement.task),
+            dependencies: replacement.dependencies,
+            added: replacement.added.length,
+            removed: replacement.removed.length,
+            unchanged: replacement.unchanged.length,
+          }));
         } catch (error) {
+          if (error instanceof TaskDependencyPatchError) {
+            return {
+              content: [{ type: "text", text: `Task dependency patch error: ${error.message}` }],
+              details: {
+                found: true,
+                error: "task_dependency_patch_error",
+                code: error.patchCode,
+                message: error.message,
+              },
+            };
+          }
           if (error instanceof DependencyError || error instanceof NotFoundError) {
             return {
               content: [{ type: "text", text: `Task dependency patch error: ${error.message}` }],
@@ -509,11 +547,15 @@ function normalizeTaskDependencyPatch(
   const allowed = new Set(["taskRef", "name", "title", "dependsOn"]);
   const unexpected = Object.keys(value).filter((key) => !allowed.has(key));
   if (unexpected.length > 0)
-    throw new Error(
+    throw new TaskDependencyPatchError(
+      "dependency_patch_mixed_fields",
       `${path} dependency-only patch only accepts taskRef, name, title, and dependsOn; unexpected: ${unexpected.join(", ")}`,
     );
   if (!Object.hasOwn(value, "dependsOn"))
-    throw new Error(`${path} dependency-only patch requires dependsOn`);
+    throw new TaskDependencyPatchError(
+      "dependency_patch_depends_on_missing",
+      `${path} dependency-only patch requires dependsOn`,
+    );
   const selectors = [
     ["taskRef", normalizeOptionalToolString(value.taskRef, `${path}.taskRef`)],
     ["name", normalizeOptionalToolString(value.name, `${path}.name`)],
@@ -522,11 +564,17 @@ function normalizeTaskDependencyPatch(
     Boolean(entry[1]),
   );
   if (selectors.length !== 1)
-    throw new Error(
+    throw new TaskDependencyPatchError(
+      selectors.length === 0
+        ? "dependency_patch_selector_missing"
+        : "dependency_patch_selector_ambiguous",
       `${path} dependency-only patch requires exactly one selector: taskRef, name, or title`,
     );
   if (!Array.isArray(value.dependsOn) || value.dependsOn.some((item) => typeof item !== "string"))
-    throw new Error(`${path}.dependsOn must be an array of strings`);
+    throw new TaskDependencyPatchError(
+      "dependency_patch_depends_on_invalid",
+      `${path}.dependsOn must be an array of strings`,
+    );
   const dependsOn = value.dependsOn.map((item) => item.trim()).filter(Boolean);
   const [selectorKind, selector] = selectors[0];
   return {
@@ -550,21 +598,33 @@ function resolveDependencyPatchTask(
   patch: SparkTaskDependencyPatchInput,
 ): Task {
   if (patch.selectorKind === "taskRef") {
-    const task = graph.getTask(patch.selector as TaskRef);
-    if (task.projectRef !== projectRef)
-      throw new DependencyError(
-        `task dependency patch target is outside project: ${patch.selector}`,
-      );
-    return task;
+    try {
+      const task = graph.getTask(patch.selector as TaskRef);
+      if (task.projectRef !== projectRef)
+        throw new TaskDependencyPatchError(
+          "dependency_patch_cross_project",
+          `task dependency patch target is outside project: ${patch.selector}`,
+        );
+      return task;
+    } catch (error) {
+      if (error instanceof NotFoundError)
+        throw new TaskDependencyPatchError(
+          "dependency_patch_target_not_found",
+          `unknown task dependency patch target: ${patch.selector}`,
+        );
+      throw error;
+    }
   }
   const selectorKind: "name" | "title" = patch.selectorKind;
   const matches = graph.tasks(projectRef).filter((task) => task[selectorKind] === patch.selector);
   if (matches.length === 0)
-    throw new NotFoundError(
+    throw new TaskDependencyPatchError(
+      "dependency_patch_target_not_found",
       `unknown task dependency patch target by ${patch.selectorKind}: ${patch.selector}`,
     );
   if (matches.length > 1)
-    throw new DependencyError(
+    throw new TaskDependencyPatchError(
+      "dependency_patch_target_ambiguous",
       `ambiguous task dependency patch target by ${patch.selectorKind}: ${patch.selector}`,
     );
   return matches[0];
@@ -575,13 +635,38 @@ function resolveDependencyPatchPrerequisite(
   projectRef: ProjectRef,
   selector: string,
 ): TaskRef {
-  if (selector.startsWith("task:")) return graph.getTask(selector as TaskRef).ref;
+  if (selector.startsWith("task:")) {
+    try {
+      const task = graph.getTask(selector as TaskRef);
+      if (task.projectRef !== projectRef)
+        throw new TaskDependencyPatchError(
+          "dependency_patch_cross_project",
+          `task dependencies cannot cross projects: dependency is outside project: ${selector}`,
+        );
+      return task.ref;
+    } catch (error) {
+      if (error instanceof NotFoundError)
+        throw new TaskDependencyPatchError(
+          "dependency_patch_prerequisite_not_found",
+          `unknown dependency: ${selector}`,
+        );
+      throw error;
+    }
+  }
   const tasks = graph.tasks(projectRef);
   const nameMatch = tasks.find((task) => task.name === selector);
   if (nameMatch) return nameMatch.ref;
   const titleMatches = tasks.filter((task) => task.title === selector);
-  if (titleMatches.length === 0) throw new NotFoundError(`unknown dependency: ${selector}`);
-  if (titleMatches.length > 1) throw new DependencyError(`ambiguous dependency title: ${selector}`);
+  if (titleMatches.length === 0)
+    throw new TaskDependencyPatchError(
+      "dependency_patch_prerequisite_not_found",
+      `unknown dependency: ${selector}`,
+    );
+  if (titleMatches.length > 1)
+    throw new TaskDependencyPatchError(
+      "dependency_patch_prerequisite_ambiguous",
+      `ambiguous dependency title: ${selector}`,
+    );
   return titleMatches[0].ref;
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { DependencyError } from "@zendev-lab/spark-core";
+import { TaskDependencyPatchError } from "./common.ts";
 import { TaskGraph } from "./graph.ts";
 
 function createGraph() {
@@ -71,6 +72,91 @@ describe("TaskGraph.replaceTaskDependencies", () => {
     expect(cleared.removed.map((dependency) => dependency.dependsOn)).toEqual([second.ref]);
     expect(graph.dependencies()).toEqual([]);
     expect(graph.getTask(target.ref)).toEqual(before);
+  });
+
+  it("validates a multi-entry replacement against the final graph before committing", () => {
+    const { graph, target, first, second } = createGraph();
+    const other = graph.createTask({
+      projectRef: target.projectRef,
+      name: "other-target",
+      title: "Other target",
+      description: "Second target.",
+      status: "pending",
+    });
+    graph.replaceTaskDependencies(target.ref, [first.ref]);
+    graph.replaceTaskDependencies(other.ref, [second.ref]);
+    const before = graph.snapshot();
+
+    expect(() =>
+      graph.replaceTaskDependenciesBatch([
+        { taskRef: target.ref, dependsOnRefs: [second.ref] },
+        { taskRef: other.ref, dependsOnRefs: [target.ref] },
+      ]),
+    ).not.toThrow();
+    expect(graph.dependencies()).toEqual(
+      [
+        { taskRef: target.ref, dependsOn: second.ref },
+        { taskRef: other.ref, dependsOn: target.ref },
+      ].sort((left, right) => left.taskRef.localeCompare(right.taskRef)),
+    );
+
+    const reordered = TaskGraph.fromSnapshot(before);
+    reordered.replaceTaskDependenciesBatch([
+      { taskRef: other.ref, dependsOnRefs: [target.ref] },
+      { taskRef: target.ref, dependsOnRefs: [second.ref] },
+    ]);
+    expect(reordered.dependencies()).toEqual(graph.dependencies());
+
+    const otherProject = graph.createProject({
+      title: "Atomic failure project",
+      description: "A later invalid entry must not commit earlier entries.",
+    });
+    const outsider = graph.createTask({
+      projectRef: otherProject.ref,
+      name: "outsider",
+      title: "Outsider",
+      description: "Cross-project prerequisite.",
+    });
+    const unchanged = graph.snapshot();
+    expect(() =>
+      graph.replaceTaskDependenciesBatch([
+        { taskRef: target.ref, dependsOnRefs: [second.ref] },
+        { taskRef: other.ref, dependsOnRefs: [outsider.ref] },
+      ]),
+    ).toThrowError(TaskDependencyPatchError);
+    expect(graph.snapshot()).toEqual(unchanged);
+
+    const restored = TaskGraph.fromSnapshot(before);
+    expect(() =>
+      restored.replaceTaskDependenciesBatch([
+        { taskRef: target.ref, dependsOnRefs: [other.ref] },
+        { taskRef: other.ref, dependsOnRefs: [target.ref] },
+      ]),
+    ).toThrow(/cyclic/);
+    expect(restored.snapshot()).toEqual(before);
+  });
+
+  it("accepts reverse-edge replacement regardless of entry order", () => {
+    const firstOrder = createGraph();
+    firstOrder.graph.replaceTaskDependencies(firstOrder.target.ref, [firstOrder.first.ref]);
+    firstOrder.graph.replaceTaskDependenciesBatch([
+      { taskRef: firstOrder.first.ref, dependsOnRefs: [firstOrder.target.ref] },
+      { taskRef: firstOrder.target.ref, dependsOnRefs: [] },
+    ]);
+
+    const secondOrder = createGraph();
+    secondOrder.graph.replaceTaskDependencies(secondOrder.target.ref, [secondOrder.first.ref]);
+    secondOrder.graph.replaceTaskDependenciesBatch([
+      { taskRef: secondOrder.target.ref, dependsOnRefs: [] },
+      { taskRef: secondOrder.first.ref, dependsOnRefs: [secondOrder.target.ref] },
+    ]);
+
+    expect(firstOrder.graph.dependencies()).toEqual([
+      { taskRef: firstOrder.first.ref, dependsOn: firstOrder.target.ref },
+    ]);
+    expect(secondOrder.graph.dependencies()).toEqual([
+      { taskRef: secondOrder.first.ref, dependsOn: secondOrder.target.ref },
+    ]);
   });
 
   it("rejects invalid replacements without changing the dependency snapshot", () => {

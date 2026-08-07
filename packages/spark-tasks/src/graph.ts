@@ -21,6 +21,7 @@ import {
   type TaskTodo,
 } from "@zendev-lab/spark-core";
 import { createDefaultProjectRoadmap, normalizeProjectRoadmap, uniqueTaskRefs } from "./roadmap.ts";
+import { TaskDependencyPatchError } from "./common.ts";
 import type {
   ClaimTaskInput,
   CreateProjectInput,
@@ -29,6 +30,8 @@ import type {
   HeartbeatTaskClaimInput,
   ProjectTodoSummary,
   TaskGraphSnapshot,
+  TaskDependencyReplacementBatchResult,
+  TaskDependencyReplacementInput,
   TaskDependencyReplacementResult,
   TaskPlanInput,
   TaskPlanResult,
@@ -656,38 +659,98 @@ export class TaskGraph {
     taskRef: TaskRef,
     dependsOnRefs: readonly TaskRef[],
   ): TaskDependencyReplacementResult {
-    const task = this.getTask(taskRef);
-    const uniqueDependsOnRefs = [...new Set(dependsOnRefs)];
-    const replacements = uniqueDependsOnRefs.map((dependsOn) => {
-      const prerequisite = this.getTask(dependsOn);
-      if (task.projectRef !== prerequisite.projectRef)
-        throw new DependencyError("task dependencies cannot cross projects");
-      if (taskRef === dependsOn) throw new DependencyError("task cannot depend on itself");
-      if (prerequisite.status === "cancelled" && task.status !== "cancelled")
-        throw new DependencyError(
-          `task cannot depend on cancelled task: ${taskRef} depends on ${dependsOn}`,
+    return this.replaceTaskDependenciesBatch([{ taskRef, dependsOnRefs }]).replacements[0]!;
+  }
+
+  replaceTaskDependenciesBatch(
+    inputs: readonly TaskDependencyReplacementInput[],
+  ): TaskDependencyReplacementBatchResult {
+    const uniqueInputs = new Map<TaskRef, readonly TaskRef[]>();
+    for (const input of inputs) {
+      if (uniqueInputs.has(input.taskRef))
+        throw new TaskDependencyPatchError(
+          "dependency_patch_duplicate_target",
+          `duplicate dependency patch target: ${input.taskRef}`,
         );
-      return { taskRef, dependsOn };
-    });
-    const existing = this.#dependencies.filter((dependency) => dependency.taskRef === taskRef);
+      uniqueInputs.set(input.taskRef, [...new Set(input.dependsOnRefs)]);
+    }
+
+    const replacements = new Map<TaskRef, TaskDependency[]>();
+    for (const [taskRef, dependsOnRefs] of uniqueInputs) {
+      let task: Task;
+      try {
+        task = this.getTask(taskRef);
+      } catch (error) {
+        if (error instanceof NotFoundError)
+          throw new TaskDependencyPatchError(
+            "dependency_patch_target_not_found",
+            `unknown task dependency patch target: ${taskRef}`,
+          );
+        throw error;
+      }
+      const dependencies = dependsOnRefs.map((dependsOn) => {
+        let prerequisite: Task;
+        try {
+          prerequisite = this.getTask(dependsOn);
+        } catch (error) {
+          if (error instanceof NotFoundError)
+            throw new TaskDependencyPatchError(
+              "dependency_patch_prerequisite_not_found",
+              `unknown dependency: ${dependsOn}`,
+            );
+          throw error;
+        }
+        if (task.projectRef !== prerequisite.projectRef)
+          throw new TaskDependencyPatchError(
+            "dependency_patch_cross_project",
+            "task dependencies cannot cross projects",
+          );
+        if (taskRef === dependsOn)
+          throw new TaskDependencyPatchError(
+            "dependency_patch_self_dependency",
+            "task cannot depend on itself",
+          );
+        if (prerequisite.status === "cancelled" && task.status !== "cancelled")
+          throw new TaskDependencyPatchError(
+            "dependency_patch_cancelled_prerequisite",
+            `task cannot depend on cancelled task: ${taskRef} depends on ${dependsOn}`,
+          );
+        return { taskRef, dependsOn };
+      });
+      replacements.set(taskRef, dependencies);
+    }
+
+    const replacementDependencies = [...replacements.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .flatMap(([, dependencies]) =>
+        [...dependencies].sort((left, right) => left.dependsOn.localeCompare(right.dependsOn)),
+      );
     const next = [
-      ...this.#dependencies.filter((dependency) => dependency.taskRef !== taskRef),
-      ...replacements,
+      ...this.#dependencies.filter((dependency) => !replacements.has(dependency.taskRef)),
+      ...replacementDependencies,
     ];
-    assertAcyclic(next);
-    const existingRefs = new Set(existing.map((dependency) => dependency.dependsOn));
-    const replacementRefs = new Set(replacements.map((dependency) => dependency.dependsOn));
-    const added = replacements.filter((dependency) => !existingRefs.has(dependency.dependsOn));
-    const removed = existing.filter((dependency) => !replacementRefs.has(dependency.dependsOn));
-    const unchanged = replacements.filter((dependency) => existingRefs.has(dependency.dependsOn));
+    try {
+      assertAcyclic(next);
+    } catch (error) {
+      if (error instanceof DependencyError)
+        throw new TaskDependencyPatchError("dependency_patch_cycle", error.message);
+      throw error;
+    }
+
+    const results = [...replacements].map(([taskRef, dependencies]) => {
+      const existing = this.#dependencies.filter((dependency) => dependency.taskRef === taskRef);
+      const existingRefs = new Set(existing.map((dependency) => dependency.dependsOn));
+      const replacementRefs = new Set(dependencies.map((dependency) => dependency.dependsOn));
+      return {
+        task: this.getTask(taskRef),
+        dependencies,
+        added: dependencies.filter((dependency) => !existingRefs.has(dependency.dependsOn)),
+        removed: existing.filter((dependency) => !replacementRefs.has(dependency.dependsOn)),
+        unchanged: dependencies.filter((dependency) => existingRefs.has(dependency.dependsOn)),
+      };
+    });
     this.#dependencies = next;
-    return {
-      task: this.getTask(taskRef),
-      dependencies: replacements,
-      added,
-      removed,
-      unchanged,
-    };
+    return { replacements: results };
   }
 
   readyTasks(projectRef?: ProjectRef): Task[] {

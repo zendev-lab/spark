@@ -436,36 +436,43 @@ describe("task tool mutation boundaries", () => {
       const cases = [
         {
           label: "unknown target",
+          code: "dependency_patch_target_not_found",
           task: { name: "missing-target", dependsOn: [] },
           message: /unknown task dependency patch target/,
         },
         {
           label: "unknown",
+          code: "dependency_patch_prerequisite_not_found",
           task: { name: target.name, dependsOn: ["missing"] },
           message: /unknown dependency/,
         },
         {
           label: "self",
+          code: "dependency_patch_self_dependency",
           task: { name: target.name, dependsOn: [target.ref] },
           message: /itself/,
         },
         {
           label: "cancelled",
+          code: "dependency_patch_cancelled_prerequisite",
           task: { name: target.name, dependsOn: [cancelled.ref] },
           message: /cancelled/,
         },
         {
           label: "cross-project",
+          code: "dependency_patch_cross_project",
           task: { name: target.name, dependsOn: [outsider.ref] },
           message: /cross projects/,
         },
         {
           label: "cycle",
+          code: "dependency_patch_cycle",
           task: { name: prerequisite.name, dependsOn: [target.name] },
           message: /cyclic/,
         },
         {
           label: "ambiguous target",
+          code: "dependency_patch_target_ambiguous",
           task: { title: target.title, dependsOn: [] },
           message: /ambiguous task dependency patch target/,
         },
@@ -480,20 +487,110 @@ describe("task tool mutation boundaries", () => {
         );
         expect(result.details, scenario.label).toMatchObject({
           error: "task_dependency_patch_error",
+          code: scenario.code,
         });
         expect(result.content[0]?.text, scenario.label).toMatch(scenario.message);
         expect(JSON.stringify((await store.load())?.snapshot()), scenario.label).toBe(baseline);
       }
 
-      await expect(
-        tool.execute(
-          "dependency-reject-mixed-fields",
-          { tasks: [{ name: target.name, dependsOn: [], status: "pending" }] },
+      const mixedBatch = await tool.execute(
+        "dependency-reject-mixed-batch",
+        {
+          tasks: [
+            { name: target.name, dependsOn: [] },
+            {
+              name: "full-task",
+              title: "Full task",
+              description: "A full task cannot share a dependency-only batch.",
+              plan: executionReadyPlan("reject mixed batch"),
+            },
+          ],
+        },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      );
+      expect(mixedBatch.details).toMatchObject({
+        error: "task_dependency_patch_error",
+        code: "dependency_patch_mixed_batch",
+      });
+      expect(JSON.stringify((await store.load())?.snapshot())).toBe(baseline);
+      const normalizationCases = [
+        {
+          label: "mixed fields",
+          code: "dependency_patch_mixed_fields",
+          task: { name: target.name, dependsOn: [], status: "pending" },
+        },
+        {
+          label: "missing selector",
+          code: "dependency_patch_selector_missing",
+          task: { dependsOn: [] },
+        },
+        {
+          label: "ambiguous selector",
+          code: "dependency_patch_selector_ambiguous",
+          task: { name: target.name, title: target.title, dependsOn: [] },
+        },
+        {
+          label: "missing dependsOn",
+          code: "dependency_patch_depends_on_missing",
+          task: { taskRef: target.ref },
+        },
+        {
+          label: "invalid dependsOn",
+          code: "dependency_patch_depends_on_invalid",
+          task: { name: target.name, dependsOn: [1] },
+        },
+      ];
+      for (const scenario of normalizationCases) {
+        const result = await tool.execute(
+          `dependency-reject-${scenario.label}`,
+          { tasks: [scenario.task] },
           new AbortController().signal,
           () => undefined,
           ctx,
-        ),
-      ).rejects.toThrow(/dependency-only patch only accepts/);
+        );
+        expect(result.details, scenario.label).toMatchObject({
+          error: "task_dependency_patch_error",
+          code: scenario.code,
+        });
+        expect(JSON.stringify((await store.load())?.snapshot()), scenario.label).toBe(baseline);
+      }
+
+      const duplicateTarget = await tool.execute(
+        "dependency-reject-duplicate-target",
+        {
+          tasks: [
+            { name: target.name, dependsOn: [] },
+            { taskRef: target.ref, dependsOn: [] },
+          ],
+        },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      );
+      expect(duplicateTarget.details).toMatchObject({
+        error: "task_dependency_patch_error",
+        code: "dependency_patch_duplicate_target",
+      });
+      expect(JSON.stringify((await store.load())?.snapshot())).toBe(baseline);
+
+      const laterEntryFailure = await tool.execute(
+        "dependency-reject-later-entry",
+        {
+          tasks: [
+            { name: target.name, dependsOn: [] },
+            { name: prerequisite.name, dependsOn: [outsider.ref] },
+          ],
+        },
+        new AbortController().signal,
+        () => undefined,
+        ctx,
+      );
+      expect(laterEntryFailure.details).toMatchObject({
+        error: "task_dependency_patch_error",
+        code: "dependency_patch_cross_project",
+      });
       expect(JSON.stringify((await store.load())?.snapshot())).toBe(baseline);
     } finally {
       await rm(cwd, { recursive: true, force: true });

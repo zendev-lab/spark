@@ -51,8 +51,12 @@ its complete reviewed plan. Use `task_write({ action: "plan", tasks: [{ name:
 `title` may replace `name`. `dependsOn` replaces the complete set, and `[]`
 clears it. Spark preserves the plan and plan items and skips unchanged-plan
 readiness review, while still rejecting missing, ambiguous, cross-project,
-cancelled-prerequisite, self, and cyclic dependencies. Any other task field
-uses the normal full-plan path and its readiness checks.
+cancelled-prerequisite, self, and cyclic dependencies. Multiple dependency-only
+entries are validated against the complete candidate graph and committed as one
+mutation; a failed entry leaves both the in-memory and persisted snapshots
+unchanged. Invalid dependency-only payloads return stable
+`dependency_patch_*` codes. Any other task field uses the normal full-plan path
+and its readiness checks.
 
 ## Shell and script tools
 

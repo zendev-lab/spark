@@ -21,6 +21,7 @@ import type {
   TaskTodo,
   TaskTodoStatus,
 } from "@zendev-lab/spark-core";
+import { DependencyError } from "@zendev-lab/spark-core";
 
 export interface CreateProjectInput {
   title: string;
@@ -167,6 +168,42 @@ export interface TaskDependencyReplacementResult {
   added: TaskDependency[];
   removed: TaskDependency[];
   unchanged: TaskDependency[];
+}
+
+export interface TaskDependencyReplacementInput {
+  taskRef: TaskRef;
+  dependsOnRefs: readonly TaskRef[];
+}
+
+export interface TaskDependencyReplacementBatchResult {
+  replacements: TaskDependencyReplacementResult[];
+}
+
+export type TaskDependencyPatchErrorCode =
+  | "dependency_patch_mixed_fields"
+  | "dependency_patch_selector_missing"
+  | "dependency_patch_selector_ambiguous"
+  | "dependency_patch_depends_on_missing"
+  | "dependency_patch_depends_on_invalid"
+  | "dependency_patch_target_not_found"
+  | "dependency_patch_target_ambiguous"
+  | "dependency_patch_prerequisite_not_found"
+  | "dependency_patch_prerequisite_ambiguous"
+  | "dependency_patch_cross_project"
+  | "dependency_patch_self_dependency"
+  | "dependency_patch_cancelled_prerequisite"
+  | "dependency_patch_cycle"
+  | "dependency_patch_duplicate_target"
+  | "dependency_patch_mixed_batch";
+
+export class TaskDependencyPatchError extends DependencyError {
+  readonly patchCode: TaskDependencyPatchErrorCode;
+
+  constructor(code: TaskDependencyPatchErrorCode, message: string) {
+    super(message, { dependencyPatchCode: code });
+    this.name = "TaskDependencyPatchError";
+    this.patchCode = code;
+  }
 }
 
 export interface NonConcreteTaskIssue {
