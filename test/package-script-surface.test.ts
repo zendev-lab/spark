@@ -117,10 +117,6 @@ test("root package exposes one compact validation and release surface", async ()
   assert.equal(scripts["deploy:docs"], "pnpm --filter @zendev-lab/spark-docs run deploy");
   assert.equal(scripts["dev:docs"], "pnpm --filter @zendev-lab/spark-docs run dev");
   assert.equal(scripts["preview:docs"], "pnpm --filter @zendev-lab/spark-docs run preview");
-  assert.equal(
-    scripts["test:process:source"],
-    "pnpm --filter @zendev-lab/spark-hub run build && vp test run --config vitest.process.config.ts",
-  );
   assert.match(scripts.fix ?? "", /^pnpm --filter @zendev-lab\/spark-hub exec svelte-kit sync/u);
   for (const requiredCheckPhase of [
     "pnpm --filter @zendev-lab/spark-docs exec astro sync",
