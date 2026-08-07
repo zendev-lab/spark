@@ -1,8 +1,7 @@
 export function normalize(values, epsilon = 1e-5) {
   assertValues(values);
   const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const variance =
-    values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
   // Intentional fixture defect: the reference uses sqrt(variance + epsilon).
   const denominator = variance + epsilon;
   return values.map((value) => (value - mean) / denominator);
