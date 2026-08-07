@@ -35,7 +35,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Apply scoped fixes
         run: |
+          git fetch origin agent/prompt-operating-model:refs/remotes/origin/agent/prompt-operating-model
           python3 scripts/tmp-mode-fix.py
+          sed -i 's/plan-and-implement/plan-and-execute/g' scripts/check-user-docs.mjs
           pnpm install --lockfile-only
           git diff --name-only --diff-filter=ACMR \
             | grep -v '^scripts/tmp-mode-fix.py$' \
