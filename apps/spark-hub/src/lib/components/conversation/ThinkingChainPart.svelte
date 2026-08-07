@@ -4,6 +4,7 @@
   import ToolCallPart from "./ToolCallPart.svelte";
   import {
     isVisibleThinkingChain,
+    thinkingChainHeadline,
     thinkingChainNeedsFailureSummary,
     visibleThinkingChainSteps,
   } from "./thinking-chain-view";
@@ -24,10 +25,20 @@
   let visibleSteps = $derived(visibleThinkingChainSteps(steps));
   let needsFailureSummary = $derived(thinkingChainNeedsFailureSummary(steps));
   let shouldRender = $derived(isVisibleThinkingChain(chainState, steps));
+  let derivedHeadline = $derived(thinkingChainHeadline(visibleSteps));
+  let usesFailureHeadline = $derived(!derivedHeadline && needsFailureSummary);
+  let headline = $derived(
+    derivedHeadline ??
+      (usesFailureHeadline
+        ? labels.chainFailed
+        : chainState === "streaming"
+          ? labels.chainStreaming
+          : labels.chain),
+  );
   let expanded = $state(false);
   let userToggled = $state(false);
 
-  // Cursor/Codex: open while the turn is executing, fold shut when it finishes.
+  // Show the complete process while it is active, then retain only its summary line.
   $effect(() => {
     if (chainState === "streaming" || active) {
       expanded = true;
@@ -60,14 +71,12 @@
 </script>
 
 {#if shouldRender}
-  <details class="thinking-chain {chainState}" bind:open={expanded}>
-    <summary onclick={toggleExpanded}>
+  <details class="thinking-chain {chainState}" class:issue={usesFailureHeadline} bind:open={expanded}>
+    <summary onclick={toggleExpanded} title={headline}>
       <span class:streaming={chainState === "streaming"} class="chain-icon" aria-hidden="true">
         <Icon name="spark" size={11} stroke={2.1} />
       </span>
-      <span class="chain-label">
-        {chainState === "streaming" ? labels.chainStreaming : labels.chain}
-      </span>
+      <span class="chain-label">{headline}</span>
       <span class="disclosure" aria-hidden="true"><Icon name="chevron-down" size={11} /></span>
     </summary>
     {#if expanded}
@@ -133,14 +142,11 @@
     gap: 5px;
     list-style: none;
     margin-inline: 0 auto;
-    max-width: min(100%, 320px);
+    max-width: 100%;
     min-height: 22px;
     padding: 0 3px;
     width: fit-content;
-    transition:
-      color 120ms ease,
-      opacity 120ms ease,
-      transform 120ms ease;
+    transition: color 120ms ease;
   }
 
   summary::-webkit-details-marker {
@@ -154,6 +160,10 @@
 
   summary:hover {
     color: var(--color-ink-muted);
+  }
+
+  .thinking-chain.issue summary {
+    color: var(--color-danger-strong, var(--color-danger));
   }
 
   .chain-icon {
@@ -277,19 +287,6 @@
     .disclosure {
       animation: none;
       transition: none;
-    }
-  }
-
-  @media (hover: hover) and (pointer: fine) {
-    .thinking-chain.complete summary {
-      opacity: 0;
-      transform: translateY(2px);
-    }
-
-    :global(.conversation-message:hover) .thinking-chain.complete summary,
-    .thinking-chain.complete:focus-within summary {
-      opacity: 1;
-      transform: translateY(0);
     }
   }
 </style>
