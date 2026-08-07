@@ -256,14 +256,16 @@ test("docs production scripts separate Workers Builds build and deploy phases", 
   assert.equal(scripts.deploy, "pnpm run build:cloudflare && pnpm run deploy:cloudflare");
 });
 
-test("CI and prek consume the canonical package scripts", async () => {
+test("CI, CD, CE, and prek keep distinct validation ownership", async () => {
   const [
     staticWorkflow,
     releaseWorkflow,
     testsWorkflow,
     smokeWorkflow,
     hygieneWorkflow,
-    capabilityWorkflow,
+    behaviorWorkflow,
+    mutationCiWorkflow,
+    mutationCeWorkflow,
     prek,
   ] = await Promise.all([
     readFile(resolve(".github/workflows/ci-static-checks.yml"), "utf8"),
@@ -271,24 +273,34 @@ test("CI and prek consume the canonical package scripts", async () => {
     readFile(resolve(".github/workflows/ci-tests.yml"), "utf8"),
     readFile(resolve(".github/workflows/ci-smoke.yml"), "utf8"),
     readFile(resolve(".github/workflows/ce-hygiene.yml"), "utf8"),
-    readFile(resolve(".github/workflows/ce-capability-nightly.yml"), "utf8"),
+    readFile(resolve(".github/workflows/ce-behavior.yml"), "utf8"),
+    readFile(resolve(".github/workflows/ci-mutation.yml"), "utf8"),
+    readFile(resolve(".github/workflows/ce-mutation.yml"), "utf8"),
     readFile(resolve("prek.toml"), "utf8"),
   ]);
 
   assert.match(staticWorkflow, /pnpm run check:static/u);
   assert.match(staticWorkflow, /pnpm run check:docs/u);
+
   assert.match(releaseWorkflow, /pull_request:/u);
   assert.match(releaseWorkflow, /merge_group:/u);
   assert.match(releaseWorkflow, /name: Documentation Deployment Dry Run/u);
   assert.match(releaseWorkflow, /wrangler deploy --dry-run/u);
   assert.match(releaseWorkflow, /name: Container Build and Smoke/u);
   assert.match(releaseWorkflow, /name: Release Build/u);
+  assert.match(releaseWorkflow, /pnpm run release:pack/u);
+  assert.match(releaseWorkflow, /Smoke the exact lockstep artifacts/u);
+  assert.match(releaseWorkflow, /Verify N-1 expand-only migration compatibility/u);
+  assert.doesNotMatch(releaseWorkflow, /pnpm run check(?:\s|$)/u);
+  assert.doesNotMatch(releaseWorkflow, /test:browser:hub/u);
   assert.match(releaseWorkflow, /if: github\.ref_type == 'tag'/u);
   assert.match(releaseWorkflow, /if: github\.event_name == 'push' && github\.ref_type == 'tag'/u);
+
   assert.match(testsWorkflow, /pnpm run test:unit/u);
   assert.match(testsWorkflow, /pnpm run test:process:source/u);
   assert.match(testsWorkflow, /pnpm run test:browser:hub/u);
   assert.match(smokeWorkflow, /pnpm run smoke/u);
+
   for (const workflow of [staticWorkflow, releaseWorkflow, testsWorkflow, smokeWorkflow]) {
     assert.doesNotMatch(workflow, /test:npm-product/u);
     assert.doesNotMatch(workflow, /re-actors\/alls-green/u);
@@ -301,14 +313,26 @@ test("CI and prek consume the canonical package scripts", async () => {
   assert.doesNotMatch(releaseWorkflow, /secrets\.NPM_TOKEN/u);
   assert.match(releaseWorkflow, /id-token: write/u);
   assert.match(releaseWorkflow, /--cli-tarball "dist\/release\/spark-cli-\$\{RELEASE_TAG\}\.tgz"/u);
+
   assert.match(hygieneWorkflow, /pnpm run report:hygiene/u);
   assert.doesNotMatch(hygieneWorkflow, /pnpm exec (?:knip|jscpd)/u);
-  assert.match(capabilityWorkflow, /pnpm run test:capability:ce/u);
-  assert.match(capabilityWorkflow, /pull_request:/u);
-  assert.match(capabilityWorkflow, /schedule:/u);
-  assert.match(capabilityWorkflow, /github\.event_name == 'pull_request' && '2'/u);
-  assert.match(capabilityWorkflow, /continue-on-error: true/u);
-  assert.match(capabilityWorkflow, /reports\/capability-ce\//u);
+
+  assert.match(behaviorWorkflow, /schedule:/u);
+  assert.doesNotMatch(behaviorWorkflow, /pull_request:/u);
+  assert.match(behaviorWorkflow, /pnpm run test:capability:ce/u);
+  assert.match(behaviorWorkflow, /run-scripted-provider-ce\.mts/u);
+  assert.match(behaviorWorkflow, /continue-on-error: true/u);
+  assert.match(behaviorWorkflow, /reports\/capability-ce\//u);
+  assert.match(behaviorWorkflow, /reports\/scripted-provider-ce\//u);
+
+  assert.match(mutationCiWorkflow, /pull_request:/u);
+  assert.match(mutationCiWorkflow, /Run focused mutation tests/u);
+  assert.doesNotMatch(mutationCiWorkflow, /schedule:/u);
+  assert.match(mutationCeWorkflow, /schedule:/u);
+  assert.doesNotMatch(mutationCeWorkflow, /pull_request:/u);
+  assert.match(mutationCeWorkflow, /pnpm run test:mutation/u);
+  assert.match(mutationCeWorkflow, /continue-on-error: true/u);
+
   assert.match(prek, /id = "spark-check-fix"/u);
   assert.match(prek, /entry = "pnpm run fix"/u);
   assert.doesNotMatch(prek, /pnpm run check:/u);
@@ -326,6 +350,7 @@ test("replacement CI owners pin every direct action to an immutable commit", asy
     ".github/workflows/ci-tests.yml",
     ".github/workflows/ci-smoke.yml",
     ".github/workflows/ci-benchmarks.yml",
+    ".github/workflows/ci-mutation.yml",
   ];
   for (const path of ownerPaths) {
     const source = await readFile(resolve(path), "utf8");
