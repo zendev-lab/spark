@@ -8,6 +8,7 @@ import {
 } from "../spark/session-run.ts";
 import { SparkChannelDeliveryStore } from "../store/channel-deliveries.ts";
 import { SparkInvocationStore } from "../store/invocations.ts";
+import { ExecutionAttemptStore } from "../execution/state.ts";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { completeInvocationWithChannelDelivery } from "./delivery-outbox.ts";
 import {
@@ -21,6 +22,15 @@ const paths = resolveSparkPaths({
   app: "daemon",
   env: { HOME: "/tmp/spark-channel-reply-delivery-test" },
 });
+
+function executionOwners() {
+  return {
+    taskClaim: async () => ({}),
+    humanInteraction: async () => ({}),
+    loopSchedule: async () => ({}),
+    loopStop: async () => ({}),
+  };
+}
 
 describe("channel reply delivery", () => {
   it("keeps an inline empty-reply notice as the only user-visible failure", async () => {
@@ -44,6 +54,9 @@ describe("channel reply delivery", () => {
     };
     const scheduler = new SparkInvocationScheduler({
       store: invocations,
+      executionAttemptStore: new ExecutionAttemptStore(db),
+      executionOwnerHandlers: executionOwners(),
+      executionAttemptGeneration: 1,
       executeTask: createChannelAwareTaskExecutor({
         paths,
         createSparkHeadlessSessionExecutor: () => async () => ({}),
@@ -144,6 +157,9 @@ describe("channel reply delivery", () => {
     };
     const scheduler = new SparkInvocationScheduler({
       store: invocations,
+      executionAttemptStore: new ExecutionAttemptStore(db),
+      executionOwnerHandlers: executionOwners(),
+      executionAttemptGeneration: 1,
       executeTask: createChannelAwareTaskExecutor({
         paths,
         createSparkHeadlessSessionExecutor: () => executeSession,

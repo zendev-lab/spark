@@ -56,6 +56,8 @@ import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
 import { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
+import { ExecutionAttemptStore } from "./execution/state.ts";
+import { createDaemonExecutionOwnerHandlers } from "./execution/daemon-owner-capabilities.ts";
 import { recoverInterruptedRuntimeCommandReceipts } from "./runtime-command-receipts.ts";
 import {
   DAEMON_RETENTION_DELETE_BATCH_SIZE,
@@ -894,6 +896,24 @@ function createDaemonScheduler(input: {
   const sessionRegistry = options.sessionRegistry;
   return new SparkInvocationScheduler({
     store: input.invocationStore,
+    executionAttemptStore: new ExecutionAttemptStore(options.db),
+    executionAttemptGeneration: Date.now(),
+    executionOwnerHandlers: createDaemonExecutionOwnerHandlers({
+      db: options.db,
+      humanInteractions: input.humanInteractions,
+      scheduleLoop: ({ loopId, generation, delayMs, reason }) => {
+        const loop = input.loopStore.schedule({ loopId, generation, delayMs, reason });
+        emitLoopUpdate(input, loop, loop.lastInvocationId);
+        return input.loopStore.mutationResult(loop);
+      },
+      stopLoop: ({ loopId, reason }) => {
+        const loop = input.loopStore.stop(loopId, reason, undefined, {
+          cancelInvocation: false,
+        });
+        emitLoopUpdate(input, loop, loop.lastInvocationId);
+        return input.loopStore.mutationResult(loop);
+      },
+    }),
     tokenUsageStore: new SparkTokenUsageStore(options.db),
     resolveReproUsageScope: async (task) =>
       task.type === "session.run"
