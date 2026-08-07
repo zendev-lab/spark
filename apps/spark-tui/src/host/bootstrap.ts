@@ -245,6 +245,7 @@ export async function createSparkCliHostServices(
     tokenUsage?.register?.(tokenUsage);
     const executeRole = createSparkHeadlessRoleExecutor({
       sparkHome: options.sparkHome,
+      ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
       createServices: createSparkCliHostServices,
       ...(tokenUsage ? { tokenUsage } : {}),
     });
