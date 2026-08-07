@@ -9,7 +9,10 @@ pnpm run audit:renderer
 ```
 
 The audit fails closed. `ready: false` means no Node-baseline increase and no
-production dependency.
+production dependency. The current Pi TUI process contract is covered by the
+component and Direct PTY lanes in
+[`native-tui-validation.md`](./native-tui-validation.md); the environment-backed
+PTY gate below records an explicit successful run of that Direct PTY contract.
 
 ## OpenTUI hard gates
 

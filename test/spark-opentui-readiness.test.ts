@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "vitest";
 
-import { evaluateOpenTuiReadiness } from "../scripts/spark-opentui-readiness.mts";
+import {
+  evaluateOpenTuiReadiness,
+  inspectOpenTuiReadiness,
+} from "../scripts/spark-opentui-readiness.mts";
 
 test("OpenTUI readiness fails closed until every runtime, release, and PTY gate passes", () => {
   const report = evaluateOpenTuiReadiness({
@@ -37,4 +43,30 @@ test("OpenTUI readiness permits a separate architecture decision only after all 
   assert.equal(report.productionDependencyAllowed, true);
   assert.deepEqual(report.failedGates, []);
   assert.match(report.decision, /separate renderer architecture decision/u);
+});
+
+test("OpenTUI readiness inspector binds PTY evidence to the Direct PTY contract", () => {
+  const root = mkdtempSync(join(tmpdir(), "spark-opentui-direct-pty-"));
+  const testPath = join(root, "apps/spark-tui/src/__tests__/spark-native-tui-direct-pty.test.ts");
+  const harnessPath = join(
+    root,
+    "apps/spark-tui/src/test-support/spark-native-tui-direct-pty-harness.ts",
+  );
+  const previousEvidence = process.env.SPARK_OPENTUI_PTY_EVIDENCE;
+  try {
+    writeFileSync(join(root, "package.json"), '{"private":true}\n', "utf8");
+    mkdirSync(join(root, "apps/spark-tui/src/__tests__"), { recursive: true });
+    mkdirSync(join(root, "apps/spark-tui/src/test-support"), { recursive: true });
+    writeFileSync(testPath, "// Direct PTY contract\n", "utf8");
+    writeFileSync(harnessPath, "// Direct PTY harness\n", "utf8");
+    process.env.SPARK_OPENTUI_PTY_EVIDENCE = "verified";
+
+    assert.equal(inspectOpenTuiReadiness(root).observed.ptyContractVerified, true);
+    rmSync(harnessPath);
+    assert.equal(inspectOpenTuiReadiness(root).observed.ptyContractVerified, false);
+  } finally {
+    if (previousEvidence === undefined) delete process.env.SPARK_OPENTUI_PTY_EVIDENCE;
+    else process.env.SPARK_OPENTUI_PTY_EVIDENCE = previousEvidence;
+    rmSync(root, { recursive: true, force: true });
+  }
 });

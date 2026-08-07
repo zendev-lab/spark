@@ -12,7 +12,7 @@ const theme = {
 test("spark widget does not show static task goal evidence review hint", () => {
   const state: SparkWidgetState = {
     projectTitle: "Spark daemon session UX",
-    goal: { status: "active", objective: "improve the zellij session workflow" },
+    goal: { status: "active", objective: "improve the terminal session workflow" },
     projects: [
       {
         title: "Spark daemon session UX",

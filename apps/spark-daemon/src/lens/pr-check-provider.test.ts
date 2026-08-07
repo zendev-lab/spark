@@ -9,6 +9,16 @@ test("PR checks pass only for a clean worktree, matching head, and explicit requ
   expect(report.localHeadOid).toBe("head-1");
   expect(report.remoteHeadOid).toBe("head-1");
   expect(report.checks).toHaveLength(1);
+
+  const skippedRequired = await runGitHubPrChecks(
+    "/workspace",
+    undefined,
+    fixtureRunner({
+      requiredChecks: [{ name: "required", state: "SKIPPED", bucket: "skipping" }],
+    }),
+  );
+  expect(skippedRequired.verdict).toBe("inconclusive");
+  expect(skippedRequired.message).toMatch(/not complete/u);
 });
 
 test("PR checks fail closed for uncommitted content and missing required checks", async () => {
@@ -39,14 +49,15 @@ test("merged PRs fall back to their complete recorded check set", async () => {
       requiredStderr: "no required checks reported",
       recordedChecks: [
         { name: "required", state: "SUCCESS", bucket: "pass", workflow: "CI" },
+        { name: "publish", state: "SKIPPED", bucket: "skipping", workflow: "CD" },
         { name: "smoke", state: "SUCCESS", bucket: "pass", workflow: "CI" },
       ],
     }),
   );
 
   expect(report.verdict).toBe("pass");
-  expect(report.checks).toHaveLength(2);
-  expect(report.message).toMatch(/All merged PR checks passed/u);
+  expect(report.checks).toHaveLength(3);
+  expect(report.message).toMatch(/All merged PR checks completed successfully/u);
 });
 
 test("merged PR recorded checks remain fail-closed", async () => {
@@ -60,6 +71,18 @@ test("merged PR recorded checks remain fail-closed", async () => {
     }),
   );
   expect(failed.verdict).toBe("fail");
+
+  const pending = await runGitHubPrChecks(
+    "/workspace",
+    undefined,
+    fixtureRunner({
+      state: "MERGED",
+      requiredChecks: [],
+      recordedChecks: [{ name: "smoke", state: "IN_PROGRESS", bucket: "pending" }],
+    }),
+  );
+  expect(pending.verdict).toBe("inconclusive");
+  expect(pending.message).toMatch(/not complete/u);
 
   const missing = await runGitHubPrChecks(
     "/workspace",

@@ -102,10 +102,13 @@ spark version [--json]
 ```text
 spark daemon status [--json]
 spark daemon start
-spark daemon stop
+spark daemon stop [--yes] [--wait]
 spark daemon restart [--yes] [--wait]
 spark daemon logs [--follow] [--lines <n>]
 ```
+
+`spark daemon stop --wait` 只有在精确匹配的受管 daemon 进程已经退出或被替换后才返回。
+恢复路径会先等待这个 fence，再启动 successor。
 
 `spark daemon login` 只授权本机连接 Hub，绝不会配置 AI provider。
 

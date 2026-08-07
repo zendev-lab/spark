@@ -168,17 +168,19 @@ export async function runGitHubPrChecks(
     };
   }
   const failed = checks.some((check) => check.bucket === "fail" || check.bucket === "cancel");
-  const pending = checks.some((check) => check.bucket !== "pass");
+  const incomplete = checks.some(
+    (check) => check.bucket !== "pass" && !(checkSet === "recorded" && check.bucket === "skipping"),
+  );
   const checkLabel = checkSet === "recorded" ? "merged PR checks" : "required PR checks";
   return {
     ...withPr,
     checks,
-    verdict: failed ? "fail" : pending ? "inconclusive" : "pass",
+    verdict: failed ? "fail" : incomplete ? "inconclusive" : "pass",
     message: failed
       ? `One or more ${checkLabel} failed`
-      : pending
+      : incomplete
         ? `${checkLabel[0]!.toUpperCase()}${checkLabel.slice(1)} are not complete`
-        : `All ${checkLabel} passed for the current head commit`,
+        : `All ${checkLabel} completed successfully for the current head commit`,
   };
 }
 

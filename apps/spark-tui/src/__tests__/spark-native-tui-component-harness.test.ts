@@ -37,7 +37,7 @@ import { createSparkTuiActionBarComponent } from "../tui/action-bar.ts";
 import type { Component } from "../tui/pi-tui-adapter.ts";
 import sparkExtension from "@zendev-lab/spark-extension/extension";
 type SparkDaemonLoopControl = NonNullable<Parameters<typeof sparkExtension>[0]["loopControl"]>;
-import { createSparkNativeTuiHarness } from "../test-support/spark-native-tui-harness.ts";
+import { createSparkNativeTuiComponentHarness } from "../test-support/spark-native-tui-component-harness.ts";
 
 const ESC = String.fromCharCode(27);
 const ANSI_PATTERN = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, "gu");
@@ -96,7 +96,7 @@ function recordingDriverControl(starts: SparkLoopStartRequest[]): SparkDaemonLoo
 }
 
 test("native TUI composes a bounded conversation frame", () => {
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     cols: 60,
     rows: 18,
     workspaceSession: {
@@ -143,7 +143,7 @@ test("native TUI composes a bounded conversation frame", () => {
 });
 
 test("native TUI invalidates its cached frame when terminal height changes", () => {
-  const harness = createSparkNativeTuiHarness({ cols: 60, rows: 18 });
+  const harness = createSparkNativeTuiComponentHarness({ cols: 60, rows: 18 });
   harness.session.messages.push(
     ...Array.from({ length: 20 }, (_, index) => ({
       role: "assistant" as const,
@@ -314,7 +314,7 @@ test("native TUI kernel slash commands are minimal and resource slash is extensi
     );
   }
 
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     rows: 120,
     slashCommands: { ...runtime, ...local },
   });
@@ -403,7 +403,7 @@ test("Spark native TUI /inbox reads durable session mail", async () => {
     const services = { cwd: join(dir, "workspace-b"), sessionStore } as never;
     const mailStore = new SparkSessionMailStore({ sparkHome });
     const inboxCalls: string[] = [];
-    const harness = createSparkNativeTuiHarness({
+    const harness = createSparkNativeTuiComponentHarness({
       slashCommands: createSparkPiParitySlashCommands(services, undefined, {
         currentSessionId: "session-b",
         list: async (sessionId) => {
@@ -443,7 +443,7 @@ test("Spark native TUI /inbox reads durable session mail", async () => {
 });
 
 test("Spark native TUI harness submits input and drives exit keys without a real terminal", async () => {
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     responder: (input) => `ack:${input}`,
   });
 
@@ -460,7 +460,7 @@ test("Spark native TUI harness submits input and drives exit keys without a real
     ),
     true,
   );
-  assert.match(stripAnsi(harness.render()), /spark> ack:hello Spark/);
+  assert.match(stripAnsi(harness.render()), /ack:hello Spark/);
 
   await harness.press("\x03");
   assert.equal(harness.state.exited, true);
@@ -470,7 +470,7 @@ test("Spark native TUI harness submits input and drives exit keys without a real
 test("Spark native TUI keeps one submission identity across an ACK-loss retry", async () => {
   const seen: Array<{ input: string; submissionId?: string }> = [];
   let failFirst = true;
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     responder: (input, context) => {
       seen.push({ input, submissionId: context.submissionId });
       if (failFirst) {
@@ -498,7 +498,7 @@ test("Spark native TUI keeps one submission identity across an ACK-loss retry", 
 });
 
 test("native TUI defaults to workspace session selector when no session target is provided", () => {
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     cols: 180,
     workspaceSession: {
       mode: "select",
@@ -517,7 +517,7 @@ test("native TUI defaults to workspace session selector when no session target i
 });
 
 test("native TUI keeps project UI placement when session selector is shown", () => {
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     cols: 180,
     workspaceSession: {
       mode: "select",
@@ -545,7 +545,7 @@ test("native TUI keeps project UI placement when session selector is shown", () 
 });
 
 test("native TUI renders compact session status before project UI", () => {
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     cols: 180,
     workspaceSession: {
       mode: "attached",
@@ -558,7 +558,7 @@ test("native TUI renders compact session status before project UI", () => {
   harness.app.setWidget("project", [
     "Project: Spark daemon session UX",
     "Goal: improve the session workflow",
-    "Ready: @zellij-driven-session-harness",
+    "Ready: @direct-pty-session-harness",
   ]);
 
   assert.equal(harness.state.exited, false);
@@ -585,7 +585,7 @@ test("native TUI construction does not mutate session lifecycle state", async ()
   const beforeGoal = await readFile(goalPath, "utf8");
   const beforeState = await readFile(statePath, "utf8");
   try {
-    const harness = createSparkNativeTuiHarness({
+    const harness = createSparkNativeTuiComponentHarness({
       workspaceSession: {
         mode: "select",
         workspaceDir: dir,
@@ -603,7 +603,7 @@ test("native TUI construction does not mutate session lifecycle state", async ()
 });
 
 test("Spark native TUI renders theme color and live widget animation frames", async () => {
-  const harness = createSparkNativeTuiHarness();
+  const harness = createSparkNativeTuiComponentHarness();
   let frame = 0;
   let widgetRequestRender: (() => void) | undefined;
 
@@ -659,7 +659,7 @@ function nativeAskRequest(
 
 test("native custom synchronous done never presents or leaks a component", async () => {
   for (const withOverlay of [false, true]) {
-    const harness = createSparkNativeTuiHarness({ withOverlay });
+    const harness = createSparkNativeTuiComponentHarness({ withOverlay });
     const component: Component = {
       render: () => ["must not become visible"],
       handleInput: () => {},
@@ -682,7 +682,7 @@ test("native custom synchronous done never presents or leaks a component", async
 });
 
 test("native ask lifecycle cache bounds replay and transcript dedup together", async () => {
-  const harness = createSparkNativeTuiHarness({ withOverlay: true });
+  const harness = createSparkNativeTuiComponentHarness({ withOverlay: true });
   const responses = new Map<
     string,
     Awaited<ReturnType<typeof harness.app.handleInteractionRequest>>
@@ -733,7 +733,7 @@ test("native ask overlay geometry fits terminal variants and renders within its 
     [80, 24],
     [120, 30],
   ] as const) {
-    const harness = createSparkNativeTuiHarness({ cols, rows, withOverlay: true });
+    const harness = createSparkNativeTuiComponentHarness({ cols, rows, withOverlay: true });
     const promise = harness.app.handleInteractionRequest(nativeAskRequest(`ask-geometry-${cols}`));
     await harness.flush();
     const overlay = harness.state.overlays.at(-1);
@@ -756,7 +756,7 @@ test("native ask overlay geometry fits terminal variants and renders within its 
 });
 
 test("native ask pending state is unique in the main frame and clears after answer", async () => {
-  const harness = createSparkNativeTuiHarness({ withOverlay: true });
+  const harness = createSparkNativeTuiComponentHarness({ withOverlay: true });
   const request = nativeAskRequest("ask-pending-visible");
   const first = harness.app.handleInteractionRequest(request);
   const second = harness.app.handleInteractionRequest(request);
@@ -787,7 +787,7 @@ test("native ask pending state is unique in the main frame and clears after answ
 });
 
 test("native ask fallback child closes on answer and permits a different request", async () => {
-  const harness = createSparkNativeTuiHarness();
+  const harness = createSparkNativeTuiComponentHarness();
   const first = harness.app.handleInteractionRequest(nativeAskRequest("ask-child-answer"));
   await harness.flush();
   assert.equal(harness.state.children.length, 1);
@@ -811,7 +811,7 @@ test("native ask fallback child closes on answer and permits a different request
 });
 
 test("native ask fallback timeout cleans up and replays without recreating UI", async () => {
-  const harness = createSparkNativeTuiHarness();
+  const harness = createSparkNativeTuiComponentHarness();
   const request = nativeAskRequest("ask-child-timeout", { timeoutMs: 20 });
   const response = await harness.app.handleInteractionRequest(request);
   assert.equal(response.status, "cancelled");
@@ -826,7 +826,7 @@ test("native ask fallback timeout cleans up and replays without recreating UI", 
 });
 
 test("native ask answer wins a timeout race without timedOut metadata", async () => {
-  const harness = createSparkNativeTuiHarness({ withOverlay: true });
+  const harness = createSparkNativeTuiComponentHarness({ withOverlay: true });
   const promise = harness.app.handleInteractionRequest(
     nativeAskRequest("ask-answer-timeout-race", { timeoutMs: 100 }),
   );
@@ -842,7 +842,7 @@ test("native ask answer wins a timeout race without timedOut metadata", async ()
 });
 
 test("native TUI renders daemon ask flow and every question has a custom reply fallback", async () => {
-  const harness = createSparkNativeTuiHarness({ withOverlay: true });
+  const harness = createSparkNativeTuiComponentHarness({ withOverlay: true });
   const responsePromise = harness.app.handleInteractionRequest({
     version: SPARK_PROTOCOL_VERSION,
     requestId: "ask-native-custom",
@@ -891,7 +891,7 @@ test("native TUI renders daemon ask flow and every question has a custom reply f
 });
 
 test("native TUI closes the human ask overlay when its wait times out", async () => {
-  const harness = createSparkNativeTuiHarness({ withOverlay: true });
+  const harness = createSparkNativeTuiComponentHarness({ withOverlay: true });
   const responsePromise = harness.app.handleInteractionRequest({
     version: SPARK_PROTOCOL_VERSION,
     requestId: "ask-native-timeout",
@@ -930,7 +930,7 @@ test("native TUI closes the human ask overlay when its wait times out", async ()
 });
 
 test("native TUI falls back to a custom reply when a choice question has no options", async () => {
-  const harness = createSparkNativeTuiHarness({ withOverlay: true });
+  const harness = createSparkNativeTuiComponentHarness({ withOverlay: true });
   const responsePromise = harness.app.handleInteractionRequest({
     version: SPARK_PROTOCOL_VERSION,
     requestId: "ask-native-custom-only",
@@ -970,7 +970,7 @@ test("native TUI falls back to a custom reply when a choice question has no opti
 });
 
 test("native TUI replays a settled daemon ask without duplicating UI or transcript", async () => {
-  const harness = createSparkNativeTuiHarness({ withOverlay: true });
+  const harness = createSparkNativeTuiComponentHarness({ withOverlay: true });
   const request = nativeAskRequest("ask-native-replay", {
     title: "Retry this answer",
     questions: [
@@ -1020,7 +1020,7 @@ test("Spark native TUI editor path submits slash commands from real keystrokes",
     handler: (_args, ctx) => ctx.ui?.notify?.("goal routed", "success"),
   });
 
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
     slashCommands: createSparkNativeRuntimeSlashCommands(host),
   });
@@ -1056,7 +1056,7 @@ test("working native TUI executes local slash commands instead of queueing them"
       invoked.push({ name, args });
     },
   });
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
     slashCommands: {
       model: command("model"),
@@ -1101,7 +1101,7 @@ test("native TUI Shift+Tab cycles thinking effort with visible feedback", async 
   const keybindings = new SparkKeybindings();
   const levels: SparkThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
   let current: SparkThinkingLevel = "high";
-  let harness: ReturnType<typeof createSparkNativeTuiHarness>;
+  let harness: ReturnType<typeof createSparkNativeTuiComponentHarness>;
   keybindings.register({
     id: "app.thinking.cycle",
     defaultKey: "shift+tab",
@@ -1111,7 +1111,7 @@ test("native TUI Shift+Tab cycles thinking effort with visible feedback", async 
       harness.session.addSystemMessage(`Thinking effort: ${current}`);
     },
   });
-  harness = createSparkNativeTuiHarness({ keybindings });
+  harness = createSparkNativeTuiComponentHarness({ keybindings });
 
   await harness.press("\x1b[Z");
   assert.equal(current, "xhigh");
@@ -1166,7 +1166,7 @@ test("Spark native TUI routes /model through native slash command and model sele
       ctx.ui?.notify?.(`Model: ${selection?.providerName}/${selection?.modelId}`, "info");
     },
   });
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
     slashCommands: createSparkNativeRuntimeSlashCommands(host),
   });
@@ -1222,7 +1222,7 @@ test("Spark native Pi parity slash commands are discoverable and route represent
     providerLoadResult: { outcomes: [] } as never,
     diagnostics: [],
   });
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     rows: 120,
     slashCommands,
     autocompleteBasePath: dir,
@@ -1322,7 +1322,7 @@ test("Spark native runtime slash bridge preserves editor helpers and determinist
     },
   });
 
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     slashCommands: createSparkNativeRuntimeSlashCommands(host, {
       sendUserMessage: (content) => void sent.push(content),
     }),
@@ -1357,7 +1357,7 @@ test("native /plan reaches the daemon-managed responder instead of the local run
         await context.session.submit(content);
       },
     });
-    const harness = createSparkNativeTuiHarness({
+    const harness = createSparkNativeTuiComponentHarness({
       slashCommands,
       responder: (input) => {
         responderInputs.push(input);
@@ -1403,7 +1403,7 @@ test("native /goal starts the daemon-owned driver instead of entering the local 
         await context.session.submit(content);
       },
     });
-    const harness = createSparkNativeTuiHarness({
+    const harness = createSparkNativeTuiComponentHarness({
       slashCommands,
       responder: (input) => {
         responderInputs.push(input);
@@ -1509,7 +1509,7 @@ test("TUI action bar dispatches a normal action once even when Enter repeats", a
 });
 
 test("bare catalog slash opens a focused bottom action bar without writing transcript", async () => {
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
     slashCommands: {
       settings: { description: "Settings", handler: () => "legacy settings output" },
@@ -1542,7 +1542,7 @@ test("bare catalog slash opens a focused bottom action bar without writing trans
 });
 
 test("TUI host disables unavailable action-bar operations and enables them from live state", async () => {
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
     responder: (input) => `ack:${input}`,
   });
@@ -1601,7 +1601,7 @@ test("TUI host disables unavailable action-bar operations and enables them from 
   overlay.component.handleInput?.(ESC);
 
   let finishTurn: ((result: string) => void) | undefined;
-  const busyHarness = createSparkNativeTuiHarness({
+  const busyHarness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
     responder: () =>
       new Promise<string>((resolve) => {
@@ -1638,7 +1638,7 @@ test("action bar executes semantic actions and only explicit inspection emits le
       return `legacy:${name}:${args || "empty"}`;
     },
   });
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
     slashCommands: {
       settings: command("settings"),
@@ -1737,7 +1737,7 @@ test("thinking action updates a daemon-managed session without changing the glob
       return { thinkingLevel } as never;
     },
   } as unknown as SparkDaemonModelAuthClient;
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     withOverlay: true,
     slashCommands: createSparkPiParitySlashCommands(services, modelControl),
   });
@@ -1756,7 +1756,7 @@ test("thinking action updates a daemon-managed session without changing the glob
 
 test("Spark native TUI surfaces command availability, queued work, stop, and turn errors", async () => {
   let releaseFirst: ((value: string) => void) | undefined;
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     slashCommands: {
       plan: { description: "Enter Spark plan mode", handler: () => "plan routed" },
       status: { description: "Show daemon status", handler: () => "daemon ok" },
@@ -1809,7 +1809,7 @@ test("Spark native TUI surfaces command availability, queued work, stop, and tur
 
 test("Spark native TUI shows Working only while a turn is active", async () => {
   let finishTurn: ((value: string) => void) | undefined;
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     responder: () =>
       new Promise<string>((resolve) => {
         finishTurn = resolve;
@@ -1833,7 +1833,7 @@ test("Spark native TUI shows Working only while a turn is active", async () => {
   );
 
   const completed = stripAnsi(harness.render());
-  assert.match(completed, /spark> completed response/);
+  assert.match(completed, /completed response/);
   assert.doesNotMatch(completed, /Working\.\.\./);
 
   const renderRequestsAfterCompletion = harness.state.renderRequests.length;
@@ -1847,7 +1847,7 @@ test("Spark native editor expands @file/image refs and bang commands through rea
     await writeFile(join(dir, "note.txt"), "file body from @ reference", "utf8");
     await writeFile(join(dir, "screen.png"), "not-a-real-png-but-path-reference-is-enough", "utf8");
     const submitted: string[] = [];
-    const harness = createSparkNativeTuiHarness({
+    const harness = createSparkNativeTuiComponentHarness({
       autocompleteBasePath: dir,
       responder: (input) => {
         submitted.push(input);
@@ -1930,7 +1930,7 @@ test("Spark native editor expands @file/image refs and bang commands through rea
 test("Spark native editor supports multiline and Pi-style busy queue restore keys", async () => {
   let releaseFirst: ((value: string) => void) | undefined;
   const submitted: string[] = [];
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     responder: (input) => {
       submitted.push(input);
       if (input === "first") {
@@ -1986,7 +1986,7 @@ test("Spark native busy queue delivers steering separately from follow-up turns"
   let releaseFirst: ((value: string) => void) | undefined;
   let releaseSteer: ((value: string) => void) | undefined;
   const submitted: string[] = [];
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     responder: (input) => {
       submitted.push(input);
       if (input === "first") {
@@ -2038,7 +2038,7 @@ test("Spark native busy queue delivers steering separately from follow-up turns"
 });
 
 test("Spark native TUI harness captures resize-safe golden render sections", () => {
-  const harness = createSparkNativeTuiHarness({ cols: 34 });
+  const harness = createSparkNativeTuiComponentHarness({ cols: 34 });
   harness.session.appendAssistantChunk(
     "streaming response with enough content to wrap across narrow widths",
   );
@@ -2056,7 +2056,7 @@ test("Spark native TUI harness captures resize-safe golden render sections", () 
     true,
     "narrow render should respect the requested width",
   );
-  assert.match(stripAnsi(narrowLines.join("\n")), /spark> streaming response/);
+  assert.match(stripAnsi(narrowLines.join("\n")), /streaming response/);
   assert.match(stripAnsi(narrowLines.join("\n")), /✓ tool:read \[succeeded\] — first\.\.\./);
   assert.match(stripAnsi(narrowLines.join("\n")), /thinking • hidden/);
 
@@ -2078,7 +2078,7 @@ test("Spark native TUI harness captures resize-safe golden render sections", () 
 test("Spark native TUI preserves the complete latest logical message at release sizes", () => {
   const body =
     "LATEST_MESSAGE_BEGIN alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau LATEST_MESSAGE_END";
-  const harness = createSparkNativeTuiHarness({ cols: 160, rows: 40 });
+  const harness = createSparkNativeTuiComponentHarness({ cols: 160, rows: 40 });
   harness.session.addSystemMessage("older transcript entry must remain available");
   harness.session.appendAssistantChunk(body);
 
@@ -2102,7 +2102,7 @@ test("Spark native TUI preserves the complete latest logical message at release 
 });
 
 test("Spark native TUI labels channel users and cross-session agents", () => {
-  const harness = createSparkNativeTuiHarness({ cols: 88 });
+  const harness = createSparkNativeTuiComponentHarness({ cols: 88 });
   harness.app.applyViewModelEvent({
     version: SPARK_PROTOCOL_VERSION,
     type: "session.snapshot",
@@ -2189,16 +2189,16 @@ test("Spark native TUI labels channel users and cross-session agents", () => {
   });
 
   const rendered = stripAnsi(harness.render());
-  assert.match(rendered, /徐晓健> 群消息/);
-  assert.match(rendered, /agent:worker-a> delegated request/);
+  assert.match(rendered, /> 徐晓健: 群消息/);
+  assert.match(rendered, /> agent:worker-a: delegated request/);
   assert.match(rendered, /│ Bob/);
   assert.match(rendered, /│ 被引用原文/);
-  assert.match(rendered, /Alice> 请继续/);
-  assert.match(rendered, /you> 网页消息/);
+  assert.match(rendered, /> Alice: 请继续/);
+  assert.match(rendered, /> 网页消息/);
 });
 
 test("Spark hub renders shared workflow, run, task, artifact, review, and Graft view models", async () => {
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     cols: 120,
     slashCommands: createSparkNativeLocalControlSlashCommands(),
   });
@@ -2371,7 +2371,7 @@ test("Spark hub renders shared workflow, run, task, artifact, review, and Graft 
 });
 
 test("task updates stay below the composer instead of entering the transcript", () => {
-  const harness = createSparkNativeTuiHarness({ cols: 100, rows: 20 });
+  const harness = createSparkNativeTuiComponentHarness({ cols: 100, rows: 20 });
   harness.session.messages.push({ role: "assistant", text: "previous answer" });
   harness.app.setEditorText("next prompt");
 
@@ -2445,7 +2445,7 @@ test("Spark hub supports selectable workflow run keyboard controls", async () =>
       },
     ]),
   );
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     cols: 140,
     slashCommands: { ...createSparkNativeLocalControlSlashCommands(), ...slashCommands },
   });
@@ -2524,7 +2524,7 @@ test("Spark hub supports selectable workflow run keyboard controls", async () =>
 });
 
 test("Spark hub records workflow picker requests and exposes slash command navigation", async () => {
-  const harness = createSparkNativeTuiHarness({
+  const harness = createSparkNativeTuiComponentHarness({
     cols: 110,
     slashCommands: createSparkNativeLocalControlSlashCommands(),
   });
@@ -2598,14 +2598,14 @@ test("Spark hub records workflow picker requests and exposes slash command navig
 });
 
 async function typeEditorText(
-  harness: ReturnType<typeof createSparkNativeTuiHarness>,
+  harness: ReturnType<typeof createSparkNativeTuiComponentHarness>,
   text: string,
 ): Promise<void> {
   for (const char of text) await harness.press(char);
 }
 
 async function submitEditorText(
-  harness: ReturnType<typeof createSparkNativeTuiHarness>,
+  harness: ReturnType<typeof createSparkNativeTuiComponentHarness>,
   text: string,
 ): Promise<void> {
   harness.app.setEditorText(text);
@@ -2662,7 +2662,7 @@ function visibleWidth(line: string): number {
 }
 
 test("Spark native TUI harness exercises fallback modal stack lifecycle", async () => {
-  const harness = createSparkNativeTuiHarness();
+  const harness = createSparkNativeTuiComponentHarness();
   const modal = {
     render: () => ["approval modal"],
     invalidate: () => undefined,
