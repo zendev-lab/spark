@@ -80,6 +80,10 @@ Run the authoritative happy path with:
 pnpm run test:journey:repro
 ```
 
+The root journey and source-process scripts build the real Hub adapter-node output
+before starting processes, so the same lane works from a clean checkout without
+relying on stale local build artifacts.
+
 The lane creates an isolated `HOME`, `SPARK_HOME`, XDG state, Hub database,
 daemon database and socket, local port, provider ledger, forge ledger, and
 fixture Git repository. The file-backed provider plugin is loaded through the
