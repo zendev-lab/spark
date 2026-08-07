@@ -1,8 +1,13 @@
-# Spark Configuration And Paths
+# Spark configuration and path contract
+
+This specification owns path precedence, exact persistence layout, and migration
+invariants. User-facing path inspection and configuration guidance belong in
+[`apps/spark-docs/src/content/docs/reference/configuration-and-paths.md`](../../apps/spark-docs/src/content/docs/reference/configuration-and-paths.md).
 
 ## Path roots
 
-Spark uses `SPARK_HOME` as an explicit all-in-one root when it is set. When it is unset, Spark follows the XDG directories independently:
+Spark uses `SPARK_HOME` as an explicit all-in-one root when it is set. When it is
+unset, Spark follows the XDG directories independently:
 
 ```text
 explicit API sparkHome > SPARK_HOME > XDG roots
@@ -18,15 +23,9 @@ XDG_STATE_HOME                          default $HOME/.local/state
 XDG_RUNTIME_DIR                         app runtime falls back to XDG state
 ```
 
-Set one explicit root when a self-contained installation is preferred:
-
-```sh
-export SPARK_HOME=/path/to/spark-home
-```
-
 `SPARK_HOME` is a user-level root, not the workspace state directory.
 
-## Layout
+## Exact persistence layout
 
 With `SPARK_HOME` set:
 
@@ -63,11 +62,14 @@ $XDG_STATE_HOME/spark/         hub/, daemon/ state and logs
 $XDG_RUNTIME_DIR/spark/        hub/, daemon/ sockets and pid files (app state `run/` fallback)
 ```
 
-The namespace is added after the XDG root, so the default config path is `$HOME/.config/spark/config.json`, not `$HOME/.config/config.json`. If `XDG_RUNTIME_DIR` is unset, each app uses `$XDG_STATE_HOME/spark/<app>/run`.
+The namespace is added after the XDG root, so the default config path is
+`$HOME/.config/spark/config.json`, not `$HOME/.config/config.json`. If
+`XDG_RUNTIME_DIR` is unset, each app uses `$XDG_STATE_HOME/spark/<app>/run`.
 
 ## Public agent definitions
 
-User role, skill, and workflow definitions use the public cross-harness standard and are independent of `SPARK_HOME` and XDG:
+User role, skill, and workflow definitions use the public cross-harness standard
+and are independent of `SPARK_HOME` and XDG:
 
 ```text
 $HOME/.agents/roles/
@@ -75,7 +77,13 @@ $HOME/.agents/skills/
 $HOME/.agents/workflows/
 ```
 
-There is no `$SPARK_HOME/skills` or `$SPARK_HOME/workflows`. Project role, skill, and workflow definitions remain under project `.agents/{roles,skills,workflows}`; Spark retains only a workspace-specific `.spark/skills` definition layer. `.spark/workflows` is retired and is not discovered; move existing saved scripts to `.agents/workflows`. Workspace-owned Spark state remains under the workspace `.spark/`. Memory-related workspace state lives under `.spark/memory/`:
+There is no `$SPARK_HOME/skills` or `$SPARK_HOME/workflows`. Project role,
+skill, and workflow definitions remain under project
+`.agents/{roles,skills,workflows}`; Spark retains only a workspace-specific
+`.spark/skills` definition layer. `.spark/workflows` is retired and is not
+discovered; move existing saved scripts to `.agents/workflows`. Workspace-owned
+Spark state remains under the workspace `.spark/`. Memory-related workspace
+state lives under `.spark/memory/`:
 
 ```text
 .spark/memory/
@@ -136,7 +144,9 @@ public persistence contracts and are not rewritten by the product rename.
 
 ### Memory layout
 
-Memory-related layout migration **is** automatic and idempotent via `migrateSparkMemoryLayout` (triggered on memory `session_start` and memory tool access):
+Memory-related layout migration **is** automatic and idempotent via
+`migrateSparkMemoryLayout` (triggered on memory `session_start` and memory tool
+access):
 
 | Old path | New path |
 |----------|----------|
@@ -146,17 +156,20 @@ Memory-related layout migration **is** automatic and idempotent via `migrateSpar
 | `.spark/recall-candidates.json` | `.spark/memory/recall-candidates.json` |
 | `.spark/reflections/` | `.spark/memory/reflections/` |
 
-Rename is preferred; cross-device moves fall back to copy+verify. If the target already exists and is non-empty, Spark merges directories or skips conflicting files and records the outcome.
+Rename is preferred; cross-device moves fall back to copy+verify. If the target
+already exists and is non-empty, Spark merges directories or skips conflicting
+files and records the outcome.
 
-Public `$HOME/.agents/{roles,skills,workflows}` definitions should remain in place. Old component variables and Pi-specific locations may still identify migration sources, but they do not affect current path resolution.
+Public `$HOME/.agents/{roles,skills,workflows}` definitions should remain in
+place. Old component variables and Pi-specific locations may still identify
+migration sources, but they do not affect current path resolution.
 
-pi-memory Markdown import remains explicit: `memory({ action: "import_legacy", apply: false })` then `apply: true` after review.
+pi-memory Markdown import remains explicit: `memory({ action: "import_legacy",
+apply: false })` then `apply: true` after review.
 
-## Inspecting paths
+## Inspection invariant
 
-```sh
-spark paths
-spark paths --json
-```
-
-The command is read-only and reports effective user, Hub, and daemon paths. It does not create directories or migrate files.
+The dispatcher exposes a read-only path-inspection surface that reports effective
+user, Hub, and daemon paths without creating directories or migrating files.
+Exact user-facing command syntax is documented only in the public configuration
+reference.
