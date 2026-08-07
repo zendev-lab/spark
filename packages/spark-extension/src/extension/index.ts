@@ -38,7 +38,7 @@ import { registerSparkExtensionEvents } from "./spark-extension-events.ts";
 import {
   sparkExtensionContextProviderStrings,
   sparkExtensionToolCopy,
-} from "@zendev-lab/spark-i18n/extension";
+} from "./spark-model-prompts.ts";
 import { sessionModelName } from "./session-model.ts";
 import { withSparkToolOperationalNotes } from "./spark-tool-operational-notes.ts";
 import { SparkWorkflowRunManagerController } from "./spark-workflow-run-manager.ts";
