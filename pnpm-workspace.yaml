@@ -41,7 +41,6 @@ minimumReleaseAgeExclude:
 overrides:
   "@connectrpc/connect-node>undici": "8.9.0"
   "@earendil-works/pi-coding-agent>undici": "8.9.0"
-  "@cursor/sdk>zod": "3.25.76"
   # The MCP SDK's HTTP transport reaches ip-address through express-rate-limit.
   # Keep the patched parser until the SDK refreshes that transitive dependency.
   "express-rate-limit>ip-address": "10.3.1"

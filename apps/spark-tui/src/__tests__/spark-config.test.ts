@@ -19,10 +19,6 @@ test("default Spark providers include shared Baidu OneAPI and OpenAI Codex adapt
     "@zendev-lab/spark-ai/openai-codex-provider",
   ]);
   assert.equal(
-    DEFAULT_SPARK_CONFIG.providers.includes("@zendev-lab/spark-ai/cursor-provider"),
-    false,
-  );
-  assert.equal(
     DEFAULT_SPARK_CONFIG.extensions.includes("@zendev-lab/spark-graft/extension"),
     false,
   );

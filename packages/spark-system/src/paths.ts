@@ -44,7 +44,6 @@ export interface SparkUserPaths {
   exportsDir: string;
   shareDir: string;
   workspacesDir: string;
-  cursorModelCacheFile: string;
   cueVersionCacheFile: string;
 }
 
@@ -141,7 +140,6 @@ export function resolveSparkUserPaths(options: ResolveSparkHomeOptions = {}): Sp
     exportsDir: join(dataRoot, "exports"),
     shareDir: join(dataRoot, "share"),
     workspacesDir: join(dataRoot, "workspaces"),
-    cursorModelCacheFile: join(cacheRoot, "cursor-sdk-model-list.json"),
     cueVersionCacheFile: sparkRoot
       ? join(cacheRoot, "cache", "cued-version.json")
       : join(cacheRoot, "cued-version.json"),

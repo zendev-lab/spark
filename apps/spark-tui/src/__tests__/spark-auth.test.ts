@@ -21,7 +21,7 @@ import {
   type SparkCliHostServices,
   type SparkOAuthProviderInterface,
 } from "../host/index.ts";
-import { createProviderRegistryStreamFunction, registerCursorProvider } from "@zendev-lab/spark-ai";
+import { createProviderRegistryStreamFunction } from "@zendev-lab/spark-ai";
 import type { SparkAuthFlow, SparkModelControlSnapshot } from "@zendev-lab/spark-protocol";
 
 const oauthCredentials = { refresh: "refresh-token", access: "access-token", expires: 9_999 };
@@ -245,44 +245,47 @@ test("SparkProviderAuthResolver observes OAuth login from another process immedi
   });
 });
 
-test("SparkProviderAuthResolver resolves Cursor env and stored API keys without status leakage", async () => {
+test("SparkProviderAuthResolver resolves env and stored API keys without status leakage", async () => {
   await withAuthDir(async (_dir, authPath) => {
     const registry = new SparkProviderRegistry();
-    await registerCursorProvider(registry, { apiKey: "" });
-    const provider = registry.getProvider("cursor")!;
+    registry.registerProvider(
+      "api-key-provider",
+      providerConfig("API_KEY_PROVIDER_API_KEY", "api-key-provider"),
+    );
+    const provider = registry.getProvider("api-key-provider")!;
     const store = new SparkAuthStore({ path: authPath });
     await store.reload();
 
     const envResolver = new SparkProviderAuthResolver(store, {
-      env: { CURSOR_API_KEY: "cursor-env-fixture-value" },
+      env: { API_KEY_PROVIDER_API_KEY: "api-env-fixture-value" },
     });
     assert.deepEqual(envResolver.status(provider), {
-      provider: "cursor",
+      provider: "api-key-provider",
       kind: "env",
       configured: true,
-      ref: "CURSOR_API_KEY",
+      ref: "API_KEY_PROVIDER_API_KEY",
     });
-    assert.equal(envResolver.resolveApiKey(provider), "cursor-env-fixture-value");
-    assert.doesNotMatch(JSON.stringify(envResolver.status(provider)), /cursor-env-fixture-value/u);
+    assert.equal(envResolver.resolveApiKey(provider), "api-env-fixture-value");
+    assert.doesNotMatch(JSON.stringify(envResolver.status(provider)), /api-env-fixture-value/u);
 
     const storedResolver = new SparkProviderAuthResolver(store, { env: {} });
     assert.equal(storedResolver.status(provider).configured, false);
-    await store.set("cursor", {
+    await store.set("api-key-provider", {
       type: "api_key",
-      provider: "cursor",
-      apiKey: "cursor-stored-fixture-value",
+      provider: "api-key-provider",
+      apiKey: "api-stored-fixture-value",
       updatedAt: "2026-07-10T00:00:00.000Z",
     });
-    assert.equal(storedResolver.resolveApiKey(provider), "cursor-stored-fixture-value");
+    assert.equal(storedResolver.resolveApiKey(provider), "api-stored-fixture-value");
     assert.deepEqual(storedResolver.status(provider), {
-      provider: "cursor",
+      provider: "api-key-provider",
       kind: "env",
       configured: true,
-      ref: "CURSOR_API_KEY",
+      ref: "API_KEY_PROVIDER_API_KEY",
     });
     assert.doesNotMatch(
       JSON.stringify(storedResolver.status(provider)),
-      /cursor-stored-fixture-value/u,
+      /api-stored-fixture-value/u,
     );
   });
 });
@@ -719,9 +722,9 @@ test("first-run onboarding renders a no-credential setup guide", async () => {
 
 test("daemon-backed /login stores API keys without exposing them in the transcript", async () => {
   const snapshot = authSnapshot({
-    providerName: "cursor",
-    label: "Cursor",
-    auth: { providerName: "cursor", kind: "api_key", configured: false },
+    providerName: "api-key-provider",
+    label: "API Key Provider",
+    auth: { providerName: "api-key-provider", kind: "api_key", configured: false },
     models: [],
   });
   const stored: Array<{ providerName: string; apiKey: string }> = [];
@@ -746,14 +749,14 @@ test("daemon-backed /login stores API keys without exposing them in the transcri
   } as unknown as SparkCliHostServices;
   const commands = createSparkPiParitySlashCommands(services, client);
   const session = new SparkNativeSession(async () => "unused");
-  const result = await commands.login!.handler("cursor", {
+  const result = await commands.login!.handler("api-key-provider", {
     app: {} as never,
     session,
     exit: () => undefined,
   });
 
-  assert.deepEqual(stored, [{ providerName: "cursor", apiKey: "daemon-api-key-secret" }]);
-  assert.match(String(result), /Stored API key for Cursor/);
+  assert.deepEqual(stored, [{ providerName: "api-key-provider", apiKey: "daemon-api-key-secret" }]);
+  assert.match(String(result), /Stored API key for API Key Provider/);
   assert.doesNotMatch(String(result), /daemon-api-key-secret/);
   assert.doesNotMatch(
     session.messages.map((message) => message.text).join("\n"),
@@ -771,9 +774,9 @@ test("daemon-backed /login picker excludes providers that do not require login",
         models: [],
       },
       {
-        providerName: "cursor",
-        label: "Cursor",
-        auth: { providerName: "cursor", kind: "api_key", configured: false },
+        providerName: "api-key-provider",
+        label: "API Key Provider",
+        auth: { providerName: "api-key-provider", kind: "api_key", configured: false },
         models: [],
       },
     ],
@@ -799,7 +802,7 @@ test("daemon-backed /login picker excludes providers that do not require login",
   });
 
   assert.equal(options.length, 1);
-  assert.match(options[0] ?? "", /Cursor \(cursor\)/);
+  assert.match(options[0] ?? "", /API Key Provider \(api-key-provider\)/);
   assert.doesNotMatch(options.join("\n"), /No Auth|none-provider/);
   assert.match(String(result), /Login cancelled/);
 });
@@ -839,9 +842,9 @@ test("daemon-backed /login without arguments picks a provider from the daemon sn
   const snapshot: SparkModelControlSnapshot = {
     providers: [
       {
-        providerName: "cursor",
-        label: "Cursor",
-        auth: { providerName: "cursor", kind: "api_key", configured: false },
+        providerName: "api-key-provider",
+        label: "API Key Provider",
+        auth: { providerName: "api-key-provider", kind: "api_key", configured: false },
         models: [],
       },
       {
@@ -887,7 +890,10 @@ test("daemon-backed /login without arguments picks a provider from the daemon sn
   const result = await commands.login!.handler("", context);
 
   assert.match(String(result), /Logged in OAuth provider: OAuth Models/);
-  assert.match(selectedOptions[0]?.[0] ?? "", /Cursor \(cursor\).*api key.*missing/);
+  assert.match(
+    selectedOptions[0]?.[0] ?? "",
+    /API Key Provider \(api-key-provider\).*api key.*missing/,
+  );
   assert.match(selectedOptions[0]?.[1] ?? "", /OAuth Models.*oauth.*configured.*source=stored/);
 });
 

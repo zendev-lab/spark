@@ -23,7 +23,6 @@ const rootManifest = JSON.parse(await readFile(resolve(root, "package.json"), "u
 const externalPackages = [
   "@ast-grep/napi",
   "@core-workspace/infoflow-sdk-nodejs",
-  "@cursor/sdk",
   "@earendil-works/pi-ai",
   "@earendil-works/pi-tui",
   "@sveltejs/kit",

@@ -46,7 +46,6 @@ $SPARK_HOME/
 │   └── recall-candidates.json     # user recall candidates
 ├── exports/                       # transcript exports
 ├── share/                         # shareable transcript exports
-├── cursor-sdk-model-list.json     # Cursor model discovery cache
 ├── cache/cued-version.json        # cue-shell release discovery cache
 ├── workspaces/<id>/               # workspace-scoped channel settings
 └── apps/

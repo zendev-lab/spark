@@ -52,7 +52,6 @@ catalogs:
 overrides:
   '@connectrpc/connect-node>undici': 8.9.0
   '@earendil-works/pi-coding-agent>undici': 8.9.0
-  '@cursor/sdk>zod': 3.25.76
   express-rate-limit>ip-address: 10.3.1
   hono: 4.12.34
   '@modelcontextprotocol/sdk>@hono/node-server': 2.0.12
@@ -216,22 +215,6 @@ importers:
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.2)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
-    optionalDependencies:
-      '@cursor/sdk-darwin-arm64':
-        specifier: 1.0.26
-        version: 1.0.26
-      '@cursor/sdk-darwin-x64':
-        specifier: 1.0.26
-        version: 1.0.26
-      '@cursor/sdk-linux-arm64':
-        specifier: 1.0.26
-        version: 1.0.26
-      '@cursor/sdk-linux-x64':
-        specifier: 1.0.26
-        version: 1.0.26
-      '@cursor/sdk-win32-x64':
-        specifier: 1.0.26
-        version: 1.0.26
 
   apps/spark-cli:
     dependencies:
@@ -592,9 +575,6 @@ importers:
 
   packages/spark-ai:
     dependencies:
-      '@cursor/sdk':
-        specifier: 1.0.26
-        version: 1.0.26
       '@earendil-works/pi-ai':
         specifier: ^0.83.0
         version: 0.83.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.4.3))(supports-color@10.2.2)(ws@8.21.1)(zod@4.4.3)
@@ -2000,9 +1980,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@bufbuild/protobuf@1.10.0':
-    resolution: {integrity: sha512-QDdVFLoN93Zjg36NoQPZfsVH9tZew7wKDKyV5qRdj8ntT4wQCOradQjRaTdwMhWUYsgKsvCINKKm87FdEk96Ag==}
-
   '@capsizecss/unpack@4.0.1':
     resolution: {integrity: sha512-CuNiSqg7+e1cO/GjffyMOm5Tt2jUF9CWHHnvQ/UkqvtkGfHdgwEC0wpmq7fkN3gxwpRnrAN0WzO3vREKmNolMQ==}
     engines: {node: '>=18'}
@@ -2071,24 +2048,6 @@ packages:
       vite: ^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
       vitest: 4.1.10
 
-  '@connectrpc/connect-node@1.6.1':
-    resolution: {integrity: sha512-DxcD1wsF/aX9GegjAtl7VbpiZNjVJozy87VbaFoN6AF0Ln1Q757r5dgV59Gz0wmlk5f17txUsrEr1f2inlnnAg==}
-    engines: {node: '>=16.0.0'}
-    peerDependencies:
-      '@bufbuild/protobuf': ^1.10.0
-      '@connectrpc/connect': 1.6.1
-
-  '@connectrpc/connect-web@1.6.1':
-    resolution: {integrity: sha512-GVfxQOmt3TtgTaKeXLS/EA2IHa3nHxwe2BCHT7X0Q/0hohM+nP5DDnIItGEjGrGdt3LTTqWqE4s70N4h+qIMlQ==}
-    peerDependencies:
-      '@bufbuild/protobuf': ^1.10.0
-      '@connectrpc/connect': 1.6.1
-
-  '@connectrpc/connect@1.6.1':
-    resolution: {integrity: sha512-KchMDNtU4CDTdkyf0qG7ugJ6qHTOR/aI7XebYn3OTCNagaDYWiZUVKgRgwH79yeMkpNgvEUaXSK7wKjaBK9b/Q==}
-    peerDependencies:
-      '@bufbuild/protobuf': ^1.10.0
-
   '@core-workspace/infoflow-sdk-nodejs@2026.6.12-beta.1':
     resolution: {integrity: sha512-NQSHGuk3xU3OlcFzxWAHBGFcJMC8GdZAM4jwVWb8zz5G0dKEGK9UyE8gTMC0A+9xZKmP9CqMLgiXundTSv0WLg==}
     engines: {node: '>=16.0.0'}
@@ -2136,40 +2095,6 @@ packages:
   '@ctrl/tinycolor@4.2.0':
     resolution: {integrity: sha512-kzyuwOAQnXJNLS9PSyrk0CWk35nWJW/zl/6KvnTBMFK65gm7U1/Z5BqjxeapjZCIhQcM/DsrEmcbRwDyXyXK4A==}
     engines: {node: '>=14'}
-
-  '@cursor/sdk-darwin-arm64@1.0.26':
-    resolution: {integrity: sha512-PPWtq/8ax4w3/5vh45lMbFpwnXsyvYMl3eR9uW4C2SXScgrtE2V2LfhEU66f1zAt9RKHi2BTTjkuZEnxKJEz+Q==}
-    cpu: [arm64]
-    os: [darwin]
-    hasBin: true
-
-  '@cursor/sdk-darwin-x64@1.0.26':
-    resolution: {integrity: sha512-3WJGk1SV0tYTAQY2+PWSzNui6jGp9F7sLUm257EI3bhc7g6h6xCzrLY7wIpD03IEaNdM7emcgVySEN1D0QWsHg==}
-    cpu: [x64]
-    os: [darwin]
-    hasBin: true
-
-  '@cursor/sdk-linux-arm64@1.0.26':
-    resolution: {integrity: sha512-DF+zZTn4mszX5q9J3rj9xk7rDu8/JEMfpdDA/UBp3CyaeLo1sPfB/vyoe4GUo1F3I1ZRAgUO8KdBizoHxfBEeQ==}
-    cpu: [arm64]
-    os: [linux]
-    hasBin: true
-
-  '@cursor/sdk-linux-x64@1.0.26':
-    resolution: {integrity: sha512-NnBvOzgGFXJpKygIdk6XzAcstBSdLjtKZyzLg2jLM0d7KkEDs3br94XsyNAvbVqnWhT18KPwHzrgP62ZEHEFxg==}
-    cpu: [x64]
-    os: [linux]
-    hasBin: true
-
-  '@cursor/sdk-win32-x64@1.0.26':
-    resolution: {integrity: sha512-C2PyFwmQNJH9qlqYF+Zhpdyh50500cNm2ortmrtzjqgGSFQ+t4WvzMKqSc/UadCT0oNGWFGyiyMnUpO3sLa0nA==}
-    cpu: [x64]
-    os: [win32]
-    hasBin: true
-
-  '@cursor/sdk@1.0.26':
-    resolution: {integrity: sha512-dU3WpJwrxv8yoMjs0DxBgZr5btAJEO+NrvFutl08b6l2+jcuemfFWUlSPBQ2xZAH7zIZun+sqfHvjT5NxW8woQ==}
-    engines: {node: '>=22.13'}
 
   '@earendil-works/pi-agent-core@0.83.0':
     resolution: {integrity: sha512-RorGp9OH5l3ElpuC5a5ZQ2eWcchZGXflXRzVGkV99y3y6tT+LLNyxoYIdVKvTKWEObwhExeQbTH0fI2tE4iX4g==}
@@ -4164,12 +4089,6 @@ packages:
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
-
-  '@statsig/client-core@3.31.0':
-    resolution: {integrity: sha512-SuxQD6TmVszPG7FoMKwTk/uyBuVFk7XnxI3T/E0uyb7PL7GNjONtfsoh+NqBBVUJVse0CUeSFfgJPoZy1ZOslQ==}
-
-  '@statsig/js-client@3.31.0':
-    resolution: {integrity: sha512-LFa5E0LjT6sTfZv3sNGoyRLSZ1078+agdgOA+Vm1ecjG+KbSOfBLTW7hMwimrJ29slRwbYDzbtKaPJo/R37N2g==}
 
   '@stryker-mutator/api@9.6.1':
     resolution: {integrity: sha512-g8VNoFWQWbx0pdal3Vt8jVCZW+v3sc3gi94iI0GVtVgUGTqphAjJF6EAruPTx0lqvtonsaAxn5TD36hcG1d6Wg==}
@@ -8323,9 +8242,6 @@ packages:
     peerDependencies:
       zod: ^3.25.28 || ^4
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
-
   zod@4.4.3:
     resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
@@ -9102,8 +9018,6 @@ snapshots:
   '@bruits/satteri-win32-x64-msvc@0.9.5':
     optional: true
 
-  '@bufbuild/protobuf@1.10.0': {}
-
   '@capsizecss/unpack@4.0.1':
     dependencies:
       fontkitten: 1.0.3
@@ -9166,21 +9080,6 @@ snapshots:
       - debug
       - supports-color
 
-  '@connectrpc/connect-node@1.6.1(@bufbuild/protobuf@1.10.0)(@connectrpc/connect@1.6.1(@bufbuild/protobuf@1.10.0))':
-    dependencies:
-      '@bufbuild/protobuf': 1.10.0
-      '@connectrpc/connect': 1.6.1(@bufbuild/protobuf@1.10.0)
-      undici: 8.9.0
-
-  '@connectrpc/connect-web@1.6.1(@bufbuild/protobuf@1.10.0)(@connectrpc/connect@1.6.1(@bufbuild/protobuf@1.10.0))':
-    dependencies:
-      '@bufbuild/protobuf': 1.10.0
-      '@connectrpc/connect': 1.6.1(@bufbuild/protobuf@1.10.0)
-
-  '@connectrpc/connect@1.6.1(@bufbuild/protobuf@1.10.0)':
-    dependencies:
-      '@bufbuild/protobuf': 1.10.0
-
   '@core-workspace/infoflow-sdk-nodejs@2026.6.12-beta.1(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)':
     dependencies:
       axios: 1.18.1(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
@@ -9228,36 +9127,6 @@ snapshots:
     optional: true
 
   '@ctrl/tinycolor@4.2.0': {}
-
-  '@cursor/sdk-darwin-arm64@1.0.26':
-    optional: true
-
-  '@cursor/sdk-darwin-x64@1.0.26':
-    optional: true
-
-  '@cursor/sdk-linux-arm64@1.0.26':
-    optional: true
-
-  '@cursor/sdk-linux-x64@1.0.26':
-    optional: true
-
-  '@cursor/sdk-win32-x64@1.0.26':
-    optional: true
-
-  '@cursor/sdk@1.0.26':
-    dependencies:
-      '@bufbuild/protobuf': 1.10.0
-      '@connectrpc/connect': 1.6.1(@bufbuild/protobuf@1.10.0)
-      '@connectrpc/connect-node': 1.6.1(@bufbuild/protobuf@1.10.0)(@connectrpc/connect@1.6.1(@bufbuild/protobuf@1.10.0))
-      '@connectrpc/connect-web': 1.6.1(@bufbuild/protobuf@1.10.0)(@connectrpc/connect@1.6.1(@bufbuild/protobuf@1.10.0))
-      '@statsig/js-client': 3.31.0
-      zod: 3.25.76
-    optionalDependencies:
-      '@cursor/sdk-darwin-arm64': 1.0.26
-      '@cursor/sdk-darwin-x64': 1.0.26
-      '@cursor/sdk-linux-arm64': 1.0.26
-      '@cursor/sdk-linux-x64': 1.0.26
-      '@cursor/sdk-win32-x64': 1.0.26
 
   '@earendil-works/pi-agent-core@0.83.0(supports-color@10.2.2)':
     dependencies:
@@ -10858,12 +10727,6 @@ snapshots:
   '@sqlite.org/sqlite-wasm@3.48.0-build4': {}
 
   '@standard-schema/spec@1.1.0': {}
-
-  '@statsig/client-core@3.31.0': {}
-
-  '@statsig/js-client@3.31.0':
-    dependencies:
-      '@statsig/client-core': 3.31.0
 
   '@stryker-mutator/api@9.6.1':
     dependencies:
@@ -15812,8 +15675,6 @@ snapshots:
   zod-to-json-schema@3.25.2(zod@4.4.3):
     dependencies:
       zod: 4.4.3
-
-  zod@3.25.76: {}
 
   zod@4.4.3: {}
 
