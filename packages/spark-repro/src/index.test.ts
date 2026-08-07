@@ -9,6 +9,7 @@ import {
   isReproRequirementSatisfied,
   isStageComplete,
   migrateSparkSessionReproV5,
+  migrateSparkSessionReproV6,
   nextReproStagePlanningBlocker,
   nextReproStep,
   normalizeStoredSparkSessionRepro,
@@ -23,6 +24,7 @@ import {
   type SparkReproRequirementProof,
   type SparkSessionRepro,
   type SparkSessionReproV5,
+  type SparkSessionReproV6,
 } from "./index.ts";
 
 const ref = (id: string) => `evidence:${id}` as EvidenceRef;
@@ -54,7 +56,15 @@ describe("spark-repro", () => {
       objective: "Reproduce target logits",
     });
 
-    expect(repro.version).toBe(6);
+    expect(repro.version).toBe(7);
+    expect(repro.dualLane).toMatchObject({
+      schema: "spark.repro.dual-lane-session/v1",
+      planRevision: 1,
+      explore: { stage: "contract", observationIds: [] },
+      normative: { retiredStepIds: [], candidateIds: [] },
+      unresolvedIds: [],
+      migration: { sourceVersion: 7, legacyProofAuthority: "not_promoted" },
+    });
     expect(repro.projectRef).toBeUndefined();
     expect(repro.subgoals).toHaveLength(
       repro.plan.steps.filter((step) => step.stage === "contract").length,
@@ -94,7 +104,7 @@ describe("spark-repro", () => {
     ).toThrow("reproId must be a non-empty safe identifier");
   });
 
-  it("normalizes the current v6 persisted shape without dropping its subgoals", () => {
+  it("normalizes the current v7 persisted shape without dropping its dual-lane state", () => {
     const repro = createSparkSessionRepro("session:persisted-v6", undefined, {
       objective: "Read the current persisted shape",
     });
@@ -135,7 +145,7 @@ describe("spark-repro", () => {
     };
 
     const migrated = migrateSparkSessionReproV5(legacy);
-    expect(migrated.version).toBe(6);
+    expect(migrated.version).toBe(7);
     expect(migrated.subgoals[0]?.status).toBe("done");
     expect(migrated.subgoals[0]?.evidenceRefs).toEqual(completed.subgoals[0]?.evidenceRefs);
     expect(migrated.subgoals[0]?.taskRef).toBeUndefined();
@@ -147,6 +157,88 @@ describe("spark-repro", () => {
     expect(migrated.subgoals[2]).not.toHaveProperty("delegation");
     expect(migrated.subgoals[2]).not.toHaveProperty("goalId");
     expect(migrated.subgoals[2]).not.toHaveProperty("roleRef");
+    expect(migrated.dualLane.migration).toEqual({
+      sourceVersion: 6,
+      legacyProofAuthority: "not_promoted",
+    });
+  });
+
+  it("migrates v6 twice without promoting legacy proof into observations or candidates", () => {
+    const current = completeStep(
+      createSparkSessionRepro("session:migrate-v6"),
+      "repro-contract-frozen",
+    );
+    const { dualLane: _dualLane, ...withoutDualLane } = current;
+    const legacy: SparkSessionReproV6 = { ...withoutDualLane, version: 6 };
+
+    const first = migrateSparkSessionReproV6(legacy);
+    const second = normalizeStoredSparkSessionRepro(structuredClone(first));
+    expect(second).toEqual(first);
+    expect(first.dualLane).toMatchObject({
+      planRevision: legacy.plan.currentRevision,
+      explore: { observationIds: [] },
+      normative: { candidateIds: [] },
+      unresolvedIds: [],
+      migration: { sourceVersion: 6, legacyProofAuthority: "not_promoted" },
+    });
+    expect(first.dualLane.normative.retiredStepIds).toEqual([]);
+  });
+
+  it("keeps v6 proof outside Normative retirement after a later plan revision", () => {
+    const completed = completeStep(
+      createSparkSessionRepro("session:migrate-v6-revise"),
+      "repro-contract-frozen",
+    );
+    const { dualLane: _dualLane, ...withoutDualLane } = completed;
+    const legacy: SparkSessionReproV6 = { ...withoutDualLane, version: 6 };
+    let migrated = migrateSparkSessionReproV6(legacy);
+    migrated = {
+      ...migrated,
+      dualLane: {
+        ...migrated.dualLane,
+        explore: { ...migrated.dualLane.explore, observationIds: ["legacy-observation"] },
+        unresolvedIds: ["legacy-unresolved"],
+      },
+    };
+
+    const revised = reviseReproPlan(migrated, {
+      reason: "Change only the difficulty after migration",
+      difficulty: 9,
+    });
+    expect(revised.dualLane).toMatchObject({
+      planRevision: 2,
+      explore: { observationIds: ["legacy-observation"] },
+      normative: {
+        currentStepId: revised.plan.steps[0]?.id,
+        retiredStepIds: [],
+        candidateIds: [],
+      },
+      unresolvedIds: ["legacy-unresolved"],
+      migration: { sourceVersion: 6, legacyProofAuthority: "not_promoted" },
+    });
+  });
+
+  it("buffers v7 StepVerifier completions and retires them only as an ordered prefix", () => {
+    let repro = createSparkSessionRepro("session:ordered-retirement");
+    const [s1, s2, s3, s4] = repro.plan.steps;
+    repro = completeStep(repro, s3!.id);
+    expect(repro.dualLane.normative).toMatchObject({
+      currentStepId: s1!.id,
+      retiredStepIds: [],
+      candidateIds: [s3!.id],
+    });
+    repro = completeStep(repro, s2!.id);
+    expect(repro.dualLane.normative).toMatchObject({
+      currentStepId: s1!.id,
+      retiredStepIds: [],
+      candidateIds: [s2!.id, s3!.id],
+    });
+    repro = completeStep(repro, s1!.id);
+    expect(repro.dualLane.normative).toMatchObject({
+      currentStepId: s4!.id,
+      retiredStepIds: [s1!.id, s2!.id, s3!.id],
+      candidateIds: [],
+    });
   });
 
   it("requires research, explicit decisions, and a passing probe during setup", () => {
@@ -236,6 +328,16 @@ describe("spark-repro", () => {
     });
 
     expect(repro.plan.currentRevision).toBe(2);
+    expect(repro.dualLane).toMatchObject({
+      planRevision: 2,
+      explore: { observationIds: [] },
+      normative: {
+        currentStepId: "repro-contract-frozen",
+        retiredStepIds: [],
+        candidateIds: [],
+      },
+      unresolvedIds: [],
+    });
     expect(repro.plan.revisions).toHaveLength(2);
     expect(repro.subgoals.find((subgoal) => subgoal.id === "repro-contract-frozen")).toEqual(
       completedBefore,

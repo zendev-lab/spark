@@ -111,5 +111,22 @@ describe("Repro A2UI Workbench projection", () => {
     });
     expect(content).toContain("Goal Contract");
     expect(sparkReproWorkbenchProjectionDigest(input)).toHaveLength(64);
+
+    const unquantifiedProgress = {
+      quantified: false as const,
+      stages: work.progress.stages.map(
+        ({ percent: _percent, contribution: _contribution, ...stage }) => stage,
+      ),
+    };
+    const unquantifiedContent = renderSparkReproWorkbenchA2ui({
+      ...input,
+      work: {
+        ...work,
+        progress: unquantifiedProgress,
+        formalProgress: unquantifiedProgress,
+      },
+    });
+    expect(unquantifiedContent).toContain("unquantified");
+    expect(unquantifiedContent).not.toContain("undefined%");
   });
 });

@@ -1,6 +1,6 @@
 /**
  * Persistence adapter for the host-neutral @zendev-lab/spark-repro state machine.
- * Legacy v1-v5 snapshots are migrated fail-closed into the v6 project/task/session protocol.
+ * Legacy v1-v6 snapshots are migrated fail-closed into the v7 dual-lane session protocol.
  */
 
 import type { EvidenceRef } from "@zendev-lab/spark-core";
@@ -10,7 +10,9 @@ import {
   migrateSparkSessionReproV3,
   migrateSparkSessionReproV4,
   migrateSparkSessionReproV5,
+  migrateSparkSessionReproV6,
   normalizeReproStageName,
+  normalizeStoredSparkSessionRepro,
   reproProgressDigest,
   reproStepPlanRevision,
   stepDefinitionDigest,
@@ -22,6 +24,7 @@ import {
   type SparkSessionReproV3,
   type SparkSessionReproV4,
   type SparkSessionReproV5,
+  type SparkSessionReproV6,
 } from "@zendev-lab/spark-repro";
 import {
   rebuildSessionIndex,
@@ -32,9 +35,15 @@ import { readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 
 export * from "@zendev-lab/spark-repro";
 
+interface SparkSessionReproSnapshotV7 {
+  version: 7;
+  repro?: SparkSessionRepro;
+  [key: string]: unknown;
+}
+
 interface SparkSessionReproSnapshotV6 {
   version: 6;
-  repro?: SparkSessionRepro;
+  repro?: SparkSessionReproV6;
   [key: string]: unknown;
 }
 
@@ -94,6 +103,7 @@ interface LegacySparkSessionReproSnapshot {
 }
 
 type StoredSparkSessionReproSnapshot =
+  | SparkSessionReproSnapshotV7
   | SparkSessionReproSnapshotV6
   | SparkSessionReproSnapshotV5
   | SparkSessionReproSnapshotV4
@@ -111,19 +121,27 @@ export async function readSessionRepro(
   const path = sessionReproStorePath(cwd, ctx);
   const snapshot = await readJsonFileOptional<StoredSparkSessionReproSnapshot>(path);
   if (!snapshot) return undefined;
-  if (snapshot.version === 6) {
+  if (snapshot.version === 7) {
     const repro = sanitizeStoredSessionRepro(snapshot.repro);
     if (JSON.stringify(repro) !== JSON.stringify(snapshot.repro)) {
-      await writeJsonFileAtomic(path, { version: 6, repro } satisfies SparkSessionReproSnapshotV6);
+      await writeJsonFileAtomic(path, { version: 7, repro } satisfies SparkSessionReproSnapshotV7);
       await rebuildSessionIndex(cwd);
     }
+    return repro;
+  }
+  if (snapshot.version === 6) {
+    const sanitized = sanitizeStoredSessionReproV6(snapshot.repro);
+    const migrated = sanitized ? migrateSparkSessionReproV6(sanitized) : undefined;
+    const repro = sanitizeStoredSessionRepro(migrated);
+    await writeJsonFileAtomic(path, { version: 7, repro } satisfies SparkSessionReproSnapshotV7);
+    await rebuildSessionIndex(cwd);
     return repro;
   }
   if (snapshot.version === 5) {
     const sanitized = sanitizeStoredSessionReproV5(snapshot.repro);
     const migrated = sanitized ? migrateSparkSessionReproV5(sanitized) : undefined;
     const repro = sanitizeStoredSessionRepro(migrated);
-    await writeJsonFileAtomic(path, { version: 6, repro } satisfies SparkSessionReproSnapshotV6);
+    await writeJsonFileAtomic(path, { version: 7, repro } satisfies SparkSessionReproSnapshotV7);
     await rebuildSessionIndex(cwd);
     return repro;
   }
@@ -131,7 +149,7 @@ export async function readSessionRepro(
     const sanitized = sanitizeStoredSessionReproV4(snapshot.repro);
     const migrated = sanitized ? migrateSparkSessionReproV4(sanitized) : undefined;
     const repro = sanitizeStoredSessionRepro(migrated);
-    await writeJsonFileAtomic(path, { version: 6, repro } satisfies SparkSessionReproSnapshotV6);
+    await writeJsonFileAtomic(path, { version: 7, repro } satisfies SparkSessionReproSnapshotV7);
     await rebuildSessionIndex(cwd);
     return repro;
   }
@@ -140,7 +158,7 @@ export async function readSessionRepro(
     const v4 = sanitized ? migrateSparkSessionReproV3(sanitized) : undefined;
     const migrated = v4 ? migrateSparkSessionReproV4(v4) : undefined;
     const repro = sanitizeStoredSessionRepro(migrated);
-    await writeJsonFileAtomic(path, { version: 6, repro } satisfies SparkSessionReproSnapshotV6);
+    await writeJsonFileAtomic(path, { version: 7, repro } satisfies SparkSessionReproSnapshotV7);
     await rebuildSessionIndex(cwd);
     return repro;
   }
@@ -150,7 +168,7 @@ export async function readSessionRepro(
   const v4 = v3 ? migrateSparkSessionReproV3(v3) : undefined;
   const migrated = v4 ? migrateSparkSessionReproV4(v4) : undefined;
   const repro = sanitizeStoredSessionRepro(migrated);
-  await writeJsonFileAtomic(path, { version: 6, repro } satisfies SparkSessionReproSnapshotV6);
+  await writeJsonFileAtomic(path, { version: 7, repro } satisfies SparkSessionReproSnapshotV7);
   await rebuildSessionIndex(cwd);
   return repro;
 }
@@ -161,8 +179,8 @@ export async function writeSessionRepro(
   ctx?: SparkSessionContext,
 ): Promise<void> {
   const path = sessionReproStorePath(cwd, ctx);
-  const snapshot: SparkSessionReproSnapshotV6 = {
-    version: 6,
+  const snapshot: SparkSessionReproSnapshotV7 = {
+    version: 7,
     repro: repro ? withoutReproRuntimeState(repro) : undefined,
   };
   await writeJsonFileAtomic(path, snapshot);
@@ -320,15 +338,26 @@ function sanitizeStoredSessionReproV5(
   return sanitizeStoredSessionReproState(repro) as SparkSessionReproV5 | undefined;
 }
 
+function sanitizeStoredSessionReproV6(
+  repro: SparkSessionReproV6 | undefined,
+): SparkSessionReproV6 | undefined {
+  return sanitizeStoredSessionReproState(repro) as SparkSessionReproV6 | undefined;
+}
+
 function sanitizeStoredSessionRepro(
   repro: SparkSessionRepro | undefined,
 ): SparkSessionRepro | undefined {
-  return sanitizeStoredSessionReproState(repro) as SparkSessionRepro | undefined;
+  return normalizeStoredSparkSessionRepro(repro);
 }
 
 function sanitizeStoredSessionReproState(
-  repro: SparkSessionRepro | SparkSessionReproV5 | SparkSessionReproV4 | undefined,
-): SparkSessionRepro | SparkSessionReproV5 | SparkSessionReproV4 | undefined {
+  repro:
+    | SparkSessionRepro
+    | SparkSessionReproV6
+    | SparkSessionReproV5
+    | SparkSessionReproV4
+    | undefined,
+): SparkSessionRepro | SparkSessionReproV6 | SparkSessionReproV5 | SparkSessionReproV4 | undefined {
   if (!repro) return undefined;
   repro = normalizeLegacyStageNames(repro);
   const stages = sanitizeReproStages(repro.stages);
@@ -389,7 +418,7 @@ function sanitizeStoredSessionReproState(
       stagnationCount,
       decision,
     },
-  } as SparkSessionRepro | SparkSessionReproV5 | SparkSessionReproV4;
+  } as SparkSessionRepro | SparkSessionReproV6 | SparkSessionReproV5 | SparkSessionReproV4;
   if (
     typeof sanitized.stopGuard.lastProgressDigest === "string" &&
     sanitized.stopGuard.lastProgressDigest.trim()
@@ -407,7 +436,12 @@ function sanitizeStoredSessionReproState(
 }
 
 function normalizeLegacyStageNames<
-  T extends SparkSessionRepro | SparkSessionReproV5 | SparkSessionReproV4 | SparkSessionReproV3,
+  T extends
+    | SparkSessionRepro
+    | SparkSessionReproV6
+    | SparkSessionReproV5
+    | SparkSessionReproV4
+    | SparkSessionReproV3,
 >(repro: T): T {
   const normalizeDefinition = <S extends { stage: SparkReproStage["name"] }>(step: S): S => ({
     ...step,
@@ -431,14 +465,14 @@ function normalizeLegacyStageNames<
       name: normalizeReproStageName(stage.name),
     })),
     ...(plan ? { plan } : {}),
-    ...(repro.version === 5 || repro.version === 6
+    ...(repro.version === 5 || repro.version === 6 || repro.version === 7
       ? { subgoals: repro.subgoals.map(normalizeDefinition) }
       : {}),
   } as T;
 }
 
 function isStoredStepVerificationValid(
-  repro: SparkSessionRepro | SparkSessionReproV5 | SparkSessionReproV4,
+  repro: SparkSessionRepro | SparkSessionReproV6 | SparkSessionReproV5 | SparkSessionReproV4,
   step: SparkReproStep,
   evidenceRefs: EvidenceRef[],
 ): boolean {
