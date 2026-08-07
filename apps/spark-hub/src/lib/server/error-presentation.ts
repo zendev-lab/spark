@@ -54,13 +54,15 @@ export function isHubServiceUnavailableError(error: unknown): boolean {
   }
   if (!(error instanceof Error)) return false;
   return (
+    error.name === "HubLayoutMigrationConflictError" ||
+    error.name === "HubLayoutMigrationLockedError" ||
     error.name === "HubRuntimeSessionUnavailableError" ||
     error.name === "SparkDaemonUnavailableError" ||
     error.name === "SparkDaemonPreDispatchUnavailableError" ||
     error.name === "SparkDaemonProtocolMismatchError" ||
     ("reasonCode" in error &&
       ["runtime_unavailable", "runtime_offline", "command_result_timeout"].includes(
-        String(error.reasonCode),
+        String(error.reasonCode).toLowerCase(),
       ))
   );
 }

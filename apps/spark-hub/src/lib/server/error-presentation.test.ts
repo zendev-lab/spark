@@ -46,6 +46,25 @@ describe("Hub server error presentation", () => {
     expect(JSON.stringify(presented)).not.toContain("/private/path");
   });
 
+  it("recognizes canonical uppercase runtime outage reason codes", () => {
+    const unavailable = Object.assign(new Error("runtime timeout with private detail"), {
+      reasonCode: "COMMAND_RESULT_TIMEOUT",
+    });
+
+    expect(
+      presentHubServerError({
+        error: unavailable,
+        status: 500,
+        fallbackMessage: "Internal Error",
+        requestId: "msg_runtime_timeout",
+      }),
+    ).toEqual({
+      code: "service_unavailable",
+      message: HUB_SERVICE_UNAVAILABLE_MESSAGE,
+      requestId: "msg_runtime_timeout",
+    });
+  });
+
   it("renders retryable dependency outages as no-store 503 responses", async () => {
     const response = hubServiceUnavailableResponse("msg_retryable");
 

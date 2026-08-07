@@ -43,6 +43,19 @@ browser timers.
   evidence uses `evidence:…` refs and `.spark/evidence/`. Neither store scans,
   accepts, or projects records from the other namespace.
 
+## Dependency failure boundary
+
+- Hub assigns a request ID before opening Hub storage so startup and migration
+  failures remain traceable without leaking filesystem paths or stack traces.
+- A temporarily unavailable Hub database, daemon transport, runtime route, or
+  protocol-compatible owner is a retryable dependency failure. Hub returns a
+  no-store `503` response with `Retry-After`, error code
+  `service_unavailable`, and the request ID instead of allowing the owner error
+  to surface as a generic `500`.
+- Unexpected application failures remain internal server errors. Hub must not
+  relabel arbitrary exceptions as dependency outages or report unavailable
+  execution owners as successful operations.
+
 ## Verification
 
 Every reachable Loop state needs a rendered UI test. Work/Transcript defaults,
