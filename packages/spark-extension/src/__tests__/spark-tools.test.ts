@@ -5779,9 +5779,28 @@ test("subject review rebuild reads a controlled v1 Evidence fixture and writes c
     const reviewDir = join(dir, "reviews");
     await mkdir(reviewDir, { recursive: true });
     await writeFile(join(reviewDir, "legacy.json"), JSON.stringify(fixture.value));
+    await writeFile(
+      join(reviewDir, "legacy-artifact.json"),
+      JSON.stringify({
+        version: 1,
+        subjectKind: "task",
+        subjectRef: "task:legacy-artifact",
+        artifactRef: "artifact:legacy-review",
+        status: "resolved",
+        outcome: "approved",
+        reviewedAt: "2026-06-30T00:00:00.000Z",
+      }),
+    );
 
     const index = await rebuildSubjectReviewIndex(reviewDir);
     assert.equal(index.reviews[0]?.evidenceRef, "evidence:legacy-review");
+    assert.deepEqual(index.skipped, [
+      {
+        path: "legacy-artifact.json",
+        reason: "legacy_artifact_review_not_promoted",
+        legacyArtifactRef: "artifact:legacy-review",
+      },
+    ]);
     const persisted = await readFile(join(reviewDir, "index.json"), "utf8");
     assert.match(persisted, /"evidenceRef": "evidence:legacy-review"/);
     for (const legacyField of fixture.legacyFieldNames) {
@@ -5804,6 +5823,65 @@ test("subject review rebuild rejects controlled mixed canonical and legacy Evide
     await assert.rejects(
       () => rebuildSubjectReviewIndex(reviewDir),
       /must not contain both evidenceRef and legacy/,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("workspace review rebuild quarantines legacy Artifact reviews without blocking Evidence reviews", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-subject-review-workspace-mixed-"));
+  try {
+    const reviewDir = join(
+      dir,
+      ".spark",
+      "projects",
+      "proj-current",
+      "tasks",
+      "task-current",
+      "reviews",
+    );
+    await mkdir(reviewDir, { recursive: true });
+    await writeFile(
+      join(reviewDir, "evidence-current.json"),
+      JSON.stringify({
+        version: 1,
+        subjectKind: "task",
+        subjectRef: "task:current",
+        evidenceRef: "evidence:current-review",
+        status: "resolved",
+        outcome: "approved",
+        reviewedAt: "2026-07-02T00:00:00.000Z",
+      }),
+    );
+    await writeFile(
+      join(reviewDir, "artifact-legacy.json"),
+      JSON.stringify({
+        version: 1,
+        subjectKind: "task",
+        subjectRef: "task:legacy",
+        artifactRef: "artifact:legacy-review",
+        status: "resolved",
+        outcome: "needs_changes",
+        reviewedAt: "2026-07-01T00:00:00.000Z",
+      }),
+    );
+
+    const index = await rebuildWorkspaceReviewIndex(dir);
+    assert.deepEqual(
+      index.reviews.map((review) => review.evidenceRef),
+      ["evidence:current-review"],
+    );
+    assert.deepEqual(index.skipped, [
+      {
+        path: "projects/proj-current/tasks/task-current/reviews/artifact-legacy.json",
+        reason: "legacy_artifact_review_not_promoted",
+        legacyArtifactRef: "artifact:legacy-review",
+      },
+    ]);
+    assert.match(
+      await readFile(join(dir, ".spark", "reviews", "index.json"), "utf8"),
+      /"legacyArtifactRef": "artifact:legacy-review"/,
     );
   } finally {
     await rm(dir, { recursive: true, force: true });
