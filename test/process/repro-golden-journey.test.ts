@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -79,6 +80,13 @@ interface JourneyFixture {
   port: number;
 }
 
+interface FixtureVerificationReceipt {
+  command: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
 let retainedFailureFixture: string | undefined;
 
 afterEach(() => {
@@ -94,6 +102,11 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
   let restartedDaemonPid = 0;
   let hubPid = 0;
   try {
+    const referenceValidation = await runFixtureVerification(fixture.sourceRepo, "reference");
+    const targetValidationBeforeRepair = await runFixtureVerification(fixture.sourceRepo, "target");
+    assert.equal(referenceValidation.exitCode, 0);
+    assert.equal(targetValidationBeforeRepair.exitCode, 1);
+
     const enrollmentToken = seedHubEnrollment(fixture.sparkHome);
     const hubStart = jsonObject(
       (await runSparkProcess(fixture.target, ["hub", "web", "start", "--json"])).stdout,
@@ -165,6 +178,8 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     );
     assert.notEqual(restartedDaemonPid, daemonPid);
     assert.notEqual(generationAfter, generationBefore);
+    const ownershipAfter = readProcessOwnership(fixture.daemonDbPath);
+    assert.equal(ownershipAfter.pid, restartedDaemonPid);
 
     const pendingAfter = await waitForSinglePendingAsk(fixture.target, sessionId);
     assert.equal(
@@ -265,7 +280,12 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     assert.equal(reportArtifactRefs.filter((ref) => ref === reportArtifactRef).length, 1);
     const projectedJson = reportMarkdown.match(/```json\n([\s\S]*?)\n```/u);
     assert.ok(projectedJson?.[1]);
-    assert.deepEqual(JSON.parse(projectedJson[1]) as unknown, report);
+    const projectedReport = JSON.parse(projectedJson[1]) as unknown;
+    assert.deepEqual(projectedReport, report);
+    const summaryDigest = sha256(JSON.stringify(report));
+    const projectedReportDigest = sha256(JSON.stringify(projectedReport));
+    const markdownDigest = sha256(reportMarkdown);
+    assert.equal(projectedReportDigest, summaryDigest);
     const formalGates = arrayField(reportWork, "gates");
     assert.ok(formalGates.length > 0);
     assert.ok(
@@ -292,11 +312,18 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       "main..HEAD",
     ]);
     assert.equal(commitCount.trim(), "1");
-    assert.equal(
-      (await gitOutput(fixture.managedWorktree, ["diff", "--name-only", "main..HEAD"])).trim(),
-      "target/normalize.mjs",
-    );
+    const changedPaths = (
+      await gitOutput(fixture.managedWorktree, ["diff", "--name-only", "main..HEAD"])
+    ).trim();
+    assert.equal(changedPaths, "target/normalize.mjs");
     assert.equal((await gitOutput(fixture.managedWorktree, ["status", "--porcelain"])).trim(), "");
+    const baseCommitSha = (await gitOutput(fixture.managedWorktree, ["rev-parse", "main"])).trim();
+    const headCommitSha = (await gitOutput(fixture.managedWorktree, ["rev-parse", "HEAD"])).trim();
+    const targetValidationAfterRepair = await runFixtureVerification(
+      fixture.managedWorktree,
+      "target",
+    );
+    assert.equal(targetValidationAfterRepair.exitCode, 0);
 
     const evidenceRefs = uniqueMatches(JSON.stringify(report), /evidence:[a-z0-9-]+/giu);
     const artifactRefs = uniqueMatches(JSON.stringify(report), /artifact:[a-z0-9-]+/giu);
@@ -325,6 +352,17 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       providerRoundsAtAnswer,
       resumeCount,
       toolApprovalCount: completed.toolApprovalCount,
+      interaction: {
+        beforeRestart: {
+          interactionRequestId: stringField(pendingBefore, "interactionRequestId"),
+          humanRequestId: stringField(pendingBefore, "humanRequestId"),
+        },
+        afterRestart: {
+          interactionRequestId,
+          humanRequestId: stringField(pendingAfter, "humanRequestId"),
+        },
+        answerReceipt: winnerResponseId,
+      },
       interactionRequestId,
       humanRequestId: stringField(pendingAfter, "humanRequestId"),
       answerReceipt: winnerResponseId,
@@ -334,28 +372,59 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
           generation: generationBefore,
           processStartToken: ownershipBefore.processStartToken,
         },
-        after: { pid: restartedDaemonPid, generation: generationAfter },
+        after: {
+          pid: restartedDaemonPid,
+          generation: generationAfter,
+          processStartToken: ownershipAfter.processStartToken,
+        },
         sqlitePath: fixture.daemonDbPath,
+      },
+      validation: {
+        reference: referenceValidation,
+        targetBeforeRepair: targetValidationBeforeRepair,
+        targetAfterRepair: targetValidationAfterRepair,
       },
       git: {
         worktreePath: fixture.managedWorktree,
-        commitCount: 1,
+        baseCommitSha,
+        headCommitSha,
+        commitSha: headCommitSha,
+        revisionRange: "main..HEAD",
+        commitCount: Number.parseInt(commitCount.trim(), 10),
+        revListOutput: commitCount.trim(),
+        changedPaths: changedPaths.split("\n"),
+        diffNameOnlyOutput: changedPaths,
+        statusPorcelainOutput: "",
         draftPrCreates: forge.draftPrCreates,
         nonDraftPrCreates: forge.nonDraftPrCreates,
       },
       report: {
+        summaryDigest,
+        projectedReportDigest,
+        markdownDigest,
         reportArtifactRef,
         artifactRefs,
         evidenceRefs,
+        formalGateCount: formalGates.length,
+        formalGatesAccepted: formalGates.every((gate) => gate.status === "accepted"),
         workbenchLifecycle: terminal.workbenchLifecycle,
       },
+      terminalOwner: terminal,
     };
-    process.stdout.write(`REPRO_GOLDEN_JOURNEY ${JSON.stringify(processLedger)}\n`);
-
     await stopProcesses(fixture.target);
-    assert.equal(isProcessAlive(daemonPid), false);
-    assert.equal(isProcessAlive(restartedDaemonPid), false);
-    assert.equal(isProcessAlive(hubPid), false);
+    const teardown = {
+      daemonBeforeAlive: isProcessAlive(daemonPid),
+      daemonAfterAlive: isProcessAlive(restartedDaemonPid),
+      hubAlive: isProcessAlive(hubPid),
+    };
+    assert.deepEqual(teardown, {
+      daemonBeforeAlive: false,
+      daemonAfterAlive: false,
+      hubAlive: false,
+    });
+    process.stdout.write(
+      `REPRO_GOLDEN_JOURNEY ${JSON.stringify({ ...processLedger, teardown, livePidCount: 0 })}\n`,
+    );
     retainedFailureFixture = undefined;
     await rm(fixture.temporary, { recursive: true, force: true });
   } catch (error) {
@@ -1149,6 +1218,43 @@ async function reservePort(): Promise<number> {
       server.close((error) => (error ? reject(error) : resolvePort(port)));
     });
   });
+}
+
+async function runFixtureVerification(
+  cwd: string,
+  implementation: "reference" | "target",
+): Promise<FixtureVerificationReceipt> {
+  const command = `node verify.mjs ${implementation}`;
+  try {
+    const result = await execFileAsync(
+      process.execPath,
+      [resolve(cwd, "verify.mjs"), implementation],
+      {
+        cwd,
+        env: process.env,
+        encoding: "utf8",
+      },
+    );
+    return {
+      command,
+      exitCode: 0,
+      stdout: result.stdout.trim(),
+      stderr: result.stderr.trim(),
+    };
+  } catch (error) {
+    const failure = error as { code?: number | string; stdout?: string; stderr?: string };
+    const exitCode = typeof failure.code === "number" ? failure.code : Number(failure.code);
+    return {
+      command,
+      exitCode: Number.isInteger(exitCode) ? exitCode : 1,
+      stdout: failure.stdout?.trim() ?? "",
+      stderr: failure.stderr?.trim() ?? "",
+    };
+  }
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 async function git(cwd: string, args: string[]): Promise<void> {
