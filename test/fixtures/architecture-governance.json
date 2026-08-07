@@ -99,8 +99,6 @@
       "lineCount": 39,
       "domainOwner": "capability-ce",
       "callers": [
-        ".github/workflows/ce-capability-nightly.yml",
-        ".github/workflows/ce-scripted-provider-nightly.yml",
         "scripts/run-nightly-capability-ce.mts",
         "scripts/run-scripted-provider-ce.mts",
         "test/package-script-surface.test.ts"
@@ -293,11 +291,7 @@
       "path": "scripts/run-nightly-capability-ce.mts",
       "lineCount": 473,
       "domainOwner": "capability-ce",
-      "callers": [
-        ".github/workflows/ce-capability-nightly.yml",
-        "package.json",
-        "test/package-script-surface.test.ts"
-      ],
+      "callers": ["package.json", "test/package-script-surface.test.ts"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
@@ -305,7 +299,7 @@
       "lineCount": 498,
       "domainOwner": "capability-ce",
       "callers": [
-        ".github/workflows/ce-scripted-provider-nightly.yml",
+        ".github/workflows/ce-behavior.yml",
         "docs/operations/scripted-provider-ce.md"
       ],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
