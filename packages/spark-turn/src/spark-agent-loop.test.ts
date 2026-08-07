@@ -562,8 +562,8 @@ test("SparkAgentLoop applies one phase profile to schemas, manifests, and dispat
   assert.equal(rejected?.isError, true);
   assert.match(toolResultText(rejected), /phase-inactive tool: implement_action/u);
 
-  loop.setCurrentMode("implement");
-  assert.equal(loop.getCurrentMode(), "implement");
+  loop.setCurrentMode("execute");
+  assert.equal(loop.getCurrentMode(), "execute");
   await loop.submit("implement now");
 
   assert.equal(implementExecutions, 1);
@@ -626,7 +626,7 @@ test("SparkAgentLoop rechecks phase availability after async approval", async ()
       return { outcome: "approved", summary: "approved before phase transition" };
     },
   });
-  loop.setCurrentMode("implement");
+  loop.setCurrentMode("execute");
 
   await loop.submit("approve then switch phase");
 

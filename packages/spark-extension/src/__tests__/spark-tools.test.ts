@@ -771,7 +771,7 @@ type TestSparkContext = {
   askWaitTimeoutMs?: number;
   askReviewerFallbackAfterMs?: number;
   sparkActiveMode?: {
-    phase: "plan" | "implement";
+    mode: "plan" | "execute";
   };
   ui: {
     notify: (message: string, level?: "info" | "warning" | "error" | "success") => void;
@@ -894,8 +894,8 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     });
     const initializedRun = registerSparkToolsForTest();
     assert.equal(initializedRun.commands.get("research"), undefined);
-    const executeCommand = initializedRun.commands.get("implement");
-    assert.ok(executeCommand, "missing /implement command");
+    const executeCommand = initializedRun.commands.get("execute");
+    assert.ok(executeCommand, "missing /execute command");
     await executeCommand.handler("Finish the direct execution task", initializedCtx);
     assert.equal(initializedRun.messages.length, 0);
     assert.equal(initializedRun.loopControl.loops.size, 0);
@@ -1113,8 +1113,8 @@ Collect incident facts and decide the bounded response.
 
     const emptyCtx = testSparkContext(emptyDir, "main");
     const emptyRun = registerSparkToolsForTest();
-    const emptyExecute = emptyRun.commands.get("implement");
-    assert.ok(emptyExecute, "missing /implement command");
+    const emptyExecute = emptyRun.commands.get("execute");
+    assert.ok(emptyExecute, "missing /execute command");
     await emptyExecute.handler("", emptyCtx);
     assert.equal(emptyRun.customMessages.length, 0);
     const emptyGoalCommand = emptyRun.commands.get("goal");
@@ -1197,11 +1197,11 @@ test("latest direct Spark mode replaces older pending hidden mode context", asyn
     await useOnlySparkProject(run.tools, ctx);
 
     const goalCommand = run.commands.get("goal");
-    const executeCommand = run.commands.get("implement");
+    const executeCommand = run.commands.get("execute");
     const planCommand = run.commands.get("plan");
     assert.ok(goalCommand, "missing /goal command");
     assert.equal(run.commands.get("workflow:goal"), undefined);
-    assert.ok(executeCommand, "missing /implement command");
+    assert.ok(executeCommand, "missing /execute command");
     assert.ok(planCommand, "missing /plan command");
 
     await goalCommand.handler("work through background queue", ctx);
@@ -1379,8 +1379,8 @@ test("impl_plan_tasks writes directly whenever durable planning is needed", asyn
     });
     assert.match(toolText(noMode), /Planned tasks: created=1 updated=0/);
 
-    const executeCommand = commands.get("implement");
-    assert.ok(executeCommand, "missing /implement command");
+    const executeCommand = commands.get("execute");
+    assert.ok(executeCommand, "missing /execute command");
     await executeCommand.handler("Do one task", ctx);
     const duringExecute = await executeSparkTool(tools, "impl_plan_tasks", ctx, {
       tasks: [
@@ -1721,8 +1721,8 @@ test("/implement continues through the agent-end hook without auto-answering or 
     });
 
     const run = registerSparkToolsForTest();
-    const executeCommand = run.commands.get("implement");
-    assert.ok(executeCommand, "missing /implement command");
+    const executeCommand = run.commands.get("execute");
+    assert.ok(executeCommand, "missing /execute command");
     await executeCommand.handler("work through the ready queue", ctx);
     assert.equal(run.loopControl.loops.size, 0);
     assert.equal(run.customMessages.at(-1)?.customType, "spark-mode-request");
@@ -6450,8 +6450,8 @@ test("/implement canonical ask uses UI instead of reviewer auto-answer", async (
     });
     await useOnlySparkProject(run.tools, ctx);
 
-    const implementCommand = run.commands.get("implement");
-    assert.ok(implementCommand, "missing /implement command");
+    const implementCommand = run.commands.get("execute");
+    assert.ok(implementCommand, "missing /execute command");
     await implementCommand.handler("work until a human decision is needed", ctx);
     assert.deepEqual(ctx.sparkActiveMode, {
       phase: "implement",
@@ -6517,8 +6517,8 @@ test("/implement canonical ask does not inherit active goal reviewer auto-answer
     assert.equal(ctx.askAutoAnswer, true);
     assert.equal(ctx.askWaitTimeoutMs, 15 * 60_000);
 
-    const implementCommand = run.commands.get("implement");
-    assert.ok(implementCommand, "missing /implement command");
+    const implementCommand = run.commands.get("execute");
+    assert.ok(implementCommand, "missing /execute command");
     await implementCommand.handler("manual implementation should block for human asks", ctx);
     for (const handler of run.eventHandlers.get("before_agent_start") ?? []) await handler({}, ctx);
     assert.equal(ctx.askAutoAnswer, undefined);

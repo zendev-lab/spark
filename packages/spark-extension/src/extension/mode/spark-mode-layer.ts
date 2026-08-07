@@ -28,7 +28,7 @@ export function createSparkModeRegistry(): ModeRegistry {
       ),
       sparkModeDefinition(
         "execute",
-        "Implement",
+        "Execute",
         "claim and finish one concrete task at a time, continuing until blocked",
       ),
     ],
@@ -93,7 +93,7 @@ export function registerSparkModeTool(registerSparkTool: SparkToolRegistrar): vo
       });
       if (!result.statusOnly) {
         const mode = result.mode as "plan" | "execute";
-        await saveSparkMode(ctx.cwd, ctx, { mode, projectRef: current.projectRef });
+        await saveSparkMode(ctx.cwd, ctx, { mode });
         ctx.sparkActiveMode = sparkActiveMode(mode);
       }
       const text = result.text

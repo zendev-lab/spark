@@ -62,7 +62,7 @@ test("injectSparkHints injects default plan lens without initialized Spark graph
     assert.doesNotMatch(prompt, /# spark-cue/);
     assert.doesNotMatch(prompt, /<base_system_prompts>/);
     assert.doesNotMatch(prompt, /# spark-graft/);
-    assert.equal((await loadSparkMode(dir, ctx)).phase, "plan");
+    assert.equal((await loadSparkMode(dir, ctx)).mode, "plan");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -82,7 +82,7 @@ test("handleSparkInput lets an ordinary investigation request continue in plan",
       assert.equal(customMessages.length, 0);
       assert.equal(queuedInstructions.length, 0);
       assert.equal((await defaultEvidenceStore(dir).list({ producer: "ask" })).length, 0);
-      assert.equal((await loadSparkMode(dir, ctx)).phase, "plan");
+      assert.equal((await loadSparkMode(dir, ctx)).mode, "plan");
     },
   );
 });
@@ -101,7 +101,7 @@ test("handleSparkInput does not turn until-done input into a template ask", asyn
       assert.equal(customMessages.length, 0);
       assert.equal(queuedInstructions.length, 0);
       assert.equal((await defaultEvidenceStore(dir).list({ producer: "ask" })).length, 0);
-      assert.equal((await loadSparkMode(dir, ctx)).phase, "plan");
+      assert.equal((await loadSparkMode(dir, ctx)).mode, "plan");
     },
   );
 });
@@ -126,7 +126,7 @@ test("handleSparkInput lets active goal input bypass phase route ask", async () 
       assert.equal(customMessages.length, 0);
       assert.equal(queuedInstructions.length, 0);
       assert.equal((await defaultEvidenceStore(dir).list({ producer: "ask" })).length, 0);
-      assert.equal((await loadSparkMode(dir, ctx)).phase, "plan");
+      assert.equal((await loadSparkMode(dir, ctx)).mode, "plan");
     },
   );
 });
@@ -216,7 +216,7 @@ test("handleSparkInput lets slash commands bypass default plan routing", async (
       assert.equal(customMessages.length, 0);
       assert.equal(queuedInstructions.length, 0);
       assert.equal((await defaultEvidenceStore(dir).list({ producer: "ask" })).length, 0);
-      assert.equal((await loadSparkMode(dir, ctx)).phase, "plan");
+      assert.equal((await loadSparkMode(dir, ctx)).mode, "plan");
     },
   );
 });

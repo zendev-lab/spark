@@ -23,6 +23,7 @@ import { collectReproOrchestrationSnapshot } from "./spark-repro-orchestration.t
 import { reconcileManagedTaskSessions } from "./spark-task-session-dispatch.ts";
 import { sparkActiveMode } from "./spark-mode-state.ts";
 import {
+  reproPhaseToSessionMode,
   advanceReproPhase,
   advanceReproStage,
   clearSessionRepro,
@@ -393,7 +394,7 @@ export function registerSparkReproTool(
           await deps.refreshSparkWidget?.(cwd, ctx);
           return reproLoopUnavailableResult(repro, loopHealth);
         }
-        ctx.sparkActiveMode = sparkActiveMode(repro.currentPhase);
+        ctx.sparkActiveMode = sparkActiveMode(reproPhaseToSessionMode(repro.currentPhase));
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
           content: [
@@ -630,7 +631,9 @@ export function registerSparkReproTool(
         const phaseAdvanced = advanceReproPhase(repro);
         if (phaseAdvanced) {
           await writeUnifiedSessionRepro(cwd, phaseAdvanced, ctx);
-          ctx.sparkActiveMode = sparkActiveMode(phaseAdvanced.currentPhase);
+          ctx.sparkActiveMode = sparkActiveMode(
+            reproPhaseToSessionMode(phaseAdvanced.currentPhase),
+          );
           await deps.refreshSparkWidget?.(cwd, ctx);
           return {
             content: [
@@ -663,7 +666,9 @@ export function registerSparkReproTool(
               details: reproDetails(stageAdvanced),
             };
           }
-          ctx.sparkActiveMode = sparkActiveMode(stageAdvanced.currentPhase);
+          ctx.sparkActiveMode = sparkActiveMode(
+            reproPhaseToSessionMode(stageAdvanced.currentPhase),
+          );
           await deps.refreshSparkWidget?.(cwd, ctx);
           const nextStage = currentReproStage(stageAdvanced);
           return {

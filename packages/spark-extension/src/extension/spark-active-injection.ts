@@ -45,12 +45,12 @@ export async function injectSparkHints(event: unknown, ctx: SparkToolContext): P
   // Spark is always available: inject the standing phase marker even when no
   // local .spark/ state exists yet. The richer active-context block is only
   // appended once a task graph is present.
-  const phase = (await loadSparkMode(ctx.cwd, ctx)).phase;
+  const mode = (await loadSparkMode(ctx.cwd, ctx)).mode;
   const graph = await ensureSparkStateForActiveWorkspace(ctx.cwd, ctx);
   const summary = graph ? await renderActiveSparkContextWithLanguage(ctx.cwd, ctx) : undefined;
   const sparkPrompt = renderSparkActiveSystemPrompt(
     eventSystemPrompt(event),
-    phase,
+    mode,
     summary?.language,
   );
   const builtinSkillsPrompt = await renderBaseSystemPromptsCatalogPrompt();
@@ -115,7 +115,7 @@ export function renderSparkActiveSystemPrompt(
   phase: SparkSessionMode = "plan",
   language?: SparkLanguage,
 ): string {
-  return renderSparkModeSystemPrompt({ basePrompt, phase, language });
+  return renderSparkModeSystemPrompt({ basePrompt, mode, language });
 }
 
 function isSparkInputEvent(event: unknown): event is SparkInputEvent {

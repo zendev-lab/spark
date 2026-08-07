@@ -70,7 +70,7 @@ export interface SparkHeadlessRoleInstructionInput {
   };
   cwd: string;
   timeoutMs: number;
-  phase?: "plan" | "execute";
+  mode?: "plan" | "execute";
   requireStructuredOutcome?: boolean;
   signal?: AbortSignal;
   sessionDir?: string;
@@ -314,7 +314,7 @@ export async function runSparkHeadlessRoleInstruction(
     hasUI: false,
     systemPrompt: input.role.systemPrompt,
     approvalMethod: "auto",
-    executionPhase: input.phase ?? "implement",
+    sessionMode: input.mode ?? "execute",
     tokenUsage: options.tokenUsage,
   } satisfies SparkCliHostServicesOptions);
   throwIfHeadlessAborted(input.signal);

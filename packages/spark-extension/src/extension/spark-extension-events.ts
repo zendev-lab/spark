@@ -243,7 +243,7 @@ export async function syncSparkGoalAskAutoAnswerPolicy(
   const activeGoal = await hasActiveCurrentSessionGoal(ctx);
   const activeRepro = (await readSessionRepro(ctx.cwd, ctx))?.status === "active";
   ctx.askWaitTimeoutMs =
-    activeRepro || (phase !== "implement" && activeGoal)
+    activeRepro || (phase !== "execute" && activeGoal)
       ? SPARK_AUTONOMOUS_ASK_WAIT_TIMEOUT_MS
       : SPARK_DEFAULT_ASK_WAIT_TIMEOUT_MS;
 

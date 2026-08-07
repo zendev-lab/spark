@@ -79,7 +79,7 @@ test("agent-end reconciliation continues an implement ready frontier without a d
   const ctx: SparkToolContext = {
     cwd,
     sessionId: "implement-reconciliation",
-    sparkActiveMode: { phase: "implement" },
+    sparkActiveMode: { mode: "execute" },
   };
   const sent: SentMessage[] = [];
   const controller = createSparkAgentEndReconciliationController({
@@ -117,10 +117,10 @@ test("agent-end reconciliation continues an implement ready frontier without a d
     });
     await defaultTaskGraphStore(cwd).save(graph);
     await saveCurrentProjectRef(cwd, ctx, project.ref);
-    await saveSparkMode(cwd, ctx, { phase: "implement", projectRef: project.ref });
+    await saveSparkMode(cwd, ctx, { mode: "execute", projectRef: project.ref });
     const loadedGraph = await loadSparkGraph(cwd, ctx);
     assert.ok(loadedGraph);
-    assert.equal((await loadSparkMode(cwd, ctx)).phase, "implement");
+    assert.equal((await loadSparkMode(cwd, ctx)).mode, "execute");
     assert.equal((await currentSparkProject(cwd, ctx, loadedGraph))?.ref, project.ref);
     const readiness = loadedGraph.taskPlanReadiness(task.ref);
     assert.equal(readiness.ready, true, JSON.stringify(readiness.issues));
@@ -136,8 +136,8 @@ test("agent-end reconciliation continues an implement ready frontier without a d
     assert.deepEqual(sent[0]?.message.details?.readyImplementTaskRefs, [task.ref]);
     assert.equal(await controller.reconcile(ctx), false, "the follow-up must remain bounded");
 
-    await saveSparkMode(cwd, ctx, { phase: "plan", projectRef: project.ref });
-    ctx.sparkActiveMode = { phase: "plan" };
+    await saveSparkMode(cwd, ctx, { mode: "plan", projectRef: project.ref });
+    ctx.sparkActiveMode = { mode: "plan" };
     controller.reset(ctx);
     assert.equal(await controller.reconcile(ctx), false, "plan phase must not auto-implement");
   } finally {

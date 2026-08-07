@@ -11,14 +11,14 @@ export function suggestForegroundGoalPhase(
   if (!selectedProjectRef) return "plan";
 
   const frontier = selectedProjectForegroundState(graph, selectedProjectRef);
-  if (frontier.ready > 0) return "implement";
+  if (frontier.ready > 0) return "execute";
   if (frontier.unfinished > 0) return foregroundUnfinishedTaskPhase(frontier.unfinishedTasks);
   if (emptyFrontierNeedsPlanning(normalized)) return "plan";
 
   if (foregroundPlanIntent(normalized)) return "plan";
-  if (foregroundImplementIntent(normalized)) return "implement";
+  if (foregroundImplementIntent(normalized)) return "execute";
   if (foregroundResearchIntent(normalized)) return "plan";
-  return "implement";
+  return "execute";
 }
 
 interface ForegroundProjectState {
@@ -44,12 +44,12 @@ function selectedProjectForegroundState(
 export function foregroundUnfinishedTaskPhase(
   tasks: readonly Pick<Task, "kind">[],
 ): SparkEntryMode {
-  if (tasks.length === 0) return "implement";
-  if (tasks.some((task) => task.kind === "execute" || task.kind === "generic")) {
-    return "implement";
+  if (tasks.length === 0) return "execute";
+  if (tasks.some((task) => task.kind === "implement" || task.kind === "generic")) {
+    return "execute";
   }
   if (tasks.some((task) => task.kind !== "research" && task.kind !== "review")) {
-    return "implement";
+    return "execute";
   }
   return "plan";
 }

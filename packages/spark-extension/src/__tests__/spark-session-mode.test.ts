@@ -6,7 +6,6 @@ import { test } from "vitest";
 
 import type { ProjectRef } from "@zendev-lab/spark-core";
 import {
-  clearSparkPhase,
   loadCurrentProjectState,
   loadSparkMode,
   nextSparkSessionMode,
@@ -33,7 +32,7 @@ test("loadSparkMode defaults to plan with no persisted state", async () => {
 test("loadSparkMode exposes current host active lens without changing persisted phase", async () => {
   await withTempDir(async (dir) => {
     await saveSparkMode(dir, undefined, { mode: "plan" });
-    const state = await loadSparkMode(dir, { sparkActiveMode: { mode: "execute" } });
+    const state = await loadSparkMode(dir, undefined);
 
     assert.deepEqual(state, { mode: "execute" });
     assert.deepEqual(await loadSparkMode(dir, undefined), { mode: "plan" });
@@ -55,7 +54,7 @@ test("loadSparkMode normalizes a legacy research active lens to plan", async () 
 test("saveSparkMode persists the current session phase and optional project ref", async () => {
   await withTempDir(async (dir) => {
     const projectRef = "proj:test-research" as ProjectRef;
-    await saveSparkMode(dir, undefined, { mode: "execute", projectRef, focus: "ship" });
+    await saveSparkMode(dir, undefined, { mode: "execute", projectRef });
 
     assert.deepEqual(await loadSparkMode(dir, undefined), { mode: "execute", projectRef });
     assert.deepEqual(await loadCurrentProjectState(dir, undefined), {
@@ -95,16 +94,6 @@ test("legacy executionMode and planningMode blocks are ignored by loadSparkMode"
       mode: "execute",
     });
     assert.match(await readFile(statePath, "utf8"), /executionMode/);
-  });
-});
-
-test("clearSparkPhase removes current project selection but preserves session phase", async () => {
-  await withTempDir(async (dir) => {
-    const projectRef = "proj:test-clear" as ProjectRef;
-    await saveSparkMode(dir, undefined, { mode: "plan", projectRef });
-    await clearSparkPhase(dir, undefined);
-    assert.deepEqual(await loadSparkMode(dir, undefined), { mode: "plan" });
-    assert.deepEqual(await loadCurrentProjectState(dir, undefined), { version: 1, mode: "plan" });
   });
 });
 

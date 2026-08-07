@@ -103,8 +103,8 @@ async function collectSessionTodoReconciliation(
 async function collectImplementReconciliation(
   ctx: SparkToolContext,
 ): Promise<AgentEndReconciliation | undefined> {
-  const phase = await loadSparkMode(ctx.cwd, ctx);
-  if (phase.phase !== "implement" || (await hasActiveForegroundDrive(ctx))) return undefined;
+  const mode = await loadSparkMode(ctx.cwd, ctx);
+  if (mode.mode !== "execute" || (await hasActiveForegroundDrive(ctx))) return undefined;
 
   const frontier = await loadImplementFrontier(ctx);
   if (!frontier) return undefined;

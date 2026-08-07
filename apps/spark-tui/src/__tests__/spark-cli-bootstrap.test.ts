@@ -19,7 +19,7 @@ import {
   type SparkConfig,
 } from "../host/index.ts";
 
-async function setPhaseThroughTool(
+async function setModeThroughTool(
   cwd: string,
   context: ReturnType<SparkHostRuntime["makeContext"]>,
   phase: "plan" | "execute",
@@ -324,12 +324,12 @@ test("native host keeps prompt phase and executable tool profile on one loaded s
 
     assert.equal(services.agentLoop.getCurrentMode(), "plan");
 
-    await setPhaseThroughTool(dir, services.runtime.makeContext(), "implement");
-    await services.agentLoop.submit("refresh the phase profile");
-    assert.equal(services.agentLoop.getCurrentMode(), "implement");
+    await setModeThroughTool(dir, services.runtime.makeContext(), "execute");
+    await services.agentLoop.submit("refresh the mode profile");
+    assert.equal(services.agentLoop.getCurrentMode(), "execute");
     assert.match(captured.systemPrompt ?? "", /Spark phase: implement\./);
 
-    await setPhaseThroughTool(dir, services.runtime.makeContext(), "plan");
+    await setModeThroughTool(dir, services.runtime.makeContext(), "plan");
     await services.runtime.emit("before_agent_start", {});
     assert.equal(services.agentLoop.getCurrentMode(), "plan");
   } finally {
@@ -384,7 +384,7 @@ test("background turns use a driver profile and the next user submit restores pe
         return { content: [{ type: "text", text: "written" }] };
       },
     });
-    await setPhaseThroughTool(dir, services.runtime.makeContext(), "plan");
+    await setModeThroughTool(dir, services.runtime.makeContext(), "plan");
     assert.equal(services.agentLoop.getCurrentMode(), "plan");
 
     const backgroundDone = new Promise<void>((resolve) => {

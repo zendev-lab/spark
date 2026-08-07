@@ -26,6 +26,7 @@ import {
   updateSessionLoopStatus,
 } from "./spark-session-loops.ts";
 import {
+  reproPhaseToSessionMode,
   clearSessionRepro,
   currentReproStage,
   readSessionRepro,
@@ -458,12 +459,12 @@ export function registerSparkCommands(
         ctx.sparkActiveMode = sparkActiveMode(ctx.sparkActiveMode?.mode ?? "plan");
       } else {
         await writeSessionRepro(ctx.cwd, previousRepro, ctx);
-        ctx.sparkActiveMode = sparkActiveMode(previousRepro.currentPhase);
+        ctx.sparkActiveMode = sparkActiveMode(reproPhaseToSessionMode(previousRepro.currentPhase));
       }
       await deps.refreshSparkWidget(ctx.cwd, ctx);
       throw error;
     }
-    ctx.sparkActiveMode = sparkActiveMode(repro.currentPhase);
+    ctx.sparkActiveMode = sparkActiveMode(reproPhaseToSessionMode(repro.currentPhase));
     await deps.refreshSparkWidget(ctx.cwd, ctx);
     ctx.ui?.notify?.(visible, "info");
   }

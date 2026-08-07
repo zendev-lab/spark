@@ -325,7 +325,7 @@ export async function createSparkCliHostServices(
           selectedSkillsPrompt,
         );
         agentLoop.setSystemPrompt(promptState.systemPrompt);
-        agentLoop.setCurrentMode(options.executionPhase ?? promptState.phase);
+        agentLoop.setCurrentMode(options.sessionMode ?? promptState.mode);
       }
     },
     finishUserSubmit: () => clearRequestSkillSelection(),
@@ -361,7 +361,7 @@ export async function createSparkCliHostServices(
       };
     },
   });
-  agentLoop.setCurrentMode(options.executionPhase ?? initialPromptState.phase);
+  agentLoop.setCurrentMode(options.sessionMode ?? initialPromptState.mode);
   clearRequestSkillSelection = () => {
     const hadSelection = selectedSkillMatches.length > 0 || selectedSkillsPrompt.length > 0;
     selectedSkillMatches = [];
@@ -373,22 +373,22 @@ export async function createSparkCliHostServices(
         baseSystemPrompt,
         skillsCatalogPrompt,
         selectedSkillsPrompt,
-        agentLoop.getCurrentMode() ?? initialPromptState.phase,
+        agentLoop.getCurrentMode() ?? initialPromptState.mode,
       ),
     );
   };
   runtime.on("before_agent_start", async (event, ctx) => {
-    if (options.executionPhase) {
+    if (options.sessionMode) {
       agentLoop.setSystemPrompt(
         composeSparkCliAgentSystemPrompt(
           cwd,
           baseSystemPrompt,
           skillsCatalogPrompt,
           selectedSkillsPrompt,
-          options.executionPhase,
+          options.sessionMode,
         ),
       );
-      agentLoop.setCurrentMode(options.executionPhase);
+      agentLoop.setCurrentMode(options.sessionMode);
       return;
     }
     if (sparkAgentLifecycleSource(event) === "triggerTurn") {
@@ -411,7 +411,7 @@ export async function createSparkCliHostServices(
       selectedSkillsPrompt,
     );
     agentLoop.setSystemPrompt(promptState.systemPrompt);
-    agentLoop.setCurrentMode(promptState.phase);
+    agentLoop.setCurrentMode(promptState.mode);
   });
 
   return {
@@ -519,16 +519,16 @@ async function resolveSparkCliAgentPromptState(
   baseSystemPrompt: string,
   skillsCatalogPrompt: string,
   selectedSkillsPrompt: string,
-): Promise<{ systemPrompt: string; phase: "plan" | "execute" }> {
-  const phase = (await loadSparkMode(cwd, ctx)).phase;
+): Promise<{ systemPrompt: string; mode: "plan" | "execute" }> {
+  const mode = (await loadSparkMode(cwd, ctx)).mode;
   return {
-    phase,
+    mode,
     systemPrompt: composeSparkCliAgentSystemPrompt(
       cwd,
       baseSystemPrompt,
       skillsCatalogPrompt,
       selectedSkillsPrompt,
-      phase,
+      mode,
     ),
   };
 }

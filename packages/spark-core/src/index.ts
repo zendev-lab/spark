@@ -703,7 +703,7 @@ export interface ExtensionRoleRunRequest {
   };
   cwd: string;
   timeoutMs: number;
-  phase?: "plan" | "implement";
+  mode?: "plan" | "execute";
   requireStructuredOutcome?: boolean;
   signal?: AbortSignal;
   sessionDir?: string;

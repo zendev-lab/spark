@@ -402,11 +402,11 @@ test("Spark prompt stays short and tool-scoped", () => {
 test("Spark prompt defaults to plan and changes for implementation mode", () => {
   const defaultPrompt = renderSparkActiveSystemPrompt("");
   const planPrompt = renderSparkActiveSystemPrompt("", "plan");
-  const implementPrompt = renderSparkActiveSystemPrompt("", "implement");
+  const executePrompt = renderSparkActiveSystemPrompt("", "execute");
   assert.equal(planPrompt, defaultPrompt);
-  assert.notEqual(implementPrompt, planPrompt);
+  assert.notEqual(executePrompt, planPrompt);
   assert.match(planPrompt, /\bplan\b/);
-  assert.match(implementPrompt, /\bimplement\b/);
+  assert.match(executePrompt, /\bimplement\b/);
 });
 
 test("builtin Pi roles report blockers upward instead of asking interactively", () => {

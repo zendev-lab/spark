@@ -377,7 +377,7 @@ test("runSparkHeadlessRoleInstruction records completed and blocked structured o
       expectedStatus: "failed" as const,
     },
   ]) {
-    let executionPhase: "plan" | "execute" | undefined;
+    let sessionMode: "plan" | "execute" | undefined;
     const services = headlessRoleServices(async (tools) => {
       await executeRoleOutcomeTool(tools, expected);
       return successfulOutcome("structured outcome recorded");
@@ -385,12 +385,12 @@ test("runSparkHeadlessRoleInstruction records completed and blocked structured o
 
     const result = await runSparkHeadlessRoleInstruction(roleInstructionInput(expected.kind), {
       createServices: async (options) => {
-        executionPhase = options?.executionPhase;
+        sessionMode = options?.sessionMode;
         return services as never;
       },
     });
 
-    assert.equal(executionPhase, "implement");
+    assert.equal(sessionMode, "implement");
     assert.deepEqual(result.outcome, {
       kind: expected.kind,
       code: expected.code,
@@ -503,7 +503,7 @@ function roleInstructionInput(suffix: string): SparkHeadlessRoleInstructionInput
     },
     cwd: process.cwd(),
     timeoutMs: 1_000,
-    phase: "implement",
+    mode: "execute",
     requireStructuredOutcome: true,
     noSession: true,
   };

@@ -11,7 +11,7 @@ export type { SessionTodoEntry, SessionTodoStatus } from "@zendev-lab/spark-task
  * Display model:
  *   ◆ Goal(●): active objective
  *   ◆ Loop(●): active objective
- *   ◆ Project title · Phase: implement
+ *   ◆ Project title · Mode: execute
  *   ├─ ◐ @me/worker role-run task title
  *   │  ├─ ✓ #7 task plan item
  *   │  └─ ○ #12 task plan item
@@ -93,7 +93,7 @@ export interface SparkProjectKindWidgetEntry {
 }
 
 export interface SparkWidgetActiveLens {
-  phase: "plan" | "implement";
+  mode: "plan" | "execute";
 }
 
 export interface SparkWidgetState {
@@ -465,7 +465,7 @@ function sparkWidgetActiveLensPhase(lens: SparkWidgetActiveLens | undefined): "p
 
 function formatPhaseSummary(lens: SparkWidgetActiveLens | undefined): string {
   const phase = sparkWidgetActiveLensPhase(lens);
-  return `Phase: ${phase}`;
+  return `Mode: ${phase}`;
 }
 
 function formatProjectKindLines(
