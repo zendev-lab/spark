@@ -3,7 +3,7 @@ title: 自动推进长期工作
 description: 只有普通 Plan 与 Implement 路径不够时，才选择 Goal、Loop、Repro 或 Workflow。
 ---
 
-普通项目修改先使用[规划并实现](/zh/guides/plan-and-implement/)。只有工作需要跨多个
+普通项目修改先使用[规划并实现](/zh/guides/plan-and-execute/)。只有工作需要跨多个
 步骤自主推进、重复、遵循复现门控或执行已保存流程时，才选择自动推进。
 
 不确定该选哪一种模式时，使用：

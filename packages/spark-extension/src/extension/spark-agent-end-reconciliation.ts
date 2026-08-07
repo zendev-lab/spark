@@ -1,15 +1,15 @@
 import type { Task } from "@zendev-lab/spark-core";
 import { isActiveSessionTodo, type SessionTodoEntry } from "@zendev-lab/spark-tasks";
-import { renderSparkImplementationPhasePrompt } from "./phase/spark-phase-renderers.ts";
+import { renderSparkExecuteModePrompt } from "./mode/spark-mode-renderers.ts";
 import { loadIndependentTodos } from "./session-todos.ts";
 import {
   currentSparkProject,
   loadSparkGraph,
-  loadSparkPhase,
+  loadSparkMode,
   sparkSessionKey,
   sparkSessionOwnerKey,
 } from "./session-state.ts";
-import type { SparkPhaseMessageApi } from "./spark-phase-entry.ts";
+import type { SparkModeMessageApi } from "./spark-mode-entry.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { loadSessionLoop } from "./spark-session-loops.ts";
 import { readSessionRepro } from "./spark-session-repro.ts";
@@ -29,7 +29,7 @@ interface AgentEndReconciliation {
  * input resets the guard, so automatic retries and the reconciliation turn
  * itself cannot create a continuation loop.
  */
-export function createSparkAgentEndReconciliationController(pi: SparkPhaseMessageApi): {
+export function createSparkAgentEndReconciliationController(pi: SparkModeMessageApi): {
   reset(ctx: SparkToolContext): void;
   reconcile(ctx: SparkToolContext, options?: { triggerTurn?: boolean }): Promise<boolean>;
 } {
@@ -103,8 +103,8 @@ async function collectSessionTodoReconciliation(
 async function collectImplementReconciliation(
   ctx: SparkToolContext,
 ): Promise<AgentEndReconciliation | undefined> {
-  const phase = await loadSparkPhase(ctx.cwd, ctx);
-  if (phase.phase !== "implement" || (await hasActiveForegroundDrive(ctx))) return undefined;
+  const mode = await loadSparkMode(ctx.cwd, ctx);
+  if (mode.mode !== "execute" || (await hasActiveForegroundDrive(ctx))) return undefined;
 
   const frontier = await loadImplementFrontier(ctx);
   if (!frontier) return undefined;
@@ -116,7 +116,7 @@ async function collectImplementReconciliation(
       `Implementation phase check found ${runningCount}${ready.length} ready task(s) in ${project.title}.`,
       running ? `Running task: ${renderTask(running)}.` : "",
       renderReadyFrontier(ready),
-      renderSparkImplementationPhasePrompt(graph, project.ref, undefined),
+      renderSparkExecuteModePrompt(graph, project.ref, undefined),
     ].filter(Boolean),
     details: {
       implementProjectRef: project.ref,

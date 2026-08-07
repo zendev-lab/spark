@@ -2,26 +2,37 @@ import { type ProjectRef, type TaskRef } from "@zendev-lab/spark-core";
 import { JsonStoreFormatError } from "./json-store.ts";
 
 export type SparkRunStrategy = "sequential" | "parallel";
-export type SparkPlanningPhaseSource = "auto" | "direct";
-export type SparkAgentPhase = "plan" | "implement";
+export type SparkPlanningModeSource = "auto" | "direct";
+export type SparkAgentMode = "plan" | "execute";
 
 export interface CurrentProjectStoreSnapshot {
-  version: 1;
+  version: 2;
   projectRef?: ProjectRef;
   currentTaskRef?: TaskRef;
-  phase?: SparkAgentPhase;
+  mode?: SparkAgentMode;
 }
 
 export function normalizeCurrentProjectStoreSnapshot(
   raw: Record<string, unknown>,
   filePath: string,
 ): CurrentProjectStoreSnapshot {
-  // Legacy current-project files may still carry mode/control blocks such as
-  // planningMode, executionMode, or runMode. Tolerate-ignore those legacy
-  // blocks: Session phase is persisted next to the selected project pointer,
-  // while Loop and WorkflowRun state remain daemon-owned.
-  if (raw.version !== undefined && raw.version !== 1) {
-    throw new JsonStoreFormatError(filePath, "version must be 1");
+  if (raw.version === undefined || raw.version === 1) {
+    const projectRef = optionalString(raw.projectRef, filePath, "projectRef") as
+      | ProjectRef
+      | undefined;
+    const currentTaskRef = optionalString(raw.currentTaskRef, filePath, "currentTaskRef") as
+      | TaskRef
+      | undefined;
+    const mode = normalizeLegacySparkAgentPhase(raw.phase, filePath);
+    return {
+      version: 2,
+      ...(projectRef ? { projectRef } : {}),
+      ...(currentTaskRef ? { currentTaskRef } : {}),
+      ...(mode ? { mode } : {}),
+    };
+  }
+  if (raw.version !== 2) {
+    throw new JsonStoreFormatError(filePath, "version must be 2");
   }
   const projectRef = optionalString(raw.projectRef, filePath, "projectRef") as
     | ProjectRef
@@ -29,23 +40,32 @@ export function normalizeCurrentProjectStoreSnapshot(
   const currentTaskRef = optionalString(raw.currentTaskRef, filePath, "currentTaskRef") as
     | TaskRef
     | undefined;
-  const phase = normalizeSparkAgentPhase(raw.phase, filePath);
+  const mode = normalizeSparkAgentMode(raw.mode, filePath);
   return {
-    version: 1,
+    version: 2,
     ...(projectRef ? { projectRef } : {}),
     ...(currentTaskRef ? { currentTaskRef } : {}),
-    ...(phase ? { phase } : {}),
+    ...(mode ? { mode } : {}),
   };
 }
 
-export function normalizeSparkAgentPhase(
+export function normalizeSparkAgentMode(
   value: unknown,
   filePath = "<input>",
-): SparkAgentPhase | undefined {
+): SparkAgentMode | undefined {
   if (value === undefined) return undefined;
-  if (value === "research") return "plan";
-  if (value === "plan" || value === "implement") return value;
-  throw new JsonStoreFormatError(filePath, "phase must be plan or implement");
+  if (value === "plan" || value === "execute") return value;
+  throw new JsonStoreFormatError(filePath, "mode must be plan or execute");
+}
+
+function normalizeLegacySparkAgentPhase(
+  value: unknown,
+  filePath: string,
+): SparkAgentMode | undefined {
+  if (value === undefined) return undefined;
+  if (value === "research" || value === "plan") return "plan";
+  if (value === "implement") return "execute";
+  throw new JsonStoreFormatError(filePath, "legacy phase must be research, plan, or implement");
 }
 
 function optionalString(value: unknown, filePath: string, path: string): string | undefined {

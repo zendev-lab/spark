@@ -191,8 +191,8 @@
       "stability": "supported",
       "stateWriter": "workspace"
     },
-    "@zendev-lab/spark-phases": {
-      "path": "packages/spark-phases",
+    "@zendev-lab/spark-modes": {
+      "path": "packages/spark-modes",
       "layer": "capability",
       "owner": "modes",
       "stability": "supported",

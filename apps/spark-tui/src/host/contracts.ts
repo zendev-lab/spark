@@ -88,7 +88,7 @@ export interface SparkCliHostServicesOptions {
   modelPicker?: SparkModelPicker;
   systemPrompt?: string;
   noPromptTemplates?: boolean;
-  executionPhase?: "plan" | "implement";
+  sessionMode?: "plan" | "execute";
   streamTimeoutMs?: number;
   streamIdleTimeoutMs?: number;
   toolTimeoutMs?: number;

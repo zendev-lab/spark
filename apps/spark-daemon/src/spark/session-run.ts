@@ -24,7 +24,7 @@ import {
   renderPersistentSessionRolePrompt,
   renderSparkChannelSurfacePrompt,
 } from "@zendev-lab/spark-host/system-prompt";
-import { composeAgentSystemPrompt } from "@zendev-lab/spark-phases";
+import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
 import { refreshSparkSessionSnapshotIndex } from "@zendev-lab/spark-session";
 import {
   isSparkTurnRestartYieldError,

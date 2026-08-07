@@ -21,8 +21,9 @@ import {
 import { syncSparkReproReportArtifact } from "./spark-repro-report.ts";
 import { collectReproOrchestrationSnapshot } from "./spark-repro-orchestration.ts";
 import { reconcileManagedTaskSessions } from "./spark-task-session-dispatch.ts";
-import { sparkActiveLens } from "./spark-phase-state.ts";
+import { sparkActiveMode } from "./spark-mode-state.ts";
 import {
+  reproPhaseToSessionMode,
   advanceReproPhase,
   advanceReproStage,
   clearSessionRepro,
@@ -389,11 +390,11 @@ export function registerSparkReproTool(
         if (loopHealth.status === "unreachable") {
           await clearSessionRepro(cwd, ctx);
           await restorePreviousGoal(cwd, ctx, previousGoal);
-          ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan");
+          ctx.sparkActiveMode = sparkActiveMode(ctx.sparkActiveMode?.mode ?? "plan");
           await deps.refreshSparkWidget?.(cwd, ctx);
           return reproLoopUnavailableResult(repro, loopHealth);
         }
-        ctx.sparkActiveLens = sparkActiveLens(repro.currentPhase);
+        ctx.sparkActiveMode = sparkActiveMode(reproPhaseToSessionMode(repro.currentPhase));
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
           content: [
@@ -630,7 +631,9 @@ export function registerSparkReproTool(
         const phaseAdvanced = advanceReproPhase(repro);
         if (phaseAdvanced) {
           await writeUnifiedSessionRepro(cwd, phaseAdvanced, ctx);
-          ctx.sparkActiveLens = sparkActiveLens(phaseAdvanced.currentPhase);
+          ctx.sparkActiveMode = sparkActiveMode(
+            reproPhaseToSessionMode(phaseAdvanced.currentPhase),
+          );
           await deps.refreshSparkWidget?.(cwd, ctx);
           return {
             content: [
@@ -656,14 +659,16 @@ export function registerSparkReproTool(
                 loopId: stageAdvanced.reproId,
                 reason: "repro completed",
               });
-            ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan");
+            ctx.sparkActiveMode = sparkActiveMode(ctx.sparkActiveMode?.mode ?? "plan");
             await deps.refreshSparkWidget?.(cwd, ctx);
             return {
               content: [{ type: "text" as const, text: "Repro complete! All stages passed." }],
               details: reproDetails(stageAdvanced),
             };
           }
-          ctx.sparkActiveLens = sparkActiveLens(stageAdvanced.currentPhase);
+          ctx.sparkActiveMode = sparkActiveMode(
+            reproPhaseToSessionMode(stageAdvanced.currentPhase),
+          );
           await deps.refreshSparkWidget?.(cwd, ctx);
           const nextStage = currentReproStage(stageAdvanced);
           return {
@@ -712,7 +717,7 @@ export function registerSparkReproTool(
             loopId: repro.reproId,
             reason: "repro stopped",
           });
-        ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan");
+        ctx.sparkActiveMode = sparkActiveMode(ctx.sparkActiveMode?.mode ?? "plan");
         await deps.refreshSparkWidget?.(cwd, ctx);
         return {
           content: [{ type: "text" as const, text: "Repro stopped." }],

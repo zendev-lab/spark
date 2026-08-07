@@ -11,7 +11,7 @@ export type { SessionTodoEntry, SessionTodoStatus } from "@zendev-lab/spark-task
  * Display model:
  *   ◆ Goal(●): active objective
  *   ◆ Loop(●): active objective
- *   ◆ Project title · Phase: implement
+ *   ◆ Project title · Mode: execute
  *   ├─ ◐ @me/worker role-run task title
  *   │  ├─ ✓ #7 task plan item
  *   │  └─ ○ #12 task plan item
@@ -93,7 +93,7 @@ export interface SparkProjectKindWidgetEntry {
 }
 
 export interface SparkWidgetActiveLens {
-  phase: "plan" | "implement";
+  mode: "plan" | "execute";
 }
 
 export interface SparkWidgetState {
@@ -444,9 +444,9 @@ function formatProjectHeaderLine(
   state: SparkWidgetState,
   theme: SparkWidgetTheme,
 ): string | undefined {
-  const phaseSummary = formatPhaseSummary(state.activeLens);
+  const modeSummary = formatModeSummary(state.activeLens);
   const kindSummary = state.projectKind?.badge ? `Kind: ${state.projectKind.badge}` : undefined;
-  const summaries = [phaseSummary, kindSummary].filter((part): part is string => Boolean(part));
+  const summaries = [modeSummary, kindSummary].filter((part): part is string => Boolean(part));
   const suffix = summaries
     .map((summary) => `${theme.fg("dim", "·")} ${theme.fg("dim", summary)}`)
     .join(" ");
@@ -458,14 +458,14 @@ function formatProjectHeaderLine(
   return `${theme.fg("accent", "◆")} ${theme.bold(state.projectTitle)}${suffix ? ` ${suffix}` : ""}`;
 }
 
-function sparkWidgetActiveLensPhase(lens: SparkWidgetActiveLens | undefined): "plan" | "implement" {
-  if (lens?.phase === "plan" || lens?.phase === "implement") return lens.phase;
+function sparkWidgetActiveLensMode(lens: SparkWidgetActiveLens | undefined): "plan" | "execute" {
+  if (lens?.mode === "plan" || lens?.mode === "execute") return lens.mode;
   return "plan";
 }
 
-function formatPhaseSummary(lens: SparkWidgetActiveLens | undefined): string {
-  const phase = sparkWidgetActiveLensPhase(lens);
-  return `Phase: ${phase}`;
+function formatModeSummary(lens: SparkWidgetActiveLens | undefined): string {
+  const mode = sparkWidgetActiveLensMode(lens);
+  return `Mode: ${mode}`;
 }
 
 function formatProjectKindLines(

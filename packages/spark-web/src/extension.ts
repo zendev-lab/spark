@@ -378,7 +378,7 @@ function getSearchContentTool(options: SparkWebExtensionOptions): ToolConfig {
       effect: "read",
       executionMode: "parallel",
       domains: ["web", "search-cache"],
-      phases: ["plan", "implement"],
+      modes: ["plan", "execute"],
       approval: "none",
     },
     parameters: Type.Object({

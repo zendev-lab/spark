@@ -273,9 +273,9 @@ importers:
       '@zendev-lab/spark-loop':
         specifier: workspace:^
         version: link:../../packages/spark-loop
-      '@zendev-lab/spark-phases':
+      '@zendev-lab/spark-modes':
         specifier: workspace:^
-        version: link:../../packages/spark-phases
+        version: link:../../packages/spark-modes
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../../packages/spark-protocol
@@ -498,9 +498,9 @@ importers:
       '@zendev-lab/spark-memory':
         specifier: workspace:^
         version: link:../../packages/spark-memory
-      '@zendev-lab/spark-phases':
+      '@zendev-lab/spark-modes':
         specifier: workspace:^
-        version: link:../../packages/spark-phases
+        version: link:../../packages/spark-modes
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../../packages/spark-protocol
@@ -777,9 +777,9 @@ importers:
       '@zendev-lab/spark-memory':
         specifier: workspace:^
         version: link:../spark-memory
-      '@zendev-lab/spark-phases':
+      '@zendev-lab/spark-modes':
         specifier: workspace:^
-        version: link:../spark-phases
+        version: link:../spark-modes
       '@zendev-lab/spark-protocol':
         specifier: workspace:^
         version: link:../spark-protocol
@@ -1091,7 +1091,7 @@ importers:
         specifier: 4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.2)(@vitest/browser-playwright@4.1.10)(@vitest/browser-preview@4.1.10)(@voidzero-dev/vite-plus-core@0.2.7(@types/node@26.1.2)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(typescript@6.0.3)(yaml@2.9.0))(jsdom@27.4.0(supports-color@10.2.2))
 
-  packages/spark-phases:
+  packages/spark-modes:
     dependencies:
       typebox:
         specifier: 'catalog:'

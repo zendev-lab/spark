@@ -1,24 +1,24 @@
 import type { ProjectRef, Task } from "@zendev-lab/spark-core";
 import { isUnfinishedTaskStatus, type TaskGraph } from "@zendev-lab/spark-tasks";
-import type { SparkEntryPhase } from "./spark-entry.ts";
+import type { SparkEntryMode } from "./spark-entry.ts";
 
 export function suggestForegroundGoalPhase(
   graph: TaskGraph,
   selectedProjectRef: ProjectRef | undefined,
   objective: string,
-): SparkEntryPhase {
+): SparkEntryMode {
   const normalized = objective.trim();
   if (!selectedProjectRef) return "plan";
 
   const frontier = selectedProjectForegroundState(graph, selectedProjectRef);
-  if (frontier.ready > 0) return "implement";
+  if (frontier.ready > 0) return "execute";
   if (frontier.unfinished > 0) return foregroundUnfinishedTaskPhase(frontier.unfinishedTasks);
   if (emptyFrontierNeedsPlanning(normalized)) return "plan";
 
   if (foregroundPlanIntent(normalized)) return "plan";
-  if (foregroundImplementIntent(normalized)) return "implement";
+  if (foregroundImplementIntent(normalized)) return "execute";
   if (foregroundResearchIntent(normalized)) return "plan";
-  return "implement";
+  return "execute";
 }
 
 interface ForegroundProjectState {
@@ -43,13 +43,13 @@ function selectedProjectForegroundState(
 
 export function foregroundUnfinishedTaskPhase(
   tasks: readonly Pick<Task, "kind">[],
-): SparkEntryPhase {
-  if (tasks.length === 0) return "implement";
+): SparkEntryMode {
+  if (tasks.length === 0) return "execute";
   if (tasks.some((task) => task.kind === "implement" || task.kind === "generic")) {
-    return "implement";
+    return "execute";
   }
   if (tasks.some((task) => task.kind !== "research" && task.kind !== "review")) {
-    return "implement";
+    return "execute";
   }
   return "plan";
 }

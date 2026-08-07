@@ -78,13 +78,13 @@ Ordinary project work follows:
 Project → Task plan → claim or assign → Run → Artifact → Review
 ```
 
-`/plan` creates verifiable work without implementing it. `/implement` continues
+`/plan` creates verifiable work without implementing it. `/execute` continues
 through ready tasks until complete, blocked, validation fails, or a decision is
 needed. Goal, Loop, Repro, and Workflow add daemon-owned continuation for work
 that must persist or repeat. `/automate` is only a picker for those existing
 modes.
 
-Start with [plan and implement](/guides/plan-and-implement/), then read
+Start with [plan and implement](/guides/plan-and-execute/), then read
 [long-running automation](/guides/automation/).
 
 ## 5. Channels and multi-session collaboration

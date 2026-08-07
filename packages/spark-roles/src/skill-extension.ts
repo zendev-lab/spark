@@ -74,7 +74,7 @@ const SKILL_AGENT_POLICY = {
   effect: "external_write",
   executionMode: "sequential",
   domains: ["skills", "roles"],
-  phases: ["implement"],
+  modes: ["execute"],
   approval: "none",
 } as const;
 

@@ -357,7 +357,7 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
       effect: "read",
       executionMode: "parallel",
       domains: ["files"],
-      phases: ["implement"],
+      modes: ["execute"],
       approval: "none",
     },
     async execute() {
@@ -444,7 +444,7 @@ test("SparkAgentLoop passes prompt_cache_key and reports cache usage summaries",
       executionMode: "parallel",
       approval: "none",
       domains: ["files"],
-      phases: ["implement"],
+      modes: ["execute"],
     },
   ]);
   assert.deepEqual(manifest.roundtrip, { index: 1 });
@@ -481,7 +481,7 @@ test("SparkAgentLoop applies one phase profile to schemas, manifests, and dispat
     name: "plan_probe",
     description: "available only while planning",
     parameters: { type: "object" },
-    policy: { effect: "read", executionMode: "parallel", phases: ["plan"], approval: "none" },
+    policy: { effect: "read", executionMode: "parallel", modes: ["plan"], approval: "none" },
     async execute() {
       return { content: [{ type: "text", text: "plan" }] };
     },
@@ -493,7 +493,7 @@ test("SparkAgentLoop applies one phase profile to schemas, manifests, and dispat
     policy: {
       effect: "local_write",
       executionMode: "sequential",
-      phases: ["implement"],
+      modes: ["execute"],
       approval: "none",
     },
     async execute() {
@@ -547,9 +547,9 @@ test("SparkAgentLoop applies one phase profile to schemas, manifests, and dispat
     }
   });
 
-  assert.equal(loop.getCurrentPhase(), undefined);
-  loop.setCurrentPhase("plan");
-  assert.equal(loop.getCurrentPhase(), "plan");
+  assert.equal(loop.getCurrentMode(), undefined);
+  loop.setCurrentMode("plan");
+  assert.equal(loop.getCurrentMode(), "plan");
   await loop.submit("plan without writes");
 
   assert.equal(implementExecutions, 0);
@@ -560,10 +560,10 @@ test("SparkAgentLoop applies one phase profile to schemas, manifests, and dispat
       .find((message) => message.role === "toolResult" && message.toolCallId === "tc-phase-forged"),
   );
   assert.equal(rejected?.isError, true);
-  assert.match(toolResultText(rejected), /phase-inactive tool: implement_action/u);
+  assert.match(toolResultText(rejected), /mode-inactive tool: implement_action/u);
 
-  loop.setCurrentPhase("implement");
-  assert.equal(loop.getCurrentPhase(), "implement");
+  loop.setCurrentMode("execute");
+  assert.equal(loop.getCurrentMode(), "execute");
   await loop.submit("implement now");
 
   assert.equal(implementExecutions, 1);
@@ -590,7 +590,7 @@ test("SparkAgentLoop rechecks phase availability after async approval", async ()
     policy: {
       effect: "local_write",
       executionMode: "sequential",
-      phases: ["implement"],
+      modes: ["execute"],
       approval: "required",
     },
     async execute() {
@@ -622,11 +622,11 @@ test("SparkAgentLoop rechecks phase availability after async approval", async ()
     getModel: () => TEST_MODEL,
     approvalMethod: "auto",
     reviewToolApproval: async () => {
-      loop.setCurrentPhase("plan");
+      loop.setCurrentMode("plan");
       return { outcome: "approved", summary: "approved before phase transition" };
     },
   });
-  loop.setCurrentPhase("implement");
+  loop.setCurrentMode("execute");
 
   await loop.submit("approve then switch phase");
 
@@ -637,7 +637,7 @@ test("SparkAgentLoop rechecks phase availability after async approval", async ()
       .find((message) => message.role === "toolResult" && message.toolCallId === toolCall.id),
   );
   assert.equal(result?.isError, true);
-  assert.match(toolResultText(result), /phase-inactive tool: approved_implement_action/u);
+  assert.match(toolResultText(result), /mode-inactive tool: approved_implement_action/u);
 });
 
 test("SparkAgentLoop forwards getReasoning into stream options.reasoning", async () => {

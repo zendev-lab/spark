@@ -1,6 +1,6 @@
 import type { ProjectRef } from "@zendev-lab/spark-core";
 import type { TaskGraph } from "@zendev-lab/spark-tasks";
-import type { SparkPlanningPhaseSource } from "./session-state.ts";
+import type { SparkPlanningModeSource } from "./session-state.ts";
 
 export type SparkCommandProjectStateKind = "empty_project" | "existing_project" | "initialized";
 
@@ -10,12 +10,12 @@ export interface SparkCommandProjectState {
   unfinishedTaskCount: number;
 }
 
-export type SparkEntryPhase = "plan" | "implement";
-export type SparkEntryPhaseChoice = SparkEntryPhase | "new_project";
+export type SparkEntryMode = "plan" | "execute";
+export type SparkEntryModeChoice = SparkEntryMode | "new_project";
 export type SparkEntryConfidence = "high" | "ambiguous" | "conflicting";
 
-export interface SparkEntryPhaseAnalysis {
-  recommendation: SparkEntryPhaseChoice;
+export interface SparkEntryModeAnalysis {
+  recommendation: SparkEntryModeChoice;
   confidence: SparkEntryConfidence;
   reasons: string[];
   prompt: string;
@@ -30,7 +30,7 @@ export type SparkEntryIntent =
   | { kind: "auto"; prompt: string }
   | {
       kind: "direct";
-      phase: SparkEntryPhase;
+      mode: SparkEntryMode;
       prompt: string;
     };
 
@@ -39,28 +39,28 @@ export type SparkEntryResolution =
       action: "initialize_new_project";
       idea: string;
       enterPlanning: boolean;
-      planningSource?: SparkPlanningPhaseSource;
+      planningSource?: SparkPlanningModeSource;
     }
   | {
       action: "initialize_existing_project";
       idea: string;
-      planningSource: SparkPlanningPhaseSource;
+      planningSource: SparkPlanningModeSource;
     }
   | {
-      action: "enter_phase";
-      phase: SparkEntryPhase;
+      action: "enter_mode";
+      mode: SparkEntryMode;
       focus?: string;
-      planningSource?: SparkPlanningPhaseSource;
+      planningSource?: SparkPlanningModeSource;
     }
   | { action: "blocked"; message: string }
   | { action: "none" };
 
-export function analyzeSparkEntryPhase(
+export function analyzeSparkEntryMode(
   graph: TaskGraph,
   projectState: SparkCommandProjectState,
   prompt: string,
   selectedProject: { ref: ProjectRef; title: string } | undefined,
-): SparkEntryPhaseAnalysis {
+): SparkEntryModeAnalysis {
   const currentProjectTitle =
     selectedProject?.title ?? graph.projects()[0]?.title ?? "current Spark workspace";
   const tasks = graph.tasks(selectedProject?.ref);
@@ -112,7 +112,7 @@ export function analyzeSparkEntryPhase(
       confidence: "high",
       reasons: [
         ...reasons,
-        "The prompt asks for a fix or implementation, but no pending/ready project task exists, so Spark should first plan a concrete task.",
+        "The prompt asks for a fix or execution, but no pending/ready project task exists, so Spark should first plan a concrete task.",
       ],
       prompt: normalizedPrompt,
       currentProjectTitle,
@@ -127,7 +127,7 @@ export function analyzeSparkEntryPhase(
       confidence: "high",
       reasons: [
         ...reasons,
-        "The prompt looks like an error report or stack trace, so Spark should inspect and answer in the plan phase before execution.",
+        "The prompt looks like an error report or stack trace, so Spark should inspect and answer in the plan mode before execution.",
       ],
       prompt: normalizedPrompt,
       currentProjectTitle,
@@ -138,11 +138,11 @@ export function analyzeSparkEntryPhase(
     };
   if (hasRunSignal)
     return {
-      recommendation: "implement",
+      recommendation: "execute",
       confidence: "conflicting",
       reasons: [
         ...reasons,
-        "The prompt asks for continuous or until-done progress, so Spark should enter implementation and keep broader goal/workflow scope explicit.",
+        "The prompt asks for continuous or until-done progress, so Spark should enter execution and keep broader goal/workflow scope explicit.",
       ],
       prompt: normalizedPrompt,
       currentProjectTitle,
@@ -153,11 +153,11 @@ export function analyzeSparkEntryPhase(
     };
   if (hasPlanningSignal && hasExecutionSignal)
     return {
-      recommendation: readyTaskCount > 0 ? "implement" : "plan",
+      recommendation: readyTaskCount > 0 ? "execute" : "plan",
       confidence: "conflicting",
       reasons: [
         ...reasons,
-        "The prompt contains both planning and implementation signals; Spark should choose the safest route from current task readiness.",
+        "The prompt contains both planning and execution signals; Spark should choose the safest route from current task readiness.",
       ],
       prompt: normalizedPrompt,
       currentProjectTitle,
@@ -168,9 +168,9 @@ export function analyzeSparkEntryPhase(
     };
   if (hasExecutionSignal)
     return {
-      recommendation: "implement",
+      recommendation: "execute",
       confidence: "high",
-      reasons: [...reasons, "The prompt asks to implement, claim, dispatch, run, or finish work."],
+      reasons: [...reasons, "The prompt asks to execute, claim, dispatch, run, or finish work."],
       prompt: normalizedPrompt,
       currentProjectTitle,
       projectCount: graph.projects().length,
@@ -203,13 +203,13 @@ export function analyzeSparkEntryPhase(
       pendingTaskCount,
     };
   return {
-    recommendation: readyTaskCount > 0 ? "implement" : "plan",
+    recommendation: readyTaskCount > 0 ? "execute" : "plan",
     confidence: "ambiguous",
     reasons: [
       ...reasons,
       normalizedPrompt
-        ? "The prompt does not clearly choose planning or execution; Spark should infer the next phase from task readiness."
-        : "No explicit phase prompt was provided in an initialized workspace; Spark should infer the next phase from task readiness.",
+        ? "The prompt does not clearly choose planning or execution; Spark should infer the next mode from task readiness."
+        : "No explicit mode prompt was provided in an initialized workspace; Spark should infer the next mode from task readiness.",
     ],
     prompt: normalizedPrompt,
     currentProjectTitle,

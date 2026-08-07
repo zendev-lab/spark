@@ -207,7 +207,7 @@ test("spark memory extension covers pi-memory compatibility workflows", async ()
         effect: "read",
         executionMode: "parallel",
         domains: ["memory"],
-        phases: ["plan", "implement"],
+        modes: ["plan", "execute"],
         approval: "none",
       });
     }
@@ -215,7 +215,7 @@ test("spark memory extension covers pi-memory compatibility workflows", async ()
       effect: "read",
       executionMode: "sequential",
       domains: ["memory"],
-      phases: ["plan", "implement"],
+      modes: ["plan", "execute"],
       approval: "none",
     });
 

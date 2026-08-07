@@ -26,6 +26,7 @@ import {
   updateSessionLoopStatus,
 } from "./spark-session-loops.ts";
 import {
+  reproPhaseToSessionMode,
   clearSessionRepro,
   currentReproStage,
   readSessionRepro,
@@ -50,7 +51,7 @@ import {
   type SparkWorkflowNavigatorAction,
 } from "./spark-workflow-loop-entry.ts";
 import { defaultSparkDynamicWorkflowEventStore } from "./spark-dynamic-workflow-event-store.ts";
-import { sparkActiveLens } from "./spark-phase-state.ts";
+import { sparkActiveMode } from "./spark-mode-state.ts";
 import {
   buildSparkDynamicWorkflowDashboardView,
   renderSparkDynamicWorkflowDashboardText,
@@ -89,18 +90,18 @@ export function registerSparkCommands(
     async handler(args, ctx) {
       await handleSparkEntryCommand(pi, ctx, {
         kind: "direct",
-        phase: "plan",
+        mode: "plan",
         prompt: args.trim(),
       });
     },
   });
 
-  pi.registerCommand("implement", {
+  pi.registerCommand("execute", {
     description: "Work through ready project tasks until complete or blocked.",
     async handler(args, ctx) {
       await handleSparkEntryCommand(pi, ctx, {
         kind: "direct",
-        phase: "implement",
+        mode: "execute",
         prompt: args.trim(),
       });
     },
@@ -373,7 +374,7 @@ export function registerSparkCommands(
       const existing = await readSessionRepro(ctx.cwd, ctx);
       await stopLoopForDomain(ctx, "repro", "repro stopped by user");
       await clearSessionRepro(ctx.cwd, ctx);
-      ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan");
+      ctx.sparkActiveMode = sparkActiveMode(ctx.sparkActiveMode?.mode ?? "plan");
       await deps.refreshSparkWidget(ctx.cwd, ctx);
       ctx.ui?.notify?.(
         existing
@@ -455,15 +456,15 @@ export function registerSparkCommands(
     } catch (error) {
       if (action === "restart" || previousRepro?.status !== "active") {
         await clearSessionRepro(ctx.cwd, ctx);
-        ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan");
+        ctx.sparkActiveMode = sparkActiveMode(ctx.sparkActiveMode?.mode ?? "plan");
       } else {
         await writeSessionRepro(ctx.cwd, previousRepro, ctx);
-        ctx.sparkActiveLens = sparkActiveLens(previousRepro.currentPhase);
+        ctx.sparkActiveMode = sparkActiveMode(reproPhaseToSessionMode(previousRepro.currentPhase));
       }
       await deps.refreshSparkWidget(ctx.cwd, ctx);
       throw error;
     }
-    ctx.sparkActiveLens = sparkActiveLens(repro.currentPhase);
+    ctx.sparkActiveMode = sparkActiveMode(reproPhaseToSessionMode(repro.currentPhase));
     await deps.refreshSparkWidget(ctx.cwd, ctx);
     ctx.ui?.notify?.(visible, "info");
   }
@@ -481,7 +482,7 @@ export function registerSparkCommands(
     if (parsed.action === "stop") {
       await stopLoopForDomain(ctx, "goal", "goal stopped by user");
       await clearSessionGoal(ctx.cwd, ctx);
-      ctx.sparkActiveLens = sparkActiveLens(ctx.sparkActiveLens?.phase ?? "plan");
+      ctx.sparkActiveMode = sparkActiveMode(ctx.sparkActiveMode?.mode ?? "plan");
       await deps.refreshSparkWidget(ctx.cwd, ctx);
       ctx.ui?.notify?.(
         existingGoal

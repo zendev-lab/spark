@@ -24,7 +24,7 @@ three product surfaces:
 - **Hub Web** for web-based control and projection.
 
 Start with [installation and your first run](/getting-started/), then
-[plan and implement a change](/guides/plan-and-implement/). Learn
+[plan and implement a change](/guides/plan-and-execute/). Learn
 [the complete feature map](/concepts/feature-map/) when you want to see how
 CLI, daemon, TUI, Hub, tools, automation, and collaboration fit together.
 Read [surface ownership](/concepts/surfaces/) only when you need to automate,

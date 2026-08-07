@@ -51,7 +51,7 @@ const FILE_READ_POLICY = {
   effect: "read",
   executionMode: "parallel",
   domains: ["files"],
-  phases: ["plan", "implement"],
+  modes: ["plan", "execute"],
   approval: "none",
 } as const satisfies ToolPolicy;
 
@@ -59,7 +59,7 @@ const FILE_WRITE_POLICY = {
   effect: "local_write",
   executionMode: "sequential",
   domains: ["files"],
-  phases: ["implement"],
+  modes: ["execute"],
   approval: "none",
 } as const satisfies ToolPolicy;
 

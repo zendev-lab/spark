@@ -55,7 +55,7 @@ success conditions.
 When the plan is ready:
 
 ```text
-/implement Execute the approved plan and stop if a required decision is
+/execute Execute the approved plan and stop if a required decision is
 missing.
 ```
 

@@ -20,7 +20,7 @@ const requiredPages = [
   "getting-started.md",
   "concepts/feature-map.md",
   "concepts/surfaces.md",
-  "guides/plan-and-implement.md",
+  "guides/plan-and-execute.md",
   "guides/automation.md",
   "guides/tui.md",
   "guides/runs-and-sessions.md",
@@ -129,9 +129,9 @@ for (const page of ["reference/cli.md", "zh/reference/cli.md"]) {
   }
 }
 
-for (const page of ["guides/plan-and-implement.md", "zh/guides/plan-and-implement.md"]) {
+for (const page of ["guides/plan-and-execute.md", "zh/guides/plan-and-execute.md"]) {
   const source = await readFile(join(docsRoot, page), "utf8");
-  for (const command of ["/plan", "/implement"]) {
+  for (const command of ["/plan", "/execute"]) {
     if (!source.includes(command)) failures.push(`${page} does not teach ${command}`);
   }
 }
@@ -211,7 +211,7 @@ const publicTools = [
   "goal",
   "loop",
   "repro",
-  "phase",
+  "mode",
   "workflow",
   "cue_exec",
   "cue_run",
@@ -255,8 +255,8 @@ for (const page of ["guides/collaboration.md", "zh/guides/collaboration.md"]) {
 const journeyPages = [
   "getting-started.md",
   "zh/getting-started.md",
-  "guides/plan-and-implement.md",
-  "zh/guides/plan-and-implement.md",
+  "guides/plan-and-execute.md",
+  "zh/guides/plan-and-execute.md",
 ];
 const internalJourneyTerms = [
   /\binvocation\b/iu,
@@ -278,8 +278,8 @@ for (const page of journeyPages) {
 }
 
 const gettingStartedLinks = {
-  "getting-started.md": "/guides/plan-and-implement/",
-  "zh/getting-started.md": "/zh/guides/plan-and-implement/",
+  "getting-started.md": "/guides/plan-and-execute/",
+  "zh/getting-started.md": "/zh/guides/plan-and-execute/",
 };
 for (const [page, target] of Object.entries(gettingStartedLinks)) {
   const source = await readFile(join(docsRoot, page), "utf8");

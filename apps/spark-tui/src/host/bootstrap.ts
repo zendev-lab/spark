@@ -16,11 +16,11 @@ import {
   renderAgentRuntimeContextPrompt,
 } from "@zendev-lab/spark-host/system-prompt";
 import type { SparkHeadlessTokenUsageContext } from "@zendev-lab/spark-host/headless-loader";
-import { composeAgentSystemPrompt } from "@zendev-lab/spark-phases";
+import { composeAgentSystemPrompt } from "@zendev-lab/spark-modes";
 import {
   SparkRolesReviewerRunner,
   createSparkRoleRegistry,
-  loadSparkPhase,
+  loadSparkMode,
   renderSparkActiveSystemPrompt,
   type SparkSessionContext,
 } from "@zendev-lab/spark-extension/host-support";
@@ -325,7 +325,7 @@ export async function createSparkCliHostServices(
           selectedSkillsPrompt,
         );
         agentLoop.setSystemPrompt(promptState.systemPrompt);
-        agentLoop.setCurrentPhase(options.executionPhase ?? promptState.phase);
+        agentLoop.setCurrentMode(options.sessionMode ?? promptState.mode);
       }
     },
     finishUserSubmit: () => clearRequestSkillSelection(),
@@ -361,7 +361,7 @@ export async function createSparkCliHostServices(
       };
     },
   });
-  agentLoop.setCurrentPhase(options.executionPhase ?? initialPromptState.phase);
+  agentLoop.setCurrentMode(options.sessionMode ?? initialPromptState.mode);
   clearRequestSkillSelection = () => {
     const hadSelection = selectedSkillMatches.length > 0 || selectedSkillsPrompt.length > 0;
     selectedSkillMatches = [];
@@ -373,22 +373,22 @@ export async function createSparkCliHostServices(
         baseSystemPrompt,
         skillsCatalogPrompt,
         selectedSkillsPrompt,
-        agentLoop.getCurrentPhase() ?? initialPromptState.phase,
+        agentLoop.getCurrentMode() ?? initialPromptState.mode,
       ),
     );
   };
   runtime.on("before_agent_start", async (event, ctx) => {
-    if (options.executionPhase) {
+    if (options.sessionMode) {
       agentLoop.setSystemPrompt(
         composeSparkCliAgentSystemPrompt(
           cwd,
           baseSystemPrompt,
           skillsCatalogPrompt,
           selectedSkillsPrompt,
-          options.executionPhase,
+          options.sessionMode,
         ),
       );
-      agentLoop.setCurrentPhase(options.executionPhase);
+      agentLoop.setCurrentMode(options.sessionMode);
       return;
     }
     if (sparkAgentLifecycleSource(event) === "triggerTurn") {
@@ -400,7 +400,7 @@ export async function createSparkCliHostServices(
       agentLoop.setSystemPrompt(
         composeSparkCliLoopSystemPrompt(cwd, baseSystemPrompt, skillsCatalogPrompt),
       );
-      agentLoop.setCurrentPhase(undefined);
+      agentLoop.setCurrentMode(undefined);
       return;
     }
     const promptState = await resolveSparkCliAgentPromptState(
@@ -411,7 +411,7 @@ export async function createSparkCliHostServices(
       selectedSkillsPrompt,
     );
     agentLoop.setSystemPrompt(promptState.systemPrompt);
-    agentLoop.setCurrentPhase(promptState.phase);
+    agentLoop.setCurrentMode(promptState.mode);
   });
 
   return {
@@ -519,16 +519,16 @@ async function resolveSparkCliAgentPromptState(
   baseSystemPrompt: string,
   skillsCatalogPrompt: string,
   selectedSkillsPrompt: string,
-): Promise<{ systemPrompt: string; phase: "plan" | "implement" }> {
-  const phase = (await loadSparkPhase(cwd, ctx)).phase;
+): Promise<{ systemPrompt: string; mode: "plan" | "execute" }> {
+  const mode = (await loadSparkMode(cwd, ctx)).mode;
   return {
-    phase,
+    mode,
     systemPrompt: composeSparkCliAgentSystemPrompt(
       cwd,
       baseSystemPrompt,
       skillsCatalogPrompt,
       selectedSkillsPrompt,
-      phase,
+      mode,
     ),
   };
 }
@@ -538,7 +538,7 @@ function composeSparkCliAgentSystemPrompt(
   baseSystemPrompt: string,
   skillsCatalogPrompt: string,
   selectedSkillsPrompt: string,
-  phase: "plan" | "implement",
+  phase: "plan" | "execute",
 ): string {
   return composeAgentSystemPrompt([
     renderSparkActiveSystemPrompt(baseSystemPrompt, phase),

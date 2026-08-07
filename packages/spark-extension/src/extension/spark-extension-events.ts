@@ -22,15 +22,15 @@ import {
   formatHiddenRoleRunInbox,
   markHiddenRoleRunInboxDelivered,
 } from "./role-run-completions.ts";
-import { sparkActiveLensPhase } from "./spark-phase-state.ts";
+import { sparkActiveModeValue } from "./spark-mode-state.ts";
 import { readSessionRepro } from "./spark-session-repro.ts";
-import type { SparkPhaseMessageApi } from "./spark-phase-entry.ts";
+import type { SparkModeMessageApi } from "./spark-mode-entry.ts";
 import { createSparkAgentEndReconciliationController } from "./spark-agent-end-reconciliation.ts";
 import type { SparkToolContext } from "./spark-tool-registration.ts";
 import type { SparkSessionHeartbeatController } from "./spark-session-heartbeat.ts";
 import type { SparkTurnContextController } from "./spark-turn-context-controller.ts";
 
-interface SparkExtensionEventApi extends SparkPhaseMessageApi {
+interface SparkExtensionEventApi extends SparkModeMessageApi {
   on?(event: string, handler: (event: unknown, ctx: SparkToolContext) => unknown): void;
   getActiveTools?(): string[];
   setActiveTools?(names: string[]): void;
@@ -239,17 +239,17 @@ export async function syncSparkGoalAskAutoAnswerPolicy(
   ctx: SparkToolContext,
   deps: SparkExtensionEventDeps,
 ): Promise<void> {
-  const phase = sparkActiveLensPhase(ctx.sparkActiveLens);
+  const phase = sparkActiveModeValue(ctx.sparkActiveMode);
   const activeGoal = await hasActiveCurrentSessionGoal(ctx);
   const activeRepro = (await readSessionRepro(ctx.cwd, ctx))?.status === "active";
   ctx.askWaitTimeoutMs =
-    activeRepro || (phase !== "implement" && activeGoal)
+    activeRepro || (phase !== "execute" && activeGoal)
       ? SPARK_AUTONOMOUS_ASK_WAIT_TIMEOUT_MS
       : SPARK_DEFAULT_ASK_WAIT_TIMEOUT_MS;
 
   // Repro decisions remain real-user evidence. Timeout closes the wait and
   // leaves a blocker; it must never mint a reviewer-authored decision receipt.
-  if (phase === "implement" || activeRepro) {
+  if (phase === "execute" || activeRepro) {
     delete ctx.askAutoAnswer;
     delete ctx.askAutoAnswerResolver;
     return;

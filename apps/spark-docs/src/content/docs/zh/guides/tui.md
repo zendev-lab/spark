@@ -18,7 +18,7 @@ spark
 ```
 
 不需要先选择工具、Loop 或 command plane。多步骤修改先用 `/plan`，计划确认后
-再用 `/implement`。
+再用 `/execute`。
 
 ## 日常控制
 
@@ -27,7 +27,7 @@ spark
 ```text
 /help
 /plan <目标>
-/implement [范围]
+/execute [范围]
 /status
 /stop [原因]
 /retry

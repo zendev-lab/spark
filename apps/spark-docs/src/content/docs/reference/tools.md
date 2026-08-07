@@ -17,9 +17,9 @@ building a host profile, or diagnosing why a capability is unavailable.
 | Search and fetch the Web | `web_search`, `code_search`, `fetch_content`, `get_search_content` | External read; fetched text is untrusted |
 | Inspect and change work | `task_read`, `task_write`, `assign`, `todo` | Task/session state; assignment may execute work |
 | Preserve results | `artifact`, `evidence`, `memory`, `context` | Product output, internal ledger, memory, bounded context |
-| Coordinate agents | `role`, `skill_delegate`, `session` | Definitions, anonymous calls, dedicated Skill Workers, persistent sessions, and mail |
+| Coordinate agents | `role`, `skill_agent`, `session` | Definitions, anonymous calls, dedicated multi-Skill Agents, persistent sessions, and mail |
 | Choose models | `models` | Model catalog and selection |
-| Continue autonomously | `phase`, `goal`, `loop`, `workflow`, `repro` | Session phase plus daemon-owned Goal, WorkflowRun, and Loop state |
+| Choose Session behavior or autonomous continuation | `mode`, `goal`, `loop`, `repro` | Session `plan`/`execute` mode plus daemon-owned continuation state |
 | Discover and run procedures | `workflow` | List, read, or run a selected `WORKFLOW.md` definition |
 
 The file tools in this table are the Spark-native surface. The external Pi
@@ -36,14 +36,14 @@ Artifact kind.
 `context` can only list or preview registered bounded providers; it does not
 accept an arbitrary prompt.
 
-`skill_delegate({ skill, instruction, inputs? })` resolves one exact
-model-invocable Skill and runs it through a fresh anonymous Worker with the
-active model. The Worker receives the Skill instructions and the explicit
-self-contained delegation packet, not the parent transcript. It can use a
-bounded direct-work tool profile, but cannot recurse into Roles or Skills,
-manage persistent Sessions, mutate Tasks, or publish Git, Artifact, or Evidence
-state. Use `read` instead when the parent session itself must inspect and follow
-`SKILL.md`.
+`skill_agent({ skills, instruction, inputs? })` resolves one to eight exact
+model-invocable Skills and runs one fresh anonymous dedicated Agent with every
+selected Skill body loaded in full exactly once. The Agent receives the
+self-contained instruction and bounded inputs, not the parent transcript. It
+can use a bounded direct-work tool profile, but cannot recurse into Roles,
+Skill Agents, or persistent Sessions, mutate coordination state, or publish
+Git, Artifact, or Evidence state. Use `read` instead when the parent Session
+itself must inspect and follow `SKILL.md`.
 
 ## Shell and script tools
 
@@ -83,7 +83,7 @@ this public catalog.
 ## Execution policy
 
 Registration does not guarantee activation. A host may narrow the active tool
-set by surface, phase, permission, or extension configuration. Only
+set by surface, mode, permission, or extension configuration. Only
 approval-free read calls explicitly marked parallel may execute concurrently;
 mixed, unknown, write-capable, policy-changing, and external-effect batches
 remain sequential.

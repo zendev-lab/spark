@@ -42,7 +42,7 @@ import {
 import { sessionModelName } from "./session-model.ts";
 import { withSparkToolOperationalNotes } from "./spark-tool-operational-notes.ts";
 import { SparkWorkflowRunManagerController } from "./spark-workflow-run-manager.ts";
-import { registerSparkPhaseTool } from "./phase/index.ts";
+import { registerSparkModeTool } from "./mode/index.ts";
 import { sparkSessionKey } from "./session-state.ts";
 import type { SparkRegisteredToolConfig, SparkToolContext } from "./spark-tool-registration.ts";
 import { SparkWidgetController } from "./spark-widget-controller.ts";
@@ -66,7 +66,7 @@ import {
 import { registerSparkReflectionCommands } from "./reflection-in-session-scheduler.ts";
 import { createSparkLensToolConfig } from "./spark-lens-tool.ts";
 import { createTaskArtifactHandler } from "./spark-task-artifact.ts";
-import { sparkActiveLensPhase } from "./spark-phase-state.ts";
+import { sparkActiveModeValue } from "./spark-mode-state.ts";
 import { loadSessionGoal } from "./spark-session-goals.ts";
 import { readSessionRepro } from "./spark-session-repro.ts";
 import { sparkDaemonLoopControl, type SparkDaemonLoopControl } from "./spark-daemon-loop-client.ts";
@@ -156,7 +156,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
   registerSparkAskAutoAnswerProvider("spark-goal-reviewer", async (request, rawCtx) => {
     const askCtx = rawCtx as SparkToolContext;
     if (!askCtx.cwd) return undefined;
-    if (sparkActiveLensPhase(askCtx.sparkActiveLens) === "implement")
+    if (sparkActiveModeValue(askCtx.sparkActiveMode) === "execute")
       return {
         blocked: true,
         reason: "reviewer ask auto-answer is disabled in /implement mode",
@@ -338,7 +338,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
     },
   );
 
-  registerSparkPhaseTool(registerSparkTool);
+  registerSparkModeTool(registerSparkTool);
 
   registerSparkRunReadyTasksTool(registerSparkImplementationTool, {
     ensureWorkflowRunManager: (cwd, ctx) => workflowRunManagerController.ensure(cwd, ctx),

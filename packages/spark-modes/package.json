@@ -1,8 +1,8 @@
 {
-  "name": "@zendev-lab/spark-phases",
+  "name": "@zendev-lab/spark-modes",
   "version": "0.3.0",
   "private": true,
-  "description": "Generic per-turn operating phase registry, prompt resolution, and phase action-tool primitives for Spark capability hosts.",
+  "description": "Generic per-turn operating mode registry, prompt resolution, and mode action-tool primitives for Spark capability hosts.",
   "license": "MIT",
   "author": "zrr1999",
   "files": [

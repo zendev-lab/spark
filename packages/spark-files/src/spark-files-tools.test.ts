@@ -115,14 +115,14 @@ test("read repair refines the ordinary read policy into a sequential write", () 
     effect: "read",
     executionMode: "parallel",
     domains: ["files"],
-    phases: ["plan", "implement"],
+    modes: ["plan", "execute"],
     approval: "none",
   });
   assert.deepEqual(read.resolvePolicy?.({ path: "index.ts", repair: "format" }), {
     effect: "local_write",
     executionMode: "sequential",
     domains: ["files"],
-    phases: ["implement"],
+    modes: ["execute"],
     approval: "none",
   });
 });

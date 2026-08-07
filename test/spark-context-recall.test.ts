@@ -54,7 +54,7 @@ test("context tool lists and previews registered providers within budgets", asyn
     effect: "read",
     executionMode: "parallel",
     domains: ["context"],
-    phases: ["plan", "implement"],
+    modes: ["plan", "execute"],
     approval: "none",
   });
 

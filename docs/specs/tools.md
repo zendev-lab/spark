@@ -30,7 +30,7 @@ over copied prose.
   `session` owns persistent identity, lifecycle, bindings, calls, and mail.
   `skill_delegate` runs a fresh anonymous Skill Worker and does not create a
   persistent Session.
-- `phase`, `goal`, `loop`, `workflow`, and `repro` bind capability contracts to
+- `mode`, `goal`, `loop`, `workflow`, and `repro` bind capability contracts to
   daemon-owned continuation. They do not create another executor or timer.
 - Files, Cue execution, Web reads, Git delivery, Fusion, and Graft retain their
   package/domain owners. Optional capabilities do not become default authority

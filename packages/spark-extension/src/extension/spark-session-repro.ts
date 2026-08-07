@@ -32,6 +32,10 @@ import { readJsonFileOptional, writeJsonFileAtomic } from "./json-store.ts";
 
 export * from "@zendev-lab/spark-repro";
 
+export function reproPhaseToSessionMode(phase: SparkSessionPhase): "plan" | "execute" {
+  return phase === "implement" ? "execute" : "plan";
+}
+
 interface SparkSessionReproSnapshotV6 {
   version: 6;
   repro?: SparkSessionRepro;

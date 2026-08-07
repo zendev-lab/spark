@@ -10,7 +10,7 @@ import {
 } from "./spark-widget.ts";
 
 export interface SparkWidgetControllerContext {
-  sparkActiveLens?: SparkWidgetActiveLens;
+  sparkActiveMode?: SparkWidgetActiveLens;
   ui?: unknown;
 }
 
@@ -39,8 +39,8 @@ export interface SparkWidgetControllerDeps {
   loadSessionLoop: (cwd: string, ctx?: any) => Promise<any>;
   clearSessionLoop: (cwd: string, ctx?: any) => Promise<void>;
   readSessionRepro: (cwd: string, ctx?: any) => Promise<any>;
-  loadSparkPhase: (cwd: string, ctx?: any) => Promise<{ phase: "plan" | "implement" }>;
-  sparkActiveLens: (phase: "plan" | "implement") => SparkWidgetActiveLens;
+  loadSparkMode: (cwd: string, ctx?: any) => Promise<{ mode: "plan" | "execute" }>;
+  sparkActiveMode: (mode: "plan" | "execute") => SparkWidgetActiveLens;
   renderSparkProjectKindDisplay: (project: any) => SparkWidgetState["projectKind"];
   isPlaceholderProjectTitle: (title: string) => boolean;
   latestRunsByTaskRef: (runs: any) => Map<string, any>;
@@ -127,8 +127,8 @@ export class SparkWidgetController {
     }
     const sessionRepro = await this.deps.readSessionRepro(cwd, ctx);
     const foregroundLoop = sparkForegroundLoopWidgetEntries(sessionGoal, sessionLoop, sessionRepro);
-    const phase = (await this.deps.loadSparkPhase(cwd, ctx)).phase;
-    const activeLens = this.deps.sparkActiveLens(phase);
+    const mode = (await this.deps.loadSparkMode(cwd, ctx)).mode;
+    const activeLens = this.deps.sparkActiveMode(mode);
     const independentTodoEntries = independentTodos.map((todo) => ({
       ...todo,
       displayNumber: this.deps.assignTodoDisplayNumber(
