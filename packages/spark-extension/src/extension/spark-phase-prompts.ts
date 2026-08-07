@@ -50,7 +50,7 @@ function renderGoalLoopGuidance(focus: string | undefined): string {
     `- ${MAIN_SESSION_SCHEDULING_FIRST}`,
     `- ${MUST_ASK_ON_PROBLEMS}`,
     "- Goal turns do not need to classify the whole turn as plan or implement; choose concrete next actions from current task state, blockers, and validation needs.",
-    "- Before a goal turn uses canonical ask, inspect the workspace, dependencies, environment, and available evidence so the ask contains only a still-unresolved material decision, never a discoverable fact. Goal asks wait for the user first; only after that wait times out may the host reviewer take over. If the reviewer cannot answer, keep the objective unchanged and ask again or report the unresolved decision without inventing an answer.",
+    "- Before a goal turn uses canonical ask, inspect the workspace, dependencies, environment, and available evidence so the ask contains only a still-unresolved material decision, never a discoverable fact. Persist a detached asynchronous evidence request and continue independent work. Never start a blocking human wait or synthesize a decision through reviewer timeout. If every remaining action depends on the answer, checkpoint waiting_decision+dormant without changing the objective or inventing an answer.",
     '- Request goal({ action: "complete" }) only after evidence covers every requirement in the objective.',
   ].join("\n");
 }
@@ -65,7 +65,7 @@ export function renderSparkGoalModePrompt(
         renderGoalAction(Boolean(focus?.trim())),
         MAIN_SESSION_SCHEDULING_FIRST,
         MUST_ASK_ON_PROBLEMS,
-        "Goal Loop decisions are research-first: inspect available evidence and run a focused probe before using canonical ask for a still-unresolved material decision. The user gets the first chance to answer; reviewer fallback begins only after the human wait times out. Never ask either side for a discoverable fact. If reviewer fallback is blocked, call ask again when a user answer would unblock progress, or report the still-unresolved decision while keeping the goal objective unchanged.",
+        "Goal Loop decisions are research-first: inspect available evidence and run a focused probe before using canonical ask for a still-unresolved material decision. Persist the ask as a detached asynchronous evidence request, then continue every independent ready action. Never ask for a discoverable fact, start a blocking continuation, or synthesize a user answer through reviewer timeout. If all remaining actions depend on the request, checkpoint waiting_decision+dormant while keeping the goal objective unchanged.",
         SPARK_GOAL_DECISION_RULE,
       ]
     : [
@@ -80,7 +80,7 @@ export function renderSparkGoalModePrompt(
 const PLANNING_AFFECTING_CHOICES =
   "scope, dependencies, priorities, success criteria, evidence, architecture, dependency choices, or implementation order";
 
-const SPARK_GOAL_DECISION_RULE = `Goal objectives should normally describe the selected project's substantive intended outcome from its purpose, description, title, task plans, evidence requirements, and blockers; do not reduce the goal to task counts or merely stopping at a plan unless the user explicitly says planning-only/readiness-only/仅规划. Autonomous goal edits require a strong reason and may only correct materially wrong description or direction; never lower difficulty, narrow required outcomes, or convert implementation work into planning-only/readiness-only work. If task decomposition is wrong, missing, or blocks the goal, create or revise high-bar concrete tasks with task_write({ action: "plan" }) using objectively verifiable success criteria, concrete evidence, and checkable plan items; if a missing user decision would change ${PLANNING_AFFECTING_CHOICES} and cannot be inferred from context, use canonical ask (user-first; reviewer fallback only after the human wait times out). Prefer the main session for that work. Request reviewer-gated goal completion separately after evidence covers the objective. Never invent the missing decision or work around it with role/session fan-out.`;
+const SPARK_GOAL_DECISION_RULE = `Goal objectives should normally describe the selected project's substantive intended outcome from its purpose, description, title, task plans, evidence requirements, and blockers; do not reduce the goal to task counts or merely stopping at a plan unless the user explicitly says planning-only/readiness-only/仅规划. Autonomous goal edits require a strong reason and may only correct materially wrong description or direction; never lower difficulty, narrow required outcomes, or convert implementation work into planning-only/readiness-only work. If task decomposition is wrong, missing, or blocks the goal, create or revise high-bar concrete tasks with task_write({ action: "plan" }) using objectively verifiable success criteria, concrete evidence, and checkable plan items; if a missing user decision would change ${PLANNING_AFFECTING_CHOICES} and cannot be inferred from context, use canonical ask only as a detached asynchronous evidence request and continue independent work. Never request blocking delivery, auto-answer, or reviewer-timeout substitution in an active Goal/Repro. Prefer the main session for owner reconciliation. Request reviewer-gated goal completion separately after evidence covers the objective. Never invent the missing decision or work around it with role/session fan-out.`;
 
 function renderGoalAction(hasExplicitGoal: boolean): string {
   const goalSource = hasExplicitGoal
@@ -89,7 +89,7 @@ function renderGoalAction(hasExplicitGoal: boolean): string {
   return (
     'Run the Spark goal Loop from durable task/project state: read the current project/task plan and inspect ready tasks with task_read({ action: "project_status" }). ' +
     goalSource +
-    ' If the inspected state identifies a single next goal, state that derived goal briefly and work toward it by claiming one ready concrete task at a time with task_write({ action: "claim" }), executing it, verifying required evidence, and calling task_write({ action: "finish" }). Continue to the next ready task after each successful finish until the goal is complete, no ready task remains, validation fails, or a required decision cannot be resolved by the user-first ask and reviewer-after-timeout fallback.'
+    ' If the inspected state identifies a single next goal, state that derived goal briefly and work toward it by claiming one ready concrete task at a time with task_write({ action: "claim" }), executing it, verifying required evidence, and calling task_write({ action: "finish" }). Continue to the next ready task after each successful finish until the goal is complete, no ready task remains, validation fails, or every remaining action depends on a pending detached evidence request. A pending request blocks only its bound retirement/action; never freeze an independent frontier or start a reviewer-timeout fallback.'
   );
 }
 
