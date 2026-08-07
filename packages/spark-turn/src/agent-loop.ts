@@ -82,6 +82,7 @@ import {
   sparkRuntimePromptItem,
   type SparkPromptItem,
 } from "./prompt-items.ts";
+import { renderActiveToolGuidance } from "./active-tool-guidance.ts";
 import { buildSparkPromptManifest, type SparkPromptManifest } from "./prompt-manifest.ts";
 export {
   SPARK_PROMPT_ITEM_METADATA_KEY,
@@ -842,15 +843,20 @@ export class SparkAgentLoop {
 
         const abortController = new AbortController();
         this.currentAbort = abortController;
-        const tools = this.collectActiveTools();
+        const activeRegisteredTools = this.collectActiveRegisteredTools();
+        const tools = this.collectActiveTools(activeRegisteredTools);
+        const activeToolGuidance = renderActiveToolGuidance(activeRegisteredTools);
+        const turnSystemPrompt = [this.systemPrompt, activeToolGuidance]
+          .filter((section): section is string => Boolean(section))
+          .join("\n\n");
         const messageCountBeforeAssistant = this.promptItems.length;
         const promptCache = resolveSparkPromptCache({
-          systemPrompt: this.systemPrompt,
+          systemPrompt: turnSystemPrompt,
           sessionId: this.viewSessionId,
           ...this.promptCacheOptions,
         });
         const context = {
-          systemPrompt: this.systemPrompt || undefined,
+          systemPrompt: turnSystemPrompt || undefined,
           systemPromptStable: promptCache.stablePrompt || undefined,
           systemPromptDynamic: promptCache.dynamicPrompt || undefined,
           promptCacheKey: promptCache.promptCacheKey,
@@ -888,6 +894,7 @@ export class SparkAgentLoop {
                 requiresApproval: policy.approval === "required",
                 domains: policy.domains,
                 modes: policy.modes,
+                promptGuidelines: tool.config.promptGuidelines,
               };
             }),
             selectedSkills: safeSelectedSkills(this.promptManifestOptions.getSelectedSkills),
@@ -1416,11 +1423,12 @@ export class SparkAgentLoop {
     };
   }
 
-  private collectActiveTools(): Tool[] {
-    return this.host
-      .listTools()
-      .filter((entry) => this.isToolAvailable(entry))
-      .map((entry) => toToolDefinition(entry.config));
+  private collectActiveRegisteredTools(): SparkTurnRegisteredTool[] {
+    return this.host.listTools().filter((entry) => this.isToolAvailable(entry));
+  }
+
+  private collectActiveTools(entries: readonly SparkTurnRegisteredTool[]): Tool[] {
+    return entries.map((entry) => toToolDefinition(entry.config));
   }
 
   /** The single availability boundary shared by schemas, manifests, and dispatch. */

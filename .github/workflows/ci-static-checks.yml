@@ -17,44 +17,6 @@ permissions:
   contents: read
 
 jobs:
-  active-tool-guidance-migration:
-    name: Temporary Active Tool Guidance Migration
-    if: github.event_name == 'pull_request' && github.head_ref == 'agent/native-active-tool-guidance'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: agent/native-active-tool-guidance
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Apply native guidance changes
-        run: |
-          python3 scripts/tmp-active-tool-guidance.py
-          pnpm exec vp fmt \
-            packages/spark-turn/src/agent-loop.ts \
-            packages/spark-turn/src/prompt-manifest.ts \
-            packages/spark-turn/src/active-tool-guidance.ts \
-            packages/spark-turn/src/active-tool-guidance.test.ts \
-            --write
-          pnpm --filter @zendev-lab/spark-turn run check
-      - name: Commit product changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            packages/spark-turn/src/agent-loop.ts \
-            packages/spark-turn/src/prompt-manifest.ts \
-            packages/spark-turn/src/active-tool-guidance.ts \
-            packages/spark-turn/src/active-tool-guidance.test.ts
-          git commit --no-verify -m "✨ feat(turn): inject active tool guidance"
-          git push origin HEAD:agent/native-active-tool-guidance
-
   pre-commit:
     name: Pre-commit Checks
     runs-on: ubuntu-latest

@@ -28,7 +28,7 @@ test("prompt manifest exposes diagnostics without retaining sensitive prompt/ses
   const result = manifest();
   const serialized = JSON.stringify(result);
 
-  assert.equal(result.schemaVersion, 3);
+  assert.equal(result.schemaVersion, 4);
   assert.equal(result.prompt.stableChars, "stable secret prompt".length);
   assert.equal(result.prompt.dynamicChars, "dynamic user data".length);
   assert.equal(result.sessionFingerprint.length, 16);
@@ -40,6 +40,38 @@ test("prompt manifest exposes diagnostics without retaining sensitive prompt/ses
   assert.deepEqual(result.selectedSkills, ["coding", "testing"]);
   assert.deepEqual(result.roundtrip, { index: 1 });
   assert.doesNotMatch(serialized, /private-identity|secret prompt|user data|cache-key-containing/u);
+});
+
+test("prompt manifest includes guidance identity in the tool fingerprint", () => {
+  const withoutGuidance = buildSparkPromptManifest({
+    sessionId: "session",
+    model: { provider: "test", id: "model" },
+    stablePrompt: "stable",
+    dynamicPrompt: "dynamic",
+    tools: [{ name: "read", effect: "read", executionMode: "parallel" }],
+    roundtripIndex: 0,
+    maxParallelToolCalls: 1,
+  });
+  const withGuidance = buildSparkPromptManifest({
+    sessionId: "session",
+    model: { provider: "test", id: "model" },
+    stablePrompt: "stable",
+    dynamicPrompt: "dynamic",
+    tools: [
+      {
+        name: "read",
+        effect: "read",
+        executionMode: "parallel",
+        promptGuidelines: ["Read before editing."],
+      },
+    ],
+    roundtripIndex: 0,
+    maxParallelToolCalls: 1,
+  });
+
+  assert.equal(withoutGuidance.tools[0]?.guidanceHash, undefined);
+  assert.equal(withGuidance.tools[0]?.guidanceHash?.length, 16);
+  assert.notEqual(withoutGuidance.toolProfileFingerprint, withGuidance.toolProfileFingerprint);
 });
 
 test("behavior eval reports tool precision, coverage, effects, outcome, and roundtrips", () => {
