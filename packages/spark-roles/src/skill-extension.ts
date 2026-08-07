@@ -90,9 +90,7 @@ class ToolCallText implements ToolRenderComponent {
   }
 }
 
-export function createSparkSkillAgentTool(
-  options: SparkSkillAgentToolOptions = {},
-): ToolConfig {
+export function createSparkSkillAgentTool(options: SparkSkillAgentToolOptions = {}): ToolConfig {
   const defaultTimeoutMs = normalizeConfiguredTimeout(options.defaultTimeoutMs);
   const maxCombinedSkillChars = normalizeMaxCombinedSkillChars(options.maxCombinedSkillChars);
   return {
@@ -342,11 +340,7 @@ function normalizeSkillNames(value: unknown): string[] {
     );
   }
   const names = value.map((item, index) => {
-    const name = requiredBoundedString(
-      item,
-      `skill_agent.skills[${index}]`,
-      MAX_SKILL_NAME_CHARS,
-    );
+    const name = requiredBoundedString(item, `skill_agent.skills[${index}]`, MAX_SKILL_NAME_CHARS);
     if (!SKILL_NAME_REGEX.test(name)) {
       throw new Error(
         `skill_agent.skills[${index}] must use lowercase letters, digits, and hyphens`,

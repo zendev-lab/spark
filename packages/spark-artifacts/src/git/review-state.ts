@@ -1,11 +1,6 @@
 import type { GitChangeArtifactBody, GitChangeEntry } from "../artifact/index.ts";
 
-export type GitChangeReviewState =
-  | "unpublished"
-  | "draft"
-  | "ready"
-  | "mixed"
-  | "terminal";
+export type GitChangeReviewState = "unpublished" | "draft" | "ready" | "mixed" | "terminal";
 
 /**
  * Derive review readiness from the native PR snapshots already stored in a

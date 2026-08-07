@@ -50,7 +50,9 @@ function entry(
 test("gitChangeReviewState distinguishes unpublished, draft, and ready stacks", () => {
   assert.equal(gitChangeReviewState(body([])), "unpublished");
   assert.equal(
-    gitChangeReviewState(body([entry("one", { published: false }), entry("two", { published: false })])),
+    gitChangeReviewState(
+      body([entry("one", { published: false }), entry("two", { published: false })]),
+    ),
     "unpublished",
   );
   assert.equal(
@@ -72,10 +74,7 @@ test("gitChangeReviewState is mixed for partial publication or inconsistent draf
     gitChangeReviewState(body([entry("one", { draft: true }), entry("two", { draft: false })])),
     "mixed",
   );
-  assert.equal(
-    gitChangeReviewState(body([entry("one"), entry("two", { draft: false })])),
-    "mixed",
-  );
+  assert.equal(gitChangeReviewState(body([entry("one"), entry("two", { draft: false })])), "mixed");
 });
 
 test("gitChangeReviewState ignores terminal layers and recognizes terminal lifecycle", () => {
@@ -92,6 +91,9 @@ test("gitChangeReviewState ignores terminal layers and recognizes terminal lifec
     gitChangeReviewState(body([entry("closed", { state: "closed", draft: false })])),
     "terminal",
   );
-  assert.equal(gitChangeReviewState(body([entry("open", { draft: true })], "terminal")), "terminal");
+  assert.equal(
+    gitChangeReviewState(body([entry("open", { draft: true })], "terminal")),
+    "terminal",
+  );
   assert.equal(gitChangeReviewState(body([entry("open", { draft: true })], "cleaned")), "terminal");
 });
