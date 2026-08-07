@@ -41,7 +41,8 @@ describe("Repro report summary composition", () => {
 
     const migrated = parseSparkReproReportSummary(summary);
     expect(migrated.work.schema).toBe("spark.repro.work-summary/v2");
-    expect(migrated.work.progress).toMatchObject({ quantified: false, percent: null });
+    expect(migrated.work.progress.quantified).toBe(false);
+    expect(migrated.work.progress).not.toHaveProperty("percent");
     expect(migrated.work.validationMatrix.rows.every((row) => row.evidenceClass === "probe")).toBe(
       true,
     );

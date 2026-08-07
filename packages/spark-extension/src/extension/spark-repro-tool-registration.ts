@@ -269,7 +269,9 @@ export function registerSparkReproTool(
             active: synced.work.status === "active",
             status: synced.work.status,
             stage: synced.work.stage,
-            progressPercent: synced.work.progress.percent,
+            ...(synced.work.progress.quantified
+              ? { progressPercent: synced.work.progress.percent }
+              : {}),
             changed: synced.changed,
             created: synced.created,
             refs: { reportArtifactRef: synced.reportArtifactRef },
@@ -310,7 +312,9 @@ export function registerSparkReproTool(
               schema: projected.work.schema,
               status: projected.work.status,
               stage: projected.work.stage,
-              progressPercent: projected.work.progress.percent,
+              ...(projected.work.progress.quantified
+                ? { progressPercent: projected.work.progress.percent }
+                : {}),
               technicalGoalAchieved: projected.work.technicalGoal.achieved,
             },
             tokenUsage: projected.summary.tokenUsage
