@@ -184,7 +184,8 @@ export class SparkNativeSession {
 
   get canRestoreQueuedInput(): boolean {
     return (
-      this.failedAdmissions.length > 0 || (!this.daemonOwnsQueue && this.queuedFollowUps.length > 0)
+      this.failedAdmissions.length > 0 ||
+      (this.daemonOwnsQueue ? this.daemonQueued.length > 0 : this.queuedFollowUps.length > 0)
     );
   }
 
@@ -441,10 +442,13 @@ export class SparkNativeSession {
 
   restoreQueuedText(): string | undefined {
     const recoverable = this.daemonOwnsQueue
-      ? this.failedAdmissions
-      : [...this.failedAdmissions, ...this.queuedFollowUps];
+      ? [
+          ...this.failedAdmissions.map((entry) => entry.text),
+          ...this.daemonQueued.map((turn) => turn.prompt),
+        ]
+      : [...this.failedAdmissions, ...this.queuedFollowUps].map((entry) => entry.text);
     if (recoverable.length === 0) return undefined;
-    const restored = recoverable.map((entry) => entry.text).join("\n\n");
+    const restored = recoverable.join("\n\n");
     this.failedAdmissions.splice(0, this.failedAdmissions.length);
     if (!this.daemonOwnsQueue) {
       this.queuedFollowUps.splice(0, this.queuedFollowUps.length);

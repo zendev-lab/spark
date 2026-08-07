@@ -1953,12 +1953,16 @@ export class SparkNativeTuiApp implements Component, Focusable {
   }
 
   private footerLine(): string {
-    return this.session.isProcessing
-      ? `${this.workingSpinner()} Working... • ${nativeTuiStrings.busyFooter(
-          this.session.canRestoreQueuedInput,
-          this.session.daemonOwnsQueue,
-        )}`
-      : nativeTuiStrings.footer;
+    if (!this.session.isProcessing) return nativeTuiStrings.footer;
+    const footer = nativeTuiStrings.busyFooter(
+      this.session.canRestoreQueuedInput,
+      this.session.daemonOwnsQueue,
+    );
+    const restoreHint =
+      this.session.daemonOwnsQueue && this.session.canRestoreQueuedInput
+        ? " • Alt+Up restore queue"
+        : "";
+    return `${this.workingSpinner()} Working... • ${footer}${restoreHint}`;
   }
 
   private runtimeFooterLines(width: number): string[] {
