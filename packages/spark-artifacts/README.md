@@ -6,7 +6,7 @@ Atomic Artifacts (`issue` / `git_change` / `document`) for users, plus an
 ## Two surfaces
 
 | Surface | Tool | Kinds | User-visible? | On-disk |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **Artifacts** | `artifact`, `git` | `issue`, `git_change`, `document` | Yes (Hub `/artifacts`) | `.spark/artifacts/` |
 | **Internal evidence** | `evidence` | `record` (default), `trace`, `knowledge`, `document` | No | `.spark/evidence/` |
 
@@ -14,8 +14,9 @@ Atomic Artifacts (`issue` / `git_change` / `document`) for users, plus an
 - `git_change` contains one owning worktree and one native GitHub PR stack.
   Stack layers are child entries, not separate Artifact refs. `git({ action })`
   owns init, checkout/adopt, layer, commit, refresh, submit, sync, and cleanup.
-  Managed worktrees live under
-  `~/.agents/worktrees/<forge>/<owner>/<repo>/<artifact-id>`.
+  Managed paths and legacy compatibility are specified in
+  [`docs/specs/tools.md`](../../docs/specs/tools.md); new worktrees use
+  `<workspace-root>/.agents/worktrees/<owner>/<repo>/<semantic-name>`.
 - `gh stack` is the sole writable topology authority. Submissions are draft by
   default; Spark does not add routine PR comments or boilerplate saying a PR
   is stacked/tested.

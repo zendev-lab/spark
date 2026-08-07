@@ -112,7 +112,17 @@ write paths expose revision, lease, or equivalent conflict validation.
 
 - Artifact kinds remain exactly `issue | git_change | document`.
 - A `git_change` owns one worktree and one native GitHub PR stack; stack entries
-  are not separate Artifact refs.
+  are not separate Artifact refs. New Spark-owned worktrees live at
+  `<workspace-root>/.agents/worktrees/<owner>/<repo>/<semantic-name>`; the
+  owning workspace comes from Spark state rather than the invocation
+  subdirectory. The semantic name is normalized from the requested branch,
+  title, or checkout target. Empty, escaping, or conflicting names fail
+  instead of falling back to an Artifact UUID or hash.
+  `SPARK_GIT_WORKTREE_ROOT` may replace only the root before
+  `<owner>/<repo>/<semantic-name>` is appended. Existing
+  `~/.agents/worktrees/github.com/<owner>/<repo>/<artifact-id>` paths are not
+  moved; their persisted Artifacts remain inspectable, refreshable, and
+  eligible for the same ownership and cleanup gates.
 - Document preview is a view, not an Artifact kind.
 - Agent-authored Document content is bounded to supported safe formats; unknown
   or executable document payloads are not promoted to trusted UI.
