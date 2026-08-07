@@ -1167,7 +1167,9 @@ export function normalizeSparkReproWorkSummary(value: unknown): SparkReproWorkSu
     );
   }
   if (value.schema !== SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA) {
-    throw new Error(`unsupported Repro work summary schema: ${String(value.schema)}`);
+    throw new Error(
+      `Repro work summary schema received ${String(value.schema)} at the structured summary payload boundary; supported schemas are ${SPARK_REPRO_WORK_SUMMARY_SCHEMA} and ${SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA}. Migrate the payload with the v1 adapter or upgrade the producer, then retry.`,
+    );
   }
   return migrateSparkReproWorkSummaryV1(value);
 }
