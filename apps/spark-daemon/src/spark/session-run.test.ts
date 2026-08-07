@@ -262,6 +262,12 @@ describe("daemon native session execution", () => {
       overrides: { dataDir },
     });
     const executeSession = vi.fn(async (_input: unknown) => ({ assistantText: "done" }));
+    const materializationEvents: Array<{
+      phase: "start" | "complete";
+      invocationId: string;
+      bytes: number;
+      timestampMs: number;
+    }> = [];
     const task: SparkDaemonSessionRunTask = {
       type: "session.run",
       sessionId: "sess_attachments",
@@ -287,6 +293,7 @@ describe("daemon native session execution", () => {
     try {
       await executeSparkDaemonSessionRunTask(task, context(task), {
         paths: attachmentPaths,
+        observeAttachmentMaterialization: (event) => materializationEvents.push(event),
         executeSession,
       });
       const prompt = (
@@ -312,6 +319,16 @@ describe("daemon native session execution", () => {
       expect(existsSync(filePath)).toBe(true);
       expect(readFileSync(filePath, "utf8")).toBe("hello");
       expect(JSON.stringify(prompt)).toContain(filePath);
+      expect(materializationEvents).toHaveLength(2);
+      expect(materializationEvents.map(({ phase }) => phase)).toEqual(["start", "complete"]);
+      expect(materializationEvents.map(({ invocationId }) => invocationId)).toEqual([
+        "invocation-1",
+        "invocation-1",
+      ]);
+      expect(materializationEvents.map(({ bytes }) => bytes)).toEqual([5, 5]);
+      expect(materializationEvents[0]?.timestampMs).toBeLessThanOrEqual(
+        materializationEvents[1]?.timestampMs ?? 0,
+      );
     } finally {
       rmSync(dataDir, { recursive: true, force: true });
     }
