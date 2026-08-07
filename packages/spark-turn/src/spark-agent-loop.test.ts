@@ -560,7 +560,7 @@ test("SparkAgentLoop applies one phase profile to schemas, manifests, and dispat
       .find((message) => message.role === "toolResult" && message.toolCallId === "tc-phase-forged"),
   );
   assert.equal(rejected?.isError, true);
-  assert.match(toolResultText(rejected), /phase-inactive tool: implement_action/u);
+  assert.match(toolResultText(rejected), /mode-inactive tool: implement_action/u);
 
   loop.setCurrentMode("execute");
   assert.equal(loop.getCurrentMode(), "execute");
@@ -637,7 +637,7 @@ test("SparkAgentLoop rechecks phase availability after async approval", async ()
       .find((message) => message.role === "toolResult" && message.toolCallId === toolCall.id),
   );
   assert.equal(result?.isError, true);
-  assert.match(toolResultText(result), /phase-inactive tool: approved_implement_action/u);
+  assert.match(toolResultText(result), /mode-inactive tool: approved_implement_action/u);
 });
 
 test("SparkAgentLoop forwards getReasoning into stream options.reasoning", async () => {
