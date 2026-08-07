@@ -558,9 +558,9 @@ describe("task tool mutation boundaries", () => {
           task: { taskRef: target.ref },
         },
         {
-          label: "invalid dependsOn",
-          code: "dependency_patch_depends_on_invalid",
-          task: { name: target.name, dependsOn: [1] },
+          label: "blank prerequisite selector",
+          code: "dependency_patch_prerequisite_invalid",
+          task: { name: target.name, dependsOn: [" \t"] },
         },
       ];
       for (const scenario of normalizationCases) {

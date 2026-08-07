@@ -43,7 +43,8 @@ Skill，并使用当前模型启动一个全新匿名 Worker。Worker 只接收 
 并跳过未改变 plan 的 readiness review，但仍拒绝缺失、歧义、跨项目、已取消前置、
 自依赖和循环依赖。多个 dependency-only 条目会先针对完整候选图统一校验，再作为一次
 mutation 提交；任何条目失败时，内存和持久化 snapshot 都保持不变。无效的
-dependency-only payload 会返回稳定的 `dependency_patch_*` code。只要包含其他 Task 字段，
+dependency-only payload 会返回稳定的 `dependency_patch_*` code；空白或仅空格的依赖选择器
+会被拒绝，不会被解释为清空依赖集合。只要包含其他 Task 字段，
 就继续走完整 plan 路径及其 readiness 检查。
 
 ## Shell 与脚本工具

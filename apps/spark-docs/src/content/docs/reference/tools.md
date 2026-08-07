@@ -55,8 +55,9 @@ cancelled-prerequisite, self, and cyclic dependencies. Multiple dependency-only
 entries are validated against the complete candidate graph and committed as one
 mutation; a failed entry leaves both the in-memory and persisted snapshots
 unchanged. Invalid dependency-only payloads return stable
-`dependency_patch_*` codes. Any other task field uses the normal full-plan path
-and its readiness checks.
+`dependency_patch_*` codes; blank or whitespace-only dependency selectors are
+rejected rather than treated as an empty replacement. Any other task field uses
+the normal full-plan path and its readiness checks.
 
 ## Shell and script tools
 

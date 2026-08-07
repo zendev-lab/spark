@@ -189,6 +189,7 @@ export type TaskDependencyPatchErrorCode =
   | "dependency_patch_target_ambiguous"
   | "dependency_patch_prerequisite_not_found"
   | "dependency_patch_prerequisite_ambiguous"
+  | "dependency_patch_prerequisite_invalid"
   | "dependency_patch_cross_project"
   | "dependency_patch_self_dependency"
   | "dependency_patch_cancelled_prerequisite"

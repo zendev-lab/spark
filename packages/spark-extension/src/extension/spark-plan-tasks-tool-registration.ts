@@ -575,7 +575,12 @@ function normalizeTaskDependencyPatch(
       "dependency_patch_depends_on_invalid",
       `${path}.dependsOn must be an array of strings`,
     );
-  const dependsOn = value.dependsOn.map((item) => item.trim()).filter(Boolean);
+  const dependsOn = value.dependsOn.map((item) => item.trim());
+  if (dependsOn.some((selector) => selector.length === 0))
+    throw new TaskDependencyPatchError(
+      "dependency_patch_prerequisite_invalid",
+      `${path}.dependsOn entries must be non-empty selectors`,
+    );
   const [selectorKind, selector] = selectors[0];
   return {
     mode: "dependency_only",
