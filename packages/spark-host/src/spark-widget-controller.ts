@@ -127,7 +127,7 @@ export class SparkWidgetController {
     }
     const sessionRepro = await this.deps.readSessionRepro(cwd, ctx);
     const foregroundLoop = sparkForegroundLoopWidgetEntries(sessionGoal, sessionLoop, sessionRepro);
-    const phase = (await this.deps.loadSparkMode(cwd, ctx)).phase;
+    const mode = (await this.deps.loadSparkMode(cwd, ctx)).mode;
     const activeLens = this.deps.sparkActiveMode(mode);
     const independentTodoEntries = independentTodos.map((todo) => ({
       ...todo,

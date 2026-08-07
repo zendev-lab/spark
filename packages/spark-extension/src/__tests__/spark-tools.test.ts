@@ -872,7 +872,7 @@ test("/plan, /implement, /goal, and /workflow selector commands enter Spark mode
     assert.equal(existingRun.messages.length, 0);
     assert.equal(existingRun.customMessages.length, 1);
     assert.equal(existingRun.customMessages.at(-1)?.customType, "spark-mode-request");
-    assert.equal(existingCtx.sparkActiveMode?.phase, "plan");
+    assert.equal(existingCtx.sparkActiveMode?.mode, "plan");
 
     await writeEmptySparkProject(initializedDir);
     const initializedCtx = testSparkContext(initializedDir, "main");
@@ -1210,7 +1210,7 @@ test("latest direct Spark mode replaces older pending hidden mode context", asyn
 
     const hiddenMessage = run.customMessages.at(-1);
     assert.equal(hiddenMessage?.customType, "spark-mode-request");
-    assert.equal(ctx.sparkActiveMode?.phase, "plan");
+    assert.equal(ctx.sparkActiveMode?.mode, "plan");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

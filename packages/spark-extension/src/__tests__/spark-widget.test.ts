@@ -1208,7 +1208,7 @@ test("spark widget summarizes tasks and current-session in-memory running role-r
 test("spark widget renders phase on the project header", () => {
   const planLines = renderSparkWidgetLines(
     widgetState({
-      activeLens: { phase: "plan" },
+      activeLens: { mode: "plan" },
       tasks: [{ title: "Planned task", status: "pending", todos: [] }],
     }),
     { terminal: { columns: 120 }, requestRender() {} },
@@ -1218,7 +1218,7 @@ test("spark widget renders phase on the project header", () => {
 
   const implementLines = renderSparkWidgetLines(
     widgetState({
-      activeLens: { phase: "implement" },
+      activeLens: { mode: "execute" },
       tasks: [{ title: "Implementation task", status: "pending", todos: [] }],
     }),
     { terminal: { columns: 120 }, requestRender() {} },

@@ -444,9 +444,9 @@ function formatProjectHeaderLine(
   state: SparkWidgetState,
   theme: SparkWidgetTheme,
 ): string | undefined {
-  const phaseSummary = formatPhaseSummary(state.activeLens);
+  const modeSummary = formatModeSummary(state.activeLens);
   const kindSummary = state.projectKind?.badge ? `Kind: ${state.projectKind.badge}` : undefined;
-  const summaries = [phaseSummary, kindSummary].filter((part): part is string => Boolean(part));
+  const summaries = [modeSummary, kindSummary].filter((part): part is string => Boolean(part));
   const suffix = summaries
     .map((summary) => `${theme.fg("dim", "·")} ${theme.fg("dim", summary)}`)
     .join(" ");
@@ -458,14 +458,14 @@ function formatProjectHeaderLine(
   return `${theme.fg("accent", "◆")} ${theme.bold(state.projectTitle)}${suffix ? ` ${suffix}` : ""}`;
 }
 
-function sparkWidgetActiveLensPhase(lens: SparkWidgetActiveLens | undefined): "plan" | "implement" {
-  if (lens?.phase === "plan" || lens?.phase === "implement") return lens.phase;
+function sparkWidgetActiveLensMode(lens: SparkWidgetActiveLens | undefined): "plan" | "execute" {
+  if (lens?.mode === "plan" || lens?.mode === "execute") return lens.mode;
   return "plan";
 }
 
-function formatPhaseSummary(lens: SparkWidgetActiveLens | undefined): string {
-  const phase = sparkWidgetActiveLensPhase(lens);
-  return `Mode: ${phase}`;
+function formatModeSummary(lens: SparkWidgetActiveLens | undefined): string {
+  const mode = sparkWidgetActiveLensMode(lens);
+  return `Mode: ${mode}`;
 }
 
 function formatProjectKindLines(

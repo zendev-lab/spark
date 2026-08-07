@@ -42,7 +42,7 @@ export async function handleSparkInput(
 }
 
 export async function injectSparkHints(event: unknown, ctx: SparkToolContext): Promise<unknown> {
-  // Spark is always available: inject the standing phase marker even when no
+  // Spark is always available: inject the standing mode marker even when no
   // local .spark/ state exists yet. The richer active-context block is only
   // appended once a task graph is present.
   const mode = (await loadSparkMode(ctx.cwd, ctx)).mode;
@@ -112,7 +112,7 @@ export async function ensureSparkStateForActiveWorkspace(
 
 export function renderSparkActiveSystemPrompt(
   basePrompt: string,
-  phase: SparkSessionMode = "plan",
+  mode: SparkSessionMode = "plan",
   language?: SparkLanguage,
 ): string {
   return renderSparkModeSystemPrompt({ basePrompt, mode, language });
