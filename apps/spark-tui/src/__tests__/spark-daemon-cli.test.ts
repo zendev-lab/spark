@@ -194,6 +194,52 @@ test("native TUI tool approvals are returned to the daemon-owned wait", async ()
   ]);
 });
 
+test("native TUI refuses to settle an empty answered Ask as direct-user evidence", async () => {
+  const request = parseSparkInteractionRequest({
+    requestId: "interaction-empty",
+    kind: "askFlow",
+    title: "Choose",
+    questions: [{ id: "decision", prompt: "Choose?", options: [] }],
+  });
+  const event = parseSparkDaemonEvent({
+    type: "daemon.interaction.request",
+    source: "daemon",
+    sessionId: "session-empty",
+    request,
+    metadata: {},
+  });
+  if (event.type !== "daemon.interaction.request") throw new Error("expected interaction event");
+  const deliveries: Array<Record<string, unknown>> = [];
+
+  await handleSparkDaemonHumanInteractionRequest(request, event, {
+    currentSessionId: "session-empty",
+    interaction: async () => ({
+      version: 1,
+      kind: "askFlow",
+      requestId: request.requestId,
+      status: "answered",
+      answers: {},
+      metadata: {},
+    }),
+    notify: () => undefined,
+    client: {
+      daemonStatus: async () => runningDaemonStatus(),
+      controlRequest: async (_method, params) => {
+        deliveries.push(params as Record<string, unknown>);
+        return {
+          outcome: "accepted",
+          retryable: false,
+          returnedToTool: false,
+          message: "Response recorded.",
+        };
+      },
+    },
+  });
+
+  assert.equal(deliveries[0]?.status, "cancelled");
+  assert.deepEqual(deliveries[0]?.answers, {});
+});
+
 test("a not-found Ask race retries the same answer without reopening the interaction", async () => {
   const request = parseSparkInteractionRequest({
     requestId: "interaction-race",

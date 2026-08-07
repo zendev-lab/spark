@@ -281,6 +281,45 @@ describe("runtime human response messages", () => {
 });
 
 describe("human question option identity", () => {
+  it("preserves one revision-fenced evidence request binding across runtime projection", () => {
+    const evidenceRequest = {
+      schema: "spark.evidence-request/v1" as const,
+      askRef: "ask:publish",
+      ownerSessionId: "session:owner",
+      goalOrReproId: "goal:release",
+      modeScope: "goal" as const,
+      planRevision: 3,
+      ownerStepOrUnresolvedId: "unresolved:publish",
+      stepDefinitionDigest: "publish-definition",
+      requestHash: "b".repeat(64),
+      expectedAnswerKind: "approval" as const,
+    };
+    const parsed = humanRequestCreatedPayloadSchema.parse({
+      kind: "ask_user",
+      delivery: "async",
+      interactionRequestId: "interaction-publish",
+      evidenceRequest,
+      title: "Publish?",
+      prompt: "Approve publication?",
+      questions: [
+        {
+          id: "approval",
+          type: "single",
+          prompt: "Approve?",
+          options: [{ value: "approve", label: "Approve" }],
+        },
+      ],
+    });
+
+    expect(parsed.evidenceRequest).toEqual(evidenceRequest);
+    expect(
+      humanRequestCreatedPayloadSchema.safeParse({
+        ...parsed,
+        evidenceRequest: { ...evidenceRequest, planRevision: 0 },
+      }).success,
+    ).toBe(false);
+  });
+
   it("normalizes canonical value and legacy id to the ask option value field", () => {
     expect(humanQuestionOptionSchema.parse({ value: "mvp", label: "MVP" })).toEqual({
       value: "mvp",
