@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, rename } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   defaultArtifactStore,
@@ -134,18 +134,21 @@ export class GitLifecycleService {
 
   async init(input: CreateGitChangeInput = {}): Promise<Artifact<GitChangeArtifactBody>> {
     const repositoryPath = resolve(input.repositoryPath ?? this.cwd);
-    const title = input.title?.trim();
-    const explicitBranch = input.branch?.trim();
-    const semanticName = requireSemanticWorktreeName(explicitBranch || title);
-    const branch = explicitBranch || `spark/${semanticName}`;
-    assertBranch(branch);
-
     const ref = newArtifactRef();
     const repository = await this.repositoryIdentity(repositoryPath);
     const trunk = input.trunk?.trim() || (await this.defaultTrunk(repositoryPath));
-    const worktreePath = this.managedWorktreePath(repository.repo, semanticName);
-    await this.assertWorktreeTargetAvailable(worktreePath);
+    const branch = input.branch?.trim() || `codex/change-${artifactId(ref).slice(0, 8)}`;
+    assertBranch(branch);
+    const worktreePath = this.managedWorktreePath(repository.repo, ref);
+    const title = input.title?.trim();
+    const semanticWorktreePath = this.managedSemanticWorktreePath(
+      repository.repo,
+      requireSemanticWorktreeName(input.branch?.trim() || title),
+      worktreePath,
+    );
+    await this.assertWorktreeTargetAvailable(semanticWorktreePath);
     await mkdir(dirname(worktreePath), { recursive: true });
+    let activeWorktreePath = worktreePath;
 
     const startPoint = await this.trunkStartPoint(repositoryPath, trunk);
     await this.runChecked(
@@ -162,15 +165,19 @@ export class GitLifecycleService {
         "stack_init_failed",
       );
       const body = await this.inspectWorktree(worktreePath, "spark");
+      await mkdir(dirname(semanticWorktreePath), { recursive: true });
+      await this.moveCreatedWorktree(repositoryPath, worktreePath, semanticWorktreePath);
+      activeWorktreePath = semanticWorktreePath;
+      body.worktree.path = semanticWorktreePath;
       return this.store.put({
         ref,
         kind: "git_change",
-        title: title || branch,
+        title: input.title?.trim() || branch,
         format: "json",
         body,
       });
     } catch (error) {
-      await this.rollbackNewWorktree(repositoryPath, worktreePath, error);
+      await this.rollbackNewWorktree(repositoryPath, activeWorktreePath, error);
       throw error;
     }
   }
@@ -179,14 +186,19 @@ export class GitLifecycleService {
     const target = input.target.trim();
     if (!target) throw new GitLifecycleError("target_required", "checkout target is required");
     const repositoryPath = resolve(input.repositoryPath ?? this.cwd);
-    const title = input.title?.trim();
-    const semanticName = checkoutWorktreeName(target, title);
     const ref = newArtifactRef();
     const repository = await this.repositoryIdentity(repositoryPath);
     const trunk = await this.defaultTrunk(repositoryPath);
-    const worktreePath = this.managedWorktreePath(repository.repo, semanticName);
-    await this.assertWorktreeTargetAvailable(worktreePath);
+    const worktreePath = this.managedWorktreePath(repository.repo, ref);
+    const title = input.title?.trim();
+    const semanticWorktreePath = this.managedSemanticWorktreePath(
+      repository.repo,
+      checkoutWorktreeName(target, title),
+      worktreePath,
+    );
+    await this.assertWorktreeTargetAvailable(semanticWorktreePath);
     await mkdir(dirname(worktreePath), { recursive: true });
+    let activeWorktreePath = worktreePath;
     await this.runChecked(
       "git",
       [
@@ -207,15 +219,19 @@ export class GitLifecycleService {
         "stack_checkout_failed",
       );
       const body = await this.inspectWorktree(worktreePath, "spark");
+      await mkdir(dirname(semanticWorktreePath), { recursive: true });
+      await this.moveCreatedWorktree(repositoryPath, worktreePath, semanticWorktreePath);
+      activeWorktreePath = semanticWorktreePath;
+      body.worktree.path = semanticWorktreePath;
       return this.store.put({
         ref,
         kind: "git_change",
-        title: title || body.stack.currentBranch || `Stack ${target}`,
+        title: input.title?.trim() || body.stack.currentBranch || `Stack ${target}`,
         format: "json",
         body,
       });
     } catch (error) {
-      await this.rollbackNewWorktree(repositoryPath, worktreePath, error);
+      await this.rollbackNewWorktree(repositoryPath, activeWorktreePath, error);
       throw error;
     }
   }
@@ -594,7 +610,19 @@ export class GitLifecycleService {
     return result.code === 0 && result.stdout.trim() ? result.stdout.trim() : undefined;
   }
 
-  private managedWorktreePath(repo: string, semanticName: string): string {
+  private managedWorktreePath(repo: string, ref: ArtifactRef): string {
+    const [owner, name] = repo.split("/", 2);
+    if (!owner || !name)
+      throw new GitLifecycleError("invalid_repo", `invalid GitHub repo: ${repo}`);
+    return resolve(this.worktreeRoot, "github.com", owner, name, artifactId(ref));
+  }
+
+  private managedSemanticWorktreePath(
+    repo: string,
+    semanticName: string,
+    legacyPath: string,
+  ): string {
+    if (!semanticName) return legacyPath;
     const namespace = this.managedWorktreeNamespace(repo);
     const candidate = resolve(namespace, semanticName);
     if (dirname(candidate) !== namespace || basename(candidate) !== semanticName) {
@@ -649,6 +677,23 @@ export class GitLifecycleService {
         "worktree must be clean before changing stack topology",
       );
     }
+  }
+
+  private async moveCreatedWorktree(
+    repositoryPath: string,
+    worktreePath: string,
+    semanticWorktreePath: string,
+  ): Promise<void> {
+    if (await pathExists(join(worktreePath, ".git"))) {
+      await this.runChecked(
+        "git",
+        ["worktree", "move", worktreePath, semanticWorktreePath],
+        repositoryPath,
+        "worktree_move_failed",
+      );
+      return;
+    }
+    await rename(worktreePath, semanticWorktreePath);
   }
 
   private async rollbackNewWorktree(
