@@ -23,6 +23,7 @@ import {
   type SparkInvocationRetryResult,
   type SparkInvocationStatus,
   type SparkInteractionRequest,
+  type SparkInteractionResponse,
   type SparkLocalRpcInput,
   type SparkLocalRpcMethod,
   type SparkLocalRpcOutput,
@@ -2824,8 +2825,6 @@ export async function handleSparkDaemonHumanInteractionRequest(
   while (!options.signal?.aborted) {
     const response = parseSparkInteractionResponse(await options.interaction(request));
     if (
-      request.kind !== "askFlow" ||
-      response.kind !== "askFlow" ||
       response.status === "pending" ||
       response.status === "blocked" ||
       response.status === "error"
@@ -2833,6 +2832,7 @@ export async function handleSparkDaemonHumanInteractionRequest(
       return;
     }
 
+    const answers = daemonHumanInteractionAnswers(response);
     let delivered: SparkDaemonHumanInteractionRespondResult | undefined;
     let failure: unknown;
     try {
@@ -2843,7 +2843,7 @@ export async function handleSparkDaemonHumanInteractionRequest(
           ...(event.invocationId ? { invocationId: event.invocationId } : {}),
           humanResponseId,
           status: response.status === "answered" ? "answered" : "cancelled",
-          answers: response.answers,
+          answers,
         },
         client,
         { signal: options.signal },
@@ -2876,6 +2876,30 @@ export async function handleSparkDaemonHumanInteractionRequest(
       throw error;
     }
   }
+}
+
+function daemonHumanInteractionAnswers(
+  response: SparkInteractionResponse,
+): Record<string, unknown> {
+  if (response.kind === "askFlow") return response.answers;
+  if (response.kind === "toolApproval") {
+    return {
+      approval: {
+        values: [response.approved ? "approve" : "reject"],
+        labels: [response.approved ? "Approve" : "Reject"],
+      },
+    };
+  }
+  if (response.kind === "confirmation" || response.kind === "diffApproval") {
+    return { approved: response.approved === true };
+  }
+  if (response.kind === "modelSelect") {
+    return response.selection ? { selection: response.selection } : {};
+  }
+  if (response.kind === "workflowPicker") {
+    return response.selector ? { selector: response.selector } : {};
+  }
+  return {};
 }
 
 function isTerminalHumanInteractionDelivery(

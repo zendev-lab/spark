@@ -131,6 +131,69 @@ test("native TUI client delivers daemon-owned human interaction responses", asyn
   assert.equal(result.returnedToTool, true);
 });
 
+test("native TUI tool approvals are returned to the daemon-owned wait", async () => {
+  const request = parseSparkInteractionRequest({
+    requestId: "tool-approval-1",
+    kind: "toolApproval",
+    title: "Run edit?",
+    toolName: "edit",
+    approveLabel: "Approve",
+    rejectLabel: "Reject",
+  });
+  const event = parseSparkDaemonEvent({
+    type: "daemon.interaction.request",
+    source: "daemon",
+    sessionId: "session-tool-approval",
+    invocationId: "invocation-tool-approval",
+    request,
+    metadata: {},
+  });
+  if (event.type !== "daemon.interaction.request") throw new Error("expected interaction event");
+  const deliveries: Array<Record<string, unknown>> = [];
+
+  await handleSparkDaemonHumanInteractionRequest(request, event, {
+    currentSessionId: "session-tool-approval",
+    interaction: async () => ({
+      version: 1,
+      kind: "toolApproval",
+      requestId: request.requestId,
+      status: "answered",
+      approved: true,
+      metadata: {},
+    }),
+    notify: () => undefined,
+    client: {
+      daemonStatus: async () => runningDaemonStatus(),
+      controlRequest: async (_method, params) => {
+        deliveries.push(params as Record<string, unknown>);
+        return {
+          outcome: "accepted",
+          retryable: false,
+          returnedToTool: true,
+          message: "Response accepted.",
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(deliveries, [
+    {
+      interactionRequestId: "tool-approval-1",
+      sessionId: "session-tool-approval",
+      invocationId: "invocation-tool-approval",
+      humanResponseId: deliveries[0]?.humanResponseId,
+      status: "answered",
+      answers: {
+        approval: {
+          values: ["approve"],
+          labels: ["Approve"],
+        },
+      },
+      responseArtifactRefs: [],
+    },
+  ]);
+});
+
 test("a not-found Ask race retries the same answer without reopening the interaction", async () => {
   const request = parseSparkInteractionRequest({
     requestId: "interaction-race",
