@@ -298,10 +298,7 @@
       "path": "scripts/run-scripted-provider-ce.mts",
       "lineCount": 498,
       "domainOwner": "capability-ce",
-      "callers": [
-        ".github/workflows/ce-behavior.yml",
-        "docs/operations/scripted-provider-ce.md"
-      ],
+      "callers": [".github/workflows/ce-behavior.yml", "docs/operations/scripted-provider-ce.md"],
       "replacementAssessment": "retained Spark-specific product, release, acceptance, documentation, evidence, or Lens contract"
     },
     {
