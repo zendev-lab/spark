@@ -14,24 +14,30 @@ test("public docs own usage while engineering docs own contracts and runbooks", 
     commandPlanes,
     toolContracts,
     pathContract,
+    remoteAccessContract,
+    runtimeIntegrationContract,
     acpRunbook,
     mcpRunbook,
     releaseRunbook,
     publicCli,
     publicTools,
     publicPaths,
+    publicHub,
   ] = await Promise.all([
     source("docs/README.md"),
     source("apps/spark-docs/README.md"),
     source("docs/specs/command-planes.md"),
     source("docs/specs/tools.md"),
     source("docs/specs/configuration-and-paths.md"),
+    source("docs/specs/spark-hub-remote-access.md"),
+    source("docs/specs/spark-runtime-integration.md"),
     source("docs/operations/acp.md"),
     source("docs/operations/mcp.md"),
     source("docs/operations/releases.md"),
     source("apps/spark-docs/src/content/docs/reference/cli.md"),
     source("apps/spark-docs/src/content/docs/reference/tools.md"),
     source("apps/spark-docs/src/content/docs/reference/configuration-and-paths.md"),
+    source("apps/spark-docs/src/content/docs/guides/hub.md"),
   ]);
 
   assert.match(engineeringIndex, /\| `apps\/spark-docs` \| Spark users and operators \|/u);
@@ -54,6 +60,15 @@ test("public docs own usage while engineering docs own contracts and runbooks", 
   assert.doesNotMatch(pathContract, /^## Inspecting paths$/mu);
   assert.doesNotMatch(pathContract, /spark paths --json/u);
 
+  assert.match(remoteAccessContract, /apps\/spark-docs\/src\/content\/docs\/guides\/hub\.md/u);
+  assert.doesNotMatch(remoteAccessContract, /^## Direct private-network access$/mu);
+  assert.doesNotMatch(remoteAccessContract, /spark hub access create/u);
+  assert.doesNotMatch(remoteAccessContract, /HOST=127\.0\.0\.1/u);
+
+  assert.match(runtimeIntegrationContract, /apps\/spark-docs\/src\/content\/docs\/reference\/cli\.md/u);
+  assert.doesNotMatch(runtimeIntegrationContract, /spark run "fix the failing tests"/u);
+  assert.doesNotMatch(runtimeIntegrationContract, /spark daemon submit --session/u);
+
   assert.match(acpRunbook, /reference\/cli\.md#acp-clients/u);
   assert.doesNotMatch(acpRunbook, /^## Run$/mu);
 
@@ -74,4 +89,6 @@ test("public docs own usage while engineering docs own contracts and runbooks", 
   assert.match(publicTools, /^## Default native profile$/mu);
   assert.match(publicPaths, /^## Self-contained SPARK_HOME$/mu);
   assert.match(publicPaths, /^## Managed installation paths$/mu);
+  assert.match(publicHub, /^## Trusted reverse proxy$/mu);
+  assert.match(publicHub, /SPARK_HUB_TRUST_PROXY=loopback/u);
 });
