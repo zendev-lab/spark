@@ -6,7 +6,7 @@ Status: **supported, opt-in stdio surface**. Official SDK:
 Package: [`packages/spark-acp`](../../packages/spark-acp/).
 
 User-facing ACP setup and invocation belong in the public
-[`CLI reference`](../../apps/spark-docs/src/content/docs/reference/cli.md#ACP-clients).
+[`CLI reference`](../../apps/spark-docs/src/content/docs/reference/cli.md#acp-clients).
 This page owns only the adapter boundary and maintainer validation.
 
 ## Contract
