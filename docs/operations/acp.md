@@ -1,19 +1,13 @@
-# ACP adapter (Agent Client Protocol)
+# ACP adapter maintainer contract
 
-Status: **supported, opt-in stdio surface**. Official SDK: [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk).
+Status: **supported, opt-in stdio surface**. Official SDK:
+[`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk).
 
 Package: [`packages/spark-acp`](../../packages/spark-acp/).
 
-## Run
-
-Start the daemon, then configure an ACP client to launch the adapter:
-
-```bash
-spark daemon start
-spark acp
-```
-
-stdout contains ACP NDJSON only. If the daemon cannot be reached, the adapter writes a recovery hint to stderr and exits non-zero.
+User-facing ACP setup and invocation belong in the public
+[`CLI reference`](../../apps/spark-docs/src/content/docs/reference/cli.md#ACP-clients).
+This page owns only the adapter boundary and maintainer validation.
 
 ## Contract
 
@@ -25,9 +19,14 @@ stdout contains ACP NDJSON only. If the daemon cannot be reached, the adapter wr
 | `session/cancel` | Cancels only the connection-local active invocation for that session |
 | `session/request_permission` | Maps Spark tool approval to ACP allow/reject and writes the answer through `human.interaction.respond` |
 
-The adapter owns no durable state and no second session map. Its only mutable state is the connection-local active invocation and stream cursor needed to route cancel and incremental updates.
+The adapter owns no durable state and no second session map. Its only mutable
+state is the connection-local active invocation and stream cursor needed to route
+cancel and incremental updates.
 
-ACP may start from a workspace subdirectory or an attached GitChange worktree. The daemon returns the owning workspace, normalized cwd, and optional GitChange ref; ACP forwards all three to creation. It does not register a worktree as a second workspace or map local paths onto SSH hosts.
+ACP may start from a workspace subdirectory or an attached GitChange worktree.
+The daemon returns the owning workspace, normalized cwd, and optional GitChange
+ref; ACP forwards all three to creation. It does not register a worktree as a
+second workspace or map local paths onto SSH hosts.
 
 ```mermaid
 flowchart LR
@@ -39,13 +38,16 @@ flowchart LR
 
 ## Deliberately unsupported
 
-The first supported contract does not advertise session load/resume/fork/list/delete, provider selection, MCP-over-ACP, document sync, or OS/container execution isolation. Unsupported prompt content fails closed instead of being silently dropped.
+The supported contract does not advertise session load/resume/fork/list/delete,
+provider selection, MCP-over-ACP, document sync, or OS/container execution
+isolation. Unsupported prompt content fails closed instead of being silently
+dropped.
 
-## Validation
+## Maintainer validation
 
 ```bash
 pnpm --filter @zendev-lab/spark-acp run test
 pnpm --filter @zendev-lab/spark-acp run check
-pnpm run test:process:npm-product
-pnpm run check:architecture
+pnpm run test:process:source
+pnpm run smoke
 ```
