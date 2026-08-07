@@ -345,6 +345,7 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
       human_response_id TEXT NOT NULL,
       event_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
+      wake_completed_at TEXT,
       UNIQUE (human_request_id, human_response_id),
       UNIQUE (interaction_request_id, human_response_id)
     );
@@ -526,6 +527,10 @@ export function migrateSparkDaemonDatabase(db: DatabaseSync): void {
   }
   if (!humanWaitColumns.has("evidence_request_json")) {
     db.exec("ALTER TABLE daemon_human_waits ADD COLUMN evidence_request_json TEXT");
+  }
+  const humanAnswerEventColumns = workspaceColumns(db, "daemon_human_answer_events");
+  if (!humanAnswerEventColumns.has("wake_completed_at")) {
+    db.exec("ALTER TABLE daemon_human_answer_events ADD COLUMN wake_completed_at TEXT");
   }
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS daemon_human_waits_evidence_interaction_idx

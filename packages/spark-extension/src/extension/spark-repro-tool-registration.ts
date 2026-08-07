@@ -1180,6 +1180,9 @@ async function verifyReproStepEvidence(
         binding.planRevision === expectedBinding.planRevision &&
         binding.ownerStepOrUnresolvedId === expectedBinding.stepId &&
         binding.stepDefinitionDigest === expectedBinding.definitionDigest &&
+        (step.authority === "ask_approval"
+          ? binding.expectedAnswerKind === "approval"
+          : binding.expectedAnswerKind !== "approval") &&
         selectedValues.length > 0 &&
         (step.authority !== "ask_approval" ||
           (selectedValues.length === 1 && selectedValues[0] === "approve"))

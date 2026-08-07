@@ -104,14 +104,28 @@ describe("human AnswerEvent Evidence projection", () => {
         answers: { decision: "continue" },
       });
 
-      const projected = vi.fn(async () => undefined);
-      const first = await reconcileHumanAnswerEventEvidence(
+      const projectionError = vi.fn();
+      const crashed = await reconcileHumanAnswerEventEvidence(
         waits,
+        () => cwd,
+        projectionError,
+        () => {
+          throw new Error("simulated crash after Evidence before wake ack");
+        },
+      );
+      expect(crashed).toEqual({ projected: 0, existing: 0, skipped: 0, failed: 1 });
+      expect(projectionError).toHaveBeenCalledTimes(1);
+      expect(waits.listPendingEvidenceAnswerEvents()).toHaveLength(1);
+      expect(await defaultEvidenceStore(cwd).list({ producer: "ask" })).toHaveLength(1);
+
+      const projected = vi.fn(async () => undefined);
+      const restarted = new SparkDaemonHumanWaitRegistry(db);
+      const recovered = await reconcileHumanAnswerEventEvidence(
+        restarted,
         () => cwd,
         () => undefined,
         projected,
       );
-      const restarted = new SparkDaemonHumanWaitRegistry(db);
       const replay = await reconcileHumanAnswerEventEvidence(
         restarted,
         () => cwd,
@@ -119,9 +133,10 @@ describe("human AnswerEvent Evidence projection", () => {
         projected,
       );
 
-      expect(first).toEqual({ projected: 1, existing: 0, skipped: 0, failed: 0 });
-      expect(replay).toEqual({ projected: 0, existing: 1, skipped: 0, failed: 0 });
+      expect(recovered).toEqual({ projected: 0, existing: 1, skipped: 0, failed: 0 });
+      expect(replay).toEqual({ projected: 0, existing: 0, skipped: 0, failed: 0 });
       expect(projected).toHaveBeenCalledTimes(1);
+      expect(restarted.listPendingEvidenceAnswerEvents()).toEqual([]);
       expect(restarted.listEvidenceAnswerEvents()).toHaveLength(1);
       expect(await defaultEvidenceStore(cwd).list({ producer: "ask" })).toHaveLength(1);
     } finally {
