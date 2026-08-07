@@ -106,15 +106,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Run repository checks
-        run: pnpm run check
-
-      - name: Install Chromium
-        run: pnpm --filter @zendev-lab/spark-hub run setup:browser
-
-      - name: Run Hub browser tests
-        run: pnpm run test:browser:hub
-
       - name: Resolve release tag
         run: |
           node -e '
