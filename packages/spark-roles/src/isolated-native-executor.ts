@@ -34,7 +34,6 @@ interface IsolatedExecutorRequest {
 type IsolatedExecutorMessage =
   | { type: "event"; event: unknown }
   | { type: "result"; result: ExtensionRoleRunResult }
-  | { type: "terminal"; code: number }
   | { type: "error"; stage: "loader" | "bootstrap" | "execution" | "serialization" };
 
 export interface IsolatedRoleNativeExecutorOptions {
@@ -74,7 +73,6 @@ export async function runIsolatedRoleNativeExecutor(
   return await new Promise<ExtensionRoleRunResult>((resolve, reject) => {
     let settled = false;
     let resultReceived = false;
-    let terminalReceived = false;
     let pendingResult: ExtensionRoleRunResult | undefined;
     const bufferedEvents: unknown[] = [];
 
@@ -133,19 +131,8 @@ export async function runIsolatedRoleNativeExecutor(
         failClosed();
         return;
       }
-      if (resultReceived || terminalReceived) {
-        if (
-          message.type === "terminal" &&
-          resultReceived &&
-          !terminalReceived &&
-          message.code === 0 &&
-          pendingResult
-        ) {
-          terminalReceived = true;
-          void acceptResult(pendingResult);
-        } else {
-          failClosed();
-        }
+      if (resultReceived) {
+        failClosed();
         return;
       }
       if (message.type === "event") {
@@ -154,14 +141,6 @@ export async function runIsolatedRoleNativeExecutor(
       }
       if (message.type === "error") {
         failClosed();
-        return;
-      }
-      if (message.type === "terminal") {
-        if (!resultReceived || terminalReceived || message.code !== 0 || !pendingResult) {
-          failClosed();
-          return;
-        }
-        terminalReceived = true;
         return;
       }
       if (!isSuccessfulIsolatedResult(message.result)) {
@@ -175,7 +154,7 @@ export async function runIsolatedRoleNativeExecutor(
     worker.once("error", failClosed);
     worker.once("exit", (code) => {
       if (settled) return;
-      if (code !== 0 || !terminalReceived || !pendingResult) {
+      if (code !== 0 || !pendingResult) {
         failClosed();
         return;
       }
@@ -226,14 +205,6 @@ export function parseIsolatedExecutorMessage(
     Object.hasOwn(message, "event")
   ) {
     return { type: "event", event: message.event };
-  }
-  if (
-    message.type === "terminal" &&
-    hasOnlyKeys(message, ["type", "code"]) &&
-    typeof message.code === "number" &&
-    Number.isInteger(message.code)
-  ) {
-    return { type: "terminal", code: message.code };
   }
   if (
     message.type === "error" &&
@@ -432,7 +403,7 @@ async function run() {
 
   try {
     parentPort?.postMessage({ type: "result", result });
-    parentPort?.postMessage({ type: "terminal", code: process.exitCode ?? 0 });
+    parentPort?.close();
   } catch {
     sendFailure("serialization");
   }
@@ -444,5 +415,6 @@ function sendFailure(stage) {
   } catch {
     // The parent also maps worker exit/error to the same bounded failure.
   }
+  parentPort?.close();
 }
 `;
