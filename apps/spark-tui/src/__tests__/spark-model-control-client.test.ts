@@ -88,6 +88,21 @@ test("daemon model picker displays unavailable models without making them select
   );
 });
 
+test("daemon model picker exposes only the resolved scoped models", () => {
+  const scoped = daemonSnapshotToPickerState({
+    ...snapshot,
+    scopedModels: [{ providerName: "provider-b", modelId: "model-a" }],
+  });
+  assert.deepEqual(
+    scoped.items.map((item) => item.value),
+    ["provider-b/model-a"],
+  );
+  assert.equal(scoped.activeModelId, undefined);
+
+  const empty = daemonSnapshotToPickerState({ ...snapshot, scopedModels: [] });
+  assert.deepEqual(empty.items, []);
+});
+
 test("daemon model picker prefers the persisted session model over the global default", () => {
   const state = daemonSnapshotToPickerState({
     ...snapshot,

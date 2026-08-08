@@ -77,6 +77,14 @@ async function withSparkHome(fn: (sparkHome: string) => Promise<void>): Promise<
   }
 }
 
+function parseTestJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    assert.fail(`Invalid JSON fixture: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 test("Spark auth mutations reload and merge across store instances", async () => {
   await withSparkHome(async (sparkHome) => {
     const path = join(sparkHome, "auth.json");
@@ -100,6 +108,7 @@ test("provider control lists auth safely and patches only the default model fiel
       configPath,
       `${JSON.stringify({
         providers: ["env-plugin"],
+        enabledModels: ["env-provider/*"],
         extensions: ["keep-extension"],
         activeProvider: "env-provider",
         activeModel: "alias-a",
@@ -166,6 +175,41 @@ test("legacy provider config still exposes the bundled OpenAI Codex catalog", as
       )?.ok,
       true,
     );
+    assert.deepEqual(
+      snapshot.scopedModelIds.toSorted((a, b) => a.localeCompare(b)),
+      [
+        "baidu-oneapi/gpt-5.6-luna",
+        "baidu-oneapi/gpt-5.6-sol",
+        "baidu-oneapi/gpt-5.6-terra",
+        "openai-codex/gpt-5.6-luna",
+        "openai-codex/gpt-5.6-sol",
+        "openai-codex/gpt-5.6-terra",
+      ],
+    );
+  });
+});
+
+test("user enabledModels replaces defaults and explicit empty scope permits no models", async () => {
+  await withSparkHome(async (sparkHome) => {
+    const configPath = join(sparkHome, "config.json");
+    await writeFile(
+      configPath,
+      `${JSON.stringify({ enabledModels: ["openai-codex/gpt-5.6-luna"] })}\n`,
+    );
+    const control = createSparkProviderControl({ sparkHome, env: {} });
+
+    const selected = await control.snapshot();
+    assert.deepEqual(selected.scopedModelIds, ["openai-codex/gpt-5.6-luna"]);
+    assert.ok(selected.models.length > selected.scopedModelIds.length);
+    await assert.rejects(
+      control.setDefaultModel("openai-codex/gpt-5.6-sol"),
+      /outside configured enabledModels/u,
+    );
+
+    await writeFile(configPath, `${JSON.stringify({ enabledModels: [] })}\n`);
+    const empty = await control.snapshot();
+    assert.deepEqual(empty.scopedModelIds, []);
+    assert.ok(empty.models.length > 0);
   });
 });
 

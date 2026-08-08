@@ -593,6 +593,9 @@ importers:
       '@zendev-lab/spark-text':
         specifier: workspace:^
         version: link:../spark-text
+      minimatch:
+        specifier: ^10.2.5
+        version: 10.2.6
       typebox:
         specifier: 'catalog:'
         version: 1.3.11

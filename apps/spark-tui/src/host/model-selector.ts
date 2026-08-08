@@ -9,6 +9,7 @@
  * injected through `picker` when the real boot path wires Ctrl+L.
  */
 
+import { resolveSparkScopedModelIds } from "@zendev-lab/spark-ai/control";
 import type { SparkConfig } from "./config.ts";
 import { loadSparkConfig, saveSparkConfig } from "./config.ts";
 import type { SparkKeybindingContext, SparkKeybindings } from "./keybindings.ts";
@@ -88,12 +89,14 @@ export class SparkModelSelector {
 
   listProviderGroups(): SparkModelProviderGroup[] {
     const active = this.registry.getActive();
+    const scopedModelIds = this.scopedModelIds();
     return this.registry.listProviders().map((provider) => ({
       providerName: provider.name,
       providerLabel: provider.name,
       active: active?.providerName === provider.name,
       models: this.registry
         .listModelsFor(provider.name)
+        .filter((model) => !scopedModelIds || scopedModelIds.has(`${provider.name}/${model.id}`))
         .map((model) => toSelectorItem(provider, model, active)),
     }));
   }
@@ -126,6 +129,11 @@ export class SparkModelSelector {
    * `SparkProviderRegistry.setActive` does all provider/model validation.
    */
   async select(selection: SparkActiveSelection): Promise<SparkActiveSelection> {
+    const scopedModelIds = this.scopedModelIds();
+    const modelValue = `${selection.providerName}/${selection.modelId}`;
+    if (scopedModelIds && !scopedModelIds.has(modelValue)) {
+      throw new Error(`Spark model ${modelValue} is outside the configured enabledModels scope`);
+    }
     this.registry.setActive(selection);
     const active = this.registry.getActive() ?? selection;
     const config = await this.getConfig();
@@ -184,10 +192,15 @@ export class SparkModelSelector {
   }
 
   private firstSelection(): SparkActiveSelection | undefined {
-    const provider = this.registry.listProviders()[0];
-    const model = provider?.models[0];
-    if (!provider || !model) return undefined;
-    return { providerName: provider.name, modelId: model.id };
+    const item = this.listItems().find((candidate) => candidate.available);
+    return item ? selectionFromItem(item) : undefined;
+  }
+
+  private scopedModelIds(): Set<string> | undefined {
+    const patterns = this.config?.enabledModels;
+    return patterns === undefined
+      ? undefined
+      : new Set(resolveSparkScopedModelIds(this.registry, patterns));
   }
 
   private async getConfig(): Promise<SparkConfig> {
