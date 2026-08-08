@@ -21,6 +21,7 @@ import {
   type Task,
   type TaskRef,
 } from "@zendev-lab/spark-core";
+import { withRoleNativeExecutorCompatibilityFallback } from "./native-executor.ts";
 
 export type ReviewTargetKind = "task" | "goal" | "tool_approval";
 export type ReviewVerdictOutcome = "approved" | "needs_changes" | "blocked";
@@ -351,7 +352,7 @@ export class SparkRolesReviewerRunner implements ReviewerRunner {
     this.#sessionDir = options.sessionDir;
     this.#env = options.env;
     this.#reviewerThinkingLevel = options.reviewerThinkingLevel ?? DEFAULT_REVIEWER_THINKING_LEVEL;
-    this.#nativeExecutor = options.nativeExecutor;
+    this.#nativeExecutor = withRoleNativeExecutorCompatibilityFallback(options.nativeExecutor);
     this.#now = options.now ?? nowIso;
     this.#maxRetries = options.maxRetries ?? 2;
     this.#retryBaseDelayMs = options.retryBaseDelayMs ?? 5_000;
@@ -875,6 +876,7 @@ const RETRIABLE_FAILURE_PATTERNS = [
 function isRetriableReviewerFailure(result: ReviewerRunResult): boolean {
   if (result.verdict.outcome !== "blocked") return false;
   const reason = result.verdict.summary;
+  if (reason.includes("Spark headless fallback failed")) return false;
   return RETRIABLE_FAILURE_PATTERNS.some((pattern) => pattern.test(reason));
 }
 
