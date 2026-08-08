@@ -37,7 +37,7 @@ import { listOAuthProviderSummaries } from "../host/auth.ts";
 import { sessionMailStatus, type SparkSessionMailMessage } from "../host/session-mail-store.ts";
 import type { SparkCliHostServices } from "../host/index.ts";
 import type { SparkConfig } from "../host/config.ts";
-import type { SparkDaemonModelAuthClient } from "./model-control.ts";
+import { daemonSnapshotToPickerState, type SparkDaemonModelAuthClient } from "./model-control.ts";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
 const STRINGS = sparkTuiPiParityStrings();
@@ -90,7 +90,7 @@ export function createSparkPiParitySlashCommands(
     },
     "scoped-models": {
       description: STRINGS.descriptions.scopedModels,
-      handler: () => renderScopedModels(services),
+      handler: async () => renderScopedModels(services, modelAuthClient),
     },
     export: {
       description: STRINGS.descriptions.export,
@@ -354,8 +354,13 @@ function isThinkingLevel(value: string | undefined): value is SparkThinkingLevel
   return (THINKING_LEVELS as readonly string[]).includes(value ?? "");
 }
 
-function renderScopedModels(services: SparkCliHostServices): string {
-  const items = services.modelSelector.getPickerState().items;
+async function renderScopedModels(
+  services: SparkCliHostServices,
+  modelAuthClient?: SparkDaemonModelAuthClient,
+): Promise<string> {
+  const items = modelAuthClient
+    ? daemonSnapshotToPickerState(await modelAuthClient.snapshot()).items
+    : services.modelSelector.getPickerState().items;
   if (items.length === 0) return STRINGS.noModelsRegistered;
   return items
     .map((model) => `${model.active ? "*" : " "} ${model.value} — ${model.description}`)
