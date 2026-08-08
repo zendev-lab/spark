@@ -206,7 +206,7 @@ test("isolated reviewer executor discards buffered events for malformed and fail
       `export const createSparkHeadlessSessionExecutor = () => async () => ({});
        export const createSparkHeadlessRoleExecutor = () => async (request) => {
          await request.onEvent({ secret: true });
-         return ;
+         return ${resultSource};
        };`,
       async (moduleSpecifier) => {
         const events: unknown[] = [];
@@ -287,6 +287,40 @@ test("isolated reviewer executor maps bootstrap serialization and clean exit to 
   }
 });
 
+test("isolated reviewer executor rejects a nonzero worker exit after a valid result", async () => {
+  await withExecutorFixture(
+    `export const createSparkHeadlessSessionExecutor = () => async () => ({});
+     export const createSparkHeadlessRoleExecutor = () => async (request) => {
+       process.exitCode = 17;
+       return {
+         record: { ...request.record, status: "succeeded" },
+         outcome: { kind: "completed", code: "completed", reason: "approved" },
+         stdout: "must-not-return",
+         stderr: "",
+         jsonEvents: [],
+       };
+     };`,
+    async (moduleSpecifier) => {
+      await assert.rejects(
+        () => runIsolatedRoleNativeExecutor(request(), { moduleSpecifier }),
+        (error: unknown) =>
+          error instanceof Error && error.message === ISOLATED_NATIVE_EXECUTOR_FAILURE_MESSAGE,
+      );
+    },
+  );
+});
+
+test("isolated worker parser accepts only the bounded terminal envelope", () => {
+  assert.deepEqual(parseIsolatedExecutorMessage({ type: "terminal", code: 0 }), {
+    type: "terminal",
+    code: 0,
+  });
+  assert.equal(
+    parseIsolatedExecutorMessage({ type: "terminal", code: 0, diagnostic: "secret" }),
+    undefined,
+  );
+  assert.equal(parseIsolatedExecutorMessage({ type: "terminal", code: "0" }), undefined);
+});
 test("isolated worker message parser rejects malformed envelopes and results", () => {
   const validResult = {
     record: { ...request().record, status: "succeeded" as const },

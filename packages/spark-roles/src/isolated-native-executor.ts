@@ -34,6 +34,7 @@ interface IsolatedExecutorRequest {
 type IsolatedExecutorMessage =
   | { type: "event"; event: unknown }
   | { type: "result"; result: ExtensionRoleRunResult }
+  | { type: "terminal"; code: number }
   | { type: "error"; stage: "loader" | "bootstrap" | "execution" | "serialization" };
 
 export interface IsolatedRoleNativeExecutorOptions {
@@ -73,6 +74,8 @@ export async function runIsolatedRoleNativeExecutor(
   return await new Promise<ExtensionRoleRunResult>((resolve, reject) => {
     let settled = false;
     let resultReceived = false;
+    let terminalReceived = false;
+    let pendingResult: ExtensionRoleRunResult | undefined;
     const bufferedEvents: unknown[] = [];
 
     const cleanup = () => {
@@ -125,13 +128,24 @@ export async function runIsolatedRoleNativeExecutor(
         if (request.signal?.aborted) onAbort();
         return;
       }
-      if (resultReceived) {
-        failClosed();
-        return;
-      }
       const message = parseIsolatedExecutorMessage(rawMessage);
       if (!message) {
         failClosed();
+        return;
+      }
+      if (resultReceived || terminalReceived) {
+        if (
+          message.type === "terminal" &&
+          resultReceived &&
+          !terminalReceived &&
+          message.code === 0 &&
+          pendingResult
+        ) {
+          terminalReceived = true;
+          void acceptResult(pendingResult);
+        } else {
+          failClosed();
+        }
         return;
       }
       if (message.type === "event") {
@@ -142,17 +156,30 @@ export async function runIsolatedRoleNativeExecutor(
         failClosed();
         return;
       }
+      if (message.type === "terminal") {
+        if (!resultReceived || terminalReceived || message.code !== 0 || !pendingResult) {
+          failClosed();
+          return;
+        }
+        terminalReceived = true;
+        return;
+      }
       if (!isSuccessfulIsolatedResult(message.result)) {
         failClosed();
         return;
       }
       resultReceived = true;
-      void acceptResult(message.result);
+      pendingResult = message.result;
     });
     worker.once("messageerror", failClosed);
     worker.once("error", failClosed);
-    worker.once("exit", () => {
-      if (!settled && !resultReceived) failClosed();
+    worker.once("exit", (code) => {
+      if (settled) return;
+      if (code !== 0 || !terminalReceived || !pendingResult) {
+        failClosed();
+        return;
+      }
+      void acceptResult(pendingResult);
     });
   });
 }
@@ -199,6 +226,14 @@ export function parseIsolatedExecutorMessage(
     Object.hasOwn(message, "event")
   ) {
     return { type: "event", event: message.event };
+  }
+  if (
+    message.type === "terminal" &&
+    hasOnlyKeys(message, ["type", "code"]) &&
+    typeof message.code === "number" &&
+    Number.isInteger(message.code)
+  ) {
+    return { type: "terminal", code: message.code };
   }
   if (
     message.type === "error" &&
@@ -397,6 +432,7 @@ async function run() {
 
   try {
     parentPort?.postMessage({ type: "result", result });
+    parentPort?.postMessage({ type: "terminal", code: process.exitCode ?? 0 });
   } catch {
     sendFailure("serialization");
   }
