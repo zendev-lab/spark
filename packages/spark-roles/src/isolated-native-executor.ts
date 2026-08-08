@@ -61,6 +61,7 @@ export async function runIsolatedRoleNativeExecutor(
       DEFAULT_SPARK_HEADLESS_EXECUTOR_MODULE;
     worker = new Worker(ISOLATED_WORKER_SOURCE, {
       eval: true,
+      env: isolatedWorkerEnvironment(process.env),
       workerData: {
         request: serializedRequest,
         moduleSpecifier: resolveSparkHeadlessExecutorSpecifier(requestedSpecifier),
@@ -335,6 +336,33 @@ function isolatedFailureError(): Error {
 
 function isolatedAbortError(): Error {
   return new Error(ISOLATED_NATIVE_EXECUTOR_ABORT_MESSAGE);
+}
+
+const ISOLATED_WORKER_ENV_KEYS = [
+  "HOME",
+  "PATH",
+  "SPARK_HOME",
+  "TMPDIR",
+  "TEMP",
+  "TMP",
+  "XDG_CACHE_HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_RUNTIME_DIR",
+  "XDG_STATE_HOME",
+  "LANG",
+  "LANGUAGE",
+  "LC_ALL",
+  "TZ",
+] as const;
+
+/** Keep filesystem/runtime discovery while denying inherited credentials and role authority. */
+export function isolatedWorkerEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const isolated: NodeJS.ProcessEnv = {};
+  for (const key of ISOLATED_WORKER_ENV_KEYS) {
+    if (env[key] !== undefined) isolated[key] = env[key];
+  }
+  return isolated;
 }
 
 const ISOLATED_WORKER_SOURCE = String.raw`

@@ -8,6 +8,7 @@ import { test } from "vitest";
 import {
   ISOLATED_NATIVE_EXECUTOR_ABORT_MESSAGE,
   ISOLATED_NATIVE_EXECUTOR_FAILURE_MESSAGE,
+  isolatedWorkerEnvironment,
   parseIsolatedExecutorMessage,
   runIsolatedRoleNativeExecutor,
   serializeIsolatedExecutorRequest,
@@ -74,6 +75,9 @@ test("isolated reviewer executor owns a fresh worker module graph per fallback",
            hasSignal: typeof request.signal?.aborted === "boolean",
            hasInputControl: "inputControl" in request,
            env: request.env,
+           processEnv: Object.fromEntries(
+             ["PI_ROLE_DEPTH", "API_TOKEN", "AWS_SECRET_ACCESS_KEY", "DATABASE_URL"].map((key) => [key, process.env[key]]),
+           ),
          }),
          stderr: "",
          jsonEvents: [],
@@ -93,6 +97,8 @@ test("isolated reviewer executor owns a fresh worker module graph per fallback",
       assert.equal(firstDetails.hasSignal, true);
       assert.equal(firstDetails.hasInputControl, false);
       assert.equal(firstDetails.env, undefined);
+      assert.deepEqual(firstDetails.processEnv, {});
+      assert.deepEqual(secondDetails.processEnv, {});
       assert.equal(events.length, 2);
       assert.deepEqual(
         events.map((event) => (event as { source: string }).source),
@@ -144,6 +150,30 @@ test("isolated reviewer executor maps loader and execution diagnostics to one sa
           error.message === ISOLATED_NATIVE_EXECUTOR_FAILURE_MESSAGE &&
           !JSON.stringify(error).includes("private provider diagnostic"),
       );
+    },
+  );
+});
+
+test("isolated worker environment keeps runtime paths and denies credentials and role authority", () => {
+  assert.deepEqual(
+    isolatedWorkerEnvironment({
+      HOME: "/home/reviewer",
+      PATH: "/bin",
+      SPARK_HOME: "/state/spark",
+      XDG_CONFIG_HOME: "/state/config",
+      LANG: "en_US.UTF-8",
+      PI_ROLE_DEPTH: "4",
+      API_TOKEN: "secret",
+      AWS_SECRET_ACCESS_KEY: "secret",
+      DATABASE_URL: "secret",
+      NODE_OPTIONS: "--require=/tmp/untrusted.cjs",
+    }),
+    {
+      HOME: "/home/reviewer",
+      PATH: "/bin",
+      SPARK_HOME: "/state/spark",
+      XDG_CONFIG_HOME: "/state/config",
+      LANG: "en_US.UTF-8",
     },
   );
 });
