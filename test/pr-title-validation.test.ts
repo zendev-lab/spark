@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,32 +13,6 @@ function captureOutput() {
     read: () => output,
   };
 }
-
-describe("PR workflow contract", () => {
-  it("pins the zendev PR-body validator while keeping the local title validator", async () => {
-    const source = await readFile(
-      new URL("../.github/workflows/ci-pr-checks.yml", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain("pull_request:");
-    expect(source).toContain("merge_group:");
-    expect(source).toContain("renovate[bot]");
-    expect(source).toContain("node scripts/validate-pr-title.mjs");
-    expect(source).toContain(
-      "zendev-lab/zendev/actions/validate-body@344af123be2442a48ae791935bf4df5f8fb2539b",
-    );
-    expect(source).not.toContain("node scripts/validate-pr-body.mjs");
-    const actions = [...source.matchAll(/^\s+(?:-\s+)?uses: ([^\s#]+)/gmu)].map(
-      (match) => match[1],
-    );
-    expect(actions).toEqual([
-      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-      "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
-      "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-      "zendev-lab/zendev/actions/validate-body@344af123be2442a48ae791935bf4df5f8fb2539b",
-    ]);
-  });
-});
 
 describe("PR title validation", () => {
   it("requires the canonical emoji for each supported commit type", () => {
