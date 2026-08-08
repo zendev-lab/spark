@@ -19,7 +19,7 @@ const {
 } = architectureRatchets;
 
 const architectureGovernanceFixtureSha256 =
-  "4a92a205f8bfb6882d95767ed03751b5671765b3aa90107fabfc25350a8be890";
+  "f6ad503ed64fea1428daab8de2922da038751dbc59f979fdcde298dcc9f7aaff";
 const requiredInventoryFields = ["layer", "owner", "stability", "stateWriter"] as const;
 const invalidInventoryCases = [
   { field: "layer", value: "invalid" },
