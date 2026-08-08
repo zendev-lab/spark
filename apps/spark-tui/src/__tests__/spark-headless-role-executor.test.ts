@@ -371,6 +371,7 @@ test("runSparkHeadlessRoleInstruction records caught native module incompatibili
     "Cannot read properties of undefined (reading 'defaultSparkConfigPath')",
   );
   const input = roleInstructionInput("native-compatibility");
+  input.nativeCompatibilityRecovery = "reviewer";
 
   const result = await runSparkHeadlessRoleInstruction(input, {
     createServices: async () => {
@@ -409,6 +410,7 @@ test("runSparkHeadlessRoleInstruction preserves caller cancellation during incom
   const controller = new AbortController();
   const reason = new Error("cancelled during incompatible bootstrap");
   const input = roleInstructionInput("aborted-incompatible-bootstrap");
+  input.nativeCompatibilityRecovery = "reviewer";
   input.signal = controller.signal;
 
   await assert.rejects(
@@ -432,6 +434,7 @@ test("runSparkHeadlessRoleInstruction records in-flight native module incompatib
     throw compatibility;
   });
   const input = roleInstructionInput("in-flight-native-compatibility");
+  input.nativeCompatibilityRecovery = "reviewer";
 
   const result = await runSparkHeadlessRoleInstruction(input, {
     createServices: async () => services as never,
@@ -445,6 +448,40 @@ test("runSparkHeadlessRoleInstruction records in-flight native module incompatib
   assert.doesNotMatch(JSON.stringify(result), /defaultSparkConfigPath/u);
 });
 
+test("runSparkHeadlessRoleInstruction withholds reviewer events before compatibility recovery", async () => {
+  const compatibility = new TypeError(
+    "Cannot read properties of undefined (reading 'defaultSparkConfigPath')",
+  );
+  let listener: ((event: never) => void) | undefined;
+  let streamedEvents = 0;
+  const services = headlessRoleServices(async () => {
+    listener?.({ type: "secret_runtime_error", secret: "must-not-stream" } as never);
+    throw compatibility;
+  });
+  Object.assign(services.agentLoop, {
+    onEvent: (next: (event: never) => void) => {
+      listener = next;
+      return () => {
+        listener = undefined;
+      };
+    },
+  });
+  const input = roleInstructionInput("buffered-native-compatibility");
+  input.nativeCompatibilityRecovery = "reviewer";
+  input.onEvent = () => {
+    streamedEvents += 1;
+  };
+
+  const result = await runSparkHeadlessRoleInstruction(input, {
+    createServices: async () => services as never,
+  });
+
+  assert.equal(result.outcome.code, ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE);
+  assert.equal(streamedEvents, 0);
+  assert.deepEqual(result.jsonEvents, []);
+  assert.doesNotMatch(JSON.stringify(result), /must-not-stream/u);
+});
+
 test("runSparkHeadlessRoleInstruction gives cancellation precedence over compatibility classification", async () => {
   const controller = new AbortController();
   const services = headlessRoleServices(async () => {
@@ -452,6 +489,7 @@ test("runSparkHeadlessRoleInstruction gives cancellation precedence over compati
     throw new TypeError("Cannot read properties of undefined (reading 'defaultSparkConfigPath')");
   });
   const input = roleInstructionInput("aborted-native-compatibility");
+  input.nativeCompatibilityRecovery = "reviewer";
   input.signal = controller.signal;
 
   const result = await runSparkHeadlessRoleInstruction(input, {

@@ -83,6 +83,7 @@ export interface SparkHeadlessRoleInstructionInput {
   model?: string;
   noSession?: boolean;
   sessionPersistence?: "anonymous" | "persistent";
+  nativeCompatibilityRecovery?: "reviewer";
   onEvent?: (event: unknown) => void | Promise<void>;
   inputControl?: ExtensionRoleRunInputControl;
 }
@@ -324,7 +325,12 @@ export async function runSparkHeadlessRoleInstruction(
     } satisfies SparkCliHostServicesOptions);
   } catch (error) {
     if (input.signal?.aborted) throwIfHeadlessAborted(input.signal);
-    if (!isRoleNativeExecutorCompatibilityError(error)) throw error;
+    if (
+      input.nativeCompatibilityRecovery !== "reviewer" ||
+      !isRoleNativeExecutorCompatibilityError(error)
+    ) {
+      throw error;
+    }
     return incompatibleNativeRoleExecutorResult(input, {
       startedAt,
       launch,
@@ -336,7 +342,7 @@ export async function runSparkHeadlessRoleInstruction(
 
   const recordEvent = (event: unknown) => {
     jsonEvents.push(event);
-    void input.onEvent?.(event);
+    if (input.nativeCompatibilityRecovery !== "reviewer") void input.onEvent?.(event);
   };
 
   applyAllowedTools(services, input.role.allowedTools);
@@ -439,7 +445,11 @@ export async function runSparkHeadlessRoleInstruction(
     };
   } catch (error) {
     const aborted = Boolean(input.signal?.aborted);
-    if (!aborted && isRoleNativeExecutorCompatibilityError(error)) {
+    if (
+      !aborted &&
+      input.nativeCompatibilityRecovery === "reviewer" &&
+      isRoleNativeExecutorCompatibilityError(error)
+    ) {
       return incompatibleNativeRoleExecutorResult(input, {
         startedAt,
         launch,

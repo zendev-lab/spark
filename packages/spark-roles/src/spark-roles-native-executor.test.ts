@@ -33,6 +33,7 @@ function fakeRequest() {
     },
     cwd: process.cwd(),
     timeoutMs: 1_000,
+    nativeCompatibilityRecovery: "reviewer" as const,
   };
 }
 
@@ -109,7 +110,23 @@ test("role native executor reviewer fallback rejects broad failed-result classif
   }
 });
 
-test("role native executor typed-result fallback preserves the primary result when abort wins", async () => {
+test("role native executor fallback requires explicit reviewer compatibility authority", async () => {
+  const primaryResult = failedResult();
+  let fallbackLoads = 0;
+  const executor = withRoleNativeExecutorCompatibilityFallback(async () => primaryResult, {
+    loadFallback: async () => {
+      fallbackLoads += 1;
+      throw new Error("fallback must not load");
+    },
+  });
+
+  assert.ok(executor);
+  const request = { ...fakeRequest(), nativeCompatibilityRecovery: undefined };
+  assert.equal(await executor(request), primaryResult);
+  assert.equal(fallbackLoads, 0);
+});
+
+test("role native executor typed-result fallback aborts safely while loading", async () => {
   const controller = new AbortController();
   const primaryResult = failedResult();
   let resolveFallback!: (executor: ExtensionRoleRunner) => void;
@@ -126,7 +143,7 @@ test("role native executor typed-result fallback preserves the primary result wh
   await Promise.resolve();
   await Promise.resolve();
   controller.abort(new Error("cancelled while loading fallback"));
-  assert.equal(await pending, primaryResult);
+  await assert.rejects(pending, /compatibility fallback aborted/u);
   resolveFallback(async (request) => {
     fallbackCalls += 1;
     return {
@@ -157,6 +174,55 @@ test("role native executor typed-result fallback bounds double-failure diagnosti
       error.cause === undefined &&
       !JSON.stringify(error).includes("secret-result-fallback") &&
       !JSON.stringify(error).includes("primary-secret"),
+  );
+});
+
+test("role native executor fallback cannot return success after in-flight abort", async () => {
+  const controller = new AbortController();
+  let resolveFallback!: (result: ExtensionRoleRunResult) => void;
+  const fallbackGate = new Promise<ExtensionRoleRunResult>((resolve) => {
+    resolveFallback = resolve;
+  });
+  const executor = withRoleNativeExecutorCompatibilityFallback(async () => failedResult(), {
+    loadFallback: async () => async () => await fallbackGate,
+  });
+
+  assert.ok(executor);
+  const pending = executor({ ...fakeRequest(), signal: controller.signal });
+  await Promise.resolve();
+  await Promise.resolve();
+  controller.abort(new Error("cancelled while fallback was executing"));
+  resolveFallback({
+    record: { ...fakeRequest().record, status: "succeeded" },
+    outcome: { kind: "completed", code: "completed", reason: "completed too late" },
+    stdout: "late-success",
+    stderr: "",
+    jsonEvents: [],
+  });
+  await assert.rejects(pending, /compatibility fallback aborted/u);
+});
+
+test("role native executor fallback rejects inconsistent succeeded status and failed outcome", async () => {
+  const executor = withRoleNativeExecutorCompatibilityFallback(async () => failedResult(), {
+    loadFallback: async () => async (request) => ({
+      record: {
+        ...request.record,
+        status: "succeeded",
+        outcome: { kind: "failed", code: "failed", reason: "inconsistent" },
+      },
+      stdout: "must-not-return",
+      stderr: "",
+      jsonEvents: [],
+    }),
+  });
+
+  assert.ok(executor);
+  await assert.rejects(
+    () => executor(fakeRequest()),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message ===
+        "host-provided native role executor was incompatible; Spark headless fallback failed",
   );
 });
 
@@ -250,7 +316,7 @@ test("role native executor reviewer fallback remains fail-closed for ordinary an
   assert.ok(aborted);
   await assert.rejects(
     () => aborted({ ...fakeRequest(), signal: controller.signal }),
-    (error) => error === compatibility,
+    /compatibility fallback aborted/u,
   );
   assert.equal(fallbackLoads, 0);
 });
@@ -274,7 +340,7 @@ test("role native executor reviewer fallback does not start after abort wins dur
 
   assert.ok(executor);
   const pending = executor({ ...fakeRequest(), signal: controller.signal });
-  const rejected = assert.rejects(pending, (error) => error === compatibility);
+  const rejected = assert.rejects(pending, /compatibility fallback aborted/u);
   await Promise.resolve();
   await Promise.resolve();
   controller.abort(new Error("cancelled while loading fallback"));

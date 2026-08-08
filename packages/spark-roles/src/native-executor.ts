@@ -48,30 +48,43 @@ export function withRoleNativeExecutorCompatibilityFallback(
   if (!primary) return undefined;
   let fallbackPromise: Promise<ExtensionRoleRunner> | undefined;
   return async (request) => {
+    if (request.nativeCompatibilityRecovery === "reviewer" && request.signal?.aborted) {
+      return compatibilityFallbackAborted();
+    }
     let primaryResult: ExtensionRoleRunResult;
     try {
       primaryResult = await primary(request);
     } catch (primaryError) {
-      if (request.signal?.aborted || !isRoleNativeExecutorCompatibilityFailure(primaryError)) {
+      if (request.nativeCompatibilityRecovery === "reviewer" && request.signal?.aborted) {
+        return compatibilityFallbackAborted();
+      }
+      if (
+        request.nativeCompatibilityRecovery !== "reviewer" ||
+        !isRoleNativeExecutorCompatibilityFailure(primaryError)
+      ) {
         throw primaryError;
       }
       return await runCompatibilityFallback({
         request,
-        onAbort: () => {
-          throw primaryError;
-        },
+        onAbort: compatibilityFallbackAborted,
         loadFallback: () => {
           fallbackPromise ??= (deps.loadFallback ?? (() => resolveRoleNativeExecutor({})))();
           return fallbackPromise;
         },
       });
     }
-    if (request.signal?.aborted || !isRoleNativeExecutorCompatibilityResult(primaryResult)) {
+    if (request.nativeCompatibilityRecovery === "reviewer" && request.signal?.aborted) {
+      return compatibilityFallbackAborted();
+    }
+    if (
+      request.nativeCompatibilityRecovery !== "reviewer" ||
+      !isRoleNativeExecutorCompatibilityResult(primaryResult)
+    ) {
       return primaryResult;
     }
     return await runCompatibilityFallback({
       request,
-      onAbort: () => primaryResult,
+      onAbort: compatibilityFallbackAborted,
       loadFallback: () => {
         fallbackPromise ??= (deps.loadFallback ?? (() => resolveRoleNativeExecutor({})))();
         return fallbackPromise;
@@ -110,8 +123,10 @@ async function runCompatibilityFallback(input: {
   if (input.request.signal?.aborted) return input.onAbort();
   try {
     const result = await fallback(input.request);
-    if (result.record.status !== "succeeded") {
-      throw new Error("Spark headless fallback returned a non-success status");
+    if (input.request.signal?.aborted) return input.onAbort();
+    const outcome = result.outcome ?? result.record.outcome;
+    if (result.record.status !== "succeeded" || (outcome && outcome.kind !== "completed")) {
+      throw new Error("Spark headless fallback returned an inconsistent success result");
     }
     return result;
   } catch {
@@ -120,6 +135,10 @@ async function runCompatibilityFallback(input: {
       "host-provided native role executor was incompatible; Spark headless fallback failed",
     );
   }
+}
+
+function compatibilityFallbackAborted(): never {
+  throw new Error("native role executor compatibility fallback aborted");
 }
 
 async function waitForCompatibilityFallback(

@@ -731,6 +731,12 @@ export interface ExtensionRoleRunRequest {
   model?: string;
   noSession?: boolean;
   sessionPersistence?: "anonymous" | "persistent";
+  /**
+   * Reviewer-only compatibility authority. Hosts may emit the stable native
+   * compatibility outcome only for this exact marker and only when no event
+   * stream can already have exposed unreviewed diagnostics.
+   */
+  nativeCompatibilityRecovery?: "reviewer";
   env?: NodeJS.ProcessEnv;
   onEvent?: (event: unknown) => void | Promise<void>;
   inputControl?: ExtensionRoleRunInputControl;
