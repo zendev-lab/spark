@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { fork } from "node:child_process";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "vitest";
 
@@ -219,20 +222,100 @@ test("spark-cli package depends only on shared libraries", () => {
 });
 
 test("runSparkDispatcher invokes injected launcher with the selected target", async () => {
-  const calls: Array<{ target: string; argv: string[] }> = [];
+  const calls: Array<{ target: string; argv: string[]; options: unknown }> = [];
   const code = await runSparkDispatcher(
     ["daemon", "workspace", "ls"],
     {},
     {
-      run: async (target, argv) => {
-        calls.push({ target, argv });
+      run: async (target, argv, options) => {
+        calls.push({ target, argv, options });
         return 7;
       },
     },
   );
 
   assert.equal(code, 7);
-  assert.deepEqual(calls, [{ target: "daemon", argv: ["workspace", "ls"] }]);
+  assert.deepEqual(calls, [
+    { target: "daemon", argv: ["workspace", "ls"], options: { stdio: "inherit" } },
+  ]);
+});
+
+test("spark daemon dispatch bridges restart helper IPC in both directions", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spark-dispatcher-ipc-"));
+  const fakeDaemon = join(root, "fake-daemon.mjs");
+  writeFileSync(
+    fakeDaemon,
+    `#!/usr/bin/env node
+const restartId = process.argv.at(-1);
+process.send?.({ type: "spark-daemon-restart-helper-ready", restartId });
+process.on("message", (message) => {
+  if (message?.type !== "spark-daemon-restart-intent-committed") return;
+  process.send?.({ type: "spark-daemon-restart-helper-armed", restartId }, () => process.exit(0));
+});
+setInterval(() => {}, 1000);
+`,
+    { mode: 0o700 },
+  );
+  chmodSync(fakeDaemon, 0o700);
+  const dispatcher = fileURLToPath(new URL("./cli.ts", import.meta.url));
+  const restartId = "restart-dispatcher-ipc";
+  const child = fork(dispatcher, ["daemon", "__restart-successor", "123", restartId], {
+    env: { ...process.env, SPARK_DAEMON_COMMAND: fakeDaemon },
+    execArgv: ["--experimental-strip-types"],
+    stdio: ["ignore", "ignore", "inherit", "ipc"],
+  });
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  try {
+    const messages: unknown[] = [];
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("timed out waiting for dispatcher IPC handshake")),
+        5_000,
+      );
+      const finish = (error?: Error) => {
+        clearTimeout(timer);
+        child.off("message", onMessage);
+        child.off("error", onError);
+        if (error) reject(error);
+        else resolve();
+      };
+      const onError = (error: Error) => finish(error);
+      const onMessage = (message: unknown) => {
+        messages.push(message);
+        if (
+          typeof message === "object" &&
+          message !== null &&
+          "type" in message &&
+          message.type === "spark-daemon-restart-helper-ready"
+        ) {
+          child.send({ type: "spark-daemon-restart-intent-committed", restartId });
+          return;
+        }
+        if (
+          typeof message === "object" &&
+          message !== null &&
+          "type" in message &&
+          message.type === "spark-daemon-restart-helper-armed"
+        ) {
+          child.disconnect();
+          finish();
+        }
+      };
+      child.on("message", onMessage);
+      child.once("error", onError);
+    });
+    assert.deepEqual(messages, [
+      { type: "spark-daemon-restart-helper-ready", restartId },
+      { type: "spark-daemon-restart-helper-armed", restartId },
+    ]);
+    assert.deepEqual(await exited, { code: 0, signal: null });
+  } finally {
+    if (child.connected) child.disconnect();
+    child.kill("SIGTERM");
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("runSparkDispatcher fails fast for non-TTY TUI while preserving canonical headless commands", async () => {

@@ -79,6 +79,37 @@ describe("local-rpc direct oRPC service", () => {
     });
   });
 
+  it("preserves actionable daemon restart scheduling failures", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spark-orpc-restart-error-"));
+    dirs.push(dir);
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { SPARK_HOME: dir },
+      overrides: { runtimeDir: join(dir, "r") },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    const server = await startLocalRpcOrpcServer({
+      paths,
+      db,
+      handlerOptions: {
+        onRestart: async () => {
+          throw new Error("Spark daemon restart helper IPC is unavailable.");
+        },
+      },
+    });
+    closers.push(() => server.close());
+    closers.push(async () => db.close());
+    const handle = await createSparkDaemonOrpcClient({ paths });
+    closers.push(async () => handle.close());
+
+    const error = await rejectionOf(handle.client.daemon.restart({}));
+    expect(error).toMatchObject({
+      code: "daemon_restart_unavailable",
+      message: expect.stringContaining("restart helper IPC is unavailable"),
+    });
+    expect(error).not.toMatchObject({ message: "Internal Server Error" });
+  });
+
   it("waits for an admitted handler after the socket force-closes", async () => {
     const dir = mkdtempSync(join(tmpdir(), "spark-orpc-close-"));
     dirs.push(dir);
