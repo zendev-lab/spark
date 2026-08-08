@@ -626,6 +626,38 @@ function askAnswerNativeExecutor(
 
 const reviewerRunnerTestEnv = { ...process.env, [ROLE_RUN_DEPTH_ENV]: "4" };
 
+test("SparkRolesReviewerRunner does not retry a completed compatibility fallback failure", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-reviewer-runner-double-failure-"));
+  try {
+    let calls = 0;
+    const runner = new SparkRolesReviewerRunner({
+      registry: new RoleRegistry(),
+      cwd: dir,
+      timeoutMs: 15_000,
+      maxRetries: 2,
+      retryBaseDelayMs: 1,
+      env: reviewerRunnerTestEnv,
+      nativeExecutor: async () => {
+        calls += 1;
+        throw new Error(
+          "host-provided native role executor was incompatible; Spark headless fallback failed",
+        );
+      },
+    });
+
+    const result = await runner.review({ ...reviewTaskInput(), cwd: dir });
+
+    assert.equal(result.verdict.outcome, "blocked");
+    assert.equal(
+      result.verdict.summary,
+      "reviewer role run error: host-provided native role executor was incompatible; Spark headless fallback failed",
+    );
+    assert.equal(calls, 1);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("SparkRolesReviewerRunner resolves reviewer model from role model settings", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-reviewer-runner-model-settings-"));
   try {
