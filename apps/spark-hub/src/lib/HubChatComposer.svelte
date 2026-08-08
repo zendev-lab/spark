@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { enhance } from "$app/forms";
+  import type { SubmitFunction } from "@sveltejs/kit";
   import { Icon } from "@zendev-lab/spark-ui";
   import type { HubChatContextCard, HubChatPromptSuggestion } from "$lib/hub-chat-types";
   import type { IconName } from "@zendev-lab/spark-ui";
@@ -74,6 +76,8 @@
   let queuedMessages = $state<QueuedMessage[]>([]);
   let editingQueuedId = $state<string | null>(null);
   let steeringId = $state<string | null>(null);
+  let submitting = $state(false);
+  let stopping = $state(false);
 
   let primaryActionLabel = $derived(hasActiveRun ? t.queue : canStartTask ? t.send : startButtonLabel);
 
@@ -95,32 +99,55 @@
     return true;
   }
 
-  function handleComposerSubmit(event: SubmitEvent) {
+  const composerEnhance: SubmitFunction = ({ cancel }) => {
     if (!canStartTask) {
-      event.preventDefault();
+      cancel();
       return;
     }
     if (hasActiveRun || editingQueuedId) {
-      event.preventDefault();
+      cancel();
       if (saveQueuedEdit()) return;
       enqueueMessage(draft);
       draft = "";
       return;
     }
     onOptimisticSubmit?.(draft);
+    submitting = true;
+    draft = "";
+    return async ({ update }) => {
+      submitting = false;
+      await update();
+    };
+  };
+
+  function suggestedEnhance(suggestion: HubChatPromptSuggestion): SubmitFunction {
+    return ({ cancel }) => {
+      if (!canStartTask) {
+        cancel();
+        prefillPrompt(suggestion.prompt);
+        return;
+      }
+      if (hasActiveRun) {
+        cancel();
+        enqueueMessage(suggestion.prompt);
+        return;
+      }
+      onOptimisticSubmit?.(suggestion.prompt);
+      submitting = true;
+      return async ({ update }) => {
+        submitting = false;
+        await update();
+      };
+    };
   }
 
-  function handleSuggestedSubmit(event: SubmitEvent, suggestion: HubChatPromptSuggestion) {
-    if (!canStartTask) {
-      event.preventDefault();
-      prefillPrompt(suggestion.prompt);
-      return;
-    }
-    if (hasActiveRun) {
-      event.preventDefault();
-      enqueueMessage(suggestion.prompt);
-    }
-  }
+  const cancelEnhance: SubmitFunction = () => {
+    stopping = true;
+    return async ({ update }) => {
+      stopping = false;
+      await update();
+    };
+  };
 
   function prefillPrompt(prompt: string) {
     draft = prompt;
@@ -163,12 +190,12 @@
 
 <div class="suggested-prompts" aria-label={t.suggestionsLabel}>
   {#each suggestions as suggestion}
-    <form method="POST" action={submitAction} onsubmit={(event) => handleSuggestedSubmit(event, suggestion)}>
+    <form method="POST" action={submitAction} use:enhance={suggestedEnhance(suggestion)}>
       <input type="hidden" name="prompt" value={suggestion.prompt} />
       <button
         type="submit"
         class:queueing={hasActiveRun}
-        disabled={!canStartTask && hasActiveRun}
+        disabled={(!canStartTask && hasActiveRun) || submitting}
         title={hasActiveRun ? `${t.queue}: ${suggestion.meta || suggestion.label}` : suggestion.meta}
         aria-label={hasActiveRun ? `${t.queue}: ${suggestion.label}` : suggestion.label}
       >
@@ -219,7 +246,7 @@
   </div>
 {/if}
 
-<form method="POST" action={submitAction} class="chat-composer" onsubmit={handleComposerSubmit}>
+<form method="POST" action={submitAction} class="chat-composer" use:enhance={composerEnhance}>
   <label for={composerId}>{editingQueuedId ? t.editQueued : t.messageLabel}</label>
   <textarea
     id={composerId}
@@ -240,14 +267,14 @@
           type="submit"
           form={cancelFormId}
           class="stop-button"
-          disabled={!latestActiveInvocationId}
+          disabled={!latestActiveInvocationId || stopping}
           title={!latestActiveInvocationId ? t.stopUnavailable : undefined}
         >
           <Icon name="warning" size={16} stroke={2.3} />
           <span>{t.stop}</span>
         </button>
       {/if}
-      <button type="submit" disabled={!canStartTask}>
+      <button type="submit" disabled={!canStartTask || submitting}>
         <Icon name="play" size={16} stroke={2.3} />
         <span>{primaryActionLabel}</span>
       </button>
@@ -262,7 +289,7 @@
   {/if}
 </form>
 
-<form id={cancelFormId} method="POST" action={cancelAction} class="stop-form">
+<form id={cancelFormId} method="POST" action={cancelAction} class="stop-form" use:enhance={cancelEnhance}>
   <input type="hidden" name="runtimeInvocationId" value={latestActiveInvocationId ?? ""} />
 </form>
 

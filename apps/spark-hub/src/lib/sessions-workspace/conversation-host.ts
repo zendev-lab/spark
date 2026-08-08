@@ -33,6 +33,7 @@ export type SessionConversationHost = {
   selected: SessionRecord;
   messages: SessionsMessages;
   copy: SessionsWorkbenchCopy;
+  locale: string;
   canAssign: boolean;
   conversationBusy: boolean;
   activeTurnId: string | null | undefined;

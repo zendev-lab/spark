@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from "$app/forms";
   import { Icon } from "@zendev-lab/spark-ui";
   import type { AppMessages } from "$lib/i18n";
   import type { ProjectTaskBoardColumn } from "$lib/project-task-board";
@@ -18,6 +19,8 @@
       messages.columns[column.id as keyof AppMessages["taskBoard"]["columns"]] ?? column.label
     );
   }
+
+  let assigningId = $state<string | null>(null);
 </script>
 
 <div class="task-board" aria-label={messages.aria}>
@@ -54,9 +57,23 @@
                 {/each}
               </div>
             {/if}
-            <form method="POST" action="?/assignTask" class="assign-form">
+            <form
+              method="POST"
+              action="?/assignTask"
+              class="assign-form"
+              use:enhance={() => {
+                assigningId = task.runtimeTaskId;
+                return async ({ update }) => {
+                  assigningId = null;
+                  await update();
+                };
+              }}
+            >
               <input type="hidden" name="runtimeTaskId" value={task.runtimeTaskId} />
-              <button type="submit" disabled={!card.assignable}>
+              <button
+                type="submit"
+                disabled={!card.assignable || assigningId === task.runtimeTaskId}
+              >
                 <Icon name="play" size={14} stroke={2.3} />
                 <span>{card.assignable ? messages.assign : messages.notAssignable}</span>
               </button>

@@ -99,6 +99,25 @@
     event.preventDefault();
     dismissNavigation();
   }
+
+  function trapNavigationTab(event: KeyboardEvent) {
+    if (event.key !== "Tab" || !navigationOpen || !navigationElement) return;
+    const focusables = Array.from(
+      navigationElement.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ).filter((element) => element.getClientRects().length > 0);
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
@@ -140,20 +159,24 @@
         class:mobile-open={navigationOpen}
         id={navigationId}
         aria-label={navigationAriaLabel}
+        role={navigationOpen ? "dialog" : undefined}
+        aria-modal={navigationOpen ? true : undefined}
         tabindex="-1"
+        onkeydown={trapNavigationTab}
       >
         {@render navigation(closeNavigation)}
       </aside>
     {/if}
 
-    <div class="hub-shell-workspace">
+    <div class="hub-shell-workspace" inert={navigationOpen ? true : undefined}>
+      <a class="skip-link" href="#hub-main-content">{layout.aria.skipToContent}</a>
       {#if contextBar}
         <div class="hub-shell-contextbar">
           {@render contextBar()}
         </div>
       {/if}
 
-      <main class="hub-shell-content" class:flush={contentMode === "flush"}>
+      <main id="hub-main-content" tabindex="-1" class="hub-shell-content" class:flush={contentMode === "flush"}>
         {@render children()}
       </main>
     </div>
@@ -202,6 +225,26 @@
     flex-direction: column;
     min-height: 0;
     min-width: 0;
+    position: relative;
+  }
+
+  .skip-link {
+    background: var(--color-primary);
+    border-radius: var(--rounded-sm);
+    color: var(--color-primary-foreground);
+    font-size: 13px;
+    font-weight: 700;
+    left: var(--spacing-md);
+    padding: 8px 12px;
+    position: absolute;
+    text-decoration: none;
+    top: -48px;
+    transition: top 120ms ease;
+    z-index: 200;
+  }
+
+  .skip-link:focus-visible {
+    top: var(--spacing-sm);
   }
 
   .hub-shell-contextbar {

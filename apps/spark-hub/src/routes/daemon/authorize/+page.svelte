@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from "$app/forms";
   import { Button, Field, Input, Panel } from "@zendev-lab/spark-ui";
 
   let { data, form } = $props();
@@ -8,6 +9,8 @@
   let displayedError = $derived(
     data.lookupError ?? (form?.intent === "deviceAuthorization" ? form.message : null),
   );
+
+  let submitting = $state(false);
 
   function errorMessage(reason: string | null | undefined): string | null {
     if (!reason) return null;
@@ -119,13 +122,33 @@
         {/if}
 
         <div class="actions">
-          <form method="POST" action="?/deny">
+          <form
+            method="POST"
+            action="?/deny"
+            use:enhance={() => {
+              submitting = true;
+              return async ({ update }) => {
+                submitting = false;
+                await update();
+              };
+            }}
+          >
             <input type="hidden" name="userCode" value={authorization.userCode} />
-            <Button type="submit" variant="secondary">{t.deny}</Button>
+            <Button type="submit" variant="secondary" loading={submitting}>{t.deny}</Button>
           </form>
-          <form method="POST" action="?/approve">
+          <form
+            method="POST"
+            action="?/approve"
+            use:enhance={() => {
+              submitting = true;
+              return async ({ update }) => {
+                submitting = false;
+                await update();
+              };
+            }}
+          >
             <input type="hidden" name="userCode" value={authorization.userCode} />
-            <Button type="submit">{t.approve}</Button>
+            <Button type="submit" loading={submitting}>{t.approve}</Button>
           </form>
         </div>
       </section>
@@ -162,7 +185,7 @@
   .authorization-shell {
     align-items: center;
     background:
-      radial-gradient(circle at 20% 0%, rgba(37, 99, 235, 0.13), transparent 34rem),
+      radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--color-primary) 13%, transparent), transparent 34rem),
       var(--color-canvas);
     color: var(--color-ink);
     display: grid;

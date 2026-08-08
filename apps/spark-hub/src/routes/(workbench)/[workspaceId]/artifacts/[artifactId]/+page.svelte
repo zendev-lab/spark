@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from "$app/forms";
   import MemoryProposalDetail from "$lib/MemoryProposalDetail.svelte";
   import MemoryQuarantineDetail from "$lib/MemoryQuarantineDetail.svelte";
   import { Button, Icon, Panel } from "@zendev-lab/spark-ui";
@@ -48,6 +49,8 @@
   function scopeLabel(scope: string) {
     return enumLabel(scope, common.scope);
   }
+
+  let preparing = $state(false);
 </script>
 
 <svelte:head>
@@ -120,8 +123,18 @@
         <div class="preview-icon"><Icon name="artifacts" size={24} /></div>
         <h3>{previewStatusLabel(preview.status)}</h3>
         <p>{previewStatusHint(preview.status)}</p>
-        <form method="POST" action="?/preparePreview">
-          <Button type="submit">{t.cache.prepare}</Button>
+        <form
+          method="POST"
+          action="?/preparePreview"
+          use:enhance={() => {
+            preparing = true;
+            return async ({ update }) => {
+              preparing = false;
+              await update();
+            };
+          }}
+        >
+          <Button type="submit" loading={preparing}>{t.cache.prepare}</Button>
           <Button variant="secondary" href={`/api/v1/artifacts/${data.artifact.id}/content`}>{t.preview.probe}</Button>
         </form>
       </div>

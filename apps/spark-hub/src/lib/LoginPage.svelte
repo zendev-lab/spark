@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { enhance } from "$app/forms";
   import { Button, Field, Input, Panel } from "@zendev-lab/spark-ui";
 
   interface LoginCopy {
@@ -25,6 +26,8 @@
     lede: string;
     next: string;
   } = $props();
+
+  let submitting = $state(false);
 </script>
 
 <svelte:head>
@@ -47,7 +50,16 @@
       <div class="error" role="alert">{errorMessage}</div>
     {/if}
 
-    <form method="POST">
+    <form
+      method="POST"
+      use:enhance={() => {
+        submitting = true;
+        return async ({ update }) => {
+          submitting = false;
+          await update();
+        };
+      }}
+    >
       <input type="hidden" name="next" value={next} />
       <Field id="login-token" label={copy.tokenLabel} required>
         <Input
@@ -59,7 +71,7 @@
           required
         />
       </Field>
-      <Button class="login-submit" type="submit" disabled={!available}>{copy.action}</Button>
+      <Button class="login-submit" type="submit" loading={submitting} disabled={!available}>{copy.action}</Button>
     </form>
   </Panel>
 </section>
@@ -68,7 +80,7 @@
   .login-shell {
     align-items: center;
     background:
-      radial-gradient(circle at top left, rgba(37, 99, 235, 0.14), transparent 34rem),
+      radial-gradient(circle at top left, color-mix(in srgb, var(--color-primary) 14%, transparent), transparent 34rem),
       var(--color-canvas);
     color: var(--color-ink);
     display: grid;
@@ -121,7 +133,7 @@
 
   .notice {
     background: var(--color-warning-soft);
-    color: var(--color-warning);
+    color: var(--color-warning-strong);
   }
 
   .error {

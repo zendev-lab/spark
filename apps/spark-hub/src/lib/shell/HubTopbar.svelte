@@ -105,7 +105,6 @@
         class="user-menu"
         aria-controls="hub-workspace-menu"
         aria-expanded={accountMenuOpen}
-        aria-haspopup="menu"
         aria-label={layout.aria.workspaceMenu}
         onclick={toggleAccountMenu}
         type="button"
@@ -124,7 +123,6 @@
       <div
         class="account-popover"
         id="hub-workspace-menu"
-        role="menu"
         aria-label={layout.aria.workspaceMenu}
         aria-hidden={!accountMenuOpen}
         tabindex="-1"
@@ -140,7 +138,6 @@
                 class:selected={workspace.id === activeWorkspace?.id}
                 href={workspaceHref(workspace)}
                 onclick={closeAccountMenu}
-                role="menuitem"
               >
                 <span
                   class="workspace-avatar"
@@ -167,7 +164,6 @@
           class="account-menu-item create-item"
           href="/workspaces/new"
           onclick={closeAccountMenu}
-          role="menuitem"
         >
           <Icon name="plus" size={16} stroke={2.3} />
           <span>{layout.user.createWorkspace}</span>

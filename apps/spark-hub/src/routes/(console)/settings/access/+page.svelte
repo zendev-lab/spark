@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { Icon } from "@zendev-lab/spark-ui";
+  import { enhance } from "$app/forms";
   import { formatRelativeTime, statusLabel as getStatusLabel } from "$lib/i18n";
   import TokenManagementSurface from "$lib/TokenManagementSurface.svelte";
-  import { Button, PageHeader } from "@zendev-lab/spark-ui";
+  import { ConfirmDialog, PageHeader } from "@zendev-lab/spark-ui";
+  import { DialogTrigger } from "@zendev-lab/spark-ui/headless";
 
   let { data, form } = $props();
 
@@ -27,6 +28,8 @@
     if (token.expiresAt && token.expiresAt < new Date().toISOString()) return "expired";
     return "ready";
   }
+
+  let revokingId = $state<string | null>(null);
 </script>
 
 <svelte:head>
@@ -82,11 +85,40 @@
             <span class="status-pill {status}">{statusLabel(status)}</span>
             <time><small>{t.enrollment.created}</small>{formatRelative(token.createdAt)}</time>
             <time><small>{t.enrollment.expires}</small>{formatRelative(token.expiresAt)}</time>
-            <form method="POST" action="?/revokeAccessToken">
+            <form
+              id={`revoke-form-${token.id}`}
+              method="POST"
+              action="?/revokeAccessToken"
+              use:enhance={() => {
+                revokingId = token.id;
+                return async ({ update }) => {
+                  revokingId = null;
+                  await update();
+                };
+              }}
+            >
               <input type="hidden" name="tokenId" value={token.id} />
-              <Button variant="secondary" size="compact" type="submit" disabled={status !== "ready"}>
-                {t.access.revoke}
-              </Button>
+              <ConfirmDialog
+                danger
+                title={t.access.revokeConfirmTitle}
+                description={t.access.revokeConfirm}
+                confirmLabel={t.access.revoke}
+                cancelLabel={t.access.revokeCancel}
+                loading={revokingId === token.id}
+                onConfirm={() =>
+                  (document.getElementById(`revoke-form-${token.id}`) as HTMLFormElement | null)
+                    ?.requestSubmit()
+                }
+              >
+                {#snippet trigger()}
+                  <DialogTrigger
+                    class="revoke-trigger-button"
+                    disabled={status !== "ready" || revokingId !== null}
+                  >
+                    {t.access.revoke}
+                  </DialogTrigger>
+                {/snippet}
+              </ConfirmDialog>
             </form>
           </div>
         {/each}
@@ -101,6 +133,34 @@
     max-width: 880px;
     min-width: 0;
     width: 100%;
+  }
+
+  :global(.revoke-trigger-button) {
+    align-items: center;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--rounded-md);
+    color: var(--color-ink-muted);
+    cursor: pointer;
+    display: inline-flex;
+    font-family: var(--font-sans);
+    font-size: var(--text-caption);
+    font-weight: var(--weight-button);
+    justify-content: center;
+    min-height: var(--control-height-compact);
+    padding: 5px 10px;
+  }
+
+  :global(.revoke-trigger-button:not(:disabled)):hover {
+    border-color: var(--color-primary-soft);
+    color: var(--color-primary);
+  }
+
+  :global(.revoke-trigger-button:disabled) {
+    background: var(--color-border);
+    border-color: var(--color-border);
+    color: var(--color-ink-disabled);
+    cursor: not-allowed;
   }
 
   .token-created,

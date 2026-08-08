@@ -39,20 +39,20 @@
 </section>
 
 <style>
-  .quarantine-card { display: grid; gap: 1rem; padding: 1rem; border: 1px solid var(--border-subtle, #d7dde7); border-radius: .75rem; background: var(--surface-raised, #fff); }
+  .quarantine-card { display: grid; gap: 1rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: .75rem; background: var(--color-surface); }
   header, li, dl div { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
-  .eyebrow { margin: 0; color: var(--text-muted, #64748b); font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; }
+  .eyebrow { margin: 0; color: var(--color-ink-subtle); font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; }
   h2, h3, p { margin: 0; }
   h2 { font-size: 1rem; }
   h3 { font-size: .875rem; }
-  header > span, li > span { padding: .15rem .45rem; border-radius: 999px; background: #dcfce7; color: #166534; font-size: .75rem; }
-  header > span.incomplete, li > span.failed { background: #fee2e2; color: #991b1b; }
+  header > span, li > span { padding: .15rem .45rem; border-radius: 999px; background: var(--color-success-soft); color: var(--color-success-strong); font-size: .75rem; }
+  header > span.incomplete, li > span.failed { background: var(--color-danger-soft); color: var(--color-danger-strong); }
   dl, ul { display: grid; gap: .5rem; margin: 0; padding: 0; }
-  dt { color: var(--text-muted, #64748b); }
+  dt { color: var(--color-ink-subtle); }
   dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
-  li { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: .6rem; border-radius: .5rem; background: var(--surface-subtle, #f8fafc); list-style: none; }
+  li { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: .6rem; border-radius: .5rem; background: var(--color-surface-soft); list-style: none; }
   li div { display: grid; gap: .15rem; min-width: 0; }
-  li p { grid-column: 1 / -1; color: #991b1b; }
+  li p { grid-column: 1 / -1; color: var(--color-danger-strong); }
   code { font-size: .75rem; overflow-wrap: anywhere; }
-  .remaining { color: #991b1b; font-size: .8rem; }
+  .remaining { color: var(--color-danger-strong); font-size: .8rem; }
 </style>

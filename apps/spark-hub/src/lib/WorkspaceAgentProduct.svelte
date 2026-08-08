@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { enhance } from "$app/forms";
+  import type { SubmitFunction } from "@sveltejs/kit";
   import { onMount } from "svelte";
   import {
     addOptimisticAgentsChatCommand,
@@ -162,22 +164,46 @@
     selectedRunId = "current";
   }
 
-  function handleTaskSubmit(event: SubmitEvent) {
+  let submitting = $state(false);
+  let stopping = $state(false);
+
+  const sendChatEnhance: SubmitFunction = ({ cancel }) => {
     if (!canStartTask || hasActiveRun) {
-      event.preventDefault();
+      cancel();
       return;
     }
     handleOptimisticSubmit(draftPrompt);
+    submitting = true;
+    draftPrompt = "";
+    return async ({ update }) => {
+      submitting = false;
+      await update();
+    };
+  };
+
+  function suggestedSendEnhance(prompt: string): SubmitFunction {
+    return ({ cancel }) => {
+      if (!canStartTask || hasActiveRun) {
+        cancel();
+        if (!hasActiveRun) draftPrompt = prompt;
+        return;
+      }
+      handleOptimisticSubmit(prompt);
+      submitting = true;
+      return async ({ update }) => {
+        submitting = false;
+        await update();
+      };
+    };
   }
 
-  function handleSuggestedSubmit(event: SubmitEvent, prompt: string) {
-    if (!canStartTask || hasActiveRun) {
-      event.preventDefault();
-      if (!hasActiveRun) draftPrompt = prompt;
-      return;
-    }
-    handleOptimisticSubmit(prompt);
-  }
+  const cancelRunEnhance: SubmitFunction = () => {
+    stopping = true;
+    return async ({ update }) => {
+      stopping = false;
+      await update();
+    };
+  };
 
   onMount(() => {
     if (!data.workspace) return;
@@ -418,16 +444,16 @@
 
       <div class="suggested-prompts" aria-label={t.chat.suggestionsLabel}>
         {#each taskSuggestions as suggestion}
-          <form method="POST" action="?/sendChat" onsubmit={(event) => handleSuggestedSubmit(event, suggestion.prompt)}>
+          <form method="POST" action="?/sendChat" use:enhance={suggestedSendEnhance(suggestion.prompt)}>
             <input type="hidden" name="prompt" value={suggestion.prompt} />
-            <button type="submit" disabled={!canStartTask || hasActiveRun} title={suggestion.prompt}>
+            <button type="submit" disabled={!canStartTask || hasActiveRun || submitting} title={suggestion.prompt}>
               {suggestion.label}
             </button>
           </form>
         {/each}
       </div>
 
-      <form method="POST" action="?/sendChat" class="task-form" onsubmit={handleTaskSubmit}>
+      <form method="POST" action="?/sendChat" class="task-form" use:enhance={sendChatEnhance}>
         <label for="agents-task-prompt">{product.promptLabel}</label>
         <textarea
           id="agents-task-prompt"
@@ -435,7 +461,7 @@
           bind:value={draftPrompt}
           rows="4"
           placeholder={product.placeholder}
-          disabled={!canStartTask || hasActiveRun}
+          disabled={!canStartTask || hasActiveRun || submitting}
           required
         ></textarea>
         <div class="task-form-footer">
@@ -449,14 +475,14 @@
                 type="submit"
                 form="agents-product-cancel-run-form"
                 class="stop-button"
-                disabled={!latestActiveInvocationId}
+                disabled={!latestActiveInvocationId || stopping}
                 title={!latestActiveInvocationId ? t.chat.stopUnavailable : undefined}
               >
                 <Icon name="warning" size={16} stroke={2.3} />
                 <span>{t.chat.stop}</span>
               </button>
             {/if}
-            <button type="submit" disabled={!canStartTask || hasActiveRun}>
+            <button type="submit" disabled={!canStartTask || hasActiveRun || submitting}>
               <Icon name="play" size={16} stroke={2.3} />
               <span>{taskActionLabel}</span>
             </button>
@@ -470,7 +496,13 @@
         {/if}
       </form>
 
-      <form id="agents-product-cancel-run-form" method="POST" action="?/cancelRun" class="stop-form">
+      <form
+        id="agents-product-cancel-run-form"
+        method="POST"
+        action="?/cancelRun"
+        class="stop-form"
+        use:enhance={cancelRunEnhance}
+      >
         <input type="hidden" name="runtimeInvocationId" value={latestActiveInvocationId ?? ""} />
       </form>
     </section>

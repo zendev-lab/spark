@@ -59,6 +59,15 @@
               sessionId={session!.sessionId}
               binding={repro.workbench}
               canControl={host.canAssign}
+              labels={{
+                aria: host.copy.reproWorkbenchAria,
+                loading: host.copy.reproWorkbenchLoading,
+                syncing: host.copy.reproWorkbenchSyncing,
+                pendingTitle: host.copy.reproWorkbenchPendingTitle,
+                pendingBody: host.copy.reproWorkbenchPendingBody,
+                unavailable: host.copy.reproWorkbenchUnavailable,
+                retry: host.copy.retryTurn,
+              }}
             />
           </div>
         {/if}
@@ -176,6 +185,7 @@
           <ReproTokenUsage
             usage={repro.tokenUsage}
             usageByPersistence={repro.tokenUsageByPersistence}
+            locale={host.locale}
             labels={{
               title: host.copy.reproTokenUsage,
               reported: host.copy.reportedTokens,

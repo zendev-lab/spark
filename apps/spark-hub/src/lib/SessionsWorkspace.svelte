@@ -600,6 +600,7 @@
     selected: selected!,
     messages,
     copy,
+    locale,
     canAssign,
     conversationBusy,
     activeTurnId,

@@ -73,6 +73,7 @@
                 class="shell-nav-link"
                 class:active={isActive(item.href)}
                 href={item.href}
+                aria-current={isActive(item.href) ? "page" : undefined}
                 onclick={closeNavigation}
               >
                 <Icon name={item.icon} size={18} />
@@ -107,7 +108,7 @@
       <a href={activeWorkspacePath}>{data.activeWorkspace.name}</a>
       <Icon name="chevron" size={14} stroke={2.2} />
     {/if}
-    <span>{currentConsolePageLabel({ pathname: page.url.pathname, nav: navLabels })}</span>
+    <span aria-current="page">{currentConsolePageLabel({ pathname: page.url.pathname, nav: navLabels })}</span>
   </nav>
 {/snippet}
 

@@ -27,13 +27,15 @@
     usage,
     usageByPersistence,
     labels,
+    locale = "en",
   }: {
     usage: SparkTokenUsageAggregate;
     usageByPersistence?: SparkTokenUsageByPersistence;
     labels: ReproTokenUsageLabels;
+    locale?: string;
   } = $props();
 
-  const formatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+  let formatter = $derived(new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }));
   let kindRows = $derived(sortedRows(usage.byExecutionKind));
   let modelRows = $derived(sortedRows(usage.byModel));
   let isLowerBound = $derived(usage.quality === "partial");

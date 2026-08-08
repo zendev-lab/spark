@@ -7,10 +7,20 @@
     sessionId,
     binding,
     canControl,
+    labels,
   }: {
     sessionId: string;
     binding: SparkA2uiInteractiveBinding;
     canControl: boolean;
+    labels: {
+      aria: string;
+      loading: string;
+      syncing: string;
+      pendingTitle: string;
+      pendingBody: string;
+      unavailable: string;
+      retry: string;
+    };
   } = $props();
 
   type ReadyDocument = {
@@ -49,17 +59,17 @@
       if (generation !== requestGeneration) return;
       if (response.status === 202) {
         document = null;
-        error = "Workbench projection is being synchronized.";
+        error = labels.syncing;
         return;
       }
       if (!response.ok || !isReadyDocument(payload)) {
-        throw new Error(messageFrom(payload) ?? "Workbench document is unavailable.");
+        throw new Error(messageFrom(payload) ?? labels.unavailable);
       }
       document = payload;
     } catch (caught) {
       if (generation !== requestGeneration) return;
       document = null;
-      error = caught instanceof Error ? caught.message : "Workbench document is unavailable.";
+      error = caught instanceof Error ? caught.message : labels.unavailable;
     } finally {
       if (generation === requestGeneration) loading = false;
     }
@@ -112,7 +122,7 @@
   }
 </script>
 
-<section class="repro-workbench" aria-label="Repro Workbench" aria-busy={loading}>
+<section class="repro-workbench" aria-label={labels.aria} aria-busy={loading}>
   {#if document}
     <A2uiRenderer
       content={document.content}
@@ -121,12 +131,12 @@
       onAction={control}
     />
   {:else if loading}
-    <div class="workbench-loading" role="status">Loading trusted Repro Workbench…</div>
+    <div class="workbench-loading" role="status">{labels.loading}</div>
   {:else}
     <div class="workbench-pending" role="status">
-      <strong>Repro Workbench pending</strong>
-      <span>{error ?? "The daemon has not projected this revision yet."}</span>
-      <button type="button" onclick={() => loadDocument()}>Retry</button>
+      <strong>{labels.pendingTitle}</strong>
+      <span>{error ?? labels.pendingBody}</span>
+      <button type="button" onclick={() => loadDocument()}>{labels.retry}</button>
     </div>
   {/if}
 </section>
