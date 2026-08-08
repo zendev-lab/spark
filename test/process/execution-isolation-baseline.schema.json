@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://spark.zendev-lab.dev/schemas/execution-isolation-baseline/v1.json",
-  "title": "Spark execution isolation baseline report v1",
+  "$id": "https://spark.zendev-lab.dev/schemas/execution-isolation-baseline/v2.json",
+  "title": "Spark execution isolation baseline report v2",
   "type": "object",
   "additionalProperties": false,
   "required": ["$schema", "version", "generatedAt", "environment", "assertions", "fixtures"],
@@ -10,7 +10,7 @@
       "const": "./test/process/execution-isolation-baseline.schema.json"
     },
     "version": {
-      "const": 1
+      "const": 2
     },
     "generatedAt": {
       "type": "string",
@@ -30,7 +30,8 @@
         "controlProbeIntervalMs",
         "controlResponsiveGapLimitMs",
         "invocationTimeoutMsByFixture",
-        "fixtureParameters"
+        "fixtureParameters",
+        "measurementUnits"
       ],
       "properties": {
         "platform": {
@@ -62,9 +63,7 @@
           "const": 100
         },
         "controlResponsiveGapLimitMs": {
-          "type": "integer",
-          "minimum": 250,
-          "maximum": 1000
+          "const": 250
         },
         "invocationTimeoutMsByFixture": {
           "type": "object",
@@ -115,6 +114,22 @@
               "minimum": 1
             }
           }
+        },
+        "measurementUnits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["timestamps", "durations", "memory"],
+          "properties": {
+            "timestamps": {
+              "const": "unix-ms"
+            },
+            "durations": {
+              "const": "ms"
+            },
+            "memory": {
+              "const": "bytes"
+            }
+          }
         }
       }
     },
@@ -123,31 +138,41 @@
       "additionalProperties": false,
       "required": [
         "cpuGapObserved",
+        "cpuPrimaryTerminal",
         "cpuSecondTerminalAfterRelease",
         "asyncProviderControlResponsive",
         "asyncProviderSecondTerminalBeforeRelease",
         "abortIgnoringControlResponsive",
         "abortIgnoringTerminalBeforeSettlement",
         "abortIgnoringSecondQueuedUntilRelease",
+        "attachmentTimingRecorded",
+        "hungChildControlResponsive",
         "hungChildTerminalBeforeHarnessCleanup",
         "hungChildSecondQueuedUntilRelease",
         "hungChildRequiredSigkill",
         "hungChildSignalTimelineOrdered",
-        "hungChildHarnessCleanupExplicit"
+        "hungChildProductionCancelLeftChildAlive",
+        "hungChildHarnessCleanupExplicit",
+        "allFixtureTeardownsClean"
       ],
       "properties": {
         "cpuGapObserved": { "const": true },
+        "cpuPrimaryTerminal": { "const": true },
         "cpuSecondTerminalAfterRelease": { "const": true },
         "asyncProviderControlResponsive": { "const": true },
         "asyncProviderSecondTerminalBeforeRelease": { "const": true },
         "abortIgnoringControlResponsive": { "const": true },
         "abortIgnoringTerminalBeforeSettlement": { "const": true },
         "abortIgnoringSecondQueuedUntilRelease": { "const": true },
+        "attachmentTimingRecorded": { "const": true },
+        "hungChildControlResponsive": { "const": true },
         "hungChildTerminalBeforeHarnessCleanup": { "const": true },
         "hungChildSecondQueuedUntilRelease": { "const": true },
         "hungChildRequiredSigkill": { "const": true },
         "hungChildSignalTimelineOrdered": { "const": true },
-        "hungChildHarnessCleanupExplicit": { "const": true }
+        "hungChildProductionCancelLeftChildAlive": { "const": true },
+        "hungChildHarnessCleanupExplicit": { "const": true },
+        "allFixtureTeardownsClean": { "const": true }
       }
     },
     "fixtures": {
@@ -163,7 +188,7 @@
     "probe": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["intervalMs", "sampleCount", "samples", "maxGapMs", "rssBytes"],
+      "required": ["intervalMs", "sampleCount", "samples", "maxGapMs", "p95GapMs", "rssBytes"],
       "properties": {
         "intervalMs": {
           "const": 100
@@ -180,6 +205,10 @@
           }
         },
         "maxGapMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "p95GapMs": {
           "type": "integer",
           "minimum": 0
         },
@@ -203,6 +232,21 @@
           }
         }
       }
+    },
+    "responsiveProbe": {
+      "allOf": [
+        { "$ref": "#/$defs/probe" },
+        {
+          "type": "object",
+          "properties": {
+            "maxGapMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 249
+            }
+          }
+        }
+      ]
     },
     "probeSample": {
       "type": "object",
@@ -279,15 +323,62 @@
         }
       }
     },
+    "attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "materializationStartedAtMs",
+        "materializationCompletedAtMs",
+        "materializationDurationMs",
+        "probeGapBeforeMs",
+        "probeGapAcrossMs",
+        "probeGapAfterMs"
+      ],
+      "properties": {
+        "bytes": {
+          "const": 12582912
+        },
+        "materializationStartedAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "materializationCompletedAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "materializationDurationMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "probeGapBeforeMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "probeGapAcrossMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "probeGapAfterMs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
     "child": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "pid",
         "spawnedAtMs",
+        "cancelAtMs",
+        "aliveAfterProductionCancel",
         "termSentAtMs",
         "killSentAtMs",
-        "exitedAtMs",
+        "childExitAtMs",
+        "executorSettledAtMs",
+        "sessionFenceReleasedAtMs",
+        "harnessCleanupAtMs",
         "cleanupOwner",
         "productionCleanupObserved"
       ],
@@ -300,6 +391,13 @@
           "type": "integer",
           "minimum": 0
         },
+        "cancelAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "aliveAfterProductionCancel": {
+          "const": true
+        },
         "termSentAtMs": {
           "type": "integer",
           "minimum": 0
@@ -308,7 +406,19 @@
           "type": ["integer", "null"],
           "minimum": 0
         },
-        "exitedAtMs": {
+        "childExitAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "executorSettledAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sessionFenceReleasedAtMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "harnessCleanupAtMs": {
           "type": "integer",
           "minimum": 0
         },
@@ -320,10 +430,20 @@
         }
       }
     },
+    "teardown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["liveChildPidCount"],
+      "properties": {
+        "liveChildPidCount": {
+          "const": 0
+        }
+      }
+    },
     "fixture": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "classification", "executionPath", "probe"],
+      "required": ["id", "classification", "executionPath", "probe", "teardown"],
       "properties": {
         "id": {
           "enum": [
@@ -372,14 +492,135 @@
         "secondQueuedUntilRelease": {
           "type": "boolean"
         },
-        "attachmentBytes": {
-          "type": "integer",
-          "minimum": 1
+        "attachment": {
+          "$ref": "#/$defs/attachment"
         },
         "child": {
           "$ref": "#/$defs/child"
+        },
+        "teardown": {
+          "$ref": "#/$defs/teardown"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "type": "object",
+            "properties": { "id": { "const": "sync-cpu" } },
+            "required": ["id"]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "primary": { "$ref": "#/$defs/invocation" },
+              "second": { "$ref": "#/$defs/invocation" },
+              "releaseAtMs": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["primary", "second", "releaseAtMs"]
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "enum": ["async-provider", "abort-ignoring-tool", "hung-external-child"]
+              }
+            },
+            "required": ["id"]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "probe": {
+                "$ref": "#/$defs/responsiveProbe"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": { "id": { "const": "async-provider" } },
+            "required": ["id"]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "primary": { "$ref": "#/$defs/invocation" },
+              "second": { "$ref": "#/$defs/invocation" },
+              "releaseAtMs": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["primary", "second", "releaseAtMs"]
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": { "id": { "const": "abort-ignoring-tool" } },
+            "required": ["id"]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "primary": { "$ref": "#/$defs/invocation" },
+              "second": { "$ref": "#/$defs/invocation" },
+              "releaseAtMs": { "type": "integer", "minimum": 0 },
+              "terminalBeforeExecutorSettlement": { "type": "boolean" },
+              "secondQueuedUntilRelease": { "type": "boolean" }
+            },
+            "required": [
+              "primary",
+              "second",
+              "releaseAtMs",
+              "terminalBeforeExecutorSettlement",
+              "secondQueuedUntilRelease"
+            ]
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": { "id": { "const": "attachment-sync-io" } },
+            "required": ["id"]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "primary": { "$ref": "#/$defs/invocation" },
+              "second": { "$ref": "#/$defs/invocation" },
+              "attachment": { "$ref": "#/$defs/attachment" }
+            },
+            "required": ["primary", "second", "attachment"]
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": { "id": { "const": "hung-external-child" } },
+            "required": ["id"]
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "primary": { "$ref": "#/$defs/invocation" },
+              "second": { "$ref": "#/$defs/invocation" },
+              "releaseAtMs": { "type": "integer", "minimum": 0 },
+              "terminalBeforeExecutorSettlement": { "type": "boolean" },
+              "secondQueuedUntilRelease": { "type": "boolean" },
+              "child": { "$ref": "#/$defs/child" }
+            },
+            "required": [
+              "primary",
+              "second",
+              "releaseAtMs",
+              "terminalBeforeExecutorSettlement",
+              "secondQueuedUntilRelease",
+              "child"
+            ]
+          }
+        }
+      ]
     }
   }
 }

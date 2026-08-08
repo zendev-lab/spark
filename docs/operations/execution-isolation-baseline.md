@@ -29,32 +29,40 @@ an isolated per-fixture allocation or leak measurement. The schema is
 ## Fixtures and interpretation
 
 All scheduler fixtures use concurrency `2`; the control probe samples the process every `100ms`.
-The report records OS, Node version, commit, invocation timeouts, fixture parameters, probe gaps,
-invocation timestamps, RSS, and child PID lifecycle.
+The report records OS, Node version, commit, invocation timeouts, fixture parameters, max and p95
+probe gaps, invocation timestamps, RSS, per-fixture `liveChildPidCount`, and child PID lifecycle. All
+timestamps are Unix milliseconds, durations are milliseconds, and memory is bytes; those units are
+schema constants rather than prose conventions.
 
 | Fixture | Classification | Contract |
 | --- | --- | --- |
 | Idle | `control` | Establishes normal probe jitter without an invocation. |
 | Five-second synchronous CPU | `event-loop-blocked` | Produces a probe gap of at least `4000ms`; another session cannot finish before the CPU fixture releases. |
-| Unresolved async provider | `async-wait` | Keeps probe gaps below the calibrated responsive limit; another session finishes before provider release. |
-| Abort-ignoring async tool | `session-fence-occupancy` | Keeps probe gaps below the calibrated responsive limit; timeout makes the terminal row visible, but the same-session successor stays queued until the real executor settles. |
-| 12 MiB attachment materialization | `sync-io` | Exercises the current synchronous base64 decode and file writes and records the resulting gap/RSS without imposing a machine-specific latency threshold. |
-| Hung external child | `external-child-lifecycle` | Shows that scheduler timeout does not settle the executor or descendant; the fixture records PID and TERM/KILL timing. |
+| Unresolved async provider | `async-wait` | Keeps every observed probe gap below `250ms`; another session finishes before provider release. |
+| Abort-ignoring async tool | `session-fence-occupancy` | Keeps every observed probe gap below `250ms`; timeout makes the terminal row visible, but the same-session successor stays queued until the real executor settles. |
+| 12 MiB attachment materialization | `sync-io` | Exercises the current synchronous base64 decode and file writes and records exact materialization start/completion/duration, before/across/after probe gaps, p95, and RSS. |
+| Hung external child | `external-child-lifecycle` | Uses asynchronous spawn while keeping every observed probe gap below `250ms`; records production cancellation separately from harness TERM/KILL, child exit, executor settlement, and session-fence release. |
 
 The hung-child fixture deliberately labels cleanup as `test-harness` and
-`productionCleanupObserved: false`. Its PID cleanup only prevents a test leak; it must never be cited
-as existing daemon process-group ownership. A future execution-attempt implementation should replace
-that negative baseline with daemon-owned cooperative cancellation, `SIGTERM`, bounded grace, and
-`SIGKILL`, while retaining generation and PID-start fencing.
+`productionCleanupObserved: false`. Its `cancelAtMs` and `aliveAfterProductionCancel` fields end the
+production observation. `harnessCleanupAtMs`, TERM/KILL timestamps, and the per-fixture teardown
+count then prove that the test did not leak a child, but must never be cited as existing daemon
+process-group ownership. `executorSettledAtMs` and `sessionFenceReleasedAtMs` are observed separately
+so a durable terminal row cannot be mistaken for released session execution authority. A future
+execution-attempt implementation should replace that negative baseline with daemon-owned cooperative
+cancellation, `SIGTERM`, bounded grace, and `SIGKILL`, while retaining generation and PID-start
+fencing.
 
 ## Threshold meaning
 
 The `4000ms` CPU threshold is intentionally broad enough for a five-second busy loop while still
-proving whole-event-loop starvation. Responsive async fixtures use a calibrated limit: the larger of
-`250ms` and four times the same process run's idle-control maximum gap, capped at an absolute
-`1000ms`. This absorbs shared-runner scheduling jitter without allowing second-scale event-loop
-blocking to pass. Attachment I/O is observational because filesystem and base64 performance are
-hardware-dependent.
+proving whole-event-loop starvation. Responsive async-provider, abort-ignoring-tool, and hung-child
+fixtures use a strict `maxGapMs < 250ms` contract; the schema caps those rows at `249ms`, so a slower
+shared runner fails instead of silently widening the product criterion. Attachment I/O remains
+observational because filesystem and base64 performance are hardware-dependent, but its exact
+materialization timing and surrounding gaps are mandatory.
 
-Failures should be interpreted by classification before changing thresholds. Do not weaken a bound
-to hide a regression, and do not report test-harness child cleanup as production behavior.
+The process contract also mutates a valid report and proves that the schema rejects missing required
+fields, missing environment metadata, illegal measurement units, and a responsive gap of exactly
+`250ms`. Failures should be interpreted by classification before changing thresholds. Do not weaken
+a bound to hide a regression, and do not report test-harness child cleanup as production behavior.
