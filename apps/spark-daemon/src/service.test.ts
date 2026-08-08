@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -9,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { resolveSparkPaths } from "@zendev-lab/spark-system";
 import {
@@ -126,6 +128,67 @@ describe("Spark daemon restart successor", () => {
       });
       if (schedule.helperPid) process.kill(schedule.helperPid, "SIGTERM");
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves the restart handshake through the stable spark dispatcher", async () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-service-stable-launcher-ipc-"));
+    const bridgePaths = resolveSparkPaths({
+      app: "daemon",
+      env: { HOME: root },
+      overrides: { runtimeDir: join(root, "run"), stateDir: join(root, "state") },
+    });
+    const intentPath = join(bridgePaths.runtimeDir, "restart.intent.json");
+    const target = join(root, "fake-spark-daemon.mjs");
+    writeFileSync(
+      target,
+      `#!/usr/bin/env node
+import { readFileSync } from "node:fs";
+const restartId = process.argv.at(-1);
+process.send?.({ type: "spark-daemon-restart-helper-ready", restartId });
+process.on("message", (message) => {
+  if (message?.type !== "spark-daemon-restart-intent-committed") return;
+  const intent = JSON.parse(readFileSync(process.env.SPARK_TEST_RESTART_INTENT, "utf8"));
+  process.send?.({
+    type: "spark-daemon-restart-helper-armed",
+    restartId,
+    targetInstanceId: intent.targetInstanceId,
+    targetGeneration: intent.targetGeneration,
+  }, () => process.exit(0));
+});
+setInterval(() => {}, 1000);
+`,
+      { mode: 0o700 },
+    );
+    chmodSync(target, 0o700);
+    const stableLauncher = fileURLToPath(new URL("../../spark-cli/bin/spark", import.meta.url));
+    try {
+      const schedule = await scheduleSparkDaemonRestartSuccessor(
+        bridgePaths,
+        process.pid,
+        {
+          instanceId: "predecessor-instance",
+          generation: "predecessor-generation",
+          startedAt: "2026-08-08T00:00:00.000Z",
+        },
+        "2026-08-08T00:01:00.000Z",
+        {
+          helperCommand: [stableLauncher, "daemon"],
+          helperEnv: {
+            SPARK_DAEMON_COMMAND: target,
+            SPARK_TEST_RESTART_INTENT: intentPath,
+          },
+        },
+      );
+
+      expect(JSON.parse(readFileSync(intentPath, "utf8"))).toMatchObject({
+        restartId: schedule.restartId,
+        targetInstanceId: schedule.targetInstanceId,
+        targetGeneration: schedule.targetGeneration,
+      });
+    } finally {
+      cancelSparkDaemonRestartSuccessor(bridgePaths);
       rmSync(root, { recursive: true, force: true });
     }
   });

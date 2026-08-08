@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChannelDeliveryError, ChannelRegistryError } from "@zendev-lab/spark-channels";
 import type {
   SparkLocalRpcInput,
@@ -38,6 +38,7 @@ describe("local-rpc direct oRPC service", () => {
       const dir = dirs.pop();
       if (dir) rmSync(dir, { recursive: true, force: true });
     }
+    vi.restoreAllMocks();
   });
 
   it("round-trips live methods over daemon-orpc.sock", async () => {
@@ -77,6 +78,62 @@ describe("local-rpc direct oRPC service", () => {
     await expect(handle.client.invocation.list({})).resolves.toMatchObject({
       invocations: expect.any(Array),
     });
+  });
+
+  it("preserves actionable daemon restart scheduling failures", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spark-orpc-restart-error-"));
+    dirs.push(dir);
+    const paths = resolveSparkPaths({
+      app: "daemon",
+      env: { SPARK_HOME: dir },
+      overrides: { runtimeDir: join(dir, "r") },
+    });
+    const db = openSparkDaemonDatabase(paths);
+    const restartLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let restartFailure =
+      "Spark daemon restart helper IPC is unavailable. authorization: Bearer super-secret Authorization=QQBot qq-secret file:///root/private/launcher";
+    const server = await startLocalRpcOrpcServer({
+      paths,
+      db,
+      handlerOptions: {
+        onRestart: async () => {
+          throw new Error(restartFailure);
+        },
+      },
+    });
+    closers.push(() => server.close());
+    closers.push(async () => db.close());
+    const handle = await createSparkDaemonOrpcClient({ paths });
+    closers.push(async () => handle.close());
+
+    const error = await rejectionOf(handle.client.daemon.restart({}));
+    expect(error).toMatchObject({
+      code: "daemon_restart_unavailable",
+      message: expect.stringContaining("Inspect `spark daemon logs --lines 100`"),
+    });
+    expect(error).not.toMatchObject({ message: expect.stringContaining("super-secret") });
+    expect(error).not.toMatchObject({ message: expect.stringContaining("/root/private") });
+    expect(restartLog).toHaveBeenCalledWith(
+      "[spark-daemon] restart scheduling failed: restart helper IPC is unavailable",
+    );
+    expect(restartLog).not.toHaveBeenCalledWith(expect.stringContaining("super-secret"));
+    expect(restartLog).not.toHaveBeenCalledWith(expect.stringContaining("qq-secret"));
+    expect(restartLog).not.toHaveBeenCalledWith(expect.stringContaining("file:///root/private"));
+
+    restartLog.mockClear();
+    restartFailure =
+      "unexpected authorization: Bearer unknown-secret file:///root/private/unknown-launcher";
+    const unknownError = await rejectionOf(handle.client.daemon.restart({}));
+    expect(unknownError).toMatchObject({
+      code: "daemon_restart_unavailable",
+      message: expect.stringContaining("Inspect `spark daemon logs --lines 100`"),
+    });
+    expect(restartLog).toHaveBeenCalledWith(
+      "[spark-daemon] restart scheduling failed: internal restart scheduling failure",
+    );
+    expect(restartLog).not.toHaveBeenCalledWith(expect.stringContaining("unknown-secret"));
+    expect(restartLog).not.toHaveBeenCalledWith(expect.stringContaining("unknown-launcher"));
+    restartLog.mockRestore();
   });
 
   it("waits for an admitted handler after the socket force-closes", async () => {

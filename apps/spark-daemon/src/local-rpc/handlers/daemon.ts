@@ -48,7 +48,39 @@ export async function handleDaemonRequest(
           "Spark daemon restart control is not available.",
         );
       }
-      return await options.onRestart();
+      try {
+        return await options.onRestart();
+      } catch (error) {
+        if (error instanceof SparkDaemonControlError) throw error;
+        console.error(
+          `[spark-daemon] restart scheduling failed: ${daemonRestartFailureLogDetail(error)}`,
+        );
+        throw new SparkDaemonControlError(
+          "daemon_restart_unavailable",
+          "Spark daemon could not arm a safe restart successor. Inspect `spark daemon logs --lines 100`, correct the reported local lifecycle error, and retry.",
+        );
+      }
     }
   }
+}
+
+function daemonRestartFailureLogDetail(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const knownFailures = [
+    ["restart helper IPC is unavailable", "restart helper IPC is unavailable"],
+    ["restart helper exited before readiness", "restart helper exited before readiness"],
+    ["restart helper was not fully armed", "restart helper did not complete arming"],
+    ["restart helper did not receive a process id", "restart helper process did not start"],
+    ["restart arming was cancelled", "restart helper arming was cancelled"],
+    [
+      "restart intent changed while a helper was being armed",
+      "restart intent changed during arming",
+    ],
+    ["restart fence generation mismatch", "restart fence generation mismatch"],
+    ["targets a different build", "restart target build changed during arming"],
+  ] as const;
+  return (
+    knownFailures.find(([fragment]) => message.includes(fragment))?.[1] ??
+    "internal restart scheduling failure"
+  );
 }

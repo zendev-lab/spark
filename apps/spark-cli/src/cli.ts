@@ -1,4 +1,4 @@
-import { spawn, type SpawnOptions } from "node:child_process";
+import { spawn, type ChildProcess, type Serializable, type SpawnOptions } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -121,7 +121,11 @@ export async function runSparkDispatcher(
         stderr.write(`${dispatcherStrings.tuiRequiresTty}\n`);
         return 2;
       }
-      return await launcher.run(command.target, dispatchArgv, { stdio: "inherit" });
+      return await launcher.run(
+        command.target,
+        dispatchArgv,
+        spawnOptions(command.target, dispatchArgv),
+      );
     }
   }
 }
@@ -253,12 +257,15 @@ const defaultLauncher: SparkDispatcherLauncher = {
     return new Promise((resolve) => {
       const command = resolveTargetCommand(target);
       const child = spawn(command.command, [...command.args, ...argv], options);
+      const releaseIpcBridge = bridgeDaemonIpc(target, argv, child);
       child.on("error", (error: NodeJS.ErrnoException) => {
+        releaseIpcBridge();
         const detail = error.code === "ENOENT" ? "executable was not found on PATH" : error.message;
         process.stderr.write(`${dispatcherStrings.dispatchFailure(command.label, detail)}\n`);
         resolve(error.code === "ENOENT" ? 127 : 1);
       });
       child.on("close", (code, signal) => {
+        releaseIpcBridge();
         if (signal) {
           process.stderr.write(`${dispatcherStrings.signalExit(command.label, signal)}\n`);
           resolve(1);
@@ -269,6 +276,68 @@ const defaultLauncher: SparkDispatcherLauncher = {
     });
   },
 };
+
+function spawnOptions(target: SparkDispatcherTarget, argv: readonly string[]): SpawnOptions {
+  return {
+    stdio: shouldBridgeDaemonIpc(target, argv)
+      ? ["inherit", "inherit", "inherit", "ipc"]
+      : "inherit",
+  };
+}
+
+function shouldBridgeDaemonIpc(target: SparkDispatcherTarget, argv: readonly string[]): boolean {
+  return (
+    target === "daemon" &&
+    argv[0] === "__restart-successor" &&
+    process.connected === true &&
+    typeof process.send === "function"
+  );
+}
+
+function bridgeDaemonIpc(
+  target: SparkDispatcherTarget,
+  argv: readonly string[],
+  child: ChildProcess,
+): () => void {
+  if (!shouldBridgeDaemonIpc(target, argv) || typeof child.send !== "function") {
+    return () => undefined;
+  }
+
+  let released = false;
+  const onParentMessage = (message: Serializable) => {
+    if (!child.connected) return;
+    child.send(message, reportIpcForwardingError("parent to daemon"));
+  };
+  const onChildMessage = (message: Serializable) => {
+    if (process.connected !== true || typeof process.send !== "function") return;
+    process.send(message, reportIpcForwardingError("daemon to parent"));
+  };
+  const onParentDisconnect = () => {
+    release();
+    if (child.connected) child.disconnect();
+  };
+  const release = () => {
+    if (released) return;
+    released = true;
+    process.off("message", onParentMessage);
+    process.off("disconnect", onParentDisconnect);
+    child.off("message", onChildMessage);
+    child.off("disconnect", release);
+  };
+
+  process.on("message", onParentMessage);
+  process.once("disconnect", onParentDisconnect);
+  child.on("message", onChildMessage);
+  child.once("disconnect", release);
+  return release;
+}
+
+function reportIpcForwardingError(direction: string): (error: Error | null) => void {
+  return (error) => {
+    if (!error) return;
+    process.stderr.write(`Spark daemon IPC bridge failed (${direction}): ${error.message}\n`);
+  };
+}
 
 export function resolveTargetCommand(target: SparkDispatcherTarget): {
   command: string;
