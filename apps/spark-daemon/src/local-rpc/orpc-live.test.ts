@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChannelDeliveryError, ChannelRegistryError } from "@zendev-lab/spark-channels";
 import type {
   SparkLocalRpcInput,
@@ -38,6 +38,7 @@ describe("local-rpc direct oRPC service", () => {
       const dir = dirs.pop();
       if (dir) rmSync(dir, { recursive: true, force: true });
     }
+    vi.restoreAllMocks();
   });
 
   it("round-trips live methods over daemon-orpc.sock", async () => {
@@ -88,12 +89,15 @@ describe("local-rpc direct oRPC service", () => {
       overrides: { runtimeDir: join(dir, "r") },
     });
     const db = openSparkDaemonDatabase(paths);
+    const restartLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const server = await startLocalRpcOrpcServer({
       paths,
       db,
       handlerOptions: {
         onRestart: async () => {
-          throw new Error("Spark daemon restart helper IPC is unavailable.");
+          throw new Error(
+            "Spark daemon restart helper IPC is unavailable. token=super-secret /root/private/launcher",
+          );
         },
       },
     });
@@ -105,9 +109,18 @@ describe("local-rpc direct oRPC service", () => {
     const error = await rejectionOf(handle.client.daemon.restart({}));
     expect(error).toMatchObject({
       code: "daemon_restart_unavailable",
-      message: expect.stringContaining("restart helper IPC is unavailable"),
+      message: expect.stringContaining("Inspect `spark daemon logs --lines 100`"),
     });
-    expect(error).not.toMatchObject({ message: "Internal Server Error" });
+    expect(error).not.toMatchObject({ message: expect.stringContaining("super-secret") });
+    expect(error).not.toMatchObject({ message: expect.stringContaining("/root/private") });
+    expect(restartLog).toHaveBeenCalledWith(
+      expect.stringContaining("restart helper IPC is unavailable"),
+    );
+    expect(restartLog).toHaveBeenCalledWith(expect.stringContaining("token=[redacted]"));
+    expect(restartLog).toHaveBeenCalledWith(expect.stringContaining("<path>"));
+    expect(restartLog).not.toHaveBeenCalledWith(expect.stringContaining("super-secret"));
+    expect(restartLog).not.toHaveBeenCalledWith(expect.stringContaining("/root/private"));
+    restartLog.mockRestore();
   });
 
   it("waits for an admitted handler after the socket force-closes", async () => {

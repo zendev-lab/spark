@@ -52,12 +52,29 @@ export async function handleDaemonRequest(
         return await options.onRestart();
       } catch (error) {
         if (error instanceof SparkDaemonControlError) throw error;
-        const message = error instanceof Error ? error.message : String(error);
+        console.error(
+          `[spark-daemon] restart scheduling failed: ${daemonRestartFailureLogDetail(error)}`,
+        );
         throw new SparkDaemonControlError(
           "daemon_restart_unavailable",
-          `Spark daemon restart could not arm its successor: ${message}`,
+          "Spark daemon could not arm a safe restart successor. Inspect `spark daemon logs --lines 100`, correct the reported local lifecycle error, and retry.",
         );
       }
     }
   }
+}
+
+function daemonRestartFailureLogDetail(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const redacted = raw
+    .replace(
+      /((?:authorization|token|secret|api[_ -]?key|password|passphrase)\s*[:=]\s*)\S+/giu,
+      "$1[redacted]",
+    )
+    .replace(/\b(Bearer|QQBot)\s+[^\s,;]+/giu, "$1 [redacted]")
+    .replace(/([?&](?:access_token|client_secret|token|secret)=)[^&#\s]+/giu, "$1[redacted]")
+    .replace(/(^|[\s("'=])\/(?:[^\s"'()]+\/)*[^\s"'():]*/gu, "$1<path>")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return redacted.length <= 500 ? redacted : `${redacted.slice(0, 499)}…`;
 }
