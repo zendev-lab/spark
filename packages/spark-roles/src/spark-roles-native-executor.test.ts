@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { runInNewContext } from "node:vm";
 import { test } from "vitest";
 
 import {
@@ -155,6 +156,37 @@ test("role native executor typed-result fallback aborts safely while loading", a
   });
   await Promise.resolve();
   assert.equal(fallbackCalls, 0);
+});
+
+test("role native executor reviewer fallback recognizes the exact TypeError across realms", async () => {
+  let fallbackCalls = 0;
+  const compatibility = runInNewContext(
+    `new TypeError("Cannot read properties of undefined (reading 'defaultSparkConfigPath')")`,
+  ) as TypeError;
+  assert.equal(compatibility instanceof TypeError, false);
+  const executor = withRoleNativeExecutorCompatibilityFallback(
+    async () => {
+      throw compatibility;
+    },
+    {
+      loadFallback: async () => async (request) => {
+        fallbackCalls += 1;
+        return {
+          record: { ...request.record, status: "succeeded" },
+          outcome: { kind: "completed", code: "completed", reason: "reviewed" },
+          stdout: "approved",
+          stderr: "",
+          jsonEvents: [],
+        };
+      },
+    },
+  );
+
+  assert.ok(executor);
+  const result = await executor(fakeRequest());
+  assert.equal(result.record.status, "succeeded");
+  assert.equal(result.stdout, "approved");
+  assert.equal(fallbackCalls, 1);
 });
 
 test("role native executor typed-result fallback bounds double-failure diagnostics", async () => {

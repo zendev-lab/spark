@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { runInNewContext } from "node:vm";
 import { test } from "vitest";
 
 import {
@@ -403,6 +404,46 @@ test("runSparkHeadlessRoleInstruction does not relabel ordinary bootstrap failur
       },
     }),
     (error) => error === ordinary,
+  );
+});
+
+test("runSparkHeadlessRoleInstruction classifies the exact compatibility TypeError across realms", async () => {
+  const compatibility = runInNewContext(
+    `new TypeError("Cannot read properties of undefined (reading 'defaultSparkConfigPath')")`,
+  ) as TypeError;
+  assert.equal(compatibility instanceof TypeError, false);
+  const input = roleInstructionInput("cross-realm-native-compatibility");
+  input.nativeCompatibilityRecovery = "reviewer";
+
+  const result = await runSparkHeadlessRoleInstruction(input, {
+    createServices: async () => {
+      throw compatibility;
+    },
+  });
+
+  assert.equal(result.record.status, "failed");
+  assert.equal(result.outcome.code, ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE);
+  assert.equal(result.outcome.reason, ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+  assert.deepEqual(result.jsonEvents, []);
+});
+
+test("runSparkHeadlessRoleInstruction rejects a forged cross-realm compatibility lookalike", async () => {
+  const lookalike = {
+    name: "TypeError",
+    message: "Cannot read properties of undefined (reading 'defaultSparkConfigPath')",
+  };
+  const input = roleInstructionInput("forged-native-compatibility");
+  input.nativeCompatibilityRecovery = "reviewer";
+
+  await assert.rejects(
+    runSparkHeadlessRoleInstruction(input, {
+      createServices: async () => {
+        throw lookalike;
+      },
+    }),
+    (error) => error === lookalike,
   );
 });
 

@@ -1,6 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { isNativeError } from "node:util/types";
 
 /**
  * spark-core — Spark host contract + lightweight primitives.
@@ -666,11 +667,20 @@ export const ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE =
 export const ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON =
   "Host-provided native role executor is incompatible with the active Spark module graph";
 
+const ROLE_NATIVE_EXECUTOR_COMPATIBILITY_ERROR_MESSAGE =
+  "Cannot read properties of undefined (reading 'defaultSparkConfigPath')";
+
 export function isRoleNativeExecutorCompatibilityError(error: unknown): boolean {
-  return (
-    error instanceof TypeError &&
-    error.message === "Cannot read properties of undefined (reading 'defaultSparkConfigPath')"
-  );
+  if (!isNativeError(error)) return false;
+  try {
+    const candidate = error as { name?: unknown; message?: unknown };
+    return (
+      candidate.name === "TypeError" &&
+      candidate.message === ROLE_NATIVE_EXECUTOR_COMPATIBILITY_ERROR_MESSAGE
+    );
+  } catch {
+    return false;
+  }
 }
 
 export interface RoleRunCompletionOutcome {
