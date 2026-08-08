@@ -90,14 +90,14 @@ describe("local-rpc direct oRPC service", () => {
     });
     const db = openSparkDaemonDatabase(paths);
     const restartLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let restartFailure =
+      "Spark daemon restart helper IPC is unavailable. authorization: Bearer super-secret Authorization=QQBot qq-secret file:///root/private/launcher";
     const server = await startLocalRpcOrpcServer({
       paths,
       db,
       handlerOptions: {
         onRestart: async () => {
-          throw new Error(
-            "Spark daemon restart helper IPC is unavailable. token=super-secret /root/private/launcher",
-          );
+          throw new Error(restartFailure);
         },
       },
     });
@@ -114,12 +114,25 @@ describe("local-rpc direct oRPC service", () => {
     expect(error).not.toMatchObject({ message: expect.stringContaining("super-secret") });
     expect(error).not.toMatchObject({ message: expect.stringContaining("/root/private") });
     expect(restartLog).toHaveBeenCalledWith(
-      expect.stringContaining("restart helper IPC is unavailable"),
+      "[spark-daemon] restart scheduling failed: restart helper IPC is unavailable",
     );
-    expect(restartLog).toHaveBeenCalledWith(expect.stringContaining("token=[redacted]"));
-    expect(restartLog).toHaveBeenCalledWith(expect.stringContaining("<path>"));
     expect(restartLog).not.toHaveBeenCalledWith(expect.stringContaining("super-secret"));
-    expect(restartLog).not.toHaveBeenCalledWith(expect.stringContaining("/root/private"));
+    expect(restartLog).not.toHaveBeenCalledWith(expect.stringContaining("qq-secret"));
+    expect(restartLog).not.toHaveBeenCalledWith(expect.stringContaining("file:///root/private"));
+
+    restartLog.mockClear();
+    restartFailure =
+      "unexpected authorization: Bearer unknown-secret file:///root/private/unknown-launcher";
+    const unknownError = await rejectionOf(handle.client.daemon.restart({}));
+    expect(unknownError).toMatchObject({
+      code: "daemon_restart_unavailable",
+      message: expect.stringContaining("Inspect `spark daemon logs --lines 100`"),
+    });
+    expect(restartLog).toHaveBeenCalledWith(
+      "[spark-daemon] restart scheduling failed: internal restart scheduling failure",
+    );
+    expect(restartLog).not.toHaveBeenCalledWith(expect.stringContaining("unknown-secret"));
+    expect(restartLog).not.toHaveBeenCalledWith(expect.stringContaining("unknown-launcher"));
     restartLog.mockRestore();
   });
 

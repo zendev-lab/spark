@@ -65,16 +65,22 @@ export async function handleDaemonRequest(
 }
 
 function daemonRestartFailureLogDetail(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  const redacted = raw
-    .replace(
-      /((?:authorization|token|secret|api[_ -]?key|password|passphrase)\s*[:=]\s*)\S+/giu,
-      "$1[redacted]",
-    )
-    .replace(/\b(Bearer|QQBot)\s+[^\s,;]+/giu, "$1 [redacted]")
-    .replace(/([?&](?:access_token|client_secret|token|secret)=)[^&#\s]+/giu, "$1[redacted]")
-    .replace(/(^|[\s("'=])\/(?:[^\s"'()]+\/)*[^\s"'():]*/gu, "$1<path>")
-    .replace(/\s+/gu, " ")
-    .trim();
-  return redacted.length <= 500 ? redacted : `${redacted.slice(0, 499)}…`;
+  const message = error instanceof Error ? error.message : String(error);
+  const knownFailures = [
+    ["restart helper IPC is unavailable", "restart helper IPC is unavailable"],
+    ["restart helper exited before readiness", "restart helper exited before readiness"],
+    ["restart helper was not fully armed", "restart helper did not complete arming"],
+    ["restart helper did not receive a process id", "restart helper process did not start"],
+    ["restart arming was cancelled", "restart helper arming was cancelled"],
+    [
+      "restart intent changed while a helper was being armed",
+      "restart intent changed during arming",
+    ],
+    ["restart fence generation mismatch", "restart fence generation mismatch"],
+    ["targets a different build", "restart target build changed during arming"],
+  ] as const;
+  return (
+    knownFailures.find(([fragment]) => message.includes(fragment))?.[1] ??
+    "internal restart scheduling failure"
+  );
 }
