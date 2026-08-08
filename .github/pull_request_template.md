@@ -1,17 +1,17 @@
-## Why
+## 为什么
 
-<!-- What problem does this solve, why now, and which invariant or owner makes it belong here? -->
+<!-- 这个改动解决了什么问题、为什么现在要做、以及它为什么属于这里的 owner 或约束？ -->
 
-## What changed
+## 改了什么
 
-<!-- What changed and what behavior, architecture, or user impact follows from it? -->
-
-<!-- pr-body:optional -->
-## Notes
-
-<!-- Compatibility, migration, security, risk, or stack dependencies. Omit this section when none apply. -->
+<!-- 具体改了什么，以及它带来的行为、架构或用户影响是什么？ -->
 
 <!-- pr-body:optional -->
-## Next
+## 说明
 
-<!-- Immediate follow-up deliberately outside this PR. Omit this section when the change is closed. -->
+<!-- 兼容性、迁移、安全性、风险或 PR stack 依赖。若无相关内容，可省略本节。 -->
+
+<!-- pr-body:optional -->
+## 后续
+
+<!-- 明确不放在本 PR 内的紧后续工作。若该改动已闭环，可省略本节。 -->
