@@ -118,6 +118,49 @@ test("role native executor compatibility marker discards primary events and expo
   assert.deepEqual(exposed, [{ source: "isolated-reviewer" }]);
 });
 
+test("role native executor discards isolated fallback events when fallback fails", async () => {
+  const exposed: unknown[] = [];
+  const executor = withRoleNativeExecutorCompatibilityFallback(async () => failedResult(), {
+    runIsolatedFallback: async (request) => {
+      await request.onEvent?.({ source: "isolated-secret" });
+      throw new Error("private fallback diagnostic");
+    },
+  });
+
+  assert.ok(executor);
+  await assert.rejects(
+    () => executor({ ...fakeRequest(), onEvent: (event) => void exposed.push(event) }),
+    /Spark headless fallback failed/u,
+  );
+  assert.deepEqual(exposed, []);
+});
+
+test("role native executor rejects a forged plain compatibility object", async () => {
+  const forged = {
+    name: "TypeError",
+    message: "Cannot read properties of undefined (reading 'defaultSparkConfigPath')",
+  };
+  let fallbackCalls = 0;
+  const executor = withRoleNativeExecutorCompatibilityFallback(
+    async () => {
+      throw forged;
+    },
+    {
+      runIsolatedFallback: async () => {
+        fallbackCalls += 1;
+        throw new Error("must not execute");
+      },
+    },
+  );
+
+  assert.ok(executor);
+  await assert.rejects(
+    () => executor(fakeRequest()),
+    (error: unknown) => error === forged,
+  );
+  assert.equal(fallbackCalls, 0);
+});
+
 test("role native executor preserves buffered primary events when no compatibility marker is present", async () => {
   const exposed: unknown[] = [];
   const primaryResult = {

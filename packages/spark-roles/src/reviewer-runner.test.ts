@@ -637,8 +637,9 @@ test("SparkRolesReviewerRunner does not retry a completed compatibility fallback
       maxRetries: 2,
       retryBaseDelayMs: 1,
       env: reviewerRunnerTestEnv,
-      nativeExecutor: async () => {
+      nativeExecutor: async (request) => {
         calls += 1;
+        assert.equal(request.nativeCompatibilityRecovery, "reviewer");
         throw new Error(
           "host-provided native role executor was incompatible; Spark headless fallback failed",
         );

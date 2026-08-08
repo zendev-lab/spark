@@ -82,12 +82,12 @@ export function withRoleNativeExecutorCompatibilityFallback(
       return await runCompatibilityFallback({
         request,
         onAbort: compatibilityFallbackAborted,
-        runFallback: () => {
+        runFallback: (fallbackRequest) => {
           if (deps.loadFallback) {
             injectedFallbackPromise ??= deps.loadFallback();
-            return runInjectedFallback(injectedFallbackPromise, request);
+            return runInjectedFallback(injectedFallbackPromise, fallbackRequest);
           }
-          return (deps.runIsolatedFallback ?? runIsolatedRoleNativeExecutor)(request, {
+          return (deps.runIsolatedFallback ?? runIsolatedRoleNativeExecutor)(fallbackRequest, {
             moduleSpecifier: deps.moduleSpecifier,
           });
         },
@@ -106,12 +106,12 @@ export function withRoleNativeExecutorCompatibilityFallback(
     return await runCompatibilityFallback({
       request,
       onAbort: compatibilityFallbackAborted,
-      runFallback: () => {
+      runFallback: (fallbackRequest) => {
         if (deps.loadFallback) {
           injectedFallbackPromise ??= deps.loadFallback();
-          return runInjectedFallback(injectedFallbackPromise, request);
+          return runInjectedFallback(injectedFallbackPromise, fallbackRequest);
         }
-        return (deps.runIsolatedFallback ?? runIsolatedRoleNativeExecutor)(request, {
+        return (deps.runIsolatedFallback ?? runIsolatedRoleNativeExecutor)(fallbackRequest, {
           moduleSpecifier: deps.moduleSpecifier,
         });
       },
@@ -150,16 +150,21 @@ export function isRoleNativeExecutorCompatibilityResult(result: ExtensionRoleRun
 async function runCompatibilityFallback(input: {
   request: Parameters<ExtensionRoleRunner>[0];
   onAbort: () => ExtensionRoleRunResult;
-  runFallback: () => Promise<ExtensionRoleRunResult>;
+  runFallback: (request: Parameters<ExtensionRoleRunner>[0]) => Promise<ExtensionRoleRunResult>;
 }): Promise<ExtensionRoleRunResult> {
+  const fallbackEvents: unknown[] = [];
+  const fallbackRequest = input.request.onEvent
+    ? { ...input.request, onEvent: (event: unknown) => void fallbackEvents.push(event) }
+    : input.request;
   try {
     if (input.request.signal?.aborted) return input.onAbort();
-    const result = await input.runFallback();
+    const result = await input.runFallback(fallbackRequest);
     if (input.request.signal?.aborted) return input.onAbort();
     const outcome = result.outcome ?? result.record.outcome;
     if (result.record.status !== "succeeded" || (outcome && outcome.kind !== "completed")) {
       throw new Error("Spark isolated headless fallback returned an inconsistent success result");
     }
+    await flushPrimaryEvents(input.request, fallbackEvents);
     return result;
   } catch (error) {
     if (
