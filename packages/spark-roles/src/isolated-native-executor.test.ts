@@ -59,53 +59,85 @@ async function withExecutorFixture<T>(
   }
 }
 
-test("isolated reviewer executor owns a fresh worker module graph per fallback", async () => {
-  await withExecutorFixture(
-    `import { threadId } from "node:worker_threads";
-     globalThis.fixtureLoads = (globalThis.fixtureLoads ?? 0) + 1;
-     export const createSparkHeadlessSessionExecutor = () => async () => ({});
-     export const createSparkHeadlessRoleExecutor = () => async (request) => {
-       await request.onEvent({ source: "isolated", threadId });
-       return {
-         record: { ...request.record, status: "succeeded" },
-         outcome: { kind: "completed", code: "completed", reason: "approved" },
-         stdout: JSON.stringify({
-           threadId,
-           fixtureLoads: globalThis.fixtureLoads,
-           hasSignal: typeof request.signal?.aborted === "boolean",
-           hasInputControl: "inputControl" in request,
-           env: request.env,
-           processEnv: Object.fromEntries(
-             ["PI_ROLE_DEPTH", "API_TOKEN", "AWS_SECRET_ACCESS_KEY", "DATABASE_URL"].map((key) => [key, process.env[key]]),
-           ),
-         }),
-         stderr: "",
-         jsonEvents: [],
-       };
-     };`,
-    async (moduleSpecifier) => {
-      const events: unknown[] = [];
-      const input = { ...request(), onEvent: (event: unknown) => void events.push(event) };
-      const first = await runIsolatedRoleNativeExecutor(input, { moduleSpecifier });
-      const second = await runIsolatedRoleNativeExecutor(input, { moduleSpecifier });
-      const firstDetails = JSON.parse(first.stdout) as Record<string, unknown>;
-      const secondDetails = JSON.parse(second.stdout) as Record<string, unknown>;
-
-      assert.equal(firstDetails.fixtureLoads, 1);
-      assert.equal(secondDetails.fixtureLoads, 1);
-      assert.notEqual(firstDetails.threadId, secondDetails.threadId);
-      assert.equal(firstDetails.hasSignal, true);
-      assert.equal(firstDetails.hasInputControl, false);
-      assert.equal(firstDetails.env, undefined);
-      assert.deepEqual(firstDetails.processEnv, {});
-      assert.deepEqual(secondDetails.processEnv, {});
-      assert.equal(events.length, 2);
-      assert.deepEqual(
-        events.map((event) => (event as { source: string }).source),
-        ["isolated", "isolated"],
-      );
-    },
+test.sequential("isolated reviewer executor owns a fresh worker module graph without parent authority", async () => {
+  const parentEnvironmentKeys = [
+    "PI_ROLE_DEPTH",
+    "API_TOKEN",
+    "AWS_SECRET_ACCESS_KEY",
+    "DATABASE_URL",
+  ] as const;
+  const originalEnvironment = new Map(
+    parentEnvironmentKeys.map((key) => [
+      key,
+      { existed: Object.hasOwn(process.env, key), value: process.env[key] },
+    ]),
   );
+
+  try {
+    const syntheticParentValues = [
+      "spark-isolated-parent-depth-marker",
+      "spark-isolated-parent-api-marker",
+      "spark-isolated-parent-aws-marker",
+      "spark-isolated-parent-database-marker",
+    ] as const;
+    for (const [index, key] of parentEnvironmentKeys.entries()) {
+      process.env[key] = syntheticParentValues[index];
+    }
+
+    await withExecutorFixture(
+      `import { threadId } from "node:worker_threads";
+         globalThis.fixtureLoads = (globalThis.fixtureLoads ?? 0) + 1;
+         export const createSparkHeadlessSessionExecutor = () => async () => ({});
+         export const createSparkHeadlessRoleExecutor = () => async (request) => {
+           await request.onEvent({ source: "isolated", threadId });
+           return {
+             record: { ...request.record, status: "succeeded" },
+             outcome: { kind: "completed", code: "completed", reason: "approved" },
+             stdout: JSON.stringify({
+               threadId,
+               fixtureLoads: globalThis.fixtureLoads,
+               hasSignal: typeof request.signal?.aborted === "boolean",
+               hasInputControl: "inputControl" in request,
+               env: request.env,
+               processEnv: Object.fromEntries(
+                 ["PI_ROLE_DEPTH", "API_TOKEN", "AWS_SECRET_ACCESS_KEY", "DATABASE_URL"].map((key) => [key, process.env[key]]),
+               ),
+             }),
+             stderr: "",
+             jsonEvents: [],
+           };
+         };`,
+      async (moduleSpecifier) => {
+        const events: unknown[] = [];
+        const input = { ...request(), onEvent: (event: unknown) => void events.push(event) };
+        const first = await runIsolatedRoleNativeExecutor(input, { moduleSpecifier });
+        const second = await runIsolatedRoleNativeExecutor(input, { moduleSpecifier });
+        const firstDetails = JSON.parse(first.stdout) as Record<string, unknown>;
+        const secondDetails = JSON.parse(second.stdout) as Record<string, unknown>;
+
+        assert.equal(firstDetails.fixtureLoads, 1);
+        assert.equal(secondDetails.fixtureLoads, 1);
+        assert.notEqual(firstDetails.threadId, secondDetails.threadId);
+        assert.equal(firstDetails.hasSignal, true);
+        assert.equal(firstDetails.hasInputControl, false);
+        assert.equal(firstDetails.env, undefined);
+        assert.equal(secondDetails.env, undefined);
+        assert.deepEqual(firstDetails.processEnv, {});
+        assert.deepEqual(secondDetails.processEnv, {});
+        assert.equal(events.length, 2);
+        assert.deepEqual(
+          events.map((event) => (event as { source: string }).source),
+          ["isolated", "isolated"],
+        );
+      },
+    );
+  } finally {
+    for (const key of parentEnvironmentKeys) {
+      const original = originalEnvironment.get(key)!;
+      if (original.existed) process.env[key] = original.value!;
+      else delete process.env[key];
+    }
+  }
 });
 
 test("isolated reviewer executor aborts execution and cannot return late success", async () => {
