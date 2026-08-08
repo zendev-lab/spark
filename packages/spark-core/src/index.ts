@@ -655,6 +655,24 @@ export type ExtensionRoleRunStatus =
 
 export type RoleRunCompletionOutcomeKind = "completed" | "blocked" | "failed" | "cancelled";
 
+/**
+ * Stable signal emitted when an older host-provided native role executor
+ * catches Spark's known module-graph initialization incompatibility. Callers
+ * must compare this code exactly and must not infer compatibility from status,
+ * display text, stderr, or JSON events.
+ */
+export const ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE =
+  "native_executor_module_graph_incompatible";
+export const ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON =
+  "Host-provided native role executor is incompatible with the active Spark module graph";
+
+export function isRoleNativeExecutorCompatibilityError(error: unknown): boolean {
+  return (
+    error instanceof TypeError &&
+    error.message === "Cannot read properties of undefined (reading 'defaultSparkConfigPath')"
+  );
+}
+
 export interface RoleRunCompletionOutcome {
   kind: RoleRunCompletionOutcomeKind;
   /** Stable machine-readable terminal code; never infer this from display text. */

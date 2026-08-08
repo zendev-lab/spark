@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import type { ExtensionRoleRunner } from "@zendev-lab/spark-core";
+import {
+  ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE,
+  ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON,
+  type ExtensionRoleRunResult,
+  type ExtensionRoleRunner,
+} from "@zendev-lab/spark-core";
 import {
   createRoleNativeExecutorResolver,
   isRoleNativeExecutorCompatibilityFailure,
+  isRoleNativeExecutorCompatibilityResult,
   withRoleNativeExecutorCompatibilityFallback,
 } from "./native-executor.ts";
 
@@ -29,6 +35,130 @@ function fakeRequest() {
     timeoutMs: 1_000,
   };
 }
+
+function failedResult(
+  overrides: {
+    code?: string;
+    kind?: "blocked" | "failed";
+    reason?: string;
+  } = {},
+): ExtensionRoleRunResult {
+  const outcome = {
+    kind: overrides.kind ?? ("failed" as const),
+    code: overrides.code ?? ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE,
+    reason: overrides.reason ?? ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON,
+  };
+  return {
+    record: { ...fakeRequest().record, status: "failed", outcome },
+    outcome,
+    stdout: "primary-secret-stdout",
+    stderr: "primary-secret-stderr",
+    jsonEvents: [{ secret: true }],
+  };
+}
+
+test("role native executor reviewer fallback runs for the exact typed compatibility result", async () => {
+  let fallbackLoads = 0;
+  let fallbackCalls = 0;
+  const primaryResult = failedResult();
+  const executor = withRoleNativeExecutorCompatibilityFallback(async () => primaryResult, {
+    loadFallback: async () => {
+      fallbackLoads += 1;
+      return async (request) => {
+        fallbackCalls += 1;
+        return {
+          record: { ...request.record, status: "succeeded" as const },
+          stdout: "fallback",
+          stderr: "",
+          jsonEvents: [],
+        };
+      };
+    },
+  });
+
+  assert.ok(executor);
+  assert.equal((await executor(fakeRequest())).stdout, "fallback");
+  assert.equal(fallbackLoads, 1);
+  assert.equal(fallbackCalls, 1);
+  assert.equal(isRoleNativeExecutorCompatibilityResult(primaryResult), true);
+});
+
+test("role native executor reviewer fallback rejects broad failed-result classification", async () => {
+  for (const primaryResult of [
+    failedResult({ code: "provider_resolution_failed" }),
+    failedResult({ code: "provider_failure" }),
+    failedResult({ code: "role_run_failed" }),
+    failedResult({ kind: "blocked" }),
+    {
+      ...failedResult(),
+      record: { ...failedResult().record, status: "cancelled" as const },
+    },
+  ]) {
+    let fallbackLoads = 0;
+    const executor = withRoleNativeExecutorCompatibilityFallback(async () => primaryResult, {
+      loadFallback: async () => {
+        fallbackLoads += 1;
+        throw new Error("fallback must not load");
+      },
+    });
+
+    assert.ok(executor);
+    assert.equal(await executor(fakeRequest()), primaryResult);
+    assert.equal(fallbackLoads, 0);
+    assert.equal(isRoleNativeExecutorCompatibilityResult(primaryResult), false);
+  }
+});
+
+test("role native executor typed-result fallback preserves the primary result when abort wins", async () => {
+  const controller = new AbortController();
+  const primaryResult = failedResult();
+  let resolveFallback!: (executor: ExtensionRoleRunner) => void;
+  let fallbackCalls = 0;
+  const fallbackGate = new Promise<ExtensionRoleRunner>((resolve) => {
+    resolveFallback = resolve;
+  });
+  const executor = withRoleNativeExecutorCompatibilityFallback(async () => primaryResult, {
+    loadFallback: async () => await fallbackGate,
+  });
+
+  assert.ok(executor);
+  const pending = executor({ ...fakeRequest(), signal: controller.signal });
+  await Promise.resolve();
+  await Promise.resolve();
+  controller.abort(new Error("cancelled while loading fallback"));
+  assert.equal(await pending, primaryResult);
+  resolveFallback(async (request) => {
+    fallbackCalls += 1;
+    return {
+      record: { ...request.record, status: "succeeded" as const },
+      stdout: "unexpected",
+      stderr: "",
+      jsonEvents: [],
+    };
+  });
+  await Promise.resolve();
+  assert.equal(fallbackCalls, 0);
+});
+
+test("role native executor typed-result fallback bounds double-failure diagnostics", async () => {
+  const executor = withRoleNativeExecutorCompatibilityFallback(async () => failedResult(), {
+    loadFallback: async () => async () => {
+      throw new RangeError("secret-result-fallback");
+    },
+  });
+
+  assert.ok(executor);
+  await assert.rejects(
+    () => executor(fakeRequest()),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message ===
+        "host-provided native role executor was incompatible; Spark headless fallback failed" &&
+      error.cause === undefined &&
+      !JSON.stringify(error).includes("secret-result-fallback") &&
+      !JSON.stringify(error).includes("primary-secret"),
+  );
+});
 
 test("role native executor reviewer fallback runs only for the exact host compatibility failure", async () => {
   let primaryCalls = 0;
@@ -236,6 +366,11 @@ test("role native executor compatibility classifier stays narrow", () => {
     isRoleNativeExecutorCompatibilityFailure(
       new TypeError("Cannot read properties of undefined (reading 'someOtherExport')"),
     ),
+    false,
+  );
+  assert.equal(isRoleNativeExecutorCompatibilityResult(failedResult()), true);
+  assert.equal(
+    isRoleNativeExecutorCompatibilityResult(failedResult({ code: "provider_resolution_failed" })),
     false,
   );
 });

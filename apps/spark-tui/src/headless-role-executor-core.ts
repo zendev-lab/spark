@@ -8,17 +8,20 @@ import {
   type AssistantMessage,
 } from "@zendev-lab/spark-ai";
 import { join } from "node:path";
-import type {
-  ExtensionInteractionRequest,
-  ExtensionInteractionResponse,
-  ExtensionRoleRunInputControl,
-  RoleRunCompletionOutcome,
-  RoleRef,
-  RunRef,
-  SparkHostLoopContext,
-  SparkSessionLeaseIdentity,
-  ToolConfig,
-  ToolEffect,
+import {
+  ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE,
+  ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON,
+  isRoleNativeExecutorCompatibilityError,
+  type ExtensionInteractionRequest,
+  type ExtensionInteractionResponse,
+  type ExtensionRoleRunInputControl,
+  type RoleRunCompletionOutcome,
+  type RoleRef,
+  type RunRef,
+  type SparkHostLoopContext,
+  type SparkSessionLeaseIdentity,
+  type ToolConfig,
+  type ToolEffect,
 } from "@zendev-lab/spark-core";
 import type { SparkTurnResumeCheckpoint } from "@zendev-lab/spark-turn";
 
@@ -307,16 +310,28 @@ export async function runSparkHeadlessRoleInstruction(
   const jsonEvents: unknown[] = [];
   const createServices = options.createServices;
   let reportedOutcome: RoleRunCompletionOutcome | undefined;
-  const services = await createServices({
-    cwd: input.cwd,
-    sparkHome: options.sparkHome,
-    ...controlPlaneServicePaths(options.controlSparkHome),
-    hasUI: false,
-    systemPrompt: input.role.systemPrompt,
-    approvalMethod: "auto",
-    sessionMode: input.mode ?? "execute",
-    tokenUsage: options.tokenUsage,
-  } satisfies SparkCliHostServicesOptions);
+  let services: Awaited<ReturnType<typeof createServices>>;
+  try {
+    services = await createServices({
+      cwd: input.cwd,
+      sparkHome: options.sparkHome,
+      ...controlPlaneServicePaths(options.controlSparkHome),
+      hasUI: false,
+      systemPrompt: input.role.systemPrompt,
+      approvalMethod: "auto",
+      sessionMode: input.mode ?? "execute",
+      tokenUsage: options.tokenUsage,
+    } satisfies SparkCliHostServicesOptions);
+  } catch (error) {
+    if (input.signal?.aborted) throwIfHeadlessAborted(input.signal);
+    if (!isRoleNativeExecutorCompatibilityError(error)) throw error;
+    return incompatibleNativeRoleExecutorResult(input, {
+      startedAt,
+      launch,
+      noSession,
+      forkFromSession,
+    });
+  }
   throwIfHeadlessAborted(input.signal);
 
   const recordEvent = (event: unknown) => {
@@ -424,6 +439,14 @@ export async function runSparkHeadlessRoleInstruction(
     };
   } catch (error) {
     const aborted = Boolean(input.signal?.aborted);
+    if (!aborted && isRoleNativeExecutorCompatibilityError(error)) {
+      return incompatibleNativeRoleExecutorResult(input, {
+        startedAt,
+        launch,
+        noSession,
+        forkFromSession,
+      });
+    }
     const outcome = aborted
       ? cancelledRoleRunOutcome(abortReason(input.signal))
       : failedRoleRunOutcome(errorCode(error), errorMessage(error));
@@ -558,6 +581,42 @@ function resolveHeadlessModelSelection(
       `Spark native provider registry cannot resolve model selector '${model}'. Set a role model using an available native Spark provider/model, or compare with Pi/Codex model selectors using spark-role-run-diagnostics.`,
     );
   return { providerName: provider.name, modelId: model };
+}
+
+function incompatibleNativeRoleExecutorResult(
+  input: SparkHeadlessRoleInstructionInput,
+  state: {
+    startedAt: string;
+    launch: "fresh" | "forked";
+    noSession: boolean;
+    forkFromSession?: string;
+  },
+): SparkHeadlessRoleInstructionResult {
+  const outcome = failedRoleRunOutcome(
+    ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE,
+    ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_REASON,
+  );
+  return {
+    record: {
+      ...input.record,
+      status: "failed",
+      outcome,
+      startedAt: state.startedAt,
+      finishedAt: new Date().toISOString(),
+      launch: state.launch,
+      model: input.model,
+      ...(state.launch === "forked" && state.forkFromSession
+        ? { forkFromSession: state.forkFromSession }
+        : {}),
+      ...(state.noSession
+        ? { noSession: true, sessionPersistence: "anonymous" as const }
+        : { sessionPersistence: "persistent" as const }),
+    },
+    outcome,
+    stdout: "",
+    stderr: "",
+    jsonEvents: [],
+  };
 }
 
 function providerResolutionFailedEvent(modelSelector: string, error: unknown): unknown {
