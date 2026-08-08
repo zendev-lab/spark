@@ -8,6 +8,11 @@ import {
   loadSparkHeadlessSessionModule,
   type SparkHeadlessSessionModule,
 } from "@zendev-lab/spark-host/headless-loader";
+import {
+  ISOLATED_NATIVE_EXECUTOR_ABORT_MESSAGE,
+  ISOLATED_NATIVE_EXECUTOR_FAILURE_MESSAGE,
+  runIsolatedRoleNativeExecutor,
+} from "./isolated-native-executor.ts";
 
 export interface RoleNativeExecutorResolverDeps {
   loadHeadlessModule?: typeof loadSparkHeadlessSessionModule;
@@ -15,7 +20,10 @@ export interface RoleNativeExecutorResolverDeps {
 }
 
 export interface RoleNativeExecutorCompatibilityFallbackDeps {
+  /** Test seam for a fake executor; production always uses the isolated worker. */
   loadFallback?: () => Promise<ExtensionRoleRunner>;
+  runIsolatedFallback?: typeof runIsolatedRoleNativeExecutor;
+  moduleSpecifier?: string;
 }
 
 export type RoleNativeExecutorResolver = (input: {
@@ -46,14 +54,20 @@ export function withRoleNativeExecutorCompatibilityFallback(
   deps: RoleNativeExecutorCompatibilityFallbackDeps = {},
 ): ExtensionRoleRunner | undefined {
   if (!primary) return undefined;
-  let fallbackPromise: Promise<ExtensionRoleRunner> | undefined;
+  let injectedFallbackPromise: Promise<ExtensionRoleRunner> | undefined;
   return async (request) => {
     if (request.nativeCompatibilityRecovery === "reviewer" && request.signal?.aborted) {
       return compatibilityFallbackAborted();
     }
+
+    const primaryEvents: unknown[] = [];
+    const primaryRequest =
+      request.nativeCompatibilityRecovery === "reviewer" && request.onEvent
+        ? { ...request, onEvent: (event: unknown) => void primaryEvents.push(event) }
+        : request;
     let primaryResult: ExtensionRoleRunResult;
     try {
-      primaryResult = await primary(request);
+      primaryResult = await primary(primaryRequest);
     } catch (primaryError) {
       if (request.nativeCompatibilityRecovery === "reviewer" && request.signal?.aborted) {
         return compatibilityFallbackAborted();
@@ -62,14 +76,20 @@ export function withRoleNativeExecutorCompatibilityFallback(
         request.nativeCompatibilityRecovery !== "reviewer" ||
         !isRoleNativeExecutorCompatibilityFailure(primaryError)
       ) {
+        await flushPrimaryEvents(request, primaryEvents);
         throw primaryError;
       }
       return await runCompatibilityFallback({
         request,
         onAbort: compatibilityFallbackAborted,
-        loadFallback: () => {
-          fallbackPromise ??= (deps.loadFallback ?? (() => resolveRoleNativeExecutor({})))();
-          return fallbackPromise;
+        runFallback: () => {
+          if (deps.loadFallback) {
+            injectedFallbackPromise ??= deps.loadFallback();
+            return runInjectedFallback(injectedFallbackPromise, request);
+          }
+          return (deps.runIsolatedFallback ?? runIsolatedRoleNativeExecutor)(request, {
+            moduleSpecifier: deps.moduleSpecifier,
+          });
         },
       });
     }
@@ -80,17 +100,38 @@ export function withRoleNativeExecutorCompatibilityFallback(
       request.nativeCompatibilityRecovery !== "reviewer" ||
       !isRoleNativeExecutorCompatibilityResult(primaryResult)
     ) {
+      await flushPrimaryEvents(request, primaryEvents);
       return primaryResult;
     }
     return await runCompatibilityFallback({
       request,
       onAbort: compatibilityFallbackAborted,
-      loadFallback: () => {
-        fallbackPromise ??= (deps.loadFallback ?? (() => resolveRoleNativeExecutor({})))();
-        return fallbackPromise;
+      runFallback: () => {
+        if (deps.loadFallback) {
+          injectedFallbackPromise ??= deps.loadFallback();
+          return runInjectedFallback(injectedFallbackPromise, request);
+        }
+        return (deps.runIsolatedFallback ?? runIsolatedRoleNativeExecutor)(request, {
+          moduleSpecifier: deps.moduleSpecifier,
+        });
       },
     });
   };
+}
+
+async function flushPrimaryEvents(
+  request: Parameters<ExtensionRoleRunner>[0],
+  events: readonly unknown[],
+): Promise<void> {
+  for (const event of events) await request.onEvent?.(event);
+}
+
+async function runInjectedFallback(
+  fallbackPromise: Promise<ExtensionRoleRunner>,
+  request: Parameters<ExtensionRoleRunner>[0],
+): Promise<ExtensionRoleRunResult> {
+  const fallback = await waitForCompatibilityFallback(fallbackPromise, request.signal);
+  return await fallback(request);
 }
 
 export function isRoleNativeExecutorCompatibilityFailure(error: unknown): boolean {
@@ -109,36 +150,30 @@ export function isRoleNativeExecutorCompatibilityResult(result: ExtensionRoleRun
 async function runCompatibilityFallback(input: {
   request: Parameters<ExtensionRoleRunner>[0];
   onAbort: () => ExtensionRoleRunResult;
-  loadFallback: () => Promise<ExtensionRoleRunner>;
+  runFallback: () => Promise<ExtensionRoleRunResult>;
 }): Promise<ExtensionRoleRunResult> {
-  let fallback: ExtensionRoleRunner;
   try {
-    fallback = await waitForCompatibilityFallback(input.loadFallback(), input.request.signal);
-  } catch {
     if (input.request.signal?.aborted) return input.onAbort();
-    throw new Error(
-      "host-provided native role executor was incompatible; Spark headless fallback failed",
-    );
-  }
-  if (input.request.signal?.aborted) return input.onAbort();
-  try {
-    const result = await fallback(input.request);
+    const result = await input.runFallback();
     if (input.request.signal?.aborted) return input.onAbort();
     const outcome = result.outcome ?? result.record.outcome;
     if (result.record.status !== "succeeded" || (outcome && outcome.kind !== "completed")) {
-      throw new Error("Spark headless fallback returned an inconsistent success result");
+      throw new Error("Spark isolated headless fallback returned an inconsistent success result");
     }
     return result;
-  } catch {
-    if (input.request.signal?.aborted) return input.onAbort();
-    throw new Error(
-      "host-provided native role executor was incompatible; Spark headless fallback failed",
-    );
+  } catch (error) {
+    if (
+      input.request.signal?.aborted ||
+      (error instanceof Error && error.message === ISOLATED_NATIVE_EXECUTOR_ABORT_MESSAGE)
+    ) {
+      return input.onAbort();
+    }
+    throw new Error(ISOLATED_NATIVE_EXECUTOR_FAILURE_MESSAGE);
   }
 }
 
 function compatibilityFallbackAborted(): never {
-  throw new Error("native role executor compatibility fallback aborted");
+  throw new Error(ISOLATED_NATIVE_EXECUTOR_ABORT_MESSAGE);
 }
 
 async function waitForCompatibilityFallback(

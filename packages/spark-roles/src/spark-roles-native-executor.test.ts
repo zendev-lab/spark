@@ -85,6 +85,60 @@ test("role native executor reviewer fallback runs for the exact typed compatibil
   assert.equal(isRoleNativeExecutorCompatibilityResult(primaryResult), true);
 });
 
+test("role native executor compatibility marker discards primary events and exposes isolated events once", async () => {
+  const exposed: unknown[] = [];
+  let isolatedCalls = 0;
+  const executor = withRoleNativeExecutorCompatibilityFallback(
+    async (request) => {
+      await request.onEvent?.({ source: "primary-secret" });
+      return failedResult();
+    },
+    {
+      runIsolatedFallback: async (request) => {
+        isolatedCalls += 1;
+        await request.onEvent?.({ source: "isolated-reviewer" });
+        return {
+          record: { ...request.record, status: "succeeded" },
+          outcome: { kind: "completed", code: "completed", reason: "approved" },
+          stdout: "approved",
+          stderr: "",
+          jsonEvents: [],
+        };
+      },
+    },
+  );
+
+  assert.ok(executor);
+  const result = await executor({
+    ...fakeRequest(),
+    onEvent: (event) => void exposed.push(event),
+  });
+  assert.equal(result.stdout, "approved");
+  assert.equal(isolatedCalls, 1);
+  assert.deepEqual(exposed, [{ source: "isolated-reviewer" }]);
+});
+
+test("role native executor preserves buffered primary events when no compatibility marker is present", async () => {
+  const exposed: unknown[] = [];
+  const primaryResult = {
+    record: { ...fakeRequest().record, status: "succeeded" as const },
+    stdout: "primary",
+    stderr: "",
+    jsonEvents: [],
+  };
+  const executor = withRoleNativeExecutorCompatibilityFallback(async (request) => {
+    await request.onEvent?.({ source: "primary" });
+    return primaryResult;
+  });
+
+  assert.ok(executor);
+  assert.equal(
+    await executor({ ...fakeRequest(), onEvent: (event) => void exposed.push(event) }),
+    primaryResult,
+  );
+  assert.deepEqual(exposed, [{ source: "primary" }]);
+});
+
 test("role native executor reviewer fallback rejects broad failed-result classification", async () => {
   for (const primaryResult of [
     failedResult({ code: "provider_resolution_failed" }),
