@@ -1,4 +1,9 @@
-import type { ExtensionRoleRunner } from "@zendev-lab/spark-core";
+import {
+  ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE,
+  isRoleNativeExecutorCompatibilityError,
+  type ExtensionRoleRunResult,
+  type ExtensionRoleRunner,
+} from "@zendev-lab/spark-core";
 import {
   loadSparkHeadlessSessionModule,
   type SparkHeadlessSessionModule,
@@ -43,63 +48,111 @@ export function withRoleNativeExecutorCompatibilityFallback(
   if (!primary) return undefined;
   let fallbackPromise: Promise<ExtensionRoleRunner> | undefined;
   return async (request) => {
+    if (request.nativeCompatibilityRecovery === "reviewer" && request.signal?.aborted) {
+      return compatibilityFallbackAborted();
+    }
+    let primaryResult: ExtensionRoleRunResult;
     try {
-      return await primary(request);
+      primaryResult = await primary(request);
     } catch (primaryError) {
-      if (request.signal?.aborted || !isRoleNativeExecutorCompatibilityFailure(primaryError)) {
+      if (request.nativeCompatibilityRecovery === "reviewer" && request.signal?.aborted) {
+        return compatibilityFallbackAborted();
+      }
+      if (
+        request.nativeCompatibilityRecovery !== "reviewer" ||
+        !isRoleNativeExecutorCompatibilityFailure(primaryError)
+      ) {
         throw primaryError;
       }
-      fallbackPromise ??= (deps.loadFallback ?? (() => resolveRoleNativeExecutor({})))();
-      let fallback: ExtensionRoleRunner;
-      try {
-        fallback = await waitForCompatibilityFallback(
-          fallbackPromise,
-          request.signal,
-          primaryError,
-        );
-      } catch {
-        if (request.signal?.aborted) throw primaryError;
-        throw new Error(
-          "host-provided native role executor was incompatible; Spark headless fallback failed",
-        );
-      }
-      if (request.signal?.aborted) throw primaryError;
-      try {
-        const result = await fallback(request);
-        if (result.record.status !== "succeeded") {
-          throw new Error("Spark headless fallback returned a non-success status");
-        }
-        return result;
-      } catch {
-        if (request.signal?.aborted) throw primaryError;
-        throw new Error(
-          "host-provided native role executor was incompatible; Spark headless fallback failed",
-        );
-      }
+      return await runCompatibilityFallback({
+        request,
+        onAbort: compatibilityFallbackAborted,
+        loadFallback: () => {
+          fallbackPromise ??= (deps.loadFallback ?? (() => resolveRoleNativeExecutor({})))();
+          return fallbackPromise;
+        },
+      });
     }
+    if (request.nativeCompatibilityRecovery === "reviewer" && request.signal?.aborted) {
+      return compatibilityFallbackAborted();
+    }
+    if (
+      request.nativeCompatibilityRecovery !== "reviewer" ||
+      !isRoleNativeExecutorCompatibilityResult(primaryResult)
+    ) {
+      return primaryResult;
+    }
+    return await runCompatibilityFallback({
+      request,
+      onAbort: compatibilityFallbackAborted,
+      loadFallback: () => {
+        fallbackPromise ??= (deps.loadFallback ?? (() => resolveRoleNativeExecutor({})))();
+        return fallbackPromise;
+      },
+    });
   };
 }
 
 export function isRoleNativeExecutorCompatibilityFailure(error: unknown): boolean {
+  return isRoleNativeExecutorCompatibilityError(error);
+}
+
+export function isRoleNativeExecutorCompatibilityResult(result: ExtensionRoleRunResult): boolean {
+  const outcome = result.outcome ?? result.record.outcome;
   return (
-    error instanceof TypeError &&
-    error.message === "Cannot read properties of undefined (reading 'defaultSparkConfigPath')"
+    result.record.status === "failed" &&
+    outcome?.kind === "failed" &&
+    outcome.code === ROLE_NATIVE_EXECUTOR_COMPATIBILITY_FAILURE_CODE
   );
+}
+
+async function runCompatibilityFallback(input: {
+  request: Parameters<ExtensionRoleRunner>[0];
+  onAbort: () => ExtensionRoleRunResult;
+  loadFallback: () => Promise<ExtensionRoleRunner>;
+}): Promise<ExtensionRoleRunResult> {
+  let fallback: ExtensionRoleRunner;
+  try {
+    fallback = await waitForCompatibilityFallback(input.loadFallback(), input.request.signal);
+  } catch {
+    if (input.request.signal?.aborted) return input.onAbort();
+    throw new Error(
+      "host-provided native role executor was incompatible; Spark headless fallback failed",
+    );
+  }
+  if (input.request.signal?.aborted) return input.onAbort();
+  try {
+    const result = await fallback(input.request);
+    if (input.request.signal?.aborted) return input.onAbort();
+    const outcome = result.outcome ?? result.record.outcome;
+    if (result.record.status !== "succeeded" || (outcome && outcome.kind !== "completed")) {
+      throw new Error("Spark headless fallback returned an inconsistent success result");
+    }
+    return result;
+  } catch {
+    if (input.request.signal?.aborted) return input.onAbort();
+    throw new Error(
+      "host-provided native role executor was incompatible; Spark headless fallback failed",
+    );
+  }
+}
+
+function compatibilityFallbackAborted(): never {
+  throw new Error("native role executor compatibility fallback aborted");
 }
 
 async function waitForCompatibilityFallback(
   fallback: Promise<ExtensionRoleRunner>,
   signal: AbortSignal | undefined,
-  abortError: unknown,
 ): Promise<ExtensionRoleRunner> {
   if (!signal) return await fallback;
-  if (signal.aborted) throw abortError;
+  if (signal.aborted) throw new Error("compatibility fallback aborted");
   let onAbort: (() => void) | undefined;
   try {
     return await Promise.race([
       fallback,
       new Promise<never>((_resolve, reject) => {
-        onAbort = () => reject(abortError);
+        onAbort = () => reject(new Error("compatibility fallback aborted"));
         signal.addEventListener("abort", onAbort, { once: true });
       }),
     ]);

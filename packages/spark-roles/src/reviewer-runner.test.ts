@@ -688,6 +688,7 @@ test("SparkRolesReviewerRunner resolves reviewer model from role model settings"
     assert.equal(captured?.launch, "fresh");
     assert.equal(captured?.record.launch, "fresh");
     assert.equal(captured?.record.model, "test/reviewer");
+    assert.equal(captured?.nativeCompatibilityRecovery, "reviewer");
     assert.equal(result.record.thinking, "medium");
     const tools = captured?.role.allowedTools ?? [];
     assert.ok(tools.includes("read"));
@@ -780,6 +781,7 @@ test("SparkRolesReviewerRunner auto-answer decrements role depth for reviewer ch
   const previousDepth = process.env[ROLE_RUN_DEPTH_ENV];
   try {
     let capturedDepth: string | undefined;
+    let compatibilityRecovery: string | undefined;
     process.env[ROLE_RUN_DEPTH_ENV] = "2";
 
     const runner = new SparkRolesReviewerRunner({
@@ -789,6 +791,7 @@ test("SparkRolesReviewerRunner auto-answer decrements role depth for reviewer ch
       env: { ...process.env, [ROLE_RUN_DEPTH_ENV]: "2" },
       nativeExecutor: askAnswerNativeExecutor((request) => {
         capturedDepth = request.env?.[ROLE_RUN_DEPTH_ENV];
+        compatibilityRecovery = request.nativeCompatibilityRecovery;
       }),
     });
 
@@ -805,6 +808,7 @@ test("SparkRolesReviewerRunner auto-answer decrements role depth for reviewer ch
     assert.equal(result.blocked, undefined);
     assert.equal(result.answers?.mode?.values?.[0], "safe_mode");
     assert.equal(capturedDepth, "1");
+    assert.equal(compatibilityRecovery, "reviewer");
   } finally {
     if (previousDepth === undefined) delete process.env[ROLE_RUN_DEPTH_ENV];
     else process.env[ROLE_RUN_DEPTH_ENV] = previousDepth;

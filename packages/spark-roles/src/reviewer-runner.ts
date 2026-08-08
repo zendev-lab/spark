@@ -414,6 +414,7 @@ export class SparkRolesReviewerRunner implements ReviewerRunner {
         timeoutMs: this.#timeoutMs,
         signal,
         stdinMode: "ignore",
+        nativeCompatibilityRecovery: "reviewer",
         nativeExecutor: this.#nativeExecutor,
       });
     } catch (error) {
@@ -502,6 +503,7 @@ export class SparkRolesReviewerRunner implements ReviewerRunner {
         timeoutMs: this.#timeoutMs,
         signal,
         stdinMode: "ignore",
+        nativeCompatibilityRecovery: "reviewer",
         nativeExecutor: this.#nativeExecutor,
       });
     } catch (error) {
