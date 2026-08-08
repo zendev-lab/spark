@@ -521,6 +521,94 @@ describe("migrations", () => {
     db.close();
   });
 
+  it("records fresh migrations clean and adopts an existing schema honestly", () => {
+    const fresh = openMemoryDatabase();
+    migrate(fresh);
+    expect(
+      fresh
+        .prepare("SELECT state, checksum FROM schema_migration_records WHERE migration_id = '0001'")
+        .get(),
+    ).toMatchObject({ state: "clean" });
+    fresh.close();
+
+    const existing = openMemoryDatabase();
+    const legacyMigrations = loadMigrations();
+    for (const migration of legacyMigrations) {
+      existing.exec(migration.sql);
+      existing
+        .prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)")
+        .run(migration.version, migration.name, new Date().toISOString());
+    }
+    migrate(existing);
+    expect(
+      existing
+        .prepare("SELECT state, COUNT(*) AS count FROM schema_migration_records GROUP BY state")
+        .all(),
+    ).toEqual([{ state: "legacy-unverified", count: 22 }]);
+    expect(
+      existing
+        .prepare(
+          "SELECT COUNT(*) AS count FROM schema_migration_records WHERE checksum IS NOT NULL",
+        )
+        .get(),
+    ).toEqual({ count: 0 });
+    existing.close();
+  });
+
+  it("rolls back deterministically at an injected migration boundary", () => {
+    const db = openMemoryDatabase();
+    expect(() =>
+      migrate(db, loadMigrations(), {
+        interrupt: (boundary, migration) => {
+          if (boundary === "after-dirty" && migration.version === "0002")
+            throw new Error("test interruption");
+        },
+      }),
+    ).toThrow("test interruption");
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'",
+        )
+        .get(),
+    ).toBeUndefined();
+    migrate(db);
+    expect(
+      db
+        .prepare("SELECT COUNT(*) AS count FROM schema_migration_records WHERE state = 'clean'")
+        .get(),
+    ).toEqual({ count: 22 });
+    db.close();
+  });
+
+  it("rejects dirty, future, and modified clean records", () => {
+    const dirty = openMemoryDatabase();
+    migrate(dirty);
+    dirty
+      .prepare("UPDATE schema_migration_records SET state = 'dirty' WHERE migration_id = '0002'")
+      .run();
+    expect(() => migrate(dirty)).toThrow(/not clean/u);
+    dirty.close();
+
+    const future = openMemoryDatabase();
+    migrate(future);
+    future
+      .prepare(
+        "INSERT INTO schema_migration_records (migration_id, name, checksum, phase, state, applied_at) VALUES ('9999', 'future', ?, 'expand', 'clean', ?)",
+      )
+      .run("0".repeat(64), new Date().toISOString());
+    expect(() => migrate(future)).toThrow(/unknown or future migration record/u);
+    future.close();
+
+    const modified = openMemoryDatabase();
+    migrate(modified);
+    modified
+      .prepare("UPDATE schema_migration_records SET checksum = ? WHERE migration_id = '0002'")
+      .run("f".repeat(64));
+    expect(() => migrate(modified)).toThrow(/checksum mismatch/u);
+    modified.close();
+  });
+
   it("loads sorted sql migrations with version and name parts", () => {
     const migrations = loadMigrations();
     expect(migrations.length).toBeGreaterThan(1);

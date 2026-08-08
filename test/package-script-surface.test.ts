@@ -98,7 +98,7 @@ test("root package exposes one compact validation and release surface", async ()
   assert.equal(scripts["check:docs"], "pnpm --filter @zendev-lab/spark-docs run check");
   assert.equal(
     scripts["check:architecture"],
-    "node scripts/validate-architecture-inventory.mjs && syncpack lint --config .syncpackrc.json --no-ansi && node scripts/check-architecture-ratchets.mjs",
+    "node scripts/validate-architecture-inventory.mjs && node scripts/validate-release-compatibility.mjs && syncpack lint --config .syncpackrc.json --no-ansi && node scripts/check-architecture-ratchets.mjs",
   );
   assert.equal(scripts["check:evidence-surface"], "node scripts/check-evidence-surface.mjs");
   assert.equal(
@@ -290,7 +290,7 @@ test("CI, CD, CE, and prek keep distinct validation ownership", async () => {
   assert.match(releaseWorkflow, /name: Release Build/u);
   assert.match(releaseWorkflow, /pnpm run release:pack/u);
   assert.match(releaseWorkflow, /Smoke the exact lockstep artifacts/u);
-  assert.match(releaseWorkflow, /Verify N-1 expand-only migration compatibility/u);
+  assert.match(releaseWorkflow, /Verify adjacent product and database compatibility/u);
   assert.doesNotMatch(releaseWorkflow, /pnpm run check(?:\s|$)/u);
   assert.doesNotMatch(releaseWorkflow, /test:browser:hub/u);
   assert.match(releaseWorkflow, /if: github\.ref_type == 'tag'/u);
@@ -309,6 +309,7 @@ test("CI, CD, CE, and prek keep distinct validation ownership", async () => {
   await assert.rejects(readFile(resolve(".github/workflows/ci-build.yml"), "utf8"));
   await assert.rejects(readFile(resolve(".github/workflows/ci-verify.yml"), "utf8"));
 
+  assert.match(releaseWorkflow, /node scripts\/test-release-compatibility\.mjs/u);
   assert.doesNotMatch(releaseWorkflow, /--baseline-version/u);
   assert.doesNotMatch(releaseWorkflow, /secrets\.NPM_TOKEN/u);
   assert.match(releaseWorkflow, /id-token: write/u);

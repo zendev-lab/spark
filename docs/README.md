@@ -36,6 +36,7 @@ than copying another long list into Markdown.
 
 - [`specs/command-planes.md`](./specs/command-planes.md): executable namespaces, state ownership, adapter boundaries, growth ratchets, dependency adoption, and the npm product-distribution contract.
 - [`specs/package-architecture.md`](./specs/package-architecture.md): package layers, owners, state writers, dependency direction, extraction/merge criteria, and mechanical ratchets.
+- [`specs/release-compatibility.md`](./specs/release-compatibility.md): Hub ↔ daemon ↔ TUI adjacent-version guarantees, exact-artifact release matrix, wire evolution, and database upgrade protocol.
 - [`specs/configuration-and-paths.md`](./specs/configuration-and-paths.md): path precedence, exact persistence layout, and migration invariants.
 - [`specs/compact-v2.md`](./specs/compact-v2.md): compaction thresholds, token sources, repeated-overflow bounds, and Memory handoff.
 - [`specs/tools.md`](./specs/tools.md): internal tool ownership, effect policy, activation, and cross-tool invariants.

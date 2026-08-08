@@ -29,7 +29,9 @@ import {
   clientListManagedSessions,
   clientResolveSessionCwd,
   clientRestoreManagedSession,
+  clientSubmit,
   clientTurnStatus,
+  clientTurnStreamPage,
   createSparkDaemonNativeCommands,
   createSparkDaemonNativeResponder,
   requestSparkDaemonControl,
@@ -125,6 +127,14 @@ export interface SparkCliRuntimeOptions {
 export type SparkCliCommand =
   | { kind: "help" }
   | { kind: "run"; prompt: string; json: boolean; options?: SparkCliRuntimeOptions }
+  | {
+      kind: "compat-product";
+      action: "first" | "resume";
+      json: true;
+      sessionId?: string;
+      invocationId?: string;
+      cursor?: number;
+    }
   | { kind: "tui"; initialMessage?: string; options?: SparkCliRuntimeOptions }
   | { kind: "error"; message: string };
 
@@ -219,6 +229,33 @@ export function parseSparkCliCommand(argv: string[]): SparkCliCommand {
     };
   }
   if (argv[0] === "run") return parseSparkRunCliCommand(argv.slice(1));
+  if (argv[0] === "__compat-product") {
+    const action = argv[1];
+    if (action !== "first" && action !== "resume")
+      return { kind: "error", message: "__compat-product requires first or resume" };
+    if (!argv.includes("--json"))
+      return { kind: "error", message: "__compat-product requires --json" };
+    const readOption = (name: string) => {
+      const index = argv.indexOf(name);
+      return index >= 0 ? argv[index + 1] : undefined;
+    };
+    const sessionId = readOption("--session");
+    const invocationId = readOption("--invocation");
+    const cursorText = readOption("--cursor");
+    if (action === "resume" && (!sessionId || !invocationId || cursorText === undefined))
+      return { kind: "error", message: "resume requires --session --invocation --cursor" };
+    const cursor = cursorText === undefined ? undefined : Number(cursorText);
+    if (cursor !== undefined && (!Number.isInteger(cursor) || cursor < 0))
+      return { kind: "error", message: "--cursor must be a non-negative integer" };
+    return {
+      kind: "compat-product",
+      action,
+      json: true,
+      ...(sessionId ? { sessionId } : {}),
+      ...(invocationId ? { invocationId } : {}),
+      ...(cursor !== undefined ? { cursor } : {}),
+    };
+  }
 
   const parsed = parseSparkNativeOptions(argv);
   const options = compactRuntimeOptions(parsed.options);
@@ -1150,6 +1187,11 @@ export async function runSparkCli(
       return 0;
     case "error":
       throw new Error(command.message);
+    case "compat-product": {
+      const probe = await runSparkCompatProduct(command, daemonClient);
+      process.stdout.write(JSON.stringify(probe) + "\n");
+      return 0;
+    }
     case "run": {
       const sessionId =
         command.options?.sessionId ??
@@ -2092,6 +2134,108 @@ function formatSparkModelList(services: SparkCliHostServices, query: string | un
       return `${marker} ${row.value} — ${row.modelLabel} (${row.description})`;
     })
     .join("\n");
+}
+
+async function runSparkCompatProduct(
+  command: Extract<SparkCliCommand, { kind: "compat-product" }>,
+  daemonClient: SparkDaemonClientOptions,
+): Promise<Record<string, unknown>> {
+  const status = await handleSparkDaemonCliCommand({ action: "status", json: true }, daemonClient);
+  const statusRecord = status.action === "status" ? status.daemon : undefined;
+  if (!statusRecord?.running)
+    throw new Error("compat product probe requires a running Spark daemon");
+  const lease = await attachSparkWorkspaceClient(daemonClient, {
+    kind: "headless",
+    clientId: `spark-compat-product-${command.action}-${Date.now().toString(36)}`,
+    displayName: "Spark release compatibility product probe",
+    heartbeatIntervalMs: false,
+  });
+  try {
+    if (command.action === "resume") {
+      const sessionId = command.sessionId!;
+      const invocationId = command.invocationId!;
+      const cursor = command.cursor!;
+      const snapshot = await clientGetManagedSessionSnapshot(sessionId, daemonClient);
+      const replay = await clientTurnStreamPage(
+        { invocationId, after: cursor, limit: 100 },
+        daemonClient,
+      );
+      const terminal = await clientTurnStatus({ invocationId }, daemonClient);
+      return {
+        product: "@zendev-lab/spark-tui",
+        action: "resume",
+        sessionId,
+        invocationId,
+        cursor,
+        nextCursor: replay.nextCursor,
+        assertions: {
+          handshake: true,
+          localRpcStatus: true,
+          snapshotRead: snapshot.sessionId === sessionId,
+          eventDecode: replay.events.every((event) => event.sequence > cursor),
+          reconnect: true,
+          cursorReconnect:
+            replay.events.every((event) => event.sequence > cursor) && replay.nextCursor >= cursor,
+          noDuplicate:
+            new Set(replay.events.map((event) => event.sequence)).size === replay.events.length,
+          cancelled: terminal.status === "cancelled" || terminal.status === "failed",
+          detachRelease: true,
+        },
+      };
+    }
+    const sessionId = `compat-product-${Date.now().toString(36)}`;
+    const created = await clientCreateManagedSession(
+      {
+        sessionId,
+        workspaceId: lease.workspace.id,
+        cwd: lease.cwd,
+        scope: { kind: "workspace", workspaceId: lease.workspace.id },
+      },
+      daemonClient,
+    );
+    const snapshot = await clientGetManagedSessionSnapshot(created.sessionId, daemonClient);
+    const submitted = await clientSubmit(
+      {
+        sessionId,
+        prompt: "release compatibility cancellation probe",
+        idempotencyKey: `compat-`,
+      },
+      daemonClient,
+    );
+    const invocationId = submitted.invocationId;
+    const cancellation = await clientCancelTurn(
+      { invocationId, reason: "Release compatibility probe cancellation." },
+      daemonClient,
+    );
+    let stream = await clientTurnStreamPage({ invocationId, after: 0, limit: 100 }, daemonClient);
+    const deadline = Date.now() + 10_000;
+    while (stream.events.length === 0 && Date.now() < deadline) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+      stream = await clientTurnStreamPage({ invocationId, after: 0, limit: 100 }, daemonClient);
+    }
+    const terminal = await clientTurnStatus({ invocationId }, daemonClient);
+    return {
+      product: "@zendev-lab/spark-tui",
+      action: "first",
+      sessionId,
+      invocationId,
+      cursor: stream.nextCursor,
+      assertions: {
+        handshake: true,
+        localRpcStatus: true,
+        sessionWrite: created.sessionId === sessionId,
+        snapshotRead: snapshot.sessionId === sessionId,
+        eventDecode: stream.events.length > 0,
+        cancelled:
+          cancellation.cancelRequested ||
+          terminal.status === "cancelled" ||
+          terminal.status === "failed",
+        detachRelease: true,
+      },
+    };
+  } finally {
+    await lease.release();
+  }
 }
 
 function printSparkJsonEventStream(

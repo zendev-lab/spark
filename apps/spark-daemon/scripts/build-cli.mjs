@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { chmod, copyFile, mkdir, readdir, rm } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -7,6 +7,12 @@ import { build } from "esbuild";
 const hubDbEntry = realpathSync(fileURLToPath(import.meta.resolve("@zendev-lab/spark-hub-db")));
 const migrationsSource = join(dirname(hubDbEntry), "migrations");
 const migrationsDestination = fileURLToPath(new URL("../dist/migrations/", import.meta.url));
+const daemonMigrationSource = fileURLToPath(new URL("../src/store/migrations/", import.meta.url));
+const daemonManifestSource = join(daemonMigrationSource, "manifest.json");
+const daemonMigrationsDestinations = [
+  fileURLToPath(new URL("../dist/migrations/daemon/", import.meta.url)),
+  fileURLToPath(new URL("../dist/daemon-migrations/", import.meta.url)),
+];
 
 await build({
   banner: {
@@ -35,7 +41,6 @@ const require = __sparkCreateRequire(import.meta.url);`,
 
 await chmod("dist/cli.js", 0o755);
 await mkdir(migrationsDestination, { recursive: true });
-
 const migrationNames = await readdir(migrationsSource);
 await Promise.all(
   migrationNames.map((name) =>
@@ -50,4 +55,22 @@ await Promise.all(
   staleMigrationNames.map((name) =>
     rm(join(migrationsDestination, name), { recursive: true, force: true }),
   ),
+);
+const daemonManifest = JSON.parse(await readFile(daemonManifestSource, "utf8"));
+const daemonMigrationNames = ["manifest.json", daemonManifest.baseline.checksumPath];
+await Promise.all(
+  daemonMigrationsDestinations.map(async (destination) => {
+    await mkdir(destination, { recursive: true });
+    await Promise.all(
+      daemonMigrationNames.map((name) =>
+        copyFile(join(daemonMigrationSource, name), join(destination, name)),
+      ),
+    );
+    const staleNames = (await readdir(destination)).filter(
+      (name) => !daemonMigrationNames.includes(name),
+    );
+    await Promise.all(
+      staleNames.map((name) => rm(join(destination, name), { recursive: true, force: true })),
+    );
+  }),
 );

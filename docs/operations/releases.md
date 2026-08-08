@@ -24,24 +24,43 @@ must match it exactly (`vX.Y.Z`).
 
 `.github/workflows/cd-publish.yml` assumes the source commit has already passed
 the ordinary CI checks and validates only release-specific surfaces: the docs
-deployment dry run, Hub container build/smoke, exact generated tarballs, and N-1
-migration compatibility. It does not rerun the repository source/unit/process or
-Hub browser suites owned by CI.
+deployment dry run, Hub container build/smoke, exact generated tarballs, and one
+canonical adjacent-release gate. It does not rerun the repository
+source/unit/process or Hub browser suites owned by CI.
 
 For release compatibility, the gate queries the canonical npm registry, selects
 the newest published stable `@zendev-lab/spark` version strictly older than the
-candidate, and adapts to either the current `spark-hub`
-or legacy `spark-cockpit` command contract. An explicit `--baseline-version`
-remains available for local incident reproduction, but production publication
-does not pin a historical baseline. For the first split release, `v0.3.0`, the
-automatic selection resolved to the legacy all-in-one
-`@zendev-lab/spark@0.2.1`; the four new package identities had no independently
-published N-1 artifact. `pnpm run release:pack` builds once and writes:
+candidate, runs the product and database harnesses, adapts legacy migration
+checks to either the current `spark-hub` or retired `spark-cockpit` command
+contract, and validates their structured reports. A missing, duplicate, skipped,
+or failed phase and any unverifiable cleanup stop the release. An explicit
+`--baseline-version` remains available for local incident reproduction, but
+production publication does not pin a historical baseline. The normative
+adjacent-release and database-upgrade requirements are defined by
+[`docs/specs/release-compatibility.md`](../specs/release-compatibility.md) and
+[`architecture/release-compatibility.json`](../../architecture/release-compatibility.json).
+For the first split release, `v0.3.0`, the baseline is the legacy all-in-one
+`@zendev-lab/spark@0.2.1`; the four split product phases are recorded explicitly
+as `not-applicable`, never as passed, because independent Hub and TUI N-1
+artifacts do not exist. The candidate same-version product sanity, legacy
+launcher/transport migration check, and both owner database upgrade probes still
+run. Starting with `0.4.0`, the gate must use published `0.3.0` Hub, daemon, and
+TUI packages and all four directions must pass. Later releases always select
+the newest older published stable split release; the `0.2.1` exception cannot be
+passed as an override. `pnpm run release:pack` builds once and writes:
 
 - `dist/release/*.tgz`
 - `dist/release/*-release-manifest.json`
 - `dist/release/release-manifest.json`
 - `dist/release/SHA256SUMS`
+- `dist/release/adjacent-product-compatibility.json`
+- `dist/release/adjacent-database-compatibility.json`
+- `dist/release/release-compatibility.json`
+
+The compatibility reports bind the candidate and baseline package identities,
+artifact hashes, exact installed executables, manifest heads, every required
+assertion, and verified cleanup. They are release evidence but are not npm
+packages and are never regenerated after publication.
 
 The root manifest remains the managed updater contract; the bounded companion
 manifests bind each app package to the same version, Git SHA, npm integrity,

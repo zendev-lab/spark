@@ -32,18 +32,6 @@
       "approvedOccurrencesSha256": "c27496ba89d09d8aa5fa9ea9318d3a8b8314caa1a3b80895bf38b863b2c5e6d9"
     },
     {
-      "pattern": "apps/spark-docs/src/content/docs/zh/0.2/**",
-      "category": "archived-0.2-documentation",
-      "approvedOccurrenceCount": 88,
-      "approvedOccurrencesSha256": "6f09d1285d6473e5a46a10beb53d6e7b7976f45211f688fe2f19c635bcef1237"
-    },
-    {
-      "pattern": "apps/spark-docs/src/content/versions/0.2.json",
-      "category": "archived-0.2-navigation",
-      "approvedOccurrenceCount": 3,
-      "approvedOccurrencesSha256": "45ca91c24d7c112e63fae4b9149b08e61fd2b03b6586f44abe6f0d205971c88e"
-    },
-    {
       "pattern": "apps/spark-docs/src/content/docs/guides/hub.md",
       "category": "upgrade-documentation",
       "approvedOccurrenceCount": 2,
@@ -56,6 +44,12 @@
       "approvedOccurrencesSha256": "bc81334bcfd2c09b3032c0b9c12dbad25b06b51fc65d0059f69a586778b83ce9"
     },
     {
+      "pattern": "apps/spark-docs/src/content/docs/zh/0.2/**",
+      "category": "archived-0.2-documentation",
+      "approvedOccurrenceCount": 88,
+      "approvedOccurrencesSha256": "6f09d1285d6473e5a46a10beb53d6e7b7976f45211f688fe2f19c635bcef1237"
+    },
+    {
       "pattern": "apps/spark-docs/src/content/docs/zh/guides/hub.md",
       "category": "upgrade-documentation",
       "approvedOccurrenceCount": 3,
@@ -66,6 +60,12 @@
       "category": "upgrade-documentation",
       "approvedOccurrenceCount": 6,
       "approvedOccurrencesSha256": "1fa242f4a687dad492f8c79e3ec52fd589f51bced476f9a128fe34270737e5ce"
+    },
+    {
+      "pattern": "apps/spark-docs/src/content/versions/0.2.json",
+      "category": "archived-0.2-navigation",
+      "approvedOccurrenceCount": 3,
+      "approvedOccurrencesSha256": "45ca91c24d7c112e63fae4b9149b08e61fd2b03b6586f44abe6f0d205971c88e"
     },
     {
       "pattern": "apps/spark-hub/AGENTS.md",
@@ -122,16 +122,16 @@
       "approvedOccurrencesSha256": "9336687e24f4652eb47a02af59ebd93820b1e77c59866a33a1e9c16436f4bd8c"
     },
     {
-      "pattern": "apps/spark-hub/src/lib/server/public-url.ts",
-      "category": "legacy-environment-read",
-      "approvedOccurrenceCount": 3,
-      "approvedOccurrencesSha256": "60c30c03b8ca36e10a465e5828d3187043141bf9075a9243d1bd3319085e4eb0"
-    },
-    {
       "pattern": "apps/spark-hub/src/lib/server/public-url.test.ts",
       "category": "legacy-environment-test",
       "approvedOccurrenceCount": 7,
       "approvedOccurrencesSha256": "0c7b2f3ba9dc7878966c30b95ded44eaa3ed24020d8cc1290be6eb8887b1ed32"
+    },
+    {
+      "pattern": "apps/spark-hub/src/lib/server/public-url.ts",
+      "category": "legacy-environment-read",
+      "approvedOccurrenceCount": 3,
+      "approvedOccurrencesSha256": "60c30c03b8ca36e10a465e5828d3187043141bf9075a9243d1bd3319085e4eb0"
     },
     {
       "pattern": "apps/spark-hub/src/lib/server/web-push.ts",
@@ -149,7 +149,7 @@
       "pattern": "docs/operations/releases.md",
       "category": "n-minus-one-release-operations",
       "approvedOccurrenceCount": 1,
-      "approvedOccurrencesSha256": "33a74f32df3db9b6efc6dc65fded40dc1df6f9a27a619f92dab3e9e3b7c64cc7"
+      "approvedOccurrencesSha256": "4d74db6203a04d64d1cd82e5a1aa662bbdc9910821b602f9b7bf0f2429e7d6d3"
     },
     {
       "pattern": "docs/specs/command-planes.md",
@@ -176,22 +176,16 @@
       "approvedOccurrencesSha256": "809972b3054a76e9721c36cd15b9e82ef7cdd434e13dac87cacfc847b9ee3faf"
     },
     {
-      "pattern": "packages/spark-hub-db/src/hub-snapshot.ts",
-      "category": "legacy-snapshot-read",
-      "approvedOccurrenceCount": 8,
-      "approvedOccurrencesSha256": "69394ed43a3cafa6a0ef96b2323b419865f57f6c021cd275e2d71feb47e82eee"
-    },
-    {
       "pattern": "packages/spark-hub-db/src/hub-snapshot.test.ts",
       "category": "legacy-snapshot-test",
       "approvedOccurrenceCount": 10,
       "approvedOccurrencesSha256": "db12b9393d0db6a3cfb7424e60251fd19989a51d1bc0b140340ba13db1a38906"
     },
     {
-      "pattern": "packages/spark-hub-db/src/layout-migration.ts",
-      "category": "legacy-layout-migration",
-      "approvedOccurrenceCount": 20,
-      "approvedOccurrencesSha256": "2722746c74fd620dca704559156400188bc079458f65a93a98eb4d377c38eb72"
+      "pattern": "packages/spark-hub-db/src/hub-snapshot.ts",
+      "category": "legacy-snapshot-read",
+      "approvedOccurrenceCount": 8,
+      "approvedOccurrencesSha256": "69394ed43a3cafa6a0ef96b2323b419865f57f6c021cd275e2d71feb47e82eee"
     },
     {
       "pattern": "packages/spark-hub-db/src/layout-migration.test.ts",
@@ -200,10 +194,10 @@
       "approvedOccurrencesSha256": "539b65dbff86688c33a1a905b2e6e338a6f29613faef8b8234bb61ac32419eed"
     },
     {
-      "pattern": "packages/spark-hub-db/src/migrate.ts",
-      "category": "legacy-database-upgrade",
-      "approvedOccurrenceCount": 4,
-      "approvedOccurrencesSha256": "bf9bec473af7a2212efb3beb50dafcda0a61716ba93bb6deb5d279b7970aabfd"
+      "pattern": "packages/spark-hub-db/src/layout-migration.ts",
+      "category": "legacy-layout-migration",
+      "approvedOccurrenceCount": 20,
+      "approvedOccurrencesSha256": "2722746c74fd620dca704559156400188bc079458f65a93a98eb4d377c38eb72"
     },
     {
       "pattern": "packages/spark-hub-db/src/migrate.test.ts",
@@ -212,10 +206,22 @@
       "approvedOccurrencesSha256": "ade2b8d81221f467821518855d7699c479a4ca9a37a7ec3a53d28b9b352b2ba4"
     },
     {
+      "pattern": "packages/spark-hub-db/src/migrate.ts",
+      "category": "legacy-database-upgrade",
+      "approvedOccurrenceCount": 4,
+      "approvedOccurrencesSha256": "bf9bec473af7a2212efb3beb50dafcda0a61716ba93bb6deb5d279b7970aabfd"
+    },
+    {
       "pattern": "packages/spark-hub-db/src/migrations/00**",
       "category": "immutable-database-history",
       "approvedOccurrenceCount": 20,
       "approvedOccurrencesSha256": "c2816de2f68091ab62bbca5533e9d0c9f0ec0aa37a1b7967017cb31d3daad48c"
+    },
+    {
+      "pattern": "packages/spark-hub-db/src/migrations/manifest.json",
+      "category": "immutable-database-history-manifest",
+      "approvedOccurrenceCount": 4,
+      "approvedOccurrencesSha256": "e93d71f7c9e18a576f931669dff879da4174da8d42bc7d380a9462c85e803df9"
     },
     {
       "pattern": "packages/spark-i18n/src/cli.ts",
@@ -242,16 +248,16 @@
       "approvedOccurrencesSha256": "3d34091424d3d9cee6724850a0725f98339f83d8f071a38f1535a43c74cd221b"
     },
     {
-      "pattern": "packages/spark-protocol/src/command-sources.ts",
-      "category": "frozen-wire-value",
-      "approvedOccurrenceCount": 2,
-      "approvedOccurrencesSha256": "897ff6b5b829f4a6a7d41e0217be24ba8896dff14f5c33554373d07eeb59f32a"
-    },
-    {
       "pattern": "packages/spark-protocol/src/command-sources.test.ts",
       "category": "frozen-wire-value-test",
       "approvedOccurrenceCount": 3,
       "approvedOccurrencesSha256": "3f76345127c96070aeeeb35b8771f74b55686fbcc5db8cfaaa191abcf46c934a"
+    },
+    {
+      "pattern": "packages/spark-protocol/src/command-sources.ts",
+      "category": "frozen-wire-value",
+      "approvedOccurrenceCount": 2,
+      "approvedOccurrencesSha256": "897ff6b5b829f4a6a7d41e0217be24ba8896dff14f5c33554373d07eeb59f32a"
     },
     {
       "pattern": "packages/spark-protocol/src/memory-approval.ts",
@@ -290,16 +296,16 @@
       "approvedOccurrencesSha256": "5e0d5877d23c6903c20aa2e9171654141d3a9c44801bf16bbcd8e1cda54b68bb"
     },
     {
-      "pattern": "packages/spark-system/src/paths.ts",
-      "category": "legacy-layout-read",
-      "approvedOccurrenceCount": 6,
-      "approvedOccurrencesSha256": "ab06bee6ca2ff9cd97d7954827b22b0bc04d0be6c770fa82fb9f60849e93a658"
-    },
-    {
       "pattern": "packages/spark-system/src/paths.test.ts",
       "category": "legacy-layout-test",
       "approvedOccurrenceCount": 8,
       "approvedOccurrencesSha256": "bae44b50cf0a07ac4ca1ecf37b6f152b74a2f87ecee34ad4de2859a41d845044"
+    },
+    {
+      "pattern": "packages/spark-system/src/paths.ts",
+      "category": "legacy-layout-read",
+      "approvedOccurrenceCount": 6,
+      "approvedOccurrencesSha256": "ab06bee6ca2ff9cd97d7954827b22b0bc04d0be6c770fa82fb9f60849e93a658"
     },
     {
       "pattern": "packages/spark-update/src/manager.ts",
@@ -336,6 +342,12 @@
       "category": "legacy-health-response-read",
       "approvedOccurrenceCount": 3,
       "approvedOccurrencesSha256": "e377279ea0db7f82485ceee58a8dfd4b1b3ab2ce2f5bc3985dadcd5e280f21af"
+    },
+    {
+      "pattern": "scripts/test-adjacent-database-compatibility.mjs",
+      "category": "legacy-release-probe",
+      "approvedOccurrenceCount": 1,
+      "approvedOccurrencesSha256": "de424ce5568b22ccb2353ea25d040af37af902c100b648a1d1d96f71f4d1fb32"
     },
     {
       "pattern": "scripts/test-release-migration.mjs",

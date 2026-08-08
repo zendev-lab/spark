@@ -87,6 +87,7 @@ export const npmDistributions = [
     },
     skills: true,
     migrationSource: resolve(root, "apps/spark-daemon/dist/migrations"),
+    migrationManifestName: "daemon-manifest.json",
   },
   {
     id: "tui",

@@ -3,6 +3,7 @@ import {
   accessSync,
   constants,
   existsSync,
+  mkdirSync,
   readFileSync,
   realpathSync,
   statSync,
@@ -64,8 +65,10 @@ import {
   validateRegistrationServerUrl,
 } from "./registration.js";
 
+import { openSparkDaemonDatabase } from "./store/schema.js";
 import {
   isUserDetachedWorkspace,
+  registerWorkspace as registerWorkspaceOwner,
   type RegisterWorkspaceOptions,
   type SparkDaemonWorkspace,
   type WorkspaceProfileRegistration,
@@ -73,6 +76,7 @@ import {
   workspaceNameForPath,
   WorkspacePathConflictError,
 } from "./store/workspaces.js";
+import { runDaemonCompatDatabaseCli } from "./compat-database-cli.ts";
 import { migrateEvidenceWorkspaceCommand } from "./evidence-migration-cli.js";
 import { readRunningPid } from "./service.js";
 import {
@@ -158,6 +162,10 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
           managed,
         });
       }
+      case "__compat-product":
+        return runDaemonCompatProduct(paths, args.slice(1), io);
+      case "__compat-database":
+        return runDaemonCompatDatabaseCli(args.slice(1), io);
       case "__service-start":
         // This entrypoint is shared by launchd and detached starts. Only the
         // former has a supervisor that can replace a planned restart exit.
@@ -214,6 +222,42 @@ export async function main(argv = process.argv.slice(2), io: CliIo = defaultIo):
       return 2;
     }
     return 1;
+  }
+}
+
+async function runDaemonCompatProduct(
+  paths: ReturnType<typeof resolveSparkPaths>,
+  argv: string[],
+  io: CliIo,
+): Promise<number> {
+  const [action, ...args] = argv;
+  if (action !== "prepare-workspace") {
+    throw new Error("Usage: __compat-product prepare-workspace --workspace <path> --json");
+  }
+  const workspaceIndex = args.indexOf("--workspace");
+  const workspace = workspaceIndex >= 0 ? args[workspaceIndex + 1] : undefined;
+  if (!workspace || !args.includes("--json")) {
+    throw new Error("prepare-workspace requires --workspace <path> --json");
+  }
+  const unsupported = args.filter(
+    (arg, index) => arg !== "--json" && arg !== "--workspace" && index !== workspaceIndex + 1,
+  );
+  if (unsupported.length > 0)
+    throw new Error(`Unknown prepare-workspace argument: ${unsupported[0]}`);
+  mkdirSync(workspace, { recursive: true });
+  prepareSparkDaemonState(paths);
+  const db = openSparkDaemonDatabase(paths);
+  try {
+    const record = registerWorkspaceOwner(db, {
+      localPath: realpathSync(workspace),
+      displayName: "Release compatibility workspace",
+    });
+    io.stdout.write(
+      `${JSON.stringify({ product: "@zendev-lab/spark-daemon", workspaceId: record.id, localPath: record.localPath })}\n`,
+    );
+    return 0;
+  } finally {
+    db.close();
   }
 }
 
