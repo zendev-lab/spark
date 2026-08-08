@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, vi } from "vitest";
 
-import type { SparkModelRef } from "@zendev-lab/spark-protocol";
+import type { SparkModelControlSnapshot, SparkModelRef } from "@zendev-lab/spark-protocol";
 import { executeSparkDaemonModelChannelPublicControl } from "./model-channel-control.ts";
+import type { SparkDaemonModelControl } from "./model-control.ts";
 import type { DaemonChannelIngressRuntime } from "./channels/ingress.ts";
 import { createDaemonSessionRegistry } from "./session-registry.ts";
 
@@ -77,6 +78,42 @@ test("runtime model control rejects sessions outside the explicit route scope", 
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("runtime model catalog and default-set responses preserve resolved scoped models", async () => {
+  const snapshot: SparkModelControlSnapshot = {
+    providers: [],
+    scopedModels: [model],
+    diagnostics: [],
+  };
+  const modelControl = {
+    snapshot: vi.fn(async () => snapshot),
+    setDefaultModel: vi.fn(async () => ({ ...snapshot, defaultModel: model })),
+  } as unknown as SparkDaemonModelControl;
+
+  const catalog = await executeSparkDaemonModelChannelPublicControl(
+    { modelControl },
+    {
+      kind: "model.catalog.request",
+      scope: "daemon",
+      payload: {},
+    },
+  );
+  const selected = await executeSparkDaemonModelChannelPublicControl(
+    { modelControl },
+    {
+      kind: "model.default.set.request",
+      scope: "daemon",
+      payload: { model },
+    },
+  );
+
+  assert.deepEqual((catalog.result.snapshot as { scopedModels: SparkModelRef[] }).scopedModels, [
+    model,
+  ]);
+  assert.deepEqual((selected.result.snapshot as { scopedModels: SparkModelRef[] }).scopedModels, [
+    model,
+  ]);
 });
 
 test("runtime channel control routes QQ QR auth within one workspace", async () => {
