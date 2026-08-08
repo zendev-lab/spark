@@ -64,16 +64,14 @@ test("role native executor reviewer fallback runs for the exact typed compatibil
   let fallbackCalls = 0;
   const primaryResult = failedResult();
   const executor = withRoleNativeExecutorCompatibilityFallback(async () => primaryResult, {
-    loadFallback: async () => {
+    runIsolatedFallback: async (request) => {
       fallbackLoads += 1;
-      return async (request) => {
-        fallbackCalls += 1;
-        return {
-          record: { ...request.record, status: "succeeded" as const },
-          stdout: "fallback",
-          stderr: "",
-          jsonEvents: [],
-        };
+      fallbackCalls += 1;
+      return {
+        record: { ...request.record, status: "succeeded" as const },
+        stdout: "fallback",
+        stderr: "",
+        jsonEvents: [],
       };
     },
   });
@@ -195,9 +193,9 @@ test("role native executor reviewer fallback rejects broad failed-result classif
   ]) {
     let fallbackLoads = 0;
     const executor = withRoleNativeExecutorCompatibilityFallback(async () => primaryResult, {
-      loadFallback: async () => {
+      runIsolatedFallback: async () => {
         fallbackLoads += 1;
-        throw new Error("fallback must not load");
+        throw new Error("isolated fallback must not run");
       },
     });
 
@@ -212,9 +210,9 @@ test("role native executor fallback requires explicit reviewer compatibility aut
   const primaryResult = failedResult();
   let fallbackLoads = 0;
   const executor = withRoleNativeExecutorCompatibilityFallback(async () => primaryResult, {
-    loadFallback: async () => {
+    runIsolatedFallback: async () => {
       fallbackLoads += 1;
-      throw new Error("fallback must not load");
+      throw new Error("isolated fallback must not run");
     },
   });
 
@@ -224,35 +222,36 @@ test("role native executor fallback requires explicit reviewer compatibility aut
   assert.equal(fallbackLoads, 0);
 });
 
-test("role native executor typed-result fallback aborts safely while loading", async () => {
+test("role native executor typed-result isolated seam aborts safely during startup", async () => {
   const controller = new AbortController();
   const primaryResult = failedResult();
-  let resolveFallback!: (executor: ExtensionRoleRunner) => void;
-  let fallbackCalls = 0;
-  const fallbackGate = new Promise<ExtensionRoleRunner>((resolve) => {
+  let resolveFallback!: (result: ExtensionRoleRunResult) => void;
+  const fallbackGate = new Promise<ExtensionRoleRunResult>((resolve) => {
     resolveFallback = resolve;
   });
   const executor = withRoleNativeExecutorCompatibilityFallback(async () => primaryResult, {
-    loadFallback: async () => await fallbackGate,
+    runIsolatedFallback: async (request) =>
+      await Promise.race([
+        fallbackGate,
+        new Promise<never>((_resolve, reject) =>
+          request.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          }),
+        ),
+      ]),
   });
 
   assert.ok(executor);
   const pending = executor({ ...fakeRequest(), signal: controller.signal });
   await Promise.resolve();
-  await Promise.resolve();
-  controller.abort(new Error("cancelled while loading fallback"));
+  controller.abort(new Error("cancelled while starting isolated fallback"));
   await assert.rejects(pending, /compatibility fallback aborted/u);
-  resolveFallback(async (request) => {
-    fallbackCalls += 1;
-    return {
-      record: { ...request.record, status: "succeeded" as const },
-      stdout: "unexpected",
-      stderr: "",
-      jsonEvents: [],
-    };
+  resolveFallback({
+    record: { ...fakeRequest().record, status: "succeeded" },
+    stdout: "late",
+    stderr: "",
+    jsonEvents: [],
   });
-  await Promise.resolve();
-  assert.equal(fallbackCalls, 0);
 });
 
 test("role native executor reviewer fallback recognizes the exact TypeError across realms", async () => {
@@ -266,7 +265,7 @@ test("role native executor reviewer fallback recognizes the exact TypeError acro
       throw compatibility;
     },
     {
-      loadFallback: async () => async (request) => {
+      runIsolatedFallback: async (request) => {
         fallbackCalls += 1;
         return {
           record: { ...request.record, status: "succeeded" },
@@ -288,7 +287,7 @@ test("role native executor reviewer fallback recognizes the exact TypeError acro
 
 test("role native executor typed-result fallback bounds double-failure diagnostics", async () => {
   const executor = withRoleNativeExecutorCompatibilityFallback(async () => failedResult(), {
-    loadFallback: async () => async () => {
+    runIsolatedFallback: async () => {
       throw new RangeError("secret-result-fallback");
     },
   });
@@ -313,7 +312,7 @@ test("role native executor fallback cannot return success after in-flight abort"
     resolveFallback = resolve;
   });
   const executor = withRoleNativeExecutorCompatibilityFallback(async () => failedResult(), {
-    loadFallback: async () => async () => await fallbackGate,
+    runIsolatedFallback: async () => await fallbackGate,
   });
 
   assert.ok(executor);
@@ -333,7 +332,7 @@ test("role native executor fallback cannot return success after in-flight abort"
 
 test("role native executor fallback rejects inconsistent succeeded status and failed outcome", async () => {
   const executor = withRoleNativeExecutorCompatibilityFallback(async () => failedResult(), {
-    loadFallback: async () => async (request) => ({
+    runIsolatedFallback: async (request) => ({
       record: {
         ...request.record,
         status: "succeeded",
@@ -364,16 +363,14 @@ test("role native executor reviewer fallback runs only for the exact host compat
     throw new TypeError("Cannot read properties of undefined (reading 'defaultSparkConfigPath')");
   };
   const executor = withRoleNativeExecutorCompatibilityFallback(primary, {
-    loadFallback: async () => {
+    runIsolatedFallback: async (request) => {
       fallbackLoads += 1;
-      return async (request) => {
-        fallbackCalls += 1;
-        return {
-          record: { ...request.record, status: "succeeded" as const },
-          stdout: "fallback",
-          stderr: "",
-          jsonEvents: [],
-        };
+      fallbackCalls += 1;
+      return {
+        record: { ...request.record, status: "succeeded" as const },
+        stdout: "fallback",
+        stderr: "",
+        jsonEvents: [],
       };
     },
   });
@@ -394,9 +391,9 @@ test("role native executor reviewer fallback leaves healthy host runners untouch
     jsonEvents: [],
   });
   const executor = withRoleNativeExecutorCompatibilityFallback(primary, {
-    loadFallback: async () => {
+    runIsolatedFallback: async () => {
       fallbackLoads += 1;
-      throw new Error("fallback must remain lazy");
+      throw new Error("isolated fallback must remain lazy");
     },
   });
 
@@ -413,9 +410,9 @@ test("role native executor reviewer fallback remains fail-closed for ordinary an
       throw ordinary;
     },
     {
-      loadFallback: async () => {
+      runIsolatedFallback: async () => {
         fallbackLoads += 1;
-        throw new Error("fallback must not load");
+        throw new Error("isolated fallback must not run");
       },
     },
   );
@@ -436,9 +433,9 @@ test("role native executor reviewer fallback remains fail-closed for ordinary an
       throw compatibility;
     },
     {
-      loadFallback: async () => {
+      runIsolatedFallback: async () => {
         fallbackLoads += 1;
-        throw new Error("fallback must not load");
+        throw new Error("isolated fallback must not run");
       },
     },
   );
@@ -450,42 +447,43 @@ test("role native executor reviewer fallback remains fail-closed for ordinary an
   assert.equal(fallbackLoads, 0);
 });
 
-test("role native executor reviewer fallback does not start after abort wins during loading", async () => {
+test("role native executor exact TypeError cannot accept isolated late success after startup abort", async () => {
   const controller = new AbortController();
   const compatibility = new TypeError(
     "Cannot read properties of undefined (reading 'defaultSparkConfigPath')",
   );
-  let resolveFallback!: (executor: ExtensionRoleRunner) => void;
-  let fallbackCalls = 0;
-  const fallbackGate = new Promise<ExtensionRoleRunner>((resolve) => {
+  let resolveFallback!: (result: ExtensionRoleRunResult) => void;
+  const fallbackGate = new Promise<ExtensionRoleRunResult>((resolve) => {
     resolveFallback = resolve;
   });
   const executor = withRoleNativeExecutorCompatibilityFallback(
     async () => {
       throw compatibility;
     },
-    { loadFallback: async () => await fallbackGate },
+    {
+      runIsolatedFallback: async (request) =>
+        await Promise.race([
+          fallbackGate,
+          new Promise<never>((_resolve, reject) =>
+            request.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+              once: true,
+            }),
+          ),
+        ]),
+    },
   );
 
   assert.ok(executor);
   const pending = executor({ ...fakeRequest(), signal: controller.signal });
-  const rejected = assert.rejects(pending, /compatibility fallback aborted/u);
   await Promise.resolve();
-  await Promise.resolve();
-  controller.abort(new Error("cancelled while loading fallback"));
-  await rejected;
-  resolveFallback(async (request) => {
-    fallbackCalls += 1;
-    return {
-      record: { ...request.record, status: "succeeded" as const },
-      stdout: "unexpected",
-      stderr: "",
-      jsonEvents: [],
-    };
+  controller.abort(new Error("cancelled while starting isolated fallback"));
+  await assert.rejects(pending, /compatibility fallback aborted/u);
+  resolveFallback({
+    record: { ...fakeRequest().record, status: "succeeded" },
+    stdout: "late",
+    stderr: "",
+    jsonEvents: [],
   });
-  await Promise.resolve();
-
-  assert.equal(fallbackCalls, 0);
 });
 
 test("role native executor reviewer fallback rejects non-success results without raw diagnostics", async () => {
@@ -494,7 +492,7 @@ test("role native executor reviewer fallback rejects non-success results without
       throw new TypeError("Cannot read properties of undefined (reading 'defaultSparkConfigPath')");
     },
     {
-      loadFallback: async () => async (request) => ({
+      runIsolatedFallback: async (request) => ({
         record: { ...request.record, status: "failed" as const },
         stdout: "secret-stdout",
         stderr: "secret-stderr",
@@ -520,7 +518,7 @@ test("role native executor reviewer fallback bounds double-failure diagnostics",
       throw new TypeError("Cannot read properties of undefined (reading 'defaultSparkConfigPath')");
     },
     {
-      loadFallback: async () => async () => {
+      runIsolatedFallback: async () => {
         throw new RangeError("secret-fallback");
       },
     },

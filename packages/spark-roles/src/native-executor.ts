@@ -20,8 +20,7 @@ export interface RoleNativeExecutorResolverDeps {
 }
 
 export interface RoleNativeExecutorCompatibilityFallbackDeps {
-  /** Test seam for a fake executor; production always uses the isolated worker. */
-  loadFallback?: () => Promise<ExtensionRoleRunner>;
+  /** Test seam that replaces the complete isolated runner boundary. */
   runIsolatedFallback?: typeof runIsolatedRoleNativeExecutor;
   moduleSpecifier?: string;
 }
@@ -54,7 +53,6 @@ export function withRoleNativeExecutorCompatibilityFallback(
   deps: RoleNativeExecutorCompatibilityFallbackDeps = {},
 ): ExtensionRoleRunner | undefined {
   if (!primary) return undefined;
-  let injectedFallbackPromise: Promise<ExtensionRoleRunner> | undefined;
   return async (request) => {
     if (request.nativeCompatibilityRecovery === "reviewer" && request.signal?.aborted) {
       return compatibilityFallbackAborted();
@@ -82,15 +80,10 @@ export function withRoleNativeExecutorCompatibilityFallback(
       return await runCompatibilityFallback({
         request,
         onAbort: compatibilityFallbackAborted,
-        runFallback: (fallbackRequest) => {
-          if (deps.loadFallback) {
-            injectedFallbackPromise ??= deps.loadFallback();
-            return runInjectedFallback(injectedFallbackPromise, fallbackRequest);
-          }
-          return (deps.runIsolatedFallback ?? runIsolatedRoleNativeExecutor)(fallbackRequest, {
+        runFallback: (fallbackRequest) =>
+          (deps.runIsolatedFallback ?? runIsolatedRoleNativeExecutor)(fallbackRequest, {
             moduleSpecifier: deps.moduleSpecifier,
-          });
-        },
+          }),
       });
     }
     if (request.nativeCompatibilityRecovery === "reviewer" && request.signal?.aborted) {
@@ -106,15 +99,10 @@ export function withRoleNativeExecutorCompatibilityFallback(
     return await runCompatibilityFallback({
       request,
       onAbort: compatibilityFallbackAborted,
-      runFallback: (fallbackRequest) => {
-        if (deps.loadFallback) {
-          injectedFallbackPromise ??= deps.loadFallback();
-          return runInjectedFallback(injectedFallbackPromise, fallbackRequest);
-        }
-        return (deps.runIsolatedFallback ?? runIsolatedRoleNativeExecutor)(fallbackRequest, {
+      runFallback: (fallbackRequest) =>
+        (deps.runIsolatedFallback ?? runIsolatedRoleNativeExecutor)(fallbackRequest, {
           moduleSpecifier: deps.moduleSpecifier,
-        });
-      },
+        }),
     });
   };
 }
@@ -124,14 +112,6 @@ async function flushPrimaryEvents(
   events: readonly unknown[],
 ): Promise<void> {
   for (const event of events) await request.onEvent?.(event);
-}
-
-async function runInjectedFallback(
-  fallbackPromise: Promise<ExtensionRoleRunner>,
-  request: Parameters<ExtensionRoleRunner>[0],
-): Promise<ExtensionRoleRunResult> {
-  const fallback = await waitForCompatibilityFallback(fallbackPromise, request.signal);
-  return await fallback(request);
 }
 
 export function isRoleNativeExecutorCompatibilityFailure(error: unknown): boolean {
@@ -179,26 +159,6 @@ async function runCompatibilityFallback(input: {
 
 function compatibilityFallbackAborted(): never {
   throw new Error(ISOLATED_NATIVE_EXECUTOR_ABORT_MESSAGE);
-}
-
-async function waitForCompatibilityFallback(
-  fallback: Promise<ExtensionRoleRunner>,
-  signal: AbortSignal | undefined,
-): Promise<ExtensionRoleRunner> {
-  if (!signal) return await fallback;
-  if (signal.aborted) throw new Error("compatibility fallback aborted");
-  let onAbort: (() => void) | undefined;
-  try {
-    return await Promise.race([
-      fallback,
-      new Promise<never>((_resolve, reject) => {
-        onAbort = () => reject(new Error("compatibility fallback aborted"));
-        signal.addEventListener("abort", onAbort, { once: true });
-      }),
-    ]);
-  } finally {
-    if (onAbort) signal.removeEventListener("abort", onAbort);
-  }
 }
 
 async function loadFallbackHeadlessRoleExecutor(

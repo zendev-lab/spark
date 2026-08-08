@@ -29,7 +29,6 @@ interface IsolatedExecutorRequest {
   noSession?: boolean;
   sessionPersistence?: ExtensionRoleRunRequest["sessionPersistence"];
   nativeCompatibilityRecovery?: "reviewer";
-  env?: Record<string, string>;
 }
 
 type IsolatedExecutorMessage =
@@ -44,7 +43,8 @@ export interface IsolatedRoleNativeExecutorOptions {
 /**
  * Execute one compatibility fallback in a fresh Spark-owned worker. The worker
  * owns its module graph and is terminated after this request, so it cannot
- * observe or populate the primary daemon's module cache.
+ * observe or populate the primary daemon's module cache. Worker events remain
+ * parent-buffered until a runtime-valid succeeded/completed result arrives.
  */
 export async function runIsolatedRoleNativeExecutor(
   request: ExtensionRoleRunRequest,
@@ -72,7 +72,8 @@ export async function runIsolatedRoleNativeExecutor(
 
   return await new Promise<ExtensionRoleRunResult>((resolve, reject) => {
     let settled = false;
-    let eventBoundary = Promise.resolve();
+    let resultReceived = false;
+    const bufferedEvents: unknown[] = [];
 
     const cleanup = () => {
       request.signal?.removeEventListener("abort", onAbort);
@@ -82,6 +83,7 @@ export async function runIsolatedRoleNativeExecutor(
       if (settled) return;
       settled = true;
       cleanup();
+      bufferedEvents.length = 0;
       void worker.terminate();
       operation();
     };
@@ -95,6 +97,22 @@ export async function runIsolatedRoleNativeExecutor(
       }
       finish(() => reject(isolatedAbortError()));
     };
+    const acceptResult = async (result: ExtensionRoleRunResult) => {
+      try {
+        for (const event of bufferedEvents) {
+          if (request.signal?.aborted) {
+            onAbort();
+            return;
+          }
+          await request.onEvent?.(event);
+        }
+      } catch {
+        failClosed();
+        return;
+      }
+      if (request.signal?.aborted) onAbort();
+      else finish(() => resolve(result));
+    };
 
     request.signal?.addEventListener("abort", onAbort, { once: true });
     if (request.signal?.aborted) {
@@ -102,32 +120,39 @@ export async function runIsolatedRoleNativeExecutor(
       return;
     }
 
-    worker.on("message", (message: IsolatedExecutorMessage) => {
+    worker.on("message", (rawMessage: unknown) => {
       if (settled || request.signal?.aborted) {
         if (request.signal?.aborted) onAbort();
         return;
       }
+      if (resultReceived) {
+        failClosed();
+        return;
+      }
+      const message = parseIsolatedExecutorMessage(rawMessage);
+      if (!message) {
+        failClosed();
+        return;
+      }
       if (message.type === "event") {
-        eventBoundary = eventBoundary.then(async () => {
-          if (settled || request.signal?.aborted) return;
-          await request.onEvent?.(message.event);
-        });
-        eventBoundary.catch(failClosed);
+        bufferedEvents.push(message.event);
         return;
       }
       if (message.type === "error") {
         failClosed();
         return;
       }
-      eventBoundary.then(() => {
-        if (request.signal?.aborted) onAbort();
-        else finish(() => resolve(message.result));
-      }, failClosed);
+      if (!isSuccessfulIsolatedResult(message.result)) {
+        failClosed();
+        return;
+      }
+      resultReceived = true;
+      void acceptResult(message.result);
     });
+    worker.once("messageerror", failClosed);
     worker.once("error", failClosed);
-    worker.once("exit", (code) => {
-      if (!settled && code !== 0) failClosed();
-      else if (!settled) failClosed();
+    worker.once("exit", () => {
+      if (!settled && !resultReceived) failClosed();
     });
   });
 }
@@ -135,13 +160,6 @@ export async function runIsolatedRoleNativeExecutor(
 export function serializeIsolatedExecutorRequest(
   request: ExtensionRoleRunRequest,
 ): IsolatedExecutorRequest {
-  const env = request.env
-    ? Object.fromEntries(
-        Object.entries(request.env).filter(
-          (entry): entry is [string, string] => typeof entry[1] === "string",
-        ),
-      )
-    : undefined;
   return {
     usageExecutionKind: request.usageExecutionKind,
     role: {
@@ -168,8 +186,141 @@ export function serializeIsolatedExecutorRequest(
     noSession: request.noSession,
     sessionPersistence: request.sessionPersistence,
     nativeCompatibilityRecovery: request.nativeCompatibilityRecovery,
-    env,
   };
+}
+
+export function parseIsolatedExecutorMessage(
+  message: unknown,
+): IsolatedExecutorMessage | undefined {
+  if (!isRecord(message) || typeof message.type !== "string") return undefined;
+  if (
+    message.type === "event" &&
+    hasOnlyKeys(message, ["type", "event"]) &&
+    Object.hasOwn(message, "event")
+  ) {
+    return { type: "event", event: message.event };
+  }
+  if (
+    message.type === "error" &&
+    hasOnlyKeys(message, ["type", "stage"]) &&
+    isFailureStage(message.stage)
+  ) {
+    return { type: "error", stage: message.stage };
+  }
+  if (
+    message.type === "result" &&
+    hasOnlyKeys(message, ["type", "result"]) &&
+    isExtensionRoleRunResult(message.result)
+  ) {
+    return { type: "result", result: message.result };
+  }
+  return undefined;
+}
+
+function isSuccessfulIsolatedResult(result: ExtensionRoleRunResult): boolean {
+  return (
+    result.record.status === "succeeded" &&
+    (result.outcome === undefined || result.outcome.kind === "completed") &&
+    (result.record.outcome === undefined || result.record.outcome.kind === "completed")
+  );
+}
+
+function isExtensionRoleRunResult(value: unknown): value is ExtensionRoleRunResult {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ["record", "outcome", "stdout", "stderr", "jsonEvents"]) ||
+    !isRoleRunRecord(value.record)
+  )
+    return false;
+  if (typeof value.stdout !== "string" || typeof value.stderr !== "string") return false;
+  if (!Array.isArray(value.jsonEvents)) return false;
+  return value.outcome === undefined || isRoleRunOutcome(value.outcome);
+}
+
+function isRoleRunRecord(value: unknown): value is ExtensionRoleRunResult["record"] {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, [
+      "ref",
+      "roleRef",
+      "runName",
+      "instruction",
+      "status",
+      "startedAt",
+      "finishedAt",
+      "launch",
+      "model",
+      "sessionDir",
+      "forkFromSession",
+      "noSession",
+      "sessionPersistence",
+      "outcome",
+    ])
+  )
+    return false;
+  if (typeof value.ref !== "string" || !value.ref.startsWith("run:")) return false;
+  if (typeof value.roleRef !== "string" || !value.roleRef.startsWith("role:")) return false;
+  if (typeof value.instruction !== "string" || !isRoleRunStatus(value.status)) return false;
+  for (const field of [
+    "runName",
+    "startedAt",
+    "finishedAt",
+    "model",
+    "sessionDir",
+    "forkFromSession",
+  ] as const) {
+    if (value[field] !== undefined && typeof value[field] !== "string") return false;
+  }
+  if (value.launch !== undefined && value.launch !== "fresh" && value.launch !== "forked") {
+    return false;
+  }
+  if (value.noSession !== undefined && typeof value.noSession !== "boolean") return false;
+  if (
+    value.sessionPersistence !== undefined &&
+    value.sessionPersistence !== "anonymous" &&
+    value.sessionPersistence !== "persistent"
+  )
+    return false;
+  return value.outcome === undefined || isRoleRunOutcome(value.outcome);
+}
+
+function isRoleRunOutcome(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, ["kind", "code", "reason", "nextAction"]) &&
+    isRoleRunOutcomeKind(value.kind) &&
+    typeof value.code === "string" &&
+    typeof value.reason === "string" &&
+    (value.nextAction === undefined || typeof value.nextAction === "string")
+  );
+}
+
+function isRoleRunStatus(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    ["queued", "running", "succeeded", "failed", "cancelled", "not_started"].includes(value)
+  );
+}
+
+function isRoleRunOutcomeKind(value: unknown): boolean {
+  return (
+    typeof value === "string" && ["completed", "blocked", "failed", "cancelled"].includes(value)
+  );
+}
+
+function isFailureStage(
+  value: unknown,
+): value is "loader" | "bootstrap" | "execution" | "serialization" {
+  return ["loader", "bootstrap", "execution", "serialization"].includes(String(value));
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  const allowedKeys = new Set(allowed);
+  return Object.keys(value).every((key) => allowedKeys.has(key));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isolatedFailureError(): Error {
@@ -193,6 +344,17 @@ parentPort?.on("message", (message) => {
 void run();
 
 async function run() {
+  if (
+    !workerData ||
+    typeof workerData !== "object" ||
+    typeof workerData.moduleSpecifier !== "string" ||
+    !workerData.request ||
+    typeof workerData.request !== "object"
+  ) {
+    sendFailure("bootstrap");
+    return;
+  }
+
   let module;
   try {
     module = await import(workerData.moduleSpecifier);

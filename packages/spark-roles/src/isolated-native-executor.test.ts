@@ -8,6 +8,7 @@ import { test } from "vitest";
 import {
   ISOLATED_NATIVE_EXECUTOR_ABORT_MESSAGE,
   ISOLATED_NATIVE_EXECUTOR_FAILURE_MESSAGE,
+  parseIsolatedExecutorMessage,
   runIsolatedRoleNativeExecutor,
   serializeIsolatedExecutorRequest,
 } from "./isolated-native-executor.ts";
@@ -34,7 +35,12 @@ function request() {
     cwd: process.cwd(),
     timeoutMs: 5_000,
     nativeCompatibilityRecovery: "reviewer" as const,
-    env: { SAFE_VALUE: "visible", OMIT_ME: undefined },
+    env: {
+      PI_ROLE_DEPTH: "1",
+      API_TOKEN: "must-not-cross",
+      AWS_SECRET_ACCESS_KEY: "must-not-cross",
+      DATABASE_URL: "must-not-cross",
+    },
   };
 }
 
@@ -86,7 +92,7 @@ test("isolated reviewer executor owns a fresh worker module graph per fallback",
       assert.notEqual(firstDetails.threadId, secondDetails.threadId);
       assert.equal(firstDetails.hasSignal, true);
       assert.equal(firstDetails.hasInputControl, false);
-      assert.deepEqual(firstDetails.env, { SAFE_VALUE: "visible" });
+      assert.equal(firstDetails.env, undefined);
       assert.equal(events.length, 2);
       assert.deepEqual(
         events.map((event) => (event as { source: string }).source),
@@ -153,6 +159,176 @@ test("isolated request serialization excludes daemon-owned callbacks and control
   assert.equal("signal" in serialized, false);
   assert.equal("onEvent" in serialized, false);
   assert.equal("inputControl" in serialized, false);
-  assert.deepEqual(serialized.env, { SAFE_VALUE: "visible" });
+  assert.equal("env" in serialized, false);
+  assert.equal(JSON.stringify(serialized).includes("must-not-cross"), false);
   assert.doesNotThrow(() => structuredClone(serialized));
+});
+
+test("isolated reviewer executor buffers ordered events until validated success", async () => {
+  await withExecutorFixture(
+    `export const createSparkHeadlessSessionExecutor = () => async () => ({});
+     export const createSparkHeadlessRoleExecutor = () => async (request) => {
+       await request.onEvent({ sequence: 1 });
+       await request.onEvent({ sequence: 2 });
+       await new Promise((resolve) => setTimeout(resolve, 50));
+       return {
+         record: { ...request.record, status: "succeeded" },
+         outcome: { kind: "completed", code: "completed", reason: "approved" },
+         stdout: "approved",
+         stderr: "",
+         jsonEvents: [],
+       };
+     };`,
+    async (moduleSpecifier) => {
+      const events: unknown[] = [];
+      const pending = runIsolatedRoleNativeExecutor(
+        { ...request(), onEvent: (event) => void events.push(event) },
+        { moduleSpecifier },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      assert.deepEqual(events, []);
+      assert.equal((await pending).stdout, "approved");
+      assert.deepEqual(events, [{ sequence: 1 }, { sequence: 2 }]);
+    },
+  );
+});
+
+test("isolated reviewer executor discards buffered events for malformed and failed results", async () => {
+  for (const resultSource of [
+    `null`,
+    `{ record: { status: "succeeded" }, stdout: "bad", stderr: "", jsonEvents: [] }`,
+    `{ record: { ...request.record, status: "succeeded" }, stdout: 42, stderr: "", jsonEvents: [] }`,
+    `{ record: { ...request.record, status: "succeeded" }, stdout: "bad", stderr: "", jsonEvents: {}, outcome: { kind: "completed", code: "completed", reason: "bad" } }`,
+    `{ record: { ...request.record, status: "succeeded" }, stdout: "bad", stderr: "", jsonEvents: [], outcome: { kind: "failed", code: "failed", reason: "bad" } }`,
+    `{ record: { ...request.record, status: "failed" }, stdout: "bad", stderr: "private", jsonEvents: [{ secret: true }] }`,
+  ]) {
+    await withExecutorFixture(
+      `export const createSparkHeadlessSessionExecutor = () => async () => ({});
+       export const createSparkHeadlessRoleExecutor = () => async (request) => {
+         await request.onEvent({ secret: true });
+         return ;
+       };`,
+      async (moduleSpecifier) => {
+        const events: unknown[] = [];
+        await assert.rejects(
+          () =>
+            runIsolatedRoleNativeExecutor(
+              { ...request(), onEvent: (event) => void events.push(event) },
+              { moduleSpecifier },
+            ),
+          (error: unknown) =>
+            error instanceof Error && error.message === ISOLATED_NATIVE_EXECUTOR_FAILURE_MESSAGE,
+        );
+        assert.deepEqual(events, []);
+      },
+    );
+  }
+});
+
+test("isolated reviewer executor maps event rejection without flushing later events", async () => {
+  await withExecutorFixture(
+    `export const createSparkHeadlessSessionExecutor = () => async () => ({});
+     export const createSparkHeadlessRoleExecutor = () => async (request) => {
+       await request.onEvent({ sequence: 1 });
+       await request.onEvent({ sequence: 2 });
+       return {
+         record: { ...request.record, status: "succeeded" },
+         outcome: { kind: "completed", code: "completed", reason: "approved" },
+         stdout: "approved",
+         stderr: "",
+         jsonEvents: [],
+       };
+     };`,
+    async (moduleSpecifier) => {
+      const seen: unknown[] = [];
+      await assert.rejects(
+        () =>
+          runIsolatedRoleNativeExecutor(
+            {
+              ...request(),
+              onEvent: async (event) => {
+                seen.push(event);
+                throw new Error("private event sink failure");
+              },
+            },
+            { moduleSpecifier },
+          ),
+        (error: unknown) =>
+          error instanceof Error &&
+          error.message === ISOLATED_NATIVE_EXECUTOR_FAILURE_MESSAGE &&
+          !JSON.stringify(error).includes("private event sink failure"),
+      );
+      assert.deepEqual(seen, [{ sequence: 1 }]);
+    },
+  );
+});
+
+test("isolated reviewer executor maps bootstrap serialization and clean exit to one safe error", async () => {
+  for (const source of [
+    `export const createSparkHeadlessSessionExecutor = () => async () => ({});`,
+    `export const createSparkHeadlessSessionExecutor = () => async () => ({});
+     export const createSparkHeadlessRoleExecutor = () => { throw new Error("private bootstrap"); };`,
+    `export const createSparkHeadlessSessionExecutor = () => async () => ({});
+     export const createSparkHeadlessRoleExecutor = () => async (request) => ({
+       record: { ...request.record, status: "succeeded" }, stdout: "ok", stderr: "", jsonEvents: [], privateFunction: () => undefined,
+     });`,
+    `export const createSparkHeadlessSessionExecutor = () => async () => ({});
+     export const createSparkHeadlessRoleExecutor = () => async () => { process.exit(0); };`,
+  ]) {
+    await withExecutorFixture(source, async (moduleSpecifier) => {
+      await assert.rejects(
+        () => runIsolatedRoleNativeExecutor(request(), { moduleSpecifier }),
+        (error: unknown) =>
+          error instanceof Error &&
+          error.message === ISOLATED_NATIVE_EXECUTOR_FAILURE_MESSAGE &&
+          error.cause === undefined,
+      );
+    });
+  }
+});
+
+test("isolated worker message parser rejects malformed envelopes and results", () => {
+  const validResult = {
+    record: { ...request().record, status: "succeeded" as const },
+    outcome: { kind: "completed" as const, code: "completed", reason: "approved" },
+    stdout: "approved",
+    stderr: "",
+    jsonEvents: [],
+  };
+  assert.deepEqual(parseIsolatedExecutorMessage({ type: "event", event: { sequence: 1 } }), {
+    type: "event",
+    event: { sequence: 1 },
+  });
+  assert.deepEqual(parseIsolatedExecutorMessage({ type: "result", result: validResult }), {
+    type: "result",
+    result: validResult,
+  });
+  assert.deepEqual(parseIsolatedExecutorMessage({ type: "error", stage: "serialization" }), {
+    type: "error",
+    stage: "serialization",
+  });
+
+  for (const malformed of [
+    null,
+    [],
+    {},
+    { type: "event" },
+    { type: "event", event: {}, extra: true },
+    { type: "error", stage: "private-stage" },
+    { type: "error", stage: "loader", diagnostic: "private" },
+    { type: "result" },
+    { type: "result", result: validResult, diagnostic: "private" },
+    { type: "result", result: { ...validResult, stdout: 1 } },
+    { type: "result", result: { ...validResult, privateField: true } },
+    {
+      type: "result",
+      result: { ...validResult, record: { ...validResult.record, private: true } },
+    },
+    {
+      type: "result",
+      result: { ...validResult, outcome: { ...validResult.outcome, private: true } },
+    },
+  ]) {
+    assert.equal(parseIsolatedExecutorMessage(malformed), undefined);
+  }
 });
