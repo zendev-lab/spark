@@ -147,17 +147,16 @@ describe("SparkInvocationScheduler", () => {
     });
     try {
       const invocation = store.submit({
-        sessionId: "session-repro-driver",
+        sessionId: "driver-session-repro",
         prompt: "continue repro",
         task: {
           type: "loop.tick",
-          sessionId: "session-repro-driver",
+          sessionId: "driver-session-repro",
           loopId: "repro-driver-1",
           binding: { reproId: "repro-driver-1" },
           ownerSessionId: "session-repro-driver",
-          stateOwnerSessionId: "session-repro-driver",
           generation: 1,
-          continuity: "session",
+          sessionLifetime: "driver",
           cwd: process.cwd(),
           prompt: "continue repro",
         },
@@ -170,7 +169,7 @@ describe("SparkInvocationScheduler", () => {
         invocationId: invocation.invocationId,
         scope: { kind: "repro", reproId: "repro-driver-1" },
         kind: "root_session",
-        persistence: "persistent",
+        persistence: "anonymous",
         status: "complete",
       });
       expect(

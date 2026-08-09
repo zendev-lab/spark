@@ -28,9 +28,11 @@ The daemon runtime chain is `RoleSpec -> Session -> Invocation`.
 `SessionSupervisor` composes the existing Session Registry and Invocation
 SQLite store; it is not another store or scheduler. Every workspace has one
 protected persistent Administrator root Session. Other runtime owners create
-children with `lifetime=owned` and an explicit owner kind:
-`session | role_call | task_run | task_revision | workflow_run | driver |
-driver_tick`.
+children with an explicit owner kind: `session | role_call | task_run |
+task_revision | workflow_run | driver | driver_tick`. Ordinary TUI, Hub, ACP,
+and Channel conversations are persistent Administrator instances owned by the
+workspace root. Role calls and managed Task, Workflow, Loop, Repro, and Side
+Thread work use `lifetime=owned` with the owner-specific retention policy.
 
 The canonical lifecycle is `open | closing | closed`. Compatibility
 `ready | running | archived` fields may still be decoded and projected, but
@@ -40,6 +42,12 @@ second lifecycle truth. A Session also carries independent `authority`,
 fields. Owner validity is checked at instantiation and startup reconcile;
 children close before owners, and an interrupted `closing` record is reconciled
 idempotently after restart.
+
+Queued/running child Invocations roll activity up through `stateBinding` or
+Session ownership to the visible parent. Parent snapshots may expose bounded
+child activity receipts, but never copy a private child prompt into the public
+message transcript. Structured nested Role Invocations reuse the scheduler's
+child execution path and do not acquire another root worker claim.
 
 Internal close replaces archive as the lifecycle operation. Restore is allowed
 only for a closed, public, persistent, retained record whose owner remains
@@ -61,13 +69,17 @@ leave the Session in `closing` for reconcile.
 
 Local role-managed sessions are named by division of labour, not by the task currently in flight. The registry's `role` field is the canonical stable responsibility and `title` is its compatibility display mirror. Agent-created local sessions must provide that role at creation and reuse the matching session for later tasks; the registry rejects a second active owner of the same normalized role in one workspace. A user-created local session may begin unassigned; its first completed user turn classifies one reusable role and compare-and-set persists both fields. Concrete task text belongs only in `session call` or `session send`.
 
-Selecting `+ New session` in the TUI allocates a provisional ID only. The daemon persists the Session on the first operation that needs durable state, so opening and immediately closing a blank conversation cannot grow the registry.
+Selecting `+ New session` in the TUI allocates a provisional ID only. The daemon persists the Session on the first operation that needs durable state, instantiates the Administrator Role, and parents it to the workspace root. Hub and ACP use the same creation contract, so opening and immediately closing a blank conversation cannot grow the registry or create a parallel root.
 
 The default registry/TUI view is the Active working set. A ready local Session with no role/title, channel binding, managed relation, or active Goal/Repro/Loop/Workflow Loop moves to History after 30 days without activity. Retention runs once before daemon admission and then daily; a compare-and-set guard leaves a concurrently changed Session active. History preserves the original Session ID and transcript and is restored explicitly before it can run again. Workspace aliases affect only canonical grouping; they never merge Session records or transcripts.
 
 Every archive operation appends a durable `archiveHistory` event and searchable tags. The registry always adds archive source, archive month, original scope/workspace, role state, and relation tags; retention also adds `policy:inactive-unassigned-30d`, `retention-days:30`, and `last-active:YYYY-MM`. Tags survive restore. Operators can search History with `session list includeArchived=true query=...`, exact `tags=[...]`, or `spark daemon sessions list --registry --include-archived --query ... --tags ...`; `session restore` and `spark daemon sessions restore <session-id>` reactivate one identity without copying its transcript.
 
-Message-platform channel sessions are outside generic role management. Message-platform settings own their creation policy, technical identity title, binding, credentials, and retirement; generic first-turn role classification must ignore channel-bound or platform-titled sessions.
+Message-platform Channel sessions are persistent Administrator children of the
+workspace root with Channel authority and state binding. Message-platform
+settings still own their creation policy, technical identity title, binding,
+credentials, and retirement; generic first-turn role classification must
+ignore channel-bound or platform-titled sessions.
 
 ## Registry projection
 
@@ -108,7 +120,7 @@ invocation.
 
 A Side Thread is a daemon-owned, read-only child conversation attached to one persistent parent session. The daemon registry, native transcript, and invocation scheduler are the only state owners; TUI and Hub are control/projection adapters.
 
-- A non-side-thread parent has at most one active child. The child has the same scope and working directory as its parent, cannot itself be a parent, and is archived when the parent is archived.
+- A non-side-thread parent has at most one active child. The child has the same scope and working directory as its parent, cannot itself be a parent, and is closed by `SessionSupervisor` before its parent closes.
 - The child relation stores `parentSessionId`, `generation`, and `mode` (`contextual | tangent`). Ordinary registry lists and the Hub session rail hide child records. Its JSONL header is also marked `visibility=internal` / `purpose=side_thread`, so public history, ref lookup, show/tree/fork, export/share, and `--session` fallback surfaces cannot reopen the inherited seed; owning daemon code uses the registry's exact path.
 - `contextual` creation or reset seeds a new native transcript with the parent's stable history through the last completed assistant turn. `tangent` starts with no parent messages. A durable seed-boundary marker separates inherited context from side-thread exchanges: inherited messages never appear in the child snapshot and are never included in a handoff.
 - A reset creates a fresh, uniquely named transcript, increments `generation`, and preserves the selected mode. The registry's `sessionPath` is passed explicitly to the headless executor; execution never guesses between same-id generation files by recency. Model and thinking overrides are child-only configuration; clearing an override returns to the parent's effective setting.
@@ -130,7 +142,7 @@ The executable contract is layered rather than inferred from prompt text. Exact 
 
 Snapshots are display projections capped below the runtime command envelope: oversized prompts and answers are UTF-8-safely shortened with explicit truncation metadata, and older exchanges are paged out before transport. The native transcript remains intact. `handoff full` admits the complete visible side-thread exchanges from that transcript to the parent subject to its separate 48 KiB admission cap; `handoff summary` admits a compact bounded rendering. Both treat the material as untrusted analysis that the parent must verify. The daemon admits the parent invocation before it resets the child generation, and an idempotent replay completes any still-pending reset without submitting a second parent turn.
 
-The Spark-native TUI exposes this controller through one `/btw` command with subcommands. Hub exposes the same ensure, submit, reset, configure, and handoff operations inside the authorized parent session. Both adapters send the protocol command shapes to the daemon and refresh its projection; neither owns a second Side Thread state machine or writes the native transcript directly.
+The Spark-native TUI exposes this controller through one `/btw` command with subcommands. Hub exposes the same ensure, submit, reset, configure, and handoff operations inside the authorized parent session. Both adapters send the protocol command shapes to the daemon and refresh its projection; neither owns a second Side Thread state machine or writes the native transcript directly. A closed Side Thread follows `discard_on_close`: its full transcript and Invocation content payloads are unavailable, while bounded summary, usage, execution profile, and explicit Evidence remain queryable.
 
 ## Message origin
 

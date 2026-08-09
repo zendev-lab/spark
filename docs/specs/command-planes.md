@@ -85,6 +85,11 @@ session id and only connection-local active-invocation routing is retained.
 | terminal presentation and interaction | `apps/spark-tui` behind `spark-tui` / `spark-text` boundaries | no durable business-state ownership |
 | extension composition | `spark-extension` | compatible loaders may call the same host-neutral contract; no second facade owns behavior |
 
+TUI, Hub, ACP, and Channel adapters create or select daemon Sessions through
+the same protocol. They do not author lifecycle or activity: the daemon derives
+visible activity from queued/running Invocations, rolls owned child activity up
+to its parent, and emits the projection consumed by every surface.
+
 Generated UI is artifact-backed data, never executable MDX, JS, JSX, imports,
 exports, or raw HTML. Public action-tool names remain canonical. Serialized
 `.spark/` markers change only through an explicit, idempotent migration with

@@ -16,10 +16,12 @@ export const sparkLoopStatusOptions = [
 
 export const sparkLoopCycleStepOptions = ["before_tick", "invoke", "after_tick", "settle"] as const;
 export const sparkLoopContinuityOptions = ["session", "fresh"] as const;
+export const sparkLoopSessionLifetimeOptions = ["driver", "driver_tick"] as const;
 
 export const sparkLoopStatusSchema = z.enum(sparkLoopStatusOptions);
 export const sparkLoopCycleStepSchema = z.enum(sparkLoopCycleStepOptions);
 export const sparkLoopContinuitySchema = z.enum(sparkLoopContinuityOptions);
+export const sparkLoopSessionLifetimeSchema = z.enum(sparkLoopSessionLifetimeOptions);
 
 export const sparkLoopEvaluatorSelectorSchema = z.string().regex(/^(builtin|extension):[^:]+$/u);
 export const sparkLoopWorkflowSelectorSchema = z
@@ -189,24 +191,43 @@ export const sparkLoopBindingSchema = z
   })
   .default({});
 
-export const sparkLoopViewSchema = z.object({
-  loopId: z.string().min(1),
-  ownerSessionId: z.string().min(1),
-  status: sparkLoopStatusSchema,
-  continuity: sparkLoopContinuitySchema,
-  generation: z.number().int().positive(),
-  workflowDefinitionDigest: z.string().min(1).optional(),
-  cycleStep: sparkLoopCycleStepSchema.optional(),
-  binding: sparkLoopBindingSchema,
-  policy: sparkLoopPolicySchema,
-  checkpoint: sparkLoopCycleCheckpointSchema.optional(),
-  counters: sparkLoopCountersSchema,
-  dueAt: isoDateTimeSchema.optional(),
-  attempt: z.number().int().nonnegative(),
-  lastInvocationId: z.string().min(1).optional(),
-  reason: z.string().optional(),
-  error: z.string().optional(),
-});
+export const sparkLoopViewSchema = z.preprocess(
+  normalizeLoopSessionLifetime,
+  z
+    .object({
+      loopId: z.string().min(1),
+      ownerSessionId: z.string().min(1),
+      status: sparkLoopStatusSchema,
+      /** Canonical child Session ownership policy used by the daemon runtime. */
+      sessionLifetime: sparkLoopSessionLifetimeSchema,
+      /** @deprecated Compatibility projection; use sessionLifetime. */
+      continuity: sparkLoopContinuitySchema,
+      generation: z.number().int().positive(),
+      workflowDefinitionDigest: z.string().min(1).optional(),
+      cycleStep: sparkLoopCycleStepSchema.optional(),
+      binding: sparkLoopBindingSchema,
+      policy: sparkLoopPolicySchema,
+      checkpoint: sparkLoopCycleCheckpointSchema.optional(),
+      counters: sparkLoopCountersSchema,
+      dueAt: isoDateTimeSchema.optional(),
+      attempt: z.number().int().nonnegative(),
+      lastInvocationId: z.string().min(1).optional(),
+      reason: z.string().optional(),
+      error: z.string().optional(),
+    })
+    .superRefine((record, context) => {
+      if (
+        (record.sessionLifetime === "driver" && record.continuity !== "session") ||
+        (record.sessionLifetime === "driver_tick" && record.continuity !== "fresh")
+      ) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["sessionLifetime"],
+          message: "sessionLifetime conflicts with legacy continuity",
+        });
+      }
+    }),
+);
 
 const loopRouteSchema = z.object({
   cwd: z.string().min(1),
@@ -215,17 +236,40 @@ const loopRouteSchema = z.object({
   projectId: z.string().min(1).optional(),
 });
 
-export const sparkLoopStartRequestSchema = loopRouteSchema.extend({
-  loopId: z.string().min(1).optional(),
-  ownerSessionId: z.string().min(1),
-  continuity: sparkLoopContinuitySchema.default("session"),
-  binding: sparkLoopBindingSchema.optional(),
-  policy: sparkLoopPolicySchema.optional(),
-  prompt: z.string().min(1),
-  dueAt: isoDateTimeSchema.optional(),
-  reason: z.string().optional(),
-  domainStateDigest: z.string().min(1).optional(),
-});
+export const sparkLoopStartRequestSchema = loopRouteSchema
+  .extend({
+    loopId: z.string().min(1).optional(),
+    ownerSessionId: z.string().min(1),
+    sessionLifetime: sparkLoopSessionLifetimeSchema.optional(),
+    /** @deprecated Compatibility input and projection; use sessionLifetime. */
+    continuity: sparkLoopContinuitySchema.optional(),
+    binding: sparkLoopBindingSchema.optional(),
+    policy: sparkLoopPolicySchema.optional(),
+    prompt: z.string().min(1),
+    dueAt: isoDateTimeSchema.optional(),
+    reason: z.string().optional(),
+    domainStateDigest: z.string().min(1).optional(),
+  })
+  .superRefine((record, context) => {
+    if (!record.sessionLifetime || !record.continuity) return;
+    if (
+      (record.sessionLifetime === "driver" && record.continuity !== "session") ||
+      (record.sessionLifetime === "driver_tick" && record.continuity !== "fresh")
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sessionLifetime"],
+        message: "sessionLifetime conflicts with legacy continuity",
+      });
+    }
+  })
+  .transform(
+    (request) =>
+      normalizeLoopSessionLifetime(request) as typeof request & {
+        sessionLifetime: SparkLoopSessionLifetime;
+        continuity: SparkLoopContinuity;
+      },
+  );
 
 export const sparkLoopStatusRequestSchema = z.object({
   loopId: z.string().min(1).optional(),
@@ -277,6 +321,7 @@ export const sparkLoopMutationResultSchema = z.object({
 export type SparkLoopStatus = z.infer<typeof sparkLoopStatusSchema>;
 export type SparkLoopCycleStep = z.infer<typeof sparkLoopCycleStepSchema>;
 export type SparkLoopContinuity = z.infer<typeof sparkLoopContinuitySchema>;
+export type SparkLoopSessionLifetime = z.infer<typeof sparkLoopSessionLifetimeSchema>;
 export type SparkLoopBinding = z.infer<typeof sparkLoopBindingSchema>;
 export type SparkLoopCondition = z.infer<typeof sparkLoopConditionSchema>;
 export type SparkLoopBeforeTickRule = z.infer<typeof sparkLoopBeforeTickRuleSchema>;
@@ -295,3 +340,21 @@ export type SparkLoopScheduleRequest = z.infer<typeof sparkLoopScheduleRequestSc
 export type SparkLoopControlRequest = z.infer<typeof sparkLoopControlRequestSchema>;
 export type SparkLoopListResult = z.infer<typeof sparkLoopListResultSchema>;
 export type SparkLoopMutationResult = z.infer<typeof sparkLoopMutationResultSchema>;
+
+function normalizeLoopSessionLifetime(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  const sessionLifetime =
+    record.sessionLifetime === "driver" || record.sessionLifetime === "driver_tick"
+      ? record.sessionLifetime
+      : record.continuity === "fresh"
+        ? "driver_tick"
+        : "driver";
+  const continuity =
+    record.continuity === "session" || record.continuity === "fresh"
+      ? record.continuity
+      : sessionLifetime === "driver_tick"
+        ? "fresh"
+        : "session";
+  return { ...record, sessionLifetime, continuity };
+}

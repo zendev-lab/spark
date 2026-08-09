@@ -37,3 +37,6 @@ host 拒绝。回答可以建议修改，但不能声称已经执行了修改。
 
 `handoff full` 或 `handoff summary` 会把选定结果显式接纳到主会话，并在接纳后
 重置子会话。只有当旁支结论确实属于主线时才进行 handoff。
+
+父 Session 关闭时，daemon 会先关闭 Side Thread。完整 transcript 与 Invocation
+内容会被删除；有界摘要、用量、执行画像和显式 Evidence 仍可供授权诊断查询。

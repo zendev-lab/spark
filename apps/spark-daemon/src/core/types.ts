@@ -11,8 +11,8 @@ import {
   type SparkLoopBinding,
   type SparkLoopConditionReceipt,
   type SparkLoopCycleCheckpoint,
-  type SparkLoopContinuity,
   type SparkLoopPolicy,
+  type SparkLoopSessionLifetime,
   type SparkLoopView,
   type SparkTurnAttachment,
 } from "@zendev-lab/spark-protocol";
@@ -47,16 +47,20 @@ export interface SparkDaemonLoopTickTask extends Omit<
   "type" | "sessionId" | "cwd" | "restartCheckpoint"
 > {
   type: "loop.tick";
-  /** Owner-session alias used by generic invocation/session projections. */
+  /** Canonical owned child Session used for this tick's transcript and Invocation. */
   sessionId: string;
   loopId: string;
   binding: SparkLoopBinding;
   ownerSessionId: string;
   generation: number;
-  continuity: SparkLoopContinuity;
+  sessionLifetime?: SparkLoopSessionLifetime;
   cwd: string;
+  /** @deprecated Decode-only alias; runtime uses sessionId. */
   executionSessionId?: string;
-  stateOwnerSessionId: string;
+  /** @deprecated Decode-only projection; runtime uses ownerSessionId/stateBinding. */
+  stateOwnerSessionId?: string;
+  /** @deprecated Decode-only alias; runtime uses sessionLifetime. */
+  continuity?: "session" | "fresh";
   reset?: boolean;
   resumeFromInterrupt?: boolean;
 }
@@ -108,12 +112,16 @@ export interface SparkDaemonChannelContext {
 export interface SparkDaemonSessionRunTask {
   type: "session.run";
   sessionId: string;
-  /** Daemon-internal transcript identity for a fresh Loop tick. */
+  /** @deprecated Decode-only alias for old private Loop tasks. */
   executionSessionId?: string;
-  /** Session-scoped domain state owner when executionSessionId is private. */
+  /** Canonical Session state binding resolved before host construction. */
+  stateBindingSessionId?: string;
+  /** @deprecated Decode-only alias for stateBindingSessionId. */
   stateOwnerSessionId?: string;
-  /** Private execution transcripts are not indexed into the public registry. */
+  /** @deprecated Compatibility execution path for persisted pre-Supervisor tasks. */
   hiddenExecution?: boolean;
+  /** Optional presentation owner for internal child Session events. */
+  presentationSessionId?: string;
   prompt: string;
   /** Supervisor-frozen Role prompt for one owned child Session. */
   roleSystemPrompt?: string;
@@ -245,10 +253,11 @@ export function validateSparkDaemonTask(value: unknown): SparkDaemonTask {
   }
   return {
     type: "session.run",
-    sessionId: task.sessionId.trim(),
-    executionSessionId: nonEmptyString(task.executionSessionId),
-    stateOwnerSessionId: nonEmptyString(task.stateOwnerSessionId),
+    sessionId: nonEmptyString(task.executionSessionId) ?? task.sessionId.trim(),
+    stateBindingSessionId:
+      nonEmptyString(task.stateBindingSessionId) ?? nonEmptyString(task.stateOwnerSessionId),
     hiddenExecution: typeof task.hiddenExecution === "boolean" ? task.hiddenExecution : undefined,
+    presentationSessionId: nonEmptyString(task.presentationSessionId),
     prompt: task.prompt,
     roleSystemPrompt: nonEmptyString(task.roleSystemPrompt),
     roleAllowedTools: optionalStringList(task.roleAllowedTools, "roleAllowedTools"),
@@ -333,37 +342,36 @@ function validateSparkDaemonLoopTickTask(
   const ownerSessionId = nonEmptyString(task.ownerSessionId);
   const prompt = nonEmptyString(task.prompt);
   const cwd = nonEmptyString(task.cwd);
-  const stateOwnerSessionId = nonEmptyString(task.stateOwnerSessionId);
   if (!loopId) throw new Error("loop.tick task requires loopId");
   if (!ownerSessionId) throw new Error("loop.tick task requires ownerSessionId");
   if (!prompt) throw new Error("loop.tick task requires prompt");
   if (!cwd) throw new Error("loop.tick task requires cwd");
-  if (!stateOwnerSessionId || stateOwnerSessionId !== ownerSessionId) {
+  const legacyStateOwnerSessionId = nonEmptyString(task.stateOwnerSessionId);
+  if (legacyStateOwnerSessionId && legacyStateOwnerSessionId !== ownerSessionId) {
     throw new Error("loop.tick task stateOwnerSessionId must match ownerSessionId");
   }
   const binding = parseLoopBinding(task.binding);
-  if (task.continuity !== "session" && task.continuity !== "fresh") {
-    throw new Error("loop.tick task requires continuity");
-  }
+  const sessionLifetime =
+    task.sessionLifetime === "driver" || task.sessionLifetime === "driver_tick"
+      ? task.sessionLifetime
+      : task.continuity === "fresh"
+        ? "driver_tick"
+        : "driver";
   if (!Number.isInteger(task.generation) || Number(task.generation) <= 0) {
     throw new Error("loop.tick task requires a positive generation");
   }
-  const executionSessionId = nonEmptyString(task.executionSessionId);
-  if (task.continuity === "fresh" && !executionSessionId) {
-    throw new Error("fresh loop.tick task requires executionSessionId");
-  }
+  const sessionId = nonEmptyString(task.executionSessionId) ?? nonEmptyString(task.sessionId);
+  if (!sessionId) throw new Error("loop.tick task requires a child sessionId");
   return {
     type: "loop.tick",
-    sessionId: ownerSessionId,
+    sessionId,
     loopId,
     binding,
     ownerSessionId,
     generation: Number(task.generation),
-    continuity: task.continuity,
+    sessionLifetime,
     prompt,
     cwd,
-    stateOwnerSessionId,
-    ...(executionSessionId ? { executionSessionId } : {}),
     ...(typeof task.reset === "boolean" ? { reset: task.reset } : {}),
     ...(typeof task.resumeFromInterrupt === "boolean"
       ? { resumeFromInterrupt: task.resumeFromInterrupt }

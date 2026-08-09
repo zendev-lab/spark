@@ -19,6 +19,7 @@ export async function handleLoopRequest(
   };
   switch (request.method) {
     case "loop.start": {
+      const priorDriverSessionIds = driverSessionIdsForOwner(store, request.params.ownerSessionId);
       const session = await ctx.options.sessionRegistry?.get(request.params.ownerSessionId);
       if (ctx.options.sessionRegistry && !session) {
         throw new SparkDaemonControlError(
@@ -32,7 +33,11 @@ export async function handleLoopRequest(
           `Loop owner session is archived: ${request.params.ownerSessionId}`,
         );
       }
-      if (!session) return mutation(store.start(request.params));
+      if (!session) {
+        const started = store.start(request.params);
+        await closeReplacedDriverSessions(ctx, priorDriverSessionIds, started.driverSessionId);
+        return mutation(started);
+      }
       const cwd =
         session.cwd?.trim() ||
         (session.scope.kind === "workspace"
@@ -44,39 +49,94 @@ export async function handleLoopRequest(
           `Loop owner session has no execution cwd: ${request.params.ownerSessionId}`,
         );
       }
-      return mutation(
-        store.start({
-          ...request.params,
-          cwd,
-          ...(session.scope.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
-        }),
-      );
+      const started = store.start({
+        ...request.params,
+        cwd,
+        ...(session.scope.kind === "workspace" ? { workspaceId: session.scope.workspaceId } : {}),
+      });
+      await closeReplacedDriverSessions(ctx, priorDriverSessionIds, started.driverSessionId);
+      return mutation(started);
     }
     case "loop.status":
       return store.listResult(request.params);
-    case "loop.stop":
-      return mutation(
-        store.stop(request.params.loopId, request.params.reason ?? "stopped by control plane"),
+    case "loop.stop": {
+      const loop = store.stop(
+        request.params.loopId,
+        request.params.reason ?? "stopped by control plane",
       );
-    case "loop.restart":
-      return mutation(
-        store.restart(request.params.loopId, request.params.reason ?? "restarted by control plane"),
+      const driverSession = await ctx.options.sessionRegistry?.get(loop.driverSessionId);
+      if (driverSession && ctx.options.sessionSupervisor) {
+        await ctx.options.sessionSupervisor.close({
+          sessionId: loop.driverSessionId,
+          reason: "Loop stopped",
+          settleTimeoutMs: 0,
+        });
+      }
+      return mutation(loop);
+    }
+    case "loop.restart": {
+      const current = store.require(request.params.loopId);
+      const restarted = store.restart(
+        request.params.loopId,
+        request.params.reason ?? "restarted by control plane",
       );
-    case "loop.wake":
-      return mutation(
-        store.wake(request.params.loopId, {
-          prompt: request.params.prompt,
-          reason: request.params.reason ?? "manual wake",
-        }),
-      );
+      await closeReplacedDriverSessions(ctx, [current.driverSessionId], restarted.driverSessionId);
+      return mutation(restarted);
+    }
+    case "loop.wake": {
+      const current = store.require(request.params.loopId);
+      const woken = store.wake(request.params.loopId, {
+        prompt: request.params.prompt,
+        reason: request.params.reason ?? "manual wake",
+      });
+      await closeReplacedDriverSessions(ctx, [current.driverSessionId], woken.driverSessionId);
+      return mutation(woken);
+    }
     case "loop.schedule":
       return mutation(store.schedule(request.params));
     case "loop.control": {
-      return await executeTrustedWorkbenchLoopControl({
+      const result = await executeTrustedWorkbenchLoopControl({
         db: ctx.db,
         request: request.params,
         publish: (event) => ctx.options.eventBus?.publish(event),
       });
+      if (result.loop.status === "stopped" || result.loop.status === "completed") {
+        await closeDriverSession(
+          ctx,
+          store.require(result.loop.loopId).driverSessionId,
+          `Loop ${result.loop.status}`,
+        );
+      }
+      return result;
     }
   }
+}
+
+function driverSessionIdsForOwner(store: SparkLoopStore, ownerSessionId: string): string[] {
+  return store
+    .list({ ownerSessionId, includeTerminal: true })
+    .filter((loop) => loop.sessionLifetime === "driver")
+    .map((loop) => loop.driverSessionId);
+}
+
+async function closeReplacedDriverSessions(
+  ctx: LocalRpcDispatchContext,
+  priorDriverSessionIds: string[],
+  activeDriverSessionId: string,
+): Promise<void> {
+  for (const sessionId of new Set(priorDriverSessionIds)) {
+    if (sessionId === activeDriverSessionId) continue;
+    await closeDriverSession(ctx, sessionId, "Loop Session incarnation replaced");
+  }
+}
+
+async function closeDriverSession(
+  ctx: LocalRpcDispatchContext,
+  sessionId: string,
+  reason: string,
+): Promise<void> {
+  if (!ctx.options.sessionSupervisor || !ctx.options.sessionRegistry) return;
+  const session = await ctx.options.sessionRegistry.get(sessionId);
+  if (!session || session.lifecycle === "closed") return;
+  await ctx.options.sessionSupervisor.close({ sessionId, reason, settleTimeoutMs: 0 });
 }

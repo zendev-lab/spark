@@ -135,6 +135,8 @@ export interface SparkHeadlessSessionRunInput {
     adapterAccountIdentity?: string;
   };
   invocationId?: string;
+  stateBindingSessionId?: string;
+  /** @deprecated Compatibility input. */
   stateOwnerSessionId?: string;
   loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];
@@ -212,7 +214,7 @@ export async function runSparkHeadlessSession(
     channelBinding: input.channelBinding,
     invocationId: input.invocationId,
     tokenUsage: input.tokenUsage,
-    stateOwnerSessionId: input.stateOwnerSessionId,
+    stateBindingSessionId: input.stateBindingSessionId ?? input.stateOwnerSessionId,
     loop: input.loop,
     sessionQuestionChain: input.sessionQuestionChain,
     allowedTools: input.roleRunRef

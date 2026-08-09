@@ -1955,7 +1955,7 @@ describe("daemon native session execution", () => {
     expect(executeSession).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: "loop_fresh-loop_4",
-        stateOwnerSessionId: "owner-session",
+        stateBindingSessionId: "owner-session",
         reset: true,
         sessionVisibility: "internal",
         sessionPurpose: "loop_tick",

@@ -388,6 +388,68 @@ describe("SessionSupervisor", () => {
     harness.close();
   });
 
+  it("closes a Side Thread through the Supervisor without opening public archive mutation", async () => {
+    const harness = await createHarness();
+    const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");
+    const parent = await harness.supervisor.instantiate({
+      workspaceId: "ws-test",
+      role: administratorRole,
+      parentSessionId: root.sessionId,
+      sessionId: "side-parent",
+      purpose: "interactive",
+      visibility: "public",
+      retention: "retain",
+    });
+    const transcript = join(harness.root, "side-thread.jsonl");
+    await writeFile(transcript, '{"content":"private tangent"}\n', "utf8");
+    const sideThread = await harness.registry.ensureSideThread({
+      parentSessionId: parent.sessionId,
+      sessionId: "side-child",
+      sessionPath: transcript,
+      mode: "tangent",
+    });
+
+    const closed = await harness.supervisor.close({ sessionId: sideThread.sessionId });
+
+    expect(closed).toMatchObject({ lifecycle: "closed", status: "archived" });
+    expect(closed.transcriptRef).toBeUndefined();
+    expect(closed.closeReceipts).toEqual([
+      expect.objectContaining({
+        source: "deterministic_fallback",
+        quality: "fallback",
+        incarnation: 1,
+      }),
+    ]);
+    await expect(access(transcript)).rejects.toMatchObject({ code: "ENOENT" });
+    harness.close();
+  });
+
+  it("idempotently instantiates driver-owned child Sessions with explicit state binding", async () => {
+    const harness = await createHarness();
+    const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");
+    const input = {
+      sessionId: "driver-session",
+      parentSessionId: root.sessionId,
+      owner: { kind: "driver", ref: "loop:test" } as const,
+      authority: { kind: "driver", ref: "loop:test" } as const,
+      stateBinding: { kind: "session", ref: root.sessionId } as const,
+      purpose: "driver",
+    };
+    const first = await harness.supervisor.instantiateOwnedContext(input);
+    const second = await harness.supervisor.instantiateOwnedContext(input);
+
+    expect(second.sessionId).toBe(first.sessionId);
+    expect(first).toMatchObject({
+      lifetime: "owned",
+      owner: input.owner,
+      authority: input.authority,
+      stateBinding: input.stateBinding,
+      visibility: "internal",
+      retention: "discard_on_close",
+    });
+    harness.close();
+  });
+
   it("restores only retained public persistent records as a new incarnation", async () => {
     const harness = await createHarness();
     const root = await harness.supervisor.ensureWorkspaceAdministrator("ws-test");

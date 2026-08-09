@@ -81,6 +81,7 @@ export function sessionControlOptions(
     paths,
     db,
     sessionRegistry: options.sessionRegistry,
+    sessionSupervisor: options.sessionSupervisor,
     modelControl: options.modelControl,
     onInvocationQueued: options.onInvocationQueued,
     actor: "spark-daemon-local-rpc" as const,

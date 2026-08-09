@@ -102,6 +102,7 @@ export async function handleSessionRequest(
           loopId: loop.loopId,
           ownerSessionId: loop.ownerSessionId,
           status: loop.status,
+          sessionLifetime: loop.sessionLifetime,
           continuity: loop.continuity,
           generation: loop.generation,
           cycleStep: loop.cycleStep,

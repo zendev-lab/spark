@@ -41,3 +41,8 @@ recommend a change, but it cannot truthfully claim that it performed one.
 `handoff full` or `handoff summary` explicitly admits the selected result to the
 parent and resets the child after acceptance. Use handoff only when the tangent
 belongs in the main session.
+
+When the parent closes, the daemon closes the Side Thread first. Its full
+transcript and Invocation content are discarded; bounded summary, usage,
+execution profile, and explicit Evidence remain available to authorized
+diagnostics.

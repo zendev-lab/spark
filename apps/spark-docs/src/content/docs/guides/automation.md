@@ -48,8 +48,10 @@ schedules another one.
 /loop restart [objective]
 ```
 
-Use `/loop fresh <objective>` when each step should start with a fresh hidden
-execution context while keeping the same Workspace state.
+Use `/loop fresh <objective>` when each step should run in a fresh owned child
+Session while keeping the same Workspace state. The child closes after the
+tick and normally discards its full transcript; the parent retains bounded
+activity, usage, and explicit Evidence.
 
 ## Repro
 

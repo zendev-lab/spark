@@ -16,14 +16,19 @@ must name the checkpoint, deduplication key, retry boundary, and external-system
 
 | Concept | Current owner | Remaining gap |
 | --- | --- | --- |
-| execution identity | daemon invocation id; workflow and loop refs are parent scopes | no single step identity across every execution surface |
+| execution identity | daemon Invocation id inside an owner-bound Session; workflow and Loop refs are parent scopes | no single tool-step identity across every execution surface |
 | checkpoint | workflow events/snapshots and invocation restart checkpoints | general tool/model side effects are not step-memoized |
 | event history | daemon invocation events and Hub projections | projections are not a replay journal for the turn engine |
 | retry | daemon invocation attempts and workflow retry policy | most retries restart the owning turn or run |
 | wait | ask/approval lifecycle and driver scheduling | no general durable timer/await record for arbitrary work |
 
-The daemon remains the execution owner. Hub data is a projection, and `spark-loop` remains
-continuation policy rather than a second execution journal.
+The daemon remains the execution owner. `SessionSupervisor` composes the
+existing Session Registry and Invocation SQLite store; it is not a journal or
+scheduler. Hub/TUI/ACP data is a projection, and `spark-loop` remains
+continuation policy rather than a second execution journal. Crash probes should
+therefore assert the `RoleSpec -> Session -> Invocation` owner chain and verify
+that temporary child payloads are redacted only after their Invocations become
+terminal.
 
 ## Small validation slice
 

@@ -68,7 +68,7 @@ export class SparkWorkflowRunManagerController {
         ...(control.workflowSelector ? { workflowSelector: control.workflowSelector } : {}),
       },
       ownerSessionId,
-      continuity: "session",
+      sessionLifetime: "driver",
       cwd,
       prompt: [
         "Advance the active Spark workflow scheduler by exactly one daemon-owned tick.",

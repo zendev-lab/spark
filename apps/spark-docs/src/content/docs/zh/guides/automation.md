@@ -43,8 +43,9 @@ Loop 用于刻意保持开放的重复工作。只有当前步骤明确调度下
 /loop restart [目标]
 ```
 
-如果每一步都应使用新的隐藏执行上下文，同时保留同一个工作区状态，使用
-`/loop fresh <目标>`。
+如果每一步都应在新的 owned 子 Session 中运行，同时保留同一个工作区状态，使用
+`/loop fresh <目标>`。子 Session 会在 tick 结束后关闭，通常删除完整 transcript；
+父 Session 仍保留有界活动、用量和显式 Evidence。
 
 ## Repro
 

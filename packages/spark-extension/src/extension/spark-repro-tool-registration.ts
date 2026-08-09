@@ -791,7 +791,7 @@ export async function ensureActiveReproLoop(
         reproId: repro.reproId,
       },
       ownerSessionId,
-      continuity: "session",
+      sessionLifetime: "driver",
       cwd: sparkStateCwd(ctx.cwd, ctx),
       prompt: renderReproTickInstruction(repro),
       reason: options.reason ?? "active Repror recovered",

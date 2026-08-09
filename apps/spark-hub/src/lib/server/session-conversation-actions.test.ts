@@ -250,6 +250,8 @@ describe("session conversation actions", () => {
     expect(mocks.createManagedSessionForHub).toHaveBeenCalledWith({
       scope: { kind: "workspace", workspaceId: "ws_demo" },
       workspaceId: "ws_demo",
+      roleRef: "role:builtin-administrator",
+      purpose: "hub_interactive",
       sessionId: expect.stringMatching(/^sess_/),
       idempotencyKey: expect.stringMatching(/^idem_[a-f0-9]{32}$/u),
     });
@@ -315,6 +317,8 @@ describe("session conversation actions", () => {
     expect(mocks.createManagedSessionForHub).toHaveBeenCalledWith({
       scope: { kind: "workspace", workspaceId: "ws_demo" },
       workspaceId: "ws_demo",
+      roleRef: "role:builtin-administrator",
+      purpose: "hub_interactive",
       sessionId: deterministicSessionId,
       idempotencyKey: expect.stringMatching(/^idem_[a-f0-9]{32}$/u),
     });

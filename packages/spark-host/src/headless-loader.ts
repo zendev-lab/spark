@@ -94,6 +94,8 @@ export interface SparkHeadlessSessionRunInput {
     adapterAccountIdentity?: string;
   };
   invocationId?: string;
+  stateBindingSessionId?: string;
+  /** @deprecated Compatibility input; normalized before host construction. */
   stateOwnerSessionId?: string;
   loop?: SparkHostLoopContext;
   sessionQuestionChain?: readonly string[];

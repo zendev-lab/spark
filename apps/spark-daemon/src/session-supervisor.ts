@@ -5,9 +5,11 @@ import {
   sparkSessionCloseReceiptSchema,
   type SparkSessionCloseCandidate,
   type SparkSessionCloseReceipt,
+  type SparkSessionAuthority,
   type SparkSessionOwner,
   type SparkSessionRegistryRecord,
   type SparkSessionRetention,
+  type SparkSessionStateBinding,
   type SparkSessionVisibility,
 } from "@zendev-lab/spark-protocol/session-assignment";
 import type { SparkRoleSpec } from "@zendev-lab/spark-protocol/role-session";
@@ -23,6 +25,7 @@ import {
 export interface InstantiateSupervisedSessionInput {
   workspaceId: string;
   role: SparkRoleSpec;
+  title?: string;
   parentSessionId?: string;
   owner?: SparkSessionOwner;
   sessionId?: string;
@@ -48,6 +51,18 @@ export interface InvokeSupervisedSessionInput {
   requireStructuredOutcome?: boolean;
   signal?: AbortSignal;
   now?: string;
+}
+
+export interface InstantiateOwnedContextInput {
+  sessionId: string;
+  parentSessionId: string;
+  owner: SparkSessionOwner;
+  authority: SparkSessionAuthority;
+  stateBinding: SparkSessionStateBinding;
+  purpose: string;
+  cwd?: string;
+  visibility?: SparkSessionVisibility;
+  retention?: SparkSessionRetention;
 }
 
 export interface CloseSupervisedSessionInput {
@@ -156,7 +171,8 @@ export class SessionSupervisor {
       scope: { kind: "workspace", workspaceId },
       workspaceId,
       ...(input.cwd ? { cwd: input.cwd } : {}),
-      role: input.role.ref,
+      ...(input.title ? { title: input.title } : {}),
+      ...(input.role.ref === "role:builtin-administrator" ? {} : { role: input.role.id }),
       roleRef: input.role.ref,
       roleRevision: input.role.revision,
       modelType: input.role.modelType,
@@ -240,6 +256,57 @@ export class SessionSupervisor {
     }
     input.signal?.removeEventListener("abort", cancelFromSignal);
     return invocation;
+  }
+
+  /** Instantiate a daemon-owned non-Role context under an open parent Session. */
+  async instantiateOwnedContext(
+    input: InstantiateOwnedContextInput,
+  ): Promise<SparkSessionRegistryRecord> {
+    const sessionId = required(input.sessionId, "sessionId");
+    const parent = await this.requireOpen(required(input.parentSessionId, "parentSessionId"));
+    if (parent.scope.kind !== "workspace") {
+      throw new SparkSessionRegistryError(
+        "session_scope_mismatch",
+        `owned Session parent ${parent.sessionId} is not workspace-scoped`,
+      );
+    }
+    const existing = await this.registry.get(sessionId);
+    if (existing) {
+      if (
+        existing.lifecycle === "open" &&
+        existing.scope.kind === "workspace" &&
+        existing.scope.workspaceId === parent.scope.workspaceId &&
+        existing.owner?.kind === input.owner.kind &&
+        existing.owner.ref === input.owner.ref &&
+        existing.stateBinding?.kind === input.stateBinding.kind &&
+        existing.stateBinding.ref === input.stateBinding.ref
+      ) {
+        return existing;
+      }
+      throw new SparkSessionRegistryError(
+        "session_owner_invalid",
+        `owned Session identity ${sessionId} conflicts with its persisted owner`,
+      );
+    }
+    if (!(await this.isOwnerReferenceValid(input.owner, parent.scope.workspaceId))) {
+      throw new SparkSessionRegistryError(
+        "session_owner_invalid",
+        `owner ${input.owner.kind}:${input.owner.ref} is not active in workspace ${parent.scope.workspaceId}`,
+      );
+    }
+    return await this.registry.createSupervised({
+      sessionId,
+      scope: parent.scope,
+      workspaceId: parent.scope.workspaceId,
+      ...((input.cwd ?? parent.cwd) ? { cwd: input.cwd ?? parent.cwd } : {}),
+      lifetime: "owned",
+      owner: input.owner,
+      authority: input.authority,
+      stateBinding: input.stateBinding,
+      visibility: input.visibility ?? "internal",
+      retention: input.retention ?? "discard_on_close",
+      purpose: required(input.purpose, "purpose"),
+    });
   }
 
   async close(input: CloseSupervisedSessionInput): Promise<SparkSessionRegistryRecord> {
@@ -406,15 +473,17 @@ export class SessionSupervisor {
     }
     const redaction = await this.prepareContentDiscard(current, input);
     if (redaction?.blockedInvocationIds.length) return await this.require(current.sessionId);
-    if (current.relation?.kind === "side_thread") return await this.require(current.sessionId);
-    return await this.registry.archive({
+    const archiveInput: Parameters<DaemonSessionRegistry["archiveOwned"]>[0] = {
       sessionId: current.sessionId,
       source: "manual",
       reason: input.reason ?? "closed by SessionSupervisor",
       tags: ["lifecycle:closed", `owner:${current.owner?.kind ?? "unknown"}`],
       discardTranscript: current.retention === "discard_on_close",
       ...(input.now ? { now: input.now } : {}),
-    });
+    };
+    return current.relation?.kind === "side_thread"
+      ? await this.registry.archiveOwned(archiveInput)
+      : await this.registry.archive(archiveInput);
   }
 
   private async prepareContentDiscard(

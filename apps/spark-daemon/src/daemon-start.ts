@@ -367,25 +367,42 @@ async function createPreparedDaemonRuntime(
         registry: options.sessionRegistry,
         invocations: invocationStore,
         ownerExists: async (owner, session) => {
-          if (
-            (owner.kind !== "task_run" && owner.kind !== "task_revision") ||
-            session.relation?.kind !== "task_execution" ||
-            session.scope.kind !== "workspace"
-          ) {
-            return false;
+          if (owner.kind === "driver") {
+            const loop = loopStore.get(owner.ref);
+            return Boolean(
+              loop &&
+              loop.driverSessionId === session.sessionId &&
+              loop.status !== "completed" &&
+              loop.status !== "stopped",
+            );
           }
-          return await isTaskSessionOwnerValid(
-            {
-              owner,
-              workspaceId: session.scope.workspaceId,
-              sessionId: session.sessionId,
-              relation: session.relation,
-            },
-            {
-              resolveWorkspaceCwd: (workspaceId) =>
-                resolveWorkspaceLocalPath(options.db, workspaceId),
-            },
-          );
+          if (owner.kind === "driver_tick") {
+            const invocation = invocationStore.getSummary(owner.ref);
+            return Boolean(
+              invocation &&
+              invocation.sessionId === session.sessionId &&
+              (invocation.status === "queued" || invocation.status === "running"),
+            );
+          }
+          if (
+            (owner.kind === "task_run" || owner.kind === "task_revision") &&
+            session.relation?.kind === "task_execution" &&
+            session.scope.kind === "workspace"
+          ) {
+            return await isTaskSessionOwnerValid(
+              {
+                owner,
+                workspaceId: session.scope.workspaceId,
+                sessionId: session.sessionId,
+                relation: session.relation,
+              },
+              {
+                resolveWorkspaceCwd: (workspaceId) =>
+                  resolveWorkspaceLocalPath(options.db, workspaceId),
+              },
+            );
+          }
+          return false;
         },
       })
     : null;
@@ -964,6 +981,7 @@ function daemonServerConnectionOptions(
     humanWaits: runtime.humanWaits,
     respondHumanInteraction: (wait, input) => runtime.humanInteractions.respond(wait, input),
     channelIngress: runtime.channelIngress ?? undefined,
+    sessionSupervisor: runtime.sessionSupervisor ?? undefined,
     registerInvocationEventTarget: (sink) => runtime.eventHub.register(sink),
     registerHumanRequestOutboxTarget: runtime.registerHumanRequestOutboxTarget,
   };
@@ -1147,11 +1165,41 @@ function completeScheduledInvocation(
   if (task.type === "loop.tick") {
     const completed = input.loopStore.completeTick(invocation, task, completion);
     emitLoopUpdate(input, completed.loop, invocation.invocationId);
+    if (
+      (task.sessionLifetime ?? (task.continuity === "fresh" ? "driver_tick" : "driver")) ===
+        "driver_tick" ||
+      completed.loop.status === "completed" ||
+      completed.loop.status === "stopped"
+    ) {
+      void input.sessionSupervisor
+        ?.close({
+          sessionId: task.sessionId,
+          reason: `Loop ${completed.loop.status}`,
+          settleTimeoutMs: 0,
+        })
+        .catch((error) => {
+          console.error(`[spark-daemon] failed to close Loop Session ${task.sessionId}`, error);
+        });
+    }
     return completed.invocation;
   }
   if (task.type === "loop.evaluate") {
     const completed = input.loopStore.completeEvaluation(invocation, task, completion);
     emitLoopUpdate(input, completed.loop, invocation.invocationId);
+    if (completed.loop.status === "completed" || completed.loop.status === "stopped") {
+      void input.sessionSupervisor
+        ?.close({
+          sessionId: completed.loop.driverSessionId,
+          reason: `Loop ${completed.loop.status}`,
+          settleTimeoutMs: 0,
+        })
+        .catch((error) => {
+          console.error(
+            `[spark-daemon] failed to close Loop Session ${completed.loop.driverSessionId}`,
+            error,
+          );
+        });
+    }
     return completed.invocation;
   }
   const completed = completeInvocationWithChannelDelivery(
@@ -1589,6 +1637,7 @@ interface SparkDaemonServerConnectionOptions extends StartSparkDaemonOptions {
   humanWaits: SparkDaemonHumanWaitRegistry;
   respondHumanInteraction: SparkDaemonHumanInteractionResponder;
   channelIngress?: DaemonChannelIngressRuntime;
+  sessionSupervisor?: SessionSupervisor;
   registerInvocationEventTarget?: (
     sink: (event: SparkInvocationEvent) => void | Promise<void>,
   ) => () => void;
@@ -2040,6 +2089,7 @@ async function runSparkDaemonServerConnection(
         ...(options.modelControl ? { modelControl: options.modelControl } : {}),
         ...(options.channelIngress ? { channelIngress: options.channelIngress } : {}),
         ...(options.sessionRegistry ? { sessionRegistry: options.sessionRegistry } : {}),
+        ...(options.sessionSupervisor ? { sessionSupervisor: options.sessionSupervisor } : {}),
         invocationRegistry: options.invocationRegistry,
         humanWaits: options.humanWaits,
         respondHumanInteraction: options.respondHumanInteraction,

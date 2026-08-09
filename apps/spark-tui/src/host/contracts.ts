@@ -73,6 +73,8 @@ export interface SparkCliHostServicesOptions {
   /** Host-private test/bootstrap seam; never exposed to extensions or model tools. */
   memoryDirectIntentAuthority?: SparkMemoryDirectIntentTurnAuthority;
   tokenUsage?: SparkHeadlessTokenUsageContext;
+  stateBindingSessionId?: string;
+  /** @deprecated Compatibility input. */
   stateOwnerSessionId?: string;
   loop?: SparkHostRuntimeOptions["loop"];
   sessionQuestionChain?: readonly string[];

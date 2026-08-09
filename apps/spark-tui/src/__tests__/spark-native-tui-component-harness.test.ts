@@ -66,6 +66,8 @@ function recordingDriverControl(starts: SparkLoopStartRequest[]): SparkDaemonLoo
           binding: input.binding ?? {},
           ownerSessionId: input.ownerSessionId,
           status: "scheduled",
+          sessionLifetime:
+            input.sessionLifetime ?? (input.continuity === "fresh" ? "driver_tick" : "driver"),
           continuity: input.continuity ?? "session",
           generation: 1,
           policy: sparkLoopPolicySchema.parse(input.policy ?? {}),
@@ -1424,7 +1426,7 @@ test("native /goal starts the daemon-owned driver instead of entering the local 
     assert.equal(driverStarts.length, 1);
     assert.ok(driverStarts[0]?.binding?.goalId);
     assert.equal(driverStarts[0]?.ownerSessionId, "sess_goal_bridge");
-    assert.equal(driverStarts[0]?.continuity, "session");
+    assert.equal(driverStarts[0]?.sessionLifetime, "driver");
     assert.deepEqual(forwarded, []);
     assert.deepEqual(responderInputs, []);
     assert.equal(host.peekOutbox().length, 0);
