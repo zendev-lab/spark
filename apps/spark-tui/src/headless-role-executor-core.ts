@@ -322,6 +322,10 @@ export async function runSparkHeadlessRoleInstruction(
       approvalMethod: "auto",
       sessionMode: input.mode ?? "execute",
       tokenUsage: options.tokenUsage,
+      roleNativeCompatibilityRecovery: {
+        sparkHome: options.sparkHome,
+        controlSparkHome: options.controlSparkHome,
+      },
     } satisfies SparkCliHostServicesOptions);
   } catch (error) {
     if (input.signal?.aborted) throwIfHeadlessAborted(input.signal);

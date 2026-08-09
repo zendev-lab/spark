@@ -21,7 +21,10 @@ import {
   type Task,
   type TaskRef,
 } from "@zendev-lab/spark-core";
-import { withRoleNativeExecutorCompatibilityFallback } from "./native-executor.ts";
+import {
+  withRoleNativeExecutorCompatibilityFallback,
+  type RoleNativeExecutorCompatibilityFallbackDeps,
+} from "./native-executor.ts";
 
 export type ReviewTargetKind = "task" | "goal" | "tool_approval";
 export type ReviewVerdictOutcome = "approved" | "needs_changes" | "blocked";
@@ -264,6 +267,8 @@ export interface SparkRolesReviewerRunnerOptions {
   env?: NodeJS.ProcessEnv;
   reviewerThinkingLevel?: ReviewerThinkingLevel;
   nativeExecutor?: ExtensionRoleRunner;
+  /** Runtime roots used only by the reviewer-only isolated compatibility fallback. */
+  nativeExecutorFallback?: Omit<RoleNativeExecutorCompatibilityFallbackDeps, "runIsolatedFallback">;
   now?: () => string;
   /** Maximum retry attempts for transient failures (timeout, overloaded). Default: 2. */
   maxRetries?: number;
@@ -352,7 +357,10 @@ export class SparkRolesReviewerRunner implements ReviewerRunner {
     this.#sessionDir = options.sessionDir;
     this.#env = options.env;
     this.#reviewerThinkingLevel = options.reviewerThinkingLevel ?? DEFAULT_REVIEWER_THINKING_LEVEL;
-    this.#nativeExecutor = withRoleNativeExecutorCompatibilityFallback(options.nativeExecutor);
+    this.#nativeExecutor = withRoleNativeExecutorCompatibilityFallback(
+      options.nativeExecutor,
+      options.nativeExecutorFallback,
+    );
     this.#now = options.now ?? nowIso;
     this.#maxRetries = options.maxRetries ?? 2;
     this.#retryBaseDelayMs = options.retryBaseDelayMs ?? 5_000;

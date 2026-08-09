@@ -54,6 +54,10 @@ export interface SparkToolContext {
   /** Daemon-backed model catalog projection supplied by the native host. */
   modelRegistry?: unknown;
   runRole?: ExtensionRoleRunner;
+  roleNativeCompatibilityRecovery?: {
+    sparkHome?: string;
+    controlSparkHome?: string;
+  };
   sparkActiveMode?: {
     mode: "plan" | "execute";
   };

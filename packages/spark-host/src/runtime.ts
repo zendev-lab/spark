@@ -127,6 +127,11 @@ export interface SparkHostRuntimeOptions {
   leafRunner?: LeafCapabilityRunner;
   /** Optional daemon-native role runner exposed to tools via ctx.runRole. */
   roleRunner?: ExtensionRoleRunner;
+  /** Host-owned roots for reviewer-only isolated native compatibility recovery. */
+  roleNativeCompatibilityRecovery?: {
+    sparkHome?: string;
+    controlSparkHome?: string;
+  };
 }
 
 const NOT_IMPLEMENTED = (name: string): Error =>
@@ -155,6 +160,7 @@ export class SparkHostRuntime implements SparkHostAPI {
   sparkStateRoot: string | undefined;
   readonly sessionSurface: "local" | "channel" | undefined;
   readonly sessionSource: "tui" | "web" | "channel" | "daemon" | "session" | undefined;
+  readonly roleNativeCompatibilityRecovery: SparkHostRuntimeOptions["roleNativeCompatibilityRecovery"];
   readonly channelBinding:
     | {
         adapter: "feishu" | "infoflow" | "qqbot";
@@ -198,6 +204,7 @@ export class SparkHostRuntime implements SparkHostAPI {
     this.sparkStateRoot = options.sparkStateRoot;
     this.sessionSurface = options.sessionSurface;
     this.sessionSource = options.sessionSource;
+    this.roleNativeCompatibilityRecovery = options.roleNativeCompatibilityRecovery;
     this.channelBinding = options.channelBinding;
     this.invocationId = options.invocationId?.trim() || undefined;
     this.#memoryDirectIntentAuthority = options.memoryDirectIntentAuthority;
@@ -614,6 +621,9 @@ export class SparkHostRuntime implements SparkHostAPI {
       ...(this.modelRegistry ? { modelRegistry: this.modelRegistry } : {}),
       ...(this.leafRunner ? { runLeaf: this.leafRunner } : {}),
       ...(this.roleRunner ? { runRole: this.roleRunner } : {}),
+      ...(this.roleNativeCompatibilityRecovery
+        ? { roleNativeCompatibilityRecovery: { ...this.roleNativeCompatibilityRecovery } }
+        : {}),
       ...extra,
     };
   }

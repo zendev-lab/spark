@@ -137,6 +137,10 @@ async function reviewGoalLoopCompletion(
       sparkHome: options.sparkHome,
       controlSparkHome: options.controlSparkHome,
     }),
+    nativeExecutorFallback: {
+      sparkHome: options.sparkHome,
+      controlSparkHome: options.controlSparkHome,
+    },
   });
   const review = await reviewer.review(reviewInput, signal);
   const verdict = review.verdict as GoalReviewVerdict;

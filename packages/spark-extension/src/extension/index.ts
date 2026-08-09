@@ -204,6 +204,7 @@ export default function sparkExtension(pi: SparkProductFacadeApi) {
       sessionModel: sessionModelName(ctx.model),
       reviewerThinkingLevel: capReviewerThinkingLevel(pi.getThinkingLevel?.()),
       nativeExecutor: ctx.runRole,
+      nativeExecutorFallback: ctx.roleNativeCompatibilityRecovery,
     });
   }
 

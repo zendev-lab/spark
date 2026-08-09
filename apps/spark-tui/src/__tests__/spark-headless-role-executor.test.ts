@@ -581,6 +581,41 @@ test("runSparkHeadlessRoleInstruction records completed and blocked structured o
   }
 });
 
+test("daemon headless role host exposes reviewer fallback roots to subject-review extensions", async () => {
+  let captured:
+    | {
+        sparkHome?: string;
+        roleNativeCompatibilityRecovery?: {
+          sparkHome?: string;
+          controlSparkHome?: string;
+        };
+      }
+    | undefined;
+  const services = headlessRoleServices(async (tools) => {
+    await executeRoleOutcomeTool(tools, {
+      kind: "completed",
+      code: "worker_completed",
+      reason: "done",
+    });
+    return successfulOutcome("done");
+  });
+
+  await runSparkHeadlessRoleInstruction(roleInstructionInput("reviewer-fallback-roots"), {
+    sparkHome: "/daemon/session-state",
+    controlSparkHome: "/daemon/provider-config",
+    createServices: async (options) => {
+      captured = options;
+      return services as never;
+    },
+  });
+
+  assert.equal(captured?.sparkHome, "/daemon/session-state");
+  assert.deepEqual(captured?.roleNativeCompatibilityRecovery, {
+    sparkHome: "/daemon/session-state",
+    controlSparkHome: "/daemon/provider-config",
+  });
+});
+
 test("runSparkHeadlessRoleInstruction rejects duplicate structured outcome reports", async () => {
   const services = headlessRoleServices(async (tools) => {
     await executeRoleOutcomeTool(tools, {

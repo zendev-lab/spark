@@ -140,6 +140,33 @@ test.sequential("isolated reviewer executor owns a fresh worker module graph wit
   }
 });
 
+test("isolated reviewer executor forwards daemon runtime roots only to the worker factory", async () => {
+  await withExecutorFixture(
+    `export const createSparkHeadlessSessionExecutor = () => async () => ({});
+     export const createSparkHeadlessRoleExecutor = (options) => async (request) => ({
+       record: { ...request.record, status: "succeeded" },
+       outcome: { kind: "completed", code: "completed", reason: JSON.stringify(options) },
+       stdout: "approved",
+       stderr: "",
+       jsonEvents: [],
+     });`,
+    async (moduleSpecifier) => {
+      const result = await runIsolatedRoleNativeExecutor(request(), {
+        moduleSpecifier,
+        sparkHome: "/daemon/session-state",
+        controlSparkHome: "/daemon/provider-config",
+      });
+      assert.equal(
+        result.outcome?.reason,
+        JSON.stringify({
+          sparkHome: "/daemon/session-state",
+          controlSparkHome: "/daemon/provider-config",
+        }),
+      );
+    },
+  );
+});
+
 test("isolated reviewer executor aborts execution and cannot return late success", async () => {
   await withExecutorFixture(
     `export const createSparkHeadlessSessionExecutor = () => async () => ({});

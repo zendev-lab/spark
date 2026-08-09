@@ -38,6 +38,10 @@ type IsolatedExecutorMessage =
 
 export interface IsolatedRoleNativeExecutorOptions {
   moduleSpecifier?: string;
+  /** Daemon-owned runtime state root required by the headless host bootstrap. */
+  sparkHome?: string;
+  /** Global provider/config root required by the headless host bootstrap. */
+  controlSparkHome?: string;
 }
 
 /**
@@ -65,6 +69,10 @@ export async function runIsolatedRoleNativeExecutor(
       workerData: {
         request: serializedRequest,
         moduleSpecifier: resolveSparkHeadlessExecutorSpecifier(requestedSpecifier),
+        options: {
+          ...(options.sparkHome ? { sparkHome: options.sparkHome } : {}),
+          ...(options.controlSparkHome ? { controlSparkHome: options.controlSparkHome } : {}),
+        },
       },
     });
   } catch {
@@ -382,6 +390,8 @@ async function run() {
     !workerData ||
     typeof workerData !== "object" ||
     typeof workerData.moduleSpecifier !== "string" ||
+    !workerData.options ||
+    typeof workerData.options !== "object" ||
     !workerData.request ||
     typeof workerData.request !== "object"
   ) {
@@ -406,7 +416,7 @@ async function run() {
 
   let executor;
   try {
-    executor = createExecutor();
+    executor = createExecutor(workerData.options);
     if (typeof executor !== "function") throw new Error("invalid executor");
   } catch {
     sendFailure("bootstrap");
