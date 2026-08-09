@@ -49,6 +49,19 @@ Whether an answer “counts” (option selected or non-empty custom text) is def
 
 Cross-session agent-to-agent traffic is **messages** (session inspector tab), not Inbox. Inbox is only agent→user human asks.
 
+## Autonomous Goal/Repro evidence requests
+
+The autonomous contract is owned by
+[`autonomous-dual-lane.md`](./autonomous-dual-lane.md). Active Goal/Repro turns
+must persist detached asynchronous evidence requests and continue independent
+work. Their pending decision status is orthogonal to daemon scheduler activity.
+Omitted/default blocking delivery, explicit blocking delivery, Ask aliases, and
+`autoAnswer=true` must fail at the execution boundary before creating an
+in-turn UI wait or durable blocking continuation. AnswerEvents retain this
+specification's request/response correlation and direct-user provenance rules.
+
+Ordinary non-autonomous sessions retain the existing interaction contract.
+
 ## Related
 
 - [`tools.md`](./tools.md) — `ask` is the only structured question surface; cancellation is not approval.
