@@ -217,6 +217,26 @@ describe("artifact kinds", () => {
     await writeFile(blobPath, JSON.stringify(body), "utf8");
 
     await expect(store.get(ref)).rejects.toThrow("artifact blob hash mismatch");
+
+    const missingHashRef = "artifact:managed-missing-hash" as ArtifactRef;
+    await store.putManagedDocument({
+      ref: missingHashRef,
+      bindingId: "workbench-binding-missing-hash",
+      title: "Workbench",
+      mediaType: "application/vnd.a2ui+json",
+      content: '{"messages":[]}',
+      expectedRevision: null,
+    });
+    const metadataPath = store.pathFor(missingHashRef);
+    const missingHashMetadata = JSON.parse(await readFile(metadataPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    delete missingHashMetadata.hash;
+    await writeFile(metadataPath, JSON.stringify(missingHashMetadata), "utf8");
+    await expect(store.get(missingHashRef)).rejects.toThrow(
+      "artifact blob metadata hash is missing",
+    );
   });
 
   it("stores documents with continuous revisioned updates", async () => {

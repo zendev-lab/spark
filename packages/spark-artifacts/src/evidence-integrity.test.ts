@@ -24,5 +24,24 @@ describe("Evidence body integrity", () => {
     await writeFile(blobPath, JSON.stringify(body), "utf8");
 
     await expect(store.get(evidence.ref)).rejects.toThrow("evidence body hash mismatch");
+    await expect(store.list()).rejects.toThrow("evidence body hash mismatch");
+  });
+
+  it("rejects blob-backed Evidence without a metadata hash", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-evidence-missing-hash-"));
+    const store = defaultEvidenceStore(cwd);
+    const evidence = await store.put({
+      kind: "record",
+      title: "Integrity proof",
+      format: "json",
+      body: { passed: true },
+      provenance: { producer: "spark" },
+    });
+    const metadataPath = store.pathFor(evidence.ref);
+    const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as Record<string, unknown>;
+    delete metadata.hash;
+    await writeFile(metadataPath, JSON.stringify(metadata), "utf8");
+
+    await expect(store.get(evidence.ref)).rejects.toThrow("evidence blob metadata hash is missing");
   });
 });

@@ -408,9 +408,9 @@ export class EvidenceStore {
       const blobPath = resolveEvidenceBlobPath(this.rootDir, evidence.blobPath);
       if (blobPath) {
         try {
-          const serializedBody = await readFile(blobPath, "utf8");
-          assertEvidenceBodyIntegrity(evidence, serializedBody);
-          return serializedBody;
+          const bodyBytes = await readFile(blobPath);
+          assertEvidenceBodyIntegrity(evidence, bodyBytes);
+          return bodyBytes.toString("utf8");
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
@@ -471,17 +471,18 @@ export class EvidenceStore {
       const filePath = join(this.rootDir, entry.name);
       let evidenceRecord: EvidenceRecord;
       try {
-        evidenceRecord = await readEvidenceMetadataFile(filePath);
+        const metadata = await readEvidenceMetadataFile(filePath);
+        if (!this.acceptsRef(metadata.ref)) {
+          diagnostics.push({
+            filePath,
+            reason: "invalid_metadata",
+            message: `${filePath}: evidence store cannot read ${metadata.ref}`,
+          });
+          continue;
+        }
+        evidenceRecord = await this.get(metadata.ref);
       } catch (error) {
         diagnostics.push(evidenceListDiagnostic(filePath, error));
-        continue;
-      }
-      if (!this.acceptsRef(evidenceRecord.ref)) {
-        diagnostics.push({
-          filePath,
-          reason: "invalid_metadata",
-          message: `${filePath}: evidence store cannot read ${evidenceRecord.ref}`,
-        });
         continue;
       }
       if (!matchesQuery(evidenceRecord, filter)) continue;
@@ -790,9 +791,12 @@ export function contentHash(input: string | Uint8Array): string {
 
 function assertEvidenceBodyIntegrity(
   evidence: Pick<EvidenceRecord, "ref" | "hash" | "blobPath">,
-  serializedBody: string,
+  serializedBody: string | Uint8Array,
 ): void {
   const actualHash = contentHash(serializedBody);
+  if (evidence.blobPath && evidence.hash === undefined) {
+    throw new EvidenceValidationError(`evidence blob metadata hash is missing: ${evidence.ref}`);
+  }
   if (evidence.hash !== undefined && evidence.hash !== actualHash) {
     throw new EvidenceValidationError(`evidence body hash mismatch: ${evidence.ref}`);
   }

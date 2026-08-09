@@ -235,17 +235,19 @@ export class ArtifactStore {
     if (stored.blobPath) {
       const blobPath = resolveBlobPath(this.rootDir, stored.blobPath);
       if (!blobPath) throw new ArtifactValidationError(`blob path escapes store: ${ref}`);
-      const serializedBody = await readFile(blobPath, "utf8");
-      const actualHash = createHash("sha256").update(serializedBody).digest("hex");
+      const blobBytes = await readFile(blobPath);
+      const actualHash = createHash("sha256").update(blobBytes).digest("hex");
       const blobNameHash = basename(stored.blobPath).split(".", 1)[0];
-      if (stored.hash !== undefined && stored.hash !== actualHash) {
+      if (stored.hash === undefined) {
+        throw new ArtifactValidationError(`artifact blob metadata hash is missing: ${ref}`);
+      }
+      if (stored.hash !== actualHash) {
         throw new ArtifactValidationError(`artifact blob hash mismatch: ${ref}`);
       }
       if (blobNameHash !== actualHash) {
         throw new ArtifactValidationError(`artifact blob path hash mismatch: ${ref}`);
       }
-      stored.hash = actualHash;
-      stored.body = parseStoredBody(serializedBody);
+      stored.body = parseStoredBody(blobBytes.toString("utf8"));
     }
     assertStoredKindMatchesBody(stored.kind, stored.body);
     return normalizeStoredArtifact(stored) as Artifact<T>;
