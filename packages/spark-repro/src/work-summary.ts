@@ -719,9 +719,7 @@ export function buildSparkReproWorkSummary(
   const independentReadyCount = input.independentReadyCount ?? 0;
   assertNonNegativeInteger(independentReadyCount, "independentReadyCount");
 
-  const allTasksTerminal = tasks.every(
-    (task) => task.status === "done" || task.status === "cancelled",
-  );
+  const allTasksTerminal = tasks.every((task) => isTerminalReproTaskStatus(task.status));
   const allTodosTerminal = todos.every(
     (todo) => todo.status === "done" || todo.status === "cancelled",
   );
@@ -1555,6 +1553,10 @@ function validateDecision(decision: SparkReproDecisionRequest, field: string): v
   if (typeof decision.askRef !== "string" || !isRef(decision.askRef, "ask")) {
     throw new Error(`${field}.askRef must be an ask: ref`);
   }
+}
+
+function isTerminalReproTaskStatus(status: SparkReproTaskStatus): boolean {
+  return status === "done" || status === "failed" || status === "cancelled";
 }
 
 function validateTask(task: SparkReproWorkTask, index: number): void {

@@ -503,7 +503,20 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
     expect(buildSparkReproWorkSummary(input).status).toBe("active");
     input.todos[0]!.status = "done";
     input.schedulerActivity = "sealed";
-    expect(buildSparkReproWorkSummary(input).status).toBe("complete");
+    for (const status of ["done", "failed", "cancelled"] as const) {
+      input.tasks[0]!.status = status;
+      expect(buildSparkReproWorkSummary(input).status, status).toBe("complete");
+    }
+    for (const [status, schedulerActivity, independentReadyCount] of [
+      ["queued", "ready", 1],
+      ["running", "running", 0],
+      ["blocked", "dormant", 0],
+    ] as const) {
+      input.tasks[0]!.status = status;
+      input.schedulerActivity = schedulerActivity;
+      input.independentReadyCount = independentReadyCount;
+      expect(buildSparkReproWorkSummary(input).status, status).toBe("active");
+    }
   });
 
   it("rejects v2 payloads that self-assert a legacy migration downgrade", () => {
