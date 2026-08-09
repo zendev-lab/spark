@@ -20,7 +20,6 @@ const canonicalRootScripts = [
   "check:docs",
   "check:static",
   "check:test-quality",
-  "check:test-quality:update",
   "deploy:docs",
   "dev:docs",
   "fix",
@@ -53,6 +52,14 @@ interface WorkspaceManifest {
   devDependencies?: Record<string, string>;
 }
 
+function parseJson<T>(source: string, label: string): T {
+  try {
+    return JSON.parse(source) as T;
+  } catch (error) {
+    throw new Error(`Failed to parse ${label}`, { cause: error });
+  }
+}
+
 function mutationOwnershipViolations(manifest: WorkspaceManifest): string[] {
   const violations: string[] = [];
   if (manifest.scripts?.["test:mutation"] !== "stryker run") violations.push("command");
@@ -66,9 +73,10 @@ function mutationOwnershipViolations(manifest: WorkspaceManifest): string[] {
 }
 
 test("root package exposes one compact validation and release surface", async () => {
-  const manifest = JSON.parse(await readFile(resolve("package.json"), "utf8")) as {
-    scripts?: Record<string, string>;
-  };
+  const manifest = parseJson<{ scripts?: Record<string, string> }>(
+    await readFile(resolve("package.json"), "utf8"),
+    "root package manifest",
+  );
   const scripts = manifest.scripts ?? {};
 
   assert.deepEqual(Object.keys(scripts).toSorted(), canonicalRootScripts.toSorted());
@@ -76,10 +84,6 @@ test("root package exposes one compact validation and release surface", async ()
   assert.equal(scripts["release:pack"], "node scripts/pack-release.mjs");
   assert.equal(scripts.test, "vp test run --config vitest.root.config.ts");
   assert.equal(scripts["check:test-quality"], "node scripts/check-test-quality.mjs");
-  assert.equal(
-    scripts["check:test-quality:update"],
-    "node scripts/check-test-quality.mjs --update",
-  );
   assert.equal(scripts["test:browser:hub"], "pnpm --filter @zendev-lab/spark-hub run test:browser");
   assert.equal(scripts["test:capability"], "vp test run --config vitest.capability.config.ts");
   assert.equal(
@@ -175,7 +179,7 @@ test("workspace scripts contain package-local behavior instead of root boilerpla
       } catch {
         continue;
       }
-      const manifest = JSON.parse(source) as WorkspaceManifest;
+      const manifest = parseJson<WorkspaceManifest>(source, manifestPath);
       const workspace = `${workspaceRoot}/${entry.name}`;
       if (workspace !== "apps/spark-daemon") {
         assert.notEqual(
@@ -246,9 +250,10 @@ test("package-local mutation ownership rejects independently injected generic de
 });
 
 test("docs production scripts separate Workers Builds build and deploy phases", async () => {
-  const manifest = JSON.parse(await readFile(resolve("apps/spark-docs/package.json"), "utf8")) as {
-    scripts?: Record<string, string>;
-  };
+  const manifest = parseJson<{ scripts?: Record<string, string> }>(
+    await readFile(resolve("apps/spark-docs/package.json"), "utf8"),
+    "Spark docs package manifest",
+  );
   const scripts = manifest.scripts ?? {};
 
   assert.equal(scripts["build:cloudflare"], "pnpm run check:deploy && pnpm run check");

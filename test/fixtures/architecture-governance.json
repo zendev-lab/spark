@@ -181,7 +181,7 @@
     },
     {
       "path": "scripts/check-test-quality.mjs",
-      "lineCount": 541,
+      "lineCount": 496,
       "domainOwner": "test-quality",
       "callers": [
         "package.json",

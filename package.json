@@ -41,7 +41,6 @@
     "fix": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && vp fmt . --write && vp lint --fix --quiet && pnpm run typecheck",
     "typecheck": "pnpm --filter @zendev-lab/spark-hub run check && vp check --no-fmt --no-lint && pnpm --filter @zendev-lab/spark-daemon run check",
     "check:test-quality": "node scripts/check-test-quality.mjs",
-    "check:test-quality:update": "node scripts/check-test-quality.mjs --update",
     "test": "vp test run --config vitest.root.config.ts",
     "test:unit": "pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync && vp test run --config vitest.root.config.ts && pnpm -r --filter './packages/*' --if-present run check && pnpm --filter @zendev-lab/spark-cli run check && pnpm --filter @zendev-lab/spark-tui-app run test && pnpm --filter @zendev-lab/spark-hub run test && pnpm --filter @zendev-lab/spark-daemon run test",
     "test:process:source": "vp test run --config vitest.process.config.ts",

@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 
-import { readFile, readdir, writeFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { extname, join, relative, resolve, sep } from "node:path";
 import process from "node:process";
 import ts from "typescript";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
-const baselinePath = join(repositoryRoot, "test", "test-quality-baseline.json");
 const scanRoots = ["test", "packages", "apps"];
 const ignoredDirectories = new Set([
   ".git",
@@ -451,37 +450,26 @@ async function scanRepository() {
   return { sourceMirrorFindingsByFile, promptTextFindingsByFile };
 }
 
-function countsFor(findingsByFile) {
-  return Object.fromEntries(
-    Object.entries(findingsByFile)
-      .map(([file, findings]) => [file, findings.length])
-      .sort(([left], [right]) => left.localeCompare(right)),
-  );
-}
-
-async function readBaseline() {
-  try {
-    return JSON.parse(await readFile(baselinePath, "utf8"));
-  } catch (error) {
-    throw new Error(`Failed to read test-quality baseline at ${baselinePath}`, { cause: error });
-  }
-}
-
-async function updateBaseline(counts) {
-  const baseline = {
-    $schema: "./test-quality-baseline.schema.json",
-    sourceMirrorAssertions: counts,
-  };
-  await writeFile(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
+function countFindings(findingsByFile) {
+  return Object.values(findingsByFile).reduce((sum, findings) => sum + findings.length, 0);
 }
 
 async function main() {
   const { sourceMirrorFindingsByFile, promptTextFindingsByFile } = await scanRepository();
-  const actual = countsFor(sourceMirrorFindingsByFile);
-  const promptTextCount = Object.values(promptTextFindingsByFile).reduce(
-    (sum, findings) => sum + findings.length,
-    0,
-  );
+  const sourceMirrorCount = countFindings(sourceMirrorFindingsByFile);
+  const promptTextCount = countFindings(promptTextFindingsByFile);
+  if (sourceMirrorCount > 0) {
+    for (const findings of Object.values(sourceMirrorFindingsByFile)) {
+      for (const finding of findings) {
+        console.error(
+          `${finding.file}:${finding.line} ${finding.assertion} asserts fragments of production source via ${finding.sourceVariable}.`,
+        );
+      }
+    }
+    console.error(
+      "Replace production-source fragment assertions with observable behavior or a schema/AST boundary; this check has no compatibility baseline.",
+    );
+  }
   if (promptTextCount > 0) {
     for (const findings of Object.values(promptTextFindingsByFile)) {
       for (const finding of findings) {
@@ -493,47 +481,14 @@ async function main() {
     console.error(
       "Remove prompt/instruction text-fragment tests. Verify structured behavior or state at the consuming boundary; do not replace them with snapshots or equivalent string coupling.",
     );
+  }
+  if (sourceMirrorCount > 0 || promptTextCount > 0) {
     process.exitCode = 1;
     return;
   }
-
-  if (process.argv.includes("--update")) {
-    await updateBaseline(actual);
-    console.log(
-      `Updated test-quality baseline: ${Object.keys(actual).length} files, ${Object.values(actual).reduce((sum, count) => sum + count, 0)} source-mirror assertions.`,
-    );
-    return;
-  }
-
-  const baseline = await readBaseline();
-  const expected = baseline.sourceMirrorAssertions ?? {};
-  const files = [...new Set([...Object.keys(expected), ...Object.keys(actual)])].sort(
-    (left, right) => left.localeCompare(right),
+  console.log(
+    "Test-quality gate passed: 0 source-mirror assertions; 0 brittle prompt/instruction assertions.",
   );
-  const drift = files.filter((file) => expected[file] !== actual[file]);
-  if (drift.length === 0) {
-    console.log(
-      `Test-quality ratchet passed: ${Object.keys(actual).length} legacy files, ${Object.values(actual).reduce((sum, count) => sum + count, 0)} source-mirror assertions; 0 brittle prompt/instruction assertions.`,
-    );
-    return;
-  }
-
-  for (const file of drift) {
-    const before = expected[file] ?? 0;
-    const after = actual[file] ?? 0;
-    console.error(`${file}: source-mirror assertions changed ${before} -> ${after}.`);
-    if (after > before) {
-      for (const finding of sourceMirrorFindingsByFile[file]?.slice(before) ?? []) {
-        console.error(
-          `  ${finding.file}:${finding.line} ${finding.assertion} asserts fragments of production source via ${finding.sourceVariable}.`,
-        );
-      }
-    }
-  }
-  console.error(
-    "Replace production-source fragment assertions with observable behavior, a schema/AST boundary, or an explicitly reviewed full golden. If reviewed debt was removed, run `pnpm run check:test-quality:update` and commit the lower baseline.",
-  );
-  process.exitCode = 1;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
