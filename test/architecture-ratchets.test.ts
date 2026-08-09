@@ -19,7 +19,7 @@ const {
 } = architectureRatchets;
 
 const architectureGovernanceFixtureSha256 =
-  "f5966b1bbf697eccb9939d3d8d5de8b09d2faad99e5ff4e4c03e3739e7e8b7ea";
+  "25ff75e51c971e961c1ea626db7be87a4f25c4c82ae6d352d9b4c00057067d3d";
 const requiredInventoryFields = ["layer", "owner", "stability", "stateWriter"] as const;
 const invalidInventoryCases = [
   { field: "layer", value: "invalid" },
@@ -72,8 +72,16 @@ interface GovernanceFixture {
   blockers: string[];
 }
 
+function parseJson<T>(source: string, label: string): T {
+  try {
+    return JSON.parse(source) as T;
+  } catch (error) {
+    throw new Error(`Unable to parse ${label}`, { cause: error });
+  }
+}
+
 async function readJson<T>(path: string): Promise<T> {
-  return JSON.parse(await readFile(path, "utf8")) as T;
+  return parseJson<T>(await readFile(path, "utf8"), path);
 }
 
 async function workspaceManifestPaths(): Promise<string[]> {
@@ -243,7 +251,10 @@ describe("architecture governance contracts", () => {
     expect(createHash("sha256").update(fixtureSource).digest("hex")).toBe(
       architectureGovernanceFixtureSha256,
     );
-    const governance = JSON.parse(fixtureSource) as GovernanceFixture;
+    const governance = parseJson<GovernanceFixture>(
+      fixtureSource,
+      "architecture governance fixture",
+    );
     expect(governance.removedCheckerRules.map((rule) => rule.id)).toEqual([
       ...removedCheckerRuleIds,
     ]);

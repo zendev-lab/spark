@@ -72,6 +72,28 @@ test("loadPlugins invokes provider default factory with the provider registry", 
   assert.equal(registry.hasProvider("fake-provider"), true);
 });
 
+test("loadPlugins resolves bundled providers without installed workspace packages", async () => {
+  const host = new SparkHostRuntime({ cwd: "/tmp/spark-plugin-loader-test" });
+  const registry = new SparkProviderRegistry();
+
+  const result = await loadPlugins({
+    extensionApi: host,
+    providerApi: registry,
+    extensions: [],
+    providers: [
+      "@zendev-lab/spark-ai/baidu-oneapi-provider",
+      "@zendev-lab/spark-ai/openai-codex-provider",
+    ],
+  });
+
+  assert.deepEqual(
+    result.outcomes.map((outcome) => outcome.ok),
+    [true, true],
+  );
+  assert.equal(registry.hasProvider("baidu-oneapi"), true);
+  assert.equal(registry.hasProvider("openai-codex"), true);
+});
+
 test("loadPlugins isolates failures: one bad plugin does not stop the rest", async () => {
   const host = new SparkHostRuntime({ cwd: "/tmp/spark-plugin-loader-test" });
   const registry = new SparkProviderRegistry();

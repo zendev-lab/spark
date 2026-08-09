@@ -212,6 +212,55 @@ const executor = headless.createSparkHeadlessRoleExecutor();
 if (typeof executor !== "function") {
   throw new Error("headless role executor factory did not return a function");
 }
+const result = await executor({
+  role: {
+    ref: "role:builtin-reviewer",
+    id: "reviewer",
+    systemPrompt: "Return a structured reviewer verdict.",
+    allowedTools: [],
+  },
+  instruction: {
+    roleRef: "role:builtin-reviewer",
+    instruction: "Return a structured reviewer verdict.",
+  },
+  record: {
+    ref: "run:npm-product-smoke",
+    roleRef: "role:builtin-reviewer",
+    instruction: "Return a structured reviewer verdict.",
+    status: "running",
+    launch: "fresh",
+    noSession: true,
+    sessionPersistence: "anonymous",
+  },
+  cwd: process.cwd(),
+  timeoutMs: 30_000,
+  phase: "implement",
+  requireStructuredOutcome: false,
+  signal: new AbortController().signal,
+  launch: "fresh",
+  model: "openai-codex/__spark_smoke_missing_model__",
+  noSession: true,
+  sessionPersistence: "anonymous",
+  env: process.env,
+  inputControl: { register() { return () => {}; } },
+});
+if (
+  result.record?.status !== "failed" ||
+  result.outcome?.code !== "provider_resolution_failed" ||
+  !result.outcome.reason?.includes('Provider "openai-codex" has no model')
+) {
+  throw new Error(
+    "headless reviewer did not initialize its bundled provider: " + JSON.stringify(result),
+  );
+}
+const diagnostics = String(result.stderr ?? "") + "\\n" + String(result.outcome.reason ?? "");
+if (
+  diagnostics.includes("Cannot find package '@zendev-lab/spark-ai'") ||
+  diagnostics.includes("defaultSparkConfigPath") ||
+  diagnostics.includes("Dynamic require of")
+) {
+  throw new Error("headless reviewer bootstrap failed: " + diagnostics);
+}
 `;
   await run(process.execPath, ["--input-type=module", "--eval", script], {
     cwd: installRoot,

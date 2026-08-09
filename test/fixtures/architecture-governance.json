@@ -303,7 +303,7 @@
     },
     {
       "path": "scripts/smoke-npm-product.mjs",
-      "lineCount": 521,
+      "lineCount": 570,
       "domainOwner": "distribution",
       "callers": [
         ".github/workflows/cd-publish.yml",
