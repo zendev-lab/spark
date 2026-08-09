@@ -809,12 +809,27 @@ async function resolveReproFormalStepState(cwd: string, ownerSessionId: string) 
   if (!repro) return undefined;
   return {
     reproId: repro.reproId,
-    planRevision: repro.plan.currentRevision,
-    steps: repro.plan.steps.map((step) => ({
-      id: step.id,
-      status: step.status,
-      ...(step.verification ? { verification: step.verification } : {}),
-    })),
+    dualLane: {
+      planRevision: repro.dualLane.planRevision,
+      normative: {
+        orderedStepIds: [...repro.dualLane.normative.orderedStepIds],
+        ...(repro.dualLane.normative.currentStepId
+          ? { currentStepId: repro.dualLane.normative.currentStepId }
+          : {}),
+        retiredStepIds: [...repro.dualLane.normative.retiredStepIds],
+      },
+    },
+    plan: {
+      currentRevision: repro.plan.currentRevision,
+      steps: repro.plan.steps.map((step) => ({
+        id: step.id,
+        status: step.status,
+        authority: step.authority,
+        doneWhen: [...step.doneWhen],
+        evidenceRefs: [...step.evidenceRefs],
+        ...(step.verification ? { verification: step.verification } : {}),
+      })),
+    },
   };
 }
 

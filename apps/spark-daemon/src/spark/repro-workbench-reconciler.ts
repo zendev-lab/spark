@@ -113,7 +113,7 @@ export async function reconcileReproWorkbenchArtifacts(input: {
         result.checkpointed += Number(finalCreated);
       }
       const checkpoints = input.bindings.listCheckpoints(binding.bindingId);
-      const terminal = loop.status === "completed" || loop.status === "stopped";
+      const terminal = shouldSealReproWorkbench(loop.status, summary.work.status);
       const projected = await projectLiveWorkbench({
         binding: input.bindings.getByLoop(loop.loopId) ?? binding,
         bindings: input.bindings,
@@ -136,6 +136,13 @@ export async function reconcileReproWorkbenchArtifacts(input: {
     }
   }
   return result;
+}
+
+export function shouldSealReproWorkbench(
+  loopStatus: SparkLoopRecord["status"],
+  workStatus: SparkReproWorkSummary["status"],
+): boolean {
+  return loopStatus === "completed" && workStatus === "complete";
 }
 
 async function projectLiveWorkbench(input: {

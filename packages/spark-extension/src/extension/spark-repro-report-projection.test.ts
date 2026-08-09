@@ -18,6 +18,7 @@ import {
 } from "@zendev-lab/spark-repro/work-summary";
 
 import type { SparkSessionRepro } from "@zendev-lab/spark-repro";
+import type { SparkDaemonReproFormalEvidenceControl } from "./spark-daemon-repro-formal-evidence-client.ts";
 import type { SparkDaemonUsageControl } from "./spark-daemon-usage-client.ts";
 import {
   projectSparkReproReportSummary,
@@ -27,6 +28,7 @@ import {
   renderSparkReproReportMarkdown,
   sparkReproReportArtifactRef,
   SPARK_REPRO_REPORT_SOURCE_PATH,
+  syncSparkReproReportArtifact,
 } from "./spark-repro-report.ts";
 
 const temporaryDirectories: string[] = [];
@@ -242,6 +244,52 @@ describe("canonical Repro report runtime projection", () => {
       stale: false,
       superseded: false,
     });
+  });
+
+  it("refuses to sync a report after the durable Repro plan revision changes", async () => {
+    const cwd = await temporaryDirectory();
+    await defaultEvidenceStore(cwd).put({
+      ref: evidence("contract"),
+      kind: "record",
+      title: "contract",
+      format: "json",
+      body: { passed: true },
+      provenance: { producer: "spark" },
+    });
+    const formalEvidenceControl: SparkDaemonReproFormalEvidenceControl = {
+      async verifyAndRecord(input) {
+        return {
+          recorded: true,
+          receipt: {
+            schema: "spark.repro.formal-evidence-receipt/v1" as const,
+            ...input.candidate,
+            verifierId: "registered-test-verifier",
+            verifierVersion: "1",
+            verdict: "accepted" as const,
+            verifiedAt: "2026-08-09T00:00:00.000Z",
+            stale: false,
+            superseded: false,
+          },
+        };
+      },
+    };
+    await projectSparkReproReportSummary({
+      cwd,
+      currentReproId: "repro-verified",
+      reproState: strictReproState(),
+      workSummaryInput: strictWorkInput(),
+      usageControl: fixedUsageControl(usage("repro-verified")),
+      formalEvidenceControl,
+    });
+    const current = strictReproState();
+    current.plan.currentRevision = 2;
+
+    await expect(
+      syncSparkReproReportArtifact(cwd, "repro-verified", {
+        reproState: current,
+        formalEvidenceControl,
+      }),
+    ).rejects.toThrow("report work is stale against the current durable Repro plan revision");
   });
 
   it("accepts formal gate refs resolved through the durable evidence store", async () => {

@@ -63,6 +63,46 @@ describe("trusted Repro Loop evaluators", () => {
     expect(result.evidenceRefs?.[0]).toMatch(/^evidence:/u);
   });
 
+  it("rejects completion when a retired non-Matrix step lacks current StepVerifier PASS", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    const profile = input.target.acceptanceProfile!;
+    input.normativeCursor!.orderedStepIds.push("S2");
+    input.normativeCursor!.stepDefinitionDigests!.S2 = "digest:S2";
+    input.normativeCursor!.stepDependencies!.S2 = ["S1"];
+    input.normativeCursor!.retiredStepIds.push("S2");
+    input.normativeCursor!.candidateBuffer.push({
+      id: "candidate-S2",
+      stepId: "S2",
+      dependsOn: ["S1"],
+      planRevision: 1,
+      stepDefinitionDigest: "digest:S2",
+      verdict: "accepted",
+      profile,
+      evidenceRefs: ["evidence:retirement-S2" as EvidenceRef],
+      unresolvedIds: [],
+    });
+    input.normativeCursor!.retirementLog.push({
+      stepId: "S2",
+      candidateId: "candidate-S2",
+      planRevision: 1,
+      stepDefinitionDigest: "digest:S2",
+      profile,
+      profileDigest: sparkReproProfileDigest(profile),
+      evidenceRefs: ["evidence:retirement-S2" as EvidenceRef],
+    });
+    await persistAcceptedFormalEvidence(cwd, input);
+    await persistEvidenceRefs(cwd, [
+      "evidence:retirement-S1" as EvidenceRef,
+      "evidence:retirement-S2" as EvidenceRef,
+    ]);
+    await writeSummary(cwd, input);
+
+    await expect(reproCompletionEvaluator(context(cwd))).rejects.toThrow(
+      /retirement lacks current StepVerifier PASS: S2/u,
+    );
+  });
+
   it("rejects a typed completion projection without daemon-resolved StepVerifier state", async () => {
     const cwd = await workspace();
     const input = strictCompleteSummaryInput();
@@ -76,7 +116,7 @@ describe("trusted Repro Loop evaluators", () => {
     });
 
     await expect(evaluator(context(cwd))).rejects.toThrow(
-      /requires current daemon-resolved StepVerifier state/u,
+      /requires current durable StepVerifier state/u,
     );
   });
 
@@ -312,22 +352,37 @@ function completionEvaluator(context: SparkLoopEvaluationContext) {
     },
     async (cwd) => ({
       reproId: "repro-1",
-      planRevision: 1,
-      steps: [
-        {
-          id: "S1",
-          status: "done",
-          verification: {
-            verdict: "Pass",
-            stepId: "S1",
-            planRevision: 1,
-            definitionDigest: "digest:S1",
-            evidenceRefs: [...(receiptsByCwd.get(cwd)?.values() ?? [])].map(
-              (receipt) => receipt.evidenceRef as EvidenceRef,
-            ),
+      plan: {
+        currentRevision: 1,
+        steps: [
+          {
+            id: "S1",
+            status: "done",
+            authority: "safe_local",
+            doneWhen: ["S1 passed"],
+            evidenceRefs: [
+              ...[...(receiptsByCwd.get(cwd)?.values() ?? [])].map(
+                (receipt) => receipt.evidenceRef as EvidenceRef,
+              ),
+              "evidence:retirement-S1" as EvidenceRef,
+            ],
+            verification: {
+              verdict: "Pass",
+              stepId: "S1",
+              planRevision: 1,
+              definitionDigest: "digest:S1",
+              proofKind: "evidence",
+              evidenceRefs: [
+                ...[...(receiptsByCwd.get(cwd)?.values() ?? [])].map(
+                  (receipt) => receipt.evidenceRef as EvidenceRef,
+                ),
+                "evidence:retirement-S1" as EvidenceRef,
+              ],
+              verifiedDoneWhen: ["S1 passed"],
+            },
           },
-        },
-      ],
+        ],
+      },
     }),
   )(context);
 }

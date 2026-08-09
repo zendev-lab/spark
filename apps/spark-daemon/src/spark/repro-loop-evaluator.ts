@@ -13,7 +13,9 @@ import {
   sparkReproCompletionEvidenceRefs,
   sparkReproProfileDigest,
   sparkReproTopologyDigest,
+  validateSparkReproCurrentRetirementAuthority,
   SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA,
+  type SparkReproCurrentStepAuthority,
   type SparkReproWorkSummary,
 } from "@zendev-lab/spark-repro/work-summary";
 import { canonicalReproFormalEvidenceWorkspaceCwd } from "../store/repro-formal-evidence.ts";
@@ -56,21 +58,7 @@ export interface SparkReproFormalEvidenceReceiptLookup {
   ): SparkReproFormalEvidenceReceipt | undefined;
 }
 
-export interface SparkReproFormalStepState {
-  reproId: string;
-  planRevision: number;
-  steps: readonly {
-    id: string;
-    status: string;
-    verification?: {
-      verdict: string;
-      stepId: string;
-      planRevision: number;
-      definitionDigest: string;
-      evidenceRefs: readonly EvidenceRef[];
-    };
-  }[];
-}
+export type SparkReproFormalStepState = SparkReproCurrentStepAuthority;
 
 export type SparkReproFormalStepStateLookup = (
   cwd: string,
@@ -135,7 +123,6 @@ export function createReproCompletionEvaluator(
     const stepState = stepStateLookup
       ? await stepStateLookup(context.route!.cwd, context.loop.ownerSessionId)
       : undefined;
-    await resolveCompletionEvidence(context.route!.cwd, work);
     await validateAcceptedFormalEvidenceAuthority(
       context.route!.cwd,
       work,
@@ -193,6 +180,8 @@ export async function validateAcceptedFormalEvidenceAuthority(
   receiptStore: SparkReproFormalEvidenceReceiptLookup | undefined,
   stepState: SparkReproFormalStepState | undefined,
 ): Promise<void> {
+  validateSparkReproCurrentRetirementAuthority(work, stepState);
+  await resolveCompletionEvidence(cwd, work);
   const formalRows = work.validationMatrix.rows.filter(
     (row) =>
       row.evidenceClass === "entrypoint" &&
@@ -218,14 +207,14 @@ export async function validateAcceptedFormalEvidenceAuthority(
   if (!stepState || stepState.reproId !== work.reproId) {
     throw new Error("Repro completion requires current daemon-resolved StepVerifier state");
   }
-  if (stepState.planRevision !== work.normativeCursor.planRevision) {
+  if (stepState.plan.currentRevision !== work.normativeCursor.planRevision) {
     throw new Error("Repro completion StepVerifier plan revision is stale");
   }
   for (const row of formalRows) {
     if (!row.ownerStepId || row.evidenceRefs.length === 0) {
       throw new Error(`Repro formal Evidence row is missing its owner binding: ${row.gateId}`);
     }
-    const step = stepState.steps.find((candidate) => candidate.id === row.ownerStepId);
+    const step = stepState.plan.steps.find((candidate) => candidate.id === row.ownerStepId);
     const verification = step?.verification;
     const expectedDigest = work.normativeCursor.stepDefinitionDigests?.[row.ownerStepId];
     if (
@@ -234,7 +223,7 @@ export async function validateAcceptedFormalEvidenceAuthority(
       !verification ||
       verification.verdict !== "Pass" ||
       verification.stepId !== row.ownerStepId ||
-      verification.planRevision !== stepState.planRevision ||
+      verification.planRevision !== stepState.plan.currentRevision ||
       !expectedDigest ||
       verification.definitionDigest !== expectedDigest
     ) {

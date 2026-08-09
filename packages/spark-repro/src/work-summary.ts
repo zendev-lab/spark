@@ -730,7 +730,7 @@ export function buildSparkReproWorkSummary(
   const independentReadyCount = input.independentReadyCount ?? 0;
   assertNonNegativeInteger(independentReadyCount, "independentReadyCount");
 
-  const allTasksTerminal = tasks.every((task) => isTerminalReproTaskStatus(task.status));
+  const allTasksDone = tasks.every((task) => task.status === "done");
   const allTodosTerminal = todos.every(
     (todo) => todo.status === "done" || todo.status === "cancelled",
   );
@@ -749,7 +749,7 @@ export function buildSparkReproWorkSummary(
     retirementBlockers.length === 0 &&
     completionRequiredUnresolved.length === 0 &&
     activeExperiment === undefined &&
-    allTasksTerminal &&
+    allTasksDone &&
     allTodosTerminal;
   const humanRetirementBlocks = retirementBlockers.filter(
     (block) => block.kind === "decision" || block.kind === "approval",
@@ -919,6 +919,108 @@ export function deriveSparkReproTechnicalGoal(
     requiredReferenceStrategies: orderedStrategies(target.referenceStrategies),
     missing,
   };
+}
+
+export interface SparkReproCurrentStepAuthority {
+  reproId: string;
+  dualLane?: {
+    planRevision: number;
+    normative: {
+      orderedStepIds: readonly string[];
+      currentStepId?: string;
+      retiredStepIds: readonly string[];
+    };
+  };
+  plan: {
+    currentRevision: number;
+    steps: readonly {
+      id: string;
+      status: string;
+      authority?: string;
+      doneWhen?: readonly string[];
+      evidenceRefs?: readonly EvidenceRef[];
+      verification?: {
+        verdict: string;
+        stepId: string;
+        planRevision: number;
+        definitionDigest: string;
+        proofKind?: string;
+        evidenceRefs: readonly EvidenceRef[];
+        verifiedDoneWhen?: readonly string[];
+        askRequestHash?: string;
+        acceptedAnswerHash?: string;
+        selectedValues?: readonly string[];
+        approvalResult?: string;
+      };
+    }[];
+  };
+}
+
+/**
+ * Revalidate every retired Normative step against the current durable plan.
+ * Retirement and unresolved Evidence stay durable-Evidence authority; only
+ * accepted Matrix entrypoints require daemon formal verifier receipts.
+ */
+export function validateSparkReproCurrentRetirementAuthority(
+  work: SparkReproWorkSummary,
+  current: SparkReproCurrentStepAuthority | undefined,
+): void {
+  const currentBound = work.normativeCursor.orderedStepIds.length > 0;
+  if (!currentBound && work.normativeCursor.retirementLog.length === 0) return;
+  if (!current || current.reproId !== work.reproId) {
+    throw new Error("Repro retirement requires current durable StepVerifier state");
+  }
+  if (current.plan.currentRevision !== work.normativeCursor.planRevision) {
+    throw new Error("Repro retirement StepVerifier plan revision is stale");
+  }
+  if (
+    current.dualLane &&
+    (current.dualLane.planRevision !== work.normativeCursor.planRevision ||
+      JSON.stringify(current.dualLane.normative.orderedStepIds) !==
+        JSON.stringify(work.normativeCursor.orderedStepIds) ||
+      current.dualLane.normative.currentStepId !== work.normativeCursor.currentStepId ||
+      JSON.stringify(current.dualLane.normative.retiredStepIds) !==
+        JSON.stringify(work.normativeCursor.retiredStepIds))
+  ) {
+    throw new Error("Repro summary is stale against the current durable Normative cursor");
+  }
+  for (const record of work.normativeCursor.retirementLog) {
+    const step = current.plan.steps.find((candidate) => candidate.id === record.stepId);
+    const verification = step?.verification;
+    const expectedDigest = work.normativeCursor.stepDefinitionDigests?.[record.stepId];
+    const expectedProofKind =
+      step?.authority === "ask_approval"
+        ? "approval"
+        : step?.authority === "ask_decision"
+          ? "decision"
+          : "evidence";
+    if (
+      !step ||
+      step.status !== "done" ||
+      !verification ||
+      verification.verdict !== "Pass" ||
+      verification.stepId !== record.stepId ||
+      verification.planRevision !== current.plan.currentRevision ||
+      !expectedDigest ||
+      record.stepDefinitionDigest !== expectedDigest ||
+      verification.definitionDigest !== expectedDigest ||
+      verification.proofKind !== expectedProofKind ||
+      !step.doneWhen ||
+      JSON.stringify(verification.verifiedDoneWhen) !== JSON.stringify(step.doneWhen) ||
+      !step.evidenceRefs ||
+      JSON.stringify(verification.evidenceRefs) !== JSON.stringify(step.evidenceRefs) ||
+      record.evidenceRefs.some((ref) => !verification.evidenceRefs.includes(ref)) ||
+      (expectedProofKind !== "evidence" &&
+        (!verification.askRequestHash ||
+          !verification.acceptedAnswerHash ||
+          !verification.selectedValues?.length)) ||
+      (expectedProofKind === "approval" &&
+        (verification.approvalResult !== "approved" ||
+          JSON.stringify(verification.selectedValues) !== JSON.stringify(["approve"])))
+    ) {
+      throw new Error(`Repro retirement lacks current StepVerifier PASS: ${record.stepId}`);
+    }
+  }
 }
 
 export function sparkReproCompletionEvidenceRefs(work: SparkReproWorkSummary): EvidenceRef[] {
@@ -1570,10 +1672,6 @@ function validateDecision(decision: SparkReproDecisionRequest, field: string): v
   if (typeof decision.askRef !== "string" || !isRef(decision.askRef, "ask")) {
     throw new Error(`${field}.askRef must be an ask: ref`);
   }
-}
-
-function isTerminalReproTaskStatus(status: SparkReproTaskStatus): boolean {
-  return status === "done" || status === "failed" || status === "cancelled";
 }
 
 function validateTask(task: SparkReproWorkTask, index: number): void {

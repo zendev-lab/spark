@@ -259,7 +259,11 @@ export function registerSparkReproTool(
       if (action === "sync_report") {
         const repro = await readSessionRepro(cwd, ctx);
         if (!repro) throw new Error("sync_report requires an active or completed Repro run");
-        const synced = await syncSparkReproReportArtifact(cwd, repro.reproId);
+        const synced = await syncSparkReproReportArtifact(stateCwd, repro.reproId, {
+          reproState: repro,
+          formalEvidenceControl: deps.formalEvidenceControl,
+          signal,
+        });
         return {
           content: [
             {

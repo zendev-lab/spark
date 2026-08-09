@@ -1,11 +1,9 @@
 import { resolve } from "node:path";
 
-import { defaultEvidenceStore, type EvidenceRecord } from "@zendev-lab/spark-artifacts";
-import { writeTextFileAtomic, type EvidenceRef } from "@zendev-lab/spark-core";
+import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
+import { writeTextFileAtomic } from "@zendev-lab/spark-core";
 import {
   buildSparkReproWorkSummary,
-  sparkReproProfileDigest,
-  sparkReproTopologyDigest,
   type SparkReproWorkSummary,
   type SparkReproWorkSummaryInput,
 } from "@zendev-lab/spark-repro/work-summary";
@@ -21,6 +19,7 @@ import type { SparkDaemonReproFormalEvidenceControl } from "./spark-daemon-repro
 import type { SparkDaemonUsageControl } from "./spark-daemon-usage-client.ts";
 import {
   resolveAcceptedFormalEvidence,
+  verifyCurrentReproReportAuthority,
   type SparkReproEvidenceLookup,
 } from "./spark-repro-report-evidence.ts";
 import {
@@ -83,7 +82,7 @@ export async function projectSparkReproReportSummary(input: {
 
   const evidenceLookup = input.evidenceLookup ?? defaultEvidenceStore(input.cwd);
   await resolveAcceptedFormalEvidence(work, evidenceLookup);
-  await recordAcceptedFormalEvidenceReceipts({
+  await verifyCurrentReproReportAuthority({
     cwd: input.cwd,
     work,
     repro: input.reproState,
@@ -133,117 +132,6 @@ export async function projectSparkReproReportSummary(input: {
     usageIncluded: tokenUsage !== undefined,
     ...(warning ? { warning } : {}),
   };
-}
-
-async function recordAcceptedFormalEvidenceReceipts(input: {
-  cwd: string;
-  work: SparkReproWorkSummary;
-  repro?: SparkSessionRepro;
-  evidenceLookup: SparkReproEvidenceLookup;
-  control?: SparkDaemonReproFormalEvidenceControl;
-  signal?: AbortSignal;
-}): Promise<void> {
-  const rows = input.work.validationMatrix.rows.filter(
-    (row) =>
-      row.evidenceClass === "entrypoint" &&
-      row.invocationClass === "owning_entrypoint" &&
-      row.verdict === "accepted" &&
-      input.work.gates.find((gate) => gate.id === row.gateId)?.status === "accepted",
-  );
-  if (rows.length === 0) return;
-  if (!input.control) {
-    throw new Error(
-      "accepted formal Evidence requires daemon registered-verifier receipt authority",
-    );
-  }
-  if (!input.repro || input.repro.reproId !== input.work.reproId) {
-    throw new Error(
-      "accepted formal Evidence requires the current durable Repro StepVerifier state",
-    );
-  }
-  const profile = input.work.acceptanceProfile;
-  const topology = profile.validationTopology ?? profile.topology;
-  for (const row of rows) {
-    const stepId = row.ownerStepId;
-    const step = input.repro.plan.steps.find((candidate) => candidate.id === stepId);
-    const verification = step?.verification;
-    const expectedDefinitionDigest = stepId
-      ? input.work.normativeCursor.stepDefinitionDigests?.[stepId]
-      : undefined;
-    if (
-      !stepId ||
-      !step ||
-      step.status !== "done" ||
-      !verification ||
-      verification.verdict !== "Pass" ||
-      verification.stepId !== stepId ||
-      verification.planRevision !== input.work.normativeCursor.planRevision ||
-      !expectedDefinitionDigest ||
-      verification.definitionDigest !== expectedDefinitionDigest
-    ) {
-      throw new Error(`formal Evidence row ${row.id} lacks a current passing StepVerifier`);
-    }
-    for (const evidenceRef of row.evidenceRefs) {
-      if (!verification.evidenceRefs.includes(evidenceRef)) {
-        throw new Error(`formal Evidence ${evidenceRef} is outside StepVerifier ${stepId}`);
-      }
-      const evidence = await input.evidenceLookup.tryGet(evidenceRef);
-      if (!isHashBoundEvidenceRecord(evidence, evidenceRef)) {
-        throw new Error(`formal Evidence ${evidenceRef} lacks an immutable Evidence hash`);
-      }
-      if (
-        evidence.curation?.status === "superseded" ||
-        (evidence.curation?.supersededBy?.length ?? 0) > 0
-      ) {
-        throw new Error(`formal Evidence ${evidenceRef} is superseded`);
-      }
-      const candidate = {
-        workspaceCwd: input.cwd,
-        evidenceRef,
-        evidenceHash: evidence.hash,
-        reproId: input.work.reproId,
-        requirementId: row.gateId,
-        stepId,
-        planRevision: verification.planRevision,
-        stepDefinitionDigest: verification.definitionDigest,
-        invocationClass: "owning_entrypoint" as const,
-        evidenceClass: "entrypoint" as const,
-        profileDigest: sparkReproProfileDigest(profile),
-        topologyDigest: sparkReproTopologyDigest(topology),
-      };
-      const recorded = await input.control.verifyAndRecord(
-        { workspaceCwd: input.cwd, candidate },
-        input.signal ? { signal: input.signal } : undefined,
-      );
-      if (
-        recorded.receipt.verdict !== "accepted" ||
-        recorded.receipt.stale ||
-        recorded.receipt.superseded ||
-        !sameFormalCandidate(recorded.receipt, candidate)
-      ) {
-        throw new Error(`daemon registered verifier did not accept formal Evidence ${evidenceRef}`);
-      }
-    }
-  }
-}
-
-function sameFormalCandidate(
-  receipt: Record<string, unknown>,
-  candidate: Record<string, unknown>,
-): boolean {
-  return Object.entries(candidate).every(([key, value]) => receipt[key] === value);
-}
-
-function isHashBoundEvidenceRecord(
-  value: unknown,
-  expectedRef: EvidenceRef,
-): value is EvidenceRecord & { hash: string } {
-  return (
-    isRecord(value) &&
-    value.ref === expectedRef &&
-    typeof value.hash === "string" &&
-    /^[a-f0-9]{64}$/u.test(value.hash)
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

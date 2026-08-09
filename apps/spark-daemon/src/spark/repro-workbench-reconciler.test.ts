@@ -13,10 +13,13 @@ import { SparkInvocationStore } from "../store/invocations.ts";
 import { SparkLoopStore } from "../store/loops.ts";
 import { migrateSparkDaemonDatabase } from "../store/schema.ts";
 import { WorkbenchArtifactBindingStore } from "../store/workbench-artifact-bindings.ts";
-import { reconcileReproWorkbenchArtifacts } from "./repro-workbench-reconciler.ts";
+import {
+  reconcileReproWorkbenchArtifacts,
+  shouldSealReproWorkbench,
+} from "./repro-workbench-reconciler.ts";
 
 describe("Repro Workbench Artifact reconciliation", () => {
-  it("persists a stable live binding, typed stage checkpoint, and terminal seal", async () => {
+  it("persists a stable live binding and never seals stopped or incomplete work", async () => {
     const workspaceCwd = await mkdtemp(join(tmpdir(), "spark-repro-workbench-"));
     const cwd = join(workspaceCwd, "packages", "demo");
     await mkdir(join(workspaceCwd, "outputs"), { recursive: true });
@@ -108,16 +111,30 @@ describe("Repro Workbench Artifact reconciliation", () => {
 
     db.prepare(
       `UPDATE loop_wakeups
+       SET status = 'stopped', generation = generation + 1, due_at = NULL,
+           cycle_step = NULL, updated_at = ?
+       WHERE loop_id = ?`,
+    ).run("2026-08-04T00:30:00.000Z", "loop-1");
+    const stopped = await reconcile();
+    expect(stopped).toMatchObject({ projected: 1, sealed: 0 });
+    expect(bindings.getByLoop("loop-1")).toMatchObject({ lifecycle: "live" });
+
+    expect(shouldSealReproWorkbench("stopped", "complete")).toBe(false);
+    expect(shouldSealReproWorkbench("completed", "active")).toBe(false);
+    expect(shouldSealReproWorkbench("completed", "complete")).toBe(true);
+
+    db.prepare(
+      `UPDATE loop_wakeups
        SET status = 'completed', generation = generation + 1, due_at = NULL,
            cycle_step = NULL, updated_at = ?
        WHERE loop_id = ?`,
     ).run("2026-08-04T01:00:00.000Z", "loop-1");
-    const sealed = await reconcile();
-    expect(sealed).toMatchObject({ projected: 1, sealed: 1 });
-    expect(bindings.getByLoop("loop-1")).toMatchObject({ revision: 2, lifecycle: "sealed" });
+    const incomplete = await reconcile();
+    expect(incomplete).toMatchObject({ projected: 1, sealed: 0 });
+    expect(bindings.getByLoop("loop-1")).toMatchObject({ lifecycle: "live" });
     expect(
       await defaultArtifactStore(workspaceCwd).get(sparkReproWorkbenchArtifactRef("repro-1")),
-    ).toMatchObject({ body: { revision: 2, management: { lifecycle: "sealed" } } });
+    ).toMatchObject({ body: { management: { lifecycle: "live" } } });
     db.close();
   });
 

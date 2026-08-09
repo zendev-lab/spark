@@ -10,6 +10,7 @@ import {
   type ArtifactRef,
   type DocumentArtifactBody,
 } from "@zendev-lab/spark-artifacts";
+import type { SparkSessionRepro } from "@zendev-lab/spark-repro";
 import type { SparkReproWorkSummary } from "@zendev-lab/spark-repro/work-summary";
 
 import {
@@ -18,7 +19,11 @@ import {
   type SparkReproReportSummary,
 } from "../repro-report-summary.ts";
 import { readJsonFileOptional } from "./json-store.ts";
-import { resolveAcceptedFormalEvidence } from "./spark-repro-report-evidence.ts";
+import type { SparkDaemonReproFormalEvidenceControl } from "./spark-daemon-repro-formal-evidence-client.ts";
+import {
+  resolveAcceptedFormalEvidence,
+  verifyCurrentReproReportAuthority,
+} from "./spark-repro-report-evidence.ts";
 
 export const SPARK_REPRO_REPORT_SOURCE_PATH = "outputs/report.md";
 
@@ -81,11 +86,16 @@ export function sparkReproReportArtifactRef(reproId: string): ArtifactRef {
 export async function syncSparkReproReportArtifact(
   cwd: string,
   currentReproIdValue: string,
+  options: {
+    reproState?: SparkSessionRepro;
+    formalEvidenceControl?: SparkDaemonReproFormalEvidenceControl;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<SparkReproReportSyncResult> {
   const currentReproId = currentReproIdValue.trim();
   if (!currentReproId) throw new Error("current Repro id is required");
   const reportArtifactRef = sparkReproReportArtifactRef(currentReproId);
-  const work = await readCanonicalReportWork(cwd, currentReproId, reportArtifactRef);
+  const work = await readCanonicalReportWork(cwd, currentReproId, reportArtifactRef, options);
   const result = await syncDocumentArtifactFile({
     cwd,
     sourcePath: SPARK_REPRO_REPORT_SOURCE_PATH,
@@ -106,6 +116,11 @@ async function readCanonicalReportWork(
   cwd: string,
   currentReproId: string,
   reportArtifactRef: ArtifactRef,
+  options: {
+    reproState?: SparkSessionRepro;
+    formalEvidenceControl?: SparkDaemonReproFormalEvidenceControl;
+    signal?: AbortSignal;
+  },
 ): Promise<SparkReproWorkSummary> {
   const path = resolve(cwd, SPARK_REPRO_REPORT_SUMMARY_PATH);
   const raw = await readJsonFileOptional<Record<string, unknown>>(path);
@@ -133,7 +148,16 @@ async function readCanonicalReportWork(
       `${SPARK_REPRO_REPORT_SUMMARY_PATH} must bind stable report Artifact ${reportArtifactRef}`,
     );
   }
-  await resolveAcceptedFormalEvidence(summary.work, defaultEvidenceStore(cwd));
+  const evidenceLookup = defaultEvidenceStore(cwd);
+  await resolveAcceptedFormalEvidence(summary.work, evidenceLookup);
+  await verifyCurrentReproReportAuthority({
+    cwd,
+    work: summary.work,
+    repro: options.reproState,
+    evidenceLookup,
+    control: options.formalEvidenceControl,
+    signal: options.signal,
+  });
   const reportPath = resolve(cwd, SPARK_REPRO_REPORT_SOURCE_PATH);
   let report: string;
   try {

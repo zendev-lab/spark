@@ -507,9 +507,12 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
     expect(buildSparkReproWorkSummary(input).status).toBe("active");
     input.todos[0]!.status = "done";
     input.schedulerActivity = "sealed";
-    for (const status of ["done", "failed", "cancelled"] as const) {
+    input.tasks[0]!.status = "done";
+    expect(buildSparkReproWorkSummary(input).status).toBe("complete");
+    for (const status of ["failed", "cancelled"] as const) {
       input.tasks[0]!.status = status;
-      expect(buildSparkReproWorkSummary(input).status, status).toBe("complete");
+      input.schedulerActivity = "dormant";
+      expect(buildSparkReproWorkSummary(input).status, status).toBe("active");
     }
     for (const [status, schedulerActivity, independentReadyCount] of [
       ["queued", "ready", 1],
