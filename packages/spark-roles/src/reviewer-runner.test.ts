@@ -465,6 +465,9 @@ test("task reviewer instruction scopes task finish independently from sibling pr
   const instruction = renderReviewerInstruction(reviewTaskInput());
 
   assert.match(instruction, /For targetKind=task, review only the selected task's requestedStatus/);
+  assert.match(instruction, /task is expected to remain running until this review approves/);
+  assert.match(instruction, /Never require a prior approved review receipt or done transition/);
+  assert.match(instruction, /prior needs_changes verdict blocks approval only when/);
   assert.match(instruction, /Do not reject a task finish merely because sibling/);
   assert.match(instruction, /dependency chains require scoped leaf tasks to close/);
   assert.doesNotMatch(instruction, /projectStatus\.taskCounts\.unfinished > 0/);
