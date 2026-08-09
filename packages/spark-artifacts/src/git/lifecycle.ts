@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { access, mkdir } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import {
   defaultArtifactStore,
   newArtifactRef,
@@ -384,8 +384,7 @@ export class GitLifecycleService {
     }
 
     const commonGitDir = body.repository.commonGitDir;
-    const removalCwd =
-      commonGitDir && pathWithin(this.cwd, worktreePath) ? dirname(commonGitDir) : this.cwd;
+    const removalCwd = commonGitDir ? dirname(commonGitDir) : this.cwd;
     await this.runChecked(
       "git",
       ["worktree", "remove", worktreePath],
@@ -900,11 +899,6 @@ function commandError(
 
 function commandOutput(result: { stdout: string; stderr: string }): string {
   return result.stderr.trim() || result.stdout.trim() || "no output";
-}
-
-function pathWithin(candidate: string, parent: string): boolean {
-  const scoped = relative(resolve(parent), resolve(candidate));
-  return scoped === "" || (!scoped.startsWith("..") && !isAbsolute(scoped));
 }
 
 async function pathExists(path: string): Promise<boolean> {
