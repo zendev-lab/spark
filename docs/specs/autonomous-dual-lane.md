@@ -290,6 +290,31 @@ A gate is **formally eligible** when the frozen contract requires that gate at t
 
 The denominator is the frozen inventory of all formally eligible gate weights across every stage, not the subset that has already produced accepted Evidence. If the frozen contract cannot enumerate that complete required inventory or any required gate weight is unknown, `progress.quantified=false` and `percent=null`. Surfaces render `unquantified`, not an estimate disguised as formal precision. A separate explicitly labelled forecast may exist in future but cannot share the formal progress field.
 
+### Formal Evidence verifier boundary
+
+Resolving an `evidence:*` ref proves only that a structured record exists. It contributes no formal weight until a current verifier produces a receipt with this stable shape:
+
+```text
+schema: spark.repro.formal-evidence-receipt/v1
+evidenceRef
+reproId
+requirementId or stepId
+planRevision
+stepDefinitionDigest
+invocationClass: owning_entrypoint
+profileDigest
+topologyDigest
+verifierId / verifierVersion
+verdict: accepted | rejected
+verifiedAt
+stale: boolean
+superseded: boolean
+```
+
+The `profileDigest` covers the normalized frozen `minimum_complete` acceptance Profile. The `topologyDigest` covers the exact normalized `validationTopology + strategies[]`; partial matching is forbidden. A gate enters `acceptedEligibleWeight` only when the receipt resolves to the same current Repro and gate, the revision and definition digest are current, invocation class is `owning_entrypoint`, both digests match the frozen contract, `verdict=accepted`, and both `stale` and `superseded` are false. Missing receipt, diagnostic/probe class, failed verifier, another Repro, stale revision, Profile/topology mismatch, or superseded Evidence all carry zero numerator weight. A plain `EvidenceStore.tryGet(ref)` success is never a formal verifier.
+
+The receipt is an output of the registered verifier, not a field callers may self-assert in a work summary. ReportModel, Markdown, A2UI, transcripts, and historical review records cannot manufacture or amend it. Verification tests must cover every rejected case above plus one complete current receipt.
+
 ### Reproducible examples
 
 | Example | Contract | Reference | Target | Alignment | Delivery | Result |
@@ -406,6 +431,30 @@ Explore at `delivery`, an exit-zero run, a passing probe, a complete Artifact, o
 
 Migration is an owner adapter from legacy structured records into new structured records. It never reads Markdown, A2UI, transcript prose, or historical percentage text.
 
+Every adapter emits one machine-checkable result rather than ad hoc `null`/omitted/default values:
+
+```text
+schema: spark.repro.migration-result/v1
+reproId
+sourceSchema
+sourceDigest
+migrationRevision
+idempotencyKey
+status: pending | applied | blocked
+unknownFields[]
+quarantinedValues[]
+legacyEstimatedPercent?: number
+evidencePaths[]
+evidenceRefs[]
+artifactRefs[]
+promotedEvidenceRefs[]
+checkpoint: { phase, lastAppliedOperation, sourceDigest }
+```
+
+Each `unknownFields[]` item contains `fieldPath`, `reason`, `sourceSchema`, and `formalEligibility=false`; it is never normalized to zero or to a default topology value. Each `quarantinedValues[]` item contains `sourceField`, `rawKind`, `reason`, `classifiedAs: unknown | path | evidence_ref | artifact_ref`, and `promoted=false`. `promotedEvidenceRefs` remains empty unless a current formal verifier receipt independently authorizes that exact ref. `legacyEstimatedPercent` is diagnostic-only and is never copied into canonical `progress.percent`.
+
+`idempotencyKey` binds `reproId + sourceSchema + sourceDigest + migrationRevision`. The checkpoint is committed with each applied operation so a partial write resumes from the same source digest. A digest mismatch or non-empty invalid vNext record blocks migration and preserves the original bytes; it is not replaced with empty state. Replays may observe an already-applied operation but may not duplicate Evidence, AnswerEvents, unresolved items, Artifact pages, Tasks, or TaskRuns.
+
 | Legacy fact | vNext treatment |
 | --- | --- |
 | `work-summary/v1 profile.model` / `profile.compute` | Map only recognized values to `modelScope` / `computeScope`; missing `full`, runtime, `etp`, or topology dimensions become typed unknowns and keep affected gates ineligible |
@@ -418,13 +467,13 @@ Migration is an owner adapter from legacy structured records into new structured
 | Existing `outputs/report.md` | Stop live maintenance after the stable Artifact revision succeeds; retain only when the bench explicitly enables the compatibility export |
 | Legacy active human wait | Reconcile through the shared human-request owner; do not reissue or convert it to async evidence unless correlation and lifecycle are complete |
 
-Backfill is idempotent per Repro id, source schema, and migration revision. Restart after any partial write resumes without duplicate Evidence, AnswerEvents, unresolved items, Artifact pages, or TaskRuns. A migration that cannot prove a field records a typed unknown/open item; it never guesses.
+Backfill is idempotent per Repro id, source schema, source digest, and migration revision. Restart after any partial write resumes from the durable checkpoint without duplicate Evidence, AnswerEvents, unresolved items, Artifact pages, Tasks, or TaskRuns. Migration reads structured records only. Markdown, A2UI, transcript prose, and historical percentage text are never inputs. A migration that cannot prove a field records the typed unknown/open item above; it never guesses.
 
 ## Delivery stack
 
 The implementation is one GitChange with four dependent PR layers. Spark Tasks remain granular ownership/evidence units rather than PR topology.
 
-1. **Contract & Report Domain** — this specification, versioned lane/Profile/progress/ReportModel schemas, pure derivations, namespace validators, and migration adapters/tests. No daemon scheduling change.
+1. **Contract** — this specification fixes the versioned lane/Profile/progress/ReportModel, formal verifier, namespace, and migration contracts. It does not claim that runtime enforcement or migration is available in this layer; executable schemas, adapters, and tests land in dependent layers. No daemon scheduling change.
 2. **Async Evidence** — autonomous Ask guard, shared durable EvidenceRequest/AnswerEvent binding, hook reconciliation, direct-user provenance, restart/idempotency tests. No dual-frontier dispatch yet.
 3. **Dual-lane Runtime** — ordered Normative retirement, Explore frontier, unresolved accounting, independent scheduling/recovery, Goal integration, and completion fence.
 4. **Workbench & Rollout** — deterministic Artifact-first/A2UI/Hub/TUI projections, compatibility export, dogfood migrations, kill switch, browser/restart/E2E validation, and operator documentation.
