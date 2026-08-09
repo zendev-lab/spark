@@ -83,6 +83,32 @@ test("role native executor reviewer fallback runs for the exact typed compatibil
   assert.equal(isRoleNativeExecutorCompatibilityResult(primaryResult), true);
 });
 
+test("role native executor forwards daemon roots to isolated compatibility fallback", async () => {
+  let received: unknown;
+  const executor = withRoleNativeExecutorCompatibilityFallback(async () => failedResult(), {
+    sparkHome: "/daemon/session-state",
+    controlSparkHome: "/daemon/provider-config",
+    runIsolatedFallback: async (request, options) => {
+      received = options;
+      return {
+        record: { ...request.record, status: "succeeded" },
+        outcome: { kind: "completed", code: "completed", reason: "approved" },
+        stdout: "approved",
+        stderr: "",
+        jsonEvents: [],
+      };
+    },
+  });
+
+  assert.ok(executor);
+  await executor(fakeRequest());
+  assert.deepEqual(received, {
+    moduleSpecifier: undefined,
+    sparkHome: "/daemon/session-state",
+    controlSparkHome: "/daemon/provider-config",
+  });
+});
+
 test("role native executor compatibility marker discards primary events and exposes isolated events once", async () => {
   const exposed: unknown[] = [];
   let isolatedCalls = 0;

@@ -23,6 +23,8 @@ export interface RoleNativeExecutorCompatibilityFallbackDeps {
   /** Test seam that replaces the complete isolated runner boundary. */
   runIsolatedFallback?: typeof runIsolatedRoleNativeExecutor;
   moduleSpecifier?: string;
+  sparkHome?: string;
+  controlSparkHome?: string;
 }
 
 export type RoleNativeExecutorResolver = (input: {
@@ -83,6 +85,8 @@ export function withRoleNativeExecutorCompatibilityFallback(
         runFallback: (fallbackRequest) =>
           (deps.runIsolatedFallback ?? runIsolatedRoleNativeExecutor)(fallbackRequest, {
             moduleSpecifier: deps.moduleSpecifier,
+            sparkHome: deps.sparkHome,
+            controlSparkHome: deps.controlSparkHome,
           }),
       });
     }
@@ -102,6 +106,8 @@ export function withRoleNativeExecutorCompatibilityFallback(
       runFallback: (fallbackRequest) =>
         (deps.runIsolatedFallback ?? runIsolatedRoleNativeExecutor)(fallbackRequest, {
           moduleSpecifier: deps.moduleSpecifier,
+          sparkHome: deps.sparkHome,
+          controlSparkHome: deps.controlSparkHome,
         }),
     });
   };

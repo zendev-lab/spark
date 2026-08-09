@@ -847,6 +847,11 @@ export interface SparkHostContext {
    * this instead of spawning a nested `pi` process and fail loudly when absent.
    */
   runRole?: ExtensionRoleRunner;
+  /** Host-owned roots for reviewer-only isolated native compatibility recovery. */
+  roleNativeCompatibilityRecovery?: {
+    sparkHome?: string;
+    controlSparkHome?: string;
+  };
 }
 
 export interface SparkStateRootContext {

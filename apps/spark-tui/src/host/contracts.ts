@@ -95,6 +95,8 @@ export interface SparkCliHostServicesOptions {
   interactionTimeoutMs?: number;
   approvalMethod?: "skip" | "human" | "auto";
   approvalRejectAction?: "ask" | "deny";
+  /** Host-private roots for reviewer-only isolated native compatibility recovery. */
+  roleNativeCompatibilityRecovery?: SparkHostRuntimeOptions["roleNativeCompatibilityRecovery"];
 }
 
 export type SparkCliHostServicesFactory = (
