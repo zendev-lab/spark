@@ -201,6 +201,24 @@ function fileSpecifier(_fromDirectory, file) {
   return pathToFileURL(file).href;
 }
 
+async function probeInstalledHeadlessExecutor(installRoot, packageName, env) {
+  const moduleSpecifier = `${packageName}/headless-role-executor`;
+  const script = `
+const headless = await import(${JSON.stringify(moduleSpecifier)});
+if (typeof headless.createSparkHeadlessRoleExecutor !== "function") {
+  throw new Error("headless package export is missing createSparkHeadlessRoleExecutor");
+}
+const executor = headless.createSparkHeadlessRoleExecutor();
+if (typeof executor !== "function") {
+  throw new Error("headless role executor factory did not return a function");
+}
+`;
+  await run(process.execPath, ["--input-type=module", "--eval", script], {
+    cwd: installRoot,
+    env,
+  });
+}
+
 async function installCandidates(temporary, id, packageIds, tarballs) {
   const installRoot = resolve(temporary, `install-${id}`);
   await mkdir(installRoot, { recursive: true });
@@ -306,6 +324,12 @@ try {
     PATH: cleanPath(),
     SPARK_HOME: resolve(temporary, "spark-hub-home"),
   };
+
+  console.log("Probing installed daemon and TUI headless role executor exports...");
+  await Promise.all([
+    probeInstalledHeadlessExecutor(daemonRoot, "@zendev-lab/spark-daemon", nodeEnvironment),
+    probeInstalledHeadlessExecutor(tuiRoot, "@zendev-lab/spark-tui", nodeEnvironment),
+  ]);
 
   console.log("Probing the complete meta package and the real spark CLI package...");
   await run(spark.command, [...spark.argvPrefix, "--help"], {

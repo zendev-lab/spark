@@ -32,6 +32,9 @@ const externalPackages = [
   "ws",
 ];
 
+const esmRequireBanner = `import { createRequire as __sparkCreateRequire } from "node:module";
+const require = __sparkCreateRequire(import.meta.url);`;
+
 async function run(command, args, options = {}) {
   try {
     return await execFileAsync(command, args, {
@@ -57,6 +60,9 @@ async function bundle(entry, output) {
     "--platform=node",
     "--format=esm",
     "--target=node26",
+    ...(output.endsWith("spark-headless-role-executor.js")
+      ? [`--banner:js=${esmRequireBanner}`]
+      : []),
     `--outfile=${output}`,
     ...externalPackages.map((name) => `--external:${name}`),
   ]);
@@ -69,7 +75,11 @@ function sortedRecord(record) {
 }
 
 async function runtimeDependencies(distribution) {
-  const discovered = await resolveProductRuntimeDependencies(root, distribution.directory);
+  const discovered = await resolveProductRuntimeDependencies(
+    root,
+    distribution.directory,
+    distribution.exactDependencies,
+  );
   const exact = Object.fromEntries(
     distribution.exactDependencies.map((name) => [name, releaseVersion]),
   );
@@ -271,11 +281,14 @@ await run("pnpm", ["--filter", "@zendev-lab/spark-daemon", "run", "build"]);
 await run("pnpm", ["--filter", "@zendev-lab/spark-hub", "run", "build"]);
 
 await Promise.all(
-  npmDistributions.flatMap((distribution) =>
-    Object.entries(distribution.bundles).map(([output, entry]) =>
+  npmDistributions.flatMap((distribution) => [
+    ...Object.entries(distribution.bundles).map(([output, entry]) =>
       bundle(entry, resolve(distribution.directory, "dist", output)),
     ),
-  ),
+    ...Object.entries(distribution.modules ?? {}).map(([output, source]) =>
+      writeFile(resolve(distribution.directory, "dist", output), `${source.trimEnd()}\n`),
+    ),
+  ]),
 );
 
 const daemon = npmDistributions.find((distribution) => distribution.id === "daemon");

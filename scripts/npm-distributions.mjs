@@ -97,9 +97,16 @@ export const npmDistributions = [
     manifestName: "tui-release-manifest.json",
     bins: { "spark-tui": "spark-tui.js" },
     bundles: { "spark-tui.js": "apps/spark-tui/src/cli.ts" },
+    modules: {
+      "spark-headless-role-executor.js":
+        'export * from "@zendev-lab/spark-daemon/headless-role-executor";',
+    },
     files: ["bin", "dist", "skills", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
     exactDependencies: ["@zendev-lab/spark-daemon"],
-    exports: { "./executable": "./bin/spark-tui" },
+    exports: {
+      "./executable": "./bin/spark-tui",
+      "./headless-role-executor": "./dist/spark-headless-role-executor.js",
+    },
     skills: true,
   },
   {

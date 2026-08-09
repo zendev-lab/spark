@@ -97,10 +97,16 @@ async function runtimeDependencyOwners(root) {
   return owners;
 }
 
-export async function resolveProductRuntimeDependencies(root, productDirectory) {
+export async function resolveProductRuntimeDependencies(
+  root,
+  productDirectory,
+  exactWorkspacePackages = [],
+) {
   const owners = await runtimeDependencyOwners(root);
   const dependencies = {};
+  const exactWorkspacePackageSet = new Set(exactWorkspacePackages);
   for (const name of await discoverProductRuntimePackages(productDirectory)) {
+    if (exactWorkspacePackageSet.has(name)) continue;
     const directories = owners.get(name);
     if (!directories?.length) {
       throw new Error(`Published runtime package ${name} is not a workspace runtime dependency`);
