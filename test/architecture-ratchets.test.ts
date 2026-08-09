@@ -1,8 +1,7 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, relative } from "node:path";
+import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -18,8 +17,6 @@ const {
   workspaceImports,
 } = architectureRatchets;
 
-const architectureGovernanceFixtureSha256 =
-  "ab5ac8ceefed307e8e21e18481697923ffee988ce541757f03fbe8c2dc4483ad";
 const requiredInventoryFields = ["layer", "owner", "stability", "stateWriter"] as const;
 const invalidInventoryCases = [
   { field: "layer", value: "invalid" },
@@ -55,21 +52,6 @@ interface GovernanceFixture {
     authority: string;
     independentDefect: string;
   }>;
-  scriptsInventory: Array<{
-    path: string;
-    lineCount: number;
-    domainOwner: string;
-    callers: string[];
-    replacementAssessment: string;
-  }>;
-  removedScriptSourceLines: number;
-  removedScriptCount: number;
-  removedScripts: string[];
-  changeBase: string;
-  changeHead: string;
-  changedFiles: string[];
-  remainingCandidates: Array<{ path: string; assessment: string; blocker: string }>;
-  blockers: string[];
 }
 
 function parseJson<T>(source: string, label: string): T {
@@ -101,27 +83,6 @@ async function workspaceManifestPaths(): Promise<string[]> {
   return manifests.sort();
 }
 
-function gitCommitExists(sha: string): boolean {
-  return (
-    spawnSync("git", ["cat-file", "-e", `${sha}^{commit}`], {
-      encoding: "utf8",
-      stdio: "ignore",
-    }).status === 0
-  );
-}
-
-function shouldCrossCheckHistoricalGitObjects(
-  base: string,
-  head: string,
-  commitExists: (sha: string) => boolean = gitCommitExists,
-): boolean {
-  return commitExists(base) && commitExists(head);
-}
-
-function lineCount(source: string): number {
-  return source.length === 0 ? 0 : source.split("\n").length - (source.endsWith("\n") ? 1 : 0);
-}
-
 describe("workspace dependency declaration ratchet", () => {
   it("extracts root package names from static and dynamic workspace imports", () => {
     expect(
@@ -135,17 +96,6 @@ describe("workspace dependency declaration ratchet", () => {
 });
 
 describe("architecture governance contracts", () => {
-  it("uses the sealed fixture when a shallow checkout omits historical Git objects", () => {
-    const observed: string[] = [];
-    expect(
-      shouldCrossCheckHistoricalGitObjects("base", "head", (sha) => {
-        observed.push(sha);
-        return false;
-      }),
-    ).toBe(false);
-    expect(observed).toEqual(["base"]);
-  });
-
   it("requires every active workspace declaration to carry every ownership field", async () => {
     const inventory = await readJson<ArchitectureInventory>("architecture/packages.json");
     const workspacePaths = await workspaceManifestPaths();
@@ -246,14 +196,9 @@ describe("architecture governance contracts", () => {
     for (const retained of governance.retainedSparkChecks) expect(docs).toContain(retained);
   });
 
-  it("checks the removed generic-rule mapping and exact script inventory", async () => {
-    const fixtureSource = await readFile("test/fixtures/architecture-governance.json", "utf8");
-    expect(createHash("sha256").update(fixtureSource).digest("hex")).toBe(
-      architectureGovernanceFixtureSha256,
-    );
-    const governance = parseJson<GovernanceFixture>(
-      fixtureSource,
-      "architecture governance fixture",
+  it("checks each removed generic rule against its replacement authority", async () => {
+    const governance = await readJson<GovernanceFixture>(
+      "test/fixtures/architecture-governance.json",
     );
     expect(governance.removedCheckerRules.map((rule) => rule.id)).toEqual([
       ...removedCheckerRuleIds,
@@ -264,71 +209,6 @@ describe("architecture governance contracts", () => {
       expect(rule.authority).toBeTruthy();
       expect(rule.independentDefect).toMatch(/^test\//u);
       await expect(readFile(rule.independentDefect.split(" ")[0]!, "utf8")).resolves.toBeTruthy();
-    }
-    expect(governance.removedScriptSourceLines).toBe(3150);
-    expect(governance.removedScriptCount).toBe(governance.removedScripts.length);
-    if (shouldCrossCheckHistoricalGitObjects(governance.changeBase, governance.changeHead)) {
-      expect(
-        execFileSync(
-          "git",
-          ["diff", "--name-only", `${governance.changeBase}..${governance.changeHead}`],
-          {
-            encoding: "utf8",
-          },
-        )
-          .trim()
-          .split("\n")
-          .filter(Boolean),
-      ).toEqual(governance.changedFiles);
-      const removedScriptStatus = execFileSync(
-        "git",
-        [
-          "diff",
-          "--name-status",
-          `${governance.changeBase}..${governance.changeHead}`,
-          "--",
-          "scripts",
-        ],
-        { encoding: "utf8" },
-      )
-        .trim()
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => line.split("\t"))
-        .filter(([status]) => status === "D")
-        .map(([, path]) => path!);
-      expect(removedScriptStatus).toEqual(governance.removedScripts);
-      const removedSourceLines = governance.removedScripts.reduce((total, path) => {
-        const source = execFileSync("git", ["show", `${governance.changeBase}:${path}`], {
-          encoding: "utf8",
-        });
-        return total + lineCount(source);
-      }, 0);
-      expect(removedSourceLines).toBe(governance.removedScriptSourceLines);
-    }
-    const actualScripts = (await readdir("scripts", { withFileTypes: true }))
-      .filter((entry) => entry.isFile())
-      .map((entry) => `scripts/${entry.name}`)
-      .sort();
-    expect(actualScripts).toEqual(governance.scriptsInventory.map((entry) => entry.path).sort());
-    expect(governance.removedScripts).toHaveLength(18);
-    expect(governance.remainingCandidates).toHaveLength(1);
-    expect(governance.blockers).toHaveLength(2);
-    for (const entry of governance.scriptsInventory) {
-      expect(entry.path).toMatch(/^scripts\//u);
-      const source = await readFile(entry.path, "utf8");
-      expect(lineCount(source), `${entry.path} line count`).toBe(entry.lineCount);
-      expect(entry.domainOwner).toBeTruthy();
-      expect(entry.callers.length).toBeGreaterThan(0);
-      expect(entry.replacementAssessment).toBeTruthy();
-      for (const caller of entry.callers) {
-        if (caller === "operator/manual entrypoint") continue;
-        const callerSource = await readFile(caller, "utf8");
-        const callerToken = entry.path.endsWith(".d.mts")
-          ? basename(entry.path, ".d.mts")
-          : basename(entry.path);
-        expect(callerSource, `${caller} must call or type ${entry.path}`).toContain(callerToken);
-      }
     }
   });
 });

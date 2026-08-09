@@ -37,8 +37,15 @@ the component harness or require a terminal multiplexer for either lane.
 Real process tests stay out of the root Vitest suite. Source and packed-product checks share the same
 daemon lifecycle harness, but invoke different executable targets. This prevents the source launcher
 and generated npm product from drifting while keeping failures attributable to distinct named steps.
-`pnpm run check` remains the serial local gate; CI runs grouped checks, tests, and smoke jobs in
-parallel, then requires a single aggregate `required` job.
+`pnpm run check` remains the serial local gate. Static CI always runs the complete architecture,
+test-quality, documentation, formatting, lint, and type checks. Pull-request runtime CI uses
+`scripts/changed-ci-scope.mjs` to select workspace checks and the process, macOS, and browser lanes;
+unknown or root-owned changes fail safe to the full matrix. `merge_group` and `main` pushes always
+run the full matrix. These jobs are advisory and there is no aggregate required test job.
+
+`prek` is the local fast-fix boundary: use native pre-commit integrations for file-format and
+workflow checks, plus the repository's `spark-check-fix` hook. Repository-specific read-only checks
+such as architecture and test quality stay in static CI instead of being wrapped as system hooks.
 
 Continuous-evaluation lanes remain separate from merge gates. Capability CE repeats the exact
 owner tests selected by the deterministic sentinel runner and preserves missing runs, inventory
@@ -60,7 +67,10 @@ Mutation CE selection is also package-owned: every participating package declare
 
 ## Source-mirror debt
 
-`pnpm run check:test-quality` is a ratchet for implementation-mirror tests. Its committed baseline must remain `legacyFiles=0` and `sourceMirrorAssertions=0`. Tests should assert observable behavior, schemas, AST/dependency rules, or complete reviewed goldens—not that a production source fragment exists. A new source-mirror assertion is a regression even when the total suite still passes.
+`pnpm run check:test-quality` rejects implementation-mirror tests at a zero baseline. Tests should
+assert observable behavior, schemas, AST/dependency rules, or complete reviewed goldens—not that a
+production source fragment exists. A new source-mirror or brittle prompt assertion is a regression
+even when the total suite still passes.
 
 
 Prefer, in order:
@@ -72,17 +82,8 @@ Prefer, in order:
 4. complete golden files for intentionally stable user-visible rendering or protocol text.
 
 Reading production source and asserting that fragments are present is not a behavior test. It is
-usually a brittle implementation mirror. `pnpm run check:test-quality` tracks the existing debt and
-rejects any count change. After replacing such assertions with behavior, schema/AST checks, or a
-reviewed full golden, update and review the lower baseline:
-
-```bash
-pnpm run check:test-quality:update
-pnpm run check:test-quality
-```
-
-The baseline is a ratchet, not an exemption catalog: new files start at zero, and reductions must be
-committed so removed debt cannot silently return.
+usually a brittle implementation mirror. The quality gate scans the current tests directly and has
+no exemption catalog or historical count to refresh.
 
 ## Golden files
 

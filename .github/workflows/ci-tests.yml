@@ -17,17 +17,42 @@ permissions:
   contents: read
 
 jobs:
-  source:
-    name: Source Tests (${{ matrix.name }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Ubuntu
-            os: ubuntu-latest
-          - name: macOS
-            os: macos-latest
-    runs-on: ${{ matrix.os }}
+  scope:
+    name: Test Scope
+    runs-on: ubuntu-latest
+    outputs:
+      base: ${{ steps.classify.outputs.base }}
+      full: ${{ steps.classify.outputs.full }}
+      run_source: ${{ steps.classify.outputs.run_source }}
+      run_macos: ${{ steps.classify.outputs.run_macos }}
+      run_process: ${{ steps.classify.outputs.run_process }}
+      run_browser: ${{ steps.classify.outputs.run_browser }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Classify affected test lanes
+        id: classify
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            node scripts/changed-ci-scope.mjs --base "${BASE_SHA}"
+          else
+            node scripts/changed-ci-scope.mjs --full
+          fi
+
+  source-ubuntu:
+    name: Source Tests (Ubuntu)
+    needs: scope
+    if: needs.scope.outputs.run_source == 'true'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -39,19 +64,71 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run test:unit
+      - name: Run source tests
+        env:
+          BASE_SHA: ${{ needs.scope.outputs.base }}
+          FULL_MATRIX: ${{ needs.scope.outputs.full }}
+        run: |
+          if [[ "${FULL_MATRIX}" == "true" ]]; then
+            pnpm run test:unit
+          else
+            pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync
+            pnpm exec vp test run --config vitest.root.config.ts
+            pnpm --filter "...[${BASE_SHA}]" --if-present run check
+          fi
 
-  process:
-    name: Process Tests (${{ matrix.name }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Ubuntu
-            os: ubuntu-latest
-          - name: macOS
-            os: macos-latest
-    runs-on: ${{ matrix.os }}
+  source-macos:
+    name: Source Tests (macOS)
+    needs: scope
+    if: needs.scope.outputs.run_macos == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run source tests
+        env:
+          BASE_SHA: ${{ needs.scope.outputs.base }}
+          FULL_MATRIX: ${{ needs.scope.outputs.full }}
+        run: |
+          if [[ "${FULL_MATRIX}" == "true" ]]; then
+            pnpm run test:unit
+          else
+            pnpm --filter @zendev-lab/spark-hub exec svelte-kit sync
+            pnpm exec vp test run --config vitest.root.config.ts
+            pnpm --filter "...[${BASE_SHA}]" --if-present run check
+          fi
+
+  process-ubuntu:
+    name: Process Tests (Ubuntu)
+    needs: scope
+    if: needs.scope.outputs.run_process == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test:process:source
+
+  process-macos:
+    name: Process Tests (macOS)
+    needs: scope
+    if: needs.scope.outputs.run_process == 'true' && needs.scope.outputs.run_macos == 'true'
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,6 +144,8 @@ jobs:
 
   browser:
     name: Browser Tests
+    needs: scope
+    if: needs.scope.outputs.run_browser == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
