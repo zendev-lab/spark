@@ -67,6 +67,18 @@ session id and only connection-local active-invocation routing is retained.
   `daemon.sock` adapter only preserves N-1 wire compatibility and receives no
   new product behavior. Hub may cache or project Spark state, but it must not
   mutate local daemon stores directly.
+- Hub daemon settings select a runtime through the active workspace lease and
+  cross the authenticated runtime WebSocket. Invocation diagnostics must never
+  fall back to a Hub-host `daemon.sock`. Model settings may use Hub's latest
+  daemon projection for first paint; an explicit refresh asks the owning daemon
+  for a new catalog.
+- Provider authentication state means only that a credential reference is
+  configured. A model connectivity check is one bounded, tool-free daemon
+  request with no session or invocation persistence, and returns only a stable,
+  credential-free result code plus latency. It is the explicit proof that the
+  selected model route can answer.
+- `/settings/update` projects the Hub installation's own updater state. It must
+  not imply that connected daemon installations share that updater or handoff.
 - Reusable capability and runtime behavior belongs in `packages/spark-*`;
   executable apps retain bootstrap, presentation, and bounded compatibility
   glue. Boundary regressions are enforced by the dependency-cruiser stage of

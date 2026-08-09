@@ -11,6 +11,7 @@ import {
   type SparkAuthFlow,
   type SparkModelCatalogEntry,
   type SparkModelCatalogProvider,
+  type SparkModelConnectivityTestResult,
   type SparkModelControlSnapshot,
   type SparkModelRef,
   type SparkProviderAuthStatus,
@@ -39,6 +40,7 @@ export interface SparkDaemonModelControl {
   effectiveModel(sessionId?: string): Promise<SparkModelRef>;
   effectiveThinkingLevel(sessionId?: string): Promise<SparkThinkingLevel | undefined>;
   prepareModel(model: SparkModelRef): Promise<void>;
+  testModel(model: SparkModelRef): Promise<SparkModelConnectivityTestResult>;
   generateSessionName?(input: {
     prompt: string;
     model: SparkModelRef;
@@ -177,6 +179,98 @@ class DaemonModelControl implements SparkDaemonModelControl {
 
   async prepareModel(model: SparkModelRef): Promise<void> {
     await this.#providerControl.prepareModel(modelValue(model));
+  }
+
+  async testModel(model: SparkModelRef): Promise<SparkModelConnectivityTestResult> {
+    const startedAt = Date.now();
+    let canonical = model;
+    const result = (
+      input:
+        | { status: "reachable" }
+        | {
+            status: "unreachable";
+            reasonCode: Extract<
+              SparkModelConnectivityTestResult,
+              { status: "unreachable" }
+            >["reasonCode"];
+          },
+    ): SparkModelConnectivityTestResult => ({
+      ...input,
+      model: canonical,
+      latencyMs: Math.max(0, Date.now() - startedAt),
+      checkedAt: new Date().toISOString(),
+    });
+
+    let entry: SparkModelCatalogEntry | undefined;
+    let snapshot: SparkModelControlSnapshot;
+    try {
+      snapshot = await this.snapshot();
+      entry = snapshot.providers
+        .flatMap((provider) => provider.models)
+        .find(
+          (candidate) =>
+            candidate.model.providerName === model.providerName &&
+            candidate.model.modelId === model.modelId,
+        );
+    } catch {
+      return result({ status: "unreachable", reasonCode: "route-unavailable" });
+    }
+    if (!entry) return result({ status: "unreachable", reasonCode: "no-model" });
+    canonical = entry.model;
+    if (
+      snapshot.scopedModels &&
+      !snapshot.scopedModels.some(
+        (candidate) =>
+          candidate.providerName === canonical.providerName &&
+          candidate.modelId === canonical.modelId,
+      )
+    ) {
+      return result({ status: "unreachable", reasonCode: "model-out-of-scope" });
+    }
+    if (!entry.available) {
+      return result({ status: "unreachable", reasonCode: "model-binding-unavailable" });
+    }
+
+    try {
+      await this.prepareModel(canonical);
+    } catch {
+      return result({ status: "unreachable", reasonCode: "authentication-unavailable" });
+    }
+    if (!this.#providerControl.runLeaf) {
+      return result({ status: "unreachable", reasonCode: "host-unsupported" });
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const leaf = await this.#providerControl.runLeaf({
+        role: "model-connectivity",
+        brief:
+          "Verify that this model route can complete one bounded request. Return only OK, without markdown or explanation.",
+        input: "Connectivity check.",
+        sessionModel: modelValue(canonical),
+        maxTokens: 16,
+        reasoning: false,
+        signal: controller.signal,
+      });
+      if (leaf.degraded) {
+        return result({
+          status: "unreachable",
+          reasonCode: leaf.reasonCode ?? "model-call-failed",
+        });
+      }
+      if (!leaf.text.trim()) {
+        return result({ status: "unreachable", reasonCode: "empty-response" });
+      }
+      return result({ status: "reachable" });
+    } catch {
+      return result({
+        status: "unreachable",
+        reasonCode: controller.signal.aborted ? "aborted" : "model-call-failed",
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async generateSessionName(input: {

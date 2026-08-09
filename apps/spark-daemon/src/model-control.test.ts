@@ -222,6 +222,99 @@ describe("daemon model control", () => {
     await control.generateSessionName!({ prompt: "x".repeat(2_100), model: selectedModel });
     expect(runLeaf).toHaveBeenLastCalledWith(expect.objectContaining({ input: "x".repeat(2_000) }));
   });
+
+  it("runs one bounded tool-free request for a real model connectivity check", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-model-connectivity-"));
+    roots.push(root);
+    const runLeaf = vi.fn(async () => ({ degraded: false, text: "OK" }));
+    const prepareModel = vi.fn(async () => undefined);
+    const control = createSparkDaemonModelControl({
+      providerControl: fakeProviderControl(prepareModel, runLeaf),
+      sessionRegistry: createDaemonSessionRegistry(root, {
+        daemonId: "install-model-connectivity",
+        daemonCwd: root,
+      }),
+    });
+
+    await expect(control.testModel(selectedModel)).resolves.toMatchObject({
+      status: "reachable",
+      model: selectedModel,
+    });
+    expect(prepareModel).toHaveBeenCalledWith("baidu-oneapi/ernie-4.6");
+    expect(runLeaf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: "model-connectivity",
+        sessionModel: "baidu-oneapi/ernie-4.6",
+        maxTokens: 16,
+        reasoning: false,
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it("returns stable connectivity reasons without leaking provider failures", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-model-connectivity-failure-"));
+    roots.push(root);
+    const control = createSparkDaemonModelControl({
+      providerControl: fakeProviderControl(async () => {
+        throw new Error("secret credential detail");
+      }),
+      sessionRegistry: createDaemonSessionRegistry(root, {
+        daemonId: "install-model-connectivity-failure",
+        daemonCwd: root,
+      }),
+    });
+
+    const result = await control.testModel(selectedModel);
+    expect(result).toMatchObject({
+      status: "unreachable",
+      reasonCode: "authentication-unavailable",
+      model: selectedModel,
+    });
+    expect(JSON.stringify(result)).not.toContain("secret credential detail");
+  });
+
+  it("returns a stable reason when a projected model is no longer in the daemon catalog", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-model-connectivity-stale-"));
+    roots.push(root);
+    const control = createSparkDaemonModelControl({
+      providerControl: fakeProviderControl(),
+      sessionRegistry: createDaemonSessionRegistry(root, {
+        daemonId: "install-model-connectivity-stale",
+        daemonCwd: root,
+      }),
+    });
+
+    await expect(
+      control.testModel({ providerName: "openai-codex", modelId: "removed-model" }),
+    ).resolves.toMatchObject({
+      status: "unreachable",
+      reasonCode: "no-model",
+      model: { providerName: "openai-codex", modelId: "removed-model" },
+    });
+  });
+
+  it("refuses to probe a catalog model outside the user-scoped range", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spark-model-connectivity-scope-"));
+    roots.push(root);
+    const prepareModel = vi.fn(async () => undefined);
+    const runLeaf = vi.fn(async () => ({ degraded: false, text: "OK" }));
+    const control = createSparkDaemonModelControl({
+      providerControl: fakeProviderControl(prepareModel, runLeaf, ["baidu-oneapi/ernie-4.5"]),
+      sessionRegistry: createDaemonSessionRegistry(root, {
+        daemonId: "install-model-connectivity-scope",
+        daemonCwd: root,
+      }),
+    });
+
+    await expect(control.testModel(selectedModel)).resolves.toMatchObject({
+      status: "unreachable",
+      reasonCode: "model-out-of-scope",
+      model: selectedModel,
+    });
+    expect(prepareModel).not.toHaveBeenCalled();
+    expect(runLeaf).not.toHaveBeenCalled();
+  });
 });
 
 function fakeProviderControl(

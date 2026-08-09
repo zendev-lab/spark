@@ -78,6 +78,37 @@ export const sparkDefaultModelSetRequestSchema = z.object({
   model: sparkModelRefSchema,
 });
 
+export const sparkModelConnectivityTestRequestSchema = z.object({
+  model: sparkModelRefSchema,
+});
+
+export const sparkModelConnectivityFailureReasonSchema = z.enum([
+  "aborted",
+  "authentication-unavailable",
+  "no-model",
+  "model-out-of-scope",
+  "model-binding-unavailable",
+  "route-unavailable",
+  "model-call-failed",
+  "host-unsupported",
+  "empty-response",
+]);
+
+const sparkModelConnectivityTestBaseSchema = z.object({
+  model: sparkModelRefSchema,
+  latencyMs: z.number().int().nonnegative(),
+  checkedAt: isoDateTimeSchema,
+});
+
+/** Credential-free result of one bounded, tool-free provider request. */
+export const sparkModelConnectivityTestResultSchema = z.discriminatedUnion("status", [
+  sparkModelConnectivityTestBaseSchema.extend({ status: z.literal("reachable") }),
+  sparkModelConnectivityTestBaseSchema.extend({
+    status: z.literal("unreachable"),
+    reasonCode: sparkModelConnectivityFailureReasonSchema,
+  }),
+]);
+
 export const sparkAuthImportSkipReasonSchema = z.enum([
   "existing",
   "unsupported_provider",
@@ -183,6 +214,12 @@ export type SparkModelCatalogProvider = z.infer<typeof sparkModelCatalogProvider
 export type SparkSessionModelSelection = z.infer<typeof sparkSessionModelSelectionSchema>;
 export type SparkModelControlSnapshot = z.infer<typeof sparkModelControlSnapshotSchema>;
 export type SparkDefaultModelSetRequest = z.infer<typeof sparkDefaultModelSetRequestSchema>;
+export type SparkModelConnectivityFailureReason = z.infer<
+  typeof sparkModelConnectivityFailureReasonSchema
+>;
+export type SparkModelConnectivityTestResult = z.infer<
+  typeof sparkModelConnectivityTestResultSchema
+>;
 export type SparkAuthImportSkipReason = z.infer<typeof sparkAuthImportSkipReasonSchema>;
 export type SparkAuthImportReport = z.infer<typeof sparkAuthImportReportSchema>;
 export type SparkPiAuthImportRequest = z.infer<typeof sparkPiAuthImportRequestSchema>;
@@ -204,4 +241,10 @@ export function parseSparkAuthImportReport(value: unknown): SparkAuthImportRepor
 
 export function parseSparkDefaultModelSetRequest(value: unknown): SparkDefaultModelSetRequest {
   return sparkDefaultModelSetRequestSchema.parse(value);
+}
+
+export function parseSparkModelConnectivityTestResult(
+  value: unknown,
+): SparkModelConnectivityTestResult {
+  return sparkModelConnectivityTestResultSchema.parse(value);
 }

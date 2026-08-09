@@ -3338,6 +3338,12 @@ describe("Spark daemon local RPC", () => {
       effectiveModel: vi.fn(async () => model),
       effectiveThinkingLevel: vi.fn(async () => undefined),
       prepareModel,
+      testModel: vi.fn(async (selectedModel) => ({
+        status: "reachable" as const,
+        model: selectedModel,
+        latencyMs: 1,
+        checkedAt: "2026-07-10T00:02:00.000Z",
+      })),
     } satisfies SparkDaemonModelControl;
 
     try {
