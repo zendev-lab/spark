@@ -381,6 +381,7 @@ test("runSparkHeadlessSession never submits when cancellation wins during bootst
   const controller = new AbortController();
   const reason = new Error("cancelled during service bootstrap");
   let submitCalls = 0;
+  let shutdownCalls = 0;
 
   await assert.rejects(
     runSparkHeadlessSession(
@@ -393,17 +394,141 @@ test("runSparkHeadlessSession never submits when cancellation wins during bootst
       {
         createServices: async () => {
           controller.abort(reason);
-          return headlessServices(async () => {
+          const services = headlessServices(async () => {
             submitCalls += 1;
             return terminalOutcome(terminalAssistant("aborted", "too late"));
-          }) as never;
+          });
+          services.runtime.shutdown = async () => {
+            shutdownCalls += 1;
+          };
+          return services as never;
         },
       },
     ),
     (error) => error === reason,
   );
   assert.equal(submitCalls, 0);
+  assert.equal(shutdownCalls, 1);
 });
+
+test("runSparkHeadlessSession shuts down after provider resolution failure", async () => {
+  const providerFailure = new Error("model provider missing");
+  let shutdownCalls = 0;
+  const services = headlessServices(async () => successfulOutcome("must not run"));
+  services.runtime.shutdown = async () => {
+    shutdownCalls += 1;
+  };
+  Object.assign(services, {
+    providerRegistry: {
+      buildModel: () => {
+        throw providerFailure;
+      },
+      setActive: () => undefined,
+    },
+    config: {},
+  });
+
+  await assert.rejects(
+    runSparkHeadlessSession(
+      {
+        cwd: process.cwd(),
+        sessionId: "session-provider-resolution-failed",
+        prompt: "must not execute",
+        model: "missing/provider",
+      },
+      { createServices: async () => services as never },
+    ),
+    (error) => error === providerFailure,
+  );
+  assert.equal(shutdownCalls, 1);
+});
+
+test("runSparkHeadlessSession preserves its primary error when shutdown also fails", async () => {
+  const services = failedModelCallHeadlessServices();
+  services.runtime.shutdown = async () => {
+    throw new Error("shutdown listener failed");
+  };
+
+  await assert.rejects(
+    runSparkHeadlessSession(
+      { cwd: process.cwd(), sessionId: "session-primary-error", prompt: "fail" },
+      { createServices: async () => services as never },
+    ),
+    /provider stream failed/u,
+  );
+});
+
+test("runSparkHeadlessRoleInstruction shuts down after setup abort", async () => {
+  const controller = new AbortController();
+  const reason = new Error("role cancelled during bootstrap");
+  const services = headlessRoleServices(async () => successfulOutcome("must not run"));
+  let shutdownCalls = 0;
+  services.runtime.shutdown = async () => {
+    shutdownCalls += 1;
+  };
+  const input = roleInstructionInput("setup-abort-shutdown");
+  input.signal = controller.signal;
+
+  await assert.rejects(
+    runSparkHeadlessRoleInstruction(input, {
+      createServices: async () => {
+        controller.abort(reason);
+        return services as never;
+      },
+    }),
+    (error) => error === reason,
+  );
+  assert.equal(shutdownCalls, 1);
+});
+
+test("runSparkHeadlessRoleInstruction shuts down after provider resolution failure", async () => {
+  const services = headlessRoleServices(async () => successfulOutcome("must not run"));
+  let shutdownCalls = 0;
+  services.runtime.shutdown = async () => {
+    shutdownCalls += 1;
+  };
+  services.providerRegistry = {
+    buildModel: () => {
+      throw new Error("role provider missing");
+    },
+    setActive: () => undefined,
+  };
+  const input = roleInstructionInput("provider-resolution-shutdown");
+  input.model = "missing/provider";
+
+  const result = await runSparkHeadlessRoleInstruction(input, {
+    createServices: async () => services as never,
+  });
+
+  assert.equal(result.record.status, "failed");
+  assert.equal(result.outcome.code, "provider_resolution_failed");
+  assert.equal(shutdownCalls, 1);
+});
+
+for (const roleTerminal of ["success", "failure"] as const) {
+  test(`runSparkHeadlessRoleInstruction shuts down once after ${roleTerminal}`, async () => {
+    const services = headlessRoleServices(async (tools) => {
+      if (roleTerminal === "failure") throw new Error("role execution failed");
+      await executeRoleOutcomeTool(tools, {
+        kind: "completed",
+        code: "worker_completed",
+        reason: "Role completed",
+      });
+      return successfulOutcome("done");
+    });
+    let shutdownCalls = 0;
+    services.runtime.shutdown = async () => {
+      shutdownCalls += 1;
+    };
+
+    const result = await runSparkHeadlessRoleInstruction(roleInstructionInput(roleTerminal), {
+      createServices: async () => services as never,
+    });
+
+    assert.equal(result.record.status, roleTerminal === "success" ? "succeeded" : "failed");
+    assert.equal(shutdownCalls, 1);
+  });
+}
 
 test("runSparkHeadlessRoleInstruction records caught native module incompatibility without raw diagnostics", async () => {
   const compatibility = new TypeError(
@@ -703,6 +828,7 @@ test("runSparkHeadlessRoleInstruction records provider resolution failures struc
     buildModel() {
       throw new Error("configured provider is unavailable");
     },
+    setActive: () => undefined,
   };
   const input = roleInstructionInput("provider");
   input.model = "missing/model";
@@ -790,6 +916,7 @@ function headlessRoleServices(
     providerRegistry: undefined as
       | {
           buildModel(providerName: string, modelId: string): unknown;
+          setActive(selection: { providerName: string; modelId: string }): void;
         }
       | undefined,
     sessionStore: {

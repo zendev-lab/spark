@@ -224,36 +224,41 @@ export async function runSparkHeadlessSession(
     approvalMethod: input.approvalMethod ?? "auto",
     ...(input.approvalRejectAction ? { approvalRejectAction: input.approvalRejectAction } : {}),
   } satisfies SparkCliHostServicesOptions);
-  // Service bootstrap can be asynchronous (provider discovery, extension
-  // loading, session-store setup). A cancellation that wins during bootstrap
-  // must never fall through to agentLoop.submit: abort() is intentionally a
-  // no-op while the loop is idle and therefore cannot serve as this fence.
-  throwIfHeadlessAborted(input.signal);
-  if (input.model?.trim()) selectHeadlessModel(services, input.model.trim());
-  if (input.thinkingLevel?.trim()) {
-    const level = input.thinkingLevel.trim();
-    if (isThinkingLevel(level)) services.config.activeThinkingLevel = level;
-  }
-
-  const recordEvent = (event: unknown) => {
-    if (!input.onEvent) jsonEvents.push(event);
-    void input.onEvent?.(event);
-  };
-  const observeTokenUsage = createHeadlessTokenUsageObserver(input.tokenUsage);
-  const unsubscribe = services.agentLoop.onEvent((event) => {
-    const serialized = serializeLoopEvent(event);
-    recordEvent(serialized);
-    observeTokenUsage(event, serialized);
-  });
-  const unsubscribeDaemon = services.runtime.onDaemonEvent((event) => {
-    recordEvent({ type: "daemon_event", event });
-  });
-  const abort = (reason?: string) => services.agentLoop.abort(reason ?? abortReason(input.signal));
-  const abortFromSignal = () => abort();
-  if (input.signal?.aborted) abortFromSignal();
-  else input.signal?.addEventListener("abort", abortFromSignal, { once: true });
-
+  let primaryError: unknown;
+  let abortFromSignal: (() => void) | undefined;
+  let unsubscribe: () => void = () => undefined;
+  let unsubscribeDaemon: () => void = () => undefined;
   try {
+    // Service bootstrap can be asynchronous (provider discovery, extension
+    // loading, session-store setup). A cancellation that wins during bootstrap
+    // must never fall through to agentLoop.submit: abort() is intentionally a
+    // no-op while the loop is idle and therefore cannot serve as this fence.
+    throwIfHeadlessAborted(input.signal);
+    if (input.model?.trim()) selectHeadlessModel(services, input.model.trim());
+    if (input.thinkingLevel?.trim()) {
+      const level = input.thinkingLevel.trim();
+      if (isThinkingLevel(level)) services.config.activeThinkingLevel = level;
+    }
+
+    const recordEvent = (event: unknown) => {
+      if (!input.onEvent) jsonEvents.push(event);
+      void input.onEvent?.(event);
+    };
+    const observeTokenUsage = createHeadlessTokenUsageObserver(input.tokenUsage);
+    unsubscribe = services.agentLoop.onEvent((event) => {
+      const serialized = serializeLoopEvent(event);
+      recordEvent(serialized);
+      observeTokenUsage(event, serialized);
+    });
+    unsubscribeDaemon = services.runtime.onDaemonEvent((event) => {
+      recordEvent({ type: "daemon_event", event });
+    });
+    const abort = (reason?: string) =>
+      services.agentLoop.abort(reason ?? abortReason(input.signal));
+    abortFromSignal = () => abort();
+    if (input.signal?.aborted) abortFromSignal();
+    else input.signal?.addEventListener("abort", abortFromSignal, { once: true });
+
     const session = new SparkAgentSession(services);
     throwIfHeadlessAborted(input.signal);
     const result = await runWithHeadlessTimeout(
@@ -284,11 +289,14 @@ export async function runSparkHeadlessSession(
       jsonEvents,
       ...(input.onEvent ? { eventsStreamed: true } : {}),
     };
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    input.signal?.removeEventListener("abort", abortFromSignal);
+    if (abortFromSignal) input.signal?.removeEventListener("abort", abortFromSignal);
     unsubscribe();
     unsubscribeDaemon();
-    await services.runtime.shutdown("headless session completed");
+    await shutdownHeadlessRuntime(services.runtime, "headless session completed", primaryError);
   }
 }
 
@@ -343,39 +351,144 @@ export async function runSparkHeadlessRoleInstruction(
       forkFromSession,
     });
   }
+  let primaryError: unknown;
   try {
     throwIfHeadlessAborted(input.signal);
-  } catch (error) {
-    await services.runtime.shutdown("headless role setup aborted");
-    throw error;
-  }
 
-  const recordEvent = (event: unknown) => {
-    jsonEvents.push(event);
-    if (input.nativeCompatibilityRecovery !== "reviewer") void input.onEvent?.(event);
-  };
+    const recordEvent = (event: unknown) => {
+      jsonEvents.push(event);
+      if (input.nativeCompatibilityRecovery !== "reviewer") void input.onEvent?.(event);
+    };
 
-  applyAllowedTools(services, input.role.allowedTools);
-  registerRoleOutcomeTool(services, (outcome) => {
-    if (reportedOutcome)
-      throw new Error("role_report_outcome may only be called once per role run");
-    reportedOutcome = outcome;
-  });
-  if (input.model?.trim()) {
+    applyAllowedTools(services, input.role.allowedTools);
+    registerRoleOutcomeTool(services, (outcome) => {
+      if (reportedOutcome)
+        throw new Error("role_report_outcome may only be called once per role run");
+      reportedOutcome = outcome;
+    });
+    if (input.model?.trim()) {
+      try {
+        selectHeadlessModel(services, input.model.trim());
+      } catch (error) {
+        primaryError = error;
+        recordEvent(providerResolutionFailedEvent(input.model.trim(), error));
+        const outcome = failedRoleRunOutcome("provider_resolution_failed", errorMessage(error));
+        const result = {
+          record: {
+            ...input.record,
+            status: "failed" as const,
+            outcome,
+            startedAt,
+            finishedAt: new Date().toISOString(),
+            launch,
+            model: input.model.trim(),
+            ...(noSession
+              ? { noSession: true, sessionPersistence: "anonymous" as const }
+              : { sessionPersistence: "persistent" as const }),
+          },
+          outcome,
+          stdout: "",
+          stderr: [renderDiagnostics(services.diagnostics), errorMessage(error)]
+            .filter(Boolean)
+            .join("\n"),
+          jsonEvents,
+        };
+        return result;
+      }
+    }
+    const observeTokenUsage = createHeadlessTokenUsageObserver(options.tokenUsage);
+    const unsubscribe = services.agentLoop.onEvent((event) => {
+      const serialized = serializeLoopEvent(event);
+      recordEvent(serialized);
+      observeTokenUsage(event, serialized);
+    });
+    const unsubscribeDaemon = services.runtime.onDaemonEvent((event) => {
+      recordEvent({ type: "daemon_event", event });
+    });
+    const abort = (reason?: string) =>
+      services.agentLoop.abort(reason ?? abortReason(input.signal));
+    const abortFromSignal = () => abort();
+    if (input.signal?.aborted) abortFromSignal();
+    else input.signal?.addEventListener("abort", abortFromSignal, { once: true });
+    const unregisterInputControl = input.inputControl?.register({
+      send: async (text) => {
+        services.runtime.sendUserMessage(text, {
+          deliverAs: "followUp",
+          streamingBehavior: "followUp",
+        });
+      },
+    });
+
     try {
-      selectHeadlessModel(services, input.model.trim());
-    } catch (error) {
-      recordEvent(providerResolutionFailedEvent(input.model.trim(), error));
-      const outcome = failedRoleRunOutcome("provider_resolution_failed", errorMessage(error));
-      const result = {
+      const session = new SparkAgentSession(services);
+      const sessionRunInput = {
+        sessionId: headlessSessionId(input),
+        prompt: input.instruction.instruction,
+        reset: true,
+        ...(launch === "forked" && forkFromSession ? { forkFromSession } : {}),
+      };
+      throwIfHeadlessAborted(input.signal);
+      const result = await runWithHeadlessTimeout(
+        noSession ? session.runAnonymous(sessionRunInput) : session.run(sessionRunInput),
+        input.timeoutMs,
+        abort,
+      );
+      const outcome = completionOutcomeForRun(
+        result.outcome,
+        result.assistant,
+        input.signal,
+        reportedOutcome,
+        input.requireStructuredOutcome === true,
+      );
+      const status = statusForCompletionOutcome(outcome);
+      return {
         record: {
           ...input.record,
-          status: "failed" as const,
+          status,
           outcome,
           startedAt,
           finishedAt: new Date().toISOString(),
           launch,
-          model: input.model.trim(),
+          model: input.model,
+          ...(noSession ? {} : { sessionDir: services.sessionStore.sessionDir }),
+          ...(launch === "forked" && forkFromSession ? { forkFromSession } : {}),
+          ...(noSession
+            ? { noSession: true, sessionPersistence: "anonymous" as const }
+            : { sessionPersistence: "persistent" as const }),
+        },
+        outcome,
+        stdout: result.assistantText,
+        stderr: renderDiagnostics(services.diagnostics),
+        jsonEvents,
+      };
+    } catch (error) {
+      primaryError = error;
+      const aborted = Boolean(input.signal?.aborted);
+      if (
+        !aborted &&
+        input.nativeCompatibilityRecovery === "reviewer" &&
+        isRoleNativeExecutorCompatibilityError(error)
+      ) {
+        return incompatibleNativeRoleExecutorResult(input, {
+          startedAt,
+          launch,
+          noSession,
+          forkFromSession,
+        });
+      }
+      const outcome = aborted
+        ? cancelledRoleRunOutcome(abortReason(input.signal))
+        : failedRoleRunOutcome(errorCode(error), errorMessage(error));
+      return {
+        record: {
+          ...input.record,
+          status: aborted ? "cancelled" : "failed",
+          outcome,
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          launch,
+          model: input.model,
+          ...(launch === "forked" && forkFromSession ? { forkFromSession } : {}),
           ...(noSession
             ? { noSession: true, sessionPersistence: "anonymous" as const }
             : { sessionPersistence: "persistent" as const }),
@@ -387,118 +500,29 @@ export async function runSparkHeadlessRoleInstruction(
           .join("\n"),
         jsonEvents,
       };
-      await services.runtime.shutdown("headless role provider resolution failed");
-      return result;
+    } finally {
+      input.signal?.removeEventListener("abort", abortFromSignal);
+      unregisterInputControl?.();
+      unsubscribe();
+      unsubscribeDaemon();
     }
-  }
-  const observeTokenUsage = createHeadlessTokenUsageObserver(options.tokenUsage);
-  const unsubscribe = services.agentLoop.onEvent((event) => {
-    const serialized = serializeLoopEvent(event);
-    recordEvent(serialized);
-    observeTokenUsage(event, serialized);
-  });
-  const unsubscribeDaemon = services.runtime.onDaemonEvent((event) => {
-    recordEvent({ type: "daemon_event", event });
-  });
-  const abort = (reason?: string) => services.agentLoop.abort(reason ?? abortReason(input.signal));
-  const abortFromSignal = () => abort();
-  if (input.signal?.aborted) abortFromSignal();
-  else input.signal?.addEventListener("abort", abortFromSignal, { once: true });
-  const unregisterInputControl = input.inputControl?.register({
-    send: async (text) => {
-      services.runtime.sendUserMessage(text, {
-        deliverAs: "followUp",
-        streamingBehavior: "followUp",
-      });
-    },
-  });
-
-  try {
-    const session = new SparkAgentSession(services);
-    const sessionRunInput = {
-      sessionId: headlessSessionId(input),
-      prompt: input.instruction.instruction,
-      reset: true,
-      ...(launch === "forked" && forkFromSession ? { forkFromSession } : {}),
-    };
-    throwIfHeadlessAborted(input.signal);
-    const result = await runWithHeadlessTimeout(
-      noSession ? session.runAnonymous(sessionRunInput) : session.run(sessionRunInput),
-      input.timeoutMs,
-      abort,
-    );
-    const outcome = completionOutcomeForRun(
-      result.outcome,
-      result.assistant,
-      input.signal,
-      reportedOutcome,
-      input.requireStructuredOutcome === true,
-    );
-    const status = statusForCompletionOutcome(outcome);
-    return {
-      record: {
-        ...input.record,
-        status,
-        outcome,
-        startedAt,
-        finishedAt: new Date().toISOString(),
-        launch,
-        model: input.model,
-        ...(noSession ? {} : { sessionDir: services.sessionStore.sessionDir }),
-        ...(launch === "forked" && forkFromSession ? { forkFromSession } : {}),
-        ...(noSession
-          ? { noSession: true, sessionPersistence: "anonymous" as const }
-          : { sessionPersistence: "persistent" as const }),
-      },
-      outcome,
-      stdout: result.assistantText,
-      stderr: renderDiagnostics(services.diagnostics),
-      jsonEvents,
-    };
   } catch (error) {
-    const aborted = Boolean(input.signal?.aborted);
-    if (
-      !aborted &&
-      input.nativeCompatibilityRecovery === "reviewer" &&
-      isRoleNativeExecutorCompatibilityError(error)
-    ) {
-      return incompatibleNativeRoleExecutorResult(input, {
-        startedAt,
-        launch,
-        noSession,
-        forkFromSession,
-      });
-    }
-    const outcome = aborted
-      ? cancelledRoleRunOutcome(abortReason(input.signal))
-      : failedRoleRunOutcome(errorCode(error), errorMessage(error));
-    return {
-      record: {
-        ...input.record,
-        status: aborted ? "cancelled" : "failed",
-        outcome,
-        startedAt,
-        finishedAt: new Date().toISOString(),
-        launch,
-        model: input.model,
-        ...(launch === "forked" && forkFromSession ? { forkFromSession } : {}),
-        ...(noSession
-          ? { noSession: true, sessionPersistence: "anonymous" as const }
-          : { sessionPersistence: "persistent" as const }),
-      },
-      outcome,
-      stdout: "",
-      stderr: [renderDiagnostics(services.diagnostics), errorMessage(error)]
-        .filter(Boolean)
-        .join("\n"),
-      jsonEvents,
-    };
+    primaryError ??= error;
+    throw error;
   } finally {
-    input.signal?.removeEventListener("abort", abortFromSignal);
-    unregisterInputControl?.();
-    unsubscribe();
-    unsubscribeDaemon();
-    await services.runtime.shutdown("headless role completed");
+    await shutdownHeadlessRuntime(services.runtime, "headless role completed", primaryError);
+  }
+}
+
+async function shutdownHeadlessRuntime(
+  runtime: { shutdown(reason?: string): Promise<void> },
+  reason: string,
+  primaryError: unknown,
+): Promise<void> {
+  try {
+    await runtime.shutdown(reason);
+  } catch (shutdownError) {
+    if (primaryError === undefined) throw shutdownError;
   }
 }
 
