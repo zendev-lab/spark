@@ -16,9 +16,9 @@ import type {
   OAuthPrompt,
   OAuthSelectPrompt,
 } from "@earendil-works/pi-ai/oauth";
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { githubCopilotProvider } from "@earendil-works/pi-ai/providers/github-copilot";
-import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
+// Pi's source-extension loader aliases this aggregate entry explicitly; individual
+// provider subpaths are not stable across the jiti compatibility boundary.
+import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 
 import type { ProviderConfig } from "../provider-registry.ts";
 import { resolveSparkUserPaths } from "@zendev-lab/spark-system";
@@ -112,11 +112,18 @@ export interface SparkOAuthProviderInterface {
   getApiKey(credentials: OAuthCredentials): string | Promise<string>;
 }
 
-const BUILT_IN_SPARK_OAUTH_PROVIDERS = [
-  adaptPiOAuthProvider(anthropicProvider()),
-  adaptPiOAuthProvider(githubCopilotProvider()),
-  adaptPiOAuthProvider(openaiCodexProvider()),
-];
+// Keep Spark's supported OAuth surface explicit even though pi-ai exposes more providers.
+const BUILT_IN_SPARK_OAUTH_PROVIDER_IDS = ["anthropic", "github-copilot", "openai-codex"] as const;
+const BUILT_IN_SPARK_OAUTH_PROVIDERS = selectBuiltInSparkOAuthProviders();
+
+function selectBuiltInSparkOAuthProviders(): SparkOAuthProviderInterface[] {
+  const providersById = new Map(builtinProviders().map((provider) => [provider.id, provider]));
+  return BUILT_IN_SPARK_OAUTH_PROVIDER_IDS.map((providerId) => {
+    const provider = providersById.get(providerId);
+    if (!provider) throw new Error(`pi-ai built-in provider is unavailable: ${providerId}`);
+    return adaptPiOAuthProvider(provider);
+  });
+}
 const sparkOAuthProviders = new Map(
   BUILT_IN_SPARK_OAUTH_PROVIDERS.map((provider) => [provider.id, provider]),
 );
