@@ -586,7 +586,7 @@ export const sparkSessionVerificationReceiptViewSchema = z.object({
 
 export const sparkSessionReproWorkViewSchema = z.object({
   reproId: z.string().min(1),
-  status: z.enum(["active", "complete"]),
+  status: z.enum(["active", "needs_revalidation", "complete"]),
   contractStatus: z.enum(["draft", "frozen"]),
   objective: z.string().min(1),
   successCriteria: z.array(z.string().min(1)),
@@ -605,7 +605,7 @@ export const sparkSessionReproWorkViewSchema = z.object({
     currentStep: sparkSessionReproCurrentStepViewSchema.optional(),
   }),
   stopGuard: z.object({
-    decision: z.enum(["continue", "ask", "complete"]),
+    decision: z.enum(["continue", "ask", "revalidate", "complete"]),
     stagnationCount: z.number().int().nonnegative(),
     limit: z.number().int().positive(),
   }),

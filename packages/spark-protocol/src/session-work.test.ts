@@ -18,6 +18,35 @@ describe("SparkSessionView work projection", () => {
     expect(parseSparkSessionView(baseSnapshot).work).toBeUndefined();
   });
 
+  it("preserves a migrated Repro that is blocked on explicit revalidation", () => {
+    const parsed = parseSparkSessionView({
+      ...baseSnapshot,
+      work: {
+        repro: {
+          reproId: "repro-revalidation",
+          status: "needs_revalidation",
+          contractStatus: "frozen",
+          objective: "Revalidate legacy completion",
+          successCriteria: ["Current receipts pass"],
+          evidenceRequired: ["Current verifier receipt"],
+          stage: {
+            name: "delivery",
+            title: "Delivery",
+            index: 4,
+            total: 5,
+            phase: "implement",
+          },
+          plan: { revision: 1, completedSteps: 0, totalSteps: 1 },
+          stopGuard: { decision: "revalidate", stagnationCount: 0, limit: 3 },
+          updatedAt: "2026-08-10T00:00:00.000Z",
+        },
+      },
+    });
+
+    expect(parsed.work?.repro?.status).toBe("needs_revalidation");
+    expect(parsed.work?.repro?.stopGuard.decision).toBe("revalidate");
+  });
+
   it("parses display-safe Goal and Repro work", () => {
     const parsed = parseSparkSessionView({
       ...baseSnapshot,

@@ -12,9 +12,9 @@ Spark supplies the generic state, scheduling, and evidence boundaries.
 The normative dual-lane, asynchronous-evidence, Profile/progress, numerical
 frontier, ReportModel, and completion semantics are defined in
 [`../../docs/specs/autonomous-dual-lane.md`](../../docs/specs/autonomous-dual-lane.md).
-The current work-summary/session adapters remain compatibility inputs until their
-explicit versioned migrations land; callers must not emulate vNext by parsing
-reports or adding another scheduler/store.
+`SparkSessionRepro` v7 implements the host-neutral dual-lane state and migration
+boundary. Work-summary adapters remain compatibility projections; callers must not
+emulate vNext by parsing reports or adding another scheduler/store.
 
 ## Canonical work summary
 
@@ -47,14 +47,15 @@ Markdown Document. A standard-Markdown workspace export may be produced for
 offline handoff, but it is not a state source or a required live-Artifact
 intermediate.
 
-## Legacy session protocol
+## Versioned session protocol
 
-The package root remains the compatibility execution and persistence model for
-existing session snapshots. It keeps the fixed
-`setup → scaffold → reproduce → scale → deliver` evidence gates and its existing
-versioned migrations. Migrating those stored stages, plans, subgoals, and extension
-adapters requires an explicit versioned adapter; callers must not reinterpret them as
-the new work-summary stages in place.
+The package root remains the host-neutral execution and persistence model for
+session snapshots. SparkSessionRepro v7 adds a versioned dual-lane binding over
+the existing five-stage plan/subgoal protocol. A v6 migration creates empty Explore
+observations, candidates, and unresolved bindings and does not promote legacy proof
+into Normative retirement. A legacy `complete` record becomes
+`needs_revalidation`; loading or settling it cannot resume execution. Only an
+explicit `beginReproRevalidation` transition reopens it as active.
 
 The legacy protocol includes four durable structures:
 
@@ -92,9 +93,10 @@ the next tick; three unchanged settlements stop automatic continuation and
 require one concrete canonical Ask. Safe transient execution retry/backoff
 remains daemon-owned and is deliberately separate from semantic stagnation.
 
-Stored v1/v2/v3 snapshots migrate to v4. Invalid legacy proof is removed,
-affected contracts/steps/gates reopen, and no legacy boolean is promoted into a
-user decision or passing validation.
+Stored v1-v6 snapshots migrate to v7. Invalid legacy proof is removed,
+affected contracts/steps/gates reopen, and no legacy boolean or proof is promoted
+into a user decision, passing validation, Explore observation, candidate,
+unresolved discharge, or Normative retirement.
 
 The setup stage first verifies whether the reference implementation named in
 the contract is runnable. An unavailable reference is a blocking user decision:
