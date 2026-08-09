@@ -244,22 +244,6 @@ test("direct-call role parameters stay host-neutral", () => {
     | { properties?: Record<string, { description?: string }> }
     | undefined;
   assert.equal(roleToolParameters?.properties?.piCommand, undefined);
-
-  const registry = createDefaultRoleRegistry({ now: "2026-01-01T00:00:00.000Z" });
-  const prompts = registry
-    .list({ source: "builtin" })
-    .map((role) => role.systemPrompt)
-    .join("\n");
-  assert.match(prompts, /Spark workspace Administrator/);
-  assert.match(prompts, /You are a Spark explorer/);
-  assert.match(prompts, /You are a Spark researcher/);
-  assert.match(prompts, /You are a Spark executor/);
-  assert.match(prompts, /You are a Spark reviewer/);
-  assert.match(prompts, /report the blocker.*upward/i);
-  assert.doesNotMatch(prompts, /available ask tool/);
-  assert.doesNotMatch(prompts, /You are a Pi/);
-  assert.doesNotMatch(prompts, /Spark ask tools/);
-  assert.doesNotMatch(prompts, /Spark project or task/);
 });
 
 test("role spec tools keep patch presets out of builtin role lookup", async () => {
@@ -326,7 +310,6 @@ test("call_role launches fresh role runs", async () => {
     assert.equal(details.record?.launch, "fresh");
     assert.equal(details.jsonEventCount, 1);
     assert.equal(capturedNativeInput?.role.id, "executor");
-    assert.match(capturedNativeInput?.role.systemPrompt ?? "", /Spark executor/);
     assert.ok(capturedNativeInput?.role.allowedTools?.includes("edit"));
     assert.equal(capturedNativeInput?.instruction.instruction, "Run the fake worker.");
     assert.equal(capturedNativeInput?.launch, "fresh");

@@ -1,10 +1,14 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "vitest";
+import { afterAll, beforeAll, test } from "vitest";
 import assert from "node:assert/strict";
 
-import { builtinRoleRef, RoleRegistry } from "@zendev-lab/spark-roles";
+import {
+  builtinRoleRef,
+  defaultProjectRoleModelSettingsStore,
+  RoleRegistry,
+} from "@zendev-lab/spark-roles";
 import { TaskGraph } from "@zendev-lab/spark-tasks";
 import {
   runRoleInstructionOnly,
@@ -12,9 +16,21 @@ import {
   type SparkRoleInstructionExecutor,
 } from "@zendev-lab/spark-runtime";
 
+let configuredCwd = "";
+
+beforeAll(async () => {
+  configuredCwd = await mkdtemp(join(tmpdir(), "spark-native-role-model-"));
+  await defaultProjectRoleModelSettingsStore(configuredCwd).save("implementation", "test/model");
+});
+
+afterAll(async () => {
+  await rm(configuredCwd, { recursive: true, force: true });
+});
+
 test("runSparkTask can execute through a daemon-native role executor without spawning pi", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-native-role-executor-"));
   try {
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     const graph = new TaskGraph();
     const project = graph.createProject({ title: "Native", description: "native executor" });
     const task = graph.createTask({
@@ -128,6 +144,7 @@ test("runSparkTask preserves a structured blocked outcome and its exact reason",
     graph,
     taskRef: task.ref,
     registry: new RoleRegistry(),
+    cwd: configuredCwd,
     dryRun: false,
     roleExecutor: async (input) => ({
       record: { ...input.record, status: "failed", outcome },
@@ -183,6 +200,7 @@ test("runSparkTask maps structured cancelled outcomes to cancelled task/run stat
     graph,
     taskRef: task.ref,
     registry: new RoleRegistry(),
+    cwd: configuredCwd,
     dryRun: false,
     roleExecutor: async (input) => ({
       record: { ...input.record, status: "cancelled", outcome },
@@ -241,6 +259,7 @@ test("runSparkTask fails closed when a custom executor ignores the required outc
     graph,
     taskRef: task.ref,
     registry: new RoleRegistry(),
+    cwd: configuredCwd,
     dryRun: false,
     roleExecutor: async (input) => ({
       record: { ...input.record, status: "succeeded" },
@@ -262,6 +281,7 @@ test("runSparkTask fails closed when a custom executor ignores the required outc
 test("daemon-native role events arrive before the role executor settles", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-native-role-streaming-"));
   try {
+    await defaultProjectRoleModelSettingsStore(dir).save("implementation", "test/model");
     const releaseExecutor = Promise.withResolvers<void>();
     const eventObserved = Promise.withResolvers<void>();
     const event = { type: "stream_event", event: { type: "text_delta", delta: "live" } };
