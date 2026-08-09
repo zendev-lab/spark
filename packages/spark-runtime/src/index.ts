@@ -1260,6 +1260,7 @@ async function runNativeSparkRole(
 ): Promise<SparkRoleRunResult> {
   const roleModel = await resolveRoleModelSetting({
     roleRef: role.ref,
+    modelType: role.modelType,
     roleId: role.id,
     roleName: role.id,
     projectStore: defaultProjectRoleModelSettingsStore(options.cwd),
@@ -1323,7 +1324,7 @@ export function sparkTaskExecutorRoleRef(task: Task, defaultRoleRef?: RoleRef): 
 function defaultRoleRefForTaskKind(kind: Task["kind"]): RoleRef {
   if (kind === "research") return "role:builtin-researcher" as RoleRef;
   if (kind === "review") return "role:builtin-reviewer" as RoleRef;
-  return "role:builtin-worker" as RoleRef;
+  return "role:builtin-executor" as RoleRef;
 }
 
 function sparkRoleRunGuidance(): string {

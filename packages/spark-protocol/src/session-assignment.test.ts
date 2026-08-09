@@ -179,6 +179,47 @@ describe("session ownership protocol", () => {
     });
   });
 
+  it("accepts canonical Role/Session ownership fields on records and create requests", () => {
+    expect(
+      parseSparkSessionRegistryRecord({
+        sessionId: "sess_role",
+        scope: { kind: "workspace", workspaceId: "ws_role" },
+        lifecycle: "open",
+        incarnation: 2,
+        lifetime: "owned",
+        owner: { kind: "role_call", ref: "inv_role" },
+        roleRef: "role:builtin-explorer",
+        roleRevision: 3,
+        modelType: "exploration",
+        authority: { kind: "role", ref: "role:builtin-explorer" },
+        stateBinding: { kind: "session", ref: "sess_parent" },
+        visibility: "owner",
+        retention: "discard_on_close",
+        purpose: "Inspect the current repository.",
+        transcriptRef: "transcript:sess_role:2",
+        ...timestamps,
+      }),
+    ).toMatchObject({
+      lifecycle: "open",
+      lifetime: "owned",
+      owner: { kind: "role_call", ref: "inv_role" },
+      retention: "discard_on_close",
+    });
+
+    expect(
+      sparkSessionCreateRequestSchema.parse({
+        scope: { kind: "workspace", workspaceId: "ws_role" },
+        roleRef: "role:builtin-explorer",
+        parentSessionId: "sess_parent",
+        purpose: "Inspect the current repository.",
+      }),
+    ).toMatchObject({
+      roleRef: "role:builtin-explorer",
+      parentSessionId: "sess_parent",
+      purpose: "Inspect the current repository.",
+    });
+  });
+
   it("accepts an internal task-execution binding and preserves only daemon-emitted relation", () => {
     const taskExecution = {
       ownerSessionId: "sess_owner",

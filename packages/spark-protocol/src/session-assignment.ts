@@ -1,9 +1,56 @@
 import { z } from "zod";
 import { sparkModelRefSchema, sparkThinkingLevelSchema } from "./model-control.ts";
 import { isoDateTimeSchema } from "./refs.ts";
+import { sparkRoleModelTypeSchema } from "./role-session.ts";
 
 export const sparkSessionStatusOptions = ["ready", "running", "archived"] as const;
 export const sparkSessionStatusSchema = z.enum(sparkSessionStatusOptions);
+
+export const sparkSessionLifecycleOptions = ["open", "closing", "closed"] as const;
+export const sparkSessionLifecycleSchema = z.enum(sparkSessionLifecycleOptions);
+
+export const sparkSessionLifetimeOptions = ["persistent", "owned"] as const;
+export const sparkSessionLifetimeSchema = z.enum(sparkSessionLifetimeOptions);
+
+export const sparkSessionOwnerKindOptions = [
+  "session",
+  "role_call",
+  "task_run",
+  "task_revision",
+  "workflow_run",
+  "driver",
+  "driver_tick",
+] as const;
+export const sparkSessionOwnerKindSchema = z.enum(sparkSessionOwnerKindOptions);
+export const sparkSessionOwnerSchema = z.object({
+  kind: sparkSessionOwnerKindSchema,
+  ref: z.string().trim().min(1),
+});
+
+export const sparkSessionAuthorityKindOptions = [
+  "administrator",
+  "role",
+  "task",
+  "workflow",
+  "driver",
+  "channel",
+  "system",
+] as const;
+export const sparkSessionAuthoritySchema = z.object({
+  kind: z.enum(sparkSessionAuthorityKindOptions),
+  ref: z.string().trim().min(1),
+});
+
+export const sparkSessionStateBindingSchema = z.object({
+  kind: z.enum(["session", "task", "workflow", "driver", "channel"]),
+  ref: z.string().trim().min(1),
+});
+
+export const sparkSessionVisibilityOptions = ["public", "owner", "internal"] as const;
+export const sparkSessionVisibilitySchema = z.enum(sparkSessionVisibilityOptions);
+
+export const sparkSessionRetentionOptions = ["retain", "discard_on_close", "audit"] as const;
+export const sparkSessionRetentionSchema = z.enum(sparkSessionRetentionOptions);
 
 export const sparkSessionArchiveSourceOptions = [
   "manual",
@@ -106,6 +153,23 @@ const sparkSessionRegistryRecordBaseSchema = z.object({
   /** Compatibility display mirror of role for role-named sessions. */
   title: z.string().min(1).optional(),
   status: sparkSessionStatusSchema.default("ready"),
+  /** Canonical lifecycle; status remains a compatibility activity projection. */
+  lifecycle: sparkSessionLifecycleSchema.optional(),
+  incarnation: z.number().int().positive().optional(),
+  lifetime: sparkSessionLifetimeSchema.optional(),
+  owner: sparkSessionOwnerSchema.optional(),
+  roleRef: z
+    .string()
+    .regex(/^role:.+/u)
+    .optional(),
+  roleRevision: z.number().int().positive().optional(),
+  modelType: sparkRoleModelTypeSchema.optional(),
+  authority: sparkSessionAuthoritySchema.optional(),
+  stateBinding: sparkSessionStateBindingSchema.optional(),
+  visibility: sparkSessionVisibilitySchema.optional(),
+  retention: sparkSessionRetentionSchema.optional(),
+  purpose: z.string().trim().min(1).max(512).optional(),
+  transcriptRef: z.string().trim().min(1).optional(),
   /** Canonical long-lived division of labour; concrete tasks do not belong here. */
   role: z.string().min(1).optional(),
   cwd: z.string().min(1).optional(),
@@ -161,6 +225,15 @@ export const sparkSessionRegistryRecordSchema = z.preprocess(
  * engine; clients only exchange these transport-neutral values. */
 const sparkSessionCreateRequestBaseSchema = z.object({
   sessionId: z.string().trim().min(1).optional(),
+  /** Reusable definition instantiated by this Session. */
+  roleRef: z
+    .string()
+    .trim()
+    .regex(/^role:.+/u)
+    .optional(),
+  /** Owning Session for an explicitly created child. The daemon authors owner metadata. */
+  parentSessionId: z.string().trim().min(1).optional(),
+  purpose: z.string().trim().min(1).max(512).optional(),
   /** Legacy display input; new role-aware creators should send role. */
   title: z.string().trim().min(1).optional(),
   /** Stable division of labour chosen at creation for non-user sessions. */
@@ -377,6 +450,14 @@ export const sparkAssignmentSchema = z.object({
 });
 
 export type SparkSessionStatus = z.infer<typeof sparkSessionStatusSchema>;
+export type SparkSessionLifecycle = z.infer<typeof sparkSessionLifecycleSchema>;
+export type SparkSessionLifetime = z.infer<typeof sparkSessionLifetimeSchema>;
+export type SparkSessionOwnerKind = z.infer<typeof sparkSessionOwnerKindSchema>;
+export type SparkSessionOwner = z.infer<typeof sparkSessionOwnerSchema>;
+export type SparkSessionAuthority = z.infer<typeof sparkSessionAuthoritySchema>;
+export type SparkSessionStateBinding = z.infer<typeof sparkSessionStateBindingSchema>;
+export type SparkSessionVisibility = z.infer<typeof sparkSessionVisibilitySchema>;
+export type SparkSessionRetention = z.infer<typeof sparkSessionRetentionSchema>;
 export type SparkSessionArchiveSource = z.infer<typeof sparkSessionArchiveSourceSchema>;
 export type SparkSessionArchiveEvent = z.infer<typeof sparkSessionArchiveEventSchema>;
 export type SparkChannelAdapter = z.infer<typeof sparkChannelAdapterSchema>;

@@ -421,6 +421,7 @@ export class SparkRolesReviewerRunner implements ReviewerRunner {
     const startedAt = this.#now();
     const roleModel = await resolveRoleModelSetting({
       roleRef: role.ref,
+      modelType: role.modelType,
       roleId: role.id,
       roleName: role.id,
       projectStore: defaultProjectRoleModelSettingsStore(input.cwd || this.#cwd),
@@ -536,6 +537,7 @@ export class SparkRolesReviewerRunner implements ReviewerRunner {
     const runRef = newRef("run");
     const roleModel = await resolveRoleModelSetting({
       roleRef: role.ref,
+      modelType: role.modelType,
       roleId: role.id,
       roleName: role.id,
       projectStore: defaultProjectRoleModelSettingsStore(input.cwd || this.#cwd),

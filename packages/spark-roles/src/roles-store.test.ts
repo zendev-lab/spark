@@ -20,6 +20,15 @@ import {
   validateBuiltinRoleProfiles,
 } from "@zendev-lab/spark-roles";
 
+test("builtin Spark executor is instructed to implement concrete repo behavior feedback", () => {
+  const roles = createBuiltinRoles();
+  const worker = roles.find((role) => role.id === "executor");
+  assert.match(
+    worker?.systemPrompt ?? "",
+    /fix the implementation instead of only recording a preference/,
+  );
+});
+
 test("builtin Pi roles expose audited capability profiles", () => {
   const roles = createBuiltinRoles("2026-06-04T00:00:00.000Z");
   assert.deepEqual(
@@ -31,15 +40,23 @@ test("builtin Pi roles expose audited capability profiles", () => {
     ["read", "write", "exec", "net", "interact", "spawn"],
   );
   assert.equal(ROLE_CAPABILITY_VOCAB.includes("record" as never), false);
-  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.scout, ["read", "net"]);
+  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.administrator, [
+    "read",
+    "net",
+    "exec",
+    "write",
+    "interact",
+    "spawn",
+  ]);
   assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.explorer, ["read", "exec"]);
   assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.researcher, ["read", "net"]);
   assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.reviewer, ["read", "net"]);
-  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.worker, ["read", "net", "exec", "write"]);
+  assert.deepEqual(BUILTIN_ROLE_CAPABILITY_PROFILES.executor, ["read", "net", "exec", "write"]);
 
   const profileIncludes = (roleId: keyof typeof BUILTIN_ROLE_CAPABILITY_PROFILES, value: string) =>
     (BUILTIN_ROLE_CAPABILITY_PROFILES[roleId] as readonly string[]).includes(value);
   for (const roleId of builtinRoleIds) {
+    if (roleId === "administrator") continue;
     assert.equal(profileIncludes(roleId, "interact"), false);
     assert.equal(profileIncludes(roleId, "spawn"), false);
     assert.equal(profileIncludes(roleId, "record"), false);
@@ -47,19 +64,8 @@ test("builtin Pi roles expose audited capability profiles", () => {
 
   const byId = new Map(roles.map((role) => [role.id, role]));
 
-  assert.deepEqual(byId.get("scout")?.allowedTools, [
-    "read",
-    "grep",
-    "find",
-    "context",
-    "web_search",
-    "code_search",
-    "fetch_content",
-    "get_search_content",
-  ]);
-
-  assert.deepEqual(byId.get("reviewer")?.allowedTools, builtinRoleAllowedTools("scout"));
-  assert.deepEqual(byId.get("researcher")?.allowedTools, builtinRoleAllowedTools("scout"));
+  assert.deepEqual(byId.get("reviewer")?.allowedTools, builtinRoleAllowedTools("reviewer"));
+  assert.deepEqual(byId.get("researcher")?.allowedTools, builtinRoleAllowedTools("researcher"));
 
   assert.deepEqual(byId.get("explorer")?.allowedTools, [
     "read",
@@ -74,7 +80,7 @@ test("builtin Pi roles expose audited capability profiles", () => {
     "cue_jobs",
   ]);
 
-  assert.deepEqual(byId.get("worker")?.allowedTools, [
+  assert.deepEqual(byId.get("executor")?.allowedTools, [
     ...builtinRoleAllowedTools("reviewer"),
     "cue_exec",
     "cue_run",
@@ -100,9 +106,22 @@ test("builtin Pi roles expose audited capability profiles", () => {
     "graft_patch",
   ]);
   for (const role of roles) {
+    if (role.id === "administrator") continue;
     for (const tool of role.allowedTools ?? []) assert.equal(forbiddenTools.has(tool), false);
   }
   validateBuiltinRoleProfiles(roles);
+});
+
+test("legacy builtin role aliases resolve to canonical definitions", () => {
+  const registry = new RoleRegistry(createBuiltinRoles());
+  assert.equal(registry.select("scout").ref, "role:builtin-explorer");
+  assert.equal(registry.select("role:builtin-scout").ref, "role:builtin-explorer");
+  assert.equal(registry.select("worker").ref, "role:builtin-executor");
+  assert.equal(registry.select("role:builtin-worker").ref, "role:builtin-executor");
+  assert.equal(
+    registry.list().some((role) => role.id === "scout" || role.id === "worker"),
+    false,
+  );
 });
 
 test("extension role specs hydrate separately from writable project/user stores", async () => {
@@ -111,6 +130,8 @@ test("extension role specs hydrate separately from writable project/user stores"
       id: "test-extension-patcher",
       description: "Test extension patcher role.",
       systemPrompt: "Use only extension-provided patch tools.",
+      capabilities: ["read", "write"],
+      modelType: "implementation",
       allowedTools: ["graft_read", "graft_write"],
       origin: { kind: "extension", note: "test" },
     },
@@ -140,6 +161,8 @@ test("project role spec store persists and hydrates registry", async () => {
       systemPrompt: "You are a specialist in SVG animation planning.",
       rationale: "We need a narrow reusable specialist for SVG animation tasks.",
       expectedUses: ["svg assembly planning", "animation decomposition"],
+      capabilities: ["read"],
+      modelType: "implementation",
     });
     await store.save(spec);
 

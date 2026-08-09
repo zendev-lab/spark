@@ -273,6 +273,7 @@ export const sparkLocalRpcInvocationOrpcErrors = {
 
 export const sparkLocalRpcModelOrpcErrors = {
   model_control_unavailable: { status: 503 },
+  role_model_type_unconfigured: { status: 422 },
   model_not_found: { status: 404 },
   model_out_of_scope: { status: 422 },
   model_unavailable: { status: 422 },

@@ -415,7 +415,8 @@ return await agent('use native role', { label: 'native-agent', model: 'test/mode
 
     assert.match(result.content[0]?.text ?? "", /Workflow run completed/);
     assert.equal(nativeInputs.length, 1);
-    assert.equal(nativeInputs[0]?.role.ref, "role:builtin-worker");
+    assert.equal(nativeInputs[0]?.role.ref, "role:builtin-executor");
+    assert.match(nativeInputs[0]?.instruction.instruction ?? "", /use native role/);
     assert.equal(nativeInputs[0]?.model, "test/model");
     assert.equal(nativeInputs[0]?.cwd, dir);
     assert.equal(nativeInputs[0]?.usageExecutionKind, "workflow_agent");

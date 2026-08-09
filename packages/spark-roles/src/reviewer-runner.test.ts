@@ -758,7 +758,7 @@ test("SparkRolesReviewerRunner preserves negated and independent semantic findin
 test("SparkRolesReviewerRunner resolves reviewer model from role model settings", async () => {
   const dir = await mkdtemp(join(tmpdir(), "spark-reviewer-runner-model-settings-"));
   try {
-    await defaultProjectRoleModelSettingsStore(dir).save("role:builtin-reviewer", "test/reviewer");
+    await defaultProjectRoleModelSettingsStore(dir).save("verification", "test/reviewer");
     let captured:
       | Awaited<
           Parameters<
@@ -826,6 +826,8 @@ test("SparkRolesReviewerRunner strips reviewer role orchestration and interactio
       systemPrompt: "Review only.",
       rationale: "Verify reviewer gate filtering.",
       expectedUses: ["review"],
+      capabilities: ["read", "net"],
+      modelType: "verification",
       allowedTools: [
         "read",
         "web_search",

@@ -2417,11 +2417,11 @@ test("role-run claim sweeper never expires daemon-owned main claims", async () =
 test("role run names and role-run claim ids are stable and attributable", () => {
   assert.equal(
     createRoleRunName(builtinRoleRef("worker"), newRef("run", "abcdef123456")),
-    "worker-abcdef12",
+    "executor-abcdef12",
   );
   assert.equal(
-    createRoleRunClaimId("session:parent", "worker-abcdef12"),
-    "session:parent+worker-abcdef12",
+    createRoleRunClaimId("session:parent", "executor-abcdef12"),
+    "session:parent+executor-abcdef12",
   );
 });
 
@@ -2580,8 +2580,8 @@ test("runSparkTask marks native role timeout failed and clears the task claim", 
     assert.equal(run.completionSummary?.runRef, run.ref);
     assert.equal(graph.getTask(task.ref).status, "failed");
     assert.equal(graph.getTask(task.ref).claim, undefined);
-    assert.match(graph.getTask(task.ref).finishedBy?.runName ?? "", /^worker-/);
-    assert.match(run.runName ?? "", /^worker-/);
+    assert.match(graph.getTask(task.ref).finishedBy?.runName ?? "", /^executor-/);
+    assert.match(run.runName ?? "", /^executor-/);
     assert.equal(run.ownerSessionId, "session:parent");
     assert.equal(
       listActiveSparkRoleRunProcesses().some((entry) => entry.runName === run.runName),
@@ -4605,7 +4605,7 @@ test("runSparkTask dry-run records validation without completing the task", asyn
       dryRun: true,
     });
     assert.equal(run.status, "succeeded");
-    assert.match(run.runName ?? "", /^worker-/);
+    assert.match(run.runName ?? "", /^executor-/);
     assert.equal(graph.getTask(task.ref).status, "ready");
     assert.equal(graph.getTask(task.ref).roleRef, undefined);
     assert.equal(graph.getTask(task.ref).claim, undefined);
@@ -4614,14 +4614,14 @@ test("runSparkTask dry-run records validation without completing the task", asyn
     const [artifact] = await evidenceStore.list({ kind: "trace" });
     assert.ok(artifact);
     assert.equal(artifact.ref, run.outputEvidenceRefs[0]);
-    assert.match(artifact.title, /^Role run worker-/);
+    assert.match(artifact.title, /^Role run executor-/);
     assert.equal(artifact.provenance.producer, "task");
     assert.equal(artifact.provenance.projectRef, project.ref);
     assert.equal(artifact.provenance.taskRef, task.ref);
     assert.equal(graph.getTask(task.ref).roleRef, undefined);
     assert.equal(artifact.provenance.roleRef, builtinRoleRef("worker"));
     assert.equal(artifact.provenance.runRef, run.ref);
-    assert.match(artifact.provenance.note ?? "", /^runName=worker-/);
+    assert.match(artifact.provenance.note ?? "", /^runName=executor-/);
     const body = artifact.body as {
       schemaVersion?: number;
       runRef?: string;
@@ -4722,8 +4722,12 @@ test("runSparkTask attributes real project role spec run claims and completion",
       ref: roleRef,
       id: "test-worker",
       source: "project",
+      revision: 1,
       description: "Project test worker",
       systemPrompt: "You are a project test worker.",
+      capabilities: ["read", "write", "exec"],
+      modelType: "implementation",
+      instantiation: "owned",
       createdAt: "2026-05-20T00:00:00.000Z",
       updatedAt: "2026-05-20T00:00:00.000Z",
     });
