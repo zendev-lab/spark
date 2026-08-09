@@ -53,11 +53,39 @@ describe("SparkSessionRegistry", () => {
 
     await registry.create({ workspaceId: "ws_new" });
     expect(JSON.parse(await readFile(registry.filePath, "utf8"))).toMatchObject({
-      version: 4,
+      version: 5,
+      revision: 1,
       sessions: [
         { sessionId: "sess_legacy", scope: { kind: "workspace" } },
         { scope: { kind: "workspace", workspaceId: "ws_new" } },
       ],
+    });
+  });
+
+  it("persists a monotonic v5 revision and rejects malformed v5 state", async () => {
+    const registry = await tempRegistry();
+    const created = await registry.create({
+      sessionId: "sess_revision",
+      workspaceId: "ws_revision",
+    });
+    expect(JSON.parse(await readFile(registry.filePath, "utf8"))).toMatchObject({
+      version: 5,
+      revision: 1,
+    });
+
+    await registry.bind({
+      sessionId: created.sessionId,
+      externalKey: "infoflow:user:revision",
+    });
+    expect(JSON.parse(await readFile(registry.filePath, "utf8"))).toMatchObject({
+      version: 5,
+      revision: 2,
+    });
+
+    await writeFile(registry.filePath, `${JSON.stringify({ version: 5, sessions: [] })}\n`, "utf8");
+    await expect(registry.list()).rejects.toMatchObject({
+      code: "invalid_registry",
+      message: "registry v5 revision must be a non-negative integer",
     });
   });
 
@@ -69,7 +97,9 @@ describe("SparkSessionRegistry", () => {
     expect(first).toMatchObject({
       scope: { kind: "workspace", workspaceId: "ws_main" },
       relation: { kind: "workspace_main", generation: 1 },
-      role: "Workspace Coordinator",
+      role: "Administrator",
+      roleRef: "role:builtin-administrator",
+      modelType: "coordination",
     });
     await expect(registry.archive(first.sessionId)).rejects.toMatchObject({
       code: "workspace_main_session_mutation_forbidden",
@@ -108,7 +138,7 @@ describe("SparkSessionRegistry", () => {
         includeArchived: true,
         scope: { kind: "daemon", daemonId: "install-test" },
       }),
-    ).resolves.toEqual([global]);
+    ).resolves.toEqual([expect.objectContaining(global)]);
     await expect(
       registry.create({
         sessionId: "sess_new_global",

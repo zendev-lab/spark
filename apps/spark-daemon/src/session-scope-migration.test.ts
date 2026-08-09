@@ -124,9 +124,11 @@ describe("daemon-global session scope migration", () => {
 
     const active = JSON.parse(await readFile(registryPath, "utf8")) as {
       version: number;
+      revision: number;
       sessions: Array<Record<string, unknown>>;
     };
-    expect(active.version).toBe(4);
+    expect(active.version).toBe(5);
+    expect(active.revision).toBe(1);
     expect(active.sessions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -200,9 +202,10 @@ describe("daemon-global session scope migration", () => {
     expect(await readdir(backupRoot)).toHaveLength(1);
   });
 
-  it("fails closed when registry v4 contains an active daemon-global session", async () => {
+  it("fails closed when registry v5 contains an active daemon-global session", async () => {
     const fixtureState = await fixture({
-      version: 4,
+      version: 5,
+      revision: 1,
       sessions: [
         session(
           "sess-v4-daemon",
@@ -220,7 +223,7 @@ describe("daemon-global session scope migration", () => {
         workspaces: [],
         now: new Date(timestamp),
       }),
-    ).rejects.toThrow(/v4 contains active daemon-global session/u);
+    ).rejects.toThrow(/v5 contains active daemon-global session/u);
     expect(await readFile(fixtureState.registryPath)).toEqual(fixtureState.source);
   });
 

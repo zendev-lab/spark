@@ -18,6 +18,7 @@ export const sparkInvocationStatuses = [
 ] as const;
 
 export type SparkInvocationStatus = (typeof sparkInvocationStatuses)[number];
+export type SparkInvocationClaimClass = "root" | "structured";
 export type SparkInvocationTerminalStatus = Extract<
   SparkInvocationStatus,
   "succeeded" | "failed" | "cancelled"
@@ -43,6 +44,10 @@ export interface SparkInvocationRecord {
   sourceRef?: string;
   parentInvocationId?: string;
   retryOfInvocationId?: string;
+  claimClass: SparkInvocationClaimClass;
+  executionProfile?: Record<string, unknown>;
+  retentionSummary?: Record<string, unknown>;
+  payloadRedactedAt?: string;
   workerId?: string;
   attemptCount: number;
   cancelReason?: string;
@@ -154,6 +159,7 @@ export interface SubmitSparkInvocationInput {
   sourceRef?: string;
   parentInvocationId?: string;
   retryOfInvocationId?: string;
+  claimClass?: SparkInvocationClaimClass;
   now?: string;
 }
 
@@ -176,7 +182,17 @@ export interface CompleteSparkInvocationInput {
   errorCode?: string;
   errorMessage?: string;
   result?: unknown;
+  executionProfile?: Record<string, unknown>;
+  retentionSummary?: Record<string, unknown>;
   now?: string;
+}
+
+export interface SparkInvocationPayloadRedactionResult {
+  sessionId: string;
+  redactedInvocationIds: string[];
+  deletedEventCount: number;
+  blockedInvocationIds: string[];
+  redactedAt: string;
 }
 
 const DEFAULT_EVENT_PAGE_LIMIT = 100;
@@ -187,6 +203,8 @@ const MAX_PERSISTED_EVENT_SESSION_ID_BYTES = 4 * 1024;
 const MAX_PERSISTED_RESULT_STRING_BYTES = 384 * 1024;
 const MAX_PERSISTED_RESULT_ARRAY_ITEMS = 64;
 const MAX_PERSISTED_RESULT_OBJECT_KEYS = 128;
+const MAX_PERSISTED_RETENTION_SUMMARY_BYTES = 16 * 1024;
+const MAX_PERSISTED_EXECUTION_PROFILE_BYTES = 16 * 1024;
 
 const allowedTransitions: Record<SparkInvocationStatus, readonly SparkInvocationStatus[]> = {
   queued: ["running", "failed", "cancelled"],
@@ -211,6 +229,10 @@ interface InvocationRow {
   source_ref: string | null;
   parent_invocation_id: string | null;
   retry_of_invocation_id: string | null;
+  claim_class: string;
+  execution_profile_json: string | null;
+  retention_summary_json: string | null;
+  payload_redacted_at: string | null;
   worker_id: string | null;
   attempt_count: number;
   cancel_reason: string | null;
@@ -279,8 +301,8 @@ export class SparkInvocationStore {
           `INSERT INTO invocations
             (id, command_id, workspace_binding_id, session_id, idempotency_key, status, prompt,
              task_json, source_kind, source_ref, parent_invocation_id, retry_of_invocation_id,
-             created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
+             claim_class, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           invocationId,
@@ -294,6 +316,7 @@ export class SparkInvocationStore {
           input.sourceRef ?? null,
           input.parentInvocationId ?? null,
           input.retryOfInvocationId ?? null,
+          input.claimClass ?? "root",
           now,
           now,
         );
@@ -361,10 +384,11 @@ export class SparkInvocationStore {
         `INSERT INTO invocations
           (id, command_id, workspace_binding_id, session_id, idempotency_key, status, prompt,
            task_json, result_json, source_kind, source_ref, parent_invocation_id,
-           retry_of_invocation_id, worker_id,
+           retry_of_invocation_id, claim_class, execution_profile_json, retention_summary_json,
+           payload_redacted_at, worker_id,
            attempt_count, cancel_reason, error_code, error_message, created_at, updated_at,
            claimed_at, started_at, finished_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       )
       .run(
         input.invocationId,
@@ -380,6 +404,7 @@ export class SparkInvocationStore {
         input.sourceRef ?? null,
         input.parentInvocationId ?? null,
         input.retryOfInvocationId ?? null,
+        input.claimClass ?? "root",
         input.status === "queued" ? 0 : 1,
         input.cancelReason ?? null,
         input.errorCode ?? null,
@@ -627,6 +652,7 @@ export class SparkInvocationStore {
         .prepare(
           `${invocationSelect}
            WHERE status = 'queued'
+             AND claim_class = 'root'
              ${sourceClause}
              AND (
                session_id IS NULL OR NOT EXISTS (
@@ -660,6 +686,43 @@ export class SparkInvocationStore {
       if (changes !== 1) throw new Error(`Invocation claim conflict: ${candidate.id}`);
       this.db.exec("COMMIT");
       return this.require(candidate.id);
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /** Claim a child invocation for in-stack execution without consuming a root worker slot. */
+  claimStructured(
+    invocationId: string,
+    workerId: string,
+    now = new Date().toISOString(),
+  ): SparkInvocationRecord {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = this.require(invocationId);
+      if (current.claimClass !== "structured" || !current.parentInvocationId) {
+        throw new Error(`Invocation ${invocationId} is not a structured child`);
+      }
+      const parent = this.getSummary(current.parentInvocationId);
+      if (!parent || parent.status !== "running") {
+        throw new Error(
+          `Structured invocation ${invocationId} requires running parent ${current.parentInvocationId}`,
+        );
+      }
+      const changes = Number(
+        this.db
+          .prepare(
+            `UPDATE invocations
+             SET status = 'running', worker_id = ?, attempt_count = attempt_count + 1,
+                 claimed_at = ?, started_at = COALESCE(started_at, ?), updated_at = ?
+             WHERE id = ? AND status = 'queued' AND claim_class = 'structured'`,
+          )
+          .run(workerId, now, now, now, invocationId).changes,
+      );
+      if (changes !== 1) throw new Error(`Invocation structured claim conflict: ${invocationId}`);
+      this.db.exec("COMMIT");
+      return this.require(invocationId);
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
@@ -845,12 +908,22 @@ export class SparkInvocationStore {
     assertTransition(current.status, input.status);
     const now = input.now ?? new Date().toISOString();
     const result = compactInvocationResult(input.result);
+    const executionProfile =
+      input.executionProfile ??
+      ({
+        claimClass: current.claimClass,
+        ...(current.sourceKind ? { sourceKind: current.sourceKind } : {}),
+        status: input.status,
+        attemptCount: current.attemptCount,
+        startedAt: current.startedAt ?? now,
+        finishedAt: now,
+      } satisfies Record<string, unknown>);
     const changes = Number(
       this.db
         .prepare(
           `UPDATE invocations
            SET status = ?, cancel_reason = ?, error_code = ?, error_message = ?, result_json = ?,
-               finished_at = ?, updated_at = ?
+               execution_profile_json = ?, retention_summary_json = ?, finished_at = ?, updated_at = ?
            WHERE id = ? AND status = ?`,
         )
         .run(
@@ -859,6 +932,8 @@ export class SparkInvocationStore {
           input.errorCode ?? null,
           input.errorMessage ?? null,
           serializePersistedResult(result),
+          serializeBoundedRecord(executionProfile, MAX_PERSISTED_EXECUTION_PROFILE_BYTES),
+          serializeBoundedRecord(input.retentionSummary, MAX_PERSISTED_RETENTION_SUMMARY_BYTES),
           now,
           now,
           invocationId,
@@ -866,7 +941,7 @@ export class SparkInvocationStore {
         ).changes,
     );
     if (changes !== 1) throw new Error(`Invocation transition conflict: ${invocationId}`);
-    return completedInvocationRecord(current, input, result, now);
+    return completedInvocationRecord(current, { ...input, executionProfile }, result, now);
   }
 
   appendEvent(
@@ -1334,6 +1409,105 @@ export class SparkInvocationStore {
     };
   }
 
+  /**
+   * Remove closed-session content while preserving lifecycle metadata, usage
+   * rows, execution profiles, and one bounded retention summary per invocation.
+   */
+  redactSessionPayloads(
+    sessionId: string,
+    input: { summary?: Record<string, unknown>; now?: string } = {},
+  ): SparkInvocationPayloadRedactionResult {
+    const normalizedSessionId = sessionId.trim();
+    if (!normalizedSessionId) throw new Error("sessionId is required for payload redaction");
+    const redactedAt = input.now ?? new Date().toISOString();
+    const rows = this.db
+      .prepare(
+        `SELECT id, status, source_kind, error_code, event_cursor
+         FROM invocations
+         WHERE session_id = ?
+         ORDER BY created_at, rowid`,
+      )
+      .all(normalizedSessionId) as unknown as Array<{
+      id: string;
+      status: string;
+      source_kind: string | null;
+      error_code: string | null;
+      event_cursor: number;
+    }>;
+    const blockedInvocationIds = rows
+      .filter((row) => {
+        if (row.status === "queued" || row.status === "running") return true;
+        return Boolean(
+          this.db
+            .prepare(
+              `SELECT 1
+               FROM invocation_event_delivery_consumers known
+               LEFT JOIN invocation_event_deliveries d
+                 ON d.destination = known.destination
+                AND d.invocation_id = ?
+               WHERE COALESCE(d.sequence, 0) < ?
+               LIMIT 1`,
+            )
+            .get(row.id, Number(row.event_cursor)),
+        );
+      })
+      .map((row) => row.id);
+    const blocked = new Set(blockedInvocationIds);
+    const eligible = rows.filter((row) => !blocked.has(row.id));
+    let deletedEventCount = 0;
+    const redactedInvocationIds: string[] = [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      for (const row of eligible) {
+        deletedEventCount += Number(
+          this.db.prepare("DELETE FROM invocation_events WHERE invocation_id = ?").run(row.id)
+            .changes,
+        );
+        const summary =
+          input.summary ??
+          ({
+            status: row.status,
+            ...(row.source_kind ? { sourceKind: row.source_kind } : {}),
+            ...(row.error_code ? { errorCode: row.error_code } : {}),
+          } satisfies Record<string, unknown>);
+        const changed = this.db
+          .prepare(
+            `UPDATE invocations
+             SET prompt = NULL,
+                 task_json = NULL,
+                 result_json = NULL,
+                 cancel_reason = NULL,
+                 error_message = NULL,
+                 retention_summary_json = ?,
+                 payload_redacted_at = ?,
+                 retained_at = COALESCE(retained_at, ?),
+                 updated_at = CASE WHEN updated_at > ? THEN updated_at ELSE ? END
+             WHERE id = ? AND status IN ('succeeded', 'failed', 'cancelled')`,
+          )
+          .run(
+            serializeBoundedRecord(summary, MAX_PERSISTED_RETENTION_SUMMARY_BYTES),
+            redactedAt,
+            redactedAt,
+            redactedAt,
+            redactedAt,
+            row.id,
+          );
+        if (Number(changed.changes) === 1) redactedInvocationIds.push(row.id);
+      }
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return {
+      sessionId: normalizedSessionId,
+      redactedInvocationIds,
+      deletedEventCount,
+      blockedInvocationIds,
+      redactedAt,
+    };
+  }
+
   oldestActive(): { queued?: string; running?: string } {
     const rows = this.db
       .prepare(
@@ -1409,6 +1583,10 @@ function invocationSelectColumns(alias?: string, includeResult = true): string {
       "source_ref",
       "parent_invocation_id",
       "retry_of_invocation_id",
+      "claim_class",
+      "execution_profile_json",
+      "retention_summary_json",
+      "payload_redacted_at",
       "worker_id",
       "attempt_count",
       "cancel_reason",
@@ -1440,6 +1618,14 @@ function invocationRecord(row: InvocationRow): SparkInvocationRecord {
     ...(row.source_ref ? { sourceRef: row.source_ref } : {}),
     ...(row.parent_invocation_id ? { parentInvocationId: row.parent_invocation_id } : {}),
     ...(row.retry_of_invocation_id ? { retryOfInvocationId: row.retry_of_invocation_id } : {}),
+    claimClass: row.claim_class === "structured" ? "structured" : "root",
+    ...(row.execution_profile_json
+      ? { executionProfile: parseJsonRecord(row.execution_profile_json) }
+      : {}),
+    ...(row.retention_summary_json
+      ? { retentionSummary: parseJsonRecord(row.retention_summary_json) }
+      : {}),
+    ...(row.payload_redacted_at ? { payloadRedactedAt: row.payload_redacted_at } : {}),
     ...(row.worker_id ? { workerId: row.worker_id } : {}),
     attemptCount: Number(row.attempt_count),
     ...(row.cancel_reason ? { cancelReason: row.cancel_reason } : {}),
@@ -1787,6 +1973,8 @@ function completedInvocationRecord(
   if (input.errorCode) completed.errorCode = input.errorCode;
   if (input.errorMessage) completed.errorMessage = input.errorMessage;
   if (result !== undefined) completed.result = result;
+  if (input.executionProfile) completed.executionProfile = input.executionProfile;
+  if (input.retentionSummary) completed.retentionSummary = input.retentionSummary;
   return completed;
 }
 
@@ -1803,6 +1991,21 @@ function serializePersistedResult(value: unknown): string | null {
 
 function serializeJson(value: unknown): string | null {
   return value === undefined ? null : JSON.stringify(value);
+}
+
+function serializeBoundedRecord(
+  value: Record<string, unknown> | undefined,
+  budget: number,
+): string | null {
+  if (!value) return null;
+  return JSON.stringify(boundedJsonValue(value, 0, budget));
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> {
+  const parsed = parseJson(value);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : { invalid: true };
 }
 
 function parseJson(value: string): unknown {
@@ -1830,6 +2033,7 @@ function assertIdempotentSubmission(
     existing.workspaceBindingId !== input.workspaceBindingId ||
     existing.parentInvocationId !== input.parentInvocationId ||
     existing.retryOfInvocationId !== input.retryOfInvocationId ||
+    existing.claimClass !== (input.claimClass ?? "root") ||
     JSON.stringify(existing.task) !== JSON.stringify(input.task)
   ) {
     throw new SparkDaemonControlError(
