@@ -17,14 +17,11 @@ export async function handleReproRequest(
     throw new Error("no registered daemon formal Evidence verifier is configured");
   }
   const workspace = getWorkspaceByPath(ctx.db, request.params.workspaceCwd);
-  if (!workspace || workspace.localPath !== request.params.workspaceCwd) {
+  if (!workspace) {
     throw new Error("formal Evidence workspace is not an exact registered daemon workspace");
   }
-  if (
-    request.params.candidate.workspaceCwd !== workspace.localPath ||
-    request.params.workspaceCwd !== workspace.localPath
-  ) {
-    throw new Error("formal Evidence candidate workspace binding does not match registration");
+  if (request.params.candidate.workspaceCwd !== request.params.workspaceCwd) {
+    throw new Error("formal Evidence candidate workspace binding does not match request");
   }
   const evidence = await defaultEvidenceStore(workspace.localPath).tryGet(
     request.params.candidate.evidenceRef as EvidenceRef,
@@ -46,6 +43,7 @@ export async function handleReproRequest(
   const receipt: SparkReproFormalEvidenceReceipt = {
     schema: "spark.repro.formal-evidence-receipt/v1",
     ...request.params.candidate,
+    workspaceCwd: workspace.localPath,
     verifierId: verified.verifierId,
     verifierVersion: verified.verifierVersion,
     verdict: "accepted",

@@ -1,3 +1,6 @@
+import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 
@@ -49,6 +52,26 @@ describe("daemon Repro formal Evidence receipt store", () => {
       expect(store.get("/other-workspace", receiptIdentity(otherReceipt))).toEqual(otherReceipt);
     } finally {
       db.close();
+    }
+  });
+
+  it("canonicalizes same-filesystem workspace aliases before keying receipts", () => {
+    const root = mkdtempSync(join(tmpdir(), "spark-formal-workspace-"));
+    const alias = `${root}-alias`;
+    const db = new DatabaseSync(":memory:");
+    try {
+      symlinkSync(root, alias, "dir");
+      migrateSparkDaemonDatabase(db);
+      const store = new SparkReproFormalEvidenceReceiptStore(db);
+      const aliasedReceipt = { ...receipt, workspaceCwd: alias };
+      store.record(root, aliasedReceipt);
+      expect(store.get(realpathSync(root), receiptIdentity(aliasedReceipt))).toEqual(
+        aliasedReceipt,
+      );
+    } finally {
+      db.close();
+      rmSync(alias, { force: true });
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

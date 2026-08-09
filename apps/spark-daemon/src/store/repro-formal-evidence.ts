@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
@@ -20,8 +21,8 @@ export class SparkReproFormalEvidenceReceiptStore {
     raw: SparkReproFormalEvidenceReceipt,
   ): SparkReproFormalEvidenceReceipt {
     const receipt = sparkReproFormalEvidenceReceiptSchema.parse(raw);
-    const cwd = resolve(workspaceCwd);
-    if (resolve(receipt.workspaceCwd) !== cwd) {
+    const cwd = canonicalReproFormalEvidenceWorkspaceCwd(workspaceCwd);
+    if (canonicalReproFormalEvidenceWorkspaceCwd(receipt.workspaceCwd) !== cwd) {
       throw new Error("formal Evidence receipt workspace binding does not match store scope");
     }
     const receiptKey = workspaceReceiptKey(cwd, receipt);
@@ -59,7 +60,7 @@ export class SparkReproFormalEvidenceReceiptStore {
     workspaceCwd: string,
     identity: SparkReproFormalEvidenceReceiptIdentity,
   ): SparkReproFormalEvidenceReceipt | undefined {
-    const cwd = resolve(workspaceCwd);
+    const cwd = canonicalReproFormalEvidenceWorkspaceCwd(workspaceCwd);
     const receiptKey = workspaceReceiptKey(cwd, identity);
     const row = this.db
       .prepare(
@@ -70,6 +71,15 @@ export class SparkReproFormalEvidenceReceiptStore {
       .get(receiptKey, cwd) as { receiptJson: string } | undefined;
     if (!row) return undefined;
     return sparkReproFormalEvidenceReceiptSchema.parse(JSON.parse(row.receiptJson));
+  }
+}
+
+export function canonicalReproFormalEvidenceWorkspaceCwd(workspaceCwd: string): string {
+  const absolute = resolve(workspaceCwd);
+  try {
+    return realpathSync.native(absolute);
+  } catch {
+    return absolute;
   }
 }
 

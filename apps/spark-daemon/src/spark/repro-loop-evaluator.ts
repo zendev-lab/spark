@@ -16,6 +16,7 @@ import {
   SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA,
   type SparkReproWorkSummary,
 } from "@zendev-lab/spark-repro/work-summary";
+import { canonicalReproFormalEvidenceWorkspaceCwd } from "../store/repro-formal-evidence.ts";
 import type {
   SparkLoopEvaluationContext,
   SparkTrustedLoopEvaluator,
@@ -297,7 +298,8 @@ function validateFormalEvidenceReceipt(
   const expectedProfile = work.acceptanceProfile ?? work.profile;
   const expectedTopology = expectedProfile.validationTopology ?? expectedProfile.topology;
   if (
-    receipt.workspaceCwd !== cwd ||
+    canonicalReproFormalEvidenceWorkspaceCwd(receipt.workspaceCwd) !==
+      canonicalReproFormalEvidenceWorkspaceCwd(cwd) ||
     receipt.evidenceRef !== evidence.ref ||
     receipt.evidenceHash !== evidence.hash ||
     evidence.curation?.status === "superseded" ||

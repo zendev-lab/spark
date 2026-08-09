@@ -53,7 +53,7 @@ describe("transport-neutral local RPC service", () => {
     const { paths, db } = createFixture();
     const cwd = join(paths.dataDir, "workspace");
     mkdirSync(cwd, { recursive: true });
-    registerWorkspace(db, { localPath: cwd });
+    const workspace = registerWorkspace(db, { localPath: cwd });
     const evidence = await defaultEvidenceStore(cwd).put({
       ref: "evidence:formal-proof",
       kind: "record",
@@ -80,6 +80,7 @@ describe("transport-neutral local RPC service", () => {
     const receipt = {
       schema: "spark.repro.formal-evidence-receipt/v1" as const,
       ...candidate,
+      workspaceCwd: workspace.localPath,
       verifierId: "registered-verifier",
       verifierVersion: "1",
       verdict: "accepted" as const,
