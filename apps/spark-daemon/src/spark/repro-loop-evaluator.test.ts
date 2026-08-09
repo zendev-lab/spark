@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -6,6 +6,8 @@ import { defaultEvidenceStore } from "@zendev-lab/spark-artifacts";
 import type { AskRef, EvidenceRef } from "@zendev-lab/spark-core";
 import {
   buildSparkReproWorkSummary,
+  sparkReproProfileDigest,
+  sparkReproTopologyDigest,
   SPARK_REPRO_SINGLE_PROCESS_TOPOLOGY,
   type SparkReproDecisionRequest,
   type SparkReproEvidenceGate,
@@ -40,8 +42,9 @@ describe("trusted Repro Loop evaluators", () => {
 
   it("completes only from re-derived formal gates and records trusted Evidence", async () => {
     const cwd = await workspace();
-    const input = summaryInput(true);
+    const input = strictCompleteSummaryInput();
     await persistAcceptedFormalEvidence(cwd, input);
+    await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
     await writeSummary(cwd, input);
 
     const result = await reproCompletionEvaluator(context(cwd));
@@ -53,13 +56,97 @@ describe("trusted Repro Loop evaluators", () => {
 
   it("rejects accepted formal gates whose Evidence refs are not durable", async () => {
     const cwd = await workspace();
-    await writeSummary(cwd, summaryInput(true));
+    await writeSummary(cwd, strictCompleteSummaryInput());
 
     await expect(reproCompletionEvaluator(context(cwd))).rejects.toThrow(
       /Repro completion evidence not found: evidence:contract-frozen/u,
     );
   });
 
+  it("rejects missing Matrix Evidence even when gate receipts exist", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    input.validationMatrix!.rows[0]!.evidenceRefs.push("evidence:matrix-only" as EvidenceRef);
+    await persistAcceptedFormalEvidence(cwd, input);
+    await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
+    await writeSummary(cwd, input);
+
+    await expect(reproCompletionEvaluator(context(cwd))).rejects.toThrow(
+      /Repro completion evidence not found: evidence:matrix-only/u,
+    );
+  });
+
+  it("rejects missing retirement Evidence even when formal gate receipts exist", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    await persistAcceptedFormalEvidence(cwd, input);
+    await writeSummary(cwd, input);
+
+    await expect(reproCompletionEvaluator(context(cwd))).rejects.toThrow(
+      /Repro completion evidence not found: evidence:retirement-S1/u,
+    );
+  });
+
+  it("rejects missing unresolved-discharge Evidence", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    input.unresolved = [
+      {
+        id: "u-discharge",
+        kind: "mismatch",
+        owner: "repro-owner",
+        impact: "A prior mismatch required formal discharge",
+        reversible: true,
+        rollback: "Restore the prior exact path",
+        dischargeCriterion: "Current entrypoint receipt passes",
+        status: "discharged",
+        completionRequired: true,
+        planRevision: 1,
+        ownerStepId: "S1",
+        stepDefinitionDigest: "digest:S1",
+        evidenceRefs: ["evidence:unresolved-discharge" as EvidenceRef],
+      },
+    ];
+    await persistAcceptedFormalEvidence(cwd, input);
+    await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
+    await writeSummary(cwd, input);
+
+    await expect(reproCompletionEvaluator(context(cwd))).rejects.toThrow(
+      /Repro completion evidence not found: evidence:unresolved-discharge/u,
+    );
+  });
+
+  it("accepts strict completion only after gate, Matrix, and retirement Evidence resolve", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    await persistAcceptedFormalEvidence(cwd, input);
+    await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
+    await writeSummary(cwd, input);
+
+    await expect(reproCompletionEvaluator(context(cwd))).resolves.toMatchObject({
+      verdict: "achieved",
+    });
+  });
+
+  it("rejects formal completion when an owning-entrypoint receipt is stale", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    await persistAcceptedFormalEvidence(cwd, input);
+    const row = input.validationMatrix!.rows.find(
+      (candidate) => candidate.evidenceClass === "entrypoint",
+    );
+    if (!row?.receiptPath) throw new Error("missing formal receipt fixture");
+    const receiptFile = join(cwd, row.receiptPath);
+    const receipt = JSON.parse(await readFile(receiptFile, "utf8")) as Record<string, unknown>;
+    receipt.stale = true;
+    await writeFile(receiptFile, JSON.stringify(receipt));
+    await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
+    await writeSummary(cwd, input);
+
+    await expect(reproCompletionEvaluator(context(cwd))).rejects.toThrow(
+      /formal Evidence receipt is not current and accepted/u,
+    );
+  });
   it("rejects a persisted status that does not match canonical typed facts", async () => {
     const cwd = await workspace();
     const work = buildSparkReproWorkSummary(summaryInput(false));
@@ -94,7 +181,6 @@ async function persistAcceptedFormalEvidence(
   cwd: string,
   input: SparkReproWorkSummaryInput,
 ): Promise<void> {
-  const store = defaultEvidenceStore(cwd);
   const refs = [
     ...new Set(
       input.gates
@@ -102,6 +188,44 @@ async function persistAcceptedFormalEvidence(
         .flatMap((gate) => gate.evidenceRefs),
     ),
   ];
+  const formalRows =
+    input.validationMatrix?.rows.filter(
+      (row) => row.evidenceClass === "entrypoint" && row.invocationClass === "owning_entrypoint",
+    ) ?? [];
+  for (const row of formalRows) {
+    const evidenceRef = row.evidenceRefs[0];
+    if (!evidenceRef) continue;
+    const receiptPath = `receipts/${row.id}.json`;
+    row.receiptPath = receiptPath;
+    await mkdir(join(cwd, "receipts"), { recursive: true });
+    await writeFile(
+      join(cwd, receiptPath),
+      JSON.stringify({
+        schema: "spark.repro.formal-evidence-receipt/v1",
+        evidenceRef,
+        reproId: input.reproId,
+        requirementId: row.gateId,
+        stepId: "S1",
+        planRevision: 1,
+        stepDefinitionDigest: "digest:S1",
+        invocationClass: "owning_entrypoint",
+        evidenceClass: "entrypoint",
+        profileDigest: sparkReproProfileDigest(input.target.acceptanceProfile ?? input.profile),
+        topologyDigest: sparkReproTopologyDigest(input.target.validationTopology),
+        verifierId: "test-verifier",
+        verifierVersion: "1",
+        verdict: "accepted",
+        verifiedAt: new Date().toISOString(),
+        stale: false,
+        superseded: false,
+      }),
+    );
+  }
+  await persistEvidenceRefs(cwd, refs);
+}
+
+async function persistEvidenceRefs(cwd: string, refs: EvidenceRef[]): Promise<void> {
+  const store = defaultEvidenceStore(cwd);
   for (const ref of refs) {
     await store.put({
       ref,
@@ -156,6 +280,149 @@ function context(cwd: string): SparkLoopEvaluationContext {
     },
     input: {},
     route: { cwd },
+  };
+}
+
+function strictCompleteSummaryInput(): SparkReproWorkSummaryInput {
+  const topology = {
+    dp: 1,
+    tp: 1,
+    pp: 2,
+    ep: 4,
+    etp: 1,
+    cp: 1,
+    sp: false,
+    worldSize: 8,
+    strategies: [
+      {
+        axis: "pp" as const,
+        id: "official-pipeline",
+        source: "official" as const,
+        revision: "r1",
+        configDigest: "sha256:pp",
+      },
+      {
+        axis: "ep" as const,
+        id: "reference-expert",
+        source: "reference" as const,
+        revision: "r2",
+        configDigest: "sha256:ep",
+      },
+    ],
+  };
+  const profile: SparkReproProfile = {
+    id: "acceptance",
+    model: "minimum_complete",
+    compute: "optimizer",
+    modelScope: "minimum_complete",
+    computeScope: "optimizer",
+    steps: { completed: 100, target: 100 },
+    topology: structuredClone(topology),
+    validationTopology: structuredClone(topology),
+    runtime: {
+      framework: "paddle",
+      device: "gpu",
+      dtype: "bf16",
+      hardware: "h800",
+      modelRevision: "r1",
+      configDigest: "sha256:model",
+    },
+  };
+  const gates = [
+    formalGate("contract-frozen", "contract", "accepted"),
+    {
+      ...formalGate("reference-ready", "reference", "accepted", profile),
+      establishes: ["reference_ready" as const],
+    },
+    {
+      ...formalGate("target-ready", "target", "accepted", profile),
+      establishes: ["target_ready" as const],
+    },
+    {
+      ...formalGate("alignment", "alignment", "accepted", profile),
+      establishes: ["required_steps_aligned" as const, "reference_parity" as const],
+    },
+    formalGate("delivery", "delivery", "accepted"),
+  ];
+  const candidate = {
+    id: "candidate-S1",
+    stepId: "S1",
+    dependsOn: [],
+    planRevision: 1,
+    stepDefinitionDigest: "digest:S1",
+    verdict: "accepted" as const,
+    profile,
+    evidenceRefs: ["evidence:retirement-S1" as EvidenceRef],
+    unresolvedIds: [],
+  };
+  return {
+    schema: "spark.repro.work-summary/v2",
+    reproId: "repro-1",
+    title: "Strict complete Repro",
+    stage: "delivery",
+    target: {
+      model: "minimum_complete",
+      requiredSteps: 100,
+      referenceStrategies: ["pp", "ep"],
+      validationTopology: structuredClone(topology),
+      acceptanceProfile: profile,
+    },
+    profile,
+    gates,
+    validationMatrix: {
+      denominators: { contract: 1, reference: 1, target: 1, alignment: 1, delivery: 1 },
+      rows: gates.map((gate) => ({
+        id: `entrypoint:${gate.id}`,
+        gateId: gate.id,
+        stage: gate.stage,
+        invocationClass: "owning_entrypoint",
+        evidenceClass: "entrypoint",
+        verdict: "accepted",
+        profile,
+        repetitions: 1,
+        exactScope: "frozen acceptance entrypoint",
+        evidenceRefs: [...gate.evidenceRefs],
+        artifactRefs: [],
+      })),
+    },
+    exploreFrontier: {
+      stage: "delivery",
+      profile,
+      planRevision: 1,
+      observationId: "observation-S1",
+      ownerStepId: "S1",
+      stepDefinitionDigest: "digest:S1",
+      evidenceRefs: ["evidence:observation-S1" as EvidenceRef],
+      unresolvedIds: [],
+    },
+    normativeCursor: {
+      planRevision: 1,
+      orderedStepIds: ["S1"],
+      stepDefinitionDigests: { S1: "digest:S1" },
+      stepDependencies: { S1: [] },
+      retiredStepIds: ["S1"],
+      candidateBuffer: [candidate],
+      retirementLog: [
+        {
+          stepId: "S1",
+          candidateId: candidate.id,
+          planRevision: 1,
+          stepDefinitionDigest: "digest:S1",
+          profile,
+          profileDigest: sparkReproProfileDigest(profile),
+          evidenceRefs: [...candidate.evidenceRefs],
+        },
+      ],
+    },
+    schedulerActivity: "sealed",
+    independentReadyCount: 0,
+    retirementBlocks: [],
+    unresolved: [],
+    nextAction: {
+      id: "sealed",
+      summary: "No further action",
+      passCriterion: "The run remains sealed",
+    },
   };
 }
 

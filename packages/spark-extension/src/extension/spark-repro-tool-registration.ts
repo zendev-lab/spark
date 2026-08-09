@@ -34,6 +34,7 @@ import {
   reproPhaseToSessionMode,
   advanceReproPhase,
   advanceReproStage,
+  beginReproRevalidation,
   clearSessionRepro,
   createReproStepAskBinding,
   encodeReproStepAskBinding,
@@ -112,6 +113,7 @@ interface SparkReproToolDeps {
 type SparkReproToolAction =
   | "status"
   | "start"
+  | "revalidate"
   | "record"
   | "plan"
   | "step"
@@ -136,6 +138,7 @@ export function registerSparkReproTool(
     promptGuidelines: [
       "Use repro action=status to inspect the goal contract, current plan revision, typed steps, stable requirement ids, and blockers.",
       "Use repro action=start to begin the Repro (clears goal/loop); pass objective for user-supplied reproduction focus.",
+      "Use repro action=revalidate as the only explicit transition that reopens a migrated needs_revalidation run; ordinary status, start, and settle never resume it.",
       "Use repro action=plan to set difficulty (1-10), revise the Goal Contract, or append/update stage-scoped subgoals. Split each stage by its objective, experiment risk, dependencies, and required evidence; every subgoal needs a stable id, explicit doneWhen/evidenceRequired, and authority.",
       "Use repro action=step to update one step. A done step requires existing evidence that passes a typed StepVerifier; safe_local steps require spark.repro.step-proof/v1, while ask_decision/ask_approval steps require a current bound canonical Ask receipt.",
       "In the contract stage, first verify whether the named reference implementation is runnable. If it is unavailable, ask how to construct or obtain it before any baseline probe; do not invent a substitute.",
@@ -156,7 +159,7 @@ export function registerSparkReproTool(
         Type.String({
           default: "status",
           description:
-            "status | start | plan | step | record | evaluate | advance | settle | project_report | sync_report | stop; satisfy and gate are compatibility aliases",
+            "status | start | revalidate | plan | step | record | evaluate | advance | settle | project_report | sync_report | stop; satisfy and gate are compatibility aliases",
         }),
       ),
       workSummary: Type.Optional(
@@ -269,7 +272,9 @@ export function registerSparkReproTool(
             active: synced.work.status === "active",
             status: synced.work.status,
             stage: synced.work.stage,
-            progressPercent: synced.work.progress.percent,
+            ...(synced.work.progress.quantified
+              ? { progressPercent: synced.work.progress.percent }
+              : {}),
             changed: synced.changed,
             created: synced.created,
             refs: { reportArtifactRef: synced.reportArtifactRef },
@@ -310,7 +315,9 @@ export function registerSparkReproTool(
               schema: projected.work.schema,
               status: projected.work.status,
               stage: projected.work.stage,
-              progressPercent: projected.work.progress.percent,
+              ...(projected.work.progress.quantified
+                ? { progressPercent: projected.work.progress.percent }
+                : {}),
               technicalGoalAchieved: projected.work.technicalGoal.achieved,
             },
             tokenUsage: projected.summary.tokenUsage
@@ -330,6 +337,11 @@ export function registerSparkReproTool(
         const objective = normalizeOptionalReproObjective(params.objective);
         const requestedReproId = normalizeOptionalReproId(params.reproId);
         const stored = await readSessionRepro(cwd, ctx);
+        if (stored?.status === "needs_revalidation") {
+          throw new Error(
+            `Repro ${stored.reproId} requires explicit revalidation; use repro action=revalidate instead of start`,
+          );
+        }
         if (
           stored &&
           requestedReproId &&
@@ -412,6 +424,32 @@ export function registerSparkReproTool(
             },
           ],
           details: { ...reproDetails(repro), loop: loopHealth },
+        };
+      }
+
+      if (action === "revalidate") {
+        const stored = await readSessionRepro(cwd, ctx);
+        if (!stored) throw new Error("revalidate requires a migrated Repro run");
+        if (stored.status !== "needs_revalidation") {
+          throw new Error(`Repro ${stored.reproId} does not require revalidation`);
+        }
+        const repro = beginReproRevalidation(stored);
+        await writeSessionRepro(cwd, repro, ctx);
+        const ownerSessionId = await prepareSparkDaemonLoopOwner(ctx, deps.loopControl);
+        const loopHealth = await ensureActiveReproLoop(ctx, deps.loopControl, repro, {
+          ownerSessionId,
+          forceSchedule: true,
+          reason: "explicit Repro v7 revalidation",
+        });
+        await deps.refreshSparkWidget?.(cwd, ctx);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Repro ${repro.reproId} entered explicit v7 revalidation.`,
+            },
+          ],
+          details: { ...reproDetails(repro), loopHealth },
         };
       }
 
@@ -839,6 +877,7 @@ function normalizeReproAction(value: unknown): SparkReproToolAction {
   if (
     value === "status" ||
     value === "start" ||
+    value === "revalidate" ||
     value === "plan" ||
     value === "step" ||
     value === "settle" ||
@@ -854,7 +893,7 @@ function normalizeReproAction(value: unknown): SparkReproToolAction {
     return value;
   }
   throw new Error(
-    "repro action must be status, start, plan, step, record, evaluate, satisfy, gate, advance, settle, project_report, sync_report, or stop",
+    "repro action must be status, start, revalidate, plan, step, record, evaluate, satisfy, gate, advance, settle, project_report, sync_report, or stop",
   );
 }
 

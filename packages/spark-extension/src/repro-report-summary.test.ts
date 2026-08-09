@@ -28,6 +28,27 @@ describe("Repro report summary composition", () => {
     expect(parseSparkReproReportSummary(structuredClone(summary))).toEqual(summary);
   });
 
+  it("migrates a structured work-summary/v1 report without promoting legacy proof", () => {
+    const summary = structuredClone(
+      composeSparkReproReportSummary({ work: workSummary("legacy-run") }),
+    ) as unknown as { format: string; work: Record<string, unknown> };
+    summary.work.schema = "spark.repro.work-summary/v1";
+    delete summary.work.validationMatrix;
+    delete summary.work.exploreFrontier;
+    delete summary.work.normativeCursor;
+    delete summary.work.unresolved;
+    delete summary.work.retirementBlockers;
+
+    const migrated = parseSparkReproReportSummary(summary);
+    expect(migrated.work.schema).toBe("spark.repro.work-summary/v2");
+    expect(migrated.work.progress.quantified).toBe(false);
+    expect(migrated.work.progress).not.toHaveProperty("percent");
+    expect(migrated.work.validationMatrix.rows.every((row) => row.evidenceClass === "probe")).toBe(
+      true,
+    );
+    expect(migrated.work.exploreFrontier.observationId).toBeUndefined();
+  });
+
   it("rejects usage attributed to another Repro run", () => {
     expect(() =>
       composeSparkReproReportSummary({

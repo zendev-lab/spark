@@ -53,7 +53,7 @@ describe("session work projection", () => {
     const repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
       objective: "Own root-session token usage",
     });
-    await writeJson(sessionReproStorePathV2(cwd, context), { version: 6, repro });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 7, repro });
 
     await expect(resolveActiveSessionReproUsageScope({ cwd, sessionId })).resolves.toEqual({
       kind: "repro",
@@ -147,7 +147,7 @@ describe("session work projection", () => {
     const repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
       objective: "Account for this reproduction",
     });
-    await writeJson(sessionReproStorePathV2(cwd, context), { version: 6, repro });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 7, repro });
     const tokenUsage: SparkTokenUsageAggregate = {
       scope: { kind: "repro", reproId: repro.reproId },
       reported: breakdown(12),
@@ -217,7 +217,7 @@ describe("session work projection", () => {
     const repro = createSparkSessionRepro(`session:${sessionId}`, undefined, {
       objective: "Keep the technical work visible",
     });
-    await writeJson(sessionReproStorePathV2(cwd, context), { version: 6, repro });
+    await writeJson(sessionReproStorePathV2(cwd, context), { version: 7, repro });
     const diagnostics: string[] = [];
 
     const work = await projectSparkSessionWork({
