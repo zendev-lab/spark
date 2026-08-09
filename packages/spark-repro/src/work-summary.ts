@@ -544,6 +544,11 @@ export function buildSparkReproWorkSummary(
   assertNonEmpty(input.title, "title");
   assertOneOf(input.stage, SPARK_REPRO_WORK_STAGES, "stage");
   const migration = input.migration;
+  if (input.schema === SPARK_REPRO_WORK_SUMMARY_SCHEMA && migration !== undefined) {
+    throw new Error(
+      "work-summary/v2 migration markers are accepted only by the legacy storage adapter",
+    );
+  }
   const outputMigration: SparkReproWorkSummaryMigration | undefined =
     migration ??
     (input.schema === undefined
@@ -553,7 +558,7 @@ export function buildSparkReproWorkSummary(
           legacyProofAuthority: "not_promoted",
         }
       : undefined);
-  const strictVNext = input.schema === SPARK_REPRO_WORK_SUMMARY_SCHEMA && migration === undefined;
+  const strictVNext = input.schema === SPARK_REPRO_WORK_SUMMARY_SCHEMA;
   if (migration) {
     if (
       migration.sourceSchema !== SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA ||
@@ -717,6 +722,9 @@ export function buildSparkReproWorkSummary(
   const allTasksTerminal = tasks.every(
     (task) => task.status === "done" || task.status === "cancelled",
   );
+  const allTodosTerminal = todos.every(
+    (todo) => todo.status === "done" || todo.status === "cancelled",
+  );
   const completionRequiredUnresolved = unresolved.filter(
     (item) => item.completionRequired && !isUnresolvedChainDischarged(item, unresolved),
   );
@@ -732,7 +740,8 @@ export function buildSparkReproWorkSummary(
     retirementBlockers.length === 0 &&
     completionRequiredUnresolved.length === 0 &&
     activeExperiment === undefined &&
-    allTasksTerminal;
+    allTasksTerminal &&
+    allTodosTerminal;
   const humanRetirementBlocks = retirementBlockers.filter(
     (block) => block.kind === "decision" || block.kind === "approval",
   );
@@ -1266,9 +1275,9 @@ export function reconcileSparkReproNormativeRetirement(
 export function normalizeSparkReproWorkSummary(value: unknown): SparkReproWorkSummary {
   if (!isRecord(value)) throw new Error("Repro work summary must be an object");
   if (value.schema === SPARK_REPRO_WORK_SUMMARY_SCHEMA) {
-    return buildSparkReproWorkSummary(
-      workSummaryV2ToInput(value as unknown as SparkReproWorkSummary),
-    );
+    const summary = value as unknown as SparkReproWorkSummary;
+    if (summary.migration) return normalizeStoredMigratedWorkSummary(summary);
+    return buildSparkReproWorkSummary(workSummaryV2ToInput(summary));
   }
   if (value.schema !== SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA) {
     throw new Error(
@@ -1276,6 +1285,39 @@ export function normalizeSparkReproWorkSummary(value: unknown): SparkReproWorkSu
     );
   }
   return migrateSparkReproWorkSummaryV1(value);
+}
+
+function normalizeStoredMigratedWorkSummary(summary: SparkReproWorkSummary): SparkReproWorkSummary {
+  const migration = summary.migration;
+  if (
+    migration?.sourceSchema !== SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA ||
+    migration.revision !== 1 ||
+    migration.legacyProofAuthority !== "not_promoted"
+  ) {
+    throw new Error("stored work-summary migration binding is invalid");
+  }
+  const canonical = migrateSparkReproWorkSummaryV1({
+    schema: SPARK_REPRO_LEGACY_WORK_SUMMARY_SCHEMA,
+    reproId: summary.reproId,
+    title: summary.title,
+    stage: summary.stage,
+    target: summary.target,
+    profile: summary.profile,
+    gates: summary.gates,
+    pendingDecisions: summary.pendingDecisions,
+    ...(summary.frontier ? { frontier: summary.frontier } : {}),
+    tasks: summary.tasks,
+    todos: summary.todos,
+    conclusions: summary.conclusions,
+    artifactRefs: summary.artifactRefs,
+    ...(summary.reportArtifactRef ? { reportArtifactRef: summary.reportArtifactRef } : {}),
+  });
+  if (JSON.stringify(canonical) !== JSON.stringify(summary)) {
+    throw new Error(
+      "work.status does not match canonical facts; work.status does not match derived canonical facts: stored migrated work-summary does not match its canonical legacy projection",
+    );
+  }
+  return canonical;
 }
 
 export function migrateSparkReproWorkSummaryV1(

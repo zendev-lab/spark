@@ -509,6 +509,26 @@ describe("SparkSessionRepro evidence-backed state machine", () => {
     }
   });
 
+  it("preserves an invalid v7 snapshot instead of overwriting it as empty", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "spark-repro-invalid-v7-preserved-"));
+    try {
+      const invalid = makeRepro();
+      invalid.dualLane.planRevision += 1;
+      const path = sessionReproStorePath(dir);
+      await mkdir(dirname(path), { recursive: true });
+      const serialized = `${JSON.stringify({ version: 7, repro: invalid })}\n`;
+      await writeFile(path, serialized, "utf8");
+
+      await assert.rejects(
+        readSessionRepro(dir),
+        /Stored Repro snapshot is invalid and was preserved/u,
+      );
+      assert.equal(await readFile(path, "utf8"), serialized);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("migrates valid v4 requirement proofs, gate evaluations, and frozen contract losslessly", async () => {
     const dir = await mkdtemp(join(tmpdir(), "spark-repro-v4-proof-preservation-"));
     try {

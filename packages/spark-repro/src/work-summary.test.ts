@@ -464,6 +464,60 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
     }
   });
 
+  it("keeps completion active until tasks and todos are both terminal", () => {
+    const input = v2Input();
+    input.stage = "delivery";
+    input.gates = acceptDelivery(input.gates);
+    input.validationMatrix = matrixFor(input.gates, input.target.acceptanceProfile!, {
+      delivery: 1,
+    });
+    input.normativeCursor = {
+      planRevision: 7,
+      orderedStepIds: ["S1"],
+      stepDefinitionDigests: { S1: "digest:alignment" },
+      stepDependencies: { S1: [] },
+      retiredStepIds: ["S1"],
+      candidateBuffer: [],
+      retirementLog: [
+        {
+          stepId: "S1",
+          candidateId: "C1",
+          planRevision: 7,
+          stepDefinitionDigest: "digest:alignment",
+          profile: input.target.acceptanceProfile!,
+          profileDigest: sparkReproProfileDigest(input.target.acceptanceProfile!),
+          evidenceRefs: [evidence("S1-retired")],
+        },
+      ],
+    };
+    input.tasks = [{ id: "task-delivery", title: "Deliver", stage: "delivery", status: "done" }];
+    input.todos = [
+      {
+        id: "todo-audit",
+        taskId: "task-delivery",
+        content: "Audit delivery receipts",
+        status: "in_progress",
+      },
+    ];
+
+    expect(buildSparkReproWorkSummary(input).status).toBe("active");
+    input.todos[0]!.status = "done";
+    input.schedulerActivity = "sealed";
+    expect(buildSparkReproWorkSummary(input).status).toBe("complete");
+  });
+
+  it("rejects v2 payloads that self-assert a legacy migration downgrade", () => {
+    const input = v2Input();
+    input.migration = {
+      sourceSchema: "spark.repro.work-summary/v1",
+      revision: 1,
+      legacyProofAuthority: "not_promoted",
+    };
+    expect(() => buildSparkReproWorkSummary(input)).toThrow(
+      "work-summary/v2 migration markers are accepted only by the legacy storage adapter",
+    );
+  });
+
   it("accepts PP/EP as the exact frozen acceptance topology", () => {
     const summary = buildSparkReproWorkSummary(v2Input());
     expect(summary.acceptanceProfile.validationTopology).toMatchObject({
@@ -833,6 +887,9 @@ describe("Spark Repro dual-lane work-summary/v2", () => {
     const first = normalizeSparkReproWorkSummary(legacy);
     const second = normalizeSparkReproWorkSummary(first);
     expect(second).toEqual(first);
+    expect(() => normalizeSparkReproWorkSummary({ ...first, status: "complete" })).toThrow(
+      "work.status does not match derived canonical facts",
+    );
     expect(first.schema).toBe(SPARK_REPRO_WORK_SUMMARY_SCHEMA);
     expect(first.migration).toEqual({
       sourceSchema: "spark.repro.work-summary/v1",

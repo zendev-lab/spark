@@ -9,7 +9,7 @@ import {
   type SparkTokenUsageAggregate,
 } from "@zendev-lab/spark-protocol/token-usage";
 import {
-  buildSparkReproWorkSummary,
+  normalizeSparkReproWorkSummary,
   type SparkReproWorkSummary,
 } from "@zendev-lab/spark-repro/work-summary";
 import {
@@ -318,9 +318,7 @@ async function readCanonicalSummary(loop: SparkLoopRecord): Promise<{
     throw new Error(`invalid ${REPRO_SUMMARY_PATH} envelope`);
   }
   const stored = value.work;
-  const work = buildSparkReproWorkSummary(
-    stored as unknown as Parameters<typeof buildSparkReproWorkSummary>[0],
-  );
+  const work = normalizeSparkReproWorkSummary(stored);
   for (const field of ["schema", "status", "progress", "technicalGoal"] as const) {
     if (!isDeepStrictEqual(stored[field], work[field])) {
       throw new Error(`${REPRO_SUMMARY_PATH} work.${field} is not canonical`);

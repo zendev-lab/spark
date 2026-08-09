@@ -126,7 +126,11 @@ export async function readSessionRepro(
   const snapshot = await readJsonFileOptional<StoredSparkSessionReproSnapshot>(path);
   if (!snapshot) return undefined;
   if (snapshot.version === 7) {
+    if (snapshot.repro === undefined) return undefined;
     const repro = sanitizeStoredSessionRepro(snapshot.repro);
+    if (!repro) {
+      throw new Error(`Stored Repro snapshot is invalid and was preserved at ${path}`);
+    }
     if (JSON.stringify(repro) !== JSON.stringify(snapshot.repro)) {
       await writeJsonFileAtomic(path, { version: 7, repro } satisfies SparkSessionReproSnapshotV7);
       await rebuildSessionIndex(cwd);

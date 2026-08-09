@@ -184,6 +184,28 @@ describe("spark-repro", () => {
     expect(first.dualLane.normative.retiredStepIds).toEqual([]);
   });
 
+  it("reopens a completed v6 snapshot until v7 Normative retirement is proven", () => {
+    const current = createSparkSessionRepro("session:migrate-complete-v6");
+    const { dualLane: _dualLane, ...withoutDualLane } = current;
+    const legacy: SparkSessionReproV6 = {
+      ...withoutDualLane,
+      version: 6,
+      status: "complete",
+      completedAt: "2026-08-01T00:00:00.000Z",
+      stopGuard: { ...withoutDualLane.stopGuard, decision: "complete" },
+    };
+
+    const migrated = migrateSparkSessionReproV6(legacy);
+    expect(migrated.status).toBe("active");
+    expect(migrated.completedAt).toBeUndefined();
+    expect(migrated.stopGuard.decision).toBe("continue");
+    expect(migrated.dualLane.normative.retiredStepIds).toEqual([]);
+    expect(migrated.dualLane.migration).toEqual({
+      sourceVersion: 6,
+      legacyProofAuthority: "not_promoted",
+    });
+  });
+
   it("keeps v6 proof outside Normative retirement after a later plan revision", () => {
     const completed = completeStep(
       createSparkSessionRepro("session:migrate-v6-revise"),

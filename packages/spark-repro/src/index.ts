@@ -1676,12 +1676,13 @@ export function migrateSparkSessionReproV3(repro: SparkSessionReproV3): SparkSes
 }
 
 export function migrateSparkSessionReproV4(repro: SparkSessionReproV4): SparkSessionRepro {
-  const plan = migrateReproPlanV4(repro.plan);
+  const legacy = reopenLegacyCompletionForDualLane(repro);
+  const plan = migrateReproPlanV4(legacy.plan);
   const migratedWithoutDigest: SparkSessionRepro = {
-    ...repro,
+    ...legacy,
     version: 7,
     plan,
-    subgoals: createInitialReproSubgoals(repro.reproId, plan, repro.updatedAt || nowIso()),
+    subgoals: createInitialReproSubgoals(legacy.reproId, plan, legacy.updatedAt || nowIso()),
     dualLane: createInitialDualLaneSessionState(plan, 6),
   };
   return {
@@ -1694,44 +1695,47 @@ export function migrateSparkSessionReproV4(repro: SparkSessionReproV4): SparkSes
 }
 
 export function migrateSparkSessionReproV5(repro: SparkSessionReproV5): SparkSessionRepro {
+  const legacy = reopenLegacyCompletionForDualLane(repro);
   const taskUseCount = new Map<TaskRef, number>();
-  for (const subgoal of repro.subgoals) {
+  for (const subgoal of legacy.subgoals) {
     for (const taskRef of new Set(subgoal.taskRefs)) {
       taskUseCount.set(taskRef, (taskUseCount.get(taskRef) ?? 0) + 1);
     }
   }
   const migratedWithoutDigest: SparkSessionRepro = {
-    ...repro,
+    ...legacy,
     version: 7,
-    subgoals: repro.subgoals.map((legacy): SparkReproSubgoal => {
-      const uniqueTaskRefs = [...new Set(legacy.taskRefs)];
+    subgoals: legacy.subgoals.map((legacySubgoal): SparkReproSubgoal => {
+      const uniqueTaskRefs = [...new Set(legacySubgoal.taskRefs)];
       const taskRef =
         uniqueTaskRefs.length === 1 && taskUseCount.get(uniqueTaskRefs[0]!) === 1
           ? uniqueTaskRefs[0]
           : undefined;
       return {
-        ref: legacy.ref,
-        id: legacy.id,
-        stage: legacy.stage,
-        goal: legacy.goal,
-        doneWhen: [...legacy.doneWhen],
-        evidenceRequired: [...legacy.evidenceRequired],
-        authority: legacy.authority,
-        ...(legacy.dependsOn ? { dependsOn: [...legacy.dependsOn] } : {}),
-        planRevision: legacy.planRevision,
+        ref: legacySubgoal.ref,
+        id: legacySubgoal.id,
+        stage: legacySubgoal.stage,
+        goal: legacySubgoal.goal,
+        doneWhen: [...legacySubgoal.doneWhen],
+        evidenceRequired: [...legacySubgoal.evidenceRequired],
+        authority: legacySubgoal.authority,
+        ...(legacySubgoal.dependsOn ? { dependsOn: [...legacySubgoal.dependsOn] } : {}),
+        planRevision: legacySubgoal.planRevision,
         status:
-          legacy.delegation && legacy.status !== "done" && legacy.status !== "cancelled"
+          legacySubgoal.delegation &&
+          legacySubgoal.status !== "done" &&
+          legacySubgoal.status !== "cancelled"
             ? "pending"
-            : legacy.status,
+            : legacySubgoal.status,
         ...(taskRef ? { taskRef } : {}),
-        evidenceRefs: [...legacy.evidenceRefs],
-        ...(legacy.verification ? { verification: legacy.verification } : {}),
-        ...(legacy.blocker ? { blocker: legacy.blocker } : {}),
-        createdAt: legacy.createdAt,
-        updatedAt: legacy.updatedAt,
+        evidenceRefs: [...legacySubgoal.evidenceRefs],
+        ...(legacySubgoal.verification ? { verification: legacySubgoal.verification } : {}),
+        ...(legacySubgoal.blocker ? { blocker: legacySubgoal.blocker } : {}),
+        createdAt: legacySubgoal.createdAt,
+        updatedAt: legacySubgoal.updatedAt,
       };
     }),
-    dualLane: createInitialDualLaneSessionState(repro.plan, 6),
+    dualLane: createInitialDualLaneSessionState(legacy.plan, 6),
   };
   return {
     ...migratedWithoutDigest,
@@ -1743,10 +1747,11 @@ export function migrateSparkSessionReproV5(repro: SparkSessionReproV5): SparkSes
 }
 
 export function migrateSparkSessionReproV6(repro: SparkSessionReproV6): SparkSessionRepro {
+  const legacy = reopenLegacyCompletionForDualLane(repro);
   const migratedWithoutDigest: SparkSessionRepro = {
-    ...repro,
+    ...legacy,
     version: 7,
-    dualLane: createInitialDualLaneSessionState(repro.plan, 6),
+    dualLane: createInitialDualLaneSessionState(legacy.plan, 6),
   };
   return {
     ...migratedWithoutDigest,
@@ -1755,6 +1760,19 @@ export function migrateSparkSessionReproV6(repro: SparkSessionReproV6): SparkSes
       lastProgressDigest: reproProgressDigest(migratedWithoutDigest),
     },
   };
+}
+
+function reopenLegacyCompletionForDualLane<
+  T extends SparkSessionReproV4 | SparkSessionReproV5 | SparkSessionReproV6,
+>(repro: T): T {
+  if (repro.status !== "complete") return repro;
+  const reopened = {
+    ...repro,
+    status: "active" as const,
+    stopGuard: { ...repro.stopGuard, decision: "continue" as const },
+  };
+  delete (reopened as { completedAt?: string }).completedAt;
+  return reopened as T;
 }
 
 function rebaseDualLaneSessionState(
