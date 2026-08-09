@@ -1033,9 +1033,18 @@ export function validateSparkReproCurrentRetirementAuthority(
     }
   }
   if (work.status === "complete") {
-    const requiredTaskRefs = [
-      ...new Set(current.subgoals.flatMap((subgoal) => (subgoal.taskRef ? [subgoal.taskRef] : []))),
-    ];
+    const taskBindings = current.subgoals.flatMap((subgoal) =>
+      subgoal.taskRef ? [{ subgoalId: subgoal.id, taskRef: subgoal.taskRef }] : [],
+    );
+    const requiredTaskRefs = new Set<string>();
+    for (const binding of taskBindings) {
+      if (requiredTaskRefs.has(binding.taskRef)) {
+        throw new Error(
+          `Repro completion has duplicate durable subgoal taskRef: ${binding.taskRef}`,
+        );
+      }
+      requiredTaskRefs.add(binding.taskRef);
+    }
     for (const taskRef of requiredTaskRefs) {
       if (current.taskStatusByRef[taskRef] !== "done") {
         throw new Error(`Repro completion requires current durable Task done: ${taskRef}`);

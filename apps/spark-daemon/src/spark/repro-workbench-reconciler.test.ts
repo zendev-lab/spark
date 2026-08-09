@@ -131,6 +131,27 @@ describe("Repro Workbench Artifact reconciliation", () => {
       stage: "contract",
       sealed: true,
     });
+    const reopenFailure = await reconcileReproWorkbenchArtifacts({
+      loopStore: loops,
+      bindings,
+      resolveWorkspaceCwd() {
+        throw new Error("workspace unavailable during reopen");
+      },
+    });
+    expect(reopenFailure.errors).toEqual([
+      {
+        loopId: "loop-1",
+        message: "Workbench error projection failed: workspace unavailable during reopen",
+      },
+    ]);
+    expect(bindings.getByLoop("loop-1")).toMatchObject({
+      lifecycle: "error",
+      lastError: expect.stringContaining("Artifact reopen pending"),
+    });
+    expect(await artifactStore.get(sparkReproWorkbenchArtifactRef("repro-1"))).toMatchObject({
+      body: { management: { lifecycle: "sealed" } },
+    });
+
     const reopened = await reconcile();
     expect(reopened).toMatchObject({ projected: 1, sealed: 0 });
     expect(bindings.getByLoop("loop-1")).toMatchObject({ lifecycle: "live" });

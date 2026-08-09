@@ -121,6 +121,18 @@ describe("trusted Repro Loop evaluators", () => {
     ).rejects.toThrow(/requires current durable Task done: task:delivery/u);
   });
 
+  it("rejects duplicate durable subgoal taskRef bindings before completion", async () => {
+    const cwd = await workspace();
+    const input = strictCompleteSummaryInput();
+    await persistAcceptedFormalEvidence(cwd, input);
+    await persistEvidenceRefs(cwd, ["evidence:retirement-S1" as EvidenceRef]);
+    await writeSummary(cwd, input);
+
+    await expect(
+      reproCompletionEvaluator(context(cwd), { duplicateDurableTaskBinding: true }),
+    ).rejects.toThrow(/duplicate durable subgoal taskRef: task:delivery/u);
+  });
+
   it("rejects completion when a retired non-Matrix step lacks current StepVerifier PASS", async () => {
     const cwd = await workspace();
     const input = strictCompleteSummaryInput();
@@ -409,6 +421,7 @@ function completionEvaluator(
     currentRevision?: number;
     extraS1EvidenceRef?: EvidenceRef;
     currentTaskStatus?: string;
+    duplicateDurableTaskBinding?: boolean;
   } = {},
 ) {
   return createReproCompletionEvaluator(
@@ -433,6 +446,9 @@ function completionEvaluator(
           taskRef: "task:delivery",
         },
         ...(options.includeS2 ? [{ id: "S2", planRevision: 1 }] : []),
+        ...(options.duplicateDurableTaskBinding
+          ? [{ id: "S-extra", planRevision: 1, taskRef: "task:delivery" }]
+          : []),
       ],
       taskStatusByRef: { "task:delivery": options.currentTaskStatus ?? "done" },
       plan: {

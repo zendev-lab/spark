@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, rm, stat } from "node:fs/promises";
+import { hostname } from "node:os";
+import { access, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { writeJsonFileAtomic, writeTextFileAtomic } from "@zendev-lab/spark-core";
@@ -275,7 +276,6 @@ export class ArtifactStore {
 }
 
 const MANAGED_DOCUMENT_LOCK_TIMEOUT_MS = 10_000;
-const MANAGED_DOCUMENT_LOCK_STALE_MS = 300_000;
 
 async function acquireManagedDocumentLock(
   rootDir: string,
@@ -288,27 +288,103 @@ async function acquireManagedDocumentLock(
   for (;;) {
     try {
       await mkdir(lockPath);
+      if (await pathExists(`${lockPath}.recovery`)) {
+        await rm(lockPath, { recursive: true, force: true });
+        await delay(10);
+        continue;
+      }
+      const ownerToken = randomUUID();
+      try {
+        await writeJsonFileAtomic(join(lockPath, "owner.json"), {
+          hostname: hostname(),
+          pid: process.pid,
+          token: ownerToken,
+        });
+      } catch (error) {
+        await rm(lockPath, { recursive: true, force: true });
+        throw error;
+      }
       return async () => {
         await rm(lockPath, { recursive: true, force: true });
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      try {
-        const lockStat = await stat(lockPath);
-        if (Date.now() - lockStat.mtimeMs >= MANAGED_DOCUMENT_LOCK_STALE_MS) {
-          await rm(lockPath, { recursive: true, force: true });
-          continue;
-        }
-      } catch (statError) {
-        if ((statError as NodeJS.ErrnoException).code === "ENOENT") continue;
-        throw statError;
-      }
+      if (await recoverDeadManagedDocumentLock(lockPath)) continue;
       if (Date.now() - startedAt >= MANAGED_DOCUMENT_LOCK_TIMEOUT_MS) {
         throw new ArtifactValidationError(`managed Document lock timed out: ${ref}`);
       }
       await delay(10);
     }
   }
+}
+
+async function recoverDeadManagedDocumentLock(lockPath: string): Promise<boolean> {
+  const recoveryPath = `${lockPath}.recovery`;
+  try {
+    await mkdir(recoveryPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw error;
+  }
+  try {
+    return await recoverDeadManagedDocumentLockWithFence(lockPath);
+  } finally {
+    await rm(recoveryPath, { recursive: true, force: true });
+  }
+}
+
+async function recoverDeadManagedDocumentLockWithFence(lockPath: string): Promise<boolean> {
+  let owner: unknown;
+  try {
+    owner = JSON.parse(await readFile(join(lockPath, "owner.json"), "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    return false;
+  }
+  if (
+    !isRecord(owner) ||
+    owner.hostname !== hostname() ||
+    typeof owner.pid !== "number" ||
+    !Number.isInteger(owner.pid) ||
+    owner.pid <= 0 ||
+    typeof owner.token !== "string" ||
+    owner.token.length === 0 ||
+    isProcessAlive(owner.pid)
+  ) {
+    return false;
+  }
+  const quarantinePath = `${lockPath}.dead-${randomUUID()}`;
+  try {
+    await rename(lockPath, quarantinePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;
+    return false;
+  }
+  await rm(quarantinePath, { recursive: true, force: true });
+  return true;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function assertDocumentOverwriteAllowed(

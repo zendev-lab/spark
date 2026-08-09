@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, stat, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import type { ToolConfig } from "@zendev-lab/spark-core";
@@ -132,6 +132,30 @@ describe("artifact kinds", () => {
       }),
     });
     expect((await store.get(ref)).body).toMatchObject({ revision: 2 });
+
+    const deadLock = join(
+      dir,
+      ".spark",
+      "artifacts",
+      ".managed-document-locks",
+      "managed-cas.lock",
+    );
+    await mkdir(deadLock, { recursive: true });
+    await writeFile(
+      join(deadLock, "owner.json"),
+      JSON.stringify({ hostname: hostname(), pid: 2_147_483_647, token: "dead-owner" }),
+      "utf8",
+    );
+    await expect(
+      store.putManagedDocument({
+        ref,
+        bindingId: "workbench-binding-cas",
+        title: "Workbench",
+        mediaType: "application/vnd.a2ui+json",
+        content: '{"afterDeadOwner":true}',
+        expectedRevision: 2,
+      }),
+    ).resolves.toMatchObject({ artifact: { body: { revision: 3 } } });
   });
 
   it("stores documents with continuous revisioned updates", async () => {

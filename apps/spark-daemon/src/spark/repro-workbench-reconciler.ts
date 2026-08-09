@@ -137,6 +137,12 @@ export async function reconcileReproWorkbenchArtifacts(input: {
           );
           input.bindings.recordError(binding.bindingId, error);
         } catch (lifecycleError) {
+          input.bindings.recordError(
+            binding.bindingId,
+            new Error(
+              `${errorMessage(error)}; Workbench Artifact reopen pending: ${errorMessage(lifecycleError)}`,
+            ),
+          );
           result.errors.push({
             loopId: loop.loopId,
             message: `Workbench error projection failed: ${errorMessage(lifecycleError)}`,
