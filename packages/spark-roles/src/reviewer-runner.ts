@@ -603,13 +603,15 @@ function renderTaskOrGoalReviewerInstruction(input: TaskReviewInput | GoalReview
           proposedObjective: input.proposedObjective,
           evidenceRefs: input.evidenceRefs,
           evidencePreviews: input.evidencePreviews,
-          ...(completionProtocol ?? {}),
+          ...completionProtocol,
           sessionKey: input.sessionKey,
         };
   const transitionGuidance =
     input.targetKind === "task"
       ? [
           "For targetKind=task, review only the selected task's requestedStatus, task plan/scope, summary, and evidenceRefs.",
+          "The packet describes a proposed atomic transition. For requestedStatus=done, the task is expected to remain running until this review approves and the caller commits the transition; do not reject merely because it is not already done.",
+          "Never require a prior approved review receipt or done transition for this same request; those are outputs of approval. Evaluate whether the current plan and evidence justify approval. A prior needs_changes verdict blocks approval only when its concrete findings remain unresolved.",
           "Do not reject a task finish merely because sibling, downstream, or final-integration tasks in the same project are unfinished; dependency chains require scoped leaf tasks to close before downstream work can run.",
           "Reject a task finish when the selected task's own plan items, scope, or evidence remain incomplete, or when the evidence defers work that belongs to the selected task rather than to an explicitly separate downstream task.",
         ]
