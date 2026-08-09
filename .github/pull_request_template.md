@@ -1,7 +1,17 @@
-## Summary
+## 动机
 
-<!-- What changed, why it belongs in this owner, and its impact. -->
+<!-- 要解决什么问题、为什么现在做、为什么属于这里的 owner 或约束？ -->
 
-## Notes
+## 解决方案
 
-<!-- Compatibility, migration, security, stack dependencies, or None. -->
+<!-- 具体做了什么，以及带来的行为、架构或用户影响是什么？ -->
+
+<!-- pr-body:optional -->
+## 说明
+
+<!-- 兼容性、迁移、安全性、风险或 PR stack 依赖。若无相关内容，可省略本节。 -->
+
+<!-- pr-body:optional -->
+## 后续
+
+<!-- 明确不放在本 PR 内的紧后续工作。若该改动已闭环，可省略本节。 -->
