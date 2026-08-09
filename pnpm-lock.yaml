@@ -249,6 +249,9 @@ importers:
       '@zendev-lab/spark-artifacts':
         specifier: workspace:^
         version: link:../../packages/spark-artifacts
+      '@zendev-lab/spark-ask':
+        specifier: workspace:^
+        version: link:../../packages/spark-ask
       '@zendev-lab/spark-channels':
         specifier: workspace:^
         version: link:../../packages/spark-channels

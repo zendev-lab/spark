@@ -49,10 +49,16 @@ import {
   legacySparkDaemonQueueRoot,
   type SparkDaemonDrainProgress,
   type SparkDaemonHumanInteractionOpened,
+  type SparkDaemonHumanInteractionResponder,
   type SparkDaemonTask,
   type SparkInvocationSchedulerOptions,
 } from "./core/index.ts";
 import { SparkDaemonHumanWaitRegistry } from "./core/human-waits.ts";
+import {
+  ensureHumanAnswerEventEvidence,
+  reconcileHumanAnswerEventEvidence,
+  wakeHumanAnswerEvidenceOwner,
+} from "./core/human-answer-evidence.ts";
 import type { DaemonSessionRegistry } from "./session-registry.ts";
 import { resolveSessionCwdForWorkspaceId } from "./session-cwd.ts";
 import { SparkInvocationScheduler } from "./core/invocation-scheduler.ts";
@@ -260,7 +266,10 @@ async function createPreparedDaemonRuntime(
   };
   const getRuntimeIdForServer = createRuntimeIdForServer(options);
   const getRuntimeId = (route: { serverUrl: string }) => getRuntimeIdForServer(route.serverUrl);
-  const { humanInteractions, registerHumanRequestOutboxTarget } = configureHumanInteractions({
+  let onAnswerEvidenceProjected: (
+    event: Parameters<typeof ensureHumanAnswerEventEvidence>[1],
+  ) => boolean | Promise<boolean> = () => false;
+  const { humanInteractions, registerHumanRequestOutboxTarget } = await configureHumanInteractions({
     options,
     channelIngress,
     humanWaits,
@@ -269,6 +278,7 @@ async function createPreparedDaemonRuntime(
     getRuntimeIdForServer,
     flushHumanRequestOutbox,
     humanRequestOutboxTargets,
+    onAnswerEvidenceProjected: (event) => onAnswerEvidenceProjected(event),
   });
   const eventHub = createInvocationEventHub(options);
   const invocationStore = new SparkInvocationStore(options.db);
@@ -299,6 +309,19 @@ async function createPreparedDaemonRuntime(
       return { digest: definition.digest, policy: definition.loop };
     },
   });
+  onAnswerEvidenceProjected = (event) => {
+    const wake = wakeHumanAnswerEvidenceOwner(loopStore, event, humanWaits);
+    for (const loop of wake.woken) {
+      emitLoopUpdate({ invocationStore, eventHub }, loop, loop.lastInvocationId);
+    }
+    return wake.completed;
+  };
+  await reconcileHumanAnswerEventEvidence(
+    humanWaits,
+    (wait) => resolveWorkspaceLocalPath(options.db, wait.workspaceBindingId || wait.workspaceId),
+    (error) => console.error("[spark-daemon] failed to reconcile AnswerEvent Evidence", error),
+    (event) => onAnswerEvidenceProjected(event),
+  );
   const workbenchBindings = new WorkbenchArtifactBindingStore(options.db);
   const channelReplyDeliveryStore = new ChannelReplyDeliveryStore(options.db, invocationStore);
   channelReplyDeliveryStore.recoverInterrupted();
@@ -711,6 +734,7 @@ async function runSchedulerLoop(runtime: PreparedDaemonRuntime): Promise<void> {
     if (Date.now() >= runtime.nextStorageMaintenanceAtMs) {
       runStorageMaintenance(runtime);
     }
+    if (runtime.admission.open) await reconcilePendingHumanAnswerEvidence(runtime);
     if (runtime.admission.open) await reconcileLoopGoalSettlements(runtime.loopStore);
     if (runtime.admission.open && Date.now() >= runtime.nextWorkbenchReconcileAtMs) {
       await reconcileReproWorkbenches(runtime);
@@ -841,6 +865,7 @@ function daemonServerConnectionOptions(
     signal: runtime.runtimeSignal,
     invocationRegistry: runtime.invocationRegistry,
     humanWaits: runtime.humanWaits,
+    respondHumanInteraction: (wait, input) => runtime.humanInteractions.respond(wait, input),
     channelIngress: runtime.channelIngress ?? undefined,
     registerInvocationEventTarget: (sink) => runtime.eventHub.register(sink),
     registerHumanRequestOutboxTarget: runtime.registerHumanRequestOutboxTarget,
@@ -1150,7 +1175,7 @@ function createRuntimeIdForServer(
   };
 }
 
-function configureHumanInteractions(input: {
+async function configureHumanInteractions(input: {
   options: StartSparkDaemonOptions;
   channelIngress: DaemonChannelIngressRuntime | null;
   humanWaits: SparkDaemonHumanWaitRegistry;
@@ -1159,10 +1184,13 @@ function configureHumanInteractions(input: {
   getRuntimeIdForServer: (serverUrl: string) => string | undefined;
   flushHumanRequestOutbox: () => void;
   humanRequestOutboxTargets: Set<() => void>;
-}): {
+  onAnswerEvidenceProjected: (
+    event: Parameters<typeof ensureHumanAnswerEventEvidence>[1],
+  ) => boolean | Promise<boolean>;
+}): Promise<{
   humanInteractions: SparkDaemonHumanInteractionBroker;
   registerHumanRequestOutboxTarget: (flush: () => void) => () => boolean;
-} {
+}> {
   const { channelIngress, humanWaits, channelDeliveryOutbox } = input;
   channelIngress?.setInteractionHandler?.(async (interaction) => {
     await handleChannelInteraction(input, interaction);
@@ -1172,15 +1200,60 @@ function configureHumanInteractions(input: {
     input.humanRequestOutboxTargets.add(flush);
     return () => input.humanRequestOutboxTargets.delete(flush);
   };
+  const projectAnswerEvent = async (
+    event: Parameters<typeof ensureHumanAnswerEventEvidence>[1],
+    wait: Parameters<SparkDaemonHumanInteractionBroker["respond"]>[0],
+  ) => await projectHumanAnswerForInput(input, event, wait);
   const humanInteractions = new SparkDaemonHumanInteractionBroker({
     db: input.options.db,
     waits: humanWaits,
     getRuntimeId: input.getRuntimeId,
     onOutboxReady: input.flushHumanRequestOutbox,
+    onAnswerEvent: projectAnswerEvent,
     onRequestOpened: (request) =>
       projectChannelAskRequest(channelIngress, request, channelDeliveryOutbox),
   });
   return { humanInteractions, registerHumanRequestOutboxTarget };
+}
+
+async function projectHumanAnswerForInput(
+  input: Parameters<typeof configureHumanInteractions>[0],
+  event: Parameters<typeof ensureHumanAnswerEventEvidence>[1],
+  wait: Parameters<SparkDaemonHumanInteractionBroker["respond"]>[0],
+): Promise<void> {
+  const workspacePath = resolveWorkspaceLocalPath(
+    input.options.db,
+    wait.workspaceBindingId || wait.workspaceId,
+  );
+  if (!workspacePath) {
+    throw new Error(`cannot resolve workspace path for AnswerEvent ${event.answerEventId}`);
+  }
+  if (!input.humanWaits.isEvidenceAnswerEventWakePending(event.answerEventId)) return;
+  await ensureHumanAnswerEventEvidence(workspacePath, event);
+  const wakeCompleted = await Promise.resolve(input.onAnswerEvidenceProjected(event));
+  if (wakeCompleted) {
+    input.humanWaits.markEvidenceAnswerEventWakeCompleted(event.answerEventId);
+  }
+}
+
+async function reconcilePendingHumanAnswerEvidence(runtime: PreparedDaemonRuntime): Promise<void> {
+  await reconcileHumanAnswerEventEvidence(
+    runtime.humanWaits,
+    (wait) =>
+      resolveWorkspaceLocalPath(runtime.options.db, wait.workspaceBindingId || wait.workspaceId),
+    (error) => console.error("[spark-daemon] failed to reconcile AnswerEvent Evidence", error),
+    (event) => {
+      const wake = wakeHumanAnswerEvidenceOwner(runtime.loopStore, event, runtime.humanWaits);
+      for (const loop of wake.woken) {
+        emitLoopUpdate(
+          { invocationStore: runtime.invocationStore, eventHub: runtime.eventHub },
+          loop,
+          loop.lastInvocationId,
+        );
+      }
+      return wake.completed;
+    },
+  );
 }
 
 async function handleChannelInteraction(
@@ -1192,6 +1265,7 @@ async function handleChannelInteraction(
     await settleChannelAskInteraction(input.channelIngress, input.humanWaits, interaction, {
       getRuntimeId: (wait) => runtimeIdForHumanWait(input, wait.workspaceBindingId),
       deliveryOutbox: input.channelDeliveryOutbox,
+      onAnswerEvent: async (event, wait) => await projectHumanAnswerForInput(input, event, wait),
     });
   } finally {
     input.flushHumanRequestOutbox();
@@ -1205,6 +1279,7 @@ async function handleChannelTextAsk(
   try {
     return await settleChannelAskTextReply(input.humanWaits, reply, {
       getRuntimeId: (wait) => runtimeIdForHumanWait(input, wait.workspaceBindingId),
+      onAnswerEvent: async (event, wait) => await projectHumanAnswerForInput(input, event, wait),
     });
   } finally {
     input.flushHumanRequestOutbox();
@@ -1413,6 +1488,7 @@ async function startPreparedChannelIngress(
 interface SparkDaemonServerConnectionOptions extends StartSparkDaemonOptions {
   invocationRegistry: SparkDaemonInvocationRegistry;
   humanWaits: SparkDaemonHumanWaitRegistry;
+  respondHumanInteraction: SparkDaemonHumanInteractionResponder;
   channelIngress?: DaemonChannelIngressRuntime;
   registerInvocationEventTarget?: (
     sink: (event: SparkInvocationEvent) => void | Promise<void>,
@@ -1867,6 +1943,7 @@ async function runSparkDaemonServerConnection(
         ...(options.sessionRegistry ? { sessionRegistry: options.sessionRegistry } : {}),
         invocationRegistry: options.invocationRegistry,
         humanWaits: options.humanWaits,
+        respondHumanInteraction: options.respondHumanInteraction,
         onRuntimeReady() {
           runtimeReady = true;
           flushPendingRuntimeCommandTerminals(ws, options.db, runtimeId, serverUrl);

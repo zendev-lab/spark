@@ -1,5 +1,4 @@
 import {
-  addMissingHumanWaitColumns,
   addMissingInvocationColumns,
   addMissingUsageExecutionColumns,
   backfillInvocationEventDeliveryConsumers,
@@ -25,11 +24,6 @@ export const invocationPostLoopMigrations = [
     id: "invocations.delivery-consumer-backfill",
     owner: "invocations",
     up: backfillInvocationEventDeliveryConsumers,
-  },
-  {
-    id: "human-waits.accepted-response",
-    owner: "human-waits",
-    up: addMissingHumanWaitColumns,
   },
   {
     id: "migration.retire-daemon-error-outbox-v1",

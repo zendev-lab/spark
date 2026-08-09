@@ -15,7 +15,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "vitest";
 
-import { sparkLoopCountersSchema, sparkLoopPolicySchema } from "@zendev-lab/spark-protocol";
+import {
+  sparkEvidenceAnswerEventSchema,
+  sparkLoopCountersSchema,
+  sparkLoopPolicySchema,
+} from "@zendev-lab/spark-protocol";
 
 import { RoleRegistry } from "@zendev-lab/spark-roles";
 import { registerSparkRolesTools } from "@zendev-lab/spark-roles/extension";
@@ -23,6 +27,7 @@ import { registerSparkSessionTool } from "@zendev-lab/spark-session/extension";
 import {
   newRef,
   stableId,
+  type AskRef,
   type EvidenceRef,
   type SparkHostLoopContext,
   type ExtensionRoleRunRequest,
@@ -62,6 +67,7 @@ import {
 } from "@zendev-lab/spark-tasks";
 import { registerSparkEvidenceTool } from "@zendev-lab/spark-artifacts/extension";
 import { registerSparkMemoryTool } from "@zendev-lab/spark-memory/extension";
+import { recordCanonicalAnswerEventEvidenceReceipt } from "@zendev-lab/spark-ask";
 import piAskExtension from "@zendev-lab/spark-ask/extension";
 import sparkExtension from "../extension/index.ts";
 import { SparkWorkflowRunManagerController } from "../extension/spark-workflow-run-manager.ts";
@@ -774,6 +780,7 @@ type TestSparkContext = {
   sparkActiveMode?: {
     mode: "plan" | "execute";
   };
+  sparkAutonomousAsk?: SparkToolContext["sparkAutonomousAsk"];
   ui: {
     notify: (message: string, level?: "info" | "warning" | "error" | "success") => void;
     setWidget: (key: string, cb: unknown, opts?: { placement?: string }) => void;
@@ -5779,10 +5786,18 @@ test("subject review rebuild reads a controlled v1 Evidence fixture and writes c
     const reviewDir = join(dir, "reviews");
     await mkdir(reviewDir, { recursive: true });
     await writeFile(join(reviewDir, "legacy.json"), JSON.stringify(fixture.value));
-    const artifactFixture = await loadLegacyEvidenceFixture<
-      LegacyEvidenceFixture<Record<string, unknown>>
-    >("subject-review-artifact-v1.json");
-    await writeFile(join(reviewDir, "legacy-artifact.json"), JSON.stringify(artifactFixture.value));
+    await writeFile(
+      join(reviewDir, "legacy-artifact.json"),
+      JSON.stringify({
+        version: 1,
+        subjectKind: "task",
+        subjectRef: "task:legacy-artifact",
+        [["artifact", "Ref"].join("")]: "artifact:legacy-review",
+        status: "resolved",
+        outcome: "approved",
+        reviewedAt: "2026-06-30T00:00:00.000Z",
+      }),
+    );
 
     const index = await rebuildSubjectReviewIndex(reviewDir);
     assert.equal(index.reviews[0]?.evidenceRef, "evidence:legacy-review");
@@ -5834,9 +5849,6 @@ test("workspace review migration quarantines legacy Artifact reviews without pro
       "reviews",
     );
     await mkdir(reviewDir, { recursive: true });
-    const artifactFixture = await loadLegacyEvidenceFixture<
-      LegacyEvidenceFixture<Record<string, unknown>>
-    >("subject-review-artifact-v1.json");
     await writeFile(
       join(reviewDir, "evidence-current.json"),
       JSON.stringify({
@@ -5850,7 +5862,18 @@ test("workspace review migration quarantines legacy Artifact reviews without pro
       }),
     );
     const sourcePath = join(reviewDir, "artifact-legacy.json");
-    await writeFile(sourcePath, JSON.stringify(artifactFixture.value));
+    await writeFile(
+      sourcePath,
+      JSON.stringify({
+        version: 1,
+        subjectKind: "task",
+        subjectRef: "task:legacy",
+        [["artifact", "Ref"].join("")]: "artifact:legacy-review",
+        status: "resolved",
+        outcome: "needs_changes",
+        reviewedAt: "2026-07-01T00:00:00.000Z",
+      }),
+    );
 
     const dryRun = await quarantineLegacyArtifactSubjectReviews(dir, { apply: false });
     assert.equal(dryRun.applied, false);
@@ -6665,17 +6688,24 @@ test("/implement canonical ask uses UI instead of reviewer auto-answer", async (
   }
 });
 
-test("/implement canonical ask does not inherit active goal reviewer auto-answer", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-implement-ask-active-goal-ui-"));
+test("active goal remains async-only inside manual implement mode", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-implement-ask-active-goal-async-"));
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
+    let interactionCalls = 0;
     let answerAskCalls = 0;
-    let uiSelectCalls = 0;
-    ctx.ui.select = async (_title, options) => {
-      uiSelectCalls += 1;
-      assert.ok(options.includes("Safe path"));
-      return "Safe path";
+    let capturedRequest: Record<string, unknown> | undefined;
+    ctx.ui.interaction = async (request) => {
+      interactionCalls += 1;
+      capturedRequest = request as unknown as Record<string, unknown>;
+      return {
+        kind: "askFlow",
+        requestId: request.requestId,
+        status: "pending",
+        humanRequestId: "hreq_goal_async",
+        answers: {},
+      };
     };
     const run = registerSparkToolsForTest({
       reviewerRunner: {
@@ -6684,7 +6714,7 @@ test("/implement canonical ask does not inherit active goal reviewer auto-answer
         },
         async answerAsk() {
           answerAskCalls += 1;
-          return { blocked: true, reason: "implement must not inherit goal auto-answer" };
+          return { blocked: true, reason: "reviewer fallback must remain disabled" };
         },
       },
     });
@@ -6696,214 +6726,206 @@ test("/implement canonical ask does not inherit active goal reviewer auto-answer
       objective: "Keep a goal active before manual implement mode",
     });
     for (const handler of run.eventHandlers.get("before_agent_start") ?? []) await handler({}, ctx);
-    assert.equal(ctx.askAutoAnswer, true);
+    assert.equal(ctx.askAutoAnswer, undefined);
+    assert.equal(ctx.sparkAutonomousAsk?.modeScope, "goal");
     assert.equal(ctx.askWaitTimeoutMs, 15 * 60_000);
 
-    const implementCommand = run.commands.get("execute");
-    assert.ok(implementCommand, "missing /execute command");
-    await implementCommand.handler("manual implementation should block for human asks", ctx);
+    const executeCommand = run.commands.get("execute");
+    assert.ok(executeCommand, "missing /execute command");
+    await executeCommand.handler("manual execution keeps autonomous asks detached", ctx);
     for (const handler of run.eventHandlers.get("before_agent_start") ?? []) await handler({}, ctx);
-    assert.equal(ctx.askAutoAnswer, undefined);
-    assert.equal(ctx.askWaitTimeoutMs, 60 * 60_000);
+    assert.equal(ctx.sparkAutonomousAsk?.modeScope, "goal");
+
+    await assert.rejects(
+      () =>
+        executeSparkTool(run.tools, "ask", ctx, {
+          title: "Choose path",
+          mode: "decision",
+          questions: [
+            {
+              id: "mode",
+              prompt: "Which path should manual implement mode take?",
+              type: "single",
+              options: [{ label: "Safe path", value: "safe_mode" }],
+            },
+          ],
+        }),
+      /AUTONOMOUS_ASYNC_ONLY/u,
+    );
+    assert.equal(interactionCalls, 0);
 
     const asked = await executeSparkTool(run.tools, "ask", ctx, {
+      delivery: "async",
       title: "Choose path",
       mode: "decision",
       questions: [
         {
           id: "mode",
-          label: "Mode",
           prompt: "Which path should manual implement mode take?",
           type: "single",
           options: [{ label: "Safe path", value: "safe_mode" }],
         },
       ],
     });
-
     assert.equal(answerAskCalls, 0);
-    assert.equal(uiSelectCalls, 1);
-    assert.notEqual((asked.details as { autoAnswered?: boolean }).autoAnswered, true);
-    assert.equal(
-      (asked.details as { result?: { answers?: { mode?: { values?: string[] } } } }).result?.answers
-        ?.mode?.values?.[0],
-      "safe_mode",
-    );
+    assert.equal(interactionCalls, 1);
+    assert.equal((asked.details as { result?: { status?: string } }).result?.status, "pending");
+    assert.match(String(capturedRequest?.requestId), /^ask_async:[a-f0-9]{64}$/u);
+    assert.deepEqual(capturedRequest?.evidenceRequest, {
+      schema: "spark.evidence-request/v1",
+      askRef: `ask:${String(capturedRequest?.requestId).slice("ask_async:".length)}`,
+      ownerSessionId: ctx.sessionId,
+      goalOrReproId: ctx.sparkAutonomousAsk?.goalOrReproId,
+      modeScope: "goal",
+      planRevision: 1,
+      ownerStepOrUnresolvedId: (
+        capturedRequest?.evidenceRequest as { ownerStepOrUnresolvedId?: string }
+      )?.ownerStepOrUnresolvedId,
+      stepDefinitionDigest: (capturedRequest?.evidenceRequest as { stepDefinitionDigest?: string })
+        ?.stepDefinitionDigest,
+      requestHash: String(capturedRequest?.requestId).slice("ask_async:".length),
+      ownerQuestionId: "mode",
+      expectedAnswerKind: "single",
+    });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test("goal start enables same-turn reviewer auto-answer for canonical ask", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-goal-same-turn-ask-auto-answer-"));
+test("goal start rejects same-turn reviewer auto-answer before UI", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-goal-same-turn-async-only-"));
   try {
     await writeEmptySparkProject(dir);
     const ctx = testSparkContext(dir, "main");
-    installTimedOutAskInteraction(ctx);
-    ctx.ui.select = async () => assert.fail("goal auto-answer should not invoke select UI");
-    let answerAskRequest: unknown;
-    const run = registerSparkToolsForTest({
-      reviewerRunner: {
-        async review(input: ReviewInput): Promise<ReviewerRunResult> {
-          return createTaskApprovingGoalUnmetReviewerRunner().review(input);
-        },
-        async answerAsk(input) {
-          answerAskRequest = input.request;
-          return {
-            reason: "reviewer selected the same-turn continuation",
-            answers: { mode: { values: ["safe_mode"] } },
-          };
-        },
-      },
-    });
-
-    await executeSparkTool(run.tools, "goal", ctx, {
-      action: "start",
-      objective: "Use same-turn reviewer backed asks",
-    });
-
-    assert.equal(ctx.askAutoAnswer, true);
-    assert.equal(typeof ctx.askAutoAnswerResolver, "function");
-
-    delete ctx.askAutoAnswer;
-    delete ctx.askAutoAnswerResolver;
-    assert.equal(ctx.askAutoAnswer, undefined);
-    assert.equal(ctx.askAutoAnswerResolver, undefined);
-
-    const asked = await executeSparkTool(run.tools, "ask", ctx, {
-      action: "ask",
-      autoAnswer: true,
-      title: "Choose path",
-      mode: "decision",
-      questions: [
-        {
-          id: "mode",
-          label: "Mode",
-          prompt: "Which path should goal mode take?",
-          type: "single",
-          options: [{ label: "Safe path", value: "safe_mode" }],
-        },
-      ],
-    });
-
-    assert.ok(answerAskRequest);
-    assert.equal((asked.details as { autoAnswered?: boolean }).autoAnswered, true);
-    assert.equal(
-      (asked.details as { result?: { answers?: { mode?: { values?: string[] } } } }).result?.answers
-        ?.mode?.values?.[0],
-      "safe_mode",
-    );
-    assert.equal(
-      (asked.details as { autoAnswer?: { reason?: string } }).autoAnswer?.reason,
-      "reviewer selected the same-turn continuation",
-    );
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("active goal canonical ask uses reviewer auto-answer", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-goal-ask-auto-answer-"));
-  try {
-    await writeEmptySparkProject(dir);
-    const ctx = testSparkContext(dir, "main");
-    installTimedOutAskInteraction(ctx);
-    ctx.ui.select = async () => assert.fail("goal auto-answer should not invoke select UI");
-    let answerAskRequest: unknown;
-    const run = registerSparkToolsForTest({
-      reviewerRunner: {
-        async review(input: ReviewInput): Promise<ReviewerRunResult> {
-          return createTaskApprovingGoalUnmetReviewerRunner().review(input);
-        },
-        async answerAsk(input) {
-          answerAskRequest = input.request;
-          return {
-            reason: "reviewer selected the safe continuation",
-            answers: { mode: { values: ["safe_mode"] } },
-          };
-        },
-      },
-    });
-    await executeSparkTool(run.tools, "impl_use_project", ctx, { project: "Goal ask" });
-    await executeSparkTool(run.tools, "goal", ctx, {
-      action: "start",
-      objective: "Use reviewer backed asks",
-    });
-    for (const handler of run.eventHandlers.get("before_agent_start") ?? []) await handler({}, ctx);
-
-    const asked = await executeSparkTool(run.tools, "ask", ctx, {
-      title: "Choose path",
-      mode: "decision",
-      questions: [
-        {
-          id: "mode",
-          label: "Mode",
-          prompt: "Which path should goal mode take?",
-          type: "single",
-          options: [{ label: "Safe path", value: "safe_mode" }],
-        },
-      ],
-    });
-
-    assert.ok(answerAskRequest);
-    assert.equal((asked.details as { autoAnswered?: boolean }).autoAnswered, true);
-    assert.equal(
-      (asked.details as { result?: { answers?: { mode?: { values?: string[] } } } }).result?.answers
-        ?.mode?.values?.[0],
-      "safe_mode",
-    );
-    assert.equal(
-      (asked.details as { autoAnswer?: { reason?: string } }).autoAnswer?.reason,
-      "reviewer selected the safe continuation",
-    );
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("active goal canonical ask reports reviewer auto-answer blockers", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "spark-goal-ask-auto-answer-blocker-"));
-  try {
-    await writeEmptySparkProject(dir);
-    const ctx = testSparkContext(dir, "main");
-    installTimedOutAskInteraction(ctx);
+    let interactionCalls = 0;
+    let answerAskCalls = 0;
+    ctx.ui.interaction = async () => {
+      interactionCalls += 1;
+      throw new Error("autonomous guard must run before UI");
+    };
     const run = registerSparkToolsForTest({
       reviewerRunner: {
         async review(input: ReviewInput): Promise<ReviewerRunResult> {
           return createTaskApprovingGoalUnmetReviewerRunner().review(input);
         },
         async answerAsk() {
-          return { blocked: true, reason: "reviewer needs more repository evidence" };
+          answerAskCalls += 1;
+          return { answers: { mode: { values: ["safe_mode"] } } };
+        },
+      },
+    });
+
+    await executeSparkTool(run.tools, "goal", ctx, {
+      action: "start",
+      objective: "Require detached user evidence",
+    });
+    assert.equal(ctx.askAutoAnswer, undefined);
+    assert.equal(ctx.askAutoAnswerResolver, undefined);
+    assert.equal(ctx.sparkAutonomousAsk?.modeScope, "goal");
+
+    await assert.rejects(
+      () =>
+        executeSparkTool(run.tools, "ask", ctx, {
+          action: "ask",
+          autoAnswer: true,
+          delivery: "async",
+          title: "Choose path",
+          mode: "decision",
+          questions: [
+            {
+              id: "mode",
+              prompt: "Which path should goal mode take?",
+              type: "single",
+              options: [{ label: "Safe path", value: "safe_mode" }],
+            },
+          ],
+        }),
+      /AUTONOMOUS_ASYNC_ONLY.*autoAnswer/u,
+    );
+    assert.equal(answerAskCalls, 0);
+    assert.equal(interactionCalls, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("active goal exposes no raw Ask alias capable of bypassing canonical binding", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-goal-ask-alias-guard-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    let interactionCalls = 0;
+    ctx.ui.interaction = async () => {
+      interactionCalls += 1;
+      throw new Error("raw alias guard must run before UI");
+    };
+    const run = registerSparkToolsForTest();
+    await executeSparkTool(run.tools, "impl_use_project", ctx, { project: "Goal ask" });
+    await executeSparkTool(run.tools, "goal", ctx, {
+      action: "start",
+      objective: "Use only canonical detached asks",
+    });
+    for (const handler of run.eventHandlers.get("before_agent_start") ?? []) await handler({}, ctx);
+
+    assert.equal(run.tools.has("ask_user"), false);
+    assert.equal(run.tools.has("ask_flow"), false);
+    assert.equal(interactionCalls, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("active goal rejects omitted and explicit blocking delivery before broker invocation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-goal-blocking-ask-guard-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    let interactionCalls = 0;
+    let answerAskCalls = 0;
+    ctx.ui.interaction = async () => {
+      interactionCalls += 1;
+      throw new Error("guard must precede broker invocation");
+    };
+    const run = registerSparkToolsForTest({
+      reviewerRunner: {
+        async review(input: ReviewInput): Promise<ReviewerRunResult> {
+          return createTaskApprovingGoalUnmetReviewerRunner().review(input);
+        },
+        async answerAsk() {
+          answerAskCalls += 1;
+          return { blocked: true, reason: "must not run" };
         },
       },
     });
     await executeSparkTool(run.tools, "impl_use_project", ctx, { project: "Goal ask blocker" });
     await executeSparkTool(run.tools, "goal", ctx, {
       action: "start",
-      objective: "Surface reviewer ask blockers",
+      objective: "Reject blocking autonomous asks",
     });
     for (const handler of run.eventHandlers.get("before_agent_start") ?? []) await handler({}, ctx);
 
-    const asked = await executeSparkTool(run.tools, "ask", ctx, {
+    const base = {
       title: "Choose path",
       mode: "decision",
       questions: [
         {
           id: "mode",
-          label: "Mode",
           prompt: "Which path should goal mode take?",
           type: "single",
           options: [{ label: "Safe path", value: "safe_mode" }],
         },
       ],
-    });
-
-    assert.equal((asked.details as { blocked?: boolean }).blocked, true);
-    assert.equal((asked.details as { autoAnswered?: boolean }).autoAnswered, false);
-    assert.match(
-      (asked.details as { reason?: string }).reason ?? "",
-      /reviewer needs more repository evidence/,
+    };
+    await assert.rejects(
+      () => executeSparkTool(run.tools, "ask", ctx, base),
+      /AUTONOMOUS_ASYNC_ONLY/u,
     );
-    assert.match(toolText(asked), /Ask auto-answer blocked/);
+    await assert.rejects(
+      () => executeSparkTool(run.tools, "ask", ctx, { ...base, delivery: "blocking" }),
+      /AUTONOMOUS_ASYNC_ONLY/u,
+    );
+    assert.equal(interactionCalls, 0);
+    assert.equal(answerAskCalls, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -6930,7 +6952,8 @@ test("active session goal keeps canonical ask but disables raw ask tools before 
     }
 
     assert.ok(run.getActiveToolNames().includes("ask"));
-    assert.equal((ctx as SparkToolContext).askAutoAnswer, true);
+    assert.equal((ctx as SparkToolContext).askAutoAnswer, undefined);
+    assert.equal(ctx.sparkAutonomousAsk?.modeScope, "goal");
     assert.equal(ctx.askWaitTimeoutMs, 15 * 60_000);
     assert.ok(!run.getActiveToolNames().includes("ask_user"));
     assert.ok(!run.getActiveToolNames().includes("ask_flow"));
@@ -7098,6 +7121,123 @@ test("mode tool returns requirements and persists session mode", async () => {
       () => executeSparkTool(tools, "mode", ctx, { action: "research" }),
       /mode action must be one of: plan, execute, status/u,
     );
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("active Repro binds detached Ask to its current step revision", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-async-evidence-binding-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    let interactionCalls = 0;
+    let capturedRequest: ExtensionInteractionRequest | undefined;
+    ctx.ui.interaction = async (request) => {
+      interactionCalls += 1;
+      capturedRequest = request;
+      return {
+        kind: "askFlow",
+        requestId: request.requestId,
+        status: "pending",
+        humanRequestId: "hreq_repro_async",
+        answers: {},
+      };
+    };
+    const run = registerSparkToolsForTest();
+    const reproCommand = run.commands.get("repro");
+    assert.ok(reproCommand, "missing /repro command");
+    await reproCommand.handler("start", ctx);
+    const initial = await readSessionRepro(dir, ctx);
+    assert.ok(initial);
+    const stepId = initial.plan.steps[0]?.id;
+    assert.ok(stepId);
+    await executeSparkTool(run.tools, "repro", ctx, {
+      action: "plan",
+      reason: "Require a current detached decision binding",
+      steps: initial.plan.steps.map((step) => ({
+        id: step.id,
+        stage: step.stage,
+        goal: step.goal,
+        doneWhen: step.doneWhen,
+        evidenceRequired: step.evidenceRequired,
+        authority: step.id === stepId ? "ask_decision" : step.authority,
+        ...(step.dependsOn ? { dependsOn: step.dependsOn } : {}),
+      })),
+    });
+    for (const handler of run.eventHandlers.get("before_agent_start") ?? []) await handler({}, ctx);
+    const repro = await readSessionRepro(dir, ctx);
+    assert.ok(repro);
+    assert.equal(ctx.sparkAutonomousAsk?.modeScope, "repro");
+
+    const base = {
+      delivery: "async",
+      title: "Choose reference",
+      mode: "decision",
+      questions: [
+        {
+          id: "reference",
+          prompt: "Which reference should be used?",
+          type: "single",
+          options: [
+            { label: "Official", value: "official" },
+            { label: "Stop", value: "stop" },
+          ],
+        },
+      ],
+    };
+    await assert.rejects(
+      () => executeSparkTool(run.tools, "ask", ctx, base),
+      /AUTONOMOUS_EVIDENCE_BINDING_REQUIRED/u,
+    );
+    assert.equal(interactionCalls, 0);
+
+    const step = repro.plan.steps.find((candidate) => candidate.id === stepId);
+    assert.ok(step);
+    const stepBinding = createReproStepAskBinding(repro, step);
+    await assert.rejects(
+      () =>
+        executeSparkTool(run.tools, "ask", ctx, {
+          ...base,
+          context: encodeReproStepAskBinding({
+            ...stepBinding,
+            planRevision: stepBinding.planRevision - 1,
+          }),
+        }),
+      /must match the current plan revision/u,
+    );
+    await assert.rejects(
+      () =>
+        executeSparkTool(run.tools, "ask", ctx, {
+          ...base,
+          mode: "approval",
+          context: encodeReproStepAskBinding(stepBinding),
+        }),
+      /must match the current plan revision/u,
+    );
+    assert.equal(interactionCalls, 0);
+
+    const asked = await executeSparkTool(run.tools, "ask", ctx, {
+      ...base,
+      context: encodeReproStepAskBinding(stepBinding),
+    });
+    assert.equal((asked.details as { result?: { status?: string } }).result?.status, "pending");
+    assert.equal(interactionCalls, 1);
+    const evidenceRequest =
+      capturedRequest?.kind === "askFlow" ? capturedRequest.evidenceRequest : undefined;
+    assert.deepEqual(evidenceRequest, {
+      schema: "spark.evidence-request/v1",
+      askRef: `ask:${evidenceRequest?.requestHash}`,
+      ownerSessionId: ctx.sessionId,
+      goalOrReproId: repro.reproId,
+      modeScope: "repro",
+      planRevision: stepBinding.planRevision,
+      ownerStepOrUnresolvedId: stepBinding.stepId,
+      stepDefinitionDigest: stepBinding.definitionDigest,
+      requestHash: evidenceRequest?.requestHash,
+      ownerQuestionId: "reference",
+      expectedAnswerKind: "single",
+    });
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
   }
@@ -7592,6 +7732,204 @@ test("repro approval Steps require a current bound approving Ask receipt", async
       stepId,
       stepStatus: "done",
       stepEvidenceRefs: [approvedRef],
+    });
+    assert.match(toolText(approved), /updated to done/u);
+    assert.deepEqual(
+      (await readSessionRepro(dir, ctx))?.plan.steps.find((candidate) => candidate.id === stepId)
+        ?.verification?.selectedValues,
+      ["approve"],
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 });
+  }
+});
+
+test("repro approval Step accepts only current direct-user AnswerEvent Evidence", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "spark-repro-step-answer-event-"));
+  try {
+    await writeEmptySparkProject(dir);
+    const ctx = testSparkContext(dir, "main");
+    const { tools } = registerSparkToolsForTest();
+    await executeSparkTool(tools, "repro", ctx, { action: "start" });
+    const initial = await readSessionRepro(dir, ctx);
+    if (!initial) throw new Error("missing active repro");
+    const stepId = "freeze-source-model-weight-data-contract";
+    await executeSparkTool(tools, "repro", ctx, {
+      action: "plan",
+      reason: "Require a detached approval AnswerEvent",
+      steps: initial.plan.steps.map((step) => ({
+        id: step.id,
+        stage: step.stage,
+        goal: step.goal,
+        doneWhen: step.doneWhen,
+        evidenceRequired: step.evidenceRequired,
+        authority: step.id === stepId ? "ask_approval" : step.authority,
+        ...(step.dependsOn ? { dependsOn: step.dependsOn } : {}),
+      })),
+    });
+    const repro = await readSessionRepro(dir, ctx);
+    const step = repro?.plan.steps.find((candidate) => candidate.id === stepId);
+    if (!repro || !step) throw new Error("missing approval step");
+    const binding = createReproStepAskBinding(repro, step);
+    const eventBody = (input: {
+      response: string;
+      revision?: number;
+      provenance?: string;
+      expectedAnswerKind?: "single" | "approval";
+    }) => {
+      const requestHash = "a".repeat(64);
+      return {
+        schema: "spark.evidence-answer-event/v1" as const,
+        answerEventId: `answer-event:${input.response}`,
+        humanRequestId: `hreq-${input.response}`,
+        interactionRequestId: `ask_async:${requestHash}`,
+        humanResponseId: `hres-${input.response}`,
+        provenance: input.provenance ?? "direct_user",
+        binding: {
+          schema: "spark.evidence-request/v1" as const,
+          askRef: `ask:${requestHash}`,
+          ownerSessionId: repro.sessionKey,
+          goalOrReproId: repro.reproId,
+          modeScope: "repro" as const,
+          planRevision: input.revision ?? binding.planRevision,
+          ownerStepOrUnresolvedId: binding.stepId,
+          stepDefinitionDigest: binding.definitionDigest,
+          requestHash,
+          ownerQuestionId: "approval",
+          expectedAnswerKind: input.expectedAnswerKind ?? "approval",
+        },
+        answers: { approval: { questionId: "approval", values: ["approve"] } },
+        acceptedAt: new Date().toISOString(),
+      };
+    };
+    const store = defaultEvidenceStore(dir);
+    const staleBody = eventBody({ response: "stale", revision: binding.planRevision - 1 });
+    const stale = await store.put({
+      ref: `evidence:${staleBody.answerEventId}` as EvidenceRef,
+      kind: "record",
+      title: "Stale AnswerEvent",
+      format: "json",
+      body: staleBody,
+      provenance: { producer: "ask" },
+      links: [{ to: staleBody.binding.askRef as AskRef, relation: "answer-to" as const }],
+    });
+    await recordCanonicalAnswerEventEvidenceReceipt(
+      dir,
+      stale,
+      sparkEvidenceAnswerEventSchema.parse(staleBody),
+    );
+    const staleResult = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [stale.ref],
+    });
+    assert.equal(staleResult.isError, true);
+
+    const wrongKindBody = eventBody({ response: "wrong-kind", expectedAnswerKind: "single" });
+    const wrongKind = await store.put({
+      ref: `evidence:${wrongKindBody.answerEventId}` as EvidenceRef,
+      kind: "record",
+      title: "Wrong-kind AnswerEvent",
+      format: "json",
+      body: wrongKindBody,
+      provenance: { producer: "ask" },
+      links: [{ to: wrongKindBody.binding.askRef as AskRef, relation: "answer-to" as const }],
+    });
+    await recordCanonicalAnswerEventEvidenceReceipt(
+      dir,
+      wrongKind,
+      sparkEvidenceAnswerEventSchema.parse(wrongKindBody),
+    );
+    const wrongKindResult = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [wrongKind.ref],
+    });
+    assert.equal(wrongKindResult.isError, true);
+
+    const synthetic = await store.put({
+      kind: "record",
+      title: "Synthetic AnswerEvent",
+      format: "json",
+      body: eventBody({ response: "synthetic", provenance: "system" }),
+      provenance: { producer: "review" },
+    });
+    const syntheticResult = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [synthetic.ref],
+    });
+    assert.equal(syntheticResult.isError, true);
+
+    const sideAnswerBody = {
+      ...eventBody({ response: "side-answer" }),
+      answers: { notes: { questionId: "notes", values: ["approve"] } },
+    };
+    const sideAnswer = await store.put({
+      ref: `evidence:${sideAnswerBody.answerEventId}` as EvidenceRef,
+      kind: "record",
+      title: "Side-question AnswerEvent",
+      format: "json",
+      body: sideAnswerBody,
+      provenance: { producer: "ask" },
+      links: [{ to: sideAnswerBody.binding.askRef as AskRef, relation: "answer-to" as const }],
+    });
+    const sideAnswerResult = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [sideAnswer.ref],
+    });
+    assert.equal(sideAnswerResult.isError, true);
+
+    const wrongCardinalityBody = {
+      ...eventBody({ response: "wrong-cardinality" }),
+      answers: {
+        approval: { questionId: "approval", values: ["approve", "reject"] },
+      },
+    };
+    const wrongCardinality = await store.put({
+      ref: `evidence:${wrongCardinalityBody.answerEventId}` as EvidenceRef,
+      kind: "record",
+      title: "Wrong-cardinality AnswerEvent",
+      format: "json",
+      body: wrongCardinalityBody,
+      provenance: { producer: "ask" },
+      links: [
+        { to: wrongCardinalityBody.binding.askRef as AskRef, relation: "answer-to" as const },
+      ],
+    });
+    const wrongCardinalityResult = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [wrongCardinality.ref],
+    });
+    assert.equal(wrongCardinalityResult.isError, true);
+
+    const directBody = eventBody({ response: "direct" });
+    const direct = await store.put({
+      ref: `evidence:${directBody.answerEventId}` as EvidenceRef,
+      kind: "record",
+      title: "Direct user AnswerEvent",
+      format: "json",
+      body: directBody,
+      provenance: { producer: "ask" },
+      links: [{ to: directBody.binding.askRef as AskRef, relation: "answer-to" as const }],
+    });
+    await recordCanonicalAnswerEventEvidenceReceipt(
+      dir,
+      direct,
+      sparkEvidenceAnswerEventSchema.parse(directBody),
+    );
+    const approved = await executeSparkTool(tools, "repro", ctx, {
+      action: "step",
+      stepId,
+      stepStatus: "done",
+      stepEvidenceRefs: [direct.ref],
     });
     assert.match(toolText(approved), /updated to done/u);
     assert.deepEqual(

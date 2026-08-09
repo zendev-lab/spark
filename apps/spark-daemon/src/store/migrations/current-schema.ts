@@ -320,8 +320,24 @@ export function prepareCurrentDaemonSchema(db: DatabaseSync): void {
       request_json TEXT NOT NULL,
       response_json TEXT,
       accepted_response_id TEXT,
+      interaction_request_id TEXT,
+      evidence_request_json TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS daemon_human_answer_events (
+      answer_event_id TEXT PRIMARY KEY,
+      human_request_id TEXT NOT NULL REFERENCES daemon_human_waits(human_request_id) ON DELETE CASCADE,
+      interaction_request_id TEXT NOT NULL,
+      human_response_id TEXT NOT NULL,
+      event_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      wake_completed_at TEXT,
+      wake_loop_id TEXT,
+      wake_generation INTEGER,
+      UNIQUE(human_request_id, human_response_id),
+      UNIQUE(interaction_request_id, human_response_id)
     );
 
     CREATE TABLE IF NOT EXISTS lens_provider_results (
@@ -457,6 +473,11 @@ export function prepareCurrentDaemonSchema(db: DatabaseSync): void {
       ON runtime_command_receipts(terminal_acked_at, completed_at)
       WHERE terminal_json IS NOT NULL;
     CREATE INDEX IF NOT EXISTS daemon_human_waits_status_idx ON daemon_human_waits(status, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS daemon_human_waits_evidence_interaction_idx
+      ON daemon_human_waits(interaction_request_id)
+      WHERE evidence_request_json IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS daemon_human_answer_events_request_idx
+      ON daemon_human_answer_events(human_request_id, created_at);
     CREATE INDEX IF NOT EXISTS lens_provider_results_revision_idx
       ON lens_provider_results(revision_digest, capability);
     CREATE INDEX IF NOT EXISTS lens_observations_revision_idx
@@ -633,6 +654,44 @@ export function addMissingHumanWaitColumns(db: DatabaseSync): void {
   if (!columns.has("accepted_response_id")) {
     db.exec("ALTER TABLE daemon_human_waits ADD COLUMN accepted_response_id TEXT");
   }
+  if (!columns.has("interaction_request_id")) {
+    db.exec("ALTER TABLE daemon_human_waits ADD COLUMN interaction_request_id TEXT");
+  }
+  if (!columns.has("evidence_request_json")) {
+    db.exec("ALTER TABLE daemon_human_waits ADD COLUMN evidence_request_json TEXT");
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS daemon_human_answer_events (
+      answer_event_id TEXT PRIMARY KEY,
+      human_request_id TEXT NOT NULL REFERENCES daemon_human_waits(human_request_id) ON DELETE CASCADE,
+      interaction_request_id TEXT NOT NULL,
+      human_response_id TEXT NOT NULL,
+      event_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      wake_completed_at TEXT,
+      wake_loop_id TEXT,
+      wake_generation INTEGER,
+      UNIQUE(human_request_id, human_response_id),
+      UNIQUE(interaction_request_id, human_response_id)
+    );
+  `);
+  const answerColumns = workspaceColumns(db, "daemon_human_answer_events");
+  if (!answerColumns.has("wake_completed_at")) {
+    db.exec("ALTER TABLE daemon_human_answer_events ADD COLUMN wake_completed_at TEXT");
+  }
+  if (!answerColumns.has("wake_loop_id")) {
+    db.exec("ALTER TABLE daemon_human_answer_events ADD COLUMN wake_loop_id TEXT");
+  }
+  if (!answerColumns.has("wake_generation")) {
+    db.exec("ALTER TABLE daemon_human_answer_events ADD COLUMN wake_generation INTEGER");
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS daemon_human_waits_evidence_interaction_idx
+      ON daemon_human_waits(interaction_request_id)
+      WHERE evidence_request_json IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS daemon_human_answer_events_request_idx
+      ON daemon_human_answer_events(human_request_id, created_at);
+  `);
 }
 
 export function migrateChannelDeliverySchema(db: DatabaseSync): void {

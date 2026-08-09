@@ -16,9 +16,57 @@ describe("daemon migration registry", () => {
     expect(daemonMigrations.map((migration) => migration.id)).toEqual(
       expect.arrayContaining([
         "migration.driver-to-loop-v1",
+        "human-waits.answer-event-mailbox",
         "migration.retire-daemon-error-outbox-v1",
       ]),
     );
+  });
+
+  it("upgrades the human mailbox and keeps its answer receipt indexes idempotent", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(`
+        CREATE TABLE daemon_human_waits (
+          human_request_id TEXT PRIMARY KEY,
+          kind TEXT NOT NULL,
+          status TEXT NOT NULL,
+          request_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      const mailbox = daemonMigrations.filter((migration) => migration.owner === "human-waits");
+      runDaemonMigrations(db, mailbox);
+      runDaemonMigrations(db, mailbox);
+
+      const waitColumns = db
+        .prepare("PRAGMA table_info(daemon_human_waits)")
+        .all()
+        .map((row) => (row as { name: string }).name);
+      expect(waitColumns).toEqual(
+        expect.arrayContaining([
+          "accepted_response_id",
+          "interaction_request_id",
+          "evidence_request_json",
+        ]),
+      );
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'daemon_human_answer_events'",
+          )
+          .get(),
+      ).toEqual({ name: "daemon_human_answer_events" });
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'daemon_human_waits_evidence_interaction_idx'",
+          )
+          .get(),
+      ).toEqual({ name: "daemon_human_waits_evidence_interaction_idx" });
+    } finally {
+      db.close();
+    }
   });
 
   it("runs migrations sequentially and rejects duplicate ids before any write", () => {

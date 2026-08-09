@@ -221,18 +221,27 @@ export async function handleServerMessage(
           returnedToTool: false,
           message: routeFailure,
         }
-      : (context.humanWaits?.deliver({
-          humanRequestId: humanResponse.data.humanRequestId,
-          humanResponseId: humanResponse.data.humanResponseId,
-          status: humanResponse.data.payload.status,
-          answers: humanResponse.data.payload.answers,
-          responseArtifactRefs: humanResponse.data.payload.responseArtifactRefs,
-        }) ?? {
-          outcome: "unknown_request",
-          retryable: false,
-          returnedToTool: false,
-          message: "No daemon-owned human wait registry is attached in this Spark daemon slice.",
-        });
+      : wait && context.respondHumanInteraction
+        ? await context.respondHumanInteraction(wait, {
+            humanResponseId: humanResponse.data.humanResponseId,
+            status: humanResponse.data.payload.status,
+            provenance: "direct_user",
+            answers: humanResponse.data.payload.answers,
+            responseArtifactRefs: humanResponse.data.payload.responseArtifactRefs,
+          })
+        : (context.humanWaits?.deliver({
+            humanRequestId: humanResponse.data.humanRequestId,
+            humanResponseId: humanResponse.data.humanResponseId,
+            status: humanResponse.data.payload.status,
+            provenance: "direct_user",
+            answers: humanResponse.data.payload.answers,
+            responseArtifactRefs: humanResponse.data.payload.responseArtifactRefs,
+          }) ?? {
+            outcome: "unknown_request",
+            retryable: false,
+            returnedToTool: false,
+            message: "No daemon-owned human wait registry is attached in this Spark daemon slice.",
+          });
     sendJson(
       ws,
       runtimeEnvelope(
