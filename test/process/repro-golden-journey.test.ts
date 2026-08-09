@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -270,6 +270,9 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       ).length,
       1,
     );
+    assert.deepEqual(await sessionToolErrorIds(fixture.sparkHome, sessionId), [
+      "validation.failed_before_fix",
+    ]);
 
     const report = await waitForJsonFile(resolve(fixture.workspace, "outputs/spark-summary.json"));
     const reportMarkdown = await readFile(resolve(fixture.workspace, "outputs/report.md"), "utf8");
@@ -411,7 +414,7 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
       },
       terminalOwner: terminal,
     };
-    await stopProcesses(fixture.target);
+    await stopProcesses(fixture.target, [daemonPid, restartedDaemonPid, hubPid]);
     const teardown = {
       daemonBeforeAlive: isProcessAlive(daemonPid),
       daemonAfterAlive: isProcessAlive(restartedDaemonPid),
@@ -428,7 +431,9 @@ test("real source processes complete the Repro Golden Journey exactly once", asy
     retainedFailureFixture = undefined;
     await rm(fixture.temporary, { recursive: true, force: true });
   } catch (error) {
-    await stopProcesses(fixture.target).catch(() => undefined);
+    await stopProcesses(fixture.target, [daemonPid, restartedDaemonPid, hubPid]).catch(
+      () => undefined,
+    );
     throw error;
   }
 }, 300_000);
@@ -766,8 +771,8 @@ function createJourneyRounds(): ScriptedRound[] {
   tool("stage.target.evaluate", "repro", { action: "evaluate" });
   tool("stage.target.advance", "repro", { action: "advance" });
 
-  tool("phase.implement", "phase", {
-    action: "implement",
+  tool("mode.execute", "mode", {
+    action: "execute",
     focus: "Apply the already-approved target-only normalization repair.",
   });
   tool("repair.applied", "edit", {
@@ -960,6 +965,32 @@ function completeWorkSummary(): Record<string, unknown> {
       },
     ],
   };
+}
+
+async function sessionToolErrorIds(sparkHome: string, sessionId: string): Promise<string[]> {
+  const sessionsRoot = resolve(sparkHome, "apps/daemon/data/pi-agent/sessions");
+  const relativePaths = await readdir(sessionsRoot, { recursive: true });
+  const transcript = relativePaths.find((path) => path.endsWith(`/${sessionId}.jsonl`));
+  assert.ok(transcript, `missing daemon session transcript for ${sessionId}`);
+  const lines = (await readFile(resolve(sessionsRoot, transcript), "utf8"))
+    .split("\n")
+    .filter(Boolean);
+  const toolErrorIds: string[] = [];
+  for (const line of lines) {
+    const entry = JSON.parse(line) as {
+      type?: unknown;
+      message?: { role?: unknown; toolCallId?: unknown; isError?: unknown };
+    };
+    if (
+      entry.type === "message" &&
+      entry.message?.role === "toolResult" &&
+      entry.message.isError === true
+    ) {
+      assert.equal(typeof entry.message.toolCallId, "string");
+      toolErrorIds.push(entry.message.toolCallId as string);
+    }
+  }
+  return toolErrorIds;
 }
 
 function seedHubEnrollment(sparkHome: string): string {
@@ -1155,9 +1186,20 @@ function readProcessOwnership(dbPath: string): {
   };
 }
 
-async function stopProcesses(target: SparkProcessTarget): Promise<void> {
+async function stopProcesses(target: SparkProcessTarget, pids: number[] = []): Promise<void> {
   await runSparkProcess(target, ["daemon", "stop", "--yes"]).catch(() => undefined);
   await runSparkProcess(target, ["hub", "web", "stop", "--json"]).catch(() => undefined);
+  await Promise.all(
+    pids
+      .filter((pid) => pid > 0)
+      .map(async (pid) => {
+        await waitFor(
+          async () => (isProcessAlive(pid) ? undefined : true),
+          10_000,
+          `process ${pid} to exit after stop`,
+        );
+      }),
+  );
 }
 
 async function readProviderLedger(path: string): Promise<ScriptedLedger> {
