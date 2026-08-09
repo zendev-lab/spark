@@ -64,6 +64,7 @@ export {
 } from "./ready-task-runner.ts";
 export {
   packTaskResourceFrontier,
+  taskAttemptLimitDeferrals,
   type DeferredTaskResource,
   type PackedTaskResource,
   type TaskResourceDeferralReason,

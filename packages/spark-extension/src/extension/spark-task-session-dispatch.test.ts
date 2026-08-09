@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { EvidenceRef } from "@zendev-lab/spark-artifacts";
 import { requestSparkDaemon, SparkDaemonRemoteError } from "@zendev-lab/spark-daemon-client";
-import type { ProjectRef, TaskRef, TaskResourceAllocation } from "@zendev-lab/spark-core";
+import type { ProjectRef, TaskRef, TaskResourceAllocation, TaskRun } from "@zendev-lab/spark-core";
 import { loadSessionGoal } from "@zendev-lab/spark-loop";
 import type { SparkTaskExecutionSessionRelation } from "@zendev-lab/spark-protocol";
 import { createSparkSessionRepro } from "@zendev-lab/spark-repro";
@@ -341,6 +341,292 @@ describe("managed Task Session dispatch", () => {
       expect(persisted?.runs(project.ref).at(-1)?.resourceAllocation).toEqual(resourceAllocation);
     },
   );
+
+  it("continues attempt ordinal after terminal_without_claim recovery", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-recovery-lineage-"));
+    roots.push(cwd);
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Recovery", description: "Recovery" });
+    const task = graph.createTask({
+      projectRef: project.ref,
+      title: "Recovered task",
+      description: "Recovered task",
+      kind: "implement",
+      roleRef: "role:builtin-worker",
+      executionPolicy: {
+        continuity: "reuse_within_revision",
+        isolation: "isolated_worktree",
+        comparison: "single_side",
+        resources: { gpuCount: 0 },
+        concurrencyKeys: [],
+        maxAttempts: 3,
+      },
+      plan: normalizeTaskPlan(
+        {
+          objective: "Recover immutable attempt lineage",
+          successCriteria: ["A bounded recovery records inspectable attempt lineage evidence."],
+          evidenceRequired: ["Evidence record containing the recovered attempt ordinal."],
+          steps: ["Run the bounded recovery and report the persisted attempt ordinal."],
+        },
+        "Recovered task",
+        "Recovered task",
+      ),
+    });
+    for (const [index, status] of ["blocked", "failed"].entries()) {
+      const attempt = index + 1;
+      graph.recordRun({
+        ref: ("run:history-" + attempt) as TaskRun["ref"],
+        projectRef: project.ref,
+        taskRef: task.ref,
+        roleRef: "role:builtin-worker",
+        runName: task.name + "-attempt-" + attempt,
+        ownerSessionId: "sess_owner",
+        execution: {
+          ownerSessionId: "sess_owner",
+          executionSessionId: "sess_task_archived_" + attempt,
+          sessionGoalId: "goal-archived-" + attempt,
+          jobId: "task-job:original-revision",
+          attempt,
+          invocationId: "inv_archived_" + attempt,
+        },
+        resourceAllocation: {
+          leaseId: "resource:archived-" + attempt,
+          nodeId: "node-old",
+          groups: [],
+          gpuIds: [],
+          concurrencyKeys: [],
+          exclusiveNode: false,
+          allocatedAt: "2026-07-29T00:0" + attempt + ":00.000Z",
+        },
+        status: status as "blocked" | "failed",
+        startedAt: "2026-07-29T00:0" + attempt + ":00.000Z",
+        finishedAt: "2026-07-29T00:0" + attempt + ":30.000Z",
+        outputEvidenceRefs: [],
+      });
+    }
+    graph.updateTask(task.ref, {
+      status: "pending",
+      description: "Recovered task revision",
+    });
+    await defaultTaskGraphStore(cwd).save(graph);
+
+    const sessions = new Map<string, SparkTaskExecutionSessionRelation>();
+    const daemonRequest = (async (method: string, input: Record<string, unknown>) => {
+      if (method === "session.get") {
+        const sessionId = String(input.sessionId);
+        return {
+          sessionId,
+          scope: { kind: "workspace", workspaceId: "ws_recovery" },
+          workspaceId: "ws_recovery",
+          status: "ready",
+          cwd,
+          relation: sessions.get(sessionId),
+          bindings: [],
+          createdAt: "2026-07-29T00:00:00.000Z",
+          updatedAt: "2026-07-29T00:00:00.000Z",
+        };
+      }
+      if (method === "session.create") {
+        const sessionId = String(input.sessionId);
+        sessions.set(sessionId, {
+          kind: "task_execution",
+          ...(input.taskExecution as Omit<SparkTaskExecutionSessionRelation, "kind">),
+        });
+        return {
+          sessionId,
+          scope: { kind: "workspace", workspaceId: "ws_recovery" },
+          workspaceId: "ws_recovery",
+          status: "ready",
+          cwd,
+          relation: sessions.get(sessionId),
+          bindings: [],
+          createdAt: "2026-07-29T00:00:00.000Z",
+          updatedAt: "2026-07-29T00:00:00.000Z",
+        };
+      }
+      if (method === "turn.submit") {
+        return {
+          invocationId: "inv_recovered_fresh",
+          status: "queued",
+          acceptedAt: "2026-07-29T00:00:00.000Z",
+        };
+      }
+      throw new Error("unexpected daemon method: " + method);
+    }) as typeof requestSparkDaemon;
+    const recoveredLease: TaskResourceAllocation = {
+      leaseId: "resource:recovered-fresh",
+      nodeId: "node-new",
+      groups: [],
+      gpuIds: [],
+      concurrencyKeys: [],
+      exclusiveNode: false,
+      allocatedAt: "2026-07-29T00:03:00.000Z",
+    };
+
+    const [record] = await dispatchManagedTaskSessions({
+      cwd,
+      ctx: { sessionId: "sess_owner" },
+      ownerSessionId: "sess_owner",
+      projectRef: project.ref,
+      taskRefs: [task.ref],
+      registry: new RoleRegistry(),
+      resourceAllocations: { [task.ref]: recoveredLease },
+      daemonRequest,
+    });
+
+    expect(record).toMatchObject({
+      attempt: 3,
+      invocationId: "inv_recovered_fresh",
+    });
+    expect(record?.sessionId).not.toBe("sess_task_archived_1");
+    expect(record?.sessionId).not.toBe("sess_task_archived_2");
+    const persisted = await defaultTaskGraphStore(cwd).load();
+    const recoveredRun = persisted?.runs(project.ref).at(-1);
+    expect(recoveredRun).toMatchObject({
+      runName: `${task.name}-attempt-3`,
+      execution: {
+        attempt: 3,
+        executionSessionId: record?.sessionId,
+        invocationId: "inv_recovered_fresh",
+      },
+      resourceAllocation: recoveredLease,
+    });
+    expect(recoveredRun?.execution?.jobId).not.toBe("task-job:original-revision");
+  });
+
+  it("rejects recovery assignment beyond maxAttempts without durable identities", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-recovery-exhausted-"));
+    roots.push(cwd);
+    const graph = new TaskGraph();
+    const project = graph.createProject({ title: "Exhausted", description: "Exhausted" });
+    const runnable = graph.createTask({
+      projectRef: project.ref,
+      title: "Runnable task",
+      description: "Must not receive an identity before batch attempt preflight completes.",
+      kind: "implement",
+      roleRef: "role:builtin-worker",
+      executionPolicy: {
+        continuity: "reuse_within_revision",
+        isolation: "isolated_worktree",
+        comparison: "single_side",
+        resources: { gpuCount: 0 },
+        concurrencyKeys: [],
+        maxAttempts: 2,
+      },
+      plan: normalizeTaskPlan(
+        {
+          objective: "Keep the runnable task unassigned",
+          successCriteria: ["No identity is created for a partially accepted batch."],
+          evidenceRequired: ["The exhausted peer causes an atomic refusal."],
+          steps: ["Preflight every requested task before reserving any run."],
+        },
+        "Runnable task",
+        "Runnable task",
+      ),
+    });
+    const task = graph.createTask({
+      projectRef: project.ref,
+      title: "Exhausted task",
+      description: "Exhausted task",
+      kind: "implement",
+      roleRef: "role:builtin-worker",
+      executionPolicy: {
+        continuity: "reuse_within_revision",
+        isolation: "isolated_worktree",
+        comparison: "single_side",
+        resources: { gpuCount: 0 },
+        concurrencyKeys: [],
+        maxAttempts: 2,
+      },
+      plan: normalizeTaskPlan(
+        {
+          objective: "Retry exhausted task",
+          successCriteria: ["A bounded retry records inspectable evidence."],
+          evidenceRequired: ["Evidence record from the retry."],
+          steps: ["Run the bounded retry and report the outcome."],
+        },
+        "Exhausted task",
+        "Exhausted task",
+      ),
+    });
+    for (const attempt of [1, 2]) {
+      graph.recordRun({
+        ref: ("run:exhausted-" + attempt) as TaskRun["ref"],
+        projectRef: project.ref,
+        taskRef: task.ref,
+        roleRef: "role:builtin-worker",
+        runName: task.name + "-attempt-" + attempt,
+        ownerSessionId: "sess_owner",
+        execution: {
+          ownerSessionId: "sess_owner",
+          executionSessionId: "sess_task_exhausted_" + attempt,
+          sessionGoalId: "goal-exhausted-" + attempt,
+          jobId: "task-job:revision-" + attempt,
+          attempt,
+          invocationId: "inv_exhausted_" + attempt,
+        },
+        status: "failed",
+        startedAt: "2026-07-29T00:0" + attempt + ":00.000Z",
+        finishedAt: "2026-07-29T00:0" + attempt + ":30.000Z",
+        outputEvidenceRefs: [],
+      });
+    }
+    graph.updateTask(runnable.ref, { status: "pending" });
+    graph.updateTask(task.ref, { status: "pending" });
+    await defaultTaskGraphStore(cwd).save(graph);
+    let daemonCalls = 0;
+    let refusal: unknown;
+    try {
+      await dispatchManagedTaskSessions({
+        cwd,
+        ctx: { sessionId: "sess_owner" },
+        ownerSessionId: "sess_owner",
+        projectRef: project.ref,
+        taskRefs: [runnable.ref, task.ref],
+        registry: new RoleRegistry(),
+        resourceAllocations: {
+          [runnable.ref]: {
+            leaseId: "resource:runnable-must-not-persist",
+            nodeId: "node-new",
+            groups: [],
+            gpuIds: [],
+            concurrencyKeys: [],
+            exclusiveNode: false,
+            allocatedAt: "2026-07-29T00:03:00.000Z",
+          },
+          [task.ref]: {
+            leaseId: "resource:must-not-persist",
+            nodeId: "node-new",
+            groups: [],
+            gpuIds: [],
+            concurrencyKeys: [],
+            exclusiveNode: false,
+            allocatedAt: "2026-07-29T00:03:00.000Z",
+          },
+        },
+        daemonRequest: (async () => {
+          daemonCalls += 1;
+          throw new Error("daemon must not be called");
+        }) as typeof requestSparkDaemon,
+      });
+    } catch (error) {
+      refusal = error;
+    }
+
+    expect(refusal).toMatchObject({
+      accepted: false,
+      reason: "attempt_limit",
+      message: expect.stringContaining("immutable run history requires attempt=3"),
+    });
+    for (const identity of ["runRef", "executionSessionId", "invocationId", "leaseId"]) {
+      expect(refusal).not.toHaveProperty(identity);
+    }
+    expect(daemonCalls).toBe(0);
+    const persisted = await defaultTaskGraphStore(cwd).load();
+    expect(persisted?.runs(project.ref)).toHaveLength(2);
+    expect(persisted?.getTask(runnable.ref).claim).toBeUndefined();
+    expect(persisted?.getTask(task.ref).claim).toBeUndefined();
+  });
 
   it("requests timeout cancellation before releasing a managed resource lease", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "spark-task-session-timeout-"));

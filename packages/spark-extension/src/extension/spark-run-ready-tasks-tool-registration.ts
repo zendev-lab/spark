@@ -12,6 +12,7 @@ import {
   discoverTaskResourceInventory,
   packTaskResourceFrontier,
   runReadyTasks,
+  taskAttemptLimitDeferrals,
 } from "@zendev-lab/spark-workflows";
 import { defaultTaskGraphStore, type TaskGraph } from "@zendev-lab/spark-tasks";
 import { ensureRoleModelSettingsForProject } from "./role-model-settings.ts";
@@ -166,19 +167,49 @@ export function registerSparkRunReadyTasksTool(
             );
           }
           const dispatch = deps.dispatchManagedTaskSessions ?? dispatchManagedTaskSessions;
+          const requestedTasks = taskRefs.map((taskRef) => graph.getTask(taskRef));
+          const attemptLimitDeferred = taskAttemptLimitDeferrals(requestedTasks, graph.runs());
+          if (attemptLimitDeferred.length > 0) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Refused managed Task Session assignment for “${project.title}”; ${attemptLimitDeferred.length} task(s) reached their attempt limit.`,
+                },
+              ],
+              details: {
+                accepted: false,
+                reason: "attempt_limit" as const,
+                dryRun: false,
+                projectRef: project.ref,
+                taskRefs: [],
+                bindings: [],
+                resourceDeferred: attemptLimitDeferred,
+                policy: { maxConcurrency, timeoutMs },
+              },
+            };
+          }
           const resourceInventory = await discoverTaskResourceInventory();
           const packing = packTaskResourceFrontier({
-            tasks: taskRefs.map((taskRef) => graph.getTask(taskRef)),
+            tasks: requestedTasks,
             runs: graph.runs(),
             inventory: resourceInventory,
             maxConcurrency,
           });
+          const defensiveAttemptLimitDeferred = packing.deferred.filter(
+            (deferred) => deferred.reason === "attempt_limit",
+          );
+          if (defensiveAttemptLimitDeferred.length > 0) {
+            throw new Error(
+              "managed Task Session attempt preflight diverged from resource packing",
+            );
+          }
           if (packing.scheduled.length === 0) {
             return {
               content: [
                 {
                   type: "text",
-                  text: `Accepted 0 managed Task Session runs for “${project.title}”; ${packing.deferred.length} task(s) are waiting for resources or retry authority.`,
+                  text: `Accepted 0 managed Task Session runs for “${project.title}”; ${packing.deferred.length} task(s) are waiting for resources.`,
                 },
               ],
               details: {
